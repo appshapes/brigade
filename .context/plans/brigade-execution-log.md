@@ -88,3 +88,12 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
   never hardcode `~/.claude` in code, tests or docs.
 - Three probe messages were posted into the planning session's own inbox socket on 2026-08-30 to validate the
   wire protocol (plain, and wrapped with `from-name`); Appendix A.2 records what came back.
+
+## Session journal
+
+- 2026-08-30 ~15:40: a second interactive session (`15-brigade-0830`, same working tree) started and requested
+  hand-off of implementation. The planning session replied with the state summary, is not mid-edit on anything,
+  and stays hands-off unless Rjae redirects it. Exactly one session drives at a time; both sessions share this
+  checkout, so: `git pull` before starting a task, commit + push at every task boundary, never two sessions
+  editing concurrently. Keyboard-dependent observations (E0-8 (b) ask-rule dialog, E0-3 (b) preview rendering,
+  E0-9 native hold/refuse) need Rjae at the keyboard of whichever session runs them.
