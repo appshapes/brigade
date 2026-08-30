@@ -97,3 +97,9 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
   checkout, so: `git pull` before starting a task, commit + push at every task boundary, never two sessions
   editing concurrently. Keyboard-dependent observations (E0-8 (b) ask-rule dialog, E0-3 (b) preview rendering,
   E0-9 native hold/refuse) need Rjae at the keyboard of whichever session runs them.
+- 2026-08-30 ~16:05: Rjae designated the other developer's session `15-implement-brigade-0830` as the
+  implementation driver (her own Fable 5 budget; reached across config dirs via a registry-copy bridge).
+  The earlier session `15-brigade-0830` was closed without starting anything. The planning session
+  (`15-create-team-session-messaging`) is hands-off from here: it edits nothing, remains open as a reference,
+  and wrote the cold-start hand-off to `.ignored/handoff-15-to-implement-0830.md`. Driver rules restated:
+  `git pull` before each task, `make push message="15: …"` at every task boundary, one driver at a time.
