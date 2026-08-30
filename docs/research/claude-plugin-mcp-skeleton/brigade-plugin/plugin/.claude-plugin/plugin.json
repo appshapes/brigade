@@ -1,0 +1,29 @@
+{
+  "name": "brigade",
+  "version": "0.1.0",
+  "description": "Team messaging between Claude Code sessions of different people and machines, through a pluggable adapter CLI",
+  "author": { "name": "appshapes" },
+  "repository": "https://github.com/appshapes/brigade",
+  "license": "MIT",
+  "keywords": ["messaging", "team", "cross-session", "mcp"],
+  "userConfig": {
+    "adapter_path": {
+      "type": "string",
+      "title": "Adapter executable",
+      "description": "Path to the Brigade adapter CLI (default: brigade-supabase found on PATH). Never a shell command.",
+      "default": "brigade-supabase"
+    },
+    "profile": {
+      "type": "string",
+      "title": "Adapter profile",
+      "description": "Adapter profile name; each profile is bound to exactly one team",
+      "default": "default"
+    },
+    "poll_on_prompt": {
+      "type": "boolean",
+      "title": "Poll for messages on each prompt",
+      "description": "Fallback for hosts without an inbox socket: fetch unread messages when you submit a prompt",
+      "default": false
+    }
+  }
+}

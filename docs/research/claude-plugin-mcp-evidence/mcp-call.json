@@ -1,0 +1,50 @@
+{
+  "pid": 4154,
+  "ppid": 4064,
+  "parentProcess": "4064  4060 claude -p --plugin-dir ./envplugin --settings {\"pluginConfigs\":{\"envplugin@inline\":{\"options\":{\"adapter_path\":\"/from/settings/adapter\"}}}} --allowedTools mcp__plugin_envplugin_envsrv__env,mcp__plugin_envplugin_envsrv__fail --output-format stream-json --verbose First call the env tool, the",
+  "cwd": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+  "argv": [
+    "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin/envtest.mjs"
+  ],
+  "claudeEnv": {
+    "CLAUDE_CONFIG_DIR": "/Users/rjae/.claude-ifthen",
+    "CLAUDE_CODE_ENTRYPOINT": "sdk-cli",
+    "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/cc-socks/4064.sock",
+    "CLAUDE_CODE_MESSAGING_TOKEN": "<redacted len=32>",
+    "CLAUDE_PROJECT_DIR": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+    "CLAUDE_CODE_SESSION_ID": "5e63a67d-5468-4cf3-a393-b1c42c6bc63c",
+    "CLAUDECODE": "1",
+    "CLAUDE_PLUGIN_ROOT": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin",
+    "CLAUDE_PLUGIN_DATA": "/Users/rjae/.claude-ifthen/plugins/data/envplugin-inline",
+    "PROBE_OUT": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin/out",
+    "PROBE_ROOT": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin",
+    "PROBE_DATA": "/Users/rjae/.claude-ifthen/plugins/data/envplugin-inline",
+    "PROBE_PROJ": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+    "PROBE_OPT": "/from/settings/adapter"
+  },
+  "registry": {
+    "dir": "/Users/rjae/.claude-ifthen/sessions",
+    "count": 3,
+    "mine": {
+      "pid": 4064,
+      "sessionId": "5e63a67d-5468-4cf3-a393-b1c42c6bc63c",
+      "cwd": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+      "startedAt": 1788092343658,
+      "procStart": "Sun Aug 30 12:19:00 2026",
+      "version": "2.1.251",
+      "peerProtocol": 1,
+      "peerFeatures": [
+        "notify_idle",
+        "reply_across_default_dirs",
+        "artifact_yield"
+      ],
+      "kind": "interactive",
+      "entrypoint": "sdk-cli",
+      "pidDomain": "darwin",
+      "messagingSocketPath": "/tmp/cc-socks/4064.sock",
+      "name": "exp-c1",
+      "nameSource": "derived",
+      "nameSince": 1788092343659
+    }
+  }
+}

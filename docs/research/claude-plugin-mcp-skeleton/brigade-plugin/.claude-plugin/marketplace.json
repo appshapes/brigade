@@ -1,0 +1,19 @@
+{
+  "name": "brigade",
+  "owner": {
+    "name": "appshapes",
+    "url": "https://github.com/appshapes/brigade"
+  },
+  "plugins": [
+    {
+      "name": "brigade",
+      "source": "./plugin",
+      "description": "Team messaging between Claude Code sessions across users and machines (vendor-neutral adapter CLI; Supabase adapter by default)",
+      "version": "0.1.0",
+      "category": "productivity",
+      "repository": "https://github.com/appshapes/brigade",
+      "license": "MIT"
+    }
+  ],
+  "description": "Brigade: team messaging for Claude Code sessions across users and machines"
+}

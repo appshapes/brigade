@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "team": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/shim.js"],
+      "env": {
+        "BRIGADE_ADAPTER": "${user_config.adapter_path}",
+        "BRIGADE_PROFILE": "${user_config.profile}",
+        "BRIGADE_DATA_DIR": "${CLAUDE_PLUGIN_DATA}"
+      }
+    }
+  }
+}

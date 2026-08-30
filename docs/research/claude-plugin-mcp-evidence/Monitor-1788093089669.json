@@ -1,0 +1,22 @@
+{
+  "pid": 5494,
+  "ppid": 5492,
+  "parentProcess": "5492  5382 /bin/zsh -c source /Users/rjae/.claude-ifthen/shell-snapshots/snapshot-zsh-1788093089597-88ma8p.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval '",
+  "cwd": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+  "argv": [
+    "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin/hookdump.mjs",
+    "Monitor"
+  ],
+  "claudeEnv": {
+    "CLAUDE_CONFIG_DIR": "/Users/rjae/.claude-ifthen",
+    "CLAUDE_CODE_ENTRYPOINT": "cli",
+    "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/cc-socks/5382.sock",
+    "CLAUDE_CODE_MESSAGING_TOKEN": "<redacted len=32>",
+    "CLAUDE_CODE_EXECPATH": "/Users/rjae/.local/share/claude/versions/2.1.251",
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_SESSION_ID": "503ea697-f737-41f1-82d3-168f4fbc2c00",
+    "CLAUDE_CODE_CHILD_SESSION": "1",
+    "CLAUDE_PID": "5382"
+  },
+  "stdin": null
+}

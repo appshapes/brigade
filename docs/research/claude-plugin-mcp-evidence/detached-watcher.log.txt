@@ -1,0 +1,2 @@
+watcher 5100 up; ppid=1 CLAUDE_PID=5080 sock=/tmp/cc-socks/5080.sock session=c618dd87-80e0-4569-881d-071be01ce479
+watcher 5100: claude 5080 gone at 2026-08-30T12:26:22.454Z; exiting

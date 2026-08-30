@@ -1,0 +1,32 @@
+{
+  "pid": 4801,
+  "ppid": 4778,
+  "parentProcess": "4778  4775 claude -p --plugin-dir ./envplugin --allowedTools mcp__plugin_envplugin_envsrv__one,mcp__plugin_envplugin_envsrv__two --output-format stream-json --verbose Step 1: quote verbatim any MCP server instructions you were given for the envsrv server (look for PROBE-INSTRUCTIONS). Step 2: call t",
+  "cwd": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+  "argv": [
+    "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin/hookdump.mjs",
+    "UserPromptSubmit"
+  ],
+  "claudeEnv": {
+    "CLAUDE_CONFIG_DIR": "/Users/rjae/.claude-ifthen",
+    "CLAUDE_CODE_ENTRYPOINT": "sdk-cli",
+    "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/cc-socks/4778.sock",
+    "CLAUDE_CODE_MESSAGING_TOKEN": "<redacted len=32>",
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_SESSION_ID": "31359129-3f72-41f3-8249-9da35329e1db",
+    "CLAUDE_CODE_CHILD_SESSION": "1",
+    "CLAUDE_PID": "4778",
+    "CLAUDE_PROJECT_DIR": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+    "CLAUDE_PLUGIN_ROOT": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin",
+    "CLAUDE_PLUGIN_DATA": "/Users/rjae/.claude-ifthen/plugins/data/envplugin-inline"
+  },
+  "stdin": {
+    "session_id": "31359129-3f72-41f3-8249-9da35329e1db",
+    "transcript_path": "/Users/rjae/.claude-ifthen/projects/-private-tmp-claude-501--Users-rjae-Development-appshapes-brigade-beee3690-4aa8-485b-9342-e1bb09c28aca-scratchpad-wf-exp/31359129-3f72-41f3-8249-9da35329e1db.jsonl",
+    "cwd": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+    "prompt_id": "1009d270-b819-4abf-a93f-9651fe1a656c",
+    "permission_mode": "default",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "Step 1: quote verbatim any MCP server instructions you were given for the envsrv server (look for PROBE-INSTRUCTIONS). Step 2: call tool one, then tool two. Step 3: print both raw tool outputs verbatim."
+  }
+}

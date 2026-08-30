@@ -1,0 +1,30 @@
+{
+  "pid": 5539,
+  "ppid": 5382,
+  "parentProcess": "5382     1 claude --plugin-dir ./envplugin --name envprobe-interactive",
+  "cwd": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+  "argv": [
+    "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin/hookdump.mjs",
+    "SessionEnd"
+  ],
+  "claudeEnv": {
+    "CLAUDE_CONFIG_DIR": "/Users/rjae/.claude-ifthen",
+    "CLAUDE_CODE_ENTRYPOINT": "cli",
+    "CLAUDE_CODE_BRIDGE_SESSION_ID": "session_01DincjjEsXst4moYEFByUga",
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_SESSION_ID": "503ea697-f737-41f1-82d3-168f4fbc2c00",
+    "CLAUDE_CODE_CHILD_SESSION": "1",
+    "CLAUDE_PID": "5382",
+    "CLAUDE_PROJECT_DIR": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+    "CLAUDE_PLUGIN_ROOT": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin",
+    "CLAUDE_PLUGIN_DATA": "/Users/rjae/.claude-ifthen/plugins/data/envplugin-inline"
+  },
+  "stdin": {
+    "session_id": "503ea697-f737-41f1-82d3-168f4fbc2c00",
+    "transcript_path": "/Users/rjae/.claude-ifthen/projects/-private-tmp-claude-501--Users-rjae-Development-appshapes-brigade-beee3690-4aa8-485b-9342-e1bb09c28aca-scratchpad-wf-exp/503ea697-f737-41f1-82d3-168f4fbc2c00.jsonl",
+    "cwd": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+    "prompt_id": "370dde4f-18c0-42e5-af76-02f90ed7be4d",
+    "hook_event_name": "SessionEnd",
+    "reason": "other"
+  }
+}

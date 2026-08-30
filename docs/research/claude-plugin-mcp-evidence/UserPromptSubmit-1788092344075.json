@@ -1,0 +1,33 @@
+{
+  "pid": 4165,
+  "ppid": 4064,
+  "parentProcess": "4064  4060 claude -p --plugin-dir ./envplugin --settings {\"pluginConfigs\":{\"envplugin@inline\":{\"options\":{\"adapter_path\":\"/from/settings/adapter\"}}}} --allowedTools mcp__plugin_envplugin_envsrv__env,mcp__plugin_envplugin_envsrv__fail --output-format stream-json --verbose First call the env tool, the",
+  "cwd": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+  "argv": [
+    "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin/hookdump.mjs",
+    "UserPromptSubmit"
+  ],
+  "claudeEnv": {
+    "CLAUDE_CONFIG_DIR": "/Users/rjae/.claude-ifthen",
+    "CLAUDE_CODE_ENTRYPOINT": "sdk-cli",
+    "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/cc-socks/4064.sock",
+    "CLAUDE_CODE_MESSAGING_TOKEN": "<redacted len=32>",
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_SESSION_ID": "5e63a67d-5468-4cf3-a393-b1c42c6bc63c",
+    "CLAUDE_CODE_CHILD_SESSION": "1",
+    "CLAUDE_PID": "4064",
+    "CLAUDE_PROJECT_DIR": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+    "CLAUDE_PLUGIN_ROOT": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp/envplugin",
+    "CLAUDE_PLUGIN_DATA": "/Users/rjae/.claude-ifthen/plugins/data/envplugin-inline",
+    "CLAUDE_PLUGIN_OPTION_ADAPTER_PATH": "/from/settings/adapter"
+  },
+  "stdin": {
+    "session_id": "5e63a67d-5468-4cf3-a393-b1c42c6bc63c",
+    "transcript_path": "/Users/rjae/.claude-ifthen/projects/-private-tmp-claude-501--Users-rjae-Development-appshapes-brigade-beee3690-4aa8-485b-9342-e1bb09c28aca-scratchpad-wf-exp/5e63a67d-5468-4cf3-a393-b1c42c6bc63c.jsonl",
+    "cwd": "/private/tmp/claude-501/-Users-rjae-Development-appshapes-brigade/beee3690-4aa8-485b-9342-e1bb09c28aca/scratchpad/wf/exp",
+    "prompt_id": "900db126-1448-4911-8da8-f5027d21f538",
+    "permission_mode": "default",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "First call the env tool, then call the fail tool. Then print both raw tool outputs verbatim. Do nothing else."
+  }
+}
