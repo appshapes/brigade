@@ -1,0 +1,77 @@
+# run refresh3 at 2026-08-30T17:36:30Z
+
+### (b4) does the token minted inside the post-revocation grace window survive?
+
+--- signup for refresh4
+> POST /auth/v1/signup
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"data":{},"gotrue_meta_security":{}}
+< HTTP 200 OK (16 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114990,"refresh_token":"<redacted>","user":{"id":"54372975-2c8f-4dc6-937a-14bfc2078cad","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:36:30.369586178Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:36:30.366956Z","updated_at":"2026-08-30T17:36:30.371242Z","is_anonymous":true}}
+
+--- U0 -> U1
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (34 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114990,"refresh_token":"<redacted>","user":{"id":"54372975-2c8f-4dc6-937a-14bfc2078cad","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:36:30.369586Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:36:30.366956Z","updated_at":"2026-08-30T17:36:30.406567Z","is_anonymous":true}}
+
+--- U1 -> U2 (active)
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (27 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114990,"refresh_token":"<redacted>","user":{"id":"54372975-2c8f-4dc6-937a-14bfc2078cad","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:36:30.369586Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:36:30.366956Z","updated_at":"2026-08-30T17:36:30.434123Z","is_anonymous":true}}
+sleeping 11 s …
+
+--- U0 (two behind) -> already_used, family revoked
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 400 Bad Request (50 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"refresh_token_already_used","msg":"Invalid Refresh Token: Already Used"}
+
+--- U2 (active) inside the grace window -> U3?
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (26 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788115001,"refresh_token":"<redacted>","user":{"id":"54372975-2c8f-4dc6-937a-14bfc2078cad","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:36:30.369586Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:36:30.366956Z","updated_at":"2026-08-30T17:36:41.512067Z","is_anonymous":true}}
+sleeping 11 s …
+
+--- U3 (minted inside the grace window) after 11 s -> alive or dead?
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (47 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788115012,"refresh_token":"<redacted>","user":{"id":"54372975-2c8f-4dc6-937a-14bfc2078cad","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:36:30.369586Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:36:30.366956Z","updated_at":"2026-08-30T17:36:52.559413Z","is_anonymous":true}}
+sleeping 11 s …
+
+--- U4 after 11 s -> alive or dead?
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (44 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788115023,"refresh_token":"<redacted>","user":{"id":"54372975-2c8f-4dc6-937a-14bfc2078cad","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:36:30.369586Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:36:30.366956Z","updated_at":"2026-08-30T17:37:03.603269Z","is_anonymous":true}}
+auth.refresh_tokens for this user (token|revoked|parent|updated_at):
+6s4ni4i3ffnt|t||17:36:30.405
+lmhwjhnuykve|t|6s4ni4i3ffnt|17:36:30.433
+4eq57sefmnp5|t|lmhwjhnuykve|17:36:41.511
+gumnk7x4uixz|t|4eq57sefmnp5|17:36:52.558
+enncwcemwqtp|t|gumnk7x4uixz|17:37:03.602
+sxcnhip34zgc|f|enncwcemwqtp|17:37:03.602
+ err=<nil>

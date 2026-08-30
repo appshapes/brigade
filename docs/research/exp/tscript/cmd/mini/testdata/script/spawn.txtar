@@ -1,0 +1,5 @@
+# a command installed by testscript.Main is on PATH for children too: mini spawns helper (a real child process)
+exec mini spawn
+json stdout .result.adapter.name mini
+exec which helper
+stdout 'helper'

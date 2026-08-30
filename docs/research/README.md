@@ -22,3 +22,22 @@ not as living documentation. The plan's Appendix A is the authority where anythi
 
 Not committed (local only, under `.ignored/research/`): the fetched documentation pages the agents saved, the three
 candidate plans that were judged (`designs/`), the workflow's `verified-facts.md`, and the skeleton's built `dist/`.
+
+## Second research round (2026-08-30 afternoon) — the all-Go, CLI-only redesign
+
+After the first plan review the user chose: empowering-by-default (allow by default, security opt-in); no MCP server (the model drives a `brigade` CLI through the Bash tool, playwright-cli style); and all-Go (one static binary, no Node runtime for teammates). `decisions-2026-08-30.md` is the full decision brief. These four digests and their lab evidence back the plan's Go/CLI sections and Appendix A.7.
+
+| File / dir | What it is |
+| --- | --- |
+| `decisions-2026-08-30.md` | The decision brief (D3, D6, D18, D20, D22, D31, D32, D33, D34, D35 and the guiding principle) — final, overrides the plan on conflict |
+| `go-toolchain-layout-release.md` | Go module layout, dispatch, json/v2, cross-compile sizes, reproducible builds, goreleaser, golangci-lint, tools.mod, CI |
+| `supabase-in-go.md` | Hand-rolled GoTrue + PostgREST + Phoenix client, validated against a real local stack; verbatim request/response shapes; the reason the community Go libs are not used |
+| `plugin-bootstrap-cli.md` | CLI-only plugin shape: `bin/` on the Bash PATH, which CLAUDE_* vars reach the Bash tool and hooks, the POSIX-sh download-and-verify bootstrap, the skill, permission-rule matching, sandbox notes |
+| `testing-conformance-in-go.md` | Go test architecture (testscript, conformance binary, integration, release CI), C-/U-/I-/E2E-/CI- id mapping |
+| `supabase-in-go/gotest/` | The working Go client module (`gotrue.go`, `postgrest.go`, `phoenix.go`) and `supabase-in-go/evidence/` its ten request/response logs (`*.log` → `*.log.txt`); `config.toml` and the migration used |
+| `plugin-bootstrap-cli.files/` | The probe plugin, `hooks.json`, `SKILL.md`, `plugin.json`, the Go fake `brigade`, and `plugin-bootstrap-cli.evidence/` its stream-json runs |
+| `go-lab/` | Go lab sources (detach, socket, exec, flock, pidfile, size/cobra probes; `.golangci.yml`); no built binaries |
+| `release-lab/`, `release-plain/`, `bootstrap-lab/`, `modfile-lab/` | goreleaser config + dry-run checksums/artefacts/metadata, plain-build checksums, the tested bootstrap script, `tools.mod` |
+| `exp/probe/`, `exp/tscript/` | testing-digest example sources (probe binary, testscript examples) |
+
+Not committed (local only, `.ignored/research/wf2/`): built binaries, the full go-lab/release-lab trees with `dist/`, fetched documentation pages, the running `sb/` stack config with keys. `dist/`, `bin/`, `logs/`, `out/` and `*.out` are ignored at any depth by the seeded Node template, so evidence is stored under non-colliding names and `docs/research/**` is force-un-ignored in `.gitignore`.

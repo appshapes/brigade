@@ -1,0 +1,55 @@
+# goreleaser v2 configuration (proposed for appshapes/brigade; exercised on 2026-08-30 with goreleaser 2.18.0)
+version: 2
+
+project_name: brigade
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - id: brigade
+    main: ./cmd/brigade
+    binary: brigade
+    env:
+      - CGO_ENABLED=0
+    # Same flags as `make build` / `make cross-compile`, so a local build is byte-identical to the release:
+    flags:
+      - -trimpath
+      - -buildvcs=false
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    targets:
+      - darwin_arm64
+      - darwin_amd64
+      - linux_amd64
+      - linux_arm64
+
+archives:
+  - id: raw
+    formats:
+      - binary
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+
+release:
+  github:
+    owner: appshapes
+    name: brigade
+  draft: false
+  prerelease: auto
+  mode: replace
+  make_latest: true

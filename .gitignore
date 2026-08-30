@@ -171,3 +171,8 @@ dist
 
 # Claude
 CLAUDE.user.md
+
+# Brigade
+# Committed research evidence must never be swallowed by the seeded Node template's broad patterns
+# (`logs`, `out`, `dist` and `*.out` match at any depth).
+!docs/research/**

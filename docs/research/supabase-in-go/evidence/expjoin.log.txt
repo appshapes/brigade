@@ -1,0 +1,30 @@
+# run expjoin at 2026-08-30T17:35:46Z
+
+### (e13) join with an already-expired JWT, and with a JWT for another user's session
+
+--- register_session expjoin-alpha
+> POST /rest/v1/rpc/register_session
+> Accept-Profile: brigade
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Profile: brigade
+> Content-Type: application/json
+> apikey: sb_publishable_ACJWl…
+> body: {"p_name":"expjoin-alpha"}
+< HTTP 200 OK (22 ms)
+< Content-Type: application/json; charset=utf-8
+< Content-Profile: brigade
+< Content-Range: 0-0/*
+< body: {"created_at": "2026-08-30T17:35:46.884835+00:00", "session_id": "34802428-3c74-436c-b08b-49f9fcd26ca1", "server_time": "2026-08-30T17:35:46.884835+00:00", "session_name": "expjoin-alpha", "principal_ref": "b2e5b594-e16f-4ce1-807e-a417604f3508"}
+
+--- [expjoin] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=sb_publishable_ACJWl…&vsn=2.0.0
+< upgrade HTTP 101 Sec-Websocket-Accept="4gDeo/3rJgtR8m2ulIn5d7ks8zs=" Server="Cowboy"
+  0.000s [expjoin] >> ["1","1","realtime:brigade:session:34802428-3c74-436c-b08b-49f9fcd26ca1","phx_join",{"access_token":"eyJhbGciOiJIUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+  5.003s [expjoin] << [text] join_ref=1 ref=1 topic=realtime:brigade:session:34802428-3c74-436c-b08b-49f9fcd26ca1 event=phx_reply payload={"status":"error","response":{"reason":"InvalidJWTToken: Token has expired 30 seconds ago"}}
+join with expired JWT: ok=true [text] join_ref=1 ref=1 topic=realtime:brigade:session:34802428-3c74-436c-b08b-49f9fcd26ca1 event=phx_reply payload={"status":"error","response":{"reason":"InvalidJWTToken: Token has expired 30 seconds ago"}}
+  7.004s [expjoin] >> ["2","2","realtime:brigade:session:34802428-3c74-436c-b08b-49f9fcd26ca1","phx_join",{"access_token":"garbage.token.here","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+ 12.008s [expjoin] << [text] join_ref=2 ref=2 topic=realtime:brigade:session:34802428-3c74-436c-b08b-49f9fcd26ca1 event=phx_reply payload={"status":"error","response":{"reason":"MalformedJWT: The token provided is not a valid JWT"}}
+join with a garbage access_token: ok=true [text] join_ref=2 ref=2 topic=realtime:brigade:session:34802428-3c74-436c-b08b-49f9fcd26ca1 event=phx_reply payload={"status":"error","response":{"reason":"MalformedJWT: The token provided is not a valid JWT"}}
+ 14.009s [expjoin] >> [null,"3","phoenix","heartbeat",{}]
+ 14.011s [expjoin] << [text] join_ref=null ref=3 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+socket still alive: [text] join_ref=null ref=3 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+ 14.012s [expjoin] << SOCKET CLOSED by peer: code=1000 reason=""

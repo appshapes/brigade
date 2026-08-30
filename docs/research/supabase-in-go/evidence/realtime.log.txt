@@ -1,0 +1,172 @@
+# run realtime at 2026-08-30T17:30:02Z
+
+### (e) Realtime: setup two principals and sessions
+
+--- register_session rt-alpha
+> POST /rest/v1/rpc/register_session
+> Accept-Profile: brigade
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Profile: brigade
+> Content-Type: application/json
+> apikey: sb_publishable_ACJWl…
+> body: {"p_name":"rt-alpha"}
+< HTTP 200 OK (10 ms)
+< Content-Type: application/json; charset=utf-8
+< Content-Profile: brigade
+< Content-Range: 0-0/*
+< body: {"created_at": "2026-08-30T17:30:02.655619+00:00", "session_id": "02271397-1a4b-4a72-86a3-9c20b6ca940f", "server_time": "2026-08-30T17:30:02.655619+00:00", "session_name": "rt-alpha", "principal_ref": "0261a1ce-5d5a-4c31-a75f-11bda399c24c"}
+
+--- register_session rt-bravo
+> POST /rest/v1/rpc/register_session
+> Accept-Profile: brigade
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Profile: brigade
+> Content-Type: application/json
+> apikey: sb_publishable_ACJWl…
+> body: {"p_name":"rt-bravo"}
+< HTTP 200 OK (8 ms)
+< Content-Type: application/json; charset=utf-8
+< Content-Profile: brigade
+< Content-Range: 0-0/*
+< body: {"created_at": "2026-08-30T17:30:02.664983+00:00", "session_id": "9231157a-3be3-4019-85ca-30c6d6346d1c", "server_time": "2026-08-30T17:30:02.664983+00:00", "session_name": "rt-bravo", "principal_ref": "45b7630b-d0fb-443f-b7f3-514ddead4e66"}
+
+### (e1) vsn=2.0.0: dial with the publishable key, heartbeat, private join of own topic
+
+--- [A-v2] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=sb_publishable_ACJWl…&vsn=2.0.0
+< upgrade HTTP 101 Sec-Websocket-Accept="QAshz8Reov3sGSVA++vwMjzlyAg=" Server="Cowboy"
+  0.000s [A-v2] >> [null,"1","phoenix","heartbeat",{}]
+  0.000s [A-v2] << [text] join_ref=null ref=1 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+heartbeat reply: [text] join_ref=null ref=1 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+  0.000s [A-v2] >> ["2","2","realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f","phx_join",{"access_token":"eyJhbGciOiJFUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+  0.012s [A-v2] << [text] join_ref=2 ref=2 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+join own private topic: ok=true reply=[text] join_ref=2 ref=2 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+post-join: no further message within 1.5 s
+
+### (e2) broadcast from the database trigger: 10 inserts, latency insert -> event
+  1.538s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"4ae59ee2-064d-4d08-8175-eac73e6e5802"},"payload":{"id":"4ae59ee2-064d-4d08-8175-eac73e6e5802","message_id":"f1c95d11-1dc6-4f83-9aa5-e86f31e0c5e8","seq":2},"type":"broadcast"}
+first broadcast frame: binary=true payload={"event":"message_accepted","meta":{"id":"4ae59ee2-064d-4d08-8175-eac73e6e5802"},"payload":{"id":"4ae59ee2-064d-4d08-8175-eac73e6e5802","message_id":"f1c95d11-1dc6-4f83-9aa5-e86f31e0c5e8","seq":2},"type":"broadcast"}
+send_message response: {"seq": 2, "created_at": "2026-08-30T17:30:04.197825+00:00", "message_id": "f1c95d11-1dc6-4f83-9aa5-e86f31e0c5e8", "recipient_session_id": "02271397-1a4b-4a72-86a3-9c20b6ca940f"}
+insert 0: rpc 22 ms; event 25 ms after request start, 2 ms after response
+  1.541s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"d2933fab-b9db-4c13-bce0-3af23027dc2f"},"payload":{"id":"d2933fab-b9db-4c13-bce0-3af23027dc2f","message_id":"3bebb66d-8bcb-4832-8311-bee2a81f8cbb","seq":3},"type":"broadcast"}
+insert 1: rpc 2 ms; event 2 ms after request start, 0 ms after response
+  1.543s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"72df1014-d0b9-437b-978c-f5df5a8f5964"},"payload":{"id":"72df1014-d0b9-437b-978c-f5df5a8f5964","message_id":"30afa0c3-0b6a-4640-a50f-4e6df7db7684","seq":4},"type":"broadcast"}
+insert 2: rpc 1 ms; event 1 ms after request start, 0 ms after response
+  1.545s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"30c28ee0-db3e-4720-9dce-7001306cf670"},"payload":{"id":"30c28ee0-db3e-4720-9dce-7001306cf670","message_id":"a8468e39-9c13-4f10-906a-f144b0d81c58","seq":5},"type":"broadcast"}
+insert 3: rpc 1 ms; event 1 ms after request start, 0 ms after response
+  1.547s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"a1eacf25-7508-410d-b632-1e5df3f13c8d"},"payload":{"id":"a1eacf25-7508-410d-b632-1e5df3f13c8d","message_id":"7f10be65-be1e-48d4-9ff8-3ff7ed5dfd47","seq":6},"type":"broadcast"}
+insert 4: rpc 1 ms; event 2 ms after request start, 0 ms after response
+  1.549s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"76d822f1-488a-4612-8e89-b8a45ab643e0"},"payload":{"id":"76d822f1-488a-4612-8e89-b8a45ab643e0","message_id":"344259e2-b8e2-467d-b615-a425d62b0001","seq":7},"type":"broadcast"}
+insert 5: rpc 1 ms; event 2 ms after request start, 0 ms after response
+  1.551s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"611f10b4-d495-418d-9f05-bebda5e9ae02"},"payload":{"id":"611f10b4-d495-418d-9f05-bebda5e9ae02","message_id":"226d1d59-132b-4f39-941f-9795bd0a5528","seq":8},"type":"broadcast"}
+insert 6: rpc 1 ms; event 1 ms after request start, 0 ms after response
+  1.552s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"eadd584e-63d6-48bb-9d5b-e4c60fa37cb3"},"payload":{"id":"eadd584e-63d6-48bb-9d5b-e4c60fa37cb3","message_id":"af0200ff-0013-4220-8513-d776ecaadca7","seq":9},"type":"broadcast"}
+insert 7: rpc 1 ms; event 1 ms after request start, 0 ms after response
+  1.554s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"b2d84805-03d3-45f4-9212-5c4fae9e3074"},"payload":{"id":"b2d84805-03d3-45f4-9212-5c4fae9e3074","message_id":"868c3b54-0d3a-4aa2-badc-4ed3c927e56b","seq":10},"type":"broadcast"}
+insert 8: rpc 1 ms; event 1 ms after request start, 0 ms after response
+  1.555s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"f6621569-0bae-4785-8692-808a4b1e6812"},"payload":{"id":"f6621569-0bae-4785-8692-808a4b1e6812","message_id":"b0f7afc5-3d75-48a1-b6ff-f960d0e10f2c","seq":11},"type":"broadcast"}
+insert 9: rpc 1 ms; event 1 ms after request start, 0 ms after response
+latency insert->event: n=10 mean=4 ms max=25 ms
+
+### (e3) client-side broadcast push on the private topic (no insert policy): with ack requested
+  1.555s [A-v2] >> ["2","3","realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f","broadcast",{"event":"message_accepted","payload":{"message_id":"forged"},"type":"broadcast"}]
+client broadcast: no reply, no echo, no system message within 3 s (ack:false join)
+
+### (e4) access_token push with a refreshed JWT
+
+--- refresh A to get a new access token
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (50 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114607,"refresh_token":"<redacted>","user":{"id":"0261a1ce-5d5a-4c31-a75f-11bda399c24c","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:30:02.637471Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:30:02.635847Z","updated_at":"2026-08-30T17:30:07.271693Z","is_anonymous":true}}
+  4.606s [A-v2] >> ["2","4","realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f","access_token",{"access_token":"eyJhbGciOiJFUzI1…<jwt>"}]
+access_token push: no reply/system message within 3 s (fire-and-forget)
+  7.616s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"b69ea4bf-7a78-4f29-93a4-3cca36653077"},"payload":{"id":"b69ea4bf-7a78-4f29-93a4-3cca36653077","message_id":"144779d5-056d-4cc6-86ad-7ad2e325f62a","seq":12},"type":"broadcast"}
+broadcast still delivered after access_token push: [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"b69ea4bf-7a78-4f29-93a4-3cca36653077"},"payload":{"id":"b69ea4bf-7a78-4f29-93a4-3cca36653077","message_id":"144779d5-056d-4cc6-86ad-7ad2e325f62a","seq":12},"type":"broadcast"} (rpc 200)
+
+### (e5) foreign topic (B's session) and a wrong topic on the same socket
+  7.616s [A-v2] >> ["5","5","realtime:brigade:session:9231157a-3be3-4019-85ca-30c6d6346d1c","phx_join",{"access_token":"eyJhbGciOiJFUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+ 12.624s [A-v2] << [text] join_ref=5 ref=5 topic=realtime:brigade:session:9231157a-3be3-4019-85ca-30c6d6346d1c event=phx_reply payload={"status":"error","response":{"reason":"Unauthorized: You do not have permissions to read from this Channel topic: brigade:session:9231157a-3be3-4019-85ca-30c6d6346d1c"}}
+join FOREIGN private topic as A: ok=true reply=[text] join_ref=5 ref=5 topic=realtime:brigade:session:9231157a-3be3-4019-85ca-30c6d6346d1c event=phx_reply payload={"status":"error","response":{"reason":"Unauthorized: You do not have permissions to read from this Channel topic: brigade:session:9231157a-3be3-4019-85ca-30c6d6346d1c"}}
+ 14.625s [A-v2] >> ["6","6","realtime:brigade:session:00000000-0000-0000-0000-000000000000","phx_join",{"access_token":"eyJhbGciOiJFUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+ 19.633s [A-v2] << [text] join_ref=6 ref=6 topic=realtime:brigade:session:00000000-0000-0000-0000-000000000000 event=phx_reply payload={"status":"error","response":{"reason":"Unauthorized: You do not have permissions to read from this Channel topic: brigade:session:00000000-0000-0000-0000-000000000000"}}
+join WRONG private topic as A: ok=true reply=[text] join_ref=6 ref=6 topic=realtime:brigade:session:00000000-0000-0000-0000-000000000000 event=phx_reply payload={"status":"error","response":{"reason":"Unauthorized: You do not have permissions to read from this Channel topic: brigade:session:00000000-0000-0000-0000-000000000000"}}
+ 21.636s [A-v2] >> ["7","7","brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f","phx_join",{"access_token":"eyJhbGciOiJFUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+ 21.638s [A-v2] << [text] join_ref=null ref=7 topic=brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"error","response":{"reason":"unmatched topic"}}
+join topic WITHOUT the realtime: prefix: ok=true reply=[text] join_ref=null ref=7 topic=brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"error","response":{"reason":"unmatched topic"}}
+ 21.638s [A-v2] >> ["8","8","realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f-second","phx_join",{"config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+ 26.650s [A-v2] << [text] join_ref=8 ref=8 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f-second event=phx_reply payload={"status":"error","response":{"reason":"Unauthorized: You do not have permissions to read from this Channel topic: brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f-second"}}
+join a private topic with NO access_token in the join payload (apikey only): ok=true reply=[text] join_ref=8 ref=8 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f-second event=phx_reply payload={"status":"error","response":{"reason":"Unauthorized: You do not have permissions to read from this Channel topic: brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f-second"}}
+is the original channel still joined after those refusals? sending one more message …
+ 26.658s [A-v2] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"046a0717-06dc-470d-b9eb-4cf03961ff2e"},"payload":{"id":"046a0717-06dc-470d-b9eb-4cf03961ff2e","message_id":"d87cd1f6-09e7-4887-917f-2c11e652aa54","seq":13},"type":"broadcast"}
+yes, still delivered: [BINARY] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"046a0717-06dc-470d-b9eb-4cf03961ff2e"},"payload":{"id":"046a0717-06dc-470d-b9eb-4cf03961ff2e","message_id":"d87cd1f6-09e7-4887-917f-2c11e652aa54","seq":13},"type":"broadcast"}
+
+### (e6) phx_leave -> phx_reply and phx_close
+ 26.658s [A-v2] >> ["2","9","realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f","phx_leave",{}]
+ 26.659s [A-v2] << [text] join_ref=2 ref=9 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{}}
+ 26.659s [A-v2] << [text] join_ref=2 ref=2 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_close payload={}
+leave reply: [text] join_ref=2 ref=9 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{}}
+phx_close: [text] join_ref=2 ref=2 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_close payload={}
+rejoin the same topic on the same socket after leaving:
+ 26.659s [A-v2] >> ["10","10","realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f","phx_join",{"access_token":"eyJhbGciOiJFUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+ 26.664s [A-v2] << [text] join_ref=10 ref=10 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+rejoin: ok=true reply=[text] join_ref=10 ref=10 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+join the SAME topic a second time on the same socket (duplicate join):
+ 26.664s [A-v2] >> ["11","11","realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f","phx_join",{"access_token":"eyJhbGciOiJFUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+ 26.669s [A-v2] << [text] join_ref=11 ref=11 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+ 26.669s [A-v2] << [text] join_ref=10 ref=10 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_close payload={}
+duplicate join: ok=true reply=[text] join_ref=11 ref=11 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+after duplicate join: [text] join_ref=10 ref=10 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_close payload={}
+ 26.669s [A-v2] << SOCKET CLOSED by peer: code=1000 reason=""
+
+### (e7) PUBLIC join (private:false) of the same topic on a new socket: private broadcasts must not arrive
+
+--- [A-public] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=sb_publishable_ACJWl…&vsn=2.0.0
+< upgrade HTTP 101 Sec-Websocket-Accept="YfxCsc8wLtfFM/DOsIrcmETH5k4=" Server="Cowboy"
+  0.000s [A-public] >> ["1","1","realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f","phx_join",{"access_token":"eyJhbGciOiJFUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":false}}]
+  0.001s [A-public] << [text] join_ref=1 ref=1 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+public join: ok=true reply=[text] join_ref=1 ref=1 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+public channel received no broadcast within 4 s of 3 inserts (expected: private -> private only)
+  4.012s [A-public] << SOCKET CLOSED by peer: code=1000 reason=""
+
+### (e8) vsn=1.0.0 (JSON object frames): heartbeat, join, one broadcast
+
+--- [A-v1] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=sb_publishable_ACJWl…&vsn=1.0.0
+< upgrade HTTP 101 Sec-Websocket-Accept="LKm9e3RR+7JL8oD/Xc+cdQlBD2I=" Server="Cowboy"
+  0.000s [A-v1] >> {"event":"heartbeat","payload":{},"ref":"1","topic":"phoenix"}
+  0.001s [A-v1] << [text] join_ref=null ref=1 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+  0.001s [A-v1] >> {"event":"phx_join","join_ref":"2","payload":{"access_token":"eyJhbGciOiJFUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}},"ref":"2","topic":"realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f"}
+  0.006s [A-v1] << [text] join_ref=null ref=2 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+v1 join: ok=true reply=[text] join_ref=null ref=2 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+  0.011s [A-v1] << [text] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"effb8b49-97a7-4126-8a5d-35c8685d652f"},"payload":{"id": "effb8b49-97a7-4126-8a5d-35c8685d652f", "seq": 17, "message_id": "4d279194-3819-4e7b-8c38-06de7a893d89"},"type":"broadcast"}
+v1 broadcast: binary=false [text] join_ref=null ref=null topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=broadcast payload={"event":"message_accepted","meta":{"id":"effb8b49-97a7-4126-8a5d-35c8685d652f"},"payload":{"id": "effb8b49-97a7-4126-8a5d-35c8685d652f", "seq": 17, "message_id": "4d279194-3819-4e7b-8c38-06de7a893d89"},"type":"broadcast"}
+  0.012s [A-v1] << SOCKET CLOSED by peer: code=1000 reason=""
+
+### (e9) no vsn parameter: which serializer does the server assume?
+
+--- [A-novsn] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=sb_publishable_ACJWl…
+< upgrade HTTP 101 Sec-Websocket-Accept="6wJDcuvdP3KBJBzDkYA6ZM26D88=" Server="Cowboy"
+  0.000s [A-novsn] >> {"event":"heartbeat","payload":{},"ref":"1","topic":"phoenix"}
+  0.001s [A-novsn] << [text] join_ref=null ref=1 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+  0.001s [A-novsn] << SOCKET CLOSED by peer: code=1000 reason=""
+
+### (e10) legacy anon JWT as apikey; bogus apikey; secret key
+
+--- [A-anonjwt] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1…<jwt>&vsn=2.0.0
+< upgrade HTTP 101 Sec-Websocket-Accept="psVLNvKf2moLwgzfSexpHPdOP+8=" Server="Cowboy"
+  0.000s [A-anonjwt] >> [null,"1","phoenix","heartbeat",{}]
+  0.001s [A-anonjwt] << [text] join_ref=null ref=1 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+  0.001s [A-anonjwt] >> ["2","2","realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f","phx_join",{"access_token":"eyJhbGciOiJFUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+  0.005s [A-anonjwt] << [text] join_ref=2 ref=2 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+join with anon-JWT apikey: ok=true reply=[text] join_ref=2 ref=2 topic=realtime:brigade:session:02271397-1a4b-4a72-86a3-9c20b6ca940f event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+  0.005s [A-anonjwt] << SOCKET CLOSED by peer: code=1000 reason=""
+
+--- [A-bogus] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=sb_publishable_bogus…&vsn=2.0.0
+< upgrade HTTP 401 Server="Cowboy" Content-Type="application/json; charset=utf-8"
+dial with a bogus apikey failed at upgrade: dial: failed to WebSocket dial: expected handshake response status code 101 but got 401 (status 401)
+
+--- [A-nokey] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=&vsn=2.0.0
+< upgrade HTTP 401 Server="Cowboy" Content-Type="application/json; charset=utf-8"
+dial with NO apikey failed at upgrade: dial: failed to WebSocket dial: expected handshake response status code 101 but got 401 (status 401)

@@ -1,0 +1,138 @@
+# run refresh at 2026-08-30T17:29:29Z
+
+### (b) refresh: rotation
+
+--- signup for refresh tests
+> POST /auth/v1/signup
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"data":{},"gotrue_meta_security":{}}
+< HTTP 200 OK (20 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114569,"refresh_token":"<redacted>","user":{"id":"dab93297-c2ba-4bc3-bcc1-af79e7724369","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:29.229938511Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:29.226639Z","updated_at":"2026-08-30T17:29:29.231996Z","is_anonymous":true}}
+
+--- refresh #1 with T0 -> expect T1
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (35 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114569,"refresh_token":"<redacted>","user":{"id":"dab93297-c2ba-4bc3-bcc1-af79e7724369","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:29.229938Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:29.226639Z","updated_at":"2026-08-30T17:29:29.268216Z","is_anonymous":true}}
+rotation: T0=eqwdgoaue7nz T1=ngm3eavmj5rc same_user=true access_token_changed=true expires_in=3600
+T1 access_token claims: {"aal":"aal1","amr":[{"method":"anonymous","timestamp":1788110969}],"app_metadata":{},"aud":"authenticated","email":"","exp":1788114569,"iat":1788110969,"is_anonymous":true,"iss":"http://127.0.0.1:54321/auth/v1","phone":"","role":"authenticated","session_id":"03d13839-6a39-471e-a59f-9558ff4f0980","sub":"dab93297-c2ba-4bc3-bcc1-af79e7724369","user_metadata":{}}
+
+### (b) refresh: two concurrent refreshes with the same token T1 (race)
+racer 0: started+0ms status=200 elapsed=56ms body={"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114569,"refresh_token":"<redacted>","user":{"id":"dab93297-c2ba-4bc3-bcc1-af79e7724369","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:29.229938Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:29.226639Z","updated_at":"2026-08-30T17:29:29.295874Z","is_anonymous":true}}
+racer 1: started+0ms status=200 elapsed=27ms body={"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114569,"refresh_token":"<redacted>","user":{"id":"dab93297-c2ba-4bc3-bcc1-af79e7724369","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:29.229938Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:29.226639Z","updated_at":"2026-08-30T17:29:29.295874Z","is_anonymous":true}}
+race: both 200; refresh tokens equal=true (ac5nrkh2vgry vs ac5nrkh2vgry); access tokens equal=false
+
+### (b) refresh: reuse rules (reuse interval 10 s; one-behind rule; two-behind revokes)
+
+--- reuse T1 again immediately (<10 s after its use) -> expect allowed, returns active token
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (21 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114569,"refresh_token":"<redacted>","user":{"id":"dab93297-c2ba-4bc3-bcc1-af79e7724369","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:29.229938Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:29.226639Z","updated_at":"2026-08-30T17:29:29.295874Z","is_anonymous":true}}
+sleeping 11 s to leave the reuse interval …
+
+--- reuse T1 after 11 s: T1 is one-behind the active token T2 -> expect allowed (fail-to-save rule)
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (47 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114580,"refresh_token":"<redacted>","user":{"id":"dab93297-c2ba-4bc3-bcc1-af79e7724369","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:29.229938Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:29.226639Z","updated_at":"2026-08-30T17:29:29.295874Z","is_anonymous":true}}
+
+--- refresh with T2 (active) -> T3
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (28 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114580,"refresh_token":"<redacted>","user":{"id":"dab93297-c2ba-4bc3-bcc1-af79e7724369","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:29.229938Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:29.226639Z","updated_at":"2026-08-30T17:29:40.421826Z","is_anonymous":true}}
+sleeping 11 s …
+
+--- reuse T0 after >11 s: two or more behind -> expect 400 refresh_token_already_used and family revoked
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 400 Bad Request (45 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"refresh_token_already_used","msg":"Invalid Refresh Token: Already Used"}
+
+--- immediately use the active token T3 -> auth digest observed a 10 s grace after revocation
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (27 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114591,"refresh_token":"<redacted>","user":{"id":"dab93297-c2ba-4bc3-bcc1-af79e7724369","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:29.229938Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:29.226639Z","updated_at":"2026-08-30T17:29:51.495719Z","is_anonymous":true}}
+sleeping 11 s …
+
+--- use T3 again after 11 s -> expect terminal refresh_token_already_used
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (46 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114602,"refresh_token":"<redacted>","user":{"id":"dab93297-c2ba-4bc3-bcc1-af79e7724369","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:29.229938Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:29.226639Z","updated_at":"2026-08-30T17:29:51.495719Z","is_anonymous":true}}
+
+--- the revoked family's last access token still works on PostgREST until exp (stateless JWT)
+> POST /rest/v1/rpc/whoami
+> Accept-Profile: brigade
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Profile: brigade
+> Content-Type: application/json
+> apikey: sb_publishable_ACJWl…
+> body: {}
+< HTTP 200 OK (17 ms)
+< Content-Type: application/json; charset=utf-8
+< Content-Profile: brigade
+< Content-Range: 0-0/*
+< body: {"uid": "dab93297-c2ba-4bc3-bcc1-af79e7724369", "role": "authenticated", "claims": {"aal": "aal1", "amr": [{"method": "anonymous", "timestamp": 1788110969}], "aud": "authenticated", "exp": 1788114580, "iat": 1788110980, "iss": "http://127.0.0.1:54321/auth/v1", "sub": "dab93297-c2ba-4bc3-bcc1-af79e7724369", "role": "authenticated", "email": "", "phone": "", "session_id": "03d13839-6a39-471e-a59f-9558ff4f0980", "app_metadata": {}, "is_anonymous": true, "user_metadata": {}}, "server_time": "2026-08-30T17:30:02.560898+00:00"}
+
+### (b) refresh: error shapes for garbage / unknown tokens
+
+--- refresh with an unknown token
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 400 Bad Request (1 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"validation_failed","msg":"Refresh token is not valid"}
+
+--- refresh with an empty token
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":""}
+< HTTP 400 Bad Request (1 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"validation_failed","msg":"Refresh token is not valid"}
+
+--- refresh with no apikey
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json
+> body: {"refresh_token":"<redacted>"}
+< HTTP 400 Bad Request (25 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"refresh_token_already_used","msg":"Invalid Refresh Token: Already Used"}
+
+--- refresh with an unsupported grant_type
+> POST /auth/v1/token?grant_type=nope
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 400 Bad Request (1 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"invalid_credentials","msg":"unsupported_grant_type"}

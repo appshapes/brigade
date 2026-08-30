@@ -1,0 +1,109 @@
+# run auth at 2026-08-30T17:29:27Z
+
+### (a) GoTrue anonymous sign-up
+
+--- signup: publishable key, auth-js body
+> POST /auth/v1/signup
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"data":{},"gotrue_meta_security":{}}
+< HTTP 200 OK (21 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114567,"refresh_token":"<redacted>","user":{"id":"ad94ed01-90cd-4baa-ad19-38a5d028024c","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:27.825608761Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:27.822275Z","updated_at":"2026-08-30T17:29:27.827673Z","is_anonymous":true}}
+access_token claims: {"aal":"aal1","amr":[{"method":"anonymous","timestamp":1788110967}],"app_metadata":{},"aud":"authenticated","email":"","exp":1788114567,"iat":1788110967,"is_anonymous":true,"iss":"http://127.0.0.1:54321/auth/v1","phone":"","role":"authenticated","session_id":"e0910d1d-0b68-4a47-bfc8-1da240306b5e","sub":"ad94ed01-90cd-4baa-ad19-38a5d028024c","user_metadata":{}}
+session fields: token_type=bearer expires_in=3600 expires_at=1788114567 refresh_token_len=12 user.id=ad94ed01-90cd-4baa-ad19-38a5d028024c user.aud=authenticated user.role=authenticated user.is_anonymous=true
+
+--- signup: legacy anon JWT as apikey
+> POST /auth/v1/signup
+> Content-Type: application/json;charset=UTF-8
+> apikey: eyJhbGciOiJIUzI1…<jwt>
+> body: {"data":{},"gotrue_meta_security":{}}
+< HTTP 200 OK (11 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114567,"refresh_token":"<redacted>","user":{"id":"3e924acc-4f32-4118-acfb-298741865cb9","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:27.838128136Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:27.835888Z","updated_at":"2026-08-30T17:29:27.839599Z","is_anonymous":true}}
+
+--- signup: empty JSON object body {}
+> POST /auth/v1/signup
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {}
+< HTTP 200 OK (10 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114567,"refresh_token":"<redacted>","user":{"id":"f296d2f1-01d5-46cc-b9ef-cc13777323f1","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:27.848893761Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:27.847104Z","updated_at":"2026-08-30T17:29:27.849978Z","is_anonymous":true}}
+
+--- signup: no body at all
+> POST /auth/v1/signup
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: 
+< HTTP 400 Bad Request (1 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"bad_json","msg":"Could not parse request body as JSON: unexpected end of JSON input"}
+
+--- signup: with X-Supabase-Api-Version: 2024-01-01 (auth-js default)
+> POST /auth/v1/signup
+> Content-Type: application/json;charset=UTF-8
+> X-Supabase-Api-Version: 2024-01-01
+> apikey: sb_publishable_ACJWl…
+> body: {"data":{},"gotrue_meta_security":{}}
+< HTTP 200 OK (8 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114567,"refresh_token":"<redacted>","user":{"id":"f937cca1-70a8-4915-b2f7-43ed2c0a75d1","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:27.857833136Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:27.856317Z","updated_at":"2026-08-30T17:29:27.858874Z","is_anonymous":true}}
+
+--- signup: with Authorization: Bearer <publishable key> too (supabase-js default headers)
+> POST /auth/v1/signup
+> Authorization: Bearer sb_publishable_ACJWl…
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"data":{},"gotrue_meta_security":{}}
+< HTTP 200 OK (7 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114567,"refresh_token":"<redacted>","user":{"id":"69049b65-6b26-4616-939e-b0a8728c5994","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:27.865048886Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:27.863626Z","updated_at":"2026-08-30T17:29:27.865983Z","is_anonymous":true}}
+
+--- signup: NO apikey header
+> POST /auth/v1/signup
+> Content-Type: application/json
+> body: {}
+< HTTP 200 OK (7 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114567,"refresh_token":"<redacted>","user":{"id":"9ab9e721-81ae-44b3-9316-559d471c2e7b","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:27.872274302Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:27.870524Z","updated_at":"2026-08-30T17:29:27.873398Z","is_anonymous":true}}
+
+--- signup: bogus apikey
+> POST /auth/v1/signup
+> Content-Type: application/json
+> apikey: sb_publishable_bogus…
+> body: {}
+< HTTP 200 OK (6 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114567,"refresh_token":"<redacted>","user":{"id":"87b3f0a2-f6f2-4d3a-8019-1f01eee48433","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:27.879044844Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:27.877784Z","updated_at":"2026-08-30T17:29:27.879902Z","is_anonymous":true}}
+
+--- signup: secret key as apikey (must not be used by the adapter; recorded only)
+> POST /auth/v1/signup
+> Content-Type: application/json
+> apikey: sb_secret_N7UND0UgjK…
+> body: {}
+< HTTP 200 OK (6 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114567,"refresh_token":"<redacted>","user":{"id":"c0ce437b-6fdf-4bba-9431-6b23e0342a56","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:27.885534802Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:27.884252Z","updated_at":"2026-08-30T17:29:27.886368Z","is_anonymous":true}}
+
+--- GET /auth/v1/user with the anonymous access token
+> GET /auth/v1/user
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> apikey: sb_publishable_ACJWl…
+< HTTP 200 OK (15 ms)
+< Content-Type: application/json
+< body: {"id":"ad94ed01-90cd-4baa-ad19-38a5d028024c","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:27.825608Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:27.822275Z","updated_at":"2026-08-30T17:29:27.827673Z","is_anonymous":true}
+
+--- GET /auth/v1/settings (public; shows external.anonymous_users)
+> GET /auth/v1/settings
+> apikey: sb_publishable_ACJWl…
+< HTTP 200 OK (1 ms)
+< Content-Type: application/json
+< body: {"external":{"anonymous_users":true,"apple":false,"azure":false,"bitbucket":false,"discord":false,"facebook":false,"snapchat":false,"figma":false,"fly":false,"github":false,"gitlab":false,"google":false,"keycloak":false,"kakao":false,"linkedin":false,"linkedin_oidc":false,"notion":false,"spotify":false,"slack":false,"slack_oidc":false,"workos":false,"twitch":false,"twitter":false,"email":true,"phone":false,"zoom":false},"disable_signup":false,"mailer_autoconfirm":true,"phone_autoconfirm":true,"sms_provider":"","saml_enabled":false,"saml_private_key_next_configured":true,"passkeys_enabled":false}
+
+--- GET /auth/v1/health
+> GET /auth/v1/health
+> apikey: sb_publishable_ACJWl…
+< HTTP 200 OK (0 ms)
+< Content-Type: application/json
+< body: {"version":"v2.196.0","name":"GoTrue","description":"GoTrue is a user registration and authentication API"}

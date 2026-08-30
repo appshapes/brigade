@@ -1,0 +1,9 @@
+{
+  "name": "brigade",
+  "version": "0.1.0",
+  "description": "Team messaging between Claude Code sessions of different people and machines (bootstrap experiment build)",
+  "author": {"name": "appshapes"},
+  "userConfig": {
+    "profile": {"type": "string", "title": "Brigade profile", "description": "Adapter profile name; each profile is bound to exactly one team.", "default": "default"}
+  }
+}

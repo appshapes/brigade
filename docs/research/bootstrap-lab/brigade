@@ -1,0 +1,78 @@
+#!/bin/sh
+# Brigade bootstrap (plugin/bin/brigade). POSIX sh; runs under dash, bash, zsh and busybox ash.
+# First use: download the release binary pinned below, verify its sha256 against the committed
+# checksums.txt next to this script, install it atomically under CLAUDE_PLUGIN_DATA and exec it.
+# Later uses: exec the cached binary directly.
+set -eu
+
+VERSION="0.1.0"
+BASE="https://github.com/appshapes/brigade/releases/download/v${VERSION}"
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+data="${CLAUDE_PLUGIN_DATA:-${XDG_CACHE_HOME:-$HOME/.cache}/brigade}"
+bin="$data/bin/brigade-$VERSION"
+
+# Developer override: a pointer file that only the user can write (it lives under their own data
+# directory, never in a repository). `make plugin-dev` writes it; `make plugin-dev-off` removes it.
+if [ -f "$data/dev-binary" ]; then
+  dev=$(cat "$data/dev-binary")
+  if [ -x "$dev" ]; then
+    exec "$dev" "$@"
+  fi
+  echo "brigade: dev-binary pointer $data/dev-binary names a non-executable path; ignoring" >&2
+fi
+
+if [ -x "$bin" ]; then
+  exec "$bin" "$@"
+fi
+
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+arch=$(uname -m)
+case "$os" in
+  darwin|linux) ;;
+  *) echo "brigade: unsupported OS '$os' (on Windows use WSL 2)" >&2; exit 11 ;;
+esac
+case "$arch" in
+  x86_64|amd64) arch=amd64 ;;
+  arm64|aarch64) arch=arm64 ;;
+  *) echo "brigade: unsupported architecture '$arch'" >&2; exit 11 ;;
+esac
+
+name="brigade_${VERSION}_${os}_${arch}"
+want=$(grep -E "[[:space:]]${name}\$" "$here/checksums.txt" 2>/dev/null | awk '{print $1}' || true)
+if [ -z "$want" ]; then
+  echo "brigade: no checksum for $name in $here/checksums.txt" >&2
+  exit 11
+fi
+
+mkdir -p "$data/bin"
+tmp=$(mktemp "$data/bin/.brigade-$VERSION.XXXXXX")
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+
+echo "brigade: first use, downloading $name from $BASE" >&2
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL --proto '=https' --retry 3 --max-time 120 -o "$tmp" "$BASE/$name"
+elif command -v wget >/dev/null 2>&1; then
+  wget -q -T 120 -O "$tmp" "$BASE/$name"
+else
+  echo "brigade: neither curl nor wget is available" >&2
+  exit 11
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+  got=$(sha256sum "$tmp" | awk '{print $1}')
+elif command -v shasum >/dev/null 2>&1; then
+  got=$(shasum -a 256 "$tmp" | awk '{print $1}')
+else
+  echo "brigade: neither sha256sum nor shasum is available" >&2
+  exit 11
+fi
+if [ "$got" != "$want" ]; then
+  echo "brigade: checksum mismatch for $name: expected $want, got $got" >&2
+  exit 11
+fi
+
+chmod 755 "$tmp"
+mv -f "$tmp" "$bin"
+trap - EXIT HUP INT TERM
+exec "$bin" "$@"

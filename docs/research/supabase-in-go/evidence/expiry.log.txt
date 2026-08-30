@@ -1,0 +1,134 @@
+# run expiry at 2026-08-30T17:30:37Z
+
+### (e11) JWT expiry on a joined private channel, and access_token renewal before expiry; heartbeat timeout
+
+--- register_session exp-alpha
+> POST /rest/v1/rpc/register_session
+> Accept-Profile: brigade
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Profile: brigade
+> Content-Type: application/json
+> apikey: sb_publishable_ACJWl…
+> body: {"p_name":"exp-alpha"}
+< HTTP 200 OK (12 ms)
+< Content-Type: application/json; charset=utf-8
+< Content-Profile: brigade
+< Content-Range: 0-0/*
+< body: {"created_at": "2026-08-30T17:30:37.499895+00:00", "session_id": "33f21e0b-44e9-4fd7-b39d-95adb7d8e05c", "server_time": "2026-08-30T17:30:37.499895+00:00", "session_name": "exp-alpha", "principal_ref": "dd37bbe1-9b69-48de-96ad-7eb6d8269008"}
+
+--- register_session exp-bravo
+> POST /rest/v1/rpc/register_session
+> Accept-Profile: brigade
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Profile: brigade
+> Content-Type: application/json
+> apikey: sb_publishable_ACJWl…
+> body: {"p_name":"exp-bravo"}
+< HTTP 200 OK (10 ms)
+< Content-Type: application/json; charset=utf-8
+< Content-Profile: brigade
+< Content-Range: 0-0/*
+< body: {"created_at": "2026-08-30T17:30:37.510658+00:00", "session_id": "c19d169d-2470-483b-8598-914f5bb5327d", "server_time": "2026-08-30T17:30:37.510658+00:00", "session_name": "exp-bravo", "principal_ref": "16229ce2-c016-4606-8ffe-943516b117c2"}
+minted 40 s token claims: {"aal":"aal1","amr":[{"method":"anonymous","timestamp":1788111037}],"app_metadata":{},"aud":"authenticated","exp":1788111077,"iat":1788111037,"is_anonymous":true,"iss":"http://127.0.0.1:54321/auth/v1","role":"authenticated","session_id":"1cec926b-4b03-4486-8bc4-f1b8ab523c4a","sub":"dd37bbe1-9b69-48de-96ad-7eb6d8269008","user_metadata":{}}
+
+--- sanity: PostgREST accepts the minted token
+> POST /rest/v1/rpc/whoami
+> Accept-Profile: brigade
+> Authorization: Bearer eyJhbGciOiJIUzI1…<jwt>
+> Content-Profile: brigade
+> Content-Type: application/json
+> apikey: sb_publishable_ACJWl…
+> body: {}
+< HTTP 200 OK (1 ms)
+< Content-Type: application/json; charset=utf-8
+< Content-Profile: brigade
+< Content-Range: 0-0/*
+< body: {"uid": "dd37bbe1-9b69-48de-96ad-7eb6d8269008", "role": "authenticated", "claims": {"aal": "aal1", "amr": [{"method": "anonymous", "timestamp": 1788111037}], "aud": "authenticated", "exp": 1788111077, "iat": 1788111037, "iss": "http://127.0.0.1:54321/auth/v1", "sub": "dd37bbe1-9b69-48de-96ad-7eb6d8269008", "role": "authenticated", "session_id": "1cec926b-4b03-4486-8bc4-f1b8ab523c4a", "app_metadata": {}, "is_anonymous": true, "user_metadata": {}}, "server_time": "2026-08-30T17:30:37.512137+00:00"}
+
+--- [expire] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=sb_publishable_ACJWl…&vsn=2.0.0
+< upgrade HTTP 101 Sec-Websocket-Accept="nBLfnfvRo68PBEM//8/t3TASaVM=" Server="Cowboy"
+
+--- [renew] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=sb_publishable_ACJWl…&vsn=2.0.0
+< upgrade HTTP 101 Sec-Websocket-Accept="IjaWNifEv4JpczsA+pofkGywrLw=" Server="Cowboy"
+
+--- [nohb] dial ws://127.0.0.1:54321/realtime/v1/websocket?apikey=sb_publishable_ACJWl…&vsn=2.0.0
+< upgrade HTTP 101 Sec-Websocket-Accept="/wwlLbSWHvQJQtelJp53v0HNDUI=" Server="Cowboy"
+  0.002s [expire] >> ["1","1","realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c","phx_join",{"access_token":"eyJhbGciOiJIUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+  0.005s [expire] << [text] join_ref=1 ref=1 topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+expire: join ok=true [text] join_ref=1 ref=1 topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+  0.004s [renew] >> ["1","1","realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c","phx_join",{"access_token":"eyJhbGciOiJIUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+  0.005s [renew] << [text] join_ref=1 ref=1 topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+renew: join ok=true [text] join_ref=1 ref=1 topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+  0.004s [nohb] >> ["1","1","realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c","phx_join",{"access_token":"eyJhbGciOiJFUzI1…<jwt>","config":{"broadcast":{"ack":false,"self":false},"postgres_changes":[],"presence":{"enabled":false,"key":""},"private":true}}]
+  0.006s [nohb] << [text] join_ref=1 ref=1 topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+nohb: join ok=true [text] join_ref=1 ref=1 topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=phx_reply payload={"status":"ok","response":{"postgres_changes":[]}}
+ 15.017s [sender] inserted tick 0
+ 15.019s [renew] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"56e2319d-cd95-4c1e-b661-18690dae027c"},"payload":{"id":"56e2319d-cd95-4c1e-b661-18690dae027c","message_id":"7396d4fe-6137-471c-b592-b496de6b4a2b","seq":18},"type":"broadcast"}
+ 15.018s [nohb] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"56e2319d-cd95-4c1e-b661-18690dae027c"},"payload":{"id":"56e2319d-cd95-4c1e-b661-18690dae027c","message_id":"7396d4fe-6137-471c-b592-b496de6b4a2b","seq":18},"type":"broadcast"}
+ 15.021s [expire] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"56e2319d-cd95-4c1e-b661-18690dae027c"},"payload":{"id":"56e2319d-cd95-4c1e-b661-18690dae027c","message_id":"7396d4fe-6137-471c-b592-b496de6b4a2b","seq":18},"type":"broadcast"}
+ 20.010s [expire] >> [null,"2","phoenix","heartbeat",{}]
+ 20.009s [renew] >> [null,"3","phoenix","heartbeat",{}]
+ 20.009s [renew] >> ["1","2","realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c","access_token",{"access_token":"eyJhbGciOiJIUzI1…<jwt>"}]
+ 20.010s [renew] << [text] join_ref=null ref=3 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+ 20.012s [expire] << [text] join_ref=null ref=2 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+ 30.025s [sender] inserted tick 1
+ 30.025s [expire] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"a2be43aa-353b-4924-b0cd-6fa62a209f0a"},"payload":{"id":"a2be43aa-353b-4924-b0cd-6fa62a209f0a","message_id":"05ae2894-7652-4a0f-a7d0-b47c9bd200f6","seq":19},"type":"broadcast"}
+ 30.024s [renew] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"a2be43aa-353b-4924-b0cd-6fa62a209f0a"},"payload":{"id":"a2be43aa-353b-4924-b0cd-6fa62a209f0a","message_id":"05ae2894-7652-4a0f-a7d0-b47c9bd200f6","seq":19},"type":"broadcast"}
+ 30.023s [nohb] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"a2be43aa-353b-4924-b0cd-6fa62a209f0a"},"payload":{"id":"a2be43aa-353b-4924-b0cd-6fa62a209f0a","message_id":"05ae2894-7652-4a0f-a7d0-b47c9bd200f6","seq":19},"type":"broadcast"}
+ 40.010s [expire] << [text] join_ref=1 ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=system payload={"message":"Token has expired 0 seconds ago","status":"error","extension":"system","channel":"brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c"}
+ 40.010s [expire] << [text] join_ref=1 ref=1 topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=phx_close payload={}
+ 40.010s [expire] >> [null,"3","phoenix","heartbeat",{}]
+ 40.008s [renew] >> [null,"4","phoenix","heartbeat",{}]
+ 40.011s [expire] << [text] join_ref=null ref=3 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+ 40.009s [renew] << [text] join_ref=null ref=4 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+ 45.033s [sender] inserted tick 2
+ 45.033s [renew] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"8a1c687b-dc64-475a-8aec-786ff97109fb"},"payload":{"id":"8a1c687b-dc64-475a-8aec-786ff97109fb","message_id":"a3f4dff2-6b65-47b4-a8bf-84722d2a3a47","seq":20},"type":"broadcast"}
+ 45.032s [nohb] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"8a1c687b-dc64-475a-8aec-786ff97109fb"},"payload":{"id":"8a1c687b-dc64-475a-8aec-786ff97109fb","message_id":"a3f4dff2-6b65-47b4-a8bf-84722d2a3a47","seq":20},"type":"broadcast"}
+ 60.009s [expire] >> [null,"4","phoenix","heartbeat",{}]
+ 60.008s [renew] >> [null,"5","phoenix","heartbeat",{}]
+ 60.010s [renew] << [text] join_ref=null ref=5 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+ 60.011s [expire] << [text] join_ref=null ref=4 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+ 60.040s [sender] inserted tick 3
+ 60.039s [renew] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"2224ca0d-31f1-4b1a-a16b-64c3579931e5"},"payload":{"id":"2224ca0d-31f1-4b1a-a16b-64c3579931e5","message_id":"8b786768-5d9a-40a1-b097-abfa2f723356","seq":21},"type":"broadcast"}
+ 60.038s [nohb] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"2224ca0d-31f1-4b1a-a16b-64c3579931e5"},"payload":{"id":"2224ca0d-31f1-4b1a-a16b-64c3579931e5","message_id":"8b786768-5d9a-40a1-b097-abfa2f723356","seq":21},"type":"broadcast"}
+ 66.047s [nohb] << SOCKET CLOSED by peer: code=1000 reason=""
+ 66.050s nohb socket closed
+ 67.051s nohb socket closed
+ 68.051s nohb socket closed
+ 69.052s nohb socket closed
+ 70.053s nohb socket closed
+ 71.055s nohb socket closed
+ 72.058s nohb socket closed
+ 73.060s nohb socket closed
+ 74.060s nohb socket closed
+ 75.048s [sender] inserted tick 4
+ 75.050s [renew] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"fab08532-6bf0-4eb7-b4b1-0a90ee45d256"},"payload":{"id":"fab08532-6bf0-4eb7-b4b1-0a90ee45d256","message_id":"af40d467-ba44-44b6-ae83-a4118a2b9e1e","seq":22},"type":"broadcast"}
+ 75.062s nohb socket closed
+ 76.064s nohb socket closed
+ 77.065s nohb socket closed
+ 78.067s nohb socket closed
+ 79.067s nohb socket closed
+ 80.011s [expire] >> [null,"5","phoenix","heartbeat",{}]
+ 80.010s [renew] >> [null,"6","phoenix","heartbeat",{}]
+ 80.013s [expire] << [text] join_ref=null ref=5 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+ 80.012s [renew] << [text] join_ref=null ref=6 topic=phoenix event=phx_reply payload={"status":"ok","response":{}}
+ 80.069s nohb socket closed
+ 81.070s nohb socket closed
+ 82.072s nohb socket closed
+ 83.073s nohb socket closed
+ 84.076s nohb socket closed
+ 84.797s [expire] << read error: failed to get reader: failed to read frame header: EOF
+ 85.078s nohb socket closed
+ 86.080s nohb socket closed
+ 87.082s nohb socket closed
+ 88.084s expire socket closed
+ 89.085s expire socket closed
+ 90.057s [sender] inserted tick 5
+ 90.056s [renew] << [BINARY] join_ref=null ref=null topic=realtime:brigade:session:33f21e0b-44e9-4fd7-b39d-95adb7d8e05c event=broadcast payload={"event":"message_accepted","meta":{"id":"dacfb6d9-20ca-4976-b50b-795c9b3f606e"},"payload":{"id":"dacfb6d9-20ca-4976-b50b-795c9b3f606e","message_id":"a181f2b4-857e-45fc-b4ae-109d9c326621","seq":23},"type":"broadcast"}
+ 90.086s expire socket closed
+ 91.088s nohb socket closed
+ 92.089s expire socket closed
+ 93.092s nohb socket closed
+ 94.094s nohb socket closed
+expiry run finished
+ 95.094s [renew] << SOCKET CLOSED by peer: code=1000 reason=""

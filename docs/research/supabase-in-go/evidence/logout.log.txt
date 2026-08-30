@@ -1,0 +1,164 @@
+# run logout at 2026-08-30T17:29:28Z
+
+### (c) global sign-out
+
+--- signup for logout tests
+> POST /auth/v1/signup
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"data":{},"gotrue_meta_security":{}}
+< HTTP 200 OK (7 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114568,"refresh_token":"<redacted>","user":{"id":"51865934-89aa-4718-b1c5-c1f5a88fca57","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:28.055354886Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:28.054072Z","updated_at":"2026-08-30T17:29:28.056173Z","is_anonymous":true}}
+
+--- refresh once so the chain has two tokens
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (23 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114568,"refresh_token":"<redacted>","user":{"id":"51865934-89aa-4718-b1c5-c1f5a88fca57","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:28.055354Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:28.054072Z","updated_at":"2026-08-30T17:29:28.079178Z","is_anonymous":true}}
+
+--- POST /auth/v1/logout?scope=global with the current access token
+> POST /auth/v1/logout?scope=global
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+< HTTP 204 No Content (17 ms)
+< body: 
+
+--- refresh with the current refresh token after global sign-out
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 400 Bad Request (3 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"refresh_token_not_found","msg":"Invalid Refresh Token: Refresh Token Not Found"}
+
+--- refresh with the previous (one-behind) refresh token after global sign-out
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 400 Bad Request (3 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"refresh_token_not_found","msg":"Invalid Refresh Token: Refresh Token Not Found"}
+
+--- PostgREST with the signed-out access token (stateless JWT, still inside exp)
+> POST /rest/v1/rpc/whoami
+> Accept-Profile: brigade
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Profile: brigade
+> Content-Type: application/json
+> apikey: sb_publishable_ACJWl…
+> body: {}
+< HTTP 200 OK (8 ms)
+< Content-Type: application/json; charset=utf-8
+< Content-Profile: brigade
+< Content-Range: 0-0/*
+< body: {"uid": "51865934-89aa-4718-b1c5-c1f5a88fca57", "role": "authenticated", "claims": {"aal": "aal1", "amr": [{"method": "anonymous", "timestamp": 1788110968}], "aud": "authenticated", "exp": 1788114568, "iat": 1788110968, "iss": "http://127.0.0.1:54321/auth/v1", "sub": "51865934-89aa-4718-b1c5-c1f5a88fca57", "role": "authenticated", "email": "", "phone": "", "session_id": "62935099-469e-4ce1-81e0-1d3210fc56ae", "app_metadata": {}, "is_anonymous": true, "user_metadata": {}}, "server_time": "2026-08-30T17:29:28.112068+00:00"}
+
+--- GET /auth/v1/user with the signed-out access token
+> GET /auth/v1/user
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> apikey: sb_publishable_ACJWl…
+< HTTP 403 Forbidden (11 ms)
+< Content-Type: application/json
+< body: {"code":403,"error_code":"session_not_found","msg":"Session from session_id claim in JWT does not exist"}
+
+--- logout again with the same (already signed-out) access token
+> POST /auth/v1/logout?scope=global
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+< HTTP 403 Forbidden (11 ms)
+< Content-Type: application/json
+< body: {"code":403,"error_code":"session_not_found","msg":"Session from session_id claim in JWT does not exist"}
+
+--- logout with a garbage bearer
+> POST /auth/v1/logout?scope=global
+> Authorization: Bearer not-a-jwt
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+< HTTP 403 Forbidden (0 ms)
+< Content-Type: application/json
+< body: {"code":403,"error_code":"bad_jwt","msg":"invalid JWT: unable to parse or verify signature, token is malformed: token contains an invalid number of segments"}
+
+--- logout with no Authorization header
+> POST /auth/v1/logout?scope=global
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+< HTTP 403 Forbidden (0 ms)
+< Content-Type: application/json
+< body: {"code":403,"error_code":"bad_jwt","msg":"invalid claim: missing sub claim"}
+
+--- signup for scope=local/others comparison
+> POST /auth/v1/signup
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"data":{},"gotrue_meta_security":{}}
+< HTTP 200 OK (6 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114568,"refresh_token":"<redacted>","user":{"id":"b51aaee9-ab94-4f27-9900-0ca0cad51a82","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:28.139574136Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:28.138394Z","updated_at":"2026-08-30T17:29:28.140383Z","is_anonymous":true}}
+
+--- scope=others (should keep the current session)
+> POST /auth/v1/logout?scope=others
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+< HTTP 204 No Content (16 ms)
+< body: 
+
+--- refresh after scope=others -> expect still valid
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 200 OK (22 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114568,"refresh_token":"<redacted>","user":{"id":"b51aaee9-ab94-4f27-9900-0ca0cad51a82","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:28.139574Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:28.138394Z","updated_at":"2026-08-30T17:29:28.178784Z","is_anonymous":true}}
+
+--- signup for scope=local
+> POST /auth/v1/signup
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"data":{},"gotrue_meta_security":{}}
+< HTTP 200 OK (6 ms)
+< Content-Type: application/json
+< body: {"access_token":"eyJhbGciOiJFUzI1…<jwt>","token_type":"bearer","expires_in":3600,"expires_at":1788114568,"refresh_token":"<redacted>","user":{"id":"6c3914fc-c7f1-46e7-a545-a6cf303169a3","aud":"authenticated","role":"authenticated","email":"","phone":"","last_sign_in_at":"2026-08-30T17:29:28.183939802Z","app_metadata":{},"user_metadata":{},"identities":[],"created_at":"2026-08-30T17:29:28.182824Z","updated_at":"2026-08-30T17:29:28.184832Z","is_anonymous":true}}
+
+--- scope=local
+> POST /auth/v1/logout?scope=local
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+< HTTP 204 No Content (16 ms)
+< body: 
+
+--- refresh after scope=local -> expect revoked
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 400 Bad Request (3 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"refresh_token_not_found","msg":"Invalid Refresh Token: Refresh Token Not Found"}
+
+--- no scope parameter (server default)
+> POST /auth/v1/logout
+> Authorization: Bearer eyJhbGciOiJFUzI1…<jwt>
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+< HTTP 204 No Content (16 ms)
+< body: 
+
+--- refresh after logout with no scope
+> POST /auth/v1/token?grant_type=refresh_token
+> Content-Type: application/json;charset=UTF-8
+> apikey: sb_publishable_ACJWl…
+> body: {"refresh_token":"<redacted>"}
+< HTTP 400 Bad Request (3 ms)
+< Content-Type: application/json
+< body: {"code":400,"error_code":"refresh_token_not_found","msg":"Invalid Refresh Token: Refresh Token Not Found"}

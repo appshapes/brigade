@@ -1,0 +1,34 @@
+# C-01: describe with no profile answers offline with state=unconfigured, exit 0, and creates no files.
+env BRIGADE_CONFIG_DIR=$WORK/cfg
+exec mini describe
+json stdout .ok true
+json stdout .protocol_version 1
+json stdout .result.profile.state unconfigured
+! exists $WORK/cfg
+! stderr .
+
+# C-02: unknown verb is exit 2 `usage`, JSON on stdout.
+! exec mini bogus
+status 2 mini bogus
+json stdout .error.code usage
+
+# C-02: invalid stdin JSON is exit 3 `invalid_input`.
+stdin garbage.txt
+status 3 mini echo
+json stdout .error.code invalid_input
+
+# a valid stdin document round-trips byte for byte
+stdin input.json
+exec mini echo
+cmp stdout input.json
+
+# uniform not_found on send, diagnostics only on stderr
+status 6 mini send
+json stdout .error.code not_found
+! stdout debug
+stderr '"level":"debug"'
+
+-- input.json --
+{"recipient_session_id":"a","body":"hi"}
+-- garbage.txt --
+this is not json
