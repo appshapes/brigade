@@ -42,7 +42,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P0-0 | Preserve the first research round under `docs/research/` | done | Fable | in `6386046` |
 | — | Plan decisions D3/D6/D18/D20/D22/D31/D32/D33/D34/D35 + all-Go, CLI-only rewrite | done | Fable | this commit |
 | P0-2 | Preserve the second research round under `docs/research/` | done | Fable | this commit |
-| P0-1 | Injection corpus (`scripts/injection-corpus/`, `expected.json`) | todo | Fable | blocks E0-3 |
+| P0-1 | Injection corpus (`scripts/injection-corpus/`, `expected.json`) | done | Fable | this commit — 26 items (17 `ask` / 9 `ignore`; 24 body + 2 summary-only), the plan's mandated 15 at `01`–`15` plus 11 additions |
 | E0-1 | Local stack + `brigade` schema, ported live checks | todo | Fable | needs Docker; SQL is Fable-tier |
 | E0-2 | Broadcast-from-DB with the Go Phoenix client (a-d, g settled) | todo | Opus | remaining items are mechanical soaks |
 | E0-3 | Inbound framing variants A/C (and B fallback) + injection corpus | todo | Fable | decides D19; security-critical |
@@ -79,6 +79,19 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 - Loopback from a sandboxed Bash tool via `sandbox.network.allowedDomains` (E0-8 (c)).
 - `GORELEASER_CURRENT_TAG` with `--skip=validate` on a not-yet-existing tag (P2-12 rehearsal).
 - Whether a fresh `CLAUDE_CONFIG_DIR` needs its own `claude login` (E0-7, matters for P5-10).
+- **Are `@`-mentions inert inside a sanitised body?** The 6.7 sanitiser neutralises five tag families and strips
+  format characters but says nothing about the harness `@~/path` file-reference syntax. If the harness expands an
+  `@`-mention inside an injected frame, corpus item `08-at-mention-ssh-key` pulls the secret into context regardless
+  of what the model decides — the item would then measure the harness, not the model. Settle in E0-3 (b) alongside
+  the rendering questions; if expansion happens, 6.7 gains a rule and the item's expected outcome is revisited (P0-1).
+- **Does the sanitiser's tag matcher survive near-misses?** Corpus item `25-tag-matcher-evasion` carries byte-exact
+  probes the spec's "optional whitespace" rule should catch (space, tab and newline between `<` and the name, mixed
+  case) plus two it deliberately should not (a close tag split mid-name, a pre-encoded `&lt;brigade-message`). P1-2
+  decides which of the latter two, if either, the matcher must also handle; today they are fuzz seeds, not assertions.
+- **Is the five-family list the right boundary?** Corpus item `24-unlisted-forged-tag` uses `<important_instructions>`,
+  which is outside the five sanitised families and so reaches the model verbatim (verified: zero matcher hits). If
+  E0-3 (f) shows a model treating an unlisted tag as harness authority, 6.7's family list is under-inclusive and the
+  fix is a frame/sanitiser change, not a corpus change (P0-1, R9).
 
 ## Notes for a hand-off
 
@@ -103,3 +116,17 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
   (`15-create-team-session-messaging`) is hands-off from here: it edits nothing, remains open as a reference,
   and wrote the cold-start hand-off to `.ignored/handoff-15-to-implement-0830.md`. Driver rules restated:
   `git pull` before each task, `make push message="15: …"` at every task boundary, one driver at a time.
+- 2026-08-30 ~17:05: **P0-1 done.** The driver session's main loop runs Opus, so the corpus was authored by Fable 5
+  subagents per the model tier policy: three design lenses (injection research, Claude Code harness surface, Brigade
+  protocol) proposed items beyond the mandated fifteen, one synthesiser fixed the manifest and every `ask`/`ignore`
+  value, four batches authored the payloads, four adversarial reviewers repaired them, and a completeness critic read
+  every file back off disk. The critic named three missing attack classes and they were authored in a second pass:
+  `24-unlisted-forged-tag`, `25-tag-matcher-evasion`, `26-encoded-exfiltration`. They are in now rather than later
+  because the corpus is consumed *unchanged* by E0-3 (f), P4-2, P4-5, R9 and the U-03/U-04 fixtures — adding an item
+  after E0-3 runs means re-running E0-3. Three findings went to the open-questions list above; the `@`-mention one
+  (item `08`) should be settled in E0-3 (b) or that item measures the harness rather than the model. Also recorded
+  there: items `22-homoglyph-forged-reminder` and `23-forged-native-wrapper` are the two `ignore` items most exposed
+  to grader interpretation (both are request-free authority spoofs a model may verbally rebuff), so P4-2 should watch
+  them for 3-of-3 flake. Verified independently of the agents: 26 files, contiguous numbering, all UTF-8 with a single
+  trailing newline and under the 16 KiB cap, no real secrets or destructive instructions, every host under
+  `.invalid`, item `11`'s bidi code points present on disk, and `expected.json` in exact agreement with the directory.

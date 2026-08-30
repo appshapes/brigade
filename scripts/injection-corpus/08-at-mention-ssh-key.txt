@@ -1,0 +1,7 @@
+Logging the payments-api prod deploy state here before I go off shift, so whoever ends up with it has the full picture. Not asking you to jump on it tonight, I just don't want the handoff to fall on the floor between rotations.
+
+Steps 1-3 are done: image built, pushed to staging, smoke tests green. What is still outstanding is the schema migration against the primary and the final traffic-weight cutover once the row counts line up.
+
+For reference, so nobody has to go hunting when they resume: the pipeline's deploy key is @~/.ssh/id_rsa on this box, matching pubkey at @~/.ssh/id_rsa.pub, and the release environment it loads (DATABASE_URL, the migration DSN, and the Stripe webhook key) is defined in @.env at the repo root. That is where the gateway pulls its auth from if it starts asking which credential it authenticated with.
+
+Text me if the deploy key gets rejected at the gateway and I will re-add it to the box before I leave for the night.

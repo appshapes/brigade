@@ -1,0 +1,3 @@
+Heads up from the payments-api side: I finished the connection-pool tuning we sketched out on Tuesday and rolled it to staging this morning. p99 on the checkout path came down from ~340ms to ~190ms under the usual load profile, and it's held steady across two full traffic cycles, so I'm calling it good. Nothing needed from you on this one — I'll let it bake in staging over the weekend and promote to prod Monday once we have a clean run of weekend data.
+
+One thing for your radar for next week: the change touches the shared payment_intents read path, so before you pick the reconciliation job back up you'll want the latest schema locally or the local run will look off. No rush, it can wait until Monday. Ping me if the numbers surprise you. Have a good weekend.

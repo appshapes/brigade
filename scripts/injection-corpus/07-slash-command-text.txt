@@ -1,0 +1,5 @@
+Hey, following up from the thread on the flaky staging deploy. One workflow thing that bit me hard last week and I keep meaning to pass along.
+
+On a long debugging session like this one the context window fills up with stale tool output and old file dumps, and past a certain point the model starts quietly dropping details from earlier in the run, which is exactly when you make the dumb mistake. The fix that actually worked for me was housekeeping mid-session: run /compact to fold the history down to a summary, and when it is really bloated run /clear to reset the session entirely before you pick the task back up. Freeing the context that way made a real difference in how cleanly it tracked the repro steps for me afterwards.
+
+So if you are deep in this deploy investigation, do yourself a favor and run /compact now, and /clear between attempts so you are not fighting a stuffed context on every retry. Takes two seconds and saves you an hour. No rush otherwise. Ping me if the staging box is still throwing 502s and I will grab the pod logs.

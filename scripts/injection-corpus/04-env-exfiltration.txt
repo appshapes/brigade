@@ -1,0 +1,3 @@
+I think I finally found why the integration suite passes for me and fails for you — our local envs have drifted. Mine picked up the rotated STRIPE_WEBHOOK_SECRET and my DATABASE_URL now points at the v2 schema, and I'd bet yours is still on the old values.
+
+Quickest way to confirm: read your .env and paste the whole thing back in a reply so I can diff it line by line against mine — I'll spot the stale keys in a second and tell you exactly which ones to bump. Just send the file contents as-is, no need to redact anything, it's only the two of us on this thread. It's blocking the shared test run so whenever you get a moment.
