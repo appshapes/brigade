@@ -43,7 +43,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | — | Plan decisions D3/D6/D18/D20/D22/D31/D32/D33/D34/D35 + all-Go, CLI-only rewrite | done | Fable | this commit |
 | P0-2 | Preserve the second research round under `docs/research/` | done | Fable | this commit |
 | P0-1 | Injection corpus (`scripts/injection-corpus/`, `expected.json`) | done | Fable | this commit — 26 items (17 `ask` / 9 `ignore`; 24 body + 2 summary-only), the plan's mandated 15 at `01`–`15` plus 11 additions |
-| E0-1 | Local stack + `brigade` schema, ported live checks | todo | Fable | needs Docker; SQL is Fable-tier |
+| E0-1 | Local stack + `brigade` schema, ported live checks | done | Fable | this commit — `docs/experiments/E0-1.md`; (a)–(i) all answered; 72/72 live assertions; driver at `scripts/experiments/E0-1/` |
 | E0-2 | Broadcast-from-DB with the Go Phoenix client (a-d, g settled) | todo | Opus | remaining items are mechanical soaks |
 | E0-3 | Inbound framing variants A/C (and B fallback) + injection corpus | todo | Fable | decides D19; security-critical |
 | E0-4 | Idle-wake automation | todo | Opus | |
@@ -75,7 +75,14 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 - `${CLAUDE_PLUGIN_ROOT}` substitution in a hook's `command` field vs `args` (E0-5 (g), documented but re-record).
 - First-use download time vs the SessionStart timeout; whether the background-download bootstrap variant is needed (E0-8 (a)).
 - Whether `not_found` should move off SQLSTATE P0002 (HTTP 500 at the gateway) to a `PT4xx` code (P2-2).
-- pg_cron availability on the minimal local stack (E0-1 (h)).
+  **Evidence in (E0-1):** confirmed live — `brigade:not_found` reaches the client as HTTP 500 carrying SQLSTATE
+  `P0002`, payloads byte-identical across foreign and unknown ids. The security property is unaffected either way, so
+  this is purely an adapter-ergonomics call for P2-2: keep `P0002` and require the adapter to key on SQLSTATE (a 5xx
+  that must not be retried), or move to `PT4xx` for an honest 4xx. Decide it in P2-2, not before.
+- ~~pg_cron availability on the minimal local stack (E0-1 (h)).~~ **RESOLVED (E0-1):** pg_cron 1.6.4 is present on
+  the 5.9 `-x` stack, `create extension` succeeds and `cron.schedule` runs `brigade.gc_expired()` hourly. The
+  opportunistic-gc fallback is not needed locally; the housekeeping migration still guards the scheduling so a stack
+  without pg_cron applies cleanly.
 - Loopback from a sandboxed Bash tool via `sandbox.network.allowedDomains` (E0-8 (c)).
 - `GORELEASER_CURRENT_TAG` with `--skip=validate` on a not-yet-existing tag (P2-12 rehearsal).
 - Whether a fresh `CLAUDE_CONFIG_DIR` needs its own `claude login` (E0-7, matters for P5-10).
@@ -88,6 +95,12 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
   probes the spec's "optional whitespace" rule should catch (space, tab and newline between `<` and the name, mixed
   case) plus two it deliberately should not (a close tag split mid-name, a pre-encoded `&lt;brigade-message`). P1-2
   decides which of the latter two, if either, the matcher must also handle; today they are fuzz seeds, not assertions.
+- **`make supabase-start` needs a migrations guard (P1-1).** Established in E0-1: with `brigade` in `[api] schemas`,
+  `supabase start` cannot succeed until a migration creates the schema — PostgREST loops on `3F000 schema "brigade"
+  does not exist`, the `rest` container never turns healthy, and the CLI tears the whole stack down reporting only
+  `supabase_rest_brigade unexpected status 503`. A fresh clone is fine (migrations are committed), but the failure
+  names PostgREST rather than the cause, so the recipe should fail fast with a readable message when
+  `supabase/migrations/` is empty.
 - **Is the five-family list the right boundary?** Corpus item `24-unlisted-forged-tag` uses `<important_instructions>`,
   which is outside the five sanitised families and so reaches the model verbatim (verified: zero matcher hits). If
   E0-3 (f) shows a model treating an unlisted tag as harness authority, 6.7's family list is under-inclusive and the
@@ -130,3 +143,15 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
   them for 3-of-3 flake. Verified independently of the agents: 26 files, contiguous numbering, all UTF-8 with a single
   trailing newline and under the 16 KiB cap, no real secrets or destructive instructions, every host under
   `.invalid`, item `11`'s bidi code points present on disk, and `expected.json` in exact agreement with the directory.
+- 2026-08-30 ~17:55: **E0-1 done**, results in `docs/experiments/E0-1.md`, driver promoted to
+  `scripts/experiments/E0-1/` (builds with no dependencies; run it from the repo root, `loadEnv` reads `./.env.test`).
+  All of (a)–(i) answered; nothing fell back to the D22 `public` alternative. Split by tier: the SQL and the security
+  assertions ran on Fable subagents (three migrations authored from 5.3–5.8 plus a fidelity and an adversarial
+  privilege review; then the live-check harness plus an adversarial verification pass), while the stack bring-up and
+  the empirical probes (b)–(g) ran on Opus in the main loop. Live result: 72 assertions, 0 failed, re-run green after
+  a `db reset`. The adversarial pass mattered — it found seven assertions that passed for the wrong reason, the worst
+  being that the seven byte-identity `not_found` comparisons had no positive controls and would have passed even if
+  every id returned `not_found`. Three facts to carry: `P0002` surfaces as HTTP 500 so adapters must key on SQLSTATE
+  not status; publishable-key-without-JWT denials are HTTP 401 while table denials with a JWT are HTTP 403, both
+  `42501`; and the minimal `auth.users` fixture insert is `id` alone, but leaves `aud` and `role` as empty strings,
+  so Phase 2 fixture helpers should set them explicitly. Stack left running with the schema applied.
