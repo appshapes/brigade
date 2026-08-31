@@ -80,6 +80,42 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P4-1..P4-6 | Vertical proof, headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-1/P4-3/P4-4) | criterion 8 is Fable-tier |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof |
 
+## Onboarding and the adapter model — reviewed 2026-08-31, DESIGN STANDS (do not re-open)
+
+Rjae reviewed the joining-and-operating experience end to end. **Conclusion: no change.** Recorded here so a later
+session does not rediscover the same ground and re-litigate it.
+
+The question asked was whether one shared team password should be all a human needs. Today a joining teammate needs
+three strings — project URL, publishable key, join secret (5.9 step 4) — plus a plugin install, because
+`team join --prompt` asks only for the secret and the label, so the backend must come from `profile init --url --key`
+first. A single self-describing bootstrap string was proposed (both extras are non-secret by 5.1, and D5 already
+bcrypts only the random tail, so the server path would be unchanged) and **was considered and declined**.
+
+What settled it: **Step 2 being Supabase-specific is the adapter model working as designed, not a defect in it.**
+4.1 freezes only `describe`, `session *` and `message *`; `team *` and `profile *` are conventions that MAY carry
+adapter-specific flags, and `--url`/`--key` are the Supabase adapter's declared extras (5.2, 5.11). A different
+adapter declares its own configuration and is selected by the `adapter_command` plugin option. Swapping adapters
+therefore changes configuration and not the messaging surface, which is the portability boundary the logical plan
+wanted. The one-string idea remains OPTIONAL UX polish, unrelated to adapter support; if it is ever wanted it must be
+a 4.2 CONVENTION (an opaque bootstrap string each adapter parses), never a Supabase-only change, and it is cheapest
+before P2-2 fixes the `brg1.` format.
+
+Two further findings from the same review, both left as-is by decision:
+
+- **Multi-team is supported; per-session switching is clumsy.** A user may hold many profiles, each bound to one team
+  (D8). But inside a session the profile comes from the `profile` plugin option and `BRIGADE_PROFILE` is deliberately
+  ignored (3.2), and `pluginConfigs` is read only from user settings, `--settings` or managed settings. So **one
+  session talks to exactly one team**, two teams at once means two sessions with different `--settings` (as P4-2
+  already does), and switching means editing settings or relaunching. The security reason for ignoring the
+  environment variable is sound and stays. A session-scoped switch reading from user settings would be safe and is
+  worth considering in Phase 5; it is NOT scoped now.
+- **Reusing an existing Supabase project is possible but not recommended, and undocumented.** Data isolation is good
+  (own schema, RLS everywhere, nothing granted to `anon` or `service_role` — verified live in E0-1), and adding
+  `brigade` to `api.schemas` is additive. The blast radius is project-WIDE auth/API settings: anonymous sign-ins
+  enabled, CAPTCHA off, no Pro session time-box/inactivity limits, Realtime "Allow public access" off, and a raised
+  anonymous rate limit. 5.9 says "create a single-purpose project" and that stays the recommendation; a reuse
+  checklist naming those five settings would be a useful Phase 5 docs addition.
+
 ## Plan corrections required before Phase 3 (from E0-5)
 
 Both of 6.6's watcher exit conditions are wrong as specified. These are not open questions — they are measured
