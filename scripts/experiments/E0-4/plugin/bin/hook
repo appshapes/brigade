@@ -1,0 +1,51 @@
+#!/bin/sh
+# E0-4 SessionStart hook.
+#
+# Differs from E0-3's hook in one way: it spawns NO timed poster. E0-4 needs the
+# post to happen at a moment the DRIVER chooses (after the first `result` has
+# been emitted and the session is idle), so the hook only publishes the nested
+# session's inbox coordinates and the driver runs the Go poster itself.
+#
+# Writes:
+#   state/hook-env.log     env snapshot for the isolation assertion (token SHA only)
+#   state/nested-env.json  socket path + RAW token, chmod 600, for the external
+#                          Go poster. Scratch-only (.ignored/), never committed.
+ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE="$ROOT/state"
+mkdir -p "$STATE"
+
+INPUT="$(cat)"
+printf '%s' "$INPUT" > "$STATE/hook-input.json"
+
+python3 - "$ROOT" <<'PY'
+import os, sys, json, hashlib, datetime
+root = sys.argv[1]; state = os.path.join(root, "state"); os.makedirs(state, exist_ok=True)
+tok = os.environ.get("CLAUDE_CODE_MESSAGING_TOKEN", "")
+sock = os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", "")
+sess = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+now = datetime.datetime.now().astimezone().isoformat()
+
+rec = {
+    "ts": now,
+    "event": "hook_session_start",
+    "socket": sock,
+    "token_sha12": hashlib.sha256(tok.encode()).hexdigest()[:12] if tok else "",
+    "claude_pid": os.environ.get("CLAUDE_PID", ""),
+    "session": sess,
+    "entrypoint": os.environ.get("CLAUDE_CODE_ENTRYPOINT", ""),
+    "has_socket": bool(sock),
+    "has_token": bool(tok),
+}
+with open(os.path.join(state, "hook-env.log"), "a") as f:
+    f.write(json.dumps(rec) + "\n")
+
+# Coordinates for the external Go poster. 0600 so only this user can read it.
+p = os.path.join(state, "nested-env.json")
+fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    json.dump({"ts": now, "socket": sock, "token": tok, "session": sess,
+               "claude_pid": os.environ.get("CLAUDE_PID", "")}, f)
+PY
+
+printf 'Brigade E0-4 probe active (a teammate may message this session).\n'
+exit 0

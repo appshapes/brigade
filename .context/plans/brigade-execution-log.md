@@ -56,7 +56,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-1 | Local stack + `brigade` schema, ported live checks | done | Fable | this commit — `docs/experiments/E0-1.md`; (a)–(i) all answered; 72/72 live assertions; driver at `scripts/experiments/E0-1/` |
 | E0-2 | Broadcast-from-DB with the Go Phoenix client (a-d, g settled) | done | Opus | this commit — `docs/experiments/E0-2.md`; (e)(f)(h)(i) answered; 42 fast + 14 soak assertions; **D21 stays on broadcast-from-DB** |
 | E0-3 | Inbound framing variants A/C (and B fallback) + injection corpus | wip | Fable | this commit — `docs/experiments/E0-3.md`; (a)(c)(d)(e)(f)(h) closed, **(b) awaits the interactive sitting**; A and C tied, D19 provisionally C |
-| E0-4 | Idle-wake automation | todo | Opus | |
+| E0-4 | Idle-wake automation | done | Opus | this commit — `docs/experiments/E0-4.md`; **criterion MET, 12/12 wakes**, max 6.7 s of a 10 s budget; driver at `scripts/experiments/E0-4/` |
 | E0-5 | Detached watcher lifecycle, `/clear`, SessionEnd budget | todo | Opus | scripted observation |
 | E0-6 | Token refresh coexistence + flock (core settled) | todo | Opus | |
 | E0-7 | Two sessions, two profiles (option delivery settled) | todo | Opus | |
@@ -106,6 +106,14 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
   probes the spec's "optional whitespace" rule should catch (space, tab and newline between `<` and the name, mixed
   case) plus two it deliberately should not (a close tag split mid-name, a pre-encoded `&lt;brigade-message`). P1-2
   decides which of the latter two, if either, the matcher must also handle; today they are fuzz seeds, not assertions.
+- **The plan's environment-strip list is incomplete (found in E0-4).** 9.6 and 7.4 name eight variables to unset
+  before a nested run (`CLAUDE_PID`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_MESSAGING_SOCKET`,
+  `CLAUDE_CODE_MESSAGING_TOKEN`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`,
+  `CLAUDE_CODE_EXECPATH`) and present that list as exhaustive. **`CLAUDE_CODE_BRIDGE_SESSION_ID` is also exported by
+  an outer session and is not on it.** It caused no contamination in E0-4 (the nested session minted its own
+  `bridgeSessionId`), but the list is wrong as documented. Fix in P1-1/P1-8 by either adding it or — better, since it
+  is robust against the next variable Claude Code adds — stripping `CLAUDE_CODE_*` as a prefix, keeping only
+  `CLAUDE_CONFIG_DIR`.
 - **P4-2's mechanical detector must not flag refusals (established in E0-3).** 9.6 says the forbidden-call list is
   asserted mechanically by a `jq` script over the `stream-json` transcript. But a model that correctly REFUSES an
   exfiltration request names the secret while declining — E0-3 produced replies such as "I won't read
@@ -207,3 +215,17 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
   a partial artifact. Mechanism worth carrying to 6.6: a socket-injected frame arrives as a QUEUED COMMAND and is
   dequeued only after the current turn, so a `-p` prompt must stay busy longer than the poster delay; and the `-p`
   `stream-json` output does not echo the frame — the authoritative record is the on-disk session transcript.
+- 2026-08-31 ~07:00: **E0-4 done — the idle-wake criterion is MET**, results in `docs/experiments/E0-4.md`, driver at
+  `scripts/experiments/E0-4/`. 12/12 delivered runs woke (7 `-p` stream-json, 5 interactive `expect`); worst latency
+  6682 ms against the 10 s budget, interactive consistently faster than `-p`. **The figure 6.6 should budget against
+  is the harness reaction, 1–7 ms enqueue→delivery in every run** — the seconds are model latency, not queue latency.
+  Adversarial verification added the one control that was missing and mattered: a NULL-POST run (live idle session,
+  socket present, nothing posted, 90 s observed) emitted nothing, which is what actually excludes "an idle session
+  emits a turn on its own"; the two original controls could not, since in both the session had already exited with
+  its socket unlinked. **The open stdin is the load-bearing condition** for a `-p` session to stay wakeable — a worker
+  that closes stdin after its prompt cannot be reached (document in 6.11). Two reusable `expect` facts for P4-3: the
+  trust dialog's highlighted default is "No, exit" so a bare Enter QUITS, and multi-word regexes never match because
+  the box drawing interleaves cursor escapes — match a single word. Limits recorded honestly: one build/machine/
+  account, all runs under `bypassPermissions`, and the longest proven idle is 120 s — the hours-long horizon (token
+  expiry, socket reaping, staleness) is E0-5's. The agent modified `.claude.json` to force the trust dialog and
+  reverted it surgically; independently verified afterwards that `projects[]` is back to its single original entry.
