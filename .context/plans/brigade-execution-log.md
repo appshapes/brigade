@@ -416,6 +416,16 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   a partial artifact. Mechanism worth carrying to 6.6: a socket-injected frame arrives as a QUEUED COMMAND and is
   dequeued only after the current turn, so a `-p` prompt must stay busy longer than the poster delay; and the `-p`
   `stream-json` output does not echo the frame — the authoritative record is the on-disk session transcript.
+- 2026-08-31 ~21:30: **Phase 0 CLOSED and handed off.** E0-8's remainder ran at Opus tier and closed the last open
+  question: **D20's skill grant HOLDS in interactive Manual mode** (3/3 with the grant, 0 Bash prompts across three
+  commands including the write verb; 3/3 prompted without it), so Rjae's stated bar — "little to no interaction
+  required by the user to conduct model-model communication" — is met end to end and measured, not assumed. The one
+  newly found cost is a single dismissible Skill dialog per project. Seven more plan corrections came out of E0-8
+  (see the block above). Claude Code updated to **2.1.252** mid-experiment; the plan says 2.1.251 throughout.
+  Cold-start hand-off written to `.ignored/handoff-15-to-implement-0831.md` for the incoming session
+  `15-implement-brigade-0831`. **Nothing retained** — no pending edits, no unpushed work, no decisions outside the
+  repo. The driver session `15-implement-brigade-0830` is hands-off from here and edits nothing further.
+  Next task is **P1-1** (Opus): Go module scaffold, Makefile, lint, CI, plugin pins — the first code commit.
 - 2026-08-31 ~16:30: **THE INTERACTIVE SITTING — E0-3 closed, E0-9 closed, E0-8 (b) closed.** Rjae observed at a real
   terminal; harness promoted to `scripts/experiments/sitting/` (shellcheck clean, re-verified through the real code
   path after promotion). **D19 = C** — see the section above. E0-9: `hold` shows a notice, does not deliver, raises
