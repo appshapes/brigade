@@ -60,7 +60,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-5 | Detached watcher lifecycle, `/clear`, SessionEnd budget | done | Opus | this commit — `docs/experiments/E0-5.md`; **two 6.6 defects found**; (a)(c)(d)(f)(h)(i) pass, (b) fails as specified |
 | E0-6 | Token refresh coexistence + flock (core settled) | done | Opus | this commit — `docs/experiments/E0-6.md`; all six pass; **5.1's two-behind rule is WRONG**; lock poll costs 100 ms per contention |
 | E0-7 | Two sessions, two profiles (option delivery settled) | done | Opus | this commit — `docs/experiments/E0-7.md`; all items pass; a fresh `CLAUDE_CONFIG_DIR` does NOT inherit the login |
-| E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | wip | Opus | this commit — `docs/experiments/E0-8.md`; **(b) closed at the sitting**; (a)(c)(d)(e)(f)(g)(h) automatable, still to do |
+| E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | wip | Opus | `docs/experiments/E0-8.md`; (b) MOSTLY closed at the sitting — **the skill-grant arm was NOT run**; (a)(c)(d)(e)(f)(g)(h) automatable, still to do |
 | E0-9 | `crossSessionInbound` hold/refuse interaction | done | Opus | this commit — `docs/experiments/E0-9.md`; hold is loud and never expires (25 min); refuse is silent to BOTH sides |
 | E0-10 | Hosted checks (optional, needs the hosted project) | blocked (D32: after the proof) | Opus | |
 | P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | todo | Opus | first code commit |
