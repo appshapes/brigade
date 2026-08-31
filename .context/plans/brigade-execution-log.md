@@ -58,7 +58,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-3 | Inbound framing variants A/C (and B fallback) + injection corpus | wip | Fable | this commit — `docs/experiments/E0-3.md`; (a)(c)(d)(e)(f)(h) closed, **(b) awaits the interactive sitting**; A and C tied, D19 provisionally C |
 | E0-4 | Idle-wake automation | done | Opus | this commit — `docs/experiments/E0-4.md`; **criterion MET, 12/12 wakes**, max 6.7 s of a 10 s budget; driver at `scripts/experiments/E0-4/` |
 | E0-5 | Detached watcher lifecycle, `/clear`, SessionEnd budget | done | Opus | this commit — `docs/experiments/E0-5.md`; **two 6.6 defects found**; (a)(c)(d)(f)(h)(i) pass, (b) fails as specified |
-| E0-6 | Token refresh coexistence + flock (core settled) | todo | Opus | |
+| E0-6 | Token refresh coexistence + flock (core settled) | done | Opus | this commit — `docs/experiments/E0-6.md`; all six pass; **5.1's two-behind rule is WRONG**; lock poll costs 100 ms per contention |
 | E0-7 | Two sessions, two profiles (option delivery settled) | todo | Opus | |
 | E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | todo | Opus | (b) is interactive; needs the user |
 | E0-9 | `crossSessionInbound` hold/refuse interaction | todo | Opus | |
@@ -115,6 +115,33 @@ Two further findings from the same review, both left as-is by decision:
   enabled, CAPTCHA off, no Pro session time-box/inactivity limits, Realtime "Allow public access" off, and a raised
   anonymous rate limit. 5.9 says "create a single-purpose project" and that stays the recommendation; a reuse
   checklist naming those five settings would be a useful Phase 5 docs addition.
+
+## Plan corrections required before Phase 2 (from E0-6)
+
+1. **5.1's stated server rule is WRONG. "A token two or more steps behind revokes the family" does not hold** on
+   GoTrue v2.196.0 as configured. Measured on an independent throwaway principal with >12 s between steps (so the
+   10 s reuse dedup cannot explain it): one-behind → HTTP 200 carrying the ACTIVE token; two-or-more-behind →
+   HTTP 400 `refresh_token_already_used`; **and the active token still answers HTTP 200 one second later.** The stale
+   token is refused, the family SURVIVES. Consequence for P2-6: 5.1 currently treats `refresh_token_already_used` as
+   re-read-once-then-TERMINAL, and terminal means clearing `session.json` and minting a new principal on the next
+   `team join`. Since the family is intact, the re-read-and-retry will normally succeed and going terminal on first
+   failure would destroy a working credential.
+2. **The lock is fine; the 100 ms poll is the cost.** The soak's "7,897 acquisitions, max 0.179 ms" measured nothing
+   (see below). Re-measured with jittered racers: **23 of 80 contended, at min 100.2 / median 101.1 / max 303.1 ms,
+   while the lock is only held 36 ms.** `LOCK_NB` polled every 100 ms rounds any contention up to a whole poll
+   quantum. The plan's own fallback — "keep the lock but make it blocking without the 10 s bound (P2-6)" — is
+   correct; either block on a goroutine with a 10 s timeout or drop the poll to 5–10 ms. The 10 s `unavailable` bound
+   was separately proven live (a 13 s holder produced `unavailable`), so it is not dead code.
+3. **One-behind tolerance is LOAD-BEARING for crash recovery, not a convenience — say so in 5.1.** Checks (d) and (f)
+   are the same mechanism: the SIGKILLed process had already rotated server-side and died before the atomic write, so
+   the new token was lost from disk, and the profile recovered ONLY because the stale file token was later redeemed
+   as one-behind. Without that tolerance, any crash between the refresh answer and the atomic write strands the
+   profile.
+
+Two smaller facts for 5.1: **PostgREST allows ~30 s of clock skew past `exp`** (HTTP 200 up to 30 s past, `PGRST303`
+from 31 s), so a JWT-expired answer is not a precise expiry signal; and **only the 90 s margin trigger can fire in
+normal operation** — the reactive "refresh after `PGRST303`" path is a cold-start / long-sleep / clock-jump path
+only. Keep it (it was verified working when forced), but state what it is for.
 
 ## Plan corrections required before Phase 3 (from E0-5)
 
@@ -288,6 +315,23 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   a partial artifact. Mechanism worth carrying to 6.6: a socket-injected frame arrives as a QUEUED COMMAND and is
   dequeued only after the current turn, so a `-p` prompt must stay busy longer than the poster delay; and the `-p`
   `stream-json` output does not echo the frame — the authoritative record is the on-disk session transcript.
+- 2026-08-31 ~18:10: **E0-6 done — all six checks pass**, results in `docs/experiments/E0-6.md`, driver at
+  `scripts/experiments/E0-6/` (plus `verify/`, which holds the corrected re-measurements and is the more trustworthy
+  artifact). 30m28s soak at `jwt_expiry = 300` with three real OS processes on one `session.json`, the third under a
+  real `sandbox-exec` profile that genuinely could not write (it persisted 0 times, yet still took `flock` through an
+  `O_RDONLY` fd, so it honours the protocol). 19 refreshes, 0 `refresh_token_already_used`, 0 `PGRST303` across 1,888
+  authenticated RPCs, 732,916 lock-free reads with 0 torn and mode 0600 every time. See "Plan corrections required
+  before Phase 2" above — the two-behind rule in 5.1 is wrong, and the lock's 100 ms poll is the real cost.
+  **`jwt_expiry` was set to 300 for this task only and has been reverted to 3600 and verified live**; the temporary
+  change was deliberately kept out of every commit.
+  Adversarial verification again found the decisive flaw: the soak's "7,897 acquisitions, all uncontended, max
+  0.179 ms" proved NOTHING, because the 250 ms contention prober and the 1 s / 3 s refreshers have commensurate
+  periods and started together, fixing the phase so the probe landed 106–133 ms after every acquisition and could
+  never fall inside the ~45 ms hold. Zero contention was structurally guaranteed, not rare — and the author's own
+  caveat blamed the wrong cause. Three further checks were being carried by instruments that could not fail: (b)
+  rested on an untested premise about `PGRST303`, (c)'s torn-read detector had no positive control (and its real
+  sample size was 8 rotations, not 732,916 reads), and (e) was instrumented client-side only, so it could not have
+  detected a rejected `access_token` push at all.
 - 2026-08-31 ~13:00: **E0-5 done — and it is the experiment that changes the most.** Results in
   `docs/experiments/E0-5.md`, harness at `scripts/experiments/E0-5/`. **Both of 6.6's watcher exit conditions are
   wrong as specified** — see "Plan corrections required before Phase 3" above; P3-5 must not be written against the
