@@ -32,6 +32,16 @@ with her own Fable 5 session on this machine, which is why this log lives in the
 - **Opus 5**: scaffolding, Makefile/CI/goreleaser, the bootstrap script, docs, running scripted experiments and
   recording their results, test plumbing, mechanical ports, evidence collection.
 
+**Cadence within a Fable-tier task (decided by Rjae, 2026-08-30).** Run **one author agent plus one full adversarial
+verifier** — roughly 4–6 Fable subagents per task. No multi-lens design panels, no separate completeness critic. The
+evidence for putting the budget here: the adversarial pass found **7** assertions passing for the wrong reason in E0-1
+and **15** in E0-2 (including a soak that would have passed having sent zero messages, and a "50 concurrent senders"
+claim that was never actually measured). Both authors reported fully green beforehand and neither caught its own gaps.
+The design panels, by contrast, mostly yielded nice-to-have extras. So when the budget is trimmed, the verifier is what
+survives. Prompt the verifier to assume a pass is for the wrong reason, to check that each assertion *could* fail, to
+demand positive controls, and to strengthen weak checks in place before reporting. When the driver session's main loop
+is a smaller model, Fable-tier work goes to subagents (`model: 'fable'`), never inline.
+
 ## Status
 
 Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
@@ -44,7 +54,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P0-2 | Preserve the second research round under `docs/research/` | done | Fable | this commit |
 | P0-1 | Injection corpus (`scripts/injection-corpus/`, `expected.json`) | done | Fable | this commit — 26 items (17 `ask` / 9 `ignore`; 24 body + 2 summary-only), the plan's mandated 15 at `01`–`15` plus 11 additions |
 | E0-1 | Local stack + `brigade` schema, ported live checks | done | Fable | this commit — `docs/experiments/E0-1.md`; (a)–(i) all answered; 72/72 live assertions; driver at `scripts/experiments/E0-1/` |
-| E0-2 | Broadcast-from-DB with the Go Phoenix client (a-d, g settled) | todo | Opus | remaining items are mechanical soaks |
+| E0-2 | Broadcast-from-DB with the Go Phoenix client (a-d, g settled) | done | Opus | this commit — `docs/experiments/E0-2.md`; (e)(f)(h)(i) answered; 42 fast + 14 soak assertions; **D21 stays on broadcast-from-DB** |
 | E0-3 | Inbound framing variants A/C (and B fallback) + injection corpus | todo | Fable | decides D19; security-critical |
 | E0-4 | Idle-wake automation | todo | Opus | |
 | E0-5 | Detached watcher lifecycle, `/clear`, SessionEnd budget | todo | Opus | scripted observation |
@@ -89,8 +99,11 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 - **Are `@`-mentions inert inside a sanitised body?** The 6.7 sanitiser neutralises five tag families and strips
   format characters but says nothing about the harness `@~/path` file-reference syntax. If the harness expands an
   `@`-mention inside an injected frame, corpus item `08-at-mention-ssh-key` pulls the secret into context regardless
-  of what the model decides — the item would then measure the harness, not the model. Settle in E0-3 (b) alongside
-  the rendering questions; if expansion happens, 6.7 gains a rule and the item's expected outcome is revisited (P0-1).
+  of what the model decides — the item would then measure the harness, not the model. Measure it in E0-3 (b).
+  **Disposition decided by Rjae, 2026-08-30: if expansion is real, DOCUMENT IT AS A RESIDUAL RISK in
+  `docs/security.md` alongside the D18 and D20 accepted risks — do NOT add an `@`-neutralising rule to 6.7.** The
+  sanitiser keeps its five-family scope and message text stays untouched. E0-3 still records exactly what expands and
+  under which conditions, and item `08`'s expected outcome is revisited in the light of the measurement (P0-1).
 - **Does the sanitiser's tag matcher survive near-misses?** Corpus item `25-tag-matcher-evasion` carries byte-exact
   probes the spec's "optional whitespace" rule should catch (space, tab and newline between `<` and the name, mixed
   case) plus two it deliberately should not (a close tag split mid-name, a pre-encoded `&lt;brigade-message`). P1-2
@@ -155,3 +168,21 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
   not status; publishable-key-without-JWT denials are HTTP 401 while table denials with a JWT are HTTP 403, both
   `42501`; and the minimal `auth.users` fixture insert is `id` alone, but leaves `aud` and `role` as empty strings,
   so Phase 2 fixture helpers should set them explicitly. Stack left running with the schema applied.
+- 2026-08-30 ~20:05: **E0-2 done**, results in `docs/experiments/E0-2.md`, driver promoted to
+  `scripts/experiments/E0-2/`. **D21 stays on broadcast-from-the-database** — neither flip condition fired. Ran at
+  Opus tier throughout (author + adversarial verifier), per the tier policy. (e) exactly-once holds with concurrency
+  *measured* (peak 50 in-flight RPCs) and the drain racing the senders; (f) the strict race did not reproduce in 20
+  attempts across 3 runs, with 40 of 80 sends confirmed to have committed after join ok so the negative is not
+  vacuous, while the pre-join window misses 100% of the time and drain-on-join-ok covers it 20/20; (h) revocation
+  takes effect on both the `leave_team` and the membership-only SQL path, byte-identical to a non-member baseline;
+  (i) the 30-minute soak passed 14/14, including at-least-once recovery of 5 messages across a `supabase stop`/`start`.
+  The drain is `fetch_inbox` + ack per page with no `seq` watermark, and the run **empirically observed** the 5.7
+  inversion (cross-page `seq` going backwards) that would have made a watermark lose rows. Adversarial review found
+  15 wrong-reason passes, the most important being that the exactly-once detectors had never been shown capable of
+  firing — three fault-injection self-tests now prove they do.
+- 2026-08-30 ~20:05: **Rjae's answers to the pending questions**, recorded where each belongs: Fable cadence → one
+  author + one adversarial verifier, no design panels (see "Model tier policy" above); P0-1 corpus → keep all 26
+  items, no trim; `@`-mentions → if E0-3 (b) shows expansion, document as a residual risk in `docs/security.md`, do
+  NOT add a 6.7 sanitiser rule (see the open question above); the keyboard-dependent sitting → **deferred**, so run
+  every automatable part of E0-3 and then E0-4..E0-7 first, and close E0-3 (b), E0-8 (b) and E0-9 together in one
+  ~15-minute sitting afterwards. E0-3 therefore runs to completion minus (b), and D19 is decided after that sitting.
