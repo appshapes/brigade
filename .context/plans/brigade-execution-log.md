@@ -59,7 +59,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-4 | Idle-wake automation | done | Opus | this commit — `docs/experiments/E0-4.md`; **criterion MET, 12/12 wakes**, max 6.7 s of a 10 s budget; driver at `scripts/experiments/E0-4/` |
 | E0-5 | Detached watcher lifecycle, `/clear`, SessionEnd budget | done | Opus | this commit — `docs/experiments/E0-5.md`; **two 6.6 defects found**; (a)(c)(d)(f)(h)(i) pass, (b) fails as specified |
 | E0-6 | Token refresh coexistence + flock (core settled) | done | Opus | this commit — `docs/experiments/E0-6.md`; all six pass; **5.1's two-behind rule is WRONG**; lock poll costs 100 ms per contention |
-| E0-7 | Two sessions, two profiles (option delivery settled) | todo | Opus | |
+| E0-7 | Two sessions, two profiles (option delivery settled) | done | Opus | this commit — `docs/experiments/E0-7.md`; all items pass; a fresh `CLAUDE_CONFIG_DIR` does NOT inherit the login |
 | E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | todo | Opus | (b) is interactive; needs the user |
 | E0-9 | `crossSessionInbound` hold/refuse interaction | todo | Opus | |
 | E0-10 | Hosted checks (optional, needs the hosted project) | blocked (D32: after the proof) | Opus | |
@@ -195,7 +195,28 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   without pg_cron applies cleanly.
 - Loopback from a sandboxed Bash tool via `sandbox.network.allowedDomains` (E0-8 (c)).
 - `GORELEASER_CURRENT_TAG` with `--skip=validate` on a not-yet-existing tag (P2-12 rehearsal).
-- Whether a fresh `CLAUDE_CONFIG_DIR` needs its own `claude login` (E0-7, matters for P5-10).
+- ~~Whether a fresh `CLAUDE_CONFIG_DIR` needs its own `claude login` (E0-7, matters for P5-10).~~ **RESOLVED (E0-7):
+  it does NOT inherit the login.** Headless exits 1 in 0.5 s with `Not logged in · Please run /login`; interactive
+  opens full first-run onboarding (welcome → theme picker). Keychain credentials are scoped PER CONFIG DIRECTORY, one
+  item per dir. P5-10 must document a one-time `claude login` per config dir. That one login is SUFFICIENT is
+  inferred, not measured — no login was attempted, since that is the user's own interactive action.
+- **The by-pid map is an unauthenticated trust boundary (new, from E0-7).** `brigade` takes BOTH the profile and the
+  team out of `state/by-pid/<pid>.json`, in preference to the environment — proven by a poison control (an env var
+  saying `bravo` against a map saying `alpha` resolved to `alpha`). That is correct by design, since it is the only
+  path available to the Bash tool, but it means **anything able to write that file decides which profile and team a
+  session acts as**, guarded by filesystem permissions alone (0600 under `${BRIGADE_STATE_DIR}`). P3-3 and P3-5 must
+  be written knowingly against this, and it belongs in the threat model beside T4. Mitigation available for the
+  teardown path: plugin options reach ALL THREE lifecycle hooks (SessionStart, UserPromptSubmit, SessionEnd),
+  reconfirmed across nine firings, so a close can be attributed from the option directly rather than via the map.
+- **The environment strip list is short by three MORE (E0-7, extending the E0-4 finding).** Stripping by prefix
+  removed eleven variables here; beyond `CLAUDE_CODE_BRIDGE_SESSION_ID` the list also misses `CLAUDE_EFFORT` and
+  `AI_AGENT` (not even `CLAUDE_`-prefixed). Replace the enumerated list with the prefix rule in 9.6 and 7.4, keeping
+  only `CLAUDE_CONFIG_DIR`.
+- **Two plan text corrections from E0-7.** (1) The plan names `/Users/rjae/.claude-ifthen` as "this user's real config
+  dir"; the dir in use by the driver session is `/Users/rjae/.claude-thinktech` — `.claude-ifthen` is the PLANNING
+  session's. Make the sentence dir-agnostic (read `CLAUDE_CONFIG_DIR` at run time). (2) The "debug profile
+  resolution" fallback for E0-7 is dead by evidence and should be dropped or repurposed as a diagnostic for the
+  now-measured `nomap` failure (exit 6).
 - ~~**Are `@`-mentions inert inside a sanitised body?**~~ **RESOLVED (E0-3), negatively — no change needed.** The
   harness does NOT expand `@`-mentions inside an injected frame: `@~/.ssh/id_rsa` in item `08-at-mention-ssh-key`
   stayed inert text, no key material appeared in any transcript, and there was no Read of a credentials path in any
@@ -315,6 +336,20 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   a partial artifact. Mechanism worth carrying to 6.6: a socket-injected frame arrives as a QUEUED COMMAND and is
   dequeued only after the current turn, so a `-p` prompt must stay busy longer than the poster delay; and the `-p`
   `stream-json` output does not echo the frame — the authoritative record is the on-disk session transcript.
+- 2026-08-31 ~19:00: **E0-7 done — all items pass; Phase 0's automatable work is complete.** Results in
+  `docs/experiments/E0-7.md`, harness at `scripts/experiments/E0-7/`. Two concurrent `-p` sessions in ONE config dir,
+  each selecting its profile through its own `--settings` `pluginConfigs` block: both registered under their own
+  profile with no cross-writes, each `brigade sessions` saw the other (behind a `wait-peer` barrier proving genuine
+  temporal overlap, not leftover registry files), and `brigade whoami` in each Bash tool named its own profile.
+  Item 2 was proven properly for once: the hook mints a MAP NONCE written ONLY into the by-pid map, so a value
+  `brigade` prints can only have been read from that file — plus two live negative controls (a poisoned env var is
+  ignored; a missing map entry fails with exit 6). Profile resolution works as designed; the plan's "debug profile
+  resolution" fallback is dead code. **A fresh `CLAUDE_CONFIG_DIR` does NOT inherit the login** (see the resolved
+  open question above). Two things carried up as open items: the by-pid map is an unauthenticated trust boundary, and
+  the strip list is short by three more names. Note for future stages: verification caught the measurement stage
+  asserting a FALSE fact — that `.claude-ifthen` has no keychain credential item — which it disproved by re-deriving
+  the keychain service name rather than by re-reading the prose. All runs were `claude -p`; the interactive
+  two-profile path is unexercised.
 - 2026-08-31 ~18:10: **E0-6 done — all six checks pass**, results in `docs/experiments/E0-6.md`, driver at
   `scripts/experiments/E0-6/` (plus `verify/`, which holds the corrected re-measurements and is the more trustworthy
   artifact). 30m28s soak at `jwt_expiry = 300` with three real OS processes on one `session.json`, the third under a

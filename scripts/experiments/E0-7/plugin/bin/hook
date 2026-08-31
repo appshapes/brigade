@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""E0-7 lifecycle hook (session-start | prompt | session-end).
+
+Adapted from the E0-3 probe hook. Two changes for E0-7:
+
+  1. It reads the `profile` plugin option out of CLAUDE_PLUGIN_OPTION_PROFILE
+     (settled fact: hooks receive the USER-SET value) and REGISTERS this session
+     under that profile: state/registry/<profile>/<CLAUDE_PID>.json.
+
+  2. It writes a BY-PID MAP entry, state/by-pid/<CLAUDE_PID>.json, carrying the
+     profile plus a MAP NONCE generated here and written NOWHERE else -- not into
+     any environment variable, not into the settings file, not into the prompt.
+     `brigade whoami`, run later by the model in the Bash tool (which never sees
+     CLAUDE_PLUGIN_*), can only print that nonce if it actually read this map.
+
+Everything is keyed by CLAUDE_PID, so two sessions in ONE CLAUDE_CONFIG_DIR are
+two independent principals.
+"""
+import datetime
+import hashlib
+import json
+import os
+import secrets
+import sys
+
+ROOT = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(
+    os.path.dirname(os.path.realpath(__file__)))
+STATE = os.path.join(ROOT, "state")
+
+# Fake team map: E0-7 puts both probe profiles in ONE team so each session's
+# `brigade sessions` must list the other (D8: a profile binds to exactly one team).
+TEAMS = {"alpha": "ops", "bravo": "ops", "default": "ops"}
+
+
+def now():
+    return datetime.datetime.now().astimezone().isoformat()
+
+
+def jdump(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=2)
+    os.replace(tmp, path)
+
+
+def append(name, rec):
+    os.makedirs(STATE, exist_ok=True)
+    with open(os.path.join(STATE, name), "a") as f:
+        f.write(json.dumps(rec) + "\n")
+
+
+def main():
+    event = sys.argv[1] if len(sys.argv) > 1 else "session-start"
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        raw = ""
+    try:
+        hook_input = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        hook_input = {"_parse_error": True, "_raw": raw[:2000]}
+
+    pid = os.environ.get("CLAUDE_PID", "")
+    # The option value, exactly as the hook receives it. No default is invented
+    # here: an absent option is recorded as absent so the run can see it.
+    opt_profile = os.environ.get("CLAUDE_PLUGIN_OPTION_PROFILE")
+    opt_inbound = os.environ.get("CLAUDE_PLUGIN_OPTION_TEAM_INBOUND")
+    tok = os.environ.get("CLAUDE_CODE_MESSAGING_TOKEN", "")
+
+    env_rec = {
+        "ts": now(),
+        "event": "hook_" + event.replace("-", "_"),
+        "argv": list(sys.argv),
+        "claude_pid": pid,
+        "session": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+        "socket": os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", ""),
+        "token_sha12": hashlib.sha256(tok.encode()).hexdigest()[:12] if tok else "",
+        "entrypoint": os.environ.get("CLAUDE_CODE_ENTRYPOINT", ""),
+        "cwd": os.getcwd(),
+        # The whole point of item 1: what option value did THIS hook receive?
+        "CLAUDE_PLUGIN_OPTION_PROFILE": opt_profile,
+        "CLAUDE_PLUGIN_OPTION_TEAM_INBOUND": opt_inbound,
+        "plugin_option_env_names": sorted(
+            k for k in os.environ if k.startswith("CLAUDE_PLUGIN_OPTION_")),
+        "claude_env_names": sorted(
+            k for k in os.environ if k.startswith("CLAUDE") or k == "CLAUDECODE"),
+        "hook_session_id": hook_input.get("session_id"),
+        "hook_event_name": hook_input.get("hook_event_name"),
+        "hook_source": hook_input.get("source"),
+    }
+    append("hook-env.log", env_rec)
+
+    profile = opt_profile if opt_profile else "<absent>"
+    team = TEAMS.get(profile, "unknown")
+    bypid = os.path.join(STATE, "by-pid", pid + ".json")
+    reg = os.path.join(STATE, "registry", profile, pid + ".json")
+
+    if event == "session-start":
+        # The nonce exists ONLY inside the by-pid map file.
+        nonce = "MAP-" + secrets.token_hex(4).upper()
+        entry = {
+            "schema": "e07-by-pid/1",
+            "claude_pid": pid,
+            "profile": profile,
+            "profile_source": "CLAUDE_PLUGIN_OPTION_PROFILE (SessionStart hook)",
+            "team": team,
+            "map_nonce": nonce,
+            "claude_session_id": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+            "socket": os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", ""),
+            "token_sha12": env_rec["token_sha12"],
+            "cwd": os.getcwd(),
+            "started": now(),
+            "state": "live",
+        }
+        jdump(bypid, entry)
+        jdump(reg, dict(entry, registered_under=profile))
+        append("registrations.ndjson",
+               {"ts": now(), "event": "register", "profile": profile, "team": team,
+                "claude_pid": pid, "map_nonce": nonce,
+                "bypid_path": bypid, "registry_path": reg})
+        sys.stdout.write(
+            "Brigade E0-7 probe active. profile=%s team=%s pid=%s\n" % (profile, team, pid))
+    elif event == "session-end":
+        for p in (bypid, reg):
+            try:
+                with open(p) as f:
+                    e = json.load(f)
+                e["state"] = "closed"
+                e["ended"] = now()
+                jdump(p, e)
+            except Exception:
+                pass
+        append("registrations.ndjson",
+               {"ts": now(), "event": "close", "profile": profile, "claude_pid": pid})
+    # `prompt` only logs (already appended above); stdout stays empty there so it
+    # injects no context and cannot disturb the turn.
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

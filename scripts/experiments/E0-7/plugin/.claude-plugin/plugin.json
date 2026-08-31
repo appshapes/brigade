@@ -1,0 +1,11 @@
+{
+  "name": "brigade",
+  "version": "0.0.0",
+  "description": "E0-7 two-sessions/two-profiles probe: SessionStart writes a by-pid map carrying the profile option; bin/ ships a fake brigade whose state is keyed BY PROFILE.",
+  "author": {"name": "appshapes"},
+  "keywords": ["messaging", "team", "cross-session", "experiment"],
+  "userConfig": {
+    "profile": {"type": "string", "title": "Brigade profile", "description": "Adapter profile name.", "default": "default"},
+    "team_inbound": {"type": "string", "title": "Incoming team messages", "description": "accept | refuse.", "default": "accept"}
+  }
+}

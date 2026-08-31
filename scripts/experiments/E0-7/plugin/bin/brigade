@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""E0-7 fake `brigade` executable -- state keyed BY PROFILE.
+
+Reached as a bare command because Claude Code appends a plugin's bin/ to the
+Bash tool's PATH. The Bash tool NEVER receives CLAUDE_PLUGIN_* [verified, A.7],
+so this program has exactly one way to learn which profile it belongs to:
+
+    CLAUDE_PID  ->  state/by-pid/<pid>.json  ->  {"profile": ..., "map_nonce": ...}
+
+There is deliberately NO environment fallback for the profile. If the by-pid map
+is missing the command fails; it never guesses, and it never reads
+CLAUDE_PLUGIN_OPTION_PROFILE even if one were somehow present.
+
+Subcommands
+  whoami            resolve and print this session's profile (+ resolution trace)
+  sessions          list every live session of MY team (self and peers)
+  wait-peer [secs]  block until a live peer of my team under a DIFFERENT profile
+                    appears, so the two sessions provably overlap in time
+  send <to> ...     recorded only (kept from the E0-3 recorder)
+
+Every invocation is recorded twice: once in the global NDJSON and once under
+state/profiles/<profile>/calls.ndjson -- the "state keyed by profile" the
+experiment asks for.
+"""
+import datetime
+import json
+import os
+import sys
+import time
+
+SELF = os.path.realpath(__file__)
+ROOT = os.path.dirname(os.path.dirname(SELF))          # bin/.. == plugin root
+STATE = os.path.join(ROOT, "state")
+BYPID = os.path.join(STATE, "by-pid")
+REGISTRY = os.path.join(STATE, "registry")
+
+
+def now():
+    return datetime.datetime.now().astimezone().isoformat()
+
+
+def env_survey():
+    """What this process -- a Bash tool child -- can actually see."""
+    names = sorted(k for k in os.environ if k.startswith("CLAUDE") or k == "CLAUDECODE")
+    return {
+        "claude_env_names_visible": names,
+        "CLAUDE_PID": os.environ.get("CLAUDE_PID"),
+        "CLAUDE_PLUGIN_OPTION_PROFILE": os.environ.get("CLAUDE_PLUGIN_OPTION_PROFILE"),
+        "CLAUDE_PLUGIN_OPTION_PROFILE_present": "CLAUDE_PLUGIN_OPTION_PROFILE" in os.environ,
+        "any_CLAUDE_PLUGIN_var_present": [k for k in names if k.startswith("CLAUDE_PLUGIN")],
+        "CLAUDE_PLUGIN_ROOT": os.environ.get("CLAUDE_PLUGIN_ROOT"),
+        "CLAUDE_PLUGIN_DATA": os.environ.get("CLAUDE_PLUGIN_DATA"),
+    }
+
+
+def resolve():
+    """CLAUDE_PID -> by-pid map. The ONLY profile source."""
+    trace = {"step_1_env_var_read": "CLAUDE_PID", "state_dir": STATE}
+    pid = os.environ.get("CLAUDE_PID", "")
+    trace["step_2_claude_pid"] = pid
+    if not pid:
+        return None, dict(trace, error="CLAUDE_PID absent; cannot resolve a session")
+    path = os.path.join(BYPID, pid + ".json")
+    trace["step_3_map_file"] = path
+    trace["step_4_map_file_exists"] = os.path.exists(path)
+    if not os.path.exists(path):
+        return None, dict(trace, error="no by-pid map entry for pid " + pid)
+    with open(path) as f:
+        entry = json.load(f)
+    trace["step_5_profile_from_map"] = entry.get("profile")
+    trace["step_6_map_nonce_from_map"] = entry.get("map_nonce")
+    trace["profile_source"] = "by-pid map file (NOT the environment)"
+    return entry, trace
+
+
+def alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except Exception:
+        return False
+
+
+def all_registered():
+    out = []
+    if not os.path.isdir(REGISTRY):
+        return out
+    for prof in sorted(os.listdir(REGISTRY)):
+        d = os.path.join(REGISTRY, prof)
+        if not os.path.isdir(d):
+            continue
+        for fn in sorted(os.listdir(d)):
+            if not fn.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(d, fn)) as f:
+                    e = json.load(f)
+            except Exception:
+                continue
+            e["_registry_dir_profile"] = prof
+            e["_alive"] = alive(e.get("claude_pid", "-1"))
+            out.append(e)
+    return out
+
+
+def record(profile, rec):
+    os.makedirs(STATE, exist_ok=True)
+    with open(os.path.join(STATE, "fake-brigade.ndjson"), "a") as f:
+        f.write(json.dumps(rec) + "\n")
+    pdir = os.path.join(STATE, "profiles", profile or "<unresolved>")
+    os.makedirs(pdir, exist_ok=True)
+    with open(os.path.join(pdir, "calls.ndjson"), "a") as f:
+        f.write(json.dumps(rec) + "\n")
+
+
+def main():
+    argv = list(sys.argv)
+    cmd = argv[1] if len(argv) > 1 else ""
+    entry, trace = resolve()
+    profile = entry.get("profile") if entry else None
+    rec = {"ts": now(), "cmd": cmd, "argv": argv, "cwd": os.getcwd(),
+           "resolved_profile": profile, "resolution_trace": trace,
+           "env_survey": env_survey()}
+
+    if cmd == "whoami":
+        rec["event"] = "whoami"
+        record(profile, rec)
+        if not entry:
+            print("brigade: cannot resolve this session: " + trace.get("error", "?"),
+                  file=sys.stderr)
+            return 6
+        payload = {
+            "profile": entry["profile"],
+            "team": entry["team"],
+            "claude_pid": entry["claude_pid"],
+            "map_nonce": entry["map_nonce"],
+            "claude_session_id": entry.get("claude_session_id", ""),
+            "resolution": trace,
+            "bash_tool_env": env_survey(),
+        }
+        if "--json" in argv:
+            print(json.dumps(payload, indent=2))
+        else:
+            print("profile: %s" % entry["profile"])
+            print("team:    %s" % entry["team"])
+            print("pid:     %s" % entry["claude_pid"])
+            print("map_nonce: %s" % entry["map_nonce"])
+            print("resolved via: CLAUDE_PID -> %s" % trace["step_3_map_file"])
+            print("CLAUDE_PLUGIN_OPTION_PROFILE in this environment: %s"
+                  % ("<ABSENT>" if not env_survey()["CLAUDE_PLUGIN_OPTION_PROFILE_present"]
+                     else env_survey()["CLAUDE_PLUGIN_OPTION_PROFILE"]))
+        return 0
+
+    if cmd == "sessions":
+        rec["event"] = "sessions"
+        if not entry:
+            record(profile, rec)
+            print("brigade: cannot resolve this session: " + trace.get("error", "?"),
+                  file=sys.stderr)
+            return 6
+        me = entry["claude_pid"]
+        rows = []
+        for e in all_registered():
+            if e.get("team") != entry["team"]:
+                continue
+            rows.append({
+                "profile": e.get("profile"),
+                "registered_under": e.get("_registry_dir_profile"),
+                "claude_pid": e.get("claude_pid"),
+                "team": e.get("team"),
+                "state": e.get("state"),
+                "process_alive": e.get("_alive"),
+                "cwd": e.get("cwd"),
+                "self": e.get("claude_pid") == me,
+            })
+        rec["rows"] = rows
+        record(profile, rec)
+        if "--json" in argv:
+            print(json.dumps({"me": {"profile": entry["profile"], "pid": me},
+                              "sessions": rows}, indent=2))
+        else:
+            print("team %s -- %d session(s) (I am profile %s, pid %s)"
+                  % (entry["team"], len(rows), entry["profile"], me))
+            for r in rows:
+                print("  %-6s pid=%-7s %-6s alive=%-5s %s"
+                      % (r["profile"], r["claude_pid"], r["state"],
+                         r["process_alive"], "<- me" if r["self"] else "<- peer"))
+        return 0
+
+    if cmd == "wait-peer":
+        timeout = 90.0
+        for a in argv[2:]:
+            if a.replace(".", "", 1).isdigit():
+                timeout = float(a)
+        rec["event"] = "wait-peer"
+        if not entry:
+            record(profile, rec)
+            print("brigade: cannot resolve this session: " + trace.get("error", "?"),
+                  file=sys.stderr)
+            return 6
+        deadline = time.time() + timeout
+        found = None
+        while time.time() < deadline:
+            for e in all_registered():
+                if (e.get("team") == entry["team"]
+                        and e.get("profile") != entry["profile"]
+                        and e.get("state") == "live" and e.get("_alive")):
+                    found = e
+                    break
+            if found:
+                break
+            time.sleep(0.5)
+        rec["peer_found"] = bool(found)
+        rec["peer"] = {"profile": found.get("profile"), "pid": found.get("claude_pid")} if found else None
+        record(profile, rec)
+        if found:
+            print("peer online: profile=%s pid=%s (I am %s)"
+                  % (found["profile"], found["claude_pid"], entry["profile"]))
+            return 0
+        print("no peer appeared within %ss (I am %s)" % (timeout, entry["profile"]))
+        return 6
+
+    rec["event"] = "other"
+    record(profile, rec)
+    print("ok")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
