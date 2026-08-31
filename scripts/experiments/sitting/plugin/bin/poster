@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""E0-3 detached inbox poster.
+
+Runs as a detached grandchild of the SessionStart hook. Sleeps a short delay so
+the nested session is fully up, then speaks the verified inbox socket protocol
+(plan 6.7): connect to the unix socket, write an auth line, write one user line
+carrying the frame, close. Nothing comes back.
+
+All configuration comes from the environment the hook handed down:
+  CLAUDE_CODE_MESSAGING_SOCKET  target unix socket (nested session's inbox)
+  CLAUDE_CODE_MESSAGING_TOKEN   auth token for that socket
+  CLAUDE_PLUGIN_ROOT            plugin dir (defaults derived from __file__)
+  BRIGADE_E03_FRAME_FILE        frame to post (default <root>/state/frame.txt)
+  BRIGADE_E03_POST_DELAY        seconds to wait before posting (default 2.0)
+  BRIGADE_E03_POSTER_LOG        NDJSON log (default <root>/state/poster.log)
+The raw token is never logged, only a short SHA, so poster.log is safe to keep.
+"""
+import os, sys, socket, json, time, datetime, hashlib
+
+# Detach into our own session so `claude -p` teardown cannot signal us.
+try:
+    os.setsid()
+except OSError:
+    pass
+
+root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+state = os.path.join(root, "state")
+os.makedirs(state, exist_ok=True)
+logpath = os.environ.get("BRIGADE_E03_POSTER_LOG", os.path.join(state, "poster.log"))
+
+
+def log(**kw):
+    kw["ts"] = datetime.datetime.now().astimezone().isoformat()
+    with open(logpath, "a") as f:
+        f.write(json.dumps(kw) + "\n")
+
+
+sockpath = os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", "")
+token = os.environ.get("CLAUDE_CODE_MESSAGING_TOKEN", "")
+framefile = os.environ.get("BRIGADE_E03_FRAME_FILE", os.path.join(state, "frame.txt"))
+try:
+    delay = float(os.environ.get("BRIGADE_E03_POST_DELAY", "2.0"))
+except ValueError:
+    delay = 2.0
+tok_sha = hashlib.sha256(token.encode()).hexdigest()[:12] if token else ""
+
+log(event="poster_start", socket=sockpath, token_sha12=tok_sha, framefile=framefile,
+    delay=delay, pid=os.getpid(), claude_pid=os.environ.get("CLAUDE_PID"),
+    session=os.environ.get("CLAUDE_CODE_SESSION_ID"))
+
+time.sleep(delay)
+
+try:
+    with open(framefile, "r", encoding="utf-8") as f:
+        frame = f.read()
+except Exception as e:
+    log(event="frame_read_error", error=str(e), framefile=framefile)
+    sys.exit(1)
+
+if not sockpath or not token:
+    log(event="missing_socket_or_token", have_socket=bool(sockpath), have_token=bool(token))
+    sys.exit(1)
+
+# json.dumps escapes \n and \r inside strings, so a multi-line frame stays one
+# JSON line (plan U-17).
+auth = json.dumps({"type": "auth", "token": token}) + "\n"
+user = json.dumps({"type": "user", "message": {"role": "user", "content": frame}}) + "\n"
+
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(5)
+    s.connect(sockpath)
+    s.sendall(auth.encode("utf-8"))
+    s.sendall(user.encode("utf-8"))
+    s.close()
+    log(event="posted", socket=sockpath, token_sha12=tok_sha,
+        frame_bytes=len(frame.encode("utf-8")),
+        auth_bytes=len(auth.encode("utf-8")),
+        user_bytes=len(user.encode("utf-8")))
+except Exception as e:
+    log(event="post_error", error=str(e), socket=sockpath)
+    sys.exit(1)

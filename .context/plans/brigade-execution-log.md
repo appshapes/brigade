@@ -55,13 +55,13 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P0-1 | Injection corpus (`scripts/injection-corpus/`, `expected.json`) | done | Fable | this commit — 26 items (17 `ask` / 9 `ignore`; 24 body + 2 summary-only), the plan's mandated 15 at `01`–`15` plus 11 additions |
 | E0-1 | Local stack + `brigade` schema, ported live checks | done | Fable | this commit — `docs/experiments/E0-1.md`; (a)–(i) all answered; 72/72 live assertions; driver at `scripts/experiments/E0-1/` |
 | E0-2 | Broadcast-from-DB with the Go Phoenix client (a-d, g settled) | done | Opus | this commit — `docs/experiments/E0-2.md`; (e)(f)(h)(i) answered; 42 fast + 14 soak assertions; **D21 stays on broadcast-from-DB** |
-| E0-3 | Inbound framing variants A/C (and B fallback) + injection corpus | wip | Fable | this commit — `docs/experiments/E0-3.md`; (a)(c)(d)(e)(f)(h) closed, **(b) awaits the interactive sitting**; A and C tied, D19 provisionally C |
+| E0-3 | Inbound framing variants A/C (and B fallback) + injection corpus | done | Fable | `docs/experiments/E0-3.md`; all checks incl. (b); **D19 = C** (C names the sender in the preview, A names nobody) |
 | E0-4 | Idle-wake automation | done | Opus | this commit — `docs/experiments/E0-4.md`; **criterion MET, 12/12 wakes**, max 6.7 s of a 10 s budget; driver at `scripts/experiments/E0-4/` |
 | E0-5 | Detached watcher lifecycle, `/clear`, SessionEnd budget | done | Opus | this commit — `docs/experiments/E0-5.md`; **two 6.6 defects found**; (a)(c)(d)(f)(h)(i) pass, (b) fails as specified |
 | E0-6 | Token refresh coexistence + flock (core settled) | done | Opus | this commit — `docs/experiments/E0-6.md`; all six pass; **5.1's two-behind rule is WRONG**; lock poll costs 100 ms per contention |
 | E0-7 | Two sessions, two profiles (option delivery settled) | done | Opus | this commit — `docs/experiments/E0-7.md`; all items pass; a fresh `CLAUDE_CONFIG_DIR` does NOT inherit the login |
-| E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | todo | Opus | (b) is interactive; needs the user |
-| E0-9 | `crossSessionInbound` hold/refuse interaction | todo | Opus | |
+| E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | wip | Opus | this commit — `docs/experiments/E0-8.md`; **(b) closed at the sitting**; (a)(c)(d)(e)(f)(g)(h) automatable, still to do |
+| E0-9 | `crossSessionInbound` hold/refuse interaction | done | Opus | this commit — `docs/experiments/E0-9.md`; hold is loud and never expires (25 min); refuse is silent to BOTH sides |
 | E0-10 | Hosted checks (optional, needs the hosted project) | blocked (D32: after the proof) | Opus | |
 | P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | todo | Opus | first code commit |
 | P1-2 | `internal/protocol` (types, errors, NDJSON, sanitiser, schema) | todo | Fable | protocol + sanitiser |
@@ -115,6 +115,45 @@ Two further findings from the same review, both left as-is by decision:
   enabled, CAPTCHA off, no Pro session time-box/inactivity limits, Realtime "Allow public access" off, and a raised
   anonymous rate limit. 5.9 says "create a single-purpose project" and that stays the recommendation; a reuse
   checklist naming those five settings would be a useful Phase 5 docs addition.
+
+## D19 IS DECIDED — variant C (interactive sitting, 2026-08-31)
+
+**D19 = C: the `<brigade-message>` frame nested inside `<cross-session-message from-name="…">`.** Observed by Rjae at
+a real terminal. C's one-line preview reads `Message from @payments-api: <brigade-message team="ops" …` while A's
+header is the anonymous `Another Claude session sent a message:` — A names nobody outside the frame. **C's outer
+wrapper costs nothing**: the harness CONSUMES it and turns it into the attribution, so the outer tag never reaches
+the model. Same inner frame (byte-identical), same reply behaviour (both 5/5 correct, 0 native `SendMessage`, 0
+evasive). Variant B was not run and is not needed. Note for the skill: `from-name` is free text any member can copy,
+so the preview's `@payments-api` is cosmetic — `from-principal` stays the only server-stamped identity.
+
+## Plan corrections from the interactive sitting (2026-08-31)
+
+1. **6.7 — the harness preamble is not a single prefix.** It is a short header line BEFORE the frame
+   (`Another Claude session sent a message:`) and the long trust text AFTER it. Any reasoning that assumes one
+   leading block is wrong.
+2. **6.7 — the preamble text quoted in the plan does not exist in 2.1.251.** The plan quotes it as *"Another Claude
+   session sent a message … reply via SendMessage to the `from=` address"* and cites that phrase as the reason D19
+   must never emit a `did:` address. The real text says NOTHING about `SendMessage` or a `from=` address; it is the
+   permission-laundering warning (captured verbatim in `docs/experiments/E0-3.md`). The conclusion survives and is
+   stronger — the harness gives the model no reply instruction at all — but the rationale quotes text that is not
+   there.
+3. **`docs/security.md` — sticky dismissal depends on WHY the prompt appeared.** A prompt raised by an explicit
+   `permissions.ask` rule offers only `Yes`/`No`: **the D20 gate cannot be one-click disabled.** A prompt raised by
+   default Manual-mode approval (no rule) additionally offers `Yes, and don't ask again for: <pattern> *` AND
+   `Yes, and switch to auto mode`. Neither is a flaw, but the setup docs must not promise "you will be prompted"
+   when the first prompt offers never to prompt again.
+4. **`docs/security.md` — a denied model proposes evasions to its own user.** On being blocked by a deny rule the
+   model volunteered "let me know if you'd like me to try a different form of it". It did not attempt one, but the
+   rule gates the MODEL acting, not the USER being talked into widening it. The skill (6.9) should discourage
+   proposing alternative invocation forms.
+5. **A THIRD first-run interruption exists.** Beyond the trust dialog (E0-4) and the fullscreen-renderer write
+   (E0-5), a *"Claude in Chrome extension detected"* prompt appeared before the session prompt. Any `expect` driver
+   must tolerate an ARBITRARY onboarding prompt, not just the trust one — a stray prompt silently consumes the
+   keystroke meant for the real dialog. Matters for P4-3 and P4-5.
+6. **6.10 — the settings scan is load-bearing, not defensive (E0-9).** `refuse` drops a post with NO signal to the
+   receiving user and NO signal to the sender: the poster's socket write SUCCEEDS and returns nothing. Without the
+   scan switching Brigade to `refuse` too, the watcher acknowledges messages the harness threw away — the message is
+   gone AND the sender has been told it arrived.
 
 ## Plan corrections required before Phase 2 (from E0-6)
 
@@ -336,6 +375,20 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   a partial artifact. Mechanism worth carrying to 6.6: a socket-injected frame arrives as a QUEUED COMMAND and is
   dequeued only after the current turn, so a `-p` prompt must stay busy longer than the poster delay; and the `-p`
   `stream-json` output does not echo the frame — the authoritative record is the on-disk session transcript.
+- 2026-08-31 ~16:30: **THE INTERACTIVE SITTING — E0-3 closed, E0-9 closed, E0-8 (b) closed.** Rjae observed at a real
+  terminal; harness promoted to `scripts/experiments/sitting/` (shellcheck clean, re-verified through the real code
+  path after promotion). **D19 = C** — see the section above. E0-9: `hold` shows a notice, does not deliver, raises
+  no dialog, and **nothing expired in ~25 minutes** (the spec only asked for 5); `refuse` is completely silent to
+  BOTH sides. E0-8 (b): an ask rule PROMPTS in `bypassPermissions` (not a denial) and **offers no sticky dismissal**,
+  a deny rule BLOCKS with zero sends reaching the binary (verified by correlating pids), and the heredoc renders in
+  full with a parsed description of the command. Six plan corrections came out of it — see the section above.
+  Process note worth keeping: I told Rjae after step 4 that "no persistent-grant option exists", and step 6 showed
+  that was **true only for ask-rule prompts** — default-approval prompts do offer one. The claim was right about the
+  case measured and wrong as generalised; the correction is in `docs/experiments/E0-8.md` rather than buried.
+  Also: my first version of the sitting harness was broken (step scripts passed paths relative to the caller's cwd
+  while the launcher `cd`s into the project dir first), and my own smoke test missed it because it used `../`-relative
+  paths from inside that dir — a test that exercised a different path shape than the real one. Fixed by absolutizing
+  in the launcher, with existence checks and a clear error.
 - 2026-08-31 ~19:00: **E0-7 done — all items pass; Phase 0's automatable work is complete.** Results in
   `docs/experiments/E0-7.md`, harness at `scripts/experiments/E0-7/`. Two concurrent `-p` sessions in ONE config dir,
   each selecting its profile through its own `--settings` `pluginConfigs` block: both registered under their own

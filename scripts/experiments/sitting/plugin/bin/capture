@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""E0-3 generic hook-event capturer (checks e).
+
+Wired to UserPromptSubmit and PreToolUse. Reads the hook stdin JSON, appends the
+full record (plus a compact projection of the fields E0-3 (e) cares about) to
+state/hook-events.log, and exits 0 with EMPTY stdout so it neither injects
+context nor blocks/denies any tool. Safe to leave on for every run.
+"""
+import os, sys, json, datetime
+
+root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+state = os.path.join(root, "state")
+os.makedirs(state, exist_ok=True)
+logpath = os.path.join(state, "hook-events.log")
+
+raw = sys.stdin.read()
+try:
+    obj = json.loads(raw)
+except Exception:
+    obj = {"_parse_error": True, "_raw": raw[:2000]}
+
+rec = {
+    "ts": datetime.datetime.now().astimezone().isoformat(),
+    "hook_event_name": obj.get("hook_event_name"),
+    "permission_mode": obj.get("permission_mode"),
+    "tool_name": obj.get("tool_name"),
+    "source": obj.get("source"),
+    "session_id": obj.get("session_id"),
+    "full": obj,
+}
+with open(logpath, "a") as f:
+    f.write(json.dumps(rec) + "\n")
+
+# Empty stdout, success: do not modify the session or gate the tool.
+sys.exit(0)

@@ -1,0 +1,48 @@
+#!/bin/sh
+# E0-3 SessionStart hook.
+# - drains hook stdin,
+# - writes an env snapshot (socket path + token SHA, never the raw token) for the
+#   isolation assertion,
+# - spawns a DETACHED poster that writes the chosen frame to THIS session's inbox
+#   socket a few seconds after start,
+# - prints a SessionStart context line.
+# Exec-form: ${CLAUDE_PLUGIN_ROOT} is substituted by the harness.
+ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE="$ROOT/state"
+mkdir -p "$STATE"
+
+# Drain hook input (a SessionStart hook receives JSON on stdin).
+INPUT="$(cat)"
+printf '%s' "$INPUT" > "$STATE/hook-input.json"
+
+# Env snapshot for the isolation proof. Records the socket path this nested
+# session was handed and a short SHA of its messaging token; the driver asserts
+# these differ from the OUTER (harness) session's values.
+python3 - "$ROOT" <<'PY'
+import os, sys, json, hashlib, datetime
+root = sys.argv[1]; state = os.path.join(root, "state"); os.makedirs(state, exist_ok=True)
+tok = os.environ.get("CLAUDE_CODE_MESSAGING_TOKEN", "")
+rec = {
+    "ts": datetime.datetime.now().astimezone().isoformat(),
+    "event": "hook_session_start",
+    "socket": os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", ""),
+    "token_sha12": hashlib.sha256(tok.encode()).hexdigest()[:12] if tok else "",
+    "claude_pid": os.environ.get("CLAUDE_PID", ""),
+    "session": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+    "entrypoint": os.environ.get("CLAUDE_CODE_ENTRYPOINT", ""),
+    "has_socket": bool(os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET")),
+    "has_token": bool(tok),
+}
+with open(os.path.join(state, "hook-env.log"), "a") as f:
+    f.write(json.dumps(rec) + "\n")
+PY
+
+# Spawn the detached poster. nohup + the poster's own os.setsid() make it a
+# session leader that survives `claude -p` teardown. BRIGADE_E03_POSTER selects
+# the poster program (default "poster"; check (d) uses "multipost").
+POSTER_PROG="${BRIGADE_E03_POSTER:-poster}"
+nohup python3 "$ROOT/bin/$POSTER_PROG" >>"$STATE/poster.nohup.log" 2>&1 &
+
+# SessionStart stdout is added to the session as context.
+printf 'Brigade E0-3 probe active (a teammate may message this session).\n'
+exit 0
