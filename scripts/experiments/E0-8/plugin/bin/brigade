@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""E0-8 fake `brigade` CLI.
+
+Reached as a bare command because Claude Code appends the plugin's bin/ to the
+Bash tool's PATH [settled]. Its ONE job is to leave an undeniable, timestamped
+record that the command actually EXECUTED -- the ground truth against which a
+PreToolUse attempt with no execution is read as "the permission system stopped
+it".
+
+Identity is resolved exactly the way E0-7 established: CLAUDE_PID -> the by-pid
+map file written by the SessionStart hook. The map nonce lives only in that file,
+so `whoami` printing it proves the resolution really happened (check f).
+
+`send` reads its body from stdin when a heredoc supplies one, and records the
+body's LENGTH and digest -- check (h) is entirely about size.
+"""
+import json
+import os
+import select
+import sys
+import uuid
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _e08 import STATE, append, claude_env_names, sha12  # noqa: E402
+
+
+def resolve():
+    pid = os.environ.get("CLAUDE_PID", "")
+    trace = {"claude_pid": pid, "state_dir": STATE}
+    if not pid:
+        return None, dict(trace, error="CLAUDE_PID absent")
+    path = os.path.join(STATE, "by-pid", pid + ".json")
+    trace["map_file"] = path
+    trace["map_file_exists"] = os.path.exists(path)
+    if not os.path.exists(path):
+        return None, dict(trace, error="no by-pid entry for pid " + pid)
+    with open(path) as f:
+        return json.load(f), trace
+
+
+def read_stdin_body():
+    try:
+        if sys.stdin.isatty():
+            return "", "tty"
+        r, _, _ = select.select([sys.stdin], [], [], 0.5)
+        if not r:
+            return "", "none"
+        return sys.stdin.read(), "stdin"
+    except Exception as e:  # pragma: no cover
+        return "", "error:" + type(e).__name__
+
+
+def main():
+    argv = list(sys.argv)
+    cmd = argv[1] if len(argv) > 1 else ""
+    entry, trace = resolve()
+
+    body, body_source = "", "not-read"
+    if cmd == "send":
+        body, body_source = read_stdin_body()
+
+    rec = {
+        "event": "exec",
+        "cmd": cmd,
+        "argv0": argv[0],
+        "argv": argv if cmd != "send" else argv[:6] + (["<...%d more args...>" % (len(argv) - 6)] if len(argv) > 6 else []),
+        "argc": len(argv),
+        "argv_total_len": sum(len(a) for a in argv),
+        "body_len": len(body),
+        "body_sha12": sha12(body),
+        "body_source": body_source,
+        "body_head": body[:120],
+        "body_tail": body[-80:] if len(body) > 120 else "",
+        "cwd": os.getcwd(),
+        "claude_pid": os.environ.get("CLAUDE_PID", ""),
+        "claude_session_id": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+        "claude_env_names": claude_env_names(),
+        "resolved": bool(entry),
+        "map_nonce": entry.get("map_nonce") if entry else None,
+        "resolution_trace": trace,
+    }
+    append("exec.ndjson", rec)
+
+    if cmd == "whoami":
+        payload = {
+            "resolved": bool(entry),
+            "claude_pid": rec["claude_pid"],
+            "map_nonce": rec["map_nonce"],
+            "team": entry.get("team") if entry else None,
+            "claude_session_id_now": rec["claude_session_id"],
+            "claude_session_id_at_session_start": (
+                entry.get("claude_session_id_at_start") if entry else None),
+            "resolution": trace,
+            "claude_env_names_visible_to_bash_tool": rec["claude_env_names"],
+        }
+        print(json.dumps(payload, indent=2))
+        return 0 if entry else 6
+
+    if cmd == "sessions":
+        rows = []
+        bd = os.path.join(STATE, "by-pid")
+        if os.path.isdir(bd):
+            for fn in sorted(os.listdir(bd)):
+                if fn.endswith(".json"):
+                    try:
+                        with open(os.path.join(bd, fn)) as f:
+                            e = json.load(f)
+                        rows.append({"claude_pid": e.get("claude_pid"),
+                                     "team": e.get("team"),
+                                     "state": e.get("state"),
+                                     "self": e.get("claude_pid") == rec["claude_pid"]})
+                    except Exception:
+                        pass
+        print("team ops -- %d session(s)" % len(rows))
+        for r in rows:
+            print("  pid=%-8s %-6s %s" % (r["claude_pid"], r["state"],
+                                          "<- me" if r["self"] else "<- peer"))
+        print("E08-EXEC-OK sessions")
+        return 0
+
+    if cmd == "send":
+        print("Message delivered. message_id=%s bytes=%d" % (uuid.uuid4(), len(body)))
+        print("E08-EXEC-OK send")
+        return 0
+
+    print("E08-EXEC-OK " + (cmd or "<none>"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

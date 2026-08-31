@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""E0-8 PreToolUse recorder -- the mechanical half of the prompt detector.
+
+PreToolUse fires when the model has produced tool parameters and BEFORE the
+permission decision is taken. So the pair
+
+    attempt recorded   +   no matching execution recorded by bin/brigade
+
+means the permission system intervened between the two. With no deny rules in
+force that intervention can only be a PROMPT, and the session is sitting on it.
+
+The exact `command` string is recorded (length, sha, head and tail) because
+check (h) is entirely about how long that string is.
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _e08 import append, sha12  # noqa: E402
+
+
+def main():
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        raw = ""
+    try:
+        hi = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        hi = {"_parse_error": True, "_raw_head": raw[:400]}
+
+    ti = hi.get("tool_input") or {}
+    cmd = ti.get("command") if isinstance(ti.get("command"), str) else None
+    rec = {
+        "event": "pretooluse",
+        "tool": hi.get("tool_name"),
+        "claude_pid": os.environ.get("CLAUDE_PID", ""),
+        "session": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+        "hook_session_id": hi.get("session_id"),
+        "permission_mode": hi.get("permission_mode"),
+        "cmd_len": len(cmd) if cmd is not None else None,
+        "cmd_sha12": sha12(cmd) if cmd else "",
+        "cmd_head": cmd[:200] if cmd else None,
+        "cmd_tail": cmd[-120:] if cmd and len(cmd) > 200 else None,
+        "cmd_lines": cmd.count("\n") + 1 if cmd else None,
+        "other_input_keys": sorted(k for k in ti if k != "command"),
+        # ADVERSARIAL PASS: the skill NAME, so "the skill was in play" is a
+        # recorded fact rather than an inference from which commands ran.
+        "skill_name": ti.get("skill") if isinstance(ti.get("skill"), str) else None,
+        "tool_input_nocmd": {k: (v if isinstance(v, (str, int, float, bool, type(None)))
+                                 else type(v).__name__)
+                             for k, v in ti.items() if k != "command"},
+    }
+    append("attempts.ndjson", rec)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

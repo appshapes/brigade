@@ -1,0 +1,5 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/ctx", "timeout": 20}]}]
+  }
+}

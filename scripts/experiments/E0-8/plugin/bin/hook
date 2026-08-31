@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""E0-8 SessionStart hook.
+
+Two jobs:
+  1. Publish the nested session's identity (pid / session id / socket / token
+     digest) so the driver can PROVE isolation from the outer harness session.
+  2. Write the by-pid map entry that `bin/brigade` resolves through -- the same
+     mechanism E0-7 established -- carrying a MAP NONCE that exists nowhere else,
+     so a later `brigade whoami` printing it is proof the map was actually read.
+"""
+import json
+import os
+import secrets
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _e08 import STATE, append, claude_env_names, now, sha12  # noqa: E402
+
+
+def jdump(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=2)
+    os.replace(tmp, path)
+
+
+def main():
+    event = sys.argv[1] if len(sys.argv) > 1 else "session-start"
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        raw = ""
+    try:
+        hi = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        hi = {"_parse_error": True}
+
+    pid = os.environ.get("CLAUDE_PID", "")
+    rec = {
+        "event": "hook_" + event.replace("-", "_"),
+        "claude_pid": pid,
+        "session": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+        "socket": os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", ""),
+        "token_sha12": sha12(os.environ.get("CLAUDE_CODE_MESSAGING_TOKEN", "")),
+        "entrypoint": os.environ.get("CLAUDE_CODE_ENTRYPOINT", ""),
+        "cwd": os.getcwd(),
+        "claude_env_names": claude_env_names(),
+        "hook_session_id": hi.get("session_id"),
+        "hook_source": hi.get("source"),
+        "state_dir": STATE,
+    }
+    append("hook-env.log", rec)
+
+    # SessionStart fires AGAIN on /clear (source == "clear"). The nonce must
+    # therefore be minted once per PID and never reminted, otherwise check (f)
+    # would see a changed nonce and mistake a re-registration for a broken
+    # resolution. The re-fire is recorded instead, as a fact in its own right.
+    bypid = os.path.join(STATE, "by-pid", pid + ".json")
+    existing = None
+    if os.path.exists(bypid):
+        try:
+            with open(bypid) as f:
+                existing = json.load(f)
+        except Exception:
+            existing = None
+
+    if existing and existing.get("map_nonce"):
+        nonce = existing["map_nonce"]
+        entry = dict(existing)
+        entry["reregistrations"] = entry.get("reregistrations", 0) + 1
+        entry["last_session_start_source"] = hi.get("source")
+        entry["last_session_start_session_id"] = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+        entry["last_session_start_at"] = now()
+    else:
+        nonce = "MAP-" + secrets.token_hex(4).upper()
+        entry = {
+            "schema": "e08-by-pid/1",
+            "claude_pid": pid,
+            "map_nonce": nonce,
+            "team": "ops",
+            "profile": "probe",
+            "claude_session_id_at_start": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+            "first_session_start_source": hi.get("source"),
+            "started": now(),
+            "state": "live",
+            "reregistrations": 0,
+        }
+    jdump(bypid, entry)
+    append("registrations.ndjson",
+           {"event": "register", "claude_pid": pid, "map_nonce": nonce,
+            "source": hi.get("source"), "reminted": existing is None,
+            "session": os.environ.get("CLAUDE_CODE_SESSION_ID", "")})
+    # Deliberately silent on stdout: SessionStart stdout is injected as context
+    # and would pollute the turn under test.
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

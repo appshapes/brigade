@@ -1,0 +1,6 @@
+{
+  "name": "brigade-a",
+  "version": "0.0.0",
+  "description": "E0-8 (a): SessionStart hook that performs the first-use download of the real-size brigade asset from a throttled local server.",
+  "author": {"name": "appshapes"}
+}

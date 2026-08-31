@@ -1,0 +1,5 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade", "args": ["hook", "session-start"], "timeout": 60, "statusMessage": "Connecting to the Brigade team"}]}]
+  }
+}

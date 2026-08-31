@@ -60,7 +60,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-5 | Detached watcher lifecycle, `/clear`, SessionEnd budget | done | Opus | this commit — `docs/experiments/E0-5.md`; **two 6.6 defects found**; (a)(c)(d)(f)(h)(i) pass, (b) fails as specified |
 | E0-6 | Token refresh coexistence + flock (core settled) | done | Opus | this commit — `docs/experiments/E0-6.md`; all six pass; **5.1's two-behind rule is WRONG**; lock poll costs 100 ms per contention |
 | E0-7 | Two sessions, two profiles (option delivery settled) | done | Opus | this commit — `docs/experiments/E0-7.md`; all items pass; a fresh `CLAUDE_CONFIG_DIR` does NOT inherit the login |
-| E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | wip | Opus | `docs/experiments/E0-8.md`; (b) MOSTLY closed at the sitting — **the skill-grant arm was NOT run**; (a)(c)(d)(e)(f)(g)(h) automatable, still to do |
+| E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | done | Opus | this commit — `docs/experiments/E0-8.md`; (a)–(h) all answered; **D20's skill grant HOLDS interactively**; run on 2.1.252 |
 | E0-9 | `crossSessionInbound` hold/refuse interaction | done | Opus | this commit — `docs/experiments/E0-9.md`; hold is loud and never expires (25 min); refuse is silent to BOTH sides |
 | E0-10 | Hosted checks (optional, needs the hosted project) | blocked (D32: after the proof) | Opus | |
 | P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | todo | Opus | first code commit |
@@ -115,6 +115,47 @@ Two further findings from the same review, both left as-is by decision:
   enabled, CAPTCHA off, no Pro session time-box/inactivity limits, Realtime "Allow public access" off, and a raised
   anonymous rate limit. 5.9 says "create a single-purpose project" and that stays the recommendation; a reuse
   checklist naming those five settings would be a useful Phase 5 docs addition.
+
+## PHASE 0 IS COMPLETE (E0-10 excepted, blocked by D32)
+
+Every experiment is closed. D19 = C, D21 = broadcast-from-the-database, D18 = `accept`, D20 = `off` by default and
+its gate is now proven to work in every mode that matters. **Claude Code updated to 2.1.252 during E0-8**; the plan
+says 2.1.251 throughout and should be re-checked where the version is load-bearing.
+
+**The product promise is measured end to end.** Model-to-model messaging needs no human in the loop: delivery is
+`accept` in every permission mode (E0-9), an idle session wakes on a socket post in ~1.7–3.6 s with nothing written
+to stdin (E0-4), the model replies autonomously with the right ids in 20/20 runs (E0-3 a), and **D20's skill grant
+holds in interactive Manual mode** — the one arm that had never been tested — so a Manual-mode user pays ONE
+dismissible Skill prompt per project, not one per command (E0-8 b).
+
+## Plan corrections from E0-8
+
+1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
+   **33.5 s at 250 kB/s** (fails it), blocking session startup throughout. The background variant returns the hook in
+   **0.019–0.020 s** and warms the cache behind the session. Break-evens for a 8,324,402 B asset: 416 kB/s for the
+   20 s bar, 185 kB/s for curl `--max-time 45`, 139 kB/s for the hook's 60 s timeout — recompute if the shipped
+   binary size differs materially.
+2. **5.1 — the adapter must not honour `NO_PROXY` for loopback inside the sandbox.** The sandbox exports
+   `NO_PROXY=localhost,127.0.0.1,::1,…`, so a client honouring it dials loopback DIRECTLY and is refused
+   (`operation not permitted`, 26/26). No `allowedDomains` value fixes that — not `["127.0.0.1"]`, `["localhost"]`,
+   `["*"]`, nor `allowAllUnixSockets`. Through the sandbox's own proxy, `["127.0.0.1"]` works. The allowlist matches
+   the LITERAL host as written in the URL, not a resolved address, so `docs/setup.md` must ship the loopback URL
+   using the same literal the allowlist entry uses.
+3. **3.x/6.3 — the `SessionStart` context line is NOT byte-for-byte the hook's stdout.** It is `stdout.strip()` —
+   whitespace removed at BOTH ends (100% across 14 runs and 5 adversarial payloads; interior formatting untouched).
+   A hook that relies on leading indentation or a trailing newline will not get it.
+4. **6.3 — `SessionStart` RE-FIRES on `/clear`.** A naive hook re-mints per-session state and would rotate the
+   session's Brigade identity on every `/clear`. The hook MUST be idempotent per `CLAUDE_PID`.
+5. **6.9 — set the skill's `--body-file` threshold below 10,000 characters.** Sharp boundary bisected to the
+   character: 9,999 and 10,000 succeed; **10,001 fails** — the Bash parser aborts, `Bash(brigade:*)` cannot match,
+   and the call is denied in `-p` and prompted interactively **with no "don't ask again" option**, so no rule can
+   ever pre-approve it.
+6. **7.x CI — `claude plugin validate --strict` does NOT detect a missing hook-command binary.** A `hooks.json`
+   pointing at a non-existent path passes with exit 0. `scripts/ci/plugin-check.sh` must assert hook-command
+   existence and the executable bit itself. Validate IS usable in CI otherwise: exit 0 with no login, in 0.13 s.
+7. **6.9/D20 — state the mechanism precisely.** The `allowed-tools` DECLARATION is what raises the one-time Skill
+   dialog (a mismatched pattern raises it too); only a pattern that MATCHES buys the Bash silence. The dialog's
+   dismissal is scoped to the PROJECT DIRECTORY, so a user with many repos approves once per repo.
 
 ## D19 IS DECIDED — variant C (interactive sitting, 2026-08-31)
 

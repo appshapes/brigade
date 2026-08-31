@@ -1,0 +1,7 @@
+{
+  "name": "brigade",
+  "version": "0.0.0",
+  "description": "E0-8 probe: fake brigade CLI on PATH, PreToolUse attempt recorder, and two skills (one with allowed-tools: Bash(brigade:*), one without) for the skill-grant arm.",
+  "author": {"name": "appshapes"},
+  "keywords": ["messaging", "team", "cross-session", "experiment"]
+}

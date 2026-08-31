@@ -1,0 +1,6 @@
+{
+  "name": "brigade-d",
+  "version": "0.0.0",
+  "description": "E0-8 (d): SessionStart hook whose stdout is an adversarial byte string, so the injected context line can be compared byte for byte.",
+  "author": {"name": "appshapes"}
+}

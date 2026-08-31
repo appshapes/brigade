@@ -1,0 +1,6 @@
+{
+  "name": "brigade-e",
+  "version": "0.0.0",
+  "description": "E0-8 (e): SessionStart hook that performs the PATH-shadowing check, plus a plugin-owned brigade that records whether it was the binary that ran.",
+  "author": {"name": "appshapes"}
+}

@@ -1,0 +1,123 @@
+#!/bin/sh
+# E0-8 (a) bootstrap -- the shape of implementation-plan 6.2, instrumented.
+#
+# Cold cache => download the real-size asset from $BRIGADE_E08_BASE, verify the
+# sha256, install it into the cache, then print ONE context line on stdout.
+# Every timing below is wall clock measured inside the hook itself; curl's own
+# accounting is captured too, so the fetch is separable from the checksum and
+# the install.
+set -u
+started=$(python3 -c 'import time;print("%.6f"%time.time())')
+state="${BRIGADE_E08_STATE:?BRIGADE_E08_STATE unset}"
+mkdir -p "$state"
+base="${BRIGADE_E08_BASE:?}"
+expected="${BRIGADE_E08_SHA:?}"
+cache="${XDG_DATA_HOME:-$HOME/.local/share}/brigade/bin"
+version="${BRIGADE_E08_VERSION:-0.1.0}"
+target="$cache/brigade-$version-darwin-arm64"
+if [ "${1:-}" = "--bg-fetch" ]; then
+  # The detached worker. Same fetch, verify and install, then a row saying when
+  # the cache actually became warm -- which is what the next prompt depends on.
+  mkdir -p "$cache"
+  tmp=$(mktemp "$cache/.brigade-$version.XXXXXX")
+  t0=$(python3 -c 'import time;print("%.6f"%time.time())')
+  curl -sS --fail --max-time 300 -o "$tmp" "$base/asset" || { rm -f "$tmp"; exit 9; }
+  t1=$(python3 -c 'import time;print("%.6f"%time.time())')
+  actual=$(shasum -a 256 "$tmp" | cut -d' ' -f1)
+  [ "$actual" = "$expected" ] || { rm -f "$tmp"; exit 11; }
+  chmod 0755 "$tmp"; mv -f "$tmp" "$target"
+  python3 - "$state" "$t0" "$t1" <<'PY3'
+import json, os, sys, time
+state, t0, t1 = sys.argv[1:4]
+rec = {"event": "background_fetch_done", "fetch_s": round(float(t1) - float(t0), 3),
+       "warm_at": time.time()}
+with open(os.path.join(state, "bootstrap.ndjson"), "a") as f:
+    f.write(json.dumps(rec) + "\n"); f.flush(); os.fsync(f.fileno())
+PY3
+  exit 0
+fi
+
+cached=0
+fetch_s=""; curl_stats=""; sha_s=""; install_s=""; err=""
+
+if [ -x "$target" ]; then
+  cached=1
+elif [ "${BRIGADE_E08_MODE:-sync}" = background ]; then
+  # The 6.2 fallback: start the download DETACHED, print one context line and
+  # exit at once, so SessionStart never blocks on the link. The next
+  # UserPromptSubmit hook (or the model's first `brigade` call) finds the cache
+  # warm. Redirections matter: without </dev/null >/dev/null 2>&1 the child
+  # keeps the hook's stdout open and Claude Code waits for it anyway.
+  mkdir -p "$cache"
+  ( "$0" --bg-fetch </dev/null >/dev/null 2>&1 & ) &
+  ended=$(python3 -c 'import time;print("%.6f"%time.time())')
+  total=$(python3 -c "print('%.3f'%($ended-$started))")
+  python3 - "$state" "$started" "$ended" "$total" <<'PY2'
+import json, os, sys
+state, started, ended, total = sys.argv[1:5]
+rec = {"event": "bootstrap", "mode": "background", "started": float(started),
+       "ended": float(ended), "hook_total_s": float(total), "cache_hit": False,
+       "detached": True, "claude_pid": os.environ.get("CLAUDE_PID", ""),
+       "session": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+       "socket": os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", ""),
+       "rate_label": os.environ.get("BRIGADE_E08_RATE_LABEL", "")}
+with open(os.path.join(state, "bootstrap.ndjson"), "a") as f:
+    f.write(json.dumps(rec) + "\n"); f.flush(); os.fsync(f.fileno())
+PY2
+  printf 'Brigade: installing the brigade binary in the background; team messaging becomes available on your next prompt.\n'
+  exit 0
+else
+  umask 077
+  mkdir -p "$cache" || { err="cannot create cache"; }
+  tmp=$(mktemp "$cache/.brigade-$version.XXXXXX") || err="cannot mktemp"
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+  printf 'brigade: first use: downloading brigade %s from %s\n' "$version" "$base" >&2
+  t0=$(python3 -c 'import time;print("%.6f"%time.time())')
+  curl_stats=$(curl -sS --fail --max-time 45 --connect-timeout 10 \
+      -o "$tmp" \
+      -w '{"http":%{http_code},"size":%{size_download},"speed":%{speed_download},"time_total":%{time_total},"time_connect":%{time_connect},"time_starttransfer":%{time_starttransfer}}' \
+      "$base/asset" 2>"$state/curl.err") || err="curl exit $?"
+  t1=$(python3 -c 'import time;print("%.6f"%time.time())')
+  fetch_s=$(python3 -c "print('%.3f'%($t1-$t0))")
+  actual=$(shasum -a 256 "$tmp" | cut -d' ' -f1)
+  t2=$(python3 -c 'import time;print("%.6f"%time.time())')
+  sha_s=$(python3 -c "print('%.3f'%($t2-$t1))")
+  if [ "$actual" != "$expected" ]; then
+    err="checksum mismatch: $actual"
+  else
+    chmod 0755 "$tmp"
+    mv -f "$tmp" "$target" || err="cannot install"
+    trap - EXIT HUP INT TERM
+  fi
+  t3=$(python3 -c 'import time;print("%.6f"%time.time())')
+  install_s=$(python3 -c "print('%.3f'%($t3-$t2))")
+fi
+
+ended=$(python3 -c 'import time;print("%.6f"%time.time())')
+total=$(python3 -c "print('%.3f'%($ended-$started))")
+python3 - "$state" "$started" "$ended" "$total" "$cached" "${fetch_s:-}" "${sha_s:-}" "${install_s:-}" "${err:-}" "${curl_stats:-}" <<'PY'
+import json, os, sys
+state, started, ended, total, cached, fetch_s, sha_s, install_s, err, curl_stats = sys.argv[1:11]
+try:
+    cs = json.loads(curl_stats) if curl_stats.strip() else None
+except Exception:
+    cs = {"raw": curl_stats}
+rec = {"event": "bootstrap", "started": float(started), "ended": float(ended),
+       "hook_total_s": float(total), "cache_hit": cached == "1",
+       "fetch_s": float(fetch_s) if fetch_s else None,
+       "sha_s": float(sha_s) if sha_s else None,
+       "install_s": float(install_s) if install_s else None,
+       "error": err or None, "curl": cs,
+       "claude_pid": os.environ.get("CLAUDE_PID", ""),
+       "session": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+       "socket": os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", ""),
+       "rate_label": os.environ.get("BRIGADE_E08_RATE_LABEL", "")}
+with open(os.path.join(state, "bootstrap.ndjson"), "a") as f:
+    f.write(json.dumps(rec) + "\n"); f.flush(); os.fsync(f.fileno())
+PY
+if [ -n "$err" ]; then
+  printf 'Brigade: not connected (%s); run `brigade team join` in a terminal.\n' "$err"
+else
+  printf 'Brigade: ready (E08-BOOTSTRAP-OK hook_total_s=%s cache_hit=%s)\n' "$total" "$cached"
+fi
+exit 0

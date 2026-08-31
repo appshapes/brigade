@@ -1,0 +1,6 @@
+{
+  "name": "brigade-c",
+  "version": "0.0.0",
+  "description": "E0-8 (c): the real brigade CLI on the Bash tool's PATH, for the sandbox arms.",
+  "author": {"name": "appshapes"}
+}

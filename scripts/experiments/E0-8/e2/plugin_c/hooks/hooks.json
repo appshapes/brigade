@@ -1,0 +1,5 @@
+{
+  "hooks": {
+    "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/attempt", "timeout": 10}]}]
+  }
+}

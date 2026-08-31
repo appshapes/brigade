@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+import json, os, sys
+raw = sys.stdin.read()
+try: hi = json.loads(raw) if raw.strip() else {}
+except Exception: hi = {}
+ti = hi.get("tool_input") or {}
+st = os.environ.get("BRIGADE_E08_STATE")
+if st:
+    os.makedirs(st, exist_ok=True)
+    with open(os.path.join(st, "attempts.ndjson"), "a") as f:
+        f.write(json.dumps({"tool": hi.get("tool_name"), "command": ti.get("command"),
+                            "permission_mode": hi.get("permission_mode")}) + "\n")

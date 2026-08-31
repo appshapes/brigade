@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""E0-8 (d): print an ADVERSARIAL stdout and record its exact bytes.
+
+The payload is chosen so that any of the plausible manglings would show: a
+leading space and a trailing space on the same line, a CRLF, an interior blank
+line, a tab, a line that looks like markdown, a non-ASCII character, a trailing
+newline (or, in the 'nonl' variant, none), and a unique nonce so the injected
+text can be found in the transcript with no ambiguity.
+"""
+import json, os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+STATE = os.environ["BRIGADE_E08_STATE"]
+NONCE = os.environ["BRIGADE_E08_NONCE"]
+VARIANT = os.environ.get("BRIGADE_E08_VARIANT", "rich")
+
+if VARIANT == "rich":
+    payload = (
+        "  Brigade: connected as “ops/probe” — nonce=" + NONCE + "  \n"
+        "\tTAB-LED line with trailing spaces   \n"
+        "\n"
+        "- markdown-looking bullet\r\n"
+        "## not a heading\n"
+        "final line, no trailing newline after this one\n"
+    )
+elif VARIANT == "oneline":
+    payload = "Brigade: ready nonce=" + NONCE + "\n"
+elif VARIANT == "nonl":
+    payload = "Brigade: ready nonce=" + NONCE + " (no trailing newline)"
+elif VARIANT == "wsboth":
+    # Leading AND trailing whitespace of several kinds, so the trim's extent is
+    # pinned rather than inferred from the 'rich' payload's two-space prefix.
+    payload = "\n \t\n   MID-" + NONCE + "-MID   \n\t \n\n"
+elif VARIANT == "empty":
+    payload = ""
+else:
+    payload = NONCE
+
+raw = payload.encode("utf-8")
+os.makedirs(STATE, exist_ok=True)
+with open(os.path.join(STATE, "ctx-stdout.bin"), "wb") as f:
+    f.write(raw)
+with open(os.path.join(STATE, "ctx-meta.json"), "w") as f:
+    json.dump({"variant": VARIANT, "nonce": NONCE, "bytes": len(raw),
+               "hex": raw.hex(), "repr": repr(payload),
+               "claude_pid": os.environ.get("CLAUDE_PID", ""),
+               "session": os.environ.get("CLAUDE_CODE_SESSION_ID", "")}, f, indent=2)
+sys.stderr.write("this stderr line must never reach the model (nonce=%s)\n" % NONCE)
+sys.stdout.buffer.write(raw)
+sys.stdout.buffer.flush()
+sys.exit(0)

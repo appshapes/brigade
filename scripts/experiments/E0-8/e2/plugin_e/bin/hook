@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""E0-8 (e) SessionStart hook: the shadowing check of implementation-plan 6.2.
+
+Hooks do NOT get the plugin's bin/ on their PATH, so anything `brigade` resolves
+to here necessarily PRECEDES the appended plugin bin/ in the Bash tool's PATH.
+The check therefore is: look `brigade` up on the hook's own PATH, resolve every
+symlink, and compare against the plugin's own bootstrap realpath. A documented
+~/.local/bin symlink to the bootstrap resolves to the same file and stays
+silent; anything else is a real shadow and gets a warning on the context line.
+"""
+import json, os, shutil, sys
+
+STATE = os.environ["BRIGADE_E08_STATE"]
+os.makedirs(STATE, exist_ok=True)
+PLUGIN_BIN = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "brigade"))
+
+found = shutil.which("brigade")
+found_real = os.path.realpath(found) if found else None
+shadowed = bool(found_real) and found_real != PLUGIN_BIN
+
+rec = {"event": "sessionstart", "hook_path": os.environ.get("PATH", ""),
+       "which_brigade": found, "which_brigade_realpath": found_real,
+       "plugin_bootstrap_realpath": PLUGIN_BIN, "shadowed": shadowed,
+       "plugin_bin_on_hook_path": os.path.dirname(PLUGIN_BIN) in os.environ.get("PATH", "").split(":"),
+       "claude_pid": os.environ.get("CLAUDE_PID", ""),
+       "session": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+       "socket": os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", "")}
+with open(os.path.join(STATE, "hook.ndjson"), "a") as f:
+    f.write(json.dumps(rec) + "\n")
+
+# The by-pid map the session-bound commands resolve through, carrying the
+# bootstrap realpath so `brigade whoami` can make the same comparison where the
+# Bash tool's real PATH applies.
+os.makedirs(os.path.join(STATE, "by-pid"), exist_ok=True)
+with open(os.path.join(STATE, "by-pid", rec["claude_pid"] + ".json"), "w") as f:
+    json.dump({"claude_pid": rec["claude_pid"], "plugin_bin": PLUGIN_BIN,
+               "team": "ops"}, f, indent=2)
+
+if shadowed:
+    print("Brigade: WARNING another `brigade` earlier on PATH shadows the plugin's "
+          "pinned version: %s (resolves to %s); the plugin's own is %s. "
+          "Remove it or repoint the symlink." % (found, found_real, PLUGIN_BIN))
+else:
+    print("Brigade: ready (brigade resolves to %s)" % (found_real or "<not on the hook's PATH>"))
+sys.exit(0)
