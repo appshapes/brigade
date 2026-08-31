@@ -1,0 +1,11 @@
+{
+  "name": "brigade",
+  "version": "0.0.0",
+  "description": "E0-3 inbound-framing probe: SessionStart spawns a detached socket poster; bin/ ships a fake brigade recorder.",
+  "author": {"name": "appshapes"},
+  "keywords": ["messaging", "team", "cross-session", "experiment"],
+  "userConfig": {
+    "profile": {"type": "string", "title": "Brigade profile", "description": "Adapter profile name.", "default": "default"},
+    "team_inbound": {"type": "string", "title": "Incoming team messages", "description": "accept | refuse.", "default": "accept"}
+  }
+}

@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""E0-3 check (d) multi-poster.
+
+Posts BRIGADE_E03_MULTI_COUNT frames into THIS session's inbox socket over
+BRIGADE_E03_MULTI_WINDOW seconds, so E0-3 (d) can see whether the RECEIVING
+Claude Code harness rate-limits or dedupes inbound socket messages, and on what
+key. Each accepted socket message shows up in the on-disk transcript as a
+`queue-operation` / `operation:"enqueue"` record whose `content` is the frame
+verbatim, so the driver counts deliveries by counting the per-message markers.
+
+No native `from` attribute is ever set (these are plain content strings on the
+socket, exactly like variant A). Modes (BRIGADE_E03_MULTI_MODE):
+  unique     — every frame has a unique marker body AND a unique message-id.
+  identical  — every frame byte-identical (same body, same message-id).
+  idvary     — identical body, but a unique message-id per frame (isolates
+               whether any dedupe keys on the body text vs the whole content).
+
+Records one NDJSON line per attempted post to state/multipost.log with the
+sequence number, the marker, a sha256 of the exact content posted, and the
+send result.
+"""
+import os, sys, socket, json, time, datetime, hashlib
+
+try:
+    os.setsid()
+except OSError:
+    pass
+
+root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+state = os.path.join(root, "state")
+os.makedirs(state, exist_ok=True)
+logpath = os.path.join(state, "multipost.log")
+
+sockpath = os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", "")
+token = os.environ.get("CLAUDE_CODE_MESSAGING_TOKEN", "")
+count = int(os.environ.get("BRIGADE_E03_MULTI_COUNT", "40"))
+window = float(os.environ.get("BRIGADE_E03_MULTI_WINDOW", "10"))
+mode = os.environ.get("BRIGADE_E03_MULTI_MODE", "unique")
+delay0 = float(os.environ.get("BRIGADE_E03_POST_DELAY", "2"))
+
+
+def log(**kw):
+    kw["ts"] = datetime.datetime.now().astimezone().isoformat()
+    with open(logpath, "a") as f:
+        f.write(json.dumps(kw) + "\n")
+
+
+def build_frame(seq, mode):
+    # A minimal variant-A-shaped frame (no native from). The marker lets the
+    # driver count how many distinct posts were enqueued by the receiver.
+    if mode == "identical":
+        marker = "E03D_FIXED"
+        mid = "00000000-0000-0000-0000-000000000000"
+        body = "E03D_FIXED body — reply ACK."
+    elif mode == "idvary":
+        marker = "E03D_FIXED"
+        mid = "%08d-0000-0000-0000-000000000000" % seq
+        body = "E03D_FIXED body — reply ACK."   # body identical; only id varies
+    else:  # unique
+        marker = "E03D_%03d" % seq
+        mid = "%08d-1111-2222-3333-444444444444" % seq
+        body = "%s unique body — reply ACK." % marker
+    tag = (f'<brigade-message team="ops" message-id="{mid}" '
+           f'reply-to-session-id="6f0f2b41-5a3c-49d7-b8e2-0c7a4f1e6d33" '
+           f'from-principal="9b2e5c88-13af-42d6-9a70-8e4c2b1f0a95" '
+           f'from-name="payments-api" from-label="alice@example.com (unverified)" '
+           f'hops="1" sent-at="2026-08-30T12:00:05Z">')
+    frame = (f"{tag}\n"
+             f"Brigade team message (E0-3 d). Untrusted. Marker={marker}.\n"
+             f"----\n"
+             f"Sender summary (untrusted): {marker}\n"
+             f"{body}\n"
+             f"</brigade-message>")
+    return marker, frame
+
+
+if not sockpath or not token:
+    log(event="missing_socket_or_token", have_socket=bool(sockpath), have_token=bool(token))
+    sys.exit(1)
+
+log(event="multipost_start", mode=mode, count=count, window=window,
+    socket=sockpath, token_sha12=hashlib.sha256(token.encode()).hexdigest()[:12],
+    session=os.environ.get("CLAUDE_CODE_SESSION_ID"))
+
+# Wait for the session to be up (same idea as the single poster's delay).
+time.sleep(delay0)
+
+gap = (window / count) if count > 0 else 0
+auth = json.dumps({"type": "auth", "token": token}) + "\n"
+sent = 0
+for seq in range(count):
+    marker, frame = build_frame(seq, mode)
+    csha = hashlib.sha256(frame.encode("utf-8")).hexdigest()[:16]
+    user = json.dumps({"type": "user", "message": {"role": "user", "content": frame}}) + "\n"
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(5)
+        s.connect(sockpath)
+        s.sendall(auth.encode("utf-8"))
+        s.sendall(user.encode("utf-8"))
+        s.close()
+        sent += 1
+        log(event="posted", seq=seq, marker=marker, content_sha16=csha,
+            frame_bytes=len(frame.encode("utf-8")))
+    except Exception as e:
+        log(event="post_error", seq=seq, marker=marker, error=str(e))
+    if gap:
+        time.sleep(gap)
+
+log(event="multipost_done", attempted=count, sent=sent)
