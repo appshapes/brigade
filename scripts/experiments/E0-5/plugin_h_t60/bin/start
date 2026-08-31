@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""E0-5 checks (c)/(f) SessionStart hook.
+
+One appended record per SessionStart, carrying BOTH halves of what D9 needs:
+
+  * the hook payload on stdin: `source` (startup | clear | resume | compact | ...),
+    `session_id` (the NATIVE session id), `transcript_path`, `cwd`;
+  * the messaging coordinates from the environment: CLAUDE_CODE_MESSAGING_SOCKET
+    and the SHA-256 of CLAUDE_CODE_MESSAGING_TOKEN (never the token), plus
+    CLAUDE_PID and CLAUDE_CODE_SESSION_ID.
+
+It then compares this record against the FIRST record of the same state dir --
+that comparison is check (c)'s key question -- and runs the spawn/liveness
+routine, which is what keeps the watcher count at exactly one.
+
+The raw token is written to a 0600 file under gitignored scratch so the
+out-of-band poster can speak the socket protocol with the coordinates the
+watcher captured at STARTUP. It is never logged.
+"""
+
+import datetime
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+
+STATE = os.environ["BRIGADE_STATE_DIR"]
+E05 = os.environ["BRIGADE_E05_HOME"]
+TAG = os.environ.get("BRIGADE_E05_TAG", "x")
+SPAWN = os.environ.get("BRIGADE_E05_SPAWN", "1") == "1"
+os.makedirs(STATE, mode=0o700, exist_ok=True)
+
+now = lambda: datetime.datetime.now().astimezone().isoformat(timespec="milliseconds")
+
+raw = sys.stdin.read()
+try:
+    payload = json.loads(raw)
+except ValueError:
+    payload = {"_unparsed": raw[:2000]}
+
+startlog = os.path.join(STATE, "startup.ndjson")
+prior = []
+if os.path.exists(startlog):
+    for line in open(startlog):
+        line = line.strip()
+        if line:
+            prior.append(json.loads(line))
+n = len(prior) + 1
+
+tok = os.environ.get("CLAUDE_CODE_MESSAGING_TOKEN", "")
+sock = os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", "")
+sess = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+cpid = os.environ.get("CLAUDE_PID", "")
+tsha = hashlib.sha256(tok.encode()).hexdigest() if tok else ""
+
+rec = {
+    "n": n, "ts": now(), "epoch": round(time.time(), 3),
+    "event": "SessionStart",
+    "hook_pid": os.getpid(),
+    "payload_source": payload.get("source"),
+    "payload_session_id": payload.get("session_id"),
+    "payload_transcript_path": payload.get("transcript_path"),
+    "payload_cwd": payload.get("cwd"),
+    "payload_keys": sorted(payload.keys()),
+    "env_session_id": sess,
+    "env_claude_pid": cpid,
+    "env_socket": sock,
+    "env_token_sha256": tsha,
+    "env_token_sha12": tsha[:12],
+    "claude_env_names": sorted(k for k in os.environ if k.startswith("CLAUDE")),
+}
+
+# --- the D9 comparison, made by the hook itself against record #1 ---
+if prior:
+    first = prior[0]
+    rec["vs_first"] = {
+        "socket_changed": first.get("env_socket") != sock,
+        "token_sha256_changed": first.get("env_token_sha256") != tsha,
+        "native_session_id_changed": first.get("env_session_id") != sess,
+        "payload_session_id_changed": first.get("payload_session_id") != payload.get("session_id"),
+        "claude_pid_changed": first.get("env_claude_pid") != cpid,
+        "transcript_changed": first.get("payload_transcript_path") != payload.get("transcript_path"),
+        "first_socket": first.get("env_socket"),
+        "first_token_sha12": (first.get("env_token_sha256") or "")[:12],
+        "first_session_id": first.get("env_session_id"),
+        "first_claude_pid": first.get("env_claude_pid"),
+        "first_transcript": first.get("payload_transcript_path"),
+    }
+
+with open(startlog, "a") as f:
+    f.write(json.dumps(rec, sort_keys=True) + "\n")
+    f.flush()
+
+# raw coordinates, 0600, scratch only -- for the isolation gate and the poster
+fd = os.open(os.path.join(STATE, "nested-env-%d.json" % n),
+             os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    json.dump({"n": n, "ts": now(), "source": payload.get("source"),
+               "socket": sock, "token": tok, "session": sess,
+               "claude_pid": cpid}, f)
+
+spawn_out = None
+if SPAWN and cpid:
+    ready = os.path.join(STATE, "watcher-ready-%s.json" % cpid)
+    r = subprocess.run(
+        [sys.executable, os.path.join(E05, "spawn.py"),
+         "--state-dir", STATE, "--claude-pid", cpid, "--socket", sock,
+         "--brigade-session-id", sess, "--token-sha256", tsha,
+         "--tag", "%s-n%d" % (TAG, n), "--poll", "2", "--exit-delay", "0",
+         "--ready-file", ready],
+        capture_output=True, text=True)
+    try:
+        spawn_out = json.loads(r.stdout)
+    except ValueError:
+        spawn_out = {"stdout": r.stdout[:2000], "stderr": r.stderr[:2000]}
+    with open(os.path.join(STATE, "spawn.ndjson"), "a") as f:
+        f.write(json.dumps({"n": n, "ts": now(), "decision": spawn_out}, sort_keys=True) + "\n")
+
+# the ready marker the driver waits on (deterministic; never a fixed sleep)
+with open(os.path.join(STATE, "ready-%d.json" % n), "w") as f:
+    json.dump({"n": n, "ts": now(), "epoch": round(time.time(), 3),
+               "source": payload.get("source"),
+               "spawn_action": (spawn_out or {}).get("action")}, f)
+
+sys.stdout.write("E0-5 probe active (n=%d source=%s)\n" % (n, payload.get("source")))

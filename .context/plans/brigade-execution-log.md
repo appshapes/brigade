@@ -57,7 +57,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-2 | Broadcast-from-DB with the Go Phoenix client (a-d, g settled) | done | Opus | this commit — `docs/experiments/E0-2.md`; (e)(f)(h)(i) answered; 42 fast + 14 soak assertions; **D21 stays on broadcast-from-DB** |
 | E0-3 | Inbound framing variants A/C (and B fallback) + injection corpus | wip | Fable | this commit — `docs/experiments/E0-3.md`; (a)(c)(d)(e)(f)(h) closed, **(b) awaits the interactive sitting**; A and C tied, D19 provisionally C |
 | E0-4 | Idle-wake automation | done | Opus | this commit — `docs/experiments/E0-4.md`; **criterion MET, 12/12 wakes**, max 6.7 s of a 10 s budget; driver at `scripts/experiments/E0-4/` |
-| E0-5 | Detached watcher lifecycle, `/clear`, SessionEnd budget | todo | Opus | scripted observation |
+| E0-5 | Detached watcher lifecycle, `/clear`, SessionEnd budget | done | Opus | this commit — `docs/experiments/E0-5.md`; **two 6.6 defects found**; (a)(c)(d)(f)(h)(i) pass, (b) fails as specified |
 | E0-6 | Token refresh coexistence + flock (core settled) | todo | Opus | |
 | E0-7 | Two sessions, two profiles (option delivery settled) | todo | Opus | |
 | E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | todo | Opus | (b) is interactive; needs the user |
@@ -79,6 +79,43 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P3-6..P3-8 | Bootstrap wiring, headless smoke, interactive checks | todo | Opus | |
 | P4-1..P4-6 | Vertical proof, headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-1/P4-3/P4-4) | criterion 8 is Fable-tier |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof |
+
+## Plan corrections required before Phase 3 (from E0-5)
+
+Both of 6.6's watcher exit conditions are wrong as specified. These are not open questions — they are measured
+defects with known fixes, and P3-5 (the watcher) must not be written against the current text.
+
+1. **6.6 — `kill(pid,0)` does not detect a SIGKILLed session.** The pid stays kill-alive as a zombie until reaped,
+   `ps -o lstart=` still returns its original start time, the socket file is left on disk, and `SessionEnd` never
+   runs. Detection took **27.6 s and 59.0 s**; once the corpse is reaped it is 1.04 s. 6.6 dismisses this as
+   impossible in production; that dismissal is too confident, since the latency belongs to whoever reaps, and that
+   distribution is unmeasured for real terminals and IDE hosts. **Fix:** read the process *state* so a zombie reads
+   as dead, rather than trusting `kill(pid,0)`.
+2. **6.6 — socket-ENOENT is a PERMANENT FALSE POSITIVE.** `claude` never re-creates `/tmp/cc-socks/<pid>.sock` after
+   it is unlinked (polled 25 ms for 16 s, never returns), and the session keeps working normally without it. A
+   watcher exiting on ENOENT has killed itself for a live session with no recovery. The path is also derived from the
+   pid, so it is not independent of the pid check. **Fix:** drop it, or replace it with a `connect()` probe.
+3. **6.6 — compare-then-delete before unlinking a pidfile is required, not optional.** The replace path leaves the
+   superseded watcher running, and its cleanup would delete the pidfile that by then belongs to its replacement.
+4. **3.8 — a plugin cannot buy SessionEnd budget; a settings file can.** Measured two-sided with byte-identical
+   `bin/` trees: plugin `timeout: 5` → 1.5033 s, no timeout → 1.5002 s, `timeout: 60` → 1.4991 s; the same hook in a
+   `--settings` file is honoured exactly (3.00 s at 3, 5.00 s at 5). The hooks page does not draw this distinction.
+   The session-end hook keeps its 1 s cap, as the plan's fallback said. The budget is one shared wall-clock deadline
+   across all SessionEnd hooks running in parallel.
+5. **6.3 — `SessionEnd` cannot be the only close path.** It does not fire at all on SIGKILL, and on `/exit` it fires
+   ~0.5 s BEFORE `claude` actually exits, with the watcher pidfile still present.
+6. **D9 — the by-native map must tolerate a native session id RECURRING within one process.** `/resume` returns the
+   id to its pre-`/clear` value (`99a48c02 → clear → d2c72366 → resume → 99a48c02`). Ids are not monotonic.
+7. **9.6 config protection is under-scoped.** Runs also touch `$CLAUDE_CONFIG_DIR/history.jsonl` (a line per typed
+   slash command) and `$CLAUDE_CONFIG_DIR/projects/` (a transcript directory per project), and `/fork` creates
+   daemons. Also observed: Claude Code wrote `fullscreenAutoDisabled` into `.claude.json` by itself after two
+   pty-driven sessions failed to start the fullscreen renderer — a config-wide setting affecting the user's own
+   sessions. Reverted and verified, but any future pty-driven experiment should expect it.
+
+**Good news from the same experiment, so P3-5 knows what it can rely on:** D9's hash-compare-and-respawn is safe —
+neither the socket path nor the token hash moves across `/clear` or `/resume` (confirmed three times, once with no
+watcher at all), so the respawn branch is cold and only `/fork` (which changes the pid) exercises it. The start-token
+guard works in both directions. The SessionEnd close completes in ~0.105 s against its 1 s cap.
 
 ## Open questions carried from research (settle during the phase that needs them)
 
@@ -215,6 +252,18 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
   a partial artifact. Mechanism worth carrying to 6.6: a socket-injected frame arrives as a QUEUED COMMAND and is
   dequeued only after the current turn, so a `-p` prompt must stay busy longer than the poster delay; and the `-p`
   `stream-json` output does not echo the frame — the authoritative record is the on-disk session transcript.
+- 2026-08-31 ~13:00: **E0-5 done — and it is the experiment that changes the most.** Results in
+  `docs/experiments/E0-5.md`, harness at `scripts/experiments/E0-5/`. **Both of 6.6's watcher exit conditions are
+  wrong as specified** — see "Plan corrections required before Phase 3" above; P3-5 must not be written against the
+  current text. (a)(c)(d)(f)(h)(i) all pass. One anomaly is UNRESOLVED and carried forward: in two runs a `/clear`
+  boundary moved the native session id while leaving NO `SessionStart(source=clear)` and NO `SessionEnd(reason=clear)`
+  record; both benign explanations were killed by discriminator runs, so a hook that assumes it sees every boundary
+  may miss one. Also unsettled: socket recreation was measured on `-p` only, the `/resume` boundary has n=1, and PID
+  reuse inside one wall-clock second stays undetectable because `ps -o lstart=` is 1 s granular (six processes were
+  observed sharing one token). Adversarial verification again found the decisive gap — (b) had no null control, so a
+  watcher that simply self-terminated after ~30 s would have produced identical numbers; two 130 s null arms plus a
+  code read of `detach.py` closed it. It also measured the author's own open item (socket recreation), and the answer
+  made (b2) worse rather than better.
 - 2026-08-31 ~07:00: **E0-4 done — the idle-wake criterion is MET**, results in `docs/experiments/E0-4.md`, driver at
   `scripts/experiments/E0-4/`. 12/12 delivered runs woke (7 `-p` stream-json, 5 interactive `expect`); worst latency
   6682 ms against the 10 s budget, interactive consistently faster than `-p`. **The figure 6.6 should budget against

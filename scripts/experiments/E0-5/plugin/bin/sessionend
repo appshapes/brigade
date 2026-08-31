@@ -1,0 +1,23 @@
+#!/bin/sh
+# E0-5 SessionEnd hook — a passive recorder. It does no work of its own; it
+# exists so each run records whether SessionEnd fired at all (it does not fire
+# when `claude` is SIGKILLed) and how the watcher's state looked at that moment.
+set -u
+STATE="${BRIGADE_STATE_DIR:?BRIGADE_STATE_DIR must be set}"
+mkdir -p "$STATE"
+INPUT="$(cat)"
+printf '%s' "$INPUT" > "$STATE/sessionend-input.json"
+
+python3 - "$STATE" <<'PY'
+import datetime, json, os, subprocess, sys, time
+state = sys.argv[1]
+cpid = os.environ.get("CLAUDE_PID", "")
+rec = {"ts": datetime.datetime.now().astimezone().isoformat(timespec="milliseconds"),
+       "epoch": round(time.time(), 3), "event": "hook_session_end",
+       "hook_pid": os.getpid(), "claude_pid": cpid,
+       "watchers_dir": sorted(os.listdir(os.path.join(state, "watchers")))
+                        if os.path.isdir(os.path.join(state, "watchers")) else []}
+with open(os.path.join(state, "hook-events.log"), "a") as f:
+    f.write(json.dumps(rec, sort_keys=True) + "\n")
+PY
+exit 0

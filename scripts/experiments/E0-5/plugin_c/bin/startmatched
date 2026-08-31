@@ -1,0 +1,6 @@
+#!/bin/sh
+# Same recorder as bin/start, but wired to an EXPLICIT SessionStart matcher and
+# writing to its own log. Its whole purpose is to separate "no SessionStart fires
+# on /clear" from "a matcher-less SessionStart entry does not match source=clear".
+exec env BRIGADE_STATE_DIR="$BRIGADE_STATE_DIR/matched" BRIGADE_E05_SPAWN=0 \
+     "$(dirname "$0")/start"

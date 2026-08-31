@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""E0-5 checks (d) and (h): the SessionEnd hook whose allowance is being measured.
+
+It does two things, in this order:
+
+  (d) THE ADAPTER, CAPPED AT 1 s. A stand-in `session close` round trip to a
+      unix-socket adapter the driver runs, with the socket timeout set to
+      exactly 1.0 s. Two shapes are exercised, driven by the adapter's own
+      reply delay: a fast adapter (the close COMPLETES inside the budget) and a
+      slow one (the 1 s cap fires and the lease EXPIRES CLEANLY -- the timeout
+      is caught, recorded, and the hook carries on rather than hanging).
+
+  (h) THE BUDGET ITSELF. After the close, a heartbeat every 25 ms for up to
+      12 s, each line carrying wall-clock epoch, elapsed seconds, and the
+      CURRENT ppid. Every line is flushed, so the LAST line on disk is the last
+      instant the hook was alive; the allowance is that elapsed value. Logging
+      ppid catches the case where the harness kills only the shell it spawned
+      and this python survives it reparented to launchd -- if that happened the
+      heartbeats would continue past the cut-off with ppid 1, and the number
+      would be a lie.
+
+Signals are logged and then re-raised with SIG_DFL, so the hook never survives
+a signal it was supposed to die from.
+"""
+
+import json
+import os
+import signal
+import socket
+import sys
+import time
+
+STATE = os.environ["BRIGADE_STATE_DIR"]
+VARIANT = os.environ.get("BRIGADE_E05_VARIANT", "?")
+ADAPTER = os.environ.get("BRIGADE_E05_ADAPTER", "")
+CAP = float(os.environ.get("BRIGADE_E05_CAP", "1.0"))
+MAX = float(os.environ.get("BRIGADE_E05_HB_MAX", "12"))
+HB = float(os.environ.get("BRIGADE_E05_HB_INTERVAL", "0.025"))
+os.makedirs(STATE, mode=0o700, exist_ok=True)
+
+LOG = os.path.join(STATE, "budget-%s.ndjson" % VARIANT)
+_f = open(LOG, "a")
+T0 = time.time()
+M0 = time.monotonic()
+
+
+def log(event, **kw):
+    rec = {"event": event, "epoch": round(time.time(), 4),
+           "elapsed": round(time.monotonic() - M0, 4),
+           "pid": os.getpid(), "ppid": os.getppid()}
+    rec.update(kw)
+    _f.write(json.dumps(rec, sort_keys=True) + "\n")
+    _f.flush()
+    os.fsync(_f.fileno())
+
+
+def onsig(signum, frame):
+    log("signal_received", signal=signal.Signals(signum).name)
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
+
+
+for s in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT, signal.SIGPIPE, signal.SIGQUIT):
+    try:
+        signal.signal(s, onsig)
+    except (OSError, ValueError):
+        pass
+
+raw = sys.stdin.read()
+try:
+    payload = json.loads(raw)
+except ValueError:
+    payload = {}
+
+log("hook_start", variant=VARIANT, reason=payload.get("reason"),
+    session_id=payload.get("session_id"), cap=CAP,
+    pgid=os.getpgid(0), sid=os.getsid(0),
+    claude_pid=os.environ.get("CLAUDE_PID", ""))
+
+# ---------- (d) the capped close ----------
+close = {"attempted": bool(ADAPTER), "cap_seconds": CAP}
+if ADAPTER:
+    t = time.monotonic()
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(CAP)
+        s.connect(ADAPTER)
+        s.sendall((json.dumps({"op": "session close", "variant": VARIANT,
+                               "reason": payload.get("reason"),
+                               "session_id": payload.get("session_id")}) + "\n").encode())
+        reply = s.recv(4096)
+        s.close()
+        close.update({"completed": True, "lease_expired": False,
+                      "seconds": round(time.monotonic() - t, 4),
+                      "reply": reply.decode("utf-8", "replace").strip()[:200]})
+    except socket.timeout:
+        close.update({"completed": False, "lease_expired": True,
+                      "seconds": round(time.monotonic() - t, 4),
+                      "error": "socket timeout at the %.1f s cap" % CAP})
+    except OSError as e:
+        close.update({"completed": False, "lease_expired": False,
+                      "seconds": round(time.monotonic() - t, 4),
+                      "error": "%s" % e})
+log("close_result", **close)
+with open(os.path.join(STATE, "close-%s.json" % VARIANT), "w") as f:
+    json.dump(close, f, indent=2, sort_keys=True)
+
+# ---------- (h) the budget ----------
+log("heartbeat_start", interval=HB, max_seconds=MAX)
+n = 0
+while time.monotonic() - M0 < MAX:
+    n += 1
+    log("hb", n=n)
+    time.sleep(HB)
+log("heartbeat_finished_uncut", n=n)
+_f.close()

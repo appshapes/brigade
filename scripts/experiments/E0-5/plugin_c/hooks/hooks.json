@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/start", "timeout": 30}]},
+      {"matcher": "clear|resume|compact|startup",
+       "hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/startmatched", "timeout": 30}]}
+    ],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/prompt", "timeout": 10}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/end", "timeout": 20}]}]
+  }
+}

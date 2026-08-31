@@ -1,0 +1,7 @@
+{
+  "name": "brigade",
+  "version": "0.0.0",
+  "description": "E0-5 checks (c) and (f): SessionStart/SessionEnd recorders plus the spawn/liveness routine.",
+  "author": {"name": "appshapes"},
+  "keywords": ["messaging", "team", "cross-session", "experiment"]
+}

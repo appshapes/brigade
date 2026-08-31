@@ -1,0 +1,109 @@
+#!/bin/sh
+# E0-5 SessionStart hook.
+#
+# Publishes the nested session's identity (for the isolation gate), then runs
+# the spawn/liveness routine, which detaches the stand-in watcher. After the
+# watcher reports ready the hook photographs it with
+# `ps -o pid,ppid,pgid,sess` — this is the BEFORE-HOOK-EXIT sample of check (a),
+# taken while the hook is provably still alive (its own pid is recorded next to
+# the sample). The hook's last act is to write hook-exit.json so the driver
+# knows when to take the AFTER-HOOK-EXIT sample.
+set -u
+ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+E05="${BRIGADE_E05_HOME:?BRIGADE_E05_HOME must be set}"
+STATE="${BRIGADE_STATE_DIR:?BRIGADE_STATE_DIR must be set}"
+TAG="${BRIGADE_E05_TAG:-x}"
+EXIT_DELAY="${BRIGADE_E05_EXIT_DELAY:-0}"
+mkdir -p "$STATE"
+
+INPUT="$(cat)"
+printf '%s' "$INPUT" > "$STATE/hook-input.json"
+
+python3 - "$STATE" "$E05" "$TAG" "$EXIT_DELAY" <<'PY'
+import datetime, hashlib, json, os, subprocess, sys, time
+
+state, e05, tag, exit_delay = sys.argv[1:5]
+now = lambda: datetime.datetime.now().astimezone().isoformat(timespec="milliseconds")
+
+tok  = os.environ.get("CLAUDE_CODE_MESSAGING_TOKEN", "")
+sock = os.environ.get("CLAUDE_CODE_MESSAGING_SOCKET", "")
+sess = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+cpid = os.environ.get("CLAUDE_PID", "")
+
+env_rec = {
+    "ts": now(), "event": "hook_session_start", "hook_pid": os.getpid(),
+    "hook_ppid": os.getppid(), "socket": sock, "session": sess, "claude_pid": cpid,
+    "token_sha12": hashlib.sha256(tok.encode()).hexdigest()[:12] if tok else "",
+    "token_sha256": hashlib.sha256(tok.encode()).hexdigest() if tok else "",
+    "entrypoint": os.environ.get("CLAUDE_CODE_ENTRYPOINT", ""),
+    "has_socket": bool(sock), "has_token": bool(tok),
+    "claude_env_names": sorted(k for k in os.environ if k.startswith("CLAUDE")),
+}
+with open(os.path.join(state, "hook-env.log"), "a") as f:
+    f.write(json.dumps(env_rec, sort_keys=True) + "\n")
+
+# raw coordinates for the driver's isolation gate; 0600, scratch-only
+fd = os.open(os.path.join(state, "nested-env.json"),
+             os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    json.dump({"ts": now(), "socket": sock, "token": tok, "session": sess,
+               "claude_pid": cpid, "hook_pid": os.getpid()}, f)
+
+if not cpid:
+    sys.exit(0)
+
+ready = os.path.join(state, "ready-%s.json" % tag)
+t0 = time.time()
+r = subprocess.run(
+    [sys.executable, os.path.join(e05, "spawn.py"),
+     "--state-dir", state, "--claude-pid", cpid, "--socket", sock,
+     "--brigade-session-id", sess,
+     "--token-sha256", hashlib.sha256(tok.encode()).hexdigest(),
+     "--tag", tag, "--poll", "2", "--exit-delay", exit_delay,
+     "--ready-file", ready],
+    capture_output=True, text=True)
+with open(os.path.join(state, "spawn-decision.json"), "w") as f:
+    f.write(r.stdout)
+with open(os.path.join(state, "spawn-stderr.log"), "a") as f:
+    f.write(r.stderr)
+
+wpid = None
+try:
+    wpid = json.load(open(ready))["watcher_pid"]
+except Exception:
+    pass
+
+def ps(pid):
+    if not pid:
+        return {"raw": "", "note": "no watcher pid"}
+    p = subprocess.run(["ps", "-o", "pid,ppid,pgid,sess", "-p", str(pid)],
+                       capture_output=True, text=True)
+    try:
+        sid = os.getsid(int(pid))
+    except OSError:
+        sid = None
+    return {"cmd": "ps -o pid,ppid,pgid,sess -p %s" % pid,
+            "rc": p.returncode, "raw": p.stdout.rstrip("\n"), "getsid": sid}
+
+sample = {
+    "ts": now(), "when": "before_hook_exit", "watcher_pid": wpid,
+    "hook_pid": os.getpid(), "hook_alive": True, "claude_pid": cpid,
+    "spawn_seconds": round(time.time() - t0, 3),
+    "ps_watcher": ps(wpid),
+    "ps_claude": ps(cpid),
+    "hook_self_ps": subprocess.run(["ps", "-o", "pid,ppid,pgid,sess", "-p",
+                                    str(os.getpid())],
+                                   capture_output=True, text=True).stdout.rstrip("\n"),
+    "hook_getsid": os.getsid(0),
+    "hook_getpgid": os.getpgid(0),
+}
+with open(os.path.join(state, "ps-before-hook-exit.json"), "w") as f:
+    json.dump(sample, f, indent=2)
+
+with open(os.path.join(state, "hook-exit.json"), "w") as f:
+    json.dump({"ts": now(), "epoch": round(time.time(), 3),
+               "hook_pid": os.getpid(), "watcher_pid": wpid}, f)
+PY
+
+printf 'Brigade E0-5 watcher-lifecycle probe active.\n'
+exit 0

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec env BRIGADE_E05_VARIANT="${BRIGADE_E05_VARIANT}B" BRIGADE_E05_ADAPTER="" "$(dirname "$0")/end"
