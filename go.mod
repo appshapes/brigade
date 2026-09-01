@@ -8,6 +8,7 @@ require (
 	github.com/invopop/jsonschema v0.14.0
 	github.com/rogpeppe/go-internal v1.16.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	golang.org/x/term v0.45.0
 	golang.org/x/text v0.41.0
 )
 

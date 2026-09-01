@@ -48,6 +48,12 @@ linters:
           msg: spawn through harness/adapterclient or adapterkit.Spawn (argv arrays, allow-listed env, no shell)
         - pattern: ^slog\.Any$
           msg: ReplaceAttr cannot redact inside struct/map values; log scalars or use adapterkit/log helpers
+        # slog.AnyValue is the same hole by another name: slog.Attr{Value: slog.AnyValue(x)} wraps a
+        # struct exactly as slog.Any does and ReplaceAttr cannot reach inside it either. Measured
+        # evadable with only the ^slog\.Any$ pattern, which left the STATIC half of the scalar-only
+        # policy bypassable while the runtime redactor could not see in.
+        - pattern: ^slog\.AnyValue$
+          msg: same as slog.Any -- ReplaceAttr cannot redact inside the wrapped value; log scalars or use adapterkit/log helpers
     depguard:
       rules:
         harness-is-adapter-agnostic:

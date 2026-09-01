@@ -65,7 +65,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-10 | Hosted checks (optional, needs the hosted project) | blocked (D32: after the proof) | Opus | |
 | P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | done | Opus | `0af93a1` — full gate green; **CI run 33533334741 green (`fast`, `macos`, `reproducibility`)**; cross-host reproducibility MEASURED; **7 plan defects in §7 plus 36 from the adversarial pass** (see below) |
 | P1-2 | `internal/protocol` (types, errors, NDJSON, sanitiser, schema) | done | Fable | this commit — full gate green, protocol at ~98% coverage; **2 open `ndjson.go` boundary defects, see below**; 7 spec gaps for P1-4 |
-| P1-3 | `internal/adapterkit` (stdin, XDG, atomic writes, flock, redaction) | todo | Fable | redaction is security-critical |
+| P1-3 | `internal/adapterkit` (stdin, XDG, atomic writes, flock, redaction) | done | Fable | this commit — full gate green; **E0-6 flock fix EVIDENCED** (contended median 16.96 ms vs the old 101.1 ms); 0 surviving mutations at hand-off |
 | P1-4 | `docs/protocol-v1.md` + adapter-authors skeleton | todo | Fable | user review gate |
 | P1-5 | `cmd/brigade-adapter-fs` + mutants | todo | Opus | |
 | P1-6 | `internal/conformance` + `cmd/brigade-conformance` | todo | Fable | suite design |
@@ -359,6 +359,52 @@ unmeasured (one darwin/arm64 host).
 
 Also for P1-4: `RequiredFromJSONSchemaTags: true` (plan 7.3) yields **zero** `required` arrays anywhere,
 because the wire structs carry no `jsonschema:"required"` tags. The schema is therefore weaker than it reads.
+
+## P1-3 DONE — the E0-6 flock correction is now evidenced, and section 4.6 has a measured defect
+
+Full gate green. Three authors plus one adversarial pass; **0 surviving mutations at hand-off**.
+
+**The E0-6 correction works, and it is measured rather than asserted.** 5.1 prescribes `LOCK_NB` polled every
+100 ms; E0-6 measured that this rounds ANY contention up to a whole quantum against a 36 ms hold (min 100.2 /
+median 101.1 / max 303.1 ms). The implemented fix (5 ms retry, the 10 s bound kept) gives, over **two real
+processes**, 47 of 80 contended at **min 5.66 / median 16.96 / max 68.40 ms** — the forbidden 100 ms-quantum
+signature is gone. The 10 s `unavailable` bound fired at 10.0055 s against a 13 s holder in another process.
+**5.1's text still prescribes the 100 ms poll and should be corrected when P2-6 touches it.**
+Note the trap the tests avoid: `flock` is per open FILE DESCRIPTION, so two goroutines in one process can
+appear to serialise while the real cross-process property is broken. Exclusivity and the bound are both proven
+across two real processes; the same-process test is a fast path only.
+
+**Plan 4.6 has a measured defect.** It says a missing executable is detected with
+`errors.Is(err, os.ErrNotExist)`. Measured on go1.27.0: that predicate is **false for a PATH-searched name** —
+`exec.ErrNotFound` does not wrap `fs.ErrNotExist` — and true only for an absolute-path miss. So the prescribed
+predicate misses the common case, and an adapter that is simply not on PATH would map to `internal` rather
+than `unavailable` / `adapter_not_found`. Fix the wording in P1-4.
+
+**Two mutations survived the authors' suite and were killed by the pass.** The sharper one: dropping attribute
+**KEY** redaction passed the ENTIRE suite including the fuzz target, because the fuzzer strips canary fragments
+from its key operand — so the instrument was structurally blind to the property it was supposed to guard. This
+is the third task running in which the *instrument*, not the code, was the defect (P1-1's tautological
+buildinfo test and unguarded `tscmd.Status`; P1-2's sanitiser suite that a no-op could pass).
+
+**`slog.AnyValue` evaded the scalar-only policy; now closed.** The whole reason `slog.Any` is banned is that
+`ReplaceAttr` cannot redact inside a wrapped struct — but `slog.Attr{Value: slog.AnyValue(x)}` is the same hole
+by another name and the `^slog\.Any$` pattern did not match it. Verified evadable, then verified caught.
+Two related limits are documented rather than fixed, and belong in the threat model: `ReplaceAttr` never sees
+group NAMES (a secret used as a group name cannot be redacted by any handler — they are compile-time constants
+here), and the redactor can leak under match composition when JWT-shaped junk is glued directly before a real
+token.
+
+**Ratified (the plan is silent, so this was a judgment call and it stands):** a RELATIVE `BRIGADE_CONFIG_DIR`
+or `BRIGADE_STATE_DIR` is **refused** with `config` (exit 11). 3.2/6.2 give the absolute-only rule for `XDG_*`
+and `HOME` but say nothing about the `BRIGADE_*` pair. Honouring a cwd-relative state directory is the exact
+hazard 6.2 describes; silently ignoring it would betray a user who set it deliberately. The harness always
+computes absolute values, so no harness path is affected.
+
+**Correction to this driver's own task brief, not to the plan:** the workflow prompt assigned U-08, U-09, U-10
+and U-23 to every P1-3 lane. Per 9.9 only **U-10** (atomic write / mode refusal) lands in adapterkit's core;
+U-08 belongs to the CLI's join-secret-argv txtar and `internal/cli`, and U-09 and U-23 to
+`internal/adapterkit/log`. All are covered in their real homes; the mis-assignment cost nothing but is worth
+recording so P1-6 maps the ids correctly.
 
 ## Plan corrections from E0-8
 
