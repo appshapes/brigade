@@ -63,7 +63,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | done | Opus | this commit — `docs/experiments/E0-8.md`; (a)–(h) all answered; **D20's skill grant HOLDS interactively**; run on 2.1.252 |
 | E0-9 | `crossSessionInbound` hold/refuse interaction | done | Opus | this commit — `docs/experiments/E0-9.md`; hold is loud and never expires (25 min); refuse is silent to BOTH sides |
 | E0-10 | Hosted checks (optional, needs the hosted project) | blocked (D32: after the proof) | Opus | |
-| P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | done | Opus | this commit — `make setup-lint typecheck lint build test vuln deps-check schema-check tidy-check` all green; `make cross` reproduces byte-identically from a clean copy at a different path; **7 plan defects in §7 plus 36 from the adversarial pass** (see below) |
+| P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | done | Opus | `0af93a1` — full gate green; **CI run 33533334741 green (`fast`, `macos`, `reproducibility`)**; cross-host reproducibility MEASURED; **7 plan defects in §7 plus 36 from the adversarial pass** (see below) |
 | P1-2 | `internal/protocol` (types, errors, NDJSON, sanitiser, schema) | todo | Fable | protocol + sanitiser |
 | P1-3 | `internal/adapterkit` (stdin, XDG, atomic writes, flock, redaction) | todo | Fable | redaction is security-critical |
 | P1-4 | `docs/protocol-v1.md` + adapter-authors skeleton | todo | Fable | user review gate |
@@ -263,6 +263,35 @@ left a machine caller unable to tell success from a silent failure, so the usage
 `--json` was made load-bearing on every error path: stdlib `flag` ABORTS at the first bad argument, so
 `brigade version --bad-flag --json` never reached the flag and answered a machine caller with a human line on
 stderr and an empty stdout.
+
+## CROSS-HOST REPRODUCIBILITY IS MEASURED, not [likely] (2026-09-01, CI run 33533334741)
+
+Plan 7.7 marks macOS-developer-vs-ubuntu-CI byte equality as **[likely]**, resting on Go's cross-host rebuild
+claim, and says so honestly: it had only ever been shown on one darwin/arm64 machine. It is the load-bearing
+assumption under the whole committed-checksum release flow — `plugin/bin/checksums.txt` must be in the commit
+the tag points at, while goreleaser builds the binary from that tag afterwards, and only reproducibility closes
+that circle.
+
+**It holds.** All four targets, three independent hosts, byte-identical:
+
+```
+d0f9ff79a15fe3cd15db5ad0707db983fadd24af94c5c6b26ef5324a36836680  brigade_0.0.0_darwin_amd64
+929fd9544eac2a2408d9e6ccb3a8850aa350e691464b93fdd0a8c224ea0d7feb  brigade_0.0.0_darwin_arm64
+60969cf76aa6e63badafa172a03b219c2bc435f4bb96e8b62d36f6d7b7c5d0ed  brigade_0.0.0_linux_amd64
+630c7ce346ddace58bc594a2c332702d113184157c33bc48cafcb83eeb30278c  brigade_0.0.0_linux_arm64
+```
+
+ubuntu-latest CI == macos-latest CI == this developer machine (darwin/arm64). The fallback 7.7 records — publish
+the checksums from the release job and pin the plugin one version behind — is **not needed**. Verified by
+downloading both CI artifacts and diffing them against the local `dist-cross/checksums.txt`, not by reading the
+job's green tick: the job's own step is `diff ubuntu/checksums.txt macos/checksums.txt`, which would also pass
+on two empty files, so the artifacts were confirmed to carry four real lines each.
+
+What makes it hold is pinned deliberately and must not be loosened: `GOTOOLCHAIN` forced from the `go.mod` line
+(not `auto`, which would silently use a newer local toolchain), `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`,
+a version-only `-X` with no `.Commit`/`.Date`, and — added during the P1-1 adversarial pass — explicit
+`GOFLAGS=`, `GOAMD64=v1` and `GOARM64=v8.0`, without which whatever a developer had exported would have defeated
+the property, and `.goreleaser.yaml` pins the last two itself.
 
 ## Plan corrections from E0-8
 
