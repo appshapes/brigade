@@ -281,3 +281,88 @@ func (b *syncBuffer) Bytes() []byte {
 	defer b.mu.Unlock()
 	return append([]byte(nil), b.buf.Bytes()...)
 }
+
+// TestLineReaderContentCapBoundary is the matrix the two P1-2 boundary defects
+// slipped through. The cap of 4.4.9/7.3 is on the line's CONTENT, so the same
+// content must be accepted or rejected identically however the line ends. The
+// original reader measured the RAW byte count against a one-byte allowance,
+// which spent the allowance twice on "\r\n" (dropping a legal at-cap line) and
+// spent it on a terminator that was not there at EOF (delivering a line one
+// byte over). Neither was visible to a test that only checked LF at the cap and
+// a 2 MiB line far above it.
+func TestLineReaderContentCapBoundary(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []struct {
+		name string
+		n    int
+		want bool // true = the line must be delivered
+	}{
+		{"cap-1", MaxLineBytes - 1, true},
+		{"cap", MaxLineBytes, true},
+		{"cap+1", MaxLineBytes + 1, false},
+	} {
+		for _, term := range []struct {
+			name string
+			end  string
+		}{
+			{"LF", "\n"},
+			{"CRLF", "\r\n"},
+			{"EOF", ""},
+		} {
+			t.Run(size.name+"/"+term.name, func(t *testing.T) {
+				t.Parallel()
+				content := bytes.Repeat([]byte("x"), size.n)
+				lr := NewLineReader(bytes.NewReader(append(append([]byte{}, content...), term.end...)))
+				line, err := lr.Next()
+				switch {
+				case size.want && err != nil:
+					t.Fatalf("%d bytes of content terminated by %s: err = %v, want it delivered",
+						size.n, term.name, err)
+				case size.want && len(line) != size.n:
+					t.Fatalf("%d bytes of content terminated by %s: delivered %d bytes",
+						size.n, term.name, len(line))
+				case !size.want && !errors.Is(err, ErrLineTooLong):
+					t.Fatalf("%d bytes of content terminated by %s: err = %v (line %d bytes), want ErrLineTooLong",
+						size.n, term.name, err, len(line))
+				}
+			})
+		}
+	}
+}
+
+// TestLineReaderContinuesAfterEachOverlongTermination pins the property that
+// makes ErrLineTooLong a per-LINE condition rather than a stream failure: the
+// line after a dropped one must still arrive, for every terminator shape.
+func TestLineReaderContinuesAfterEachOverlongTermination(t *testing.T) {
+	t.Parallel()
+
+	for _, term := range []struct {
+		name string
+		end  string
+	}{
+		{"LF", "\n"},
+		{"CRLF", "\r\n"},
+	} {
+		t.Run(term.name, func(t *testing.T) {
+			t.Parallel()
+			var in []byte
+			in = append(in, bytes.Repeat([]byte("x"), MaxLineBytes+1)...)
+			in = append(in, term.end...)
+			in = append(in, []byte(`{"after":true}`)...)
+			in = append(in, term.end...)
+
+			lr := NewLineReader(bytes.NewReader(in))
+			if _, err := lr.Next(); !errors.Is(err, ErrLineTooLong) {
+				t.Fatalf("first line: err = %v, want ErrLineTooLong", err)
+			}
+			line, err := lr.Next()
+			if err != nil {
+				t.Fatalf("second line: err = %v, want it delivered", err)
+			}
+			if string(line) != `{"after":true}` {
+				t.Fatalf("second line = %q, want the line after the dropped one", line)
+			}
+		})
+	}
+}

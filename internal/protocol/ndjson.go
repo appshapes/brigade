@@ -55,15 +55,39 @@ func NewLineReader(r io.Reader) *LineReader {
 //   - (nil, io.EOF): end of stream. A final line with no terminator is
 //     delivered first.
 //   - (nil, err): a transport error from the underlying reader.
+//
+// deliver applies the content-length cap to one accumulated line. The
+// cap is on the content, AFTER the terminator is trimmed: a line is
+// over-long only when what it actually carries exceeds MaxLineBytes, so
+// the same content is accepted or rejected identically whether it
+// arrived terminated by "\n", by "\r\n", or by end of stream.
+func (lr *LineReader) deliver(overlong bool) ([]byte, error) {
+	if overlong {
+		return nil, ErrLineTooLong
+	}
+	line := trimLineEnding(lr.buf)
+	if len(line) > MaxLineBytes {
+		return nil, ErrLineTooLong
+	}
+	return line, nil
+}
+
 func (lr *LineReader) Next() ([]byte, error) {
 	lr.buf = lr.buf[:0]
 	overlong := false
 	for {
 		chunk, err := lr.r.ReadSlice('\n')
 		if !overlong {
-			// The '\n' terminator may ride along in the final chunk,
-			// so allow content plus one terminator byte.
-			if len(lr.buf)+len(chunk) > MaxLineBytes+1 {
+			// The cap is on CONTENT, so the accumulation bound has to
+			// carry the longest terminator ("\r\n") on top of it --
+			// otherwise a line of exactly MaxLineBytes content is
+			// rejected for the size of its own line ending. Measuring
+			// the raw count against a single-byte allowance got this
+			// wrong in both directions: a CRLF-terminated at-cap line
+			// spent the allowance twice and was dropped, and an
+			// unterminated final line spent it on a terminator that was
+			// not there and so was delivered one byte over.
+			if len(lr.buf)+len(chunk) > MaxLineBytes+2 {
 				overlong = true
 				lr.buf = lr.buf[:0]
 			} else {
@@ -73,22 +97,16 @@ func (lr *LineReader) Next() ([]byte, error) {
 		switch {
 		case err == nil:
 			// The line ended; the next call starts at the next line.
-			if overlong {
-				return nil, ErrLineTooLong
-			}
-			return trimLineEnding(lr.buf), nil
+			return lr.deliver(overlong)
 		case errors.Is(err, bufio.ErrBufferFull):
 			// Mid-line; keep accumulating (or keep discarding).
 			continue
 		case errors.Is(err, io.EOF):
-			if overlong {
-				return nil, ErrLineTooLong
-			}
-			if len(lr.buf) == 0 {
+			if !overlong && len(lr.buf) == 0 {
 				return nil, io.EOF
 			}
 			// A final line without a terminator is still a line.
-			return trimLineEnding(lr.buf), nil
+			return lr.deliver(overlong)
 		default:
 			return nil, err
 		}

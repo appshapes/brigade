@@ -293,7 +293,7 @@ a version-only `-X` with no `.Commit`/`.Date`, and — added during the P1-1 adv
 `GOFLAGS=`, `GOAMD64=v1` and `GOARM64=v8.0`, without which whatever a developer had exported would have defeated
 the property, and `.goreleaser.yaml` pins the last two itself.
 
-## P1-2 DONE — and TWO SOURCE DEFECTS ARE OPEN (fix these first on resume)
+## P1-2 DONE — the two `ndjson.go` defects are now CLOSED
 
 Full gate green (`typecheck lint build test vuln deps-check schema-check tidy-check`), `internal/protocol` at
 ~98% statement coverage, the P1-1 error-taxonomy refactor left `smoke.txtar`, `cli_test.go` and
@@ -313,9 +313,14 @@ the tests that exist:
   "+1 for the terminator" tolerance is misapplied on the EOF path; the LF and CRLF equivalents are correctly
   dropped. `TestLineReaderOverlongAtEOF` uses 2 MiB, far from the boundary, so it cannot see this.
 
-Neither is a memory or injection hole and nothing consumes the reader yet (P1-6 and P2-10 do), which is why
-the work was committed rather than held — but they are wire-format correctness bugs and the fix must come with
-boundary tests at cap-1, cap and cap+1 for each of the three terminations (LF, CRLF, EOF).
+**FIXED in `73f0dd6`.** Both had one root cause: the tolerance was applied to the RAW byte count including
+the terminator rather than to the CONTENT length after trimming, so `\r\n` spent the one-byte allowance twice
+while the EOF path spent it on a terminator that was not there. The accumulation bound now carries the longest
+terminator (`MaxLineBytes+2`) and a single `deliver` helper applies the cap to the trimmed content, so the two
+exit paths cannot drift apart again. `TestLineReaderContentCapBoundary` now covers the full matrix — cap-1,
+cap and cap+1 against each of LF, CRLF and EOF — and reverting the reader to its original logic turns exactly
+two of those nine cells red (`cap/CRLF` wrongly dropped, `cap+1/EOF` wrongly delivered) and no others, which
+is the positive control the original tests never had.
 
 **The sanitiser was green for the wrong reason and is now genuinely tested.** 6 of 15 mutations SURVIVED the
 original suite — a no-op-equivalent could have passed it. The sharpest was an ASCII-only case-fold, under which
