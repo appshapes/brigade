@@ -1,0 +1,8 @@
+{
+  "session_id": "…", "session_name": "payments-api", "session_description": null,
+  "principal_ref": "…", "human_label": "alice@example.com",
+  "state": "active", "activity": "busy", "inbound": "accept",
+  "last_seen_at": "2026-08-30T12:00:00Z", "lease_until": "2026-08-30T12:01:30Z",
+  "harness": "claude-code", "harness_version": "2.1.251", "workspace_label": null,
+  "created_at": "2026-08-30T11:55:00Z", "is_self": false
+}

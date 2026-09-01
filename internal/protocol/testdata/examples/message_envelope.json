@@ -1,0 +1,6 @@
+{
+  "protocol_version": "1", "kind": "text", "message_id": "…", "team_ref": "…",
+  "sender": {"principal_ref": "…", "human_label": "alice@example.com", "session_id": "…", "session_name": "payments-api"},
+  "recipient_session_id": "…", "summary": "Migration completed", "body": "The tenant_id migration has landed.",
+  "reply_to": null, "hop_count": 0, "created_at": "2026-08-30T12:00:00Z", "delivery_state": "accepted"
+}

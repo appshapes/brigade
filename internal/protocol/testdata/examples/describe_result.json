@@ -1,0 +1,15 @@
+{
+  "protocol_version": "1",
+  "adapter": {"name": "brigade-adapter-supabase", "version": "0.1.0"},
+  "delivery": {"guarantee": "at_least_once", "ordering": "none", "ack_state": "injected"},
+  "capabilities": ["team.create", "team.join", "team.roster", "message.receive", "message.watch.push", "message.watch.stdin_commands",
+                   "session.description", "session.resume", "session.workspace_label", "session.inbound"],
+  "limits": {"max_body_bytes": 16384, "max_summary_chars": 200, "max_session_name_codepoints": 64,
+             "max_description_chars": 256, "max_human_label_chars": 128, "max_idempotency_key_chars": 128,
+             "send_rate": {"per_minute": 20, "per_hour": 200}, "principal_send_rate": {"per_minute": 60, "per_hour": 600},
+             "max_unacked_per_recipient": 60, "max_unacked_per_sender_recipient": 15,
+             "max_hop_count": 32, "implicit_reply_window_seconds": 600},
+  "lease": {"default_seconds": 90, "min_seconds": 30, "max_seconds": 600},
+  "retention": {"unacked_message_seconds": 604800, "acked_message_seconds": 86400, "closed_session_seconds": 604800},
+  "profile": {"name": "default", "state": "joined", "team_ref": "…", "team_name": "ops", "principal_ref": "…", "human_label": "alice@example.com"}
+}

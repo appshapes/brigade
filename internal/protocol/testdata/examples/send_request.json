@@ -1,0 +1,1 @@
+{"sender_session_id": "…", "recipient_session_id": "…", "body": "…", "summary": "optional", "reply_to": "optional message_id", "idempotency_key": "≤128 chars"}

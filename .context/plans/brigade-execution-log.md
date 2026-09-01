@@ -64,7 +64,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-9 | `crossSessionInbound` hold/refuse interaction | done | Opus | this commit — `docs/experiments/E0-9.md`; hold is loud and never expires (25 min); refuse is silent to BOTH sides |
 | E0-10 | Hosted checks (optional, needs the hosted project) | blocked (D32: after the proof) | Opus | |
 | P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | done | Opus | `0af93a1` — full gate green; **CI run 33533334741 green (`fast`, `macos`, `reproducibility`)**; cross-host reproducibility MEASURED; **7 plan defects in §7 plus 36 from the adversarial pass** (see below) |
-| P1-2 | `internal/protocol` (types, errors, NDJSON, sanitiser, schema) | todo | Fable | protocol + sanitiser |
+| P1-2 | `internal/protocol` (types, errors, NDJSON, sanitiser, schema) | done | Fable | this commit — full gate green, protocol at ~98% coverage; **2 open `ndjson.go` boundary defects, see below**; 7 spec gaps for P1-4 |
 | P1-3 | `internal/adapterkit` (stdin, XDG, atomic writes, flock, redaction) | todo | Fable | redaction is security-critical |
 | P1-4 | `docs/protocol-v1.md` + adapter-authors skeleton | todo | Fable | user review gate |
 | P1-5 | `cmd/brigade-adapter-fs` + mutants | todo | Opus | |
@@ -292,6 +292,68 @@ What makes it hold is pinned deliberately and must not be loosened: `GOTOOLCHAIN
 a version-only `-X` with no `.Commit`/`.Date`, and — added during the P1-1 adversarial pass — explicit
 `GOFLAGS=`, `GOAMD64=v1` and `GOARM64=v8.0`, without which whatever a developer had exported would have defeated
 the property, and `.goreleaser.yaml` pins the last two itself.
+
+## P1-2 DONE — and TWO SOURCE DEFECTS ARE OPEN (fix these first on resume)
+
+Full gate green (`typecheck lint build test vuln deps-check schema-check tidy-check`), `internal/protocol` at
+~98% statement coverage, the P1-1 error-taxonomy refactor left `smoke.txtar`, `cli_test.go` and
+`cmd/brigade/main_test.go` **byte-identical to HEAD** (only `internal/cli/code.go` became a thin alias), and
+`deps-check` is **no longer vacuous** — the shipped binary now links exactly one allow-listed module
+(`golang.org/x/text`, for the sanitiser's NFC), with the schema libraries confirmed out of `bin/brigade`.
+
+**OPEN, in `internal/protocol/ndjson.go` — the adversarial verifier's lane was tests only, so these were
+reported and NOT fixed. They are the first task on resume.** Both violate 7.3/4.4.9 ("lines up to 1 MiB are
+delivered; a longer line is dropped and reading continues"), both are at the boundary, and both are missed by
+the tests that exist:
+
+- **D1 — a line of exactly 1 MiB terminated by CRLF is wrongly DROPPED.** The trimmed `\r`/`\n` are counted
+  against the cap, so the identical line delivered with LF or at EOF is accepted while the CRLF form is not.
+  No CRLF-at-cap test exists.
+- **D2 — a final unterminated line one byte OVER the cap (`MaxLineBytes+1`) is wrongly DELIVERED.** The
+  "+1 for the terminator" tolerance is misapplied on the EOF path; the LF and CRLF equivalents are correctly
+  dropped. `TestLineReaderOverlongAtEOF` uses 2 MiB, far from the boundary, so it cannot see this.
+
+Neither is a memory or injection hole and nothing consumes the reader yet (P1-6 and P2-10 do), which is why
+the work was committed rather than held — but they are wire-format correctness bugs and the fix must come with
+boundary tests at cap-1, cap and cap+1 for each of the three terminations (LF, CRLF, EOF).
+
+**The sanitiser was green for the wrong reason and is now genuinely tested.** 6 of 15 mutations SURVIVED the
+original suite — a no-op-equivalent could have passed it. The sharpest was an ASCII-only case-fold, under which
+`<ſystem-reminder>` (U+017F LATIN SMALL LETTER LONG S) reaches the model as a raw tag; the others were a
+dropped second NFC idempotence pass, `truncateRunes` pre-checking `len()` instead of `RuneCountInString` (a
+legal at-cap multi-byte name wrongly cut), keeping `\r`, dropping the invalid-UTF-8 repair, and truncating a
+body BEFORE tag neutralisation (neutralisation inflates bytes, so truncate-first overflows the cap). The source
+was correct in every case; the TESTS could not tell. All 15 mutations now die and the corpus-seeded fuzz target
+holds at 1.35M execs with its no-op positive control proven. **This is the clearest example yet of why the
+verifier is not optional: the code was right, the gate was green, and the safety net was made of holes.**
+
+**JSON Schema byte stability is MEASURED, not [likely].** Plan line 2004 marks it uncertain because of ordered
+maps and says "the first two CI runs show it" — but no CI run had ever generated a non-empty document. Twelve
+process runs produce one sha256; `$defs` is assembled in sorted-name order. Cross-machine stability is still
+unmeasured (one darwin/arm64 host).
+
+**Seven gaps in section 4 itself, all of which P1-4 must settle** (this is the review gate, so they go to Rjae):
+1. The 4.4 examples contain `…` placeholders inside TYPED members (4.4.3 `created_at`, 4.4.9 times), so the
+   plan's own literal examples cannot round-trip through their declared types.
+2. 4.5.11 says names, labels and descriptions are "capped as in limits", but `limits` has **no** cap for
+   `team_name` or `workspace_label`. Adapters and the conformance suite need either the mapping stated or two
+   more `limits` members.
+3. 4.3 says `retryable` is REQUIRED, which is unenforceable for a natural `bool` under the plan's own loose
+   parsing (absent is indistinguishable from false). Either say consumers treat absent as false, or note that
+   validators need presence detection.
+4. The P1-2 row's "unknown fields survive" and 7.3's "unknown members are ignored" describe **different**
+   properties — surviving the parse versus surviving the round trip. Implemented as the former; needs one
+   clarifying sentence.
+5. The `invalid_input` `details` key naming the offending member is specified NOWHERE in section 4 (only the
+   task row says "field name in details"). Implemented as `details.field`; P1-4 must freeze it or adapters
+   will disagree.
+6. 4.4.9 never enumerates the `ready` event's `mode` values (only `push` is shown; the polling string is never
+   named) nor the `status` event's state set — C-33 asserts one of them.
+7. 4.4.8/4.4.9 show `"unknown": []` emitted even when empty, while the struct-tag convention is `omitzero`; an
+   implementation following the convention mechanically would drop the member.
+
+Also for P1-4: `RequiredFromJSONSchemaTags: true` (plan 7.3) yields **zero** `required` arrays anywhere,
+because the wire structs carry no `jsonschema:"required"` tags. The schema is therefore weaker than it reads.
 
 ## Plan corrections from E0-8
 

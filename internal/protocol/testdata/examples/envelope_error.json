@@ -1,0 +1,1 @@
+{"ok": false, "protocol_version": "1", "error": {"code": "rate_limited", "message": "…", "retryable": true, "retry_after_ms": 12000, "details": {"reason": "recipient_inbox_full"}}}
