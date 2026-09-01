@@ -313,7 +313,7 @@ the tests that exist:
   "+1 for the terminator" tolerance is misapplied on the EOF path; the LF and CRLF equivalents are correctly
   dropped. `TestLineReaderOverlongAtEOF` uses 2 MiB, far from the boundary, so it cannot see this.
 
-**FIXED in `73f0dd6`.** Both had one root cause: the tolerance was applied to the RAW byte count including
+**FIXED in `e449197`.** Both had one root cause: the tolerance was applied to the RAW byte count including
 the terminator rather than to the CONTENT length after trimming, so `\r\n` spent the one-byte allowance twice
 while the EOF path spent it on a terminator that was not there. The accumulation bound now carries the longest
 terminator (`MaxLineBytes+2`) and a single `deliver` helper applies the cap to the trimmed content, so the two
