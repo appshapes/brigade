@@ -63,7 +63,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | done | Opus | this commit — `docs/experiments/E0-8.md`; (a)–(h) all answered; **D20's skill grant HOLDS interactively**; run on 2.1.252 |
 | E0-9 | `crossSessionInbound` hold/refuse interaction | done | Opus | this commit — `docs/experiments/E0-9.md`; hold is loud and never expires (25 min); refuse is silent to BOTH sides |
 | E0-10 | Hosted checks (optional, needs the hosted project) | blocked (D32: after the proof) | Opus | |
-| P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | todo | Opus | first code commit |
+| P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | done | Opus | this commit — `make setup-lint typecheck lint build test vuln deps-check schema-check tidy-check` all green; `make cross` reproduces byte-identically from a clean copy at a different path; **7 plan defects in §7 plus 36 from the adversarial pass** (see below) |
 | P1-2 | `internal/protocol` (types, errors, NDJSON, sanitiser, schema) | todo | Fable | protocol + sanitiser |
 | P1-3 | `internal/adapterkit` (stdin, XDG, atomic writes, flock, redaction) | todo | Fable | redaction is security-critical |
 | P1-4 | `docs/protocol-v1.md` + adapter-authors skeleton | todo | Fable | user review gate |
@@ -127,6 +127,142 @@ says 2.1.251 throughout and should be re-checked where the version is load-beari
 to stdin (E0-4), the model replies autonomously with the right ids in 20/20 runs (E0-3 a), and **D20's skill grant
 holds in interactive Manual mode** — the one arm that had never been tested — so a Manual-mode user pays ONE
 dismissible Skill prompt per project, not one per command (E0-8 b).
+
+## Plan corrections from P1-1 (the first code commit)
+
+Seven defects in section 7, all measured while scaffolding rather than argued. Four of them are checks that
+PASS while testing nothing, which is the failure mode Phase 0 kept finding.
+
+1. **7.2 — `go get -tool -modfile=tools.mod …` does not work on a fresh checkout.** The plan presents the
+   command as sufficient to create `tools.mod`. It is not: with no `tools.mod` on disk it exits 1 with
+   `go: open tools.mod: no such file or directory`. The file must be seeded first
+   (`module github.com/appshapes/brigade/tools` + the `go` line) and only then does `go get -tool` populate
+   it. The plan's accompanying claim — that `-modfile` leaves `go.mod` byte-identical — IS true and was
+   verified by sha256 before and after both tool installs.
+2. **`go.mod` needs `ignore docs/research`, and the plan does not mention it.** `docs/research/`
+   `plugin-bootstrap-cli.files/` holds two orphan `package main` files that sit inside the root module (they
+   are the only committed `.go` files not already shielded by a nested `go.mod` or a dot-prefixed directory).
+   Without the directive `go build ./...` — the Makefile's `typecheck` — exits 1, and `go mod tidy -diff`
+   wants to add a `golang.org/x/crypto/x509roots/fallback` require that nothing in the module imports. Both
+   were demonstrated by removing the line. `go mod tidy` preserves the directive verbatim.
+3. **7.3/7.4 — `gofmt -l .` is the wrong scope and turns `make lint` red.** It is a FILESYSTEM walk, while
+   `go build`, `go vet` and `golangci-lint` are all MODULE-scoped. This repository commits Go under
+   `docs/research/` and `scripts/experiments/` and keeps scratch under `.ignored/`; **19 files** fail
+   `gofmt -l .`, every one of them inside its own nested `go.mod` and therefore not part of this module.
+   Fixed by deriving the directory list from `go list -f '{{.Dir}}' ./...`, which keeps the two scopes
+   identical and stays correct as packages are added. Guarded so a `go list` failure or an empty package set
+   fails loudly instead of passing having read nothing.
+4. **7.3 — the `.golangci.yml` as written CANNOT BE SATISFIED by any working program.** The only `os.Stdout`
+   exemption is for the three protocol-output writers, and the `os.Exit` rule does not cover `os.Stdout` even
+   in the `main.go` files it names. But something must hand the process's real stdout to a `Run(w io.Writer)`
+   seam. Fixed with an exemption scoped to entry-point FILES only (`internal/app/main.go`,
+   `internal/adapters/fs/main.go`, `internal/conformance/cli.go`, `cmd/*/main.go`), so the discipline still
+   binds every internal package. Verified by experiment that a violation in `internal/cli` and in a
+   non-`main.go` file under `cmd/` are both still caught.
+5. **golangci-lint's DEFAULT issue caps silently truncate the report — this one matters beyond P1-1.**
+   Measured: a file with **six** identical `forbidigo` violations reported exactly **three**
+   (`max-same-issues` defaults to 3, `max-issues-per-linter` to 50). In this project `forbidigo` IS the
+   stdout / `os.Exit` / environment / spawn discipline of 7.3, so a truncated report is a gate that hides the
+   violations it exists to catch, and it makes a run that fixed three surface a "new" three next time. Both
+   are now `0` (unlimited) and the same six-violation fixture reports 6 of 6.
+6. **7.7 — the CI `fast` job as specified would be RED on its first push.** It calls `make checksums-check`
+   and `make plugin-check`, but `scripts/ci/*.sh` are **P1-8** deliverables that do not exist yet. Resolved
+   with the plan's own idiom: `plugin-check` is gated `if: false` with a comment naming P1-8, and
+   `checksums-check` is replaced by plain `make cross` — which still produces `dist-cross/checksums.txt` and
+   therefore still delivers P1-1's required cross-host reproducibility evidence without needing P1-8's script.
+   (The `supabase` job stays gated until P2-1, as the plan already says.)
+7. **7.2 — dependency versions have moved since the plan was written.** Confirmed live on the proxy on
+   2026-08-31: `golang.org/x/text` is **v0.41.0** (the plan's v0.39.0 was a security FLOOR for GO-2026-5970,
+   which v0.41.0 satisfies), and `golang.org/x/crypto/x509roots/fallback` is now
+   **v0.0.0-20260831030451-39dc44e69c28** — the pseudo-version's date is the Mozilla bundle's date, so it
+   moves on its own schedule. `github.com/jackc/pgx/v5` resolves to v5.10.0 for the plan's `v5.x.y`
+   placeholder. Neither shipped module is linked yet at P1-1.
+
+**Implemented here from earlier findings, so they are no longer outstanding:** `make supabase-start` and
+`supabase-reset` now depend on a `migrations-check` target that fails fast and legibly when
+`supabase/migrations/` holds no `.sql` file (E0-1 — otherwise PostgREST loops on `3F000` and the CLI reports
+only `supabase_rest_brigade unexpected status 503`, naming PostgREST rather than the cause); and `unclaude`
+strips the outer session's environment **by prefix** (every `CLAUDE*` plus `AI_AGENT`, keeping only
+`CLAUDE_CONFIG_DIR`) rather than by the eight-name list of 7.4/9.6, which E0-4 and E0-7 measured to be short
+by at least three.
+
+### What the P1-1 adversarial pass found (four verifiers, 36 defects)
+
+The cadence held: every author reported green, the gate was green, and the adversarial pass still found real
+defects — 21 fixed in-lane by the verifiers, the rest by the driver. The pattern is unchanged from Phase 0:
+**most of them are checks that pass while measuring nothing.** Two were instruments rather than results:
+
+- **The buildinfo fallback test — a named P1-1 acceptance item — was a TAUTOLOGY.** It asserted
+  `String() == resolve("", debug.ReadBuildInfo)`, which is literally `String()`'s own body when `Version` is
+  empty; and both sides collapse to `"unknown"` anyway, because a `go test` binary records
+  `Main.Version = "(devel)"`. It could not have failed. Replaced with a test that builds the binary with
+  `go install` and reads the version back out of the installed artifact.
+- **`tscmd.Status` — the instrument behind EVERY exit-code assertion in the txtar — had no positive control.**
+  Deleting its comparison left the entire repository green, so `status 2 brigade no-such-command`,
+  `status 1 brigade sessions` and `status 7 fake-adapter -exit 7` were all being carried by an instrument
+  nobody had shown could fail. It now has its own tests.
+
+Further defects worth carrying, beyond the seven plan corrections above:
+
+8. **The forbidigo exemption paths were UNANCHORED substrings** — including the driver's own fix. golangci-lint
+   matches `path` as an unanchored regex, so a bare `cmd/` exempted `os.Exit` in ANY file whose path merely
+   contained it: measured, both `os.Stdout` and `os.Exit` went unreported in
+   `internal/nested/cmd/tool/main.go`, and `os.Exit` in `internal/subcmd/deep/x.go`. Since these rules ARE the
+   static half of the security path, an exemption that reaches further than it reads is a hole. Every `path` is
+   now anchored, verified in both directions.
+9. **`issues.uniq-by-line` defaults to TRUE and silently drops all but one finding per source LINE** — the same
+   truncation class as `max-same-issues`, one level down, and it drops `forbidigo` findings specifically. Now
+   `false`. Together with correction 5 above, golangci-lint shipped THREE separate defaults that hide findings.
+10. **`make supabase-env` would have silently broken the committed R1 regression kit.** The recipe TRUNCATES
+    `.env.test` and, per plan 7.4, renames everything to `SUPABASE_*` — but the promoted Phase 0 drivers
+    (`scripts/experiments/E0-1`, `E0-2`, `E0-6`, `E0-6/verify`) read the CLI's OWN names via
+    `loadEnv(".env.test")`: `API_URL` is renamed away and `ANON_KEY` and `JWT_SECRET` disappear entirely. One
+    run of the target and every driver reads empty strings, failing in a way that looks like a broken stack.
+    The recipe now writes BOTH name sets, through a temp file so a failed `supabase status` cannot truncate a
+    working `.env.test`.
+11. **`gofmt -l <dir>` RECURSES**, so correction 3's directory-based fix would have reverted to a whole-tree walk
+    the moment a package existed at the repository root (`go list` then emits `.`). Measured with a stray root
+    `main.go`: all eight committed nested-module files came back. It now lists FILES.
+12. **Pipelines masked their own failures in `schema-check` and `deps-check`.** `go run ./cmd/brigade-schema |
+    diff - <file>` takes the pipeline's status from `diff` alone, so it passed when the generator printed
+    nothing against an empty committed schema, AND when the generator wrote correct bytes and then exited 1.
+    Same shape in `deps-check`, where a failing `go version -m` left a 0-byte `deps.txt` that then "passed".
+13. **`make cross` did not neutralise `GOAMD64`, `GOARM64` or `GOFLAGS`**, so the reproducibility criterion was
+    defeated by whatever a developer had exported — and `.goreleaser.yaml` pins `goamd64`/`goarm64` itself, so
+    the two builds disagreed for a reason no flag in `go_flags` covered. Both now build through a shared
+    `go_build_env`.
+14. **The cross-host reproducibility criterion was not a GATE.** Both CI jobs appended their checksums to the
+    job summary and nothing ever compared them, so the two builds could diverge completely with CI green. The
+    jobs now upload the checksums as artifacts and a `reproducibility` job diffs them.
+15. **`UPDATE_SCRIPTS=1` in the ambient environment disarmed every byte-for-byte txtar assertion** — a broken
+    `brigade version` would PASS and rewrite the committed golden to match its own wrong output. Plan 7.3 says
+    goldens are updated "with `-update`", and the distinction is the point: a test FLAG cannot be set by
+    inheritance. Now `go test ./cmd/brigade -update`.
+16. **`release.yml` did not use the goreleaser the Makefile pins** — `version: "~> v2"` resolves to whatever the
+    latest 2.x is at run time, while `make release` rehearses with v2.18.0. The whole committed-checksum flow
+    rests on the release job reproducing the developer's bytes exactly. Now pinned.
+17. **Plan 7.2's `go.mod` require block is the P2-6 end state, not P1-1's.** `make tidy-check` runs
+    `go mod tidy -diff`, which strips any require no package imports, so P1-1's `go.mod` can only carry what
+    the scaffold actually links. The consequence is that **`deps-check` inspects ZERO modules today** — the
+    binary links no non-stdlib module, `bin/deps.txt` is 0 bytes, and `! grep -vxF` inverts "no lines selected"
+    into success. The recipe now SAYS SO on every run rather than printing nothing and exiting 0.
+
+**Known-vacuous until the task named, recorded so nobody reads them as evidence:** `deps-check` (P2-6); the
+conformance step in `make test`, which selects zero cases (P1-6); the `depguard` rule for
+`internal/harness/**`, which matches no file (P3-2); `run.build-tags` for the three mutant tags, whose files
+arrive with P1-5; `govulncheck -mode binary`, which currently scans only the standard library; and, in CI,
+`plugin-check` and `checksums-check`, which are gated off until P1-8 — so there is at present **no automated
+secret scan and no plugin-pin verification**. Also latent: `make plugin-validate` cannot validate `./plugin`
+until P3-1 writes `plugin/.claude-plugin/plugin.json`; the target now says that instead of failing.
+
+**One behaviour was deliberately changed against an author agent's choice, and it is worth flagging.** Under
+`--json`, help previously wrote the usage block to stderr and left stdout EMPTY at exit 0, on the stated
+rationale that "stdout carries protocol output only". The rationale is right about raw text but the outcome
+left a machine caller unable to tell success from a silent failure, so the usage block now travels inside a
+4.3 success envelope on stdout — which serves that same principle rather than breaking it. In the same pass,
+`--json` was made load-bearing on every error path: stdlib `flag` ABORTS at the first bad argument, so
+`brigade version --bad-flag --json` never reached the flag and answered a machine caller with a human line on
+stderr and an empty stdout.
 
 ## Plan corrections from E0-8
 
@@ -335,6 +471,29 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   which is outside the five sanitised families and so reaches the model verbatim (verified: zero matcher hits). If
   E0-3 (f) shows a model treating an unlisted tag as harness authority, 6.7's family list is under-inclusive and the
   fix is a frame/sanitiser change, not a corpus change (P0-1, R9).
+
+- 2026-09-01 ~02:00: **P1-1 done — the first code commit.** Driven by session `15-implement-brigade-0831`,
+  which took the hand-off from `15-implement-brigade-0830` cold: the execution log plus
+  `.ignored/handoff-15-to-implement-0831.md` was sufficient and nothing had to be re-derived. Six Opus authors
+  on disjoint file sets (module, lint/CI/release configs, repo+plugin files, Makefile, Go source, test
+  plumbing), the Go work pipelined behind the module init so nothing raced on `go.mod`; then the driver ran the
+  acceptance gate itself; then four adversarial verifiers. **Seven defects in plan §7 and 36 from the
+  adversarial pass**, written up above. The gate is green, `-race -shuffle=on` is stable across three runs, and
+  `make cross` reproduces byte-identically from a clean copy at a different path — the same-host half of the
+  reproducibility criterion. **Cross-HOST reproducibility is still unproven**: it needs CI, which has never run,
+  and the new `reproducibility` job is the gate for it.
+  Three things earned their keep and should be repeated. (1) The adversarial pass again found a decisive flaw —
+  this time including one in the driver's OWN fix (the forbidigo exemption paths were unanchored substrings).
+  **Nobody's work is exempt from the pass, the integrator's least of all.** (2) Instruments must be tested
+  before results are believed: the buildinfo fallback test was a tautology and `tscmd.Status`, which carries
+  every exit-code assertion in the txtar, had no positive control. (3) golangci-lint shipped **three** separate
+  defaults that silently hide findings (`max-same-issues`, `max-issues-per-linter`, `uniq-by-line`); a lint gate
+  is not a gate until you have watched it report every violation you planted.
+  Process note: a probe of the shape `cd "$D" && rm -rf *` was declined by Rjae mid-run. The objection was not
+  correctness — the `&&` guard held — but that an unbounded recursive delete rested entirely on a preceding
+  `cd`, with a dirty git tree as the fallback target, and that approving it trains the pattern. **Rule adopted
+  for the rest of the run: never `rm -rf` a relative path or a glob; delete a named absolute path constructed in
+  the same command.** It is in every subsequent agent prompt.
 
 ## Notes for a hand-off
 

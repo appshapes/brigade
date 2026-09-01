@@ -1,0 +1,12 @@
+{
+  "name": "brigade",
+  "owner": {
+    "name": "appshapes"
+  },
+  "plugins": [
+    {
+      "name": "brigade",
+      "source": "./plugin"
+    }
+  ]
+}

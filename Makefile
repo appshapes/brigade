@@ -1,11 +1,53 @@
 # Makefile for this repository
 # Conventions: lowercase variable names; per-target `.PHONY`; `##` doc-comments scraped by `help`.
-# "TBD" indicates work to be done.
 
 # ========== Variables (alphabetical) ==========
 
-detach := --detach
-tag := $(shell git log -1 --pretty=format:"%H")
+bin_dir            := bin
+detach             := --detach
+dist_cross         := dist-cross
+env_test           := .env.test
+go_flags           := -trimpath -buildvcs=false
+go_test_flags      := -race -shuffle=on -count=1 -timeout 15m
+go_toolchain       := go$(shell sed -n 's/^go //p' go.mod)
+# Reproducible-build environment for `build` and `cross`. -trimpath, -buildvcs=false and a pinned
+# GOTOOLCHAIN are NOT sufficient on their own: GOAMD64, GOARM64 and GOFLAGS are read from whatever the
+# developer happens to have exported, and each of them changes the output bytes. Measured here on one
+# machine, same source, same go_flags: GOAMD64=v3 moved linux/amd64 from fb4ae34d… to 7da9f338…,
+# GOARM64=v9.0 moved linux/arm64 from fbfadcaf… to baf92a1e…, and GOFLAGS=-tags=foo moved linux/amd64 to
+# c60d2bee…. goreleaser pins goamd64/goarm64 itself (7.7), so an unpinned `make cross` can disagree with
+# the release build, with CI and with the next developer for a reason no flag in go_flags covers — which
+# is exactly the cross-host claim P1-1 exists to make. Pin them at the recipe.
+go_build_env       := GOTOOLCHAIN=$(go_toolchain) CGO_ENABLED=0 GOFLAGS= GOAMD64=v1 GOARM64=v8.0
+golangci_lint      := $(bin_dir)/golangci-lint
+golangci_version   := v2.13.2
+goreleaser         := $(bin_dir)/goreleaser
+goreleaser_version := v2.18.0
+ld_flags            = -s -w -X github.com/appshapes/brigade/internal/buildinfo.Version=$(version)
+ld_flags_dev        = -s -w -X github.com/appshapes/brigade/internal/buildinfo.Version=$(version)-dev
+plugin_json        := plugin/.claude-plugin/plugin.json
+plugin_version     := $(shell cat plugin/bin/VERSION)
+sha256              = $(if $(shell command -v sha256sum),sha256sum,shasum -a 256)
+supabase           ?= npx --yes supabase@2.116.0
+supabase_exclude   := studio,postgres-meta,imgproxy,storage-api,edge-runtime,mailpit,logflare,vector,supavisor
+tag                := $(shell git log -1 --pretty=format:"%H")
+targets            := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
+tools_mod          := tools.mod
+version            ?= $(plugin_version)
+
+# Strip the outer Claude Code session's variables from targets that run proof scripts or launch claude:
+# inherited CLAUDE_PID/CLAUDE_CODE_MESSAGING_* would make the harness ignore the scripts' BRIGADE_* values,
+# refuse --sink, and leak the outer session's socket into nested `claude -p` runs (9.6).
+#
+# By PREFIX, never by enumeration. The plan's eight-name `env -u` list is measurably short: E0-4 found
+# CLAUDE_CODE_BRIDGE_SESSION_ID missing from it and E0-7 found CLAUDE_EFFORT and AI_AGENT (which is not even
+# CLAUDE-prefixed) missing too — stripping by prefix removed ELEVEN variables where the list removed eight.
+# `env -u` cannot express a prefix, so the -u list is computed from make's own environment at parse time.
+# CLAUDE_CONFIG_DIR is the single exception and must survive: the whole test estate depends on the config dir
+# staying non-default, and it is never hardcoded anywhere.
+unclaude_keep      := CLAUDE_CONFIG_DIR
+unclaude_vars      := $(filter-out $(unclaude_keep),$(shell env | sed -n -e 's/^\(CLAUDE[0-9A-Za-z_]*\)=.*/\1/p' -e 's/^\(AI_AGENT[0-9A-Za-z_]*\)=.*/\1/p'))
+unclaude           := env $(patsubst %,-u %,$(unclaude_vars))
 
 # ========== Help ==========
 
@@ -21,41 +63,332 @@ help: ## Show this help message
 # ========== Setup ==========
 
 .PHONY: setup
-setup: ## Initial project setup (dependencies install, .env scaffold)
-	# TBD
+setup: ## go mod download, pinned golangci-lint and goreleaser into ./bin, dev tools, .env scaffold, docker check, push.autoSetupRemote
+	go mod download
+	go mod download -modfile=$(tools_mod)
+	mkdir -p $(bin_dir)
+	curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(bin_dir) $(golangci_version)
+	$(MAKE) setup-goreleaser
+	@command -v shellcheck >/dev/null || { [ "$$(uname -s)" = Darwin ] && brew install shellcheck || echo "install shellcheck for make plugin-check (CI enforces it)"; }
 	@cp -n .env.example .env || true
+	docker version >/dev/null
+	git config push.autoSetupRemote true
+
+.PHONY: setup-lint
+setup-lint: ## Install only the pinned golangci-lint into ./bin (what CI runs; no Docker, no goreleaser)
+	mkdir -p $(bin_dir)
+	curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(bin_dir) $(golangci_version)
+
+.PHONY: setup-goreleaser
+setup-goreleaser: ## Download the pinned goreleaser release binary into ./bin (release rehearsal only)
+	gh release download $(goreleaser_version) --repo goreleaser/goreleaser --pattern "goreleaser_$$(uname -s)_$$(uname -m | sed 's/aarch64/arm64/').tar.gz" --dir $(bin_dir) --clobber
+	tar -xzf $(bin_dir)/goreleaser_*.tar.gz -C $(bin_dir) goreleaser && rm -f $(bin_dir)/goreleaser_*.tar.gz
 
 # ========== Build / Test / Lint ==========
 
+# plugin_version is $(shell cat plugin/bin/VERSION). A missing or empty file expands `version` to the empty
+# string and everything downstream still SUCCEEDS: the binary reports "-dev" and `make cross` writes
+# brigade__darwin_arm64, all with exit 0. Fail loudly instead -- the release path depends on this stamp.
+.PHONY: version-check
+version-check: ## Fail when the version stamp would be empty (missing or empty plugin/bin/VERSION)
+	@test -n "$(version)" || { \
+	  echo 'version is empty: plugin/bin/VERSION is missing or empty.' >&2; \
+	  echo 'The binary would report "-dev" and `make cross` would emit brigade__<os>_<arch>.' >&2; \
+	  echo 'Restore it (0.0.0 before the first release; `make release` writes it thereafter).' >&2; \
+	  exit 1; }
+
 .PHONY: build
-build: ## Build
-	# TBD
+build: version-check ## Build bin/brigade plus the dev-only binaries for this host with the release flags (version stamped `<version>-dev`)
+	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade ./cmd/brigade
+	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-adapter-fs ./cmd/brigade-adapter-fs
+	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-conformance ./cmd/brigade-conformance
 
 .PHONY: clean
 clean: ## Remove build artifacts and local caches
-	rm -rf playwright-report test-results # Maintain this list of transient build output files and folders
+	rm -rf $(bin_dir)/brigade $(bin_dir)/brigade-adapter-fs $(bin_dir)/brigade-conformance dist $(dist_cross) cover.out $(env_test) playwright-report test-results
 
 .PHONY: typecheck
-typecheck: ## Type checks
-	# TBD
+typecheck: ## go build ./... and go vet ./... (every package, including tests)
+	go build ./...
+	go vet ./...
 
+.PHONY: fmt
+fmt: ## gofmt + goimports through golangci-lint
+	$(golangci_lint) fmt ./...
+
+# The gofmt step is scoped to the root module's OWN package directories, not to `.`. Plan 7.3/7.4 write it as
+# `gofmt -l .`, but that is a FILESYSTEM walk while every other tool here (go build, go vet, golangci-lint) is
+# MODULE-scoped. This repo commits Go under docs/research/ and scripts/experiments/, and keeps scratch under
+# .ignored/ — 19 such files, every one of them inside its OWN nested go.mod and therefore not part of this
+# module. `gofmt -l .` flags all 19 and turns `make lint` red over code this module does not build. Deriving
+# the list from `go list` keeps the two scopes identical and stays correct as packages are added. The guards
+# matter: without them a `go list` failure or an empty package set would make the check pass having read
+# nothing. It lists FILES rather than directories because `gofmt` RECURSES a directory: the moment a package
+# exists at the repository root `go list` emits ".", and the check silently reverts to the whole-tree walk it
+# was written to eliminate (measured -- a stray root main.go brought all 8 committed nested-module files
+# back). golangci-lint's own gofmt/goimports formatters cover the same ground, so this step is
+# belt-and-braces rather than the only guard. There was a THIRD such path: `out="$(gofmt -l $dirs)"` word-split the directory list on spaces, so
+# on a checkout whose path contains a space gofmt was handed fragments, wrote its complaints to stderr, exited
+# 2 and produced no stdout — and the recipe, which looked only at stdout, passed having formatted nothing
+# (measured under `.../path with spaces/`). Reading the list line by line fixes the splitting, and checking
+# gofmt's exit status makes any other gofmt failure loud instead of silent.
 .PHONY: lint
-lint: ## Lint
-	# TBD
+lint: ## golangci-lint (config verify + run, formatters included) and a plain gofmt check
+	$(golangci_lint) config verify
+	@files=$$(go list -f '{{$$d:=.Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}' ./...) || exit 1; \
+	  test -n "$$files" || { echo "gofmt check: go list produced no Go files" >&2; exit 1; }; \
+	  out="$$(printf '%s\n' "$$files" | while IFS= read -r f; do gofmt -l "$$f" || exit 1; done)" \
+	    || { echo "gofmt check: gofmt itself failed" >&2; exit 1; }; \
+	  test -z "$$out" || { echo "$$out"; exit 1; }
+	$(golangci_lint) run ./...
 
 .PHONY: lint-fix
-lint-fix: ## Lint fix
-	# TBD
+lint-fix: ## golangci-lint --fix and fmt
+	$(golangci_lint) run --fix ./...
+	$(golangci_lint) fmt ./...
 
 .PHONY: test
-test: ## Test
-	# TBD
+test: build ## Unit + testscript + harness + conformance(fs) with -race; no Docker (what `make commit` runs)
+	go test $(go_test_flags) -covermode=atomic -coverprofile=cover.out ./...
+	$(bin_dir)/brigade-conformance --shared-env BRIGADE_FS_ROOT --adapter $(bin_dir)/brigade-adapter-fs
+
+.PHONY: vuln
+vuln: build ## govulncheck on the source tree and on the built binary (pinned in tools.mod)
+	go tool -modfile=$(tools_mod) govulncheck ./...
+	go tool -modfile=$(tools_mod) govulncheck -mode binary $(bin_dir)/brigade
+
+.PHONY: tidy-check
+tidy-check: ## Fail if go.mod/go.sum would change (CI)
+	go mod tidy -diff
+	go mod verify
+
+# The `!` inverts grep's exit status, so anything that makes grep exit non-zero for a reason other than
+# "no disallowed module found" passes silently: a MISSING docs/allowed-deps.txt makes grep exit 2 and the
+# check would report success having read nothing. `test -s` closes that (and the empty-allowlist case).
+# An empty bin/deps.txt still passes vacuously — expected before P2-6, when bin/brigade links no non-stdlib
+# module at all — which is why P2-6 replaces the subset test with byte equality.
+# The `go version -m` step writes to a file instead of piping into awk for the same reason: in a pipeline the
+# recipe's exit status is the LAST command's, so a failing `go version -m` (a binary the toolchain cannot
+# read) left an empty deps.txt behind and the allowlist check then passed having inspected nothing —
+# measured: pipeline exit 0, deps.txt 0 bytes, check exit 0. With the redirect its status is the recipe's.
+.PHONY: deps-check
+deps-check: build ## Fail if bin/brigade links a module outside docs/allowed-deps.txt (subset test; P2-6 appends the equality line)
+	test -s docs/allowed-deps.txt
+	go version -m $(bin_dir)/brigade > $(bin_dir)/buildinfo.txt
+	awk '$$1 == "dep" {print $$2}' $(bin_dir)/buildinfo.txt | sort > $(bin_dir)/deps.txt
+	@n=$$(grep -c . $(bin_dir)/deps.txt || true); \
+	  if [ "$$n" -eq 0 ]; then \
+	    echo 'deps-check: bin/brigade links 0 non-stdlib modules, so the allow-list was compared against'; \
+	    echo 'deps-check: NOTHING. Expected until P2-6 links the shipped set (go.mod carries only what the'; \
+	    echo 'deps-check: code imports, because `go mod tidy -diff` strips an unused require). Not a pass.'; \
+	  else \
+	    echo "deps-check: $$n linked module(s) checked against docs/allowed-deps.txt"; \
+	  fi
+	! grep -vxF -f docs/allowed-deps.txt $(bin_dir)/deps.txt
+# P2-6, once every shipped module is actually linked, adds:  diff $(bin_dir)/deps.txt docs/allowed-deps.txt
+
+.PHONY: schema
+schema: ## Regenerate docs/protocol-v1.schema.json from the Go wire types
+	go run ./cmd/brigade-schema > docs/protocol-v1.schema.json
+
+# Neither the `test -s` nor the temp file is decoration. Piping the generator straight into `diff -` makes the
+# recipe's exit status diff's alone, so (a) a generator that printed nothing while the committed file was also
+# empty compared empty with empty and passed — measured, exit 0 — and (b) a generator that wrote the right
+# bytes and then failed was invisible, also measured. `make schema` writes the same file this diffs, so the
+# two can drift into vacuity together. The redirect makes the generator's own status the recipe's.
+.PHONY: schema-check
+schema-check: ## Fail if docs/protocol-v1.schema.json is stale, empty or ungenerable (CI)
+	test -s docs/protocol-v1.schema.json
+	mkdir -p $(bin_dir)
+	go run ./cmd/brigade-schema > $(bin_dir)/schema.json
+	diff $(bin_dir)/schema.json docs/protocol-v1.schema.json
+
+.PHONY: test-db
+test-db: ## pgTAP tests in supabase/tests against the running local stack
+	$(supabase) test db
+
+.PHONY: test-integration
+test-integration: build ## Adapter integration + conformance(supabase) against the local stack (reads $(env_test))
+	set -a; . ./$(env_test); set +a; BRIGADE_TEST_DOCKER=1 go test -count=1 -timeout 20m -run 'Integration|Supabase' ./internal/adapters/supabase/...
+	set -a; . ./$(env_test); set +a; $(bin_dir)/brigade-conformance --slow --env SUPABASE_URL=$$SUPABASE_URL --env SUPABASE_PUBLISHABLE_KEY=$$SUPABASE_PUBLISHABLE_KEY --setup scripts/ci/conformance-setup-supabase.sh --adapter $(bin_dir)/brigade -- adapter supabase
+
+.PHONY: test-all
+test-all: test test-db advisor-lints test-integration e2e ## Everything (requires `make supabase-start supabase-env`)
+
+.PHONY: conformance
+conformance: build ## Run the conformance suite against an adapter (usage: make conformance adapter=<executable> [args="-- fixed args"])
+	$(bin_dir)/brigade-conformance --adapter $(adapter) $(args)
+
+.PHONY: e2e
+e2e: build ## Phase 4 no-LLM proof in watcher sink mode against the local stack (runs in CI)
+	$(unclaude) scripts/proof.sh
+
+.PHONY: proof
+proof: e2e ## Phase 4 proof including the headless LLM run and the idle-wake run (needs a logged-in claude)
+	$(unclaude) scripts/proof-headless.sh && $(unclaude) scripts/proof-idle-wake.sh
+
+.PHONY: harness-smoke
+harness-smoke: build ## Headless claude -p smoke test with the fs adapter (needs a logged-in claude)
+	$(unclaude) scripts/harness-smoke.sh
+
+.PHONY: advisor-lints
+advisor-lints: ## Security Advisor lint mirrors, run with the psql inside the local database container (no host psql needed)
+	docker exec -i supabase_db_brigade psql -U postgres -d postgres -v ON_ERROR_STOP=1 < scripts/ci/advisor-lints.sql
+
+# ========== Plugin ==========
+
+.PHONY: plugin-check
+plugin-check: ## Static checks of plugin/: exec-form hooks, no .mcp.json, VERSION == plugin.json, shellcheck, no secrets
+	scripts/ci/plugin-check.sh
+	scripts/ci/no-secrets.sh
+
+.PHONY: plugin-validate
+plugin-validate: ## claude plugin validate on the marketplace and (from P3-1) the plugin root
+	claude plugin validate .
+	@test -f plugin/.claude-plugin/plugin.json || { \
+	  echo 'skipping `claude plugin validate ./plugin --strict`: plugin/.claude-plugin/plugin.json does' >&2; \
+	  echo 'not exist yet -- the plugin manifests, hooks and skills are task P3-1. The marketplace' >&2; \
+	  echo 'manifest above passed, and it does NOT follow the ./plugin source.' >&2; exit 0; }
+	claude plugin validate ./plugin --strict
+
+.PHONY: plugin-dev-pointer
+plugin-dev-pointer: build ## Write the dev-binary pointer (honours XDG_CONFIG_HOME) without launching anything; used by scripts too
+	mkdir -p "$${XDG_CONFIG_HOME:-$$HOME/.config}/brigade"
+	echo "$(CURDIR)/$(bin_dir)/brigade" > "$${XDG_CONFIG_HOME:-$$HOME/.config}/brigade/dev-binary"
+
+.PHONY: plugin-dev
+plugin-dev: plugin-dev-pointer ## Start Claude Code with the local plugin (usage: make plugin-dev [adapter=fs] — fs selects the dev adapter via adapter_command)
+ifeq ($(adapter),fs)
+	$(unclaude) claude --plugin-dir ./plugin --settings '{"pluginConfigs":{"brigade@inline":{"options":{"adapter_command":"[\"$(CURDIR)/$(bin_dir)/brigade-adapter-fs\"]"}}}}'
+else
+	$(unclaude) claude --plugin-dir ./plugin
+endif
+
+.PHONY: plugin-dev-off
+plugin-dev-off: ## Remove the local-build pointer so the bootstrap uses the pinned release again
+	rm -f "$${XDG_CONFIG_HOME:-$$HOME/.config}/brigade/dev-binary"
+
+# ========== Release ==========
+
+.PHONY: print-version
+print-version: ## Print the version pinned in plugin/bin/VERSION
+	@echo $(plugin_version)
+
+.PHONY: cross
+cross: version-check ## Build dist-cross/brigade_$(version)_<os>_<arch> for every target with the exact release flags, plus checksums.txt
+	rm -rf $(dist_cross) && mkdir -p $(dist_cross)
+	for t in $(targets); do \
+	  $(go_build_env) GOOS=$${t%/*} GOARCH=$${t#*/} go build $(go_flags) -ldflags '$(ld_flags)' \
+	    -o $(dist_cross)/brigade_$(version)_$${t%/*}_$${t#*/} ./cmd/brigade || exit 1; \
+	done
+	cd $(dist_cross) && $(sha256) brigade_* > checksums.txt
+
+.PHONY: checksums-check
+checksums-check: cross ## Fail if plugin/bin/{VERSION,checksums.txt} disagree with plugin.json, a fresh build, or the published release (CI)
+	scripts/ci/checksums-check.sh $(dist_cross)/checksums.txt
+
+.PHONY: release
+release: ## Pin the plugin to $(version), commit through the push chain, tag v$(version) and push the tag (usage: make release version=0.1.0 [branch=<throwaway>] — branch only for the P2-12 rehearsal)
+	@test -n "$(version)" || { echo "usage: make release version=X.Y.Z [branch=<name>]"; exit 1; }
+	scripts/release-prep.sh $(version) $(branch)
+
+.PHONY: release-dry-run
+release-dry-run: ## goreleaser check + a local release without publishing (needs a clean tree and a tag on HEAD)
+	$(goreleaser) check
+	GOTOOLCHAIN=$(go_toolchain) $(goreleaser) release --skip=publish --clean
+
+# ========== Supabase (local stack) ==========
+
+# E0-1: with `brigade` in config.toml's [api] schemas, `supabase start` cannot succeed until a migration has
+# created that schema. PostgREST loops on `3F000 schema "brigade" does not exist`, its container never turns
+# healthy, and the CLI tears the whole stack down reporting only `supabase_rest_brigade unexpected status 503`
+# — which names PostgREST rather than the cause. Fail fast and legibly instead.
+.PHONY: migrations-check
+migrations-check: ## Fail unless supabase/migrations/ holds at least one .sql file (guards supabase-start; E0-1)
+	@ls supabase/migrations/*.sql >/dev/null 2>&1 || { \
+	  echo 'supabase/migrations/ holds no .sql file, so `supabase start` cannot succeed:' >&2; \
+	  echo 'supabase/config.toml exposes the `brigade` schema, PostgREST loops on' >&2; \
+	  echo '  3F000 schema "brigade" does not exist' >&2; \
+	  echo 'its container never turns healthy, and the CLI tears the whole stack down reporting only' >&2; \
+	  echo '  supabase_rest_brigade unexpected status 503' >&2; \
+	  echo 'which names PostgREST rather than the cause (E0-1).' >&2; \
+	  echo 'Write the schema migration first: make migration-new name=brigade_schema' >&2; \
+	  exit 1; }
+
+.PHONY: supabase-start
+supabase-start: migrations-check ## Start the minimal local stack (db, auth, rest, realtime, kong); applies migrations + seed
+	$(supabase) start -x $(supabase_exclude)
+
+.PHONY: supabase-stop
+supabase-stop: ## Stop the local stack, keep data
+	$(supabase) stop
+
+.PHONY: supabase-clean
+supabase-clean: ## Stop the local stack and delete its data
+	$(supabase) stop --no-backup
+
+.PHONY: supabase-status
+supabase-status: ## Show URLs and keys of the running stack
+	$(supabase) status
+
+# BOTH name sets are written, deliberately. Plan 7.4 renames everything to SUPABASE_* with --override-name,
+# but the promoted Phase 0 regression kit under scripts/experiments/ (E0-1, E0-2, E0-6 and E0-6/verify) reads
+# the CLI's OWN names -- API_URL, ANON_KEY, JWT_SECRET, PUBLISHABLE_KEY, SECRET_KEY, SERVICE_ROLE_KEY -- via
+# its loadEnv(".env.test"). Since the recipe TRUNCATES the file, emitting only the renamed set silently gives
+# every one of those drivers an empty string: API_URL is renamed away and ANON_KEY and JWT_SECRET disappear
+# entirely. The kit fails for a reason that looks like a broken stack. So: the CLI's native output first,
+# then the SUPABASE_* aliases the plan's own test-integration recipe consumes. Writing via a temp file keeps
+# a failed `supabase status` from truncating a working .env.test.
+.PHONY: supabase-env
+supabase-env: ## Write $(env_test) from the running stack, in both name sets (never commit it)
+	@$(supabase) status -o env > $(env_test).tmp
+	@{ cat $(env_test).tmp; \
+	   echo ''; \
+	   echo '# SUPABASE_* aliases (plan 7.4/7.5; consumed by make test-integration).'; \
+	   sed -n 's/^API_URL=/SUPABASE_URL=/p'                       $(env_test).tmp; \
+	   sed -n 's/^PUBLISHABLE_KEY=/SUPABASE_PUBLISHABLE_KEY=/p'   $(env_test).tmp; \
+	   sed -n 's/^SECRET_KEY=/SUPABASE_SECRET_KEY=/p'             $(env_test).tmp; \
+	   sed -n 's/^SERVICE_ROLE_KEY=/SUPABASE_SERVICE_ROLE_KEY=/p' $(env_test).tmp; \
+	   sed -n 's/^DB_URL=/SUPABASE_DB_URL=/p'                     $(env_test).tmp; \
+	 } > $(env_test)
+	@rm -f $(env_test).tmp
+	@grep -q '^SUPABASE_URL=' $(env_test) || { echo 'supabase-env: alias generation produced no SUPABASE_URL' >&2; exit 1; }
+
+.PHONY: supabase-reset
+supabase-reset: migrations-check ## Recreate the local database from migrations + seed
+	$(supabase) db reset
+
+.PHONY: migration-new
+migration-new: ## Create supabase/migrations/<timestamp>_$(name).sql (usage: make migration-new name=add_x)
+	$(supabase) migration new $(name)
+
+# ========== Supabase (hosted project; needs SUPABASE_ACCESS_TOKEN) ==========
+
+.PHONY: supabase-link
+supabase-link: ## Link a hosted project (usage: make supabase-link project=<ref>)
+	$(supabase) link --project-ref $(project)
+
+.PHONY: supabase-push-dry
+supabase-push-dry: ## Show migrations that would be applied to the linked project
+	$(supabase) db push --dry-run
+
+.PHONY: supabase-push
+supabase-push: ## Apply migrations to the linked project
+	$(supabase) db push
+
+.PHONY: supabase-config-push
+supabase-config-push: ## Push config.toml settings (anonymous sign-ins, exposed schemas) to the linked project
+	$(supabase) config push
+
+.PHONY: backend-install
+backend-install: supabase-link supabase-push supabase-config-push ## One-shot hosted backend setup for a team admin (Phase 5)
+	$(supabase) projects api-keys --project-ref $(project)
 
 # ========== Git ==========
 
 .PHONY: pull
-pull: ## Merge origin into the current branch (plain merge — never rebase)
-	git pull
+pull: ## Merge origin into the current branch (plain merge — never rebase; no editor)
+	git pull --no-edit
 
 .PHONY: commit
 commit: typecheck pull build test ## Typecheck, pull, build, test, stage, commit (usage: make commit message="...")

@@ -1,0 +1,38 @@
+# .goreleaser.yaml — plan 7.7. Pinned binary: goreleaser v2.18.0 (`make setup-goreleaser`).
+# The four D33 targets only. The bytes must be reproducible from `make cross` with the same flags,
+# so nothing here may depend on the release commit (no .Commit, no .Date in the ldflags).
+version: 2
+project_name: brigade
+before:
+  hooks:
+    - go mod verify
+builds:
+  - id: brigade
+    main: ./cmd/brigade
+    binary: brigade
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]                          # the four D33 targets, nothing else
+    flags: [-trimpath, -buildvcs=false]             # both REQUIRED for reproducibility: VCS stamping changes the bytes per commit and
+                                                    # with a dirty tree, and -trimpath alone does not give cross-path reproducibility
+    ldflags:
+      - -s -w -X github.com/appshapes/brigade/internal/buildinfo.Version={{ .Version }}   # no .Commit, no .Date: the bytes must not depend on the release commit
+    mod_timestamp: "{{ .CommitTimestamp }}"
+archives:
+  - id: raw
+    formats: [binary]                               # raw binaries, no tar/zip: the bootstrap downloads one file and verifies one sha256
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude: ["^Merge "]                            # git's default merge subject (`git pull --no-edit` produces
+                                                    # "Merge remote-tracking branch 'origin/master'", never "15: Merge …")
+release:
+  github: {owner: appshapes, name: brigade}
+  draft: true                                       # published by the workflow only after the checksum verification below
+  prerelease: auto
+  mode: keep-existing

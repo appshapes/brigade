@@ -1,0 +1,109 @@
+# P1-1 smoke: the shipped binary driven as a real child process.
+#
+# Everything asserted here can only be observed across a process boundary —
+# argv reaching the command table, stdin reaching a child, the exit status
+# of 4.6, and the rule that nothing but protocol output ever goes to
+# stdout. The in-process tests in internal/app and internal/cli cover the
+# same code without a fork; this script is what proves the fork works.
+
+# --- version --------------------------------------------------------------
+# The human form is the bare version and nothing else. Byte-for-byte, not a
+# regexp: `bin/brigade version` is asserted exactly by the Makefile and CI,
+# so an extra banner line has to fail here too.
+exec brigade version
+cmp stdout want-version.txt
+! stderr .
+
+# The --json form puts the 4.3 envelope on stdout and leaves stderr empty.
+exec brigade --json version
+json stdout .ok true
+json stdout .protocol_version 1
+json stdout .result.version 0.0.0-testscript
+! stderr .
+
+# The comparison is exact, not a prefix: a truncated version must not pass.
+! json stdout .result.version 0.0.0
+
+# A field printed by one command becomes an argument to the next.
+cp stdout version.json
+jsonenv version.json .result.version VERSION
+expand greeting.in greeting.out
+cmp greeting.out greeting.want
+
+# --- usage errors exit 2 ---------------------------------------------------
+# An unknown command: exit 2, one line on stderr, nothing at all on stdout.
+status 2 brigade no-such-command
+! stdout .
+stderr 'unknown command "no-such-command"'
+
+# The same failure for a machine caller: the envelope on stdout, and now
+# stderr is the stream that must stay empty.
+status 2 brigade --json no-such-command
+! stderr .
+json stdout .ok false
+json stdout .error.code usage
+json stdout .error.retryable false
+
+# An unknown flag is a usage error too, and the flag package's message must
+# not reach stdout with it.
+status 2 brigade version --no-such-flag
+! stdout .
+stderr 'invalid arguments'
+
+# --- a recognised but unbuilt command is exit 1, not 2 ---------------------
+# The distinction is the point: argv was right, the binary is incomplete.
+status 1 brigade sessions
+! stdout .
+stderr 'not implemented yet'
+
+# --- help succeeds on stdout ----------------------------------------------
+exec brigade help
+stdout 'Usage: brigade <command> \[arguments\]'
+stdout 'sessions'
+! stderr .
+
+# --- the dev-only adapter binary is on the script PATH --------------------
+# `make build` produces it; the conformance runner resolves it by name.
+status 2 brigade-adapter-fs
+json stdout .error.code usage
+stderr 'brigade-adapter-fs'
+
+# --- argv, stdin, streams and exit status through a real child ------------
+stdin body.txt
+status 7 fake-adapter -exit 7 -stdin-out got-stdin.txt hello world
+json stdout .exit 7
+json stdout .args.0 hello
+json stdout .args.1 world
+json stdout .stdin_bytes 12
+stderr 'fake-adapter: reported'
+# What the child read on stdin, byte for byte.
+cmp got-stdin.txt body.txt
+
+# The child sees the isolated environment, never the developer's own. HOME
+# is testscript's /no-home so a stray ~ fails loudly, and CLAUDE_CONFIG_DIR
+# is under $WORK — this project's config dir is never ~/.claude and a test
+# that reached the real one would corrupt a live session's state.
+exec fake-adapter
+json stdout .env.HOME /no-home
+json stdout .env.CLAUDE_CONFIG_DIR $WORK/.brigade/claude-config
+json stdout .env.BRIGADE_STATE_DIR $WORK/.brigade/brigade-state
+json stdout .env.BRIGADE_FS_ROOT $WORK/.brigade/fs-root
+
+# --- sleeper --------------------------------------------------------------
+# A reaped `sleep 300` stands in for a live Claude Code process. The pid it
+# exports must answer kill(pid, 0); a pid above any PID_MAX must not, which
+# is what keeps the check from passing on a probe that always says yes.
+sleeper
+exec fake-adapter -alive $SLEEPER_PID
+json stdout .alive true
+exec fake-adapter -alive 999999999
+json stdout .alive false
+
+-- want-version.txt --
+0.0.0-testscript
+-- body.txt --
+a body line
+-- greeting.in --
+the version is $VERSION
+-- greeting.want --
+the version is 0.0.0-testscript

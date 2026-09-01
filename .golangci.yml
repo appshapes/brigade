@@ -1,0 +1,109 @@
+# .golangci.yml — plan 7.3. Pinned binary: golangci-lint v2.13.2 (make setup-lint installs it into ./bin).
+version: "2"
+run:
+  timeout: 5m
+  tests: true
+  build-tags: [mutant_noack, mutant_teamleak, mutant_trustsender]   # lint the mutant files too (9.2)
+linters:
+  default: standard            # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose                # http.Response bodies (the Supabase client)
+    - copyloopvar
+    - depguard                 # the harness never imports the Supabase client
+    - errorlint                # errors.Is/As instead of == and type assertions
+    - exhaustive               # switch over protocol.Code and event kinds
+    - forbidigo                # stdout, exit, environment and spawn discipline
+    - gocritic
+    - gosec                    # file modes, subprocess audit, TLS, weak RNG
+    - misspell
+    - nilerr
+    - noctx                    # every HTTP request carries a context
+    - perfsprint
+    - revive
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - usetesting               # t.TempDir, t.Context instead of os.* in tests
+  settings:
+    gosec:
+      excludes: [G304]         # file paths are computed from BRIGADE_CONFIG_DIR/BRIGADE_STATE_DIR by design
+      config:
+        G301: "0700"           # directories: profiles/ and state dirs are 0700 (T7, T14)
+        G302: "0600"           # chmod/create
+        G306: "0600"           # WriteFile: every state, profile, credential, map and log file is 0600
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: stdout is protocol output only; use adapterkit.PrintResult, the NDJSON writer, or harness/commands
+        - pattern: ^os\.Stdout$
+          msg: same as above
+        - pattern: ^os\.Exit$
+          msg: return an exit code from Run; only Main may exit (stdout would be truncated)
+        - pattern: ^os\.Getenv$
+          msg: read configuration through harness/config or adapterkit/env (inherited BRIGADE_* is ignored on purpose, plan 3.2)
+        - pattern: ^exec\.Command(Context)?$
+          msg: spawn through harness/adapterclient or adapterkit.Spawn (argv arrays, allow-listed env, no shell)
+        - pattern: ^slog\.Any$
+          msg: ReplaceAttr cannot redact inside struct/map values; log scalars or use adapterkit/log helpers
+    depguard:
+      rules:
+        harness-is-adapter-agnostic:
+          files: ["**/internal/harness/**"]
+          deny:
+            - pkg: github.com/appshapes/brigade/internal/adapters/supabase
+              desc: the plugin talks only the adapter protocol; the Supabase adapter is a child process
+  exclusions:
+    generated: lax
+    presets: [comments, std-error-handling]
+    rules:
+      # Every `path` here is ANCHORED. golangci-lint matches these as unanchored substrings, so an
+      # unanchored `cmd/` exempts os.Exit in ANY file whose path merely contains it -- measured: both
+      # os.Stdout and os.Exit went unreported in internal/nested/cmd/tool/main.go, and os.Exit in
+      # internal/subcmd/deep/x.go. The forbidigo rules ARE the stdout/exit/env/spawn discipline of 7.3,
+      # so an exemption that reaches further than it reads is a hole in the security path's static half.
+      - path: ^internal/adapterkit/result\.go$|^internal/protocol/ndjson\.go$|^internal/harness/commands/
+        linters: [forbidigo]
+        text: "fmt.Print|os.Stdout"
+      - path: ^internal/app/main\.go$|^internal/adapters/fs/main\.go$|^internal/conformance/cli\.go$|^cmd/
+        linters: [forbidigo]
+        text: "os.Exit"
+      # An entry point MUST name the process's real streams -- something has to hand os.Stdout to a Run(w io.Writer)
+      # seam, and plan 7.3's forbid list has no path where that is legal: the only os.Stdout exemption is for the
+      # three protocol-output writers, and the os.Exit rule above does not cover os.Stdout even in the very
+      # main.go files it names. Without this rule the config cannot be satisfied by any working program.
+      # Scoped to entry-point FILES (not all of cmd/) so the discipline still binds everything else: an internal
+      # package that wants stdout must go through the protocol writers, exactly as 7.3 intends.
+      - path: ^internal/app/main\.go$|^internal/adapters/fs/main\.go$|^internal/conformance/cli\.go$|^cmd/[^/]+/main\.go$
+        linters: [forbidigo]
+        text: "os.Stdout"
+      - path: ^internal/harness/config/|^internal/adapterkit/env\.go$|^internal/testutil/|_test\.go$
+        linters: [forbidigo]
+        text: "os.Getenv|exec.Command"
+      - path: ^internal/harness/adapterclient/spawn\.go$|^internal/adapterkit/spawn\.go$|^internal/procutil/|^internal/testutil/
+        linters: [gosec]
+        text: "G204"           # subprocess with variable argv is the design (4.1); no shell is ever involved
+      - path: ^internal/adapterkit/log/
+        linters: [forbidigo]
+        text: "slog.Any"
+# golangci-lint's DEFAULTS truncate output: max-same-issues 3 and max-issues-per-linter 50. Measured here --
+# a file with six identical forbidigo violations reported exactly three. In this project forbidigo IS the
+# stdout/exit/environment/spawn discipline (7.3), so a silently truncated report is a gate that hides the
+# violations it exists to catch, and it makes a fixed run surface a "new" batch every time. 0 = unlimited.
+# uniq-by-line is the same defect one layer down and defaults to TRUE: golangci-lint reports at most ONE
+# issue per source LINE across all linters. Measured here — `func probeUniq() { _, _ = os.Stdout.Write(nil) }`
+# reported only `unused`, and the forbidigo os.Stdout violation on the same line was dropped entirely; with
+# uniq-by-line false both appear. Since forbidigo IS the stdout/exit/environment/spawn discipline, a
+# discipline violation must never be hidden by whatever unrelated linter happens to speak first on that line.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: false
+
+formatters:
+  enable: [gofmt, goimports]
+  settings:
+    goimports:
+      local-prefixes: [github.com/appshapes/brigade]

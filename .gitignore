@@ -176,3 +176,37 @@ CLAUDE.user.md
 # Committed research evidence must never be swallowed by the seeded Node template's broad patterns
 # (`logs`, `out`, `dist` and `*.out` match at any depth).
 !docs/research/**
+
+# Build output, local environment files and Supabase CLI state (plan 7.6). `/bin/` is anchored at the repo root on
+# purpose: `plugin/bin/` is committed. `dist-cross` is NOT matched by the template's bare `dist`, hence its own line.
+.env
+.env.*
+!.env.example
+/bin/
+/dist/
+/dist-cross/
+cover.out
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+
+# Belt and braces for the same hazard (plan 7.6). `logs`, `out`, `dist` and `*.out` match at ANY depth, and the
+# `.env.*` / `cover.out` lines above match by basename at any depth too, so the research negations are restated
+# here, LAST, where nothing appended above can override them. Invariant: `git status --ignored docs/research`
+# must list nothing, and `git ls-files -i -c --exclude-standard` must be empty.
+!docs/research/**/logs/
+!docs/research/**/logs/**
+!docs/research/**/out/
+!docs/research/**/out/**
+!docs/research/**/dist/
+!docs/research/**/dist/**
+!docs/research/**/*.out
+!docs/research/**
+
+# macOS: the canonical commit chain is `git add --verbose :/ .` (the user's gcp script), so one Finder
+# visit to any directory would otherwise commit a binary dropping. The seeded go,node template has no
+# macOS section and plan 7.6 does not add one.
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes

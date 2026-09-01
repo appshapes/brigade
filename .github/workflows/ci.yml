@@ -1,0 +1,117 @@
+# Plan 7.7. Three deviations from the plan text, each deliberate and marked below:
+#   (a) the `supabase` job stays `if: false` until P2-1 creates the migrations (the plan says so);
+#   (b) the `fast` job runs `make cross` instead of `make checksums-check`, because
+#       scripts/ci/checksums-check.sh is a P1-8 deliverable and does not exist yet. `make cross` still
+#       writes dist-cross/checksums.txt, so P1-1's required cross-host reproducibility evidence
+#       (this job's summary must equal the `macos` job's and the developer's) is unchanged;
+#   (c) `make plugin-check` is gated `if: false` for the same reason (P1-8 owns
+#       scripts/ci/plugin-check.sh and scripts/ci/no-secrets.sh);
+#   (d) a `reproducibility` job diffs the `fast` and `macos` checksums instead of leaving the comparison to
+#       whoever reads the two job summaries — see the comment on that job.
+# Remove (b) and (c) in P1-8; remove (a) in P2-1. Keep (d).
+name: ci
+on:
+  push: {branches: [master]}
+  pull_request: {}
+permissions: {contents: read}
+concurrency: {group: "ci-${{ github.ref }}", cancel-in-progress: true}
+
+jobs:
+  fast:                                   # no Docker; target < 5 minutes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: {fetch-depth: 0}            # P1-8's checksums-check needs tags and the release listing
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod         # 1.27.0 from the `go` line (no toolchain line, 7.2)
+          cache-dependency-path: |
+            go.sum
+            tools.sum
+      - run: make setup-lint              # golangci-lint via install.sh into ./bin (pinned)
+      - run: make typecheck tidy-check
+      - run: make lint
+      - run: make build test              # unit + testscript + harness + conformance(fs), -race, coverage profile
+      - run: go tool cover -func=cover.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
+      - run: make vuln deps-check schema-check
+      # (b) P1-8 replaces this with `make checksums-check` (which runs `cross` itself and then
+      #     scripts/ci/checksums-check.sh dist-cross/checksums.txt), adding env GH_TOKEN: ${{ github.token }}.
+      - run: make cross                   # all four targets rebuilt with the release flags
+      - run: cat dist-cross/checksums.txt >> "$GITHUB_STEP_SUMMARY"   # cross-host reproducibility evidence (P1-1)
+      - uses: actions/upload-artifact@v7
+        with: {name: checksums-ubuntu, path: dist-cross/checksums.txt, if-no-files-found: error}
+      # (c) enabled by P1-8, which adds scripts/ci/plugin-check.sh and scripts/ci/no-secrets.sh:
+      #     exec-form hooks only, no .mcp.json, no channels, VERSION == plugin.json, shellcheck, no secrets.
+      - if: false
+        run: make plugin-check
+
+  macos:                                  # the primary user platform: unix sockets, ps -o lstart, shasum paths
+    runs-on: macos-latest                 # macOS 26 arm64 today [verified]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: go.mod}
+      - run: make build && go test -race -shuffle=on -count=1 -timeout 15m ./...
+      - run: make cross && cat dist-cross/checksums.txt >> "$GITHUB_STEP_SUMMARY"   # must equal the fast job's and the developer's (P1-1)
+      - uses: actions/upload-artifact@v7
+        with: {name: checksums-macos, path: dist-cross/checksums.txt, if-no-files-found: error}
+
+  # (d) P1-1's cross-host reproducibility criterion, as an assertion rather than as two job summaries a human
+  #     is trusted to compare. `cat >> $GITHUB_STEP_SUMMARY` in the two jobs above cannot go red however far
+  #     the ubuntu and macOS builds diverge, so on its own it is evidence, not a gate. The two files are
+  #     directly comparable: GNU `sha256sum` and Perl `shasum -a 256` emit byte-identical
+  #     "<hash>  <name>" lines [verified], both jobs read the same version from plugin/bin/VERSION, and
+  #     `make cross` pins GOTOOLCHAIN, CGO_ENABLED, GOFLAGS, GOAMD64 and GOARM64 (7.4).
+  reproducibility:
+    needs: [fast, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with: {name: checksums-ubuntu, path: ubuntu}
+      - uses: actions/download-artifact@v8
+        with: {name: checksums-macos, path: macos}
+      - name: The ubuntu and macOS cross-builds must be byte-identical
+        run: |
+          diff ubuntu/checksums.txt macos/checksums.txt
+          {
+            echo '### Cross-host reproducibility: ubuntu == macOS'
+            echo '```'
+            cat ubuntu/checksums.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  supabase:                               # Docker; about 8 minutes (2-3 of them image pulls)
+    if: false                             # (a) enabled by P2-1, which lands supabase/migrations/
+    runs-on: ubuntu-latest
+    needs: fast
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: {go-version-file: go.mod}
+      - uses: supabase/setup-cli@v3
+        with: {version: 2.116.0}          # pinned explicitly; no lockfile exists any more to read it from
+      - run: make build
+      - run: make supabase-start supabase=supabase   # `supabase ?=` in the Makefile: CI overrides the npx form with
+      - run: make test-db supabase=supabase          # the setup-cli binary, so local and CI run the same recipes and
+      - run: make supabase-env advisor-lints supabase=supabase   # the version is pinned in exactly one place per context
+      - run: make test-integration        # go test (self-skip lifted by .env.test) + conformance(supabase) --slow
+        env: {BRIGADE_COVER: "1", GOCOVERDIR: "${{ runner.temp }}/cov"}
+      - run: make e2e                     # scripts/proof.sh, watcher in --sink mode, no LLM (D31)
+        env: {GOCOVERDIR: "${{ runner.temp }}/cov"}
+      - run: go tool covdata percent -i="${{ runner.temp }}/cov" >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        run: make supabase-clean supabase=supabase
+
+  deploy-staging:                         # Phase 5; only when a hosted staging project exists
+    if: github.ref == 'refs/heads/master' && vars.BRIGADE_STAGING == 'true'
+    needs: [fast, supabase]
+    environment: staging
+    runs-on: ubuntu-latest
+    env: {SUPABASE_ACCESS_TOKEN: "${{ secrets.SUPABASE_ACCESS_TOKEN }}", SUPABASE_DB_PASSWORD: "${{ secrets.SUPABASE_DB_PASSWORD }}"}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v3
+        with: {version: 2.116.0}
+      - run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}"
+      - run: supabase db push --dry-run && supabase db push && supabase config push --yes
