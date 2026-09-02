@@ -183,27 +183,23 @@ tidy-check: ## Fail if go.mod/go.sum would change (CI)
 # The `!` inverts grep's exit status, so anything that makes grep exit non-zero for a reason other than
 # "no disallowed module found" passes silently: a MISSING docs/allowed-deps.txt makes grep exit 2 and the
 # check would report success having read nothing. `test -s` closes that (and the empty-allowlist case).
-# An empty bin/deps.txt still passes vacuously — expected before P2-6, when bin/brigade links no non-stdlib
-# module at all — which is why P2-6 replaces the subset test with byte equality.
+# The grep is the subset test (nothing linked outside the allow-list); the `diff` after it is the EQUALITY
+# test P2-6 promised once the shipped set was actually linked: bin/deps.txt must be byte-equal to
+# docs/allowed-deps.txt (five modules), so an empty deps.txt — which the subset test alone passes vacuously —
+# and a module that silently stopped being linked both fail as loudly as a module that was added. The
+# allow-list is kept in `LC_ALL=C sort` order for that reason.
 # The `go version -m` step writes to a file instead of piping into awk for the same reason: in a pipeline the
 # recipe's exit status is the LAST command's, so a failing `go version -m` (a binary the toolchain cannot
 # read) left an empty deps.txt behind and the allowlist check then passed having inspected nothing —
 # measured: pipeline exit 0, deps.txt 0 bytes, check exit 0. With the redirect its status is the recipe's.
 .PHONY: deps-check
-deps-check: build ## Fail if bin/brigade links a module outside docs/allowed-deps.txt (subset test; P2-6 appends the equality line)
+deps-check: build ## Fail unless bin/brigade links exactly the modules in docs/allowed-deps.txt (subset, then equality)
 	test -s docs/allowed-deps.txt
 	go version -m $(bin_dir)/brigade > $(bin_dir)/buildinfo.txt
-	awk '$$1 == "dep" {print $$2}' $(bin_dir)/buildinfo.txt | sort > $(bin_dir)/deps.txt
-	@n=$$(grep -c . $(bin_dir)/deps.txt || true); \
-	  if [ "$$n" -eq 0 ]; then \
-	    echo 'deps-check: bin/brigade links 0 non-stdlib modules, so the allow-list was compared against'; \
-	    echo 'deps-check: NOTHING. Expected until P2-6 links the shipped set (go.mod carries only what the'; \
-	    echo 'deps-check: code imports, because `go mod tidy -diff` strips an unused require). Not a pass.'; \
-	  else \
-	    echo "deps-check: $$n linked module(s) checked against docs/allowed-deps.txt"; \
-	  fi
+	awk '$$1 == "dep" {print $$2}' $(bin_dir)/buildinfo.txt | LC_ALL=C sort > $(bin_dir)/deps.txt
+	@echo "deps-check: $$(grep -c . $(bin_dir)/deps.txt || true) linked module(s) checked against docs/allowed-deps.txt"
 	! grep -vxF -f docs/allowed-deps.txt $(bin_dir)/deps.txt
-# P2-6, once every shipped module is actually linked, adds:  diff $(bin_dir)/deps.txt docs/allowed-deps.txt
+	diff $(bin_dir)/deps.txt docs/allowed-deps.txt
 
 .PHONY: schema
 schema: ## Regenerate docs/protocol-v1.schema.json from the Go wire types
@@ -229,10 +225,14 @@ schema-check: ## Fail if docs/protocol-v1.schema.json is stale, empty or ungener
 test-db: ## pgTAP tests in supabase/tests against the running local stack
 	$(supabase) test db supabase/tests/*.sql
 
+# No --setup on the conformance line: with the BRIGADE_SUPABASE_* pair in the environment, `team create`/`team join`
+# bind an empty profile themselves (4.1's rule for a human shell, and the suite is one), so the suite provisions its
+# own teams, learns the join secret and runs C-28/C-40 instead of skipping them; scripts/ci/conformance-setup-supabase.sh
+# stays as the documented out-of-band alternative for a backend whose principals are provisioned elsewhere.
 .PHONY: test-integration
 test-integration: build ## Adapter integration + conformance(supabase) against the local stack (reads $(env_test))
 	set -a; . ./$(env_test); set +a; BRIGADE_TEST_DOCKER=1 go test -count=1 -timeout 20m -run 'Integration|Supabase' ./internal/adapters/supabase/...
-	set -a; . ./$(env_test); set +a; $(bin_dir)/brigade-conformance --slow --env SUPABASE_URL=$$SUPABASE_URL --env SUPABASE_PUBLISHABLE_KEY=$$SUPABASE_PUBLISHABLE_KEY --setup scripts/ci/conformance-setup-supabase.sh --adapter $(bin_dir)/brigade -- adapter supabase
+	set -a; . ./$(env_test); set +a; $(bin_dir)/brigade-conformance --slow --env BRIGADE_SUPABASE_URL=$$SUPABASE_URL --env BRIGADE_SUPABASE_PUBLISHABLE_KEY=$$SUPABASE_PUBLISHABLE_KEY --adapter $(bin_dir)/brigade -- adapter supabase
 
 .PHONY: test-all
 test-all: test test-db advisor-lints test-integration e2e ## Everything (requires `make supabase-start supabase-env`)

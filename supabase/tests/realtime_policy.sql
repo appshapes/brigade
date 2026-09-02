@@ -2,10 +2,12 @@
 -- row on brigade:session:<recipient> (never the body); the realtime.messages select policy grants rows only to
 -- the owner of the OPEN session named by the joined topic (simulated with set_config('realtime.topic', ...)),
 -- not to another member, a non-member, a closed session, a revoked member or anon; no insert policy exists, so a
--- client cannot broadcast (a direct insert is refused and realtime.send from a client writes nothing).
+-- client cannot broadcast (a direct insert is refused and realtime.send from a client writes nothing); and
+-- leave_team writes an ids-only membership_revoked broadcast on the topic of each of the leaver's open sessions
+-- (the hint that ends a running watch at once, C-08).
 begin;
 \ir helpers/auth.sql
-select plan(39);
+select plan(53);
 
 -- Fixtures: team A (A1 creator with s1, A2 joiner with s2 and s3), N a member of nothing.
 select pg_temp.new_user() as a1 \gset
@@ -96,6 +98,36 @@ select lives_ok($$select realtime.send('{"forged": true}'::jsonb, 'forged_event'
 set local client_min_messages = notice;
 select pg_temp.logout();
 select is((select count(*) from realtime.messages where event = 'forged_event'), 0::bigint, '... but writes nothing: only the database emits broadcasts');
+
+-- 5. leave_team wakes the leaver's running watches (plan 5.6, C-08): before it closes the caller's open sessions the
+--    definer function writes a membership_revoked broadcast, ids only, on each open session's private topic, so a
+--    watch drains at once instead of waiting for its timer and fetch_inbox answers the uniform unauthorized. A1
+--    (Alice) still holds s1 open; a second open session s4 and a closed one s5 pin "each OPEN session"; a second
+--    leave (idempotent, the row is already revoked) writes nothing more. Run as the leaving member, inside the
+--    test transaction, exactly as the adapter calls it.
+select pg_temp.login(:'a1', true, 'Alice');
+select (brigade.register_session(:'team_a'::uuid, 's4'))->>'session_id' as s4 \gset
+select (brigade.register_session(:'team_a'::uuid, 's5'))->>'session_id' as s5 \gset
+select lives_ok($$select brigade.close_session('$$ || :'s5' || $$')$$, 'fixture: A1 closes s5 before the leave');
+select 'brigade:session:' || :'s4' as topic4 \gset
+select 'brigade:session:' || :'s5' as topic5 \gset
+select is((select count(*) from realtime.messages where event = 'membership_revoked'), 0::bigint, 'leave_team: baseline, no membership_revoked row before the leave');
+select is((brigade.leave_team(:'team_a'::uuid))->>'left', 'true', 'leave_team: A1 leaves team A');
+select pg_temp.logout();
+select is((select count(*) from realtime.messages where topic = :'topic1' and event = 'membership_revoked'), 1::bigint, 'leave_team: one membership_revoked row on the topic of the open session s1');
+select is((select count(*) from realtime.messages where topic = :'topic4' and event = 'membership_revoked'), 1::bigint, 'leave_team: one membership_revoked row on the topic of the open session s4');
+select is((select count(*) from realtime.messages where topic = :'topic5' and event = 'membership_revoked'), 0::bigint, 'leave_team: none on the topic of s5, closed before the leave');
+select is((select count(*) from realtime.messages where event = 'membership_revoked'), 2::bigint, 'leave_team: exactly one row per open session, nowhere else');
+select is((select array_agg(k order by k) from realtime.messages r, jsonb_object_keys(r.payload) k where r.topic = :'topic1' and r.event = 'membership_revoked'), array['id', 'session_id'],
+          'leave_team: the payload carries exactly session_id (plus the id realtime.send adds), ids only (T4)');
+select is((select payload->>'session_id' from realtime.messages where topic = :'topic1' and event = 'membership_revoked'), :'s1', 'leave_team: session_id names the session whose topic carries the row');
+select is((select extension from realtime.messages where topic = :'topic4' and event = 'membership_revoked'), 'broadcast', 'leave_team: extension broadcast');
+select is((select private from realtime.messages where topic = :'topic4' and event = 'membership_revoked'), true, 'leave_team: the broadcast is private');
+select is((select count(*) from brigade.sessions where id in (:'s1'::uuid, :'s4'::uuid) and closed_at is not null), 2::bigint, 'leave_team: both open sessions are closed once the hint is written');
+select pg_temp.login(:'a1', true, 'Alice');
+select is((brigade.leave_team(:'team_a'::uuid))->>'left', 'true', 'leave_team again: idempotent, left = true');
+select pg_temp.logout();
+select is((select count(*) from realtime.messages where event = 'membership_revoked'), 2::bigint, 'leave_team again: an already-revoked member''s leave writes no further row');
 
 select * from finish();
 rollback;

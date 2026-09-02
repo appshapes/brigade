@@ -72,7 +72,8 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P1-7 | `docs/adapter-authors.md` complete | done | Opus | this commit — 1,950 lines; **a doc-only implementer (allowed to read nothing else) built `describe` + `session list` and passed C-01/C-02/C-05/C-06 in three successive rounds**, 308 claims traced to the spec or measured; the contributor brief refreshed (local file only) |
 | P1-8 | `plugin/bin/brigade` bootstrap + plugin checks | done | Opus | this commit — full gate green; `make plugin-check checksums-check` green in the pre-release state; **CI un-gated** (`checksums-check`, `plugin-check`); bootstrap tested on sh/bash/zsh/dash/ksh and busybox ash (alpine, wget); **61 checks proven able to fail, 3 strengthened** (see below) |
 | P2-1..P2-5 | Supabase schema, RPCs, realtime/housekeeping, pgTAP, advisor lints | done | Fable | this commit — migrations finished against everything Phase 1 pinned; **`not_found` is now SQLSTATE `PT404` = HTTP 404 (measured)**; 9 pgTAP files, **756 assertions**; **46 SQL mutations, all killed after 7 instruments were strengthened**; E0-1 72/0 and E0-2 37/0 kits green; CI `supabase` job un-gated (see below) |
-| P2-6..P2-12 | Go Supabase client, profile/team/session/message commands, watch, integration, release rehearsal | todo | Fable (P2-6/P2-7/P2-10) · Opus (P2-8/P2-9/P2-11/P2-12) | credentials and watch are Fable-tier |
+| P2-6..P2-10 | Go Supabase client, profile/team/session/message commands, watch | done | Fable (P2-6/P2-7/P2-10) · Opus (P2-8/P2-9) | this commit — **conformance(supabase) `--slow` 45/0/0, three consecutive runs of about 80 s**; 23 adapter mutations killed after 4 instruments were fixed; live credential, realtime and mapping checks on the real stack; one decisive defect found live (revoke-credentials leaving the refresh family alive) and fixed (see below) |
+| P2-11..P2-12 | Integration suite completion (fault tests under `BRIGADE_TEST_DOCKER=1`, `pgx` fixtures, un-gate CI's `test-integration` step), release rehearsal | todo | Opus | the integration tests and the `--setup` script exist; what remains is listed in the P2 adapter block |
 | P3-1 | Plugin manifests, marketplace, skills | todo | Opus | |
 | P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | todo | Fable | security path |
 | P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | todo | Fable | injection path |
@@ -917,6 +918,98 @@ when the messages policy's membership predicate is removed (defence in depth; bo
 fails loudly otherwise, by intent); pgTAP files that call an RPC bare inside `is(...)` abort on a raise and hide the
 rest — the `pg_temp.err`/`pg_temp.send_hop` wrappers are the pattern.
 
+## P2 ADAPTER DONE — P2-6..P2-10: the bundled Supabase adapter passes the suite 45/0/0
+
+Six agents from `.ignored/briefs/p2-6-10-supabase-adapter.md`: a Fable core author (client, GoTrue, PostgREST,
+credentials, the one error-mapping table, describe, profile, the hidden `brigade adapter supabase` entry, the
+`--setup` script, `testutil.RequireSupabase`), then a Fable team lane in parallel with an Opus session/message lane,
+then a Fable watch author, one Fable adversarial verifier, and one Fable fixer for the two things outside the adapter
+that kept the run red. Driver-measured on the final tree: **45 passed, 0 failed, 0 skipped with `--slow`, three
+consecutive runs of 79.5, 79.5 and 83.4 s**; `make test-integration` and the Docker-free gate green; `deps-check` is
+now the EQUALITY test P2-6 promised (five modules, byte-equal to the allow-list).
+
+**Before the fixer the run was 27/16/2, for two reasons outside the adapter's files.** (1) The migration's
+`register_session` cap of 30 sessions per principal per hour was below one run's demand (about 55 on the busiest
+fixture principal): eleven cases failed with `rate_limited register_session`; the cap is now 120 with the reasoning
+in the migration and the pgTAP assertion moved with it. (2) The suite's scratch principals get no `--setup`, so
+`team create`/`team join` ran on an empty config dir and answered `config`; the team lane honours the 4.1
+`BRIGADE_<ADAPTER>_*` pair — `BRIGADE_SUPABASE_URL` / `BRIGADE_SUPABASE_PUBLISHABLE_KEY` — on those two commands
+only, only when the profile names no backend, writing it into `profile.json` exactly as `profile init` would; the
+Makefile's `test-integration` line now passes that pair and drops `--setup`, so the suite provisions its own teams,
+learns the join secret and RUNS C-28 and C-40 (which `--setup` provisioning skips by design).
+`scripts/ci/conformance-setup-supabase.sh` stays as the documented out-of-band alternative.
+
+**The watch's drain timer, decided by push.** The watch author found that Realtime re-evaluates a channel's
+authorization only at join and on a token push, so a revoked member's running watch could learn of `team leave`
+only from its drain timer — and set the timer to 1 s to meet C-08's 2 s bound (one RPC per second per watcher, too
+expensive for a hosted backend). Resolved the other way: `leave_team` now emits a `membership_revoked` broadcast on
+each of the leaver's open-session topics BEFORE closing them (a definer-function `realtime.send`, exactly as the
+message trigger; errors swallowed, so an outage cannot fail the leave), the watch treats ANY broadcast on its own
+topic as a drain hint, and the timers are the plan's 30 s while joined and 10 s while polling. pgTAP pins the hint
+row; the adapter's unit tests pin the drain-on-hint and the timer's negative control (no hint → no drain within 5 s
+at the 30 s setting); C-08 and C-35 pass live. pgTAP is now 770 assertions.
+
+**What the verifier found.** 23 adapter mutations (edit, rebuild, run, revert, byte-compare): 18 killed as delivered,
+4 survived because the instrument was weak and were fixed in place — the `PT404`/`P0002` SQLSTATE rows were never
+exercised because every test body carried the `brigade:` prefix (non-prefixed rows added); the SIGTERM-on-ready
+order was pinned only after `status live` (a gated-stdout test now signals INSIDE the catch-up write, which the
+late-handler mutant fails by dying); "describe never dials" was proved only under `BRIGADE_TEST_OFFLINE=1`, which
+short-circuits inside the client before any request (the test now runs describe without the switch and asserts
+zero requests) — and one was an equivalent mutant (a secret logged through the redacting logger is redacted).
+**The decisive live defect:** `profile revoke-credentials` and `profile reset` signed out with the access token as it
+sat in `session.json` and treated GoTrue's 401 on `/logout` as "already dead" — for an EXPIRED access token, exactly
+the state after an idle hour, the command answered `ok`, deleted `session.json`, and the refresh-token family stayed
+alive (measured: the saved refresh token rotated after the revoke). `signOut` now refreshes first, so the sign-out
+carries a verified token and a terminal refresh means the family is already gone. Live checks passed on the real
+stack: the anonymous claims; refresh rotation and the one-behind rule both inside and past the 10 s reuse window
+(one-behind is the server rule, not the window); `refresh_token_already_used` through the adapter's own state
+machine — exactly one re-read-and-retry, then exit 4 with the rejoin message and `session.json` deleted while the
+family survives; the re-read path with a proxy that rotates the file under the adapter (two `/token` calls, no
+terminal error); a foreign topic refused as `unauthorized` after the server's 5 s backoff, not as a timeout; the
+ids-only broadcast payload; live delivery 6 ms after a send; revocation ending a watch 994 ms after `leave_team`;
+polling degradation with the realtime container stopped and recovery when started (the one container operation,
+restored); `PT404` as HTTP 404 through the gateway; and a secret scan of every spawn's raw stderr and the kept run
+directory (JWTs only inside 0600 `session.json` files; no join secret anywhere).
+
+**Adapter decisions recorded (each cited by its author; none touches a frozen shape):** `session.json` is the parsed
+session plus this adapter's `last_team_ref` (an idempotent `team leave` on an unbound profile still answers a
+non-empty `team_ref`; unknown GoTrue members do not survive a rewrite); `profile revoke-credentials` signs out AND
+deletes `session.json` (state `unauthenticated`, matching the fs adapter and 4.2's "leaves the profile in place for a
+rejoin"; plan 5.2's "only signs out" is corrected), and a sign-out that cannot reach the backend is `unavailable`
+and deletes nothing; a `--secret-file` that fails to write AFTER `create_team` leaves the profile UNBOUND (the
+single-member team is reclaimed by housekeeping) rather than bound to a team whose only key nobody holds; a
+`team join` `backend` member equal to the configured one is a no-op and a different one is `conflict`; `join_team`'s
+200 statuses `invalid_secret` and `invalid_input` both map to the one fixed `unauthorized` (the suite's random ref
+is hex, which the backend answers as `invalid_input`); a send with no `idempotency_key` gets a fresh random key,
+never a payload fingerprint (4.5.4 keys idempotency on the CALLER's key; two deliberate identical sends stay two
+messages — recorded because it is invisible on the wire); `is_self` is the adapter's, from `--session`, never asked
+of the backend; optional arguments travel as SQL null and `p_reply_to` is omitted so the implicit chain runs; ids
+that are not uuid-shaped answer the uniform `not_found` (or land in `ack`'s `unknown`) BEFORE any dial, because a
+`22P02` would otherwise become `internal`; every RPC answer is decoded into the protocol types and re-marshalled, so
+a member a future migration adds cannot leak onto the wire; a refused channel join is ADVISORY (a closed owned
+session's topic is refused by `owns_session_topic` while `fetch_inbox` still drains it, C-31) — the drain decides,
+and the watch reports `status polling` and retries the join after 60 s; transport loss reconnects with
+realtime-js's backoff forever with `status polling` meanwhile, and the 30-minute budget applies to consecutive
+retryable DRAIN failures instead (one `error` event with `retryable: true` at the outage's start, exit 9 past the
+budget); stdin command failures are retryable iff the code is retryable by 4.6 or is `invalid_input`/`conflict`,
+and `unauthorized` on an ack IS the membership re-check (fatal); `close` runs `close_session` on a background
+context so a racing SIGTERM cannot cancel it.
+
+**Plan corrections:** 5.2 (`profile revoke-credentials` also deletes the local credential file); 5.4's registration
+cap (30 → 120, and why); 5.6's timer stands only because revocation is now pushed; 5.11 gains the two
+`BRIGADE_SUPABASE_*` names (documented in the adapter's doc.go and the README); the P2-6 row's "a `P0002` body with
+HTTP 500 maps to `not_found`" stays true and `PT404` under 404 maps the same; 9.4's `RequireSupabase` runs the
+integration tests whenever `.env.test` is present and the stack answers (as 9.4 intends), so a developer's
+`make test` with the stack up takes about 15 s longer and writes rows the housekeeping sweep reclaims — CI's `fast`
+job has no `.env.test` and skips them. **BAP/1.x (n):** `join_team` answers a rejected secret as a 200 RESULT
+`{"status": "invalid_secret"}` rather than a raise — a backend convention, invisible on the wire. **Suite
+limitations recorded:** C-38's SIGTERM-on-ready is a race a late-installed handler can win (both adapters pin the
+order in unit tests); C-01/C-07 cannot see a best-effort dial in `describe` (the unit test's request count does).
+
+**Left for P2-11/P2-12:** the `BRIGADE_TEST_DOCKER=1` fault tests as tests (the realtime stop/start is proven by the
+verifier's script, not by a test), `pgx` fixtures for backdating, `session_integration_test.go`'s team fixtures
+through the verbs instead of the RPCs, un-gating CI's `test-integration` step, and the release rehearsal.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1348,3 +1441,7 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   with an adapter-contributor section replaced the stale external artifact (the Kafka adapter contributor works in
   a separate repository, so the Status table is not their queue). Next: **P2-6..P2-10**, the bundled Supabase
   adapter, from `.ignored/briefs/p2-6-10-supabase-adapter.md`.
+- 2026-09-02 ~19:30: **P2-6..P2-10 done** — the bundled Supabase adapter passes conformance 45/0/0 with `--slow`,
+  three consecutive runs measured by the driver. The fixer resolved the two out-of-adapter blockers (the registration
+  cap; the scratch principals' backend pair) and replaced the 1 s drain with a pushed revocation hint. Next: P2-11
+  and P2-12 (Opus), then Phase 3.

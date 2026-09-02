@@ -233,7 +233,9 @@ select is((select count(*) from jsonb_array_elements(brigade.list_sessions(:'tea
 select is(jsonb_array_length(brigade.list_sessions(:'team_a'::uuid, true)->'sessions'), (select count(*)::int from brigade.sessions where team_id = :'team_a'::uuid and owner_id <> :'a2'::uuid), 'list_sessions (include_offline): every remaining session of active members is listed');
 select pg_temp.logout();
 
--- 7. Registration rate limit: 30 per principal per hour, the 31st is rate_limited:register_session:3600.
+-- 7. Registration rate limit: 120 per principal per hour, the 121st is rate_limited:register_session:3600 (the cap
+--    bounds a registration flood; its floor is one conformance run's own demand, about 55 on the busiest
+--    principal, which the earlier cap of 30 refused — see the migration comment).
 create function pg_temp.register_n(p_uid uuid, p_team uuid, p_n int) returns int language plpgsql as $$
 declare i int; n int := 0;
 begin
@@ -242,9 +244,9 @@ begin
   perform pg_temp.logout();
   return n;
 end $$;
-select is(pg_temp.register_n(:'rr'::uuid, :'team_a'::uuid, 30), 30, 'R registers 30 sessions within the hour');
+select is(pg_temp.register_n(:'rr'::uuid, :'team_a'::uuid, 120), 120, 'R registers 120 sessions within the hour');
 select pg_temp.login(:'rr', true, 'Rae');
-select throws_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'one too many')$$, 'P0001', 'brigade:rate_limited:register_session:3600', 'the 31st registration in an hour is rate_limited:register_session:3600');
+select throws_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'one too many')$$, 'P0001', 'brigade:rate_limited:register_session:3600', 'the 121st registration in an hour is rate_limited:register_session:3600');
 select pg_temp.logout();
 
 select * from finish();

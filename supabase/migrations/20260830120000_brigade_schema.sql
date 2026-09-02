@@ -278,6 +278,14 @@ grant  execute on function brigade.join_team(text, text) to authenticated;
 -- an unknown team, a non-member and an already-revoked member all answer left = true (the team id is not secret, and
 -- there is nothing to disclose). A banned row stays banned. created_by is untouched, so a creator who leaves regains
 -- administration by rejoining with the secret (5.10). join_team's upsert re-activates the row later (rejoined = true).
+-- Before the sessions close it writes a membership_revoked broadcast, ids only, on each open session's private topic
+-- (plan 5.6, C-08): a running watch treats any broadcast on its topic as a hint and drains at once, and the drain's
+-- fetch_inbox answers the uniform unauthorized — without the hint the watch learns of its revocation only from its
+-- periodic drain timer (30 s while joined), and a timer fast enough for C-08's 2 s is one RPC per second per watcher.
+-- The hint is written from this definer function exactly as notify_message_inserted writes message_accepted (as
+-- postgres, BYPASSRLS; a client has no insert policy), and realtime.send swallows its own failure into a WARNING,
+-- so a realtime outage can never fail the leave. Realtime authorizes a private topic at join and on a token push,
+-- not per broadcast, so the already-joined channel of the leaver still receives it (E0-2 (h)).
 create or replace function brigade.leave_team(p_team_id uuid)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
@@ -287,6 +295,9 @@ begin
   select status into v_status from brigade.memberships where team_id = p_team_id and user_id = v_uid;
   if found and v_status = 'active' then
     update brigade.memberships set status = 'revoked', revoked_at = now() where team_id = p_team_id and user_id = v_uid;
+    perform realtime.send(jsonb_build_object('session_id', s.id),                -- ids only; never a body or a label (T4)
+                          'membership_revoked', 'brigade:session:' || s.id::text, true)
+       from brigade.sessions s where s.team_id = p_team_id and s.owner_id = v_uid and s.closed_at is null;
     update brigade.sessions set closed_at = coalesce(closed_at, now()), activity = 'idle'
      where team_id = p_team_id and owner_id = v_uid and closed_at is null;    -- ownership untouched: the UPDATE trigger allows it
   end if;
@@ -333,7 +344,12 @@ begin
     if not found then raise exception 'brigade:not_found' using errcode = 'PT404'; end if;
     v_resumed := true;
   else
-    if (select count(*) from brigade.sessions where owner_id = v_uid and created_at > now() - interval '1 hour') >= 30 then
+    -- 120 new sessions per principal per hour. The cap bounds a registration flood (every row is a session the whole
+    -- team lists and can be messaged), and its floor is the conformance suite's own budget: one --slow run registers
+    -- about 55 sessions on its busiest principal, which the earlier cap of 30 refused with
+    -- rate_limited:register_session on eleven cases (C-29, C-29b, C-30, C-31, C-32, C-34, C-35, C-36, C-39, C-41,
+    -- C-42). Resumes do not count (they re-open a row). The window and the retry trailer are unchanged.
+    if (select count(*) from brigade.sessions where owner_id = v_uid and created_at > now() - interval '1 hour') >= 120 then
       raise exception 'brigade:rate_limited:register_session:3600' using errcode = 'P0001'; end if;
     insert into brigade.sessions (team_id, owner_id, name, description, activity, inbound, harness, harness_version, workspace_label, lease_seconds)
     values (p_team_id, v_uid, p_name, p_description, p_activity, p_inbound, p_harness, p_harness_version, p_workspace_label, p_lease_seconds)

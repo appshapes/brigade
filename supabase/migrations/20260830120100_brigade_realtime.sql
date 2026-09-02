@@ -4,7 +4,10 @@
 --
 -- An AFTER INSERT trigger on brigade.messages calls realtime.send with an ids-only payload
 -- on the private topic brigade:session:<recipient_session_id>. The durable delivery path is
--- fetch_inbox draining delivery_state = 'accepted' rows; realtime is never a transport.
+-- fetch_inbox draining delivery_state = 'accepted' rows; realtime is never a transport. The
+-- topic carries one other event, membership_revoked, which brigade.leave_team (the schema
+-- migration) writes on each of the leaver's open sessions before closing them (C-08); the
+-- watch treats any broadcast on its topic as the same drain hint.
 -- Deliberately NO publication change and no REPLICA IDENTITY: Broadcast-from-DB is chosen
 -- over postgres_changes (plan 5.6 rationale; postgres_changes is the E0-2 fallback).
 --
