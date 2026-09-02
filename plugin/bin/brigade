@@ -1,0 +1,125 @@
+#!/bin/sh
+# brigade: bootstrap shipped in the Claude Code plugin as plugin/bin/brigade (on the Bash tool's PATH).
+# Resolves the release binary pinned by plugin/bin/VERSION, downloads and verifies it once against the committed
+# plugin/bin/checksums.txt, caches it under the user's data directory, then execs it with every argument and stdin
+# untouched. Afterwards every call is one stat() plus exec. POSIX sh only (dash-clean; sh -n, bash -n, zsh -n).
+#
+# Plan 6.2, with the E0-8 correction: on a cold cache the SessionStart hook (argv `hook session-start …`) starts
+# the download detached and returns immediately, because a synchronous first use measured 33.5 s at 250 kB/s and
+# blocked session startup, while the background variant returned the hook in 0.02 s.
+set -u
+
+fail() { printf 'brigade: %s\n' "$2" >&2; exit "$1"; }   # 9 = unavailable (network); 11 = config (pins, platform, integrity)
+
+# ---- where am I (follow symlinks, e.g. ~/.local/bin/brigade -> plugin/bin/brigade) ------------------------------
+script=$0
+while [ -L "$script" ]; do
+  link=$(readlink "$script") || break
+  case $link in /*) script=$link ;; *) script=${script%/*}/$link ;; esac
+done
+case $script in */*) dir=${script%/*} ;; *) dir=. ;; esac
+bindir=$(CDPATH='' cd -- "$dir" 2>/dev/null && pwd -P) || fail 11 "cannot resolve the script directory"
+
+# ---- pinned version and checksums, both committed with the plugin ---------------------------------------------
+[ -r "$bindir/VERSION" ] || fail 11 "missing $bindir/VERSION"
+read -r version < "$bindir/VERSION"
+case $version in ''|*[!0-9A-Za-z.+-]*) fail 11 "invalid version in $bindir/VERSION" ;; esac
+checksums=$bindir/checksums.txt
+[ -r "$checksums" ] || fail 11 "missing $checksums"
+
+# ---- platform (D33: macOS and Linux only; WSL 2 is Linux) ----------------------------------------------------------
+sys=$(uname -sm 2>/dev/null) || fail 11 "uname failed"
+os=${sys%% *}; arch=${sys##* }
+case $os in Darwin) os=darwin ;; Linux) os=linux ;; *) fail 11 "unsupported OS '$os' (supported: macOS, Linux, WSL 2)" ;; esac
+case $arch in arm64|aarch64) arch=arm64 ;; x86_64|amd64) arch=amd64 ;; *) fail 11 "unsupported CPU architecture '$arch'" ;; esac
+
+# ---- home and XDG paths: absolute values only (the XDG rule; also stops a repository settings `env` block
+# from pointing these at a path relative to the project cwd, e.g. XDG_DATA_HOME=.brigade-cache) ------------------
+case ${HOME:-} in /*) home=$HOME ;; *) home=/nonexistent ;; esac
+case ${XDG_CONFIG_HOME:-} in /*) xdg_config=$XDG_CONFIG_HOME ;; *) xdg_config=$home/.config ;; esac
+case ${XDG_DATA_HOME:-} in /*) xdg_data=$XDG_DATA_HOME ;; *) xdg_data=$home/.local/share ;; esac
+
+# ---- developer override: a pointer file in the user's own config directory, written by `make plugin-dev-pointer`.
+# Never an environment variable (a trusted repository's settings `env` block can set those) and never a file
+# inside the plugin or the repository.
+pointer=$xdg_config/brigade/dev-binary
+if [ -r "$pointer" ]; then
+  read -r dev < "$pointer"
+  case $dev in /*) [ -x "$dev" ] && exec "$dev" "$@" ;; esac
+  fail 11 "$pointer does not name an executable absolute path: '$dev'"
+fi
+
+# ---- cache: one per user, shared by hooks, the Bash tool and the human's terminal --------------------------------
+# (CLAUDE_PLUGIN_DATA is not exported to the Bash tool on 2.1.251, so the cache cannot live there.)
+cache_dir=$xdg_data/brigade/bin
+target=$cache_dir/brigade-$version-$os-$arch
+[ -x "$target" ] && exec "$target" "$@"
+
+# ---- first use: download, verify, install atomically, exec --------------------------------------------------------
+asset=brigade_${version}_${os}_${arch}
+expected=$(awk -v f="$asset" '$2 == f { print $1; exit }' "$checksums")
+[ -n "$expected" ] || fail 11 "no sha256 for $asset in $checksums: plugin version $version ships no binary for $os/$arch (developers: make plugin-dev)"
+base=${BRIGADE_RELEASE_BASE_URL:-https://github.com/appshapes/brigade/releases/download}   # override is safe: the sha256 below is the trust anchor
+# The loopback exemption matches WHOLE hosts, never a prefix. Plan 6.2 prints `http://127.0.0.1*` and
+# `http://localhost*`, but those also match http://127.0.0.1.evil.example and http://localhost.attacker.net --
+# ordinary attacker-controlled names that resolve wherever their owner points them -- so a hostile base would
+# have been fetched in plaintext with --proto '=http'. Each host is therefore spelled out three times: bare,
+# with a :port, and with a /path.
+case $base in
+  https://*) proto='=https' ;;
+  http://127.0.0.1|http://127.0.0.1:*|http://127.0.0.1/*) proto='=http' ;;
+  http://localhost|http://localhost:*|http://localhost/*) proto='=http' ;;
+  *) fail 11 "release base must be https (http only for loopback): $base" ;;
+esac
+url=$base/v$version/$asset
+if command -v shasum >/dev/null 2>&1; then sha() { shasum -a 256 "$1" | awk '{print $1}'; }
+elif command -v sha256sum >/dev/null 2>&1; then sha() { sha256sum "$1" | awk '{print $1}'; }
+else fail 11 "shasum or sha256sum is required to verify the download"; fi
+if command -v curl >/dev/null 2>&1; then
+  fetch() { curl -fsSL --proto "$proto" --retry 3 --retry-delay 1 --retry-connrefused --connect-timeout 10 --max-time 45 -o "$1" "$2" </dev/null; }
+elif command -v wget >/dev/null 2>&1; then
+  fetch() { wget -q -T 45 -O "$1" "$2" </dev/null; }
+else fail 11 "curl or wget is required to download $url; or download it yourself, verify sha256 $expected, and install it as $target"; fi
+
+# install <tmpfile>: verify, make executable, and rename into place. Prints nothing on success.
+install_verified() {
+  actual=$(sha "$1")
+  [ "$actual" = "$expected" ] || fail 11 "checksum mismatch for $asset: expected $expected, got $actual; refusing to install"
+  chmod 0755 "$1"
+  # macOS: curl sets no com.apple.quarantine attribute (verified), but strip one if a browser download left it
+  if [ "$os" = darwin ] && command -v xattr >/dev/null 2>&1; then xattr -d com.apple.quarantine "$1" 2>/dev/null || true; fi
+  mv -f "$1" "$target" || fail 11 "cannot install $target"       # rename(2): atomic; concurrent first runs are harmless
+}
+
+umask 077
+mkdir -p "$cache_dir" || fail 11 "cannot create $cache_dir"
+
+# ---- E0-8 correction 1: the SessionStart hook never blocks on the first download --------------------------------
+# Measured: synchronous first use costs 8.5 s at 1 MB/s and 33.5 s at 250 kB/s, blocking session startup for the
+# whole of it; detached, the hook returns in 0.02 s and the cache is warm before the next prompt. Only the
+# SessionStart hook takes this path -- a human, the Bash tool and every other hook keep the synchronous one, so
+# nothing that needs the binary NOW is handed a success it cannot use. The temp file is created INSIDE the
+# subshell so that the parent, which exits immediately, carries no trap over the background job's file.
+if [ $# -ge 2 ] && [ "$1" = hook ] && [ "$2" = session-start ]; then
+  (
+    tmp=$(mktemp "$cache_dir/.brigade-$version.XXXXXX") || exit 11
+    trap 'rm -f "$tmp"' EXIT HUP INT TERM
+    fetch "$tmp" "$url" || exit 9
+    install_verified "$tmp"
+    trap - EXIT HUP INT TERM
+  ) </dev/null >/dev/null 2>&1 &
+  printf 'Brigade: installing the brigade binary in the background; team messaging becomes available on your next prompt\n'
+  exit 0
+fi
+
+tmp=$(mktemp "$cache_dir/.brigade-$version.XXXXXX") || fail 11 "cannot create a temporary file in $cache_dir"
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+printf 'brigade: first use: downloading brigade %s for %s/%s from %s\n' "$version" "$os" "$arch" "$base" >&2
+if ! fetch "$tmp" "$url"; then
+  proxy=${HTTPS_PROXY:-${https_proxy:-}}
+  [ -n "$proxy" ] && proxy=" (HTTPS_PROXY=$proxy)"
+  fail 9 "download failed: $url$proxy. Check network or proxy access, or download the file yourself, verify sha256 $expected, and install it as $target"
+fi
+install_verified "$tmp"
+trap - EXIT HUP INT TERM
+exec "$target" "$@"

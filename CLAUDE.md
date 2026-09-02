@@ -25,10 +25,13 @@
   never in go.mod; go.mod has no `toolchain` line.
 - `make test` is Docker-free. Run `make supabase-start supabase-env` once, then `make test-all` before pushing anything
   that touches supabase/ or internal/adapters/supabase.
-- Never commit a plugin/bin/checksums.txt or plugin/bin/VERSION you did not produce with `make release`. From P1-8
-  onward CI verifies them against a fresh cross-compile or the published release; until then `checksums-check` is
-  replaced by a plain `make cross` and `plugin-check` (which carries the only secret scan) is gated off, so nothing
-  automated verifies the pins yet.
+- Never commit a plugin/bin/checksums.txt or plugin/bin/VERSION you did not produce with `make release`. CI now
+  verifies them on every push: `make checksums-check` requires the committed file to be reproduced by a fresh
+  cross-compile or backed by the published release (in the pre-release `0.0.0` state it requires the file to be
+  empty and skips the rest), and `make plugin-check` carries the plugin-tree checks — the `plugin/` file
+  allowlist, mode 100755 in git for `plugin/bin/brigade` and 100644 for everything else, VERSION == plugin.json,
+  no `.mcp.json`/`mcpServers`/`channels`, exec-form hooks whose command paths exist and are executable, `sh -n`
+  and `shellcheck -s sh` — and the only secret scan (`scripts/ci/no-secrets.sh`).
 - Local dev: `make plugin-dev` writes the dev-binary pointer and starts Claude Code with the local plugin; `make
   plugin-dev-off` removes it. Two profiles on one machine: pass
   `--settings '{"pluginConfigs":{"brigade@inline":{"options":{"profile":"<name>"}}}}'`.

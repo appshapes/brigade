@@ -1,14 +1,12 @@
-# Plan 7.7. Three deviations from the plan text, each deliberate and marked below:
+# Plan 7.7. Two deviations from the plan text, each deliberate and marked below:
 #   (a) the `supabase` job stays `if: false` until P2-1 creates the migrations (the plan says so);
-#   (b) the `fast` job runs `make cross` instead of `make checksums-check`, because
-#       scripts/ci/checksums-check.sh is a P1-8 deliverable and does not exist yet. `make cross` still
-#       writes dist-cross/checksums.txt, so P1-1's required cross-host reproducibility evidence
-#       (this job's summary must equal the `macos` job's and the developer's) is unchanged;
-#   (c) `make plugin-check` is gated `if: false` for the same reason (P1-8 owns
-#       scripts/ci/plugin-check.sh and scripts/ci/no-secrets.sh);
 #   (d) a `reproducibility` job diffs the `fast` and `macos` checksums instead of leaving the comparison to
 #       whoever reads the two job summaries — see the comment on that job.
-# Remove (b) and (c) in P1-8; remove (a) in P2-1. Keep (d).
+# Remove (a) in P2-1. Keep (d).
+#
+# P1-8 removed the other two: (b) the `fast` job ran `make cross` in place of `make checksums-check`, and
+# (c) `make plugin-check` was gated `if: false`, both because scripts/ci/*.sh did not exist yet. They do
+# now, so the pins and the plugin tree are verified on every push.
 name: ci
 on:
   push: {branches: [master]}
@@ -34,16 +32,19 @@ jobs:
       - run: make build test              # unit + testscript + harness + conformance(fs), -race, coverage profile
       - run: go tool cover -func=cover.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
       - run: make vuln deps-check schema-check
-      # (b) P1-8 replaces this with `make checksums-check` (which runs `cross` itself and then
-      #     scripts/ci/checksums-check.sh dist-cross/checksums.txt), adding env GH_TOKEN: ${{ github.token }}.
-      - run: make cross                   # all four targets rebuilt with the release flags
+      # `checksums-check` depends on `cross`, so all four targets are still rebuilt with the release flags and
+      # dist-cross/checksums.txt still exists for the two steps below. GH_TOKEN is for rule (c)'s release
+      # fallback (`gh release download v$VERSION`); in the pre-release 0.0.0 state the script never reaches it.
+      - run: make checksums-check         # plugin/bin pins vs a fresh cross-compile or the published release
+        env: {GH_TOKEN: "${{ github.token }}"}
       - run: cat dist-cross/checksums.txt >> "$GITHUB_STEP_SUMMARY"   # cross-host reproducibility evidence (P1-1)
       - uses: actions/upload-artifact@v7
         with: {name: checksums-ubuntu, path: dist-cross/checksums.txt, if-no-files-found: error}
-      # (c) enabled by P1-8, which adds scripts/ci/plugin-check.sh and scripts/ci/no-secrets.sh:
-      #     exec-form hooks only, no .mcp.json, no channels, VERSION == plugin.json, shellcheck, no secrets.
-      - if: false
-        run: make plugin-check
+      # scripts/ci/plugin-check.sh then scripts/ci/no-secrets.sh: the plugin/ file allowlist, mode 100755 in
+      # git for the bootstrap and 100644 for everything else, VERSION == plugin.json, no .mcp.json/mcpServers/
+      # channels, exec-form hooks whose commands exist, sh/bash/zsh syntax, shellcheck (a hard failure here
+      # because CI is set), and the secret scan.
+      - run: make plugin-check
 
   macos:                                  # the primary user platform: unix sockets, ps -o lstart, shasum paths
     runs-on: macos-latest                 # macOS 26 arm64 today [verified]

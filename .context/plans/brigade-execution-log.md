@@ -70,7 +70,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P1-5 | `cmd/brigade-adapter-fs` + mutants | done | Opus | this commit — full gate green; **the verifier drove all 45 cases + Appendix B against the binary (1,241 runs)**; 2 code + 2 instrument defects fixed, 2 isolation gaps closed; **3,181 lines vs the plan's "about 500"** (see below) |
 | P1-6 | `internal/conformance` + `cmd/brigade-conformance` | done | Fable | this commit — full gate green; **45 cases, fs run 44 pass / 1 skip (C-14 slow) in about 20 s, 45/0 with `--slow` in about 26 s**; every case PROVEN able to fail (41 at once, 4 strengthened); four mutants fail exactly their sets; **the plan's 5 s target is not reachable** (see below) |
 | P1-7 | `docs/adapter-authors.md` complete | todo | Opus | |
-| P1-8 | `plugin/bin/brigade` bootstrap + plugin checks | todo | Opus | needs `shellcheck` |
+| P1-8 | `plugin/bin/brigade` bootstrap + plugin checks | done | Opus | this commit — full gate green; `make plugin-check checksums-check` green in the pre-release state; **CI un-gated** (`checksums-check`, `plugin-check`); bootstrap tested on sh/bash/zsh/dash/ksh and busybox ash (alpine, wget); **61 checks proven able to fail, 3 strengthened** (see below) |
 | P2-1..P2-5 | Supabase schema, RPCs, realtime/housekeeping, pgTAP, advisor lints | todo | Fable | SQL and RLS |
 | P2-6..P2-12 | Go Supabase client, profile/team/session/message commands, watch, integration, release rehearsal | todo | Fable (P2-6/P2-7/P2-10) · Opus (P2-8/P2-9/P2-11/P2-12) | credentials and watch are Fable-tier |
 | P3-1 | Plugin manifests, marketplace, skills | todo | Opus | |
@@ -691,6 +691,79 @@ two unacked-cap checks swapped), listed in the Makefile's `mutant_tags` so both 
 adapter's own mutants test, and failing EXACTLY `{C-28}` in the suite's — the rule whose instrument was missing in
 P1-5 and in P1-6 now has a standing positive control. The fs README's `mutant_noack` row and its stale
 `.golangci.yml` sentence were corrected on the way.
+
+## P1-8 DONE — the bootstrap, the CI scripts, and the two CI steps un-gated; the background-download test was vacuous
+
+One Opus author, one Opus adversarial verifier, one Opus fixer, from `.ignored/briefs/p1-8-bootstrap.md` (plan 6.2 and
+7.7 as the base, with the E0-8 corrections). Delivered: `plugin/bin/brigade` (POSIX sh, mode 100755 IN GIT),
+`internal/harness/bootstrap/bootstrap_test.go` (25 subtests against an `httptest` release server — never the real
+cache or pointer file), `scripts/ci/{plugin-check,no-secrets,checksums-check,release-verify}.sh` with
+`scripts/ci/checks_test.go` (44 subtests over fixture trees, each rule shown to fail), `scripts/ci/bootstrap-alpine.sh`
+(the local-only `alpine:3.20` leg: busybox ash + wget + sha256sum, 3/3 PASS, run three times), `.github/workflows/ci.yml`
+un-gated (`make checksums-check` with `GH_TOKEN`, `make plugin-check` no longer `if: false`) and the CLAUDE.md bullet
+rewritten to the present truth. The bootstrap ran end to end under sh, bash, zsh, dash and ksh on this machine and
+under busybox ash in the container; `shellcheck -s sh` is clean on all six shell files. `make plugin-check` reports
+`skip: … (P3-1)` for the two checks whose files (`plugin.json`, `hooks.json`) do not exist yet, so nothing is vacuous
+and nothing is pretended.
+
+**The decisive finding, again an instrument.** The E0-8 correction — the SessionStart hook must start the first-use
+download in the BACKGROUND and return at once — is the whole reason the `hook session-start` branch exists, and its
+test could not tell a background download from a synchronous one: deleting the trailing `&` left the subtest green,
+because the 2 s bound was measured against a loopback server that answers in 10 ms. Fixed: the test server now holds
+every answer for 2 s, the hook must return in under 1 s, and the cache file must be ABSENT at the instant it returns;
+the synchronous mutant now fails ("the hook took 2.07 s … the download was not detached"). Two more: `plugin-check.sh`
+counted `"type"` and `"command"` with `grep -c` (LINES, not occurrences), so a minified or one-line `hooks.json` could
+never fail the exec-form rule — now `awk`/`gsub` counts occurrences, with a regression subtest; and a subtest's comment
+credited `--proto '=https'` for a failure that the TLS handshake causes with or without the flag — the comment now says
+what the case proves (no silent https→http downgrade) and records that `--proto` is not exercisable without a real
+certificate. 20 of 22 bootstrap mutations were killed by the author's tests; the two survivors are the ones above.
+
+**Fixed by the driver's fixer after the pass (each with a failing-first test):** plan 6.2's loopback exception was a
+PREFIX glob — `http://127.0.0.1*|http://localhost*` — so `http://127.0.0.1.evil.example` and
+`http://localhost.attacker.net` counted as loopback. **This was not theoretical: `localhost.attacker.net` RESOLVED on
+this machine, and the pre-fix bootstrap downloaded, checksum-verified and exec'd the test binary from it over
+plaintext http, exit 0** (bounded by the sha256 trust anchor — a hostile base can fail or beacon, never substitute a
+binary — but a plaintext fetch from a non-loopback host is exactly what the rule exists to forbid). Tightened to the
+exact hosts with an optional port or path; two subtests pin it with zero requests observed. The `service_role` scan of
+`no-secrets.sh` no longer covers the BINARIES: the Supabase adapter will embed that role NAME (an error string, a SQL
+role), which is not a key, while a service-role JWT is caught by the JWT-shape scan wherever it appears — so the
+literal-word rule now applies to `plugin/` text only, which would otherwise have broken CI on the first P2 push. A
+dead `.mcp.json` line in `plugin-check.sh` (unreachable behind the allowlist) was removed.
+
+**Plan corrections (measured):** (1) 6.2's script is not `shellcheck -s sh` clean as written — `CDPATH= cd` trips
+SC1007; `CDPATH='' cd` is the same POSIX prefix assignment. (2) 6.2's loopback glob, above. (3) `alpine:3.20`'s base
+busybox has NO `httpd` applet (`busybox --list` lacks it); the leg installs `busybox-extras` (busybox's own httpd,
+packaged separately), so it needs network inside the container. (4) The release.yml `sed -nE` that reads
+`plugin.json`'s version matches only a `"version"` that starts a line: a single-line manifest reads as "declares no
+version" — a safe failure, not a false pass, but P3-1 must write `plugin.json` multi-line. (5) E0-8's "honest limits"
+said the background variant's context line was an inference; it is now evidenced byte for byte by the bootstrap test.
+
+**Decisions recorded (the author's, accepted):** the hook branch is guarded `$# -ge 2 && $1 = hook && $2 = session-start`
+and sits AFTER every exit-11 precondition (missing pins, unsupported platform, no sha256 line, non-loopback http, no
+hasher, no curl/wget) and after the cache `mkdir`, so a misconfiguration is still reported loudly and synchronously
+and only the network fetch is detached; the download-verify-install body is one `install_verified()` shared by both
+paths, and the temp file is created INSIDE the detached subshell so the parent's trap can never remove it; on the hook
+path stdout is exactly the one context line (E0-8 (d): `stdout.strip()` becomes context, so a second line would too);
+`plugin-check.sh`'s hooks checks are textual (no jq) and fix a testable definition of "exec form" — `"type": "command"`,
+a single `"command"` path (absolute or `${CLAUDE_PLUGIN_ROOT}`-rooted, no shell metacharacters), arguments in
+`"args"`, and the resolved path must exist and be executable (E0-8: `claude plugin validate --strict` does not check
+that); check 1 walks the working tree (`find`), because `--plugin-dir` packages untracked strays too, while check 2
+reads the index, because the recorded mode is what the exec-form hook depends on; `checksums-check.sh` rule (b) uses
+`grep -E` intervals rather than awk's (not universal); the wrong-checksum case serves DIFFERENT bytes under the same
+asset name (a substituted download), not a corrupted hash.
+
+**Also in this commit:** the conformance whole-run test's hard 30 s ceiling tripped once at 30.75 s while a second
+gate ran alongside (the fs run's unloaded floor is 20.3 s under `-race`), and CI runners are slower than this
+machine, so the ceiling is now 120 s — it catches a hang or an order-of-magnitude regression, never load — and the
+wall time stays LOGGED on every run, which is the measurement this log records.
+
+**Known residuals, recorded:** `--proto '=https'` (a downgrade-redirect guard) is asserted nowhere — it needs a real
+certificate; `wget` is absent on this macOS host, so the wget branch is covered only by the alpine leg; the alpine
+driver's inner ash script is a quoted heredoc and so outside `shellcheck`'s reach (exercised end to end instead);
+`no-secrets.sh` silently skips the tracked-file half outside a git repository (no CI path); `make release` and
+`make e2e` reference `scripts/release-prep.sh` (P2-12) and `scripts/proof.sh` (P4-1), which do not exist yet, and
+`plugin-check.sh`'s shellcheck glob will cover them the moment they land; after the first tag, a developer without
+`gh` cannot get a green `make checksums-check` when the source has moved on (the script says so rather than passing).
 
 ## Plan corrections from E0-8
 
