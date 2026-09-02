@@ -66,7 +66,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | done | Opus | `0af93a1` — full gate green; **CI run 33533334741 green (`fast`, `macos`, `reproducibility`)**; cross-host reproducibility MEASURED; **7 plan defects in §7 plus 36 from the adversarial pass** (see below) |
 | P1-2 | `internal/protocol` (types, errors, NDJSON, sanitiser, schema) | done | Fable | this commit — full gate green, protocol at ~98% coverage; **2 open `ndjson.go` boundary defects, see below**; 7 spec gaps for P1-4 |
 | P1-3 | `internal/adapterkit` (stdin, XDG, atomic writes, flock, redaction) | done | Fable | this commit — full gate green; **E0-6 flock fix EVIDENCED** (contended median 16.96 ms vs the old 101.1 ms); 0 surviving mutations at hand-off |
-| P1-4 | `docs/protocol-v1.md` + adapter-authors skeleton | todo | Fable | user review gate |
+| P1-4 | `docs/protocol-v1.md` + adapter-authors skeleton | done | Fable | this commit — **BAP/1 FROZEN**; all ten decisions honoured in prose AND code; **owner review WAIVED by Rjae 2026-09-01** (see below); 11 MUSTs without a conformance case listed for P1-6 |
 | P1-5 | `cmd/brigade-adapter-fs` + mutants | todo | Opus | |
 | P1-6 | `internal/conformance` + `cmd/brigade-conformance` | todo | Fable | suite design |
 | P1-7 | `docs/adapter-authors.md` complete | todo | Opus | |
@@ -429,6 +429,54 @@ design assuming that any adapter — current or future — can be used"**, and t
 unless it is proven to hinder Brigade**. The distinction that settled it: everything in P1-1..P1-3 and all ten
 questions above are internal wire format; the member's three steps (install, `profile init`, `team join`) have
 not grown since Phase 0 measured them.
+
+## P1-4 DONE — BAP/1 is frozen; the owner review was WAIVED, and here is what stood in for it
+
+`docs/protocol-v1.md` is the authority from this commit on; plan section 4 is history. `docs/adapter-authors.md`
+is a skeleton for P1-7. `internal/protocol` and `docs/protocol-v1.schema.json` were changed in the same commit,
+per the CLAUDE.md wire-shape rule (the conformance-suite and adapter halves of that rule are vacuous until P1-6
+and P2). Full gate green.
+
+**The review gate.** P1-4's acceptance criterion is "reviewed by the user". On 2026-09-01, going to sleep, Rjae
+instructed the driver to **skip her spec review** and hand off to `15-implement-brigade-0902`. That is the
+owner's call in her own words and it is recorded as a WAIVER, not a skipped gate. What stood in for it: the
+adversarial pass was briefed with an explicit "nothing smuggled in" rule — any MUST, member, cap or code present
+in the spec but in NEITHER plan section 4 NOR the ten decisions is reported as undecided, never silently
+accepted. It found four. The driver resolved all four in the one safe direction under a waived review: **remove
+or downgrade anything that adds an obligation nobody decided.** Each is reversible by a one-paragraph edit if
+Rjae disagrees on reading the spec:
+
+1. **4.4.1 said "an adapter MAY advertise tighter values but the caps it enforces are the ones it advertises."**
+   Undecided, and it CONTRADICTS the suite as written — C-16 asserts a 64-code-point name passes and C-27 a
+   16,384-byte body passes, so a tighter adapter would fail both. Rewritten: the v1 constants are the caps every
+   adapter enforces, and an adapter may not advertise or enforce a tighter one. Matches the code, which enforces
+   the constants absolutely.
+2. **4.4.6 froze `details.reason = "forbidden_member"` inside a MUST**, while decision 3 blessed the KEY `reason`
+   and 4.3.1 says the tokens are informative. The token moved out of the MUST into a "the reference
+   implementation reports" sentence.
+3. **Two P1-3 behaviours had entered the frozen text from code rather than from a decision.** (i) The exit-2 row
+   of the 4.6 table had grown "stdin is a terminal on a command that reads a document"; the row is back to the
+   plan's wording and the TTY refusal is described below the table as an `adapterkit.ReadInput` courtesy, not
+   a protocol obligation. (ii) Convention 1 stated duplicate-member rejection as an adapter obligation with a
+   C-02 citation; invalid UTF-8 keeps the MUST (a non-UTF-8 document is not a document), duplicate members are
+   now a SHOULD described as the reference codec's behaviour.
+4. **Decision 8 was implemented as a superset** — the schema's `required` arrays list every member without
+   `omitzero`, which includes but is wider than "members `Validate()` requires". Convention 6 says so openly and
+   the schema is advisory by the same decision. Accepted as-is.
+
+**For P1-6 — eleven MUSTs have no conformance case, and three citations lean on a neighbour.** The spec marks
+each `[no case: B-n]` inline and its Appendix B lists them. The ones that matter most: B-2 (`retryable` MUST be
+sent — now that the Go type is a plain `bool` per decision 2, the suite's own parser no longer catches absence,
+so C-02/C-37 need an explicit presence assertion); B-1 (a no-input command MUST NOT read stdin — nothing holds
+stdin open); B-11 (adapters never exit 126/127/≥128 — nothing asserts the observed status is in 0..12). The
+three neighbouring citations to tighten: unknown-flag→C-02, `mode: polling`→C-33, six forbidden members→C-23.
+
+**Verifier corrections applied to the spec before this commit:** 4.3.1's informative reason list gained
+`read_error` and `terminal` (the code emits them); convention 7 now says precisely that 27 of the 31 examples are
+the testdata files byte-for-byte and the other four are composite results with no Go type, pinned two ways by a
+new `TestSpecExamplesAreTheTestdataFiles` with three demonstrated kill paths; Appendix A's capability suffixes on
+C-03/C-03b/C-04/C-08 were restored. Decision 9 was proven with real processes (a bare name off `PATH` and a
+missing absolute path both map to `unavailable` / `adapter_not_found`).
 
 ## Plan corrections from E0-8
 

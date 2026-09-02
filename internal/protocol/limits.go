@@ -9,12 +9,21 @@ const (
 	MaxBodyBytes = 16384
 	// MaxSummaryChars caps a message summary, in Unicode code points.
 	MaxSummaryChars = 200
-	// MaxSessionNameCodepoints caps a session or team name, in code points.
+	// MaxSessionNameCodepoints caps a session name, in code points.
 	MaxSessionNameCodepoints = 64
+	// MaxTeamNameCodepoints caps a team name, in code points. A team name
+	// is a frame tag attribute (6.7 `team="…"`), and 6.7 rule 4 caps tag
+	// attribute values at 64 code points; it is its own limit, not a
+	// borrowed session-name cap (P1-4 decision 1).
+	MaxTeamNameCodepoints = 64
 	// MaxDescriptionChars caps a session description, in code points.
 	MaxDescriptionChars = 256
 	// MaxHumanLabelChars caps a human label, in code points.
 	MaxHumanLabelChars = 128
+	// MaxWorkspaceLabelChars caps a workspace label, in code points. It is
+	// a label like human_label and shares its size, but is its own limit
+	// and its own `limits` member (P1-4 decision 1).
+	MaxWorkspaceLabelChars = 128
 	// MaxIdempotencyKeyChars caps an idempotency key, in code points.
 	MaxIdempotencyKeyChars = 128
 	// SendRatePerMinute and SendRatePerHour bound one sender session.
@@ -71,8 +80,10 @@ type Limits struct {
 	MaxBodyBytes                 int      `json:"max_body_bytes"`
 	MaxSummaryChars              int      `json:"max_summary_chars"`
 	MaxSessionNameCodepoints     int      `json:"max_session_name_codepoints"`
+	MaxTeamNameCodepoints        int      `json:"max_team_name_codepoints"`
 	MaxDescriptionChars          int      `json:"max_description_chars"`
 	MaxHumanLabelChars           int      `json:"max_human_label_chars"`
+	MaxWorkspaceLabelChars       int      `json:"max_workspace_label_chars"`
 	MaxIdempotencyKeyChars       int      `json:"max_idempotency_key_chars"`
 	SendRate                     SendRate `json:"send_rate"`
 	PrincipalSendRate            SendRate `json:"principal_send_rate"`
@@ -102,8 +113,10 @@ func DefaultLimits() Limits {
 		MaxBodyBytes:                 MaxBodyBytes,
 		MaxSummaryChars:              MaxSummaryChars,
 		MaxSessionNameCodepoints:     MaxSessionNameCodepoints,
+		MaxTeamNameCodepoints:        MaxTeamNameCodepoints,
 		MaxDescriptionChars:          MaxDescriptionChars,
 		MaxHumanLabelChars:           MaxHumanLabelChars,
+		MaxWorkspaceLabelChars:       MaxWorkspaceLabelChars,
 		MaxIdempotencyKeyChars:       MaxIdempotencyKeyChars,
 		SendRate:                     SendRate{PerMinute: SendRatePerMinute, PerHour: SendRatePerHour},
 		PrincipalSendRate:            SendRate{PerMinute: PrincipalSendRatePerMinute, PerHour: PrincipalSendRatePerHour},

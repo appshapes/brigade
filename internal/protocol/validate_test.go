@@ -265,7 +265,6 @@ func TestRequiredMembers(t *testing.T) {
 		{"ack message_ids", "message_ids", func() Validator { return &AckRequest{} }},
 		{"team create team_name", "team_name", func() Validator { return &TeamCreateRequest{HumanLabel: "x"} }},
 		{"team join join_secret", "join_secret", func() Validator { return &TeamJoinRequest{HumanLabel: "x"} }},
-		{"error object retryable", "error.retryable", func() Validator { return &ErrorObject{Code: CodeInternal, Message: "boom"} }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -431,15 +430,16 @@ func TestWatchCommandValidation(t *testing.T) {
 }
 
 // TestEnvelopeConsistency pins the 4.3 envelope: exactly one of result
-// and error, and error.retryable required.
+// and error. (error.retryable is a plain bool consumers read as false
+// when absent — decision 2 — so its absence is not a validation failure;
+// TestRetryableRule covers it.)
 func TestEnvelopeConsistency(t *testing.T) {
 	t.Parallel()
-	retryable := false
 	okEnv := Envelope{OK: true, ProtocolVersion: "1", Result: []byte(`{"x":1}`)}
 	if err := okEnv.Validate(); err != nil {
 		t.Fatalf("ok envelope rejected: %v", err)
 	}
-	failEnv := Envelope{OK: false, ProtocolVersion: "1", Error: &ErrorObject{Code: CodeNotFound, Message: "no such session", Retryable: &retryable}}
+	failEnv := Envelope{OK: false, ProtocolVersion: "1", Error: &ErrorObject{Code: CodeNotFound, Message: "no such session"}}
 	if err := failEnv.Validate(); err != nil {
 		t.Fatalf("error envelope rejected: %v", err)
 	}
@@ -447,8 +447,6 @@ func TestEnvelopeConsistency(t *testing.T) {
 	requireInvalidInput(t, (&Envelope{OK: false, ProtocolVersion: "1"}).Validate(), "error")
 	both := Envelope{OK: true, ProtocolVersion: "1", Result: []byte(`{}`), Error: failEnv.Error}
 	requireInvalidInput(t, both.Validate(), "error")
-	noRetry := Envelope{OK: false, ProtocolVersion: "1", Error: &ErrorObject{Code: CodeNotFound, Message: "x"}}
-	requireInvalidInput(t, noRetry.Validate(), "error.retryable")
 }
 
 // TestErrorObjectFromError checks Error.Object fills retryable from the
@@ -456,14 +454,14 @@ func TestEnvelopeConsistency(t *testing.T) {
 func TestErrorObjectFromError(t *testing.T) {
 	t.Parallel()
 	obj := (&Error{Code: CodeRateLimited, Message: "slow down", RetryAfterMS: 12000}).Object()
-	if obj.Retryable == nil || !*obj.Retryable {
+	if !obj.Retryable {
 		t.Fatal("rate_limited must be retryable")
 	}
 	if obj.RetryAfterMS != 12000 {
 		t.Fatalf("retry_after_ms = %d", obj.RetryAfterMS)
 	}
 	obj = (&Error{Code: CodeNotFound, Message: "no"}).Object()
-	if obj.Retryable == nil || *obj.Retryable {
+	if obj.Retryable {
 		t.Fatal("not_found must not be retryable")
 	}
 	if err := obj.Validate(); err != nil {

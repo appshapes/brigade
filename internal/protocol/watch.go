@@ -23,6 +23,25 @@ const (
 	CommandClose     = "close"
 )
 
+// The `mode` values of the watch `ready` event (4.4.9, P1-4 decision 4).
+// An adapter that omits the message.watch.push capability MUST send
+// polling (C-33); mode is a closed set and Validate rejects anything
+// else.
+const (
+	WatchModePush    = "push"
+	WatchModePolling = "polling"
+)
+
+// The `state` values of the watch `status` event this protocol version
+// defines (4.4.9, P1-4 decision 4). The set is OPEN on the wire: a reader
+// MUST ignore an unknown state rather than reject it (the same rule as
+// for unknown event kinds), so Validate requires a non-empty state and
+// Known reports whether it is one of these.
+const (
+	StatusStateLive    = "live"
+	StatusStatePolling = "polling"
+)
+
 // WatchReady is the one-time first watch event, emitted when the initial
 // catch-up starts (4.4.9, C-33).
 type WatchReady struct {
@@ -43,7 +62,7 @@ func (w *WatchReady) Validate() error {
 	if err := requireString("session_id", w.SessionID); err != nil {
 		return err
 	}
-	return requireString("mode", w.Mode)
+	return oneOf("mode", w.Mode, WatchModePush, WatchModePolling)
 }
 
 // WatchMessage delivers one accepted, unacknowledged message (4.4.9). The
@@ -53,12 +72,13 @@ type WatchMessage struct {
 	Message MessageEnvelope `json:"message"`
 }
 
-// Validate implements Validator.
+// Validate implements Validator. A failure inside the nested envelope is
+// reported at its wire path, `message.<member>` (decision 3).
 func (w *WatchMessage) Validate() error {
 	if err := oneOf("event", w.Event, EventMessage); err != nil {
 		return err
 	}
-	return w.Message.Validate()
+	return w.Message.validate("message.")
 }
 
 // WatchStatus is an informational transport-state event (4.4.9).
@@ -68,13 +88,28 @@ type WatchStatus struct {
 	Detail string `json:"detail,omitzero"`
 }
 
-// Validate implements Validator. State is required but not enumerated:
-// 4.4.9 shows "live" and "polling" and the event is informational.
+// Validate implements Validator. State is required but deliberately not
+// enumerated here: the event is informational and an unknown state is
+// IGNORED by the reader, not rejected (decision 4) — check Known after
+// Validate and drop unknown states with a log line, exactly as for an
+// unknown command type.
 func (w *WatchStatus) Validate() error {
 	if err := oneOf("event", w.Event, EventStatus); err != nil {
 		return err
 	}
 	return requireString("state", w.State)
+}
+
+// Known reports whether the status state is one this protocol version
+// defines (live or polling). A receiver MUST ignore an unknown state
+// (4.4.9, decision 4).
+func (w *WatchStatus) Known() bool {
+	switch w.State {
+	case StatusStateLive, StatusStatePolling:
+		return true
+	default:
+		return false
+	}
 }
 
 // WatchAcked answers a stdin `ack` command (4.4.9). Both lists are always

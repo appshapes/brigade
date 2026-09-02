@@ -24,11 +24,10 @@ func (e *Error) Error() string { return e.Message }
 // Object renders the error as the wire `error` member of a 4.3 envelope,
 // with `retryable` filled in from the taxonomy.
 func (e *Error) Object() *ErrorObject {
-	r := e.Code.Retryable()
 	return &ErrorObject{
 		Code:         e.Code,
 		Message:      e.Message,
-		Retryable:    &r,
+		Retryable:    e.Code.Retryable(),
 		RetryAfterMS: e.RetryAfterMS,
 		Details:      e.Details,
 	}

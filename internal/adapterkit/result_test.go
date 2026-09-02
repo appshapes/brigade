@@ -97,7 +97,7 @@ func TestWriteErrorRetryableAndAfter(t *testing.T) {
 		t.Fatalf("exit = %d, want 8", exit)
 	}
 	env := decodeEnvelope(t, buf.Bytes())
-	if env.Error.Retryable == nil || !*env.Error.Retryable || env.Error.RetryAfterMS != 12000 {
+	if !env.Error.Retryable || env.Error.RetryAfterMS != 12000 {
 		t.Fatalf("error = %+v, want retryable=true retry_after_ms=12000", env.Error)
 	}
 }

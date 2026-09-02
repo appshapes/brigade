@@ -2,15 +2,18 @@ package schema_test
 
 import (
 	"bytes"
+	json "encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	santhosh "github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 
+	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/protocol/schema"
 )
 
@@ -184,12 +187,25 @@ func causeAt(err error, member string, errorKind any) bool {
 }
 
 // TestValidationCanFail is the positive control for the whole example
-// suite: with no `required` members and additionalProperties never
-// false, a validator wired to the wrong document could pass everything.
-// Prove the instruments bite: a wrong member type and an over-cap name
-// must each fail, each for its own reason.
+// suite: with additionalProperties never false, a validator wired to the
+// wrong document could pass everything. Prove the instruments bite: a
+// wrong member type, an over-cap name and a missing required member
+// (P1-4 decision 8) must each fail, each for its own reason.
 func TestValidationCanFail(t *testing.T) {
 	t.Parallel()
+	t.Run("missing required member", func(t *testing.T) {
+		t.Parallel()
+		inst := readInstance(t, filepath.Join(examplesDir, "envelope_ok.json"))
+		envelope := inst.(map[string]any)
+		delete(envelope, "protocol_version")
+		err := compileDef(t, "Envelope").Validate(envelope)
+		if err == nil {
+			t.Fatal("an envelope without protocol_version validated; decision 8 requires it")
+		}
+		if !missingRequired(err, "protocol_version") {
+			t.Fatalf("failed, but not with a required error naming protocol_version:\n%v", err)
+		}
+	})
 	t.Run("wrong type", func(t *testing.T) {
 		t.Parallel()
 		inst := readInstance(t, filepath.Join(examplesDir, "envelope_ok.json"))
@@ -260,5 +276,132 @@ func TestC23ForgedSenderMembersFail(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// missingRequired reports whether err carries a kind.Required cause that
+// names member among the missing ones.
+func missingRequired(err error, member string) bool {
+	var ve *santhosh.ValidationError
+	if !errors.As(err, &ve) {
+		return false
+	}
+	var walk func(e *santhosh.ValidationError) bool
+	walk = func(e *santhosh.ValidationError) bool {
+		if r, ok := e.ErrorKind.(*kind.Required); ok && slices.Contains(r.Missing, member) {
+			return true
+		}
+		for _, c := range e.Causes {
+			if walk(c) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(ve)
+}
+
+// exampleTypes maps each example to a fresh instance of its Go type, for
+// the cross-check below.
+var exampleTypes = map[string]func() protocol.Validator{
+	"ack_request":             func() protocol.Validator { return &protocol.AckRequest{} },
+	"ack_result":              func() protocol.Validator { return &protocol.AckResult{} },
+	"describe_result":         func() protocol.Validator { return &protocol.DescribeResult{} },
+	"envelope_error":          func() protocol.Validator { return &protocol.Envelope{} },
+	"envelope_ok":             func() protocol.Validator { return &protocol.Envelope{} },
+	"heartbeat_request":       func() protocol.Validator { return &protocol.HeartbeatRequest{} },
+	"heartbeat_result":        func() protocol.Validator { return &protocol.HeartbeatResult{} },
+	"message_envelope":        func() protocol.Validator { return &protocol.MessageEnvelope{} },
+	"send_request":            func() protocol.Validator { return &protocol.SendRequest{} },
+	"send_response":           func() protocol.Validator { return &protocol.SendResponse{} },
+	"session_record":          func() protocol.Validator { return &protocol.SessionRecord{} },
+	"session_registration":    func() protocol.Validator { return &protocol.SessionRegistration{} },
+	"team_create_request":     func() protocol.Validator { return &protocol.TeamCreateRequest{} },
+	"team_create_result":      func() protocol.Validator { return &protocol.TeamCreateResult{} },
+	"team_join_request":       func() protocol.Validator { return &protocol.TeamJoinRequest{} },
+	"team_join_result":        func() protocol.Validator { return &protocol.TeamJoinResult{} },
+	"team_leave_result":       func() protocol.Validator { return &protocol.TeamLeaveResult{} },
+	"watch_acked":             func() protocol.Validator { return &protocol.WatchAcked{} },
+	"watch_command_ack":       func() protocol.Validator { return &protocol.WatchCommand{} },
+	"watch_command_close":     func() protocol.Validator { return &protocol.WatchCommand{} },
+	"watch_command_heartbeat": func() protocol.Validator { return &protocol.WatchCommand{} },
+	"watch_error":             func() protocol.Validator { return &protocol.WatchError{} },
+	"watch_heartbeat_ok":      func() protocol.Validator { return &protocol.WatchHeartbeatOK{} },
+	"watch_message":           func() protocol.Validator { return &protocol.WatchMessage{} },
+	"watch_ready":             func() protocol.Validator { return &protocol.WatchReady{} },
+	"watch_status_live":       func() protocol.Validator { return &protocol.WatchStatus{} },
+	"watch_status_polling":    func() protocol.Validator { return &protocol.WatchStatus{} },
+}
+
+// TestRequiredMembersAgreeWithValidate is the decision-8 cross-check
+// between the advisory schema and the normative Validate(): for every
+// example and every `required` member of its $defs entry, deleting that
+// member from the example (a) fails schema validation with a required
+// error naming it, and (b) when the member is a string or an object —
+// the kinds whose absence loose parsing can observe — fails Validate()
+// with invalid_input. Booleans, numbers and arrays are required in the
+// schema because a producer always emits them (decisions 2 and 5), but
+// their absence is indistinguishable from a zero value to a loose parser,
+// so (b) is skipped for them by construction rather than by exception.
+func TestRequiredMembersAgreeWithValidate(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile(committedSchemaPath)
+	if err != nil {
+		t.Fatalf("read committed schema: %v", err)
+	}
+	var doc struct {
+		Defs map[string]struct {
+			Required []string `json:"required"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("committed schema does not parse: %v", err)
+	}
+	checked := 0
+	for name, def := range exampleDefs {
+		fresh, ok := exampleTypes[name]
+		if !ok {
+			t.Fatalf("example %s has no Go type mapping; add it to exampleTypes", name)
+		}
+		for _, member := range doc.Defs[def].Required {
+			t.Run(name+"/"+member, func(t *testing.T) {
+				t.Parallel()
+				base := readInstance(t, filepath.Join(examplesDir, name+".json")).(map[string]any)
+				value, present := base[member]
+				if !present {
+					t.Fatalf("example %s lacks required member %q; the example itself is non-conforming", name, member)
+				}
+				delete(base, member)
+				if serr := compileDef(t, def).Validate(base); serr == nil {
+					t.Fatalf("schema accepted %s without %q", name, member)
+				} else if !missingRequired(serr, member) {
+					t.Fatalf("schema rejected %s without %q, but not for that reason:\n%v", name, member, serr)
+				}
+				switch value.(type) {
+				case string, map[string]any:
+				default:
+					return // bool, number, array: absence is a zero value to a loose parser
+				}
+				mutated, err := json.Marshal(base)
+				if err != nil {
+					t.Fatal(err)
+				}
+				verr := protocol.Decode(mutated, fresh())
+				if verr == nil {
+					t.Fatalf("Validate() accepted %s without %q; the schema requires it and Validate() is normative — one of them is wrong", name, member)
+				}
+				var perr *protocol.Error
+				if !errors.As(verr, &perr) || perr.Code != protocol.CodeInvalidInput {
+					t.Fatalf("Validate() failed with %v, want invalid_input", verr)
+				}
+				if field := perr.Details["field"]; field != member && !strings.HasPrefix(field, member+".") {
+					t.Fatalf("Validate() named %q, want %q or a member nested under it", field, member)
+				}
+			})
+			checked++
+		}
+	}
+	if checked < 60 {
+		t.Fatalf("only %d required members were checked across the examples; the instrument saw too little", checked)
 	}
 }

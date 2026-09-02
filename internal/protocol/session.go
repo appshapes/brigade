@@ -75,7 +75,7 @@ func (r *SessionRegistration) Validate() error {
 		return err
 	}
 	if r.WorkspaceLabel != nil {
-		if err := optionalText("workspace_label", *r.WorkspaceLabel, MaxHumanLabelChars); err != nil {
+		if err := optionalText("workspace_label", *r.WorkspaceLabel, MaxWorkspaceLabelChars); err != nil {
 			return err
 		}
 	}
@@ -147,7 +147,7 @@ func (s *SessionRecord) Validate() error {
 		return err
 	}
 	if s.WorkspaceLabel != nil {
-		if err := optionalText("workspace_label", *s.WorkspaceLabel, MaxHumanLabelChars); err != nil {
+		if err := optionalText("workspace_label", *s.WorkspaceLabel, MaxWorkspaceLabelChars); err != nil {
 			return err
 		}
 	}

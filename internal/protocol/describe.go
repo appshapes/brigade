@@ -104,8 +104,10 @@ func (l *Limits) validate() error {
 		{"limits.max_body_bytes", l.MaxBodyBytes},
 		{"limits.max_summary_chars", l.MaxSummaryChars},
 		{"limits.max_session_name_codepoints", l.MaxSessionNameCodepoints},
+		{"limits.max_team_name_codepoints", l.MaxTeamNameCodepoints},
 		{"limits.max_description_chars", l.MaxDescriptionChars},
 		{"limits.max_human_label_chars", l.MaxHumanLabelChars},
+		{"limits.max_workspace_label_chars", l.MaxWorkspaceLabelChars},
 		{"limits.max_idempotency_key_chars", l.MaxIdempotencyKeyChars},
 		{"limits.send_rate.per_minute", l.SendRate.PerMinute},
 		{"limits.send_rate.per_hour", l.SendRate.PerHour},
@@ -171,6 +173,9 @@ func (p *ProfileInfo) validate() error {
 			return err
 		}
 		if err := requireString("profile.team_name", p.TeamName); err != nil {
+			return err
+		}
+		if err := capRunes("profile.team_name", p.TeamName, MaxTeamNameCodepoints); err != nil {
 			return err
 		}
 		if err := requireString("profile.principal_ref", p.PrincipalRef); err != nil {

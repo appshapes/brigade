@@ -8,14 +8,14 @@ type TeamCreateRequest struct {
 	HumanLabel string `json:"human_label,omitzero"`
 }
 
-// Validate implements Validator. The team name shares the protocol's name
-// cap (4.5.11 caps "names" as in limits, and max_session_name_codepoints
-// is the name cap).
+// Validate implements Validator. The team name has its own cap,
+// MaxTeamNameCodepoints, published as limits.max_team_name_codepoints
+// (P1-4 decision 1); it is not the session-name cap.
 func (r *TeamCreateRequest) Validate() error {
 	if err := requireString("team_name", r.TeamName); err != nil {
 		return err
 	}
-	if err := capRunes("team_name", r.TeamName, MaxSessionNameCodepoints); err != nil {
+	if err := capRunes("team_name", r.TeamName, MaxTeamNameCodepoints); err != nil {
 		return err
 	}
 	return optionalText("human_label", r.HumanLabel, MaxHumanLabelChars)
@@ -38,7 +38,7 @@ func (r *TeamCreateResult) Validate() error {
 	if err := requireString("team_name", r.TeamName); err != nil {
 		return err
 	}
-	if err := capRunes("team_name", r.TeamName, MaxSessionNameCodepoints); err != nil {
+	if err := capRunes("team_name", r.TeamName, MaxTeamNameCodepoints); err != nil {
 		return err
 	}
 	if err := requireString("join_secret", r.JoinSecret); err != nil {
@@ -95,7 +95,7 @@ func (r *TeamJoinResult) Validate() error {
 	if err := requireString("team_name", r.TeamName); err != nil {
 		return err
 	}
-	if err := capRunes("team_name", r.TeamName, MaxSessionNameCodepoints); err != nil {
+	if err := capRunes("team_name", r.TeamName, MaxTeamNameCodepoints); err != nil {
 		return err
 	}
 	return requireString("principal_ref", r.PrincipalRef)

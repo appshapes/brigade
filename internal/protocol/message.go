@@ -52,56 +52,62 @@ type MessageEnvelope struct {
 }
 
 // Validate implements Validator.
-func (m *MessageEnvelope) Validate() error {
-	if err := requireString("protocol_version", m.ProtocolVersion); err != nil {
+func (m *MessageEnvelope) Validate() error { return m.validate("") }
+
+// validate checks the envelope with every reported member name prefixed
+// by at: "" when the envelope is the whole document, "message." when it
+// is the `message` member of a watch event — details.field is the wire
+// path, dotted for nesting (P1-4 decision 3).
+func (m *MessageEnvelope) validate(at string) error {
+	if err := requireString(at+"protocol_version", m.ProtocolVersion); err != nil {
 		return err
 	}
-	if err := oneOf("kind", m.Kind, KindText); err != nil {
+	if err := oneOf(at+"kind", m.Kind, KindText); err != nil {
 		return err
 	}
-	if err := requireString("message_id", m.MessageID); err != nil {
+	if err := requireString(at+"message_id", m.MessageID); err != nil {
 		return err
 	}
-	if err := requireString("team_ref", m.TeamRef); err != nil {
+	if err := requireString(at+"team_ref", m.TeamRef); err != nil {
 		return err
 	}
-	if err := requireString("sender.principal_ref", m.Sender.PrincipalRef); err != nil {
+	if err := requireString(at+"sender.principal_ref", m.Sender.PrincipalRef); err != nil {
 		return err
 	}
-	if err := optionalText("sender.human_label", m.Sender.HumanLabel, MaxHumanLabelChars); err != nil {
+	if err := optionalText(at+"sender.human_label", m.Sender.HumanLabel, MaxHumanLabelChars); err != nil {
 		return err
 	}
-	if err := requireString("sender.session_id", m.Sender.SessionID); err != nil {
+	if err := requireString(at+"sender.session_id", m.Sender.SessionID); err != nil {
 		return err
 	}
-	if err := requireString("sender.session_name", m.Sender.SessionName); err != nil {
+	if err := requireString(at+"sender.session_name", m.Sender.SessionName); err != nil {
 		return err
 	}
-	if err := capRunes("sender.session_name", m.Sender.SessionName, MaxSessionNameCodepoints); err != nil {
+	if err := capRunes(at+"sender.session_name", m.Sender.SessionName, MaxSessionNameCodepoints); err != nil {
 		return err
 	}
-	if err := requireString("recipient_session_id", m.RecipientSessionID); err != nil {
+	if err := requireString(at+"recipient_session_id", m.RecipientSessionID); err != nil {
 		return err
 	}
-	if err := optionalText("summary", m.Summary, MaxSummaryChars); err != nil {
+	if err := optionalText(at+"summary", m.Summary, MaxSummaryChars); err != nil {
 		return err
 	}
-	if err := requireString("body", m.Body); err != nil {
+	if err := requireString(at+"body", m.Body); err != nil {
 		return err
 	}
-	if err := capBytes("body", m.Body, MaxBodyBytes); err != nil {
+	if err := capBytes(at+"body", m.Body, MaxBodyBytes); err != nil {
 		return err
 	}
 	if m.ReplyTo != nil && *m.ReplyTo == "" {
-		return errRequired("reply_to")
+		return errRequired(at + "reply_to")
 	}
-	if err := hopCountInRange("hop_count", m.HopCount); err != nil {
+	if err := hopCountInRange(at+"hop_count", m.HopCount); err != nil {
 		return err
 	}
-	if err := requireTime("created_at", m.CreatedAt); err != nil {
+	if err := requireTime(at+"created_at", m.CreatedAt); err != nil {
 		return err
 	}
-	return oneOf("delivery_state", m.DeliveryState,
+	return oneOf(at+"delivery_state", m.DeliveryState,
 		DeliveryStateAccepted, DeliveryStateInjected, DeliveryStateProcessed)
 }
 

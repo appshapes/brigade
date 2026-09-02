@@ -3,13 +3,21 @@ package protocol
 import "encoding/json/jsontext"
 
 // ErrorObject is the wire `error` member of a failing 4.3 envelope and of
-// a watch `error` event (4.4.9). Retryable is REQUIRED by 4.3, which is
-// why it is a pointer: with loose parsing a plain bool could not tell an
-// absent member from an explicit false.
+// a watch `error` event (4.4.9).
+//
+// Retryable is a plain bool, and the rule is (P1-4 decision 2):
+//
+//   - producers MUST emit it — the member has no omitzero, so a marshalled
+//     ErrorObject always carries "retryable": true|false;
+//   - consumers treat an absent member as false, which under loose parsing
+//     is what a plain bool yields, and which fails safe;
+//   - consumers SHOULD derive retryability from Code.Retryable(), the
+//     source of truth: only rate_limited (8) and unavailable (9) are ever
+//     retryable, so the flag is advisory and Validate does not check it.
 type ErrorObject struct {
 	Code         Code              `json:"code"`
 	Message      string            `json:"message"`
-	Retryable    *bool             `json:"retryable,omitzero"`
+	Retryable    bool              `json:"retryable"`
 	RetryAfterMS int               `json:"retry_after_ms,omitzero"`
 	Details      map[string]string `json:"details,omitzero"`
 }
@@ -21,9 +29,6 @@ func (e *ErrorObject) Validate() error {
 	}
 	if err := requireString("error.message", e.Message); err != nil {
 		return err
-	}
-	if e.Retryable == nil {
-		return errRequired("error.retryable")
 	}
 	if e.RetryAfterMS < 0 {
 		return errOutOfRange("error.retry_after_ms", 0, int(^uint(0)>>1))

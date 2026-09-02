@@ -286,6 +286,11 @@ func TestSpawnMissingExecutable(t *testing.T) {
 	})
 	t.Run("PATH search", func(t *testing.T) {
 		t.Parallel()
+		// A bare name is resolved by exec's PATH search, and on go1.27.0
+		// that miss is exec.ErrNotFound, which does NOT wrap
+		// fs.ErrNotExist (measured in P1-3; plan 4.6's os.ErrNotExist
+		// predicate alone misses it — P1-4 decision 9). Both misses must
+		// land on the same mapping.
 		res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
 			Argv: []string{"brigade-no-such-adapter-8f3a"},
 			Env:  []string{"PATH=" + t.TempDir()},
@@ -294,8 +299,8 @@ func TestSpawnMissingExecutable(t *testing.T) {
 			t.Fatalf("Spawn returned a result for a missing executable: %+v", res)
 		}
 		perr := mustProtocolError(t, err)
-		if perr.Code != protocol.CodeUnavailable {
-			t.Fatalf("code = %q, want unavailable", perr.Code)
+		if perr.Code != protocol.CodeUnavailable || perr.Code.Exit() != 9 {
+			t.Fatalf("code = %q (exit %d), want unavailable (9)", perr.Code, perr.Code.Exit())
 		}
 		if got := perr.Details["reason"]; got != "adapter_not_found" {
 			t.Fatalf(`details.reason = %q, want "adapter_not_found"`, got)

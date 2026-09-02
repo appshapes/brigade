@@ -206,9 +206,14 @@ func TestValidationArms(t *testing.T) {
 			return &WatchReady{Event: EventReady, ProtocolVersion: "1", SessionID: "s1"}
 		}},
 		{"watch message event", "event", func() Validator { return &WatchMessage{Event: "msg", Message: validEnvelopeValue()} }},
-		{"watch message nested", "message_id", func() Validator {
+		{"watch message nested", "message.message_id", func() Validator {
 			e := validEnvelopeValue()
 			e.MessageID = ""
+			return &WatchMessage{Event: EventMessage, Message: e}
+		}},
+		{"watch message nested sender (dotted twice)", "message.sender.principal_ref", func() Validator {
+			e := validEnvelopeValue()
+			e.Sender.PrincipalRef = ""
 			return &WatchMessage{Event: EventMessage, Message: e}
 		}},
 		{"watch status event", "event", func() Validator { return &WatchStatus{Event: "state", State: "live"} }},
@@ -220,8 +225,7 @@ func TestValidationArms(t *testing.T) {
 		{"watch heartbeat_ok lease_until", "lease_until", func() Validator { w := validWatchHeartbeatOK(); w.LeaseUntil = time.Time{}; return &w }},
 		{"watch heartbeat_ok server_time", "server_time", func() Validator { w := validWatchHeartbeatOK(); w.ServerTime = time.Time{}; return &w }},
 		{"watch error event", "event", func() Validator {
-			r := false
-			return &WatchError{Event: "err", Error: ErrorObject{Code: CodeInternal, Message: "x", Retryable: &r}}
+			return &WatchError{Event: "err", Error: ErrorObject{Code: CodeInternal, Message: "x"}}
 		}},
 		{"watch error nested", "error.code", func() Validator { return &WatchError{Event: EventError} }},
 		{"watch command ack empty id", "message_ids", func() Validator { return &WatchCommand{Type: CommandAck, MessageIDs: []string{""}} }},
@@ -231,16 +235,14 @@ func TestValidationArms(t *testing.T) {
 		}},
 		{"watch command heartbeat inbound", "inbound", func() Validator { return &WatchCommand{Type: CommandHeartbeat, Inbound: strptr("maybe")} }},
 
-		{"error object code", "error.code", func() Validator { r := false; return &ErrorObject{Message: "x", Retryable: &r} }},
-		{"error object message", "error.message", func() Validator { r := false; return &ErrorObject{Code: CodeInternal, Retryable: &r} }},
+		{"error object code", "error.code", func() Validator { return &ErrorObject{Message: "x"} }},
+		{"error object message", "error.message", func() Validator { return &ErrorObject{Code: CodeInternal} }},
 		{"error object negative retry_after_ms", "error.retry_after_ms", func() Validator {
-			r := true
-			return &ErrorObject{Code: CodeRateLimited, Message: "x", Retryable: &r, RetryAfterMS: -1}
+			return &ErrorObject{Code: CodeRateLimited, Message: "x", Retryable: true, RetryAfterMS: -1}
 		}},
 		{"envelope wire protocol_version", "protocol_version", func() Validator { return &Envelope{OK: true, Result: []byte(`{}`)} }},
 		{"envelope wire result on failure", "result", func() Validator {
-			r := false
-			return &Envelope{OK: false, ProtocolVersion: "1", Result: []byte(`{}`), Error: &ErrorObject{Code: CodeInternal, Message: "x", Retryable: &r}}
+			return &Envelope{OK: false, ProtocolVersion: "1", Result: []byte(`{}`), Error: &ErrorObject{Code: CodeInternal, Message: "x"}}
 		}},
 
 		{"team create name overlong", "team_name", func() Validator {
