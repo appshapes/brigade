@@ -304,3 +304,47 @@ func TestIntegrationMessageLimit(t *testing.T) {
 		t.Errorf("an empty inbox is not [] on the wire: %s", empty.stdout)
 	}
 }
+
+// TestIntegrationRevocationClosesTheInboxAtOnce is I-16's Phase 2 half
+// through the verbs (D22): the moment `team leave` revokes a membership,
+// the principal's own inbox is closed to it. owned_active_session checks
+// ownership and then ACTIVE membership, so `message receive` and
+// `message ack` on a session the principal still owns answer the uniform
+// `unauthorized` — byte-identical to the adapter's answer for a team it
+// never belonged to — with no realtime lag anywhere in the path (the
+// realtime half of I-16 is Phase 5). The profile is rebound by hand
+// after the leave: an unbound profile would answer `config` locally and
+// the RPC would never be reached, which would prove nothing.
+func TestIntegrationRevocationClosesTheInboxAtOnce(t *testing.T) {
+	a, secret := liveTeam(t, liveName(t, "p2-11-revoked"))
+	b := liveJoin(t, secret)
+	_, sa := registerLive(t, a, regDoc(liveName(t, "sa")))
+	_, sb := registerLive(t, b, regDoc(liveName(t, "sb")))
+	teamRef := str(t, b.ok("profile", "status"), "team_ref")
+
+	sendLive(t, a, `{"sender_session_id":"`+sa+`","recipient_session_id":"`+sb+`","body":"before the leave"}`)
+	if n := len(receiveLive(t, b, sb)); n != 1 {
+		t.Fatalf("the inbox holds %d messages before the leave, want 1", n)
+	}
+
+	left := b.ok("team", "leave")
+	if left["left"] != true {
+		t.Fatalf("team leave = %v", left)
+	}
+	b.bindTeam(teamRef, "ops")
+
+	want := newFailure(t, errNotMember())
+	receive := b.fails("unauthorized", 5, "", "message", "receive", "--session", sb)
+	if receive.stdout != want {
+		t.Fatalf("receive after the leave: %q, want the uniform unauthorized %q", receive.stdout, want)
+	}
+	ack := b.fails("unauthorized", 5, `{"message_ids":["`+randomUUID+`"]}`, "message", "ack", "--session", sb)
+	if ack.stdout != want {
+		t.Fatalf("ack after the leave: %q, want %q", ack.stdout, want)
+	}
+	send := b.fails("unauthorized", 5,
+		`{"sender_session_id":"`+sb+`","recipient_session_id":"`+sa+`","body":"still talking"}`, "message", "send")
+	if send.stdout != want {
+		t.Fatalf("send after the leave: %q, want %q", send.stdout, want)
+	}
+}

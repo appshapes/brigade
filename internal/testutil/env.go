@@ -120,5 +120,15 @@ func Env(tb testing.TB, extra ...string) []string {
 		"HOME=" + d.Home,
 	}
 	vars = append(vars, d.Vars()...)
+	// GOCOVERDIR travels when the ambient run has one. A child built by
+	// [Build] under BRIGADE_COVER=1 is instrumented, and an instrumented
+	// binary whose environment carries no GOCOVERDIR writes nothing and
+	// WARNS on stderr — which several tests here assert is empty. Passing
+	// it through is what makes coverage across the process boundary (plan
+	// 9.4) work with a curated environment; with no GOCOVERDIR in the
+	// ambient run, nothing is added and the environment is unchanged.
+	if dir := os.Getenv("GOCOVERDIR"); dir != "" {
+		vars = append(vars, "GOCOVERDIR="+dir)
+	}
 	return append(vars, extra...)
 }

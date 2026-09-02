@@ -276,3 +276,49 @@ func TestIntegrationRealtimeForeignTopicRefused(t *testing.T) {
 	}
 	t.Fatalf("no phx_reply within 15 s")
 }
+
+// TestIntegrationProfileResetRevokesFamily is I-34, the credential
+// revocation test 9.9 names: `profile reset` signs the principal out
+// GLOBALLY before it deletes the profile directory, so a copy of
+// session.json saved beforehand is worthless — its refresh token answers
+// refresh_token_not_found, which the state machine treats as terminal.
+// The distinction from TestIntegrationGlobalSignOutRevokesTheFamily is
+// the verb: `profile reset` removes the whole profile (4.2) and its
+// sign-out is best effort, so the assertion that the family really died
+// has to be made against the backend rather than inferred from the exit
+// status.
+func TestIntegrationProfileResetRevokesFamily(t *testing.T) {
+	r := liveRig(t)
+	c := r.command("session", "list")
+	if err := c.ensureIdentity(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	saved := r.readSession()
+	if saved == nil || saved.RefreshToken == "" {
+		t.Fatalf("no credential to revoke")
+	}
+
+	reset := r.ok("profile", "reset")
+	if reset["state"] != protocol.ProfileStateUnconfigured {
+		t.Errorf("profile reset: state %v, want unconfigured", reset["state"])
+	}
+	if r.readSession() != nil {
+		t.Fatalf("session.json survived profile reset")
+	}
+	if got := entries(t, r.profileDir()); len(got) != 0 {
+		t.Errorf("profile reset left %v behind", got)
+	}
+
+	// The saved copy: the family is gone at the backend.
+	_, ae, err := c.client.refresh(t.Context(), saved.RefreshToken)
+	if err != nil {
+		t.Fatalf("refresh of the saved copy: %v", err)
+	}
+	if ae == nil {
+		t.Fatalf("the refresh token saved before `profile reset` still rotates: the family was never revoked (I-34)")
+	}
+	if ae.code != authRefreshTokenNotFound || !ae.terminal() {
+		t.Errorf("refresh after profile reset: code %q terminal %v, want %q and terminal", ae.code, ae.terminal(), authRefreshTokenNotFound)
+	}
+	t.Logf("the saved refresh token answers %q after `profile reset`", ae.code)
+}

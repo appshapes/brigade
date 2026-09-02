@@ -4,10 +4,10 @@
 #
 # The other three are gone: P1-8 removed (b) (the `fast` job ran `make cross` in place of `make
 # checksums-check`) and (c) (`make plugin-check` gated `if: false`), both because scripts/ci/*.sh did not
-# exist yet; P2-1 removed (a) (the `supabase` job gated `if: false` until the migrations existed). Inside
-# the `supabase` job two STEPS are gated `if: false` the same way until their deliverables exist:
-# `make test-integration` (P2-11) and `make e2e` (P4-1), with the coverage summary that depends on them.
-# Remove each gate in the task named beside it.
+# exist yet; P2-1 removed (a) (the `supabase` job gated `if: false` until the migrations existed); P2-11
+# removed the gates on `make test-integration` and on the coverage summary that depends on it. Inside the
+# `supabase` job ONE step is still gated `if: false` the same way until its deliverable exists: `make e2e`
+# (P4-1). Remove that gate in the task named beside it.
 name: ci
 on:
   push: {branches: [master]}
@@ -96,14 +96,29 @@ jobs:
       - run: make supabase-start supabase=supabase   # `supabase ?=` in the Makefile: CI overrides the npx form with
       - run: make test-db supabase=supabase          # the setup-cli binary, so local and CI run the same recipes and
       - run: make supabase-env advisor-lints supabase=supabase   # the version is pinned in exactly one place per context
-      - if: false                         # enabled by P2-11, which lands the integration suite and conformance-setup-supabase.sh
-        run: make test-integration        # go test (self-skip lifted by .env.test) + conformance(supabase) --slow
+      # go test (the self-skip of testutil.RequireSupabase is lifted by .env.test) + conformance(supabase)
+      # --slow, both against the stack started above. BRIGADE_TEST_DOCKER=1 comes from the Makefile recipe,
+      # so the fault tests that stop the realtime container and restart the whole stack run here too.
+      # This step's gate used to name scripts/ci/conformance-setup-supabase.sh as P2-11's landing. The
+      # script exists (P2-6..P2-10 landed it) but the Makefile recipe no longer uses it: --setup was
+      # dropped so the suite provisions its own teams through the BRIGADE_SUPABASE_* pair and RUNS C-28 and
+      # C-40 instead of skipping them. It stays as the documented out-of-band alternative for a backend
+      # whose principals are provisioned elsewhere; the reasoning is on the `test-integration` recipe in
+      # the Makefile. GOCOVERDIR must EXIST before an instrumented child looks for it — Go's coverage runtime does
+      # not create it, it warns on stderr and writes nothing — and `covdata percent` on a missing directory
+      # is an error, so the directory is made here rather than left to whichever step happens to run.
+      - name: integration suite and conformance(supabase), instrumented across the process boundary
+        run: |
+          mkdir -p "${{ runner.temp }}/cov"
+          make test-integration
         env: {BRIGADE_COVER: "1", GOCOVERDIR: "${{ runner.temp }}/cov"}
       - if: false                         # enabled by P4-1, which lands scripts/proof.sh and the `e2e` target's inputs
         run: make e2e                     # scripts/proof.sh, watcher in --sink mode, no LLM (D31)
         env: {GOCOVERDIR: "${{ runner.temp }}/cov"}
-      - if: false                         # enabled with the P2-11 step above: GOCOVERDIR is only written by the two gated steps
-        run: go tool covdata percent -i="${{ runner.temp }}/cov" >> "$GITHUB_STEP_SUMMARY"
+      # Coverage of bin/brigade as the conformance suite drove it (the `make e2e` step above will add its
+      # own once P4-1 lands). The go test process's own coverage is not here: it is the `fast` job's
+      # cover.out profile.
+      - run: go tool covdata percent -i="${{ runner.temp }}/cov" >> "$GITHUB_STEP_SUMMARY"
       - if: always()
         run: make supabase-clean supabase=supabase
 

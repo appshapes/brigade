@@ -53,16 +53,56 @@ func RequireSupabase(tb testing.TB) SupabaseEnv {
 	return env
 }
 
+// RequireSupabaseDB returns the local stack's Postgres DSN — the
+// `postgres` superuser connection `make supabase-env` writes as
+// SUPABASE_DB_URL — or skips the test with the same message
+// [RequireSupabase] uses.
+//
+// It exists for the fixtures of plan 9.4 that nothing on the wire can
+// build: backdating `last_seen_at` or a message's `created_at`, running
+// brigade.gc_expired(), and reading auth.users to confirm what a
+// principal is. That is the ONLY reason the test tree talks to Postgres,
+// and only from a _test.go file; everything else goes through the
+// adapter. The DSN carries the local stack's postgres password, so it is
+// returned, never logged: no caller may put it in a t.Log, a failure
+// message or a committed file.
+//
+// The stack health check runs first, so a stale .env.test naming a stack
+// that is not up skips rather than hangs on a dial.
+func RequireSupabaseDB(tb testing.TB) string {
+	tb.Helper()
+	RequireSupabase(tb)
+	dsn := os.Getenv(SupabaseDBURLVar)
+	if dsn == "" {
+		dsn = loadEnvTestValues(tb)[SupabaseDBURLVar]
+	}
+	if dsn == "" {
+		tb.Skip(requireSupabaseMessage + " (" + SupabaseDBURLVar + " is not set and " + EnvTestFile + " does not carry it)")
+	}
+	return dsn
+}
+
+// SupabaseDBURLVar is the name `make supabase-env` writes the DSN under.
+const SupabaseDBURLVar = "SUPABASE_DB_URL"
+
 // loadEnvTest parses .env.test for the two SUPABASE_* aliases. Every
 // failure yields the zero value; the caller skips.
 func loadEnvTest(tb testing.TB) SupabaseEnv {
 	tb.Helper()
+	values := loadEnvTestValues(tb)
+	return SupabaseEnv{URL: values["SUPABASE_URL"], PublishableKey: values["SUPABASE_PUBLISHABLE_KEY"]}
+}
+
+// loadEnvTestValues parses .env.test at the repository root. An
+// unreadable file yields an empty map; every caller skips on a missing
+// member rather than failing.
+func loadEnvTestValues(tb testing.TB) map[string]string {
+	tb.Helper()
 	data, err := os.ReadFile(filepath.Join(RepoRoot(tb), EnvTestFile))
 	if err != nil {
-		return SupabaseEnv{}
+		return map[string]string{}
 	}
-	values := parseDotenv(string(data))
-	return SupabaseEnv{URL: values["SUPABASE_URL"], PublishableKey: values["SUPABASE_PUBLISHABLE_KEY"]}
+	return parseDotenv(string(data))
 }
 
 // parseDotenv reads NAME=value lines, tolerating `export`, blank lines,

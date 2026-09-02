@@ -15,57 +15,42 @@ import (
 // through testutil.RequireSupabase (inside liveRig), mints its own
 // anonymous principals and its own team, and never resets the database.
 
-// liveTeam signs a fresh anonymous principal up, creates a team through
-// create_team and binds the profile — which is what `team create` (P2-7)
-// does. It is done here through the RPC directly so that this lane's
-// verbs can be exercised end to end before that lane lands; when it has,
-// these fixtures could equally run the verb.
+// liveTeam creates a team through the `team create` VERB on a fresh
+// anonymous principal and returns the rig, bound to that team, and the
+// join secret. P2-8 built the fixture out of the create_team RPC because
+// `team create` did not exist yet; P2-11 switched it to the verb, so
+// every test that needs a team exercises the real surface — the profile
+// bootstrap from BRIGADE_SUPABASE_*, the sign-up, the RPC, the join
+// secret's parse and the binding — instead of only the RPC beneath it.
 func liveTeam(t *testing.T, name string) (*rig, string) {
 	t.Helper()
 	r := liveRig(t)
-	c := r.command("team", "create")
-	if err := c.ensureIdentity(t.Context()); err != nil {
-		t.Fatalf("sign-up: %v", err)
+	created := createLive(t, r, name, "alice@example.com")
+	secret := str(t, created, "join_secret")
+	if _, err := protocol.ParseJoinSecret(secret); err != nil {
+		t.Fatalf("team create answered a join secret that does not parse: %v", err)
 	}
-	var out struct {
-		TeamID     string `json:"team_id"`
-		TeamName   string `json:"team_name"`
-		JoinSecret string `json:"join_secret"`
-	}
-	if err := c.rpc(t.Context(), "create_team", rpcArgs{"p_name": name, "p_human_label": "alice@example.com"}, &out); err != nil {
-		t.Fatalf("create_team: %v", err)
-	}
-	if err := c.bind(out.TeamID, out.TeamName, "alice@example.com"); err != nil {
-		t.Fatalf("bind: %v", err)
-	}
-	return r, out.JoinSecret
+	return r, secret
 }
 
-// liveJoin mints a second anonymous principal in the same team, the way
-// `team join` does. Its label is fixed: every test here needs exactly one
-// second member, and a distinct label would prove nothing the roster
+// liveJoin mints a second anonymous principal in the same team through
+// the `team join` verb. Its label is fixed: every test here needs exactly
+// one second member, and a distinct label would prove nothing the roster
 // cases do not already prove.
 func liveJoin(t *testing.T, secret string) *rig {
 	t.Helper()
 	const label = "bob@example.com"
 	r := liveRig(t)
-	c := r.command("team", "join")
-	if err := c.ensureIdentity(t.Context()); err != nil {
-		t.Fatalf("sign-up: %v", err)
+	got := joinLive(t, r, secret, label)
+	if got.code != 0 {
+		t.Fatalf("team join: exit %d, stdout %s stderr %s", got.code, got.stdout, got.stderr)
 	}
-	var out struct {
-		Status   string `json:"status"`
-		TeamID   string `json:"team_id"`
-		TeamName string `json:"team_name"`
+	joined, _ := decode(t, got.stdout)["result"].(map[string]any)
+	if rejoined, _ := joined["rejoined"].(bool); rejoined {
+		t.Fatalf("team join: rejoined true for a fresh principal (%v)", joined)
 	}
-	if err := c.rpc(t.Context(), "join_team", rpcArgs{"p_join_secret": secret, "p_human_label": label}, &out); err != nil {
-		t.Fatalf("join_team: %v", err)
-	}
-	if out.Status != "joined" {
-		t.Fatalf("join_team answered %q", out.Status)
-	}
-	if err := c.bind(out.TeamID, out.TeamName, label); err != nil {
-		t.Fatalf("bind: %v", err)
+	if !validUUID(str(t, joined, "team_ref")) {
+		t.Fatalf("team join: team_ref %v", joined["team_ref"])
 	}
 	return r
 }

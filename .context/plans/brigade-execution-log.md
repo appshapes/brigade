@@ -73,7 +73,8 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P1-8 | `plugin/bin/brigade` bootstrap + plugin checks | done | Opus | this commit — full gate green; `make plugin-check checksums-check` green in the pre-release state; **CI un-gated** (`checksums-check`, `plugin-check`); bootstrap tested on sh/bash/zsh/dash/ksh and busybox ash (alpine, wget); **61 checks proven able to fail, 3 strengthened** (see below) |
 | P2-1..P2-5 | Supabase schema, RPCs, realtime/housekeeping, pgTAP, advisor lints | done | Fable | this commit — migrations finished against everything Phase 1 pinned; **`not_found` is now SQLSTATE `PT404` = HTTP 404 (measured)**; 9 pgTAP files, **756 assertions**; **46 SQL mutations, all killed after 7 instruments were strengthened**; E0-1 72/0 and E0-2 37/0 kits green; CI `supabase` job un-gated (see below) |
 | P2-6..P2-10 | Go Supabase client, profile/team/session/message commands, watch | done | Fable (P2-6/P2-7/P2-10) · Opus (P2-8/P2-9) | this commit — **conformance(supabase) `--slow` 45/0/0, three consecutive runs of about 80 s**; 23 adapter mutations killed after 4 instruments were fixed; live credential, realtime and mapping checks on the real stack; one decisive defect found live (revoke-credentials leaving the refresh family alive) and fixed (see below) |
-| P2-11..P2-12 | Integration suite completion (fault tests under `BRIGADE_TEST_DOCKER=1`, `pgx` fixtures, un-gate CI's `test-integration` step), release rehearsal | todo | Opus | the integration tests and the `--setup` script exist; what remains is listed in the P2 adapter block |
+| P2-11 | Integration suite completion: fault tests under `BRIGADE_TEST_DOCKER=1`, `pgx` fixtures, fixtures through the verbs, coverage across the process boundary, CI's `test-integration` and coverage steps un-gated | done | Opus | this commit — `make test-integration` 3:42 locally (integration 142 s incl. the two fault tests, conformance 45/0/0 in 80 s); every I-* id of 9.9 assigned to the adapter traced to a named test; 16 of 17 checks proven able to fail, 1 strengthened |
+| P2-12 | `scripts/release-prep.sh` + the release rehearsal | done locally · **the real rehearsal awaits Rjae** | Opus | this commit — the script (7.7) with a `DRY_RUN` mode, rehearsed on a throwaway local branch: `GORELEASER_CURRENT_TAG` accepts a non-existent tag with `--skip=validate` (the 7.7 [uncertain] settled), goreleaser's `checksums.txt` byte-equal to `make cross`'s; **four script defects found and fixed by the verifier** (see below); nothing pushed, tagged or committed by the rehearsal |
 | P3-1 | Plugin manifests, marketplace, skills | todo | Opus | |
 | P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | todo | Fable | security path |
 | P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | todo | Fable | injection path |
@@ -1010,6 +1011,75 @@ order in unit tests); C-01/C-07 cannot see a best-effort dial in `describe` (the
 verifier's script, not by a test), `pgx` fixtures for backdating, `session_integration_test.go`'s team fixtures
 through the verbs instead of the RPCs, un-gating CI's `test-integration` step, and the release rehearsal.
 
+## P2-11 / P2-12 DONE — the integration suite runs in CI; the release script exists and was rehearsed locally
+
+Two Opus lanes in parallel from `.ignored/briefs/p2-11-12-integration-release.md`, each with its own Opus adversarial
+verifier.
+
+**P2-11.** New: `fault_integration_test.go` (under `BRIGADE_TEST_DOCKER=1` only: polling degradation with the
+realtime container stopped and started — `status polling` at once, a message delivered by the 10 s drain timer,
+`status live` 5 s after the start; and the P2-10 row's stack-restart recovery through `make supabase-stop` /
+`supabase-start`, 26 s here, the watch rejoining within a second of the start — both restore the stack in
+`t.Cleanup` on a context that survives the test's cancellation); `fixtures_integration_test.go` (the `pgx` fixtures
+of 9.4 through `database/sql` against `SUPABASE_DB_URL`: an expired lease lists offline and resumes without a 32 s
+sleep, the C-29b after-window arm the suite cannot run, `gc_expired()` reclaiming a backdated acked message, and
+I-23 read out of `auth.users`); `realtime_integration_test.go` (I-13's local half — a public join is accepted by
+this stack and receives none of ten broadcasts, with the ten messages verified in the inbox so the negative is not
+vacuous — and I-14, a client broadcast on an owned private topic dropped, with the database's own broadcast as the
+positive control on the same socket); I-34 and the I-16 RPC half added; the session/message fixtures now build
+their teams through `team create`/`team join` rather than the RPCs. Coverage across the process boundary:
+`testutil.Build` and `make build` instrument under `BRIGADE_COVER=1`, `testutil.Env` forwards `GOCOVERDIR`, and the
+Makefile passes `--env GOCOVERDIR=…` through the suite's own flag (the launcher builds every child's environment
+from scratch, so an instrumented child otherwise wrote nothing — measured, `covdata percent` found no files). CI's
+`supabase` job now runs `make test-integration` and the coverage summary; expected cost 5-8 min on an Ubuntu runner
+on top of the job's 8, inside its 25-minute timeout. `pgx` is a test-only module: `deps-check`'s equality still
+reports five linked modules.
+
+Two facts the lane corrected in the brief: the existing integration tests drive the adapter IN-PROCESS (`run(...)`)
+and only the conformance half crosses a process boundary — the fault tests follow the suite's shape, and the watch
+path across a real process boundary is exercised by C-33..C-41; and a single watch cannot re-emit its own unacked
+message (it dedupes within its process by design), so the stack-restart test proves the running watch's recovery and
+then a FRESH watch's re-emission separately, which is the property C-36 and a harness restart actually rely on.
+The verifier proved 16 of 17 checks able to fail and strengthened one instrument: the fault tests' waits reported
+only "no watch event within 60 s" under a mutant that never emits `status polling`; they now name what was
+expected. Driver's follow-ups in this commit: the stack-restart test's hard 5-minute bound (a CI flake risk on a
+slow runner doing Docker work) is now a hang catcher at 10 minutes with the wall time logged; `make test`'s fs
+conformance line carries the coverage variable too. Recorded, not changed: `BRIGADE_COVER=1` without `GOCOVERDIR`
+turns `cmd/brigade`'s built-binary test red with Go's own warning — loud on purpose, so a CI misconfiguration cannot
+produce silently empty coverage.
+
+**P2-12.** `scripts/release-prep.sh` is plan 7.7's script with a `DRY_RUN` mode that stops before the commit and
+prints what steps 4–5 would do, and fail-fast guards (a version-token check, a repository-root check, `bin/goreleaser`
+present, a post-bump check that the manifest's `"version"` really changed — a single-line manifest reads as "declares
+no version" to the anchored `sed`, execution-log correction 4). Rehearsed on a throwaway local branch never pushed and
+deleted by name, with a throwaway manifest (P3-1's does not exist): `make cross`, then goreleaser
+`release --clean --skip=publish,validate,announce` with `GORELEASER_CURRENT_TAG=v0.1.0` — **which goreleaser v2.18.0
+accepts for a tag that does not exist as a git object** (`couldn't find any tags before "v0.1.0"`, then it built the
+four targets; the 7.7 [uncertain] is settled and the fallback is not needed) — and `dist/checksums.txt` byte-equal
+to `dist-cross/checksums.txt`, confirming that goreleaser's `dist/` holds `brigade_<os>_<arch>_<v1|v8.0>/`
+directories and that its checksum file lists the upload names in `make cross`'s order. `checksums-check.sh` in the
+bumped state passes (a) and (b) and fails (c) with the expected pre-tag text (`no published v0.1.0`);
+`release-verify.sh` passes. **The verifier found four defects in the script and fixed them with regression
+tests:** `DRY_RUN=true` (anything but the literal `1`) fell through to the REAL release path — proven in a fixture
+with an upstream: it committed, tagged and pushed `v0.1.0` — now any value but `''`, `0`, `no`, `false` is a dry
+run, so a typo fails safe; the clean-tree precondition ignored UNTRACKED files while step 4's `make push` runs
+`git add :/ .`, so an unreviewed file could land in the tagged release commit — now `git status --porcelain
+--untracked-files=normal`; bare `make release` invoked the script with `0.0.0` because the Makefile's
+`version ?= $(plugin_version)` defaults it before the `test -n` guard runs — the script now refuses the pre-release
+sentinel; and the manifest check ran after `VERSION` was written, leaving a bumped `VERSION` beside a stale manifest
+on refusal — reordered. Recorded, not changed: the version pattern is a shape check, not a semver parse (`0.0.1-rc1`
+must keep passing); step 3 has no guard for a missing `dist/checksums.txt`; a dry run leaves the bumped pins and the
+dist directories for the operator to restore (`git restore --worktree` and `make clean`); goreleaser refuses a
+repository with no remote at all.
+
+**What a REAL rehearsal or release does beyond this, none of it done — Rjae's call:** `git pull --no-edit` on master;
+`cp dist/checksums.txt plugin/bin/checksums.txt` and `make push message="15: Release <v>"` (a release commit on
+`origin/master`, after which the `fast` job re-verifies rule (c) by fresh build); `git tag -a v<v>` and `git push
+origin v<v>`, which TRIGGERS `release.yml`: the three guards, goreleaser creating a DRAFT release on the private
+repository, `release-verify.sh`, then publish (or delete the draft on failure). A real run also needs P3-1's
+`plugin.json`, which is why the rehearsal used a throwaway one. `make release` needs a clean tree, so it cannot run
+while any lane has uncommitted work.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1445,3 +1515,9 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   three consecutive runs measured by the driver. The fixer resolved the two out-of-adapter blockers (the registration
   cap; the scratch principals' backend pair) and replaced the 1 s drain with a pushed revocation hint. Next: P2-11
   and P2-12 (Opus), then Phase 3.
+- 2026-09-02 ~22:00: **P2-11 done; P2-12 done locally** (block above). Phase 2's remaining item is the REAL release
+  rehearsal — a push, a tag and a draft release — which is outward-facing and awaits Rjae. Rjae also asked, in
+  conversation, about further transport adapters; the driver's assessment was that a database-agnostic SQL adapter
+  (`brigade-adapter-sql`: `database/sql`, dialects postgres/mysql/sqlite/mssql, cooperative isolation among DSN
+  holders, polling, the DSN never on argv) is the one that clears the "useful to companies" bar, and offered to
+  write it up as a plan section and a brief; not yet decided.

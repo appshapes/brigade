@@ -4,6 +4,19 @@
 # ========== Variables (alphabetical) ==========
 
 bin_dir            := bin
+# The conformance suite builds every adapter child's environment FROM SCRATCH (plan 4.1 / its
+# launcher forwards only PATH and TMPDIR), so an instrumented bin/brigade spawned by it never sees
+# GOCOVERDIR and writes nothing — measured: `go tool covdata percent` answered "no applicable files
+# found in input directories" on the run that produced this line. --env is the supported way in, and
+# it is the reason `make test-integration` produces coverage at all.
+cover_env          := $(if $(GOCOVERDIR),--env GOCOVERDIR=$(GOCOVERDIR),)
+# Coverage across the process boundary (plan 9.4). BRIGADE_COVER=1 in the environment instruments
+# bin/brigade with `go build -cover`, so the adapter children the conformance suite spawns write
+# coverage into GOCOVERDIR and CI's `go tool covdata percent` reports what the integration run
+# actually executed. Empty by default: -cover changes the artefact under test, and an instrumented
+# binary run without GOCOVERDIR warns on stderr and writes nothing. `test-integration` depends on
+# `build`, so the CI step's own BRIGADE_COVER=1 is enough to rebuild instrumented.
+cover_flags        := $(if $(BRIGADE_COVER),-cover,)
 detach             := --detach
 dist_cross         := dist-cross
 env_test           := .env.test
@@ -99,9 +112,9 @@ version-check: ## Fail when the version stamp would be empty (missing or empty p
 	  exit 1; }
 
 .PHONY: build
-build: version-check ## Build bin/brigade plus the dev-only binaries for this host with the release flags (version stamped `<version>-dev`)
-	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade ./cmd/brigade
-	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-adapter-fs ./cmd/brigade-adapter-fs
+build: version-check ## Build bin/brigade plus the dev-only binaries for this host with the release flags (version stamped `<version>-dev`; BRIGADE_COVER=1 adds -cover)
+	$(go_build_env) go build $(go_flags) $(cover_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade ./cmd/brigade
+	$(go_build_env) go build $(go_flags) $(cover_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-adapter-fs ./cmd/brigade-adapter-fs
 	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-conformance ./cmd/brigade-conformance
 
 .PHONY: clean
@@ -168,7 +181,7 @@ lint-fix: ## golangci-lint --fix and fmt
 .PHONY: test
 test: build ## Unit + testscript + harness + conformance(fs) with -race; no Docker (what `make commit` runs)
 	go test $(go_test_flags) -covermode=atomic -coverprofile=cover.out ./...
-	$(bin_dir)/brigade-conformance --shared-env BRIGADE_FS_ROOT --adapter $(bin_dir)/brigade-adapter-fs
+	$(bin_dir)/brigade-conformance --shared-env BRIGADE_FS_ROOT $(cover_env) --adapter $(bin_dir)/brigade-adapter-fs
 
 .PHONY: vuln
 vuln: build ## govulncheck on the source tree and on the built binary (pinned in tools.mod)
@@ -232,7 +245,7 @@ test-db: ## pgTAP tests in supabase/tests against the running local stack
 .PHONY: test-integration
 test-integration: build ## Adapter integration + conformance(supabase) against the local stack (reads $(env_test))
 	set -a; . ./$(env_test); set +a; BRIGADE_TEST_DOCKER=1 go test -count=1 -timeout 20m -run 'Integration|Supabase' ./internal/adapters/supabase/...
-	set -a; . ./$(env_test); set +a; $(bin_dir)/brigade-conformance --slow --env BRIGADE_SUPABASE_URL=$$SUPABASE_URL --env BRIGADE_SUPABASE_PUBLISHABLE_KEY=$$SUPABASE_PUBLISHABLE_KEY --adapter $(bin_dir)/brigade -- adapter supabase
+	set -a; . ./$(env_test); set +a; $(bin_dir)/brigade-conformance --slow --env BRIGADE_SUPABASE_URL=$$SUPABASE_URL --env BRIGADE_SUPABASE_PUBLISHABLE_KEY=$$SUPABASE_PUBLISHABLE_KEY $(cover_env) --adapter $(bin_dir)/brigade -- adapter supabase
 
 .PHONY: test-all
 test-all: test test-db advisor-lints test-integration e2e ## Everything (requires `make supabase-start supabase-env`)

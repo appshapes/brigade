@@ -45,6 +45,16 @@ func BuildStamped(tb testing.TB, pkg, version string) string {
 	tb.Helper()
 	out := filepath.Join(tb.TempDir(), path.Base(pkg))
 	args := []string{"build", "-trimpath", "-o", out}
+	// Coverage across the process boundary (plan 9.4). BRIGADE_COVER=1
+	// instruments the child so that a `go tool covdata` run over GOCOVERDIR
+	// sees what the tests drove through the real binary rather than only
+	// what the test process itself executed; CI's supabase job sets both.
+	// It is opt-in because an instrumented binary run WITHOUT GOCOVERDIR
+	// warns on stderr and writes nothing, and because -cover changes the
+	// artefact under test — the default build stays the one that ships.
+	if os.Getenv("BRIGADE_COVER") != "" {
+		args = append(args, "-cover")
+	}
 	if version != "" {
 		args = append(args, "-ldflags", "-X "+VersionLDFlagTarget+"="+version)
 	}
