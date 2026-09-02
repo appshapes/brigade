@@ -332,11 +332,14 @@ func TestDecision3InvalidInputDetailsAreFrozen(t *testing.T) {
 			var r SendRequest
 			return Decode([]byte(`{"sender":null,"sender_session_id":"s1","recipient_session_id":"s2","body":"b"}`), &r)
 		}, map[string]string{"field": "sender", "reason": "forbidden_member"}},
-		{"out of range", func() error {
-			r := validRegistration()
-			r.LeaseSeconds = intptr(1)
-			return r.Validate()
+		{"out of range (adapter lease range)", func() error {
+			return DefaultLease().CheckSeconds("lease_seconds", intptr(1))
 		}, map[string]string{"field": "lease_seconds", "reason": "out_of_range", "min": "30", "max": "600"}},
+		{"out of range (protocol positivity)", func() error {
+			r := validRegistration()
+			r.LeaseSeconds = intptr(0)
+			return r.Validate()
+		}, map[string]string{"field": "lease_seconds", "reason": "out_of_range", "min": "1"}},
 		{"conditional presence", func() error {
 			p := ProfileInfo{Name: "default", State: ProfileStateNotMember, TeamRef: "t1"}
 			return p.validate()

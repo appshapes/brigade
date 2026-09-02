@@ -50,9 +50,14 @@ const (
 const (
 	// LeaseDefaultSeconds is the lease granted when the caller names none.
 	LeaseDefaultSeconds = 90
-	// LeaseMinSeconds is the shortest lease a caller may request.
+	// LeaseMinSeconds is the shortest lease the DEFAULT range accepts.
+	// The range is per adapter (4.4.1: "the range of lease_seconds an
+	// adapter accepts"), advertised in describe.lease and enforced by the
+	// adapter with Lease.CheckSeconds; these three are the 4.4.1 example
+	// values, which the Supabase adapter uses and DefaultLease returns.
+	// The request shapes' Validate requires only a positive value.
 	LeaseMinSeconds = 30
-	// LeaseMaxSeconds is the longest lease a caller may request.
+	// LeaseMaxSeconds is the longest lease the default range accepts.
 	LeaseMaxSeconds = 600
 )
 

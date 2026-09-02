@@ -241,9 +241,11 @@ func patchDefinitions(defs jsonschema.Definitions) error {
 		def, prop string
 		min, max  int
 	}{
-		{"SessionRegistration", "lease_seconds", protocol.LeaseMinSeconds, protocol.LeaseMaxSeconds},
-		{"HeartbeatRequest", "lease_seconds", protocol.LeaseMinSeconds, protocol.LeaseMaxSeconds},
-		{"WatchCommand", "lease_seconds", protocol.LeaseMinSeconds, protocol.LeaseMaxSeconds},
+		// lease_seconds: positive; its upper bound is the adapter's advertised
+		// lease.max_seconds (4.4.1), which a static schema cannot carry.
+		{"SessionRegistration", "lease_seconds", 1, -1},
+		{"HeartbeatRequest", "lease_seconds", 1, -1},
+		{"WatchCommand", "lease_seconds", 1, -1},
 		{"MessageEnvelope", "hop_count", 0, protocol.MaxHopCount},
 		{"SendResponse", "hop_count", 0, protocol.MaxHopCount},
 		{"ErrorObject", "retry_after_ms", 0, -1}, // no upper bound

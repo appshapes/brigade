@@ -143,7 +143,7 @@ func TestValidationArms(t *testing.T) {
 			return &HeartbeatRequest{SessionDescription: strptr(strings.Repeat("x", MaxDescriptionChars+1))}
 		}},
 		{"heartbeat inbound", "inbound", func() Validator { return &HeartbeatRequest{Inbound: strptr("maybe")} }},
-		{"heartbeat lease", "lease_seconds", func() Validator { return &HeartbeatRequest{LeaseSeconds: intptr(1)} }},
+		{"heartbeat lease", "lease_seconds", func() Validator { return &HeartbeatRequest{LeaseSeconds: intptr(0)} }},
 
 		{"heartbeat result session_id", "session_id", func() Validator {
 			return &HeartbeatResult{State: SessionStateActive, LeaseUntil: time.Now(), ServerTime: time.Now()}

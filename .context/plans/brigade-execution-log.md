@@ -489,6 +489,18 @@ missing absolute path both map to `unavailable` / `adapter_not_found`).
    `GOOS=linux`, so a finding in a build-constrained file fails locally. Reproduced locally with
    `GOOS=linux bin/golangci-lint run ./...` before the fix (2 issues) and green after. Cost: about 3 s. Lesson for the
    task-boundary ritual: read the CONCLUSION column of `gh run list` after every push, not just that a run exists.
+2. **`internal/protocol` bounded `lease_seconds` by the 4.4.1 EXAMPLE's 30..600 in every request shape's
+   `Validate()` and in the schema.** The frozen spec makes the range the adapter's: 4.4.1 "`lease` is the range of
+   `lease_seconds` an adapter accepts", 4.4.2/4.4.4 "within `lease.min_seconds..lease.max_seconds`", and the harness
+   learns it from `describe`, never at compile time. The P1-5 row requires the fs adapter to advertise
+   `lease.min_seconds = 1` (so the slow expiry of C-14/C-19b takes seconds), which the P1-2 check made unreachable:
+   the request would have been refused before the adapter saw it. Corrected without a spec change: the shapes'
+   `Validate()` now requires only a positive integer (`details.min = "1"`), a new `Lease.CheckSeconds(field, *int)`
+   applies the adapter's advertised range with the same `out_of_range` details, `DefaultLease()` still carries the
+   4.4.1 values, and the schema's `lease_seconds` says `minimum: 1` with no maximum (regenerated with `make schema`;
+   convention 6's advisory-schema rule covers exactly this — a static schema cannot carry an adapter's bound).
+   `TestLeaseCheckSeconds` proves the check reads the RECEIVER's bounds, not the constants. Protocol and schema in
+   one commit per the CLAUDE.md rule; the adapter and conformance halves are P1-5 and P1-6.
 
 ## Plan corrections from E0-8
 

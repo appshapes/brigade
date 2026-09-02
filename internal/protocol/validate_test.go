@@ -312,13 +312,42 @@ func TestEnumMembers(t *testing.T) {
 	}
 }
 
+// TestLeaseCheckSeconds pins the adapter-side range check at its edges for
+// a range that is NOT the default one, so a check that silently used the
+// 4.4.1 constants instead of the receiver would fail here.
+func TestLeaseCheckSeconds(t *testing.T) {
+	t.Parallel()
+	l := Lease{DefaultSeconds: 90, MinSeconds: 1, MaxSeconds: 600}
+	for v, wantErr := range map[int]bool{0: true, 1: false, 30: false, 600: false, 601: true} {
+		err := l.CheckSeconds("lease_seconds", intptr(v))
+		if wantErr {
+			requireInvalidInput(t, err, "lease_seconds")
+		} else if err != nil {
+			t.Errorf("lease_seconds=%d rejected by range 1..600: %v", v, err)
+		}
+	}
+	if err := l.CheckSeconds("lease_seconds", nil); err != nil {
+		t.Errorf("absent lease_seconds rejected: %v", err)
+	}
+	// The receiver's bounds are the ones applied, not the package constants.
+	narrow := Lease{DefaultSeconds: 50, MinSeconds: 40, MaxSeconds: 60}
+	if err := narrow.CheckSeconds("lease_seconds", intptr(LeaseMinSeconds)); err == nil {
+		t.Errorf("lease_seconds=%d accepted by range 40..60", LeaseMinSeconds)
+	}
+	if err := narrow.CheckSeconds("lease_seconds", intptr(LeaseMaxSeconds)); err == nil {
+		t.Errorf("lease_seconds=%d accepted by range 40..60", LeaseMaxSeconds)
+	}
+}
+
 // TestNumericBounds covers lease_seconds and hop_count at their edges.
 func TestNumericBounds(t *testing.T) {
 	t.Parallel()
 
 	t.Run("lease_seconds", func(t *testing.T) {
 		t.Parallel()
-		for v, wantErr := range map[int]bool{29: true, 30: false, 90: false, 600: false, 601: true, -1: true} {
+		// The protocol layer requires only positivity; the adapter's
+		// advertised range is Lease.CheckSeconds's job (TestLeaseCheckSeconds).
+		for v, wantErr := range map[int]bool{0: true, -1: true, 1: false, 30: false, 90: false, 600: false, 601: false} {
 			r := validRegistration()
 			r.LeaseSeconds = intptr(v)
 			err := r.Validate()
@@ -406,7 +435,7 @@ func TestWatchCommandValidation(t *testing.T) {
 		t.Parallel()
 		c := WatchCommand{Type: CommandHeartbeat, Activity: strptr("sprinting")}
 		requireInvalidInput(t, c.Validate(), "activity")
-		c = WatchCommand{Type: CommandHeartbeat, LeaseSeconds: intptr(10)}
+		c = WatchCommand{Type: CommandHeartbeat, LeaseSeconds: intptr(0)}
 		requireInvalidInput(t, c.Validate(), "lease_seconds")
 		c = WatchCommand{Type: CommandHeartbeat}
 		if err := c.Validate(); err != nil {

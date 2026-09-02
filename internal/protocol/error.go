@@ -101,6 +101,16 @@ func errForbiddenMember(field string) *Error {
 	}
 }
 
+// errNotPositive reports a numeric member that must be a positive integer
+// and is not; the member's upper bound, if any, is the adapter's to check.
+func errNotPositive(field string) *Error {
+	return &Error{
+		Code:    CodeInvalidInput,
+		Message: field + " must be a positive integer",
+		Details: map[string]string{"field": field, "reason": reasonOutOfRange, "min": "1"},
+	}
+}
+
 // errOutOfRange reports a numeric member outside its protocol bounds.
 func errOutOfRange(field string, minimum, maximum int) *Error {
 	return &Error{

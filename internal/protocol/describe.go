@@ -142,6 +142,23 @@ func (l *Lease) validate() error {
 	return nil
 }
 
+// CheckSeconds validates a requested lease_seconds member against THIS
+// advertised range (4.4.2, 4.4.4 and the watch heartbeat command of
+// 4.4.9): an absent value is valid, because the default applies, and a
+// present value outside min_seconds..max_seconds is invalid_input naming
+// field. An adapter calls it after the shape's Validate, which requires
+// only positivity — the range is the adapter's, published in `describe`,
+// and differs between adapters (the fs adapter advertises min_seconds = 1).
+func (l Lease) CheckSeconds(field string, v *int) error {
+	if v == nil {
+		return nil
+	}
+	if *v < l.MinSeconds || *v > l.MaxSeconds {
+		return errOutOfRange(field, l.MinSeconds, l.MaxSeconds)
+	}
+	return nil
+}
+
 // validate checks the retention floors are positive.
 func (r *Retention) validate() error {
 	if r.UnackedMessageSeconds <= 0 {

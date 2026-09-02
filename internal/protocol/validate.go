@@ -91,14 +91,22 @@ func requireIDs(field string, ids []string) error {
 	return nil
 }
 
-// leaseSecondsInRange checks an optional lease_seconds member against the
-// v1 lease bounds when present.
+// leaseSecondsInRange checks an optional lease_seconds member when present:
+// it must be a positive integer. The RANGE a lease may take is the adapter's
+// own — 4.4.1 defines `lease` as "the range of lease_seconds an adapter
+// accepts" and 4.4.2/4.4.4 bound the member by lease.min_seconds..
+// lease.max_seconds, values the harness learns from `describe`, never at
+// compile time — so the adapter enforces it with Lease.CheckSeconds after
+// this validation. The protocol layer refuses only what no adapter could
+// honour. (P1-2 bounded the member by the 4.4.1 example's 30..600 here,
+// which would have made the fs adapter's advertised min_seconds = 1 (plan
+// P1-5) unreachable; corrected in P1-5.)
 func leaseSecondsInRange(field string, v *int) error {
 	if v == nil {
 		return nil
 	}
-	if *v < LeaseMinSeconds || *v > LeaseMaxSeconds {
-		return errOutOfRange(field, LeaseMinSeconds, LeaseMaxSeconds)
+	if *v < 1 {
+		return errNotPositive(field)
 	}
 	return nil
 }
