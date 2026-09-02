@@ -1541,3 +1541,11 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   automated work is complete: P2-1..P2-11 done, P2-12's script and local rehearsal done. **Open for Rjae:** the real
   release rehearsal (a release commit on `master`, a tag, `release.yml`, a draft release); whether to plan the
   database-agnostic SQL adapter; and whether Phase 3 starts in this session.
+- 2026-09-03 ~00:30: **PHASE 2's automated work is COMPLETE; hand-off written.** The flake fix `f4d9ab9` (a
+  timing-dependent assertion in the pending-dial cancel test now accepts either teardown path) is green on every job:
+  **run 33685892213**. Rjae's decisions: **D1** the real release rehearsal is delegated to the Phase 3 driver, after
+  P3-1 writes the manifest (hand-off section 5); **D2** another developer follows up on additional adapters — the
+  driver's design note for a database-agnostic SQL adapter is `.ignored/briefs/adapter-sql-design-note.md`, not in
+  the plan; **D3** Phase 3 is driven by Rjae's session `15-implement-brigade-0902T18` from
+  `.ignored/handoff-15-phase-3.md`. This session (`15-implement-brigade-0902`) is hands-off from that session's
+  acknowledgement and edits nothing further.
