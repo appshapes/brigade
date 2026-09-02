@@ -478,6 +478,18 @@ new `TestSpecExamplesAreTheTestdataFiles` with three demonstrated kill paths; Ap
 C-03/C-03b/C-04/C-08 were restored. Decision 9 was proven with real processes (a bare name off `PATH` and a
 missing absolute path both map to `unavailable` / `adapter_not_found`).
 
+## Phase 1 corrections found on P1-5 entry (2026-09-02, session `15-implement-brigade-0902`)
+
+1. **CI was RED for three commits (P1-3, the P1-4 decisions, P1-4) and nobody had looked.** The `fast` job failed at
+   `make lint` on `internal/adapterkit/pty_linux_test.go` (gosec G103 on two `unsafe.Pointer` ioctl operands) in runs
+   33550171587, 33578789887 and 33581196998, while the `macos` job was green and every local gate was green. The
+   file is `//go:build linux`, so a native `make lint` on this darwin machine never loaded it: the "full gate green"
+   claims in the P1-3 and P1-4 rows were true of the local gate and false of CI. Fixed by an audited `//nolint:gosec`
+   on the two lines and — the part that matters — `make lint` now runs golangci-lint under `GOOS=darwin` AND
+   `GOOS=linux`, so a finding in a build-constrained file fails locally. Reproduced locally with
+   `GOOS=linux bin/golangci-lint run ./...` before the fix (2 issues) and green after. Cost: about 3 s. Lesson for the
+   task-boundary ritual: read the CONCLUSION column of `gh run list` after every push, not just that a run exists.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -870,3 +882,8 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   account, all runs under `bypassPermissions`, and the longest proven idle is 120 s — the hours-long horizon (token
   expiry, socket reaping, staleness) is E0-5's. The agent modified `.claude.json` to force the trust dialog and
   reverted it surgically; independently verified afterwards that `projects[]` is back to its single original entry.
+- 2026-09-02 ~03:30: **Hand-off taken by `15-implement-brigade-0902`** (config dir `~/.claude-ifthen`, Fable main
+  loop) from `15-implement-brigade-0831`, cold, from `.ignored/handoff-15-to-implement-0902.md` plus this log; nothing
+  had to be re-derived. Brief from Rjae: work autonomously to the end of Phase 1 (P1-5..P1-8, then the exit criteria,
+  then STOP). First act: `gh run list` showed CI red for the last three pushes — see "Phase 1 corrections found on
+  P1-5 entry" above.

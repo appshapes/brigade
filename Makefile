@@ -132,15 +132,23 @@ fmt: ## gofmt + goimports through golangci-lint
 # 2 and produced no stdout — and the recipe, which looked only at stdout, passed having formatted nothing
 # (measured under `.../path with spaces/`). Reading the list line by line fixes the splitting, and checking
 # gofmt's exit status makes any other gofmt failure loud instead of silent.
+# golangci-lint runs for BOTH supported platforms, explicitly. Build-constrained files (`_linux_test.go`,
+# `_darwin_test.go`, `//go:build linux`) are invisible to a native run on the other OS, so a finding in one
+# of them is a CI-only failure the developer never sees: measured -- `internal/adapterkit/pty_linux_test.go`
+# carried two gosec G103 findings through three green local gates and three red CI runs (33550171587,
+# 33578789887, 33581196998) before anyone looked. GOOS steers golangci-lint's package loading exactly as it
+# steers `go build`, and the darwin pass on a darwin host is the native run, so nothing is linted twice
+# for a different reason than "the other platform's files".
 .PHONY: lint
-lint: ## golangci-lint (config verify + run, formatters included) and a plain gofmt check
+lint: ## golangci-lint for darwin AND linux (config verify + run, formatters included) and a plain gofmt check
 	$(golangci_lint) config verify
 	@files=$$(go list -f '{{$$d:=.Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}' ./...) || exit 1; \
 	  test -n "$$files" || { echo "gofmt check: go list produced no Go files" >&2; exit 1; }; \
 	  out="$$(printf '%s\n' "$$files" | while IFS= read -r f; do gofmt -l "$$f" || exit 1; done)" \
 	    || { echo "gofmt check: gofmt itself failed" >&2; exit 1; }; \
 	  test -z "$$out" || { echo "$$out"; exit 1; }
-	$(golangci_lint) run ./...
+	GOOS=darwin $(golangci_lint) run ./...
+	GOOS=linux $(golangci_lint) run ./...
 
 .PHONY: lint-fix
 lint-fix: ## golangci-lint --fix and fmt

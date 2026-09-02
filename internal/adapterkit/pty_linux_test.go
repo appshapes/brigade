@@ -23,10 +23,14 @@ func openPTY(t *testing.T) (master, slave *os.File) {
 	t.Cleanup(func() { _ = m.Close() })
 	fd := m.Fd()
 	var unlock int32
+	// gosec G103 flags every unsafe.Pointer; these two are the documented
+	// TIOCSPTLCK/TIOCGPTN ioctl forms on a local int32 and are test-only.
+	//nolint:gosec // G103: audited — fixed-size stack operand for a pty ioctl
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCSPTLCK, uintptr(unsafe.Pointer(&unlock))); errno != 0 {
 		t.Fatalf("TIOCSPTLCK: %v", errno)
 	}
 	var ptn int32
+	//nolint:gosec // G103: audited — fixed-size stack operand for a pty ioctl
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCGPTN, uintptr(unsafe.Pointer(&ptn))); errno != 0 {
 		t.Fatalf("TIOCGPTN: %v", errno)
 	}
