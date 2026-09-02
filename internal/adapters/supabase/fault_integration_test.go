@@ -267,13 +267,32 @@ func TestIntegrationWatchPollingDegradation(t *testing.T) {
 	}
 	t.Logf("status live again %s after docker start", time.Since(back).Round(time.Millisecond))
 
-	pushSent := time.Now()
-	pushed := send("delivered by the channel again")
-	awaitEvent(t, w, "the pushed message", watchTiming.drainPolling+30*time.Second, messageIs(pushed))
-	latency := time.Since(pushSent)
-	t.Logf("push delivery %s after the send", latency.Round(time.Millisecond))
-	if latency > watchTiming.drainPolling {
-		t.Errorf("delivery took %s, which is the polling drain rather than a push: the channel did not recover", latency)
+	// The first broadcast after a Realtime restart can be lost: phx_join
+	// answers ok before the server's broadcast-from-database path is warm
+	// again, and a hint sent into that window reaches no socket (measured
+	// in CI run 33696302372: `status live` 5.1 s after `docker start`, then
+	// the next send delivered by the 30 s live drain; the same sequence
+	// pushes on this machine). At-most-once fan-out is the documented
+	// property (plan 3.7) and the drain is the safety net that carried
+	// the message, so a drain delivery is not the defect this test exists
+	// to catch. What it must prove is that the CHANNEL recovered: a send
+	// that took the drain is followed by one more, which must be pushed.
+	bodies := []string{"delivered by the channel again", "delivered by the channel again, second send"}
+	pushedIn := time.Duration(-1)
+	for i, body := range bodies {
+		pushSent := time.Now()
+		pushed := send(body)
+		awaitEvent(t, w, "the message sent after the rejoin", watchTiming.drainLive+30*time.Second, messageIs(pushed))
+		latency := time.Since(pushSent)
+		t.Logf("send %d after the rejoin delivered %s after the send", i+1, latency.Round(time.Millisecond))
+		if latency <= watchTiming.drainPolling {
+			pushedIn = latency
+			break
+		}
+		t.Logf("send %d arrived by the drain, not the channel (the first broadcast after a Realtime restart can be lost)", i+1)
+	}
+	if pushedIn < 0 {
+		t.Errorf("both sends after the rejoin were delivered by the drain rather than pushed: the channel did not recover")
 	}
 
 	w.send(`{"type":"close"}`)

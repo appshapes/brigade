@@ -1637,3 +1637,11 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   hang catcher. Open for Rjae: the `license` field (no LICENSE file in the repository). Next: **D1's release
   rehearsal** in the plan's P2-12 form (a throwaway branch, `0.0.1-rc1`, `release.yml`, the release exercised and
   then deleted with the tag and the branch), then **P3-2** (Fable) from a new brief.
+- 2026-09-02 ~20:15: **CI run 33696302372 (the P3-1 push, `060114f`) was red on the `supabase` job only** — `fast`,
+  `macos` and `reproducibility` green. `TestIntegrationWatchPollingDegradation`: after `docker start` the watch
+  rejoined and reported `status live` 5.1 s later, but the very next send was delivered by the 30 s LIVE drain, not
+  the channel — the first broadcast after a Realtime restart can be lost (phx_join answers `ok` before the server's
+  broadcast-from-database path is warm), which is at-most-once fan-out working as documented (plan 3.7) with the
+  drain as the safety net. On this machine the same send is pushed in 24 ms. The test now tolerates ONE drain
+  delivery after the rejoin and requires the next send to be pushed within the polling drain interval, logging
+  which send proved it. Nothing in P3-1 touched this path.
