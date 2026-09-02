@@ -1536,3 +1536,8 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   changed: `leave()`'s 1 s bound is inert for a JOINED channel for the same reason, so an unresponsive Realtime makes a
   SIGTERM/EOF exit run to `finish`'s 2 s (inside the 5 s budget); a foreign-session watch now sends one `phx_join`
   on the foreign topic before the ownership check answers (refused server-side; nothing reaches stdout).
+- 2026-09-02 ~23:55: **CI run 33683697335 on `ecbad97` green on every job** — `fast`, `macos`, `reproducibility`, and
+  `supabase` in 404 s with the integration suite and conformance(supabase) `--slow` 45/0/0 inside it. Phase 2's
+  automated work is complete: P2-1..P2-11 done, P2-12's script and local rehearsal done. **Open for Rjae:** the real
+  release rehearsal (a release commit on `master`, a tag, `release.yml`, a draft release); whether to plan the
+  database-agnostic SQL adapter; and whether Phase 3 starts in this session.
