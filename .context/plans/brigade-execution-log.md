@@ -806,6 +806,22 @@ errors carry no `details`). The external contributor's brief (`.ignored/adapter-
 refreshed to the present facts as a local file; **the published artifact was NOT republished — that is Rjae's
 outward-facing call** (see the hand-off).
 
+## PHASE 1 COMPLETE — the four exit criteria of plan section 8, verified 2026-09-02
+
+| Criterion | Evidence |
+| --- | --- |
+| CI `fast` and `macos` jobs green | **run 33604039333 on `81ff5eb`**: `fast` success, `macos` success, `reproducibility` success (`supabase` gated until P2-1) — with `make checksums-check` and `make plugin-check` un-gated and running in `fast` |
+| conformance green on the fs adapter | `bin/brigade-conformance --shared-env BRIGADE_FS_ROOT --adapter bin/brigade-adapter-fs` → 44 passed, 0 failed, 1 skipped (C-14, `slow`), 20.3 s wall; `--slow` → 45 passed, 0 failed, 0 skipped in 26.3 s; `make test` runs it on every gate and in CI |
+| the RFC committed | `docs/protocol-v1.md`, BAP/1, frozen at `702e047`, 939 lines; its Appendix B is consumed by the suite except B-3/B-4 (receiver-side, harness unit tests in P3) and B-9/B-10 (unobservable within the suite's budget; adapter-specific tests) |
+| the bootstrap tested against a local server | `internal/harness/bootstrap/bootstrap_test.go` (25 subtests against an `httptest` release server, macOS `/bin/sh` and `dash` locally, Ubuntu dash + `sha256sum` in CI) plus `scripts/ci/bootstrap-alpine.sh` (busybox ash + wget + sha256sum in `alpine:3.20`, 3/3 PASS, run three times) |
+
+Phase 1 ran from `0af93a1` (P1-1, 2026-09-01) to `81ff5eb` (P1-7, 2026-09-02). Everything is on `master`, the tree
+is clean, and nothing is retained outside the repository. **E0-10 stays `blocked (D32)`** and is not a Phase 1 item.
+The cold-start hand-off for Phase 2 is `.ignored/handoff-15-phase-2.md` (gitignored; it names the decisions this
+session made as driver, the BAP/1.x question list (a)–(l), what Phase 2 must know before writing SQL or Go, and the
+one outward-facing item left for Rjae: republishing the external contributor's artifact). **Rjae decides who drives
+Phase 2**; this session is hands-off from this commit.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1222,3 +1238,6 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   P1-8 push: Ubuntu's older `shellcheck` reports SC2015 on an `A && B || C` chain in `release-verify.sh` that the local
   0.11 does not — rewritten as `if`, so the check no longer depends on the shellcheck version. Next: the Phase 1 exit
   criteria, then STOP and hand off.
+- 2026-09-02 ~10:00: **PHASE 1 COMPLETE** — all four exit criteria verified (block above), CI run 33604039333 green
+  on `81ff5eb`. Hand-off written to `.ignored/handoff-15-phase-2.md`. This session (`15-implement-brigade-0902`)
+  STOPS here per Rjae's brief and edits nothing further.
