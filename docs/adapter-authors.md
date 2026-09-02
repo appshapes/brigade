@@ -1924,22 +1924,35 @@ status 3 brigade-adapter-fs message send
 go test ./cmd/brigade -run 'TestScript/fs-message'
 ```
 
-## Wiring your adapter into the plugin (`adapter_command`)
+## Wiring your adapter into the plugin
 
-`adapter_command` is the plugin option that selects an adapter. It takes either:
+A profile carries a **default adapter**, and a session may **override** it (plan decision D36, 2026-09-02). One team
+per session and one adapter per session stay as they are.
 
-- an **absolute path** to your executable — `/usr/local/bin/brigade-adapter-pg`; or
-- a **JSON array** whose elements are the executable and fixed arguments prepended verbatim to every invocation —
-  `["/usr/local/bin/brigade-adapter-pg", "--root", "/srv/brigade"]`.
+- **The profile's default.** A human creates a profile through the harness with `brigade profile init <name>
+  --adapter <name-or-command> …`. The harness records the choice beside the profile (a 0600 file in the user's own
+  config directory) and then runs *your* `profile init` with the remaining arguments. A third-party adapter is
+  registered once by name in `${BRIGADE_CONFIG_DIR}/adapters.json`, or given directly as an absolute path or a JSON
+  array. From then on, selecting the profile selects your adapter: no launch option needs to be restated.
+- **The session override.** The plugin option `adapter_command` overrides the profile's default for one session. It
+  takes the same two forms — an absolute path such as `/usr/local/bin/brigade-adapter-pg`, or a JSON array whose
+  elements are the executable and fixed arguments prepended verbatim to every invocation, such as
+  `["/usr/local/bin/brigade-adapter-pg", "--root", "/srv/brigade"]` — or a registered name. An override that cannot
+  read the profile fails at session start with `config` and one clear line; the harness never guesses.
+- **The fallback.** A profile created by running an adapter directly, outside the harness, has no sidecar; the
+  harness then reads the profile file's top-level `adapter` member as a registry name, best effort (the shared Go
+  helper writes it; you may or may not), and finally falls back to the bundled Supabase adapter.
 
-The harness spawns that as an argument array with `exec` and **no shell**: no globbing, no `~` expansion, no
-`sh -c`, no quoting rules. A shell script is a fine adapter, but it needs a shebang line and the executable bit —
-there is no shell form and no Windows form (darwin and linux only; Windows means WSL 2). The environment your process
-receives is the from-scratch allow-list described under *The environment your adapter runs in*, which is why fixed
-arguments and the profile file, never `BRIGADE_<ADAPTER>_*`, are where your configuration comes from.
+The harness spawns the resolved command as an argument array with `exec` and **no shell**: no globbing, no `~`
+expansion, no `sh -c`, no quoting rules. A shell script is a fine adapter, but it needs a shebang line and the
+executable bit — there is no shell form and no Windows form (darwin and linux only; Windows means WSL 2). The
+environment your process receives is the from-scratch allow-list described under *The environment your adapter runs
+in*, which is why fixed arguments and the profile file, never `BRIGADE_<ADAPTER>_*`, are where your configuration
+comes from. A team lives on exactly one backend: every member's adapter must speak that backend's data model, which
+the protocol deliberately leaves to adapters (4.8).
 
-**Honest status.** The plugin manifest and the hooks that read this option arrive with Phase 3 (P3-1, P3-6), and the
-`plugin/bin` bootstrap with P1-8. Today the wiring is documented, not runnable: nothing drives an adapter from inside
+**Honest status.** The plugin manifest, the hooks and the `profile init --adapter` command arrive with Phase 3 (P3-1, P3-3,
+P3-6); the `plugin/bin` bootstrap landed with P1-8. Today the wiring is documented, not runnable: nothing drives an adapter from inside
 a live Claude Code session yet. Until then, `brigade-conformance` and a shell are how you exercise your adapter, and
 they cover everything except the harness's own timeouts and its environment construction.
 

@@ -832,6 +832,23 @@ session made as driver, the BAP/1.x question list (a)–(l), what Phase 2 must k
 one outward-facing item left for Rjae: republishing the external contributor's artifact). **Rjae decides who drives
 Phase 2**; this session is hands-off from this commit.
 
+## OWNER DECISION 2026-09-02 — D36: a profile carries its default adapter; a session may override it
+
+Rjae's design, in her words: (1) one team per session; (2) one session per adapter; (3) profile default adapter,
+overridable by session. (1) and (2) were already the design (D8, D9, D26). (3) is new and recorded as **plan D36**:
+the `adapter_command` plugin option becomes the PER-SESSION OVERRIDE; the profile's default adapter is written by
+`brigade profile init <name> --adapter <name-or-command>` into a harness sidecar beside the profile, with a harness
+registry `${BRIGADE_CONFIG_DIR}/adapters.json` mapping names to commands; the profile file's own `adapter` member is a
+best-effort fallback; the bundled Supabase adapter is the last resort. What it fixes: until now the profile–adapter
+pairing had to be restated at every launch through `--settings`, nothing prevented pairing a profile with the wrong
+adapter, and the pairing lived nowhere durable. What it does not change: the protocol, the conformance suite, both
+adapters, the profile file formats, the by-pid map (which already records the resolved command). What it rules out:
+one session live in several teams at once (the Phase 5 note in the onboarding block above stands only for a
+session-scoped SWITCH). The hard constraint restated in the decision: a team lives on exactly one backend, and its
+members' adapters must speak that backend's data model, which 4.8 leaves to adapters. Plan sections changed: 2
+(D36), 3.2 (two harness-owned files), 3.3, 6.1, 6.3, 6.4, 6.5, and the P3-3/P3-4/P3-6 rows; `docs/adapter-authors.md`'s
+wiring section rewritten to match. All Phase 3 work; nothing for Phase 2.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1254,3 +1271,8 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
 - 2026-09-02 ~11:00: CI on the log-only commit `17b2ab1` exposed one last race in the fs watch (SIGTERM before the
   handler; C-38 in the `mutant_trustsender` run). Fixed in `c1bf8b7`; **run 33604975116 green on every job.** Phase 1
   is complete on `c1bf8b7`; this entry's commit is log-only. Hand-off: `.ignored/handoff-15-phase-2.md`. STOP.
+- 2026-09-02 ~12:30: Rjae, awake, asked whether each team could use a different transport adapter. Assessment: the
+  protocol and adapter layers already allow it; the harness design coupled the adapter to the session launch instead
+  of to the profile. Her design (one team per session, one adapter per session, profile default adapter overridable
+  by session) recorded as **D36** and written into the plan, the guide and this log (block above). No Phase 1 artefact
+  changes; the work lands in P3-1/P3-3/P3-4/P3-6.
