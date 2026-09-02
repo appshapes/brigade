@@ -23,6 +23,14 @@ const pollInterval = 200 * time.Millisecond
 // protocol.LineWriter: the codec escapes newlines, U+2028 and U+2029, so a
 // hostile body is one physical line that parses back unchanged (C-39).
 func (c *command) watch() int {
+	// SIGTERM handling is installed before anything is written — before
+	// `ready` in particular — so a harness that signals the instant it
+	// sees `ready` (C-38) can never hit the default disposition. Measured
+	// on a slow CI runner with the handler installed only inside watchLoop,
+	// AFTER `ready` was written: a SIGTERM sent on `ready` killed the
+	// process by signal, the one exit 4.4.9 forbids.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	defer stop()
 	events := protocol.NewLineWriter(c.stdout)
 	fs := newFlags()
 	session := fs.String("session", "", "the session to watch")
@@ -49,7 +57,7 @@ func (c *command) watch() int {
 	}); err != nil {
 		return protocol.CodeInternal.Exit()
 	}
-	return c.watchLoop(events, id)
+	return c.watchLoop(ctx, events, id)
 }
 
 // watchFatal emits the ONE `error` event a pre-catch-up failure produces —
@@ -71,10 +79,7 @@ func (c *command) watchFatal(events *protocol.LineWriter, err error) int {
 // watchLoop is the catch-up plus the poll loop plus the stdin command
 // reader. It exits 0 on stdin EOF, on a `close` command and on SIGTERM
 // (C-38, C-41).
-func (c *command) watchLoop(events *protocol.LineWriter, id string) int {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
-	defer stop()
-
+func (c *command) watchLoop(ctx context.Context, events *protocol.LineWriter, id string) int {
 	seen := map[string]bool{}
 	if code, done := c.drain(events, id, seen); done {
 		return code

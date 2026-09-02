@@ -815,7 +815,17 @@ outward-facing call** (see the hand-off).
 | the RFC committed | `docs/protocol-v1.md`, BAP/1, frozen at `702e047`, 939 lines; its Appendix B is consumed by the suite except B-3/B-4 (receiver-side, harness unit tests in P3) and B-9/B-10 (unobservable within the suite's budget; adapter-specific tests) |
 | the bootstrap tested against a local server | `internal/harness/bootstrap/bootstrap_test.go` (25 subtests against an `httptest` release server, macOS `/bin/sh` and `dash` locally, Ubuntu dash + `sha256sum` in CI) plus `scripts/ci/bootstrap-alpine.sh` (busybox ash + wget + sha256sum in `alpine:3.20`, 3/3 PASS, run three times) |
 
-Phase 1 ran from `0af93a1` (P1-1, 2026-09-01) to `81ff5eb` (P1-7, 2026-09-02). Everything is on `master`, the tree
+**One more defect surfaced by CI after the run above**, on the log-only commit `17b2ab1`: in the `mutant_trustsender`
+run of the suite's mutants test, C-38 reported `exit -1 after SIGTERM, want 0` — the fs adapter installed its SIGTERM
+handler inside the watch loop, AFTER writing `ready`, so a harness that signals the instant it sees `ready` (exactly
+what C-38 does) could hit the default disposition and kill the process by signal, the one exit 4.4.9 forbids. Never
+seen on this machine; the slower CI runner under `-race` widened the window. Fixed in the commit that follows: the
+handler is installed before anything is written, and `TestWatchExitsZeroWhenSignalledOnReady` drives the real binary
+eight times, signalling at the earliest observable moment (a race cannot be made to fail on demand; the test
+documents the contract and catches a regression on any machine slow enough to show it). The CI run on that commit is
+the final evidence for criterion 1; its id is recorded in the journal entry below.
+
+Phase 1 ran from `0af93a1` (P1-1, 2026-09-01) to `81ff5eb` (P1-7, 2026-09-02) plus the SIGTERM-ordering fix. Everything is on `master`, the tree
 is clean, and nothing is retained outside the repository. **E0-10 stays `blocked (D32)`** and is not a Phase 1 item.
 The cold-start hand-off for Phase 2 is `.ignored/handoff-15-phase-2.md` (gitignored; it names the decisions this
 session made as driver, the BAP/1.x question list (a)–(l), what Phase 2 must know before writing SQL or Go, and the
