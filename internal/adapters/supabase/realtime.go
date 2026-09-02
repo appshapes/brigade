@@ -407,7 +407,10 @@ type linkEvent struct {
 // which is how a revocation reaches an open channel, E0-2 (h)), and the
 // channel's own close. It returns after reporting linkDown or
 // linkRefused, or when ctx is done (leaving the channel first, best
-// effort). It never touches stdout and never calls an RPC.
+// effort). It never touches stdout and never calls an RPC — which is what
+// lets the watch start it before `ready` (dialEarly): every report waits
+// in events for the loop, and a cancel before the loop starts ends it in
+// silence.
 func (c *command) runLink(ctx context.Context, gen int, topic, token string, tokens <-chan string, events chan<- linkEvent) {
 	report := func(kind linkKind, reason string) {
 		select {
@@ -449,7 +452,16 @@ func (c *command) runLink(ctx context.Context, gen int, topic, token string, tok
 	for joined := false; !joined; {
 		select {
 		case <-ctx.Done():
-			p.leave(topic, "")
+			// Cancelled with the join unanswered: a watch refused before
+			// `ready` (C-37, the dial precedes the ownership check), a
+			// SIGTERM during the handshake. There is no channel to leave
+			// and no close handshake to attempt: a Phoenix socket process
+			// waits on the channel's join and answers nothing meanwhile (a
+			// refusal's 5 s backoff included), and coder/websocket's
+			// CloseNow behind an unfinished Close only waits for it, so the
+			// handshake ran out finish's whole bound on every refused
+			// watch (C-37: 0.4 s to 2.4 s, measured). The deferred
+			// CloseNow, with no Close in flight, ends the socket at once.
 			return
 		case <-joinTimer.C:
 			report(linkDown, linkReasonJoinTimeout)

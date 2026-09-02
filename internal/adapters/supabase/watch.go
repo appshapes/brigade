@@ -32,6 +32,12 @@ import (
 // `not_found` (C-37) — the channel's own refusals are advisory: they
 // trigger a drain and a fall-back to polling, never an exit of their own.
 //
+// The channel is dialled and joined CONCURRENTLY with the first fetch and
+// the catch-up (dialEarly), not after them, so a hint broadcast the
+// instant a harness sees `ready` — C-08's `team leave` — reaches a socket
+// whose join has completed; `ready` itself stays where 4.4.9 puts it, at
+// the catch-up's start, and the link says nothing before it.
+//
 // The stdin commands ack, heartbeat and close are the fs adapter's (each
 // is its RPC); a rejected command is an `error` event with retryable true
 // and the watch goes on; stdin EOF, `close` and SIGTERM end it with exit 0
@@ -51,8 +57,8 @@ var watchTiming = struct {
 	// is a hint that drains at once — so the timer only bounds what a lost
 	// hint costs, at one RPC per 30 s per watcher (plan 5.6). The suite's
 	// deadlines, a message within 5 s (C-35) and a revoked member's watch
-	// ended within 2 s (C-08), are met by hints and never by this timer;
-	// the tests' negative control pins that it does not fire early.
+	// ended within the same 5 s (C-08), are met by hints and never by this
+	// timer; the tests' negative control pins that it does not fire early.
 	drainLive time.Duration
 	// drainPolling is the periodic drain while the channel is down and the
 	// watch has reported `status polling`, and before the first join (plan
@@ -156,39 +162,45 @@ type link struct {
 	done   chan struct{}
 }
 
-// run is the catch-up, then the loop over stdin commands, the drain
-// timer, the link's reports and the reconnect timer. It returns the exit
-// status. The drain timer is one-shot and re-armed after EVERY drain,
-// whatever ran it, so a hint or a join pushes the next timer-driven drain
-// a whole interval away, and the interval follows the watch's state.
+// run starts the channel's dial, runs the catch-up, then loops over stdin
+// commands, the drain timer, the link's reports and the reconnect timer.
+// It returns the exit status. The drain timer is one-shot and re-armed
+// after EVERY drain, whatever ran it, so a hint or a join pushes the next
+// timer-driven drain a whole interval away, and the interval follows the
+// watch's state.
 func (w *watcher) run() int {
 	c := w.c
+	w.reconnect = time.NewTimer(time.Hour)
+	w.reconnect.Stop()
+	w.dialEarly()
 	// The first fetch is the ownership check of 4.5.7: a foreign or unknown
 	// session is refused here, before `ready`, byte-identical to an id that
-	// is not uuid-shaped (C-37).
+	// is not uuid-shaped (C-37). The link started above has said nothing —
+	// it reports to the loop below, which has not started — and every exit
+	// from here on goes through finish, which cancels it and waits for it.
 	messages, err := w.fetch()
 	if err != nil {
 		if w.ctx.Err() != nil {
-			return protocol.ExitOK
+			return w.finish(protocol.ExitOK)
 		}
-		return c.watchFatal(w.events, err)
+		return w.finish(c.watchFatal(w.events, err))
 	}
 	if !w.emit(&protocol.WatchReady{
 		Event: protocol.EventReady, ProtocolVersion: protocol.ProtocolVersion,
 		SessionID: w.id, Mode: protocol.WatchModePush,
 	}) {
-		return protocol.CodeInternal.Exit()
+		return w.finish(protocol.CodeInternal.Exit())
 	}
 	if !w.deliver(messages) {
-		return protocol.CodeInternal.Exit()
+		return w.finish(protocol.CodeInternal.Exit())
 	}
 	w.commands = c.readCommands(w.ctx)
-	w.reconnect = time.NewTimer(time.Hour)
-	w.reconnect.Stop()
 	w.drainTimer = time.NewTimer(w.drainInterval())
 	defer w.drainTimer.Stop()
-	if code, done := w.connect(); done {
-		return w.finish(code)
+	if w.link == nil {
+		if code, done := w.connect(); done {
+			return w.finish(code)
+		}
 	}
 	for {
 		select {
@@ -345,6 +357,33 @@ func (w *watcher) syncToken() {
 	}
 }
 
+// dialEarly starts the channel's dial and join before the first fetch —
+// as soon as there is a token to join with — so the join has the whole
+// ownership check and catch-up as a head start and is usually complete by
+// the time `ready` is written. A harness that acts the instant it sees
+// `ready` then acts on a joined socket: C-08's `team leave`, whose
+// membership_revoked broadcast the server delivers only to sockets whose
+// join has completed, found one still joining on a CI runner (run
+// 33678110011: 2.24 s to the error event) and was seen only by the drain
+// after the join. `ready` stays where 4.4.9 puts it, when the catch-up
+// starts, and the drain on join ok stays: it is what finds a revocation
+// or a message that landed between the first fetch and the join. Nothing
+// the link learns before the loop starts is lost or spoken: it reports
+// over linkEvents, which buffers and otherwise holds the link (never a
+// frame), and the loop that reads it starts after the catch-up. A token
+// that cannot be had now is not reported from here: the first fetch
+// refreshes through the same state machine and answers before `ready` if
+// the credential is dead, and connect reports a transient failure after
+// the catch-up.
+func (w *watcher) dialEarly() {
+	token, err := w.c.accessToken(w.ctx)
+	if err != nil {
+		w.c.log.Debug("realtime dial waits for the catch-up", slog.String("code", string(asProtocolError(err).Code)))
+		return
+	}
+	w.startLink(token)
+}
+
 // connect starts a link with a fresh access token. A credential that
 // cannot be refreshed is fatal; a transient failure falls back to polling
 // and retries.
@@ -363,6 +402,13 @@ func (w *watcher) connect() (int, bool) {
 		w.scheduleReconnect(w.backoff())
 		return protocol.ExitOK, false
 	}
+	w.startLink(token)
+	return protocol.ExitOK, false
+}
+
+// startLink starts the goroutine that owns one socket and joins with
+// token, as the watch's current link.
+func (w *watcher) startLink(token string) {
 	w.gen++
 	ctx, cancel := context.WithCancel(w.ctx)
 	l := &link{cancel: cancel, tokens: make(chan string, 1), done: make(chan struct{})}
@@ -372,7 +418,6 @@ func (w *watcher) connect() (int, bool) {
 		defer close(l.done)
 		w.c.runLink(ctx, gen, w.topic, token, l.tokens, w.linkEvents)
 	}()
-	return protocol.ExitOK, false
 }
 
 // dropLink forgets the current link (its goroutine has reported and is

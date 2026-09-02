@@ -37,13 +37,16 @@ type fakePhoenix struct {
 	srv *httptest.Server
 
 	joined     chan *fakeChannel // every successful join, in order
+	attempts   chan *fakeChannel // every join attempt as it arrives, before the reply (the channel not yet joined)
 	tokens     chan string       // every access_token push
 	joinTokens chan string       // the access_token of every join attempt
 	refuse     atomic.Value      // a non-empty string refuses joins with that reason
 	silent     atomic.Bool       // when set, heartbeats go unanswered
+	joinDelay  atomic.Int64      // nanoseconds between a join's arrival and its ok reply (the server's join latency)
 	heartbeats atomic.Int32
 	leaves     atomic.Int32
 	dials      atomic.Int32
+	closed     atomic.Int32 // sockets whose read loop has ended
 }
 
 // A fakeChannel is one joined topic on one socket.
@@ -52,6 +55,8 @@ type fakeChannel struct {
 	conn    *websocket.Conn
 	topic   string
 	joinRef string
+	joined  atomic.Bool  // the ok reply has been sent; broadcasts reach the socket
+	dropped atomic.Int32 // broadcasts attempted before the join completed
 	mu      sync.Mutex
 }
 
@@ -63,7 +68,8 @@ func newFakePhoenix(t *testing.T, backend string) *fakePhoenix {
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	ph := &fakePhoenix{
-		t: t, joined: make(chan *fakeChannel, 16), tokens: make(chan string, 16), joinTokens: make(chan string, 16),
+		t: t, joined: make(chan *fakeChannel, 16), attempts: make(chan *fakeChannel, 16),
+		tokens: make(chan string, 16), joinTokens: make(chan string, 16),
 	}
 	ph.refuse.Store("")
 	ph.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +91,10 @@ func newFakePhoenix(t *testing.T, backend string) *fakePhoenix {
 // serve is one socket's read loop at vsn 1.0.0.
 func (ph *fakePhoenix) serve(conn *websocket.Conn) {
 	ctx := ph.t.Context()
-	defer func() { _ = conn.CloseNow() }()
+	defer func() {
+		_ = conn.CloseNow()
+		ph.closed.Add(1)
+	}()
 	var ch *fakeChannel
 	for {
 		_, data, err := conn.Read(ctx)
@@ -116,6 +125,18 @@ func (ph *fakePhoenix) serve(conn *websocket.Conn) {
 				continue
 			}
 			ch = &fakeChannel{ph: ph, conn: conn, topic: f.Topic, joinRef: ref}
+			ph.attempts <- ch
+			// The server's join latency: the JWT check, the topic policy's
+			// query on a cold tenant, a runner's Kong in front. A broadcast
+			// on the topic meanwhile is not this socket's (see broadcast).
+			if d := time.Duration(ph.joinDelay.Load()); d > 0 {
+				select {
+				case <-time.After(d):
+				case <-ctx.Done():
+					return
+				}
+			}
+			ch.joined.Store(true)
 			ph.reply(conn, f.Topic, ref, ref, `{"status":"ok","response":{"postgres_changes":[]}}`)
 			ph.joined <- ch
 		case phxEventHB:
@@ -149,8 +170,17 @@ func (ph *fakePhoenix) reply(conn *websocket.Conn, topic, ref, joinRef, payload 
 }
 
 // broadcast writes one broadcast frame of the given event on the
-// channel's topic, the shape realtime.send produces.
+// channel's topic, the shape realtime.send produces — to a socket whose
+// join has completed. The server delivers a topic's broadcasts only to
+// its subscribers, and a socket still joining is not one yet: a
+// broadcast sent then is lost to it, which is the window C-08's `team
+// leave` fell into on a CI runner.
 func (ch *fakeChannel) broadcast(event, payload string) {
+	if !ch.joined.Load() {
+		ch.dropped.Add(1)
+		ch.ph.t.Logf("fake phoenix: %s broadcast not delivered, the socket has not finished joining", event)
+		return
+	}
 	ch.write(`{"topic":"` + ch.topic + `","event":"broadcast","payload":{"type":"broadcast","event":"` + event + `","payload":` + payload + `},"ref":null}`)
 }
 
@@ -212,11 +242,25 @@ type fakeInbox struct {
 	closes   int
 	refuse   func(fn string) (status int, code, message string)
 	once     map[string]func(w http.ResponseWriter) bool // a scripted answer for the next call of fn
+	gate     chan struct{}                               // when set, the next fetch_inbox waits on it before anything else
 }
 
 func (in *fakeInbox) install(be *fakeBackend) {
 	in.once = map[string]func(http.ResponseWriter) bool{}
-	be.onRPC = func(w http.ResponseWriter, _ *http.Request, fn, _ string, args map[string]any) {
+	be.onRPC = func(w http.ResponseWriter, r *http.Request, fn, _ string, args map[string]any) {
+		if fn == "fetch_inbox" {
+			in.mu.Lock()
+			gate := in.gate
+			in.gate = nil
+			in.mu.Unlock()
+			if gate != nil {
+				select {
+				case <-gate:
+				case <-r.Context().Done():
+					return
+				}
+			}
+		}
 		in.mu.Lock()
 		defer in.mu.Unlock()
 		if hook := in.once[fn]; hook != nil {
@@ -316,6 +360,22 @@ func (in *fakeInbox) settled(t *testing.T, n int) int {
 		t.Fatalf("fetch_inbox ran %d time(s), want at least %d", got, n)
 	}
 	return in.fetched()
+}
+
+// holdFirstFetch makes the next fetch_inbox — the ownership check that
+// precedes `ready` — wait until release is called (or the test ends),
+// with the inbox's lock free meanwhile so the test can accept and hint:
+// a slow backend on a CI runner, held for as long as the test wants.
+// The refusal scripted by refuseAll, if any, is answered after the hold.
+func (in *fakeInbox) holdFirstFetch(t *testing.T) (release func()) {
+	t.Helper()
+	gate := make(chan struct{})
+	in.mu.Lock()
+	in.gate = gate
+	in.mu.Unlock()
+	release = sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+	return release
 }
 
 // refuseAll scripts one PostgREST failure for every RPC.
@@ -666,8 +726,10 @@ func TestWatchForeignSessionIsTheUniformNotFound(t *testing.T) {
 // before it closes the session; the watch treats it as a hint and drains
 // at once, the backend answers the uniform unauthorized, and the watch
 // emits ONE unauthorized error event, retryable false, with the fixed
-// message, and exits 5 — within C-08's 2 s although the drain timer is
-// 30 s away, which is what pins the hint (a timer-only watch sits here).
+// message, and exits 5 — within 2 s of the broadcast (C-08 allows the
+// 5 s push budget; the hint path is well inside it) although the drain
+// timer is 30 s away, which is what pins the hint (a timer-only watch
+// sits here).
 func TestWatchRevocationEndsTheWatch(t *testing.T) {
 	t.Parallel()
 	r, ph, in := watchRig(t)
@@ -689,7 +751,135 @@ func TestWatchRevocationEndsTheWatch(t *testing.T) {
 		t.Fatalf("exit %d, want %d", code, protocol.CodeUnauthorized.Exit())
 	}
 	if took := time.Since(revoked); took > 2*time.Second {
-		t.Errorf("the revocation took %s to end the watch; C-08 allows 2 s", took)
+		t.Errorf("the revocation took %s to end a watch whose channel was joined; want under 2 s (C-08 allows the 5 s push budget)", took)
+	}
+}
+
+// TestWatchSlowJoinStillSeesARevocationAfterReady is C-08's failure in CI
+// run 33678110011 ("no error event within 2s", 2.24 s on the runner)
+// reproduced in-process, the latencies exaggerated so that only the
+// START ORDER decides. The backend answers the first fetch_inbox after
+// 2 s and the server completes the join 3 s after phx_join (a runner's
+// Kong and Realtime, a cold tenant's policy query); the suite's `team
+// leave` — here the membership_revoked broadcast — lands the instant
+// `ready` is read. The socket has not finished joining, so the server
+// never delivers that broadcast to it (the fake drops it the same way),
+// and the revocation can only be found by the drain that follows the
+// join. Dialled BEFORE the first fetch, the join is 2 s old at `ready`
+// and completes 1 s later: the watch ends inside the 2 s bound. Dialled
+// after the catch-up — the old order — it completes 3 s after the
+// revocation, past the bound, and nothing but that late drain or the
+// 30 s live timer would ever see it.
+func TestWatchSlowJoinStillSeesARevocationAfterReady(t *testing.T) {
+	t.Parallel()
+	const fetchLatency, joinLatency, bound = 2 * time.Second, 3 * time.Second, 2 * time.Second
+	r, ph, in := watchRig(t)
+	ph.joinDelay.Store(int64(joinLatency))
+	release := in.holdFirstFetch(t)
+	time.AfterFunc(fetchLatency, release)
+	w := startWatch(t, r, "message", "watch", "--session", watchSession)
+	w.expectReady()
+	in.refuseAll(http.StatusForbidden, "42501", "brigade:unauthorized")
+	revoked := time.Now()
+	var ch *fakeChannel
+	select {
+	case ch = <-ph.attempts:
+		ch.revoke()
+	default:
+		t.Logf("no phx_join had reached the fake at ready; the revocation was broadcast to no socket of this watch")
+	}
+	event := w.expect(protocol.EventError, bound)
+	object, _ := event["error"].(map[string]any)
+	if object["code"] != string(protocol.CodeUnauthorized) || object["retryable"] != false || object["message"] != errNotMember().Message {
+		t.Fatalf("event = %v, want the uniform unauthorized with retryable false", event)
+	}
+	if code := w.wait(2 * time.Second); code != protocol.CodeUnauthorized.Exit() {
+		t.Fatalf("exit %d, want %d", code, protocol.CodeUnauthorized.Exit())
+	}
+	took := time.Since(revoked)
+	if ch == nil || ch.dropped.Load() != 1 {
+		t.Errorf("the revocation did not hit a socket still joining (attempt seen: %v); the test did not exercise the window", ch != nil)
+	}
+	if got := r.be.calls(rpcPath + "fetch_inbox"); got != 2 {
+		t.Errorf("fetch_inbox was called %d time(s), want 2: the catch-up and the post-join drain that found the revocation", got)
+	}
+	t.Logf("the revocation ended the watch %s after a leave that hit a joining socket (join %s, first fetch %s)", took, joinLatency, fetchLatency)
+}
+
+// TestWatchHintDuringTheCatchUpIsNotLost: the channel joins while the
+// adapter is still inside the catch-up (a gated stdout holds the first
+// message's write, so the loop that reads the link's reports has not
+// started), a message is accepted and hinted meanwhile, and once the
+// catch-up completes every frame that queued has its effect: `status
+// live`, the message on the post-join drain, and the hint's own drain —
+// three fetches, nothing lost, the drain timers (10 s polling, 30 s
+// live) never involved.
+func TestWatchHintDuringTheCatchUpIsNotLost(t *testing.T) {
+	t.Parallel()
+	r, ph, in := watchRig(t)
+	held := in.accept("held in the catch-up")
+	gate := make(chan struct{})
+	open := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(open)
+	w := startWatchWith(t, r, func(w io.Writer) io.Writer { return &gatedStdout{w: w, gate: gate} },
+		"message", "watch", "--session", watchSession)
+	w.expectReady()
+	// Dialled before the first fetch, the channel joins while the
+	// catch-up write is held (the old order never dialled before it).
+	ch := ph.nextJoin()
+	hinted := in.accept("hinted during the catch-up")
+	ch.hint(hinted)
+	open()
+	if got := messageID(t, w.next(5*time.Second)); got != held {
+		t.Fatalf("catch-up message %s, want %s", got, held)
+	}
+	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
+	if got := messageID(t, w.expect(protocol.EventMessage, 2*time.Second)); got != hinted {
+		t.Fatalf("message %s, want the hinted %s", got, hinted)
+	}
+	in.settled(t, 3)
+	w.quiet(time.Second)
+	if got := in.fetched(); got != 3 {
+		t.Errorf("fetch_inbox ran %d time(s), want 3: the catch-up, the post-join drain and the hint's", got)
+	}
+	if code := w.exit(); code != 0 {
+		t.Fatalf("exit %d, want 0 on stdin EOF (C-38)", code)
+	}
+}
+
+// TestWatchPreReadyFailureCancelsTheDial: the dial starts before the
+// ownership check, so a watch of a session the principal does not own
+// (C-37) may hold a joined channel by the time the backend refuses. The
+// refusal is still ONE not_found error event and exit 6 with nothing else
+// on stdout — the link only ever reports to the loop, which never starts
+// — and the link is cancelled on the way out: phx_leave, then the socket
+// closed, before the process ends.
+func TestWatchPreReadyFailureCancelsTheDial(t *testing.T) {
+	t.Parallel()
+	r, ph, in := watchRig(t)
+	in.refuseAll(http.StatusNotFound, "PT404", "brigade:not_found")
+	release := in.holdFirstFetch(t)
+	w := startWatch(t, r, "message", "watch", "--session", watchSession)
+	ph.nextJoin() // the join completes while the ownership check is pending
+	release()
+	event := w.next(5 * time.Second)
+	object, _ := event["error"].(map[string]any)
+	if event["event"] != protocol.EventError || object["code"] != string(protocol.CodeNotFound) || object["retryable"] != false || object["message"] != errNotFound().Message {
+		t.Fatalf("first event = %v, want the uniform not_found error", event)
+	}
+	if code := w.wait(5 * time.Second); code != protocol.CodeNotFound.Exit() {
+		t.Fatalf("exit %d, want %d", code, protocol.CodeNotFound.Exit())
+	}
+	for line := range w.lines {
+		t.Errorf("a line followed the refusal: %s", line)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for (ph.leaves.Load() < 1 || ph.closed.Load() < 1) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if ph.dials.Load() != 1 || ph.leaves.Load() != 1 || ph.closed.Load() != 1 {
+		t.Fatalf("dials %d, leaves %d, sockets closed %d; want 1, 1, 1: the pending link left and closed on the refusal",
+			ph.dials.Load(), ph.leaves.Load(), ph.closed.Load())
 	}
 }
 
@@ -971,6 +1161,46 @@ func TestWatchHostileBodyIsOneLine(t *testing.T) {
 	ph.nextJoin()
 	if code := w.exit(); code != 0 {
 		t.Fatalf("exit %d", code)
+	}
+}
+
+// TestWatchPreReadyFailureWithAJoinPendingExitsAtOnce: a refusal before
+// `ready` may find the join still unanswered — a foreign session's is, for
+// the server's whole 5 s backoff (C-37) — and a Phoenix socket process
+// waits on the channel's join and processes nothing else meanwhile, the
+// close handshake included (the fake sleeps in its read loop the same
+// way). The watch does not wait for a handshake nobody will answer: no
+// phx_leave, the socket closed outright, the exit at once — not the
+// whole leave bound later, which the handshake ran out on every refused
+// watch when it was attempted (C-37 measured at 0.4 s before the early
+// dial, 2.4 s with it and the handshake).
+func TestWatchPreReadyFailureWithAJoinPendingExitsAtOnce(t *testing.T) {
+	t.Parallel()
+	r, ph, in := watchRig(t)
+	ph.joinDelay.Store(int64(10 * time.Second))
+	in.refuseAll(http.StatusNotFound, "PT404", "brigade:not_found")
+	release := in.holdFirstFetch(t)
+	w := startWatch(t, r, "message", "watch", "--session", watchSession)
+	select {
+	case <-ph.attempts:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no phx_join within 5 s while the ownership check was pending")
+	}
+	start := time.Now()
+	release()
+	event := w.next(5 * time.Second)
+	object, _ := event["error"].(map[string]any)
+	if event["event"] != protocol.EventError || object["code"] != string(protocol.CodeNotFound) {
+		t.Fatalf("first event = %v, want the uniform not_found error", event)
+	}
+	if code := w.wait(5 * time.Second); code != protocol.CodeNotFound.Exit() {
+		t.Fatalf("exit %d, want %d", code, protocol.CodeNotFound.Exit())
+	}
+	if took := time.Since(start); took >= phxLeaveTimeout {
+		t.Errorf("the refused watch took %s to exit with its join pending; want well under the %s close bound", took, phxLeaveTimeout)
+	}
+	if ph.leaves.Load() != 0 {
+		t.Errorf("phx_leave sent %d time(s) on a channel never joined, want 0", ph.leaves.Load())
 	}
 }
 

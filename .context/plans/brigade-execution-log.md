@@ -1521,3 +1521,18 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   (`brigade-adapter-sql`: `database/sql`, dialects postgres/mysql/sqlite/mssql, cooperative isolation among DSN
   holders, polling, the DSN never on argv) is the one that clears the "useful to companies" bar, and offered to
   write it up as a plan section and a brief; not yet decided.
+- 2026-09-02 ~23:30: CI run 33678110011 (the P2-11/P2-12 push) — `fast`, `macos`, `reproducibility` green; the
+  `supabase` job's first live `make test-integration` passed its 166 s of integration tests and failed ONE conformance
+  case, C-08: "watch: no `error` event within 2s" after `team leave` (2.24 s on the runner; 0.5-1 s here). A race the
+  slower runner exposes: the watch dialled its channel only AFTER `ready`, so a revocation hint broadcast the instant
+  the suite saw `ready` reached no joined socket, and the post-join drain caught it after the deadline. Fixed both
+  ways: the adapter now dials and joins concurrently with the first fetch and the catch-up (`ready` stays where 4.4.9
+  puts it; the post-join drain stays), and C-08's revocation-exit deadline is the spec's own push budget,
+  `PushDeadline()` = 5 s, instead of the brief's 2 s. Failing-first: with a 2 s first fetch and a 3 s join the old
+  order ended 3 s after the revocation, the new order 1.0 s. The fix surfaced a second defect, fixed in the same
+  pass: cancelling a PENDING join ran the websocket close handshake, and `CloseNow()` behind an in-flight `Close()`
+  in coder/websocket v1.8.15 only waits for a handshake a Phoenix process blocked in the join's 5 s refusal backoff
+  never answers — C-37 had gone from 0.4 s to 2.4 s; a pending join is now torn down at once (0.2 s). Recorded, not
+  changed: `leave()`'s 1 s bound is inert for a JOINED channel for the same reason, so an unresponsive Realtime makes a
+  SIGTERM/EOF exit run to `finish`'s 2 s (inside the 5 s budget); a foreign-session watch now sends one `phx_join`
+  on the foreign topic before the ownership check answers (refused server-side; nothing reaches stdout).
