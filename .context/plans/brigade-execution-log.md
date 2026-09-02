@@ -406,6 +406,30 @@ U-08 belongs to the CLI's join-secret-argv txtar and `internal/cli`, and U-09 an
 `internal/adapterkit/log`. All are covered in their real homes; the mis-assignment cost nothing but is worth
 recording so P1-6 maps the ids correctly.
 
+## P1-4 DECISIONS — Rjae settled the ten open section-4 questions (2026-09-01)
+
+These are the owner's decisions and they are final for v1. `docs/protocol-v1.md` is written against them.
+
+| # | Question | Decision |
+| --- | --- | --- |
+| 1 | `team_name` and `workspace_label` have no cap in `limits` (4.5.11 promises one) | **Add two members**: `max_team_name_codepoints` = 64 (a team name is a frame tag attribute, and 6.7 rule 4 caps those at 64) and `max_workspace_label_chars` = 128 (it is a label, like `human_label`). Published in `describe`, so programs read the number rather than prose. |
+| 2 | `retryable` is REQUIRED but unenforceable under loose parsing | **Adapters MUST send it; consumers treat absent as `false`; consumers SHOULD derive retryability from `code`** — only `rate_limited` (8) and `unavailable` (9) are ever retryable, so the flag is advisory. Absent-as-false fails safe. No `*bool`. |
+| 3 | The `invalid_input` `details` key naming the offending member is unspecified | **`details.field`**, value = the wire member name (JSON name, dotted for nesting, e.g. `resume.session_id`). Companions blessed: `reason`, `limit`, `actual`, `unit`. |
+| 4 | `ready.mode` values and `status.state` set never enumerated | **`mode` ∈ {`push`, `polling`}; `status.state` ∈ {`live`, `polling`}, unknown states ignored.** An adapter that omits `message.watch.push` MUST send `mode: polling` (checkable by C-33). |
+| 5 | `"unknown": []` shown present while the tag convention is `omitzero` | **General rule: a REQUIRED array is always present, `[]` when empty; `omitzero` applies only to OPTIONAL members.** Settles `unknown`, `acked`, `capabilities`, `messages`, `sessions` at once. |
+| 6 | `…` placeholders inside typed members in the 4.4 examples | Editorial: real RFC 3339 values in typed members; `…` only in opaque strings. |
+| 7 | "unknown fields survive" vs "unknown members are ignored" | Editorial: unknown members are **accepted and ignored**; they do **not** survive re-serialisation. |
+| 8 | The JSON Schema emits zero `required` arrays | Emit `required` for members `Validate()` requires; the spec states the schema is **advisory** and `Validate()` is normative. |
+| 9 | 4.6's `errors.Is(err, os.ErrNotExist)` is false for a PATH-searched name (measured, go1.27.0) | The predicate also matches `exec.ErrNotFound`; 4.6's text is corrected. |
+| 10 | 4.1 names `BRIGADE_<ADAPTER>_*` but 3.2's from-scratch child environment never carries them | Documented: adapter-specific variables **never arrive under a live session**; adapter configuration comes from the profile file or `adapter_command` fixed args. |
+
+**Owner directive recorded in the same review.** Rjae raised a concern that the design had drifted from her core
+value — simple for the people using it — toward over-architecture, then withdrew it on reflection: **"we must
+design assuming that any adapter — current or future — can be used"**, and there is **no plan to cut anything
+unless it is proven to hinder Brigade**. The distinction that settled it: everything in P1-1..P1-3 and all ten
+questions above are internal wire format; the member's three steps (install, `profile init`, `team join`) have
+not grown since Phase 0 measured them.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
