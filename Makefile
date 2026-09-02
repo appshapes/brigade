@@ -278,12 +278,8 @@ plugin-check: ## Static checks of plugin/: exec-form hooks, no .mcp.json, VERSIO
 	scripts/ci/no-secrets.sh
 
 .PHONY: plugin-validate
-plugin-validate: ## claude plugin validate on the marketplace and (from P3-1) the plugin root
+plugin-validate: ## claude plugin validate on the marketplace and the plugin root
 	claude plugin validate .
-	@test -f plugin/.claude-plugin/plugin.json || { \
-	  echo 'skipping `claude plugin validate ./plugin --strict`: plugin/.claude-plugin/plugin.json does' >&2; \
-	  echo 'not exist yet -- the plugin manifests, hooks and skills are task P3-1. The marketplace' >&2; \
-	  echo 'manifest above passed, and it does NOT follow the ./plugin source.' >&2; exit 0; }
 	claude plugin validate ./plugin --strict
 
 .PHONY: plugin-dev-pointer

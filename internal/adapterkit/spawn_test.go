@@ -468,9 +468,13 @@ func TestSpawnWaitDelayGrandchildResultStands(t *testing.T) {
 	t.Parallel()
 	// The child misbehaves exactly as 7.3 warns — it hands its stdout to
 	// a grandchild — but exits 0 with a valid result already printed.
+	// The grandchild outlives the test by a wide margin on purpose: the
+	// bound below is a hang catcher against ITS lifetime, not a
+	// performance bound on the wait delay (a 5 s bound tripped at 5.56 s
+	// under a loaded -race run whose isolated time is 0.5 s).
 	script := writeChildScript(t,
 		"printf '%s\\n' '"+envelopeLine(t, map[string]string{"session_id": "s-wd"})+"'\n"+
-			"sleep 10 &\n"+
+			"sleep 30 &\n"+
 			"exit 0")
 	var logBuf bytes.Buffer
 	childLog := slog.New(slog.NewJSONHandler(&logBuf, nil))
@@ -500,9 +504,13 @@ func TestSpawnWaitDelayGrandchildResultStands(t *testing.T) {
 		t.Fatalf("the tolerated ErrWaitDelay case must be logged (7.3); log: %q", logBuf.String())
 	}
 	// Returned when WaitDelay forced the pipes closed, without waiting
-	// out the grandchild's 10 s.
-	if elapsed < 200*time.Millisecond || elapsed > 5*time.Second {
-		t.Fatalf("Spawn took %v, want roughly the 300ms wait delay, never the grandchild's lifetime", elapsed)
+	// out the grandchild's 30 s: the lower bound proves the delay was
+	// honoured, the upper bound (half the grandchild's lifetime) catches
+	// a Spawn that waited for the grandchild, and the wall time is logged
+	// so a slow run is visible without being a failure.
+	t.Logf("Spawn returned after %v with a 300ms wait delay and a 30 s grandchild", elapsed)
+	if elapsed < 200*time.Millisecond || elapsed > 15*time.Second {
+		t.Fatalf("Spawn took %v, want more than the 300ms wait delay and far less than the grandchild's 30 s lifetime", elapsed)
 	}
 }
 

@@ -11,10 +11,13 @@ Brigade ships as a Claude Code plugin. The plugin talks to its backend through a
 that speaks the Brigade Adapter Protocol (BAP/1) on argv, stdin and stdout. The bundled adapter targets Supabase;
 any other backend is its own adapter, selected per profile.
 
-**Status (2026-09-02).** Phase 1 is complete: the protocol is frozen, the shared Go library, the reference filesystem
-adapter, the conformance suite, the plugin bootstrap and the CI scripts exist and are green. Phase 2 (the bundled
-Supabase adapter) is in progress. Nothing runs inside a live Claude Code session yet; the plugin manifest and hooks
-are Phase 3. The single source of truth for where the work stands is `.context/plans/brigade-execution-log.md`.
+**Status (2026-09-02).** Phases 1 and 2 are complete: the protocol is frozen, the shared Go library, the reference
+filesystem adapter, the conformance suite, the plugin bootstrap and the CI scripts exist and are green, the bundled
+Supabase adapter passes the conformance suite, and the integration suite runs in CI. Phase 3 (the Claude Code
+plugin) is in progress: the plugin manifest, the marketplace entry, the three lifecycle hooks and the two skills
+exist (P3-1); the harness library, the hooks themselves, the session-bound commands and the watcher follow
+(P3-2..P3-6). Nothing runs inside a live Claude Code session yet. The single source of truth for where the work
+stands is `.context/plans/brigade-execution-log.md`.
 
 ## For adapter contributors
 
@@ -70,7 +73,7 @@ Plans live in `.context/plans/`, ephemeral scratch in `.ignored/` (gitignored).
 | `internal/adapters/fs`, `cmd/brigade-adapter-fs` | the reference adapter (dev and test only) |
 | `internal/conformance`, `cmd/brigade-conformance` | the conformance suite (dev and test only) |
 | `cmd/brigade` | the one shipped binary: the plugin harness and the bundled Supabase adapter |
-| `plugin/` | what the Claude Code plugin ships: the sh bootstrap and the release pins |
+| `plugin/` | what the Claude Code plugin ships: the manifest, the lifecycle hooks, the two skills, the sh bootstrap and the release pins |
 | `supabase/` | the Supabase backend: migrations, pgTAP tests, local stack config |
 | `scripts/ci/` | the CI checks (plugin tree, secrets, release pins) |
 | `.context/plans/` | the implementation plan and the execution log |

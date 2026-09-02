@@ -1,12 +1,22 @@
 {
   "name": "brigade",
+  "description": "Brigade: team messaging between the Claude Code sessions of different people and machines.",
   "owner": {
-    "name": "appshapes"
+    "name": "appshapes",
+    "url": "https://github.com/appshapes"
   },
   "plugins": [
     {
       "name": "brigade",
-      "source": "./plugin"
+      "source": "./plugin",
+      "description": "Team messaging between Claude Code sessions of different people and machines, through a pluggable adapter CLI (Supabase adapter bundled).",
+      "repository": "https://github.com/appshapes/brigade",
+      "category": "productivity",
+      "keywords": [
+        "messaging",
+        "team",
+        "cross-session"
+      ]
     }
   ]
 }

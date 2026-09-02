@@ -1,0 +1,58 @@
+{
+  "name": "brigade",
+  "version": "0.0.0",
+  "description": "Team messaging between Claude Code sessions of different people and machines, through a pluggable adapter CLI (Supabase adapter bundled).",
+  "author": {
+    "name": "appshapes"
+  },
+  "repository": "https://github.com/appshapes/brigade",
+  "keywords": [
+    "messaging",
+    "team",
+    "cross-session"
+  ],
+  "userConfig": {
+    "profile": {
+      "type": "string",
+      "title": "Brigade profile",
+      "description": "Adapter profile name; each profile is bound to exactly one team.",
+      "default": "default"
+    },
+    "config_dir": {
+      "type": "string",
+      "title": "Brigade config directory (advanced)",
+      "description": "Where adapter profiles live; leave empty for the platform default (~/.config/brigade), and note that the plugin ignores BRIGADE_CONFIG_DIR from the environment on purpose.",
+      "default": ""
+    },
+    "adapter_command": {
+      "type": "string",
+      "title": "Adapter command override (advanced)",
+      "description": "Per-session override of the profile's default adapter, given as an absolute path to an adapter executable, a JSON array such as [\"/abs/adapter\", \"--flag\"], or a name registered in adapters.json — never a shell command, and empty means the adapter the profile was created with.",
+      "default": ""
+    },
+    "team_inbound": {
+      "type": "string",
+      "title": "Incoming team messages",
+      "description": "accept (the default) delivers every team message into this session immediately, in every permission mode, and refuse never delivers and never acknowledges, so senders see this session as refusing; hold (review before delivery) arrives in a later release.",
+      "default": "accept"
+    },
+    "share_workspace_label": {
+      "type": "boolean",
+      "title": "Share a workspace label",
+      "description": "Send the workspace label below with this session, never the working directory path.",
+      "default": false
+    },
+    "workspace_label": {
+      "type": "string",
+      "title": "Workspace label",
+      "description": "The label shared when share_workspace_label is on.",
+      "default": ""
+    },
+    "poll_on_prompt": {
+      "type": "boolean",
+      "title": "Poll for messages on each prompt",
+      "description": "Fallback for hosts without an inbox socket: fetch unread messages when a prompt is submitted, applying the same inbound policy as the watcher.",
+      "default": false
+    }
+  }
+}

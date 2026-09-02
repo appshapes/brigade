@@ -1,0 +1,42 @@
+{
+  "description": "Registers this Claude Code session with its Brigade team, keeps the inbound watcher alive on each prompt, and closes the session on exit.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade",
+            "args": ["hook", "session-start"],
+            "timeout": 60,
+            "statusMessage": "Connecting to the Brigade team"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade",
+            "args": ["hook", "prompt"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade",
+            "args": ["hook", "session-end"],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

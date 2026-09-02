@@ -33,7 +33,15 @@ jobs:
         run: scripts/ci/release-verify.sh dist/checksums.txt plugin/bin/checksums.txt   # sorted hash columns must be identical (P1-8)
       - name: Publish
         if: success()
-        run: gh release edit "${GITHUB_REF_NAME}" --draft=false --latest
+        # GitHub's REST API: "Drafts and prereleases cannot be set as latest" (make_latest), and goreleaser's
+        # `prerelease: auto` marks a tag with a pre-release suffix (v0.0.1-rc1) as a prerelease -- so `--latest`
+        # is passed only for a final version. Found while preparing the P2-12 rehearsal: with `--latest`
+        # unconditional, the rc publish fails with 422 and the step below deletes the draft it just verified.
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            *-*) gh release edit "${GITHUB_REF_NAME}" --draft=false ;;
+            *)   gh release edit "${GITHUB_REF_NAME}" --draft=false --latest ;;
+          esac
         env: {GH_TOKEN: "${{ github.token }}"}
       - name: Discard the draft
         if: failure()

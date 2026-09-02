@@ -75,7 +75,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P2-6..P2-10 | Go Supabase client, profile/team/session/message commands, watch | done | Fable (P2-6/P2-7/P2-10) · Opus (P2-8/P2-9) | this commit — **conformance(supabase) `--slow` 45/0/0, three consecutive runs of about 80 s**; 23 adapter mutations killed after 4 instruments were fixed; live credential, realtime and mapping checks on the real stack; one decisive defect found live (revoke-credentials leaving the refresh family alive) and fixed (see below) |
 | P2-11 | Integration suite completion: fault tests under `BRIGADE_TEST_DOCKER=1`, `pgx` fixtures, fixtures through the verbs, coverage across the process boundary, CI's `test-integration` and coverage steps un-gated | done | Opus | this commit — `make test-integration` 3:42 locally (integration 142 s incl. the two fault tests, conformance 45/0/0 in 80 s); every I-* id of 9.9 assigned to the adapter traced to a named test; 16 of 17 checks proven able to fail, 1 strengthened |
 | P2-12 | `scripts/release-prep.sh` + the release rehearsal | done locally · **the real rehearsal awaits Rjae** | Opus | this commit — the script (7.7) with a `DRY_RUN` mode, rehearsed on a throwaway local branch: `GORELEASER_CURRENT_TAG` accepts a non-existent tag with `--skip=validate` (the 7.7 [uncertain] settled), goreleaser's `checksums.txt` byte-equal to `make cross`'s; **four script defects found and fixed by the verifier** (see below); nothing pushed, tagged or committed by the rehearsal |
-| P3-1 | Plugin manifests, marketplace, skills | todo | Opus | |
+| P3-1 | Plugin manifests, marketplace, skills | done | Opus | this commit — `plugin.json`, `hooks.json`, the two skills, `plugin/README.md`, the marketplace entry, `scripts/ci/manifests_test.go` (26 mutations, one positive control); `make plugin-check` with no `skip:`; `claude plugin validate .` zero warnings, `./plugin --strict` green; the headless run registers both skills with no MCP server and fires each hook once (exit 1 until P3-4); **`--strict` is blind to skill frontmatter; stream-json carries `SessionStart` hook events only** (see below) |
 | P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | todo | Fable | security path |
 | P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | todo | Fable | injection path |
 | P3-6..P3-8 | Bootstrap wiring, headless smoke, interactive checks | todo | Opus | |
@@ -1080,6 +1080,87 @@ repository, `release-verify.sh`, then publish (or delete the draft on failure). 
 `plugin.json`, which is why the rehearsal used a throwaway one. `make release` needs a clean tree, so it cannot run
 while any lane has uncommitted work.
 
+## P3-1 DONE — the plugin manifests, hooks, skills and README; `claude plugin validate --strict` is blind to skill frontmatter
+
+One Opus author and one Opus adversarial verifier (no fix round: both defects were fixed in place), from
+`.ignored/briefs/p3-1-plugin-manifests.md`, driven by session `15-implement-brigade-0902T18`. Delivered:
+`plugin/.claude-plugin/plugin.json` (6.1: the seven `userConfig` options; `"version"` the second key and on its own
+line for the four anchored-sed readers; no `license` — the repository has no LICENSE file, so neither manifest claims
+one until it does, an owner question; no `hooks`/`mcpServers`/`channels` keys), `plugin/hooks/hooks.json` (6.3
+verbatim: exec form, 60/5/5 s, the `statusMessage`), `plugin/skills/team-messaging/SKILL.md` (6.9 with the measured
+corrections: the "reply via SendMessage" bullet is gone — the native wrapper gives no reply instruction and the
+built-in tool cannot reach a Brigade session; the 8 KB `--body-file` threshold with the 10,000-character reason; the
+evasive forms forbidden and, per the sitting, never proposed to the user; `config` in the error table; no `brigade
+inbox`), `plugin/skills/setup/SKILL.md` (the three sections of 6.9/6.13, `user-invocable: true`, and a "Not runnable
+yet" paragraph — **P3-3/P3-6 must remove it** when the pass-through lands), `plugin/README.md` (the same three
+sections, the options table, D20's permission mechanics, the `-p`/sandbox notes, a Status paragraph that says plainly
+that the hooks and commands do not run yet), `.claude-plugin/marketplace.json` (description, owner url, entry
+metadata; **no `version` on the entry** — the validator checks it against `plugin.json`, and `make release` bumps only
+the manifest and `VERSION`, so it would drift at the first release), the root README's Status, the Makefile's
+`plugin-validate` guard removed, and `scripts/ci/manifests_test.go`: CI has no `claude` binary, so a Go test over the
+REAL manifests asserts valid JSON, name/version/on-its-own-line, the forbidden keys, the `userConfig` shape, the hook
+shape, the marketplace entry, the skills' frontmatter (name == directory; `allowed-tools: Bash(brigade:*)` on
+team-messaging only; a whitelist of the frontmatter keys Claude Code 2.1.259 documents) and three forbidden literals —
+26 mutation subtests each show one assertion failing on a mutated copy, and a positive control shows every check
+silent on an unmutated copy.
+
+**Acceptance, measured on Claude Code 2.1.259.** `make plugin-check` green with no `skip:` line (checks 3 and 5 now run
+against the real files); `claude plugin validate .` with zero warnings (the marketplace `description` removed the
+one it had); `claude plugin validate ./plugin --strict` exit 0. The headless run — `claude --plugin-dir ./plugin -p
+--output-format stream-json --verbose --max-turns 1`, the session environment stripped by prefix, a temporary XDG
+triple, the dev pointer under it — shows `system/init` with `brigade:setup` and `brigade:team-messaging` in both
+`skills` and `slash_commands`, `mcp_servers: []`, no `plugin_errors` key, `plugins: [{brigade, brigade@inline,
+0.0.0}]`, and a `messaging_socket_path` (a `-p` run binds a socket, 6.11); each hook fired exactly once with exit 1
+and the P3-4 placeholder's stderr (`brigade hook failed (internal): brigade hook is not implemented yet; it arrives
+with plan task P3-4`), which no event treats as blocking; `result: success`, exit 0. The verifier reproduced every
+number independently, twice.
+
+**What the verifier found.** (1) The setup sections handed a human five commands (`profile init --url`, `team create
+--prompt`, `team join`, `team leave`, `profile reset`) that the shipped binary answers with `usage` exit 2 today —
+the harness pass-through is P3-3 — and neither the skill nor the README said so: fixed with the explicit "not
+runnable yet" paragraph and the Status clause. (2) **An unknown SKILL.md frontmatter key was caught by nothing**:
+`claude plugin validate --strict` exits 0 on `not-a-real-field: nonsense` (and on a frontmatter `name` that mismatches
+its directory), `plugin-check.sh` does not read skills, and the Go test's first version did not either — so a typo
+such as `allowed_tools` would silently drop D20's grant with every gate green. The Go test now whitelists the
+documented frontmatter keys and the mutation is exercised. Twelve checks were proven able to fail by mutation and
+restored byte-for-byte; every one of the author's mutation subtests was read and run.
+
+**Plan corrections (measured):** (1) 6.1 and the research skeleton — no `license` until a LICENSE file exists; no
+`version` on the marketplace entry. (2) 6.9 — the "harness preamble says reply via SendMessage" bullet and the
+`brigade inbox` line are gone (sitting correction 2; P5-11); `manifests_test.go` forbids both literals under
+`plugin/`. (3) **P3-1's acceptance text is unmeasurable as written on 2.1.259**: `--verbose --output-format stream-json`
+carries `system/hook_started` and `system/hook_response` for `SessionStart` ONLY (`hook_name: "SessionStart:startup"`,
+`hook_event`, `exit_code`, `stderr`, no command field); `UserPromptSubmit` appears only in the transcript JSONL
+(`attachment.type = "hook_non_blocking_error"`, with `hookEvent`, `command`, `exitCode`, `stderr`) and `SessionEnd`
+only on the process stderr (`SessionEnd hook [<command>] failed: …`) — **P3-6's and P3-7's smoke checks must read all
+three sources, never the stream alone.** (4) **A hook's `statusMessage` REPLACES the command string in the transcript's
+hook record**: the SessionStart attachment reads `command: "Connecting to the Brigade team"` while the UserPromptSubmit
+one (no statusMessage) reads `${CLAUDE_PLUGIN_ROOT}/bin/brigade hook prompt` — a test that identifies a hook by its
+command path will not work for SessionStart. (5) `claude plugin validate --strict --json`'s `contents` array is not an
+inventory: it lists a component only when it has a finding (proven by breaking a skill's frontmatter: `success:
+false` with the file listed), so "the skills are listed" cannot be read from it; `--strict` polices `plugin.json`'s
+fields, not skill frontmatter. (6) `docs/adapter-authors.md`'s wiring section writes `brigade profile init <name>
+--adapter …` (a positional name) while plan 6.4 and the setup skill write `profile init [--profile <p>] --adapter …`;
+P3-3 settles the form and P3-6 fixes the doc.
+
+**Also in this commit — `release.yml` could not publish a pre-release.** Its Publish step ran `gh release edit
+"$TAG" --draft=false --latest` unconditionally, and GitHub's REST API refuses `make_latest` for a prerelease
+("Drafts and prereleases cannot be set as latest"); goreleaser's `prerelease: auto` marks `v0.0.1-rc1` as one, so the
+P2-12 rehearsal as planned would have failed at publish and then deleted the draft it had just verified. `--latest`
+is now passed only for a tag without a pre-release suffix (plan 7.7 correction; the rehearsal below is the test).
+
+**Also in this commit — a timing flake of the hand-off's predicted shape.** The driver's full `-race` gate tripped
+`TestSpawnWaitDelayGrandchildResultStands` once at 5.56 s against its 5 s bound (0.5 s in isolation, 5/5); the bound
+was a performance bound on a 300 ms wait delay against a 10 s grandchild. It is now a hang catcher: the grandchild
+sleeps 30 s, the bound is 15 s, and the wall time is logged. Same-shape bounds worth the same treatment if they ever
+trip: `spawn_test.go` line ~220 (5 s against a 250 ms deadline) and `flock_test.go` lines 65 and 311.
+
+**Recorded, not changed:** the team-messaging skill carries no status qualification (a model invoking it today gets
+one clean `internal` line from `brigade sessions`, which P3-3 replaces); nested `claude -p` runs write a transcript
+directory under the user's real `CLAUDE_CONFIG_DIR/projects/` keyed by the temporary cwd (E0-5 (7); the driver
+removed this task's two by absolute path); the plugin pins stay at the pre-release `0.0.0`, so the bootstrap can
+download nothing until D1's rehearsal and the first release.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1549,3 +1630,10 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   the plan; **D3** Phase 3 is driven by Rjae's session `15-implement-brigade-0902T18` from
   `.ignored/handoff-15-phase-3.md`. This session (`15-implement-brigade-0902`) is hands-off from that session's
   acknowledgement and edits nothing further.
+- 2026-09-02 ~19:45: **P3-1 done** (block above) — driven by `15-implement-brigade-0902T18` after taking the
+  hand-off cold from `.ignored/handoff-15-phase-3.md` (nothing had to be re-derived). One Opus author, one Opus
+  adversarial verifier; both defects fixed in place; the acceptance's three unmeasurable clauses recorded as plan
+  corrections rather than pretended. The full gate tripped one pre-existing timing bound under `-race`, fixed as a
+  hang catcher. Open for Rjae: the `license` field (no LICENSE file in the repository). Next: **D1's release
+  rehearsal** in the plan's P2-12 form (a throwaway branch, `0.0.1-rc1`, `release.yml`, the release exercised and
+  then deleted with the tag and the branch), then **P3-2** (Fable) from a new brief.
