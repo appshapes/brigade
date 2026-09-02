@@ -1,5 +1,6 @@
 -- Brigade realtime migration (plan 5.6, D21): Broadcast from Database as a wake-up hint.
--- DRAFT (E0-1): P2-3 finishes and commits this file.
+-- Drafted for E0-1, exercised end to end by E0-2 (exactly-once under 50 concurrent senders, revocation on both
+-- the join and the access_token-push paths, a 30-minute soak), finished in P2-3.
 --
 -- An AFTER INSERT trigger on brigade.messages calls realtime.send with an ids-only payload
 -- on the private topic brigade:session:<recipient_session_id>. The durable delivery path is

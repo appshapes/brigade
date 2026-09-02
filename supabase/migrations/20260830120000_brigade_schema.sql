@@ -1,6 +1,9 @@
--- Brigade main migration (DRAFT for E0-1; P2-1/P2-2 finish and commit it).
--- Plan sections: 5.3 (schema, RLS, read policies, grants) then 5.4 (RPCs) then 5.5 (stamping triggers).
--- Writes are RPC-only (D22): there are NO insert/update/delete policies on any table.
+-- Brigade schema migration (plan 5.3 schema, RLS, read policies and grants; 5.4 RPCs; 5.5 stamping triggers).
+-- This is the whole data model of the Supabase backend: five tables in the `brigade` schema, read-only RLS for
+-- authenticated members, and the RPCs that are the only write path (D22: there are NO insert/update/delete
+-- policies on any table). Drafted for E0-1 (verified live 2026-08-30, 72/72), finished in P2-1/P2-2 against the
+-- frozen protocol (docs/protocol-v1.md 4.4.10, 4.5, 4.6) and the conformance suite (internal/conformance/cases).
+-- Applied first; 20260830120100 (realtime) and 20260830120200 (housekeeping) build on it.
 
 -- ---------------------------------------------------------------------------
 -- 5.3 Schema
@@ -142,6 +145,13 @@ grant select on brigade.memberships, brigade.sessions, brigade.messages to authe
 -- expected failures so the attempt row commits. Every other failure raises
 -- 'brigade:<code>[:<detail>]'; the idempotency conflict is never raised with
 -- 23505, so the unique_violation handler around the insert cannot swallow it.
+-- not_found is raised with SQLSTATE PT404 (P2-2 decision, measured live on
+-- 2026-09-02 through PostgREST with an anonymous principal): PostgREST maps a
+-- PTnnn SQLSTATE to HTTP nnn, so the routine not-found answer is HTTP 404
+-- with the same {code, details, hint, message} body it gave for P0002, where it
+-- was HTTP 500 (E0-1 gateway behaviour 1). The adapter (P2-6) keys on the
+-- 'brigade:' message prefix first, SQLSTATE second, and never on HTTP status;
+-- the SQLSTATE column of 4.6's informative mapping is PT404, not P0002.
 -- ---------------------------------------------------------------------------
 
 -- Helpers (execute granted to nobody; called only from the RPCs below).
@@ -212,6 +222,8 @@ declare
   v_existing brigade.memberships%rowtype; v_rejoined boolean := false;
 begin
   if v_uid is null then raise exception 'brigade:unauthenticated' using errcode = '28000'; end if;
+  if p_human_label is not null and char_length(p_human_label) > 128 then
+    raise exception 'brigade:invalid_input:human_label' using errcode = '22023'; end if;
   if p_join_secret is null or octet_length(p_join_secret) > 120
      or p_join_secret !~ '^brg1\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[0-9a-f]{32}$' then
     return jsonb_build_object('status', 'invalid_input');
@@ -298,13 +310,17 @@ begin
   if not found then raise exception 'brigade:unauthorized' using errcode = '42501'; end if;
   if p_name is null or char_length(p_name) not between 1 and 64 then raise exception 'brigade:invalid_input:session_name' using errcode = '22023'; end if;
   if p_description is not null and char_length(p_description) > 256 then raise exception 'brigade:invalid_input:session_description' using errcode = '22023'; end if;
-  if p_activity not in ('busy','idle') then raise exception 'brigade:invalid_input:activity' using errcode = '22023'; end if;
+  if p_activity is null or p_activity not in ('busy','idle') then raise exception 'brigade:invalid_input:activity' using errcode = '22023'; end if;
   if p_inbound is not null and p_inbound not in ('accept','hold','refuse') then raise exception 'brigade:invalid_input:inbound' using errcode = '22023'; end if;
-  if p_lease_seconds not between 30 and 600 then raise exception 'brigade:invalid_input:lease_seconds' using errcode = '22023'; end if;
+  if p_harness is not null and char_length(p_harness) > 32 then raise exception 'brigade:invalid_input:harness' using errcode = '22023'; end if;
+  if p_harness_version is not null and char_length(p_harness_version) > 32 then raise exception 'brigade:invalid_input:harness_version' using errcode = '22023'; end if;
+  if p_workspace_label is not null and char_length(p_workspace_label) > 128 then raise exception 'brigade:invalid_input:workspace_label' using errcode = '22023'; end if;
+  if p_lease_seconds is null or p_lease_seconds not between 30 and 600 then raise exception 'brigade:invalid_input:lease_seconds' using errcode = '22023'; end if;
 
   if p_resume_session_id is not null then
+    -- 4.5.8 / C-19b: an owned session that is open with a valid lease is live; refuse before touching the row.
     if exists (select 1 from brigade.sessions
-                where id = p_resume_session_id and owner_id = v_uid and closed_at is null
+                where id = p_resume_session_id and owner_id = v_uid and team_id = p_team_id and closed_at is null
                   and last_seen_at + make_interval(secs => lease_seconds) > now()) then
       raise exception 'brigade:conflict:session_live' using errcode = 'P0001';   -- 4.5.8: two processes never drain one inbox
     end if;
@@ -314,7 +330,7 @@ begin
            workspace_label = p_workspace_label, lease_seconds = p_lease_seconds
      where id = p_resume_session_id and owner_id = v_uid and team_id = p_team_id
     returning * into v_row;                                                 -- single row variable: valid INTO
-    if not found then raise exception 'brigade:not_found' using errcode = 'P0002'; end if;
+    if not found then raise exception 'brigade:not_found' using errcode = 'PT404'; end if;
     v_resumed := true;
   else
     if (select count(*) from brigade.sessions where owner_id = v_uid and created_at > now() - interval '1 hour') >= 30 then
@@ -330,7 +346,8 @@ revoke execute on function brigade.register_session(uuid, text, text, text, text
 grant  execute on function brigade.register_session(uuid, text, text, text, text, text, text, text, integer, uuid) to authenticated;
 
 -- session_heartbeat keeps its inline ownership-then-membership checks, which are the same two checks
--- owned_active_session performs in the same order (5.4 grants note).
+-- owned_active_session performs in the same order (5.4 grants note); the closed-session conflict comes AFTER
+-- them, so the answer to a revoked principal is unauthorized whatever the session's state (4.5.7).
 create or replace function brigade.session_heartbeat(
   p_session_id uuid, p_activity text default null, p_name text default null, p_description text default null,
   p_inbound text default null, p_lease_seconds integer default null)
@@ -340,11 +357,15 @@ declare v_uid uuid := auth.uid(); v_row brigade.sessions%rowtype;
 begin
   if v_uid is null then raise exception 'brigade:unauthenticated' using errcode = '28000'; end if;
   if p_lease_seconds is not null and p_lease_seconds not between 30 and 600 then raise exception 'brigade:invalid_input:lease_seconds' using errcode = '22023'; end if;
+  if p_activity is not null and p_activity not in ('busy','idle') then raise exception 'brigade:invalid_input:activity' using errcode = '22023'; end if;
+  if p_name is not null and char_length(p_name) not between 1 and 64 then raise exception 'brigade:invalid_input:session_name' using errcode = '22023'; end if;
+  if p_description is not null and char_length(p_description) > 256 then raise exception 'brigade:invalid_input:session_description' using errcode = '22023'; end if;
+  if p_inbound is not null and p_inbound not in ('accept','hold','refuse') then raise exception 'brigade:invalid_input:inbound' using errcode = '22023'; end if;
   select * into v_row from brigade.sessions where id = p_session_id and owner_id = v_uid;
-  if not found then raise exception 'brigade:not_found' using errcode = 'P0002'; end if;
-  if v_row.closed_at is not null then raise exception 'brigade:conflict:session_closed' using errcode = 'P0001'; end if;
+  if not found then raise exception 'brigade:not_found' using errcode = 'PT404'; end if;
   if not exists (select 1 from brigade.memberships m where m.team_id = v_row.team_id and m.user_id = v_uid and m.status = 'active') then
     raise exception 'brigade:unauthorized' using errcode = '42501'; end if;
+  if v_row.closed_at is not null then raise exception 'brigade:conflict:session_closed' using errcode = 'P0001'; end if;
   update brigade.sessions
      set last_seen_at = now(), activity = coalesce(p_activity, activity), name = coalesce(p_name, name),
          description = coalesce(p_description, description), inbound = coalesce(p_inbound, inbound),
@@ -368,7 +389,7 @@ as $$
 declare v_row brigade.sessions%rowtype;
 begin
   select * into v_row from brigade.sessions where id = p_session_id and owner_id = p_uid;
-  if not found then raise exception 'brigade:not_found' using errcode = 'P0002'; end if;
+  if not found then raise exception 'brigade:not_found' using errcode = 'PT404'; end if;
   if not exists (select 1 from brigade.memberships m where m.team_id = v_row.team_id and m.user_id = p_uid and m.status = 'active') then
     raise exception 'brigade:unauthorized' using errcode = '42501'; end if;
   return v_row;
@@ -397,13 +418,14 @@ begin
   if v_uid is null then raise exception 'brigade:unauthenticated' using errcode = '28000'; end if;
   if not exists (select 1 from brigade.memberships where team_id = p_team_id and user_id = v_uid and status = 'active') then
     raise exception 'brigade:unauthorized' using errcode = '42501'; end if;
-  select coalesce(jsonb_agg(r.rec order by (r.rec->>'state') = 'offline', r.last_seen_at desc), '[]'::jsonb) into v_rows
-    from (select brigade.session_record(s, m.human_label) as rec, s.last_seen_at
+  select coalesce(jsonb_agg(r.rec order by r.offline, r.last_seen_at desc), '[]'::jsonb) into v_rows
+    from (select brigade.session_record(s, m.human_label) as rec, s.last_seen_at,
+                 (s.closed_at is not null or s.last_seen_at < now() - make_interval(secs => s.lease_seconds)) as offline
             from brigade.sessions s
             join brigade.memberships m on m.team_id = s.team_id and m.user_id = s.owner_id and m.status = 'active'
            where s.team_id = p_team_id
              and (p_include_offline or (s.closed_at is null and s.last_seen_at >= now() - make_interval(secs => s.lease_seconds)))
-           order by s.last_seen_at desc
+           order by (s.closed_at is not null or s.last_seen_at < now() - make_interval(secs => s.lease_seconds)), s.last_seen_at desc
            limit v_cap + 1) r;
   return jsonb_build_object('team_ref', p_team_id, 'team_name', (select t.name from brigade.teams t where t.id = p_team_id),
                             'server_time', now(), 'truncated', jsonb_array_length(v_rows) > v_cap,
@@ -414,6 +436,8 @@ grant  execute on function brigade.list_sessions(uuid, boolean, integer) to auth
 
 -- list_members: the roster for every active member (D22). unauthorized with byte-identical text for a team the
 -- caller does not belong to and for a random uuid (no team-existence oracle). v1 lists active members only.
+-- Per member (4.4.10, C-43): last_seen_at is the max over that principal's sessions in the team in ANY state
+-- (null with none); session_count counts only sessions that are not offline (open, lease still valid).
 create or replace function brigade.list_members(p_team_id uuid)
 returns jsonb language plpgsql stable security definer set search_path = ''
 as $$
@@ -428,7 +452,8 @@ begin
         'principal_ref', m.user_id, 'human_label', m.human_label, 'status', m.status, 'joined_at', m.joined_at,
         'joined_secret_version', m.joined_secret_version,
         'last_seen_at', (select max(s.last_seen_at) from brigade.sessions s where s.team_id = m.team_id and s.owner_id = m.user_id),
-        'session_count', (select count(*) from brigade.sessions s where s.team_id = m.team_id and s.owner_id = m.user_id))
+        'session_count', (select count(*) from brigade.sessions s where s.team_id = m.team_id and s.owner_id = m.user_id
+                             and s.closed_at is null and s.last_seen_at + make_interval(secs => s.lease_seconds) >= now()))
       order by m.joined_at)
       from brigade.memberships m where m.team_id = p_team_id and m.status = 'active'), '[]'::jsonb));
 end $$;
@@ -455,18 +480,20 @@ begin
   if p_idempotency_key is null or char_length(p_idempotency_key) not between 1 and 128 then
     raise exception 'brigade:invalid_input:idempotency_key' using errcode = '22023'; end if;
 
-  -- sender: owned by the caller (uniform not_found otherwise) and not closed; NO lease check (D12)
+  -- sender: owned by the caller (uniform not_found otherwise), an active member (unauthorized, 4.5.7), and only
+  -- then not closed (conflict, 4.5.8 / C-31); NO lease check (D12)
   select * into v_sender from brigade.sessions where id = p_sender_session_id and owner_id = v_uid;
-  if not found then raise exception 'brigade:not_found' using errcode = 'P0002'; end if;
-  if v_sender.closed_at is not null then raise exception 'brigade:conflict:sender_closed' using errcode = 'P0001'; end if;
+  if not found then raise exception 'brigade:not_found' using errcode = 'PT404'; end if;
   if not exists (select 1 from brigade.memberships where team_id = v_sender.team_id and user_id = v_uid and status = 'active') then
     raise exception 'brigade:unauthorized' using errcode = '42501'; end if;
+  if v_sender.closed_at is not null then raise exception 'brigade:conflict:sender_closed' using errcode = 'P0001'; end if;
 
-  -- recipient: same team and an active member's session; the same not_found as for a random id (C-25)
+  -- recipient: same team and an active member's session (C-08: a revoked member's session is outside the team);
+  -- a closed recipient is accepted, the message waits (C-31); the same not_found as for a random id (C-25)
   select s.* into v_recipient from brigade.sessions s
    where s.id = p_recipient_session_id and s.team_id = v_sender.team_id
      and exists (select 1 from brigade.memberships m where m.team_id = s.team_id and m.user_id = s.owner_id and m.status = 'active');
-  if not found then raise exception 'brigade:not_found' using errcode = 'P0002'; end if;
+  if not found then raise exception 'brigade:not_found' using errcode = 'PT404'; end if;
   if v_recipient.id = v_sender.id then raise exception 'brigade:invalid_input:recipient_is_self' using errcode = '22023'; end if;
 
   v_hash := extensions.digest(p_body, 'sha256');
@@ -480,8 +507,12 @@ begin
     return brigade.message_result(v_row, true);
   end if;
 
-  -- rate limits (D17): per sender session, then per principal (summed over all of the principal's sessions,
-  -- so registering more sessions does not multiply the budget), then per (sender, recipient) pair, then recipient-wide.
+  -- rate limits (D17, 4.5.12, C-28), IN THIS ORDER: per sender session (minute, hour), then per principal (summed
+  -- over all of the principal's sessions, so registering more sessions does not multiply the budget), then the
+  -- per-(sender, recipient) unacknowledged cap, then the recipient-wide one. The last two must stay in this order:
+  -- one sender must never exhaust a recipient's inbox for everyone else, and a test that fills both caps at once
+  -- must be told sender_quota_for_recipient (the mutant_caporder lesson of P1-5/P1-6). Each message carries
+  -- retry_after_seconds as its last component; the adapter turns it into retry_after_ms > 0.
   select count(*) filter (where created_at > now() - interval '1 minute'), count(*) into v_min, v_hour
     from brigade.messages where sender_session_id = v_sender.id and created_at > now() - interval '1 hour';
   if v_min >= 20 then raise exception 'brigade:rate_limited:send_per_minute:60' using errcode = 'P0001'; end if;
@@ -495,18 +526,20 @@ begin
   if v_pair_unacked >= 15 then raise exception 'brigade:rate_limited:sender_quota_for_recipient:60' using errcode = 'P0001'; end if;
   if v_unacked >= 60 then raise exception 'brigade:rate_limited:recipient_inbox_full:60' using errcode = 'P0001'; end if;
 
-  -- hop_count is server-computed. Explicit: reply_to must be a message this sender session received (no existence
-  -- oracle). Implicit: with no reply_to, the most recent message the recipient sent to this sender within 10 minutes
-  -- is treated as the message being answered, so a pair of models that never label replies is still bounded.
+  -- hop_count is server-computed (4.5.12, C-29, C-29b). Explicit: reply_to must be a message this sender session
+  -- RECEIVED (its recipient is the sender), else the uniform not_found (no existence oracle); hop = its hop + 1.
+  -- Implicit: with no reply_to, the most recent message the recipient sent to this sender within the 600 s
+  -- implicit_reply_window is the message being answered (hop + 1; none → 0), so a pair of models that never label
+  -- replies is still bounded. Exactly one more per step; above max_hop_count (32) the send is loop_detected.
   if p_reply_to is not null then
     select * into v_reply from brigade.messages where id = p_reply_to and recipient_session_id = v_sender.id;
-    if not found then raise exception 'brigade:not_found' using errcode = 'P0002'; end if;
+    if not found then raise exception 'brigade:not_found' using errcode = 'PT404'; end if;
     v_hops := v_reply.hop_count + 1;
   else
     select * into v_reply from brigade.messages
      where sender_session_id = v_recipient.id and recipient_session_id = v_sender.id
        and created_at > now() - interval '10 minutes'
-     order by created_at desc limit 1;
+     order by created_at desc, seq desc limit 1;      -- seq breaks created_at ties (P2-4: pgTAP's one-transaction chain found the tie nondeterministic)
     if found then v_hops := v_reply.hop_count + 1; end if;
   end if;
   if v_hops > 32 then raise exception 'brigade:loop_detected:max_hops' using errcode = 'P0001'; end if;
@@ -578,10 +611,10 @@ begin
   new.sender_user_id := v_uid; new.created_at := now(); new.delivery_state := 'accepted'; new.injected_at := null;
   new.body_hash := extensions.digest(new.body, 'sha256');
   select team_id into v_team from brigade.sessions where id = new.sender_session_id and owner_id = v_uid;
-  if v_team is null then raise exception 'brigade:not_found' using errcode = 'P0002'; end if;
+  if v_team is null then raise exception 'brigade:not_found' using errcode = 'PT404'; end if;
   new.team_id := v_team;
   if not exists (select 1 from brigade.sessions where id = new.recipient_session_id and team_id = v_team) then
-    raise exception 'brigade:not_found' using errcode = 'P0002'; end if;
+    raise exception 'brigade:not_found' using errcode = 'PT404'; end if;
   return new;
 end $$;
 revoke execute on function brigade.stamp_message() from public, anon;

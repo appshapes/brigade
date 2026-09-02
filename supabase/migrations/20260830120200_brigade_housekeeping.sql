@@ -1,6 +1,7 @@
--- Brigade housekeeping: retention and cleanup (plan 5.8, D13).
+-- Brigade housekeeping migration: retention and cleanup (plan 5.8, D13).
 -- Applied after 20260830120000_brigade_schema.sql (tables) — this file only adds
 -- brigade.gc_expired() and, when pg_cron is available, its hourly schedule.
+-- Drafted for E0-1 (check (h) measured the pg_cron path below), finished in P2-3.
 --
 -- Retention constants (D13, published by `describe`):
 --   * acknowledged (injected) messages: deleted 24 h after injected_at
@@ -46,17 +47,18 @@ revoke execute on function brigade.gc_expired() from public, anon, authenticated
 
 -- pg_cron scheduling — guarded so a stack WITHOUT pg_cron still applies this migration cleanly.
 --
--- DRAFT NOTE (E0-1 check (h)): the plan's 5.8 text runs `create extension if not exists pg_cron`
--- as a bare statement and wraps only the cron.schedule() calls in an exception handler. On the
--- minimal local stack pg_cron is preloaded but the extension object does not exist until this
--- migration creates it [plan 5.8, verified live]; on a stack where the pg_cron shared library or
--- extension packaging is absent entirely, the bare `create extension` (and the `grant usage on
--- schema cron`) would abort the whole migration. To make its absence degrade to opportunistic gc
--- (heartbeat-driven, D13) instead of a failed migration, the extension creation, the schema grant
--- and the schedule calls are ALL inside one plpgsql block whose `exception when others` turns any
--- failure into a NOTICE. gc_expired() above is created unconditionally either way. E0-1 (h)
--- records whether the extension and cron.schedule actually succeed here; if they do not, the
--- hosted Cron integration is documented as the scheduler (plan 5.9 step 3).
+-- The plan's 5.8 text runs `create extension if not exists pg_cron` as a bare statement and wraps
+-- only the cron.schedule() calls in an exception handler. On the minimal local stack pg_cron is
+-- preloaded but the extension object does not exist until this migration creates it [plan 5.8,
+-- verified live]; on a stack where the pg_cron shared library or extension packaging is absent
+-- entirely, the bare `create extension` (and the `grant usage on schema cron`) would abort the
+-- whole migration. To make its absence degrade to opportunistic gc (heartbeat-driven, D13)
+-- instead of a failed migration, the extension creation, the schema grant and the schedule calls
+-- are ALL inside one plpgsql block whose `exception when others` turns any failure into a NOTICE.
+-- gc_expired() above is created unconditionally either way.
+-- Measured (E0-1 check (h), pg_cron 1.6.4 on the `-x` stack of 5.9): the extension is created and
+-- both jobs are scheduled, so `cron.job` lists brigade_gc there; the hosted project enables the
+-- Cron integration (plan 5.9 step 3) or accepts opportunistic gc only.
 --
 -- cron.schedule(name, ...) upserts by job name, so re-running this block is idempotent.
 do $$
