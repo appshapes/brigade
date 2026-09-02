@@ -171,9 +171,11 @@ func (s *store) hopCount(team, sender string, req *protocol.SendRequest) (int, e
 
 // checkSendRate applies the five budgets of 4.5.12 in the order the spec
 // fixes (C-28): the sender session's minute then hour budget, the
-// principal's minute then hour budget, then the per-pair unacknowledged
-// cap BEFORE the recipient-wide one, so one sender cannot exhaust a
-// recipient's inbox for everyone else.
+// principal's minute then hour budget, then the two unacknowledged caps.
+// Those two live in checkUnackedCaps (store_caps.go), which is a mutant
+// twin pair: their ORDER — the per-pair cap before the recipient-wide one,
+// so one sender cannot exhaust a recipient's inbox for everyone else — is
+// the property mutant_caporder swaps.
 func (s *store) checkSendRate(team string, sender *sessionFile, recipient string) error {
 	all, err := s.teamMessages(team)
 	if err != nil {
@@ -217,19 +219,7 @@ func (s *store) checkSendRate(team string, sender *sessionFile, recipient string
 	if err != nil {
 		return err
 	}
-	fromSender := 0
-	for i := range pending {
-		if pending[i].Sender.SessionID == sender.SessionID {
-			fromSender++
-		}
-	}
-	if fromSender >= limits.MaxUnackedPerSenderRecipient {
-		return errRateLimited(reasonSenderQuotaForRecipient, capRetryAfterMS)
-	}
-	if len(pending) >= limits.MaxUnackedPerRecipient {
-		return errRateLimited(reasonRecipientInboxFull, capRetryAfterMS)
-	}
-	return nil
+	return checkUnackedCaps(pending, sender.SessionID, limits)
 }
 
 // persist writes the message (4.5.1: `ok: true` only after a later

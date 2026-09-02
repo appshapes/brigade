@@ -68,7 +68,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P1-3 | `internal/adapterkit` (stdin, XDG, atomic writes, flock, redaction) | done | Fable | this commit — full gate green; **E0-6 flock fix EVIDENCED** (contended median 16.96 ms vs the old 101.1 ms); 0 surviving mutations at hand-off |
 | P1-4 | `docs/protocol-v1.md` + adapter-authors skeleton | done | Fable | this commit — **BAP/1 FROZEN**; all ten decisions honoured in prose AND code; **owner review WAIVED by Rjae 2026-09-01** (see below); 11 MUSTs without a conformance case listed for P1-6 |
 | P1-5 | `cmd/brigade-adapter-fs` + mutants | done | Opus | this commit — full gate green; **the verifier drove all 45 cases + Appendix B against the binary (1,241 runs)**; 2 code + 2 instrument defects fixed, 2 isolation gaps closed; **3,181 lines vs the plan's "about 500"** (see below) |
-| P1-6 | `internal/conformance` + `cmd/brigade-conformance` | todo | Fable | suite design |
+| P1-6 | `internal/conformance` + `cmd/brigade-conformance` | done | Fable | this commit — full gate green; **45 cases, fs run 44 pass / 1 skip (C-14 slow) in about 20 s, 45/0 with `--slow` in about 26 s**; every case PROVEN able to fail (41 at once, 4 strengthened); four mutants fail exactly their sets; **the plan's 5 s target is not reachable** (see below) |
 | P1-7 | `docs/adapter-authors.md` complete | todo | Opus | |
 | P1-8 | `plugin/bin/brigade` bootstrap + plugin checks | todo | Opus | needs `shellcheck` |
 | P2-1..P2-5 | Supabase schema, RPCs, realtime/housekeeping, pgTAP, advisor lints | todo | Fable | SQL and RLS |
@@ -598,6 +598,100 @@ and `session_count` over non-offline ones; the three mutant pairs hold only the 
 **Known residuals:** the `--prompt` TTY input path of `team create`/`team join` is implemented but only its
 non-TTY refusal (B-7) is tested (adapterkit's PTY helper is package-private); and (e) above.
 
+## P1-6 DONE — the conformance suite; every case was made to fail on purpose; the 5 s target is off by four
+
+Five Fable subagents from `.ignored/briefs/p1-6-conformance.md` (the driver's design, written against the P1-5
+verifier's findings): one core author (launcher, `T` API, lazy fixture with extra principals, `WatchProc`, reports,
+CLI), two case authors in parallel lanes (C-03..C-27, C-28..C-43), one integrator, one adversarial verifier; then one
+Opus fixer for the four items the verifier left open (recorded at the end of this block). Full gate green. `make test`
+now runs the real suite against the fs adapter; `go test ./internal/conformance` runs one parallel subtest per case
+in its own run directory, a sequential whole run, and the mutants test.
+
+**What the verifier did, case by case:** for each of the 45 cases it BROKE the fs adapter's subject with a temporary
+edit (159 mutant builds, the adapter tree byte-compared back to git after every one), rebuilt, ran `--only <id>`, and
+required the case to fail naming the rule. 41 failed at once. Four passed while broken and were strengthened:
+
+1. **C-28 did not assert the ORDER of the two unacked caps** — the same 4.5.12 rule whose test P1-5's verifier had to
+   add to the adapter, now missing from the suite: swapping the checks passed. Fixed with a third extra principal
+   that puts both caps at their limit at once, so the swapped order answers `recipient_inbox_full` where
+   `sender_quota_for_recipient` is required. The fixer then gave the rule a standing positive control (below).
+2. **C-03/C-04's B-7 arm passed for the wrong reason**: an adapter that ignores the no-TTY rule and prompts on the
+   pipe read the one-line JSON as the team name, ran out of input on the label prompt and answered `usage` by
+   accident. The document on the pipe is now two non-empty lines, so a prompting adapter creates a team (and fails).
+3. **C-01 was order-dependent** — in every SHUFFLED whole run it failed falsely ("describe created the shared
+   directory", because an earlier case's store existed) — and the naive fix lost the catch of a `describe` that
+   creates the root, because the start-of-run `describe` had already created it. Final fix: the runner records what
+   the start-of-run `describe` (the one spawn guaranteed to precede every case) left behind, and C-01 reports it.
+4. **C-12 was order-dependent**: after C-28/C-40 had joined extra principals into T1, its "every principal ∈ {A, B}"
+   assertion failed on principals the suite itself provisioned. It now asserts membership of the T1 principal set
+   the suite created (`T.T1Principals()`), still team isolation (`mutant_teamleak` still fails it).
+
+Order independence was exercisable only through the library (the binary ran ids in list order), which is why the
+fixer added `--shuffle <seed>` and made the whole-run test shuffled. The verifier also attacked the launcher's global
+checks with wrapper adapters — an extra stdout line, exit 127, a planted secret on stderr, an envelope without
+`retryable`, a non-event line on a watch — each failed the running case naming 4.1 / B-11 / C-05 / B-2 / 4.4.9; a
+`describe` that is not ok, a major "2", a failing `--setup` and a missing adapter each exited 3; an unknown `--only`
+exited 2; an environment dump proved every adapter process sees exactly the section-3 variable set with the
+developer's `CLAUDE_CONFIG_DIR`, `HOME` and every inherited `BRIGADE_*`/`CLAUDE*` value absent, and `-v` elides
+`SECRET`/`TOKEN`/`KEY` values. Mutant sets, measured by the suite's own test: `mutant_noack` → `{C-29b, C-30, C-36,
+C-41}`, `mutant_teamleak` → `{C-12, C-26}`, `mutant_trustsender` → `{C-23, C-24}`, the normal build → `{}`, each
+EXACT.
+
+**The integrator's one real finding: the C-05 secret scan produced a false positive on the spec's own text.** The
+protocol's fixed `invalid_input` message for a malformed join secret spells the FORMAT, `expected
+brg1.<team_ref>.<secret>` (as `docs/protocol-v1.md` line 623 does), and the launcher scanned every stream for the
+bare `brg1.` substring, so C-04 — which provokes that message on purpose — failed under C-05's name on every run and
+polluted every mutant set with C-04. The scan now requires a secret-SHAPED token (`brg1.` plus two or more
+dot-separated components of characters a real secret can carry) besides every secret the run knows verbatim;
+`TestSecretShapedScan` pins both sides. The adapter's message conforms (no part of the input; 4.4.10, 4.5.14).
+
+**Plan corrections (measured):**
+
+- **9.2's "the fs run must stay under 5 s" is off by four: the floor is about 20.3 s** (three idle runs 20.24-20.73 s;
+  26.5 s with `--slow`). Eight seconds are absence windows the design mandates — C-36's "not re-emitted after the ack"
+  waits the full 5 s push deadline (no poll-interval member exists on the wire, see P1-5's question (b)), C-41's
+  restart quiet window 2 s, C-33's 1 s — and the rest is about 500 adapter spawns at about 25 ms each (the fs
+  adapter's flock plus `WriteAtomic`'s fsync; a bare `describe` is 4.6 ms). Nothing mandated was shortened. The whole-
+  run test's ceiling is 30 s and it runs sequentially (under `-race` with the per-case subtests and four mutant builds
+  in parallel it measured 38-41 s). `make test` grows by about 20 s and `go test ./internal/conformance` takes about
+  70 s under `-race`; CI's `fast` job stays well under its 5-minute target. A poll-interval member in `describe`
+  (BAP/1.x) would let the suite cut the 5 s windows for a fast poller.
+- The fixture of 9.2 (three principals) cannot carry the heavy cases: the frozen `principal_send_rate` (60/min) is
+  spent by one heavy case inside a run that takes seconds. `T.JoinPrincipal` provisions extra T1 principals through
+  `team join` (C-28 uses three, C-40 one); on a `--setup`-provisioned adapter without `team.join` those cases SKIP
+  with the reason. Principal A still ends a run at about 48 of 60 sends; a new A-sending case must be placed with care.
+- C-40 is 60 messages (P1-5's correction, now implemented); C-12 asserts the provisioned T1 set (above).
+
+**BAP/1.x questions, added to P1-5's list (recorded, not changed):** (f) a malformed or empty stdin document on an
+UNCONFIGURED profile: 4.1 says `invalid_input`, 4.6 says `config`/`unauthenticated`, and nothing orders the two
+checks; the fs adapter resolves the profile first (`config`), so C-02's stdin half runs on a joined principal and the
+Supabase adapter must do the same for C-02 to stay adapter-independent. (g) C-08 asserts that a running watch of a
+revoked member exits 5 with an `unauthorized` event and that a send to a revoked member's session is the uniform
+`not_found`, and C-31 asserts `message receive` works on a closed, owned session; all three follow from 4.5.6/4.5.7/
+4.5.8 as read in P1-5 and are the fs adapter's measured behaviour, but no sentence of the spec states them in those
+words — the Supabase adapter must match or fail them.
+
+**Suite design decisions beyond the brief, all recorded by the agents and accepted:** slow cases are reported SKIP
+("slow case; run with --slow") rather than dropped, so a report never hides what was not run; a fixture failure ends
+the run with exit 3 and the report still written; `--setup`/`--rebind` run without the protocol checks and with three
+times `--timeout`; the JSON report adds `rule`, `notes` and `duration_ms` while keeping every key of the P1-1 stub's
+shape; a signal death reports `Exit -1` with the signal named; `Result.Raw` exposes the loosely parsed stdout for
+key-presence checks; `ExpectNone` ignores informational `status` events; `-v` redacts every known join secret.
+
+**The Opus fixer's four closures, each with failing-first evidence:** (1) a selection that names no case (`--tags
+cap:nosuch`, `--only X --skip X`) is now `usage` (exit 2) before any adapter is launched — a run that selects nothing
+is not a pass (the P1-1 stub's "0 cases, exit 0" is gone for good); (2) C-37 now asserts the foreign watch's `error`
+line is byte-identical to a never-issued id's (4.5.7's uniform answer), with a positive control — the watch's own
+`usage` refusal for a missing `--session`, which 4.1 obliges to be an NDJSON `error` event, not a 4.3 envelope
+(BAP/1.x note (h): the spec should say so in words); (3) `--shuffle <seed>` (a hand-written splitmix64 Fisher-Yates,
+so a seed names one permutation on every Go release), the seed on both reports, and the sequential whole-run test
+now runs shuffled with a logged, reproducible seed (`-conformance-seed`); six seeds through the binary found no
+further order dependence; (4) a fourth mutant, **`mutant_caporder`** (`store_caps.go` / `store_caps_mutant.go`, the
+two unacked-cap checks swapped), listed in the Makefile's `mutant_tags` so both twins are linted, proven live by the
+adapter's own mutants test, and failing EXACTLY `{C-28}` in the suite's — the rule whose instrument was missing in
+P1-5 and in P1-6 now has a standing positive control. The fs README's `mutant_noack` row and its stale
+`.golangci.yml` sentence were corrected on the way.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1003,3 +1097,9 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   Two isolation gaps (watch never re-authorised; send to a revoked member's session accepted) were closed with
   failing-first tests. Four plan corrections recorded above, the largest being the 500-line estimate (actual 3,181).
   Next: **P1-6** (Fable) from `.ignored/briefs/p1-6-conformance.md`, already written against the verifier's findings.
+- 2026-09-02 ~08:15: **P1-6 done** — five Fable subagents (core, two case lanes in parallel, integrator, adversarial
+  verifier) plus one Opus fixer. The verifier broke the adapter's subject for every one of the 45 cases and made four
+  weak cases bite (the cap-order instrument gap again, a prompting adapter passing B-7 by accident, and two
+  order-dependent cases found only by shuffling). The measured floor of the fs run is about 20 s against the plan's
+  5 s; recorded as a correction, nothing mandated was shortened. Next: **P1-7** (Opus, docs) and **P1-8** (Opus,
+  bootstrap + CI scripts), briefs at `.ignored/briefs/p1-7-adapter-authors.md` and `p1-8-bootstrap.md`.

@@ -150,20 +150,29 @@ never existed are byte-identical, and so are an unknown id, a foreign id and one
 
 ## The mutants
 
-Three deliberately broken builds live in this package behind build tags, so the normal build contains no mutant code
+Four deliberately broken builds live in this package behind build tags, so the normal build contains no mutant code
 path at all — nothing for a stray variable or a repository `env` block to switch on. `mutants_test.go` here proves each
 mutation is live and that the normal build is not mutated; P1-6's conformance suite asserts that each fails **exactly**
 its cases and no other.
 
 | Tag | Real twin | What it breaks | Expected failures |
 | --- | --- | --- | --- |
-| `mutant_noack` | `store_ack.go` | the ack routine reports `acked` and moves nothing | C-30, C-36 |
+| `mutant_noack` | `store_ack.go` | the ack routine reports `acked` and moves nothing | C-29b, C-30, C-36, C-41 |
 | `mutant_teamleak` | `store_list.go` | `session list` walks every team, not the profile's | C-12, C-26 |
 | `mutant_trustsender` | `store_send.go` | the forbidden members of 4.4.6 are accepted and a forged `sender.session_id` is trusted; the sender-ownership check is skipped | C-23, C-24 |
+| `mutant_caporder` | `store_caps.go` | the two unacknowledged caps of 4.5.12 are checked in the wrong order: the recipient-wide `max_unacked_per_recipient` before the per-pair `max_unacked_per_sender_recipient` | C-28 |
+
+The expected failures are the sets P1-6's `internal/conformance/mutants_test.go` asserts EXACTLY. `mutant_noack`'s set is
+larger than the plan's table said (C-30, C-36): C-29b's hop chain cannot avoid acks and C-41's restart check is a
+stdin-ack check. `mutant_caporder` exists because the ORDER of the two caps was the decisive untested defect in both
+P1-5 and P1-6 — every other property of the caps (codes, reasons, `retry_after_ms`, thresholds) survives the swap, and
+only a case that puts BOTH caps at their limit at once can tell the two orders apart.
 
 ```sh
-go build -tags mutant_noack -o /tmp/mutant ./cmd/brigade-adapter-fs
+go build -tags mutant_caporder -o /tmp/mutant ./cmd/brigade-adapter-fs
 ```
 
-`.golangci.yml` lists all three tags under `run.build-tags`, so the mutant files are vetted and linted like everything
-else.
+`make lint` runs golangci-lint once per tag over this package, on top of the untagged run, so BOTH twins of every pair
+are linted. The tag list lives in the Makefile's `mutant_tags` and nowhere else: `.golangci.yml` deliberately sets no
+`run.build-tags`, because setting all the tags at once excludes every `//go:build !mutant_*` twin — the real `ack`,
+`list`, `send` and cap implementations — from the build the linter sees.

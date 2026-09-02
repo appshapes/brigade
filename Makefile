@@ -24,7 +24,7 @@ golangci_version   := v2.13.2
 goreleaser         := $(bin_dir)/goreleaser
 goreleaser_version := v2.18.0
 ld_flags            = -s -w -X github.com/appshapes/brigade/internal/buildinfo.Version=$(version)
-mutant_tags        := mutant_noack mutant_teamleak mutant_trustsender
+mutant_tags        := mutant_noack mutant_teamleak mutant_trustsender mutant_caporder
 ld_flags_dev        = -s -w -X github.com/appshapes/brigade/internal/buildinfo.Version=$(version)-dev
 plugin_json        := plugin/.claude-plugin/plugin.json
 plugin_version     := $(shell cat plugin/bin/VERSION)

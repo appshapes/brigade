@@ -7,13 +7,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
-// The three mutants of plan 9.2 are build-tagged twins inside this
+// The four mutants of plan 9.2 are build-tagged twins inside this
 // package, so the NORMAL build contains no mutant code path at all:
 // nothing for a stray variable or a repository `env` block to switch on.
 // P1-6's own mutants_test.go will assert that each fails EXACTLY its
@@ -194,6 +196,77 @@ func TestMutantTrustSenderAcceptsForgedIdentity(t *testing.T) {
 			}
 			if carolCode != wantOwnership {
 				t.Fatalf("impersonation: exit %d, want %d (%v)", carolCode, wantOwnership, envelope)
+			}
+		})
+	}
+}
+
+// register is the registration document the cap-order fixture sends.
+func register(name string) string {
+	return `{"harness":"h","harness_version":"1","session_name":"` + name +
+		`","activity":"busy","inbound":"accept"}`
+}
+
+// sendTo is a minimal `message send` document.
+func sendTo(sender, recipient, body string) string {
+	return `{"sender_session_id":"` + sender + `","recipient_session_id":"` + recipient + `","body":"` + body + `"}`
+}
+
+// TestMutantCapOrderSwapsTheTwoCaps proves the mutant_caporder mutation is
+// live and that the normal build checks the two unacknowledged caps of
+// 4.5.12 in the spec's order. The ORDER is observable only when BOTH caps
+// sit at their limit at once, which is the whole reason this mutant
+// exists: every other property of the caps survives the swap.
+//
+// The fixture puts the probe sender's per-pair cap and the recipient's
+// inbox at their limits simultaneously without tripping any rate window:
+// the probe principal's one session sends max_unacked_per_sender_recipient
+// (15, under the 20-per-minute session budget), and a second principal
+// fills the remaining 45 from three sessions of 15 (under its
+// 60-per-minute principal budget). The probe's next send is then refused
+// by whichever cap the adapter checks first.
+func TestMutantCapOrderSwapsTheTwoCaps(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("builds two adapter binaries")
+	}
+	for tag, wantReason := range map[string]string{
+		"":                "sender_quota_for_recipient",
+		"mutant_caporder": "recipient_inbox_full",
+	} {
+		t.Run(nameOfTag(tag), func(t *testing.T) {
+			t.Parallel()
+			limits := protocol.DefaultLimits()
+			pair, inbox := limits.MaxUnackedPerSenderRecipient, limits.MaxUnackedPerRecipient
+			c := newChild(t, tag)
+			created := c.ok(`{"team_name":"ops","human_label":"alice@example.com"}`, "team", "create")
+			secret := str(t, created, "join_secret")
+			recipient := str(t, c.ok(register("r0"), "session", "register"), "session_id")
+
+			// The probe principal fills its own per-pair quota on the recipient.
+			c.ok(`{"join_secret":"`+secret+`","human_label":"probe@example.com"}`, "--profile", "probe", "team", "join")
+			probe := str(t, c.ok(register("probe-0"), "--profile", "probe", "session", "register"), "session_id")
+			for i := 0; i < pair; i++ {
+				c.ok(sendTo(probe, recipient, "quota"), "--profile", "probe", "message", "send")
+			}
+			// A second principal fills the rest of the recipient's inbox.
+			c.ok(`{"join_secret":"`+secret+`","human_label":"filler@example.com"}`, "--profile", "filler", "team", "join")
+			for filled, n := pair, 0; filled < inbox; n++ {
+				sender := str(t, c.ok(register("filler-"+strconv.Itoa(n)), "--profile", "filler", "session", "register"), "session_id")
+				for i := 0; i < pair && filled < inbox; i++ {
+					c.ok(sendTo(sender, recipient, "fill"), "--profile", "filler", "message", "send")
+					filled++
+				}
+			}
+
+			code, envelope := c.run(sendTo(probe, recipient, "one more"), "--profile", "probe", "message", "send")
+			if code != protocol.CodeRateLimited.Exit() {
+				t.Fatalf("the send past both caps: exit %d, want %d (%v)", code, protocol.CodeRateLimited.Exit(), envelope)
+			}
+			failure, _ := envelope["error"].(map[string]any)
+			details, _ := failure["details"].(map[string]any)
+			if got, _ := details["reason"].(string); got != wantReason {
+				t.Fatalf("details.reason %q, want %q (both caps are at their limit; 4.5.12 fixes the order)", got, wantReason)
 			}
 		})
 	}
