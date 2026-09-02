@@ -873,14 +873,25 @@ func TestWatchPreReadyFailureCancelsTheDial(t *testing.T) {
 	for line := range w.lines {
 		t.Errorf("a line followed the refusal: %s", line)
 	}
+	// The socket MUST close on the refusal. Whether a phx_leave precedes
+	// the close depends on a race this test cannot pin: the fake answered
+	// the join, but the adapter may or may not have consumed that reply
+	// before the refusal cancelled the link — a link still waiting on its
+	// join is torn down at once without the leave handshake (a Phoenix
+	// process in its refusal backoff never answers one), a joined link
+	// leaves first. Both are correct; CI's macOS runner took the first
+	// path (leaves 0) while this machine takes the second. The joined
+	// path's leave is pinned by the EOF and SIGTERM exit tests after
+	// `status live`.
 	deadline := time.Now().Add(2 * time.Second)
-	for (ph.leaves.Load() < 1 || ph.closed.Load() < 1) && time.Now().Before(deadline) {
+	for ph.closed.Load() < 1 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if ph.dials.Load() != 1 || ph.leaves.Load() != 1 || ph.closed.Load() != 1 {
-		t.Fatalf("dials %d, leaves %d, sockets closed %d; want 1, 1, 1: the pending link left and closed on the refusal",
+	if ph.dials.Load() != 1 || ph.closed.Load() != 1 || ph.leaves.Load() > 1 {
+		t.Fatalf("dials %d, leaves %d, sockets closed %d; want 1, at most 1, 1: the pending link closed on the refusal",
 			ph.dials.Load(), ph.leaves.Load(), ph.closed.Load())
 	}
+	t.Logf("pending link torn down with %d leave frame(s) before the close", ph.leaves.Load())
 }
 
 // TestWatchJoinRefusedKeepsPolling: a join the server refuses while the
