@@ -1,12 +1,13 @@
-# Plan 7.7. Two deviations from the plan text, each deliberate and marked below:
-#   (a) the `supabase` job stays `if: false` until P2-1 creates the migrations (the plan says so);
+# Plan 7.7. One deviation from the plan text remains, deliberate and marked below:
 #   (d) a `reproducibility` job diffs the `fast` and `macos` checksums instead of leaving the comparison to
-#       whoever reads the two job summaries — see the comment on that job.
-# Remove (a) in P2-1. Keep (d).
+#       whoever reads the two job summaries — see the comment on that job. Keep (d).
 #
-# P1-8 removed the other two: (b) the `fast` job ran `make cross` in place of `make checksums-check`, and
-# (c) `make plugin-check` was gated `if: false`, both because scripts/ci/*.sh did not exist yet. They do
-# now, so the pins and the plugin tree are verified on every push.
+# The other three are gone: P1-8 removed (b) (the `fast` job ran `make cross` in place of `make
+# checksums-check`) and (c) (`make plugin-check` gated `if: false`), both because scripts/ci/*.sh did not
+# exist yet; P2-1 removed (a) (the `supabase` job gated `if: false` until the migrations existed). Inside
+# the `supabase` job two STEPS are gated `if: false` the same way until their deliverables exist:
+# `make test-integration` (P2-11) and `make e2e` (P4-1), with the coverage summary that depends on them.
+# Remove each gate in the task named beside it.
 name: ci
 on:
   push: {branches: [master]}
@@ -82,7 +83,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   supabase:                               # Docker; about 8 minutes (2-3 of them image pulls)
-    if: false                             # (a) enabled by P2-1, which lands supabase/migrations/
     runs-on: ubuntu-latest
     needs: fast
     timeout-minutes: 25
@@ -96,11 +96,14 @@ jobs:
       - run: make supabase-start supabase=supabase   # `supabase ?=` in the Makefile: CI overrides the npx form with
       - run: make test-db supabase=supabase          # the setup-cli binary, so local and CI run the same recipes and
       - run: make supabase-env advisor-lints supabase=supabase   # the version is pinned in exactly one place per context
-      - run: make test-integration        # go test (self-skip lifted by .env.test) + conformance(supabase) --slow
+      - if: false                         # enabled by P2-11, which lands the integration suite and conformance-setup-supabase.sh
+        run: make test-integration        # go test (self-skip lifted by .env.test) + conformance(supabase) --slow
         env: {BRIGADE_COVER: "1", GOCOVERDIR: "${{ runner.temp }}/cov"}
-      - run: make e2e                     # scripts/proof.sh, watcher in --sink mode, no LLM (D31)
+      - if: false                         # enabled by P4-1, which lands scripts/proof.sh and the `e2e` target's inputs
+        run: make e2e                     # scripts/proof.sh, watcher in --sink mode, no LLM (D31)
         env: {GOCOVERDIR: "${{ runner.temp }}/cov"}
-      - run: go tool covdata percent -i="${{ runner.temp }}/cov" >> "$GITHUB_STEP_SUMMARY"
+      - if: false                         # enabled with the P2-11 step above: GOCOVERDIR is only written by the two gated steps
+        run: go tool covdata percent -i="${{ runner.temp }}/cov" >> "$GITHUB_STEP_SUMMARY"
       - if: always()
         run: make supabase-clean supabase=supabase
 

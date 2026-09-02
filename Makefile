@@ -221,9 +221,13 @@ schema-check: ## Fail if docs/protocol-v1.schema.json is stale, empty or ungener
 	go run ./cmd/brigade-schema > $(bin_dir)/schema.json
 	diff $(bin_dir)/schema.json docs/protocol-v1.schema.json
 
+# The files are listed explicitly because `supabase test db` (CLI 2.116.0, pg_prove 3.36) discovers tests
+# RECURSIVELY under supabase/tests, so the bare form runs supabase/tests/helpers/auth.sql — the `\ir`-included
+# fixture helper of plan 9.3, which has no plan line — as a test and fails the run with "No plan found in TAP
+# output" while every real assertion passes (measured in P2-4). An explicit list is not recursed.
 .PHONY: test-db
 test-db: ## pgTAP tests in supabase/tests against the running local stack
-	$(supabase) test db
+	$(supabase) test db supabase/tests/*.sql
 
 .PHONY: test-integration
 test-integration: build ## Adapter integration + conformance(supabase) against the local stack (reads $(env_test))

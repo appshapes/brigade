@@ -71,7 +71,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P1-6 | `internal/conformance` + `cmd/brigade-conformance` | done | Fable | this commit — full gate green; **45 cases, fs run 44 pass / 1 skip (C-14 slow) in about 20 s, 45/0 with `--slow` in about 26 s**; every case PROVEN able to fail (41 at once, 4 strengthened); four mutants fail exactly their sets; **the plan's 5 s target is not reachable** (see below) |
 | P1-7 | `docs/adapter-authors.md` complete | done | Opus | this commit — 1,950 lines; **a doc-only implementer (allowed to read nothing else) built `describe` + `session list` and passed C-01/C-02/C-05/C-06 in three successive rounds**, 308 claims traced to the spec or measured; the contributor brief refreshed (local file only) |
 | P1-8 | `plugin/bin/brigade` bootstrap + plugin checks | done | Opus | this commit — full gate green; `make plugin-check checksums-check` green in the pre-release state; **CI un-gated** (`checksums-check`, `plugin-check`); bootstrap tested on sh/bash/zsh/dash/ksh and busybox ash (alpine, wget); **61 checks proven able to fail, 3 strengthened** (see below) |
-| P2-1..P2-5 | Supabase schema, RPCs, realtime/housekeeping, pgTAP, advisor lints | todo | Fable | SQL and RLS |
+| P2-1..P2-5 | Supabase schema, RPCs, realtime/housekeeping, pgTAP, advisor lints | done | Fable | this commit — migrations finished against everything Phase 1 pinned; **`not_found` is now SQLSTATE `PT404` = HTTP 404 (measured)**; 9 pgTAP files, **756 assertions**; **46 SQL mutations, all killed after 7 instruments were strengthened**; E0-1 72/0 and E0-2 37/0 kits green; CI `supabase` job un-gated (see below) |
 | P2-6..P2-12 | Go Supabase client, profile/team/session/message commands, watch, integration, release rehearsal | todo | Fable (P2-6/P2-7/P2-10) · Opus (P2-8/P2-9/P2-11/P2-12) | credentials and watch are Fable-tier |
 | P3-1 | Plugin manifests, marketplace, skills | todo | Opus | |
 | P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | todo | Fable | security path |
@@ -849,6 +849,74 @@ members' adapters must speak that backend's data model, which 4.8 leaves to adap
 (D36), 3.2 (two harness-owned files), 3.3, 6.1, 6.3, 6.4, 6.5, and the P3-3/P3-4/P3-6 rows; `docs/adapter-authors.md`'s
 wiring section rewritten to match. All Phase 3 work; nothing for Phase 2.
 
+## P2 BACKEND DONE — P2-1..P2-5: the migrations finished, 756 pgTAP assertions, 46 mutations, `not_found` is HTTP 404
+
+Three Fable agents from `.ignored/briefs/p2-1-5-supabase-backend.md` (a SQL author, a pgTAP author, one adversarial
+verifier), sequenced on the one running stack. The E0-1 drafts were audited line by line against the plan AND
+against the sixteen behaviours Phase 1 pinned after they were written: eleven were already right, five changed —
+every cap violation is now an explicit `invalid_input` raise naming the member (the draft let some fall through to a
+`23514` check violation); the resume live-check is scoped to the caller's team so an owned live session in ANOTHER
+team answers the uniform `not_found`; `list_members.session_count` counts live sessions only (the draft counted
+every session ever registered; C-43 and the fs adapter's rule); `list_sessions` orders online-first before its
+`v_cap + 1` cut so a truncated list never drops an online session for a more recently seen offline one; and the
+`not_found` SQLSTATE. One premise of the brief was stale: the draft already compared the recipient in the
+idempotency check (C-22); nothing changed there.
+
+**`not_found` is `PT404`, measured.** A throwaway definer function raised the same `brigade:not_found` under
+`P0002` and `PT404` through PostgREST with a real anonymous principal: `P0002` → HTTP 500, `PT404` → HTTP 404, both
+73-byte bodies with the `brigade:` prefix byte for byte and `details`/`hint` carried when set. All eight `not_found`
+raises switched; the E0-1 kit's seven foreign-vs-random byte-identity pairs now read 404/404 and stay identical.
+**P2-6 maps BOTH `PT404` and `P0002` to `not_found`** (the `brigade:` prefix first, SQLSTATE second, HTTP status
+never). Text that now describes the old state — the spec's INFORMATIVE 4.6 "Supabase adapter mapping" paragraph
+(`P0002` → 6), plan 5.4's error table, 9.4's integration list, the P2-6 row's acceptance and E0-1's "gateway
+behaviour 1" — is recorded as **BAP/1.x editorial (m)**: the paragraph is informative, so no wire changes.
+
+**Two orderings the SQL author decided and the verifier pinned:** `session_heartbeat` and `send_message` check
+active membership BEFORE the closed-session conflict (plan 5.4 had closed first), so a revoked principal is told
+`unauthorized` on every verb (4.5.7) even after `leave_team` closed its sessions — pinned by rls_isolation after a
+real `leave_team`, which is the only state in which the two orders differ; and the roster rule above.
+
+**The instrument again, twice.** (1) `supabase test db` (CLI 2.116.0, pg_prove 3.36) discovers tests RECURSIVELY, so
+the bare recipe ran `supabase/tests/helpers/auth.sql` — 9.3's `\ir`-included fixture helper — as a test and failed
+the whole run with "No plan found in TAP output" while every assertion passed; `make test-db` now lists
+`supabase/tests/*.sql` (the layout of 9.3 is kept). (2) The verifier ran **46 SQL mutations** — every policy
+predicate, grant, revoke, `search_path`, trigger, limit, cap order, guard and the realtime join — each applied,
+reset from scratch, run against pgTAP, reverted and byte-compared: 38 were killed by a rule-naming assertion as
+delivered, one (an infinite implicit-reply window) was "killed" only by a file ABORT that hid every later assertion,
+and **seven survived** because the suite could not see them: the roster's `session_count` rule (no member had a
+closed or expired session at roster time), the two membership-before-closed orderings (with an OPEN session both
+orders answer the same), `ack_messages` flipping a pending message addressed to ANOTHER session (every "unknown"
+id in the tests was already injected or random), the `list_sessions` truncation order (the closed fixture session
+tied on `now()`), the sender-ownership clause of `send_message` (masked by the stamping trigger for open sessions,
+but a CLOSED foreign session answered `conflict` — a closed-state oracle), and **within-team message privacy** (team
+A had two members and every message involved both, so a policy that let any member read every message of its team
+passed 733 of 733). All seven are now killed by named assertions; the abort became a non-aborting `pg_temp.send_hop`
+helper. The pgTAP author found one genuine migration defect on the way: the implicit-reply lookup's
+`order by created_at desc limit 1` is nondeterministic when two candidates share `created_at` (every message inside
+one pgTAP transaction does), so the hop chain was `0,1,2,1,2,…` and the bound never tripped; now `order by
+created_at desc, seq desc`, and the chain reads 0..32 with the 34th message refused.
+
+**Counts.** Nine files, 756 assertions in about 4 s: rls_isolation 106, rls_stamping 55, rpc_join 51, rpc_send 107,
+rpc_sessions 113, realtime_policy 39, retention 48, hygiene 60, functions 177. `scripts/ci/advisor-lints.sql`
+mirrors the ten named lints (14 expected findings, all documented inline — `join_attempts` has RLS and no policy
+by design; the three function lints scope to `public` and `brigade` because `graphql_public` holds only Supabase's
+own `graphql()` wrapper) and was shown to fail on a planted RLS-less table and a mutable-`search_path` definer
+function. CI: the `supabase` job is un-gated; inside it `make test-integration` (P2-11), `make e2e` (P4-1) and the
+`covdata` summary step are gated `if: false` with the task named, the P1-1 idiom.
+
+**Plan corrections (measured):** 9.3's "`loop_detected` at the 33rd" is off by one — 33 messages succeed (hops 0..32)
+and the 34th is refused, as the suite's C-29/C-29b and the SQL both read it; 9.3's `helpers/auth.sql` layout needs
+the explicit file list in the recipe; 5.4's closed-before-membership order in heartbeat and send is reversed (4.5.7);
+`register_session`'s `harness`/`harness_version` caps (32) are table constraints the protocol does not publish in
+`limits`, now `invalid_input` raises with `details.field`, which P2-6 maps; the `permissive_rls_policy` mirror is a
+superset of Supabase's 0024 (plus 0006 `multiple_permissive_policies`) and its always-true detection compares to
+`true` only — align in a later editorial pass. Observations, not defects: `messages_select`'s recipient clause is
+evaluated under `sessions`' own RLS, so a revoked member's received messages are hidden by the sessions policy even
+when the messages policy's membership predicate is removed (defence in depth; both policies are pinned);
+`realtime_policy.sql` depends on the realtime container having created today's `realtime.messages` partition (it
+fails loudly otherwise, by intent); pgTAP files that call an RPC bare inside `is(...)` abort on a raise and hide the
+rest — the `pg_temp.err`/`pg_temp.send_hop` wrappers are the pattern.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1276,3 +1344,7 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   of to the profile. Her design (one team per session, one adapter per session, profile default adapter overridable
   by session) recorded as **D36** and written into the plan, the guide and this log (block above). No Phase 1 artefact
   changes; the work lands in P3-1/P3-3/P3-4/P3-6.
+- 2026-09-02 ~15:00: **P2-1..P2-5 done** (block above). Rjae chose to continue Phase 2 in this session. A README
+  with an adapter-contributor section replaced the stale external artifact (the Kafka adapter contributor works in
+  a separate repository, so the Status table is not their queue). Next: **P2-6..P2-10**, the bundled Supabase
+  adapter, from `.ignored/briefs/p2-6-10-supabase-adapter.md`.
