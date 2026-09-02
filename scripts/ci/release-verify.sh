@@ -12,7 +12,9 @@ die() { printf 'release-verify: %s\n' "$1" >&2; exit 1; }
 
 a=${1:-}
 b=${2:-}
-[ -n "$a" ] && [ -n "$b" ] || die "usage: scripts/ci/release-verify.sh <goreleaser-checksums> <committed-checksums>"
+if [ -z "$a" ] || [ -z "$b" ]; then
+  die "usage: scripts/ci/release-verify.sh <goreleaser-checksums> <committed-checksums>"
+fi
 [ -f "$a" ] || die "no such file: $a"
 [ -f "$b" ] || die "no such file: $b"
 [ -s "$a" ] || die "$a is empty: nothing to verify"
