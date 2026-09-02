@@ -112,7 +112,7 @@ func init() {
 			Summary:   "run a bundled adapter over the BAP/1 protocol on stdio",
 			Hidden:    true,
 			MultiCall: true,
-			Task:      "P2-6",
+			Run:       runAdapterEntry,
 		},
 	}
 }
@@ -135,4 +135,15 @@ func LookupMultiCall(name string) (Command, bool) {
 		return Command{}, false
 	}
 	return c, true
+}
+
+// runAdapterEntry is the table's Run for the `adapter` entry, which
+// internal/app intercepts BEFORE the table and hands to the bundled
+// adapter's own dispatcher (P2-6): the adapter speaks BAP/1 on stdio and
+// none of the human table's flags or envelopes apply to it. Dispatch
+// therefore never reaches this function; it exists so the entry is
+// Implemented and `help --all` no longer lists it as a placeholder, and
+// it answers honestly if a future caller routes around internal/app.
+func runAdapterEntry(*Context, []string) error {
+	return usagef("adapter", "the adapter entrypoint is dispatched by the multi-call seam; run `"+Program+" adapter supabase <group> <verb>`")
 }

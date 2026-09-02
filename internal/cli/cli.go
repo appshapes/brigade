@@ -166,15 +166,30 @@ func Dispatch(args []string, s Streams, environ []string) int {
 }
 
 // NotImplemented reports a recognised multi-call entrypoint that internal/app
-// intercepts but cannot run yet. It exists so that `brigade hook …`,
-// `brigade watch …` and `brigade adapter …` fail with the plan task that
-// builds them rather than as an unknown command.
+// intercepts but cannot run yet. It exists so that `brigade hook …` and
+// `brigade watch …` fail with the plan task that builds them rather than
+// as an unknown command.
 func NotImplemented(cmd Command, args []string, s Streams) int {
+	return multiCallReport(cmd, args, s, notImplementedError(cmd))
+}
+
+// Usage reports a `usage` refusal of a multi-call entrypoint that
+// internal/app dispatches itself (the adapter name after `brigade
+// adapter`), through the same reporter the table uses. message is fixed
+// text and never carries an argument: argv can hold a secret (4.5.14).
+func Usage(cmd Command, args []string, s Streams, message string) int {
+	return multiCallReport(cmd, args, s, usagef(cmd.Name, message))
+}
+
+// multiCallReport reports err for a multi-call entrypoint: --json is
+// honoured wherever it appears, and a join secret on argv wins over any
+// other answer (C-05).
+func multiCallReport(cmd Command, args []string, s Streams, err *Error) int {
 	jsonMode := scanBoolFlag(args, "json")
 	if scanPoison(args) {
 		return report(s, jsonMode, usagef(cmd.Name, poisonMessage))
 	}
-	return report(s, jsonMode, notImplementedError(cmd))
+	return report(s, jsonMode, err)
 }
 
 // notImplementedError is the failure a placeholder table entry produces. It

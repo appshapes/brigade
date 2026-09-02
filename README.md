@@ -54,6 +54,10 @@ fail is a new major version.
 Practicalities: `master` only, merges only, never rebase; commit messages `15: <Imperative summary>`; the
 acceptance gate is `make typecheck lint build test vuln deps-check schema-check tidy-check`; Go 1.27.0 is pinned in
 `go.mod` with no `toolchain` line; `docs/allowed-deps.txt` binds only the shipped `brigade` binary, not your adapter.
+To run the suite against the bundled adapter and a local Supabase stack (`make supabase-start supabase-env`, then
+`make test-integration`), pass the backend as `--env BRIGADE_SUPABASE_URL=… --env BRIGADE_SUPABASE_PUBLISHABLE_KEY=…`
+— `team create`/`team join` honour that pair only when the profile names no backend, never overriding a configured
+profile — and the suite provisions its own teams, so no `--setup` hook is needed.
 Plans live in `.context/plans/`, ephemeral scratch in `.ignored/` (gitignored).
 
 ## Layout

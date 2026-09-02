@@ -13,6 +13,7 @@ package app
 import (
 	"io"
 
+	"github.com/appshapes/brigade/internal/adapters/supabase"
 	"github.com/appshapes/brigade/internal/cli"
 )
 
@@ -35,9 +36,38 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []str
 	// stdio rather than human output (4.1).
 	if len(args) > 0 {
 		if cmd, ok := cli.LookupMultiCall(args[0]); ok {
+			if cmd.Name == adapterEntry {
+				return runAdapter(cmd, args[1:], stdin, stdout, stderr, environ)
+			}
 			return cli.NotImplemented(cmd, args, streams)
 		}
 	}
 
 	return cli.Dispatch(args, streams, environ)
+}
+
+// adapterEntry is the hidden multi-call word of D26: `brigade adapter
+// <name> <group> <verb> …`.
+const adapterEntry = "adapter"
+
+// bundledSupabase is the one bundled adapter name of v1.
+const bundledSupabase = "supabase"
+
+// runAdapter hands `brigade adapter supabase …` to the bundled adapter's
+// Run seam with the REAL process streams — stdin included, because
+// adapterkit.ReadInput's terminal refusal and the team commands' --prompt
+// path both test the descriptor — and the environment as given. The
+// adapter speaks BAP/1 on stdout from here on: its own poison scan, flag
+// rules and 4.3 envelopes apply, not the human command table's. A
+// missing or unknown adapter name is `usage` through the table's own
+// reporter, so nothing here ever names os.Stdout.
+func runAdapter(cmd cli.Command, rest []string, stdin io.Reader, stdout, stderr io.Writer, environ []string) int {
+	if len(rest) > 0 && rest[0] == bundledSupabase {
+		return supabase.Run(rest[1:], stdin, stdout, stderr, environ)
+	}
+	streams := cli.Streams{In: stdin, Out: stdout, Err: stderr}
+	if len(rest) == 0 {
+		return cli.Usage(cmd, rest, streams, "adapter needs a name; the bundled adapter is `supabase`")
+	}
+	return cli.Usage(cmd, rest, streams, "unknown adapter name; the bundled adapter is `supabase`")
 }

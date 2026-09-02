@@ -5,9 +5,11 @@ go 1.27.0
 ignore docs/research
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/invopop/jsonschema v0.14.0
 	github.com/rogpeppe/go-internal v1.16.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	golang.org/x/crypto/x509roots/fallback v0.0.0-20260831030451-39dc44e69c28
 	golang.org/x/term v0.45.0
 	golang.org/x/text v0.41.0
 )
