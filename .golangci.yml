@@ -3,7 +3,12 @@ version: "2"
 run:
   timeout: 5m
   tests: true
-  build-tags: [mutant_noack, mutant_teamleak, mutant_trustsender]   # lint the mutant files too (9.2)
+  # NO build-tags here, deliberately. Plan 7.3 listed the three mutant tags so "the mutant files are still vetted
+  # and linted", but setting all three AT ONCE excludes every `//go:build !mutant_*` twin from the build
+  # golangci-lint sees -- the REAL ack, list and send implementations were never linted at all (measured in P1-5:
+  # an unused function appended to store_ack.go produced 0 issues; the same line in store.go produced one).
+  # `make lint` therefore runs the plain build plus one extra run per tag on internal/adapters/fs (--build-tags on
+  # the command line, which the config would otherwise override), so both twins of every pair are linted.
 linters:
   default: standard            # errcheck, govet, ineffassign, staticcheck, unused
   enable:
@@ -88,7 +93,14 @@ linters:
       - path: ^internal/harness/config/|^internal/adapterkit/env\.go$|^internal/testutil/|_test\.go$
         linters: [forbidigo]
         text: "os.Getenv|exec.Command"
-      - path: ^internal/harness/adapterclient/spawn\.go$|^internal/adapterkit/spawn\.go$|^internal/procutil/|^internal/testutil/
+      # The conformance suite (P1-6) spawns the adapter under test directly: argv arrays, an environment built
+      # from scratch, no shell -- it is a dev-only binary that never ships and exists to drive adapters across a
+      # real process boundary. It may not read os.Getenv (it takes environ as an argument), so only the spawn
+      # half of the rule above is lifted for it.
+      - path: ^internal/conformance/
+        linters: [forbidigo]
+        text: "exec.Command"
+      - path: ^internal/harness/adapterclient/spawn\.go$|^internal/adapterkit/spawn\.go$|^internal/procutil/|^internal/testutil/|^internal/conformance/
         linters: [gosec]
         text: "G204"           # subprocess with variable argv is the design (4.1); no shell is ever involved
       - path: ^internal/adapterkit/log/

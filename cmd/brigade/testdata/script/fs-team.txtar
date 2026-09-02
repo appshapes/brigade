@@ -1,0 +1,95 @@
+# The filesystem adapter's team lifecycle, through the real binary (P1-5).
+#
+# One team, two profiles in the same $WORK, and the whole of C-08: create,
+# join, roster, leave, and the rejoin that keeps the principal. Everything
+# here crosses a process boundary, which is the only place the 4.6 exit
+# statuses and the stdout discipline of 4.1 can actually be observed.
+
+# --- a scratch profile is unconfigured, and describe creates nothing -----
+exec brigade-adapter-fs describe
+json stdout .ok true
+json stdout .result.protocol_version 1
+json stdout .result.profile.state unconfigured
+json stdout .result.profile.name default
+# The store root is laid out by the test harness, but `describe` neither
+# takes the store lock nor creates a team directory: it answers from local
+# files only (C-01).
+! exists $WORK/.brigade/fs-root/.lock
+! exists $WORK/.brigade/fs-root/teams
+
+# The lease range is this adapter's own, not the 4.4.1 example's: min 1 so
+# the slow expiry cases take seconds.
+json stdout .result.lease.min_seconds 1
+json stdout .result.lease.default_seconds 90
+
+# --- team create prints the secret exactly once -------------------------
+stdin create.json
+exec brigade-adapter-fs team create
+json stdout .ok true
+json stdout .result.team_name ops
+cp stdout created.json
+jsonenv created.json .result.join_secret SECRET
+jsonenv created.json .result.team_ref TEAMREF
+jsonenv created.json .result.principal_ref ALICE
+stderr 'printed once'
+
+exec brigade-adapter-fs describe
+json stdout .result.profile.state joined
+json stdout .result.profile.team_name ops
+json stdout .result.profile.team_ref $TEAMREF
+json stdout .result.profile.human_label alice@example.com
+
+# A second team on a bound profile is a conflict, and the binding stands.
+stdin create.json
+status 7 brigade-adapter-fs team create
+json stdout .error.code conflict
+json stdout .error.details.reason profile_bound
+exec brigade-adapter-fs describe
+json stdout .result.profile.team_ref $TEAMREF
+
+# --- a second profile joins with the secret it was given ----------------
+expand join.in join.json
+stdin join.json
+exec brigade-adapter-fs --profile bob team join
+json stdout .result.team_ref $TEAMREF
+json stdout .result.rejoined false
+cp stdout joined.json
+jsonenv joined.json .result.principal_ref BOB
+
+exec brigade-adapter-fs team members
+json stdout .result.team_name ops
+json stdout .result.members.0.status active
+json stdout .result.members.1.status active
+
+# --- leave is idempotent and unbinds ------------------------------------
+exec brigade-adapter-fs --profile bob team leave
+json stdout .result.left true
+json stdout .result.team_ref $TEAMREF
+exec brigade-adapter-fs --profile bob describe
+json stdout .result.profile.state not_member
+
+# A session command on an unbound profile is 11 config for this adapter:
+# the credential is there, the team binding is not (4.6, C-06).
+status 11 brigade-adapter-fs --profile bob session list
+json stdout .error.code config
+json stdout .error.retryable false
+
+exec brigade-adapter-fs --profile bob team leave
+json stdout .result.left true
+
+# --- the rejoin keeps the same principal (C-08) -------------------------
+stdin join.json
+exec brigade-adapter-fs --profile bob team join
+json stdout .result.rejoined true
+json stdout .result.principal_ref $BOB
+
+# --- a secret on argv is refused, and never echoed (C-05) ---------------
+status 2 brigade-adapter-fs --profile bob team join --join-secret $SECRET
+json stdout .error.code usage
+! stdout $SECRET
+! stderr $SECRET
+
+-- create.json --
+{"team_name": "ops", "human_label": "alice@example.com"}
+-- join.in --
+{"join_secret": "$SECRET", "human_label": "bob@example.com"}

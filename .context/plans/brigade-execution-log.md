@@ -67,7 +67,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P1-2 | `internal/protocol` (types, errors, NDJSON, sanitiser, schema) | done | Fable | this commit — full gate green, protocol at ~98% coverage; **2 open `ndjson.go` boundary defects, see below**; 7 spec gaps for P1-4 |
 | P1-3 | `internal/adapterkit` (stdin, XDG, atomic writes, flock, redaction) | done | Fable | this commit — full gate green; **E0-6 flock fix EVIDENCED** (contended median 16.96 ms vs the old 101.1 ms); 0 surviving mutations at hand-off |
 | P1-4 | `docs/protocol-v1.md` + adapter-authors skeleton | done | Fable | this commit — **BAP/1 FROZEN**; all ten decisions honoured in prose AND code; **owner review WAIVED by Rjae 2026-09-01** (see below); 11 MUSTs without a conformance case listed for P1-6 |
-| P1-5 | `cmd/brigade-adapter-fs` + mutants | todo | Opus | |
+| P1-5 | `cmd/brigade-adapter-fs` + mutants | done | Opus | this commit — full gate green; **the verifier drove all 45 cases + Appendix B against the binary (1,241 runs)**; 2 code + 2 instrument defects fixed, 2 isolation gaps closed; **3,181 lines vs the plan's "about 500"** (see below) |
 | P1-6 | `internal/conformance` + `cmd/brigade-conformance` | todo | Fable | suite design |
 | P1-7 | `docs/adapter-authors.md` complete | todo | Opus | |
 | P1-8 | `plugin/bin/brigade` bootstrap + plugin checks | todo | Opus | needs `shellcheck` |
@@ -502,6 +502,102 @@ missing absolute path both map to `unavailable` / `adapter_not_found`).
    `TestLeaseCheckSeconds` proves the check reads the RECEIVER's bounds, not the constants. Protocol and schema in
    one commit per the CLAUDE.md rule; the adapter and conformance halves are P1-5 and P1-6.
 
+## P1-5 DONE — the fs adapter; the plan's 500-line estimate was off by six; the lint gate had a hole
+
+One Opus author, one Opus adversarial verifier, one Opus fixer, driven from `.ignored/briefs/p1-5-fs-adapter.md` (a
+cold-readable design brief the driver wrote from the frozen spec; the verifier's full case table is saved beside it
+as `p1-5-verifier-report.md` for P1-6). Full gate green, `go test -race -count=3` stable. `internal/adapters/fs`
+(21 source files, README, three build-tagged mutant pairs), `cmd/brigade-adapter-fs` (the stub replaced), three
+txtar scripts (`fs-team`, `fs-session`, `fs-message`; P1-7's examples). Capabilities: everything but
+`message.watch.push`; `lease.min_seconds = 1`; 200 ms polling watch with stdin commands; a store-wide flock; the
+retention sweep once per command.
+
+**The verifier stood in for the conformance suite and drove every case** — C-01..C-43 with C-03b/C-19b/C-29b, and
+B-1/B-2/B-5/B-6/B-7/B-8/B-11 of Appendix B — against `bin/brigade-adapter-fs` as a real child process with a
+from-scratch environment at `BRIGADE_LOG_LEVEL=debug`: 1,241 adapter runs, every exit status in 0..12 (histogram
+`0:1126 2:15 3:33 4:9 5:9 6:12 7:9 8:8 11:17 12:3`), every failing envelope carrying the `retryable` KEY in the raw
+JSON, no join secret on any stderr or in any file. It then mutated the six most important subjects and confirmed
+the author's tests bite. What it found, in the order that matters:
+
+1. **DECISIVE, code: `team create --secret-file` honoured a RELATIVE path and wrote the secret AFTER binding.**
+   Measured: `--secret-file relative-secret.txt` exited 0 and dropped a live `brg1.` secret in the working
+   directory — the first run of the new test deposited one INSIDE the repository, exactly what CLAUDE.md forbids;
+   and an unwritable path exited 1 `internal` with the profile already bound to a team whose secret was gone, so
+   every retry answered `conflict profile_bound` and nobody could ever be invited. Fixed: a relative path is
+   `usage` before anything is read or created; the file is written before `team.json`, the member file and the
+   binding; a write failure is `config` (`details.reason = "secret_file_unwritable"`), leaving the profile
+   `not_member` and the store empty.
+2. **DECISIVE, instrument: the 4.5.12 ORDER of the two unacked caps was covered by no test.** Swapping the checks —
+   the exact rule 4.5.12 forbids, "one sender exhausts a recipient's inbox for everyone else" — left the entire
+   suite green. Fixed with a test that seeds both caps at once and fails under the swap. The `retry_after_ms ≥ 1`
+   floor was untested too (a sub-millisecond remainder rounds to 0, which C-28 forbids); fixed the same way.
+3. **Two team-isolation gaps, found by the verifier, closed by the fixer with failing-first tests.** A running
+   `message watch` never re-authorised: after `team leave` it kept emitting messages (4.5.7 says a revoked
+   principal is `unauthorized` on EVERY verb that touches the team). Now every poll and every stdin command
+   re-applies the membership check; a revocation ends the watch with one `unauthorized` error event and exit 5
+   within a poll interval (the command-handler half is covered only through the drain's test, because the two paths
+   converge within 200 ms). And `message send` to a session whose owner had left was accepted into a dead inbox
+   (4.5.6: a session outside the team "cannot be messaged", and C-08 already hides it from `session list`); now the
+   uniform `not_found`, byte-identical to an unknown id.
+4. **The lint gate did not lint the three real twins.** `.golangci.yml` set `run.build-tags` to ALL THREE mutant
+   tags at once, which excludes every `//go:build !mutant_*` file from the build golangci-lint sees — so
+   `store_ack.go`, `store_list.go` and `store_send.go` had never been linted, the opposite of the plan 7.3
+   comment's intent. Measured both ways with a planted unused function (0 issues from the config-tagged run; 1 from
+   the corrected one). `make lint` now runs the plain build plus one run per tag on `internal/adapters/fs`, with
+   the tags on the command line (the config line would override them). Together with the GOOS finding above, the
+   lint gate had two separate blind spots this session; both are now measured closed.
+
+**Plan corrections (all measured):**
+
+- **P1-5's "source under about 500 lines excluding mutants" is off by six.** Non-test, non-mutant Go is 3,181 lines
+  (about 2,500 without comments and blanks); mutants 133; tests about 2,700. Nothing in the spec was cut to chase
+  the estimate, per Rjae's directive. The estimate belongs to a sketch of the adapter, not to the protocol as
+  frozen: twenty commands, a polling watch with stdin commands, four rate windows and two caps, explicit and
+  implicit hop counting, idempotency, resume, retention and a four-state profile machine.
+- **C-40 as written ("100 messages sent while the watch is stopped") is unsatisfiable through the protocol on ANY
+  conforming adapter**: `limits.max_unacked_per_recipient` is 60, so the 61st unacknowledged message to one
+  recipient MUST be `rate_limited`. The verifier produced 60 through `message send` and wrote 40 more into the
+  store directly (all 100 were emitted, so the drain has no page limit). P1-6 writes the case at 60 (above the
+  50-message default page of `message receive`, which is what "paging works" tests).
+- **"`mutant_noack` fails exactly C-30 and C-36" cannot hold.** C-29b's implicit chain must ping-pong on ONE
+  session pair (4.5.12 keys the implicit hop on the pair), so reaching `max_hop_count = 32` puts 17 messages on
+  one pair, two past `max_unacked_per_sender_recipient = 15`; only `message ack` gets through, so a no-ack adapter
+  necessarily fails C-29b (measured: the chain stops at hop 30 with `sender_quota_for_recipient`). C-28 and C-29
+  CAN be written ack-free (several recipients for the rate windows; a fresh session pair per hop for the explicit
+  chain) and then survive the mutant. P1-6's expected set for `mutant_noack` is `{C-29b, C-30, C-36, C-41}` (C-41's
+  restart check is a stdin-ack check), asserted EXACTLY; `teamleak` → `{C-12, C-26}` and `trustsender` →
+  `{C-23, C-24}` were confirmed exact.
+- **The frozen per-principal budget (60/min) is smaller than the suite's own appetite**: one heavy case drains a
+  principal for a minute and the whole fs run takes seconds, so the plan's three-principal fixture cannot carry
+  C-28 and C-40 back to back. P1-6 provisions fresh principals per heavy case through `team join` (and skips those
+  cases, with a reason, on a `--setup`-provisioned adapter that lacks `team.join`).
+
+**BAP/1.x questions for Rjae, recorded and NOT changed (the spec is frozen):** (a) 4.4.9 keys the watch's SURVIVAL
+on `error.retryable` while 4.3 makes the flag advisory and derivable from `code` — a rejected `heartbeat` command is
+`invalid_input` (never retryable by code) yet must not kill the watch, so the fs adapter sends `retryable: true`
+there; the text should say the watch's flag means "fatal or not". (b) `describe` carries no poll-interval member,
+so C-35's "two poll intervals" cannot be read by the suite; P1-6 uses 5 s for polling adapters too. (c) Whether a
+watch must re-check membership per drain and whether a revoked member's session is "outside the team" for `send`
+— the fs adapter now answers yes to both; Supabase's RLS will behave the same; the text could say so. (d) 4.4.5's
+example and the testdata file show `"reply_to": null` while the Go type omits an absent `reply_to` (both legal
+under convention 4). (e) A `message watch` failure raised during argv setup (a poison flag, a bad leading
+`--log-level`) answers with a 4.3 envelope, while one raised after dispatch answers with an NDJSON `error` event —
+one line either way, and C-37 passes, but two shapes on one command.
+
+**Adapter decisions recorded (all cited to the spec by the author; none re-opens a frozen shape):** identifiers used
+as path components are accepted only as `[A-Za-z0-9_-]{1,64}` (anything else is simply "not found", so no `..`
+can escape the root); the idempotency record stores `recipient_session_id` and `hop_count` so a duplicate send can
+answer the ORIGINAL `SendResponse` after the message was acknowledged and swept; `seq` is unix nanoseconds floored
+at one past the recipient's highest so far (monotonic across acks, deletions and a backwards clock); an empty
+leading `--profile`/`--root` value is `usage`; `rejoined` is true whenever a member file for the principal already
+exists, whatever its status (C-08 rejoins AFTER the profile was unbound); the retention sweep runs once per
+command, not per watch poll; `team members` computes `last_seen_at` over sessions in any state (`null` with none)
+and `session_count` over non-offline ones; the three mutant pairs hold only the functions that differ
+(`ackMessages`; `collectSessions`; `decodeSendRequest` + `resolveSenderSession`).
+
+**Known residuals:** the `--prompt` TTY input path of `team create`/`team join` is implemented but only its
+non-TTY refusal (B-7) is tested (adapterkit's PTY helper is package-private); and (e) above.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -899,3 +995,11 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   had to be re-derived. Brief from Rjae: work autonomously to the end of Phase 1 (P1-5..P1-8, then the exit criteria,
   then STOP). First act: `gh run list` showed CI red for the last three pushes — see "Phase 1 corrections found on
   P1-5 entry" above.
+- 2026-09-02 ~06:30: **P1-5 done.** One Opus author, one Opus adversarial verifier, one Opus fixer (plus the
+  driver's own lint and protocol corrections beforehand). The verifier drove all 45 conformance cases and Appendix B
+  against the binary and found the decisive defect again — a live join secret written into the working directory by
+  `--secret-file` with a relative path, and an unrecoverable bound profile on a write failure — plus an instrument
+  that could not fail (the cap-order test) and a second lint blind spot (the real mutant twins were never linted).
+  Two isolation gaps (watch never re-authorised; send to a revoked member's session accepted) were closed with
+  failing-first tests. Four plan corrections recorded above, the largest being the 500-line estimate (actual 3,181).
+  Next: **P1-6** (Fable) from `.ignored/briefs/p1-6-conformance.md`, already written against the verifier's findings.

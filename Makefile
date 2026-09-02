@@ -24,6 +24,7 @@ golangci_version   := v2.13.2
 goreleaser         := $(bin_dir)/goreleaser
 goreleaser_version := v2.18.0
 ld_flags            = -s -w -X github.com/appshapes/brigade/internal/buildinfo.Version=$(version)
+mutant_tags        := mutant_noack mutant_teamleak mutant_trustsender
 ld_flags_dev        = -s -w -X github.com/appshapes/brigade/internal/buildinfo.Version=$(version)-dev
 plugin_json        := plugin/.claude-plugin/plugin.json
 plugin_version     := $(shell cat plugin/bin/VERSION)
@@ -139,6 +140,11 @@ fmt: ## gofmt + goimports through golangci-lint
 # 33578789887, 33581196998) before anyone looked. GOOS steers golangci-lint's package loading exactly as it
 # steers `go build`, and the darwin pass on a darwin host is the native run, so nothing is linted twice
 # for a different reason than "the other platform's files".
+#
+# The three mutant tags are applied ONE AT A TIME, on the one package that has mutants, and never in the
+# config: `.golangci.yml`'s former `run.build-tags: [all three]` excluded every `//go:build !mutant_*` twin,
+# so the REAL ack, list and send implementations were never linted (measured in P1-5 with an unused function
+# planted in each twin: 0 issues from the config-tagged run, 1 from each of these).
 .PHONY: lint
 lint: ## golangci-lint for darwin AND linux (config verify + run, formatters included) and a plain gofmt check
 	$(golangci_lint) config verify
@@ -149,6 +155,10 @@ lint: ## golangci-lint for darwin AND linux (config verify + run, formatters inc
 	  test -z "$$out" || { echo "$$out"; exit 1; }
 	GOOS=darwin $(golangci_lint) run ./...
 	GOOS=linux $(golangci_lint) run ./...
+	@for t in $(mutant_tags); do \
+	  echo "$(golangci_lint) run --build-tags $$t ./internal/adapters/fs/..."; \
+	  $(golangci_lint) run --build-tags $$t ./internal/adapters/fs/... || exit 1; \
+	done
 
 .PHONY: lint-fix
 lint-fix: ## golangci-lint --fix and fmt

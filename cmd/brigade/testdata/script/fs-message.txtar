@@ -1,0 +1,137 @@
+# The filesystem adapter's message path, through the real binary (P1-5).
+#
+# send → receive → ack → idempotency → a forged sender member → the
+# byte-identity of the uniform not_found. That is C-20, C-21, C-22, C-23,
+# C-25 and C-30, and the last block is the one that only a script can make
+# obvious: the answer for a foreign id and the answer for a random id are
+# compared with cmp, byte for byte.
+
+stdin create.json
+exec brigade-adapter-fs team create
+cp stdout created.json
+jsonenv created.json .result.join_secret SECRET
+
+expand join.in join.json
+stdin join.json
+exec brigade-adapter-fs --profile bob team join
+json stdout .result.rejoined false
+
+stdin register-a.json
+exec brigade-adapter-fs session register
+cp stdout a.json
+jsonenv a.json .result.session_id ALICE
+
+stdin register-b.json
+exec brigade-adapter-fs --profile bob session register
+cp stdout b.json
+jsonenv b.json .result.session_id BOB
+
+# --- send stamps the sender from the adapter's own authority (C-20) -----
+expand send.in send.json
+stdin send.json
+exec brigade-adapter-fs message send
+json stdout .ok true
+json stdout .result.status accepted
+json stdout .result.duplicate false
+json stdout .result.hop_count 0
+cp stdout sent.json
+jsonenv sent.json .result.message_id MSG
+
+exec brigade-adapter-fs --profile bob message receive --session $BOB
+json stdout .result.messages.0.message_id $MSG
+json stdout .result.messages.0.kind text
+json stdout .result.messages.0.delivery_state accepted
+json stdout .result.messages.0.hop_count 0
+json stdout .result.messages.0.sender.session_id $ALICE
+json stdout .result.messages.0.sender.session_name payments-api
+json stdout .result.messages.0.sender.human_label alice@example.com
+
+# --- the same key twice is one message (C-21), a different body is a
+# --- conflict (C-22) -----------------------------------------------------
+stdin send.json
+exec brigade-adapter-fs message send
+json stdout .result.message_id $MSG
+json stdout .result.duplicate true
+
+expand send-other.in send-other.json
+stdin send-other.json
+status 7 brigade-adapter-fs message send
+json stdout .error.code conflict
+json stdout .error.details.reason idempotency_key_reused
+
+# --- ack is idempotent and scoped to the addressed session (C-30) -------
+expand ack.in ack.json
+stdin ack.json
+exec brigade-adapter-fs message ack --session $ALICE
+json stdout .result.unknown.0 $MSG
+
+stdin ack.json
+exec brigade-adapter-fs --profile bob message ack --session $BOB
+json stdout .result.acked.0 $MSG
+stdin ack.json
+exec brigade-adapter-fs --profile bob message ack --session $BOB
+json stdout .result.acked.0 $MSG
+
+exec brigade-adapter-fs --profile bob message receive --session $BOB
+stdout '"messages":\[\]'
+! stdout $MSG
+
+# --- a caller-supplied sender member is refused before anything else ----
+expand forged.in forged.json
+stdin forged.json
+status 3 brigade-adapter-fs message send
+json stdout .error.code invalid_input
+json stdout .error.details.field sender
+json stdout .error.details.reason forbidden_member
+
+# --- the uniform not_found is byte-identical (C-25) ---------------------
+# A recipient of another team and a recipient that does not exist must be
+# indistinguishable, or the error itself is an existence oracle.
+stdin create-other.json
+exec brigade-adapter-fs --profile carol team create
+stdin register-c.json
+exec brigade-adapter-fs --profile carol session register
+cp stdout c.json
+jsonenv c.json .result.session_id CAROL
+
+expand send-foreign.in send-foreign.json
+stdin send-foreign.json
+status 6 brigade-adapter-fs message send
+json stdout .error.code not_found
+cp stdout foreign.txt
+
+expand send-random.in send-random.json
+stdin send-random.json
+status 6 brigade-adapter-fs message send
+cmp stdout foreign.txt
+
+# The positive control: a DIFFERENT failure is not the same bytes, so the
+# comparison above can actually fail.
+stdin forged.json
+status 3 brigade-adapter-fs message send
+! cmp stdout foreign.txt
+
+-- create.json --
+{"team_name": "ops", "human_label": "alice@example.com"}
+-- create-other.json --
+{"team_name": "other", "human_label": "carol@example.com"}
+-- join.in --
+{"join_secret": "$SECRET", "human_label": "bob@example.com"}
+-- register-a.json --
+{"harness": "claude-code", "harness_version": "2.1.251", "session_name": "payments-api", "activity": "busy", "inbound": "accept"}
+-- register-b.json --
+{"harness": "claude-code", "harness_version": "2.1.251", "session_name": "billing", "activity": "idle", "inbound": "accept"}
+-- register-c.json --
+{"harness": "claude-code", "harness_version": "2.1.251", "session_name": "outsider", "activity": "busy", "inbound": "accept"}
+-- send.in --
+{"sender_session_id": "$ALICE", "recipient_session_id": "$BOB", "body": "the tenant_id migration has landed", "summary": "migration completed", "idempotency_key": "k-1"}
+-- send-other.in --
+{"sender_session_id": "$ALICE", "recipient_session_id": "$BOB", "body": "a different body", "idempotency_key": "k-1"}
+-- ack.in --
+{"message_ids": ["$MSG"]}
+-- forged.in --
+{"sender_session_id": "$ALICE", "recipient_session_id": "$BOB", "body": "who sent this?", "sender": {"session_id": "$BOB"}}
+-- send-foreign.in --
+{"sender_session_id": "$ALICE", "recipient_session_id": "$CAROL", "body": "across the team boundary"}
+-- send-random.in --
+{"sender_session_id": "$ALICE", "recipient_session_id": "ffffffffffffffffffffffffffffffff", "body": "across the team boundary"}

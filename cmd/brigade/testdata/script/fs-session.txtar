@@ -1,0 +1,100 @@
+# The filesystem adapter's session lifecycle, through the real binary (P1-5).
+#
+# register → list → heartbeat → close → resume, which is C-10, C-11, C-12,
+# C-13, C-15, C-19 and C-19b in one pass. Every session id is learned from
+# one command's output and becomes the next command's argument, so nothing
+# here is hard-coded — and `session list` is deliberately never indexed
+# beyond the single-session case: the protocol guarantees no ordering.
+
+stdin create.json
+exec brigade-adapter-fs team create
+cp stdout created.json
+jsonenv created.json .result.team_ref TEAMREF
+
+# --- register mints an opaque id and an active session ------------------
+stdin register.json
+exec brigade-adapter-fs session register
+json stdout .ok true
+json stdout .result.state active
+json stdout .result.resumed false
+json stdout .result.lease_seconds 90
+json stdout .result.human_label alice@example.com
+json stdout .result.is_self false
+cp stdout registered.json
+jsonenv registered.json .result.session_id SID
+
+exec brigade-adapter-fs session list --session $SID
+json stdout .result.team_ref $TEAMREF
+json stdout .result.team_name ops
+json stdout .result.truncated false
+json stdout .result.sessions.0.session_id $SID
+json stdout .result.sessions.0.is_self true
+
+# --- two registrations with one name are two sessions (C-11) ------------
+stdin register.json
+exec brigade-adapter-fs session register
+cp stdout registered2.json
+jsonenv registered2.json .result.session_id SID2
+! json stdout .result.session_id $SID
+
+exec brigade-adapter-fs session list
+stdout $SID
+stdout $SID2
+
+# --- heartbeat applies the new metadata and renews the lease ------------
+stdin heartbeat.json
+exec brigade-adapter-fs session heartbeat --session $SID
+json stdout .result.session_id $SID
+json stdout .result.state idle
+exec brigade-adapter-fs session list --session $SID
+stdout '"session_name":"renamed"'
+stdout '"inbound":"hold"'
+
+# An id this profile does not own is the uniform not_found (C-13).
+stdin heartbeat.json
+status 6 brigade-adapter-fs session heartbeat --session ffffffffffffffffffffffffffffffff
+json stdout .error.code not_found
+json stdout .error.retryable false
+! stdout details
+
+# --- close is idempotent, and a closed session refuses a heartbeat ------
+exec brigade-adapter-fs session close --session $SID
+json stdout .result.state offline
+json stdout .result.session_id $SID
+exec brigade-adapter-fs session close --session $SID
+json stdout .result.state offline
+stdin heartbeat.json
+status 7 brigade-adapter-fs session heartbeat --session $SID
+json stdout .error.details.reason session_closed
+
+# A closed session is out of the list unless --include-offline (C-14).
+exec brigade-adapter-fs session list
+! stdout $SID
+stdout $SID2
+exec brigade-adapter-fs session list --include-offline
+stdout $SID
+stdout '"state":"offline"'
+
+# --- resume re-opens the closed session in place (C-19) -----------------
+expand resume.in resume.json
+stdin resume.json
+exec brigade-adapter-fs session register
+json stdout .result.session_id $SID
+json stdout .result.resumed true
+json stdout .result.state active
+
+# A resume of a session that is open with a valid lease is a conflict, and
+# the session is left alone (C-19b).
+stdin resume.json
+status 7 brigade-adapter-fs session register
+json stdout .error.code conflict
+json stdout .error.details.reason session_live
+
+-- create.json --
+{"team_name": "ops", "human_label": "alice@example.com"}
+-- register.json --
+{"harness": "claude-code", "harness_version": "2.1.251", "session_name": "payments-api", "activity": "busy", "inbound": "accept"}
+-- heartbeat.json --
+{"activity": "idle", "session_name": "renamed", "inbound": "hold", "lease_seconds": 120}
+-- resume.in --
+{"harness": "claude-code", "harness_version": "2.1.251", "session_name": "payments-api", "activity": "busy", "inbound": "accept", "resume": {"session_id": "$SID"}}
