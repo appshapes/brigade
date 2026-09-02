@@ -810,7 +810,7 @@ outward-facing call** (see the hand-off).
 
 | Criterion | Evidence |
 | --- | --- |
-| CI `fast` and `macos` jobs green | **run 33604039333 on `81ff5eb`**: `fast` success, `macos` success, `reproducibility` success (`supabase` gated until P2-1) — with `make checksums-check` and `make plugin-check` un-gated and running in `fast` |
+| CI `fast` and `macos` jobs green | **run 33604975116 on `c1bf8b7`** (the SIGTERM-ordering fix, the last code commit of Phase 1): `fast` success, `macos` success, `reproducibility` success (`supabase` gated until P2-1) — with `make checksums-check` and `make plugin-check` un-gated and running in `fast`. Earlier: run 33604039333 on `81ff5eb` green; run 33604389754 on the log-only `17b2ab1` red with the C-38 race described below |
 | conformance green on the fs adapter | `bin/brigade-conformance --shared-env BRIGADE_FS_ROOT --adapter bin/brigade-adapter-fs` → 44 passed, 0 failed, 1 skipped (C-14, `slow`), 20.3 s wall; `--slow` → 45 passed, 0 failed, 0 skipped in 26.3 s; `make test` runs it on every gate and in CI |
 | the RFC committed | `docs/protocol-v1.md`, BAP/1, frozen at `702e047`, 939 lines; its Appendix B is consumed by the suite except B-3/B-4 (receiver-side, harness unit tests in P3) and B-9/B-10 (unobservable within the suite's budget; adapter-specific tests) |
 | the bootstrap tested against a local server | `internal/harness/bootstrap/bootstrap_test.go` (25 subtests against an `httptest` release server, macOS `/bin/sh` and `dash` locally, Ubuntu dash + `sha256sum` in CI) plus `scripts/ci/bootstrap-alpine.sh` (busybox ash + wget + sha256sum in `alpine:3.20`, 3/3 PASS, run three times) |
@@ -823,7 +823,7 @@ seen on this machine; the slower CI runner under `-race` widened the window. Fix
 handler is installed before anything is written, and `TestWatchExitsZeroWhenSignalledOnReady` drives the real binary
 eight times, signalling at the earliest observable moment (a race cannot be made to fail on demand; the test
 documents the contract and catches a regression on any machine slow enough to show it). The CI run on that commit is
-the final evidence for criterion 1; its id is recorded in the journal entry below.
+the final evidence for criterion 1: **run 33604975116 on `c1bf8b7`, green on `fast`, `macos` and `reproducibility`.**
 
 Phase 1 ran from `0af93a1` (P1-1, 2026-09-01) to `81ff5eb` (P1-7, 2026-09-02) plus the SIGTERM-ordering fix. Everything is on `master`, the tree
 is clean, and nothing is retained outside the repository. **E0-10 stays `blocked (D32)`** and is not a Phase 1 item.
@@ -1251,3 +1251,6 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
 - 2026-09-02 ~10:00: **PHASE 1 COMPLETE** — all four exit criteria verified (block above), CI run 33604039333 green
   on `81ff5eb`. Hand-off written to `.ignored/handoff-15-phase-2.md`. This session (`15-implement-brigade-0902`)
   STOPS here per Rjae's brief and edits nothing further.
+- 2026-09-02 ~11:00: CI on the log-only commit `17b2ab1` exposed one last race in the fs watch (SIGTERM before the
+  handler; C-38 in the `mutant_trustsender` run). Fixed in `c1bf8b7`; **run 33604975116 green on every job.** Phase 1
+  is complete on `c1bf8b7`; this entry's commit is log-only. Hand-off: `.ignored/handoff-15-phase-2.md`. STOP.
