@@ -67,7 +67,7 @@ stdin heartbeat.json
 status 7 brigade-adapter-fs session heartbeat --session $SID
 json stdout .error.details.reason session_closed
 
-# A closed session is out of the list unless --include-offline (C-14).
+# A closed session is out of the list unless --include-offline (C-12; C-14 is the lease-expiry twin).
 exec brigade-adapter-fs session list
 ! stdout $SID
 stdout $SID2

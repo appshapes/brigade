@@ -69,7 +69,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P1-4 | `docs/protocol-v1.md` + adapter-authors skeleton | done | Fable | this commit — **BAP/1 FROZEN**; all ten decisions honoured in prose AND code; **owner review WAIVED by Rjae 2026-09-01** (see below); 11 MUSTs without a conformance case listed for P1-6 |
 | P1-5 | `cmd/brigade-adapter-fs` + mutants | done | Opus | this commit — full gate green; **the verifier drove all 45 cases + Appendix B against the binary (1,241 runs)**; 2 code + 2 instrument defects fixed, 2 isolation gaps closed; **3,181 lines vs the plan's "about 500"** (see below) |
 | P1-6 | `internal/conformance` + `cmd/brigade-conformance` | done | Fable | this commit — full gate green; **45 cases, fs run 44 pass / 1 skip (C-14 slow) in about 20 s, 45/0 with `--slow` in about 26 s**; every case PROVEN able to fail (41 at once, 4 strengthened); four mutants fail exactly their sets; **the plan's 5 s target is not reachable** (see below) |
-| P1-7 | `docs/adapter-authors.md` complete | todo | Opus | |
+| P1-7 | `docs/adapter-authors.md` complete | done | Opus | this commit — 1,950 lines; **a doc-only implementer (allowed to read nothing else) built `describe` + `session list` and passed C-01/C-02/C-05/C-06 in three successive rounds**, 308 claims traced to the spec or measured; the contributor brief refreshed (local file only) |
 | P1-8 | `plugin/bin/brigade` bootstrap + plugin checks | done | Opus | this commit — full gate green; `make plugin-check checksums-check` green in the pre-release state; **CI un-gated** (`checksums-check`, `plugin-check`); bootstrap tested on sh/bash/zsh/dash/ksh and busybox ash (alpine, wget); **61 checks proven able to fail, 3 strengthened** (see below) |
 | P2-1..P2-5 | Supabase schema, RPCs, realtime/housekeeping, pgTAP, advisor lints | todo | Fable | SQL and RLS |
 | P2-6..P2-12 | Go Supabase client, profile/team/session/message commands, watch, integration, release rehearsal | todo | Fable (P2-6/P2-7/P2-10) · Opus (P2-8/P2-9/P2-11/P2-12) | credentials and watch are Fable-tier |
@@ -765,6 +765,47 @@ driver's inner ash script is a quoted heredoc and so outside `shellcheck`'s reac
 `plugin-check.sh`'s shellcheck glob will cover them the moment they land; after the first tag, a developer without
 `gh` cannot get a green `make checksums-check` when the source has moved on (the script says so rather than passing).
 
+## P1-7 DONE — the adapter authors guide, proven by a reader who was allowed to read nothing else
+
+One Opus author, three rounds of an independent DOC-ONLY implementer (a fresh agent permitted to read only
+`docs/adapter-authors.md` and to run `bin/brigade-conformance`; every file it opened is listed in its report and
+none was the spec, the adapter, the suite or a brief), an author fix after each round, and one adversarial reviewer.
+The acceptance criterion of the plan row — "a reader can implement `describe` + `session list` from the doc alone" —
+was run as an experiment, not a read-through: each round's implementer built a standalone adapter (Go, its own
+module, no Brigade import) and ran `--only C-01,C-02,C-05,C-06`; all three PASSED on the first suite invocation, and
+each round's list of guesses and contradictions became document text (the gaps closed: where a store-backed
+adapter's root comes from and when it is validated, empty `--profile`, non-object stdin, which parts of an error are
+frozen and which are the author's, identifier shapes, the 0600 rule on `profile.json`, how "advertise exactly what you
+implement" coexists with the two advertisements that may run ahead of the code, `team leave` when unbound,
+`lease_seconds` in full, convention flags versus a stdin document, the label on a rejoin, the suite's child
+environment stated once and completely). The reviewer traced 308 claims, re-ran every pasted command (only ids,
+timestamps and durations differed), diffed the three embedded txtar scripts byte for byte, and fixed nine
+statements — the sharpest: the page had sold the unbound-profile code as a free choice between 4 and 11, but 4.6 pairs
+each code with a state and C-08 asserts `config` after `team leave` exactly; four places said "both bundled adapters"
+about an adapter that does not exist yet; a third SKIP cause (`--setup` without a known secret skips C-28 and C-40)
+was missing; the shuffle seed is on the header line, not the summary.
+
+**Two things it surfaced beyond the document.** (1) The acceptance set `--only C-01,C-02,C-05,C-06` builds the
+fixture, so a partial adapter on the self-provisioning route must advertise `team.join`, and nothing in those four
+cases then checks `team leave` — the half-kept promise the round-2 implementer deliberately shipped passed. The page
+says so; the suite gap (nothing exercises `--limit`, a missing `--session`, an unrecognised `--session`) joins
+Appendix B's list for a BAP/1.x pass. (2) `cmd/brigade/testdata/script/fs-session.txtar` credited its
+closed-session check to C-14; the case is C-12 (C-14 is the lease-EXPIRY twin). Fixed in the script and in the
+page's embedded copy in this commit.
+
+**BAP/1.x questions added:** (i) 4.1's stderr recommendation names NDJSON members (`ts`, `event`) that no shipped
+component emits (`adapterkit/log` is a stock `slog` JSON handler: `time`, `level`, `msg`); (j) a recognised CORE verb
+an adapter has not implemented on a bound profile has no code in 4.2/4.6 — the page prescribes `internal` (exit 1)
+with a `details.reason`; (k) the launcher's end-of-run directory walk makes "never persist a raw join secret" a hard
+conformance requirement that no normative sentence states; (l) 4.4.1 and the page say "the bundled adapters answer
+`none`" for `delivery.ordering` — one adapter exists today. Recorded adapter facts, not defects: a mistyped member is
+reported as `malformed_json` without `details.field`; a top-level `null` decodes as an empty request; the credential
+file keeps `last_team_ref` after `team leave` (documented in the fs README's spirit, worth a line there); the fs
+adapter's `error.details` member ORDER is non-deterministic across runs (JSON-insignificant; the two byte-identical
+errors carry no `details`). The external contributor's brief (`.ignored/adapter-contributor-early-start.md`) was
+refreshed to the present facts as a local file; **the published artifact was NOT republished — that is Rjae's
+outward-facing call** (see the hand-off).
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1176,3 +1217,8 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   order-dependent cases found only by shuffling). The measured floor of the fs run is about 20 s against the plan's
   5 s; recorded as a correction, nothing mandated was shortened. Next: **P1-7** (Opus, docs) and **P1-8** (Opus,
   bootstrap + CI scripts), briefs at `.ignored/briefs/p1-7-adapter-authors.md` and `p1-8-bootstrap.md`.
+- 2026-09-02 ~09:40: **P1-7 done**; **P1-8 done** (see its block: the bootstrap's loopback rule was a real bypass on this
+  machine, fixed; the background-download test could not tell background from synchronous, fixed). One CI red on the
+  P1-8 push: Ubuntu's older `shellcheck` reports SC2015 on an `A && B || C` chain in `release-verify.sh` that the local
+  0.11 does not — rewritten as `if`, so the check no longer depends on the shellcheck version. Next: the Phase 1 exit
+  criteria, then STOP and hand off.
