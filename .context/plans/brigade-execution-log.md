@@ -2076,3 +2076,7 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   now waits for that line with a bounded poll (`waitgrep.sh`) before the SIGINT. Rule restated: a test that asserts
   a state which follows an observed event by another goroutine or process waits for THAT state, never for the
   event.
+- 2026-09-03 ~14:25: **CI run 33760083628 on `7eb6a55` green on every job.** Phase 3's automated work is complete and at
+  rest on master; the day's five CI reds after the Phase 3 close were all real test-isolation defects or a real
+  Linux path defect, each fixed at its cause and recorded above. Open: P3-8 (Rjae, `docs/experiments/
+  E3-interactive.md`), the `license` field, Phase 4 (`.ignored/handoff-15-phase-4.md`).
