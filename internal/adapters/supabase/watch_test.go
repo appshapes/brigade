@@ -662,11 +662,17 @@ func TestWatchPushReadyLiveAndHints(t *testing.T) {
 }
 
 // TestWatchTimerOnlyDoesNotDrainEarly is the negative control for plan
-// 5.6's drain timer: at the shipped 30 s a message accepted WITHOUT a
-// hint is not fetched within 5 s. The channel is the fast path and the
-// timer only bounds what a lost hint costs — one RPC per 30 s per
-// watcher, not one per second — so the suite's deadlines (C-08, C-35) are
-// met by hints and never by this timer.
+// 5.6's drain timer at the SHIPPED intervals, in two halves. First the
+// settling window: a message accepted WITHOUT a hint right after the
+// join is found by the two 3 s settling drains (watchTiming.settle) —
+// the fan-out to a fresh join is not warm at once, and this is what
+// bounds a lost broadcast to ~3 s instead of 30. Then the steady state:
+// once those two drains have run, a hint-less message is NOT fetched
+// within 5 s, because the live timer is 30 s. The channel is the fast
+// path and the timer only bounds what a lost hint costs — one RPC per
+// 30 s per watcher, not one per second — so the suite's deadlines
+// (C-08, C-35) are met by hints and the settling drains, never by this
+// timer.
 func TestWatchTimerOnlyDoesNotDrainEarly(t *testing.T) {
 	t.Parallel()
 	r, ph, in := watchRig(t)
@@ -674,12 +680,20 @@ func TestWatchTimerOnlyDoesNotDrainEarly(t *testing.T) {
 	w.expectReady()
 	ph.nextJoin()
 	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
-	before := in.settled(t, 2)
+	in.settled(t, 2)
 
-	in.accept("no hint")
+	lost := in.accept("no hint, lost right after the join")
+	joined := time.Now()
+	if got := messageID(t, w.expect(protocol.EventMessage, 2*watchTiming.settle)); got != lost {
+		t.Fatalf("message %s, want the hint-less %s found by a settling drain", got, lost)
+	}
+	t.Logf("the settling drain found a hint-less message %s after the join (settle %s)", time.Since(joined).Round(time.Millisecond), watchTiming.settle)
+	before := in.settled(t, 4)
+
+	in.accept("no hint, after the settling drains")
 	w.quiet(5 * time.Second)
 	if got := in.fetched(); got != before {
-		t.Fatalf("fetch_inbox ran %d more time(s) within 5 s with no hint; the live drain timer is %s, want none", got-before, watchTiming.drainLive)
+		t.Fatalf("fetch_inbox ran %d more time(s) within 5 s with no hint once settling was over; the live drain timer is %s, want none", got-before, watchTiming.drainLive)
 	}
 	if code := w.exit(); code != 0 {
 		t.Fatalf("exit %d, want 0 on stdin EOF (C-38)", code)
@@ -1252,6 +1266,97 @@ func drainTiming(t *testing.T, live, polling time.Duration) {
 	watchTiming.drainLive = live
 	watchTiming.drainPolling = polling
 	t.Cleanup(func() { watchTiming = saved })
+}
+
+// settleTiming sets the settling drains' interval for one non-parallel
+// test and restores it afterwards.
+func settleTiming(t *testing.T, settle time.Duration) {
+	t.Helper()
+	saved := watchTiming
+	watchTiming.settle = settle
+	t.Cleanup(func() { watchTiming = saved })
+}
+
+// TestWatchSettleDrainFindsARevocationWhileTheJoinIsPending: C-08's other
+// CI failure (run 33756168929, no error event within the 5 s budget). The
+// join takes longer than the budget and NO broadcast reaches the watch,
+// so only a timer can find the revocation; the polling timer is an hour
+// here, and the settling drain armed at `ready` finds it inside 2 s.
+// The negative arm proves the settling drain is what found it: with the
+// settling interval at an hour too, nothing arrives within 2 s.
+func TestWatchSettleDrainFindsARevocationWhileTheJoinIsPending(t *testing.T) {
+	drainTiming(t, time.Hour, time.Hour)
+	for _, arm := range []struct {
+		name   string
+		settle time.Duration
+		found  bool
+	}{
+		{"settling drain 300ms finds it", 300 * time.Millisecond, true},
+		{"negative control: settling drain 1h, nothing finds it", time.Hour, false},
+	} {
+		t.Run(arm.name, func(t *testing.T) {
+			settleTiming(t, arm.settle)
+			r, ph, in := watchRig(t)
+			ph.joinDelay.Store(int64(10 * time.Second))
+			w := startWatch(t, r, "message", "watch", "--session", watchSession)
+			w.expectReady()
+			in.refuseAll(http.StatusForbidden, "42501", "brigade:unauthorized")
+			revoked := time.Now()
+			if !arm.found {
+				w.quiet(2 * time.Second)
+				if got := r.be.calls(rpcPath + "fetch_inbox"); got != 1 {
+					t.Errorf("fetch_inbox was called %d time(s), want 1: only the catch-up before the join completed", got)
+				}
+				return
+			}
+			event := w.expect(protocol.EventError, 2*time.Second)
+			object, _ := event["error"].(map[string]any)
+			if object["code"] != string(protocol.CodeUnauthorized) || object["retryable"] != false {
+				t.Fatalf("event = %v, want the uniform unauthorized with retryable false", event)
+			}
+			if code := w.wait(2 * time.Second); code != protocol.CodeUnauthorized.Exit() {
+				t.Fatalf("exit %d, want %d", code, protocol.CodeUnauthorized.Exit())
+			}
+			if got := r.be.calls(rpcPath + "fetch_inbox"); got != 2 {
+				t.Errorf("fetch_inbox was called %d time(s), want 2: the catch-up and the settling drain that found the revocation", got)
+			}
+			t.Logf("the settling drain ended the watch %s after a revocation no broadcast announced, with the join still pending", time.Since(revoked))
+		})
+	}
+}
+
+// TestWatchSettleDrainAfterJoinFindsALostBroadcast: a message accepted
+// right after the join whose broadcast never arrives (the fan-out to a
+// fresh join is not warm at once; measured after a Realtime restart in
+// CI run 33696302372) is found by the settling drains that follow the
+// join; once those two have run, the live timer (an hour here) is the
+// next drain, so a third hint-less message stays unseen — the control
+// that pins the cadence's END as well as its start.
+func TestWatchSettleDrainAfterJoinFindsALostBroadcast(t *testing.T) {
+	drainTiming(t, time.Hour, time.Hour)
+	settleTiming(t, 300*time.Millisecond)
+	r, ph, in := watchRig(t)
+	w := startWatch(t, r, "message", "watch", "--session", watchSession)
+	w.expectReady()
+	ph.nextJoin()
+	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
+	in.settled(t, 2)
+
+	lost := in.accept("broadcast lost right after the join")
+	if got := messageID(t, w.expect(protocol.EventMessage, 2*time.Second)); got != lost {
+		t.Fatalf("message %s, want the hint-less %s found by a settling drain", got, lost)
+	}
+	// Let the second settling drain run too, then the cadence is over.
+	in.settled(t, 4)
+	late := in.accept("accepted once settling is over")
+	w.quiet(1500 * time.Millisecond)
+	if got := in.fetched(); got != 4 {
+		t.Errorf("fetch_inbox ran %d time(s), want 4: the catch-up, the post-join drain and the two settling drains, then nothing until the hour-long live timer", got)
+	}
+	_ = late
+	if code := w.exit(); code != 0 {
+		t.Fatalf("exit %d, want 0 on stdin EOF (C-38)", code)
+	}
 }
 
 // TestWatchDrainTimerWhileLive: with the channel up, a message accepted

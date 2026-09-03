@@ -2050,3 +2050,15 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   instead of "gone" for that instant (harmless one poll later, wrong nonetheless). `ESRCH` now maps to gone beside
   `ENOENT`; verified with `GOOS=linux go vet`, a Linux test-binary compile and both lints (the darwin path is
   untouched). Lesson: a red on a log-only commit is still read, not re-run blind.
+- 2026-09-03 ~13:10: **CI run 33756168929 on `f450d2d`: `fast` green with the Linux fix; `supabase` red once on
+  conformance C-08** ("watch: no `error` event within 5s" after `team leave`; 44/1/0), green on re-run — the third
+  sighting in two days of a Realtime broadcast lost in the first seconds after a socket joined its topic (the
+  fault test after a container restart, `TestIntegrationWatchLiveDelivery` under load, now C-08's
+  membership_revoked). **Adapter change (plan 5.6 correction): the watch now runs two "settling" drains 3 s apart
+  after `ready` and after every join** (`watchTiming.settle`, `settleDrains`), so a broadcast lost while the fan-out
+  to a fresh join is not yet warm, or a revocation during a slow join, is found by an RPC within ~3 s — at most
+  four extra RPCs per start or rejoin; the steady 30 s / 10 s timers are untouched, and
+  `TestWatchTimerOnlyDoesNotDrainEarly` now pins both halves (found within the settling window; nothing within
+  5 s after it). Two new tests cover the pending-join revocation with a negative arm and the post-join lost
+  broadcast with the cadence's end. Every watch test green 3× under `-race -shuffle=on`; `make test-integration`
+  green (integration 137 s; conformance(supabase) `--slow` 45/0/0, C-08 0.47 s).

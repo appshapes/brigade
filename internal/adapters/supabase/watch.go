@@ -24,7 +24,8 @@ import (
 // before the join completes is never broadcast, E0-2 (f)), on EVERY
 // broadcast on the session's own topic (message_accepted from a send,
 // membership_revoked from leave_team, whatever a later migration adds),
-// and on a periodic timer — 30 s while joined, 10 s while polling — so a
+// and on a periodic timer — 30 s while joined, 10 s while polling, with
+// two 3 s "settling" drains after `ready` and after every join — so a
 // lost hint costs latency, never a message. The RPC is the authority on
 // ownership and membership every time it runs (owned_active_session),
 // which is what ends the watch of a revoked member with the uniform
@@ -64,6 +65,18 @@ var watchTiming = struct {
 	// watch has reported `status polling`, and before the first join (plan
 	// 5.6: 10 s — the latency a polling status announces).
 	drainPolling time.Duration
+	// settle is the interval of the settleDrains extra drains armed after
+	// `ready` and after every join. Measured three times on 2026-09-02/03
+	// (CI runs 33696302372 and 33756168929, a local run): a broadcast
+	// issued in the first seconds after a socket joined its topic — the
+	// membership_revoked of C-08's `team leave`, a message_accepted right
+	// after a Realtime restart — reached no socket, and the next drain was
+	// the 30 s live timer, past C-08's 5 s budget. The fan-out to a fresh
+	// join is not warm the instant phx_reply says ok, and a slow join
+	// leaves the pre-join window on the 10 s polling timer. Two drains 3 s
+	// apart bound what either costs to ~3 s without touching the steady
+	// cadence: at most four extra RPCs per start or rejoin.
+	settle time.Duration
 	// heartbeat is the phx heartbeat cadence (the 66 s server rule, E0-2).
 	heartbeat time.Duration
 	// joinTimeout bounds the wait for phx_join's reply; a refusal arrives
@@ -85,6 +98,7 @@ var watchTiming = struct {
 }{
 	drainLive:    30 * time.Second,
 	drainPolling: 10 * time.Second,
+	settle:       3 * time.Second,
 	heartbeat:    25 * time.Second,
 	joinTimeout:  15 * time.Second,
 	joinRetry:    60 * time.Second,
@@ -95,6 +109,10 @@ var watchTiming = struct {
 }
 
 // The status details this adapter emits (free text by 4.4.9; fixed here).
+// settleDrains is how many watchTiming.settle drains follow `ready` and
+// every join before the timer returns to drainLive/drainPolling.
+const settleDrains = 2
+
 const (
 	statusDetailJoined = "joined"
 )
@@ -148,6 +166,7 @@ type watcher struct {
 	attempts   int         // consecutive failed link attempts, for the backoff
 	reconnect  *time.Timer // fires connect
 	drainTimer *time.Timer // fires the periodic drain; re-armed after every drain
+	settling   int         // settle-interval drains still owed after `ready` or a join (settleDrains)
 	live       bool        // a `status live` is in force
 	polling    bool        // a `status polling` was reported since the last live
 	refreshed  bool        // the one forced refresh a bad-token refusal earns
@@ -195,8 +214,10 @@ func (w *watcher) run() int {
 		return w.finish(protocol.CodeInternal.Exit())
 	}
 	w.commands = c.readCommands(w.ctx)
-	w.drainTimer = time.NewTimer(w.drainInterval())
+	w.drainTimer = time.NewTimer(time.Hour)
 	defer w.drainTimer.Stop()
+	w.settling = settleDrains
+	w.rearm()
 	if w.link == nil {
 		if code, done := w.connect(); done {
 			return w.finish(code)
@@ -329,13 +350,20 @@ func (w *watcher) drainInterval() time.Duration {
 	return watchTiming.drainPolling
 }
 
-// rearm schedules the next timer-driven drain a whole interval from now.
-// Go's timers (go ≥ 1.23 semantics) discard an unreceived tick on Reset,
-// so a drain that ran on a hint never doubles with a stale tick.
+// rearm schedules the next timer-driven drain a whole interval from now —
+// watchTiming.settle while settling drains are owed, the state's interval
+// otherwise. Go's timers (go ≥ 1.23 semantics) discard an unreceived tick
+// on Reset, so a drain that ran on a hint never doubles with a stale tick.
 func (w *watcher) rearm() {
-	if w.drainTimer != nil {
-		w.drainTimer.Reset(w.drainInterval())
+	if w.drainTimer == nil {
+		return
 	}
+	d := w.drainInterval()
+	if w.settling > 0 {
+		w.settling--
+		d = watchTiming.settle
+	}
+	w.drainTimer.Reset(d)
 }
 
 // syncToken pushes the access token to the channel when a refresh (which
@@ -467,7 +495,10 @@ func (w *watcher) handleLink(ev linkEvent) (int, bool) {
 				return protocol.CodeInternal.Exit(), true
 			}
 		}
-		// Drain on join ok is mandatory, not an optimisation (E0-2 (f)).
+		// Drain on join ok is mandatory, not an optimisation (E0-2 (f)),
+		// and the settling drains follow it: the fan-out to a fresh join
+		// is not warm at once (watchTiming.settle).
+		w.settling = settleDrains
 		return w.drain()
 	case linkHint:
 		return w.onHint()
