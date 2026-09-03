@@ -81,15 +81,20 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P3-6, P3-7 | Bootstrap wiring, headless smoke | done | Opus | this commit — `make plugin-dev [adapter=fs] [profile=<p>]`, `plugin-check` checks 6 and 7, the harness-side contract in `docs/adapter-authors.md`, the fs onboarding under the plugin, `docs/experiments/E3-wiring.md` (the four acceptance items measured through `claude -p`) and `scripts/harness-smoke.sh` + `E3-smoke.md` (5 nested sessions green, 0 flakes); one Opus verifier re-ran the smoke and the onboarding itself; 24 checks proven able to fail |
 | P3-8 | Interactive checks (`docs/experiments/E3-interactive.md`) | **DONE — every check run or ruled out, none of it at a keyboard** (`scripts/experiments/E3-interactive/`, six drivers, ~45 pty sessions). 1–13 and 15 pass; 14 is N/A (`sandbox.enabled` off) | Opus | |
 | P4-1..P4-6 | Vertical proof, headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-1/P4-3/P4-4) | criterion 8 is Fable-tier |
-| P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof |
-| P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to Rjae's usual practice (see "Phase 6" below) | todo — **needs Rjae's example repositories as input** | Opus | added 2026-09-03 at Rjae's request; ordering caveat below |
+| P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to Rjae's usual practice (see "Phase 6" below) | todo — **needs Rjae's example repositories as input** | Opus | **runs after Phase 4 and BEFORE Phase 5** (Rjae, 2026-09-03) — the identifier stays P6, the order does not |
+| P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof **and after Phase 6** |
 
 ## Phase 6 — house conventions (added 2026-09-03, Rjae's request)
 
+**Order: after Phase 4, before Phase 5.** It is numbered P6 because it was added last; it is *run* fifth. The
+identifiers are not renumbered — `P5-1..P5-11` are referenced throughout the plan and this log, and renaming them
+to gain a tidier sequence would cost more than the tidiness is worth. Read the Status table top to bottom for the
+order and ignore the digits.
+
 Rjae has stayed deliberately hands-off about **GitHub workflows, scripting, test harnesses and `make` targets**,
 to keep the build moving rather than to endorse what is there. None of it was written to her conventions, because
-none of us asked. This phase closes that gap, and it is a **late** phase on purpose: the shapes should settle
-before they are reshaped.
+none of us asked. This phase closes that gap. It waits until after the vertical proof so the shapes have settled
+before they are reshaped, and it runs before Phase 5 so the reshaping lands before the first tagged release.
 
 **The input is hers.** She has many repositories that show the practice, and P6-1 is a reading task, not a
 guessing one. Nothing in P6-2..P6-4 should be invented from taste.
@@ -108,11 +113,16 @@ by-prefix `CLAUDE*` environment strip (an enumerated list is measurably short, E
 `15: <Imperative summary>`; merges only, never rebase. Where a convention collides with one of these, P6-5 records
 the collision rather than the code losing the guard.
 
-**Ordering caveat, stated once.** Anything that touches release plumbing (`release.yml`, `scripts/release-prep.sh`,
-`make release`, the checksum chain) is cheaper to reshape **before** the first tagged release than after, because
-after a release the plugin's pinned `version` and the published checksums make the workflow a compatibility
-surface. Phase 6 sits after Phase 5 as asked; if the workflow half is to move, moving it before P5's release task
-costs less. Rjae's call.
+**Why it sits here (settled 2026-09-03).** Anything that touches release plumbing (`release.yml`,
+`scripts/release-prep.sh`, `make release`, the checksum chain) is cheaper to reshape **before** the first tagged
+release than after: once a release exists, the plugin's pinned `version` and the published checksums make that
+workflow a compatibility surface, and a convention change becomes a migration. The phase was first placed after
+Phase 5; Rjae moved it ahead of Phase 5 on the strength of that, so the conventions land while the release
+plumbing is still free to change.
+
+**What this costs.** P5-11's release task now runs against workflows Phase 6 has just rewritten, so P6-5's
+re-verification is load-bearing: every gate must be green, and the release rehearsal (D1, `scripts/release-prep.sh`
+with `DRY_RUN`) is worth repeating after P6-2 lands rather than trusting the earlier rehearsal's result.
 
 ## Onboarding and the adapter model — reviewed 2026-08-31, DESIGN STANDS (do not re-open)
 
@@ -2231,4 +2241,13 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   usual practice from her own repositories as examples. P6-1 is a reading task over repositories she names — nothing
   downstream should be invented from taste. The section above lists the constraints a convention cannot override and
   one ordering caveat: release plumbing is cheaper to reshape before the first tagged release than after.
-  Open: Phase 4 from P4-1, then Phase 5, then Phase 6.
+  Open: Phase 4 from P4-1, then Phase 5, then Phase 6. *(Superseded the same day: Rjae moved Phase 6 ahead of
+  Phase 5 — the order is P4 → P6 → P5. See the entry below.)*
+- 2026-09-03 16:3x EDT: **Phase 6 moved ahead of Phase 5** (Rjae). The Status table now reads P4 → P6 → P5; the
+  identifiers are unchanged, because `P5-1..P5-11` is referenced throughout the plan and this log and renumbering
+  for tidiness would cost more than it returns. **Read the table's order, not the digits.** The reason is the one
+  recorded when the phase was added: release plumbing is cheaper to reshape before the first tagged release than
+  after, since the pinned plugin `version` and the published checksums turn `release.yml` into a compatibility
+  surface the moment a release exists. Consequence now written into the section: P5-11 will run against workflows
+  Phase 6 has just rewritten, so P6-5's re-verification is load-bearing and the D1 release rehearsal is worth
+  repeating after P6-2 rather than trusting the 2026-09-02 result.
