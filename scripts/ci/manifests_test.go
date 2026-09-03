@@ -29,6 +29,7 @@ const (
 	versionPinRel     = "plugin/bin/VERSION"
 	skillsDirRel      = "plugin/skills"
 	pluginDirRel      = "plugin"
+	licenseRel        = "LICENSE"
 )
 
 // versionLine is the Go spelling of the anchored sed the three shell readers use to pull the manifest's
@@ -215,12 +216,47 @@ func checkPluginForbiddenKeys(r reporter, root string) {
 	}
 	// hooks: hooks/hooks.json is auto-discovered, so a path field would be a second source of truth.
 	// mcpServers and channels: D34, and scripts/ci/plugin-check.sh check 4 fails on either anywhere under
-	// plugin/. commands: the plugin ships none. license: the repository has no LICENSE file, and a manifest
-	// must not claim one.
-	for _, key := range []string{"hooks", "mcpServers", "channels", "commands", "license"} {
+	// plugin/. commands: the plugin ships none.
+	//
+	// `license` used to be forbidden here, for the reason that the repository shipped no LICENSE file and a
+	// manifest must not claim one. The repository now ships one (plan 6.1 always specified `"license": "MIT"`),
+	// so the rule inverts rather than disappears: checkLicense below requires the manifest's claim and the
+	// shipped file to agree.
+	for _, key := range []string{"hooks", "mcpServers", "channels", "commands"} {
 		if _, present := m[key]; present {
 			r.Errorf("%s must not declare %q", pluginManifestRel, key)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// (c2) the licence the manifest claims is the licence the repository ships
+
+// checkLicense keeps the manifest's claim and the shipped file in step, in both directions: a manifest that
+// claims a licence the repository does not ship is the failure the old forbidden-key rule guarded against, and
+// a repository that ships one while the manifest stays silent is the same defect facing the other way.
+func checkLicense(r reporter, root string) {
+	r.Helper()
+	text, ok := readText(r, root, licenseRel)
+	if !ok {
+		return
+	}
+	for _, want := range []string{"MIT License", `THE SOFTWARE IS PROVIDED "AS IS"`, "Copyright (c)"} {
+		if !strings.Contains(text, want) {
+			r.Errorf("%s does not read as the MIT licence: no %q", licenseRel, want)
+		}
+	}
+	m, ok := readJSONObject(r, root, pluginManifestRel)
+	if !ok {
+		return
+	}
+	got, present := m["license"]
+	if !present {
+		r.Errorf("%s declares no license, but the repository ships %s", pluginManifestRel, licenseRel)
+		return
+	}
+	if got != "MIT" {
+		r.Errorf("%s declares license %v, but %s is the MIT licence", pluginManifestRel, got, licenseRel)
 	}
 }
 
@@ -535,6 +571,7 @@ var manifestChecks = []manifestCheck{
 	{"a_valid_json", checkJSONWellFormed},
 	{"b_name_and_version_pin", checkPluginIdentity},
 	{"c_no_forbidden_manifest_keys", checkPluginForbiddenKeys},
+	{"c2_license_claim_matches_the_shipped_file", checkLicense},
 	{"d_user_config", checkUserConfig},
 	{"e_hooks", checkHooks},
 	{"f_marketplace", checkMarketplace},
@@ -589,6 +626,15 @@ func copyManifestTree(t *testing.T) string {
 		})
 		if err != nil {
 			t.Fatalf("copying %s: %v", rel, err)
+		}
+	}
+	// The licence lives at the repository root, not under plugin/, so the directory walk above does not reach
+	// it and checkLicense would fail on an unmutated copy.
+	//nolint:gosec // G304: src is the repository root.
+	if data, err := os.ReadFile(filepath.Join(src, licenseRel)); err == nil {
+		//nolint:gosec // G703: target is filepath.Join(t.TempDir(), a constant).
+		if err := os.WriteFile(filepath.Join(dst, licenseRel), data, 0o600); err != nil {
+			t.Fatalf("copying %s: %v", licenseRel, err)
 		}
 	}
 	return dst
@@ -681,6 +727,38 @@ func appendToFile(rel, text string) mutation {
 	}
 }
 
+// writeFile replaces a file wholesale. Used to swap the licence text for another licence.
+func writeFile(rel, text string) mutation {
+	return func(t *testing.T, root string) {
+		t.Helper()
+		//nolint:gosec // G703: path is filepath.Join(t.TempDir(), <constant from the table below>).
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(text), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", rel, err)
+		}
+	}
+}
+
+// replaceInFile swaps one exact substring, failing loudly when the anchor is gone so a mutation can never
+// silently apply to nothing.
+func replaceInFile(rel, old, replacement string) mutation {
+	return func(t *testing.T, root string) {
+		t.Helper()
+		path := filepath.Join(root, rel)
+		//nolint:gosec // G304: path is filepath.Join(t.TempDir(), <constant from the table below>).
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		if !strings.Contains(string(data), old) {
+			t.Fatalf("%s no longer contains the anchor %q, so this mutation would be vacuous", rel, old)
+		}
+		//nolint:gosec // G703: as above.
+		if err := os.WriteFile(path, []byte(strings.Replace(string(data), old, replacement, 1)), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", path, err)
+		}
+	}
+}
+
 // insertFrontmatterLine adds one frontmatter line immediately after an existing one, failing loudly when the
 // anchor line is gone (a mutation that silently applies to nothing would make its subtest vacuous).
 func insertFrontmatterLine(rel, after, line string) mutation {
@@ -758,9 +836,9 @@ var manifestMutations = []struct {
 		"a one-line manifest reads as \"declares no version\" to plugin-check, checksums-check and release.yml",
 	},
 	{
-		"c_license_is_claimed", checkPluginForbiddenKeys,
-		editManifest(pluginManifestRel, true, func(m map[string]any) { m["license"] = "MIT" }),
-		"the repository ships no LICENSE file",
+		"c_commands_key_appears", checkPluginForbiddenKeys,
+		editManifest(pluginManifestRel, true, func(m map[string]any) { m["commands"] = "./commands" }),
+		"the plugin ships no commands; a manifest that claims them would package a second surface",
 	},
 	{
 		"c_mcp_server_appears", checkPluginForbiddenKeys,
@@ -894,6 +972,21 @@ var manifestMutations = []struct {
 		"h_a_skill_quotes_the_absent_harness_preamble", checkNoForbiddenText,
 		appendToFile("plugin/skills/team-messaging/SKILL.md", "\nThe harness says to reply via SendMessage to the from= address.\n"),
 		"2.1.259 emits no such sentence; the skill must not teach the model an untruth",
+	},
+	{
+		"c2_the_manifest_claims_a_licence_the_repository_does_not_ship", checkLicense,
+		replaceInFile(pluginManifestRel, `"license": "MIT"`, `"license": "Apache-2.0"`),
+		"the manifest's claim and the shipped LICENSE must agree; this is the defect the old forbidden-key rule guarded against",
+	},
+	{
+		"c2_the_manifest_stops_declaring_the_licence_it_ships", checkLicense,
+		replaceInFile(pluginManifestRel, "\n  \"license\": \"MIT\",", ""),
+		"a repository that ships a licence while its manifest stays silent is the same defect facing the other way",
+	},
+	{
+		"c2_the_licence_file_is_not_the_mit_licence", checkLicense,
+		writeFile(licenseRel, "All rights reserved.\n"),
+		"the manifest says MIT, so the file has to be the MIT licence and not a placeholder",
 	},
 	{
 		"h_a_skill_names_a_phase_5_command", checkNoForbiddenText,

@@ -82,6 +82,37 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P3-8 | Interactive checks (`docs/experiments/E3-interactive.md`) | **DONE — every check run or ruled out, none of it at a keyboard** (`scripts/experiments/E3-interactive/`, six drivers, ~45 pty sessions). 1–13 and 15 pass; 14 is N/A (`sandbox.enabled` off) | Opus | |
 | P4-1..P4-6 | Vertical proof, headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-1/P4-3/P4-4) | criterion 8 is Fable-tier |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof |
+| P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to Rjae's usual practice (see "Phase 6" below) | todo — **needs Rjae's example repositories as input** | Opus | added 2026-09-03 at Rjae's request; ordering caveat below |
+
+## Phase 6 — house conventions (added 2026-09-03, Rjae's request)
+
+Rjae has stayed deliberately hands-off about **GitHub workflows, scripting, test harnesses and `make` targets**,
+to keep the build moving rather than to endorse what is there. None of it was written to her conventions, because
+none of us asked. This phase closes that gap, and it is a **late** phase on purpose: the shapes should settle
+before they are reshaped.
+
+**The input is hers.** She has many repositories that show the practice, and P6-1 is a reading task, not a
+guessing one. Nothing in P6-2..P6-4 should be invented from taste.
+
+| Task | What it is |
+| --- | --- |
+| P6-1 | Read the example repositories Rjae names and write a convention digest under `docs/research/`: workflow layout, job names and triggers, `Makefile` target naming and grouping, script location, style and shebang conventions, test-harness structure and naming, and anything else that recurs. Cite the repository and file each convention comes from, and mark anything that conflicts with a Brigade constraint rather than silently dropping it. |
+| P6-2 | Adapt `.github/workflows/` to the digest. |
+| P6-3 | Adapt the `Makefile` targets and `scripts/` to the digest. |
+| P6-4 | Adapt the test harnesses and their layout to the digest. |
+| P6-5 | Re-run every gate (`make test test-all plugin-check checksums-check`, the CI matrix) and record, per convention, which were adopted, which were adapted, and which were declined with the constraint that forced it. |
+
+**Constraints a convention cannot override**, because they are load-bearing and measured: the `plugin/` file
+allowlist and its modes; the reproducibility job's byte-identical cross-build; `make test` staying Docker-free; the
+by-prefix `CLAUDE*` environment strip (an enumerated list is measurably short, E0-4/E0-7); commit messages
+`15: <Imperative summary>`; merges only, never rebase. Where a convention collides with one of these, P6-5 records
+the collision rather than the code losing the guard.
+
+**Ordering caveat, stated once.** Anything that touches release plumbing (`release.yml`, `scripts/release-prep.sh`,
+`make release`, the checksum chain) is cheaper to reshape **before** the first tagged release than after, because
+after a release the plugin's pinned `version` and the published checksums make the workflow a compatibility
+surface. Phase 6 sits after Phase 5 as asked; if the workflow half is to move, moving it before P5's release task
+costs less. Rjae's call.
 
 ## Onboarding and the adapter model — reviewed 2026-08-31, DESIGN STANDS (do not re-open)
 
@@ -2186,3 +2217,18 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   Deviations, all recorded in `docs/experiments/E3-interactive.md` §1d and §3: the permission rules were delivered via
   `--settings` rather than the user settings file; 7–13 ran in bypass mode; check 6 paired one interactive session with
   one hook-registered principal. Open for Rjae: nothing in P3-8. Next: the `license` field and Phase 4 from P4-1.
+- 2026-09-03 16:0x EDT: **The `license` field is settled and Phase 6 is on the board.** The repository now ships a
+  root `LICENSE` (MIT, `Copyright (c) 2026 Appshapes` — the holder string matches `author.name`/`owner.name` in the
+  two manifests; change it if the legal name differs), and `plugin/.claude-plugin/plugin.json` declares
+  `"license": "MIT"` as plan 6.1 always specified. `scripts/ci/manifests_test.go` **forbade** that key, for the
+  stated reason that the repository shipped no LICENSE file; that precondition is what changed, so the rule was
+  **inverted rather than deleted** — a new `checkLicense` requires the manifest's claim and the shipped file to
+  agree in both directions, with three mutations proving it can fail (wrong licence claimed, claim dropped while the
+  file ships, file replaced by a non-MIT text) and the now-vacuous `c_license_is_claimed` mutation replaced by one
+  for `commands`. `claude plugin validate --strict` green, `make plugin-check` green, `./scripts/ci` green.
+  **Phase 6 (house conventions) added to the Status table at Rjae's request**: she has been hands-off about CI
+  workflows, scripting, test harnesses and `make` targets to keep the build moving, and wants them brought to her
+  usual practice from her own repositories as examples. P6-1 is a reading task over repositories she names — nothing
+  downstream should be invented from taste. The section above lists the constraints a convention cannot override and
+  one ordering caveat: release plumbing is cheaper to reshape before the first tagged release than after.
+  Open: Phase 4 from P4-1, then Phase 5, then Phase 6.

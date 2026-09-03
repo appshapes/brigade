@@ -6,6 +6,7 @@
     "name": "appshapes"
   },
   "repository": "https://github.com/appshapes/brigade",
+  "license": "MIT",
   "keywords": [
     "messaging",
     "team",
