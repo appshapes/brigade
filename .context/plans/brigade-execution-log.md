@@ -2067,3 +2067,12 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   CI reds (the Linux `ESRCH` teardown window in `procutil`, the watch-test data race, the settling drains). Open:
   P3-8 at Rjae's keyboard (`docs/experiments/E3-interactive.md`); the `license` field; Phase 4 from
   `.ignored/handoff-15-phase-4.md`.
+- 2026-09-03 ~14:00: **CI run 33759439330 on the log-only `d1d426d` red on `fast` AND `macos`, two test races in the
+  new Phase 3 tests, both fixed:** (1) macOS `TestAliveAfterSIGTERMAndReapIsDead` asserted the sleeper GONE the
+  instant the guard judged it dead — but the guard reads a zombie as dead, and the sleeper's reaper goroutine had
+  not waited on it yet on the loaded runner (`Exists:true Zombie:true`); the test now waits for the reap. (2) Linux
+  `watch-sink.txtar` sent SIGINT the instant the sink file filled, and the `ack sent` log line it then required is
+  written asynchronously after the injection (the `ack` command to the child, the `acked` event back); the script
+  now waits for that line with a bounded poll (`waitgrep.sh`) before the SIGINT. Rule restated: a test that asserts
+  a state which follows an observed event by another goroutine or process waits for THAT state, never for the
+  event.

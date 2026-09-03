@@ -62,8 +62,16 @@ func TestAliveAfterSIGTERMAndReapIsDead(t *testing.T) {
 	testutil.Eventually(t, pollTimeout, pollInterval, func() bool {
 		return !pidfile.Alive(e, mustLookup(t, pid))
 	})
-	if info := mustLookup(t, pid); info.Exists {
-		t.Fatalf("after reap Lookup = %+v, want Exists false", info)
+	// Dead to the guard first — as a zombie, the instant it exits — and
+	// gone to the kernel only once the sleeper's reaper goroutine has
+	// waited on it, which on a loaded runner is a moment later (CI run
+	// 33759439330 on macOS saw Exists:true Zombie:true here); so the
+	// reap is waited for, not assumed.
+	testutil.Eventually(t, pollTimeout, pollInterval, func() bool {
+		return !mustLookup(t, pid).Exists
+	})
+	if info := mustLookup(t, pid); info.Exists || info.Zombie {
+		t.Fatalf("after reap Lookup = %+v, want gone", info)
 	}
 }
 

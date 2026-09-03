@@ -30,6 +30,7 @@ chmod 755 fake.sh
 # warmed by its own first exec, which has no deadline.)
 exec $WORK/fake.sh --script warm.json describe
 chmod 755 waitfile.sh
+chmod 755 waitgrep.sh
 stdin start.json
 exec brigade hook session-start
 stdout '\(brigade-sess-1\)'
@@ -80,6 +81,11 @@ grep '"--session","brigade-sess-1"' dump.ndjson
 grep '"BRIGADE_PROFILE":"alpha"' dump.ndjson
 ! grep BRIGADE_ADAPTER_COMMAND dump.ndjson
 ! grep BRIGADE_CLAUDE_PID dump.ndjson
+# The ack follows the injection asynchronously (the `ack` command to the
+# child, then the `acked` event back): the sink record proves the injection,
+# not the ack, and a SIGINT sent the instant the sink filled won the race on
+# the Ubuntu runner (CI run 33759439330). Wait for the ack line too.
+exec $WORK/waitgrep.sh '"msg":"ack sent"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
 
 # --- SIGINT ends it: exit 0, silent streams, the pidfile released ------------
 kill -INT watcher
@@ -122,6 +128,12 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 i=0
 until [ -s "$1" ] || [ "$i" -ge 600 ]; do sleep 0.05; i=$((i+1)); done
 [ -s "$1" ]
+-- waitgrep.sh --
+#!/bin/sh
+# A bounded poll for a fixed string in a file: 600 x 50 ms = 30 s, a hang catcher.
+i=0
+until grep -qF -- "$1" "$2" 2>/dev/null || [ "$i" -ge 600 ]; do sleep 0.05; i=$((i+1)); done
+grep -qF -- "$1" "$2"
 -- start.json --
 {"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
 -- end.json --
