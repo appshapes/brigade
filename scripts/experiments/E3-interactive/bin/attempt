@@ -19,7 +19,7 @@ import sys
 
 sys.dont_write_bytecode = True   # a hook must not leave __pycache__ in the repository
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from _e3 import append, brigade_cmd, read_stdin_json, sha12  # noqa: E402
+from _e3 import append, brigade_cmd, is_send, read_stdin_json, sha12  # noqa: E402
 
 
 def main():
@@ -50,6 +50,8 @@ def main():
     # so this row always exists by the time the Skill box is painted.
     if tool == "Skill":
         append("skill-attempt.ndjson", rec)
+    if form == "bare" and is_send(cmd):
+        append("send-attempt.ndjson", rec)
     return 0
 
 

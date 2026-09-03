@@ -1,17 +1,34 @@
-# E3-interactive harness — plan row P3-8, checks 1 and 2
+# E3-interactive harness — plan row P3-8
 
 Results and findings: `docs/experiments/E3-interactive.md`. Run on Claude Code 2.1.259.
 
-The checklist calls checks 1 and 2 keyboard-dependent. They are not: what they need is an
-interactive **pty** in **Manual** permission mode, and `expect` supplies one. This driver is the
-2.1.259 descendant of `scripts/experiments/E0-8/run_b.py`, pointed at the **shipped** plugin
-instead of a probe plugin, and it reuses that experiment's `common.py` wholesale (the expect
-prelude, the by-prefix environment strip, and the config guard).
+The checklist calls these checks keyboard-dependent. Almost none of them are: what they need is an
+interactive **pty**, and `expect` supplies one. These drivers are the 2.1.259 descendants of
+`scripts/experiments/E0-8/run_b.py`, pointed at the **shipped** plugin instead of a probe plugin,
+reusing that experiment's `common.py` (the expect prelude and the by-prefix environment strip).
+
+| Driver | Checks | What it drives |
+| --- | --- | --- |
+| `run_manual.py` | 1, 2 | the skill grant in Manual mode, and that it dies with the turn |
+| `run_headless.py` | 1, 2 | the same permission *decisions* through `claude -p`, where no dialog can appear |
+| `run_rules.py` | 3, 4, 5 | `permissions.allow` / `ask` / `deny`, the last two in bypass mode, with a second principal to send to |
+| `run_lifecycle.py` | 7–13 | `/rename`, `/clear`, `/compact`, PATH shadowing, the `~/.local/bin` symlink, `SessionEnd`, and a SIGKILLed session |
+| `run_twoparty.py` | 6 | send and **mid-turn** receive between two principals |
+| `onboarding.py` | 15 | tallies what interrupted a first run, across every session driven here |
+| `analyze.py`, `cleanup.py` | — | the tables, and putting the machine back |
 
 ```sh
 python3 scripts/experiments/E3-interactive/run_manual.py --arms baseline --runs 1 --tag smoke
-python3 scripts/experiments/E3-interactive/run_manual.py            # the full matrix
+python3 scripts/experiments/E3-interactive/run_manual.py            # checks 1 and 2, full matrix
+python3 scripts/experiments/E3-interactive/run_rules.py             # checks 3, 4, 5
+python3 scripts/experiments/E3-interactive/run_lifecycle.py         # checks 7-13
+python3 scripts/experiments/E3-interactive/run_twoparty.py          # check 6
+python3 scripts/experiments/E3-interactive/onboarding.py .ignored/e3-interactive
+python3 scripts/experiments/E3-interactive/cleanup.py --apply       # afterwards
 ```
+
+Check 14 (sandbox) is **not applicable on this machine**: no `sandbox` block exists in any settings
+file, so `sandbox.enabled` is off and the row's own precondition is unmet.
 
 Needs a logged-in Claude Code, `expect`, and a Brigade profile already joined to a team
 (`bin/brigade profile status` must print a joined profile). It costs model calls, so it never
@@ -32,8 +49,17 @@ attempt recorded  +  no exec recorded  +  the session stops making progress
 Both hooks are supplied through `--settings`. **The shipped `plugin/` tree is never touched** —
 `make plugin-check` asserts its exact file list, so a detector hook could not live there.
 
-`bin/posttool` writes brigade-Bash executions to their own `exec.ndjson` and Skill invocations
-to `skill-exec.ndjson`, so the expect script can wait on a line count without parsing anything.
+`bin/posttool` writes brigade-Bash executions to their own `exec.ndjson`, Skill invocations to
+`skill-exec.ndjson` and `brigade send` to `send-exec.ndjson`, so the expect script can wait on a
+line count without parsing anything. `bin/attempt` mirrors the same splits for attempts, which is
+how the driver tells a Skill dialog from a Bash one. `bin/await-gone` takes the sub-second timings
+checks 12 and 13 need, and `bin/roster-dump` reads the team's own record from outside any session.
+
+**Never put a draining wait in front of a dialog you intend to match.** `nap`, and everything built
+on it, consumes the pty; a dialog painted during that wait is gone before `expect` looks. The first
+run of check 4 recorded "no dialog" while its own session log held the dialog verbatim. Dialogs are
+matched immediately after the prompt is submitted, and every verdict that depends on one is also
+witnessed by a whitespace-insensitive scan of the session log, which no timing can defeat.
 
 ## The permission mode is recorded three independent ways
 

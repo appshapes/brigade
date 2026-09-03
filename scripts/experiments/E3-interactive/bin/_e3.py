@@ -66,6 +66,16 @@ def brigade_form(cmd):
     return None
 
 
+def is_send(cmd):
+    """A bare `brigade send ...`. Checks 4 and 5 gate on `Bash(brigade send*)`
+    specifically, so the driver needs to wait on that verb and not on any
+    brigade command."""
+    if not cmd:
+        return False
+    c = cmd.strip()
+    return c.startswith("brigade send ") or c == "brigade send"
+
+
 def brigade_cmd(hi):
     """(tool_name, command-or-None, form) where form is bare | fullpath | None."""
     tool = hi.get("tool_name")

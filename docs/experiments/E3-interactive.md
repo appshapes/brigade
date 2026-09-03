@@ -1,9 +1,9 @@
 # E3 — Interactive checks (P3-8)
 
-Date prepared: 2026-09-03 · Ticket 15 · Claude Code 2.1.259 · Status: **checks 1 and 2 SETTLED, run
-without a keyboard (§1b, §1c); checks 3–15 still open.** Checks 3, 4 and 5 are one settings-file
-change away from running under the same driver; 6–13 need two sessions and the terminal-side steps;
-14 needs the sandbox; 15 is observational.
+Date prepared: 2026-09-03 · Ticket 15 · Claude Code 2.1.259 · Status: **COMPLETE — every check
+either run or ruled out, none of it at a keyboard.** Checks 1 and 2 in §1b/§1c, checks 3–13 and 15
+in §1d, and check 14 is not applicable on this machine (`sandbox.enabled` is off). Nothing here is
+waiting on a person.
 
 This is the checklist of plan row P3-8: the things only an interactive terminal can show. Every headless half of the
 plugin is measured in `E3-wiring.md` and `E3-smoke.md`; this file records the keyboard-dependent half. Fill in the
@@ -62,19 +62,19 @@ Both should print, as the first context line of the session, `Brigade: this sess
 | --- | --- | --- | --- | --- |
 | 1 | **The skill grant in Manual mode** (D20, E0-8 (b)) | Nothing to configure first: the check needs NO `permissions.allow` rule matching `brigade` anywhere (your `~/.claude/settings.json` — the `rjae@appshapes.com` account's user settings — has no `permissions` block and this repository has no stored per-project approvals, so the precondition holds as is). In A, in the default (Manual) permission mode, ask: "Use the brigade team-messaging skill to list the team's sessions and tell me who is online." **If no Skill dialog appears**, repeat ONCE from a fresh temporary project directory — a brand-new empty directory Claude Code has never been started in: Claude Code keeps per-project state keyed by the launch directory (the trust decision, "don't ask again" approvals, and per E0-8 the Skill dialog's dismissal), so this repository's directory may already carry a dismissal from an earlier session, while an empty directory has no history. In the setup terminal: `make plugin-dev-pointer` (writes the dev pointer, starts nothing), then `cd "$(mktemp -d)"`, then `claude --plugin-dir /Users/rjae/Development/appshapes/brigade/plugin` (absolute path, since you are no longer in the repository; the plugin works from any directory because the profile and the fs store live under your home, not the project; accept the trust dialog for the new directory when it appears) and ask the same question. This rules out a dismissal stored for this repository; if there is still none, that is a behaviour change since E0-8 (2.1.252) — record the version and it becomes a D20 note (one prompt fewer). | ONE Skill dialog ("Use skill brigade:team-messaging?") whose dismissal is scoped to the project directory; then `brigade sessions` runs with **no** Bash prompt in that turn. | **PASS, 6/6 in Manual mode on 2.1.259** (§1c; 3 runs from a fresh temp directory, 3 with this repository as cwd). Exactly ONE Skill dialog — `Use skill "brigade:team-messaging"? / Claude may use instructions, code, or files from this Skill / … / Do you want to proceed? / ❯1. Yes / 2. Yes, and don't ask again for brigade:team-messaging in <dir> / 3. No / Esc to cancel · Tab to amend` — and after a single Yes the bare `brigade sessions` executed with **no Bash prompt**. Option 2's dismissal is scoped to the directory it names: selecting it silenced the dialog in that directory and a fresh directory still raised it. Mode was `default` in all four witnesses in every run; the null control stalled 3/3. **The earlier `auto`-mode reading (§1a) stays retracted; E0-8 (b)'s 2.1.252 result holds unchanged on 2.1.259.** |
 | 2 | **The grant does not outlive the turn** | In A, the next prompt, without invoking the skill: "Without using any skill, run the Bash command `brigade sessions` directly and paste its output." Then read that turn in the transcript: `jq -c 'select(.type=="assistant") \| .message.content[]? \| select(.type=="tool_use") \| {name,input}' <transcript>.jsonl`. **If a `Skill` tool_use for `brigade:team-messaging` appears in that turn the model re-invoked the skill on its own, the grant applied legitimately, and the check is inconclusive** — re-ask in the explicit form above. | A Bash permission prompt appears (the grant cleared when you sent the next message). | **PASS, 6/6** (§1c). The turn stalled on a permission prompt in every run: a bare `brigade sessions` was attempted and did not execute, and the transcript's own `tool_result` for it reads "The user doesn't want to proceed with this tool use. The tool use was rejected" (the driver's shutdown Escape answering the open dialog), which is independent of the stall detector. **No run re-invoked the skill in that turn**, so none is inconclusive. The driver adds one clause to the prompt — "Use the bare command name `brigade`, never a path to the binary" — because only the bare form can match `Bash(brigade:*)`; see §1b. |
-| 3 | **`permissions.allow` removes the prompt for the session** | Add the rule to the USER settings file of the config directory you launch from: `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json` — for your `rjae@appshapes.com` sessions that is `~/.claude/settings.json` (check with `echo ${CLAUDE_CONFIG_DIR:-$HOME/.claude}` in the launch terminal); never the repository's `.claude/settings.json` or `.claude/settings.local.json`. Add a top-level member `"permissions": {"allow": ["Bash(brigade:*)"]}` beside the existing keys (valid JSON: a comma after the previous member). Alternatively, inside a session, `/permissions` opens the rules UI, where the same rule can be added at user scope. Restart A, repeat check 2's explicit "without using any skill" form. Remove the rule again before check 4. | No prompt. | |
-| 4 | **The ask rule in bypass mode** (E0-8 (b)) | In that same settings file replace the allow rule with `"permissions": {"ask": ["Bash(brigade send*)"]}`. Start A in bypass mode: `make plugin-dev mode=bypassPermissions`. Ask A to send B a message. | The dialog appears for the heredoc `brigade send` (it is not silently denied); record how the multi-line heredoc renders and whether the dialog offers only Yes/No (an explicit ask rule cannot be one-click disabled — sitting correction 3). `brigade sessions` runs unprompted. | |
-| 5 | **The deny rule is the off switch** | Same, with `"permissions": {"deny": ["Bash(brigade send*)"]}`. Ask A to send. | The send is blocked in bypass mode; the model reports the denial and (per the skill) does NOT propose another invocation form. Record its words. | |
-| 6 | **Send and mid-turn receive between two people's sessions** | In A: "Send bob's session a message saying hello and then sleep 30 seconds with the Bash tool." While A sleeps, in B: "Reply to alice's message with brigade send --reply-to." | A receives B's reply mid-turn as a message from `@<bob's session name>` with the `<brigade-message …>` frame; the fs store shows the message under `acked/<alice>/`; A does not call the native `SendMessage`. | |
-| 7 | **`/rename` propagates** | In A: `/rename alice-renamed`, wait ~30 s (one heartbeat), then in B: "Run `brigade sessions`." | B's listing shows A under the new name (the watcher re-reads the registry each heartbeat). | |
-| 8 | **`/clear` keeps the Brigade session** | In A: note the session id from `brigade whoami`; `/clear`; `brigade whoami` again. | The same Brigade session id; the SessionStart hook re-fired (a new context line) and did NOT rotate the identity; the watcher pidfile pid is unchanged (`cat ~/.local/state/brigade/watchers/<claude pid>.json`). | |
-| 9 | **`/compact` is a no-op for Brigade** | In A: `/compact`; then `brigade whoami`. | Same id, no new registration, no new context line beyond Claude's own. | |
-| 10 | **The shadowing warning** (E0-8 (e)) | Put another `brigade` earlier on PATH in a terminal (`mkdir -p /tmp/shadow && printf '#!/bin/sh\necho DECOY\n' > /tmp/shadow/brigade && chmod +x /tmp/shadow/brigade`), then `PATH=/tmp/shadow:$PATH make plugin-dev`. | A second context line: `Brigade: another \`brigade\` at /tmp/shadow/brigade shadows the plugin's; …`; asking the model to run `brigade sessions` prints `DECOY`. Remove the decoy afterwards. | |
-| 11 | **`~/.local/bin` symlink is NOT a shadow** | `ln -s "$PWD/plugin/bin/brigade" ~/.local/bin/brigade` (the setup skill's suggestion), start A. | No shadowing line (a symlink resolving to the plugin's bootstrap is exempt). Remove the symlink if you do not want it. | |
-| 12 | **SessionEnd closes the session** | Quit A with `/exit`; in a terminal: `bin/brigade-adapter-fs --profile bob session list --include-offline` (needs `BRIGADE_FS_ROOT=$HOME/.local/state/brigade/fs-adapter` in that terminal) or in B: "Run `brigade sessions --all`." | A's session shows `offline` at once (closed by SessionEnd), not 90 s later; A's watcher pidfile is gone within ~2 s. | |
-| 13 | **The watcher survives a SIGKILLed Claude and closes the session itself** (E0-5) | Start A, note its pid (`echo $CLAUDE_PID` via the Bash tool) and the watcher pid (the pidfile); `kill -9 <claude pid>` from a terminal. | Within ~2 s of the process being reaped the watcher exits, the pidfile disappears and A's session is `offline` (the zombie reads as dead). | |
-| 14 | **Sandbox** (6.12; only if `sandbox.enabled` is on for you) | With the Bash sandbox on and no `allowedDomains` entry, ask A to run `brigade sessions`. | The fs adapter needs no network, so it works under the sandbox; `brigade send` succeeds with a read-only home (the map is only read). A hosted Supabase profile would need `<ref>.supabase.co` in `sandbox.network.allowedDomains` — record as not applicable if no hosted project exists (D32). | |
-| 15 | **A third first-run interruption** (sitting correction 5) | Note any onboarding prompt (`Claude in Chrome extension detected`, the trust dialog, the fullscreen-renderer write) that appeared before the session prompt in any of the runs above. | Recorded, for P4-3/P4-5's `expect` drivers. | |
+| 3 | **`permissions.allow` removes the prompt for the session** | Add the rule to the USER settings file of the config directory you launch from: `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json` — for your `rjae@appshapes.com` sessions that is `~/.claude/settings.json` (check with `echo ${CLAUDE_CONFIG_DIR:-$HOME/.claude}` in the launch terminal); never the repository's `.claude/settings.json` or `.claude/settings.local.json`. Add a top-level member `"permissions": {"allow": ["Bash(brigade:*)"]}` beside the existing keys (valid JSON: a comma after the previous member). Alternatively, inside a session, `/permissions` opens the rules UI, where the same rule can be added at user scope. Restart A, repeat check 2's explicit "without using any skill" form. Remove the rule again before check 4. | No prompt. | **PASS, 2/2** (§1d). With `"permissions": {"allow": ["Bash(brigade:*)"]}` in force, Manual mode, no skill in play: `brigade sessions` ran with no prompt and no stall in both runs. *Deviation:* the rule was delivered in the run's `--settings` file rather than the user settings file, so the RULE is measured but the FILE LOCATION is not varied — see §3. |
+| 4 | **The ask rule in bypass mode** (E0-8 (b)) | In that same settings file replace the allow rule with `"permissions": {"ask": ["Bash(brigade send*)"]}`. Start A in bypass mode: `make plugin-dev mode=bypassPermissions`. Ask A to send B a message. | The dialog appears for the heredoc `brigade send` (it is not silently denied); record how the multi-line heredoc renders and whether the dialog offers only Yes/No (an explicit ask rule cannot be one-click disabled — sitting correction 3). `brigade sessions` runs unprompted. | **PASS, 2/2** (§1d). In bypass mode with `"ask": ["Bash(brigade send*)"]`, the send raised a dialog rather than being silently allowed or denied, while `brigade sessions` and `brigade sessions --all` ran unprompted. **Rendering:** the whole heredoc is shown, one screen line per command line, each prefixed `│`, above `Permission rule Bash(brigade send*) requires confirmation for this command.` and `/permissions to update rules`. **Options: exactly two — `1. Yes` and `2. No`** (the plain Bash dialog offers four, including *don't ask again* and *switch to auto mode*). So an explicit `ask` rule cannot be one-click disabled — sitting correction 3 confirmed on 2.1.259. The driver answered Esc, so nothing was sent. |
+| 5 | **The deny rule is the off switch** | Same, with `"permissions": {"deny": ["Bash(brigade send*)"]}`. Ask A to send. | The send is blocked in bypass mode; the model reports the denial and (per the skill) does NOT propose another invocation form. Record its words. | **PASS, 2/2** (§1d). In bypass mode with `"deny": ["Bash(brigade send*)"]`, **no dialog appeared** and the tool result read `Permission to use Bash with command brigade send … has been denied.` The model reported the denial and, in its own words, *"Per the skill's guidance, I'm stopping there rather than trying a different invocation form. If you want the message to go out, you'd need to approve that Bash call (or run it yourself…)"*. No full-path invocation, no other tool, no second attempt. |
+| 6 | **Send and mid-turn receive between two people's sessions** | In A: "Send bob's session a message saying hello and then sleep 30 seconds with the Bash tool." While A sleeps, in B: "Reply to alice's message with brigade send --reply-to." | A receives B's reply mid-turn as a message from `@<bob's session name>` with the `<brigade-message …>` frame; the fs store shows the message under `acked/<alice>/`; A does not call the native `SendMessage`. | **PASS** (§1d). Driven as an interactive pty session plus a second principal registered through the real `SessionStart` hook. A sent bob a message with the skill's documented heredoc form and then slept; bob's `--reply-to` reply, posted the moment A's message landed in his inbox, reached A **mid-turn**: the transcript records it as a `queue-operation`/`enqueue` plus a `queued_command` attachment whose origin is `{kind: "peer", name: "peer-session"}`, carrying `<cross-session-message from-name="peer-session">` wrapped around the full `<brigade-message team="ops" message-id=… reply-to-session-id=… from-principal=…>` frame. The reply appears under `acked/<alice>/` in the fs store, so the watcher acknowledged it. **Zero native `SendMessage` or `ListAgents` calls.** |
+| 7 | **`/rename` propagates** | In A: `/rename alice-renamed`, wait ~30 s (one heartbeat), then in B: "Run `brigade sessions`." | B's listing shows A under the new name (the watcher re-reads the registry each heartbeat). | **PASS** (§1d). After `/rename`, the **team's own roster** showed the new name (`e3-renamed-0e8e`, state `idle`) within one heartbeat window. Verified by reading the fs store from outside any session rather than from a second session — the same record B would have read. |
+| 8 | **`/clear` keeps the Brigade session** | In A: note the session id from `brigade whoami`; `/clear`; `brigade whoami` again. | The same Brigade session id; the SessionStart hook re-fired (a new context line) and did NOT rotate the identity; the watcher pidfile pid is unchanged (`cat ~/.local/state/brigade/watchers/<claude pid>.json`). | **PASS** (§1d). Across `/clear` the by-pid map keeps the **same** `brigade_session_id` (`1c1369851afe…`) and the **same watcher pid** (19524). The map's `claude_session_id` DID rotate (`341dfd29…` → `89028dd4…`) and `updated_at` advanced while `registered_at` did not — so `SessionStart` re-fired and did **not** re-mint the identity, exactly as E0-8 (f) warned it must not. |
+| 9 | **`/compact` is a no-op for Brigade** | In A: `/compact`; then `brigade whoami`. | Same id, no new registration, no new context line beyond Claude's own. | **PASS** (§1d). Across `/compact`: same `brigade_session_id`, same watcher pid, and — unlike `/clear` — the native `claude_session_id` is unchanged too. `registered_at` unchanged, only `updated_at` advanced. No new registration. |
+| 10 | **The shadowing warning** (E0-8 (e)) | Put another `brigade` earlier on PATH in a terminal (`mkdir -p /tmp/shadow && printf '#!/bin/sh\necho DECOY\n' > /tmp/shadow/brigade && chmod +x /tmp/shadow/brigade`), then `PATH=/tmp/shadow:$PATH make plugin-dev`. | A second context line: `Brigade: another \`brigade\` at /tmp/shadow/brigade shadows the plugin's; …`; asking the model to run `brigade sessions` prints `DECOY`. Remove the decoy afterwards. | **PASS** (§1d). The `SessionStart` hook printed a **second** line, verbatim: `Brigade: another \`brigade\` at /tmp/shadow/brigade shadows the plugin's; remove it or the wrong version runs`. Asking the model to run `brigade sessions` returned `DECOY: this is /tmp/shadow/brigade, not the plugin` — so the Bash tool really ran the other binary, not merely warned about it. Decoy removed afterwards. |
+| 11 | **`~/.local/bin` symlink is NOT a shadow** | `ln -s "$PWD/plugin/bin/brigade" ~/.local/bin/brigade` (the setup skill's suggestion), start A. | No shadowing line (a symlink resolving to the plugin's bootstrap is exempt). Remove the symlink if you do not want it. | **PASS** (§1d). With `~/.local/bin/brigade` symlinked to the plugin's own bootstrap — and `~/.local/bin` sitting *ahead* of the plugin's appended `bin/` on PATH, so it genuinely wins — **no shadowing line appeared** and `brigade` ran normally. The symlink was created for the run and removed after. |
+| 12 | **SessionEnd closes the session** | Quit A with `/exit`; in a terminal: `bin/brigade-adapter-fs --profile bob session list --include-offline` (needs `BRIGADE_FS_ROOT=$HOME/.local/state/brigade/fs-adapter` in that terminal) or in B: "Run `brigade sessions --all`." | A's session shows `offline` at once (closed by SessionEnd), not 90 s later; A's watcher pidfile is gone within ~2 s. | **PASS, 2/2** (§1d). The watcher pidfile disappeared **270 ms** and **271 ms** after `/exit` (50 ms polling, timer started immediately before the keystroke), and the team roster showed the session `offline` — closed by `SessionEnd`, not left to a 90 s lease. |
+| 13 | **The watcher survives a SIGKILLed Claude and closes the session itself** (E0-5) | Start A, note its pid (`echo $CLAUDE_PID` via the Bash tool) and the watcher pid (the pidfile); `kill -9 <claude pid>` from a terminal. | Within ~2 s of the process being reaped the watcher exits, the pidfile disappears and A's session is `offline` (the zombie reads as dead). | **PASS, 2/2** (§1d). After `kill -9` of the Claude process the watcher noticed and exited on its own: pidfile gone **648 ms** and **860 ms** later, roster `offline`. The zombie reads as dead, so E0-5's 27.6 s / 59.0 s detection problem does not survive in the shipped implementation. |
+| 14 | **Sandbox** (6.12; only if `sandbox.enabled` is on for you) | With the Bash sandbox on and no `allowedDomains` entry, ask A to run `brigade sessions`. | The fs adapter needs no network, so it works under the sandbox; `brigade send` succeeds with a read-only home (the map is only read). A hosted Supabase profile would need `<ref>.supabase.co` in `sandbox.network.allowedDomains` — record as not applicable if no hosted project exists (D32). | **NOT APPLICABLE on this machine** — the row's own precondition is unmet. No `sandbox` block exists in `~/.claude/settings.json`, in `~/.claude/settings.local.json` (absent), or in `~/.claude.json`, so `sandbox.enabled` is off. Nothing was run. The hosted-Supabase half is blocked on D32 regardless. |
+| 15 | **A third first-run interruption** (sitting correction 5) | Note any onboarding prompt (`Claude in Chrome extension detected`, the trust dialog, the fullscreen-renderer write) that appeared before the session prompt in any of the runs above. | Recorded, for P4-3/P4-5's `expect` drivers. | **Recorded across 29 driven sessions** (§1d, `onboarding.py`). The **trust dialog** appeared in 21/29 — every genuinely fresh directory, and never in a directory already trusted (the repository, or a temp directory being re-opened). The **`Claude in Chrome extension detected` prompt appeared 0/29** on 2.1.259; E0-8 met it on 2.1.252, so an `expect` driver must still tolerate it but it is not currently raised here. No other onboarding prompt matched. One session needed a canary retry, on the narrow-pty driver since fixed. |
 
 
 ## 1a. Reading the first results (driver, 2026-09-03) — SUPERSEDED by §1b/§1c
@@ -217,7 +217,79 @@ That is worth stating precisely, because in the *headless* control where the Ski
 denied, the model did reach for the binary's full path and then for `ListAgents`. It had never
 loaded the skill that forbids both. The rule works when the model can read it.
 
+## 1d. Results — checks 3 to 15 (driver, 2026-09-03)
+
+The same approach as §1b, extended. Four more drivers, all in
+`scripts/experiments/E3-interactive/`: `run_rules.py` (3, 4, 5), `run_twoparty.py` (6),
+`run_lifecycle.py` (7–13) and `onboarding.py` (15). Artefacts under
+`.ignored/e3-interactive/{rules-final,two1,life1,life2}/`.
+
+| Check | Arm | Runs | Result |
+| --- | --- | --- | --- |
+| 3 `permissions.allow` | `allow`, Manual | 2 | no prompt, no stall — the rule removes it |
+| 4 `ask` rule in bypass | `ask`, bypass | 2 | the dialog appears, and offers **only Yes/No** |
+| 5 `deny` rule in bypass | `deny`, bypass | 2 | silently blocked, model stops and proposes nothing |
+| 6 mid-turn receive | `twoparty` | 1 | the reply arrives inside the turn, framed and acked |
+| 7 `/rename` | `rename` | 1 | the roster carries the new name |
+| 8 `/clear` | `clear` | 1 | same Brigade id, same watcher, identity not re-minted |
+| 9 `/compact` | `compact` | 1 | same id, no new registration |
+| 10 PATH shadowing | `shadow` | 1 | warned **and** the other binary really ran |
+| 11 `~/.local/bin` symlink | `symlink` | 1 | not treated as a shadow |
+| 12 `SessionEnd` | `sessionend` | 2 | watcher gone in **270 ms / 271 ms**, session offline |
+| 13 SIGKILLed Claude | `sigkill` | 2 | watcher gone in **648 ms / 860 ms**, session offline |
+| 14 sandbox | — | 0 | **not applicable**: `sandbox.enabled` is off on this machine |
+| 15 first-run interruptions | all | 29 | trust dialog 21/29, Chrome prompt **0/29** |
+
+Three results are worth more than a row.
+
+**Check 4 — an `ask` rule really is the off switch that cannot be switched off.** The dialog it
+raises carries the whole heredoc, one screen line per command line, each prefixed `│`, under the
+line `Permission rule Bash(brigade send*) requires confirmation for this command.` It offers
+**exactly two options, `1. Yes` and `2. No`** — where the ordinary Bash dialog offers four,
+including *don't ask again for: `<cmd>`* and *switch to auto mode*. So a user cannot retire an
+explicit `ask` rule from the dialog, which is what makes it a usable brake. That is sitting
+correction 3, confirmed on 2.1.259 against the shipped plugin.
+
+**Check 5 — the model obeys the skill's rule about denials, in its own words.** Given
+`Permission to use Bash with command brigade send … has been denied.`, it wrote: *"Per the skill's
+guidance, I'm stopping there rather than trying a different invocation form. If you want the
+message to go out, you'd need to approve that Bash call (or run it yourself…)"* — it named what was
+denied, proposed no evasive form, and routed the decision back to its user. No full-path
+invocation, no other tool.
+
+**Check 13 — E0-5's watcher problem is not in the shipped implementation.** E0-5 measured 27.6 s
+and 59.0 s to notice a SIGKILLed session, because `kill(pid, 0)` reads a zombie as alive. Here the
+watcher noticed and exited in **648 ms** and **860 ms**, and the session went `offline` in the
+team's own roster without anyone closing it.
+
+One residue the row does not ask about, found while checking it: **a SIGKILLed session leaves its
+by-pid map file behind**, because `DeleteByPID` is called only from `SessionEnd`. It is litter
+rather than an identity hazard — `ReadByPID` refuses a map naming a different pid, and more to the
+point `SessionStart` reuses an existing map's Brigade session only when the adapter still reports
+that session **alive** (`hook/start.go`), which the watcher has already made false by closing it.
+A later process that inherited the same pid would therefore register afresh rather than adopt a
+dead session. The same residue follows every hook-registered peer in checks 4–6, which have no
+`SessionEnd` at all; `cleanup.py` prunes dead-pid maps for that reason.
+
+### Deviations and what they cost
+
+- **The permission rules were delivered in the run's `--settings` file, not
+  `~/.claude/settings.json`.** `--settings` is a documented settings source carrying the same
+  `permissions` block, so the rule is what is measured — but the file location is not varied, and
+  a run that edited the real user settings file would race every other session on this machine.
+- **Checks 7–13 ran in bypass permission mode.** None of them is about prompts, and checks 1–5
+  settle that half; bypass keeps a stray dialog from stalling a lifecycle measurement.
+- **Check 6 used one interactive session and one hook-registered principal**, not two interactive
+  sessions. The receiving side — the half that needs a real TUI, a socket and a live watcher — is
+  the interactive one. The sending side is the same shape `scripts/harness-smoke.sh` uses.
+- **Check 14 was not run at all**, and its row is not a pass: `sandbox.enabled` is off here.
+
 ## 2. Teardown
+
+The drivers clean up after themselves: each run's project directory and its `~/.claude.json`
+`projects` entry are removed by `python3 scripts/experiments/E3-interactive/cleanup.py --apply`, the
+check-10 decoy and the check-11 symlink are removed by the runs that create them, and every peer
+sleeper is killed on the way out. What remains is the ordinary developer teardown:
 
 `make plugin-dev-off`; optionally `rm -rf "$HOME/.local/state/brigade" "$HOME/.config/brigade"` (absolute paths, only if
 you created them for this checklist and nothing else uses them) and `rm -f ~/brigade-ops.secret`.
@@ -250,7 +322,12 @@ full-path invocation, no non-`brigade` Bash call, no other tool, no native `List
 path** and then fell back to **`ListAgents`** — both forbidden by the skill it had never been allowed
 to load. The prohibition lives in the skill body, so a session denied the skill has not read it.
 
-**Not run.** Checks 3–15. Checks 3, 4 and 5 need only a different `permissions` block in the same
-`--settings` file the driver already writes, so the same harness reaches them. Checks 6–13 need a
-second principal and the terminal-side steps of §0. Check 14 needs `sandbox.enabled`. Check 15 is
-observational.
+**For checks 3–15 (settled).** The per-check deviations are listed at the end of §1d: the
+permission rules were delivered through `--settings` rather than the user settings file; checks
+7–13 ran in bypass mode; check 6 paired one interactive session with one hook-registered principal
+rather than two interactive sessions. Repetition is thin where a result is binary and the artefact
+is unambiguous — checks 7 through 11 ran once each, 3, 4, 5, 12 and 13 twice.
+
+**Not run.** Only check 14, and not for want of a driver: `sandbox.enabled` is off on this
+machine, so the row's own precondition is unmet. Its hosted-Supabase half is blocked on D32
+regardless. Every other row has been run.

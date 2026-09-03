@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""Poll a path until it disappears and record how long that took.
+
+Checks 12 and 13 assert that the watcher's pidfile is gone "within ~2 s" of an
+event. `expect`'s own waits only drain the pty once a second, and after a SIGKILL
+there is no pty left to drain, so the timing has to be taken by something else.
+This is started BEFORE the event and writes a JSON result when it finishes.
+
+usage: await-gone <path> <timeout-seconds> <out.json>
+"""
+import json
+import os
+import sys
+import time
+
+POLL = 0.05
+
+
+def main():
+    path, timeout, out = sys.argv[1], float(sys.argv[2]), sys.argv[3]
+    t0 = time.monotonic()
+    present_at_start = os.path.exists(path)
+    gone_after = None
+    while time.monotonic() - t0 < timeout:
+        if not os.path.exists(path):
+            gone_after = (time.monotonic() - t0) * 1000.0
+            break
+        time.sleep(POLL)
+    with open(out, "w") as f:
+        json.dump({"path": path,
+                   "present_at_start": present_at_start,
+                   "gone_after_ms": round(gone_after, 1) if gone_after is not None else None,
+                   "poll_resolution_ms": POLL * 1000,
+                   "timeout_s": timeout}, f, indent=2)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

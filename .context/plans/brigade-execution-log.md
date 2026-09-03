@@ -79,7 +79,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | done | Fable | this commit — nine packages + `procutil` + the fake adapter, fake socket, fake registry, sleeper and Eventually fixtures (~17k lines with tests); five Fable authors in two waves on disjoint packages, two Fable verifiers; **10 defects found, 8 fixed in place, 101 checks proven able to fail by mutation**; U-03/04/13/14/15/16/17/18/19/20/27 and E2E-13 traced; `Watch.Wait` deadlock and the FIFO-at-the-map-path hang were the decisive ones (see below) |
 | P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | done | Fable | this commit — `internal/harness/{commands,hook,watch,e2e}`, the CLI table filled, `app.go` routing `hook`/`watch`, 17 txtar scripts, the `ReadStrict` hardening; three Fable lanes in parallel, one integrator, two Fable verifiers; **9 defects found, 7 fixed in place, 46 checks proven able to fail**; the end-to-end test drives the REAL binary and the REAL detached watcher through a crash and a respawn; the Fable limit interrupted the run once (see below) |
 | P3-6, P3-7 | Bootstrap wiring, headless smoke | done | Opus | this commit — `make plugin-dev [adapter=fs] [profile=<p>]`, `plugin-check` checks 6 and 7, the harness-side contract in `docs/adapter-authors.md`, the fs onboarding under the plugin, `docs/experiments/E3-wiring.md` (the four acceptance items measured through `claude -p`) and `scripts/harness-smoke.sh` + `E3-smoke.md` (5 nested sessions green, 0 flakes); one Opus verifier re-ran the smoke and the onboarding itself; 24 checks proven able to fail |
-| P3-8 | Interactive checks (`docs/experiments/E3-interactive.md`) | **checks 1–2 DONE** (automated: `scripts/experiments/E3-interactive/`, 12 pty sessions, both pass, null control 3/3); checks 3–15 todo — 3/4/5 reachable with the same driver, 6–13 need two principals, 14 the sandbox, 15 observational | Opus | |
+| P3-8 | Interactive checks (`docs/experiments/E3-interactive.md`) | **DONE — every check run or ruled out, none of it at a keyboard** (`scripts/experiments/E3-interactive/`, six drivers, ~45 pty sessions). 1–13 and 15 pass; 14 is N/A (`sandbox.enabled` off) | Opus | |
 | P4-1..P4-6 | Vertical proof, headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-1/P4-3/P4-4) | criterion 8 is Fable-tier |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof |
 
@@ -2151,3 +2151,38 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   `make test` green (one earlier local run failed under load while two pty sessions ran; a clean serial re-run is
   green, 44 conformance cases). Open: P3-8 checks 3–15 (3/4/5 are one settings-file change away from the same driver;
   6–13 need two principals; 14 the sandbox; 15 observational), the `license` field, Phase 4 from P4-1.
+- 2026-09-03 15:2x EDT: **P3-8 is COMPLETE — checks 1–13 and 15 all run without a keyboard, 14 ruled out.** Rjae
+  asked for checks 3, 4 and 5 and for whatever else could be automated or skipped. Four more drivers joined
+  `scripts/experiments/E3-interactive/`: `run_rules.py` (3–5, with a second principal registered through the real
+  `SessionStart` hook so there is somewhere to send), `run_twoparty.py` (6), `run_lifecycle.py` (7–13) and
+  `onboarding.py` (15).
+  **3** `permissions.allow` removes the prompt, 2/2. **4** an `ask` rule in bypass mode raises a dialog that renders
+  the whole heredoc (one line per command line, each prefixed `│`) and offers **only `1. Yes` / `2. No`** — the plain
+  Bash dialog offers four, including *don't ask again* and *switch to auto mode* — so an explicit `ask` rule cannot be
+  retired from its own dialog. Sitting correction 3 confirmed on 2.1.259, 2/2. **5** a `deny` rule blocks silently and
+  the model says *"Per the skill's guidance, I'm stopping there rather than trying a different invocation form"* —
+  no evasive form, no other tool, 2/2. **6** a teammate's `--reply-to` reply reached a live pty session **mid-turn**,
+  recorded as a `queue-operation`/`enqueue` plus a `queued_command` attachment with origin
+  `{kind:"peer", name:"peer-session"}` carrying the whole `<brigade-message …>` frame, acked under `acked/<alice>/`,
+  with **zero** native `SendMessage`/`ListAgents` calls. **7** `/rename` reaches the roster. **8** `/clear` keeps the
+  Brigade id and the watcher while the native `claude_session_id` rotates and `registered_at` does not — SessionStart
+  re-fires without re-minting, as E0-8 (f) demanded. **9** `/compact` changes nothing at all. **10** the shadowing line
+  is printed verbatim AND the decoy binary really runs. **11** a `~/.local/bin` symlink to the plugin's own bootstrap
+  is not a shadow, with that directory genuinely ahead on PATH. **12** `SessionEnd` stops the watcher in **270/271 ms**
+  and the roster shows `offline`. **13** after `kill -9`, the watcher exits on its own in **648/860 ms** — **E0-5's
+  27.6 s / 59.0 s zombie-detection problem is not in the shipped implementation.** **15** across 29 sessions the trust
+  dialog appeared 21/29 (every genuinely fresh directory) and the `Claude in Chrome extension detected` prompt
+  **0/29** on 2.1.259, though E0-8 met it on 2.1.252 so drivers must still tolerate it. **14** is not applicable:
+  no `sandbox` block exists in any settings file.
+  Two harness defects were found and fixed by their own evidence, both the same class as the checks-1-2 review:
+  (1) check 4 first recorded "no dialog" while its session log held the dialog verbatim — a draining `nap` consumed the
+  pty before `expect` looked, so dialogs are now matched immediately and every dialog verdict carries a second,
+  whitespace-insensitive scan of the log that no timing can defeat; (2) checks 12 and 13 lost their roster dump because
+  `nap` raises "spawn id not open" the moment the session dies, so the post-event work moved into Python.
+  One residue found while checking 13, recorded in §1d: a SIGKILLed session leaves its **by-pid map
+  file** behind (only `SessionEnd` calls `DeleteByPID`), as does every hook-registered peer. It is litter, not an
+  identity hazard — `SessionStart` adopts an existing map's session only when the adapter still reports it ALIVE, and
+  the watcher has already closed it — but `cleanup.py` now prunes dead-pid maps.
+  Deviations, all recorded in `docs/experiments/E3-interactive.md` §1d and §3: the permission rules were delivered via
+  `--settings` rather than the user settings file; 7–13 ran in bypass mode; check 6 paired one interactive session with
+  one hook-registered principal. Open for Rjae: nothing in P3-8. Next: the `license` field and Phase 4 from P4-1.

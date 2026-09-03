@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Dump the fs adapter's session roster to a JSON file, from OUTSIDE any session.
+
+Checks 7 and 12 are verified from the team's own record rather than from a second
+Claude session: whether a rename reached the roster, and whether a session went
+offline the moment it ended. Reading the store directly is the same evidence with
+one fewer moving part.
+
+usage: roster-dump <out.json> [profile]
+"""
+import json
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+# HERE is .../scripts/experiments/E3-interactive/bin -- four levels to the repo root.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(HERE))))
+
+
+def main():
+    out = sys.argv[1]
+    profile = sys.argv[2] if len(sys.argv) > 2 else "default"
+    state = os.path.expanduser(os.environ.get("XDG_STATE_HOME", "~/.local/state"))
+    env = {k: v for k, v in os.environ.items()
+           if not (k.startswith("CLAUDE") or k.startswith("AI_AGENT"))}
+    env["BRIGADE_FS_ROOT"] = os.path.join(state, "brigade", "fs-adapter")
+    r = subprocess.run([os.path.join(REPO, "bin", "brigade-adapter-fs"),
+                        "--profile", profile, "session", "list", "--include-offline"],
+                       capture_output=True, text=True, env=env, timeout=60)
+    try:
+        doc = json.loads(r.stdout)
+        sessions = doc["result"]["sessions"]
+    except Exception as e:
+        doc, sessions = {"error": str(e), "stdout": r.stdout[:400],
+                         "stderr": r.stderr[:400]}, []
+    with open(out, "w") as f:
+        json.dump({"sessions": sessions, "raw_ok": bool(sessions), "meta": doc if not sessions else None},
+                  f, indent=2)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
