@@ -74,7 +74,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P2-1..P2-5 | Supabase schema, RPCs, realtime/housekeeping, pgTAP, advisor lints | done | Fable | this commit — migrations finished against everything Phase 1 pinned; **`not_found` is now SQLSTATE `PT404` = HTTP 404 (measured)**; 9 pgTAP files, **756 assertions**; **46 SQL mutations, all killed after 7 instruments were strengthened**; E0-1 72/0 and E0-2 37/0 kits green; CI `supabase` job un-gated (see below) |
 | P2-6..P2-10 | Go Supabase client, profile/team/session/message commands, watch | done | Fable (P2-6/P2-7/P2-10) · Opus (P2-8/P2-9) | this commit — **conformance(supabase) `--slow` 45/0/0, three consecutive runs of about 80 s**; 23 adapter mutations killed after 4 instruments were fixed; live credential, realtime and mapping checks on the real stack; one decisive defect found live (revoke-credentials leaving the refresh family alive) and fixed (see below) |
 | P2-11 | Integration suite completion: fault tests under `BRIGADE_TEST_DOCKER=1`, `pgx` fixtures, fixtures through the verbs, coverage across the process boundary, CI's `test-integration` and coverage steps un-gated | done | Opus | this commit — `make test-integration` 3:42 locally (integration 142 s incl. the two fault tests, conformance 45/0/0 in 80 s); every I-* id of 9.9 assigned to the adapter traced to a named test; 16 of 17 checks proven able to fail, 1 strengthened |
-| P2-12 | `scripts/release-prep.sh` + the release rehearsal | done locally · **the real rehearsal awaits Rjae** | Opus | this commit — the script (7.7) with a `DRY_RUN` mode, rehearsed on a throwaway local branch: `GORELEASER_CURRENT_TAG` accepts a non-existent tag with `--skip=validate` (the 7.7 [uncertain] settled), goreleaser's `checksums.txt` byte-equal to `make cross`'s; **four script defects found and fixed by the verifier** (see below); nothing pushed, tagged or committed by the rehearsal |
+| P2-12 | `scripts/release-prep.sh` + the release rehearsal | done — **the real rehearsal ran on 2026-09-02 (D1; release run 33698279695, see "D1 RELEASE REHEARSAL DONE")** | Opus | this commit — the script (7.7) with a `DRY_RUN` mode, rehearsed on a throwaway local branch: `GORELEASER_CURRENT_TAG` accepts a non-existent tag with `--skip=validate` (the 7.7 [uncertain] settled), goreleaser's `checksums.txt` byte-equal to `make cross`'s; **four script defects found and fixed by the verifier** (see below); nothing pushed, tagged or committed by the rehearsal |
 | P3-1 | Plugin manifests, marketplace, skills | done | Opus | this commit — `plugin.json`, `hooks.json`, the two skills, `plugin/README.md`, the marketplace entry, `scripts/ci/manifests_test.go` (26 mutations, one positive control); `make plugin-check` with no `skip:`; `claude plugin validate .` zero warnings, `./plugin --strict` green; the headless run registers both skills with no MCP server and fires each hook once (exit 1 until P3-4); **`--strict` is blind to skill frontmatter; stream-json carries `SessionStart` hook events only** (see below) |
 | P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | todo | Fable | security path |
 | P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | todo | Fable | injection path |
@@ -1161,6 +1161,51 @@ directory under the user's real `CLAUDE_CONFIG_DIR/projects/` keyed by the tempo
 removed this task's two by absolute path); the plugin pins stay at the pre-release `0.0.0`, so the bootstrap can
 download nothing until D1's rehearsal and the first release.
 
+## D1 RELEASE REHEARSAL DONE — the whole chain ran for real on a throwaway branch, found two defects, and was torn down
+
+Run by the driver session `15-implement-brigade-0902T18` on 2026-09-02 (~20:00–20:15 local) in the plan's P2-12 form,
+after P3-1 landed and CI was green: `git switch -c rehearsal/0.0.1-rc1 && git push -u origin rehearsal/0.0.1-rc1`
+(the upstream is REQUIRED: the script's `git pull --no-edit` and `make push` fail on a branch without one), then
+`make release version=0.0.1-rc1 branch=rehearsal/0.0.1-rc1`.
+
+**Two defects, both found by the rehearsal and both fixed on master before the successful run.** (1) `release.yml`'s
+Publish step ran `gh release edit "$TAG" --draft=false --latest` unconditionally; GitHub's REST API refuses
+`make_latest` for a prerelease ("Drafts and prereleases cannot be set as latest"), and goreleaser's `prerelease:
+auto` marks `v0.0.1-rc1` as one, so the rc publish would have failed and the Discard step would have deleted the
+draft it had just verified — `--latest` is now passed only for a tag without a pre-release suffix (`060114f`).
+(2) The FIRST attempt stopped at step 4 with nothing committed, pushed or tagged: `make push` runs `make test`, and
+`scripts/ci`'s `TestChecksumsCheck/the_real_repository_passes_in_the_pre-release_state` ran `checksums-check.sh`
+against the real tree in its bumped state — rule (c) fell back to `gh release download v0.0.1-rc1`, which cannot
+exist between bumping the pins and pushing the tag; the same test would have broken every `make test` after the
+first real release on a machine without `gh` or the release, and CI's `make build test` step (no `GH_TOKEN`). The
+test now skips with the reason whenever `plugin/bin/VERSION` is not `0.0.0` (`036e175`; the real-version state is
+`make checksums-check`'s). The pins were restored, master merged into the branch, and the second run went through.
+
+**The successful run, measured.** Steps 1–3 as in the local rehearsal (goreleaser's `checksums.txt` byte-equal to
+`make cross`'s). Step 4 committed `3a921d7 15: Release 0.0.1-rc1` (exactly `plugin/bin/VERSION`,
+`plugin/.claude-plugin/plugin.json` and `plugin/bin/checksums.txt`) through the push chain; step 5 pushed `v0.0.1-rc1`.
+**`release.yml` run 33698279695: every step green** — the guard on the Ubuntu runner reproduced the checksums this
+macOS machine committed (cross-host reproducibility, now through the real release flow), goreleaser built the four
+targets and created the draft, `release-verify.sh` matched, Publish published it as a **prerelease** (not draft,
+not latest), Discard skipped. Assets: `brigade_0.0.1-rc1_{darwin_amd64 8,102,480 B, darwin_arm64 7,500,818 B,
+linux_amd64 7,913,632 B, linux_arm64 7,340,192 B}` and `checksums.txt` (386 B, byte-identical to the committed
+file). Exercised against the published release: `make checksums-check` on the release commit passes by rule (c)'s
+fresh-build arm; `scripts/ci/checksums-check.sh <tampered fresh file>` passes by the release arm ("the published
+release v0.0.1-rc1 backs plugin/bin/checksums.txt"); `gh release download v0.0.1-rc1` into `.ignored/rel`, served on
+`127.0.0.1:<port>` and the shipped `plugin/bin/brigade` run with a TEMP XDG triple and `BRIGADE_RELEASE_BASE_URL`
+pointed at it: cold cache → two GETs (`checksums.txt`, the darwin/arm64 asset), verified, cached 0755 under
+`XDG_DATA_HOME/brigade/bin/brigade-0.0.1-rc1-darwin-arm64`, exec'd, `0.0.1-rc1` on stdout, **0.329 s** wall; warm
+cache → **0.025 s**, zero requests; the raw asset copied alone into an empty directory runs (`./brigade version`);
+all four downloaded assets verify against the committed checksums.
+
+**Torn down with the documented recovery steps:** `gh release delete v0.0.1-rc1 --yes`; `git tag -d v0.0.1-rc1 &&
+git push --delete origin v0.0.1-rc1`; the branch deleted remotely and locally; `dist/`, `dist-cross/` and
+`.ignored/rel/` removed by absolute path. Master is unchanged (`036e175`, VERSION `0.0.0`, empty `checksums.txt`);
+no release, no tag, no branch but `master` remains on the remote. Recorded, not changed: the release's
+`targetCommitish` read `master` although the tag pointed at the branch commit (GitHub's default for a tag release;
+harmless, the assets and the tag are what the bootstrap uses); `gh release view` has no `isLatest` field (use
+`isPrerelease`/`isDraft`). **P5-10's real `0.1.0` release can follow this exact sequence from master.**
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1658,3 +1703,6 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   whenever `plugin/bin/VERSION` is not the `0.0.0` sentinel; the real-version state is `make checksums-check`'s
   (CI, a real fresh build, `GH_TOKEN`). Plan 7.7 correction: the release chain's `make push` runs the full
   `make test`, so nothing under `go test ./...` may depend on the pinned version being released.
+- 2026-09-02 ~20:20: **D1 done — the release rehearsal ran end to end and was torn down** (block above; release run
+  33698279695). Two release-chain defects found and fixed on master first (`060114f` `--latest`, `036e175` the
+  real-repository checksum test). Next: **P3-2** (Fable) from `.ignored/briefs/p3-2-harness-library.md`.
