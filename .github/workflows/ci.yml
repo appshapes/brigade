@@ -2,12 +2,14 @@
 #   (d) a `reproducibility` job diffs the `fast` and `macos` checksums instead of leaving the comparison to
 #       whoever reads the two job summaries — see the comment on that job. Keep (d).
 #
-# The other three are gone: P1-8 removed (b) (the `fast` job ran `make cross` in place of `make
-# checksums-check`) and (c) (`make plugin-check` gated `if: false`), both because scripts/ci/*.sh did not
-# exist yet; P2-1 removed (a) (the `supabase` job gated `if: false` until the migrations existed); P2-11
-# removed the gates on `make test-integration` and on the coverage summary that depends on it. Inside the
-# `supabase` job ONE step is still gated `if: false` the same way until its deliverable exists: `make e2e`
-# (P4-1). Remove that gate in the task named beside it.
+# The other three are gone. Each was a step disabled by a constant-false `if:` until its deliverable existed:
+# P1-8 removed (b) (the `fast` job ran `make cross` in place of `make checksums-check`) and (c)
+# (`make plugin-check`), both because scripts/ci/*.sh did not exist yet; P2-1 removed (a) (the whole
+# `supabase` job, until the migrations existed); P2-11 removed the gates on `make test-integration` and on
+# the coverage summary that depends on it; P4-1 removed the LAST one, on the `supabase` job's `make e2e`
+# step, by landing scripts/proof.sh. No constant-false gate remains anywhere in this file, so every step runs
+# on every push and a green conclusion means every step passed. Do not reintroduce one: gate on a real
+# condition or do not add the step.
 name: ci
 on:
   push: {branches: [master]}
@@ -112,12 +114,16 @@ jobs:
           mkdir -p "${{ runner.temp }}/cov"
           make test-integration
         env: {BRIGADE_COVER: "1", GOCOVERDIR: "${{ runner.temp }}/cov"}
-      - if: false                         # enabled by P4-1, which lands scripts/proof.sh and the `e2e` target's inputs
-        run: make e2e                     # scripts/proof.sh, watcher in --sink mode, no LLM (D31)
-        env: {GOCOVERDIR: "${{ runner.temp }}/cov"}
-      # Coverage of bin/brigade as the conformance suite drove it (the `make e2e` step above will add its
-      # own once P4-1 lands). The go test process's own coverage is not here: it is the `fast` job's
-      # cover.out profile.
+      # BRIGADE_COVER=1 matters as much as GOCOVERDIR here: `e2e: build` rebuilds bin/brigade and
+      # `cover_flags` keys off BRIGADE_COVER, so without it this step would rebuild UNINSTRUMENTED and
+      # contribute nothing to the summary below. proof.sh passes GOCOVERDIR through to the top-level
+      # `brigade` processes it starts; adapter CHILDREN never see it (adapterkit.ChildEnv's allow-list) and
+      # warn into the harness-routed adapter log, which proof.sh deliberately does not assert empty. A
+      # SIGKILLed instrumented watcher writes no coverage; that is documented and accepted (plan 2701).
+      - run: make e2e                     # scripts/proof.sh, watcher in --sink mode, no LLM (D31)
+        env: {BRIGADE_COVER: "1", GOCOVERDIR: "${{ runner.temp }}/cov"}
+      # Coverage of bin/brigade as the conformance suite drove it; the `make e2e` step above adds its own.
+      # The go test process's own coverage is not here: it is the `fast` job's cover.out profile.
       - run: go tool covdata percent -i="${{ runner.temp }}/cov" >> "$GITHUB_STEP_SUMMARY"
       - if: always()
         run: make supabase-clean supabase=supabase

@@ -80,7 +80,8 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | done | Fable | this commit — `internal/harness/{commands,hook,watch,e2e}`, the CLI table filled, `app.go` routing `hook`/`watch`, 17 txtar scripts, the `ReadStrict` hardening; three Fable lanes in parallel, one integrator, two Fable verifiers; **9 defects found, 7 fixed in place, 46 checks proven able to fail**; the end-to-end test drives the REAL binary and the REAL detached watcher through a crash and a respawn; the Fable limit interrupted the run once (see below) |
 | P3-6, P3-7 | Bootstrap wiring, headless smoke | done | Opus | this commit — `make plugin-dev [adapter=fs] [profile=<p>]`, `plugin-check` checks 6 and 7, the harness-side contract in `docs/adapter-authors.md`, the fs onboarding under the plugin, `docs/experiments/E3-wiring.md` (the four acceptance items measured through `claude -p`) and `scripts/harness-smoke.sh` + `E3-smoke.md` (5 nested sessions green, 0 flakes); one Opus verifier re-ran the smoke and the onboarding itself; 24 checks proven able to fail |
 | P3-8 | Interactive checks (`docs/experiments/E3-interactive.md`) | **DONE — every check run or ruled out, none of it at a keyboard** (`scripts/experiments/E3-interactive/`, six drivers, ~45 pty sessions). 1–13 and 15 pass; 14 is N/A (`sandbox.enabled` off) | Opus | |
-| P4-1..P4-6 | Vertical proof, headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-1/P4-3/P4-4) | criterion 8 is Fable-tier |
+| P4-1 | Vertical proof: `scripts/proof.sh` (no LLM, runs in CI) + `scripts/ci/proof_test.go` + `make e2e` un-gated | done | Opus | this commit — **221 assertions, every one driven to `FAIL:` by the verifier's mutations**; CI's last `if: false` gate removed, the step runs with `BRIGADE_COVER=1`; 80–84 s a run; 7 instrument defects fixed before commit (3 had let it print GREEN while checking nothing; 1 would have made the first Linux run red), 0 code defects; the plan row corrected in eight places (see "P4-1 DONE") |
+| P4-2..P4-6 | Headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-3/P4-4) | criterion 8 is Fable-tier |
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to Rjae's usual practice (see "Phase 6" below) | todo — **needs Rjae's example repositories as input** | Opus | **runs after Phase 4 and BEFORE Phase 5** (Rjae, 2026-09-03) — the identifier stays P6, the order does not |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof **and after Phase 6** |
 
@@ -1518,6 +1519,117 @@ would overwrite the developer's real pointer) — all four parameter forms were 
 at the keyboard; two stray process families from other sessions (the E0-5 python adapters of 31 Aug, a P1-8 shell
 matrix of 2 Sep) are still in `ps` and were left alone.
 
+## P4-1 DONE — `scripts/proof.sh`, the no-LLM vertical proof; `make e2e` un-gated; the plan row corrected in eight places
+
+**What exists.** `scripts/proof.sh` (1,691 lines of POSIX sh, 100755; `make e2e` = `$(unclaude) scripts/proof.sh`), `scripts/ci/proof_test.go`
+(577 lines: the drift join — every literal the script asserts against sits in one delimited constants block and is checked against
+`config.Watcher*Var`, `watch.SocketVar`/`TokenVar`, the `protocol.*` limits and exit codes, `protocol.JoinSecretPrefix`, the `frame.*`
+tokens and a rendered `frame.Build`; a 29-row mutation table with a positive control; the shipped `--sink`+socket refusal compared
+byte for byte against the real binary), and `.github/workflows/ci.yml` with the last `if: false` gate gone and `BRIGADE_COVER: "1"`
+on the e2e step (without it `e2e: build` rebuilds uninstrumented). Brief: `.ignored/briefs/p4-1-proof.md` (749 lines; written from a
+seven-reader research pass with a critic — digests in `.ignored/briefs/p4-1-research/`); author and verifier reports beside it. One
+Opus author, one Opus adversarial verifier, per the cadence Rjae fixed on 2026-08-30. **Runs: author 3 green + 1 CI-shaped
+(`BRIGADE_COVER=1 GOCOVERDIR=…`, 296 coverage files) + 1 poisoned-environment `dash` run; verifier 12 (3 final green, the rest
+mutations); driver 2 — the second on the hardened script, after three post-verifier edits: a `pgrep` precondition (a missing
+`pgrep` made the orphan check vacuously green), a 255 cap on the exit status (one byte; 256 failures would read as green), and a
+CI header that no longer relies on a line break to keep the two-word gate literal out of the file.** Evidence bundles under `.ignored/proof/<UTC stamp>/`; the verifier's run logs under `.ignored/verifier-p4-1/`.
+
+**What the proof does, in one paragraph.** One temp root; three profiles against the LOCAL stack (alice/bob in `ops`, carol in `other`,
+the join secret through a 0600 file outside the scanned root into `team join`'s stdin, deleted before any scan); three sleepers; three
+sessions registered through the REAL `hook session-start` (bob `billing` accept, alice `payments-api` accept, alice `alice-refuse`
+refuse — the map's `inbound` is the only policy source), fifteen more through `session register`; two sink watchers started by the
+script with the hook's six-variable environment plus a sentinel `CLAUDE_CODE_MESSAGING_TOKEN` on bob's. Then: four `brigade send`
+calls yielding three distinct messages (the fourth is D11's minute-keyed duplicate, deterministic behind a minute-boundary guard),
+the nine-line wrapped frame asserted byte for byte with `sent-at` masked, bob's `--reply-to` reply read back at hop 1; SIGKILL of
+bob's watcher, two sends while it is down, a restart proven to take the dead-pidfile branch (`replacing a dead watcher's pidfile`
+present, `another watcher already serves this session` absent — in sink mode `sameService` matches on the session id alone, so a
+live old pid would make the restart a SILENT exit 0), five distinct ids and no repeat after a 10 s quiet window, the session never
+closed; the name collision (two `billing` rows, the send goes to the id, the twin's inbox empty); criterion 1's principal_refs and
+rosters; carol's list/members/send/receive/watch, each byte-identical to a random-uuid probe with a `DifferentBytes` control and the
+three-way profile rebind (foreign uuid, non-uuid, random uuid); the pair cap on an UNWATCHED bob session (15 accepted, the 16th
+`sender_quota_for_recipient`, a second alice session still accepted, carol `not_found`, then `message ack` of all 16); the refuse
+watcher recording two refusals, injecting nothing, acking nothing while `message receive` still returns both; both hop chains acked
+per hop to message 33 and `loop_detected`/`max_hops` at 34; one 63 s barrier; the C-28 windows (20 accepted split over two
+recipients, ten `send_per_minute`, two more sessions to 60, a fresh session `principal_per_minute`); the scans (secret-SHAPED
+`brg1.` regex, the exact refresh/access tokens and the sentinel through a 0600 pattern file, the no-secrets patterns, each with a
+planted canary found then removed; `--join-secret` refused and never echoed; `token_sha256 == sha256(sentinel)`; no `.mcp.json`; the
+working tree unchanged); `hook session-end` for the three hooked sessions (watcher gone, pidfile gone, map gone, `offline`).
+
+**Plan corrections found while briefing (the plan text is left as written; this entry is the record):**
+1. The Phase 4 preamble (plan :2653) says proof.sh "uses a temp `BRIGADE_CONFIG_DIR`, `BRIGADE_STATE_DIR` and `HOME` per run". Inside a
+   session (`CLAUDE_PID` set) `config.Trusted` strips every inherited `BRIGADE_*` (`internal/harness/config/environ.go:69-116`), so
+   the hook and `brigade send` would resolve the XDG default while the terminal half used the `BRIGADE_*` directory — two stores.
+   proof.sh uses the e2e rig's shape: temp HOME + XDG dirs, with `BRIGADE_CONFIG_DIR`/`BRIGADE_STATE_DIR` set equal to the XDG
+   resolution only where they are input (the watcher's six variables).
+2. "a 16th unacked message from alice to bob returns `sender_quota_for_recipient` while carol's teammate can still send" is
+   unsatisfiable as written: carol is the only member of `other` and every carol→ops path is the uniform `not_found`
+   (`send_message` resolves the recipient inside the sender's team, schema :508-512); and bob's sink watcher acks everything it
+   serves, so the cap can never fill on the watched session. Read as C-28 arm (b) against bob's UNWATCHED session; the substitute
+   sender is a second alice SESSION (the cap is per sender session); carol's path stays `not_found`.
+3. "alice sends 3 messages (one with a duplicated idempotency key); … exactly 3 frames": three calls with one repeated key yield
+   two messages. Read as FOUR `brigade send` calls yielding three distinct messages; the assertion is on the SET of ids in the sink.
+4. "a second alice session is refused once alice's principal budget is spent" is the SEND budget (`principal_per_minute` after 60
+   accepted alice sends, C-28 Q6, plan :2760), not the 120-registrations-per-hour cap.
+5. 9.7 row 4 (durable acceptance) names no proof.sh step although D31 and 9.1 assign criterion 4 to proof.sh: evidenced by the live
+   C-20 read-back (the send's answer predicts an independent `message receive`, eight fields) plus D11's duplicate accuracy; P2-10
+   keeps the Realtime-stopped half — proof.sh never touches a container.
+6. 9.7 row 7 lists `message receive` among carol's refusals; the P4-1 row omits it. Covered.
+7. "carol lists (sees nothing)" / 9.7's "list empty": carol has a session (the row registers one; the roster assertion needs it),
+   so the assertion is "her own team only, none of the seventeen ops ids, exactly her own session", with the rebind probes as the
+   strong form.
+8. E2E-02's interim clause ("a bypass-mode registration is injected immediately in `accept`") has no permission mode without Claude
+   Code; the stand-in is bob's map carrying `permission_mode: "bypassPermissions"` with `inbound: accept` and the first frame arriving
+   with no hold — the pre-P5-9 stand-in it is (D18 makes the mode inert by design).
+
+**The brief was wrong in three places the author caught (each now a measured failure mode on record):** (a) "`$!` IS the watcher pid" —
+a shell FUNCTION backgrounded is a forked subshell, so `$!` is the subshell; `kill -KILL $!` would have killed the subshell, left the
+watcher alive, and the restart would have hit the silent duplicate branch — the whole crash phase green for the wrong reason
+(measured: `$!`=6726 while the pidfile said 6728). The launches now `exec`. (b) The adaptive budget probe was not a barrier: phases
+1–7 spend 56 of alice's 60, so the first phase-8 send is ACCEPTED with 56 still spent (measured: 4 accepted, 56 refused, six
+assertions red); the barrier is now the window rolling (63 s from alice's last phase-7 send), with the probe as confirmation. (c) A
+one-line body renders a NINE-line wrapped frame (`brigade send` keeps the trailing newline, `SanitizeBody` does not trim, `Build`
+writes `body + "\n" + CloseTag`); the script pins nine lines, the seventh empty. Two house collisions too: a literal `sb_secret_…`
+canary in the script turns `no-secrets.sh` (and so `make plugin-check`) red, so the canary is assembled at run time; and a scan
+label that names `service_role` matches its own transcript in the evidence bundle.
+
+**What the verifier found (all fixed in place, failing-first evidence in the report):** `U-27: the out-of-session refusal names the
+reason` had `ok` on both branches and a pattern that never matched the shipped line; `C-43: carol's profile bytes are restored` was
+an unconditional `ok`; `inbox_empty` read any FAILING envelope as an empty inbox (`jq '.result.messages | length == 0'` is true for
+`{"ok":false}` — null indexes to null, `null | length` is 0), so the "acks recorded" assertion passed on a refusal; two byte-identity
+`cmp -s` pairs were satisfied by EMPTY captures; `trap cleanup EXIT HUP INT TERM` ran cleanup twice on a signal and made an
+interrupted run exit 0 (fixed: `trap cleanup EXIT` plus `trap 'exit 130' INT` etc.; verified `kill -INT` mid-phase-7 → exit 130,
+nothing left); `file_mode` was BSD-first and BROKEN on GNU `stat` (`stat -f '%Lp' FILE` prints a filesystem block and exits 1) —
+**this alone would have made the first ubuntu-latest run of the un-gated step red**; and `measured: send->sink 156 ms` spanned four
+spawns and the minute-boundary wait (5,182 ms when the guard fired) — the one-way number is the `three frames in bob's sink` line.
+Eleven mutation rows added to the Go test. **No defect in the harness, the adapter or the backend across ≈2,650 process
+invocations.** Rules the verifier's attack adds to the house list: a `cmp -s` byte-identity assertion needs a CONTENT anchor as well
+as a `DifferentBytes` control (two empty files compare equal); a jq predicate over `.result` must first assert `.ok == true`;
+never end a signal trap in `exit "$st"` when an EXIT trap also runs cleanup; GNU-first for `stat`, captured not streamed.
+
+**Measured for the first time (this machine, Darwin 25.6.0 arm64, Docker-hosted local stack; every number is printed as a `measured:`
+line on every run so the first CI green establishes the Linux distribution):** harness watcher start → `watch ready` against the
+SUPABASE adapter **234 ms** (bob) / 239 ms (AR); three frames in bob's sink **9–11 ms** after the poll began; acks issued 8 ms, inbox
+drained 17 ms; watcher SIGKILL → gone **19 ms**; the orphaned adapter child exits **34 ms** after its parent's death (specified ≤ 5 s);
+restart → second `watch ready` **226 ms**; `ready` → the two catch-up frames **12 ms** (the catch-up `fetch_inbox` runs before
+`ready`); each 33-hop chain ~**1,050 ms** (67 spawns); **60 accepted sends in 833 ms** (72× margin on the minute window); the budget
+barrier **63.0 s** — the single unavoidable wait; watcher exit after `hook session-end` **6–7 ms**; whole proof **80–84 s** against the
+600 s watchdog and CI's 25-minute job.
+
+**Unresolved, recorded rather than fixed:** the U-25 sentinel's ARGV half is decorative (the sentinel is on the intermediate `env`
+process's argv for microseconds before `exec`; the ps sample is taken after `watch ready`) — the FILE half with its planted control is
+the real test; two concurrent proof.sh runs interfere (phase 9's `brg1.x.NOTREAL` probe lands in the other run's ps sample) — one run
+at a time, which CI guarantees; no end-to-end Linux run exists yet (every shell idiom was probed under `ubuntu:24.04`/dash and one
+break found and fixed) — the first un-gated CI run is the Linux measurement; P2-10's Realtime-stopped half and I-13's foreign-topic
+join stay where the plan puts them.
+
+**Two `make test` flakes on this machine, neither in P4-1's files, both recorded so nobody re-diagnoses them:** (1) under whole-tree
+`-race` load `TestIntegrationAdversarialBroadcastPayloadIsIdsOnly` (`internal/adapters/supabase/adversarial_integration_test.go:269`)
+missed its 10 s broadcast window and, because its read loop uses `t.Context()` with no deadline, blocked until the server closed the
+un-heartbeated socket at 60 s (`read: failed to get reader: failed to read frame header: EOF`); it passes in 0.28 s in isolation and
+the next full run passed it in 94 s — it deserves a read deadline so a miss fails in ten seconds, not sixty. (2) The coverage
+temp-directory rename (`coverage meta-data emit failed`) hit `cmd/brigade` TestScript on the second run — the flake the hand-off
+already named. CI is the arbiter; the P4-1 gate was the package run (`go test -race -shuffle=on -count=3 ./scripts/ci/`, 7.8 s).
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -2271,3 +2383,16 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   14:53 EDT, stale after the last fifteen runs; `onboarding.py` now prints **36/44**, and the limits section warns
   that the denominator grows with every run directory. The 21/29 figure in the entry above is left as written and
   is superseded here.
+- 2026-09-03 19:5x EDT: **P4-1 is DONE — `scripts/proof.sh` runs green, every one of its 221 assertions proven able to fail, and CI's
+  last `if: false` gate is gone.** Brief written from a seven-reader research pass with a critic (the critic's eight contradictions
+  each resolved to a file:line; six gaps answered in a second round, including measured send costs: 9–14 ms a spawn, 60 sends in
+  560 ms); one Opus author, one Opus adversarial verifier. The brief corrected the plan row in eight places (the XDG directory
+  shape, the unsatisfiable "carol's teammate" clause, four sends → three frames, the principal budget is the send budget, criterion
+  4's evidence, `message receive` for carol, "list empty" means "empty of ops", E2E-02's stand-in) and was itself wrong in three the
+  author caught with measurements (`$!` of a backgrounded function is the subshell; the budget probe was not a barrier; the frame is
+  nine lines). The verifier drove all 221 assertions to `FAIL:` and found seven instrument defects — three assertions checking
+  nothing, two byte-identity pairs satisfied by empty files, a double-running trap that made `kill -INT` exit 0, and a GNU `stat`
+  incompatibility that would have made the first Linux run red — all fixed with failing-first evidence; **no code defect** in
+  ≈2,650 process invocations. First measurements of the harness watcher against Supabase: start→ready 234 ms, SIGKILL→orphan gone
+  34 ms, restart→ready 226 ms, catch-up 12 ms, a full run 80–84 s. Details in "P4-1 DONE" above. Open: P4-2 (`scripts/proof-headless.sh`,
+  Fable tier), then P4-3..P4-6; Phase 6 after Phase 4 (blocked until Rjae names the example repositories); Phase 5 after Phase 6.
