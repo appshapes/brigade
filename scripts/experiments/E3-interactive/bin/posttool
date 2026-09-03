@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""PostToolUse recorder -- the second half of the detector.
+
+A tool call that got past the permission gate and RAN leaves a row here; one that
+was prompted or denied never does. Brigade Bash commands and Skill invocations
+also get their own single-purpose files so the expect driver can wait on a line
+count without having to parse anything.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True   # a hook must not leave __pycache__ in the repository
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _e3 import append, brigade_cmd, read_stdin_json, sha12  # noqa: E402
+
+
+def main():
+    hi = read_stdin_json()
+    tool, cmd, form = brigade_cmd(hi)
+    ti = hi.get("tool_input") or {}
+    rec = {
+        "event": "posttooluse",
+        "tool": tool,
+        "is_brigade_bash": form == "bare",
+        "brigade_form": form,
+        "claude_pid": os.environ.get("CLAUDE_PID", ""),
+        "permission_mode": hi.get("permission_mode"),
+        "cmd_len": len(cmd) if cmd is not None else None,
+        "cmd_sha12": sha12(cmd) if cmd else "",
+        "cmd_head": cmd[:200] if cmd else None,
+        "skill_name": ti.get("skill") if isinstance(ti.get("skill"), str) else None,
+    }
+    append("posttool.ndjson", rec)
+    if form == "bare":
+        append("exec.ndjson", rec)
+    elif form == "fullpath":
+        # NEVER pooled with exec.ndjson: a full-path command cannot match
+        # Bash(brigade:*), so it says nothing about the grant.
+        append("fullpath-exec.ndjson", rec)
+    if tool == "Skill":
+        append("skill-exec.ndjson", rec)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -79,7 +79,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | done | Fable | this commit — nine packages + `procutil` + the fake adapter, fake socket, fake registry, sleeper and Eventually fixtures (~17k lines with tests); five Fable authors in two waves on disjoint packages, two Fable verifiers; **10 defects found, 8 fixed in place, 101 checks proven able to fail by mutation**; U-03/04/13/14/15/16/17/18/19/20/27 and E2E-13 traced; `Watch.Wait` deadlock and the FIFO-at-the-map-path hang were the decisive ones (see below) |
 | P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | done | Fable | this commit — `internal/harness/{commands,hook,watch,e2e}`, the CLI table filled, `app.go` routing `hook`/`watch`, 17 txtar scripts, the `ReadStrict` hardening; three Fable lanes in parallel, one integrator, two Fable verifiers; **9 defects found, 7 fixed in place, 46 checks proven able to fail**; the end-to-end test drives the REAL binary and the REAL detached watcher through a crash and a respawn; the Fable limit interrupted the run once (see below) |
 | P3-6, P3-7 | Bootstrap wiring, headless smoke | done | Opus | this commit — `make plugin-dev [adapter=fs] [profile=<p>]`, `plugin-check` checks 6 and 7, the harness-side contract in `docs/adapter-authors.md`, the fs onboarding under the plugin, `docs/experiments/E3-wiring.md` (the four acceptance items measured through `claude -p`) and `scripts/harness-smoke.sh` + `E3-smoke.md` (5 nested sessions green, 0 flakes); one Opus verifier re-ran the smoke and the onboarding itself; 24 checks proven able to fail |
-| P3-8 | Interactive checks (`docs/experiments/E3-interactive.md`) | todo — **Rjae at the keyboard**; the checklist with the exact commands is committed | Opus | |
+| P3-8 | Interactive checks (`docs/experiments/E3-interactive.md`) | **checks 1–2 DONE** (automated: `scripts/experiments/E3-interactive/`, 12 pty sessions, both pass, null control 3/3); checks 3–15 todo — 3/4/5 reachable with the same driver, 6–13 need two principals, 14 the sandbox, 15 observational | Opus | |
 | P4-1..P4-6 | Vertical proof, headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-1/P4-3/P4-4) | criterion 8 is Fable-tier |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof |
 
@@ -2120,3 +2120,34 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   session's context is nearly full): `.ignored/handoff-15-phase-4.md` rewritten to cover P3-8's position (checks 1–2
   inconclusive in `auto` mode, the Manual-mode redo pending, the decoy staged, the transcript-reading recipe, the
   terminal-side steps that are the driver's). The receiving session drives P3-8's bookkeeping and Phase 4.
+- 2026-09-03 13:55 EDT: **P3-8 checks 1 and 2 are SETTLED — and they did not need a keyboard.** Rjae asked whether the
+  driver could run them itself. It can: what those checks need is an interactive **pty** in Manual mode, not a person,
+  and `expect` supplies one. New harness `scripts/experiments/E3-interactive/` (`run_manual.py` for the pty,
+  `run_headless.py` for the half `claude -p` can settle, `bin/attempt` + `bin/posttool` as a mechanical detector,
+  `analyze.py`, `cleanup.py`), the 2.1.259 descendant of E0-8's `run_b.py` but pointed at the **shipped** plugin, run
+  as `rjae@appshapes.com` in `~/.claude`. The detector hooks are supplied through `--settings`, so `plugin/` is never
+  touched (`make plugin-check` asserts its file list, and it still passes).
+  **Twelve interactive sessions, permission mode `default` in all four witnesses in all twelve** (hook payload per
+  tool call, transcript records, the by-pid map read mid-run, the TUI status line) — the failure that voided the first
+  attempt cannot recur silently. **Check 1 PASSES 6/6**: one Skill dialog, then the skill's bare `brigade sessions`
+  runs with no Bash prompt. **Check 2 PASSES 6/6**: the next turn, no skill in play, stalls on a prompt, and the
+  transcript's own tool_result records the rejection independently of the stall detector. **Null control 3/3.**
+  **The dismissal is project-scoped**: option 2 names the directory, silences the dialog there, and a fresh directory
+  raises it again. So **E0-8 (b)'s 2.1.252 result holds unchanged on 2.1.259** and the plugin README's permissions
+  bullet no longer says "re-measurement pending".
+  Headless (`-p`, `--permission-prompts none`) settled the decision half and is kept as its own arm set: with only
+  `Skill` pre-approved the skill ran three brigade commands unprompted; resumed with nothing pre-approved it was
+  denied; with nothing pre-approved at all the Skill tool itself was denied and the model then tried the binary by its
+  **full path** and then native `ListAgents` — both forbidden by the skill it had never been allowed to load. In the
+  twelve interactive runs, where the skill loads, neither happened.
+  **The harness was adversarially reviewed (5 lenses, 15 confirmed findings) and five real defects were fixed BEFORE
+  its results were believed.** The decisive one: on 2.1.259 the Skill dialog and the Bash dialog both say "Do you want
+  to proceed?", so matching that word and pressing Enter would have **approved the very Bash prompt check 1 exists to
+  detect** and reported a pass in exactly the case that must go red. Also fixed: a stall scored without comparing
+  attempts to executions; check 2's turn boundary assumed rather than observed; a guard that blind-restored
+  `CLAUDE.md` and `settings.json` (it now reports drift and restores nothing, and reads the real `~/.claude.json` —
+  E0-8's looks for it inside the config dir, where it does not exist, so its report was a vacuous clean bill); and a
+  24x80 pty that wrapped the canary token. Details in `docs/experiments/E3-interactive.md` §1b.
+  `make test` green (one earlier local run failed under load while two pty sessions ran; a clean serial re-run is
+  green, 44 conformance cases). Open: P3-8 checks 3–15 (3/4/5 are one settings-file change away from the same driver;
+  6–13 need two principals; 14 the sandbox; 15 observational), the `license` field, Phase 4 from P4-1.

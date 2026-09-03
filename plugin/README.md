@@ -115,9 +115,11 @@ transfer the team first, and keep that 0700 backup of the profile directory eith
 ## Permissions and confirmation
 
 - The `brigade:team-messaging` skill declares `allowed-tools: Bash(brigade:*)`, which lets the model run `brigade`
-  unprompted for the turn that invoked the skill. Declaring it also raises one Skill dialog in Manual mode, and
-  dismissing that dialog is scoped to the project directory — so it is one approval per repository, not per command
-  (measured on Claude Code 2.1.252; the 2.1.259 re-measurement is pending in `docs/experiments/E3-interactive.md`).
+  unprompted for the turn that invoked the skill, and only that turn — the next message prompts again. Declaring it
+  also raises one Skill dialog in Manual mode, and dismissing that dialog with its second option is scoped to the
+  project directory it names — so it is one approval per repository, not per command. Measured on Claude Code
+  2.1.252 and re-measured on 2.1.259 in real interactive sessions; both runs and their controls are in
+  `docs/experiments/E3-interactive.md`.
 - To remove Bash prompts for a whole session, put `"permissions": {"allow": ["Bash(brigade:*)"]}` in your own user
   settings.
 - To confirm every outbound message, add `"permissions": {"ask": ["Bash(brigade send*)"]}`. Note what that costs

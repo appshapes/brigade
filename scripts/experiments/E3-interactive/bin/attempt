@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""PreToolUse recorder -- the first half of the mechanical prompt detector.
+
+PreToolUse fires once the model has produced tool parameters and BEFORE the
+permission decision is taken. So
+
+    attempt recorded  +  no matching execution recorded by bin/posttool
+                      +  the session stops making progress
+
+means the permission system intervened between the two. With allow/deny/ask all
+empty and the session in Manual mode, that intervention can only be a PROMPT.
+
+It also records the hook payload's own `permission_mode` on EVERY tool call,
+which is a per-call witness of the mode the session is really in -- the thing
+whose absence voided the first P3-8 attempt.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True   # a hook must not leave __pycache__ in the repository
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _e3 import append, brigade_cmd, read_stdin_json, sha12  # noqa: E402
+
+
+def main():
+    hi = read_stdin_json()
+    tool, cmd, form = brigade_cmd(hi)
+    ti = hi.get("tool_input") or {}
+    rec = {
+        "event": "pretooluse",
+        "tool": tool,
+        "is_brigade_bash": form == "bare",
+        "brigade_form": form,
+        "claude_pid": os.environ.get("CLAUDE_PID", ""),
+        "session": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+        "hook_session_id": hi.get("session_id"),
+        "permission_mode": hi.get("permission_mode"),
+        "cwd": hi.get("cwd"),
+        "cmd_len": len(cmd) if cmd is not None else None,
+        "cmd_sha12": sha12(cmd) if cmd else "",
+        "cmd_head": cmd[:200] if cmd else None,
+        "skill_name": ti.get("skill") if isinstance(ti.get("skill"), str) else None,
+    }
+    append("attempts.ndjson", rec)
+    # A Skill attempt gets its own file so the expect driver can tell, with a
+    # line count and no parsing, whether the dialog on screen is the SKILL
+    # dialog or a Bash permission dialog -- both say "Do you want to proceed?"
+    # on 2.1.259, and answering the wrong one silently approves the very prompt
+    # check 1 exists to detect. PreToolUse fires BEFORE the permission decision,
+    # so this row always exists by the time the Skill box is painted.
+    if tool == "Skill":
+        append("skill-attempt.ndjson", rec)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
