@@ -2094,3 +2094,9 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   any skill"). Rows 1–4 also carry the exact settings-file path for that account. Commit `67afe0e` swept Rjae's
   in-progress Observed cells for checks 1–2 into the repository (their intended destination; noted here because
   the driver's `git add` did it, not Rjae).
+- 2026-09-03 ~16:00: **P3-8 check 1 settled (Rjae, Claude Code 2.1.259): no Skill dialog for the plugin skill in Manual
+  mode — in this repository AND from a fresh temporary directory — and the grant holds (no Bash prompt).** E0-8 (b)
+  measured one dismissible dialog per project on 2.1.252; on 2.1.259 there is none. D20 stands and its cost improved to
+  zero prompts for the skill path; plan 6.9/E0-8's "one dialog per project" and the sitting's "a mismatched pattern
+  raises the dialog too" are 2.1.252 facts — the second is untested on 2.1.259. The plugin README's permissions bullet
+  now says so. Check 2's "no prompt" awaits the transcript read (a `Skill` re-invocation would make it legitimate).
