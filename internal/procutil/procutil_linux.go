@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"strconv"
+	"syscall"
 )
 
 // query reads /proc/<pid>/stat. The file is world-readable by default
@@ -26,7 +27,13 @@ import (
 func query(pid int) (state, error) {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+		// ENOENT: the kernel no longer knows the pid. ESRCH: the /proc
+		// directory still exists for an instant after the task is gone
+		// (the open succeeds, the read answers "no such process") — seen
+		// on the Ubuntu runner in CI run 33755617278, right after a
+		// reaped sleeper. Both mean gone; anything else (EACCES under a
+		// hidepid mount, EIO) is an error the caller sees.
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
 			return state{}, errGone
 		}
 		return state{}, fmt.Errorf("procutil: read /proc/%d/stat: %w", pid, err)

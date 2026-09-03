@@ -2043,3 +2043,10 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   Rjae:** P3-8 (`docs/experiments/E3-interactive.md`, the checklist with the exact commands — fill in Observed,
   commit); the `license` field (no LICENSE file); whether Phase 4 (P4-1 `scripts/proof.sh` first, Opus) starts in
   this session or a new one. Hand-off for a fresh session: `.ignored/handoff-15-phase-4.md`.
+- 2026-09-03 ~11:40: **CI run 33755617278 on the log-only `03616ae` red on `fast`: a real Linux defect in `procutil`,
+  not a flake.** `TestLookupReapedSleeperIsGone` got `read /proc/31893/stat: no such process` — during the kernel's
+  teardown window `/proc/<pid>` still exists (the open succeeds) and the read answers `ESRCH`; `query` mapped only
+  `ENOENT` to gone and surfaced everything else as an error, so the watcher's liveness poll would have seen an error
+  instead of "gone" for that instant (harmless one poll later, wrong nonetheless). `ESRCH` now maps to gone beside
+  `ENOENT`; verified with `GOOS=linux go vet`, a Linux test-binary compile and both lints (the darwin path is
+  untouched). Lesson: a red on a log-only commit is still read, not re-run blind.
