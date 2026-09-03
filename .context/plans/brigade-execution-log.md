@@ -2035,3 +2035,11 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
 - 2026-09-03 ~10:45: `make harness-smoke` re-run after the shellcheck fix: 19 `ok:`, 0 `FAIL:`, exit 0, nothing left
   behind (the sixth nested session of the day, 0 flakes). CLAUDE.md now carries the shellcheck 0.10 Docker line as a
   standing rule.
+- 2026-09-03 ~11:15: **CI run 33754426984 on `5e5e957` green on every job. PHASE 3's AUTOMATED WORK IS COMPLETE.**
+  Plan §8's Phase 3 exit criteria: `make build && make plugin-dev` works with the fs adapter — measured headless
+  through the same chain (`E3-wiring.md`, `E3-smoke.md`: registration, the detached watcher, mid-turn injection,
+  ack, reply, SessionEnd close), the interactive keyboard run being P3-8; `plugin-check` green (nine checks);
+  the release binary not required (the dev pointer serves; the rehearsal proved the release path). **Open for
+  Rjae:** P3-8 (`docs/experiments/E3-interactive.md`, the checklist with the exact commands — fill in Observed,
+  commit); the `license` field (no LICENSE file); whether Phase 4 (P4-1 `scripts/proof.sh` first, Opus) starts in
+  this session or a new one. Hand-off for a fresh session: `.ignored/handoff-15-phase-4.md`.
