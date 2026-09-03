@@ -444,6 +444,7 @@ type watchRun struct {
 	stdin  *io.PipeWriter
 	lines  chan []byte
 	done   chan int
+	exited chan struct{}
 	stderr *syncBuffer
 }
 
@@ -458,8 +459,9 @@ func startWatchWith(t *testing.T, r *rig, wrap func(io.Writer) io.Writer, args .
 	t.Helper()
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
-	w := &watchRun{t: t, stdin: stdinW, lines: make(chan []byte, 256), done: make(chan int, 1), stderr: &syncBuffer{}}
+	w := &watchRun{t: t, stdin: stdinW, lines: make(chan []byte, 256), done: make(chan int, 1), exited: make(chan struct{}), stderr: &syncBuffer{}}
 	go func() {
+		defer close(w.exited)
 		code := run(args, stdinR, wrap(stdoutW), w.stderr, r.env, r.clock())
 		_ = stdoutW.Close()
 		w.done <- code
@@ -478,6 +480,18 @@ func startWatchWith(t *testing.T, r *rig, wrap func(io.Writer) io.Writer, args .
 	t.Cleanup(func() {
 		_ = stdinW.Close()
 		_ = stdinR.Close()
+		// Wait for the watcher goroutine itself, not just for stdin to
+		// close: a watcher still inside an RPC when its test ended kept
+		// running into the next test, and the non-parallel tests that
+		// rewrite the package-level watchTiming raced its reads (a DATA
+		// RACE caught by the driver's -race gate on 2026-09-03, between
+		// drainTiming and a previous test's rearm). The bound is a hang
+		// catcher: stdin EOF ends a watch within 5 s by 4.4.9.
+		select {
+		case <-w.exited:
+		case <-time.After(30 * time.Second):
+			t.Errorf("the watch goroutine did not exit within 30 s of stdin closing")
+		}
 	})
 	return w
 }

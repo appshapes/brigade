@@ -2016,3 +2016,10 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   package-level `watchTiming` while a watcher goroutine of another test reads it — a real test-isolation defect in
   the Supabase adapter's tests (Phase 2), fixed next. P3-8 is Rjae's: `docs/experiments/E3-interactive.md` carries the
   checklist with the exact commands.
+- 2026-09-03 ~10:05: **the Supabase watch tests' data race fixed**: `startWatchWith`'s cleanup closed the watcher's stdin
+  but never waited for the `run` goroutine, so a watcher still inside an RPC outlived its test and raced the next
+  non-parallel test's write to the package-level `watchTiming` (`drainTiming` vs `rearm`'s read). The cleanup now
+  waits for the goroutine with a 30 s hang catcher; `go test -race -shuffle=on -count=3 -run TestWatch` green
+  three times. The other two gate reds of the morning (the coverage-runtime rename on a child's stderr; a Realtime
+  push past its 5 s window under load) are recorded as local flakes: CI's fresh stack and its `fast` job are the
+  arbiters, and neither has shown them.
