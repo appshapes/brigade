@@ -2251,3 +2251,23 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   surface the moment a release exists. Consequence now written into the section: P5-11 will run against workflows
   Phase 6 has just rewritten, so P6-5's re-verification is load-bearing and the D1 release rehearsal is worth
   repeating after P6-2 rather than trusting the 2026-09-02 result.
+- 2026-09-03 17:3x EDT: **An adversarial audit of the Phase 4 hand-off found six real defects, two of which would
+  have mis-scoped the receiving session; all folded in.** Three agents checked the document against the repository
+  before it was acted on, as the hand-off procedure requires for a large hand-off. The two that mattered:
+  (1) the hand-off said the local Supabase stack was "needed only for `make test-integration`" — **wrong against the
+  very next task**, since `make e2e` runs `scripts/proof.sh` against the local stack (Makefile), `test-all` also
+  pulls in `test-db` and `advisor-lints`, and Phase 4's common setup provisions alice/bob (team `ops`) and carol
+  (team `other`) through the **Supabase** adapter; a successor could reasonably have torn the stack down or scoped
+  P4-1 as an fs-adapter exercise. (2) The sentence "a watcher SIGTERMed cleanly closes its session; only a crash
+  leaves it open" ran straight into "measured this session: … 648 ms after a `kill -9`" — but that `kill -9` was of
+  **Claude**, not of the watcher. No measurement here touched a killed watcher, and the distinction is
+  decision-relevant for P4-1, whose spec kills bob's watcher and restarts it.
+  Also folded in: **`make e2e` is gated `if: false` in `.github/workflows/ci.yml` until P4-1 removes the gate**, so
+  until then a green CI conclusion is NOT evidence the proof ran — the hand-off's own "read the conclusion after
+  every push" rule would have been satisfied by a run that skipped the step.
+  **Two committed claims were corrected, not just the hand-off.** `docs/experiments/E3-interactive.md` check 7 said
+  the rename propagated "within one heartbeat window"; one roster read after a fixed 70 s wait cannot support that,
+  so the row now says propagation is proven and latency is not. Check 15's tally read 21/29 — correct when taken at
+  14:53 EDT, stale after the last fifteen runs; `onboarding.py` now prints **36/44**, and the limits section warns
+  that the denominator grows with every run directory. The 21/29 figure in the entry above is left as written and
+  is superseded here.
