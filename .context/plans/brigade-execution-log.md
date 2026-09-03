@@ -2109,3 +2109,8 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   "re-measurement pending"). The transcripts do show check 2's required shape — `Bash: brigade sessions` with no
   `Skill` re-invocation in that turn — so the Manual-mode redo will be decisive. Lesson written into the checklist:
   record the permission mode from the transcript BEFORE reading any prompt-related observation.
+- 2026-09-03 11:35 EDT: where `auto` came from — not `permissions.defaultMode` (absent in `~/.claude/settings.json`) but
+  the account's opt-in to Claude Code's "auto mode" default offer (`~/.claude.json`:
+  `hasResetAutoModeOptInForDefaultOffer: true`), so a plain `claude` starts in `auto` for `rjae@appshapes.com`. The
+  P3-8 checks that concern prompts (1–5) must launch with an explicit `--permission-mode default` (or bypass for 4–5);
+  the checklist's launch lines now say so. The check-10 decoy is staged at `/tmp/shadow/brigade` by the driver.

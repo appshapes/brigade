@@ -301,9 +301,13 @@ comma := ,
 plugin_dev_adapter_opt = $(if $(filter fs,$(adapter)),"adapter_command":"[\"$(CURDIR)/$(bin_dir)/brigade-adapter-fs\"]")
 plugin_dev_profile_opt = $(if $(profile),"profile":"$(profile)")
 plugin_dev_opts = $(plugin_dev_adapter_opt)$(if $(and $(plugin_dev_adapter_opt),$(plugin_dev_profile_opt)),$(comma))$(plugin_dev_profile_opt)
+# mode=<default|acceptEdits|plan|auto|dontAsk|bypassPermissions> passes --permission-mode. An account that opted into
+# Claude Code's auto-mode default offer starts a plain `claude` in `auto`, where no permission prompt or Skill dialog
+# ever appears -- so the P3-8 checks that measure prompts (E3-interactive.md) launch with mode=default explicitly.
+plugin_dev_mode = $(if $(mode),--permission-mode $(mode))
 
 .PHONY: plugin-dev
-plugin-dev: plugin-dev-pointer ## Start Claude Code with the local plugin (usage: make plugin-dev [adapter=fs] [profile=<name>])
+plugin-dev: plugin-dev-pointer ## Start Claude Code with the local plugin (usage: make plugin-dev [adapter=fs] [profile=<name>] [mode=default])
 # ONCE per machine, in your own terminal (never from inside a session: `team create`/`team join` refuse there),
 # before the first `make plugin-dev adapter=fs`. `profile init --adapter` writes the D36 sidecar, so every later
 # session finds the fs adapter by itself and `adapter_command` — hence `adapter=fs` — becomes unnecessary:
@@ -322,9 +326,9 @@ plugin-dev: plugin-dev-pointer ## Start Claude Code with the local plugin (usage
 # (`bin/brigade team join --profile bob --prompt` is the interactive form: the fs adapter reads the secret from
 # the TTY without echo.) Check what a profile resolves to with `bin/brigade profile status --profile <name>`.
 ifeq ($(plugin_dev_opts),)
-	$(unclaude) claude --plugin-dir ./plugin
+	$(unclaude) claude $(plugin_dev_mode) --plugin-dir ./plugin
 else
-	$(unclaude) claude --plugin-dir ./plugin --settings '{"pluginConfigs":{"brigade@inline":{"options":{$(plugin_dev_opts)}}}}'
+	$(unclaude) claude $(plugin_dev_mode) --plugin-dir ./plugin --settings '{"pluginConfigs":{"brigade@inline":{"options":{$(plugin_dev_opts)}}}}'
 endif
 
 .PHONY: plugin-dev-off
