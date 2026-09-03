@@ -2062,3 +2062,8 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   5 s after it). Two new tests cover the pending-join revocation with a negative arm and the post-join lost
   broadcast with the cadence's end. Every watch test green 3× under `-race -shuffle=on`; `make test-integration`
   green (integration 137 s; conformance(supabase) `--slow` 45/0/0, C-08 0.47 s).
+- 2026-09-03 ~13:35: **CI run 33758347385 on `3c3ed06` green on every job** (the settling drains included; C-08 on the
+  runner met its budget). Master is at rest: Phase 3's automated work plus three robustness fixes from the day's
+  CI reds (the Linux `ESRCH` teardown window in `procutil`, the watch-test data race, the settling drains). Open:
+  P3-8 at Rjae's keyboard (`docs/experiments/E3-interactive.md`); the `license` field; Phase 4 from
+  `.ignored/handoff-15-phase-4.md`.
