@@ -536,6 +536,25 @@ func TestChecksumsCheck(t *testing.T) {
 	t.Run("the real repository passes in the pre-release state", func(t *testing.T) {
 		t.Parallel()
 		root := testutil.RepoRoot(t)
+		// Only the pre-release state can be asserted from a unit test: with
+		// VERSION at 0.0.0 the script checks the sentinel and skips (b) and
+		// (c). At any real version, rule (c) needs a fresh cross-build that
+		// reproduces the committed file, or the published release behind
+		// it -- a network call through gh, and one that cannot succeed
+		// between `make release`'s step 1 (bump the pins) and step 5 (push
+		// the tag), which is exactly when the release chain's own `make
+		// push` runs this test. Measured in the 0.0.1-rc1 rehearsal on
+		// 2026-09-02: the chain stopped here, before the release commit. The
+		// real-version state is covered by `make checksums-check` (CI, with
+		// a real fresh build and GH_TOKEN), so this test skips there rather
+		// than pretend an "irrelevant" fresh file can prove anything.
+		pinned, err := os.ReadFile(filepath.Join(root, "plugin", "bin", "VERSION"))
+		if err != nil {
+			t.Fatalf("reading plugin/bin/VERSION: %v", err)
+		}
+		if v := strings.TrimSpace(string(pinned)); v != "0.0.0" {
+			t.Skipf("plugin/bin/VERSION pins %s, not the pre-release sentinel: rule (c) needs a fresh build or the published release (make checksums-check covers it)", v)
+		}
 		fresh := filepath.Join(t.TempDir(), "fresh.txt")
 		if err := os.WriteFile(fresh, []byte("irrelevant\n"), 0o600); err != nil {
 			t.Fatalf("writing: %v", err)

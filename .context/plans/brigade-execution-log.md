@@ -1645,3 +1645,16 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   drain as the safety net. On this machine the same send is pushed in 24 ms. The test now tolerates ONE drain
   delivery after the rejoin and requires the next send to be pushed within the polling drain interval, logging
   which send proved it. Nothing in P3-1 touched this path.
+- 2026-09-02 ~20:30: **CI run 33697130273 on `4b15a75` green on every job.** D1's release rehearsal started in the plan's
+  P2-12 form (`rehearsal/0.0.1-rc1` pushed with an upstream; `make release version=0.0.1-rc1 branch=rehearsal/
+  0.0.1-rc1`). **It stopped at step 4 with nothing committed, pushed or tagged — a real release-chain defect.** Steps
+  1–3 passed (pins bumped; `make cross`; goreleaser's `checksums.txt` byte-equal), then step 4's `make push` ran
+  `make test`, and `scripts/ci`'s `TestChecksumsCheck/the_real_repository_passes_in_the_pre-release_state` ran
+  `checksums-check.sh` against the REAL tree in its bumped state: rules (a) and (b) passed, rule (c) compared the
+  committed file with the test's deliberately irrelevant fresh file, fell back to `gh release download v0.0.1-rc1`,
+  and failed on "no published v0.0.1-rc1" — which is exactly the state between bumping the pins and pushing the tag.
+  The same test would have failed every `make test` after the first real release on a machine without `gh` or the
+  release (and CI's `make build test` step, which carries no `GH_TOKEN`). Fixed: the test skips with the reason
+  whenever `plugin/bin/VERSION` is not the `0.0.0` sentinel; the real-version state is `make checksums-check`'s
+  (CI, a real fresh build, `GH_TOKEN`). Plan 7.7 correction: the release chain's `make push` runs the full
+  `make test`, so nothing under `go test ./...` may depend on the pinned version being released.
