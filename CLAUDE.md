@@ -31,7 +31,10 @@
   empty and skips the rest), and `make plugin-check` carries the plugin-tree checks — the `plugin/` file
   allowlist, mode 100755 in git for `plugin/bin/brigade` and 100644 for everything else, VERSION == plugin.json,
   no `.mcp.json`/`mcpServers`/`channels`, exec-form hooks whose command paths exist and are executable, `sh -n`
-  and `shellcheck -s sh` — and the only secret scan (`scripts/ci/no-secrets.sh`).
+  and `shellcheck -s sh` — and the only secret scan (`scripts/ci/no-secrets.sh`). CI's Ubuntu runner has shellcheck 0.10 and this machine 0.11, and they
+  disagree (0.10: SC2317 for a trap-invoked function's body and SC2015 for `A && B || C`; 0.11: SC2329 for the same
+  function): before pushing a shell file run
+  `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 -s sh <file>` as well as the local one.
 - Local dev: `make plugin-dev` writes the dev-binary pointer and starts Claude Code with the local plugin; `make
   plugin-dev-off` removes it. Two profiles on one machine: pass
   `--settings '{"pluginConfigs":{"brigade@inline":{"options":{"profile":"<name>"}}}}'`.

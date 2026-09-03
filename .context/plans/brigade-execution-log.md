@@ -2032,3 +2032,6 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   (both codes disabled with the reason; the two chains rewritten as `if`), clean under 0.10 AND 0.11. **Rule: run
   that Docker line on every shell file before pushing** — `make plugin-check` here uses whatever shellcheck brew
   installed.
+- 2026-09-03 ~10:45: `make harness-smoke` re-run after the shellcheck fix: 19 `ok:`, 0 `FAIL:`, exit 0, nothing left
+  behind (the sixth nested session of the day, 0 flakes). CLAUDE.md now carries the shellcheck 0.10 Docker line as a
+  standing rule.
