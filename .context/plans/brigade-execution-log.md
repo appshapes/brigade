@@ -2084,3 +2084,13 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   raised three ambiguities (is the join pipeline one command; are the "where things live" lines commands; how many
   terminals) — the checklist now says: one setup terminal for both command blocks (kept for checks 10–13), two
   session terminals, three in all; the join written on one line; the notes labelled as notes.
+- 2026-09-03 ~15:30: **P3-8 under way at Rjae's keyboard**, as `rjae@appshapes.com` (config dir `~/.claude`; this driver's
+  session is `reaston@ifthen.com` in `~/.claude-ifthen`). First two observations contradict E0-8 (b): NO Skill
+  dialog on check 1 and NO Bash prompt on check 2. No allow rule or stored approval explains it (checked: both
+  `settings.json` files, every config dir's `.claude.json` project entry, the repository's `.claude/`). Two
+  follow-ups written into the checklist (§1a): check 1 again from a fresh temp project dir (a stored per-repo
+  dismissal vs a 2.1.259 behaviour change — the latter would be a D20 note, one prompt fewer); check 2 read from the
+  transcript (a `Skill` tool_use means the model re-invoked the skill, so the grant applied — re-ask "without using
+  any skill"). Rows 1–4 also carry the exact settings-file path for that account. Commit `67afe0e` swept Rjae's
+  in-progress Observed cells for checks 1–2 into the repository (their intended destination; noted here because
+  the driver's `git add` did it, not Rjae).
