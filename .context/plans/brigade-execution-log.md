@@ -2100,3 +2100,12 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   zero prompts for the skill path; plan 6.9/E0-8's "one dialog per project" and the sitting's "a mismatched pattern
   raises the dialog too" are 2.1.252 facts — the second is untested on 2.1.259. The plugin README's permissions bullet
   now says so. Check 2's "no prompt" awaits the transcript read (a `Skill` re-invocation would make it legitimate).
+- 2026-09-03 11:30 EDT (the day's earlier journal stamps were written against a clock read wrongly as afternoon; the
+  order is right, the hours after "~10:45" are about 3 h too late): **RETRACTION of the 11:xx-stamped "check 1
+  settled" entry.** The driver read both P3-8 sessions' transcripts (`~/.claude/projects/…brigade/adf1d1e7….jsonl`
+  11:09 and the fresh-directory one 11:19): `permissionMode: auto` in both. In `auto` Claude Code approves tool calls
+  itself, so "no Skill dialog" and "no Bash prompt" say nothing about D20; the earlier "no dialog on 2.1.259" note
+  in the checklist and the plugin README is withdrawn (the README bullet is back to the 2.1.252 measurement with
+  "re-measurement pending"). The transcripts do show check 2's required shape — `Bash: brigade sessions` with no
+  `Skill` re-invocation in that turn — so the Manual-mode redo will be decisive. Lesson written into the checklist:
+  record the permission mode from the transcript BEFORE reading any prompt-related observation.
