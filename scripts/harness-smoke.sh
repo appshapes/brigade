@@ -126,7 +126,9 @@ transcript_dir=''
 # ---------------------------------------------------------------------------------------------------------------
 # 3. Teardown (always)
 # ---------------------------------------------------------------------------------------------------------------
-# shellcheck disable=SC2329  # called from cleanup(), which shellcheck cannot see is run by the EXIT trap
+# shellcheck disable=SC2329,SC2317  # called from cleanup(), which shellcheck cannot see is run by the EXIT trap
+#                                     (0.11 reports the function as never invoked, SC2329; 0.10 reports its body as
+#                                     unreachable, SC2317 -- CI runs 0.10, this machine 0.11; both must be clean)
 kill_wait() {  # kill_wait <pid> <label>
   _pid=$1; _label=$2
   kill -0 "$_pid" 2>/dev/null || return 0
@@ -144,7 +146,7 @@ kill_wait() {  # kill_wait <pid> <label>
   say "teardown: $_label ($_pid) is gone"
 }
 
-# shellcheck disable=SC2329  # run by the EXIT/HUP/INT/TERM trap below
+# shellcheck disable=SC2329,SC2317  # run by the EXIT/HUP/INT/TERM trap below (SC2317 is 0.10's spelling of it)
 cleanup() {
   st=$?
   set +e
@@ -218,7 +220,7 @@ jq -cn --arg t "$team_name" --arg l "$alice_label" '{team_name:$t,human_label:$l
   terminal "$brigade_bin" team create --profile "$alice_profile" --secret-file "$secret_file" \
     >"$capture/team-create.json"
 team_ref=$(jq -r '.result.team_ref' "$capture/team-create.json")
-[ -n "$team_ref" ] && [ "$team_ref" != null ] || die "team create returned no team_ref"
+if [ -z "$team_ref" ] || [ "$team_ref" = null ]; then die "team create returned no team_ref"; fi
 
 # The join secret never reaches a variable, a log or this script's stdout: jq reads it straight from the 0600 file
 # the adapter wrote and pipes the join document into the adapter's stdin.
@@ -238,7 +240,7 @@ bob_map=$state_dir/sessions/by-pid/$bob_sleeper.json
 [ -f "$bob_map" ] || die "the hook wrote no by-pid map for bob at $bob_map (stderr: $(cat "$capture/bob-session-start.err"))"
 bob_id=$(jq -r '.brigade_session_id' "$bob_map")
 bob_name=$(jq -r '.session_name' "$bob_map")
-[ -n "$bob_id" ] && [ "$bob_id" != null ] || die "bob's by-pid map carries no brigade_session_id"
+if [ -z "$bob_id" ] || [ "$bob_id" = null ]; then die "bob's by-pid map carries no brigade_session_id"; fi
 if [ -f "$state_dir/watchers/$bob_sleeper.json" ]; then
   bad "a watcher was spawned for bob, who has no inbox socket"
 else

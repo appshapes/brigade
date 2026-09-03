@@ -2023,3 +2023,12 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   three times. The other two gate reds of the morning (the coverage-runtime rename on a child's stderr; a Realtime
   push past its 5 s window under load) are recorded as local flakes: CI's fresh stack and its `fast` job are the
   arbiters, and neither has shown them.
+- 2026-09-03 ~10:30: **CI run 33753678522 on `fe8a107` red on `fast` only** (`macos` green; the rest skipped):
+  `TestPluginCheck/the_real_repository_passes` — shellcheck **0.10** on the Ubuntu runner reports SC2317 ("command
+  appears to be unreachable") for the bodies of `scripts/harness-smoke.sh`'s trap-invoked functions, where 0.11
+  (this machine) reports SC2329 (the code the script already disabled), plus two `A && B || C` chains (SC2015) that
+  0.11 tolerates — exactly the version difference the hand-off warned about. Reproduced locally with
+  `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 -s sh scripts/harness-smoke.sh`, fixed
+  (both codes disabled with the reason; the two chains rewritten as `if`), clean under 0.10 AND 0.11. **Rule: run
+  that Docker line on every shell file before pushing** — `make plugin-check` here uses whatever shellcheck brew
+  installed.
