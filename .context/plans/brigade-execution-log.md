@@ -2114,3 +2114,9 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   `hasResetAutoModeOptInForDefaultOffer: true`), so a plain `claude` starts in `auto` for `rjae@appshapes.com`. The
   P3-8 checks that concern prompts (1–5) must launch with an explicit `--permission-mode default` (or bypass for 4–5);
   the checklist's launch lines now say so. The check-10 decoy is staged at `/tmp/shadow/brigade` by the driver.
+- 2026-09-03 12:00 EDT: CI run 33772564305 on `6737197` (`make plugin-dev mode=`, the checklist's Manual-mode launches)
+  green on every job. Waiting on Rjae's Manual-mode redo of P3-8 checks 1–2.
+- 2026-09-03 12:05 EDT: hand-off prepared for the next driver session `15-implement-brigade-0903` (Rjae's request; this
+  session's context is nearly full): `.ignored/handoff-15-phase-4.md` rewritten to cover P3-8's position (checks 1–2
+  inconclusive in `auto` mode, the Manual-mode redo pending, the decoy staged, the transcript-reading recipe, the
+  terminal-side steps that are the driver's). The receiving session drives P3-8's bookkeeping and Phase 4.
