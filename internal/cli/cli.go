@@ -14,6 +14,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	harnesscmd "github.com/appshapes/brigade/internal/harness/commands"
 )
 
 // Streams are the three process streams a command may use.
@@ -83,7 +85,7 @@ func Dispatch(args []string, s Streams, environ []string) int {
 	// argv cannot reach an error message through a route the flag sets do
 	// not cover — after a `--` separator, for instance (4.5.14, C-05).
 	if scanPoison(args) {
-		return report(s, scanBoolFlag(args, "json"), usagef("", poisonMessage))
+		return report(s, scanJSONFlag(args), usagef("", poisonMessage))
 	}
 
 	// --json selects the OUTPUT STREAM, so it has to be known even when
@@ -91,7 +93,7 @@ func Dispatch(args []string, s Streams, environ []string) int {
 	// first offending argument, so `brigade version --bad-flag --json` leaves
 	// g.json false and a machine caller would get a human line on stderr and
 	// an empty stdout instead of the 4.3 envelope it asked for.
-	argvJSON := scanBoolFlag(args, "json")
+	argvJSON := scanJSONFlag(args)
 
 	// Pass one: the global flags that appear before the command word.
 	// stdlib flag stops at the first non-flag argument, which is exactly
@@ -122,6 +124,10 @@ func Dispatch(args []string, s Streams, environ []string) int {
 		// the stream for this one error is chosen by a literal scan.
 		jsonMode := g.json || argvJSON
 		return report(s, jsonMode, usagef("", "unknown command "+strconv.Quote(name)+"; run `"+Program+" help` for the command list"))
+	}
+
+	if cmd.Raw {
+		return dispatchRaw(cmd, rest[1:], s, environ, g)
 	}
 
 	// Pass two: the command's own flags, plus the same globals sharing the
@@ -159,10 +165,43 @@ func Dispatch(args []string, s Streams, environ []string) int {
 		Command:  name,
 		Flags:    cfs,
 	}
-	if rerr := cmd.Run(cx, positional); rerr != nil {
-		return report(s, g.json, asError(name, rerr))
+	return finish(s, g.json, name, cmd.Run(cx, positional))
+}
+
+// dispatchRaw runs a Raw command: no second parse. --json is honoured
+// wherever it appears (it selects the error stream, and the command
+// consumes it from the raw arguments itself), -h/--help as the FIRST raw
+// argument prints the command's usage, and everything else — the verb,
+// --profile, the adapter's own flags — reaches Run verbatim.
+func dispatchRaw(cmd Command, raw []string, s Streams, environ []string, g globals) int {
+	jsonMode := g.json || scanJSONFlag(raw)
+	if len(raw) > 0 && (raw[0] == "-h" || raw[0] == "--help") {
+		writeUsage(s, jsonMode, usageCommand(cmd))
+		return ExitOK
 	}
-	return ExitOK
+	cx := &Context{
+		Streams:  s,
+		Environ:  environ,
+		JSON:     jsonMode,
+		LogLevel: g.logLevel,
+		Command:  cmd.Name,
+	}
+	return finish(s, jsonMode, cmd.Name, cmd.Run(cx, raw))
+}
+
+// finish maps a command's return to the process exit status: nil is
+// success; an ExitStatus is an adapter's own status forwarded by a
+// pass-through (its envelope is already on stdout, so nothing is
+// printed); anything else is reported on the right stream with its code.
+func finish(s Streams, jsonMode bool, name string, rerr error) int {
+	if rerr == nil {
+		return ExitOK
+	}
+	var exit harnesscmd.ExitStatus
+	if errors.As(rerr, &exit) {
+		return int(exit)
+	}
+	return report(s, jsonMode, asError(name, rerr))
 }
 
 // NotImplemented reports a recognised multi-call entrypoint that internal/app
@@ -185,7 +224,7 @@ func Usage(cmd Command, args []string, s Streams, message string) int {
 // honoured wherever it appears, and a join secret on argv wins over any
 // other answer (C-05).
 func multiCallReport(cmd Command, args []string, s Streams, err *Error) int {
-	jsonMode := scanBoolFlag(args, "json")
+	jsonMode := scanJSONFlag(args)
 	if scanPoison(args) {
 		return report(s, jsonMode, usagef(cmd.Name, poisonMessage))
 	}

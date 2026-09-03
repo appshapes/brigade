@@ -1929,11 +1929,15 @@ go test ./cmd/brigade -run 'TestScript/fs-message'
 A profile carries a **default adapter**, and a session may **override** it (plan decision D36, 2026-09-02). One team
 per session and one adapter per session stay as they are.
 
-- **The profile's default.** A human creates a profile through the harness with `brigade profile init <name>
-  --adapter <name-or-command> …`. The harness records the choice beside the profile (a 0600 file in the user's own
-  config directory) and then runs *your* `profile init` with the remaining arguments. A third-party adapter is
-  registered once by name in `${BRIGADE_CONFIG_DIR}/adapters.json`, or given directly as an absolute path or a JSON
-  array. From then on, selecting the profile selects your adapter: no launch option needs to be restated.
+- **The profile's default.** A human creates a profile through the harness with `brigade profile init
+  [--profile <p>] --adapter <name-or-command> …`. The harness records the choice beside the profile (a 0600 file in
+  the user's own config directory) and then runs *your* `profile init` with the remaining arguments. A third-party
+  adapter is registered once by name in `${BRIGADE_CONFIG_DIR}/adapters.json` with the form
+  `--adapter <name>=<absolute path or JSON array>` (`--adapter pg=/usr/local/bin/brigade-adapter-pg`, or
+  `--adapter 'pg=["/usr/local/bin/brigade-adapter-pg","--root","/srv/brigade"]'`), after which `--adapter <name>`
+  alone selects it for any profile; or the command is given directly, without a name, as an absolute path or a JSON
+  array. From then on, selecting the profile selects your adapter: no launch option needs to be restated, and
+  `brigade profile status [--profile <p>]` names the default in force.
 - **The session override.** The plugin option `adapter_command` overrides the profile's default for one session. It
   takes the same two forms — an absolute path such as `/usr/local/bin/brigade-adapter-pg`, or a JSON array whose
   elements are the executable and fixed arguments prepended verbatim to every invocation, such as
@@ -1951,10 +1955,12 @@ in*, which is why fixed arguments and the profile file, never `BRIGADE_<ADAPTER>
 comes from. A team lives on exactly one backend: every member's adapter must speak that backend's data model, which
 the protocol deliberately leaves to adapters (4.8).
 
-**Honest status.** The plugin manifest, the hooks and the `profile init --adapter` command arrive with Phase 3 (P3-1, P3-3,
-P3-6); the `plugin/bin` bootstrap landed with P1-8. Today the wiring is documented, not runnable: nothing drives an adapter from inside
-a live Claude Code session yet. Until then, `brigade-conformance` and a shell are how you exercise your adapter, and
-they cover everything except the harness's own timeouts and its environment construction.
+**Honest status.** The plugin manifest and the `plugin/bin` bootstrap landed with P3-1 and P1-8; the harness commands
+(`profile init --adapter`, `profile status`, the `team` pass-through, `sessions`, `send`, `whoami`, `team members`), the
+three hooks and the detached watcher landed with P3-3, P3-4 and P3-5, so a local build (`make plugin-dev`) drives your
+adapter from inside a live Claude Code session today; the packaged release pins are still the pre-release `0.0.0`.
+`brigade-conformance` and a shell remain the way to exercise your adapter on its own; the harness adds only its own
+timeouts and its environment construction, which the plugin-driven session exercises.
 
 ## Before you claim conformance
 

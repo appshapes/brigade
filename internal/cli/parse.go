@@ -108,14 +108,15 @@ func scanPoison(args []string) bool {
 	return false
 }
 
-// scanBoolFlag reports whether args mentions a boolean flag by name. It
-// decides which stream an error goes to whenever the flag sets cannot be
-// trusted to have seen the flag: an unknown command word has no flag set at
-// all, and stdlib flag ABORTS at the first bad flag, so in
-// `brigade version --bad-flag --json` the parse never reaches --json.
-// Scanning stops at a bare "--" because everything after it is positional.
-func scanBoolFlag(args []string, name string) bool {
-	long, short := "--"+name, "-"+name
+// scanJSONFlag reports whether args mentions the --json flag. It decides
+// which stream an error goes to whenever the flag sets cannot be trusted to
+// have seen the flag: an unknown command word has no flag set at all, a Raw
+// command has no second parse, and stdlib flag ABORTS at the first bad
+// flag, so in `brigade version --bad-flag --json` the parse never reaches
+// --json. Scanning stops at a bare "--" because everything after it is
+// positional.
+func scanJSONFlag(args []string) bool {
+	long, short := "--json", "-json"
 	for _, a := range args {
 		if a == "--" {
 			return false

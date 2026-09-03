@@ -1,6 +1,10 @@
 package cli
 
-import "flag"
+import (
+	"flag"
+
+	harnesscmd "github.com/appshapes/brigade/internal/harness/commands"
+)
 
 // A Command is one entry of the `brigade` command table (6.4).
 type Command struct {
@@ -24,6 +28,13 @@ type Command struct {
 	// Flags registers the command's own flags. The global flags are added
 	// separately, so a command must not register --json or --log-level.
 	Flags func(fs *flag.FlagSet)
+	// Raw hands Run everything after the command word verbatim instead of
+	// parsing it: the terminal pass-through commands (`team`, `profile`)
+	// forward adapter flags the harness has never heard of, so their
+	// grammar is their own (6.4). The global flags BEFORE the command
+	// word still apply, --json is honoured wherever it appears, and the
+	// poison scan runs first as for every command.
+	Raw bool
 	// Run executes the command. It is nil exactly when Task is set.
 	Run func(cx *Context, args []string) error
 }
@@ -57,32 +68,43 @@ func init() {
 		},
 		{
 			Name:    "sessions",
-			Args:    "[--all]",
+			Args:    "[--all] [--profile <p>]",
 			Summary: "list the team's sessions",
-			Task:    "P2-9",
+			Flags: func(fs *flag.FlagSet) {
+				fs.Bool("all", false, "include offline sessions")
+				fs.String("profile", "", "the profile to act on (terminal only; a session's profile comes from its map)")
+			},
+			Run: runSessions,
 		},
 		{
 			Name:    "send",
 			Args:    "<session_id> [--summary <text>] [--reply-to <message_id>] [--body-file <path>]",
 			Summary: "send a message to another session (body on stdin)",
-			Task:    "P2-9",
+			Flags: func(fs *flag.FlagSet) {
+				fs.String("summary", "", "a one-line summary shown before the body (at most 200 characters)")
+				fs.String("reply-to", "", "the message id this message answers")
+				fs.String("body-file", "", "read the body from this file instead of stdin")
+			},
+			Run: runSend,
 		},
 		{
 			Name:    "whoami",
 			Summary: "print this session's identity",
-			Task:    "P2-9",
+			Run:     runWhoami,
 		},
 		{
 			Name:    "team",
-			Args:    "create|join|leave|members",
+			Args:    "create|join|leave|members [--profile <p>] [adapter flags]",
 			Summary: "create, join or leave a team, and list its members",
-			Task:    "P2-8",
+			Raw:     true,
+			Run:     runTeam,
 		},
 		{
 			Name:    "profile",
-			Args:    "init|status|reset|revoke-credentials",
+			Args:    "init|status|reset|revoke-credentials [--profile <p>] [--adapter <name-or-command>] [adapter flags]",
 			Summary: "manage the local profile and its credentials",
-			Task:    "P2-8",
+			Raw:     true,
+			Run:     runProfile,
 		},
 		{
 			Name:    "inbox",
@@ -96,7 +118,7 @@ func init() {
 			Summary:   "Claude Code lifecycle hook entrypoint",
 			Hidden:    true,
 			MultiCall: true,
-			Task:      "P3-4",
+			Run:       runHookEntry,
 		},
 		{
 			Name:      "watch",
@@ -104,7 +126,7 @@ func init() {
 			Summary:   "detached inbound watcher for one session",
 			Hidden:    true,
 			MultiCall: true,
-			Task:      "P3-5",
+			Run:       runWatchEntry,
 		},
 		{
 			Name:      "adapter",
@@ -146,4 +168,82 @@ func LookupMultiCall(name string) (Command, bool) {
 // it answers honestly if a future caller routes around internal/app.
 func runAdapterEntry(*Context, []string) error {
 	return usagef("adapter", "the adapter entrypoint is dispatched by the multi-call seam; run `"+Program+" adapter supabase <group> <verb>`")
+}
+
+// runHookEntry and runWatchEntry are the table's Run for the `hook` and
+// `watch` entries, which internal/app intercepts BEFORE the table and
+// hands to internal/harness/hook and internal/harness/watch with the real
+// process streams and their production dependencies (P3-4, P3-5): a hook
+// exits 0 on every failure and the watcher writes nothing to stdout, so
+// neither can be run through the table's flag parser and error reporter.
+// Dispatch therefore never reaches these functions; they exist so the two
+// entries are Implemented and `help --all` no longer lists them as
+// placeholders, and they answer honestly if a future caller routes around
+// internal/app. The message is fixed text: argv is never echoed (4.5.14).
+func runHookEntry(*Context, []string) error {
+	return usagef("hook", "the hook entrypoint is dispatched by the multi-call seam; run `"+Program+" hook session-start|prompt|session-end`")
+}
+
+func runWatchEntry(*Context, []string) error {
+	return usagef("watch", "the watcher entrypoint is dispatched by the multi-call seam; run `"+Program+" watch [--sink <file>]`")
+}
+
+// invocation builds the harnesscmd.Invocation of one table entry from the
+// dispatcher's context: the streams, the environment and the two global
+// flags cross as they are; nothing of the flag parser does.
+func invocation(cx *Context, args []string) harnesscmd.Invocation {
+	return harnesscmd.Invocation{
+		Args:     args,
+		Environ:  cx.Environ,
+		In:       cx.In,
+		Out:      cx.Out,
+		Err:      cx.Err,
+		JSON:     cx.JSON,
+		LogLevel: cx.LogLevel,
+	}
+}
+
+// stringFlag reads a string flag the entry registered.
+func stringFlag(cx *Context, name string) string {
+	if cx.Flags == nil {
+		return ""
+	}
+	f := cx.Flags.Lookup(name)
+	if f == nil {
+		return ""
+	}
+	return f.Value.String()
+}
+
+// runSessions is the table's Run for `sessions`.
+func runSessions(cx *Context, args []string) error {
+	return harnesscmd.Sessions(invocation(cx, args), harnesscmd.SessionsOptions{
+		All:     cx.Bool("all"),
+		Profile: stringFlag(cx, "profile"),
+	})
+}
+
+// runSend is the table's Run for `send`.
+func runSend(cx *Context, args []string) error {
+	return harnesscmd.Send(invocation(cx, args), harnesscmd.SendOptions{
+		Summary:  stringFlag(cx, "summary"),
+		ReplyTo:  stringFlag(cx, "reply-to"),
+		BodyFile: stringFlag(cx, "body-file"),
+	})
+}
+
+// runWhoami is the table's Run for `whoami`.
+func runWhoami(cx *Context, args []string) error {
+	return harnesscmd.Whoami(invocation(cx, args))
+}
+
+// runTeam is the table's Run for `team` (raw: the verb and the adapter
+// flags are parsed by the command).
+func runTeam(cx *Context, args []string) error {
+	return harnesscmd.Team(invocation(cx, args))
+}
+
+// runProfile is the table's Run for `profile` (raw).
+func runProfile(cx *Context, args []string) error {
+	return harnesscmd.Profile(invocation(cx, args))
 }

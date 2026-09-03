@@ -1,0 +1,124 @@
+# `brigade hook session-end` through the real binary (P3-4; plan 6.3,
+# 3.8): the SessionEnd document on stdin and a session registered by the
+# session-start hook (the fake adapter, no inbox socket). `clear` and
+# `resume` leave the session alone (the process continues); any other
+# reason removes the by-pid map, keeps the by-native map for a later
+# --resume, and runs `session close` under its 1 s budget. Bad stdin does
+# nothing: the watcher's own liveness poll is the authoritative close.
+
+# The `brigade` under test is the race-instrumented test binary too; without
+# this every exec spends TSan's 1 s atexit sleep (see fake.sh).
+env GORACE=atexit_sleep_ms=0
+sleeper
+env CLAUDE_PID=$SLEEPER_PID
+env CLAUDE_CODE_SESSION_ID=native-1
+env CLAUDECODE=1
+env CLAUDE_PLUGIN_OPTION_PROFILE=alpha
+env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script.json"]'
+expand script.json.in script.json
+chmod 755 fake.sh
+# On macOS the FIRST exec of a freshly created executable is suspended
+# while the system assesses it — measured 2026-09-03: 0.2–0.5 s idle and
+# 3–6 s while a whole-tree `go test` creates every package's binaries at
+# once; the second exec costs ~10 ms. Both fake.sh (the file the harness
+# execs) and the `fake-adapter` copy testscript installed are fresh, so
+# the wrapper is run once here with no deadline, and the harness's 3 s
+# describe budget (4.1) below meets warm files. (The `brigade` copy is
+# warmed by its own first exec, which has no deadline.)
+exec $WORK/fake.sh --script warm.json describe
+stdin start.json
+exec brigade hook session-start
+stdout '\(brigade-sess-1\)'
+exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+
+# --- clear and resume: nothing happens -------------------------------------
+stdin end-clear.json
+exec brigade hook session-end
+! stdout .
+! stderr .
+exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+! grep '"verb":"close"' dump.ndjson
+stdin end-resume.json
+exec brigade hook session-end
+! stdout .
+exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+! grep '"verb":"close"' dump.ndjson
+
+# --- bad stdin: nothing done (a mistaken teardown would be worse) --------------
+stdin garbage.txt
+exec brigade hook session-end
+! stdout .
+stderr 'bad stdin'
+exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+! grep '"verb":"close"' dump.ndjson
+
+# --- any other reason: the by-pid map goes, by-native stays, one close --------
+stdin end-other.json
+exec brigade hook session-end
+! stdout .
+! exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+exists $WORK/.brigade/xdg/state/brigade/sessions/by-native/native-1.json
+grep -count=1 '"verb":"close"' dump.ndjson
+grep '"--session","brigade-sess-1"' dump.ndjson
+! grep CLAUDE_PID dump.ndjson
+
+# A second SessionEnd for a session already gone is a no-op, exit 0.
+stdin end-logout.json
+exec brigade hook session-end
+! stdout .
+grep -count=1 '"verb":"close"' dump.ndjson
+
+# --- a close the adapter refuses still exits 0 -----------------------------------
+sleeper
+env CLAUDE_PID=$SLEEPER_PID
+env CLAUDE_CODE_SESSION_ID=native-2
+env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script-noclose.json"]'
+expand script-noclose.json.in script-noclose.json
+stdin start2.json
+exec brigade hook session-start
+stdout '\(brigade-sess-2\)'
+stdin end-other.json
+exec brigade hook session-end
+! stdout .
+stderr 'close did not complete'
+! exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+
+# --- outside a session: exit 0 with the diagnostic ---------------------------------
+env CLAUDE_PID=
+stdin end-other.json
+exec brigade hook session-end
+! stdout .
+stderr 'session facts'
+
+-- fake.sh --
+#!/bin/sh
+# The scripted fake adapter behind an absolute path (an adapter with a
+# shebang line; the harness execs it, never a shell of its own).
+# GORACE: under `go test -race` this fake is the race-instrumented test
+# binary, and TSan sleeps atexit_sleep_ms (1 s by default) before every
+# exit — not Brigade behaviour, but a third of the 3 s describe budget of
+# 4.1 on a loaded machine (measured: every fake-adapter script timed out
+# on describe under a whole-tree `make test`). The harness builds the
+# child's environment from scratch, so the variable is set here, not in
+# the script's environment.
+GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
+-- start.json --
+{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- start2.json --
+{"session_id": "native-2", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- end-clear.json --
+{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionEnd", "reason": "clear", "transcript_path": "/never/read.jsonl"}
+-- end-resume.json --
+{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionEnd", "reason": "resume", "transcript_path": "/never/read.jsonl"}
+-- end-other.json --
+{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionEnd", "reason": "other", "transcript_path": "/never/read.jsonl"}
+-- end-logout.json --
+{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionEnd", "reason": "logout", "transcript_path": "/never/read.jsonl"}
+-- garbage.txt --
+not a JSON document
+-- script.json.in --
+{"dump_file": "$WORK/dump.ndjson", "describe": {"protocol_version":"1","adapter":{"name":"fake-adapter","version":"0.0.0-fake"},"delivery":{"guarantee":"at_least_once","ordering":"none","ack_state":"injected"},"capabilities":["team.create","team.join","team.roster","message.receive","message.watch.push","message.watch.stdin_commands","session.description","session.resume","session.workspace_label","session.inbound"],"limits":{"max_body_bytes":16384,"max_summary_chars":200,"max_session_name_codepoints":64,"max_team_name_codepoints":64,"max_description_chars":256,"max_human_label_chars":128,"max_workspace_label_chars":128,"max_idempotency_key_chars":128,"send_rate":{"per_minute":20,"per_hour":200},"principal_send_rate":{"per_minute":60,"per_hour":600},"max_unacked_per_recipient":60,"max_unacked_per_sender_recipient":15,"max_hop_count":32,"implicit_reply_window_seconds":600},"lease":{"default_seconds":90,"min_seconds":30,"max_seconds":600},"retention":{"unacked_message_seconds":604800,"acked_message_seconds":86400,"closed_session_seconds":604800},"profile":{"name":"alpha","state":"joined","team_ref":"team-1","team_name":"ops","principal_ref":"principal-self","human_label":"me@example.com"}}, "responses": {"session register": [{"result": {"session_id":"brigade-sess-1","session_name":"payments-api","principal_ref":"principal-self","human_label":"me@example.com","state":"active","activity":"busy","inbound":"accept","last_seen_at":"2026-09-02T12:00:00Z","lease_until":"2026-09-02T12:01:30Z","created_at":"2026-09-02T12:00:00Z","is_self":true,"resumed":false,"lease_seconds":90,"server_time":"2026-09-02T12:00:00Z"}}], "session close": [{"result": {"session_id":"brigade-sess-1","state":"offline"}}]}}
+-- script-noclose.json.in --
+{"dump_file": "$WORK/dump2.ndjson", "describe": {"protocol_version":"1","adapter":{"name":"fake-adapter","version":"0.0.0-fake"},"delivery":{"guarantee":"at_least_once","ordering":"none","ack_state":"injected"},"capabilities":["team.create","team.join","team.roster","message.receive","message.watch.push","message.watch.stdin_commands","session.description","session.resume","session.workspace_label","session.inbound"],"limits":{"max_body_bytes":16384,"max_summary_chars":200,"max_session_name_codepoints":64,"max_team_name_codepoints":64,"max_description_chars":256,"max_human_label_chars":128,"max_workspace_label_chars":128,"max_idempotency_key_chars":128,"send_rate":{"per_minute":20,"per_hour":200},"principal_send_rate":{"per_minute":60,"per_hour":600},"max_unacked_per_recipient":60,"max_unacked_per_sender_recipient":15,"max_hop_count":32,"implicit_reply_window_seconds":600},"lease":{"default_seconds":90,"min_seconds":30,"max_seconds":600},"retention":{"unacked_message_seconds":604800,"acked_message_seconds":86400,"closed_session_seconds":604800},"profile":{"name":"alpha","state":"joined","team_ref":"team-1","team_name":"ops","principal_ref":"principal-self","human_label":"me@example.com"}}, "responses": {"session register": [{"result": {"session_id":"brigade-sess-2","session_name":"payments-api","principal_ref":"principal-self","human_label":"me@example.com","state":"active","activity":"busy","inbound":"accept","last_seen_at":"2026-09-02T12:00:00Z","lease_until":"2026-09-02T12:01:30Z","created_at":"2026-09-02T12:00:00Z","is_self":true,"resumed":false,"lease_seconds":90,"server_time":"2026-09-02T12:00:00Z"}}], "session close": [{"error": {"code": "unavailable", "message": "backend down", "retryable": true}}]}}
+-- warm.json --
+{}

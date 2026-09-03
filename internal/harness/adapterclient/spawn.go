@@ -329,3 +329,76 @@ func startFailure(err error) error {
 		Details: map[string]string{"reason": reason},
 	}
 }
+
+// --- pass-through -------------------------------------------------------------
+
+// PassThrough runs one adapter command with the CALLER's streams instead of
+// captured ones: the human terminal commands of 6.4 (`brigade team
+// create|join|leave`, `brigade profile …`) hand their stdin, stdout and
+// stderr straight to the adapter, so `--prompt` can read a join secret from
+// the TTY without echo and the adapter's own envelope reaches the human
+// unchanged. Nothing is parsed here: the argv is `<adapter prefix>
+// --profile <p> <group> <verb> <args…>` and the child's environment is the
+// same from-scratch one every other child gets (inherited BRIGADE_* and
+// CLAUDE_CODE_MESSAGING_* never cross). stdin may be nil for a command that
+// takes none; an *os.File is handed to the child as a descriptor, which is
+// what keeps a terminal a terminal.
+//
+// It returns the child's own exit status, forwarded verbatim (4.6 gives it
+// meaning) with a nil error. The error is non-nil only when the adapter did
+// NOT run to an exit of its own — the executable was not found (
+// `unavailable`, details.reason adapter_not_found), it died on a signal or
+// ctx ended (`unavailable`), or the start failed (`internal`) — and the
+// status is then -1. It is the one other exec.CommandContext of the harness
+// beside StartWatch, which is why it lives in this file.
+func (c *Client) PassThrough(ctx context.Context, group, verb string, args []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
+	argv, err := c.argv(group, verb, args)
+	if err != nil {
+		return -1, err
+	}
+
+	//nolint:forbidigo // adapterclient/spawn.go IS the one spawn seam the 7.3 rule allows (6.4: inherited stdio)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Env = c.childEnv()
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = watchWaitDelay
+
+	runErr := cmd.Run()
+	if runErr == nil {
+		return 0, nil
+	}
+	if errors.Is(runErr, exec.ErrNotFound) || errors.Is(runErr, os.ErrNotExist) {
+		return -1, &protocol.Error{
+			Code:    protocol.CodeUnavailable,
+			Message: "adapter executable not found",
+			Details: map[string]string{"reason": "adapter_not_found"},
+		}
+	}
+	var exitErr *exec.ExitError
+	if errors.As(runErr, &exitErr) && exitErr.ExitCode() >= 0 {
+		return exitErr.ExitCode(), nil
+	}
+	if ctx.Err() != nil {
+		return -1, &protocol.Error{
+			Code:    protocol.CodeUnavailable,
+			Message: "adapter did not finish within its deadline",
+			Details: map[string]string{"reason": "timeout"},
+		}
+	}
+	if errors.As(runErr, &exitErr) {
+		return -1, &protocol.Error{
+			Code:    protocol.CodeUnavailable,
+			Message: "adapter was killed by a signal",
+			Details: map[string]string{"reason": "signal"},
+		}
+	}
+	c.logger().Error("adapter pass-through failed", slog.String("error", runErr.Error()))
+	return -1, &protocol.Error{
+		Code:    protocol.CodeInternal,
+		Message: "adapter spawn failed",
+		Details: map[string]string{"reason": "spawn_error"},
+	}
+}

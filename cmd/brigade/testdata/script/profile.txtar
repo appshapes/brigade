@@ -1,0 +1,103 @@
+# `brigade profile …` through the real binary (P3-3, plan 6.4, D36).
+#
+# `profile init --adapter` writes the profile's sidecar and, for the
+# `<name>=<command>` form, the adapters.json entry BEFORE it runs that
+# adapter's own `profile init`; `profile status` prints one harness line
+# naming the default adapter and, inside a session, the override in force,
+# then passes through to the adapter.
+
+# The `brigade` under test is the race-instrumented test binary; without
+# this every exec spends TSan's 1 s atexit sleep (see fs.sh).
+env GORACE=atexit_sleep_ms=0
+env CLAUDE_PID=
+chmod 755 fs.sh
+
+# --- `<name>=<path>` registers the name and binds the profile to it ---------
+exec brigade profile init --profile alice --adapter fs=$WORK/fs.sh
+json stdout .ok true
+json stdout .result.name alice
+exists $WORK/.brigade/brigade-config/profiles/alice/adapter
+grep '^fs$' $WORK/.brigade/brigade-config/profiles/alice/adapter
+grep '"fs":\["'$WORK'/fs.sh"\]' $WORK/.brigade/brigade-config/adapters.json
+exists $WORK/.brigade/brigade-config/profiles/alice/profile.json
+
+# --- `<name>=<JSON array>` registers fixed arguments (a private root) ---------
+exec brigade profile init --profile carol --adapter 'store=["'$WORK'/fs.sh","--root","'$WORK'/store"]'
+json stdout .result.name carol
+grep '^store$' $WORK/.brigade/brigade-config/profiles/carol/adapter
+grep '"store":\["'$WORK'/fs.sh","--root","'$WORK'/store"\]' $WORK/.brigade/brigade-config/adapters.json
+# The name registered first is kept verbatim beside the new one.
+grep '"fs":\["'$WORK'/fs.sh"\]' $WORK/.brigade/brigade-config/adapters.json
+
+# --- a bare name must already be registered ----------------------------------
+status 11 brigade profile init --profile dave --adapter ghost
+stderr '^brigade profile failed \(config\)'
+! exists $WORK/.brigade/brigade-config/profiles/dave/adapter
+! exists $WORK/.brigade/brigade-config/profiles/dave/profile.json
+exec brigade profile init --profile dave --adapter fs
+grep '^fs$' $WORK/.brigade/brigade-config/profiles/dave/adapter
+
+# --- `<absolute path>` writes the sidecar without a name --------------------
+exec brigade profile init --profile erin --adapter $WORK/fs.sh
+grep '^'$WORK'/fs.sh$' $WORK/.brigade/brigade-config/profiles/erin/adapter
+
+# --- a relative path is refused, and nothing is written ----------------------
+status 11 brigade profile init --profile frank --adapter relative/adapter
+! exists $WORK/.brigade/brigade-config/profiles/frank
+
+# --- the adapter's own flags pass through after the harness's ---------------
+# fs's `profile init` refuses to replace an existing profile without --force.
+status 7 brigade profile init --profile alice --adapter fs
+json stdout .error.code conflict
+exec brigade profile init --profile alice --adapter fs --force
+json stdout .ok true
+
+# --- profile status: the harness line, then the adapter's envelope ----------
+exec brigade profile status --profile alice
+stdout '^profile alice: default adapter fs \(from sidecar\)$'
+stdout '"state":"not_member"'
+! stderr .
+exec brigade profile status --profile carol
+stdout '^profile carol: default adapter store \(from sidecar\)$'
+
+# A profile with no sidecar and no profile file falls back to the bundled
+# adapter; the pass-through then runs the bundled Supabase adapter, which
+# answers with its own `profile status` for an unconfigured profile.
+exec brigade profile status --profile nobody
+stdout '^profile nobody: default adapter supabase \(from bundled\)$'
+
+# --- inside a session the map's profile is described, override included -----
+env CLAUDE_PID=4242
+mkdir $WORK/.brigade/xdg/state/brigade/sessions/by-pid
+expand map.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.json
+exec brigade profile status
+stdout '^profile alice: default adapter fs \(from sidecar\); this session overrides it with \["'$WORK'/fs.sh","--root","'$WORK'/override"\]$'
+stdout '"state":"not_member"'
+# With --profile naming another profile, that profile's default is described
+# and no override is reported.
+exec brigade profile status --profile carol
+stdout '^profile carol: default adapter store \(from sidecar\)$'
+! stdout overrides
+
+# --- the other verbs pass through ---------------------------------------------
+env CLAUDE_PID=
+exec brigade profile revoke-credentials --profile erin
+json stdout .ok true
+exec brigade profile reset --profile erin
+json stdout .ok true
+! exists $WORK/.brigade/brigade-config/profiles/erin/profile.json
+status 2 brigade profile
+stderr 'profile needs a verb'
+
+-- fs.sh --
+#!/bin/sh
+# The dev-only fs adapter behind an absolute path for the D36 sidecar and
+# registry: the harness execs this file (a shebang adapter), never a shell
+# of its own.
+# GORACE: under `go test -race` this adapter is the race-instrumented test
+# binary, and TSan sleeps atexit_sleep_ms (1 s by default) before every
+# exit; the harness builds the child environment from scratch, so the
+# variable is set here (fixture only, not Brigade behaviour).
+GORACE=atexit_sleep_ms=0 exec brigade-adapter-fs "$@"
+-- map.in --
+{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "socket_path": "", "profile": "alice", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fs.sh", "--root", "$WORK/override"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}

@@ -77,7 +77,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P2-12 | `scripts/release-prep.sh` + the release rehearsal | done — **the real rehearsal ran on 2026-09-02 (D1; release run 33698279695, see "D1 RELEASE REHEARSAL DONE")** | Opus | this commit — the script (7.7) with a `DRY_RUN` mode, rehearsed on a throwaway local branch: `GORELEASER_CURRENT_TAG` accepts a non-existent tag with `--skip=validate` (the 7.7 [uncertain] settled), goreleaser's `checksums.txt` byte-equal to `make cross`'s; **four script defects found and fixed by the verifier** (see below); nothing pushed, tagged or committed by the rehearsal |
 | P3-1 | Plugin manifests, marketplace, skills | done | Opus | this commit — `plugin.json`, `hooks.json`, the two skills, `plugin/README.md`, the marketplace entry, `scripts/ci/manifests_test.go` (26 mutations, one positive control); `make plugin-check` with no `skip:`; `claude plugin validate .` zero warnings, `./plugin --strict` green; the headless run registers both skills with no MCP server and fires each hook once (exit 1 until P3-4); **`--strict` is blind to skill frontmatter; stream-json carries `SessionStart` hook events only** (see below) |
 | P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | done | Fable | this commit — nine packages + `procutil` + the fake adapter, fake socket, fake registry, sleeper and Eventually fixtures (~17k lines with tests); five Fable authors in two waves on disjoint packages, two Fable verifiers; **10 defects found, 8 fixed in place, 101 checks proven able to fail by mutation**; U-03/04/13/14/15/16/17/18/19/20/27 and E2E-13 traced; `Watch.Wait` deadlock and the FIFO-at-the-map-path hang were the decisive ones (see below) |
-| P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | todo | Fable | injection path |
+| P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | done | Fable | this commit — `internal/harness/{commands,hook,watch,e2e}`, the CLI table filled, `app.go` routing `hook`/`watch`, 17 txtar scripts, the `ReadStrict` hardening; three Fable lanes in parallel, one integrator, two Fable verifiers; **9 defects found, 7 fixed in place, 46 checks proven able to fail**; the end-to-end test drives the REAL binary and the REAL detached watcher through a crash and a respawn; the Fable limit interrupted the run once (see below) |
 | P3-6..P3-8 | Bootstrap wiring, headless smoke, interactive checks | todo | Opus | |
 | P4-1..P4-6 | Vertical proof, headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-1/P4-3/P4-4) | criterion 8 is Fable-tier |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof |
@@ -1312,6 +1312,108 @@ script. The linux `procutil` file was cross-vetted, test-compiled and linted und
 CI. The watch `error` events pass the wire `retryable` through (absent = false); P3-5 keys restarts on
 `backoff.Retryable(code)` per 4.3, never on the flag.
 
+## P3-3/P3-4/P3-5 DONE — commands, hooks and the watcher, integrated end to end; the e2e was green for the wrong reason until the verifier crashed the watcher
+
+Three Fable lanes in parallel on disjoint files (P3-3: `internal/harness/commands` + the `internal/cli` table + the
+txtar scripts + the `adapterkit.ReadStrict` hardening; P3-4: `internal/harness/hook`; P3-5: `internal/harness/watch`),
+then one integrator (`internal/app` routing, the `hook`/`watch` table entries, the one `.golangci.yml` exclusion for
+the hook's `spawn.go`, `internal/harness/e2e`, the hook/watch txtar scripts) and two Fable adversarial verifiers (the
+injection path; the process path), from `.ignored/briefs/p3-3-4-5-commands-hook-watch.md`. Driven by
+`15-implement-brigade-0902T18`. **The Fable session limit stopped the integrator once** ("resets 1am
+America/New_York"); per the model tier policy the driver waited and resumed the workflow from its journal at
+05:47 EDT with the lanes' results cached. No fix round was needed: 9 defects, 7 fixed in place, 2 left to the driver
+(below); 46 checks proven able to fail by mutating the subject and restoring byte for byte (23 per lens).
+
+**What exists now.** `brigade sessions|send|whoami|team members` (6.4's layouts; every remote string sanitised;
+`human_label` always ` (unverified)`; `--json` = the adapter's result plus `self_session_id`/`note`; errors one
+stderr line `brigade <command> failed (<code>): <message>` with the code's exit; raw adapter stderr never shown,
+U-24); `send` validates the body in BYTES before any spawn (U-05, zero spawns proven through the seam), D11's key
+(`base64url(sha256(sender\0recipient\0body\0minute))`, stable within a minute), 20 s budget with one retry on
+`unavailable`, never on `rate_limited`/`loop_detected`, and refuses a TTY stdin; `team create|join|leave` and
+`profile init|status|reset|revoke-credentials` pass through to the adapter with inherited stdio
+(`adapterclient.PassThrough`; the adapter's exit status forwarded), `create`/`join` refused inside a session with
+exit 2 and the fixed line; `profile init --adapter <spec>` writes the D36 sidecar (and registers
+`<name>=<absolute path | JSON array>`) BEFORE the adapter's own `profile init`; `profile status` prints the harness
+line naming the default adapter and the in-session override. `send`/`whoami` are session-only (`config`,
+`details.reason = not_in_session`). `brigade hook session-start|prompt|session-end` (6.3 as measured: exit 0 on every
+failure, `usage` the only non-zero; identity per 6.5 with `session_title` and `permission_mode` optional; D36
+resolution into the by-pid map; idempotent per `CLAUDE_PID` with the D9 socket/hash compare and respawn; the resume
+hint from by-native (or this pid's own map) and its E0-5 (f) skip; a native `hold`/`refuse` scan → policy `refuse`
+plus a warning line; the shadowing warning as a true second line; the prune stamp; the poll path through
+`inbound.Pipeline` acking only printed frames — about eight frames fit under the 10,000-character cap; a
+registration retry from the prompt hook at most once a minute, which makes the "retrying at your next prompt" line
+true; `session-end` SIGTERMs the watcher, compare-then-deletes the pidfile, deletes the by-pid map, `session close`
+in 1 s). `brigade watch [--sink <file>]` (6.6 as corrected by E0-5: the pidfile guard with the kernel start token,
+duplicate → exit 0, different values → SIGTERM + replace, dead or forged → replace by content; supervision on
+`backoff.RetryableExit` — 8/9/signal/unowned restart with 1..30 s jitter, 4/5/10/11 stop with the one-line notice
+file, give-up after 10 failures in 5 min → exit 3; `ready` within 10 s; heartbeat 30 s plus an immediate beat on the
+registry's busy/idle flip; the name and the socket path re-read from the registry, the policy from the map, every
+2 s; liveness by process STATE — gone, zombie, foreign or a changed start token — and by the map (gone, another
+session id or profile → exit); **socket `ENOENT` is never an exit**; the exit path stops heartbeats first, closes
+the session (1 s clean / 3 s after a Claude death), closes the child, removes the pidfile by content, exit 0 —
+measured 14–19 ms after `hook session-end`; `--sink` refused with the socket variable, `config` with nothing to
+inject into; the 5 MB single-generation log rotation; the token only in the redactor). `internal/harness/e2e`
+drives the BUILT `bin/brigade` and `bin/brigade-adapter-fs`: team create/join through the pass-through, alice's
+`session-start` with a fake socket → the context line, both maps, a LIVE detached watcher (pid alive with its start
+token); bob registered through the hook with a sleeper; bob's `send` → the frame at the fake socket wrapped in
+variant C with the right ids, `injected` in the store; a reply with `--reply-to` → hop 1; the watcher CRASHED
+(SIGKILL) → `hook prompt` respawns it (a dead pidfile replaced by content, a second `watch ready`); `session-end` →
+the watcher gone, the pidfile and by-pid map removed, `closed_at` set; then the token grepped out of every file
+under the rig and every adapter child's argv and environment (U-25, with a positive control). 17 txtar scripts run
+every command, hook and the sink watcher through `exec brigade` as real forks.
+
+**The decisive findings.** (1) **The e2e's session-end step was green for the wrong reason**: step 4 stopped the
+watcher with SIGTERM, which is its CLEAN path — it closed the session itself — so step 5's `closed_at` assertion
+had already been satisfied, and the prompt hook's respawn was only ever exercised for a MISSING pidfile, never a
+DEAD one; a pre-session-end assertion proved it (`the session was closed before session-end`). Fixed: step 4 now
+SIGKILLs (a crash leaves the pidfile dead and the session open), asserts `pidfile.Check` finds it dead with the old
+pid, and step 5's `closed_at` is load-bearing. (2) The watcher's `refuse` test was passing under a mutant that
+ignored the map's policy at construction: the fixture's 50 ms map re-read corrected the policy before the message
+arrived; fixed with a one-hour poll in that test and a new test for the runtime policy flip through the map. (3)
+An adapter-produced `config` at `describe`/`register` printed the generic `not connected (config)` line,
+byte-identical to the line for bad stdin — P3-6's D36 acceptance needs the reason: the line now carries the
+adapter's fixed `details.reason` (`Brigade: not connected (config: <reason>); …`). (4) The sink refusal test would
+have hung for the package's 10-minute timeout under a mutant that accepted `--sink` with the socket variable — now
+its own 30 s catcher. (5) The `watcher exiting` exit-status grep matched the child's exit line too — anchored. (6)
+Two fs-adapter txtar scripts lacked the `GORACE=atexit_sleep_ms=0` fixture and spent TSan's 1 s exit sleep per
+fork (team 10.6 s, profile 15.7 s → 1.2 s and 2.2 s). (7) `docs/adapter-authors.md` still said the wiring was not
+runnable.
+
+**A macOS fact that made `make test` red four times in no lane's code (the integrator measured it):** the FIRST
+exec of a freshly created executable is suspended 0.2–0.5 s idle and **3–6 s during the opening seconds of a
+whole-tree `go test`** (probe: t=3 s 4.47 s, t=6 s 5.85 s, later 0.2–0.4 s; the second exec 7–16 ms), longer than
+the 3 s `describe` budget of 4.1 that every fake-adapter txtar and the hook/watch TestMains hit first. **Rule
+adopted: every freshly created executable that a budgeted spawn will hit is first run once with no deadline** (a
+`describe` warm-up in the ten scripts; `warmExecutable()` after `mustBuild` in the TestMains). `GORACE=
+atexit_sleep_ms=0` is set for the race-instrumented test binary and its children in every script. Watch for the
+same `adapter did not finish within its deadline` on a slow Linux runner; the levers are `-p` in `go_test_flags` or
+a describe-budget seam in `Deps`.
+
+**Plan and brief corrections (measured):** `sessions` always asks the adapter with `--include-offline` and hides
+offline locally (the count is unknowable otherwise); `send`'s confirmation names the recipient by id; a registration
+made from the prompt hook is named from the cwd (no `session_title` on that document); the policy and shadowing
+warnings are additional lines after the one start line (E0-8 (d) strips only the ends); the per-sender poll window
+is per prompt (only injected ids persist); plan 6.6's `exec.Command` is `exec.CommandContext(context.WithoutCancel
+(…))` (noctx); the watcher environment is `adapterkit.ChildEnv` + `WatcherEnv.Vars()` + the socket and token (so a
+proxy/CA reaches the watcher); the fs adapter's rejected stdin `heartbeat`/`ack` is `invalid_input` with
+`retryable: true` — the watcher keys restarts on the child's EXIT status through `backoff.RetryableExit`, never on
+an event's code; a stalled unix socket is only felt by a content larger than the kernel buffer, so U-20's watcher
+row is tested with a 1 ns write deadline; `internal/harness/e2e` needs `internal/adapters/fs` not at all (the built
+binary); the conformance suite's literal `--adapter bin/brigade-adapter-fs` line fails C-02 without `--shared-env
+BRIGADE_FS_ROOT` (the Makefile's form passes 44/0/1). `smoke.txtar`'s one placeholder row moved from `sessions` to
+`inbox` (the last P5-11 placeholder) — blessed. `internal/adapterkit` stays over the 30 s `-count` bound because
+of the pre-existing 14 s `TestFlockTimeoutBoundBetweenTwoProcesses` (not this phase's).
+
+**Recorded, not changed, for the threat model and P3-6/P3-7:** a `brigade` symlinked into `~/.local/bin` (the setup
+skill's own suggestion) warns as a shadow every session — correct per E0-8 (e), but P3-6 should expect it, and the
+skill's sentence should say so; a watcher stopped by SIGTERM closes its session (only a crash leaves it open); the
+fs adapter re-emits an unacknowledged message only when its watch child restarts; in one-shot mode (no
+`stdin_commands`) shutdown waits the close budget before cancelling a child that cannot end on its own (bounded, an
+inefficiency); a writer blocked on a full child stdin at exit would lose its `close` (lease expiry closes the
+session; both bundled adapters read stdin concurrently); `ReadStrict` returns a planted unix socket as a raw
+`ENXIO` error rather than `config` (cosmetic); the shared scratchpad let one verifier's mutation script overwrite
+another's mid-run (restored and cmp-verified) — **future briefs give each agent a private scratch subdirectory**.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1823,3 +1925,17 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   the whole package green alone in 67 s — a property of the loaded local stack, not of the code; CI's fresh stack is
   the arbiter), `vuln deps-check schema-check tidy-check` green, `plugin-check checksums-check` green. Next: **P3-3,
   P3-4, P3-5 and their integration** (Fable) from `.ignored/briefs/p3-3-4-5-commands-hook-watch.md`.
+- 2026-09-02 ~22:50: **CI run 33706421871 on `ce89584` (P3-2) green on every job** — `fast`, `macos`, `reproducibility`,
+  `supabase`; the first real run of `internal/procutil`'s linux file (`/proc/<pid>/stat` state and start token) and of
+  the harness packages under the Ubuntu runner. P3-3/P3-4/P3-5 lanes running.
+- 2026-09-03 ~00:30: the P3-3/P3-4/P3-5 workflow's three lanes finished (commands + CLI table; hooks; watcher — each
+  green on its own packages) and the INTEGRATOR agent failed to start: "You've hit your session limit · resets 1am
+  (America/New_York)". Per the model tier policy the driver waited for the reset rather than downgrade; resumed at
+  05:47 EDT with the lanes' results replayed from the workflow journal (`go build ./...` and `go vet ./...` green on
+  the un-integrated tree).
+- 2026-09-03 ~08:10: **P3-3/P3-4/P3-5 done** (block above); the driver's full gate green on the integrated tree —
+  `typecheck lint build test` (35 packages, conformance(fs) 44/0/1, the Supabase package included this time),
+  `vuln deps-check schema-check tidy-check plugin-check checksums-check`. Driver's decision on the verifier's open
+  item: `brigade send` no longer retries after a spawn-level TIMEOUT (a hung adapter would cost the model's Bash
+  call ~41 s instead of 20); an adapter-produced `unavailable` and a signal death are still retried once — two
+  test rows pin both arms. Next: **P3-6 and P3-7** (Opus) from `.ignored/briefs/p3-6-7-wiring-smoke.md`.

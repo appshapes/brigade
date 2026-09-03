@@ -4,6 +4,8 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
+
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 // An Error is a command failure carrying the 4.6 code that decides both the
@@ -111,8 +113,11 @@ func report(s Streams, jsonMode bool, err *Error) int {
 }
 
 // asError maps any error returned by a command to an *Error. A command that
-// already knows its code keeps it; anything else is an unclassified bug and
-// becomes `internal` (exit 1), never a silent success.
+// already knows its code keeps it — a *cli.Error as it is, a
+// *protocol.Error (what the harness library and the commands package
+// return) with its code, message, retry-after and details carried over;
+// anything else is an unclassified bug and becomes `internal` (exit 1),
+// never a silent success.
 func asError(command string, err error) *Error {
 	var cerr *Error
 	if errors.As(err, &cerr) {
@@ -120,6 +125,16 @@ func asError(command string, err error) *Error {
 			cerr.Command = command
 		}
 		return cerr
+	}
+	var perr *protocol.Error
+	if errors.As(err, &perr) {
+		return &Error{
+			Code:         perr.Code,
+			Message:      perr.Message,
+			RetryAfterMS: perr.RetryAfterMS,
+			Details:      perr.Details,
+			Command:      command,
+		}
 	}
 	return &Error{Code: CodeInternal, Message: err.Error(), Command: command}
 }

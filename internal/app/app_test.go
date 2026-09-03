@@ -25,24 +25,46 @@ func TestRunDispatchesToTheCommandTable(t *testing.T) {
 	}
 }
 
-// TestRunInterceptsMultiCallEntrypoints proves the seam is live: `hook`
-// and `watch` are not unknown commands, and each names the plan task that
-// will implement it rather than panicking.
+// TestRunInterceptsMultiCallEntrypoints proves the seam is live and wired
+// (P3-4, P3-5): `hook` and `watch` are not unknown commands and no longer
+// placeholders — each reaches its own package with the real streams and
+// answers as that package documents. A hook with no subcommand is the one
+// `usage` a hook can produce (exit 2, one stderr line); a hook run with
+// an empty stdin and no session exits 0 with its "not connected" context
+// line on stdout, because a hook must never fail its session (6.3); the
+// watcher run with no hook-built environment refuses with `config` (exit
+// 11) on stderr and writes nothing to stdout (6.6).
 func TestRunInterceptsMultiCallEntrypoints(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ args []string }{
-		{[]string{"hook", "session-start"}},
-		{[]string{"watch", "--sink", "/dev/null"}},
+	for _, tc := range []struct {
+		args       []string
+		exit       int
+		stdoutHas  string
+		stderrHas  string
+		stdoutNone bool
+	}{
+		{args: []string{"hook"}, exit: 2, stderrHas: "usage", stdoutNone: true},
+		{args: []string{"hook", "session-start"}, exit: 0, stdoutHas: "Brigade: not connected (config)"},
+		{args: []string{"hook", "prompt"}, exit: 0, stdoutNone: true},
+		{args: []string{"hook", "session-end"}, exit: 0, stdoutNone: true},
+		{args: []string{"watch", "--sink", "/dev/null"}, exit: 11, stderrHas: "brigade watch failed (config)", stdoutNone: true},
+		{args: []string{"watch", "--bogus"}, exit: 2, stderrHas: "brigade watch failed (usage)", stdoutNone: true},
 	} {
 		exit, stdout, stderr := run(t, nil, tc.args...)
-		if exit != 1 {
-			t.Errorf("%v: exit = %d, want 1", tc.args, exit)
+		if exit != tc.exit {
+			t.Errorf("%v: exit = %d, want %d (stdout %q, stderr %q)", tc.args, exit, tc.exit, stdout, stderr)
 		}
-		if stdout != "" {
-			t.Errorf("%v: stdout = %q, want empty without --json", tc.args, stdout)
+		if tc.stdoutNone && stdout != "" {
+			t.Errorf("%v: stdout = %q, want empty", tc.args, stdout)
 		}
-		if !strings.Contains(stderr, "not implemented yet") {
-			t.Errorf("%v: stderr = %q", tc.args, stderr)
+		if tc.stdoutHas != "" && !strings.Contains(stdout, tc.stdoutHas) {
+			t.Errorf("%v: stdout = %q, want %q", tc.args, stdout, tc.stdoutHas)
+		}
+		if tc.stderrHas != "" && !strings.Contains(stderr, tc.stderrHas) {
+			t.Errorf("%v: stderr = %q, want %q", tc.args, stderr, tc.stderrHas)
+		}
+		if strings.Contains(stderr, "not implemented yet") {
+			t.Errorf("%v: still a placeholder: %q", tc.args, stderr)
 		}
 	}
 }

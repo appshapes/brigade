@@ -15,10 +15,6 @@ tool. The join secret is a bearer capability: **never paste it into a Claude Cod
 log. The binary the plugin uses is at `${CLAUDE_PLUGIN_ROOT}/bin/brigade`; a symlink such as
 `ln -s ${CLAUDE_PLUGIN_ROOT}/bin/brigade ~/.local/bin/brigade` keeps a terminal on the same pinned version.
 
-**Not runnable yet.** The `profile` and `team` commands below arrive with the rest of Phase 3; today the shipped
-binary answers every one of them with a `usage` or "not implemented yet" line. Give this to your user as the
-intended procedure, and say plainly that it does not work in this build.
-
 ## 1. Administrator: create a team
 
 The bundled adapter keeps a team in a Supabase project, so create a **single-purpose** project for it first:
@@ -63,7 +59,10 @@ reaches your scrollback or your shell history.
 - One profile is bound to exactly one team. A second team means a second profile — pass `--profile <name>` to
   both commands above — chosen per session with the `profile` plugin option.
 - A backend other than the bundled Supabase adapter is chosen once, at `profile init`, with
-  `--adapter <name-or-command>`; `docs/adapter-authors.md` in the Brigade repository explains the three forms.
+  `--adapter <name-or-command>`: a name registered in `adapters.json`, an absolute path, a JSON array, or
+  `<name>=<absolute path or JSON array>` to register the name on first use; `docs/adapter-authors.md` in the
+  Brigade repository explains the forms. `brigade profile status --profile <name>` names the profile's default
+  adapter and, from inside a session, the override in force.
 
 ## 3. Leaving and uninstalling
 

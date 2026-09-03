@@ -1,0 +1,196 @@
+# `brigade hook session-start` through the real binary (P3-4; plan 6.3,
+# 6.5, D36, D9): the SessionStart document on stdin, the session's
+# environment, the scripted fake adapter behind the adapter_command
+# option, and a reaped sleeper as CLAUDE_PID.
+#
+# This host has no inbox socket, so no watcher is started (the internal/
+# harness/e2e tests drive the real watcher with the fs adapter). The
+# messaging token IS in the environment, and it must reach no adapter
+# child: the fake's dump records every child's environment.
+
+# The `brigade` under test is the race-instrumented test binary too; without
+# this every exec spends TSan's 1 s atexit sleep (see fake.sh).
+env GORACE=atexit_sleep_ms=0
+sleeper
+env CLAUDE_PID=$SLEEPER_PID
+env CLAUDE_CODE_SESSION_ID=native-1
+env CLAUDECODE=1
+env CLAUDE_CODE_ENTRYPOINT=cli
+env CLAUDE_CODE_MESSAGING_TOKEN=tok-MUST-NOT-CROSS-4c1f9a
+env CLAUDE_PLUGIN_OPTION_PROFILE=alpha
+env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script.json"]'
+expand script.json.in script.json
+chmod 755 fake.sh
+# On macOS the FIRST exec of a freshly created executable is suspended
+# while the system assesses it — measured 2026-09-03: 0.2–0.5 s idle and
+# 3–6 s while a whole-tree `go test` creates every package's binaries at
+# once; the second exec costs ~10 ms. Both fake.sh (the file the harness
+# execs) and the `fake-adapter` copy testscript installed are fresh, so
+# the wrapper is run once here with no deadline, and the harness's 3 s
+# describe budget (4.1) below meets warm files. (The `brigade` copy is
+# warmed by its own first exec, which has no deadline.)
+exec $WORK/fake.sh --script warm.json describe
+mkdir $WORK/.brigade/plugin-root/bin
+cp bootstrap.sh $WORK/.brigade/plugin-root/bin/brigade
+chmod 755 $WORK/.brigade/plugin-root/bin/brigade
+cp VERSION $WORK/.brigade/plugin-root/bin/VERSION
+
+# --- startup: exit 0, the one context line, the maps, describe + register -----
+stdin start.json
+exec brigade hook session-start
+stdout '^Brigade: this session is "payments-api" \(brigade-sess-1\) in team "ops"; inbound: accept; teammates: run `brigade sessions`\. Use `brigade sessions` and `brigade send`; terminal commands: .*/plugin-root/bin/brigade$'
+# The shadowing warning (E0-8 (e)) is a second line here and is TRUE: the
+# `brigade` testscript put on this script's PATH is another brigade than
+# the plugin's stub bootstrap under $WORK, exactly the case the check
+# exists for. The start line itself is exactly one line.
+stdout -count=2 '^Brigade: '
+stdout '^Brigade: another `brigade` at .*/bin/brigade shadows the plugin''s; remove it or the wrong version runs$'
+stderr 'no inbox socket'
+exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+grep '"brigade_session_id":"brigade-sess-1"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+grep '"team_name":"ops"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+grep '"profile":"alpha"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+grep '"config_dir":"'$WORK'/.brigade/xdg/config/brigade"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+grep '"adapter_command":\["'$WORK'/fake.sh","--script","'$WORK'/script.json"\]' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+grep '"socket_path":""' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+grep '"harness_version":"unknown"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+! grep '[tT]oken' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+exists $WORK/.brigade/xdg/state/brigade/sessions/by-native/native-1.json
+grep '"brigade_session_id":"brigade-sess-1"' $WORK/.brigade/xdg/state/brigade/sessions/by-native/native-1.json
+! exists $WORK/.brigade/xdg/state/brigade/watchers
+# Two children: describe, then register — with the from-scratch environment.
+grep -count=1 '"group":"describe"' dump.ndjson
+grep -count=1 '"verb":"register"' dump.ndjson
+grep '"--profile","alpha"' dump.ndjson
+grep '"BRIGADE_PROFILE":"alpha"' dump.ndjson
+grep '"BRIGADE_STATE_DIR":"'$WORK'/.brigade/xdg/state/brigade"' dump.ndjson
+! grep CLAUDE_CODE_MESSAGING dump.ndjson
+! grep MUST-NOT-CROSS dump.ndjson
+! grep CLAUDE_PID dump.ndjson
+
+# --- /compact re-fires SessionStart: the map is refreshed, no network --------
+stdin compact.json
+exec brigade hook session-start
+! stdout .
+grep -count=1 '"verb":"register"' dump.ndjson
+grep '"session_name":"payments-api"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+
+# --- /clear re-fires it too: with no live watcher the session is resumed -------
+# (the by-native hint), never a brand-new Brigade session.
+stdin clear.json
+exec brigade hook session-start
+stdout '\(brigade-sess-1\)'
+grep -count=2 '"verb":"register"' dump.ndjson
+grep '"brigade_session_id":"brigade-sess-1"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+
+# --- team_inbound hold is refuse with the fixed warning as a second line ------
+env CLAUDE_PLUGIN_OPTION_TEAM_INBOUND=hold
+stdin start.json
+exec brigade hook session-start
+stdout 'in team "ops"; inbound: refuse;'
+stdout -count=3 '^Brigade: '
+stdout '^Brigade: team_inbound "hold" is not available yet'
+grep '"inbound":"refuse"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+env CLAUDE_PLUGIN_OPTION_TEAM_INBOUND=
+
+# --- every failure exits 0 with a `not connected` line (6.3) -----------------
+# The adapter refuses the registration: the line names the code and the
+# terminal remedy; the diagnostic is on stderr.
+sleeper
+env CLAUDE_PID=$SLEEPER_PID
+env CLAUDE_CODE_SESSION_ID=native-2
+env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script-unauth.json"]'
+expand script-unauth.json.in script-unauth.json
+stdin start2.json
+exec brigade hook session-start
+stdout '^Brigade: not connected \(unauthenticated\); run `brigade team join` in a terminal$'
+stderr 'unauthenticated'
+! exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+
+# A retryable failure promises the retry at the next prompt.
+env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script-unavailable.json"]'
+expand script-unavailable.json.in script-unavailable.json
+stdin start2.json
+exec brigade hook session-start
+stdout '^Brigade: not connected \(unavailable\); retrying at your next prompt$'
+
+# A `config` the adapter produced names its fixed reason: the resolved
+# adapter could not read the profile (D36); the remedy is still the terminal.
+env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script-config.json"]'
+expand script-config.json.in script-config.json
+stdin start2.json
+exec brigade hook session-start
+stdout '^Brigade: not connected \(config: profile_missing\); run `brigade team join` in a terminal$'
+! exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+
+# The D36 line: an adapter that cannot be resolved names its source, never
+# the value, and nothing is spawned.
+env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND=relative/adapter
+rm dump2.ndjson
+stdin start2.json
+exec brigade hook session-start
+stdout '^Brigade: not connected \(config\): the adapter for profile "alpha" could not be resolved from option; run `brigade profile status` in a terminal$'
+! stdout relative/adapter
+! exists dump2.ndjson
+
+# Malformed stdin: exit 0, the config line.
+env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script.json"]'
+stdin garbage.txt
+exec brigade hook session-start
+stdout '^Brigade: not connected \(config\); run `brigade team join` in a terminal$'
+
+# Outside a session (no CLAUDE_PID): exit 0, the config line.
+env CLAUDE_PID=
+stdin start2.json
+exec brigade hook session-start
+stdout '^Brigade: not connected \(config\); run `brigade team join` in a terminal$'
+
+# --- the one non-zero answer is usage, which no hooks.json produces -----------
+status 2 brigade hook
+! stdout .
+stderr 'usage'
+status 2 brigade hook nonsense
+status 2 brigade hook session-start --bogus
+status 2 brigade --json hook
+! stderr .
+json stdout .error.code usage
+
+-- fake.sh --
+#!/bin/sh
+# The scripted fake adapter behind an absolute path: the adapter_command
+# option needs one, and the testscript PATH entry that holds
+# `fake-adapter` has no script variable. The harness execs this file; it
+# is an adapter with a shebang line, not a shell the harness spawned.
+# GORACE: under `go test -race` this fake is the race-instrumented test
+# binary, and TSan sleeps atexit_sleep_ms (1 s by default) before every
+# exit — not Brigade behaviour, but a third of the 3 s describe budget of
+# 4.1 on a loaded machine (measured: every fake-adapter script timed out
+# on describe under a whole-tree `make test`). The harness builds the
+# child's environment from scratch, so the variable is set here, not in
+# the script's environment.
+GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
+-- bootstrap.sh --
+#!/bin/sh
+exit 0
+-- VERSION --
+0.0.0
+-- start.json --
+{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- compact.json --
+{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "compact", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- clear.json --
+{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "clear", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- start2.json --
+{"session_id": "native-2", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "second", "transcript_path": "/never/read.jsonl"}
+-- garbage.txt --
+this is not a JSON document
+-- script.json.in --
+{"dump_file": "$WORK/dump.ndjson", "describe": {"protocol_version":"1","adapter":{"name":"fake-adapter","version":"0.0.0-fake"},"delivery":{"guarantee":"at_least_once","ordering":"none","ack_state":"injected"},"capabilities":["team.create","team.join","team.roster","message.receive","message.watch.push","message.watch.stdin_commands","session.description","session.resume","session.workspace_label","session.inbound"],"limits":{"max_body_bytes":16384,"max_summary_chars":200,"max_session_name_codepoints":64,"max_team_name_codepoints":64,"max_description_chars":256,"max_human_label_chars":128,"max_workspace_label_chars":128,"max_idempotency_key_chars":128,"send_rate":{"per_minute":20,"per_hour":200},"principal_send_rate":{"per_minute":60,"per_hour":600},"max_unacked_per_recipient":60,"max_unacked_per_sender_recipient":15,"max_hop_count":32,"implicit_reply_window_seconds":600},"lease":{"default_seconds":90,"min_seconds":30,"max_seconds":600},"retention":{"unacked_message_seconds":604800,"acked_message_seconds":86400,"closed_session_seconds":604800},"profile":{"name":"alpha","state":"joined","team_ref":"team-1","team_name":"ops","principal_ref":"principal-self","human_label":"me@example.com"}}, "responses": {"session register": [{"result": {"session_id":"brigade-sess-1","session_name":"payments-api","principal_ref":"principal-self","human_label":"me@example.com","state":"active","activity":"busy","inbound":"accept","last_seen_at":"2026-09-02T12:00:00Z","lease_until":"2026-09-02T12:01:30Z","created_at":"2026-09-02T12:00:00Z","is_self":true,"resumed":false,"lease_seconds":90,"server_time":"2026-09-02T12:00:00Z"}}], "session heartbeat": [{"result": {"session_id":"brigade-sess-1","state":"active","lease_until":"2026-09-02T12:01:30Z","server_time":"2026-09-02T12:00:00Z"}}], "session close": [{"result": {"session_id":"brigade-sess-1","state":"offline"}}]}}
+-- script-unauth.json.in --
+{"dump_file": "$WORK/dump2.ndjson", "describe": {"protocol_version":"1","adapter":{"name":"fake-adapter","version":"0.0.0-fake"},"delivery":{"guarantee":"at_least_once","ordering":"none","ack_state":"injected"},"capabilities":["team.create","team.join","team.roster","message.receive","message.watch.push","message.watch.stdin_commands","session.description","session.resume","session.workspace_label","session.inbound"],"limits":{"max_body_bytes":16384,"max_summary_chars":200,"max_session_name_codepoints":64,"max_team_name_codepoints":64,"max_description_chars":256,"max_human_label_chars":128,"max_workspace_label_chars":128,"max_idempotency_key_chars":128,"send_rate":{"per_minute":20,"per_hour":200},"principal_send_rate":{"per_minute":60,"per_hour":600},"max_unacked_per_recipient":60,"max_unacked_per_sender_recipient":15,"max_hop_count":32,"implicit_reply_window_seconds":600},"lease":{"default_seconds":90,"min_seconds":30,"max_seconds":600},"retention":{"unacked_message_seconds":604800,"acked_message_seconds":86400,"closed_session_seconds":604800},"profile":{"name":"alpha","state":"joined","team_ref":"team-1","team_name":"ops","principal_ref":"principal-self","human_label":"me@example.com"}}, "responses": {"session register": [{"error": {"code": "unauthenticated", "message": "no credential", "retryable": false}, "stderr": "RAW-ADAPTER-STDERR"}]}}
+-- script-config.json.in --
+{"dump_file": "$WORK/dump2.ndjson", "describe": {"protocol_version":"1","adapter":{"name":"fake-adapter","version":"0.0.0-fake"},"delivery":{"guarantee":"at_least_once","ordering":"none","ack_state":"injected"},"capabilities":["team.create","team.join","team.roster","message.receive","message.watch.push","message.watch.stdin_commands","session.description","session.resume","session.workspace_label","session.inbound"],"limits":{"max_body_bytes":16384,"max_summary_chars":200,"max_session_name_codepoints":64,"max_team_name_codepoints":64,"max_description_chars":256,"max_human_label_chars":128,"max_workspace_label_chars":128,"max_idempotency_key_chars":128,"send_rate":{"per_minute":20,"per_hour":200},"principal_send_rate":{"per_minute":60,"per_hour":600},"max_unacked_per_recipient":60,"max_unacked_per_sender_recipient":15,"max_hop_count":32,"implicit_reply_window_seconds":600},"lease":{"default_seconds":90,"min_seconds":30,"max_seconds":600},"retention":{"unacked_message_seconds":604800,"acked_message_seconds":86400,"closed_session_seconds":604800},"profile":{"name":"alpha","state":"unconfigured"}}, "responses": {"session register": [{"error": {"code": "config", "message": "profile is not configured", "retryable": false, "details": {"reason": "profile_missing", "profile": "alpha"}}}]}}
+-- script-unavailable.json.in --
+{"dump_file": "$WORK/dump2.ndjson", "describe": {"protocol_version":"1","adapter":{"name":"fake-adapter","version":"0.0.0-fake"},"delivery":{"guarantee":"at_least_once","ordering":"none","ack_state":"injected"},"capabilities":["team.create","team.join","team.roster","message.receive","message.watch.push","message.watch.stdin_commands","session.description","session.resume","session.workspace_label","session.inbound"],"limits":{"max_body_bytes":16384,"max_summary_chars":200,"max_session_name_codepoints":64,"max_team_name_codepoints":64,"max_description_chars":256,"max_human_label_chars":128,"max_workspace_label_chars":128,"max_idempotency_key_chars":128,"send_rate":{"per_minute":20,"per_hour":200},"principal_send_rate":{"per_minute":60,"per_hour":600},"max_unacked_per_recipient":60,"max_unacked_per_sender_recipient":15,"max_hop_count":32,"implicit_reply_window_seconds":600},"lease":{"default_seconds":90,"min_seconds":30,"max_seconds":600},"retention":{"unacked_message_seconds":604800,"acked_message_seconds":86400,"closed_session_seconds":604800},"profile":{"name":"alpha","state":"joined","team_ref":"team-1","team_name":"ops","principal_ref":"principal-self","human_label":"me@example.com"}}, "responses": {"session register": [{"error": {"code": "unavailable", "message": "backend down", "retryable": true}}]}}
+-- warm.json --
+{}

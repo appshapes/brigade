@@ -3,11 +3,15 @@
 package adapterclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
+	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -287,5 +291,96 @@ func TestWatchStartMissingExecutable(t *testing.T) {
 				t.Errorf("reason = %q, want adapter_not_found", perr.Details["reason"])
 			}
 		})
+	}
+}
+
+// TestPassThroughForwardsStdioAndExit is the P3-3 seam test (6.4): the
+// human terminal commands hand the adapter their own streams. Through the
+// scripted fake, stdin reaches the child as its document, the child's
+// envelope lands on the caller's stdout, its stderr on the caller's
+// stderr, the exit status is the child's own (a conflict → 7), and the
+// environment is still the from-scratch one — the dump proves the parent's
+// hostile BRIGADE_PROFILE and the messaging token never crossed.
+func TestPassThroughForwardsStdioAndExit(t *testing.T) {
+	t.Parallel()
+	const msgTok = "cc-messaging-secret-MUST-NOT-CROSS-pt"
+	dump := filepath.Join(t.TempDir(), "dump.ndjson")
+	scriptPath := writeFakeScript(t, fakeadapter.Script{
+		DumpFile: dump,
+		Responses: map[string][]fakeadapter.Response{
+			"team join": {{
+				Error:  &protocol.ErrorObject{Code: protocol.CodeConflict, Message: "already bound"},
+				Stderr: "adapter-stderr-line",
+			}},
+		},
+	})
+	c := fakeClient(t, scriptPath)
+	c.Environ = append(c.Environ, "CLAUDE_CODE_MESSAGING_TOKEN="+msgTok, "BRIGADE_PROFILE=evil")
+
+	var stdout, stderr bytes.Buffer
+	exit, err := c.PassThrough(t.Context(), "team", "join", []string{"--label", "x"},
+		strings.NewReader(`{"join_secret":"brg1.t.s"}`), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("PassThrough: %v", err)
+	}
+	if exit != protocol.CodeConflict.Exit() {
+		t.Errorf("exit = %d, want %d (the child's own status forwarded)", exit, protocol.CodeConflict.Exit())
+	}
+	if !strings.Contains(stdout.String(), `"code":"conflict"`) {
+		t.Errorf("stdout = %q, want the adapter's own envelope", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "adapter-stderr-line") {
+		t.Errorf("stderr = %q, want the adapter's stderr passed through", stderr.String())
+	}
+
+	rec, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatalf("dump: %v", err)
+	}
+	var inv fakeadapter.Invocation
+	if err := json.Unmarshal(bytes.TrimSpace(rec), &inv); err != nil {
+		t.Fatalf("dump line: %v (%q)", err, rec)
+	}
+	if inv.StdinBytes != len(`{"join_secret":"brg1.t.s"}`) {
+		t.Errorf("stdin_bytes = %d, want the caller's document", inv.StdinBytes)
+	}
+	wantArgs := []string{"--label", "x"}
+	if strings.Join(inv.Args, "\x00") != strings.Join(wantArgs, "\x00") {
+		t.Errorf("args = %v, want %v", inv.Args, wantArgs)
+	}
+	if inv.Env["BRIGADE_PROFILE"] != "default" {
+		t.Errorf("BRIGADE_PROFILE = %q, want the computed default, never the inherited value", inv.Env["BRIGADE_PROFILE"])
+	}
+	for name, value := range inv.Env {
+		if strings.HasPrefix(name, "CLAUDE_CODE_MESSAGING_") || strings.Contains(value, msgTok) {
+			t.Errorf("the token or its socket reached the child: %s", name)
+		}
+	}
+}
+
+// TestPassThroughMissingExecutable pins the one error the caller has to map
+// itself: an adapter that cannot be started at all is `unavailable`
+// adapter_not_found with status -1, never a forwarded status.
+func TestPassThroughMissingExecutable(t *testing.T) {
+	t.Parallel()
+	d := newDirs(t)
+	c := &Client{
+		Adapter:   config.Adapter{Argv: []string{filepath.Join(t.TempDir(), "no-such-adapter")}, Source: config.SourceMap},
+		Profile:   "default",
+		ConfigDir: d.BrigadeConfig,
+		StateDir:  d.BrigadeState,
+		Environ:   []string{"PATH=/usr/bin:/bin"},
+	}
+	var stdout, stderr bytes.Buffer
+	exit, err := c.PassThrough(t.Context(), "profile", "status", nil, nil, &stdout, &stderr)
+	if exit != -1 {
+		t.Errorf("exit = %d, want -1", exit)
+	}
+	var perr *protocol.Error
+	if !errors.As(err, &perr) || perr.Code != protocol.CodeUnavailable || perr.Details["reason"] != "adapter_not_found" {
+		t.Fatalf("err = %v, want unavailable/adapter_not_found", err)
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("streams = %q / %q, want both empty", stdout.String(), stderr.String())
 	}
 }

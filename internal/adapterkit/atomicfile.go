@@ -75,20 +75,34 @@ func WriteAtomic(path string, data []byte) error {
 	return nil
 }
 
-// ReadStrict reads a file that must be private: a regular file whose mode
-// grants nothing to group or other. A file that fails the mode check is
-// REFUSED with the `config` code (exit 11) and its content is never read —
-// a group- or world-readable credential is treated as already leaked
-// (U-10, E0-1), and reading it anyway would let a misconfigured install
-// keep working silently.
+// MaxStrictBytes caps what ReadStrict will read: every private file it
+// serves — a profile, a credential, the adapter sidecar and registry, a
+// seen file, a pidfile — is a few KiB at most, so anything past 1 MiB is
+// not one of them and is refused rather than buffered.
+const MaxStrictBytes = 1 << 20
+
+// ReadStrict reads a file that must be private: a regular file, opened
+// without following a symlink and without blocking on a FIFO, whose mode
+// grants nothing to group or other, owned by the current uid, and no
+// larger than MaxStrictBytes. Every check runs on the OPEN descriptor, so
+// the file cannot be swapped between the check and the read. A file that
+// fails a check is REFUSED with the `config` code (exit 11) and its
+// content is never read — a group- or world-readable credential is
+// treated as already leaked (U-10, E0-1), and reading it anyway would let
+// a misconfigured install keep working silently. details.reason names the
+// failed check: symlink, not_regular, insecure_mode, foreign_owner or
+// too_large.
 //
 // A missing file is returned as the underlying *fs.PathError (so
 // errors.Is(err, fs.ErrNotExist) holds): whether "missing" means `config`
 // (profile.json, 4.6) or `unauthenticated` (session.json, 5.1) is the
 // caller's mapping, not this helper's.
 func ReadStrict(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := openStrict(path)
 	if err != nil {
+		if isSymlinkRefusal(err) {
+			return nil, strictRefusal(path, "symlink", "expected a regular file, not a symbolic link")
+		}
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
@@ -97,22 +111,31 @@ func ReadStrict(path string) ([]byte, error) {
 		return nil, err
 	}
 	if !fi.Mode().IsRegular() {
-		return nil, &protocol.Error{
-			Code:    protocol.CodeConfig,
-			Message: "expected a regular file",
-			Details: map[string]string{"path": path, "reason": "not_regular"},
-		}
+		return nil, strictRefusal(path, "not_regular", "expected a regular file")
 	}
 	if fi.Mode().Perm()&0o077 != 0 {
-		return nil, &protocol.Error{
-			Code:    protocol.CodeConfig,
-			Message: "file mode grants group or other access; it must be 0600 (chmod 600 it, and check what else read it)",
-			Details: map[string]string{"path": path, "reason": "insecure_mode"},
-		}
+		return nil, strictRefusal(path, "insecure_mode",
+			"file mode grants group or other access; it must be 0600 (chmod 600 it, and check what else read it)")
 	}
-	data, err := io.ReadAll(f)
+	if uid, ok := fileOwnerUID(fi); !ok || uid != os.Getuid() {
+		return nil, strictRefusal(path, "foreign_owner", "file is not owned by the current user; refusing to trust it")
+	}
+	data, err := io.ReadAll(io.LimitReader(f, MaxStrictBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("adapterkit: read %s: %w", path, err)
 	}
+	if len(data) > MaxStrictBytes {
+		return nil, strictRefusal(path, "too_large", "file is larger than the 1 MiB a private state file can be")
+	}
 	return data, nil
+}
+
+// strictRefusal is the `config` failure of a ReadStrict check. The
+// message is fixed text; reason names the check for callers and tests.
+func strictRefusal(path, reason, message string) *protocol.Error {
+	return &protocol.Error{
+		Code:    protocol.CodeConfig,
+		Message: message,
+		Details: map[string]string{"path": path, "reason": reason},
+	}
 }

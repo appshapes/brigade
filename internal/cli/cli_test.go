@@ -8,6 +8,9 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	harnesscmd "github.com/appshapes/brigade/internal/harness/commands"
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 // poisonArgvValue is the value used wherever a test needs to prove that a
@@ -729,6 +732,163 @@ func TestJSONHelpEmitsAnEnvelope(t *testing.T) {
 		}
 		if !env.OK || !strings.Contains(env.Result.Usage, "Usage:") {
 			t.Errorf("%v: envelope = %+v, want ok=true with the usage block in result.usage", args, env)
+		}
+	}
+}
+
+// --- P3-3: the filled table, the raw dispatch and the error mapping ---------
+
+// TestFilledCommandsAreNoLongerPlaceholders pins the P3-3 state: the five
+// 6.4 commands have a Run, `inbox` alone stays a placeholder among the
+// human commands, and `help` lists the five under "Commands".
+func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"sessions", "send", "whoami", "team", "profile"} {
+		cmd, ok := Lookup(name)
+		if !ok || !cmd.Implemented() {
+			t.Errorf("%s: not implemented in the table", name)
+		}
+	}
+	inbox, _ := Lookup("inbox")
+	if inbox.Implemented() || inbox.Task != "P5-11" {
+		t.Errorf("inbox = %+v, want the P5-11 placeholder", inbox)
+	}
+	for _, raw := range []string{"team", "profile"} {
+		if cmd, _ := Lookup(raw); !cmd.Raw {
+			t.Errorf("%s: not Raw; the adapter flags it forwards would be usage errors", raw)
+		}
+	}
+	for _, typed := range []string{"sessions", "send", "whoami"} {
+		if cmd, _ := Lookup(typed); cmd.Raw {
+			t.Errorf("%s: Raw; its flags are the table's", typed)
+		}
+	}
+	got := dispatch(t, "help")
+	commandsBlock := got.stdout[strings.Index(got.stdout, "Commands:"):strings.Index(got.stdout, "Not implemented yet")]
+	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "team create|join|leave|members", "profile init|status"} {
+		if !strings.Contains(commandsBlock, want) {
+			t.Errorf("help's Commands block lacks %q:\n%s", want, commandsBlock)
+		}
+	}
+	if strings.Contains(commandsBlock, "inbox") {
+		t.Errorf("help lists inbox as implemented:\n%s", commandsBlock)
+	}
+}
+
+// TestRawDispatchForwardsEverythingAfterTheCommandWord installs a raw probe
+// and proves the raw contract: no second parse, so an unknown flag reaches
+// Run instead of being usage; --json after the command word selects the
+// error stream; -h as the first raw argument prints usage; the poison scan
+// still runs first.
+func TestRawDispatchForwardsEverythingAfterTheCommandWordSerial(t *testing.T) {
+	var got []string
+	var gotJSON bool
+	restore := commands
+	commands = append(append([]Command{}, commands...), Command{
+		Name:    "test-probe-raw",
+		Summary: "test-only: capture the raw arguments",
+		Hidden:  true,
+		Raw:     true,
+		Run: func(cx *Context, args []string) error {
+			got, gotJSON = args, cx.JSON
+			return &protocol.Error{Code: protocol.CodeNotFound, Message: "probe", Details: map[string]string{"reason": "probe"}}
+		},
+	})
+	t.Cleanup(func() { commands = restore })
+
+	res := dispatch(t, "test-probe-raw", "join", "--prompt", "--nope", "--", "--json")
+	if res.exit != CodeNotFound.Exit() {
+		t.Fatalf("exit = %d, want 6 (stderr %q)", res.exit, res.stderr)
+	}
+	want := []string{"join", "--prompt", "--nope", "--", "--json"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("raw args = %v, want %v", got, want)
+	}
+	if gotJSON {
+		t.Error("--json after -- switched the stream; it is positional there")
+	}
+	if !strings.Contains(res.stderr, "brigade test-probe-raw failed (not_found): probe") || res.stdout != "" {
+		t.Errorf("stdout %q stderr %q", res.stdout, res.stderr)
+	}
+
+	// --json after the command word is honoured for the error stream, and
+	// still reaches Run (the command consumes it itself).
+	res = dispatch(t, "test-probe-raw", "join", "--json")
+	if !gotJSON || res.stderr != "" || !strings.Contains(res.stdout, `"code":"not_found"`) {
+		t.Errorf("--json: cx.JSON %v stdout %q stderr %q", gotJSON, res.stdout, res.stderr)
+	}
+	if !strings.Contains(res.stdout, `"reason":"probe"`) {
+		t.Errorf("the protocol error's details were dropped: %s", res.stdout)
+	}
+
+	// -h first prints the command's usage and never reaches Run.
+	got = nil
+	res = dispatch(t, "test-probe-raw", "-h")
+	if res.exit != ExitOK || !strings.Contains(res.stdout, "Usage: brigade test-probe-raw") || got != nil {
+		t.Errorf("-h: exit %d stdout %q args %v", res.exit, res.stdout, got)
+	}
+
+	// The poison scan runs before the raw hand-off.
+	got = nil
+	res = dispatch(t, "test-probe-raw", "join", "--join-secret", poisonArgvValue)
+	if res.exit != 2 || got != nil || strings.Contains(res.stderr, poisonArgvValue) {
+		t.Errorf("poison: exit %d args %v stderr %q", res.exit, got, res.stderr)
+	}
+}
+
+// TestAsErrorMapsProtocolErrors: a *protocol.Error keeps its code, message,
+// retry-after and details, so the harness library's failures reach the
+// stderr line and the envelope unchanged.
+func TestAsErrorMapsProtocolErrors(t *testing.T) {
+	t.Parallel()
+	perr := &protocol.Error{Code: protocol.CodeRateLimited, Message: "slow down", RetryAfterMS: 1500, Details: map[string]string{"reason": "x"}}
+	got := asError("send", perr)
+	if got.Code != CodeRateLimited || got.Message != "slow down" || got.RetryAfterMS != 1500 || got.Details["reason"] != "x" || got.Command != "send" {
+		t.Errorf("asError(protocol) = %+v", got)
+	}
+	wrapped := asError("send", fmt.Errorf("sending: %w", perr))
+	if wrapped.Code != CodeRateLimited {
+		t.Errorf("a wrapped *protocol.Error lost its code: %+v", wrapped)
+	}
+	var out, errb bytes.Buffer
+	exit := report(Streams{Out: &out, Err: &errb}, true, got)
+	if exit != 8 || !strings.Contains(out.String(), `"retry_after_ms":1500`) {
+		t.Errorf("report = %d %s", exit, out.String())
+	}
+}
+
+// TestExitStatusIsForwardedSilently: a pass-through's ExitStatus becomes
+// the process exit with nothing printed by the dispatcher.
+func TestExitStatusIsForwardedSilentlySerial(t *testing.T) {
+	restore := commands
+	commands = append(append([]Command{}, commands...), Command{
+		Name:    "test-probe-exit",
+		Summary: "test-only: forward an adapter exit status",
+		Hidden:  true,
+		Raw:     true,
+		Run:     func(*Context, []string) error { return harnesscmd.ExitStatus(7) },
+	})
+	t.Cleanup(func() { commands = restore })
+	res := dispatch(t, "test-probe-exit", "anything")
+	if res.exit != 7 || res.stdout != "" || res.stderr != "" {
+		t.Errorf("exit %d stdout %q stderr %q, want 7 and silence", res.exit, res.stdout, res.stderr)
+	}
+}
+
+// TestSessionBoundCommandsOutsideASessionFailCleanly: with an empty
+// environment the five commands report a classified failure — never a
+// panic, never exit 0, and never a raw Go error as `internal`.
+func TestSessionBoundCommandsOutsideASessionFailCleanly(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"sessions"}, {"send", "x"}, {"whoami"}, {"team", "members"}, {"profile", "status"},
+	} {
+		got := dispatch(t, args...)
+		if got.exit == ExitOK || got.exit == CodeInternal.Exit() {
+			t.Errorf("%v: exit = %d (stderr %q)", args, got.exit, got.stderr)
+		}
+		if got.stdout != "" {
+			t.Errorf("%v: stdout = %q, want empty", args, got.stdout)
 		}
 	}
 }

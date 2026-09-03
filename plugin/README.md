@@ -137,14 +137,15 @@ transfer the team first, and keep that 0700 backup of the profile directory eith
 
 ## Status
 
-The manifest, the three hooks and the two skills exist and validate; so do the bootstrap and the release pins. What
-does **not** exist yet is the runtime behind them: the `brigade hook` and `brigade watch` entrypoints, the
-session-bound commands (`sessions`, `send`, `whoami`, `team members`) and the harness wrappers the two setup
-sections above use (`profile init`, `profile reset`, `team create`, `team join`, `team leave`) all land in the rest
-of Phase 3, so those two sections are the intended procedure and not one that runs yet: today the shipped binary
-answers every one of those commands with a `usage` or "not implemented yet" line. Until Phase 3 is finished, a
-session started with this plugin runs normally but shows no team line — each hook fires, prints its
-"not implemented" diagnostic to stderr and exits non-zero, which no hook event treats as blocking. The pins are
-still at the pre-release `0.0.0` with an empty `bin/checksums.txt`, so there is no release to download yet either;
-developers point the bootstrap at a local build with `make plugin-dev`. The single source of truth for where the
-work stands is `.context/plans/brigade-execution-log.md` in the Brigade repository.
+The manifest, the three hooks and the two skills exist and validate; so do the bootstrap and the release pins. The
+plugin now works end to end with a local build: `SessionStart` registers the session with its team, writes the
+session map and starts the detached watcher; the watcher injects each teammate's message into the session's inbox
+and acknowledges only what it injected; `UserPromptSubmit` keeps the watcher alive and surfaces its notice;
+`SessionEnd` closes the session; and the session-bound commands (`sessions`, `send`, `whoami`, `team members`)
+resolve their session from that map, while the terminal commands the two setup sections above use (`profile init`
+with `--adapter`, `profile status|reset|revoke-credentials`, `team create|join|leave`) pass their terminal straight
+through to the adapter — `team create` and `team join` refuse to run from inside a session. The pins are still at
+the pre-release `0.0.0` with an empty `bin/checksums.txt`, so there is no release to download yet: developers point
+the bootstrap at a local build with `make plugin-dev`, which is how the whole sequence is exercised in a real Claude
+Code session. The single source of truth for where the work stands is `.context/plans/brigade-execution-log.md` in
+the Brigade repository.

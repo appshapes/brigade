@@ -15,6 +15,8 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapters/supabase"
 	"github.com/appshapes/brigade/internal/cli"
+	"github.com/appshapes/brigade/internal/harness/hook"
+	"github.com/appshapes/brigade/internal/harness/watch"
 )
 
 // Run executes one invocation and returns the process exit status.
@@ -30,14 +32,25 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []str
 	streams := cli.Streams{In: stdin, Out: stdout, Err: stderr}
 
 	// The multi-call branches. They are intercepted before the human
-	// command table because each will need process-level machinery the
-	// table has no place for: a hook must never fail its session (4.6), the
-	// watcher detaches with Setsid (6.6), and an adapter speaks BAP/1 on
-	// stdio rather than human output (4.1).
+	// command table because each needs process-level machinery the table
+	// has no place for: a hook must never fail its session (6.3: every
+	// subcommand exits 0 on every failure, with its context on stdout and
+	// its diagnostic on stderr), the watcher detaches with Setsid and
+	// writes nothing to its stdout (6.6), and an adapter speaks BAP/1 on
+	// stdio rather than human output (4.1). Each gets the REAL process
+	// streams and the environment as given, and its production
+	// dependencies: the hook's clock, watcher spawner, registry, settings
+	// reader and PATH search; the watcher's process facts, signals,
+	// socket poster and schedules.
 	if len(args) > 0 {
 		if cmd, ok := cli.LookupMultiCall(args[0]); ok {
-			if cmd.Name == adapterEntry {
+			switch cmd.Name {
+			case adapterEntry:
 				return runAdapter(cmd, args[1:], stdin, stdout, stderr, environ)
+			case hookEntry:
+				return hook.Run(args[1:], streams, environ, hook.RealDeps())
+			case watchEntry:
+				return watch.Run(args[1:], streams, environ, watch.RealDeps())
 			}
 			return cli.NotImplemented(cmd, args, streams)
 		}
@@ -46,9 +59,18 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []str
 	return cli.Dispatch(args, streams, environ)
 }
 
-// adapterEntry is the hidden multi-call word of D26: `brigade adapter
-// <name> <group> <verb> …`.
-const adapterEntry = "adapter"
+// The multi-call words (6.4): the hidden entrypoints hooks.json, the
+// SessionStart hook and the adapter_command resolution use.
+const (
+	// adapterEntry is the hidden multi-call word of D26: `brigade adapter
+	// <name> <group> <verb> …`.
+	adapterEntry = "adapter"
+	// hookEntry is `brigade hook session-start|prompt|session-end` (6.3).
+	hookEntry = "hook"
+	// watchEntry is `brigade watch [--sink <file>]`, the detached watcher
+	// the SessionStart and prompt hooks start (6.6).
+	watchEntry = "watch"
+)
 
 // bundledSupabase is the one bundled adapter name of v1.
 const bundledSupabase = "supabase"

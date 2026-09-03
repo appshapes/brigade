@@ -100,9 +100,9 @@ linters:
       - path: ^internal/conformance/
         linters: [forbidigo]
         text: "exec.Command"
-      - path: ^internal/harness/adapterclient/spawn\.go$|^internal/adapterkit/spawn\.go$|^internal/procutil/|^internal/testutil/|^internal/conformance/
+      - path: ^internal/harness/adapterclient/spawn\.go$|^internal/harness/hook/spawn\.go$|^internal/adapterkit/spawn\.go$|^internal/procutil/|^internal/testutil/|^internal/conformance/
         linters: [gosec]
-        text: "G204"           # subprocess with variable argv is the design (4.1); no shell is ever involved
+        text: "G204"           # subprocess with variable argv is the design (4.1); no shell is ever involved; hook/spawn.go is the ONE watcher spawn of 6.6
       - path: ^internal/adapterkit/log/
         linters: [forbidigo]
         text: "slog.Any"

@@ -1,0 +1,240 @@
+# Every error code's stderr line and exit status through the real binary
+# (P3-3; plan 6.4, 4.6, U-24).
+#
+# One line on stderr, `brigade <command> failed (<code>): <message>`, with
+# the code's exit status and nothing on stdout; with --json the error
+# envelope on stdout and nothing on stderr. The fake adapter's script is
+# rewritten before each block so one adapter path answers every code, and
+# every scripted failure also writes raw text to its stderr — which never
+# reaches the harness's line (U-24: the adapter's stderr goes to its log,
+# never to the model).
+
+# --- fixture: the by-pid map the SessionStart hook would have written ----
+# CLAUDE_PID is set, so every command resolves everything from the map
+# under $XDG_STATE_HOME/brigade (never from the shell's BRIGADE_*), which
+# names the scripted fake adapter behind an absolute path. The map is
+# written 0600 by `expand`; the reader refuses anything else.
+# The `brigade` under test is the race-instrumented test binary too; without
+# this every exec spends TSan's 1 s atexit sleep (see fake.sh).
+env GORACE=atexit_sleep_ms=0
+env CLAUDE_PID=4242
+mkdir $WORK/.brigade/xdg/state/brigade/sessions/by-pid
+expand map.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.json
+expand script.json.in script.json
+chmod 755 fake.sh
+# On macOS the FIRST exec of a freshly created executable is suspended
+# while the system assesses it — measured 2026-09-03: 0.2–0.5 s idle and
+# 3–6 s while a whole-tree `go test` creates every package's binaries at
+# once; the second exec costs ~10 ms. Both fake.sh (the file the harness
+# execs) and the `fake-adapter` copy testscript installed are fresh, so
+# the wrapper is run once here with no deadline, and the harness's 3 s
+# describe budget (4.1) below meets warm files. (The `brigade` copy is
+# warmed by its own first exec, which has no deadline.)
+exec $WORK/fake.sh --script warm.json describe
+
+# --- internal (1) ----------------------------------------------------------
+expand script-internal.in script.json
+stdin body.txt
+status 1 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stdout .
+stderr '^brigade send failed \(internal\): the adapter said internal$'
+! stderr RAW-ADAPTER-STDERR
+stdin body.txt
+status 1 brigade --json send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stderr .
+json stdout .ok false
+json stdout .error.code internal
+json stdout .error.message 'the adapter said internal'
+
+# --- invalid_input (3) ----------------------------------------------------------
+expand script-invalid_input.in script.json
+stdin body.txt
+status 3 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stdout .
+stderr '^brigade send failed \(invalid_input\): the adapter said invalid_input$'
+! stderr RAW-ADAPTER-STDERR
+stdin body.txt
+status 3 brigade --json send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stderr .
+json stdout .ok false
+json stdout .error.code invalid_input
+json stdout .error.message 'the adapter said invalid_input'
+
+# --- unauthenticated (4) ----------------------------------------------------------
+expand script-unauthenticated.in script.json
+stdin body.txt
+status 4 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stdout .
+stderr '^brigade send failed \(unauthenticated\): the adapter said unauthenticated$'
+! stderr RAW-ADAPTER-STDERR
+stdin body.txt
+status 4 brigade --json send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stderr .
+json stdout .ok false
+json stdout .error.code unauthenticated
+json stdout .error.message 'the adapter said unauthenticated'
+
+# --- unauthorized (5) ----------------------------------------------------------
+expand script-unauthorized.in script.json
+stdin body.txt
+status 5 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stdout .
+stderr '^brigade send failed \(unauthorized\): the adapter said unauthorized$'
+! stderr RAW-ADAPTER-STDERR
+stdin body.txt
+status 5 brigade --json send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stderr .
+json stdout .ok false
+json stdout .error.code unauthorized
+json stdout .error.message 'the adapter said unauthorized'
+
+# --- not_found (6) ----------------------------------------------------------
+expand script-not_found.in script.json
+stdin body.txt
+status 6 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stdout .
+stderr '^brigade send failed \(not_found\): the adapter said not_found$'
+! stderr RAW-ADAPTER-STDERR
+stdin body.txt
+status 6 brigade --json send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stderr .
+json stdout .ok false
+json stdout .error.code not_found
+json stdout .error.message 'the adapter said not_found'
+
+# --- conflict (7) ----------------------------------------------------------
+expand script-conflict.in script.json
+stdin body.txt
+status 7 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stdout .
+stderr '^brigade send failed \(conflict\): the adapter said conflict$'
+! stderr RAW-ADAPTER-STDERR
+stdin body.txt
+status 7 brigade --json send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stderr .
+json stdout .ok false
+json stdout .error.code conflict
+json stdout .error.message 'the adapter said conflict'
+
+# --- loop_detected (12) ----------------------------------------------------------
+expand script-loop_detected.in script.json
+stdin body.txt
+status 12 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stdout .
+stderr '^brigade send failed \(loop_detected\): the adapter said loop_detected$'
+! stderr RAW-ADAPTER-STDERR
+stdin body.txt
+status 12 brigade --json send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stderr .
+json stdout .ok false
+json stdout .error.code loop_detected
+json stdout .error.message 'the adapter said loop_detected'
+
+# --- config (11) ----------------------------------------------------------
+expand script-config.in script.json
+stdin body.txt
+status 11 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stdout .
+stderr '^brigade send failed \(config\): the adapter said config$'
+! stderr RAW-ADAPTER-STDERR
+stdin body.txt
+status 11 brigade --json send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+! stderr .
+json stdout .ok false
+json stdout .error.code config
+json stdout .error.message 'the adapter said config'
+
+# --- rate_limited (8): never retried, and the human line names the wait ------
+expand script-rate_limited.in script.json
+rm $WORK/dump.ndjson
+stdin body.txt
+status 8 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+stderr '^brigade send failed \(rate_limited\): the adapter said rate_limited; retry after 3 s$'
+grep -count=1 '"verb":"send"' dump.ndjson
+stdin body.txt
+status 8 brigade --json send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+json stdout .error.code rate_limited
+json stdout .error.retryable true
+json stdout .error.retry_after_ms 2500
+
+# --- unavailable (9): retried exactly once with the same key, then reported ---
+expand script-unavailable.in script.json
+rm $WORK/dump.ndjson
+stdin body.txt
+status 9 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+stderr '^brigade send failed \(unavailable\): the adapter said unavailable$'
+grep -count=2 '"verb":"send"' dump.ndjson
+
+# --- protocol_mismatch (10): a protocol_version "2" describe -------------------
+expand script-mismatch.in script.json
+rm $WORK/dump.ndjson
+stdin body.txt
+status 10 brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+stderr '^brigade send failed \(protocol_mismatch\): '
+! grep '"verb":"send"' dump.ndjson
+status 10 brigade sessions --json
+json stdout .error.code protocol_mismatch
+json stdout .error.details.adapter_name fake-adapter
+json stdout .error.details.adapter_protocol_version 2
+json stdout .error.details.harness_protocol_version 1
+
+# --- usage (2) is the harness's own ------------------------------------------
+status 2 brigade send --nope
+! stdout .
+stderr '^brigade send failed \(usage\): '
+status 2 brigade --json team
+json stdout .error.code usage
+
+# --- config (11): not registered — the message the skill documents ------------
+env CLAUDE_PID=7777
+status 11 brigade sessions
+stderr '^brigade sessions failed \(config\): this session is not registered with Brigade'
+stderr 'run /reload-plugins or restart the session'
+status 11 brigade sessions --json
+json stdout .error.code config
+json stdout .error.details.reason not_registered
+
+-- map.in --
+{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "socket_path": "", "profile": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
+-- fake.sh --
+#!/bin/sh
+# The scripted fake adapter behind an absolute path: the by-pid map needs
+# one, and the testscript PATH entry that holds `fake-adapter` has no
+# script variable. The harness execs this file; it is an adapter with a
+# shebang line, not a shell the harness spawned.
+# GORACE: under `go test -race` this fake is the race-instrumented test
+# binary, and TSan sleeps atexit_sleep_ms (1 s by default) before every
+# exit — not Brigade behaviour, but a third of the 3 s describe budget of
+# 4.1 on a loaded machine (measured: every fake-adapter script timed out
+# on describe under a whole-tree `make test`). The harness builds the
+# child's environment from scratch, so the variable is set here, not in
+# the script's environment.
+GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
+-- script-internal.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"stderr": "RAW-ADAPTER-STDERR-internal", "error": {"code": "internal", "message": "the adapter said internal", "retryable": false}}]}}
+-- script-invalid_input.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"stderr": "RAW-ADAPTER-STDERR-invalid_input", "error": {"code": "invalid_input", "message": "the adapter said invalid_input", "retryable": false}}]}}
+-- script-unauthenticated.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"stderr": "RAW-ADAPTER-STDERR-unauthenticated", "error": {"code": "unauthenticated", "message": "the adapter said unauthenticated", "retryable": false}}]}}
+-- script-unauthorized.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"stderr": "RAW-ADAPTER-STDERR-unauthorized", "error": {"code": "unauthorized", "message": "the adapter said unauthorized", "retryable": false}}]}}
+-- script-not_found.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"stderr": "RAW-ADAPTER-STDERR-not_found", "error": {"code": "not_found", "message": "the adapter said not_found", "retryable": false}}]}}
+-- script-conflict.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"stderr": "RAW-ADAPTER-STDERR-conflict", "error": {"code": "conflict", "message": "the adapter said conflict", "retryable": false}}]}}
+-- script-loop_detected.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"stderr": "RAW-ADAPTER-STDERR-loop_detected", "error": {"code": "loop_detected", "message": "the adapter said loop_detected", "retryable": false}}]}}
+-- script-config.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"stderr": "RAW-ADAPTER-STDERR-config", "error": {"code": "config", "message": "the adapter said config", "retryable": false}}]}}
+-- script-rate_limited.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"stderr": "RAW-ADAPTER-STDERR-rate_limited", "error": {"code": "rate_limited", "message": "the adapter said rate_limited", "retryable": true, "retry_after_ms": 2500}}]}}
+-- script-unavailable.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"stderr": "RAW-ADAPTER-STDERR-unavailable", "error": {"code": "unavailable", "message": "the adapter said unavailable", "retryable": true}}]}}
+-- script-mismatch.in --
+{"dump_file": "$WORK/dump.ndjson", "describe": {"protocol_version":"2","adapter":{"name":"fake-adapter","version":"0.0.0-fake"},"delivery":{"guarantee":"at_least_once","ordering":"none","ack_state":"injected"},"capabilities":["team.roster"],"limits":{"max_body_bytes":16384,"max_summary_chars":200,"max_session_name_codepoints":64,"max_team_name_codepoints":64,"max_description_chars":256,"max_human_label_chars":128,"max_workspace_label_chars":128,"max_idempotency_key_chars":128,"send_rate":{"per_minute":20,"per_hour":200},"principal_send_rate":{"per_minute":60,"per_hour":600},"max_unacked_per_recipient":60,"max_unacked_per_sender_recipient":15,"max_hop_count":32,"implicit_reply_window_seconds":600},"lease":{"default_seconds":90,"min_seconds":30,"max_seconds":600},"retention":{"unacked_message_seconds":604800,"acked_message_seconds":86400,"closed_session_seconds":604800},"profile":{"name":"default","state":"unconfigured"}}, "responses": {"message send": [{"result": {"status": "accepted", "message_id": "never", "recipient_session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "created_at": "2026-09-02T12:00:31Z", "duplicate": false, "hop_count": 0}}]}}
+-- script.json.in --
+{"dump_file": "$WORK/dump.ndjson"}
+-- body.txt --
+an error a minute
+-- warm.json --
+{}
