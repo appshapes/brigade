@@ -78,7 +78,8 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P3-1 | Plugin manifests, marketplace, skills | done | Opus | this commit — `plugin.json`, `hooks.json`, the two skills, `plugin/README.md`, the marketplace entry, `scripts/ci/manifests_test.go` (26 mutations, one positive control); `make plugin-check` with no `skip:`; `claude plugin validate .` zero warnings, `./plugin --strict` green; the headless run registers both skills with no MCP server and fires each hook once (exit 1 until P3-4); **`--strict` is blind to skill frontmatter; stream-json carries `SessionStart` hook events only** (see below) |
 | P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | done | Fable | this commit — nine packages + `procutil` + the fake adapter, fake socket, fake registry, sleeper and Eventually fixtures (~17k lines with tests); five Fable authors in two waves on disjoint packages, two Fable verifiers; **10 defects found, 8 fixed in place, 101 checks proven able to fail by mutation**; U-03/04/13/14/15/16/17/18/19/20/27 and E2E-13 traced; `Watch.Wait` deadlock and the FIFO-at-the-map-path hang were the decisive ones (see below) |
 | P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | done | Fable | this commit — `internal/harness/{commands,hook,watch,e2e}`, the CLI table filled, `app.go` routing `hook`/`watch`, 17 txtar scripts, the `ReadStrict` hardening; three Fable lanes in parallel, one integrator, two Fable verifiers; **9 defects found, 7 fixed in place, 46 checks proven able to fail**; the end-to-end test drives the REAL binary and the REAL detached watcher through a crash and a respawn; the Fable limit interrupted the run once (see below) |
-| P3-6..P3-8 | Bootstrap wiring, headless smoke, interactive checks | todo | Opus | |
+| P3-6, P3-7 | Bootstrap wiring, headless smoke | done | Opus | this commit — `make plugin-dev [adapter=fs] [profile=<p>]`, `plugin-check` checks 6 and 7, the harness-side contract in `docs/adapter-authors.md`, the fs onboarding under the plugin, `docs/experiments/E3-wiring.md` (the four acceptance items measured through `claude -p`) and `scripts/harness-smoke.sh` + `E3-smoke.md` (5 nested sessions green, 0 flakes); one Opus verifier re-ran the smoke and the onboarding itself; 24 checks proven able to fail |
+| P3-8 | Interactive checks (`docs/experiments/E3-interactive.md`) | todo — **Rjae at the keyboard**; the checklist with the exact commands is committed | Opus | |
 | P4-1..P4-6 | Vertical proof, headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-1/P4-3/P4-4) | criterion 8 is Fable-tier |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof |
 
@@ -1404,15 +1405,77 @@ BRIGADE_FS_ROOT` (the Makefile's form passes 44/0/1). `smoke.txtar`'s one placeh
 `inbox` (the last P5-11 placeholder) — blessed. `internal/adapterkit` stays over the 30 s `-count` bound because
 of the pre-existing 14 s `TestFlockTimeoutBoundBetweenTwoProcesses` (not this phase's).
 
-**Recorded, not changed, for the threat model and P3-6/P3-7:** a `brigade` symlinked into `~/.local/bin` (the setup
-skill's own suggestion) warns as a shadow every session — correct per E0-8 (e), but P3-6 should expect it, and the
-skill's sentence should say so; a watcher stopped by SIGTERM closes its session (only a crash leaves it open); the
+**Recorded, not changed, for the threat model and P3-6/P3-7:** a `brigade` symlinked into `~/.local/bin` warns as a shadow only when it does NOT resolve to the plugin's own
+bootstrap (P3-6 measured: the setup skill's `ln -s ${CLAUDE_PLUGIN_ROOT}/bin/brigade …` is silent; a symlink to a
+`bin/brigade` build warns); a watcher stopped by SIGTERM closes its session (only a crash leaves it open); the
 fs adapter re-emits an unacknowledged message only when its watch child restarts; in one-shot mode (no
 `stdin_commands`) shutdown waits the close budget before cancelling a child that cannot end on its own (bounded, an
 inefficiency); a writer blocked on a full child stdin at exit would lose its `close` (lease expiry closes the
 session; both bundled adapters read stdin concurrently); `ReadStrict` returns a planted unix socket as a raw
 `ENXIO` error rather than `config` (cosmetic); the shared scratchpad let one verifier's mutation script overwrite
 another's mid-run (restored and cmp-verified) — **future briefs give each agent a private scratch subdirectory**.
+
+## P3-6/P3-7 DONE — the plugin runs end to end through real headless sessions; a silent hook leaves no trace anywhere
+
+Two Opus lanes in parallel (P3-6: the Makefile's `plugin-dev [adapter=fs] [profile=<p>]` and its onboarding comment,
+`plugin-check.sh` checks 6 and 7 with nine new `checks_test.go` subtests and a Go join test, the harness-side contract
+section of `docs/adapter-authors.md`, "Under the plugin" in `internal/adapters/fs/README.md`, `plugin/README.md`'s
+developer paragraph, `docs/experiments/E3-wiring.md`; P3-7: `scripts/harness-smoke.sh` (545 lines, POSIX sh,
+shellcheck-clean, 100755) and `docs/experiments/E3-smoke.md`) and one Opus adversarial verifier, from
+`.ignored/briefs/p3-6-7-wiring-smoke.md`, each agent in a private scratch directory. Driven by
+`15-implement-brigade-0902T18`. No fix round: 3 defects, all fixed in place; 24 checks proven able to fail (the two
+new plugin-check rules by script AND subject mutation; every one of the smoke's fifteen assertions by doctoring a
+real capture or the store).
+
+**Measured through `claude -p` (Claude Code 2.1.259, the session default model, every run from a temporary XDG
+triple with the dev pointer under it and the environment stripped by prefix).** (a) After `bin/brigade profile init
+--adapter '["<abs>/bin/brigade-adapter-fs"]'` and `bin/brigade team create --name ops --label dev --secret-file …`, a
+one-turn session shows the `SessionStart` `hook_response` with exit 0 and the context line naming team `ops`; the
+by-pid map (profile, team, the adapter argv, `plugin_bin`, `harness_version 2.1.259`, no token), the by-native map
+and the watcher pidfile exist mid-run with the watcher ALIVE; **the session's own `SessionEnd` stopped the watcher
+0.361 s before `claude` exited** (pidfile present +0.27 s after start, gone at +2.04 s, `claude` gone at +2.40 s); the
+cold-cache path is never taken with a pointer present (`XDG_DATA_HOME/brigade/bin` never created). (b) `make
+plugin-check plugin-validate` green with the two new rules. (c) Two profiles, `fsa` with the JSON-array sidecar and
+`fsb` with a REGISTERED name carrying a fixed `--root` (`fsdev=[…,"--root",<store2>]` — the only "different adapter"
+available without a second backend, and a genuinely separate store), no `adapter_command` in either `--settings`:
+each session's start line names its own team, and `brigade sessions` run by the model in each lists only that
+team's sessions. (d) An unresolvable `adapter_command` (a relative path) → the D36 line `Brigade: not connected
+(config): the adapter for profile "default" could not be resolved from option; …`; a resolvable override that cannot
+read profile `ghost` → `Brigade: not connected (config: profile_missing); …`; in both, no watcher. The smoke
+(`make harness-smoke`): alice's session lists the team, sends bob a message that lands in bob's fs inbox, receives
+bob's message MID-TURN (posted by the script during the model's `sleep 20` through bob's own hook-registered session
+with a sleeper as `CLAUDE_PID`), which alice's watcher acknowledges (`acked/<alice>/`), and replies with `brigade
+send <bob> --reply-to <id>` — hop 0, 1, 2 in the store; zero native `SendMessage`; nothing through a path or a
+shell; `result` success; five nested sessions, 0 flakes, ~30 s each; the verifier's own run 19/19.
+
+**Facts measured that the plan and the earlier blocks did not know.** (1) **A hook that exits 0 and prints nothing
+is recorded NOWHERE on 2.1.259** — not in stream-json, not on stderr, not in the transcript JSONL, and `--debug
+hooks` adds nothing under `-p`; the transcript records a `UserPromptSubmit` hook only when it printed (as
+`hook_success` with `content`) or failed. P3-1's "`UserPromptSubmit` appears in the transcript" holds only for a
+hook with output; the smoke asserts the prompt hook's EFFECT (the map's `permission_mode`) instead. The transcript's
+`hook_success` record keeps `${CLAUDE_PLUGIN_ROOT}` UNSUBSTITUTED in `command`. (2) **An injected socket message is
+never a `user` record in the transcript**: it is a `queue-operation` (`enqueue`, then `remove` with
+`absorbed_mid_turn`) plus a `queued_command` attachment whose `origin` is `{kind: peer, from: unknown, name:
+<from-name>, body: <the frame>}` — the wrapper's `from-name` becomes the origin's name. (3) The brief's suggested
+shape for (d) — the fs binary with `--root` at an EMPTY directory for a bound profile — yields `unauthorized` exit 5,
+not `config`: `describe` reads local files only and `register` then finds no such team in that store. (4) With
+`--allowedTools "Bash(brigade:*),Skill"` the model's FIRST attempt in both (c) runs was the ABSOLUTE PATH the start
+line prints after `terminal commands:` — denied by the rule, after which it ran the bare `brigade sessions`
+(nothing broken, but the start line invites the mismatch; P3-8 watches for it interactively and the wording is a
+candidate for P5's polish). (5) A `brigade` symlink that resolves to the plugin's bootstrap is silent (the setup
+skill's own suggestion); one that resolves elsewhere warns. (6) Under `-p`, `permission_mode` arrives on
+`UserPromptSubmit` and not on `SessionStart` (proved with a stdin-logging wrapper). (7) `BRIGADE_FS_ROOT` in the
+script's environment is decoration under the plugin: `ChildEnv` drops it; both principals share a store because both
+resolve `BRIGADE_STATE_DIR` from the same `XDG_STATE_HOME`. (8) An unlabelled answer inside the implicit reply
+window is hop 1 (4.5.12) — bob's first message carries `hops="1"`.
+
+**Recorded, not changed:** the smoke's assertions about what the MODEL chose to run (list, send, reply, no native
+tool) held 7/7 sessions but are model properties, not harness properties; the mid-turn window is timing (the post
+lands during `sleep 20`), a slow machine could degrade it to "injected at the next boundary"; bob's inbox side of
+the `acked/` clause is not exercised (bob has no watcher); an interactive `make plugin-dev` was run by nobody (it
+would overwrite the developer's real pointer) — all four parameter forms were dry-run with `make -n`, and P3-8 runs it
+at the keyboard; two stray process families from other sessions (the E0-5 python adapters of 31 Aug, a P1-8 shell
+matrix of 2 Sep) are still in `ps` and were left alone.
 
 ## Plan corrections from E0-8
 
@@ -1939,3 +2002,17 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   item: `brigade send` no longer retries after a spawn-level TIMEOUT (a hung adapter would cost the model's Bash
   call ~41 s instead of 20); an adapter-produced `unavailable` and a signal death are still retried once — two
   test rows pin both arms. Next: **P3-6 and P3-7** (Opus) from `.ignored/briefs/p3-6-7-wiring-smoke.md`.
+- 2026-09-03 ~08:35: **CI run 33749393066 on `b229b37` (P3-3/P3-4/P3-5) green on every job** — the first run of the
+  hooks, the watcher, the e2e and the 17 txtar scripts on the Ubuntu runner (no `adapter did not finish within its
+  deadline` on a first describe there). P3-6/P3-7 lanes running (Opus).
+- 2026-09-03 ~09:50: **P3-6/P3-7 done** (block above). The driver's gate on their tree: `typecheck lint build` green,
+  `vuln deps-check schema-check tidy-check plugin-check checksums-check plugin-validate` green, and `make test` red
+  on three tests in packages the two lanes did not touch, each green in isolation: (1) `TestScript/hook-session-end`
+  — the exec'd copy of the coverage-instrumented test binary wrote `error: coverage meta-data emit failed: … rename
+  from …/gocoverdir/tmp.covmeta…` on stderr and the script's `! stderr .` caught it (a coverage-runtime rename race
+  between concurrent scripts sharing testscript's coverage directory; first sighting in ~12 whole-tree runs);
+  (2) `TestIntegrationWatchLiveDelivery` — no Realtime push within 5 s under the parallel load (the same shape as the
+  fault-test flake of 2026-09-02); (3) **`TestWatchJoinRefusedKeepsPolling` — a DATA RACE**: `drainTiming()` writes the
+  package-level `watchTiming` while a watcher goroutine of another test reads it — a real test-isolation defect in
+  the Supabase adapter's tests (Phase 2), fixed next. P3-8 is Rjae's: `docs/experiments/E3-interactive.md` carries the
+  checklist with the exact commands.

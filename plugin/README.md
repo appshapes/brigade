@@ -144,8 +144,26 @@ and acknowledges only what it injected; `UserPromptSubmit` keeps the watcher ali
 `SessionEnd` closes the session; and the session-bound commands (`sessions`, `send`, `whoami`, `team members`)
 resolve their session from that map, while the terminal commands the two setup sections above use (`profile init`
 with `--adapter`, `profile status|reset|revoke-credentials`, `team create|join|leave`) pass their terminal straight
-through to the adapter — `team create` and `team join` refuse to run from inside a session. The pins are still at
-the pre-release `0.0.0` with an empty `bin/checksums.txt`, so there is no release to download yet: developers point
-the bootstrap at a local build with `make plugin-dev`, which is how the whole sequence is exercised in a real Claude
-Code session. The single source of truth for where the work stands is `.context/plans/brigade-execution-log.md` in
-the Brigade repository.
+through to the adapter — `team create` and `team join` refuse to run from inside a session.
+
+The pins are still at the pre-release `0.0.0` with an empty `bin/checksums.txt`, so there is no release to download
+yet. **Developers** point the bootstrap at a local build instead, with the dev-binary pointer `make plugin-dev`
+writes, and drive the whole chain against the filesystem test adapter. Once, in your own terminal (never from
+inside a session — `team create` and `team join` refuse there):
+
+```sh
+make build
+bin/brigade profile init --adapter '["'"$PWD"'/bin/brigade-adapter-fs"]'
+bin/brigade team create --name ops --label dev --secret-file ~/brigade-ops.secret
+```
+
+`profile init --adapter` writes the profile's sidecar, so from then on `make plugin-dev` alone starts a session
+already bound to that adapter; `make plugin-dev adapter=fs` passes the same command again as a per-session
+override, and `make plugin-dev profile=<name>` picks a second profile on the same machine (`make plugin-dev-off`
+removes the pointer). `internal/adapters/fs/README.md` has the second-profile join and the two-store variant;
+`docs/experiments/E3-wiring.md` is the measured record of both. One thing to expect while developing: symlinking
+your **own build** onto `PATH` (`ln -s <repo>/bin/brigade ~/.local/bin/brigade`) makes every session start with the
+extra line ``Brigade: another `brigade` at … shadows the plugin's``, because that path does not resolve to this
+plugin's `bin/brigade`. That is the check doing its job — the symlink the setup skill suggests, which points at
+`${CLAUDE_PLUGIN_ROOT}/bin/brigade`, is silent (both measured). The single source of truth for where the work
+stands is `.context/plans/brigade-execution-log.md` in the Brigade repository.

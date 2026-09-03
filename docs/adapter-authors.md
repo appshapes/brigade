@@ -1,9 +1,10 @@
 # Writing a Brigade adapter
 
-> **Status.** The reference adapter (`bin/brigade-adapter-fs`) and the conformance suite
-> (`bin/brigade-conformance`) exist and are green, so everything below is written against running code; the plugin
-> manifest and hooks that read the `adapter_command` option arrive with Phase 3, so today an adapter is exercised
-> through the suite and by hand, not from inside a live Claude Code session.
+> **Status.** Everything below is written against running code. The reference adapter
+> (`bin/brigade-adapter-fs`) and the conformance suite (`bin/brigade-conformance`) are green, and so is the whole
+> plugin chain: the manifest, the three hooks, the detached watcher and the commands that resolve your adapter and
+> spawn it. An adapter is exercised through the suite, by hand, **and** from inside a live Claude Code session —
+> see *What the harness does when it runs you* for the contract that session imposes.
 
 ## Purpose
 
@@ -1302,10 +1303,12 @@ The fs adapter is the worked pattern for the second: it accepts a **leading** `-
 session that variable is simply not there. Note the discipline: `--root` is accepted *only* in the leading position;
 after the verb it is an unknown flag and therefore `usage`.
 
-**Timeouts the harness applies.** 20 s to a request/response command in general; 8 s to `session register` at
-`SessionStart`; 1 s to `session close` at `SessionEnd`; 3 s to commands issued by the watcher. `message watch` runs
-until stdin EOF, a `close` command, SIGTERM or a fatal error — and must exit **0 within 5 s** of any of the first
-three. Do not install a handler that swallows SIGTERM, and do not let a drain loop delay the exit past five seconds.
+**Timeouts the harness applies.** 20 s to a request/response command in general; 3 s to `describe`; 8 s to
+`session register` at `SessionStart`; 1 s to `session close` at `SessionEnd`; 3 s to commands issued by the
+watcher; 4 s to a `message receive` on the prompt-poll path. `message watch` runs until stdin EOF, a `close`
+command, SIGTERM or a fatal error — and must exit **0 within 5 s** of any of the first three. Do not install a
+handler that swallows SIGTERM, and do not let a drain loop delay the exit past five seconds. The full table, with
+the constant behind each number and where it is applied, is under *What the harness does when it runs you*.
 
 **Exit statuses.** Only 0..12, ever, from your own code. Never 126 or 127 (the shell's "cannot execute" / "not found"
 statuses) and never ≥ 128 (killed by a signal): the harness reads those as a spawn failure, not as your answer. The
@@ -1955,12 +1958,129 @@ in*, which is why fixed arguments and the profile file, never `BRIGADE_<ADAPTER>
 comes from. A team lives on exactly one backend: every member's adapter must speak that backend's data model, which
 the protocol deliberately leaves to adapters (4.8).
 
-**Honest status.** The plugin manifest and the `plugin/bin` bootstrap landed with P3-1 and P1-8; the harness commands
+The whole chain runs today: the plugin manifest and the `plugin/bin` bootstrap, the harness commands
 (`profile init --adapter`, `profile status`, the `team` pass-through, `sessions`, `send`, `whoami`, `team members`), the
-three hooks and the detached watcher landed with P3-3, P3-4 and P3-5, so a local build (`make plugin-dev`) drives your
-adapter from inside a live Claude Code session today; the packaged release pins are still the pre-release `0.0.0`.
-`brigade-conformance` and a shell remain the way to exercise your adapter on its own; the harness adds only its own
-timeouts and its environment construction, which the plugin-driven session exercises.
+three lifecycle hooks and the detached watcher. A local build behind the dev pointer (`make plugin-dev`) drives your
+adapter from inside a live Claude Code session, and that is the sequence measured in `docs/experiments/E3-wiring.md`.
+Only the packaged release pins are still at the pre-release `0.0.0`, so there is nothing to download yet — which
+affects how developers install the binary, not how the harness runs your adapter. `brigade-conformance` and a shell
+remain the way to exercise your adapter on its own; the section below is everything the harness adds on top.
+
+## What the harness does when it runs you
+
+The conformance suite runs your adapter the way a careful shell would. The harness runs it the way Claude Code does,
+and the two differ in ways that are worth reading once. Everything here is the code as built (`internal/harness`),
+not an aspiration.
+
+**One spawn seam, no shell, ever.** Every request/response command is one `exec` of an argument array
+(`internal/harness/adapterclient`): `<adapter_command…> [--profile <p>] <group> <verb> [flags…]`, request document
+on stdin, one envelope on stdout, the process exits. There is no `sh -c`, no glob, no `~` expansion and no quoting
+layer to defend against. A shell script is a perfectly good adapter — it needs a shebang line and the executable
+bit. The one long-running child, `message watch`, is spawned the same way and kept alive by the watcher.
+
+**The fixed arguments of `adapter_command` are yours.** Whether the command comes from the profile's sidecar, from
+`adapters.json` or from the session's `adapter_command` option, a JSON array's elements are the executable and
+fixed arguments **prepended verbatim** to every invocation, so `["/usr/local/bin/brigade-adapter-pg", "--root",
+"/srv/brigade"]` plus `["describe"]` is one well-formed argv. Accept your own fixed flags in the LEADING position
+only, before the group word — that is where they will always arrive.
+
+**The environment, built from scratch.** The harness never passes its own environment through. It keeps exactly
+these inherited variables when they are non-empty (`adapterkit.ChildEnv`):
+
+`PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_*`, `XDG_*`, `CLAUDE_CONFIG_DIR`, `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`,
+`http_proxy`, `https_proxy`, `no_proxy`, `SSL_CERT_FILE`, `SSL_CERT_DIR`
+
+and appends exactly four it computes itself, which therefore always win (`adapterclient`):
+
+`BRIGADE_PROFILE`, `BRIGADE_CONFIG_DIR`, `BRIGADE_STATE_DIR`, `BRIGADE_LOG_LEVEL`
+
+`BRIGADE_LOG_LEVEL` is appended **even when empty** (`BRIGADE_LOG_LEVEL=`), because it is computed rather than
+inherited; treat an empty value as unset and pick your own default. Everything else — `GODEBUG`, `GOFLAGS`,
+`NODE_OPTIONS`, an inherited `BRIGADE_*`, every `CLAUDE_CODE_MESSAGING_*`, and any `BRIGADE_<ADAPTER>_*` of your
+own — is absent by construction, because the list above is an allow-list and not a deny-list. The inbox socket
+token exists in exactly one process's environment, the watcher's, and reaches no adapter child.
+
+**Timeouts, by command.** The harness bounds each call with a context deadline; the constants are
+`internal/harness/adapterclient`'s:
+
+| Call | Budget | Where it is applied |
+| --- | --- | --- |
+| `describe` | 3 s (`DescribeTimeout`) | every entry point, once per adapter+profile (cached, below) |
+| `session register` | 8 s (`RegisterTimeout`) | the `SessionStart` hook |
+| `session close` | 1 s (`CloseTimeout`) | the `SessionEnd` hook, whose whole budget is about 1.5 s |
+| `session heartbeat`, `message ack`, and the watcher's own `session close` | 3 s (`WatchRequestTimeout`) | the detached watcher, and the `SessionStart` heartbeat that follows a `/clear` |
+| `message receive` on the `poll_on_prompt` path | 4 s, inside a 4.5 s `UserPromptSubmit` budget | the prompt hook |
+| everything else, `message send` included | 20 s (`DefaultTimeout`) | the model-facing commands |
+| `message watch` | none | runs until stdin EOF, a `close` command, SIGTERM or a fatal error — and must exit **0 within 5 s** of any of the first three |
+
+A deadline that expires is a **cancel**: SIGTERM first, then SIGKILL after a short wait delay. Flush and exit on
+SIGTERM; do not install a handler that swallows it.
+
+**Output caps.** A request/response child's stdout is capped at **4 MiB** (`adapterkit.MaxAdapterStdout`); past it
+the child is cancelled and the harness reports `internal` with `details.reason = "stdout_overflow"`, so a debug
+dump on stdout is not a slow failure, it is an immediate one. Each `message watch` NDJSON line is capped at
+**1 MiB** (`protocol.MaxLineBytes`). Neither cap is negotiable through `describe`.
+
+**`describe` is cached, and its `protocol_version` is checked.** The harness calls `describe` at most once per
+(adapter command, profile) per process and reuses the result for every capability decision in that command, hook or
+watcher run. A `protocol_version` that is not this harness's is `protocol_mismatch` (exit 10) naming your adapter
+and its version — the run stops there, so a `describe` that lies is not a partial outage but a complete one. That
+cache is also why `describe` must create nothing, reach no network and never fail because of profile state: it is
+the first thing every entry point does, three seconds after which the session gives up on you.
+
+**`retryable` is advisory; the code is the truth.** Producers MUST emit `retryable` on every failing envelope (it
+has no `omitzero`); consumers treat an **absent member as false** and derive retryability from the code itself —
+only `rate_limited` (8) and `unavailable` (9) are ever retryable. So `retryable: true` on an `invalid_input` buys
+nothing, and omitting it on an `unavailable` costs nothing. One place the flag does act: a watch `error` event with
+`retryable: false` starts a 10 s grace after which the watcher stops the child anyway — it bounds an adapter that
+announced a fatal error and then did not exit. Restart decisions are keyed on the child's **exit status**.
+
+**How the harness classifies what you did not answer.** A failing envelope you produced is reported as yours: one
+stderr line `brigade <command> failed (<code>): <your message>` and the code's exit status. Your raw stderr is
+never shown to the user or the model; it goes to the adapter log. What you did not produce is classified by the
+harness instead:
+
+| What happened | The harness reports |
+| --- | --- |
+| the executable is missing or not on `PATH` | `unavailable`, `details.reason = "adapter_not_found"` |
+| the deadline expired | `unavailable`, `details.reason = "timeout"` |
+| the child died on a signal | `unavailable`, `details.signal = "SIGSEGV"` (etc.) |
+| stdout is not exactly one valid envelope | `internal`, `details.reason = "not_json"` / `"bad_envelope"` |
+| stdout exceeded 4 MiB | `internal`, `details.reason = "stdout_overflow"` |
+
+This is why exit statuses **126, 127 and ≥ 128 are never yours to emit**: they are how a spawn failure looks, and
+the harness will read them as one.
+
+**`team` and `profile` pass your terminal straight through.** `brigade team create|join|leave` and `brigade profile
+init|status|reset|revoke-credentials` do not go through the request/response path: the harness resolves the adapter,
+builds the same from-scratch environment, and then hands your process the caller's **own stdin, stdout and stderr**,
+with no deadline, forwarding your exit status verbatim. So `--prompt` sees a real TTY, a no-echo secret prompt
+works, and your envelope reaches the human's terminal unaltered. Two consequences: your `team create` may print the
+join secret on **stdout** (4.4.10 is the one exception to the no-secrets rule; offer a `--secret-file` and prefer
+it), and `team create`/`team join` are refused with `usage` when they are run from inside a session — a join secret
+must never pass through a chat.
+
+**Being chosen: the D36 registration syntax.** A human binds a profile to your adapter once:
+
+```sh
+brigade profile init [--profile <p>] --adapter <spec> [your own profile-init flags…]
+```
+
+where `<spec>` is one of an absolute path, a JSON array, a registered name, or `<name>=<absolute path | JSON array>`
+which registers that name in `${BRIGADE_CONFIG_DIR}/adapters.json` and uses it in the same breath:
+
+```sh
+brigade profile init --adapter /usr/local/bin/brigade-adapter-pg
+brigade profile init --adapter '["/usr/local/bin/brigade-adapter-pg","--root","/srv/brigade"]'
+brigade profile init --adapter 'pg=["/usr/local/bin/brigade-adapter-pg","--root","/srv/brigade"]'
+brigade profile init --profile staging --adapter pg          # the name, once registered
+```
+
+A relative path is refused and nothing is written. The harness writes the sidecar **before** it spawns your own
+`profile init` with the remaining flags, so a failed `profile init` still leaves the profile bound to you and a
+retry does not need `--adapter` again. `brigade profile status [--profile <p>]` prints which adapter is in force and
+where that came from (`from sidecar` / `from profile` / `bundled`), then passes through to your own `profile
+status`.
 
 ## Before you claim conformance
 

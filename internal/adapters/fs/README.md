@@ -71,13 +71,81 @@ A relative `--root` or `BRIGADE_FS_ROOT` is refused with `config` (exit 11), exa
 team's messages inside somebody's repository.
 
 Under a live Claude Code session `BRIGADE_FS_ROOT` never arrives — the harness builds the child's environment from
-scratch (4.1) — so the root then comes from `--root` in the `adapter_command` array.
+scratch (4.1) — so the root is either rule 3's default (which needs no plumbing at all, because `BRIGADE_STATE_DIR`
+IS one of the four variables the harness computes) or a `--root` given as a fixed argument in the `adapter_command`
+array. See *Under the plugin* below.
 
 `team create --secret-file <path>` is held to the same rule for the same reason: a relative path is `usage` (exit 2),
 because the join secret would otherwise be written into whatever directory the process happens to be run from. The
 file is written **before** the team is created and the profile is bound, so a path the adapter cannot write is
 `config` (exit 11) and leaves nothing behind — the secret is printed only once, and a caller who never received it
 must be free to try again rather than end up bound to a team nobody can join.
+
+## Under the plugin
+
+The fs adapter is the backend `make plugin-dev adapter=fs` uses, and this is the whole onboarding — run **once, in
+your own terminal**, before the first session. Not from inside a Claude Code session: `team create` and `team join`
+refuse there with `usage` ("run this in your own terminal: the join secret must never pass through the chat"). The
+sequence below is the one measured in `docs/experiments/E3-wiring.md`.
+
+```sh
+make build
+
+# 1. Bind a profile to this adapter. D36 writes the sidecar
+#    ${BRIGADE_CONFIG_DIR}/profiles/default/adapter, so every later session resolves the fs adapter by itself
+#    and needs no `adapter_command` option at all.
+bin/brigade profile init --adapter '["'"$PWD"'/bin/brigade-adapter-fs"]'
+
+# 2. Create the team. The secret goes to a 0600 file, never to your scrollback.
+bin/brigade team create --name ops --label dev --secret-file ~/brigade-ops.secret
+
+# 3. Start a session. `adapter=fs` passes the same command as the per-session override; after step 1 it is
+#    redundant, and `make plugin-dev` alone works just as well.
+make plugin-dev adapter=fs
+```
+
+The store lands at `${XDG_STATE_HOME:-~/.local/state}/brigade/fs-adapter` — rule 3's default — and the session's
+adapter children find it there without `--root` and without `BRIGADE_FS_ROOT`, because `BRIGADE_STATE_DIR` is one of
+the four variables the harness computes for every child.
+
+A **second profile on the same machine** (`make plugin-dev profile=bob`) joins that team rather than creating one.
+The secret travels from the file into the request document on stdin and never onto argv:
+
+```sh
+bin/brigade profile init --profile bob --adapter '["'"$PWD"'/bin/brigade-adapter-fs"]'
+{ printf '{"human_label":"bob","join_secret":"'; tr -d '\n' < ~/brigade-ops.secret; printf '"}'; } |
+  bin/brigade team join --profile bob
+```
+
+(`bin/brigade team join --profile bob --prompt` is the interactive form: the secret is read from the TTY without
+echo, then an optional label.) `bin/brigade profile status --profile bob` prints which adapter that profile
+resolves to and where the choice came from.
+
+A second profile can also be pointed at a **different store** by registering a name whose command carries a fixed
+`--root`, which is how two sessions on one machine end up with genuinely independent backends:
+
+```sh
+bin/brigade profile init --profile beta \
+  --adapter 'fsdev=["'"$PWD"'/bin/brigade-adapter-fs","--root","/tmp/brigade-beta-store"]'
+bin/brigade team create --profile beta --name beta --label dev --secret-file ~/brigade-beta.secret
+make plugin-dev profile=beta
+```
+
+Verified consequences of that split: `bin/brigade profile status --profile beta` reports `default adapter fsdev
+(from sidecar)`, and a session on `beta` sees only `beta`'s sessions in `brigade sessions` — the two stores share
+nothing.
+
+Two things about the fs adapter that matter only under the plugin:
+
+- **Its watch is polling**, not push: `message watch` re-takes the store lock every 200 ms. Delivery latency is
+  therefore up to a poll interval, and an unacknowledged message is re-emitted only when the watch child restarts —
+  not on every drain the way a server-backed adapter would.
+- **Nothing here is a security boundary.** Any process that can read the root can read every team's messages. Point
+  it at a throwaway directory, never at anything you care about.
+- **Expect the shadowing warning if you symlink your own build.** `ln -s <repo>/bin/brigade ~/.local/bin/brigade`
+  puts a `brigade` on the hook's `PATH` that does not resolve to `plugin/bin/brigade`, so every session start
+  carries a second line saying so. A symlink to `plugin/bin/brigade` itself — what the setup skill suggests — is
+  silent. Both measured in `docs/experiments/E3-wiring.md`.
 
 ## What it stores
 

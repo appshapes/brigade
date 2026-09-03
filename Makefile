@@ -288,12 +288,43 @@ plugin-dev-pointer: build ## Write the dev-binary pointer (honours XDG_CONFIG_HO
 	mkdir -p "$${XDG_CONFIG_HOME:-$$HOME/.config}/brigade"
 	echo "$(CURDIR)/$(bin_dir)/brigade" > "$${XDG_CONFIG_HOME:-$$HOME/.config}/brigade/dev-binary"
 
+# The `options` object `plugin-dev` puts in --settings, assembled from its two parameters. Either may be empty,
+# and a comma appears only between two present halves.
+#   adapter=fs      the D36 per-session OVERRIDE: adapter_command = the absolute bin/brigade-adapter-fs as a
+#                   JSON array. The fs adapter's default root is the harness-computed BRIGADE_STATE_DIR's
+#                   fs-adapter subdirectory, so neither --root nor BRIGADE_FS_ROOT is needed (and
+#                   BRIGADE_FS_ROOT would not arrive anyway: the harness builds every adapter child's
+#                   environment from scratch).
+#   profile=<name>  the `profile` option (E0-7's two-profiles-on-one-machine shape). A profile whose sidecar
+#                   already names its adapter — what `profile init --adapter` writes — needs NO adapter= at all.
+comma := ,
+plugin_dev_adapter_opt = $(if $(filter fs,$(adapter)),"adapter_command":"[\"$(CURDIR)/$(bin_dir)/brigade-adapter-fs\"]")
+plugin_dev_profile_opt = $(if $(profile),"profile":"$(profile)")
+plugin_dev_opts = $(plugin_dev_adapter_opt)$(if $(and $(plugin_dev_adapter_opt),$(plugin_dev_profile_opt)),$(comma))$(plugin_dev_profile_opt)
+
 .PHONY: plugin-dev
-plugin-dev: plugin-dev-pointer ## Start Claude Code with the local plugin (usage: make plugin-dev [adapter=fs] — fs selects the dev adapter via adapter_command)
-ifeq ($(adapter),fs)
-	$(unclaude) claude --plugin-dir ./plugin --settings '{"pluginConfigs":{"brigade@inline":{"options":{"adapter_command":"[\"$(CURDIR)/$(bin_dir)/brigade-adapter-fs\"]"}}}}'
-else
+plugin-dev: plugin-dev-pointer ## Start Claude Code with the local plugin (usage: make plugin-dev [adapter=fs] [profile=<name>])
+# ONCE per machine, in your own terminal (never from inside a session: `team create`/`team join` refuse there),
+# before the first `make plugin-dev adapter=fs`. `profile init --adapter` writes the D36 sidecar, so every later
+# session finds the fs adapter by itself and `adapter_command` — hence `adapter=fs` — becomes unnecessary:
+#
+#   make build
+#   bin/brigade profile init --adapter '["'"$PWD"'/bin/brigade-adapter-fs"]'
+#   bin/brigade team create --name ops --label dev --secret-file ~/brigade-ops.secret
+#
+# A SECOND profile on the same machine (`make plugin-dev profile=bob`) joins that team instead of creating one.
+# The join secret goes from the 0600 file into the request document on stdin and never onto argv:
+#
+#   bin/brigade profile init --profile bob --adapter '["'"$PWD"'/bin/brigade-adapter-fs"]'
+#   { printf '{"human_label":"bob","join_secret":"'; tr -d '\n' < ~/brigade-ops.secret; printf '"}'; } | \
+#     bin/brigade team join --profile bob
+#
+# (`bin/brigade team join --profile bob --prompt` is the interactive form: the fs adapter reads the secret from
+# the TTY without echo.) Check what a profile resolves to with `bin/brigade profile status --profile <name>`.
+ifeq ($(plugin_dev_opts),)
 	$(unclaude) claude --plugin-dir ./plugin
+else
+	$(unclaude) claude --plugin-dir ./plugin --settings '{"pluginConfigs":{"brigade@inline":{"options":{$(plugin_dev_opts)}}}}'
 endif
 
 .PHONY: plugin-dev-off

@@ -11,9 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/harness/hook"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
@@ -413,6 +416,135 @@ func TestPluginCheck(t *testing.T) {
 		ci := runScript(t, "plugin-check.sh", tr.root, tr.env("PATH="+dir, "CI=true"))
 		wantFail(t, ci, "shellcheck is not installed and CI is set")
 	})
+
+	// ---- check 6: the hook subcommand names (P3-6) ----------------------------------------------------
+
+	t.Run("a hooks.json naming a subcommand the binary does not implement fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		// Exec form, the command exists, the args array is an array: check 5 is silent and only check 6
+		// can catch the typo. `start` is what a careless rename of `session-start` looks like.
+		tr.write(hooksRel, hooksJSON(`"args": ["hook", "start"]`))
+		tr.git("add", "plugin")
+		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		wantFail(t, r, "names the hook subcommand 'start'", "does not implement")
+	})
+
+	t.Run("a hooks.json whose args do not begin with hook fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		tr.write(hooksRel, hooksJSON(`"args": ["session-start"]`))
+		tr.git("add", "plugin")
+		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		wantFail(t, r, "first element is 'session-start'")
+	})
+
+	t.Run("a hooks.json with no args array at all fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		// The bootstrap with no arguments is a valid exec-form hook to check 5 and a hook that can never
+		// do anything to check 6.
+		tr.write(hooksRel, `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade", "timeout": 60}]}]}}`+"\n")
+		tr.git("add", "plugin")
+		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		wantFail(t, r, "declares no \"args\" array")
+	})
+
+	t.Run("the real hooks.json passes check 6", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		body, err := os.ReadFile(filepath.Join(testutil.RepoRoot(t), hooksRel))
+		if err != nil {
+			t.Fatalf("reading the real %s: %v", hooksRel, err)
+		}
+		tr.write(hooksRel, string(body))
+		tr.git("add", "plugin")
+		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		wantPass(t, r, "names a brigade hook subcommand that exists")
+	})
+
+	// ---- check 7: the plugin README's Status paragraph (P3-6) -----------------------------------------
+
+	t.Run("a plugin README that still says the wiring is not implemented fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		tr.write("plugin/README.md", "# brigade\n\n## Status\n\nThe hooks and the commands are not implemented yet.\n")
+		tr.git("add", "plugin")
+		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		wantFail(t, r, "still disclaims the wiring")
+	})
+
+	t.Run("a plugin README that says the wiring is not runnable fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		tr.write("plugin/README.md", "# brigade\n\n## Status\n\nNot runnable yet: the harness lands with P3-3.\n")
+		tr.git("add", "plugin")
+		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		wantFail(t, r, "still disclaims the wiring")
+	})
+
+	t.Run("a plugin README with no Status section fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		tr.write("plugin/README.md", "# brigade\n\nEverything works.\n")
+		tr.git("add", "plugin")
+		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		wantFail(t, r, "no '## Status' section")
+	})
+
+	t.Run("a plugin README with a Status section and no disclaimer passes", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		tr.write("plugin/README.md", "# brigade\n\n## Status\n\nThe hooks, the commands and the watcher run end to end.\n")
+		tr.git("add", "plugin")
+		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
+		wantPass(t, r, "no 'not implemented' disclaimer")
+	})
+}
+
+// hooksRel is the shipped hook manifest, relative to a repository root.
+const hooksRel = "plugin/hooks/hooks.json"
+
+// hooksJSON is a one-hook exec-form manifest whose args clause is the caller's, so a case can vary exactly
+// the thing check 6 reads and nothing else.
+func hooksJSON(args string) string {
+	return `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade", ` + args + `, "timeout": 60}]}]}}` + "\n"
+}
+
+// subcommandList is the `hook_subcommands="…"` line of plugin-check.sh: the fixed list check 6 compares
+// hooks.json against.
+var subcommandList = regexp.MustCompile(`(?m)^hook_subcommands="([^"]*)"`)
+
+// TestHookSubcommandListMatchesTheGoConstants keeps the shell check honest about what the binary implements.
+// Check 6 cannot ask the Go code (plugin-check.sh runs on hosts with no toolchain and must stay textual), so
+// the list is a literal in the script — and a literal drifts. This test is the join: rename
+// hook.SubSessionStart in Go and this fails, which is the only way the shell list can be kept true.
+func TestHookSubcommandListMatchesTheGoConstants(t *testing.T) {
+	t.Parallel()
+	script := filepath.Join(testutil.RepoRoot(t), "scripts", "ci", "plugin-check.sh")
+	body, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatalf("reading %s: %v", script, err)
+	}
+	m := subcommandList.FindStringSubmatch(string(body))
+	if m == nil {
+		t.Fatalf("plugin-check.sh has no `hook_subcommands=\"…\"` line: check 6 has lost its authority")
+	}
+	got := strings.Fields(m[1])
+	slices.Sort(got)
+	want := []string{hook.SubSessionStart, hook.SubPrompt, hook.SubSessionEnd}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("plugin-check.sh hook_subcommands = %v, want the hook package's subcommands %v", got, want)
+	}
 }
 
 // ---------------------------------------------------------------------------------------------------------

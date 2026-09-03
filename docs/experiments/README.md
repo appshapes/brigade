@@ -1,4 +1,4 @@
-# Phase 0 experiments (2026-08-30 / 2026-08-31)
+# Experiments: Phase 0 (2026-08-30 / 2026-08-31) and Phase 3 (2026-09-03)
 
 Ticket 15. One writeup per Phase 0 experiment of the plan's section 8. Each file records what was **measured**, not
 what was expected: environment and versions, the checks with their results, the plan text each result contradicts,
@@ -26,6 +26,17 @@ could have made it go red.
 | `E0-7.md` | Two concurrent sessions in **one** `CLAUDE_CONFIG_DIR` each select their own profile through their own `--settings` `pluginConfigs` block, with no cross-writes. Profile and team come from `state/by-pid/<pid>.json` **in preference to the environment** (proven by a poison control), which makes that file an unauthenticated trust boundary guarded by filesystem permissions alone. A fresh `CLAUDE_CONFIG_DIR` does **not** inherit the login. The environment strip list must be a **prefix rule**, not an enumeration. |
 | `E0-8.md` | CLI-only plugin mechanics, run on Claude Code **2.1.252**. The headline: **D20's skill grant holds in interactive Manual mode** — the one arm never previously tested — so a Manual-mode user pays one dismissible Skill dialog per project, not a prompt per command. Also: make the bootstrap's **background download the default** (0.02 s vs 33.5 s blocking at 250 kB/s); the `SessionStart` context line is `stdout.strip()`, not byte-exact; `SessionStart` **re-fires on `/clear`**; the `--body-file` threshold must sit below **10,000 characters**; and `claude plugin validate --strict` does **not** detect a missing hook-command binary. |
 | `E0-9.md` | `crossSessionInbound` `hold` and `refuse`. `hold` shows a notice, delivers nothing, raises no dialog, and **nothing expired in ~25 minutes** (the spec asked only for 5). `refuse` is **silent to both sides** — the poster's socket write succeeds and returns nothing — which is what makes §6.10's settings scan load-bearing rather than defensive. |
+
+## Phase 3 — the plugin measured through real headless sessions (2026-09-03, Claude Code 2.1.259)
+
+Same rules as above: measured, not expected; each file names what it does not prove. The drivers are the repository's
+own targets (`make plugin-check plugin-validate`, `make harness-smoke`) and `claude -p` invocations quoted in full.
+
+| File | What it settled |
+| --- | --- |
+| `E3-wiring.md` | P3-6. The fs-adapter onboarding under the plugin (`profile init --adapter …`, `team create --secret-file …`), then a real `claude -p` with the dev pointer: the `SessionStart` context line names the fs team, the by-pid and by-native maps and a LIVE detached watcher exist mid-run, and the session's own `SessionEnd` stops the watcher **0.36 s before `claude` exits**. Two profiles with mixed adapter registrations and no `adapter_command` in either `--settings` each see only their own team; an unresolvable `adapter_command` yields the D36 `config` line, and a resolvable override that cannot read the profile the adapter's own `config: profile_missing` line. Also: a silent, successful `UserPromptSubmit` hook is recorded **nowhere** (stream, stderr, transcript), and a symlink that resolves to the plugin's bootstrap is not reported as a shadow. |
+| `E3-smoke.md` | P3-7. `scripts/harness-smoke.sh` end to end through a real `claude -p` with the fs adapter, five nested sessions, 0 flakes: the model lists the team, sends the second principal a message that lands in the fs store, receives that principal's message **mid-turn** (recorded in the transcript as a `queued_command` attachment removed with `absorbed_mid_turn`, never as a `user` record), which the watcher acknowledges, and replies with `brigade send … --reply-to`; zero native `SendMessage` calls; no full-path or shell invocation. Assertions are `jq` predicates over the stream and the store, each shown able to fail. |
+| `E3-interactive.md` | P3-8, **pending**: the checklist for the keyboard-dependent checks (the skill grant and the `permissions.allow` rule in Manual mode, the ask rule dialog in bypass mode, `/rename`, `/clear` and `/compact`, the shadowing warning, the sandbox domain entry), prepared for Rjae with the exact commands; results are recorded there as they are run. |
 
 ## E0-10 — not run, blocked on D32
 

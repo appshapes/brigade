@@ -7,9 +7,10 @@
 # plugin/hooks/hooks.json and plugin/skills/ arrive with P3-1).
 #
 # 1  plugin/ holds only allow-listed paths            5  hooks.json is exec-form and its commands exist
-# 2  plugin/bin/brigade is 100755 in git, rest 100644 6  sh -n / bash -n / zsh -n on the bootstrap
-# 3  VERSION is one token and equals plugin.json      7  shellcheck -s sh on the bootstrap and the CI scripts
-# 4  no mcpServers, no channels anywhere under plugin/ (a .mcp.json file is check 1's job)
+# 2  plugin/bin/brigade is 100755 in git, rest 100644 6  every hook `args` names a subcommand the binary has
+# 3  VERSION is one token and equals plugin.json      7  plugin/README.md's Status does not disclaim the wiring
+# 4  no mcpServers, no channels anywhere under plugin/ 8  sh -n / bash -n / zsh -n on the bootstrap
+#    (a .mcp.json file is check 1's job)              9  shellcheck -s sh on the bootstrap and the CI scripts
 #
 # The JSON checks are textual on purpose: hooks.json and plugin.json are small hand-written manifests, jq is not
 # on every host that runs `make plugin-check`, and the schema half is covered by `make plugin-validate`
@@ -129,7 +130,52 @@ else
   skip "hooks.json exec form and command existence: $hooks_json does not exist yet"
 fi
 
-# ---- 6. the bootstrap parses under every shell a user might have --------------------------------------------------
+# ---- 6. every hook `args` pair names a subcommand `brigade hook` actually implements -------------------------------
+# A hooks.json entry is `"args": ["hook", "<subcommand>"]`. A typo there is invisible to `claude plugin validate`
+# (E0-8 (g) measured it blind to a missing binary, let alone a wrong argument) and to check 5, which only proves
+# the COMMAND exists: the session would start, the hook would exit 2 `usage`, and Brigade would simply never
+# connect. The list below is the authority the script compares against; scripts/ci/checks_test.go asserts it is
+# exactly {hook.SubSessionStart, hook.SubPrompt, hook.SubSessionEnd}, so a subcommand renamed in Go fails the Go
+# test rather than silently widening this list.
+hook_subcommands="prompt session-end session-start"
+if [ -f "$hooks_json" ]; then
+  # One `args` array per match, wherever it sits; the pair is its first two elements.
+  grep -oE '"args"[[:space:]]*:[[:space:]]*\[[^]]*\]' "$hooks_json" |
+    sed -e 's/^"args"[[:space:]]*:[[:space:]]*\[//' -e 's/\]$//' |
+    while IFS= read -r arr; do
+      group=$(printf '%s' "$arr" | sed -nE 's/^[[:space:]]*"([^"]*)".*/\1/p')
+      sub=$(printf '%s' "$arr" | sed -nE 's/^[[:space:]]*"[^"]*"[[:space:]]*,[[:space:]]*"([^"]*)".*/\1/p')
+      [ "$group" = hook ] || die "$hooks_json has an \"args\" array whose first element is '$group', not \"hook\""
+      [ -n "$sub" ] || die "$hooks_json has an \"args\" array with no subcommand after \"hook\""
+      found=no
+      for known in $hook_subcommands; do
+        [ "$sub" = "$known" ] && found=yes
+      done
+      [ "$found" = yes ] || die "$hooks_json names the hook subcommand '$sub', which the binary does not implement (known: $hook_subcommands)"
+    done
+  args_seen=$(grep -oE '"args"[[:space:]]*:[[:space:]]*\[' "$hooks_json" | wc -l | tr -d ' ')
+  [ "$args_seen" -gt 0 ] || die "$hooks_json declares no \"args\" array: no hook names a subcommand"
+  ok "every hooks.json \"args\" pair names a brigade hook subcommand that exists ($hook_subcommands)"
+else
+  skip "hook subcommand names: $hooks_json does not exist yet"
+fi
+
+# ---- 7. the plugin README's Status paragraph does not disclaim the wiring -------------------------------------------
+# P3-1 shipped a Status paragraph that said plainly that the hooks and commands did not run yet, and the setup
+# skill carried a "not runnable yet" note. P3-3..P3-6 made them run; a stale disclaimer is worse than none,
+# because it is the first thing a user reads about whether the plugin works. This is a text check on purpose:
+# it is the only assertion in the repository that the shipped README keeps up with the shipped code.
+if [ -f plugin/README.md ]; then
+  if grep -nEi 'not (yet )?(implemented|runnable)|do(es)? not (yet )?(run|work) yet|no[t] working yet' plugin/README.md >&2; then
+    die "plugin/README.md still disclaims the wiring (the lines above): the hooks, the commands and the watcher run"
+  fi
+  grep -q '^## Status' plugin/README.md || die "plugin/README.md has no '## Status' section"
+  ok "plugin/README.md has a Status section and no 'not implemented' disclaimer"
+else
+  skip "plugin/README.md Status paragraph: the file does not exist yet"
+fi
+
+# ---- 8. the bootstrap parses under every shell a user might have --------------------------------------------------
 [ -f plugin/bin/brigade ] || die "missing plugin/bin/brigade"
 sh -n plugin/bin/brigade || die "sh -n plugin/bin/brigade failed"
 checked="sh"
@@ -141,7 +187,7 @@ for shell in bash zsh dash; do
 done
 ok "plugin/bin/brigade parses under: $checked"
 
-# ---- 7. shellcheck ------------------------------------------------------------------------------------------------
+# ---- 9. shellcheck ------------------------------------------------------------------------------------------------
 if command -v shellcheck >/dev/null 2>&1; then
   set -- plugin/bin/brigade
   for f in scripts/ci/*.sh scripts/*.sh; do
