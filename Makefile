@@ -115,11 +115,12 @@ version-check: ## Fail when the version stamp would be empty (missing or empty p
 build: version-check ## Build bin/brigade plus the dev-only binaries for this host with the release flags (version stamped `<version>-dev`; BRIGADE_COVER=1 adds -cover)
 	$(go_build_env) go build $(go_flags) $(cover_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade ./cmd/brigade
 	$(go_build_env) go build $(go_flags) $(cover_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-adapter-fs ./cmd/brigade-adapter-fs
+	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-fake-adapter ./cmd/brigade-fake-adapter
 	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-conformance ./cmd/brigade-conformance
 
 .PHONY: clean
 clean: ## Remove build artifacts and local caches
-	rm -rf $(bin_dir)/brigade $(bin_dir)/brigade-adapter-fs $(bin_dir)/brigade-conformance dist $(dist_cross) cover.out $(env_test) playwright-report test-results
+	rm -rf $(bin_dir)/brigade $(bin_dir)/brigade-adapter-fs $(bin_dir)/brigade-fake-adapter $(bin_dir)/brigade-conformance dist $(dist_cross) cover.out $(env_test) playwright-report test-results
 
 .PHONY: typecheck
 typecheck: ## go build ./... and go vet ./... (every package, including tests)

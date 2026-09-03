@@ -76,7 +76,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P2-11 | Integration suite completion: fault tests under `BRIGADE_TEST_DOCKER=1`, `pgx` fixtures, fixtures through the verbs, coverage across the process boundary, CI's `test-integration` and coverage steps un-gated | done | Opus | this commit — `make test-integration` 3:42 locally (integration 142 s incl. the two fault tests, conformance 45/0/0 in 80 s); every I-* id of 9.9 assigned to the adapter traced to a named test; 16 of 17 checks proven able to fail, 1 strengthened |
 | P2-12 | `scripts/release-prep.sh` + the release rehearsal | done — **the real rehearsal ran on 2026-09-02 (D1; release run 33698279695, see "D1 RELEASE REHEARSAL DONE")** | Opus | this commit — the script (7.7) with a `DRY_RUN` mode, rehearsed on a throwaway local branch: `GORELEASER_CURRENT_TAG` accepts a non-existent tag with `--skip=validate` (the 7.7 [uncertain] settled), goreleaser's `checksums.txt` byte-equal to `make cross`'s; **four script defects found and fixed by the verifier** (see below); nothing pushed, tagged or committed by the rehearsal |
 | P3-1 | Plugin manifests, marketplace, skills | done | Opus | this commit — `plugin.json`, `hooks.json`, the two skills, `plugin/README.md`, the marketplace entry, `scripts/ci/manifests_test.go` (26 mutations, one positive control); `make plugin-check` with no `skip:`; `claude plugin validate .` zero warnings, `./plugin --strict` green; the headless run registers both skills with no MCP server and fires each hook once (exit 1 until P3-4); **`--strict` is blind to skill frontmatter; stream-json carries `SessionStart` hook events only** (see below) |
-| P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | todo | Fable | security path |
+| P3-2 | `internal/harness` library (frame, socket-post, policy, pipeline) | done | Fable | this commit — nine packages + `procutil` + the fake adapter, fake socket, fake registry, sleeper and Eventually fixtures (~17k lines with tests); five Fable authors in two waves on disjoint packages, two Fable verifiers; **10 defects found, 8 fixed in place, 101 checks proven able to fail by mutation**; U-03/04/13/14/15/16/17/18/19/20/27 and E2E-13 traced; `Watch.Wait` deadlock and the FIFO-at-the-map-path hang were the decisive ones (see below) |
 | P3-3..P3-5 | `brigade` session commands, hooks, watcher (+ sink mode) | todo | Fable | injection path |
 | P3-6..P3-8 | Bootstrap wiring, headless smoke, interactive checks | todo | Opus | |
 | P4-1..P4-6 | Vertical proof, headless/idle-wake runs, crash+resume, interactive checklist, results | todo | Fable (P4-2/P4-5/P4-6) · Opus (P4-1/P4-3/P4-4) | criterion 8 is Fable-tier |
@@ -1206,6 +1206,112 @@ no release, no tag, no branch but `master` remains on the remote. Recorded, not 
 harmless, the assets and the tag are what the bootstrap uses); `gh release view` has no `isLatest` field (use
 `isPrerelease`/`isDraft`). **P5-10's real `0.1.0` release can follow this exact sequence from master.**
 
+## P3-2 DONE — the harness library: nine packages, the fixtures, 101 mutations; `Watch.Wait` deadlocked and a FIFO at the map path hung every command
+
+Five Fable authors in two waves on disjoint packages (A: `config`, `sessionmap`, `registry`, `testutil/fakeregistry`;
+C: `frame`, `socketpost`, `testutil/fakesock`; E: `pidfile`, `procutil`, `testutil.NewSleeper`/`Eventually`; then B:
+`adapterclient`, `testutil/fakeadapter`, `cmd/brigade-fake-adapter`; D: `inbound`, `backoff`, `policy`), then two
+Fable adversarial verifiers (the security path; the process path), from `.ignored/briefs/p3-2-harness-library.md`.
+Driven by session `15-implement-brigade-0902T18`. No fix round was needed: 10 defects, 8 fixed in place by the
+verifiers, 2 low ones left for the driver (the `clean` recipe now removes `bin/brigade-fake-adapter`; the process-global
+describe cache is documented for consumers' tests). **101 checks proven able to fail** by mutating the SUBJECT and
+restoring byte for byte (18 on the process path, 83 on the security path).
+
+**What exists now (the API the next three tasks consume; the authors' reports in the workflow journal carry every
+signature).** `config`: `ParseOptions` (the seven options with defaults; `CLAUDE_PLUGIN_OPTION_*`; `hold`/junk
+`team_inbound` → `refuse` plus a fixed warning), `InSession`/`Strip`/`Trusted` (every `BRIGADE_*` ignored whenever
+`CLAUDE_PID` is set — U-27's unit half), `BrigadeConfigDir`/`BrigadeStateDir` (revive's stutter rule refused
+`config.ConfigDir`), `ClaudeConfigDir` (the one place `~/.claude` is spelled as a default), `ResolveAdapter` (D36:
+option → sidecar → profile member via `adapters.json` → bundled; three forms; every refusal a `config` reason;
+`supabase` is implicit and never rebound through the registry), `WriteSidecar`/`RegisterAdapter` (the WRITE half of
+D36 for `profile init --adapter`, added by the verifier), `Session`/`SessionIn` (the by-pid map through the strict
+reader: `not_registered`, `map_not_private`, …), `FromWatcherEnv`/`WatcherEnv.Vars` (the six hook-built variables the
+watcher accepts, nothing else; `BRIGADE_ADAPTER_COMMAND` carries the RESOLVED JSON array, `[]` = bundled — a name is
+refused there). `sessionmap`: the two maps with an O_NOFOLLOW|O_NONBLOCK reader (mode/owner/symlink/FIFO/size
+refusals; `claude_pid` must equal the file name; a native id is validated before it becomes a path; overwrite on
+every write so a recurring native id is fine). `registry`: `Read` over an `fs.FS` opening exactly `<pid>.json`,
+never listing, never a `*.key` (the fakeregistry recorder proves a mutant that opens the key fails). `frame`:
+`Build` (6.7 exactly — the goldens are byte-identical to E0-3's `frame.py` output for variants A and C), `Wrap`
+(D19 = C, `from-name` only), `Parse` (U-03 with corpus items 09/22/23/24/25 as bodies), `PollPreamble`. `socketpost`:
+`Post` with injectable stat/uid/timeouts, the U-19 pre-checks, one physical line per frame (U-17), four `errors.Is`
+sentinels (`ErrPrecheck`, `ErrSocketGone`, `ErrTimeout`, `ErrWrite`), the token in no error and no log line.
+`pidfile` + `procutil`: `Lookup(pid)` reads the process STATE through `unix.SysctlKinfoProc` on darwin (`p_stat` =
+SZOMB, `p_starttime` to the microsecond) and `/proc/<pid>/stat` on linux, so **a zombie reads as dead (E0-5 defect 1)
+and the start token is finer than `ps -o lstart=`'s 1 s (E0-5's "unfixed limitation", fixed by construction on
+darwin; 10 ms ticks on linux)**; `Create`/`Read`/`Alive`/`Remove` (compare-then-delete, E0-5 item 3)/`Replace`/
+`Check`/`TokenSHA256`; no subprocess anywhere. `adapterclient`: `Client.Call` and typed `Describe`/`Register`/
+`Heartbeat`/`Close`/`ListSessions`/`Send`/`Receive`/`Ack`/`TeamMembers` over `adapterkit.Spawn` with the from-scratch
+environment (proven: a hostile parent environment with `BRIGADE_FS_ROOT`, `GODEBUG`, `NODE_OPTIONS` and the messaging
+token reaches no child), the 4.1 budgets as constants, `retryable` absent-as-false, the protocol check
+(`protocol_mismatch`), a per-process describe cache, `Client.Spawn` — the injectable spawn seam (zero-spawn and
+token-absent assertions for U-25 and P3-3's hermetic tests), and `StartWatch` (the ONE `exec.CommandContext` in the
+harness; stdin/stdout pipes, stderr to the 0600 adapter log; B-4, B-5, B-6 honoured; `Ack`/`Heartbeat`/`Close`;
+`Wait` via `ProcessState`). `policy`: `Decide`/`Effective` (D18's 420-row table: `permission_mode` × entrypoint ×
+option × native scan — the mode never changes the policy), `ScanNative` over the three settings files (any
+`hold`/`refuse` wins). `inbound`: the pure `Pipeline` (validate U-18 → dedupe U-13 with the LRU and the 0600 seen file →
+policy → per-sender sliding window 10/min U-14 with one notice per 5-minute window → identical-body deferral 60 s →
+queue 50 oldest-drop U-15/E2E-13 → frame → `Offer`/`Next`/`Done`/`Drain` so the caller reports injected/printed
+per message before acks are decided). `backoff`: `WatchRestart` (1..30 s) and `AdapterError` (cap 5 min) with a
+caller-seeded `rand.Rand`, `Retryable(code)` (only `rate_limited` and `unavailable`), `RetryableExit` (every exit
+status 1..12 through the 4.6 codes; an unowned status or a signal death restarts). Fixtures: `cmd/brigade-fake-adapter`
+(a real BAP/1 executable scripted by `--script <abs path>` — a leading fixed argument, because the harness builds the
+child environment from scratch — with ordered responses, `stdout_bytes`, `exit_code`, `sleep_ms`, a watch replay
+with delays honouring `ack`/`heartbeat`/`close`, and an argv/stdin/environment dump), `fakesock`, `fakeregistry`,
+`NewSleeper` (reaped; SIGTERMed in cleanup), `Eventually` (synctest-clean). `cmd/brigade/main_test.go`'s P1-1
+instrument is replaced by the real fake adapter and `smoke.txtar` asserts the new shape.
+
+**The decisive findings.** (1) **`Watch.Wait` deadlocked on its own documented stop sequence**: the reader sent on an
+unbuffered channel and `Wait` waited for the reader, so a caller that had stopped consuming events (P3-5 on shutdown
+or a restart decision) hung forever with the child already dead; a probe against the unfixed code hung at the 10 s
+catcher, and the permanent test times the package out under the reverted line. Fixed: the reader stops delivering
+once the context is cancelled and drains to EOF; the contract (consume events to close, or cancel, before `Wait`) is
+on the type. (2) `Wait` reported `(-1, context canceled)` for a child that exited 0 on the SIGTERM it was sent —
+fixed to read `ProcessState`, so P3-5's restart policy is not fed a "crash" for a stop it asked for. (3) **A FIFO
+planted at `${stateDir}/sessions/by-pid/<pid>.json` blocked every session-bound command and the watcher's map
+re-read until a writer appeared** (the E0-7 trust boundary again: the map is guarded by the file system alone, so
+the reader must refuse everything that is not a private regular file, and open without blocking) — fixed with
+`O_NONBLOCK`, a `Mkfifo` test and a 30 s hang catcher. (4) `Client` had no spawn seam, so U-25's "token absent from
+every child" and P3-3's "zero spawns on an oversize body" could only be asserted with a real process — added. (5)
+`config` had only the READ half of D36; `profile init --adapter` would have re-implemented the parsing and the
+atomic 0600 write and could have written a sidecar the next `SessionStart` refuses — `WriteSidecar`/
+`RegisterAdapter` added with refusals for an insecure registry and a value the resolver would refuse. (6) Four
+checks were green for weaker reasons than claimed (retryable trusted from the wire; any signal name; only the
+absolute-path miss) — strengthened.
+
+**Plan and brief corrections (measured):** 6.6/3.2 name `ps -o lstart=` as the start token and 7.1 puts detach/signals
+in `procutil`; the token now comes from the kernel (`kern.proc.pid` sysctl / procfs) and `procutil` spawns nothing —
+P3-4's watcher spawn sets `SysProcAttr{Setsid}` itself. `unix.SZOMB` does not exist in x/sys v0.47.0 (declared
+locally as 5 from `<sys/proc.h>`, proven by the measured `p_stat` of an unreaped child); darwin's sysctl answers
+`EIO` for a gone pid (mapped to gone with `ESRCH`/`ENOENT`). 6.7's "every attribute through the 64-code-point cap" and
+"ids in full" cannot both hold — the fs adapter's message ids are 64 hex characters, one short of biting — so the
+three ids keep the character rules and drop the cap. A unix-socket write returns once the kernel buffered the bytes
+(8 KiB on darwin), so a stalled peer is invisible for any real frame — which is exactly 4.9's `injected`; the bounded-
+wait test uses a 2 MiB content. `ENOENT` is observed at the `Lstat` pre-check (zero dials), not on dial. 6.8's "token
+bucket 10/min" is a sliding 60 s window of 10 (a refilling bucket would admit 18 of 25 in a minute, contradicting
+U-14's own expectation). 6.6 leaves exit statuses 1, 2, 3, 6, 7 and 12 unclassified for the watch child —
+`RetryableExit` maps every status through the codes (only 8 and 9 restart). The 3 s `describe` cap belongs to the
+caller's context, not inside `Describe` (an internal cap flaked at 3.03 s under `-race -count=3`). `StartWatch` routes
+the child's stderr to the adapter log, not a third pipe. A 2 MiB stdout is `stdout_not_json`, not `stdout_overflow`
+(the cap is 4 MiB); the 1 MiB line cap is the watch reader's. The by-pid map's mode rule is `adapterkit.ReadStrict`'s
+(no group/other bit; 0400 accepted). Caps the plan does not name: map 64 KiB, registry entry 256 KiB, settings and
+seen file 1 MiB, native id 80 characters.
+
+**For the threat model and the next briefs (recorded, not changed):** `adapterkit.ReadStrict` opens with `os.Open`
+— it follows a symlink and blocks on a FIFO — and is what `config` reads the sidecar, `adapters.json` and
+`profile.json` through, and `inbound.FileSeenStore` its seen file; only the two maps (own reader) and the pidfile
+(`Lstat` first) are immune. An `O_NOFOLLOW|O_NONBLOCK` + `LimitReader` `ReadStrict` is an additive change with three
+callers: **P3-3 does it** (the adapters read `profile.json` through it too, so the change is tested against the fs
+adapter and the conformance suite). `CLAUDE_PLUGIN_OPTION_*` exported by Claude Code cannot be told from the same
+name planted by a trusted repository's settings `env` block (E0-7 measured that block reaching the session
+environment): `CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND=<path in the repo>` would select the adapter for that session — no
+new capability (a trusted repository already runs arbitrary hooks) but it belongs beside the by-pid item in
+`docs/security.md`. `registry.Dir` is `os.DirFS`, which follows symlinks inside `$CLAUDE_CONFIG_DIR/sessions` (Claude
+Code's own 0700 directory). `adapterkit.Getenv` skips a later EMPTY entry where os/exec's `dedupEnv` honours it
+(fails closed for the session rule; a doc note). The `sleeper` testscript command is no longer exercised by any
+script. The linux `procutil` file was cross-vetted, test-compiled and linted under `GOOS=linux` but first RUNS in
+CI. The watch `error` events pass the wire `retryable` through (absent = false); P3-5 keys restarts on
+`backoff.Retryable(code)` per 4.3, never on the flag.
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -1706,3 +1812,14 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
 - 2026-09-02 ~20:20: **D1 done — the release rehearsal ran end to end and was torn down** (block above; release run
   33698279695). Two release-chain defects found and fixed on master first (`060114f` `--latest`, `036e175` the
   real-repository checksum test). Next: **P3-2** (Fable) from `.ignored/briefs/p3-2-harness-library.md`.
+- 2026-09-02 ~20:45: **CI run 33698564745 on `3584a42` (master after the rehearsal's two fixes and the log) green on every
+  job**; the run for `036e175` (33698127256) was cancelled by that push (`cancel-in-progress` on the same ref), so this
+  run is the one that covers the checksum-test fix. P3-2 authors running from
+  `.ignored/briefs/p3-2-harness-library.md`.
+- 2026-09-02 ~22:20: **P3-2 done** (block above) — five Fable authors in two waves, two Fable verifiers, no fix round;
+  the driver's full gate: `typecheck lint build` green, `make test` green on every package but ONE local flake in
+  `internal/adapters/supabase` (`TestIntegrationAdversarialBroadcastPayloadIsIdsOnly`: the websocket to the local
+  Realtime closed with EOF under the parallel `-race` load and the test waited out its 60 s; 0.26 s in isolation, and
+  the whole package green alone in 67 s — a property of the loaded local stack, not of the code; CI's fresh stack is
+  the arbiter), `vuln deps-check schema-check tidy-check` green, `plugin-check checksums-check` green. Next: **P3-3,
+  P3-4, P3-5 and their integration** (Fable) from `.ignored/briefs/p3-3-4-5-commands-hook-watch.md`.
