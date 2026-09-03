@@ -2080,3 +2080,7 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   rest on master; the day's five CI reds after the Phase 3 close were all real test-isolation defects or a real
   Linux path defect, each fixed at its cause and recorded above. Open: P3-8 (Rjae, `docs/experiments/
   E3-interactive.md`), the `license` field, Phase 4 (`.ignored/handoff-15-phase-4.md`).
+- 2026-09-03 ~14:50: CI run 33762208430 on the log-only `4b88acc` green. Rjae's first reading of the P3-8 checklist
+  raised three ambiguities (is the join pipeline one command; are the "where things live" lines commands; how many
+  terminals) — the checklist now says: one setup terminal for both command blocks (kept for checks 10–13), two
+  session terminals, three in all; the join written on one line; the notes labelled as notes.

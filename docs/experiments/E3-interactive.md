@@ -12,7 +12,10 @@ where you name what you saw, not what you expected.
 
 ## 0. Setup (once, in your own terminal — never from inside a Claude Code session)
 
-`team create` and `team join` refuse inside a session on purpose. Run this from a plain terminal in the repository:
+`team create` and `team join` refuse inside a session on purpose. Three terminals in all: ONE plain terminal in the
+repository for everything in this section (both command blocks below run there, one after the other; keep it open
+afterwards for the terminal-side steps of checks 10–13), then two more for the Claude Code sessions A and B. Run
+this in the setup terminal:
 
 ```sh
 make build
@@ -21,24 +24,26 @@ bin/brigade team create --name ops --label dev --secret-file ~/brigade-ops.secre
 bin/brigade profile status                              # expect: default adapter [...] (from sidecar)
 ```
 
-A second profile for the peer session (it joins the same fs team; the secret goes from the 0600 file into the stdin
-document, never onto argv):
+Then, in the same terminal, a second profile for the peer session (it joins the same fs team; the secret goes from
+the 0600 file into the stdin document, never onto argv). The join is ONE command — a brace group piped into
+`brigade team join` — written on one line here so it is one paste and one Enter:
 
 ```sh
 bin/brigade profile init --profile bob --adapter '["'"$PWD"'/bin/brigade-adapter-fs"]'
-{ printf '{"human_label":"bob","join_secret":"'; tr -d '\n' < ~/brigade-ops.secret; printf '"}'; } |
-  bin/brigade team join --profile bob
+{ printf '{"human_label":"bob","join_secret":"'; tr -d '\n' < ~/brigade-ops.secret; printf '"}'; } | bin/brigade team join --profile bob
 bin/brigade team members --profile bob                  # expect: two principals
 ```
 
-`make plugin-dev` writes the dev-binary pointer `${XDG_CONFIG_HOME:-~/.config}/brigade/dev-binary` and starts Claude
-Code with `--plugin-dir ./plugin`; `make plugin-dev-off` removes the pointer afterwards. The fs store is
-`${XDG_STATE_HOME:-~/.local/state}/brigade/fs-adapter`; the maps and pidfiles are under
-`${XDG_STATE_HOME:-~/.local/state}/brigade/`. Nothing here touches the Supabase stack.
+Where things live (notes, not commands): `make plugin-dev` writes the dev-binary pointer
+`${XDG_CONFIG_HOME:-~/.config}/brigade/dev-binary` and starts Claude Code with `--plugin-dir ./plugin`; `make
+plugin-dev-off` removes the pointer afterwards. The fs store is `${XDG_STATE_HOME:-~/.local/state}/brigade/fs-adapter`;
+the maps and pidfiles are under `${XDG_STATE_HOME:-~/.local/state}/brigade/`. Nothing here touches the Supabase
+stack.
 
-Open two terminals:
+Now open the two session terminals (the setup terminal stays open):
 
-- **A (alice)**: `make plugin-dev adapter=fs` (or plain `make plugin-dev` after the sidecar exists).
+- **A (alice)**: `make plugin-dev` (the sidecar written by `profile init --adapter` above selects the fs adapter;
+  `make plugin-dev adapter=fs` is the same thing spelled out).
 - **B (bob)**: `make plugin-dev profile=bob`.
 
 Both should print, as the first context line of the session, `Brigade: this session is "<name>" (<id>) in team
