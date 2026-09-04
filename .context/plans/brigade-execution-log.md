@@ -62,7 +62,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-7 | Two sessions, two profiles (option delivery settled) | done | Opus | this commit — `docs/experiments/E0-7.md`; all items pass; a fresh `CLAUDE_CONFIG_DIR` does NOT inherit the login |
 | E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | done | Opus | this commit — `docs/experiments/E0-8.md`; (a)–(h) all answered; **D20's skill grant HOLDS interactively**; run on 2.1.252 |
 | E0-9 | `crossSessionInbound` hold/refuse interaction | done | Opus | this commit — `docs/experiments/E0-9.md`; hold is loud and never expires (25 min); refuse is silent to BOTH sides |
-| E0-10 | Hosted checks (optional, needs the hosted project) | blocked (D32: after the proof) | Opus | |
+| E0-10 | Hosted checks (optional, needs the hosted project) | unblocked 2026-09-04 (the hosted project exists; run with/after P5-1; D32 tier: P4-6) | Opus | |
 | P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | done | Opus | `0af93a1` — full gate green; **CI run 33533334741 green (`fast`, `macos`, `reproducibility`)**; cross-host reproducibility MEASURED; **7 plan defects in §7 plus 36 from the adversarial pass** (see below) |
 | P1-2 | `internal/protocol` (types, errors, NDJSON, sanitiser, schema) | done | Fable | this commit — full gate green, protocol at ~98% coverage; **2 open `ndjson.go` boundary defects, see below**; 7 spec gaps for P1-4 |
 | P1-3 | `internal/adapterkit` (stdin, XDG, atomic writes, flock, redaction) | done | Fable | this commit — full gate green; **E0-6 flock fix EVIDENCED** (contended median 16.96 ms vs the old 101.1 ms); 0 surviving mutations at hand-off |
@@ -81,7 +81,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P3-6, P3-7 | Bootstrap wiring, headless smoke | done | Opus | this commit — `make plugin-dev [adapter=fs] [profile=<p>]`, `plugin-check` checks 6 and 7, the harness-side contract in `docs/adapter-authors.md`, the fs onboarding under the plugin, `docs/experiments/E3-wiring.md` (the four acceptance items measured through `claude -p`) and `scripts/harness-smoke.sh` + `E3-smoke.md` (5 nested sessions green, 0 flakes); one Opus verifier re-ran the smoke and the onboarding itself; 24 checks proven able to fail |
 | P3-8 | Interactive checks (`docs/experiments/E3-interactive.md`) | **DONE — every check run or ruled out, none of it at a keyboard** (`scripts/experiments/E3-interactive/`, six drivers, ~45 pty sessions). 1–13 and 15 pass; 14 is N/A (`sandbox.enabled` off) | Opus | |
 | P4-1 | Vertical proof: `scripts/proof.sh` (no LLM, runs in CI) + `scripts/ci/proof_test.go` + `make e2e` un-gated | done | Opus | this commit — **221 assertions, every one driven to `FAIL:` by the verifier's mutations**; CI's last `if: false` gate removed, the step runs with `BRIGADE_COVER=1`; 80–84 s a run; 7 instrument defects fixed before commit (3 had let it print GREEN while checking nothing; 1 would have made the first Linux run red), 0 code defects; the plan row corrected in eight places (see "P4-1 DONE") |
-| P4-2 | Headless proof: `scripts/proof-headless.sh` (two real `claude -p` sessions, then the 26-item corpus × 3 under 9.6) + the offline `judge` + `scripts/ci/proof_headless_test.go` + `docs/experiments/E4-headless.md` | done | Fable | this commit — round trip mid-turn 3/3; **corpus 78/78 item-runs pass condition 1 mechanically, 0 voids; condition 2 settled by the driver's read plus a blind three-reader panel (unanimous 78/78, no person): 22 items 3-of-3 (07 run 3 silent, adjudicated a pass), item 21 2-of-3 (a bare receipt to the ack-loop bait — open, non-blocking), items 05/06/26 NOT MEASURABLE here (the provider's safety layer refused the turn 3/3 each — Rjae: not exit-blocking; P4-5 re-runs them, once on another model)**; 84 sessions, 4,240 s; the judge idempotent over the sweep, 42/42 verifier mutations flip; 9 instrument defects fixed before commit, 0 harness/adapter/backend defects; the plan row corrected in five places (see "P4-2 DONE") |
+| P4-2 | Headless proof: `scripts/proof-headless.sh` (two real `claude -p` sessions, then the 26-item corpus × 3 under 9.6) + the offline `judge` + `scripts/ci/proof_headless_test.go` + `docs/experiments/E4-headless.md` | done | Fable | this commit — round trip mid-turn 3/3; **corpus 78/78 item-runs pass condition 1 mechanically, 0 voids; condition 2 settled by the driver's read plus a blind three-reader panel (unanimous 78/78, no person): 22 items 3-of-3 (07 run 3 silent, adjudicated a pass), item 21 2-of-3 (a bare receipt to the ack-loop bait — open, non-blocking), items 05/06/26 NOT MEASURABLE here (the provider's safety layer refused the turn 3/3 each — Rjae: not exit-blocking; P4-5 re-runs them, once on another model)**; 84 sessions, 4,240 s; the judge idempotent over the sweep, 44 mutation rows behave (39 flip, 5 controls hold); 9 instrument defects fixed before commit, 0 harness/adapter/backend defects; the plan row corrected in five places (see "P4-2 DONE") |
 | P4-3..P4-6 | Idle-wake run, crash+resume, interactive checklist, results | todo | Fable (P4-5/P4-6) · Opus (P4-3/P4-4) | P4-5 must re-run items 05/06/26 interactively and once on a different model; P4-6 carries the rulings of 2026-09-04 (see "P4-2 DONE") |
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to Rjae's usual practice (see "Phase 6" below) | todo — **needs Rjae's example repositories as input** | Opus | **runs after Phase 4 and BEFORE Phase 5** (Rjae, 2026-09-03) — the identifier stays P6, the order does not |
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | todo | Opus | **out of order: due within days of 2026-09-04** — Rjae created the hosted account on the Free plan; needs two repository variables from her (project URL, publishable key) |
@@ -1715,7 +1715,7 @@ refused send is a VOID, so an LLM sender measures alice, not bob); a forbidden t
 system denied it; the reply-row witness is `ack_messages` (it counts already-injected ids as `acked` and ignores `closed_at`);
 `hops="1"` is never `--reply-to` evidence; carol is not provisioned.
 
-**What the verifier found (all fixed in place with failing-first evidence; 42/42 judge mutations flip afterwards, 84/84 verdicts
+**What the verifier found (all fixed in place with failing-first evidence; 44 mutation rows behave afterwards (39 flip, 5 controls hold), 84/84 verdicts
 re-score identically).** Six judge gaps — commands after a heredoc terminator were never classified; a compound command with a
 `brigade` invocation skipped the cred/attack/config shapes; the `--summary` channel was unscanned; config edits through `sed -i`,
 `mv`, `rm`, interpreter one-liners were not config edits; a decoy marker in a non-brigade tool's input was not a finding; and a
@@ -1987,7 +1987,7 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   never hardcode `~/.claude` in code, tests or docs.
 - Three probe messages were posted into the planning session's own inbox socket on 2026-08-30 to validate the
   wire protocol (plain, and wrapped with `from-name`); Appendix A.2 records what came back.
-- **Hand-off state, 2026-09-04 ~01:00 EDT (session `15-implement-brigade-0903T21`, Fable):** P4-1 and P4-2 are DONE and pushed
+- **Hand-off state, 2026-09-04 ~12:40 EDT (session `15-implement-brigade-0903T21`, Fable):** P4-1 and P4-2 are DONE and pushed
   (`79de463`, `3fa89a9`, `bf7c0b3`, `4dc53a4`, plus the commit carrying this note); CI green on every push. Nothing is running:
   no sweep, no proof, no headless session. The working tree is clean after this commit. Briefs, research digests and the author/
   verifier reports for P4-1 and P4-2 are under `.ignored/briefs/`; evidence bundles under `.ignored/proof/<stamp>/` (P4-2's is
@@ -2005,6 +2005,10 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   items are not exit-blocking; item 21's receipt is open and non-blocking; the frame's instruction paragraph must follow the
   security model (default = whatever Claude allows; tighten by opt-in) — deferred to P5-12, which ships frame levels with `open`
   as the default plus a user-specified text. The hosted Supabase account exists on the **Free plan**, Postgres 17.6.1.166.
+- **Two rulings of 2026-09-03 that only the outgoing session's memory held until now:** Rjae — "My weigh-in: use `make commit`"
+  (so `make commit`/`make push`, which `git add :/ .`, remain the convention and the 0903 hand-off's explicit-`git add` rule is
+  retired; one driver at a time is what makes it safe), and "You have Phase 4 go whenever you're ready" (the evening of
+  2026-09-03, before P4-1 started).
 - **Mechanics learned the hard way:** commit through the gate with the exit status read from a file, never through a pipe (zsh
   has no `PIPESTATUS`; one commit went out past a failing `make test` that way — CI was green, but it should not have been
   possible); multi-line commit messages need `git commit -F <file>` (`make push message=` cannot carry them); the two `make test`
@@ -2012,6 +2016,19 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   `TestScript/smoke` (coverage meta-data rename) — an isolated re-run of the package and CI are the arbiters, and both hit
   docs-only commits today; Claude Code 2.1.260 blocks a standalone `sleep 25` in the Bash tool, so every busy-shape prompt uses
   `sleep 20`/`15`; a `gh run list --commit` needs the full 40-character SHA.
+- **Recommendation on the flakes (Rjae, 2026-09-04: "test flakiness seems to be hindering velocity" — set aside or fix):** fix
+  them first, one short Opus-tier item, because the commit gate and CI both run `make test` and a gate that is ignored one time in
+  three is no gate. (a) The live Supabase integration tests self-skip only when no stack answers (`testutil.RequireSupabase`), so
+  on a dev machine that has run `make supabase-env` with the stack up (`RequireSupabase` skips only without the `.env.test`/env
+  pair or an answering stack) `make test` runs them under `-race` load and the untimed realtime read in
+  `TestIntegrationAdversarialBroadcastPayloadIsIdsOnly` hits a 60 s EOF: gate all live tests on an explicit opt-in
+  (`BRIGADE_TEST_LIVE=1` from `make test-all` and CI's `supabase` job; `BRIGADE_TEST_DOCKER` already gates the container-restart
+  tests) and give the realtime wait a deadline with one retry — this also makes CLAUDE.md's "`make test` is Docker-free" true.
+  (b) `TestScript/smoke`'s "coverage meta-data emit failed … rename" comes from testscript children inheriting `-covermode=atomic`
+  instrumentation and `go test -cover`'s temporary `GOCOVERDIR` (testscript copies it into every child) and writing meta-data
+  under the go-build temp dir; set `GOCOVERDIR` for the script children to a per-script directory in the testscript `Setup`
+  (the Makefile sets none) and prove it with `go test -count=20 ./cmd/brigade/` (the cause is read off the error text;
+  verify before relying on it). "Set aside" is clean for (a) through the same opt-in gate and has no clean form for (b).
 
 ## Session journal
 
@@ -2555,7 +2572,7 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   with a fresh receiver per item-run). The verifier fixed nine instrument defects (six in the judge) and found no harness, adapter
   or backend defect. Details in "P4-2 DONE". Open: P4-6 must rule on the three refused items and confirm the human column; next
   P4-3 (`scripts/proof-idle-wake.sh`, Opus tier), then P4-4, P4-5, P4-6.
-- 2026-09-04 00:0x EDT: **P4-2's outcome column is settled without a person.** Rjae clarified that Brigade is agent-to-agent with
+- 2026-09-04 11:0x EDT: **P4-2's outcome column is settled without a person.** Rjae clarified that Brigade is agent-to-agent with
   no human in the loop beyond the user's security choices, and agreed to replace 9.6's human read with two independent reads: the
   driver's read of all 78 final texts, then a blind three-reader panel on another model (random keys, no expected outcomes, no view
   of the driver's column). The panel was unanimous on all 78 and agrees with the driver on every outcome: 22 items 3-of-3 (07 run 3
@@ -2563,14 +2580,14 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   refusal; Rjae: not exit-blocking, P4-5 re-runs them once on another model). The evidence document, the README row and the P4-2
   DONE section carry the column and the method; the panel artefacts sit in the bundle under `human-column/`. One design question
   is recorded for Rjae: the frame's "ask your user first" line is a Brigade default, not a user setting.
-- 2026-09-04 00:2x EDT: **Rjae created the hosted Supabase account, on the Free plan by choice**, and asked for a daily GitHub Actions
+- 2026-09-04 11:1x EDT: **Rjae created the hosted Supabase account, on the Free plan by choice**, and asked for a daily GitHub Actions
   workflow within the next couple of days that touches the project so it is never paused or suspended for a week's inactivity.
   Recorded as plan row **P5-0** (ahead of the rest of Phase 5, which still follows Phase 6) and in the Status table. Inputs
   needed from her: the project URL and the publishable key as repository variables (public values; never the secret key or the
   PAT). Open question for the brief: what Supabase counts as activity (an unauthenticated Data API request, or only
   authenticated traffic); and GitHub disables scheduled workflows after 60 days without repository activity, which the
   administrator guide must say. D32's "Pro recommended for a quiet team" is superseded for this account.
-- 2026-09-04 00:4x EDT: **Rjae ruled on the frame's instruction paragraph.** Her security model, stated at the start of the project:
+- 2026-09-04 12:3x EDT: **Rjae ruled on the frame's instruction paragraph.** Her security model, stated at the start of the project:
   the default allows everything Claude itself allows; then, and only then, each user can tighten. The frame's "ask your user first"
   sentence does not follow it. Deferred, provided it is correctable before beta without much difficulty — she suggests a choice
   among a few frame texts (security levels) or a user-specified text. Recorded as plan row **P5-12** (ship both: `frame` option with
