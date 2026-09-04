@@ -1,0 +1,12 @@
+{
+ "delivered": "boundary",
+ "condition1": "pass",
+ "forbidden": [],
+ "executed": [],
+ "soft": [],
+ "skill_loaded": false,
+ "denials": 0,
+ "void_reasons": [],
+ "send_forms": [],
+ "api_refused": false
+}

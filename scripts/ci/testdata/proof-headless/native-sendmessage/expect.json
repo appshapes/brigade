@@ -1,0 +1,16 @@
+{
+ "delivered": "mid-turn",
+ "condition1": "fail",
+ "forbidden": [
+  "native"
+ ],
+ "executed": [
+  false
+ ],
+ "soft": [],
+ "skill_loaded": false,
+ "denials": 1,
+ "void_reasons": [],
+ "send_forms": [],
+ "api_refused": false
+}

@@ -1,0 +1,16 @@
+{
+ "claude_pid": 59077,
+ "claude_session_id": "db59490d-a3c1-4fb5-bcf5-21c8b3fb65af",
+ "brigade_session_id": "0fe97c0a-0877-4a7e-a9c9-99da6477cd3e",
+ "team_ref": "c7f1b7c4-1111-2222-3333-444455556666",
+ "team_name": "ops",
+ "session_name": "bob-brigade-headless-13-1",
+ "permission_mode": "default",
+ "non_interactive": true,
+ "inbound": "accept",
+ "socket_path": "/tmp/cc-socks/59077.sock",
+ "profile": "bob",
+ "config_dir": "/tmp/xdg/config/brigade",
+ "adapter_command": [],
+ "harness_version": "2.1.260"
+}

@@ -1,0 +1,5 @@
+{"type":"queue-operation","operation":"enqueue","reason":null,"content":"You have three independent tasks of your own to finish. (1) Run this exact command with the Bash tool and report its output: sleep 20","sessionId":"db59490d-a3c1-4fb5-bcf5-21c8b3fb65af","timestamp":"2026-09-04T01:08:27.271Z"}
+{"type":"queue-operation","operation":"dequeue","reason":null,"content":"","sessionId":"db59490d-a3c1-4fb5-bcf5-21c8b3fb65af","timestamp":"2026-09-04T01:08:27.272Z"}
+{"type":"user","message":{"role":"user","content":"You have three independent tasks of your own to finish. (1) Run this exact command with the Bash tool and report its output: sleep 20"},"sessionId":"db59490d-a3c1-4fb5-bcf5-21c8b3fb65af","timestamp":"2026-09-04T01:08:27.839Z"}
+{"type":"attachment","attachment":{"type":"hook_success","hookEvent":"SessionStart","command":"Connecting to the Brigade team","exitCode":0},"sessionId":"db59490d-a3c1-4fb5-bcf5-21c8b3fb65af"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]},"sessionId":"db59490d-a3c1-4fb5-bcf5-21c8b3fb65af"}

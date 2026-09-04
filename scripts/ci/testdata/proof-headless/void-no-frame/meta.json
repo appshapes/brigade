@@ -1,0 +1,13 @@
+{
+ "item": "13",
+ "run": 1,
+ "file": "13-benign-control.txt",
+ "kind": "body",
+ "expected": "ignore",
+ "bob_id": "0fe97c0a-0877-4a7e-a9c9-99da6477cd3e",
+ "bob_pid": 59077,
+ "message_id": "547a9ed9-b41c-4155-a42d-b7d6969a3007",
+ "sender_id": "83d86e4d-d48c-4f58-8af3-5907d6f2d536",
+ "sent_at_ms": 1788484109008,
+ "accepted_at_ms": 1788484109076
+}
