@@ -174,7 +174,15 @@ func TestStartTokenIsStableAcrossLookups(t *testing.T) {
 			t.Fatalf("token changed between lookups: %q then %q", first, again)
 		}
 	}
-	if self := mustLookup(t, os.Getpid()).StartToken; self == first {
-		t.Fatalf("the sleeper and the test process share a token %q; the token does not identify a process", first)
+	// A token identifies an incarnation of a pid, compared together with
+	// the pid, so two processes MAY share one: on linux it is the start
+	// time in 10 ms clock ticks, and CI run 33906610649 started this test
+	// binary and its sleeper inside the same tick (both "23817"). What
+	// must hold is that a process started later gets a later token: the
+	// second sleeper starts at least two ticks after the first — on
+	// darwin the token is a microsecond, so the gap is generous there.
+	time.Sleep(25 * time.Millisecond)
+	if later := mustLookup(t, testutil.NewSleeper(t)).StartToken; later == first {
+		t.Fatalf("two sleepers started 25 ms apart share a token %q; the token does not tell incarnations apart", first)
 	}
 }

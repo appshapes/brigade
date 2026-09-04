@@ -445,6 +445,16 @@ nothing `go tool covdata percent` reads in the `supabase` job moves. Residual: `
 child overlapping its own script (same directory, never observed to collide; the adapter it spawns gets no `GOCOVERDIR` through
 `adapterkit.ChildEnv`); Linux clocks are finer, so a green Ubuntu run was never evidence about this flake in either direction.
 
+**(c) `TestStartTokenIsStableAcrossLookups` — a third flake, Linux-only, found by the first CI run after the plan split (run
+33906610649, a docs-only commit).** On linux the start token is `/proc/<pid>/stat` field 22, the start time in 10 ms clock
+ticks, and the test asserted that the sleeper's token differs from the test process's own — but on a fast runner the test
+binary and its first sleeper start inside the same tick (both `"23817"`). A token identifies an INCARNATION of a pid and is
+compared together with the pid (the guard's contract; two processes sharing a tick is by design, `procutil_linux.go`'s
+comment says so), so the assertion was wrong, not the code. Fix: the test compares two sleepers started 25 ms apart — at
+least two ticks on linux, a generous gap against darwin's microsecond token. Measured in Docker (`golang:1.27`, 40 runs
+each): the old assertion failed **9 of 40** on linux; the new test **40/40** under `-race -shuffle=on`; darwin 5/5. No other
+test compares tokens across processes (`pidfile/guard_test.go` forges a token by editing a character).
+
 **Plan corrections recorded here** (recorded in implementation/09-testing.md's corrections block by the split that followed; the section text itself stays verbatim): 9.4's gate paragraph
 (plan ~2801) says `RequireSupabase` "skips under `-short`" (there is no `testing.Short()` in the tree) and names
 `client_integration_test.go`/`integration_test.go` (they do not exist); the gate is now `BRIGADE_TEST_LIVE=1` plus the pair plus the
@@ -1184,3 +1194,8 @@ old self-skip (a dated digest; left).
   the 23 audited edit sites reproduces the original log byte for byte (c0983556…). Docs-only commit made with explicit `git add`
   paths and no local Go gate: P5-0's author held half-written files in the same tree, and CI is the gate for a change that touches
   no code.
+- 2026-09-04 15:5x EDT: **A third `make test` flake, linux-only, fixed the same afternoon.** The plan-split commit's CI run
+  (33906610649) failed `TestStartTokenIsStableAcrossLookups` in `internal/procutil`: the test binary and its sleeper started
+  inside one 10 ms clock tick and shared a start token, which the test wrongly treated as a defect (a token identifies an
+  incarnation of a pid, with the pid). The assertion now compares two sleepers started two ticks apart; 9/40 failures before,
+  0/40 after, measured on linux in Docker. Recorded as (c) in "MAKE TEST FLAKES FIXED".
