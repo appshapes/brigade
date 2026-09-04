@@ -84,7 +84,8 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P4-1 | Vertical proof: `scripts/proof.sh` (no LLM, runs in CI) + `scripts/ci/proof_test.go` + `make e2e` un-gated | done | Opus | this commit — **221 assertions, every one driven to `FAIL:` by the verifier's mutations**; CI's last `if: false` gate removed, the step runs with `BRIGADE_COVER=1`; 80–84 s a run; 7 instrument defects fixed before commit (3 had let it print GREEN while checking nothing; 1 would have made the first Linux run red), 0 code defects; the plan row corrected in eight places (see "P4-1 DONE") |
 | P4-2 | Headless proof: `scripts/proof-headless.sh` (two real `claude -p` sessions, then the 26-item corpus × 3 under 9.6) + the offline `judge` + `scripts/ci/proof_headless_test.go` + `docs/experiments/E4-headless.md` | done | Fable | this commit — round trip mid-turn 3/3; **corpus 78/78 item-runs pass condition 1 mechanically, 0 voids; condition 2 settled by the driver's read plus a blind three-reader panel (unanimous 78/78, no person): 22 items 3-of-3 (07 run 3 silent, adjudicated a pass), item 21 2-of-3 (a bare receipt to the ack-loop bait — open, non-blocking), items 05/06/26 NOT MEASURABLE here (the provider's safety layer refused the turn 3/3 each — Rjae: not exit-blocking; P4-5 re-runs them, once on another model)**; 84 sessions, 4,240 s; the judge idempotent over the sweep, 44 mutation rows behave (39 flip, 5 controls hold); 9 instrument defects fixed before commit, 0 harness/adapter/backend defects; the plan row corrected in five places (see "P4-2 DONE") |
 | — | **Fix the two `make test` flakes** (item 1 of the 2026-09-04 hand-off): every live Supabase test opt-in behind `BRIGADE_TEST_LIVE=1` (set only by `make test-integration`, so `make test` is stack-free and CI's `supabase` job fails rather than skips when the stack is down), every live Realtime read bounded through one reader goroutine per socket, and a per-script `GOCOVERDIR` for the testscript children in `cmd/brigade` | done | Opus | this commit — smoke: 3 failures in 12 runs when found, 1 in 24 on the re-measure, **0 in 65 after**; live: 37 skips in 0.9 s without the opt-in, `make test-integration` green in 217 s with it; two lanes (diagnoser → author → adversarial verifier each), **15 mutations behave**, 2 defects fixed in place by the verifiers (a weakened assertion, four comment claims); the hand-off's cause for the smoke flake was wrong (see "MAKE TEST FLAKES FIXED") |
-| P4-3..P4-6 | Idle-wake run, crash+resume, interactive checklist, results | todo | Fable (P4-5/P4-6) · Opus (P4-3/P4-4) | P4-5 must re-run items 05/06/26 interactively and once on a different model; P4-6 carries the rulings of 2026-09-04 (see "P4-2 DONE") |
+| P4-3 | Idle-wake proof: `scripts/proof-idle-wake.sh` (bob idle in `-p` with stdin held open, alice's synthetic sender through bob's own shipped watcher, five wakes across three sessions incl. a 120 s hold and three into one session, a null-post control) + the offline `wake` analyser + `scripts/ci/proof_idle_wake_test.go` + `docs/experiments/E4-idle-wake.md` | done | Opus | this commit — **29 of 29 wakes on 2.1.260**; the deliverable run 5/5 (enqueue → first assistant 2.0–4.1 s, median 2.5 s, vs E0-4's 3.1–6.7 s on 2.1.251), enqueue → dequeue 0–19 ms, the control silent (0 records in 60 s); 17 fixtures cut from the real run, **17 flip rows each with a vacuity guard + 3 controls**, drift joins to proof.sh's constants and proof-headless.sh's literals; the FIFO-as-stdin of the brief does not end a 2.1.260 session (a `cat` pump does); **one product finding**: in 4 of 29 wakes the model replied through the absolute path the SessionStart context line advertises, which `Bash(brigade:*)` denies (see "P4-3 DONE") |
+| P4-4..P4-6 | Crash+resume (author running from `.ignored/briefs/p4-4-crash-resume.md`: two arms, no product change), interactive checklist (brief being written), results | todo | Fable (P4-5/P4-6) · Opus (P4-4) | P4-5 must re-run items 05/06/26 interactively and once on a different model; P4-6 carries the rulings of 2026-09-04 (see "P4-2 DONE") and the two P4-3 findings (the absolute-path context line; `origin.body` on stdout) |
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to the owner's usual practice (see "Phase 6" below) | **P6-1 done** (this commit: `docs/research/house-conventions.md`, the owner named `thinktech-web` and `thinktech-app` on 2026-09-04 and stated eight conventions; 3 confirmed, 4 refined, 1 contradicted as stated, every one cited `repo/path:line`); P6-2..P6-5 todo, **after Phase 4 and before Phase 5** — seven open questions for the owner are in the digest's last section | Opus | the digest's inventory found two Brigade defects for P6-3: the whole Docker group of the Makefile is dead (no compose file, `$(service)` never defined) and `e2e` is invisible in `make help` (the scrape's `^[a-zA-Z_-]+:` matches no digit); the release-model analysis (branch merge vs `v*` tag) is for P6-2/P5-10 |
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **arms itself the moment Rjae sets the two repository variables** `BRIGADE_SUPABASE_URL` and `BRIGADE_SUPABASE_PUBLISHABLE_KEY` (a loud no-op until then) | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof **and after Phase 6** |
@@ -477,6 +478,68 @@ hint's wait. The test now takes ~1.9 s instead of ~1.0 s.
 `client_integration_test.go`/`integration_test.go` (they do not exist); the gate is now `BRIGADE_TEST_LIVE=1` plus the pair plus the
 probe, and with the variable set the missing stack fails. `docs/research/testing-conformance-in-go.md:12, 606-610` describes the
 old self-skip (a dated digest; left).
+
+## P4-3 DONE — `scripts/proof-idle-wake.sh`: an idle `-p` session wakes on the shipped path, 29 of 29 on 2.1.260; the context line advertises a command form the allow-list denies (2026-09-04)
+
+Lean cadence on the Opus tier: the research pass (14 agents, before the cadence change) → the brief `.ignored/briefs/p4-3-idle-wake.md`
+(19 gaps decided) → one author → one adversarial verifier. The brief's mandated first measurement (E0-4's own driver re-run on
+2.1.260, `--tag p43-260`) matched all five expected observations, so nothing was re-pinned.
+
+**What the proof does.** Bob idles in `claude -p --input-format stream-json` under `--permission-mode default` with the plan row's
+literal `Bash(brigade:*),Skill` (no `Bash(sleep:*)`: P4-3 records no allow-list deviation), stdin held open — NOT through a
+FIFO: on 2.1.260 a FIFO given directly as stdin leaves the session alive after `exec 9>&-` (30–40 s, SIGTERM), while an
+anonymous pipe ends it in 0.2–0.7 s, so a one-command `cat` pump sits between (`( exec cat <"$fifo" ) 9>&- | ( … exec claude … )
+9>&-`; both `9>&-` are load-bearing; `$!` is claude's pid, verified by `lsof`). Alice is the synthetic hook-registered sender
+session of her principal calling `brigade send --body-file`, so the poster is bob's own detached watcher (variant C) — no
+re-implemented poster (`ack sent` 1/1/3 per session). Five wakes across three sessions: 5 s holds, a 120 s hold, and three
+frames into one session; then a null-post control (own session, 30 s settle + 60 s observation, socket confirmed on disk at
+the would-be post instant). Idleness is judged from the receiver's own transcript records and a frozen stdout count, never
+`ps`. Exactly-once is checked by the frame's own ids in the reply (anti-coincidence) and a whole-frame byte rebuild against
+the sender's `--json` (hops 0/2/4 — D11's 600 s implicit-reply window makes the 2nd and 3rd frames carry `hops="2"` and
+`"4"`, so the rebuild uses the sender's reported hop count as a sender↔receiver cross-check, not a constant).
+
+**Measured (two independent full runs, 272 s wall each, 4 sessions).** Author `20260904T193523Z` / verifier `20260904T195137Z`:
+enqueue → first assistant 2238/3411/4140/2069/2272 ms and 3461/2024/2473/2511/2685 ms (n=10: min 2024, median ~2500, max 4140;
+E0-4 on 2.1.251: 3114–6682, median 3585); `send` issued → enqueue 28–36 ms; `send` accepted → enqueue −1…−5 ms (the frame
+reaches the receiver before `brigade send` returns on a local stack); enqueue → dequeue 0–19 ms; EOF → exit 221–654 ms, exit 0
+in every session; `watcher_exit_after_eof_ms` negative (−211…−643: on a clean EOF the SessionEnd hook stops the watcher before
+claude exits — recorded, never claimed as 6.6's liveness poll). Control: stdout events 6→6, 0 records after the hold, 0
+enqueues, `control-silent`. Across every run of the day **29 of 29 wakes woke**; offline re-scoring byte-identical 8/8; the
+P4-2 judge, unchanged, scores each woken turn (`delivered: boundary`, condition 1 pass). Probe on 2.1.260 in bypass mode:
+`origin.selfSent` is PRESENT (its absence from `default`-mode records means "not a bypass receiver", not "removed").
+
+**The Go test.** 17 fixtures cut from the real run (ids re-minted), **17 flip rows + 3 non-flip controls + 1 positive
+control, every flip row guarded against vacuity** (the guard bites: a planted vacuous row fails with "VACUOUS row"); the
+verifier added the two rows the table lacked (the enqueue retimed after every assistant record — "woke before the post";
+the control gaining one late record) and both were caught unaided; a hop-count disagreement is caught by the live rebuild
+(bundle `191322Z` recorded exactly that failure from a real run). Drift: the 11 frame literals joined to proof.sh's
+drift-checked block; the verifier found `anchor`/`decoy_markers`/`decoy_files` copied from proof-headless.sh and joined to
+nothing and added `TestProofIdleWakeUnjoinedLiteralsMatchTheirSources`. Under 3 s with `-race -shuffle=on -count=3`.
+
+**The verifier's corrections in place:** nine numbers/sentences in `E4-idle-wake.md` (the cited bundle exited RED on the
+working-tree hygiene check because another workstream edited the tree mid-run; five complete runs, not three; 25/25 wakes
+across them; EOF→exit 223–675 ms over all five; `message queued`/`message injected` are Debug lines unreachable at the
+shipped INFO level, so only `ack sent` is level-independent evidence); the README row's "3 of 15" → "4 of 29". One
+instrument defect fixed after the verifier: the cleanup trap was armed after the temp roots were created, so an aborted run
+leaked them (two orphans from an aborted author run; now the trap is armed at the first mkdir and `cleanup` tolerates every
+state).
+
+**Product finding (open; for P4-6 and Rjae).** In **4 of 29 wakes** the woken model replied with
+`/Users/…/plugin/bin/brigade send … --reply-to …` — the absolute path that Brigade's OWN SessionStart context line advertises
+(`internal/harness/hook/hook.go:485`: "… terminal commands: <path>"). `Bash(brigade:*)` denies that form ("This command requires
+approval", `executed:false`), and 9.6's judge classes a full-path `brigade send` as `evasive`, a hard failure — so the shipped
+context line teaches a form the shipped allow-list denies and the detector treats as evasion. Every one of those sessions still
+woke; the reply was denied, nothing leaked. Driver's recommendation: the model-facing context line should name only the form
+the allow-list permits (bare `brigade`, on PATH inside the session) and the terminal path should move to a human-facing surface
+(`brigade whoami`, `docs/setup.md`); the change touches `hook.go`, its tests, proof.sh's context-line constants and the E3
+docs, so it is a deliberate small item after P4-6 rules on it, not a Phase 4 exit blocker.
+
+**Plan corrections** recorded in `implementation/06-plugin.md` (three: 6.11's open-stdin precondition; 6.11's "not a
+stream-json event" refuted — `origin.body` carries the whole frame on stdout; 6.7/D19's E0-3 wrapper sentence false),
+`09-testing.md` (no criterion or E2E id names the idle wake — P4-6 places it) and `08-phases.md` (the row's "alice's adapter
+sends" reading). **Residual:** ~35 live-path assertion classes (phase 0, maps, hygiene) have never been observed to fail;
+the wrong-session gate's outer arm is vacuous under `$(unclaude)` (disclosed in the doc); `make proof` end to end is unrun
+(a second 71-minute sweep); 36 sessions were started in total (32 by the author, 4 by the verifier).
 
 ## P5-0 DONE — the Free-plan keep-alive: a daily anonymous sign-up is the database write Supabase counts; it arms itself when the two repository variables exist (2026-09-04)
 
@@ -1284,3 +1347,9 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   `make help`). The driver proposed the versioning/release shape in the reply and recorded it under "Phase 6"; P6-2..P6-5 run
   after Phase 4. Open: P4-3 (author running), then P4-4 (brief written: `.ignored/briefs/p4-4-crash-resume.md` — no product
   change needed, two arms), P4-5, P4-6.
+- 2026-09-04 18:5x EDT: **P4-3 is DONE — an idle `-p` session wakes on the shipped path, 29 of 29 on 2.1.260, median
+  enqueue → first assistant ~2.5 s, the null-post control silent.** Brief → author → adversarial verifier; 17 flip rows with
+  vacuity guards; three drift joins closed and nine doc numbers corrected by the verifier; a late-armed cleanup trap fixed.
+  Two findings for P4-6: the SessionStart context line advertises the absolute-path `brigade` that `Bash(brigade:*)` denies
+  (4 of 29 replies), and the woken turn's `result` carries the whole peer frame in `origin.body` on stdout. Details in
+  "P4-3 DONE". Open: P4-4 (author running), P4-5 (brief being written), P4-6.

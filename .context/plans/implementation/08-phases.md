@@ -20,6 +20,7 @@ Live: Phases 4–6 and the testing strategy are still executed from this text; c
 - 2026-09-04 — "P5-0 DONE" — P5-0 row: "call `describe`'s RPC" — `describe` has no RPC (it answers from local files, P2-6); the authenticated request is `brigade.my_team_ids()` (execute granted to `authenticated`), which answers 404 until P5-1 applies the migrations — the workflow treats that as a warning, not a failure, because the anonymous sign-up before it is the database write that counts.
 - 2026-09-04 — "P5-0 DONE" — P5-0 row: "GitHub's own rule that scheduled workflows are disabled after 60 days without repository activity" holds for PUBLIC repositories only (docs read 2026-09-04); the repository is private today, so the rule binds from the day it goes public (P5-10), and docs/setup.md says so.
 - 2026-09-04 — "P5-0 DONE" — P5-0 row: what counts is "user database activity" (Supabase, read 2026-09-04): a GoTrue health probe alone would not; the anonymous sign-up (an `auth.users` insert) is the guaranteed rung, one row per day until P5-3's gc.
+- 2026-09-04 — "P4-3 DONE" — P4-3 row: "alice's adapter sends" is read as the synthetic, hook-registered sender session of alice's principal calling `brigade send --body-file` through the bundled adapter, so the poster is bob's own shipped watcher (variant C); no LLM alice is run, and the `expect` fallback was not needed (the `-p` arm woke 29 of 29).
 
 <!-- verbatim from the one-file plan -->
 ## 8. Phased implementation plan

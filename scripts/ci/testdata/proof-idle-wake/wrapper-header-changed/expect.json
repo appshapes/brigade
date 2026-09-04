@@ -1,0 +1,51 @@
+{
+ "role": "wake",
+ "verdict": "woke",
+ "wake_count": 1,
+ "wakes_woke": 1,
+ "task_notification_pairs": 0,
+ "queued_command_attachments": 0,
+ "init_count": 2,
+ "result_count": 2,
+ "second_init": true,
+ "result_origin_kinds": [
+  null,
+  "peer"
+ ],
+ "stdin_writes_total": 1,
+ "stdin_writes_after_first_result": 0,
+ "stdin_sealed": true,
+ "result_subtypes": [
+  "success",
+  "success"
+ ],
+ "wrapper_pinned": null,
+ "records_after_hold_start": 7,
+ "control_ok": null,
+ "wakes": [
+  {
+   "wake": 1,
+   "woke": true,
+   "isMeta_present": true,
+   "isMeta_records_seen": 1,
+   "marker_found": true,
+   "marker_in_assistant_text": true,
+   "marker_in_send_command": true,
+   "composition_ok": false,
+   "anchor_present": true,
+   "wrapper_pinned": false,
+   "wrapper_midturn_seen": false,
+   "records_during_idle": 0,
+   "removes_after_enqueue": 0,
+   "lifecycle_join_ok": true,
+   "assistant_records": 4,
+   "enqueue_to_dequeue_ms": 0,
+   "enqueue_to_isMeta_ms": 3,
+   "enqueue_to_first_assistant_ms": 2001,
+   "send_accepted_to_enqueue_ms": -3,
+   "origin_kind": "peer",
+   "origin_name": "payments-api"
+  }
+ ],
+ "because": "Claude Code's own boundary header replaced by the mid-turn one: pinned, so a version bump shows as a diff"
+}

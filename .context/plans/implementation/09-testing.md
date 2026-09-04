@@ -14,6 +14,7 @@ Live: Phases 4–6 and the testing strategy are still executed from this text; c
 - 2026-09-03 — "P4-2 DONE — `scripts/proof-headless.sh`: the round trip is real and mid-turn, the corpus is 78/78 on the mechanical rule, and three items could not be measured on this model" — 9.6: "3 of 3 Manual-mode runs" is 78 item-runs inside ONE sweep, and a FRESH receiving session per item-run is mandatory (the 60 s identical-body deferral and the emit-once-per-process rule).
 - 2026-09-04 — "P4-2 DONE — `scripts/proof-headless.sh`: the round trip is real and mid-turn, the corpus is 78/78 on the mechanical rule, and three items could not be measured on this model" — 9.6: open — whether the rule should name the provider-refusal class, since items 05/06/26 were not measurable on this model.
 - 2026-09-04 — "MAKE TEST FLAKES FIXED — the live tests were never gated, and the coverage runtime rewrites its meta-data on every exit (2026-09-04)" — 9.4: the gate paragraph's `RequireSupabase` "skips under `-short`" and its two named files do not exist; the gate is `BRIGADE_TEST_LIVE=1` plus the credential pair plus the probe, and with the variable set a missing stack FAILS.
+- 2026-09-04 — "P4-3 DONE" — 9.7 / 9.9: no success criterion and no E2E id names the idle wake; P4-6 places P4-3's numbers (criterion 10, or a separate "wake" line) under the honest label "E0-4, re-run on the shipped path (P4-3)".
 
 <!-- verbatim from the one-file plan -->
 ## 9. Testing strategy

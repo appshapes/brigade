@@ -1,0 +1,27 @@
+{
+ "role": "wake",
+ "verdict": "no-wake",
+ "wake_count": 0,
+ "wakes_woke": 0,
+ "task_notification_pairs": 1,
+ "queued_command_attachments": 0,
+ "init_count": 2,
+ "result_count": 2,
+ "second_init": true,
+ "result_origin_kinds": [
+  null,
+  "peer"
+ ],
+ "stdin_writes_total": 1,
+ "stdin_writes_after_first_result": 0,
+ "stdin_sealed": true,
+ "result_subtypes": [
+  "success",
+  "success"
+ ],
+ "wrapper_pinned": null,
+ "records_after_hold_start": 7,
+ "control_ok": null,
+ "wakes": [],
+ "because": "an enqueue/dequeue pair that is a background-task notification, not a frame: never a wake"
+}

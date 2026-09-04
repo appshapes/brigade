@@ -1,0 +1,25 @@
+{
+ "role": "control",
+ "verdict": "control-silent",
+ "wake_count": 0,
+ "wakes_woke": 0,
+ "task_notification_pairs": 0,
+ "queued_command_attachments": 0,
+ "init_count": 1,
+ "result_count": 1,
+ "second_init": false,
+ "result_origin_kinds": [
+  null
+ ],
+ "stdin_writes_total": 1,
+ "stdin_writes_after_first_result": 0,
+ "stdin_sealed": true,
+ "result_subtypes": [
+  "success"
+ ],
+ "wrapper_pinned": null,
+ "records_after_hold_start": 0,
+ "control_ok": true,
+ "wakes": [],
+ "because": "the null-post control, cut from the run's own control session: nothing was ever sent, and the analyser must score it from its own fields rather than crash or silently skip it"
+}
