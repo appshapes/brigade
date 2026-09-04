@@ -1362,18 +1362,35 @@ func TestWatchSettleDrainAfterJoinFindsALostBroadcast(t *testing.T) {
 // TestWatchDrainTimerWhileLive: with the channel up, a message accepted
 // with no hint (a lost broadcast) still arrives on the LIVE drain timer,
 // and is not emitted again by the drains that follow. The polling
-// interval is an hour here, so the timer that fires is the live one,
-// re-armed on the join (the watch starts on the polling interval).
+// interval is an hour here and the settling cadence is spent before the
+// message is accepted, so the live timer is the only one left to find it
+// (the watch starts on the polling interval).
 func TestWatchDrainTimerWhileLive(t *testing.T) {
 	drainTiming(t, 250*time.Millisecond, time.Hour)
+	settleTiming(t, 300*time.Millisecond) // the settling cadence, kept short
 	r, ph, in := watchRig(t)
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
 	w.expectReady()
 	ph.nextJoin()
 	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
+	// `status live` is emitted BEFORE the drain on join, and two settling
+	// drains follow that one, so a message accepted the instant the status
+	// is read is found by the join drain itself (measured: 1.1 ms, on
+	// fetch 2) -- or, when the runner puts the accept a hair later, only by
+	// a settling drain a whole settle interval away. That is the flake of
+	// run 33907417452 (attempt 1, the ubuntu `fast` job): a 3 s window in a
+	// dead heat with the shipped 3 s settling interval, lost by the length
+	// of one RPC, "no watch event within 2.999999519s". Three more fetches
+	// from here -- the join drain and both settling drains, whatever the
+	// count is now -- leave the live timer as the only one armed.
+	in.settled(t, in.fetched()+3)
 
 	timed := in.accept("no hint")
-	if got := messageID(t, w.expect(protocol.EventMessage, 3*time.Second)); got != timed {
+	// The window is a hang catcher, not the bound under test: the polling
+	// interval is an hour and the settling cadence is over, so nothing but
+	// the 250 ms live timer can deliver this message however slow the
+	// runner is.
+	if got := messageID(t, w.expect(protocol.EventMessage, 10*time.Second)); got != timed {
 		t.Fatalf("message %s, want the timed %s", got, timed)
 	}
 	w.quiet(1000 * time.Millisecond)

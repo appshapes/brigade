@@ -455,6 +455,21 @@ least two ticks on linux, a generous gap against darwin's microsecond token. Mea
 each): the old assertion failed **9 of 40** on linux; the new test **40/40** under `-race -shuffle=on`; darwin 5/5. No other
 test compares tokens across processes (`pidfile/guard_test.go` forges a token by editing a character).
 
+**(d) `TestWatchDrainTimerWhileLive` — a fourth flake, an ordering race in the test, seen once in 60 CI runs (run 33907417452
+attempt 1, the ubuntu `fast` job; the rerun passed).** The test sets the live drain to 250 ms and the polling drain to an hour and
+expects a hint-less message to arrive on the live timer within 3 s. But `status live` is emitted (`watch.go:494`) BEFORE the
+mandatory drain on join (`watch.go:502`), and two settling drains follow it at the shipped `settle` of 3 s (`watch.go:357-367`,
+`settleDrains` = 2), which `drainTiming` leaves untouched — so the live timer is not armed until ~6 s after the join. A message
+accepted the instant the status is read is found by the join drain itself (measured 1.1 ms); accepted a hair later, only by a
+settling drain a whole 3 s away — a dead heat with the 3 s window, lost by the length of one RPC (`no watch event within
+2.999999519s`). Reproduced deterministically 2/2 by holding the join drain's reply 50 ms after its snapshot; 0 failures in 130
+natural runs (Mac under load, Linux at 1 and 2 CPUs) because the losing window is sub-millisecond. Fix, test only: the settling
+cadence is shortened to 300 ms and spent before the accept (`in.settled(t, in.fetched()+3)`), so the live timer is the only
+armed timer by construction, and the window is 10 s as a hang catcher (provenance checked: with the live interval at 1.2 s the
+message arrives at 1.2 s). The injected ordering that failed 2/2 passes 5/5; 30/30 on Mac and 30/30 on Linux at 1 CPU under
+`-race -shuffle=on`. No watcher defect: the join drain is mandatory (E0-2 (f)) and the settling cadence only shortens a lost
+hint's wait. The test now takes ~1.9 s instead of ~1.0 s.
+
 **Plan corrections recorded here** (recorded in implementation/09-testing.md's corrections block by the split that followed; the section text itself stays verbatim): 9.4's gate paragraph
 (plan ~2801) says `RequireSupabase` "skips under `-short`" (there is no `testing.Short()` in the tree) and names
 `client_integration_test.go`/`integration_test.go` (they do not exist); the gate is now `BRIGADE_TEST_LIVE=1` plus the pair plus the
@@ -1253,3 +1268,9 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   ladder 200/200/200/204 with `auth.users` +1). Two plan-row errors corrected (`describe` has no RPC; the 60-day rule is for
   public repositories). Details in "P5-0 DONE". Open: P4-3 (author running: the 2.1.260 probe, then the script and its full
   run), a fourth CI flake under diagnosis (`TestWatchDrainTimerWhileLive`, once in 60 runs), then P4-4.
+- 2026-09-04 17:1x EDT: **A fourth flake, `TestWatchDrainTimerWhileLive`, fixed at its cause: an ordering race between the
+  test's 3 s window and the watcher's 3 s settling cadence** (seen once in 60 CI runs; reproduced 2/2 with a 50 ms hold on the
+  join drain, 0/5 after; 60/60 natural runs after). Recorded as (d) in "MAKE TEST FLAKES FIXED". Also: CI is green on P5-0's
+  commit (run 33908735238, the `supabase` job with the new opt-in in 7m18s), and a manual `gh workflow run keepalive.yml`
+  ran green in 5 s on the real repository with the no-op notice rendered as an annotation — the workflow is live and waits
+  only for the two variables.
