@@ -86,7 +86,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | — | **Fix the two `make test` flakes** (item 1 of the 2026-09-04 hand-off): every live Supabase test opt-in behind `BRIGADE_TEST_LIVE=1` (set only by `make test-integration`, so `make test` is stack-free and CI's `supabase` job fails rather than skips when the stack is down), every live Realtime read bounded through one reader goroutine per socket, and a per-script `GOCOVERDIR` for the testscript children in `cmd/brigade` | done | Opus | this commit — smoke: 3 failures in 12 runs when found, 1 in 24 on the re-measure, **0 in 65 after**; live: 37 skips in 0.9 s without the opt-in, `make test-integration` green in 217 s with it; two lanes (diagnoser → author → adversarial verifier each), **15 mutations behave**, 2 defects fixed in place by the verifiers (a weakened assertion, four comment claims); the hand-off's cause for the smoke flake was wrong (see "MAKE TEST FLAKES FIXED") |
 | P4-3..P4-6 | Idle-wake run, crash+resume, interactive checklist, results | todo | Fable (P4-5/P4-6) · Opus (P4-3/P4-4) | P4-5 must re-run items 05/06/26 interactively and once on a different model; P4-6 carries the rulings of 2026-09-04 (see "P4-2 DONE") |
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to Rjae's usual practice (see "Phase 6" below) | todo — **needs Rjae's example repositories as input** | Opus | **runs after Phase 4 and BEFORE Phase 5** (Rjae, 2026-09-03) — the identifier stays P6, the order does not |
-| P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | todo | Opus | **out of order: due within days of 2026-09-04** — Rjae created the hosted account on the Free plan; needs two repository variables from her (project URL, publishable key) |
+| P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **arms itself the moment Rjae sets the two repository variables** `BRIGADE_SUPABASE_URL` and `BRIGADE_SUPABASE_PUBLISHABLE_KEY` (a loud no-op until then) | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof **and after Phase 6** |
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo | Fable | **before beta** — Rjae, 2026-09-04: the frame's instruction paragraph must follow the security model (default = whatever Claude allows; tighten by opt-in); one corpus sweep per shipped level |
 
@@ -461,6 +461,55 @@ test compares tokens across processes (`pidfile/guard_test.go` forges a token by
 probe, and with the variable set the missing stack fails. `docs/research/testing-conformance-in-go.md:12, 606-610` describes the
 old self-skip (a dated digest; left).
 
+## P5-0 DONE — the Free-plan keep-alive: a daily anonymous sign-up is the database write Supabase counts; it arms itself when the two repository variables exist (2026-09-04)
+
+Run by `15-implement-brigade-0904` on the Opus tier in the lean cadence (brief `.ignored/briefs/p5-0-keepalive.md` written by the
+driver from inline research, one author, one adversarial verifier). Rjae's request verbatim: "add a daily GitHub Actions workflow
+that does something against the Supabase project to keep the account from being suspended (due to weekly inactivity)."
+
+**What counts, from the source (Supabase "Project Pausing", read 2026-09-04):** "a Free plan project is considered inactive if it
+does not receive sufficient user database activity over the past week"; "typically a few user requests to the database each day".
+So the request must reach the database: a GoTrue health probe alone would not, and PostgREST's OpenAPI root may not. The plan row's
+"call `describe`'s RPC" cannot be done — `describe` answers from local files (P2-6) and has no RPC — and its 60-day GitHub rule is
+for PUBLIC repositories (this one is private; it binds the day the repository goes public). Both corrections are in
+`implementation/08-phases.md`.
+
+**The ladder (`scripts/ci/keepalive.sh`, POSIX sh, `curl` + `jq`, `set -eu`):** (0) both variables unset → a `::notice::` and exit
+0 (a fork, or not configured yet); exactly one set → `::error::`, exit 1; the URL must be `https://` (loopback excepted, for the
+local stack and the tests; `localhost.evil.example` is refused). (1) `GET /auth/v1/health` with the apikey, `--retry 3
+--retry-delay 10 --retry-all-errors` — a transient 503 costs 10 s, a refused connection 30 s; a paused project's **540 is not
+retried** (curl treats it as a completed transfer), so that alert is immediate: `::error::… did not answer /auth/v1/health (HTTP
+540): paused, deleted or unreachable — see docs/setup.md`. (2) `POST /auth/v1/signup` with the adapter's exact anonymous body
+(`{"data":{},"gotrue_meta_security":{}}`, drift-joined against `gotrue.go`) — the guaranteed database write, one `auth.users`
+row per day until P5-3's gc; a 422 `anonymous_provider_disabled` fails naming the dashboard toggle. (3) `POST
+/rest/v1/rpc/my_team_ids` with the bearer and both `-Profile: brigade` headers — 200 once P5-1 has applied the migrations, a 404
+before that is a `::warning::`, not a failure. (4) `POST /auth/v1/logout?scope=global` — 204 expected, anything else a warning.
+The apikey AND the bearer travel through 0600 header files (`-H @file`), never argv; no response body that could carry a token is
+ever printed (GoTrue/PostgREST error fields only). All output, `::error::` included, goes to stdout because GitHub reads workflow
+commands from the step's output stream.
+
+**The workflow (`.github/workflows/keepalive.yml`):** `schedule: 37 10 * * *` (off the hour, as GitHub advises) plus
+`workflow_dispatch`, `permissions: {contents: read}`, `timeout-minutes: 5` (worst case ≈ 240 s of retries), the two variables
+mapped from `vars.` into the environment, checkout, run the script. **Arming it (Rjae):** `gh variable set BRIGADE_SUPABASE_URL
+--body https://<ref>.supabase.co` and `gh variable set BRIGADE_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_…` (both public
+values), then `gh workflow run keepalive.yml` and read the run's four rung lines; the hosted project must have anonymous sign-ins
+enabled (the D32 setting) or the run fails naming the toggle. `docs/setup.md` (new; P5-7 completes it) carries all of this as the
+administrator's responsibilities, with the sources quoted and dated.
+
+**Verified (author, then the verifier trying to refute):** 10 offline cases against an `httptest` GoTrue/PostgREST and a `curl`
+shim on a restricted PATH that records argv, header-file modes and the request sequence; **20 mutation rows** each caught by the
+case it names (the verifier added five: retries removed — VACUOUS until an argv assertion on the health rung was added; a token
+planted beside the header file — caught by the argv assertion alone; the sign-up body echoed; a failing rung naming the key;
+`Content-Profile` dropped; `set -eu` disabled); the token and the key appear in no case's stdout/stderr, failure cases included;
+live under `BRIGADE_TEST_LIVE=1`: 200/200/200/204 and `auth.users where is_anonymous` +1 exactly (counted through the database
+container, DSN never printed); shellcheck 0.11 locally and 0.10 in Docker clean; `make plugin-check` check 9 lists the script;
+`make lint` 0 issues; the workflow parses; every `vars.` name byte-identical across workflow, script, test and doc. The verifier
+corrected three sentences against their sources ("six days of slack" is not what Supabase says — the rule asks for activity each
+day; GitHub *can* delay schedules under load, it does not *always* at the hour; P5-10 does not commit to a public repository).
+
+**Residual:** the executable bit is asserted only once the file is tracked (this commit records 100755); `timeout-minutes: 5`
+against a ≈240 s worst case; `set -eu` guarded by a text check only; one anonymous row per day accumulates until P5-3.
+
 ## Open questions carried from research (settle during the phase that needs them)
 
 - `${CLAUDE_PLUGIN_ROOT}` substitution in a hook's `command` field vs `args` (E0-5 (g), documented but re-record).
@@ -573,9 +622,8 @@ old self-skip (a dated digest; left).
   no sweep, no proof, no headless session. The working tree is clean after this commit. Briefs, research digests and the author/
   verifier reports for P4-1 and P4-2 are under `.ignored/briefs/`; evidence bundles under `.ignored/proof/<stamp>/` (P4-2's is
   `20260904T012337Z`, with the outcome-column panel under `human-column/`).
-- **Order of work from here:** (1) **P5-0**, the Free-plan keep-alive workflow — out of order, due within days of 2026-09-04; it
-  needs the project URL and the publishable key from Rjae as repository variables, and its brief must settle what Supabase counts
-  as activity; (2) **P4-3** `scripts/proof-idle-wake.sh` (Opus tier; `make proof` already names it, so `make proof` is broken until
+- **Order of work from here:** (1) **P5-0** — DONE 2026-09-04 (see "P5-0 DONE"); arming it needs Rjae's two repository variables, nothing
+  else; (2) **P4-3** `scripts/proof-idle-wake.sh` (Opus tier; `make proof` already names it, so `make proof` is broken until
   it exists) with the usual research fan-out → brief → author + adversarial verifier; (3) P4-4; (4) **P4-5**, which must re-run
   corpus items 05/06/26 interactively and once on a different model, and where the Skill dialog puts D20 back in play; (5) **P4-6**
   results document carrying today's rulings; then Phase 6 (blocked on Rjae naming the example repositories), then Phase 5 with
@@ -1199,3 +1247,9 @@ old self-skip (a dated digest; left).
   inside one 10 ms clock tick and shared a start token, which the test wrongly treated as a defect (a token identifies an
   incarnation of a pid, with the pid). The assertion now compares two sleepers started two ticks apart; 9/40 failures before,
   0/40 after, measured on linux in Docker. Recorded as (c) in "MAKE TEST FLAKES FIXED".
+- 2026-09-04 16:3x EDT: **P5-0 is DONE — the keep-alive workflow, its script, its tests and `docs/setup.md`; it arms itself when
+  Rjae sets `BRIGADE_SUPABASE_URL` and `BRIGADE_SUPABASE_PUBLISHABLE_KEY` as repository variables.** The lean cadence's first
+  item: brief by the driver, one author, one adversarial verifier (20 mutation rows, one found vacuous and closed; the live
+  ladder 200/200/200/204 with `auth.users` +1). Two plan-row errors corrected (`describe` has no RPC; the 60-day rule is for
+  public repositories). Details in "P5-0 DONE". Open: P4-3 (author running: the 2.1.260 probe, then the script and its full
+  run), a fourth CI flake under diagnosis (`TestWatchDrainTimerWhileLive`, once in 60 runs), then P4-4.

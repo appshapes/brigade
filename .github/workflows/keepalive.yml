@@ -1,0 +1,47 @@
+# Plan P5-0. The hosted Supabase project is on the Free plan, and Supabase "pauses Free Plan projects that
+# show low activity over a 7-day period"; "typically a few user requests to the database each day over the
+# previous week is enough to keep the project from being paused", and the prevention it names is to "generate
+# a sufficient amount of activity by making API calls to your project"
+# (https://supabase.com/docs/guides/platform/free-project-pausing, read 2026-09-04). This workflow makes those
+# calls. The rungs are in scripts/ci/keepalive.sh; two of them (an anonymous sign-up and one RPC) reach the
+# DATABASE, which is what the rule counts -- a GoTrue health probe alone does not, so it is this workflow's
+# reachability check and not its activity.
+#
+# Daily, not weekly, because the window is seven days: a daily run means one missed day (an Actions incident,
+# a throttled schedule) is harmless. The minute is 37 and the hour is not on the hour because GitHub says the
+# "`schedule` event can be delayed during periods of high loads ... High load times include the start of every
+# hour" and advises scheduling "at a different time of the hour". Scheduled runs fire only on the default
+# branch (`master` here), which is also GitHub's rule, not a choice.
+#
+# GitHub disables a scheduled workflow after 60 days without repository activity IN A PUBLIC REPOSITORY. This
+# repository is private today (`gh repo view`, 2026-09-04), so that rule does not apply yet; it starts
+# applying the day the repository is made public -- P5-10 at the earliest, and only if the release is
+# distributed from a public repository rather than from public releases alone -- and docs/setup.md carries the
+# administrator's half of it.
+#
+# The project url and the publishable key come from repository VARIABLES, not secrets: both are public by
+# design -- they are the only two values a team's members ever receive (plugin/README.md, "Administrator:
+# create a team"). A secret would be masked in the log for no gain, and the mask would hide the very hostname
+# a failing run has to name. The secret/service-role key and the personal access token are never here and are
+# never a variable or a secret of this workflow. Until an administrator sets the two variables (docs/setup.md,
+# and `gh variable list` showed none on 2026-09-04) every run is a green no-op that says so on the run page.
+#
+# A failing run is the alert: Actions e-mails the failure, and the script's `::error::` annotation names the
+# rung that broke and what to do about it. No `concurrency` group: one scheduled run a day, and a manual
+# `workflow_dispatch` beside it is harmless.
+name: keepalive
+on:
+  schedule: [{cron: "37 10 * * *"}]      # 10:37 UTC daily; off the hour on GitHub's own advice (above)
+  workflow_dispatch: {}                  # `gh workflow run keepalive.yml` for a manual check
+permissions: {contents: read}            # the job reads the checkout and nothing else
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest               # preinstalls curl and jq, the script's only two dependencies
+    timeout-minutes: 5                   # four requests at --max-time 30 plus the health rung's retries
+    env:                                 # the adapter's own variable names (P5-0 brief 3.1), not SUPABASE_*
+      BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_SUPABASE_URL }}"
+      BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_SUPABASE_PUBLISHABLE_KEY }}"
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/ci/keepalive.sh
