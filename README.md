@@ -76,4 +76,4 @@ Plans live in `.context/plans/`, ephemeral scratch in `.ignored/` (gitignored).
 | `plugin/` | what the Claude Code plugin ships: the manifest, the lifecycle hooks, the two skills, the sh bootstrap and the release pins |
 | `supabase/` | the Supabase backend: migrations, pgTAP tests, local stack config |
 | `scripts/ci/` | the CI checks (plugin tree, secrets, release pins) |
-| `.context/plans/` | the implementation plan and the execution log |
+| `.context/plans/` | the implementation plan (an index plus one file per section under implementation/), the execution log and its archive |
