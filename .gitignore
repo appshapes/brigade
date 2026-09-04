@@ -33,6 +33,10 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
+# Test fixtures cut from real evidence keep their real names, and one of them is a *.log: the P4-3 commit lost all
+# seventeen stdin-writes.log fixtures to the rule above at `git add` time and CI failed on a clean checkout while every
+# local run passed (2026-09-04, run 33915532579). scripts/ci/fixtures_test.go fails `make test` on any ignored fixture.
+!scripts/ci/testdata/**/*.log
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json

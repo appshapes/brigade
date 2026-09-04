@@ -1,0 +1,5 @@
+{"event": "stdin_log_open", "at_ms": 1788549737539, "fifo": "bob-idlewake-ctrl"}
+{"event": "stdin_write", "seq": 1, "at_ms": 1788549737814, "note": "first and only prompt"}
+{"event": "first_result_observed", "at_ms": 1788549739833, "writes_total": 1, "detail": "stdin is now sealed for the rest of the run"}
+{"event": "no_post_control_marker", "at_ms": 1788549769360, "writes_total": 1, "detail": "NOTHING was posted; stdin still untouched; observation starts here"}
+{"event": "stdin_closed_eof", "at_ms": 1788549829254, "writes_total": 1, "detail": "first close of stdin in the whole run"}

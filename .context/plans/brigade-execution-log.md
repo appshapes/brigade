@@ -1353,3 +1353,8 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   Two findings for P4-6: the SessionStart context line advertises the absolute-path `brigade` that `Bash(brigade:*)` denies
   (4 of 29 replies), and the woken turn's `result` carries the whole peer frame in `origin.body` on stdout. Details in
   "P4-3 DONE". Open: P4-4 (author running), P4-5 (brief being written), P4-6.
+- 2026-09-04 19:3x EDT: **The P4-3 commit was red on CI on a clean checkout while every local run and the worktree gate were
+  green: `.gitignore`'s `*.log` had swallowed all 17 `stdin-writes.log` fixtures at `git add`, and the analyser tests read
+  them from disk.** Fixed with a scoped negation (`!scripts/ci/testdata/**/*.log`) and a guard, `scripts/ci/fixtures_test.go`,
+  that fails `make test` on any ignored fixture under `scripts/ci/testdata` (proven to fail without the negation) — CI's clean
+  checkout can only show the consequence, so the guard lives where the cause is.

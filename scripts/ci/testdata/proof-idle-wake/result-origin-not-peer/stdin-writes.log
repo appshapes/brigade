@@ -1,0 +1,5 @@
+{"event": "stdin_log_open", "at_ms": 1788549551258, "fifo": "bob-idlewake-1"}
+{"event": "stdin_write", "seq": 1, "at_ms": 1788549551567, "note": "first and only prompt"}
+{"event": "first_result_observed", "at_ms": 1788549555149, "writes_total": 1, "detail": "stdin is now sealed for the rest of the run"}
+{"event": "frame_send_starts", "at_ms": 1788549560556, "writes_total": 1, "detail": "posted out-of-band through brigade send; stdin still untouched"}
+{"event": "stdin_closed_eof", "at_ms": 1788549574425, "writes_total": 1, "detail": "first close of stdin in the whole run"}
