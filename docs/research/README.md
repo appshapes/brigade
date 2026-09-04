@@ -41,3 +41,11 @@ After the first plan review the user chose: empowering-by-default (allow by defa
 | `exp/probe/`, `exp/tscript/` | testing-digest example sources (probe binary, testscript examples) |
 
 Not committed (local only, `.ignored/research/wf2/`): built binaries, the full go-lab/release-lab trees with `dist/`, fetched documentation pages, the running `sb/` stack config with keys. `dist/`, `bin/`, `logs/`, `out/` and `*.out` are ignored at any depth by the seeded Node template, so evidence is stored under non-colliding names and `docs/research/**` is force-un-ignored in `.gitignore`.
+
+## House conventions (2026-09-04) — Phase 6 input
+
+Read from Rjae's own repositories under `/Users/rjae/Development/thinktech/` (read-only, not committed here), not from the Brigade tree. It is the input to P6-2..P6-5, which may not invent a convention this file does not evidence.
+
+| File | What it is |
+| --- | --- |
+| `house-conventions.md` | The P6-1 convention digest: Rjae's eight stated conventions confirmed / refined / contradicted against `thinktech-web`, `thinktech-app`, `thinktech-php` and `thinktech-api` (every one cited `repo/path:line`), plus the full Brigade target-and-script inventory with each script's caller and inlineability, the collisions with the constraints the execution log fixes, and the branch-vs-tag release analysis for P6-2/P5-10 |
