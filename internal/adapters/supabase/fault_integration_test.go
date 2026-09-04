@@ -1,8 +1,9 @@
 package supabase
 
 // The two Docker fault tests of plan 9.4, gated by BRIGADE_TEST_DOCKER=1
-// (`make test-integration` and CI's supabase job set it; a bare `go test`
-// skips with the reason):
+// on top of the BRIGADE_TEST_LIVE=1 opt-in every live test waits on
+// (`make test-integration` and CI's supabase job set both; a bare `go
+// test` skips with the reason):
 //
 //	(a) polling degradation — the Realtime container is stopped under a
 //	    running watch: `status polling` inside the reconnect backoff, a

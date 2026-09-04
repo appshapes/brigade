@@ -12,7 +12,8 @@ import (
 // the paths a fake backend cannot show — the migrations' own argument
 // names and raise texts, PostgreSQL's timestamp rendering, the computed
 // state, and the ownership answers the RPCs give. Every test self-skips
-// through testutil.RequireSupabase (inside liveRig), mints its own
+// through testutil.RequireSupabase (inside liveRig) without the
+// BRIGADE_TEST_LIVE opt-in or without the stack, mints its own
 // anonymous principals and its own team, and never resets the database.
 
 // liveTeam creates a team through the `team create` VERB on a fresh

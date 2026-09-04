@@ -11,9 +11,10 @@ package supabase
 // prescribes: this file is the only place in the test tree that talks to
 // Postgres, and it never asserts on SQL where a verb can answer.
 //
-// Everything self-skips through testutil.RequireSupabaseDB: no
-// .env.test, no SUPABASE_DB_URL or no answering stack and `make test`
-// stays Docker-free.
+// Everything self-skips through testutil.RequireSupabaseDB: first
+// without the BRIGADE_TEST_LIVE opt-in (testutil.LiveTestVar), then
+// without .env.test, SUPABASE_DB_URL or an answering stack — so `make
+// test` stays Docker-free and stack-free.
 
 import (
 	"context"

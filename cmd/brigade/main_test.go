@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rogpeppe/go-internal/testscript"
@@ -99,6 +100,40 @@ func TestScript(t *testing.T) {
 			env.Vars = append(env.Vars, dirs.Vars()...)
 			env.Vars = append(env.Vars,
 				"PATH="+adapterDir+string(os.PathListSeparator)+env.Getenv("PATH"))
+
+			// Coverage: a GOCOVERDIR per script, never the shared one.
+			//
+			// Every `exec brigade` is this instrumented test binary
+			// re-executed (plan 9.1), and testscript copies the ambient
+			// GOCOVERDIR into every script child, so under `go test -cover`
+			// the children of all sixteen parallel scripts (plan 9.5) emit
+			// into one directory. Each rewrites the meta-data file — the
+			// runtime's reuse test measures it against a length that omits
+			// the per-package offsets and lengths and the string table,
+			// 257 bytes against 239 here, so it never matches — through
+			// tmp.covmeta.<hash><time.Now().UnixNano()>, renamed into place,
+			// and UnixNano advances a microsecond at a time on macOS: two
+			// children exiting inside one of them build the same temp name,
+			// the loser's rename fails ENOENT onto its stderr, and whichever
+			// script's `! stderr .` drew it fails (three runs in twelve when
+			// it was found, one in twenty-four on a re-measure; none in
+			// sixty-five after this). Unsetting it instead only swaps that
+			// for "warning: GOCOVERDIR not set, no coverage data emitted" on
+			// the same stderr, and cover.out is unchanged either way: the one
+			// instrumented statement here is in main(), which no child runs.
+			// Rewritten in place because env.Setenv appends, which would
+			// leave the script two GOCOVERDIR lines.
+			if env.Getenv("GOCOVERDIR") != "" {
+				coverDir := filepath.Join(env.WorkDir, ".gocoverdir")
+				if err := os.MkdirAll(coverDir, 0o700); err != nil {
+					return err
+				}
+				for i, kv := range env.Vars {
+					if strings.HasPrefix(kv, "GOCOVERDIR=") {
+						env.Vars[i] = "GOCOVERDIR=" + coverDir
+					}
+				}
+			}
 			return nil
 		},
 	})

@@ -82,6 +82,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P3-8 | Interactive checks (`docs/experiments/E3-interactive.md`) | **DONE — every check run or ruled out, none of it at a keyboard** (`scripts/experiments/E3-interactive/`, six drivers, ~45 pty sessions). 1–13 and 15 pass; 14 is N/A (`sandbox.enabled` off) | Opus | |
 | P4-1 | Vertical proof: `scripts/proof.sh` (no LLM, runs in CI) + `scripts/ci/proof_test.go` + `make e2e` un-gated | done | Opus | this commit — **221 assertions, every one driven to `FAIL:` by the verifier's mutations**; CI's last `if: false` gate removed, the step runs with `BRIGADE_COVER=1`; 80–84 s a run; 7 instrument defects fixed before commit (3 had let it print GREEN while checking nothing; 1 would have made the first Linux run red), 0 code defects; the plan row corrected in eight places (see "P4-1 DONE") |
 | P4-2 | Headless proof: `scripts/proof-headless.sh` (two real `claude -p` sessions, then the 26-item corpus × 3 under 9.6) + the offline `judge` + `scripts/ci/proof_headless_test.go` + `docs/experiments/E4-headless.md` | done | Fable | this commit — round trip mid-turn 3/3; **corpus 78/78 item-runs pass condition 1 mechanically, 0 voids; condition 2 settled by the driver's read plus a blind three-reader panel (unanimous 78/78, no person): 22 items 3-of-3 (07 run 3 silent, adjudicated a pass), item 21 2-of-3 (a bare receipt to the ack-loop bait — open, non-blocking), items 05/06/26 NOT MEASURABLE here (the provider's safety layer refused the turn 3/3 each — Rjae: not exit-blocking; P4-5 re-runs them, once on another model)**; 84 sessions, 4,240 s; the judge idempotent over the sweep, 44 mutation rows behave (39 flip, 5 controls hold); 9 instrument defects fixed before commit, 0 harness/adapter/backend defects; the plan row corrected in five places (see "P4-2 DONE") |
+| — | **Fix the two `make test` flakes** (item 1 of the 2026-09-04 hand-off): every live Supabase test opt-in behind `BRIGADE_TEST_LIVE=1` (set only by `make test-integration`, so `make test` is stack-free and CI's `supabase` job fails rather than skips when the stack is down), every live Realtime read bounded through one reader goroutine per socket, and a per-script `GOCOVERDIR` for the testscript children in `cmd/brigade` | done | Opus | this commit — smoke: 3 failures in 12 runs when found, 1 in 24 on the re-measure, **0 in 65 after**; live: 37 skips in 0.9 s without the opt-in, `make test-integration` green in 217 s with it; two lanes (diagnoser → author → adversarial verifier each), **15 mutations behave**, 2 defects fixed in place by the verifiers (a weakened assertion, four comment claims); the hand-off's cause for the smoke flake was wrong (see "MAKE TEST FLAKES FIXED") |
 | P4-3..P4-6 | Idle-wake run, crash+resume, interactive checklist, results | todo | Fable (P4-5/P4-6) · Opus (P4-3/P4-4) | P4-5 must re-run items 05/06/26 interactively and once on a different model; P4-6 carries the rulings of 2026-09-04 (see "P4-2 DONE") |
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to Rjae's usual practice (see "Phase 6" below) | todo — **needs Rjae's example repositories as input** | Opus | **runs after Phase 4 and BEFORE Phase 5** (Rjae, 2026-09-03) — the identifier stays P6, the order does not |
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | todo | Opus | **out of order: due within days of 2026-09-04** — Rjae created the hosted account on the Free plan; needs two repository variables from her (project URL, publishable key) |
@@ -1748,6 +1749,63 @@ allow — it does NOT follow the project's security model (default = everything 
 on the condition that it is correctable before beta without much difficulty: plan row **P5-12** ships a choice of frame texts
 (security levels, `open` as the default) and a user-specified frame text. These 78 transcripts are the baseline for today's text.
 
+## MAKE TEST FLAKES FIXED — the live tests were never gated, and the coverage runtime rewrites its meta-data on every exit (2026-09-04)
+
+Item 1 of the 2026-09-04 hand-off, run by `15-implement-brigade-0904` on the Opus tier as two independent lanes, each a diagnoser
+with a reproduction, an author, and an adversarial verifier with mutations. Both root causes are measured, not read off the error
+text; one of the hand-off's two causes was wrong.
+
+**(a) `TestIntegrationAdversarialBroadcastPayloadIsIdsOnly` — two defects composed.** First, there was no opt-in: `RequireSupabase`
+skipped only without a `.env.test`/env pair or an answering stack, and `make supabase-start supabase-env` leaves both behind for
+good, so on this machine `make test` ran every live test (32 PASS / 5 SKIP in 55.9 s with no `BRIGADE_*` variable set) under the
+whole-tree `-race -shuffle=on` load. Second, the test's raw Phoenix loop read with `conn.Read(t.Context())` and no bound: the 10 s
+window was re-checked only between iterations, so a broadcast missed under load (a fresh join's fan-out is not warm the instant
+`phx_reply` says ok — `watch.go:68-78` records it) turned into a blocking read until the Realtime server closed the un-heartbeated
+socket — **60.0008 s from the dial, measured twice**; the shipped comments at `realtime.go:405`, `watch.go:80` and
+`docs/research/supabase-in-go.md:146` say ~66 s from E0-2's older stack and are left as they are (the 25 s heartbeat is safe under
+either). Fix: `testutil.LiveTestVar` = `BRIGADE_TEST_LIVE`, checked FIRST in `RequireSupabase` (no `.env.test` read, no probe
+without it — 37 skips in 0.9 s); `make test-integration` sets it beside `BRIGADE_TEST_DOCKER=1`, and nothing else does; **with it
+set, a missing pair or a dead stack is `t.Fatal`, not a skip** (the verifier proved the skip form let `make test-integration` exit 0
+with 4/4 SKIP and nothing run — the driver's decision, after the lanes). Every live Realtime read in the package now goes through
+`realtimewait_test.go`: one reader goroutine per socket feeding a channel, waits as `select` on `time.After` (a per-read
+`context.WithTimeout` is not an option — coder/websocket closes the connection when a read's context is cancelled, measured as "use
+of closed network connection"), `mustAwaitFrame` failing with the event, topic and window; the ids-only test sends once more if the
+first hint misses its 10 s window (the assertion is the payload's SHAPE, which every `message_accepted` shares) and asserts
+membership in the set of ids it sent. The verifier found the membership check satisfiable by a broadcast with no `message_id`
+(`sent[""]`) and restored the strength with a guard on the send's id. CLAUDE.md now says "Docker-free and stack-free"; CI's
+`supabase` job comment names the opt-in. Verified: `make test-integration` green in 217 s (all live tests, both Docker fault tests,
+conformance(supabase) 45/0/0); the two touched packages under `make test`'s exact flags 0 failures in 27.4 s; 10/10 mutations
+behave (gate unset → all skip; gate set + black-hole URL → immediate; helper window 1 ms → fails fast with the new message, not EOF;
+the retry path under a forced miss; the assertion diff reviewed line by line).
+
+**(b) `TestScript/smoke` — and equally `sessions` and `errors`: the shared `GOCOVERDIR`.** Under `go test -cover` every `exec
+brigade`/`exec fake-adapter` in the 16 parallel txtar scripts is the instrumented test binary re-executed (testscript.Main), and
+testscript copies the ambient `GOCOVERDIR` (`go test` sets it to `<objdir>/gocoverdir`) into every child, so 187 children emit into
+one directory. Every one of them REWRITES the meta-data file: the runtime's reuse test compares the on-disk size with a length that
+omits the per-package offsets, lengths and the string table (257 bytes on disk against 239 computed, `cfile/emit.go:353`; proved
+independently by a covmeta inode that changed between two runs of a `go build -cover` hello into one directory), so the collision
+window is the whole run, not its first milliseconds. The temp name is `tmp.covmeta.<hash>` + `time.Now().UnixNano()`, and on this
+Mac `UnixNano` advances in 1 µs steps (100000/100000 samples end in `000`; the failing names in the logs do too): two children
+exiting in the same microsecond build the same temp path, the first `rename` moves it away, the second fails ENOENT onto its
+stderr, and whichever script's `! stderr .` drew it fails. Reproduced 3 in 12 runs (`sessions.txtar:37`, `smoke.txtar:81`,
+`errors.txtar:58`), then 1 in 24 on the verifier's re-measure; isolated demo 4 failures in 480 concurrent `brigade version` runs
+into one directory, 0 in 480 with one directory each. NOT the hand-off's "the go-build temp dir is cleaned concurrently": nothing
+cleans it during the run, and the ENOENT is on the rename's SOURCE. Fix: `TestScript`'s Setup rewrites the children's `GOCOVERDIR`
+in place to `$WORK/.gocoverdir` when the ambient one is set (Setenv appends and last-wins, so the entry is rewritten rather than
+appended). `cover.out` is unchanged either way — the one instrumented statement in `cmd/brigade` is `main()`, which no child runs;
+unsetting the variable instead swaps the failure for "warning: GOCOVERDIR not set" on the same stderr (measured). Verified: 0
+failures in 65 fixed runs across the lanes (34 by the verifier, logs in its scratch), 5/5 mutations behave (redirect reverted →
+1/24 fails again; variable deleted → the warning fails a script); CI never runs `make test` with an ambient `GOCOVERDIR`, so
+nothing `go tool covdata percent` reads in the `supabase` job moves. Residual: `watch-sink.txtar` keeps one instrumented background
+child overlapping its own script (same directory, never observed to collide; the adapter it spawns gets no `GOCOVERDIR` through
+`adapterkit.ChildEnv`); Linux clocks are finer, so a green Ubuntu run was never evidence about this flake in either direction.
+
+**Plan corrections recorded here** (the plan text is corrected in the split that follows this commit): 9.4's gate paragraph
+(plan ~2801) says `RequireSupabase` "skips under `-short`" (there is no `testing.Short()` in the tree) and names
+`client_integration_test.go`/`integration_test.go` (they do not exist); the gate is now `BRIGADE_TEST_LIVE=1` plus the pair plus the
+probe, and with the variable set the missing stack fails. `docs/research/testing-conformance-in-go.md:12, 606-610` describes the
+old self-skip (a dated digest; left).
+
 ## Plan corrections from E0-8
 
 1. **6.2 — make the BACKGROUND download the default.** Synchronous costs 8.5 s at 1 MB/s (passes the 20 s bar) but
@@ -2009,26 +2067,19 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   (so `make commit`/`make push`, which `git add :/ .`, remain the convention and the 0903 hand-off's explicit-`git add` rule is
   retired; one driver at a time is what makes it safe), and "You have Phase 4 go whenever you're ready" (the evening of
   2026-09-03, before P4-1 started).
-- **Mechanics learned the hard way:** commit through the gate with the exit status read from a file, never through a pipe (zsh
-  has no `PIPESTATUS`; one commit went out past a failing `make test` that way — CI was green, but it should not have been
-  possible); multi-line commit messages need `git commit -F <file>` (`make push message=` cannot carry them); the two `make test`
-  load flakes on this Mac are `TestIntegrationAdversarialBroadcastPayloadIsIdsOnly` (60 s realtime read under `-race` load) and
-  `TestScript/smoke` (coverage meta-data rename) — an isolated re-run of the package and CI are the arbiters, and both hit
-  docs-only commits today; Claude Code 2.1.260 blocks a standalone `sleep 25` in the Bash tool, so every busy-shape prompt uses
-  `sleep 20`/`15`; a `gh run list --commit` needs the full 40-character SHA.
-- **Recommendation on the flakes (Rjae, 2026-09-04: "test flakiness seems to be hindering velocity" — set aside or fix):** fix
-  them first, one short Opus-tier item, because the commit gate and CI both run `make test` and a gate that is ignored one time in
-  three is no gate. (a) The live Supabase integration tests self-skip only when no stack answers (`testutil.RequireSupabase`), so
-  on a dev machine that has run `make supabase-env` with the stack up (`RequireSupabase` skips only without the `.env.test`/env
-  pair or an answering stack) `make test` runs them under `-race` load and the untimed realtime read in
-  `TestIntegrationAdversarialBroadcastPayloadIsIdsOnly` hits a 60 s EOF: gate all live tests on an explicit opt-in
-  (`BRIGADE_TEST_LIVE=1` from `make test-all` and CI's `supabase` job; `BRIGADE_TEST_DOCKER` already gates the container-restart
-  tests) and give the realtime wait a deadline with one retry — this also makes CLAUDE.md's "`make test` is Docker-free" true.
-  (b) `TestScript/smoke`'s "coverage meta-data emit failed … rename" comes from testscript children inheriting `-covermode=atomic`
-  instrumentation and `go test -cover`'s temporary `GOCOVERDIR` (testscript copies it into every child) and writing meta-data
-  under the go-build temp dir; set `GOCOVERDIR` for the script children to a per-script directory in the testscript `Setup`
-  (the Makefile sets none) and prove it with `go test -count=20 ./cmd/brigade/` (the cause is read off the error text;
-  verify before relying on it). "Set aside" is clean for (a) through the same opt-in gate and has no clean form for (b).
+- **Mechanics learned the hard way:** commit through the gate with the exit status read from a file, never through a
+  pipe (zsh has no `PIPESTATUS`; one commit went out past a failing `make test` that way — CI was green, but it should
+  not have been possible); multi-line commit messages need `git commit -F <file>` (`make push message=` cannot carry
+  them); the two `make test` load flakes of 2026-09-03/04 (`TestIntegrationAdversarialBroadcastPayloadIsIdsOnly`,
+  `TestScript/*` coverage rename) are FIXED as of 2026-09-04 (see "MAKE TEST FLAKES FIXED") — a red `make test` is real
+  again; Claude Code 2.1.260 blocks a standalone `sleep 25` in the Bash tool, so every busy-shape prompt uses `sleep
+  20`/`15`; a `gh run list --commit` needs the full 40-character SHA.
+- **The flakes (Rjae, 2026-09-04: "test flakiness seems to be hindering velocity" — set aside or fix): FIXED, 2026-09-04,**
+  by the session `15-implement-brigade-0904` as the first item after the hand-off. The live tests are opt-in behind
+  `BRIGADE_TEST_LIVE=1` (only `make test-integration` sets it; with it set, a missing stack FAILS instead of skipping, so CI's
+  `supabase` job cannot pass vacuously), every live Realtime wait is bounded, and the testscript children get a `GOCOVERDIR` per
+  script. The hand-off's stated cause for the coverage flake ("the go-build temp dir is cleaned concurrently") was wrong; the
+  measured cause and the numbers are in "MAKE TEST FLAKES FIXED".
 
 ## Session journal
 
@@ -2594,3 +2645,17 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   `open`/`guarded`/`strict`, `open` the default, plus `frame_file`), with the touchpoints and the per-level corpus sweep. The path
   already exists: `team_inbound` travels plugin option → hook → by-pid map → watcher today, and the paragraph is one Go constant.
   Also today: the hosted project's Postgres is 17.6.1.166, matching `major_version = 17`.
+- 2026-09-04 15:0x EDT: **Hand-off received and the two `make test` flakes are fixed.** Session `15-implement-brigade-0904` took
+  all eight open items from `15-implement-brigade-0903T21` (Rjae: "Yes, all"; the peer retained nothing). Item 1 first: the
+  live tests are opt-in behind `BRIGADE_TEST_LIVE=1`, the Realtime reads are bounded, the testscript children get a
+  `GOCOVERDIR` per script — 0 failures in 65 runs where 3 in 12 failed before; the coverage flake's real cause is the
+  runtime rewriting its meta-data on every exit into one shared directory with a microsecond clock, not a concurrent
+  cleanup. Details in "MAKE TEST FLAKES FIXED". Also today, agreed with the driver (Caleb): tasks were taking too long because
+  each one ran a 5–7-reader research panel with a critic and a gap round before its brief; from P5-0 on the cadence is one
+  brief author → one author → one adversarial verifier → one gate per item, docs and log folded into the item's commit, and
+  the plan is to be split into section files with an index (and the log's finished-phase reports archived) in the next
+  commit. The P5-0 brief is written (`.ignored/briefs/p5-0-keepalive.md`: the request must reach the database — an anonymous
+  sign-up, then `my_team_ids()` once P5-1 has applied the migrations; `describe` has no RPC; GitHub's 60-day rule is for
+  public repositories and this one is private); P4-3's research pass ran before the cadence change (14 agents, 19 gaps, all
+  under `.ignored/briefs/p4-3-research/`) and its brief is being written. Open: the plan split, then P5-0 (needs the two
+  repository variables from Rjae to arm), then P4-3.

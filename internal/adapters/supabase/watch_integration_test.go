@@ -13,7 +13,8 @@ import (
 // broadcast turning into a `message` event, the stdin commands through
 // the real RPCs, the revocation of a running watch (C-08) and the
 // closed-session fall-back, none of which the fake Phoenix can prove.
-// Every test self-skips without the stack (liveRig) and mints its own
+// Every test self-skips without the BRIGADE_TEST_LIVE opt-in or without
+// the stack (liveRig, through testutil.RequireSupabase) and mints its own
 // principals and team.
 
 // TestIntegrationWatchLiveDelivery: ready with mode push, status live

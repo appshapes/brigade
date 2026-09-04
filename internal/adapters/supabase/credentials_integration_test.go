@@ -15,12 +15,17 @@ import (
 )
 
 // The paths only the real stack shows (brief section 7). Every test here
-// self-skips through testutil.RequireSupabase without `.env.test` or a
-// running stack, so `make test` stays Docker-free; `make test-integration`
-// runs them against the local stack. Each test mints its own anonymous
-// principal and never resets the database. P2-11 completes this file.
+// self-skips through testutil.RequireSupabase unless testutil.LiveTestVar
+// (BRIGADE_TEST_LIVE=1) is set, and then again without `.env.test` or a
+// running stack, so `make test` stays Docker-free AND stack-free even on
+// a machine whose local stack is up; `make test-integration` sets the
+// variable and runs them against that stack. Each test mints its own
+// anonymous principal and never resets the database. P2-11 completes this
+// file.
 
-// liveRig is a rig whose profile points at the real stack.
+// liveRig is a rig whose profile points at the real stack. It is the gate
+// for most of this package's live tests: RequireSupabase skips them all
+// without the BRIGADE_TEST_LIVE opt-in.
 func liveRig(t *testing.T) *rig {
 	t.Helper()
 	env := testutil.RequireSupabase(t)
@@ -235,46 +240,34 @@ func TestIntegrationRealtimeForeignTopicRefused(t *testing.T) {
 		t.Fatalf("dial: %v", err)
 	}
 	defer func() { _ = conn.CloseNow() }()
+	topic := "realtime:brigade:session:0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f"
 	join, _ := json.Marshal(map[string]any{
-		"topic": "realtime:brigade:session:0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f", "event": "phx_join", "ref": "1",
+		"topic": topic, "event": "phx_join", "ref": "1",
 		"payload": map[string]any{"access_token": token, "config": map[string]any{
 			"private": true, "broadcast": map[string]any{"self": false, "ack": false},
 			"presence": map[string]any{"enabled": false, "key": ""}, "postgres_changes": []any{},
 		}},
 	})
+	frames := liveFrames(t, conn, phxVersionV1)
 	if err := conn.Write(t.Context(), websocket.MessageText, join); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		_, data, err := conn.Read(t.Context())
-		if err != nil {
-			t.Fatalf("read: %v", err)
-		}
-		var frame struct {
-			Event   string `json:"event"`
-			Payload struct {
-				Status   string `json:"status"`
-				Response struct {
-					Reason string `json:"reason"`
-				} `json:"response"`
-			} `json:"payload"`
-		}
-		if err := json.Unmarshal(data, &frame); err != nil {
-			t.Fatalf("frame %s: %v", data, err)
-		}
-		if frame.Event != "phx_reply" {
-			continue
-		}
-		if frame.Payload.Status != "error" {
-			t.Fatalf("a foreign topic was joined: %s", data)
-		}
-		if !strings.Contains(frame.Payload.Response.Reason, "Unauthorized") && !strings.Contains(frame.Payload.Response.Reason, "brigade:session:") {
-			t.Logf("refusal reason: %s", frame.Payload.Response.Reason)
-		}
-		return
+	// The window bounds the blocking READ, not the turns of a loop around
+	// it: a socket this test never heartbeats is closed by the server 60 s
+	// after the dial, so a wait that outlives its own window used to
+	// surface as that EOF a minute later instead of as this failure.
+	f := mustAwaitFrame(t, frames, "phx_reply to the foreign join", topic, 15*time.Second,
+		func(f phxFrame) bool { return f.Event == phxEventReply })
+	var reply phxReply
+	if err := json.Unmarshal(f.Payload, &reply); err != nil {
+		t.Fatalf("phx_reply payload %s: %v", f.Payload, err)
 	}
-	t.Fatalf("no phx_reply within 15 s")
+	if reply.Status != "error" {
+		t.Fatalf("a foreign topic was joined: %s", f.Payload)
+	}
+	if !strings.Contains(reply.Response.Reason, "Unauthorized") && !strings.Contains(reply.Response.Reason, "brigade:session:") {
+		t.Logf("refusal reason: %s", reply.Response.Reason)
+	}
 }
 
 // TestIntegrationProfileResetRevokesFamily is I-34, the credential

@@ -12,7 +12,8 @@ package supabase
 //     dropped: the realtime migration grants no insert policy, so only
 //     the database writes on a session topic.
 //
-// Both self-skip through liveRig. Neither goes through the watcher: the
+// Both self-skip through liveRig (so both wait on the BRIGADE_TEST_LIVE
+// opt-in, testutil.LiveTestVar). Neither goes through the watcher: the
 // point is what the SERVER does with a frame the adapter would never
 // send, so the frames are hand-built on the client's own dial.
 
@@ -23,7 +24,8 @@ import (
 )
 
 // A rawSocket is one Realtime connection with a single reader goroutine
-// behind it. The goroutine matters: coder/websocket CLOSES the
+// behind it — liveFrames, in realtimewait_test.go, which the whole
+// package now shares. The goroutine matters: coder/websocket CLOSES the
 // connection when a Read's context is cancelled, so a helper that gave
 // each wait its own timeout context would kill the socket at the end of
 // the first wait — measured here, the second wait failed with "use of
@@ -33,7 +35,7 @@ type rawSocket struct {
 	t      *testing.T
 	p      *phxClient
 	token  string
-	frames chan phxFrame
+	frames <-chan phxFrame
 }
 
 // liveSocket dials Realtime for the rig's principal and starts reading.
@@ -52,22 +54,8 @@ func liveSocket(t *testing.T, r *rig) *rawSocket {
 		t.Fatalf("dial: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.CloseNow() })
-	s := &rawSocket{t: t, p: &phxClient{conn: conn, vsn: phxVersionV1, log: c.log}, token: token, frames: make(chan phxFrame, 256)}
-	go func() {
-		defer close(s.frames)
-		for {
-			typ, data, err := conn.Read(t.Context())
-			if err != nil {
-				return
-			}
-			if f, derr := decodePhxFrame(s.p.vsn, typ, data); derr == nil {
-				select {
-				case s.frames <- f:
-				default:
-				}
-			}
-		}
-	}()
+	s := &rawSocket{t: t, p: &phxClient{conn: conn, vsn: phxVersionV1, log: c.log}, token: token}
+	s.frames = liveFrames(t, conn, s.p.vsn)
 	return s
 }
 
@@ -89,25 +77,20 @@ func (s *rawSocket) join(topic string, private, self bool) phxReply {
 	if err := s.p.send(s.t.Context(), ref, ref, topic, phxEventJoin, payload); err != nil {
 		s.t.Fatalf("phx_join: %v", err)
 	}
-	deadline := time.After(watchTiming.joinTimeout)
-	for {
-		select {
-		case f, ok := <-s.frames:
-			if !ok {
-				s.t.Fatalf("the socket closed before the join was answered")
-			}
-			if f.Event != phxEventReply || f.Ref != ref {
-				continue
-			}
-			var reply phxReply
-			if err := json.Unmarshal(f.Payload, &reply); err != nil {
-				s.t.Fatalf("phx_reply %s: %v", f.Payload, err)
-			}
-			return reply
-		case <-deadline:
-			s.t.Fatalf("no phx_reply to the join within %s", watchTiming.joinTimeout)
-		}
+	f, got := awaitFrame(s.frames, watchTiming.joinTimeout,
+		func(f phxFrame) bool { return f.Event == phxEventReply && f.Ref == ref })
+	switch got {
+	case frameSocketClosed:
+		s.t.Fatalf("the socket closed before the join was answered")
+	case frameTimedOut:
+		s.t.Fatalf("no phx_reply to the join within %s", watchTiming.joinTimeout)
+	case frameFound:
 	}
+	var reply phxReply
+	if err := json.Unmarshal(f.Payload, &reply); err != nil {
+		s.t.Fatalf("phx_reply %s: %v", f.Payload, err)
+	}
+	return reply
 }
 
 // broadcasts counts the broadcast frames on topic that arrive within d.

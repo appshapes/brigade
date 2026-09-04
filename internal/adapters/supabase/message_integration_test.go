@@ -11,7 +11,8 @@ import (
 // the adapter-stamped sender of 4.5.5, the uniform not_found of 4.5.6 and
 // 4.5.7 as the migrations actually raise it, deterministic idempotency,
 // the server-computed hop chain, and the closed-session rules. Every test
-// self-skips without the stack and mints its own principals and team.
+// self-skips without the BRIGADE_TEST_LIVE opt-in or without the stack,
+// and mints its own principals and team.
 
 // randomUUID is a uuid the backend has certainly never issued.
 const randomUUID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f"

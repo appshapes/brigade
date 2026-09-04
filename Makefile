@@ -245,7 +245,7 @@ test-db: ## pgTAP tests in supabase/tests against the running local stack
 # stays as the documented out-of-band alternative for a backend whose principals are provisioned elsewhere.
 .PHONY: test-integration
 test-integration: build ## Adapter integration + conformance(supabase) against the local stack (reads $(env_test))
-	set -a; . ./$(env_test); set +a; BRIGADE_TEST_DOCKER=1 go test -count=1 -timeout 20m -run 'Integration|Supabase' ./internal/adapters/supabase/...
+	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 BRIGADE_TEST_DOCKER=1 go test -count=1 -timeout 20m -run 'Integration|Supabase' ./internal/adapters/supabase/...
 	set -a; . ./$(env_test); set +a; $(bin_dir)/brigade-conformance --slow --env BRIGADE_SUPABASE_URL=$$SUPABASE_URL --env BRIGADE_SUPABASE_PUBLISHABLE_KEY=$$SUPABASE_PUBLISHABLE_KEY $(cover_env) --adapter $(bin_dir)/brigade -- adapter supabase
 
 .PHONY: test-all

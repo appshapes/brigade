@@ -1,18 +1,21 @@
 package supabase
 
 // The live checks of the P2-6..P2-10 adversarial pass, kept as
-// integration tests (brief section 7; every one self-skips without the
-// stack through liveRig): the one-behind rule PAST the 10 s reuse window,
-// refresh_token_already_used through the adapter's own state machine
-// against the real GoTrue (the terminal path and the re-read-and-retry
-// path, the latter with a reverse proxy standing in for the concurrent
-// writer), the sign-out of `profile revoke-credentials` with an access
-// token GoTrue will not verify (the defect the pass found: the family
-// survived), the foreign-topic refusal timing and the ids-only broadcast
-// payload. The three tests that must wait out the reuse window run only
-// under BRIGADE_TEST_DOCKER=1 (`make test-integration` sets it), as
-// TestIntegrationRefreshRotationAndOneBehind does, so a developer's
-// `make test` with the stack up does not pay 33 s for them.
+// integration tests (brief section 7; every one self-skips through
+// liveRig without the BRIGADE_TEST_LIVE opt-in — testutil.LiveTestVar,
+// which only `make test-integration` sets — or without the stack): the
+// one-behind rule PAST the 10 s reuse window, refresh_token_already_used
+// through the adapter's own state machine against the real GoTrue (the
+// terminal path and the re-read-and-retry path, the latter with a reverse
+// proxy standing in for the concurrent writer), the sign-out of `profile
+// revoke-credentials` with an access token GoTrue will not verify (the
+// defect the pass found: the family survived), the foreign-topic refusal
+// timing and the ids-only broadcast payload. The three tests that must
+// wait out the reuse window need BRIGADE_TEST_DOCKER=1 on top of the
+// opt-in (`make test-integration` sets both), as
+// TestIntegrationRefreshRotationAndOneBehind does, so an ad-hoc
+// `BRIGADE_TEST_LIVE=1 go test` does not pay 33 s for them — `make test`
+// reaches none of this file at all now.
 
 import (
 	"encoding/json/v2"
@@ -230,38 +233,36 @@ func TestIntegrationAdversarialForeignTopicRefusedNotTimedOut(t *testing.T) {
 	}
 	defer func() { _ = conn.CloseNow() }()
 	p := &phxClient{conn: conn, vsn: phxVersionV1, log: c.log}
+	frames := liveFrames(t, conn, phxVersionV1)
 	topic := sessionTopic(randomUUID)
 	start := time.Now()
 	joinRef, err := p.join(t.Context(), topic, token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for {
-		typ, data, err := conn.Read(t.Context())
-		if err != nil {
-			t.Fatalf("read after %s: %v", time.Since(start), err)
-		}
-		f, derr := decodePhxFrame(phxVersionV1, typ, data)
-		if derr != nil || f.Event != phxEventReply || f.Ref != joinRef {
-			continue
-		}
-		var reply phxReply
-		if err := json.Unmarshal(f.Payload, &reply); err != nil {
-			t.Fatal(err)
-		}
-		took := time.Since(start)
-		if reply.Status == "ok" {
-			t.Fatalf("a foreign topic was joined")
-		}
-		if got := classifyReason(reply.Response.Reason); got != linkReasonUnauthorized {
-			t.Fatalf("refusal classified %q, want unauthorized (reason %q)", got, reply.Response.Reason)
-		}
-		if took > watchTiming.joinTimeout {
-			t.Fatalf("the refusal took %s, past the %s join timeout", took, watchTiming.joinTimeout)
-		}
-		t.Logf("foreign topic refused as a phx_reply error after %s (join timeout %s): %s", took.Round(time.Millisecond), watchTiming.joinTimeout, reply.Response.Reason)
-		return
+	// The wait carries slack past the join timeout so that an OVER-BUDGET
+	// refusal is observed and fails the `took` assertion below with the
+	// number it took, rather than being pre-empted by the wait itself. The
+	// bound that matters is that this cannot reach the server's close of an
+	// un-heartbeated socket, 60 s from the dial.
+	const refusalSlack = 5 * time.Second
+	f := mustAwaitFrame(t, frames, "phx_reply to the foreign join", topic, watchTiming.joinTimeout+refusalSlack,
+		func(f phxFrame) bool { return f.Event == phxEventReply && f.Ref == joinRef })
+	took := time.Since(start)
+	var reply phxReply
+	if err := json.Unmarshal(f.Payload, &reply); err != nil {
+		t.Fatal(err)
 	}
+	if reply.Status == "ok" {
+		t.Fatalf("a foreign topic was joined")
+	}
+	if got := classifyReason(reply.Response.Reason); got != linkReasonUnauthorized {
+		t.Fatalf("refusal classified %q, want unauthorized (reason %q)", got, reply.Response.Reason)
+	}
+	if took > watchTiming.joinTimeout {
+		t.Fatalf("the refusal took %s, past the %s join timeout", took, watchTiming.joinTimeout)
+	}
+	t.Logf("foreign topic refused as a phx_reply error after %s (join timeout %s): %s", took.Round(time.Millisecond), watchTiming.joinTimeout, reply.Response.Reason)
 }
 
 // The message_accepted broadcast carries ids only — message_id and seq —
@@ -285,64 +286,76 @@ func TestIntegrationAdversarialBroadcastPayloadIsIdsOnly(t *testing.T) {
 	}
 	defer func() { _ = conn.CloseNow() }()
 	p := &phxClient{conn: conn, vsn: phxVersionV1, log: c.log}
+	frames := liveFrames(t, conn, phxVersionV1)
 	topic := sessionTopic(sb)
 	joinRef, err := p.join(t.Context(), topic, token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	next := func() phxFrame {
-		for {
-			typ, data, err := conn.Read(t.Context())
-			if err != nil {
-				t.Fatalf("read: %v", err)
-			}
-			if f, derr := decodePhxFrame(phxVersionV1, typ, data); derr == nil {
-				return f
-			}
-		}
+	joined := mustAwaitFrame(t, frames, "phx_reply to the join", topic, watchTiming.joinTimeout,
+		func(f phxFrame) bool { return f.Event == phxEventReply && f.Ref == joinRef })
+	var reply phxReply
+	_ = json.Unmarshal(joined.Payload, &reply)
+	if reply.Status != "ok" {
+		t.Fatalf("own topic refused: %s", reply.Response.Reason)
 	}
-	for {
-		f := next()
-		if f.Event == phxEventReply && f.Ref == joinRef {
-			var reply phxReply
-			_ = json.Unmarshal(f.Payload, &reply)
-			if reply.Status != "ok" {
-				t.Fatalf("own topic refused: %s", reply.Response.Reason)
-			}
+	// One retry of send-and-wait. The fan-out to a FRESH join is not warm
+	// the instant phx_reply says ok (watch.go:68-78, measured three times:
+	// "a broadcast issued in the first seconds after a socket joined its
+	// topic ... reached no socket"), and this test sends one statement
+	// after its join, so a first send can be missed under load. A second
+	// message costs nothing here: what is asserted is the SHAPE of the
+	// broadcast payload, and every message_accepted has the same shape.
+	const hintWindow = 10 * time.Second
+	sent := map[string]bool{}
+	var hint phxFrame
+	for attempt := 1; attempt <= 2; attempt++ {
+		res := sendLive(t, a, `{"sender_session_id":"`+sa+`","recipient_session_id":"`+sb+`","body":"a body that must not travel on the channel","summary":"nor this summary"}`)
+		id, _ := res["message_id"].(string)
+		if id == "" {
+			// Without this the membership check below is satisfiable by a
+			// broadcast that carries no message_id either: sent[""] would be
+			// true. The equality this replaced could not be fooled that way.
+			t.Fatalf("message send returned no message_id: %v", res)
+		}
+		sent[id] = true
+		f, got := awaitFrame(frames, hintWindow, func(f phxFrame) bool { return hintFor(f, topic) })
+		if got == frameFound {
+			hint = f
 			break
 		}
+		if got == frameSocketClosed {
+			t.Fatalf("the socket closed while waiting for the message_accepted broadcast on %s", topic)
+		}
+		if attempt == 2 {
+			t.Fatalf("no message_accepted broadcast on %s within %s after each of the %d sends", topic, hintWindow, len(sent))
+		}
+		t.Logf("no broadcast on %s within %s after send %s; sending once more", topic, hintWindow, id)
 	}
-	res := sendLive(t, a, `{"sender_session_id":"`+sa+`","recipient_session_id":"`+sb+`","body":"a body that must not travel on the channel","summary":"nor this summary"}`)
-	id, _ := res["message_id"].(string)
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		f := next()
-		if !hintFor(f, topic) {
-			continue
-		}
-		var bc phxBroadcast
-		if err := json.Unmarshal(f.Payload, &bc); err != nil {
-			t.Fatal(err)
-		}
-		var inner map[string]any
-		if err := json.Unmarshal(bc.Payload, &inner); err != nil {
-			t.Fatalf("inner payload %s: %v", bc.Payload, err)
-		}
-		t.Logf("broadcast frame payload: %s", f.Payload)
-		if inner["message_id"] != id {
-			t.Fatalf("message_id %v, want %s", inner["message_id"], id)
-		}
-		// The migration sends {message_id, seq}; Realtime adds the
-		// realtime.messages row id as `id`. All three are ids.
-		for k := range inner {
-			if k != "message_id" && k != "seq" && k != "id" {
-				t.Errorf("the broadcast carries %q; want ids only", k)
-			}
-		}
-		if strings.Contains(string(f.Payload), "must not travel") || strings.Contains(string(f.Payload), "nor this summary") {
-			t.Fatalf("the broadcast carries message content")
-		}
-		return
+	var bc phxBroadcast
+	if err := json.Unmarshal(hint.Payload, &bc); err != nil {
+		t.Fatal(err)
 	}
-	t.Fatalf("no message_accepted broadcast within 10 s")
+	var inner map[string]any
+	if err := json.Unmarshal(bc.Payload, &inner); err != nil {
+		t.Fatalf("inner payload %s: %v", bc.Payload, err)
+	}
+	t.Logf("broadcast frame payload: %s", hint.Payload)
+	// Membership, not equality: hintFor matches on event and topic only
+	// (realtime.go:227), so after a retry a late FIRST broadcast can be the
+	// one that arrives.
+	mid, _ := inner["message_id"].(string)
+	if !sent[mid] {
+		t.Fatalf("message_id %v, want one of the %d sent", inner["message_id"], len(sent))
+	}
+	// The migration sends {message_id, seq}; Realtime adds the
+	// realtime.messages row id as `id`. All three are ids.
+	for k := range inner {
+		if k != "message_id" && k != "seq" && k != "id" {
+			t.Errorf("the broadcast carries %q; want ids only", k)
+		}
+	}
+	if strings.Contains(string(hint.Payload), "must not travel") || strings.Contains(string(hint.Payload), "nor this summary") {
+		t.Fatalf("the broadcast carries message content")
+	}
 }

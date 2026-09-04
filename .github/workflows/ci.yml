@@ -98,9 +98,12 @@ jobs:
       - run: make supabase-start supabase=supabase   # `supabase ?=` in the Makefile: CI overrides the npx form with
       - run: make test-db supabase=supabase          # the setup-cli binary, so local and CI run the same recipes and
       - run: make supabase-env advisor-lints supabase=supabase   # the version is pinned in exactly one place per context
-      # go test (the self-skip of testutil.RequireSupabase is lifted by .env.test) + conformance(supabase)
-      # --slow, both against the stack started above. BRIGADE_TEST_DOCKER=1 comes from the Makefile recipe,
-      # so the fault tests that stop the realtime container and restart the whole stack run here too.
+      # go test (the self-skip of testutil.RequireSupabase is lifted by BRIGADE_TEST_LIVE=1 and .env.test) +
+      # conformance(supabase) --slow, both against the stack started above. BRIGADE_TEST_LIVE=1 and
+      # BRIGADE_TEST_DOCKER=1 both come from the Makefile recipe: the first is the opt-in EVERY live test waits
+      # on, so this job is the only place in CI that runs them (`fast` and `macos` have no stack and no
+      # .env.test and skipped them already); the second adds the fault tests that stop the realtime container
+      # and restart the whole stack.
       # This step's gate used to name scripts/ci/conformance-setup-supabase.sh as P2-11's landing. The
       # script exists (P2-6..P2-10 landed it) but the Makefile recipe no longer uses it: --setup was
       # dropped so the suite provisions its own teams through the BRIGADE_SUPABASE_* pair and RUNS C-28 and
