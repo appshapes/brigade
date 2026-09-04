@@ -1,0 +1,42 @@
+{
+ "ok": true,
+ "protocol_version": "1",
+ "result": {
+  "team_ref": "66666666-6666-4666-8666-666666666666",
+  "team_name": "ops",
+  "server_time": "2026-09-04T20:00:14.000Z",
+  "sessions": [
+   {
+    "session_id": "11111111-1111-4111-8111-111111111111",
+    "session_name": "bob-crash-a",
+    "principal_ref": "33333333-3333-4333-8333-333333333333",
+    "human_label": "bob@proof.invalid",
+    "state": "idle",
+    "activity": "idle",
+    "inbound": "accept",
+    "last_seen_at": "2026-09-04T20:00:18.100Z",
+    "lease_until": "2026-09-04T20:01:48.100Z",
+    "harness": "claude-code",
+    "harness_version": "2.1.260",
+    "created_at": "2026-09-04T20:00:03.000Z",
+    "is_self": false
+   },
+   {
+    "session_id": "77777777-7777-4777-8777-777777777777",
+    "session_name": "payments-api",
+    "principal_ref": "44444444-4444-4444-8444-444444444444",
+    "human_label": "alice@proof.invalid",
+    "state": "idle",
+    "activity": "idle",
+    "inbound": "accept",
+    "last_seen_at": "2026-09-04T20:00:18.100Z",
+    "lease_until": "2026-09-04T20:01:48.100Z",
+    "harness": "claude-code",
+    "harness_version": "2.1.260",
+    "created_at": "2026-09-04T20:00:03.000Z",
+    "is_self": false
+   }
+  ],
+  "truncated": false
+ }
+}

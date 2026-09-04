@@ -85,7 +85,8 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P4-2 | Headless proof: `scripts/proof-headless.sh` (two real `claude -p` sessions, then the 26-item corpus × 3 under 9.6) + the offline `judge` + `scripts/ci/proof_headless_test.go` + `docs/experiments/E4-headless.md` | done | Fable | this commit — round trip mid-turn 3/3; **corpus 78/78 item-runs pass condition 1 mechanically, 0 voids; condition 2 settled by the driver's read plus a blind three-reader panel (unanimous 78/78, no person): 22 items 3-of-3 (07 run 3 silent, adjudicated a pass), item 21 2-of-3 (a bare receipt to the ack-loop bait — open, non-blocking), items 05/06/26 NOT MEASURABLE here (the provider's safety layer refused the turn 3/3 each — Rjae: not exit-blocking; P4-5 re-runs them, once on another model)**; 84 sessions, 4,240 s; the judge idempotent over the sweep, 44 mutation rows behave (39 flip, 5 controls hold); 9 instrument defects fixed before commit, 0 harness/adapter/backend defects; the plan row corrected in five places (see "P4-2 DONE") |
 | — | **Fix the two `make test` flakes** (item 1 of the 2026-09-04 hand-off): every live Supabase test opt-in behind `BRIGADE_TEST_LIVE=1` (set only by `make test-integration`, so `make test` is stack-free and CI's `supabase` job fails rather than skips when the stack is down), every live Realtime read bounded through one reader goroutine per socket, and a per-script `GOCOVERDIR` for the testscript children in `cmd/brigade` | done | Opus | this commit — smoke: 3 failures in 12 runs when found, 1 in 24 on the re-measure, **0 in 65 after**; live: 37 skips in 0.9 s without the opt-in, `make test-integration` green in 217 s with it; two lanes (diagnoser → author → adversarial verifier each), **15 mutations behave**, 2 defects fixed in place by the verifiers (a weakened assertion, four comment claims); the hand-off's cause for the smoke flake was wrong (see "MAKE TEST FLAKES FIXED") |
 | P4-3 | Idle-wake proof: `scripts/proof-idle-wake.sh` (bob idle in `-p` with stdin held open, alice's synthetic sender through bob's own shipped watcher, five wakes across three sessions incl. a 120 s hold and three into one session, a null-post control) + the offline `wake` analyser + `scripts/ci/proof_idle_wake_test.go` + `docs/experiments/E4-idle-wake.md` | done | Opus | this commit — **29 of 29 wakes on 2.1.260**; the deliverable run 5/5 (enqueue → first assistant 2.0–4.1 s, median 2.5 s, vs E0-4's 3.1–6.7 s on 2.1.251), enqueue → dequeue 0–19 ms, the control silent (0 records in 60 s); 17 fixtures cut from the real run, **17 flip rows each with a vacuity guard + 3 controls**, drift joins to proof.sh's constants and proof-headless.sh's literals; the FIFO-as-stdin of the brief does not end a 2.1.260 session (a `cat` pump does); **one product finding**: in 4 of 29 wakes the model replied through the absolute path the SessionStart context line advertises, which `Bash(brigade:*)` denies (see "P4-3 DONE") |
-| P4-4..P4-6 | Crash+resume (author running from `.ignored/briefs/p4-4-crash-resume.md`: two arms, no product change), interactive checklist (brief being written), results | todo | Fable (P4-5/P4-6) · Opus (P4-4) | P4-5 must re-run items 05/06/26 interactively and once on a different model; P4-6 carries the rulings of 2026-09-04 (see "P4-2 DONE") and the two P4-3 findings (the absolute-path context line; `origin.body` on stdout) |
+| P4-4 | Crash + resume proof: `scripts/proof-crash-resume.sh` (two arms — A: SIGKILL of Claude, the watcher closes the session; B: SIGKILL of the watcher then Claude, `offline` only by lease expiry — a pre-crash M0 delivered and acked, five messages sent while bob is down, `claude -p --resume <native id>`, catch-up exactly once) + `catchup` analyser + `scripts/ci/proof_crash_resume_test.go` + `docs/experiments/E4-crash-resume.md` + the fourth link of `make proof` | done | Opus | this commit — **no product change needed**: a closed session still receives, queues and resumes in the shipped SQL; arm A `offline` in 0.5–1.9 s (n=8), arm B `offline` by lease at ~79 s with 4.2–5.0 s of margin inside `last_seen_at + 90 s + 5 s` (n=4); **5/5 delivered exactly once in both arms, M0 not replayed, inbox 0→5→0**, catch-up 0.5–0.8 s after the resume, the roster equal before and after with bob's id present once; 21 fixtures, **30 flip rows + 4 controls with vacuity guards** (the verifier's four rows exposed three analyser holes, closed); five product findings for Phase 5 (see "P4-4 DONE") |
+| P4-5..P4-6 | Interactive checklist (author running on Fable from `.ignored/briefs/p4-5-interactive.md`: ~103 pty sessions), results | todo | Fable | P4-5 must re-run items 05/06/26 interactively and once on a different model; P4-6 carries the rulings of 2026-09-04 (see "P4-2 DONE") and the Phase 4 findings (the absolute-path context line; `origin.body` on stdout; the pid-keyed seen file; the SIGKILL residue; `resumed` invisible) |
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to the owner's usual practice (see "Phase 6" below) | **P6-1 done** (this commit: `docs/research/house-conventions.md`, the owner named `thinktech-web` and `thinktech-app` on 2026-09-04 and stated eight conventions; 3 confirmed, 4 refined, 1 contradicted as stated, every one cited `repo/path:line`); P6-2..P6-5 todo, **after Phase 4 and before Phase 5** — seven open questions for the owner are in the digest's last section | Opus | the digest's inventory found two Brigade defects for P6-3: the whole Docker group of the Makefile is dead (no compose file, `$(service)` never defined) and `e2e` is invisible in `make help` (the scrape's `^[a-zA-Z_-]+:` matches no digit); the release-model analysis (branch merge vs `v*` tag) is for P6-2/P5-10 |
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **arms itself the moment Rjae sets the two repository variables** `BRIGADE_SUPABASE_URL` and `BRIGADE_SUPABASE_PUBLISHABLE_KEY` (a loud no-op until then) | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof **and after Phase 6** |
@@ -540,6 +541,63 @@ stream-json event" refuted — `origin.body` carries the whole frame on stdout; 
 sends" reading). **Residual:** ~35 live-path assertion classes (phase 0, maps, hygiene) have never been observed to fail;
 the wrong-session gate's outer arm is vacuous under `$(unclaude)` (disclosed in the doc); `make proof` end to end is unrun
 (a second 71-minute sweep); 36 sessions were started in total (32 by the author, 4 by the verifier).
+
+## P4-4 DONE — `scripts/proof-crash-resume.sh`: a SIGKILLed session resumes onto the same Brigade session and catches up exactly once; the plan's "offline" clause needed a second arm (2026-09-04)
+
+Lean cadence, Opus tier: one brief author (`.ignored/briefs/p4-4-crash-resume.md`, 1,449 lines) → one author → one adversarial
+verifier. The brief's central question — the plan's row assumes bob stays reachable while Claude is dead so alice's five messages
+queue, but the shipped watcher closes the session within seconds of its Claude PID dying — resolved WITHOUT a product change:
+`send_message` never checks the recipient's `closed_at` ("a closed recipient is accepted, the message waits", C-31),
+`fetch_inbox` neither, `state` reads `offline` for closed OR lease-lapsed, and `register_session`'s resume branch re-opens a
+closed or expired session. What the row's fourth clause measures is therefore vacuous on its own path (the close lands in about
+a second), so the proof runs two arms.
+
+**Mandated first measurements (2.1.260; the machine auto-updated to 2.1.261 mid-run and every observation held on both):**
+`claude -p --resume <native id> --input-format stream-json` reuses the native id, opens a new socket, fires
+`SessionStart:resume`, keeps the by-native map naming the same Brigade session, and **interleaves the resumed turns into the
+original transcript file** (26 → 45 lines) — so the analyser cuts frames at `resume_launch_ms` or the acknowledged pre-crash M0
+reads as a replay. Crash clock through the Supabase adapter: kill → pidfile gone 0.5–2.0 s, kill → `closing the session`
+`reason: claude_gone` 0.2–1.6 s, kill → alice sees `offline` 0.5–1.9 s (n=8 across runs); the zombie branch was never reached.
+
+**Arm A (SIGKILL Claude only), n=2 scored runs:** `offline` at 555 / 1590 ms with `lease_until` still ~83 s in the future
+(`offline_source: closed`); the watcher's log carries `closing the session` `reason: claude_gone` then `watcher exiting`
+`exit: 0`; pidfile released. **Arm B (SIGKILL the watcher, then Claude):** `offline` at 79 381 / 79 858 ms with `lease_until` in
+the past (`offline_source: lease`), `lease_claim_ok: true`, margin 4154–4952 ms inside `last_seen_at + 90 s + 5 s` (n=4); the
+watcher log has no `closing the session` and no `watcher exiting`; the pidfile stays. **Both arms:** M0 delivered and acked
+before the crash; 5 sent while down / 5 distinct delivered / 0 duplicate / 0 missing / 0 unexpected; M0 not replayed; inbox
+0 → 5 → 0 and still 0 after a 15 s quiet window; resume → first frame 544–760 ms, → fifth 578–805 ms; the roster count equal
+before and after (1→1, 2→2 — arm B's roster still holds arm A's closed session on the shared principal, hence equality rather
+than the brief's `== 1`) with bob's id present exactly once; delivered mode `boundary` in 4/4 sessions; the judge (unchanged)
+scores every session condition 1 pass, no forbidden, no voids. Runs of 139–145 s wall, 4 sessions; offline re-scoring
+byte-identical.
+
+**The Go test:** 21 fixtures cut from the real run (ids re-minted), **30 flip rows + 4 controls, every flip row guarded against
+vacuity**; drift joins to proof.sh's frame block and, for the timing constants, to BOTH `protocol.LeaseDefaultSeconds` and the
+migration's `default 90` (each side breaks the test alone), `DefaultPollInterval + DefaultCloseWaitDeath`, the 5 s slack, the
+5 messages. The verifier's four added rows exposed three analyser holes — a resumed by-pid map carrying the pre-crash pid, a
+batched isMeta record one id short, a `session close failed` in the pre-crash log — all scored `pass` before and fail now;
+it also corrected 21 numbers in the write-up (the `lease_until` margin is the claim-deadline margin, 5 s larger by
+construction; five plan citations off by one).
+
+**Deviations from the brief, all recorded:** Claude Code batches a queued backlog into ONE `isMeta` record (2 ids then 3; 1, 3,
+2 in the verifier's run), so delivery is counted by id; `wait "$bob_pid"` on a member of the pump pipeline deadlocks, so the
+dead session's stdin is sealed after the crash; the hook logs to stderr, which Claude Code captures into the SessionStart
+`hook_response` record; `claude --help` is line-wrapped. `deferred_count`/`rate_limited_count` are structurally unfalsifiable
+on the live path (`message offered … outcome` is a Debug line; the shipped level is INFO) — made visible through
+`delivery_outcome_rows`, not asserted.
+
+**Product findings for Phase 5 (recorded as plan corrections in 03/06/07/08):** (1) the **self-updater hazard** — Claude Code
+installs new versions into `$XDG_DATA_HOME/claude/versions/` and repoints the real `~/.local/bin/claude` there, so a proof's
+temporary data home left the launcher dangling at 16:36 (2.1.260 → 2.1.261) and no session could start until it was repointed;
+closed by `DISABLE_AUTOUPDATER=1` on every nested `claude` launch (79467ce and this commit); (2) `--resume` interleaves into
+the original transcript; (3) `resumed: true` is discarded by the hook — no instrument can see a re-attach directly; (4) a
+SIGKILL leaves the by-pid map, the seen file and the socket behind permanently (plus the pidfile in arm B) and nothing prunes
+them, while `otherLiveWatcher` re-scans that directory on every hinted SessionStart; (5) **the seen file is keyed by CLAUDE
+PID**, so exactly-once across a crash rests on the backend's `delivery_state` flip and a message injected-but-unacked at the
+kill would be injected twice after the resume (reasoned, not constructed). The absolute-path reply class did not fire here
+(the bodies say "do not reply"; 0 replies of any form). **Residual:** n=2 per arm; the hygiene assertion (`git status` delta)
+is not safe in a shared checkout; the 7-day retention window, the interactive path and the double-injection case are
+unconstructed; 24 sessions started (20 by the author, 4 by the verifier).
 
 ## P5-0 DONE — the Free-plan keep-alive: a daily anonymous sign-up is the database write Supabase counts; it arms itself when the two repository variables exist (2026-09-04)
 
@@ -1370,3 +1428,9 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   drivers from their author. Also today: P4-4's author finished both arms green (arm A closes in 0.5–1.9 s, arm B goes `offline`
   by lease at 79 s with 4–5 s of margin, 5/5 exactly once, M0 not replayed) — its verifier is running; P4-5's author is running
   the interactive checklist on the Fable tier.
+- 2026-09-04 21:1x EDT: **P4-4 is DONE — a SIGKILLed session resumes onto the same Brigade session and catches up exactly once,
+  in both arms.** The brief resolved the crash-versus-close question from the SQL (a closed session still receives, queues and
+  resumes: no product change); the proof runs the close arm (`offline` in 0.5–1.9 s) and the lease arm (`offline` at ~79 s,
+  4–5 s of margin). Brief → author → verifier; 30 flip rows with vacuity guards, three analyser holes closed by the verifier;
+  five Phase 5 findings recorded as plan corrections (the pid-keyed seen file, the SIGKILL residue, `resumed` invisible, the
+  interleaved transcript, the self-updater hazard). Details in "P4-4 DONE". Open: P4-5 (Fable author running), P4-6.

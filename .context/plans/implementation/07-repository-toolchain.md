@@ -25,6 +25,7 @@ Design record from 2026-08-30. Where this text and the code disagree, the code, 
 - 2026-08-31 — "Plan corrections from P1-1 (the first code commit)" (archive) — 7.x: the gates that are known-vacuous until their task lands — `deps-check`, the conformance step, the `depguard` harness rule, the mutant build tags, `govulncheck -mode binary`, and CI's gated `plugin-check`/`checksums-check`.
 - 2026-08-31 — "Plan corrections from E0-8" (archive) — 7.x CI: `claude plugin validate --strict` does NOT detect a missing hook-command binary, so `scripts/ci/plugin-check.sh` must assert hook-command existence and the executable bit itself.
 - 2026-09-02 — "Phase 1 corrections found on P1-5 entry (2026-09-02, session `15-implement-brigade-0902`)" (archive) — 7.3: `make lint` must run golangci-lint under `GOOS=darwin` AND `GOOS=linux` — CI was red for three commits on a `//go:build linux` file the local gate never loaded.
+- 2026-09-04 — "P4-4 DONE" — 7.1 / 7.4: the file tree lists three proof scripts and the `proof` recipe two links; there are four scripts and four links (`proof.sh` → `proof-headless.sh` → `proof-idle-wake.sh` → `proof-crash-resume.sh`, each under `$(unclaude)`).
 
 <!-- verbatim from the one-file plan -->
 ## 7. Repository layout and toolchain

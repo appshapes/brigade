@@ -1,0 +1,9 @@
+{"time":"2026-09-04T16:00:03.100-04:00","level":"INFO","msg":"watcher starting","claude_pid":4242,"session_id":"11111111-1111-4111-8111-111111111111","profile":"bob","inbound":"accept","mode":"socket","pid":4243}
+{"time":"2026-09-04T16:00:03.200-04:00","level":"INFO","msg":"watch ready","mode":"push","session_id":"11111111-1111-4111-8111-111111111111"}
+{"time":"2026-09-04T16:00:05.150-04:00","level":"INFO","msg":"message offered","message_id":"a0000000-0000-4000-8000-000000000000","outcome":"queued","ack":false}
+{"time":"2026-09-04T16:00:05.310-04:00","level":"INFO","msg":"ack sent","ids":["a0000000-0000-4000-8000-000000000000"],"stdin":true}
+{"time":"2026-09-04T16:00:15.850-04:00","level":"INFO","msg":"claude process is gone","claude_pid":4242}
+{"time":"2026-09-04T16:00:15.851-04:00","level":"INFO","msg":"closing the session","reason":"claude_gone","budget":3000000000}
+{"time":"2026-09-04T16:00:15.860-04:00","level":"INFO","msg":"watch child ended after close"}
+{"time":"2026-09-04T16:00:15.861-04:00","level":"INFO","msg":"watcher exiting","exit":0,"reason":"claude_gone","queued":0,"pending":0,"senders":1,"deferrals":1,"seen":1,"notices":0}
+{"time":"2026-09-04T16:00:15.862-04:00","level":"INFO","msg":"pidfile released","removed":true}

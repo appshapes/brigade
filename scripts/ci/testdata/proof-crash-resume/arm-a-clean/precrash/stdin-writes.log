@@ -1,0 +1,3 @@
+{"event":"stdin_log_open","at_ms":1788552003000,"fifo":"bob-crash-a","resume":""}
+{"event":"stdin_write","seq":1,"at_ms":1788552003100,"note":"first and only prompt"}
+{"event":"stdin_closed_eof","at_ms":1788552015050,"writes_total":1,"detail":"first close of stdin in this session"}
