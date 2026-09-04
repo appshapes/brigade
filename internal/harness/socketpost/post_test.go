@@ -160,8 +160,13 @@ func TestPostServerClosesAtOnce(t *testing.T) {
 	if !errors.Is(err, ErrWrite) {
 		t.Fatalf("big content: err %v, want ErrWrite", err)
 	}
-	if !errors.Is(err, syscall.EPIPE) && !errors.Is(err, syscall.ECONNRESET) {
-		t.Errorf("big content: err %v wraps neither EPIPE nor ECONNRESET", err)
+	// EPIPE and ECONNRESET are the usual answers; macOS also delivers
+	// ENOTCONN when the peer closes before the connect has fully settled
+	// (observed once in 2026-09-03's whole-tree run under load: "write:
+	// socket is not connected"). All three mean the same thing here: the
+	// server closed, the write failed, and Post classified it as ErrWrite.
+	if !errors.Is(err, syscall.EPIPE) && !errors.Is(err, syscall.ECONNRESET) && !errors.Is(err, syscall.ENOTCONN) {
+		t.Errorf("big content: err %v wraps neither EPIPE, ECONNRESET nor ENOTCONN", err)
 	}
 	small := postAsync(t, func() error {
 		return Post(t.Context(), Target{Path: srv.Path(), Token: testToken}, "small", Options{})

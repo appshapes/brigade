@@ -1613,7 +1613,9 @@ drained 17 ms; watcher SIGKILL → gone **19 ms**; the orphaned adapter child ex
 restart → second `watch ready` **226 ms**; `ready` → the two catch-up frames **12 ms** (the catch-up `fetch_inbox` runs before
 `ready`); each 33-hop chain ~**1,050 ms** (67 spawns); **60 accepted sends in 833 ms** (72× margin on the minute window); the budget
 barrier **63.0 s** — the single unavoidable wait; watcher exit after `hook session-end` **6–7 ms**; whole proof **80–84 s** against the
-600 s watchdog and CI's 25-minute job.
+600 s watchdog and CI's 25-minute job. **Linux, measured (CI run 33819400832, ubuntu-latest, the first un-gated `make e2e`):**
+GREEN, 221/221, the step 80 s wall (00:02:33→00:03:53Z); start→ready 216 ms, three frames 11 ms, restart→ready 216 ms, catch-up
+12 ms, 60 accepted sends 797 ms, budget wait 63.0 s — the same distribution as macOS, so the budgets stand as hang catchers.
 
 **Unresolved, recorded rather than fixed:** the U-25 sentinel's ARGV half is decorative (the sentinel is on the intermediate `env`
 process's argv for microseconds before `exec`; the ps sample is taken after `watch ready`) — the FILE half with its planted control is
@@ -1622,13 +1624,18 @@ at a time, which CI guarantees; no end-to-end Linux run exists yet (every shell 
 break found and fixed) — the first un-gated CI run is the Linux measurement; P2-10's Realtime-stopped half and I-13's foreign-topic
 join stay where the plan puts them.
 
-**Two `make test` flakes on this machine, neither in P4-1's files, both recorded so nobody re-diagnoses them:** (1) under whole-tree
+**Three `make test` flakes on this machine, none in P4-1's files, all recorded so nobody re-diagnoses them (the third fixed in the
+follow-up commit):** (1) under whole-tree
 `-race` load `TestIntegrationAdversarialBroadcastPayloadIsIdsOnly` (`internal/adapters/supabase/adversarial_integration_test.go:269`)
 missed its 10 s broadcast window and, because its read loop uses `t.Context()` with no deadline, blocked until the server closed the
 un-heartbeated socket at 60 s (`read: failed to get reader: failed to read frame header: EOF`); it passes in 0.28 s in isolation and
 the next full run passed it in 94 s — it deserves a read deadline so a miss fails in ten seconds, not sixty. (2) The coverage
 temp-directory rename (`coverage meta-data emit failed`) hit `cmd/brigade` TestScript on the second run — the flake the hand-off
-already named. CI is the arbiter; the P4-1 gate was the package run (`go test -race -shuffle=on -count=3 ./scripts/ci/`, 7.8 s).
+already named. (3) The gate of the log-only follow-up commit failed `TestPostServerClosesAtOnce`
+(`internal/harness/socketpost/post_test.go:153`): macOS returned `ENOTCONN` ("write: socket is not connected") on the write to
+a socket the fake server closed at once, and the test accepted only `EPIPE`/`ECONNRESET`; `Post` had classified it correctly as
+`ErrWrite`. Five isolated runs and a harness-tree run passed; the test now accepts `ENOTCONN` too, with the observation in a
+comment. CI is the arbiter; the P4-1 gate was the package run (`go test -race -shuffle=on -count=3 ./scripts/ci/`, 7.8 s).
 
 ## Plan corrections from E0-8
 
@@ -2396,3 +2403,9 @@ guard works in both directions. The SessionEnd close completes in ~0.105 s again
   ≈2,650 process invocations. First measurements of the harness watcher against Supabase: start→ready 234 ms, SIGKILL→orphan gone
   34 ms, restart→ready 226 ms, catch-up 12 ms, a full run 80–84 s. Details in "P4-1 DONE" above. Open: P4-2 (`scripts/proof-headless.sh`,
   Fable tier), then P4-3..P4-6; Phase 6 after Phase 4 (blocked until Rjae names the example repositories); Phase 5 after Phase 6.
+- 2026-09-03 20:0x EDT: **The first un-gated CI run of `make e2e` is green on Linux** (run 33819400832 for `79de463`, all four jobs
+  green): proof.sh GREEN 221/221 in 80 s on ubuntu-latest, with the same numbers as macOS (start→ready 216 ms, catch-up 12 ms, 60
+  sends 797 ms, the 63 s wait). P4-1's evidence loop is closed; the row's "first CI green establishes the Linux distribution" is now a
+  measurement. The follow-up's own gate then failed a THIRD distinct load flake, `TestPostServerClosesAtOnce` (macOS `ENOTCONN` where
+  the test accepted only `EPIPE`/`ECONNRESET`); fixed in the same commit by accepting the third errno. Open: P4-2 (research fan-out
+  started; its brief follows the P4-1 shape).
