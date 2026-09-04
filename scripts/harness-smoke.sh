@@ -269,6 +269,11 @@ run_start=$(date +%s)
 # shellcheck disable=SC2086  # as above; CLAUDE_CONFIG_DIR is deliberately NOT overridden here (the login lives there)
 ( cd "$proj" && exec env $strip_args \
     XDG_CONFIG_HOME="$xdg_config" XDG_STATE_HOME="$xdg_state" XDG_DATA_HOME="$xdg_data" \
+    # DISABLE_AUTOUPDATER: the native launcher ~/.local/bin/claude is a symlink the auto-updater repoints into
+    # $XDG_DATA_HOME/claude/versions/, so an update inside this temporary data home leaves the launcher dangling
+    # when the root is removed -- measured 2026-09-04 16:36 (2.1.260 -> 2.1.261) by P4-4; no session could start until
+    # the symlink was repointed. The variable is not CLAUDE-prefixed, so the strip above keeps it.
+    DISABLE_AUTOUPDATER=1 \
     claude -p "$prompt" \
       --plugin-dir "$repo/plugin" \
       --settings "$settings" \

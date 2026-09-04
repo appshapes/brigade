@@ -764,6 +764,11 @@ launch_idle() {
   printf '{"event":"stdin_log_open","at_ms":%s,"fifo":"%s"}\n' "$launch_t0" "$_lname" >> "$stdin_log"
   ( exec cat <"$fifo" ) 9>&- | ( cd "$_lcwd" && exec env $strip_args \
       XDG_CONFIG_HOME="$xdg_config" XDG_STATE_HOME="$xdg_state" XDG_DATA_HOME="$xdg_data" \
+      # DISABLE_AUTOUPDATER: the native launcher ~/.local/bin/claude is a symlink the auto-updater repoints into
+      # $XDG_DATA_HOME/claude/versions/, so an update inside this temporary data home leaves the launcher dangling
+      # when the root is removed -- measured 2026-09-04 16:36 (2.1.260 -> 2.1.261) by P4-4; no session could start until
+      # the symlink was repointed. The variable is not CLAUDE-prefixed, so the strip above keeps it.
+      DISABLE_AUTOUPDATER=1 \
       claude -p -n "$_lname" --plugin-dir "$repo/plugin" --settings "$_lsettings" \
         --permission-mode default --allowedTools "$allowed_tools" \
         --input-format stream-json --output-format stream-json --verbose --max-turns "$turns_bob_idle" \

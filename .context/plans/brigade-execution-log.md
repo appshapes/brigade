@@ -724,7 +724,11 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   them); the two `make test` load flakes of 2026-09-03/04 (`TestIntegrationAdversarialBroadcastPayloadIsIdsOnly`,
   `TestScript/*` coverage rename) are FIXED as of 2026-09-04 (see "MAKE TEST FLAKES FIXED") — a red `make test` is real
   again; Claude Code 2.1.260 blocks a standalone `sleep 25` in the Bash tool, so every busy-shape prompt uses `sleep
-  20`/`15`; a `gh run list --commit` needs the full 40-character SHA.
+  20`/`15`; a `gh run list --commit` needs the full 40-character SHA. **Every nested `claude` session must carry `DISABLE_AUTOUPDATER=1`:** the native launcher
+  `~/.local/bin/claude` is a symlink the auto-updater repoints into `$XDG_DATA_HOME/claude/versions/`, so an update inside a
+  proof script's temporary data home leaves the launcher dangling when the root is removed (measured 2026-09-04 16:36, 2.1.260 →
+  2.1.261, by P4-4: no session could start until the symlink was repointed by hand). The four proof/smoke scripts and the E4
+  drivers set it; check `readlink ~/.local/bin/claude` resolves under `~/.local/share/claude/versions/` before and after a run.
 - **The flakes (Rjae, 2026-09-04: "test flakiness seems to be hindering velocity" — set aside or fix): FIXED, 2026-09-04,**
   by the session `15-implement-brigade-0904` as the first item after the hand-off. The live tests are opt-in behind
   `BRIGADE_TEST_LIVE=1` (only `make test-integration` sets it; with it set, a missing stack FAILS instead of skipping, so CI's
@@ -1358,3 +1362,11 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   them from disk.** Fixed with a scoped negation (`!scripts/ci/testdata/**/*.log`) and a guard, `scripts/ci/fixtures_test.go`,
   that fails `make test` on any ignored fixture under `scripts/ci/testdata` (proven to fail without the negation) — CI's clean
   checkout can only show the consequence, so the guard lives where the cause is.
+- 2026-09-04 20:5x EDT: **A machine-wide hazard found by P4-4 and closed in every nested-session script: the Claude Code
+  auto-updater installs into `$XDG_DATA_HOME/claude/versions/` and repoints the real `~/.local/bin/claude` launcher there, so a
+  proof's temporary data home left the launcher dangling** (2.1.260 → 2.1.261 at 16:36; repointed by hand). `DISABLE_AUTOUPDATER=1`
+  (the documented switch: "only stops the background check") is now on the `claude -p` launch of proof-headless.sh,
+  proof-idle-wake.sh and harness-smoke.sh (this commit); proof-crash-resume.sh gets it from its verifier and the E4-interactive
+  drivers from their author. Also today: P4-4's author finished both arms green (arm A closes in 0.5–1.9 s, arm B goes `offline`
+  by lease at 79 s with 4–5 s of margin, 5/5 exactly once, M0 not replayed) — its verifier is running; P4-5's author is running
+  the interactive checklist on the Fable tier.
