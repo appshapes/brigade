@@ -516,6 +516,27 @@ message arrives at 1.2 s). The injected ordering that failed 2/2 passes 5/5; 30/
 `-race -shuffle=on`. No watcher defect: the join drain is mandatory (E0-2 (f)) and the settling cadence only shortens a lost
 hint's wait. The test now takes ~1.9 s instead of ~1.0 s.
 
+**(e) `TestWriteAtomicNeverTearsUnderConcurrency` — a fifth flake, found by the P5-13 commit's CI run (33944568302; the rerun
+passed).** Two writers rewrote a 256 KiB file a FIXED 30 times each while one reader goroutine sampled it, and the positive
+control demanded 20 samples: nothing coupled the two rates — the writers' wall time is `fsync`'s (~23 ms per replacement on
+this Mac's APFS, a few hundred µs where the page cache absorbs it) and the reader is one goroutine re-reading 256 KiB under
+`-race` beside the whole tree's tests on four cores. CPU starvation alone never reproduced it (0/30 twice: it slows both
+sides); a tmpfs `TMPDIR`, where `fsync` is free, reproduced it at once — 9/30 at one CPU, 27/30 at four with load — and the
+CI run's 19 samples sit inside that band. Fix, test only: the 60 replacements are now a floor and the writers keep going
+until the reader has caught 20 replacements LANDING (a sample differing from the previous one — strictly stronger than
+20 reads), bounded by a 30 s window that fails saying the race could not be provoked; a writer error on its last iteration
+is no longer lost to `select`; a `t.Cleanup` stops the writers before the temp dir is removed. After: 0 failures in every
+configuration that failed (30/30 ×3 on tmpfs, 50/50 at one CPU); a torn-write mutant (in-place `O_TRUNC` chunks) is caught
+5/5 on darwin and 20/20 under the worst load, never masked by the provoke guard; a vacuity control (an impossible floor)
+fails with the new message. `atomicfile.go` untouched.
+
+**(f) Observed, not fixed — whole-tree `make test` under this machine's heaviest concurrent load (two proof lanes' real
+sessions, a Docker `-race` loop and a gate at once):** `TestSameIDThreeTimesInjectsOnce` (watch; 30 s `Eventually` not met,
+3/3 green alone in 0.4 s) and `TestWatchLineDisciplineFailures`/`TestWatchExitRangeAndSignals` (conformance, a 125 s package
+run against the usual 86 s; the scripted mutant adapters' 5 s waits reported `pass`) each failed once, in packages the
+commit did not touch; each CI job runs alone on its runner and neither has failed there. Recorded so the next occurrence
+under normal load is recognised as new evidence rather than noise.
+
 **Plan corrections recorded here** (recorded in implementation/09-testing.md's corrections block by the split that followed; the section text itself stays verbatim): 9.4's gate paragraph
 (plan ~2801) says `RequireSupabase` "skips under `-short`" (there is no `testing.Short()` in the tree) and names
 `client_integration_test.go`/`integration_test.go` (they do not exist); the gate is now `BRIGADE_TEST_LIVE=1` plus the pair plus the
@@ -1712,3 +1733,8 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   a heartbeat.** Fable author and verifier (PASS, no edits; four mutants killed and the failure isolation proven by mutation);
   the pgTAP fixture helper had left every principal undated, which is fixed and pinned. Details in "P5-3 DONE". Next: P5-2
   (admin RPCs) once this lands; P5-1 after Phase 6's commit; P5-14 in flight.
+- 2026-09-05 02:4x EDT: **A fifth `make test` flake fixed at its cause** (the atomic-write race test's writers now stop only
+  when the reader has caught 20 replacements landing; reproduced on a tmpfs where `fsync` is free, 27/30 → 0/30) and two
+  load-only observations recorded as (f). Phase 6 (91065c1) and P5-3 (c21c8f8) are on master, CI green (33945203321).
+  Launched: P5-1 against the hosted project with the owner's token; P5-2 (admin RPCs, Fable) holding its migration out of
+  the directory until P5-1's push is done; P5-14 in flight.
