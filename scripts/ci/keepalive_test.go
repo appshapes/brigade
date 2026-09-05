@@ -732,7 +732,7 @@ func TestKeepaliveWorkflowAndDocsAgree(t *testing.T) {
 		"name: keepalive",
 		"workflow_dispatch: {}",
 		"permissions: {contents: read}",
-		"runs-on: ubuntu-latest",
+		"runs-on: blacksmith-4vcpu-ubuntu-2404",
 		"uses: actions/checkout@v7",
 		"run: "+keepaliveScriptRel,
 	)
