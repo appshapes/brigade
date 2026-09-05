@@ -193,6 +193,58 @@ func DropNotice(n int) string {
 	return "Brigade: " + plural(n, "message") + " dropped from the injection queue (limit " + strconv.Itoa(QueueCapacity) + "); they remain on the server and will be delivered later"
 }
 
+// HeldNoticeNames is how many distinct sender names the held notice
+// shows before it counts the rest (3.6: "at most three names plus a
+// count").
+const HeldNoticeNames = 3
+
+// HeldNotice is the one context line the prompt hook prints on EVERY
+// prompt while messages are held under the `hold` policy (P5-9, 3.8): the
+// count, the first HeldNoticeNames distinct sender names in oldest-first
+// order with a count of the distinct senders beyond them, and what to run.
+// It is a pure function of the entries. Names are sender-controlled text
+// and go through noticeName (the protocol sanitiser, the 64-code-point
+// cap, one line, a fixed stand-in for an empty name), which is the only
+// thing between a hostile name and the model's context. The dropped count
+// is deliberately NOT here: the notice's job is "you have messages, go
+// look", and the drop count belongs in the terminal listing where the
+// human can act on it. With no entries it returns "" and the hook prints
+// nothing.
+func HeldNotice(entries []PendingEntry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	var names []string
+	seen := map[string]bool{}
+	more := 0
+	for _, e := range entries {
+		name := noticeName(e.SenderName)
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		if len(names) < HeldNoticeNames {
+			names = append(names, name)
+		} else {
+			more++
+		}
+	}
+	it := "them"
+	if len(entries) == 1 {
+		it = "it"
+	}
+	var b strings.Builder
+	b.WriteString("Brigade: ")
+	b.WriteString(plural(len(entries), "team message"))
+	b.WriteString(" held for your review (from ")
+	b.WriteString(strings.Join(names, ", "))
+	if more > 0 {
+		b.WriteString(" and " + strconv.Itoa(more) + " more")
+	}
+	b.WriteString("). Run `brigade inbox` in your own terminal to read " + it + ", then `brigade inbox release` to deliver " + it + ".")
+	return b.String()
+}
+
 func plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun

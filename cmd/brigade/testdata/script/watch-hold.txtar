@@ -1,0 +1,111 @@
+# `brigade watch --sink <file>` under `hold` through the real binary (P5-9;
+# plan 6.8 step 5, 3.6): the watcher run in sink mode against the scripted
+# fake adapter replaying two messages. Under hold the sink is NEVER created,
+# the pending file appears with both ids and no ack is sent; a release file
+# naming one id makes the sink gain exactly that record, one ack, the
+# release file gone and the pending file down to the other id.
+
+# The `brigade` under test is the race-instrumented test binary too; without
+# this every exec spends TSan's 1 s atexit sleep (see fake.sh).
+env GORACE=atexit_sleep_ms=0
+sleeper
+env CLAUDE_PID=$SLEEPER_PID
+env CLAUDE_CODE_SESSION_ID=native-1
+env CLAUDECODE=1
+env CLAUDE_PLUGIN_OPTION_PROFILE=alpha
+env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script.json"]'
+env CLAUDE_PLUGIN_OPTION_TEAM_INBOUND=hold
+expand script.json.in script.json
+chmod 755 fake.sh
+# On macOS the FIRST exec of a freshly created executable is suspended
+# while the system assesses it (see watch-sink.txtar); warm it once.
+exec $WORK/fake.sh --script warm.json describe
+chmod 755 waitfile.sh
+chmod 755 waitgrep.sh
+stdin start.json
+exec brigade hook session-start
+stdout 'inbound: hold;'
+grep '"inbound":"hold"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+
+# --- the hook-built environment (6.6) ------------------------------------------
+env CLAUDE_PID=
+env BRIGADE_CLAUDE_PID=$SLEEPER_PID
+env BRIGADE_PROFILE=alpha
+env BRIGADE_CONFIG_DIR=$WORK/.brigade/xdg/config/brigade
+env BRIGADE_STATE_DIR=$WORK/.brigade/xdg/state/brigade
+env BRIGADE_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script.json"]'
+env BRIGADE_TEAM_INBOUND=hold
+env BRIGADE_LOG_LEVEL=debug
+
+# --- the run: both messages held, no sink, no ack -----------------------------
+exec brigade watch --sink $WORK/sink.ndjson &watcher&
+exec $WORK/waitfile.sh $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+exec $WORK/waitgrep.sh 'msg-2' $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+grep '"message_id":"msg-1"' $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+grep '"message_id":"msg-2"' $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+grep '"session_id":"brigade-sess-1"' $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+! grep 'held under hold' $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+! grep 'released_at' $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+! exists $WORK/sink.ndjson
+! grep '"msg":"ack sent"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
+grep '"outcome":"held"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
+! grep '"msg":"injection reported"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
+
+# --- the release: exactly one record in the sink, one ack, file consumed -------
+mkdir $WORK/.brigade/xdg/state/brigade/state/release
+expand release.in $WORK/.brigade/xdg/state/brigade/state/release/brigade-sess-1.json
+exec $WORK/waitfile.sh $WORK/sink.ndjson
+json $WORK/sink.ndjson .message_id msg-1
+grep 'held under hold: the first' $WORK/sink.ndjson
+grep -count=1 'message_id' $WORK/sink.ndjson
+! grep 'msg-2' $WORK/sink.ndjson
+exec $WORK/waitgrep.sh '"msg":"ack sent"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
+grep -count=1 '"msg":"ack sent"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
+grep '"msg":"release file applied"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
+! exists $WORK/.brigade/xdg/state/brigade/state/release/brigade-sess-1.json
+! grep '"message_id":"msg-1"' $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+grep '"message_id":"msg-2"' $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+grep 'msg-1' $WORK/.brigade/xdg/state/brigade/state/seen/brigade-sess-1.json
+
+# --- SIGINT ends it: exit 0, silent streams, the pidfile released ------------
+kill -INT watcher
+wait watcher
+! stdout .
+! stderr .
+! exists $WORK/.brigade/xdg/state/brigade/watchers/$SLEEPER_PID.json
+grep '"msg":"watcher exiting","exit":0,"reason":"signal"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
+grep -count=1 'message_id' $WORK/sink.ndjson
+grep -count=1 '"msg":"ack sent"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
+
+-- fake.sh --
+#!/bin/sh
+# The scripted fake adapter behind an absolute path (an adapter with a
+# shebang line; the harness execs it, never a shell of its own).
+# GORACE: under `go test -race` this fake is the race-instrumented test
+# binary, and TSan sleeps atexit_sleep_ms (1 s by default) before every
+# exit — not Brigade behaviour, but a third of the 3 s describe budget of
+# 4.1 on a loaded machine (measured: every fake-adapter script timed out
+# on describe under a whole-tree `make test`). The harness builds the
+# child's environment from scratch, so the variable is set here, not in
+# the script's environment.
+GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
+-- waitfile.sh --
+#!/bin/sh
+# A bounded poll for a non-empty file: 600 x 50 ms = 30 s, a hang catcher.
+i=0
+until [ -s "$1" ] || [ "$i" -ge 600 ]; do sleep 0.05; i=$((i+1)); done
+[ -s "$1" ]
+-- waitgrep.sh --
+#!/bin/sh
+# A bounded poll for a fixed string in a file: 600 x 50 ms = 30 s, a hang catcher.
+i=0
+until grep -qF -- "$1" "$2" 2>/dev/null || [ "$i" -ge 600 ]; do sleep 0.05; i=$((i+1)); done
+grep -qF -- "$1" "$2"
+-- start.json --
+{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- release.in --
+{"version": 1, "session_id": "brigade-sess-1", "message_ids": ["msg-1"], "written_at": "2026-09-05T12:00:00Z"}
+-- script.json.in --
+{"dump_file": "$WORK/dump.ndjson", "describe": {"protocol_version":"1","adapter":{"name":"fake-adapter","version":"0.0.0-fake"},"delivery":{"guarantee":"at_least_once","ordering":"none","ack_state":"injected"},"capabilities":["team.create","team.join","team.roster","message.receive","message.watch.push","message.watch.stdin_commands","session.description","session.resume","session.workspace_label","session.inbound"],"limits":{"max_body_bytes":16384,"max_summary_chars":200,"max_session_name_codepoints":64,"max_team_name_codepoints":64,"max_description_chars":256,"max_human_label_chars":128,"max_workspace_label_chars":128,"max_idempotency_key_chars":128,"send_rate":{"per_minute":20,"per_hour":200},"principal_send_rate":{"per_minute":60,"per_hour":600},"max_unacked_per_recipient":60,"max_unacked_per_sender_recipient":15,"max_hop_count":32,"implicit_reply_window_seconds":600},"lease":{"default_seconds":90,"min_seconds":30,"max_seconds":600},"retention":{"unacked_message_seconds":604800,"acked_message_seconds":86400,"closed_session_seconds":604800},"profile":{"name":"alpha","state":"joined","team_ref":"team-1","team_name":"ops","principal_ref":"principal-self","human_label":"me@example.com"}}, "responses": {"session register": [{"result": {"session_id":"brigade-sess-1","session_name":"payments-api","principal_ref":"principal-self","human_label":"me@example.com","state":"active","activity":"busy","inbound":"hold","last_seen_at":"2026-09-02T12:00:00Z","lease_until":"2026-09-02T12:01:30Z","created_at":"2026-09-02T12:00:00Z","is_self":true,"resumed":false,"lease_seconds":90,"server_time":"2026-09-02T12:00:00Z"}}], "session close": [{"result": {"session_id":"brigade-sess-1","state":"offline"}}]}, "watch": {"lines": [{"raw": {"event":"ready","protocol_version":"1","session_id":"brigade-sess-1","mode":"push"}}, {"raw": {"event":"message","message":{"protocol_version":"1","kind":"text","message_id":"msg-1","team_ref":"team-1","sender":{"principal_ref":"principal-carol","human_label":"carol@example.com","session_id":"cccccccccccccccccccccccccccccccc","session_name":"ci"},"recipient_session_id":"brigade-sess-1","summary":"the first","body":"held under hold: the first","hop_count":0,"created_at":"2026-09-02T12:00:31Z","delivery_state":"accepted"}}}, {"raw": {"event":"message","message":{"protocol_version":"1","kind":"text","message_id":"msg-2","team_ref":"team-1","sender":{"principal_ref":"principal-dave","human_label":"dave@example.com","session_id":"dddddddddddddddddddddddddddddddd","session_name":"docs"},"recipient_session_id":"brigade-sess-1","summary":"the second","body":"held under hold: the second","hop_count":0,"created_at":"2026-09-02T12:00:32Z","delivery_state":"accepted"}}}]}}
+-- warm.json --
+{}

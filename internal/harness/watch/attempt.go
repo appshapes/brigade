@@ -164,6 +164,10 @@ func (w *watcher) eventLoop(s *session, r *attemptResult) {
 			if w.state.takeFlip() {
 				s.requestHeartbeat()
 			}
+			// The hold policy's release file rides the same tick (3.6):
+			// no goroutine, no knob, no new deadline, and the same
+			// "within 2 s" every other reaction already promises.
+			w.applyRelease()
 		case <-hbTick.C:
 			s.requestHeartbeat()
 		case <-w.ctx.Done():
@@ -186,8 +190,10 @@ func (w *watcher) handleEvent(s *session, r *attemptResult, ev adapterclient.Eve
 		}
 		// The first heartbeat carries the current name and activity at
 		// once, so a renamed or busy session is reported without waiting
-		// a full interval.
+		// a full interval; a release file written while no watcher ran is
+		// applied at once for the same reason.
 		s.requestHeartbeat()
+		w.applyRelease()
 	case adapterclient.KindMessage:
 		w.offer(*ev.Message)
 	case adapterclient.KindStatus:
@@ -346,6 +352,7 @@ func (w *watcher) stateForLog() []slog.Attr {
 	return []slog.Attr{
 		slog.Int("queued", st.Queued), slog.Int("pending", st.Pending), slog.Int("senders", st.Senders),
 		slog.Int("deferrals", st.Deferrals), slog.Int("seen", st.Seen), slog.Int("notices", st.Notices),
+		slog.Int("held", st.Held),
 	}
 }
 

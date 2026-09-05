@@ -91,7 +91,8 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to the owner's usual practice (see "Phase 6" below) | **done** — P6-1 the digest (3fbb19f); P6-2..P6-4 this commit (two lanes, one adversarial verifier: every recipe unchanged, `make help` diff exactly `-docker-* +e2e`, the ` (CI)` marker on exactly the 19 CI-invoked targets, 27/27 README links, 7/7 jobs with measured timeouts, 6 sentences corrected); P6-5's record under "Phase 6" — every gate green locally, the CI matrix on this commit, the D1 rehearsal re-run in this commit's worktree | Opus | 26 conventions adopted or adapted, 13 declined with the constraint or the owner's answer that forced each, 3 declined on cost and re-openable |
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **armed and green on the hosted project since 2026-09-04 23:36 EDT** (run 33942302844: health 200, anonymous sign-up 200, the unexposed `brigade` schema a `406 PGRST106` warning until P5-1, sign-out 204); the variables were set from the owner's values and the owner enabled anonymous sign-ins | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
 | P5-3 | Anonymous-user cleanup in `gc_expired()`; retention verified end to end with time-shifted rows; `describe.retention` cross-checked | done | Fable | this commit — migration `20260905041134_anonymous_user_gc.sql` (a separate `gc_anonymous_users()` with its own handler, called last); pgTAP 770 → 825 assertions with **four mutants killed** and the failure-isolation argument proven by mutation (without the handler a creator-guard violation aborts the heartbeat); live: a 3-day-offline session resumes and receives, an 8-day one answers exit 4/6 both ways, keep-alive-shaped principals are reaped and the creator survives; a drift join pins `describe`'s retention to the migrations from both sides; verifier PASS with no edits; `docs/setup.md` §6 (see "P5-3 DONE") |
-| P5-1, P5-4..P5-6, P5-8..P5-11 | Hosted deployment (running with the owner's token), docs, keychain, soak, release, `hold` policy (running in a worktree), the injected ring | todo | mixed | briefs for every row under `.ignored/briefs/` (P5-7 and P5-10 written 2026-09-05; P5-10 finds the first-use download untestable while the repository is private — an owner decision) |
+| P5-1, P5-4..P5-6, P5-8, P5-10, P5-11 | Hosted deployment (running with the owner's token), docs, keychain, soak, release, the injected ring | todo | mixed | briefs for every row under `.ignored/briefs/` (P5-7 and P5-10 written 2026-09-05; P5-10 finds the first-use download untestable while the repository is private — an owner decision) |
+| P5-9 | **`team_inbound = hold`**: the pending file, the held notice, `brigade inbox`, `brigade inbox release` (terminal-only), the watcher's file-based release | done | Fable | this commit — no protocol change; nine author mutations plus the verifier's; `make e2e` 221/221 from the worktree (see "P5-9 DONE") |
 | P5-2 | **Team administration**: `rotate_join_secret`, `revoke_membership`, `revoke_memberships_by_version`, `transfer_team`; adapter and harness `team rotate-secret|revoke-member|transfer` (terminal-only) | done | Fable | this commit — migration `20260905120000_brigade_team_admin.sql`, `team_admin.sql` 247 assertions, three live tests, I-16 lag 2 ms on both paths so `jwt_expiry` stays 3600 s (see "P5-2 DONE") |
 | P5-7a | **The RFC final pass over `docs/protocol-v1.md` and `CHANGELOG.md`** (the P5-7 carve-out that touches no in-flight file) | done | Opus | this commit — six editorial lines in the protocol doc (one comma; five Appendix B "Suggested home" cells now naming real tests), nothing normative and no JSON block touched (`TestSpecExamplesAreTheTestdataFiles` and `make schema-check` green without regeneration); `CHANGELOG.md` in Keep a Changelog form, 40 items each traced to an artifact at HEAD; P5-7b (security doc, setup, plugin README, README rows) runs after P5-1/2/5/6/9/12 land (see "P5-7a DONE") |
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo | Fable | **before beta** — Rjae, 2026-09-04: the frame's instruction paragraph must follow the security model (default = whatever Claude allows; tighten by opt-in); one corpus sweep per shipped level |
@@ -857,6 +858,78 @@ before you ban" and is an open item for P5-7. **Question for Rjae (recorded, not
 `transfer` refuse inside a session by default, like the secret-bearing verbs; P5-12's model says the default allows what
 Claude itself allows and users tighten by opt-in. The brief ships the refusal because a wrong default here is unrecoverable
 for a team while the other way costs one round trip; say the word and the two verbs become in-session-capable.
+
+---
+
+## P5-9 DONE — `team_inbound = hold`: a human between the network and the session, with the release a file the watcher consumes (2026-09-05)
+
+Plan row P5-9 (D18's opt-in policy; 3.6, 6.8 step 5). Fable author in a detached worktree at a105d2e (P5-2's partial
+edits held the command files in the main tree), Fable adversarial verifier in the same worktree; the diff applied to master
+after P5-2 landed. **No protocol, schema, conformance or adapter change**: `hold` was already a wire value
+(`protocol/session.go`, `docs/protocol-v1.md:309`, C-42); this row ships its behaviour.
+
+**What ships.** `hold` is a third policy value (`config.InboundHold`, `policy.Hold`; `WarnInboundHold` gone; the invalid-value
+warning now names three values). Under `hold` the pipeline writes `state/pending/<StateName>.json` (id, sender name,
+`sender_session_id`, summary, received time — **never the body**) and neither posts nor acks (`OutcomeHeld`), bounded at
+`HoldCapacity = 100` with the oldest dropped from memory and file un-acked (unreachable on a conforming backend, whose
+`MaxUnackedPerRecipient = 60` refuses the 61st); the backend's seven-day unacked retention bounds the hold. The prompt hook
+prints a held notice after its poll — at most three sanitised names plus a count (`inbound.HeldNotice`), never a body. The
+release is a file, `state/release/<StateName>.json`, written by `brigade inbox release [--session <id>] [--all | <id>…]`
+**in the human's terminal only** (in a session: the one shipped refusal shape, `usage`/exit 2, `reason: in_session`,
+`RefusalReleaseInSession`, as the command's first statement before any file is read), merged if one exists, and consumed
+by the watcher on its existing 2 s liveness tick and once at `ready` (compare-then-delete after the pending save) — a
+released id is enqueued through the normal inject path, injected exactly once and acked; a release naming another session's
+ids at this session's path is ignored by the watcher. `brigade inbox` in a terminal lists held sessions from the hooks' XDG
+state directory (never the shell's `BRIGADE_STATE_DIR`, E0-7), sanitising sender names and neutralising any forged
+`<brigade-message>` tags in both the human listing and `--json`; inside a session it shows a count and names only. A
+`hold → accept` flip through the map is not a release; the settings scan still forces `refuse` over a `hold` option (a
+release would end in a socket post that a native `hold` would hold forever and a native `refuse` would swallow, while Brigade
+had acked — pinned by `TestScanStillForcesRefuseOverAHoldOption`). Docs: `docs/setup.md` "Holding messages for review",
+`plugin/README.md`'s row, `plugin.json`'s description; the model-facing skill never names the verb
+(`scripts/ci/manifests_test.go`'s rule, narrowed from "does not exist" to "not under `plugin/skills/`").
+
+**Tests and measurements (author).** New `inbound/state_test.go`, `inbound/pipeline_hold_test.go`, `watch/hold_test.go`,
+`hook/prompt_hold_test.go`, `hook/start_hold_test.go`, `commands/inbox_test.go`, txtars `inbox` and `watch-hold`; the body
+grep in the watch helpers has a positive control (`TestBodyGrepBites`). Nine mutations (hold acks; release stamps every id;
+name cap 3→4; raw names; the in-session guard deleted; the refusal code changed; `ConsumeRelease` unconditional; the pending
+file storing the body; `Effective` returning `Hold` on a native finding) each fail named tests across up to four packages
+and the txtars. `make lint`, `make test`, `make plugin-check`, `make checksums-check` 0; `make e2e` from the worktree GREEN
+221/221 (no bundle: the worktree has no `.ignored/`); zero Claude sessions started; `readlink ~/.local/bin/claude` unchanged.
+
+**Verified (Fable, adversarial): PASS, no edits; the worktree byte-identical before and after.** Every charter construction
+confirmed with its own evidence: `hold` posts nothing and acks nothing (the fake socket saw zero accepts; the fs store still
+lists the id unacked); a release of one of three held ids produced one frame and one ack, the other two still pending; the
+in-session `inbox release` with the state, config and home directories at mode 000 still exits 2 with the fixed line on
+stderr, nothing on stdout and no release file — the refusal runs before any read; forged `<brigade-message>` and
+`<system-reminder>` tags are neutralised in the human listing and `--json`; the notice holds three names and a count with a
+corpus-injection name neutralised and truncated; the pending file's raw bytes carry no body (positive control passes); the
+101st held message drops the oldest from memory and file without an ack and a restart re-holds it; the scan forces `refuse`
+over a `hold` option in both native arms, and the loss path under mutation (a release posting into a natively refused
+session that E0-9 measured as silently dropped while Brigade acks) is the exact loss; a foreign-session release file is left
+alone by the watcher and replaced by the command (safe: both paths are caller-keyed); **a real detached watcher SIGKILLed with
+a stale pidfile and an unacked store, restarted on the same session and released, injected once and acked once**; the
+`accept ↔ hold` flips hold the next message and never release; the poll path records and prints nothing under hold and acks
+only what it printed; `brigade inbox` reads the hooks' XDG state directory and ignores a shell `BRIGADE_STATE_DIR` holding
+another session. The author's nine mutations and seven of the verifier's fail the right tests; two of the verifier's are
+uncaught and are observations, not defects: consuming the release file before the pending save (a sub-millisecond crash
+window, the correct order in the code and its comments) and listing empty `accept` sessions (masked by the terminal filter;
+one extra spawn, no leak). `make e2e` from the worktree GREEN 221/221 again; zero Claude sessions started. Confirmed for
+the record: the exit-11 `config` path that exists is the distinct refusal of releasing into a `refuse`-policy session, not
+the in-session refusal. Applied to master after P5-2 with three additive conflicts resolved by the driver (the setup doc's
+terminal-use sentence and section order — "Holding messages for review" before "Team administration", per the P5-7 brief;
+the CLI help test's command list; the two refusal constants side by side).
+
+**Departures from the brief, recorded.** The refusal is exit 2, not 11 (the ruling). `heldSessions` is a superset of 3.7's:
+an `accept` session whose pending file still has entries is listed and releasable — otherwise the brief's own rule that a
+`hold → accept` flip is not a release would strand them. The crash arm is modelled honestly: after a watcher restart the
+second process has no envelope until the server redelivers, so `Release(nil)` reports it as waiting and the redelivery
+(accept path, reason `released`) is what injects once and acks. `MergeRelease` replaces, with a logged reason, a release
+file at the session's own path that names another session or is unreadable — the only way the human can release again.
+Known limits for `docs/security.md` (P5-7): the pending file is 0600 under the user's own state directory and the Bash tool
+runs as the user, so `hold` withholds delivery and the model's ordinary context — it is not a sandbox; a `poll_on_prompt`
+host with a live watcher can have both processes apply one release (stamping is idempotent, the seen file dedupes after the
+first `Done`; a window exists, pre-existing under `accept`); `brigade inbox` lists sessions whose by-pid map survived a
+crash (F4's prune territory); `--settings`-sourced native policy stays out of the scan's reach.
 
 ---
 
@@ -1919,3 +1992,6 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   (migration placed after P5-1's marker); both verifiers are running. P5-9's author is finishing its gates in the worktree.
   `docs/setup.md` holds both P5-1's and P5-2's sections in one mixed hunk, so whichever of the two commits first carries
   the file whole, as the keep-alive commit once carried P5-13's section.
+- 2026-09-05 10:1x EDT: **P5-2 is on master (433bbd6), CI 33965728121 green** (the supabase job replayed the new migration).
+  Its commit carries `docs/setup.md` whole, so P5-1's deployment section is on master ahead of P5-1's code (verifier
+  running). P5-9's verifier is running in its worktree; P5-6 (keychain) starts now in a worktree at 433bbd6.

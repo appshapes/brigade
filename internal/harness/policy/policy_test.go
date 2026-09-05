@@ -39,7 +39,7 @@ func optionCases(t *testing.T) []optionCase {
 		{name: "unset", raw: "", want: Accept},
 		{name: "accept", raw: "accept", want: Accept},
 		{name: "refuse", raw: "refuse", want: Refuse},
-		{name: "hold", raw: "hold", want: Refuse, warning: config.WarnInboundHold},
+		{name: "hold", raw: "hold", want: Hold},
 		{name: "invalid", raw: "sometimes", want: Refuse, warning: config.WarnInboundInvalid},
 	}
 	// Positive control on the fixture itself: ParseInbound must agree with
@@ -132,18 +132,18 @@ func TestEffectiveAcceptIsTheDefaultEverywhere(t *testing.T) {
 func TestEffectiveWarningsInOrder(t *testing.T) {
 	t.Parallel()
 	scan := Scan{Found: true, Value: NativeHold, File: "/cfg/settings.json"}
-	p, warnings := Effective(config.InboundRefuse, config.WarnInboundHold, scan)
+	p, warnings := Effective(config.InboundRefuse, config.WarnInboundInvalid, scan)
 	if p != Refuse {
 		t.Fatalf("policy %q, want refuse", p)
 	}
-	if len(warnings) != 2 || warnings[0] != config.WarnInboundHold || warnings[1] != scan.Warning() {
+	if len(warnings) != 2 || warnings[0] != config.WarnInboundInvalid || warnings[1] != scan.Warning() {
 		t.Fatalf("warnings = %q, want [option warning, scan warning]", warnings)
 	}
 }
 
 func TestEffectiveUnknownOptionFailsClosed(t *testing.T) {
 	t.Parallel()
-	for _, raw := range []string{"", "hold", "ACCEPT", "yes"} {
+	for _, raw := range []string{"", "HOLD", "ACCEPT", "yes"} {
 		p, warnings := Effective(config.Inbound(raw), "", Scan{})
 		if p != Refuse {
 			t.Errorf("option %q: policy %q, want refuse (fail closed)", raw, p)
@@ -162,34 +162,59 @@ func TestEffectiveUnknownOptionFailsClosed(t *testing.T) {
 
 func TestPolicyStringAndValid(t *testing.T) {
 	t.Parallel()
-	if Accept.String() != "accept" || Refuse.String() != "refuse" {
-		t.Fatalf("String: %q %q", Accept, Refuse)
+	if Accept.String() != "accept" || Hold.String() != "hold" || Refuse.String() != "refuse" {
+		t.Fatalf("String: %q %q %q", Accept, Hold, Refuse)
 	}
-	if !Accept.Valid() || !Refuse.Valid() {
-		t.Fatal("accept and refuse must be valid")
+	if !Accept.Valid() || !Hold.Valid() || !Refuse.Valid() {
+		t.Fatal("accept, hold and refuse must be valid")
 	}
-	for _, bad := range []Policy{"", "hold", "Accept"} {
+	for _, bad := range []Policy{"", "HOLD", "Accept", "auto"} {
 		if bad.Valid() {
 			t.Errorf("%q must not be valid", bad)
 		}
 	}
 }
 
-func TestNoHoldValueExists(t *testing.T) {
+// TestHoldIsAPolicyAndTheScanStillForcesRefuse is D18's value set after
+// P5-9: the option yields Hold with no warning, and a native hold or
+// refuse forces Refuse over it (3.6) — the scan wins, the option's hold is
+// overridden, and both facts are in the warnings.
+func TestHoldIsAPolicyAndTheScanStillForcesRefuse(t *testing.T) {
 	t.Parallel()
-	// D18/P5-9: nothing in this package can yield hold. Every input that
-	// mentions hold resolves to refuse.
-	for _, in := range []Inputs{
-		{Option: config.Inbound("hold")},
-		{Option: config.InboundAccept, Native: Scan{Found: true, Value: NativeHold, File: "/f"}},
+	if d := Decide(Inputs{Option: config.InboundHold}); d.Policy != Hold || len(d.Warnings) != 0 {
+		t.Fatalf("hold option, no scan: %+v, want hold and no warning", d)
+	}
+	for _, scan := range []Scan{
+		{Found: true, Value: NativeHold, File: "/f/settings.json"},
+		{Found: true, Value: NativeRefuse, File: "/f/.claude/settings.local.json"},
 	} {
-		if d := Decide(in); d.Policy != Refuse {
-			t.Errorf("%+v: policy %q, want refuse", in, d.Policy)
+		d := Decide(Inputs{Option: config.InboundHold, Native: scan})
+		if d.Policy != Refuse || len(d.Warnings) != 1 || d.Warnings[0] != scan.Warning() {
+			t.Errorf("hold option over native %s: %+v, want refuse with the scan's warning", scan.Value, d)
 		}
 	}
-	for _, w := range []string{WarnOptionUnknown, config.WarnInboundHold, config.WarnInboundInvalid} {
+	for _, w := range []string{WarnOptionUnknown, config.WarnInboundInvalid, Scan{Found: true, Value: NativeHold, File: "/f"}.Warning()} {
 		if strings.Contains(w, "\n") {
 			t.Errorf("warning is not one line: %q", w)
 		}
+	}
+}
+
+// TestScanWarningText pins Scan.Warning character for character, the P5-9
+// clause included: it names hold as Brigade's own review option, says the
+// native setting must still be accept, and points at `brigade inbox`.
+func TestScanWarningText(t *testing.T) {
+	t.Parallel()
+	got := Scan{Found: true, Value: NativeRefuse, File: "/home/u/.claude/settings.json"}.Warning()
+	want := `Brigade: your Claude Code settings set "crossSessionInbound": "refuse" in /home/u/.claude/settings.json; ` +
+		`Claude Code would not deliver Brigade messages to this session, so Brigade's inbound policy is refuse ` +
+		`(nothing is acknowledged blind; messages wait on the server). Remove that setting, or set it to "accept", to receive team messages; ` +
+		`Brigade's own team_inbound "hold" reviews messages in a terminal before delivery, but it still needs Claude Code's setting to be "accept". ` +
+		"Run `brigade inbox` in a terminal to read what is waiting."
+	if got != want {
+		t.Fatalf("Warning():\n got %q\nwant %q", got, want)
+	}
+	if (Scan{}).Warning() != "" {
+		t.Fatal("a scan that found nothing must warn nothing")
 	}
 }

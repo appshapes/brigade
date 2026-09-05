@@ -11,11 +11,12 @@ the one workflow to arm and the one GitHub rule to remember.
 Inside a session the Bash tool finds `brigade` on its PATH because the plugin puts it there. Your own terminal
 does not, and the two commands that must run there — `brigade team create` and `brigade team join` — refuse to
 run from inside a session, because the join secret must never pass through the chat (`brigade profile …` runs in
-either place; the terminal-only `brigade inbox` commands arrive with P5-9 and P5-5). The three administrative
+either place; `brigade inbox release` is terminal-only too, and `brigade inbox --recent` arrives with P5-5).
+The three administrative
 commands — `brigade team rotate-secret`, `brigade team revoke-member` and `brigade team transfer` — refuse inside
 a session too, in the same shape: `rotate-secret` with that same line, because it produces a secret;
-`revoke-member` and `transfer` with their own, because administration is not driven by chat. `brigade whoami`,
-run in a session, prints the plugin binary's absolute path on its own line:
+`revoke-member` and `transfer` with their own, because administration is not driven by chat.
+`brigade whoami`, run in a session, prints the plugin binary's absolute path on its own line:
 
 ```
 session 09365acd… "payments-api" in team "ops" (profile default, adapter supabase 0.1.0); inbound: accept
@@ -33,6 +34,33 @@ ln -s /Users/you/.claude/plugins/brigade/bin/brigade ~/.local/bin/brigade
 A symlink, not a copy: a `brigade` on your PATH that is not the plugin's own is what the session-start
 shadowing warning is about, and a copy goes stale at the next plugin upgrade.
 
+## Holding messages for review
+
+Brigade delivers team messages into your session as they arrive. Set the plugin option `team_inbound` to `hold`
+and it stops doing that: an arriving message is recorded — sender, summary, when it came — and **not** delivered
+and **not** acknowledged, so it stays on the server and its sender is never told it arrived. At your next prompt
+the session shows one line: how many are held, who they are from, and what to run.
+
+Reading and releasing are things you do **in your own terminal**, never from the chat. `brigade inbox` lists what
+is waiting, with each message's body fetched fresh from the server and shown once — nothing is stored on your
+machine and nothing is acknowledged by looking. `brigade inbox release --all`, or
+`brigade inbox release <message_id>…`, hands the ones you chose to the session's watcher, which delivers them the
+way an ordinary message is delivered, within a few seconds. `brigade inbox release` refuses to run inside a Claude
+Code session, so no model can release its own reading; inside a session `brigade inbox` shows only the count and
+the sender names.
+
+Held messages are not stored forever. Nothing is acknowledged, so the backend keeps them under its unacknowledged
+retention — at least seven days on the bundled adapter — and deletes them after that. A session that holds
+messages also fills its inbox: the backend refuses new messages to it once sixty are unacknowledged, and senders
+are told so.
+
+**Claude Code's own `crossSessionInbound` setting is a different layer.** It sits between Brigade and your session
+and Brigade cannot release from it. If Brigade's session-start scan finds `crossSessionInbound` set to `hold` or
+`refuse` in one of your settings files, it sets its own policy to `refuse` and says so: releasing into a session
+Claude Code will not deliver to would throw the message away *and* tell its sender it arrived. Remove that
+setting, or set it to `accept`, and then use `team_inbound: hold` if you want the review step.
+One blind spot to know about: a `crossSessionInbound` passed with `--settings` on the command line is invisible to
+that scan, so a session started that way can hold or drop Brigade frames without Brigade knowing.
 ## Team administration
 
 Every command in this section runs in **your own terminal**; inside a session each one refuses the way `team create`

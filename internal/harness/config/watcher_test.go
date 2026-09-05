@@ -88,9 +88,9 @@ func TestFromWatcherEnvTable(t *testing.T) {
 				t.Fatalf("inbound = %q %q", w.TeamInbound, w.TeamInboundWarning)
 			}
 		}},
-		{"inbound hold is refuse with the warning", replace(config.WatcherTeamInboundVar, "hold"), "", func(t *testing.T, w config.WatcherEnv) {
+		{"inbound hold is hold with no warning (P5-9)", replace(config.WatcherTeamInboundVar, "hold"), "", func(t *testing.T, w config.WatcherEnv) {
 			t.Helper()
-			if w.TeamInbound != config.InboundRefuse || w.TeamInboundWarning != config.WarnInboundHold {
+			if w.TeamInbound != config.InboundHold || w.TeamInboundWarning != "" {
 				t.Fatalf("inbound = %q %q", w.TeamInbound, w.TeamInboundWarning)
 			}
 		}},

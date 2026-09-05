@@ -79,7 +79,8 @@ type ByPID struct {
 	// NonInteractive is true for a `claude -p` session (CLAUDE_CODE_ENTRYPOINT
 	// sdk-cli, 6.5); diagnostics only.
 	NonInteractive bool `json:"non_interactive"`
-	// Inbound is the EFFECTIVE policy the hook chose: accept or refuse (6.8).
+	// Inbound is the EFFECTIVE policy the hook chose: accept, hold or
+	// refuse (6.8).
 	Inbound string `json:"inbound"`
 	// SocketPath is CLAUDE_CODE_MESSAGING_SOCKET as the hook saw it, or ""
 	// on a host without an inbox socket. The token is NOT here.
@@ -108,10 +109,9 @@ type ByPID struct {
 // Validate checks the members every by-pid map must carry before it is
 // written or trusted: a positive pid, a Brigade session id, a valid
 // profile name, an absolute config dir, an inbound value this harness
-// implements (accept or refuse; hold widens this with P5-9), a
-// well-formed adapter argv and an absolute or empty socket path. The
-// failure is `config` with details.field naming the member; the value is
-// never echoed.
+// implements (accept, hold or refuse), a well-formed adapter argv and an
+// absolute or empty socket path. The failure is `config` with
+// details.field naming the member; the value is never echoed.
 func (m *ByPID) Validate() error {
 	switch {
 	case m.ClaudePID <= 0:
@@ -122,7 +122,7 @@ func (m *ByPID) Validate() error {
 		return errInvalid("profile")
 	case !filepath.IsAbs(m.ConfigDir):
 		return errInvalid("config_dir")
-	case m.Inbound != protocol.InboundAccept && m.Inbound != protocol.InboundRefuse:
+	case m.Inbound != protocol.InboundAccept && m.Inbound != protocol.InboundHold && m.Inbound != protocol.InboundRefuse:
 		return errInvalid("inbound")
 	case CheckAdapterCommand(m.AdapterCommand) != nil:
 		return errInvalid("adapter_command")

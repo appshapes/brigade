@@ -8,6 +8,11 @@
 //     SeenCapacity ids or the seen file loaded at start — is not injected
 //     again but IS acknowledged (its earlier ack may have failed);
 //  3. policy (D18): under Refuse nothing is injected and nothing acked;
+//     under Hold (P5-9) the message is recorded — sender, summary, when;
+//     never the body — in the pending file through the injected
+//     PendingStore, neither injected nor acked, and skips every later
+//     step until the human releases it from a terminal (Release), when it
+//     enters the queue directly at step 6;
 //  4. the per-sender rate (U-14): beyond SenderRatePerMinute a message is
 //     left unacknowledged and one summarised notice per NoticeWindow per
 //     sender is queued;
@@ -70,9 +75,17 @@ func SystemClock() Clock { return ClockFunc(time.Now) }
 
 // Config builds a Pipeline.
 type Config struct {
-	// Policy is the effective inbound policy (policy.Decide): Accept or
-	// Refuse. Anything else is an error from New (fail closed, loudly).
+	// Policy is the effective inbound policy (policy.Decide): Accept, Hold
+	// or Refuse. Anything else is an error from New (fail closed, loudly).
 	Policy policy.Policy
+	// SessionID is the Brigade session id; it is written into and checked
+	// against the pending file by a FilePendingStore.
+	SessionID string
+	// Pending persists the messages held under Hold across restarts; nil
+	// means hold is recorded in memory only (tests). A Hold policy with a
+	// nil store is legal but logged once at Warn, because the held notice
+	// would not survive a restart.
+	Pending PendingStore
 	// TeamName is the human team name for the frame's team attribute (the
 	// envelope carries only the opaque team_ref); the by-pid map has it.
 	TeamName string
@@ -105,6 +118,9 @@ const (
 	OutcomePending Outcome = "pending"
 	// OutcomeRefused: the policy is Refuse (step 3); no injection, no ack.
 	OutcomeRefused Outcome = "refused"
+	// OutcomeHeld: recorded in the pending file under Hold (step 3), or
+	// already held there; no injection, no ack, until Release.
+	OutcomeHeld Outcome = "held"
 	// OutcomeRateLimited: over the sender's rate (step 4); left
 	// unacknowledged; a notice may have been queued.
 	OutcomeRateLimited Outcome = "rate_limited"
@@ -208,14 +224,30 @@ type Pipeline struct {
 	deferrals *deferrals
 	notices   []*senderState
 	drops     noticeWindow
+	// held is the `hold` state (3.3): the pending entries oldest first,
+	// each with its envelope once the server has delivered it to this
+	// process, bounded at HoldCapacity; dropped counts the evictions.
+	held    *orderedMap[string, *heldEntry]
+	dropped int
 }
 
-// New builds a Pipeline and loads the seen store. A store that cannot be
-// loaded is logged and the pipeline starts empty; an invalid policy is an
-// error.
+// A heldEntry is one held message in memory: the pending-file record and,
+// when this process has seen the envelope, the envelope itself, so a
+// release can inject NOW rather than wait for the next restart (3.3). An
+// entry loaded from the file has no envelope until the server redelivers
+// the message (every unacknowledged id is re-emitted on each watch-child
+// restart and returned on every poll).
+type heldEntry struct {
+	entry PendingEntry
+	env   *protocol.MessageEnvelope
+}
+
+// New builds a Pipeline and loads the seen and pending stores. A store
+// that cannot be loaded is logged and the pipeline starts empty; an
+// invalid policy is an error.
 func New(cfg Config) (*Pipeline, error) {
 	if !cfg.Policy.Valid() {
-		return nil, errors.New("inbound: policy must be accept or refuse")
+		return nil, errors.New("inbound: policy must be accept, hold or refuse")
 	}
 	if cfg.Clock == nil {
 		cfg.Clock = SystemClock()
@@ -232,6 +264,7 @@ func New(cfg Config) (*Pipeline, error) {
 		queue:     newQueue(QueueCapacity),
 		limiter:   newLimiter(),
 		deferrals: newDeferrals(),
+		held:      newOrderedMap[string, *heldEntry](HoldCapacity),
 	}
 	if cfg.Seen != nil {
 		ids, err := cfg.Seen.Load()
@@ -242,6 +275,20 @@ func New(cfg Config) (*Pipeline, error) {
 			p.seen.put(id, struct{}{})
 		}
 		logger.Debug("seen ids loaded", slog.Int("count", p.seen.size()))
+	}
+	switch {
+	case cfg.Pending != nil:
+		f, err := cfg.Pending.Load()
+		if err != nil {
+			logger.Warn("pending file not loaded; starting with no held messages", log.Err(err))
+		}
+		for i := range f.Entries {
+			p.held.put(f.Entries[i].MessageID, &heldEntry{entry: f.Entries[i]})
+		}
+		p.dropped = f.DroppedTotal
+		logger.Debug("held messages loaded", slog.Int("count", p.held.size()), slog.Int("dropped_total", p.dropped))
+	case cfg.Policy == policy.Hold:
+		logger.Warn("hold policy with no pending store: held messages are recorded in memory only and the notice will not survive a restart")
 	}
 	return p, nil
 }
@@ -266,7 +313,9 @@ func (p *Pipeline) SetPolicy(pol policy.Policy) {
 
 // Offer runs steps 1–6 for one message event and returns the Decision.
 // Ack is true only for a duplicate; a queued message is acknowledged
-// through Done after injection.
+// through Done after injection, and a held one never — Ack is false on
+// every hold path, and that boolean is the only thing that makes a caller
+// acknowledge.
 func (p *Pipeline) Offer(m protocol.MessageEnvelope) Decision {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -294,9 +343,29 @@ func (p *Pipeline) Offer(m protocol.MessageEnvelope) Decision {
 		p.log.Debug("message already pending", slog.String("message_id", id))
 		return Decision{Outcome: OutcomePending, MessageID: id, Reason: "pending"}
 	}
-	if p.cfg.Policy != policy.Accept {
+	// An id already held stays held until the human releases it, whatever
+	// the policy now says (a hold→accept flip is not a release); the
+	// envelope is kept so a release can inject without a restart, and no
+	// write happens, so a session held for a day does not rewrite its
+	// pending file on every redelivery. A released id takes the accept
+	// path below, skipping the rate bucket and the deferral (3.4).
+	released := false
+	if h, ok := p.held.get(id); ok {
+		h.env = &m
+		if !h.entry.Released() {
+			p.log.Debug("message already held", slog.String("message_id", id))
+			return Decision{Outcome: OutcomeHeld, MessageID: id, Reason: "already_held"}
+		}
+		released = true
+	}
+	switch {
+	case p.cfg.Policy == policy.Hold && !released:
+		return p.hold(m, now)
+	case p.cfg.Policy != policy.Accept && p.cfg.Policy != policy.Hold:
 		p.log.Info("message refused by policy", slog.String("message_id", id), slog.String("policy", p.cfg.Policy.String()))
 		return Decision{Outcome: OutcomeRefused, MessageID: id, Reason: "policy_refuse"}
+	case released:
+		return p.enqueue(m, deferralKey(m.Sender.SessionID, m.Body), now, "released")
 	}
 
 	s := p.limiter.sender(m.Sender.SessionID, m.Sender.SessionName, now)
@@ -319,11 +388,17 @@ func (p *Pipeline) Offer(m protocol.MessageEnvelope) Decision {
 		return Decision{Outcome: OutcomeDeferred, MessageID: id, Reason: "identical_body"}
 	}
 	p.deferrals.mark(key, now)
+	return p.enqueue(m, key, now, "")
+}
 
+// enqueue is step 6 for one message: onto the bounded queue, the oldest
+// dropped (unacknowledged) when it is full.
+func (p *Pipeline) enqueue(m protocol.MessageEnvelope, key string, now time.Time, reason string) Decision {
+	id := m.MessageID
 	q := &queued{env: m, key: key, queuedAt: now}
 	dropped := p.queue.push(q)
 	p.pending[id] = q
-	d := Decision{Outcome: OutcomeQueued, MessageID: id}
+	d := Decision{Outcome: OutcomeQueued, MessageID: id, Reason: reason}
 	if dropped != nil {
 		delete(p.pending, dropped.env.MessageID)
 		p.deferrals.clear(dropped.key)
@@ -335,6 +410,136 @@ func (p *Pipeline) Offer(m protocol.MessageEnvelope) Decision {
 	}
 	p.log.Debug("message queued", slog.String("message_id", id), slog.Int("queue_len", p.queue.size()))
 	return d
+}
+
+// hold is step 3 under Hold (3.3): record the message — never its body —
+// in memory and in the pending store, and decide OutcomeHeld with Ack
+// false. Held messages skip the rate limiter, the deferral and the
+// queue: they are not injections, and under hold the pipeline injects
+// nothing at all, notices included; the user learns the count from the
+// prompt hook's held notice. At HoldCapacity the OLDEST entry is dropped
+// from memory and from the file and is NOT acknowledged, so the server
+// keeps it and redelivers it on the next watch-child restart; the sender
+// is never told it arrived.
+func (p *Pipeline) hold(m protocol.MessageEnvelope, now time.Time) Decision {
+	id := m.MessageID
+	entry := PendingEntry{
+		MessageID:       id,
+		SenderSessionID: m.Sender.SessionID,
+		SenderName:      protocol.SanitizeName(m.Sender.SessionName),
+		SenderPrincipal: m.Sender.PrincipalRef,
+		Summary:         protocol.SanitizeSummary(m.Summary),
+		ReceivedAt:      now,
+	}
+	if evicted, ok := p.held.put(id, &heldEntry{entry: entry, env: &m}); ok {
+		p.dropped++
+		p.log.Warn("held messages at capacity; oldest entry dropped from the pending file, not acknowledged",
+			slog.String("dropped_message_id", evicted),
+			slog.Int("dropped_total", p.dropped))
+	}
+	p.savePending(now)
+	p.log.Info("message held for review", slog.String("message_id", id), slog.String("sender_session_id", m.Sender.SessionID), slog.Int("held", p.held.size()))
+	return Decision{Outcome: OutcomeHeld, MessageID: id, Reason: "policy_hold"}
+}
+
+// savePending persists the held entries through the pending store.
+func (p *Pipeline) savePending(now time.Time) {
+	if p.cfg.Pending == nil {
+		return
+	}
+	if err := p.cfg.Pending.Save(PendingFile{Entries: p.heldEntries(), DroppedTotal: p.dropped, UpdatedAt: now}); err != nil {
+		p.log.Warn("pending file not written", log.Err(err))
+	}
+}
+
+// heldEntries copies the held entries oldest first.
+func (p *Pipeline) heldEntries() []PendingEntry {
+	out := make([]PendingEntry, 0, p.held.size())
+	for _, id := range p.held.keys() {
+		h, _ := p.held.get(id)
+		out = append(out, h.entry)
+	}
+	return out
+}
+
+// A ReleaseResult is what Release did.
+type ReleaseResult struct {
+	// Stamped are the ids newly stamped released_at by this call.
+	Stamped []string
+	// Queued are the ids moved into the injection queue by this call.
+	Queued []string
+	// Waiting counts the released entries not queued by this call: the
+	// queue had no room, this process has not yet seen the envelope (the
+	// server redelivers it on the next restart or poll), or the policy is
+	// Refuse; the next call takes them.
+	Waiting int
+	// Unknown are the ids that are not held here; they change nothing.
+	Unknown []string
+}
+
+// Release stamps released_at on the named ids, persists the pending file,
+// and moves as many released entries as the injection queue has room for
+// into the queue, oldest first, directly at step 6 — skipping the
+// per-sender bucket and the identical-body deferral, because the human's
+// release IS the rate limit (3.4). ids may be empty, which means "re-queue
+// whatever is already stamped": the watcher's liveness tick and the poll
+// call it that way. A released id already in the seen LRU was injected
+// before and is dropped from the held set (the server's redelivery is
+// acknowledged as a duplicate); one already queued or handed out is left
+// alone. Under Refuse nothing is queued (the stamps are kept, so the next
+// policy change delivers them). Stamping is idempotent, so a crash between
+// the pending save and the release file's deletion re-applies harmlessly.
+func (p *Pipeline) Release(ids []string) ReleaseResult {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := p.cfg.Clock.Now()
+	var res ReleaseResult
+	for _, id := range ids {
+		h, ok := p.held.get(id)
+		if !ok {
+			res.Unknown = append(res.Unknown, id)
+			continue
+		}
+		if !h.entry.Released() {
+			h.entry.ReleasedAt = now
+			res.Stamped = append(res.Stamped, id)
+		}
+	}
+	if len(res.Stamped) > 0 {
+		p.savePending(now)
+		p.log.Info("held messages released", slog.Int("stamped", len(res.Stamped)), slog.Int("unknown", len(res.Unknown)))
+	}
+	for _, id := range p.held.keys() {
+		h, _ := p.held.get(id)
+		if !h.entry.Released() {
+			continue
+		}
+		if _, queued := p.pending[id]; queued {
+			continue // already in the queue or handed out
+		}
+		switch {
+		case p.seen.has(id):
+			p.held.delete(id)
+			p.savePending(now)
+			p.log.Debug("released message was already injected; dropped from the held set", slog.String("message_id", id))
+			continue
+		case p.cfg.Policy == policy.Refuse, h.env == nil, p.queue.full():
+			res.Waiting++
+			continue
+		}
+		m := *h.env
+		p.enqueue(m, deferralKey(m.Sender.SessionID, m.Body), now, "released")
+		res.Queued = append(res.Queued, id)
+	}
+	return res
+}
+
+// Pending returns a copy of the held entries, oldest first, for the held
+// notice and for `brigade inbox`.
+func (p *Pipeline) Pending() []PendingEntry {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.heldEntries()
 }
 
 // Next hands out the next pending injection: rate notices in the order
@@ -417,6 +622,12 @@ func (p *Pipeline) Done(item Item, err error) Decision {
 		return Decision{Outcome: OutcomeNotInjected, MessageID: item.MessageID, Reason: "inject_failed"}
 	}
 	p.remember(item.MessageID)
+	if p.held.delete(item.MessageID) {
+		// The released message is delivered: out of the pending file in
+		// the same step that put it in the seen file, so an id is never
+		// both seen and pending (3.4).
+		p.savePending(p.cfg.Clock.Now())
+	}
 	p.log.Debug("message injected", slog.String("message_id", item.MessageID))
 	return Decision{Outcome: OutcomeInjected, MessageID: item.MessageID, Ack: true}
 }
@@ -462,6 +673,9 @@ type Stats struct {
 	Seen      int
 	// Notices is the number of notices waiting for Next.
 	Notices int
+	// Held is the number of messages held under the hold policy, released
+	// but not yet delivered ones included.
+	Held int
 }
 
 // Stats reports the current sizes.
@@ -479,5 +693,6 @@ func (p *Pipeline) Stats() Stats {
 		Deferrals: p.deferrals.m.size(),
 		Seen:      p.seen.size(),
 		Notices:   n,
+		Held:      p.held.size(),
 	}
 }

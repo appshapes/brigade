@@ -7,7 +7,11 @@
 // or, in the test harness's sink mode, appends it to a file, acknowledges
 // only what was injected, heartbeats the Brigade session, and exits when
 // the Claude Code process, the by-pid map or a SIGTERM says the session is
-// over.
+// over. Under the `hold` policy (P5-9) nothing is injected or acknowledged:
+// the pipeline records each message in the session's pending file, and the
+// watcher applies the release file `brigade inbox release` writes in a
+// terminal — on its 2 s liveness tick and once when the watch child is
+// ready — injecting exactly the released ids through the accept path.
 //
 // Configuration comes ONLY from the environment the hook built
 // (config.FromWatcherEnv: BRIGADE_CLAUDE_PID, BRIGADE_PROFILE,
@@ -445,7 +449,11 @@ type watcher struct {
 	claudeStart string // the Claude pid's start token at startup (pid reuse)
 	pipeline    *inbound.Pipeline
 	pidPath     string
+	releasePath string // the hold policy's release file (inbound.ReleasePath)
 	entry       pidfile.Entry
+	// lastReleaseIssue is the last reason the release file was left in
+	// place, so a file that is refused on every tick is logged once.
+	lastReleaseIssue string
 
 	state    *shared
 	injector *injector
@@ -487,12 +495,16 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		pol = policy.Refuse
 	}
 	pipe, err := inbound.New(inbound.Config{
-		Policy:   pol,
-		TeamName: m.TeamName,
-		Wrap:     true,
-		Clock:    inbound.ClockFunc(d.Clock),
-		Seen:     inbound.FileSeenStore{Path: inbound.SeenPath(rc.env.StateDir, m.BrigadeSessionID)},
-		Logger:   lg,
+		Policy:    pol,
+		SessionID: m.BrigadeSessionID,
+		TeamName:  m.TeamName,
+		Wrap:      true,
+		Clock:     inbound.ClockFunc(d.Clock),
+		Seen:      inbound.FileSeenStore{Path: inbound.SeenPath(rc.env.StateDir, m.BrigadeSessionID)},
+		Pending: inbound.FilePendingStore{
+			Path: inbound.PendingPath(rc.env.StateDir, m.BrigadeSessionID), SessionID: m.BrigadeSessionID,
+		},
+		Logger: lg,
 	})
 	if err != nil {
 		return nil, protocol.CodeConfig.Exit(), err
@@ -512,16 +524,17 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		Spawn:     d.Spawn,
 	}
 	w := &watcher{
-		deps:      d,
-		rc:        rc,
-		environ:   environ,
-		log:       lg,
-		client:    client,
-		store:     store,
-		sessionID: m.BrigadeSessionID,
-		teamRef:   m.TeamRef,
-		pipeline:  pipe,
-		pidPath:   pidfile.Path(rc.env.StateDir, rc.env.ClaudePID),
+		deps:        d,
+		rc:          rc,
+		environ:     environ,
+		log:         lg,
+		client:      client,
+		store:       store,
+		sessionID:   m.BrigadeSessionID,
+		teamRef:     m.TeamRef,
+		pipeline:    pipe,
+		pidPath:     pidfile.Path(rc.env.StateDir, rc.env.ClaudePID),
+		releasePath: inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
 			m.SessionName, m.Inbound),
 	}
@@ -619,6 +632,58 @@ func (w *watcher) reasonOfStop() string {
 		w.stopReason = "signal"
 	}
 	return w.stopReason
+}
+
+// applyRelease is the hold policy's release path (3.6, P5-9), run on the
+// liveness tick and once when the watch child is ready: read the release
+// file `brigade inbox release` wrote, stamp and persist the released ids
+// in the pending file, and only THEN delete the release file by content
+// (inbound.ConsumeRelease) — a batch written meanwhile leaves different
+// bytes and is applied on the next tick; a crash between the two steps
+// re-applies the same stamps, which is idempotent. A file naming another
+// session, or one the strict reader refuses, is left in place and logged
+// once. Whatever is stamped and deliverable is then queued and the
+// injector woken, so a released message whose envelope arrived after the
+// stamp (a restart's redelivery) goes out within one tick.
+func (w *watcher) applyRelease() {
+	rel, raw, err := inbound.ReadRelease(w.releasePath)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		w.lastReleaseIssue = ""
+	case err != nil:
+		w.releaseIssue("release file refused; left in place", err)
+	case rel.SessionID != w.sessionID:
+		w.releaseIssue("release file names another session; left in place", inbound.ErrReleaseForeignSession)
+	default:
+		w.lastReleaseIssue = ""
+		res := w.pipeline.Release(rel.MessageIDs)
+		w.log.Info("release file applied",
+			slog.Int("ids", len(rel.MessageIDs)), slog.Int("stamped", len(res.Stamped)),
+			slog.Int("queued", len(res.Queued)), slog.Int("waiting", res.Waiting), slog.Int("unknown", len(res.Unknown)))
+		if removed, cerr := inbound.ConsumeRelease(w.releasePath, raw); cerr != nil {
+			w.log.Warn("release file not removed", adlog.Err(cerr))
+		} else if !removed {
+			w.log.Info("release file was rewritten while it was applied; the next tick applies the rest")
+		}
+		if len(res.Queued) > 0 {
+			w.injector.kickNow()
+		}
+	}
+	if res := w.pipeline.Release(nil); len(res.Queued) > 0 {
+		w.log.Info("released messages queued", slog.Int("queued", len(res.Queued)), slog.Int("waiting", res.Waiting))
+		w.injector.kickNow()
+	}
+}
+
+// releaseIssue logs why the release file was left in place, once per
+// distinct reason rather than on every tick.
+func (w *watcher) releaseIssue(msg string, err error) {
+	key := msg + ": " + err.Error()
+	if w.lastReleaseIssue == key {
+		return
+	}
+	w.lastReleaseIssue = key
+	w.log.Warn(msg, adlog.Err(err))
 }
 
 // writeNotice writes ONE line to ${stateDir}/state/<pid>.notice, overwriting

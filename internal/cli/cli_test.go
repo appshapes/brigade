@@ -738,40 +738,36 @@ func TestJSONHelpEmitsAnEnvelope(t *testing.T) {
 
 // --- P3-3: the filled table, the raw dispatch and the error mapping ---------
 
-// TestFilledCommandsAreNoLongerPlaceholders pins the P3-3 state: the five
-// 6.4 commands have a Run, `inbox` alone stays a placeholder among the
-// human commands, and `help` lists the five under "Commands".
+// TestFilledCommandsAreNoLongerPlaceholders pins the table after P5-9:
+// every 6.4 human command has a Run — `inbox` was the last placeholder —
+// no entry carries a Task, and `help` lists the six under "Commands" with
+// no "Not implemented yet" block at all.
 func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"sessions", "send", "whoami", "team", "profile"} {
-		cmd, ok := Lookup(name)
-		if !ok || !cmd.Implemented() {
-			t.Errorf("%s: not implemented in the table", name)
+	for _, c := range commands {
+		if !c.Implemented() || c.Task != "" {
+			t.Errorf("%s: still a placeholder (Task %q)", c.Name, c.Task)
 		}
-	}
-	inbox, _ := Lookup("inbox")
-	if inbox.Implemented() || inbox.Task != "P5-11" {
-		t.Errorf("inbox = %+v, want the P5-11 placeholder", inbox)
 	}
 	for _, raw := range []string{"team", "profile"} {
 		if cmd, _ := Lookup(raw); !cmd.Raw {
 			t.Errorf("%s: not Raw; the adapter flags it forwards would be usage errors", raw)
 		}
 	}
-	for _, typed := range []string{"sessions", "send", "whoami"} {
+	for _, typed := range []string{"sessions", "send", "whoami", "inbox"} {
 		if cmd, _ := Lookup(typed); cmd.Raw {
 			t.Errorf("%s: Raw; its flags are the table's", typed)
 		}
 	}
 	got := dispatch(t, "help")
-	commandsBlock := got.stdout[strings.Index(got.stdout, "Commands:"):strings.Index(got.stdout, "Not implemented yet")]
-	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "team create|join|leave|members|rotate-secret|revoke-member|transfer", "profile init|status"} {
+	if strings.Contains(got.stdout, "Not implemented yet") {
+		t.Errorf("help still carries a placeholder block:\n%s", got.stdout)
+	}
+	commandsBlock := got.stdout[strings.Index(got.stdout, "Commands:"):strings.Index(got.stdout, "Global flags:")]
+	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "team create|join|leave|members|rotate-secret|revoke-member|transfer", "profile init|status", "inbox [release]"} {
 		if !strings.Contains(commandsBlock, want) {
 			t.Errorf("help's Commands block lacks %q:\n%s", want, commandsBlock)
 		}
-	}
-	if strings.Contains(commandsBlock, "inbox") {
-		t.Errorf("help lists inbox as implemented:\n%s", commandsBlock)
 	}
 }
 

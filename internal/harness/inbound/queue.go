@@ -58,3 +58,6 @@ func (s *queue) pop() (*queued, bool) {
 
 // size is the number of queued items.
 func (s *queue) size() int { return len(s.items) }
+
+// full reports whether the next push would drop the oldest item.
+func (s *queue) full() bool { return len(s.items) >= s.capacity }

@@ -97,6 +97,35 @@ grep -count=2 '"verb":"ack"' dump.ndjson
 env CLAUDE_PLUGIN_OPTION_TEAM_INBOUND=
 env CLAUDE_PLUGIN_OPTION_POLL_ON_PROMPT=
 
+# --- hold: the held notice is printed on EVERY prompt while anything is held --
+# (P5-9, 3.8). Unlike the watcher's notice above it is not consumed, and it
+# names at most three sanitised senders plus a count; the pending file is
+# keyed by the Brigade session id like the seen file.
+sleeper
+env CLAUDE_PID=$SLEEPER_PID
+env CLAUDE_CODE_SESSION_ID=native-hold
+env CLAUDE_PLUGIN_OPTION_TEAM_INBOUND=hold
+stdin start3.json
+exec brigade hook session-start
+stdout 'inbound: hold'
+mkdir $WORK/.brigade/xdg/state/brigade/state/pending
+expand pending.in $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+stdin prompt-plan.json
+exec brigade hook prompt
+stdout '^Brigade: 4 team messages held for your review \(from payments-api, ci-runner, docs-bot and 1 more\)\. Run `brigade inbox` in your own terminal to read them, then `brigade inbox release` to deliver them\.$'
+stdout -count=1 '^Brigade'
+! stdout 'red on main'
+stdin prompt-plan.json
+exec brigade hook prompt
+stdout '^Brigade: 4 team messages held for your review'
+stdout -count=1 '^Brigade'
+exists $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+rm $WORK/.brigade/xdg/state/brigade/state/pending/brigade-sess-1.json
+stdin prompt-plan.json
+exec brigade hook prompt
+! stdout .
+env CLAUDE_PLUGIN_OPTION_TEAM_INBOUND=
+
 # --- an unregistered session is registered at the prompt (once a minute) -----
 # The prompt document carries no session_title, so the name is the cwd's
 # base name (6.5); the context line is printed at that prompt.
@@ -109,7 +138,7 @@ exec brigade hook prompt
 stdout '^Brigade: this session is "project" \(brigade-sess-1\) in team "ops"'
 exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 exists $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.register-retry
-grep -count=3 '"verb":"register"' dump.ndjson
+grep -count=4 '"verb":"register"' dump.ndjson
 
 # --- bad stdin: exit 0, nothing printed, nothing done --------------------------
 stdin garbage.txt
@@ -140,6 +169,10 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 {"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "permission_mode": "default", "transcript_path": "/never/read.jsonl"}
 -- start2.json --
 {"session_id": "native-2", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "permission_mode": "default", "transcript_path": "/never/read.jsonl"}
+-- start3.json --
+{"session_id": "native-hold", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "permission_mode": "default", "transcript_path": "/never/read.jsonl"}
+-- pending.in --
+{"version": 1, "session_id": "brigade-sess-1", "entries": [{"message_id": "h-1", "sender_session_id": "s1", "sender_name": "payments-api", "sender_principal": "p1", "summary": "red on main", "received_at": "2026-09-02T12:00:31Z"}, {"message_id": "h-2", "sender_session_id": "s2", "sender_name": "ci-runner", "sender_principal": "p2", "received_at": "2026-09-02T12:00:32Z"}, {"message_id": "h-3", "sender_session_id": "s3", "sender_name": "docs-bot", "sender_principal": "p3", "received_at": "2026-09-02T12:00:33Z"}, {"message_id": "h-4", "sender_session_id": "s4", "sender_name": "fourth", "sender_principal": "p4", "received_at": "2026-09-02T12:00:34Z"}], "dropped_total": 0, "updated_at": "2026-09-02T12:00:34Z"}
 -- prompt-plan.json --
 {"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "UserPromptSubmit", "permission_mode": "plan", "prompt": "never read", "prompt_id": "p1", "transcript_path": "/never/read.jsonl"}
 -- garbage.txt --

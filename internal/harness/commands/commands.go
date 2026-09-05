@@ -1,6 +1,7 @@
 // Package commands implements the human and model command surface of the
 // `brigade` binary (plan 6.4): `sessions`, `send`, `whoami`, `team members`,
-// and the terminal pass-through of `team create|join|leave` and `profile
+// the hold policy's `inbox` and `inbox release` (inbox.go), and the
+// terminal pass-through of `team create|join|leave` and `profile
 // init|status|reset|revoke-credentials`. The cli package's command table
 // calls in here; nothing here knows the flag parser or the exit-code
 // reporter, which is what keeps the two packages from importing each
@@ -44,6 +45,7 @@ import (
 	adapterlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -92,6 +94,9 @@ type Deps struct {
 	// IsTerminal reports whether a stream is a terminal; `send` refuses
 	// to read a body from one (a human would wait forever).
 	IsTerminal func(io.Reader) bool
+	// Lookup answers process facts for the watcher pidfile check of
+	// `inbox release` (procutil.Lookup); a test injects a recorder.
+	Lookup pidfile.LookupFunc
 }
 
 // RetryPause is the pause before the single retry of `message send` on
@@ -111,6 +116,10 @@ const (
 	// administrative acts that a session reading untrusted teammate text
 	// must not be talked into (4.5 rule 15) get their own line.
 	RefusalAdminInSession = "run this in your own terminal: team administration is not driven from a session"
+	// RefusalReleaseInSession is the whole message of the `usage` refusal
+	// of `inbox release` inside a Claude Code session (D18: the release
+	// path is not a model tool).
+	RefusalReleaseInSession = "run this in your own terminal: releasing a held message is the human's decision, and a session cannot make it for you"
 	// AcceptedNote closes every successful `send` line and is the note of
 	// its --json result: 4.5.1 never says "delivered".
 	AcceptedNote = "Accepted means durably stored by the adapter, not read."

@@ -171,3 +171,15 @@ func inSessionRefusal(message string) *protocol.Error {
 		Details: map[string]string{"reason": "in_session"},
 	}
 }
+
+// refuseReleaseInSession is the same refusal for `inbox release` (D18,
+// P5-9): the release of a held message is the human's decision, so the
+// verb is a terminal's only — the one in-session refusal shape of this
+// harness, with its own message.
+func refuseReleaseInSession() *protocol.Error {
+	return &protocol.Error{
+		Code:    protocol.CodeUsage,
+		Message: RefusalReleaseInSession,
+		Details: map[string]string{"reason": "in_session"},
+	}
+}

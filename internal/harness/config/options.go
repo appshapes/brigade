@@ -38,41 +38,39 @@ const (
 	ReasonInvalidBoolean = "invalid_boolean"
 )
 
-// Inbound is the harness's inbound policy as this phase implements it:
-// accept or refuse. `hold` is Phase 5 (P5-9) and is never a value of this
-// type — an option asking for it resolves to refuse with a warning (D18:
-// nothing is acknowledged blind). Group D's policy package consumes it.
+// Inbound is the harness's inbound policy as the team_inbound option asks
+// for it: accept, hold or refuse (D18's value set, nothing else). Group
+// D's policy package consumes it and folds in the native settings scan.
 type Inbound string
 
-// The two Inbound values.
+// The three Inbound values.
 const (
 	InboundAccept Inbound = protocol.InboundAccept
+	InboundHold   Inbound = protocol.InboundHold
 	InboundRefuse Inbound = protocol.InboundRefuse
 )
 
-// The warnings ParseInbound attaches. The hook prints them as context so
-// the user learns why their session refuses.
+// The warning ParseInbound attaches. The hook prints it as context so the
+// user learns why their session refuses.
 const (
-	// WarnInboundHold: the option asked for hold, which is not available.
-	WarnInboundHold = `Brigade: team_inbound "hold" is not available yet (it arrives in a later release); inbound policy set to refuse — nothing is acknowledged blind. Set team_inbound to accept or refuse.`
-	// WarnInboundInvalid: the option is neither accept nor refuse. The
-	// value is deliberately not echoed.
-	WarnInboundInvalid = `Brigade: team_inbound must be "accept" or "refuse"; the value set is neither, so the inbound policy is refuse — nothing is acknowledged blind.`
+	// WarnInboundInvalid: the option is none of accept, hold and refuse.
+	// The value is deliberately not echoed.
+	WarnInboundInvalid = `Brigade: team_inbound must be "accept", "hold" or "refuse"; the value set is none of them, so the inbound policy is refuse — nothing is acknowledged blind.`
 )
 
-// ParseInbound maps a team_inbound value to the policy this harness
-// applies: "" or "accept" → accept; "refuse" → refuse; "hold" → refuse
-// with WarnInboundHold; anything else → refuse with WarnInboundInvalid.
-// Matching is exact after trimming surrounding whitespace: an unexpected
-// spelling fails closed rather than being guessed at.
+// ParseInbound maps a team_inbound value to the policy the option asks
+// for: "" or "accept" → accept; "hold" → hold; "refuse" → refuse; anything
+// else → refuse with WarnInboundInvalid. Matching is exact after trimming
+// surrounding whitespace: an unexpected spelling fails closed rather than
+// being guessed at.
 func ParseInbound(raw string) (Inbound, string) {
 	switch strings.TrimSpace(raw) {
 	case "", protocol.InboundAccept:
 		return InboundAccept, ""
+	case protocol.InboundHold:
+		return InboundHold, ""
 	case protocol.InboundRefuse:
 		return InboundRefuse, ""
-	case protocol.InboundHold:
-		return InboundRefuse, WarnInboundHold
 	default:
 		return InboundRefuse, WarnInboundInvalid
 	}
@@ -112,9 +110,9 @@ type Options struct {
 	// AdapterCommand is the raw adapter_command option, "" when unset. It
 	// is the D36 per-session override; ResolveAdapter interprets it.
 	AdapterCommand string
-	// TeamInbound is the policy the option asks for, as this harness can
-	// honour it (accept or refuse); TeamInboundWarning is non-empty when
-	// the option was hold or invalid and the hook must print it.
+	// TeamInbound is the policy the option asks for (accept, hold or
+	// refuse); TeamInboundWarning is non-empty when the option was invalid
+	// and the hook must print it.
 	TeamInbound        Inbound
 	TeamInboundWarning string
 	// ShareWorkspaceLabel gates WorkspaceLabel.

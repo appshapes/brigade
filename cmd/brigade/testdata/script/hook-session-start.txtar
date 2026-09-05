@@ -83,14 +83,14 @@ stdout '\(brigade-sess-1\)'
 grep -count=2 '"verb":"register"' dump.ndjson
 grep '"brigade_session_id":"brigade-sess-1"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 
-# --- team_inbound hold is refuse with the fixed warning as a second line ------
+# --- team_inbound hold is a policy of its own, with no warning (P5-9) ----------
 env CLAUDE_PLUGIN_OPTION_TEAM_INBOUND=hold
 stdin start.json
 exec brigade hook session-start
-stdout 'in team "ops"; inbound: refuse;'
-stdout -count=3 '^Brigade: '
-stdout '^Brigade: team_inbound "hold" is not available yet'
-grep '"inbound":"refuse"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+stdout 'in team "ops"; inbound: hold;'
+stdout -count=2 '^Brigade: '
+! stdout 'not available'
+grep '"inbound":"hold"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 env CLAUDE_PLUGIN_OPTION_TEAM_INBOUND=
 
 # --- every failure exits 0 with a `not connected` line (6.3) -----------------

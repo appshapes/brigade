@@ -498,7 +498,7 @@ func TestPolicyWarnings(t *testing.T) {
 	}{
 		{"default accept", nil, nil, "accept", ""},
 		{"option refuse", []string{config.OptionTeamInbound + "=refuse"}, nil, "refuse", ""},
-		{"option hold is refuse with a warning", []string{config.OptionTeamInbound + "=hold"}, nil, "refuse", config.WarnInboundHold},
+		{"option hold is hold with no warning (P5-9)", []string{config.OptionTeamInbound + "=hold"}, nil, "hold", ""},
 		{"option junk is refuse with a warning", []string{config.OptionTeamInbound + "=sometimes"}, nil, "refuse", config.WarnInboundInvalid},
 		{"native refuse in the project file", nil, func(p string) ([]byte, error) {
 			if p == settings {

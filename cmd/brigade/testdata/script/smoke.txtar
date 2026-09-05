@@ -50,13 +50,6 @@ status 2 brigade version --no-such-flag
 ! stdout .
 stderr 'invalid arguments'
 
-# --- a recognised but unbuilt command is exit 1, not 2 ---------------------
-# The distinction is the point: argv was right, the binary is incomplete.
-# (`inbox` is the one human command still placeholder-only after P3-3.)
-status 1 brigade inbox
-! stdout .
-stderr 'not implemented yet'
-
 # --- help succeeds on stdout ----------------------------------------------
 exec brigade help
 stdout 'Usage: brigade <command> \[arguments\]'

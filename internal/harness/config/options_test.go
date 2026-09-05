@@ -195,7 +195,8 @@ func TestParseInbound(t *testing.T) {
 		{"accept", config.InboundAccept, ""},
 		{"  accept\n", config.InboundAccept, ""},
 		{"refuse", config.InboundRefuse, ""},
-		{"hold", config.InboundRefuse, config.WarnInboundHold},
+		{"hold", config.InboundHold, ""},
+		{" hold ", config.InboundHold, ""},
 		{"HOLD", config.InboundRefuse, config.WarnInboundInvalid},
 		{"Accept", config.InboundRefuse, config.WarnInboundInvalid},
 		{"auto", config.InboundRefuse, config.WarnInboundInvalid},
@@ -212,12 +213,12 @@ func TestParseInbound(t *testing.T) {
 			if strings.Contains(warning, evilMarker) {
 				t.Fatalf("warning echoes the value: %q", warning)
 			}
-			if got != config.InboundAccept && got != config.InboundRefuse {
-				t.Fatalf("ParseInbound returned %q, which is neither accept nor refuse (hold is Phase 5)", got)
+			if got != config.InboundAccept && got != config.InboundHold && got != config.InboundRefuse {
+				t.Fatalf("ParseInbound returned %q, which is none of accept, hold and refuse (D18)", got)
 			}
 		})
 	}
-	if string(config.InboundAccept) != protocol.InboundAccept || string(config.InboundRefuse) != protocol.InboundRefuse {
+	if string(config.InboundAccept) != protocol.InboundAccept || string(config.InboundHold) != protocol.InboundHold || string(config.InboundRefuse) != protocol.InboundRefuse {
 		t.Fatal("Inbound values must be the wire values of 4.4.2")
 	}
 }

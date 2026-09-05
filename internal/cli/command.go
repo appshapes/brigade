@@ -23,7 +23,8 @@ type Command struct {
 	MultiCall bool
 	// Task names the plan task that implements the command. It is set only
 	// while the command is still a placeholder, and is what the
-	// not-implemented message points the caller at.
+	// not-implemented message points the caller at. No entry carries one
+	// since P5-9 filled `inbox`; the mechanism stays for the next one.
 	Task string
 	// Flags registers the command's own flags. The global flags are added
 	// separately, so a command must not register --json or --log-level.
@@ -43,9 +44,9 @@ type Command struct {
 func (c Command) Implemented() bool { return c.Run != nil }
 
 // commands is the P1-1 command table. Every entry of 6.4 is listed so that
-// `brigade help` shows the real surface from the first commit; the entries
-// that carry a Task are placeholders that fail cleanly with the task that
-// will build them.
+// `brigade help` shows the real surface from the first commit; an entry
+// that carries a Task is a placeholder that fails cleanly with the task
+// that will build it (none is left since P5-9).
 //
 // It is filled in by init rather than by a composite literal because
 // runHelp reads the table through Lookup, and a literal would be a static
@@ -108,9 +109,13 @@ func init() {
 		},
 		{
 			Name:    "inbox",
-			Args:    "[release <message_id>]",
+			Args:    "[release] [--session <id>] [--all | <message_id>…]",
 			Summary: "show and release held messages",
-			Task:    "P5-11",
+			Flags: func(fs *flag.FlagSet) {
+				fs.String("session", "", "the Brigade session to list or release for (terminal only)")
+				fs.Bool("all", false, "release every held message of the selected sessions")
+			},
+			Run: runInbox,
 		},
 		{
 			Name:      "hook",
@@ -235,6 +240,16 @@ func runSend(cx *Context, args []string) error {
 // runWhoami is the table's Run for `whoami`.
 func runWhoami(cx *Context, args []string) error {
 	return harnesscmd.Whoami(invocation(cx, args))
+}
+
+// runInbox is the table's Run for `inbox` and `inbox release` (the verb
+// is the first positional argument; the flags are the harness's own, so
+// the entry is not Raw).
+func runInbox(cx *Context, args []string) error {
+	return harnesscmd.Inbox(invocation(cx, args), harnesscmd.InboxOptions{
+		Session: stringFlag(cx, "session"),
+		All:     cx.Bool("all"),
+	})
 }
 
 // runTeam is the table's Run for `team` (raw: the verb and the adapter

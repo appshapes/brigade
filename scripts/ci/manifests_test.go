@@ -78,11 +78,17 @@ var skillFrontmatterKeys = []string{
 var topLevelFrontmatterKey = regexp.MustCompile(`^([A-Za-z0-9_.-]+):`)
 
 // forbiddenPluginText are strings that must never reach a user's machine inside plugin/:
-// `service_role` is scripts/ci/no-secrets.sh's literal-word rule; the SendMessage sentence is the harness
+// `service_role` is scripts/ci/no-secrets.sh's literal-word rule, and the SendMessage sentence is the harness
 // preamble the plan quotes and that 2.1.259 does NOT emit (execution log, "Plan corrections from the
-// interactive sitting" item 2), so a skill repeating it would teach the model something untrue; and
-// `brigade inbox` is a Phase 5 command that does not exist yet.
-var forbiddenPluginText = []string{"service_role", "SendMessage to the from=", "brigade inbox"}
+// interactive sitting" item 2), so a skill repeating it would teach the model something untrue.
+var forbiddenPluginText = []string{"service_role", "SendMessage to the from="}
+
+// forbiddenSkillText are strings that must never reach the MODEL through plugin/skills/: `brigade inbox` is the
+// human's side of the hold policy (P5-9; D18: the release path "is not a model tool" — the verb refuses to run
+// inside a session and the in-session listing deliberately withholds bodies), so a skill naming it would
+// advertise a command to the one reader it is not for. The human-facing README and the option description in
+// plugin.json name it on purpose.
+var forbiddenSkillText = []string{"brigade inbox"}
 
 // ---------------------------------------------------------------------------------------------------------
 // reporting
@@ -552,6 +558,13 @@ func checkNoForbiddenText(r reporter, root string) {
 				r.Errorf("%s contains the forbidden string %q", rel, bad)
 			}
 		}
+		if strings.HasPrefix(filepath.ToSlash(rel), skillsDirRel+"/") {
+			for _, bad := range forbiddenSkillText {
+				if bytes.Contains(data, []byte(bad)) {
+					r.Errorf("%s contains the forbidden string %q", rel, bad)
+				}
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -989,9 +1002,9 @@ var manifestMutations = []struct {
 		"the manifest says MIT, so the file has to be the MIT licence and not a placeholder",
 	},
 	{
-		"h_a_skill_names_a_phase_5_command", checkNoForbiddenText,
+		"h_a_skill_names_the_humans_inbox_verb", checkNoForbiddenText,
 		appendToFile("plugin/skills/team-messaging/SKILL.md", "\nRun brigade inbox to see held messages.\n"),
-		"`brigade inbox` does not exist in v1",
+		"`brigade inbox` is the human's verb (D18); the skill must not advertise it to the model",
 	},
 }
 

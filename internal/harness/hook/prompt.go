@@ -22,10 +22,11 @@ import (
 )
 
 // prompt is `brigade hook prompt` (6.3): refresh permission_mode, keep the
-// watcher alive, print the watcher's notice once, and run the opt-in poll
-// through the shared inbound pipeline. It prints nothing on the common
-// path and exits 0 whatever happens (exit 2 would erase the user's
-// prompt).
+// watcher alive, print the watcher's notice once, run the opt-in poll
+// through the shared inbound pipeline, and print the held notice while
+// anything is held under the `hold` policy (P5-9). It prints nothing on
+// the common path and exits 0 whatever happens (exit 2 would erase the
+// user's prompt).
 func (r *run) prompt() int {
 	in, err := r.readInput()
 	if err != nil {
@@ -62,7 +63,36 @@ func (r *run) prompt() int {
 	r.ensureWatcher(ctx, f, m)
 	r.printNotice(f)
 	r.poll(ctx, f, m)
+	r.heldNotice(f, m)
 	return 0
+}
+
+// heldNotice prints inbound.HeldNotice for the messages held under the
+// hold policy and not yet released (3.8): on EVERY prompt while anything is
+// held — unlike the watcher's one-shot notice, which printNotice removes —
+// and after the poll, so the count reflects what the poll just released.
+// It reads the pending file directly, not through a pipeline: the notice
+// needs no policy, no clock and no adapter. A missing file prints nothing;
+// a refused or malformed one prints nothing and logs one Warn — a broken
+// file is a diagnostic, not something the model needs. The names in the
+// line are sender-controlled text and go through the notice's sanitiser.
+func (r *run) heldNotice(f facts, m *sessionmap.ByPID) {
+	pending, err := inbound.FilePendingStore{
+		Path: inbound.PendingPath(f.stateDir, m.BrigadeSessionID), SessionID: m.BrigadeSessionID,
+	}.Load()
+	if err != nil {
+		r.log.Warn("prompt: pending file refused; no held notice", log.Err(err))
+		return
+	}
+	var held []inbound.PendingEntry
+	for _, e := range pending.Entries {
+		if !e.Released() {
+			held = append(held, e)
+		}
+	}
+	if line := inbound.HeldNotice(held); line != "" && r.fits(line) {
+		r.say(line)
+	}
 }
 
 // retryConnect re-runs the registration at most once per
@@ -126,10 +156,16 @@ func (r *run) printNotice(f facts) {
 
 // poll is the `poll_on_prompt` fallback (6.3): `message receive --limit
 // 20` through the SAME inbound pipeline as the watcher, sharing its seen
-// file. Under refuse nothing is fetched, printed or acknowledged. Under
-// accept each frame is printed as frame.PollPreamble plus the bare frame
-// until OutputCap would be exceeded; only the printed frames are
-// acknowledged, in one `message ack`.
+// file and its pending file. Under refuse nothing is fetched, printed or
+// acknowledged. Under accept each frame is printed as frame.PollPreamble
+// plus the bare frame until OutputCap would be exceeded; only the printed
+// frames are acknowledged, in one `message ack`. Under hold (P5-9, 3.9)
+// the fetched messages become pending entries — nothing is printed and
+// nothing acknowledged — and the release file is applied exactly as the
+// watcher applies it, so a host with no inbox socket has a working release
+// path: released frames are printed under the accept path up to the cap,
+// only the printed ones are acknowledged, and the rest stay stamped in the
+// pending file for the next prompt.
 func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
 	opts, err := config.ParseOptions(r.environ)
 	if err != nil {
@@ -139,7 +175,8 @@ func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
 	if !opts.PollOnPrompt {
 		return
 	}
-	if m.Inbound != string(policy.Accept) {
+	pol := policy.Policy(m.Inbound)
+	if pol != policy.Accept && pol != policy.Hold {
 		r.log.Debug("prompt: inbound policy is refuse; no poll")
 		return
 	}
@@ -157,12 +194,16 @@ func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
 		return
 	}
 	pipe, err := inbound.New(inbound.Config{
-		Policy:   policy.Accept,
-		TeamName: m.TeamName,
-		Wrap:     false,
-		Clock:    inbound.ClockFunc(r.deps.Now),
-		Seen:     inbound.FileSeenStore{Path: inbound.SeenPath(f.stateDir, m.BrigadeSessionID)},
-		Logger:   r.log,
+		Policy:    pol,
+		SessionID: m.BrigadeSessionID,
+		TeamName:  m.TeamName,
+		Wrap:      false,
+		Clock:     inbound.ClockFunc(r.deps.Now),
+		Seen:      inbound.FileSeenStore{Path: inbound.SeenPath(f.stateDir, m.BrigadeSessionID)},
+		Pending: inbound.FilePendingStore{
+			Path: inbound.PendingPath(f.stateDir, m.BrigadeSessionID), SessionID: m.BrigadeSessionID,
+		},
+		Logger: r.log,
 	})
 	if err != nil {
 		r.log.Warn("prompt: pipeline", log.Err(err))
@@ -174,6 +215,7 @@ func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
 			ack = append(ack, d.MessageID)
 		}
 	}
+	r.applyRelease(f, m, pipe)
 	for {
 		item, ok := pipe.Next()
 		if !ok {
@@ -198,4 +240,28 @@ func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
 	if _, err := client.Ack(ctx, m.BrigadeSessionID, &protocol.AckRequest{MessageIDs: ack}); err != nil {
 		r.log.Warn("prompt: ack failed; the messages are redelivered", log.Err(err), slog.Int("count", len(ack)))
 	}
+}
+
+// applyRelease is the poll's copy of the watcher's release path (3.5's
+// four steps): read the release file, stamp and persist through the
+// pipeline, delete the file by content, then queue whatever is stamped and
+// deliverable so the drain below prints it. A file naming another session
+// or one the strict reader refuses is left in place.
+func (r *run) applyRelease(f facts, m *sessionmap.ByPID, pipe *inbound.Pipeline) {
+	path := inbound.ReleasePath(f.stateDir, m.BrigadeSessionID)
+	rel, raw, err := inbound.ReadRelease(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		r.log.Warn("prompt: release file refused; left in place", log.Err(err))
+	case rel.SessionID != m.BrigadeSessionID:
+		r.log.Warn("prompt: release file names another session; left in place")
+	default:
+		res := pipe.Release(rel.MessageIDs)
+		r.log.Info("prompt: release file applied", slog.Int("stamped", len(res.Stamped)), slog.Int("unknown", len(res.Unknown)))
+		if _, cerr := inbound.ConsumeRelease(path, raw); cerr != nil {
+			r.log.Warn("prompt: release file not removed", log.Err(cerr))
+		}
+	}
+	pipe.Release(nil)
 }

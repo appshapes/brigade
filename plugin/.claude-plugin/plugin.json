@@ -34,7 +34,7 @@
     "team_inbound": {
       "type": "string",
       "title": "Incoming team messages",
-      "description": "accept (the default) delivers every team message into this session immediately, in every permission mode, and refuse never delivers and never acknowledges, so senders see this session as refusing; hold (review before delivery) arrives in a later release.",
+      "description": "accept (the default) delivers every team message into this session immediately, in every permission mode; refuse never delivers and never acknowledges, so senders see this session as refusing; hold records each message, delivers nothing, and waits for you to run brigade inbox release in your own terminal.",
       "default": "accept"
     },
     "share_workspace_label": {

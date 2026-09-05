@@ -45,6 +45,9 @@ func WritePidfile(path string, content []byte) error {
 // pidfile that by then belongs to its replacement. A missing file and a
 // content mismatch both return (false, nil) — in either case the file is
 // not this process's to remove, and the caller has nothing to act on.
+// The `hold` policy's release file is its second caller
+// (inbound.ConsumeRelease): a release the watcher has applied is deleted
+// only if `brigade inbox release` has not rewritten it meanwhile.
 func RemovePidfile(path string, content []byte) (bool, error) {
 	current, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {

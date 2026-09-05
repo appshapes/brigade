@@ -33,7 +33,7 @@ Seven options, all optional, all with working defaults:
 | `profile` | `default` | which adapter profile this session uses; a profile is bound to exactly one team |
 | `config_dir` | *(empty)* | where profiles live; empty means `~/.config/brigade`. `BRIGADE_CONFIG_DIR` from the environment is ignored on purpose |
 | `adapter_command` | *(empty)* | per-session override of the profile's default adapter: an absolute path, a JSON array, or a name registered in `adapters.json`. Never a shell command |
-| `team_inbound` | `accept` | `accept` delivers every team message immediately, in every permission mode; `refuse` never delivers and never acknowledges. `hold` arrives in a later release |
+| `team_inbound` | `accept` | `accept` delivers every team message immediately, in every permission mode; `refuse` never delivers and never acknowledges; `hold` records each message, delivers nothing, and waits for you to run `brigade inbox release` in your own terminal |
 | `share_workspace_label` | `false` | send `workspace_label` with this session; never the working directory path |
 | `workspace_label` | *(empty)* | the label shared when `share_workspace_label` is on |
 | `poll_on_prompt` | `false` | for hosts with no inbox socket: fetch unread messages on each prompt, under the same inbound policy |

@@ -96,8 +96,8 @@ func TestByPIDValidate(t *testing.T) {
 		{name: "empty profile", mutate: func(m *sessionmap.ByPID) { m.Profile = "" }, wantField: "profile"},
 		{name: "relative config dir", mutate: func(m *sessionmap.ByPID) { m.ConfigDir = "rel/" + evilMarker }, wantField: "config_dir"},
 		{name: "empty config dir", mutate: func(m *sessionmap.ByPID) { m.ConfigDir = "" }, wantField: "config_dir"},
-		{name: "inbound hold is Phase 5", mutate: func(m *sessionmap.ByPID) { m.Inbound = protocol.InboundHold }, wantField: "inbound"},
 		{name: "inbound empty", mutate: func(m *sessionmap.ByPID) { m.Inbound = "" }, wantField: "inbound"},
+		{name: "inbound auto (no such shape, D18)", mutate: func(m *sessionmap.ByPID) { m.Inbound = "auto" }, wantField: "inbound"},
 		{name: "inbound wrongly cased", mutate: func(m *sessionmap.ByPID) { m.Inbound = "ACCEPT" }, wantField: "inbound"},
 		{name: "relative adapter executable", mutate: func(m *sessionmap.ByPID) { m.AdapterCommand = []string{"bin/" + evilMarker} }, wantField: "adapter_command"},
 		{name: "empty adapter argv element", mutate: func(m *sessionmap.ByPID) { m.AdapterCommand = []string{"/opt/a", ""} }, wantField: "adapter_command"},
@@ -203,5 +203,18 @@ func TestCheckAdapterCommand(t *testing.T) {
 				t.Fatalf("CheckAdapterCommand(%q) = %v, want ok=%v", tc.argv, err, tc.ok)
 			}
 		})
+	}
+}
+
+// TestValidateAcceptsEveryPolicy pins D18's value set after P5-9: accept,
+// hold and refuse are the three values a map may carry, hold included.
+func TestValidateAcceptsEveryPolicy(t *testing.T) {
+	t.Parallel()
+	for _, v := range []string{protocol.InboundAccept, protocol.InboundHold, protocol.InboundRefuse} {
+		m := validByPID()
+		m.Inbound = v
+		if err := m.Validate(); err != nil {
+			t.Errorf("inbound %q: %v", v, err)
+		}
 	}
 }

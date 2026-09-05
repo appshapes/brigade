@@ -123,13 +123,19 @@ func topLevelValue(data []byte) (string, bool) {
 
 // Warning renders the context line the hook prints for a hit (6.10): it
 // names the setting, the value (one of the two known strings, never free
-// text) and the file, and says what Brigade did about it. For a Scan that
-// found nothing it returns "".
+// text) and the file, says what Brigade did about it, names Brigade's own
+// `hold` as the review option once the native setting is gone (P5-9, 3.6:
+// the native setting must be "accept" for a release to be delivered), and
+// points at `brigade inbox`, which lists a refusing session's waiting
+// messages without acknowledging anything. For a Scan that found nothing
+// it returns "".
 func (s Scan) Warning() string {
 	if !s.Found {
 		return ""
 	}
 	return `Brigade: your Claude Code settings set "` + SettingKey + `": "` + s.Value + `" in ` + s.File +
 		`; Claude Code would not deliver Brigade messages to this session, so Brigade's inbound policy is refuse` +
-		` (nothing is acknowledged blind; messages wait on the server). Remove that setting, or set it to "accept", to receive team messages.`
+		` (nothing is acknowledged blind; messages wait on the server). Remove that setting, or set it to "accept", to receive team messages;` +
+		` Brigade's own team_inbound "hold" reviews messages in a terminal before delivery, but it still needs Claude Code's setting to be "accept".` +
+		" Run `brigade inbox` in a terminal to read what is waiting."
 }

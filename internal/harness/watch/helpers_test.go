@@ -22,6 +22,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/backoff"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -191,6 +192,11 @@ type fixture struct {
 	owner           *adapterclient.Client
 	peer            *adapterclient.Client
 	senderSessionID string
+
+	// bodies are the message bodies the cleanup grep must find in no file
+	// under the Brigade state directory (P5-9: the pending file never
+	// carries a body); the fs store under FSRoot legitimately holds them.
+	bodies []string
 }
 
 // fixtureOptions tune a fixture.
@@ -227,8 +233,12 @@ func newFixture(t *testing.T, o fixtureOptions) *fixture {
 	// Cleanup runs LIFO: registered here, before any watcher starts, the
 	// grep runs after every watcher registered later has been stopped.
 	t.Cleanup(func() { fx.assertTokenInNoFile() })
+	t.Cleanup(func() { fx.assertBodiesInNoStateFile() })
 	return fx
 }
+
+// forbidBody registers body for the cleanup grep over the state directory.
+func (fx *fixture) forbidBody(body string) { fx.bodies = append(fx.bodies, body) }
 
 // useFake points the fixture at the fake adapter with the given script.
 func (fx *fixture) useFake(script fakeadapter.Script) {
@@ -538,6 +548,50 @@ func (fx *fixture) seenPath() string {
 	return filepath.Join(fx.dirs.BrigadeState, "state", "seen", fx.sessionID+".json")
 }
 
+// pendingPath and releasePath are the hold policy's two files for the
+// fixture's Brigade session (P5-9: keyed like the seen file; the literal
+// join pins the layout independently of inbound.PendingPath).
+func (fx *fixture) pendingPath() string {
+	return filepath.Join(fx.dirs.BrigadeState, "state", "pending", fx.sessionID+".json")
+}
+
+func (fx *fixture) releasePath() string {
+	return filepath.Join(fx.dirs.BrigadeState, "state", "release", fx.sessionID+".json")
+}
+
+// pendingEntries reads the fixture's pending file; a missing file is nil.
+func (fx *fixture) pendingEntries() []inbound.PendingEntry {
+	fx.t.Helper()
+	f, err := inbound.FilePendingStore{Path: fx.pendingPath(), SessionID: fx.sessionID}.Load()
+	if err != nil {
+		fx.t.Fatalf("pending file: %v", err)
+	}
+	return f.Entries
+}
+
+// pendingIDs lists the ids of the pending file, oldest first, with a "+"
+// suffix on a released one.
+func (fx *fixture) pendingIDs() []string {
+	fx.t.Helper()
+	var ids []string
+	for _, e := range fx.pendingEntries() {
+		id := e.MessageID
+		if e.Released() {
+			id += "+"
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// writeRelease writes a release file for sessionID naming ids.
+func (fx *fixture) writeRelease(sessionID string, ids ...string) {
+	fx.t.Helper()
+	if err := inbound.WriteRelease(fx.releasePath(), inbound.ReleaseFile{SessionID: sessionID, MessageIDs: ids, WrittenAt: time.Now().UTC()}); err != nil {
+		fx.t.Fatalf("write release: %v", err)
+	}
+}
+
 // logLines parses the watcher log (NDJSON) into maps; a missing log is
 // empty.
 func (fx *fixture) logLines() []map[string]any {
@@ -632,6 +686,11 @@ func (fx *fixture) storeIDs(kind string) []string {
 	}
 	var ids []string
 	for _, e := range entries {
+		// The fs adapter writes atomically through a `.tmp-` sibling; a
+		// listing that catches one mid-rename must not read it as an id.
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
 		name := strings.TrimSuffix(e.Name(), ".json")
 		if _, id, ok := strings.Cut(name, "."); ok {
 			ids = append(ids, id)
@@ -732,6 +791,19 @@ func (fx *fixture) assertTokenInNoFile() {
 	hits := tokenHits(fx.t, fx.token, fx.dirs.Root)
 	if len(hits) > 0 {
 		fx.t.Errorf("the messaging token appears in files: %v", hits)
+	}
+}
+
+// assertBodiesInNoStateFile is the body half of the grep (P5-9): after the
+// watcher has exited, no file under the Brigade STATE directory may carry
+// a held message's body. A positive control (TestBodyGrepBites) plants one
+// and proves the walk finds it.
+func (fx *fixture) assertBodiesInNoStateFile() {
+	fx.t.Helper()
+	for _, body := range fx.bodies {
+		if hits := tokenHits(fx.t, body, fx.dirs.BrigadeState); len(hits) > 0 {
+			fx.t.Errorf("a held body appears in state files: %v", hits)
+		}
 	}
 }
 

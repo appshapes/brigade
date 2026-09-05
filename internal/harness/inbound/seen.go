@@ -33,34 +33,31 @@ type SeenStore interface {
 	Save(ids []string) error
 }
 
-// SeenPath is ${stateDir}/state/seen/<name>.json (3.2; P5-14), where
-// <name> is the Brigade session id itself when it is a safe path component
-// (1-64 bytes of [A-Za-z0-9_-]: the charset sessionmap.CheckNativeID
-// applies to the by-native map's file name and the rule the fs adapter
-// applies to its own opaque refs, fs/store.go safeRef), and otherwise the
-// lowercase hex SHA-256 of the id with a ".sha256" stem suffix. Session
-// ids are opaque and may be any non-empty string (protocol-v1.md,
-// convention 8), so the mapping must be total; a checked id contains no
-// ".", so the two branches cannot collide. The file is keyed by the
-// Brigade session, not the Claude pid, so the ids injected before a crash
-// are still seen by the process that `claude --resume`s onto the same
-// session (3.7 case 2, U-13); the pid-keyed `state/<pid>.seen.json` of
-// earlier builds is never read, adopted or removed here.
+// SeenPath is ${stateDir}/state/seen/<StateName>.json (3.2; P5-14): the
+// Brigade session id itself when it is a safe path component, else its
+// SHA-256 with the ".sha256" suffix — the one encoding StateName spells
+// out, shared with the pending and release files of the `hold` policy
+// (state.go). The file is keyed by the Brigade session, not the Claude
+// pid, so the ids injected before a crash are still seen by the process
+// that `claude --resume`s onto the same session (3.7 case 2, U-13); the
+// pid-keyed `state/<pid>.seen.json` of earlier builds is never read,
+// adopted or removed here.
 func SeenPath(stateDir, brigadeSessionID string) string {
-	return filepath.Join(stateDir, "state", "seen", seenStem(brigadeSessionID)+".json")
+	return filepath.Join(stateDir, "state", "seen", StateName(brigadeSessionID)+".json")
 }
 
 // maxPlainSeenStem is the longest id the plain branch of seenStem keeps
 // verbatim (the fs adapter's own cap for an opaque ref).
 const maxPlainSeenStem = 64
 
-// seenStem encodes a Brigade session id as the stem of its seen file: the
-// id itself when safeSeenStem accepts it, else its SHA-256 as 64 lowercase
-// hex digits plus ".sha256" (71 bytes, deterministic across processes and
-// machines, never escaping the directory whatever the id contains). The
-// empty string cannot reach here through a validated by-pid map
-// (sessionmap.ByPID.Validate refuses it) but takes the digest branch like
-// any other unsafe value, so the function is total.
+// seenStem is the encoder behind StateName (its exported name and full
+// contract are in state.go): the id itself when safeSeenStem accepts it,
+// else its SHA-256 as 64 lowercase hex digits plus ".sha256" (71 bytes,
+// deterministic across processes and machines, never escaping the
+// directory whatever the id contains). The empty string cannot reach here
+// through a validated by-pid map (sessionmap.ByPID.Validate refuses it)
+// but takes the digest branch like any other unsafe value, so the
+// function is total.
 func seenStem(id string) string {
 	if safeSeenStem(id) {
 		return id
@@ -72,7 +69,7 @@ func seenStem(id string) string {
 // safeSeenStem reports whether id may be a file stem verbatim: 1-64 bytes,
 // every one of them a letter, a digit, '_' or '-'. No '.', so a plain stem
 // can never equal a digest stem; no separator and no NUL, so it cannot
-// leave state/seen/.
+// leave state/seen/, state/pending/ or state/release/.
 func safeSeenStem(id string) bool {
 	if id == "" || len(id) > maxPlainSeenStem {
 		return false

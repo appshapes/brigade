@@ -21,6 +21,7 @@ Live: Phases 4–6 and the testing strategy are still executed from this text; c
 - 2026-09-05 — "P5-14 DONE" — 9.9 U-13: names `dedupe_test.go`, which does not exist — the cases live in `inbound/pipeline_test.go` (`TestRestartBeforeAckInjectsOnce`, `TestCrashAndResumeDedupe`) and `inbound/seen_test.go` (the 17-row path-encoding table with the anti-escape and injectivity assertions, the charset drift join to `sessionmap.CheckNativeID` — 64 vs 80 bytes pinned explicitly); criterion 5's "restart" cell restarts a pipeline, not a process.
 
 - 2026-09-05 — "P5-2 DONE" — 9.9 I-20 row: the pgTAP lands in the new `supabase/tests/team_admin.sql`, not as an `rls_isolation.sql` addition (untouched); the adapter test is `TestIntegrationRotateSecret` with `TestIntegrationBanBlocksRejoin` and `TestIntegrationRevokedChannelStopsAtTokenPush`.
+- 2026-09-05 — "P5-9 DONE" — 9.9 E2E-02 and the harness-test paragraph: the `hold` rows return as `inbound/pipeline_hold_test.go`, `watch/hold_test.go`, `hook/prompt_hold_test.go`, `hook/start_hold_test.go`, `commands/inbox_test.go` and the `inbox`/`watch-hold` txtars; E2E-04 waits for P5-5's ring.
 <!-- verbatim from the one-file plan -->
 ## 9. Testing strategy
 

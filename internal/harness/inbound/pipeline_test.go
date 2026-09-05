@@ -357,13 +357,14 @@ func TestRefuseNeverInjectsOrAcks(t *testing.T) {
 		if d := p.Offer(msg("m0", senderA, "body 0")); d.Outcome != OutcomeDuplicate || !d.Ack {
 			t.Fatalf("seen id under refuse: %+v", d)
 		}
-		// An invalid policy is ignored by SetPolicy and refused by New.
-		p.SetPolicy(policy.Policy("hold"))
+		// An invalid policy is ignored by SetPolicy and refused by New
+		// (hold is a policy since P5-9; `auto` never is, D18).
+		p.SetPolicy(policy.Policy("auto"))
 		if p.Policy() != policy.Refuse {
-			t.Fatal("SetPolicy accepted hold")
+			t.Fatal("SetPolicy accepted auto")
 		}
-		if _, err := New(Config{Policy: policy.Policy("hold")}); err == nil {
-			t.Fatal("New accepted hold")
+		if _, err := New(Config{Policy: policy.Policy("auto")}); err == nil {
+			t.Fatal("New accepted auto")
 		}
 	})
 }
