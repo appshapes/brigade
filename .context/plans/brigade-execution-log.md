@@ -1351,6 +1351,17 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   never hardcode `~/.claude` in code, tests or docs.
 - Three probe messages were posted into the planning session's own inbox socket on 2026-08-30 to validate the
   wire protocol (plain, and wrapped with `from-name`); Appendix A.2 records what came back.
+- **Hand-off state, 2026-09-05 ~14:00 EDT (session `15-implement-brigade-0904` → `15-implement-brigade-0905`; supersedes the
+  11:30 note below):** master is clean at the review's last commit; NO lane is running and NO worktree exists — the 11:30 note's
+  three worktrees died with the old scratchpad (P5-6 and P5-5 are discarded anyway; P5-12 is re-run later from its brief). The
+  owner reviewed every Phase 5 row one at a time (journal, 12:5x–13:5x): P5-6 and P5-5 discarded; P5-12 deferred to last with
+  its measurement cut; the soak kept; the docs in plain language; the repository goes public for 0.1.0; the owner runs the
+  release; P5-16 (tap + Linux packaging) added as a fast follow; the admin verbs keep refusing in-session. Order of the remaining
+  work: the small follow-ups (P5-15's grant check, the P5-9 notes) → P5-11 → P5-7b (with P5-4's paragraph) → P5-12 → P5-10 →
+  P5-16. Everything a cold session needs is in `.ignored/handoff-15-to-implement-0905.md` (absolute paths, the lane recipe under
+  `.ignored/wt/` and `.ignored/tools/`, the owner steps). Lessons of the day, in the journal: the usage window kills lanes
+  mid-write (two heavy lanes at a time); the session scratchpad is wiped on restart (never keep a worktree or a patch there);
+  never let a lane touch the login keychain.
 - **Hand-off state, 2026-09-05 ~11:30 EDT (session `15-implement-brigade-0904`, Fable, this account):** master carries, in
   order since the 2026-09-04 note, the five `make test` flake fixes, the plan split into `implementation/`, P5-0, P6-1..P6-5,
   P4-3..P4-6 (Phase 4 COMPLETE), P5-13, P5-3, P5-14, P5-7a, P5-2, P5-9 and P5-1 (80f2f6d). **Not watched by CI since 8700d6c:**
