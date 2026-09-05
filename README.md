@@ -15,12 +15,12 @@ any other backend is its own adapter, selected per profile.
 
 | You want to… | Go to |
 |---|---|
-| **Get started** | [What Brigade is](#brigade) · [Layout](#layout) · [Set up a team](docs/setup.md) |
+| **Get started** | [What Brigade is](#brigade) · [Layout](#layout) · [Set up a team](docs/setup.md) · [Security](docs/security.md) |
 | **Write an adapter** | [For adapter contributors](#for-adapter-contributors) · [`docs/adapter-authors.md`](docs/adapter-authors.md) · [`docs/protocol-v1.md`](docs/protocol-v1.md) |
 | **Build, test, release** | [Gates](#gates) · [`scripts/ci/README.md`](scripts/ci/README.md) |
 | **Run the plugin locally** | [`plugin/README.md`](plugin/README.md) |
 | **See what is proven** | [`docs/experiments/`](docs/experiments/README.md) · [the proof results](.context/plans/brigade-proof-results.md) |
-| **Find where the work stands** | [the execution log](.context/plans/brigade-execution-log.md) |
+| **Find where the work stands** | [the execution log](.context/plans/brigade-execution-log.md) · [`CHANGELOG.md`](CHANGELOG.md) |
 | **Read the research** | [`docs/research/`](docs/research/README.md) |
 
 ## [For adapter contributors](#table-of-contents)
@@ -80,9 +80,11 @@ so no `--setup` hook is needed.
 
 | Path | What |
 | --- | --- |
+| [`CHANGELOG.md`](CHANGELOG.md) | what changed in each release |
 | `docs/protocol-v1.md`, `docs/protocol-v1.schema.json` | the frozen protocol and its advisory JSON Schema |
 | `docs/adapter-authors.md` | how to write and prove an adapter |
 | [`docs/setup.md`](docs/setup.md) | how to set up Brigade for a team |
+| [`docs/security.md`](docs/security.md) | what Brigade protects, what it does not, and what was measured |
 | [`docs/experiments/`](docs/experiments/README.md) | the dated experiment writeups (Phases 0, 3 and 4): what was measured, and what each run does *not* prove |
 | [`docs/research/`](docs/research/README.md) | the research digests the plan was written from, and the security threat model that defines the test ids |
 | `internal/protocol`, `internal/adapterkit` | the wire types with `Validate()`, and the shared adapter plumbing |
@@ -98,12 +100,13 @@ so no `--setup` hook is needed.
 
 ## [Status](#table-of-contents)
 
-Phases 1 to 4 are complete: the protocol is frozen, and the shared library, the reference filesystem adapter, the
-conformance suite, the bundled Supabase adapter, the plugin and its harness — the lifecycle hooks, the session-bound
-commands and the detached watcher — all exist, are green and were driven end to end through real Claude Code
-sessions with no person at a keyboard ([the proof results](.context/plans/brigade-proof-results.md): ten success
-criteria met, eight open findings, none blocking). Not done: there is no tagged release yet (`plugin/bin/VERSION`
-reads `0.0.0` and `plugin/bin/checksums.txt` is empty), Phase 6's house conventions are in progress, and Phase 5's
-hardening, docs, soak and release work is still open — of it, only the Free-plan keep-alive runs against
-a hosted project today. The single source of truth for where the work stands is
+Phases 1 to 4 and 6 are complete: the protocol is frozen, and the shared library, the reference filesystem adapter,
+the conformance suite, the bundled Supabase adapter, the plugin and its harness — the lifecycle hooks, the
+session-bound commands and the detached watcher — all exist, are green and were driven end to end through real
+Claude Code sessions with no person at a keyboard ([the proof results](.context/plans/brigade-proof-results.md):
+ten success criteria met, eight open findings, none blocking). Phase 5 is all but done: the backend is deployed on
+a hosted project with the daily keep-alive and the conformance suite green against it, team administration and the
+`hold` inbox ship, retention is verified live, the two-hour soak has run, and the user documentation is written.
+Not done: the choice of frame texts, and the release itself — there is no tag yet (`plugin/bin/VERSION` reads
+`0.0.0` and `plugin/bin/checksums.txt` is empty). The single source of truth for where the work stands is
 `.context/plans/brigade-execution-log.md`.

@@ -558,7 +558,9 @@ be persisted by the adapter.
 | `@napi-rs/keyring` 1.3.0 | native binding to keyring-rs; `new Entry(service, user).setPassword/getPassword/deletePassword` | installs under `--ignore-scripts` (prebuilt via 12 platform `optionalDependencies`, no install scripts — verified on npm) but **cannot be bundled** into a single file: the `.node` binary must exist on disk, so the plugin would need `package.json` + lockfile + the npm ci step | Backends compiled in: macOS Keychain, Windows Credential Manager, Linux keyutils **and** D-Bus Secret Service (verified from the repo's Cargo.toml). Nicest API; defer until the plugin needs `node_modules` anyway. |
 | File fallback | `${configDir}/credentials/<profile>.json`, dir 0700, file 0600, written atomically (`tmp` + `rename`), JSON with `{ "version": 1, "refresh_token": "…" }` | yes | Plaintext at rest, protected only by filesystem permissions (and not even that on Windows, where `mode` is ignored — likely). This is what most developer CLIs actually do; be explicit in `brigade doctor` output. |
 
-Decision: an internal `SecretStore` interface with implementations `keychain-cli` (macOS), `secret-tool` (Linux),
+Decision [discarded 2026-09-05: the owner ruled the 0600 session.json under a 0700 profile directory the
+credential model for good; no OS keychain and no secret_store option ships]: an internal `SecretStore` interface
+with implementations `keychain-cli` (macOS), `secret-tool` (Linux),
 `dpapi-powershell` (Windows) and `file`; selection `auto` = try the OS store, on any failure (missing binary,
 locked keychain, no D-Bus, timeout) fall back to `file` and log one `warn` line saying so. Profile config records
 which store holds the secret (`"secret_store": "keychain"`), so a later run does not silently create a duplicate in

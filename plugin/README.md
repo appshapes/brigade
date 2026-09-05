@@ -80,7 +80,9 @@ or administer the team.
 - `<plugin>/bin/brigade team transfer --principal <ref>` hands the team to another active member.
 
 The procedure, the leaked-secret playbook and what each command does to a running member are in
-[docs/setup.md](../docs/setup.md), "Team administration".
+[docs/setup.md](../docs/setup.md), "Team administration". The full setup procedure, with the reasons behind each
+step, is [docs/setup.md](../docs/setup.md), "Administrator: create a team"; what the join secret and the profile
+directory are worth to an attacker is [docs/security.md](../docs/security.md).
 
 ## Member: join
 
@@ -102,28 +104,24 @@ reaches your scrollback or your shell history — and never a chat.
 - A backend other than the bundled Supabase adapter is chosen once, at `profile init`, with
   `--adapter <name-or-command>`; `docs/adapter-authors.md` explains the three forms.
 
+[docs/setup.md](../docs/setup.md), "Member: join a team", is the same procedure with the reasons.
+
 ## Leaving and uninstalling
 
 The order matters. Every step is optional except step 3 when the goal is to remove the plugin.
 
-1. `<plugin>/bin/brigade team leave --profile default` closes your open sessions in that team and revokes the
-   membership; teammates stop seeing your sessions immediately. Skip it and the membership stays active
-   indefinitely while your sessions merely go offline after the lease expires.
-2. `<plugin>/bin/brigade profile reset --profile default` revokes the credential family on the backend and deletes
-   the profile directory. **Run step 1 first:** after a reset the membership and its sessions can no longer be
-   closed from this machine, and a later rejoin mints a new principal that teammates see as a new person.
-3. `claude plugin uninstall brigade` removes the plugin itself.
+1. `<plugin>/bin/brigade team leave --profile default`
+2. `<plugin>/bin/brigade profile reset --profile default` — **run step 1 first:** after a reset the membership and
+   its sessions can no longer be closed from this machine.
+3. `claude plugin uninstall brigade`
 4. `rm -rf ~/.local/state/brigade ~/.local/share/brigade` (or the `XDG_STATE_HOME`/`XDG_DATA_HOME` equivalents)
-   removes the session maps, pidfiles, logs and the cached binaries. Keep
-   `~/.local/state/brigade/sessions/by-native` if a later reinstall should resume your old Brigade sessions.
-5. `rm -rf ~/.config/brigade` (or the directory named by the `config_dir` option) removes every profile and
-   credential. Do this only after step 2 on each profile: a deleted credential whose family was never revoked
-   stays usable by any copy of it.
+5. `rm -rf ~/.config/brigade` (or the directory named by the `config_dir` option)
 
 If you **created** the team, step 2 ends secret rotation, revocation and transfer for it, permanently — run
-`<plugin>/bin/brigade team transfer --principal <ref>` to another active member *before* step 1. Step 1 alone
-(`team leave`) is recoverable: `created_by` survives it, and a rejoin with the current secret restores
-administration; step 2 (`profile reset`) is not. Keep that 0700 backup of the profile directory either way.
+`<plugin>/bin/brigade team transfer --principal <ref>` to another active member *before* step 1.
+
+What each step does, what teammates see, what to keep for a later reinstall and why step 5 must follow step 2 are
+in [docs/setup.md](../docs/setup.md), "Leaving and uninstalling".
 
 ## Permissions and confirmation
 
@@ -140,6 +138,8 @@ administration; step 2 (`profile reset`) is not. Keep that 0700 backup of the pr
   headless worker with this rule sends nothing.
 - The off switch is `"permissions": {"deny": ["Bash(brigade send*)"]}`, which blocks in every mode, `bypassPermissions`
   included. No hook and no plugin can override either rule.
+- What these rules gate, and what they do not, is [docs/security.md](../docs/security.md), "Sending: what the ask
+  and deny rules stop, and what they miss".
 
 ## Headless and sandboxed sessions
 
@@ -153,15 +153,17 @@ administration; step 2 (`profile reset`) is not. Keep that 0700 backup of the pr
 
 ## Status
 
-The manifest, the three hooks and the two skills exist and validate; so do the bootstrap and the release pins. The
-plugin now works end to end with a local build: `SessionStart` registers the session with its team, writes the
-session map and starts the detached watcher; the watcher injects each teammate's message into the session's inbox
-and acknowledges only what it injected; `UserPromptSubmit` keeps the watcher alive and surfaces its notice;
-`SessionEnd` closes the session; and the session-bound commands (`sessions`, `send`, `whoami`, `team members`)
-resolve their session from that map, while the terminal commands the two setup sections above use (`profile init`
-with `--adapter`, `profile status|reset|revoke-credentials`, `team create|join|leave`,
-`team rotate-secret|revoke-member|transfer`) pass their terminal straight through to the adapter — `team create`,
-`team join` and the three administrative verbs refuse to run from inside a session.
+The plugin works end to end. `SessionStart` registers the session with its team, writes the session map and starts
+the detached watcher; the watcher injects each teammate's message into the session's inbox and acknowledges only
+what it injected; `UserPromptSubmit` keeps the watcher alive and surfaces its notice; `SessionEnd` closes the
+session. The session-bound commands (`sessions`, `send`, `whoami`, `team members`, `inbox`) resolve their session
+from that map, and the terminal commands the setup sections above use (`profile init` with `--adapter`,
+`profile status|reset|revoke-credentials`, `team create|join|leave`, `team rotate-secret|revoke-member|transfer`,
+`inbox release`) pass their terminal straight through to the adapter — `team create`, `team join`, the three
+administrative verbs and `inbox release` refuse to run from inside a session. The backend is deployed on a hosted
+Supabase project and the conformance suite passes 45 of 45 against it; `team_inbound: hold` with its terminal
+inbox ships; and a two-hour soak of two sessions on one profile renewed the shared credential twice with no
+lockout. Left before the first release: the choice of frame texts, and the release itself.
 
 The pins are still at the pre-release `0.0.0` with an empty `bin/checksums.txt`, so there is no release to download
 yet. **Developers** point the bootstrap at a local build instead, with the dev-binary pointer `make plugin-dev`

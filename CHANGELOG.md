@@ -31,6 +31,9 @@ The first release. Plugin and binary version `0.1.0`, produced by `make release`
   and managed settings only, never from a project.
 - **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and two skills; CI enforces the file
   allowlist, the exec-form hooks and the absence of `.mcp.json`.
+- The line Brigade prints when a session starts names only the bare `brigade`, which is the form Claude Code's
+  `ask` and `deny` permission rules match. The plugin binary's own path is in `brigade whoami`'s human output, on
+  a `terminal:` line, and deliberately not in `brigade whoami --json`.
 
 ### Added — messaging
 
@@ -59,6 +62,12 @@ The first release. Plugin and binary version `0.1.0`, produced by `make release`
   backend and leaves the profile in place for a rejoin.
 - `brigade team create`, `brigade team join`, `brigade team leave` and `brigade team members`. One profile is bound
   to exactly one team; a second team means a second profile.
+- **Team administration, for the team's creator only:** `brigade team rotate-secret` mints a new join secret into
+  a file with mode 0600 and never prints it; `brigade team revoke-member` removes one member, or with `--ban`
+  makes their rejoin answer exactly what a wrong secret answers, or with `--max-version` evicts everyone who
+  joined on a superseded secret; `brigade team transfer` hands the team to another active member. A revoked
+  member's open sessions close and their realtime channel ends within a few milliseconds. All three run in a
+  terminal only and refuse inside a Claude Code session.
 - **The join secret never passes through the chat.** `team create --secret-file` writes it to a 0600 file instead
   of the terminal, `team join --prompt` reads it without echo, `--join-secret` on argv is refused outright, and
   both `team create` and `team join` refuse to run inside a Claude Code session.
@@ -72,13 +81,23 @@ The first release. Plugin and binary version `0.1.0`, produced by `make release`
 - A **reference filesystem adapter** (`brigade-adapter-fs`) and a **45-case conformance suite**
   (`brigade-conformance`). Both are development and test tools; neither ships in the plugin.
 - [`docs/adapter-authors.md`](docs/adapter-authors.md), the contract a third-party adapter implements.
+- The conformance suite's own fixture now asks for the lease your adapter advertises as its maximum, and refuses
+  the run if your adapter grants a different one or if the run outlives the lease. Before this, a slow backend
+  could fail a case for a reason no message named.
 
 ### Added — controls
 
 - `team_inbound`: `accept` (the default) delivers every team message into the session immediately, in every
   permission mode; `refuse` never delivers and never acknowledges, so senders see the session as refusing and the
-  message waits on the server.
-  `hold` is accepted by the option and downgraded to `refuse` with a warning until it ships.
+  message waits on the server; `hold` records each message — who sent it, its summary, when it came, never the
+  body — delivers nothing, acknowledges nothing, and waits for you to run `brigade inbox release` in your own
+  terminal.
+- **`brigade inbox` and `brigade inbox release`.** Under `hold`, the session shows one line at your next prompt
+  naming how many messages are held and who they are from. `brigade inbox` in your own terminal lists them and
+  fetches each body fresh from the server; `brigade inbox release --all`, or `brigade inbox release <message_id>…`,
+  hands the ones you chose to the watcher, which delivers them the ordinary way. `release` refuses to run inside a
+  Claude Code session, so no model can release its own reading, and inside a session `brigade inbox` shows only a
+  count and sender names.
 - A **session-start scan** of the user, project and local settings files: on finding Claude Code's own
   `crossSessionInbound` set to `hold` or `refuse`, Brigade prints a warning naming the setting and the file and
   sets its own policy to `refuse`, rather than acknowledging messages nothing will read.
@@ -97,10 +116,16 @@ The first release. Plugin and binary version `0.1.0`, produced by `make release`
   `gc_expired()` and traps its own errors, so it can never abort a heartbeat.
 - A **daily keep-alive workflow** ([`.github/workflows/keepalive.yml`](.github/workflows/keepalive.yml)) that makes
   the database calls a Supabase Free-plan project needs in order not to be paused.
-- `make backend-install` links a hosted Supabase project, applies the migrations and pushes the configuration in
-  one step. [`docs/setup.md`](docs/setup.md) carries the administrator's procedure.
+- `make backend-install project=<ref>` sets a hosted Supabase project up in one step: it links the project,
+  lists the migrations that are not applied yet, applies them, writes the four project settings Brigade needs
+  through `scripts/backend-settings.sh`, and lists the migrations on both sides so you can check them.
+  `scripts/backend-settings.sh` changes only what differs and reports what it found.
+  [`docs/setup.md`](docs/setup.md) carries the administrator's procedure.
 
 ### Security
+
+[`docs/security.md`](docs/security.md) is the full account: what Brigade protects, what it does not, and what was
+measured. The short version:
 
 - Team messages are delivered **automatically, in every permission mode** — `bypassPermissions` and auto-accept
   included, and in `claude -p`. In an unattended session that means another person's untrusted text reaches a model
@@ -136,3 +161,9 @@ The first release. Plugin and binary version `0.1.0`, produced by `make release`
   measured against a hosted project from inside the sandbox.
 - A member of your team can send at the published rates and hold 15 unacknowledged messages in each teammate's
   inbox. The rate and inbox caps are what bound that; nothing else does.
+- Claude Code 2.1.261 keeps at most 50 inbox messages waiting while a session is busy with a turn, and drops the
+  rest — after Brigade has acknowledged them, and with neither side told. Measured in the soak run: 9 of 60
+  frames in one burst, and the loss was seen in three separate runs. Brigade's own queue of 50, with its drop notice, engages only when
+  the session has been idle long enough, which the shipped speeds make rare.
+
+The full list is in [`docs/security.md`](docs/security.md), "Accepted for this version".

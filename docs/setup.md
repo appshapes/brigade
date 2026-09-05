@@ -1,10 +1,77 @@
 # Setting up Brigade
 
-This document is completed by P5-7, which adds the member-facing setup, the "Leaving and uninstalling" sequence
-and the sandbox and shadowing notes. Today it holds the parts that already exist: how to reach the plugin's binary
-from your own terminal, the team administrator's commands (rotating the join secret, revoking a member,
-transferring the team), and the hosted project's administrator's responsibilities: deploying the backend,
-the one workflow to arm and the one GitHub rule to remember.
+Brigade lets the Claude Code sessions of different people send each other messages. Setting it up involves three
+roles. An **administrator** creates the backend project and the team. A **member** joins that team from their own
+terminal. Anyone who has joined can then **use** Brigade from a session.
+
+**Read [docs/security.md](security.md) before you put Brigade on a team's machines.** It says what Brigade
+protects, what it does not, and what was measured.
+
+This page is the canonical procedure for every multi-step task below. [plugin/README.md](../plugin/README.md)
+carries the same commands in short form, for a reader who only ever sees the plugin.
+
+## Administrator: create a team
+
+The bundled adapter keeps a team in a Supabase project. Create a **single-purpose** project for it: put nothing
+else in that project, because anyone who can read its database can read every message. The settings the project
+needs are listed in [plugin/README.md](../plugin/README.md), "Administrator: create a team", and
+"Hosted project: the administrator's responsibilities" below is how to put a project into that state.
+
+Then, **in your own terminal**:
+
+```sh
+<plugin>/bin/brigade profile init --url https://<ref>.supabase.co --key sb_publishable_…
+<plugin>/bin/brigade team create --prompt --secret-file ~/brigade-<team>.secret
+```
+
+Write `brigade` on its own instead of `<plugin>/bin/brigade` once you have made the symlink from "Terminal use"
+below. `<plugin>` is the plugin's directory; `brigade whoami` prints the full path inside a session.
+
+`team create` asks for the team name and your display label on the terminal. `--secret-file` writes the join
+secret to a file with mode 0600, so it never reaches your terminal scrollback. `team create` refuses to run
+inside a Claude Code session.
+
+**Then send each member three things.**
+
+1. The project URL, `https://<ref>.supabase.co`.
+2. The publishable key, `sb_publishable_…`.
+3. The join secret.
+
+The first two are not secret, so any channel will do. Send the join secret **over a password-grade channel** — a
+password-manager share, not chat and not email. The secret is a bearer capability: anyone holding it can join and
+pick any label.
+
+**Keep a 0700 backup of your profile directory** (`~/.config/brigade/profiles/<name>`, or wherever the
+`config_dir` option points). It is the team's only administrative credential. What its loss costs you is in
+[docs/security.md](security.md), "Running a team, and losing the ability to".
+
+## Member: join a team
+
+**In your own terminal**, with the URL, the key and the join secret your administrator sent you:
+
+```sh
+<plugin>/bin/brigade profile init --url https://<ref>.supabase.co --key sb_publishable_…
+<plugin>/bin/brigade team join --profile default --prompt
+```
+
+`--prompt` reads the join secret without echoing it, then asks for an optional display label. So the secret never
+reaches your scrollback or your shell history, and never a chat. `team join` refuses to run inside a Claude Code
+session for the same reason.
+
+- The URL must start with `https://`. The adapter refuses anything else, except a loopback host.
+- If your sessions run with the Bash sandbox on, add the project host (`<ref>.supabase.co`) to
+  `sandbox.network.allowedDomains`, or the first send is refused.
+- Then start a Claude Code session, or run `/reload-plugins` in one you already have.
+- One profile is bound to exactly one team. A second team means a second profile: pass `--profile <name>` to both
+  commands above, and choose it per session with the `profile` plugin option.
+- A backend other than the bundled Supabase adapter is chosen once, at `profile init`, with
+  `--adapter <name-or-command>`. [docs/adapter-authors.md](adapter-authors.md) explains the three forms.
+
+You know it worked when the session starts with a line like this one:
+
+```
+Brigade: this session is "payments-api" (09365acd…) in team "ops"; inbound: accept; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`.
+```
 
 ## Terminal use
 
@@ -34,6 +101,10 @@ ln -s /Users/you/.claude/plugins/brigade/bin/brigade ~/.local/bin/brigade
 A symlink, not a copy: a `brigade` on your PATH that is not the plugin's own is what the session-start
 shadowing warning is about, and a copy goes stale at the next plugin upgrade.
 
+## The frame text your sessions receive
+
+[P5-12] This section is written when the frame levels land.
+
 ## Holding messages for review
 
 Brigade delivers team messages into your session as they arrive. Set the plugin option `team_inbound` to `hold`
@@ -60,7 +131,46 @@ and Brigade cannot release from it. If Brigade's session-start scan finds `cross
 Claude Code will not deliver to would throw the message away *and* tell its sender it arrived. Remove that
 setting, or set it to `accept`, and then use `team_inbound: hold` if you want the review step.
 One blind spot to know about: a `crossSessionInbound` passed with `--settings` on the command line is invisible to
-that scan, so a session started that way can hold or drop Brigade frames without Brigade knowing.
+that scan, so a session started that way can hold or drop Brigade frames without Brigade knowing. What that costs a
+sender, and what `injected` does and does not mean, is in [docs/security.md](security.md), "Claude Code's own
+inbound setting is a second layer".
+
+## Where your credential lives
+
+Joining a team mints an anonymous account on the backend for you, and Brigade stores that credential in one file:
+
+```
+~/.config/brigade/profiles/<name>/session.json
+```
+
+The file has mode 0600 and sits in a directory with mode 0700. Brigade writes it atomically, so a crash never
+leaves half a file, and it **refuses to use it** if it is readable by anyone else. There is no second place: no
+keychain, no environment variable, no copy in the project directory. Pass `config_dir` if you want the profiles
+somewhere other than `~/.config/brigade`.
+
+To see the state of a profile without seeing any token:
+
+```sh
+<plugin>/bin/brigade profile status --profile default
+```
+
+It prints the profile name and state, the backend URL, the team, your own principal reference and the time your
+access token expires. It never prints a token.
+
+Two commands end the credential:
+
+```sh
+<plugin>/bin/brigade profile revoke-credentials --profile default   # revokes at the backend, keeps the profile
+<plugin>/bin/brigade profile reset --profile default                # revokes, then deletes the profile directory
+```
+
+Both revoke the credential family at the backend, not just locally, and both refresh the credential first so
+that "revoked" is true even if the local copy had gone stale. After a `profile reset`, rejoining mints a **new**
+principal, which teammates see as a new person.
+
+**One accepted limit.** Any program running as you can read this file. Brigade does not defend against that, and
+[docs/security.md](security.md), "Where your credentials live", says so plainly.
+
 ## Team administration
 
 Every command in this section runs in **your own terminal**; inside a session each one refuses the way `team create`
@@ -81,7 +191,7 @@ permanently. **Keep a 0700 backup of the profile directory.** If you will hand t
 create a new team and re-invite everyone. `brigade team leave` does **not** end it: `created_by` survives a leave,
 so a rejoin with the current secret restores administration
 (`supabase/migrations/20260830120000_brigade_schema.sql:279-280`) — but a `profile reset` does end it, which is why
-the order in [plugin/README.md](../plugin/README.md), "Leaving and uninstalling", matters.
+the order in "Leaving and uninstalling" below matters.
 
 ### Revoking a member
 
@@ -136,8 +246,75 @@ ordinary active member with its sessions untouched, and can `brigade team leave`
 a principal that is not an active member of the team is refused, and a transfer to yourself is an accepted no-op.
 
 The security discussion of these commands — what an operator can see, why a banned member cannot tell it was
-banned, and what the creator's profile directory is worth to an attacker — belongs in `docs/security.md`, which
-P5-7 writes; the operational steps stay here.
+banned, and what the creator's profile directory is worth to an attacker — is in
+[docs/security.md](security.md), "Running a team, and losing the ability to". The operational steps stay here.
+
+## Leaving and uninstalling
+
+The order matters. Every step is optional except step 3, when the goal is to remove the plugin. Run them **in
+your own terminal**.
+
+**1. Leave the team.**
+
+```sh
+<plugin>/bin/brigade team leave --profile default
+```
+
+This closes your open sessions in that team and marks your membership revoked, so teammates stop seeing your
+sessions at once and messages addressed to them wait for retention rather than being delivered. Skip this step
+and your membership stays active indefinitely, while your sessions merely show as offline after the lease
+expires. A rejoin with the current secret re-activates the same membership and keeps the same principal, so this
+step is reversible.
+
+**2. Revoke and delete the credential.**
+
+```sh
+<plugin>/bin/brigade profile reset --profile default
+```
+
+This revokes the credential family at the backend and deletes the profile directory. **Run step 1 first.** After
+a reset there is no credential left on this machine, so the membership and its sessions can no longer be closed
+from here, and a later rejoin mints a new principal that teammates see as a new person.
+
+**3. Remove the plugin.**
+
+```sh
+claude plugin uninstall brigade
+```
+
+Uninstalling from the last scope that has it also deletes the plugin's own data directory, which this version of
+Brigade does not use. Brigade's state is in the XDG directories instead, which is exactly why a `--resume` after
+a reinstall can still find your old Brigade session.
+
+**4. Remove the state and the cached binaries.**
+
+```sh
+rm -rf ~/.local/state/brigade ~/.local/share/brigade
+```
+
+Use the `XDG_STATE_HOME` and `XDG_DATA_HOME` equivalents if you set those. This removes the session maps,
+pidfiles, held-message records, logs and every cached binary. Keep
+`~/.local/state/brigade/sessions/by-native` if a later reinstall should resume your old Brigade sessions.
+
+**5. Remove the profiles.**
+
+```sh
+rm -rf ~/.config/brigade
+```
+
+Or the directory named by the `config_dir` option. Do this **only after step 2 on each profile**. A deleted
+credential file whose family was never revoked stays usable by anyone holding a copy of it.
+
+**If you created the team**, step 2 ends secret rotation, member revocation and transfer for that team,
+permanently. Hand the team to another active member **before** step 1:
+
+```sh
+<plugin>/bin/brigade team transfer --principal <ref>
+```
+
+Step 1 alone is recoverable: `created_by` survives a `team leave`, so a rejoin with the current secret restores
+your administration. Step 2 is not recoverable. Keep that 0700 backup of the profile directory either way, and
+see [docs/security.md](security.md), "Running a team, and losing the ability to".
 
 ## Hosted project: the administrator's responsibilities
 
@@ -174,7 +351,8 @@ make backend-install project=<ref>          # add dry=1 to stop after the dry ru
 
 `migration list --linked` is the check: every migration in `supabase/migrations/` must appear in both the
 `Local` and the `Remote` column, in version order, with no one-sided row. `db push --dry-run` before it is the
-gate — it names the migrations that are **not applied yet**, which on a first deployment is every file under
+gate (`make supabase-push-dry` runs the same dry run against the linked project) — it names the migrations that
+are **not applied yet**, which on a first deployment is every file under
 `supabase/migrations/` and on a later run is only what is still pending (an empty list means the project is
 already up to date). If it names a file you do not recognise, stop and find out why before pushing.
 
@@ -208,8 +386,8 @@ npx --yes supabase@2.116.0 projects api-keys --project-ref <ref>
 
 The **project URL** and the **publishable key** are the only two values a member ever receives, and both are
 public by design. The secret key, the service-role key, the database password and your personal access token
-stay on your machine. Creating the first team is `brigade team create` — see
-[plugin/README.md](../plugin/README.md), "Administrator: create a team".
+stay on your machine. Creating the first team is `brigade team create` — see "Administrator: create a team" at
+the top of this document.
 
 ### 2. The two repository variables
 

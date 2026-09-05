@@ -322,9 +322,10 @@ Why this shape:
 - Location: `$CLAUDE_PLUGIN_DATA/<profile>/session.json` (the plugin data directory lives under
   `CLAUDE_CONFIG_DIR`, which on this machine is non-default; never hardcode `~/.claude`). The
   refresh token is a long-lived bearer credential; 0600 file + 0700 directory is the minimum. OS
-  keychain storage is an optional later upgrade (macOS `security`, `secret-tool`, `cmdkey`); it
-  would need a spawn per read because Node has no built-in keychain API and the plugin cannot run
-  native-module build scripts.
+  keychain storage is an optional later upgrade [discarded 2026-09-05: the 0600 file store is the
+  credential model; no keychain ships] (macOS `security`, `secret-tool`, `cmdkey`); it would need a
+  spawn per read because Node has no built-in keychain API and the plugin cannot run native-module
+  build scripts.
 - Explicit restore APIs, if the adapter ever needs them: `auth.setSession({ access_token,
   refresh_token })` (refreshes if the access token is expired; throws on invalid tokens) and
   `auth.refreshSession({ refresh_token })` (always hits `/token`). [verified]

@@ -85,5 +85,6 @@ The order matters. Every step is optional except step 3 when the goal is to remo
    credential. Do this only after step 2 on each profile: a deleted credential whose family was never revoked
    stays usable by any copy of it.
 
-If you **created** the team, step 1 or step 2 ends secret rotation and revocation for it. Rotate the secret or
-transfer the team first, and keep that 0700 backup of the profile directory either way.
+If you **created** the team, step 2 ends secret rotation, revocation and transfer for it, permanently (step 1 alone
+does not: a rejoin with the current secret restores administration). Transfer the team to another active member
+*before* step 1, and keep that 0700 backup of the profile directory either way.

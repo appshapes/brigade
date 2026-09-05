@@ -738,7 +738,7 @@ Test results `[verified]`: syntax-clean under `sh -n`, `bash -n`, `zsh -n`; macO
 1. Does Claude Code substitute `${CLAUDE_PLUGIN_ROOT}` in a hook's `command` string, or only in `args`? (E0-5; the `sh` form sidesteps it.)
 2. First-use download inside the 15 s `SessionStart` budget on slow networks: measure; decide whether the hook should print "installing" and return (retry on the next hook) instead of waiting.
 3. `x/text` version to pin: v0.39.0 is the fix version govulncheck names; confirm the latest tag on scaffold day (`go list -m -versions golang.org/x/text`).
-4. Whether to add `homebrew_casks` to goreleaser for the human install path (Phase 5; not exercised).
+4. Whether to add `homebrew_casks` to goreleaser for the human install path (Phase 5; not exercised). `[2026-09-05: not in 0.1.0 — moved to P5-16, a fast follow after the first release, with a Linux equivalent]`
 5. Whether E0-3 needs `jsontext.EscapeForJS` for the socket frame (raw U+2028 in JSON strings is standards-valid; rendering in Claude Code is unmeasured).
 6. `go install ...@version` fallback via `debug.ReadBuildInfo` (marked likely; verify when `cmd/brigade` exists).
 7. macOS CI runner: `macos-latest` is arm64; whether to also test darwin/amd64 under Rosetta is a cost question (the code has no amd64-specific paths).

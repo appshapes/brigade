@@ -247,7 +247,7 @@ Each threat lists the attack path, impact, the layer that owns each mitigation (
 - ADP: profile directory under `$CLAUDE_PLUGIN_DATA` (per config dir, so `CLAUDE_CONFIG_DIR=~/.claude-ifthen` is respected automatically **[verified]**) or `$XDG_CONFIG_HOME/brigade/profiles/<name>/`; directory 0700, files 0600, created with `O_EXCL`, written atomically (temp file + `rename`). Never hardcode `~/.claude`.
 - ADP: `createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })` and drive refresh explicitly with `supabase.auth.refreshSession({ refresh_token })` **[verified API]**, storing the new pair before using it. Take an exclusive file lock (a pure-JS lockfile, or `O_EXCL` lock file with stale detection) around read-refresh-write; re-read the stored token after acquiring the lock. Reuse detection revokes the family when a token is reused outside the 10 s window **[verified]**; a "refresh token not found/revoked" error means re-join is required; surface it as `unauthenticated` with a clear message.
 - ADP: access tokens are cached in memory only; the watcher and shim each refresh under the lock. Consider making the watcher the only refresher and having the shim read the cached access token from the profile (0600) when fresh, falling back to a locked refresh.
-- ADP (later): macOS Keychain via the `security` CLI (`security add-generic-password` / `find-generic-password -w`) spawned without a shell, avoiding native modules **[likely; standard macOS tool, not verified today]**; Linux `secret-tool` when available; otherwise the 0600 file. Do not use Claude Code's `sensitive` userConfig for the refresh token: it is limited to about 2 KB shared with OAuth tokens **[verified]** and is not meant to be written by the plugin.
+- ADP (later): `[discarded 2026-09-05: the owner ruled the 0600 file store the credential model for good; no OS keychain ships]` macOS Keychain via the `security` CLI (`security add-generic-password` / `find-generic-password -w`) spawned without a shell, avoiding native modules **[likely; standard macOS tool, not verified today]**; Linux `secret-tool` when available; otherwise the 0600 file. Do not use Claude Code's `sensitive` userConfig for the refresh token: it is limited to about 2 KB shared with OAuth tokens **[verified]** and is not meant to be written by the plugin.
 - ADP: `brigade profile status` prints the principal id prefix and expiry, never tokens.
 - Supabase config: consider shorter JWT expiry (10–15 min) to bound realtime revocation lag (T4), but not below 5 minutes ("values below 5 minutes... should not be used") **[verified]**. Consider an inactivity timeout (Pro feature) so abandoned profiles expire.
 
@@ -593,7 +593,7 @@ Priority: P0 = the proof of concept is unsafe or invalid without it; P1 = requir
 
 | P | Item | Threat |
 | --- | --- | --- |
-| P2 | OS keychain storage via `security` / `secret-tool`, file fallback | T7 |
+| P2 | OS keychain storage via `security` / `secret-tool`, file fallback `[discarded 2026-09-05: the 0600 session.json under a 0700 profile directory is the only credential store]` | T7 |
 | P2 | Before User Created hook for sign-up floods (after confirming it fires for anonymous sign-ins) | T6 |
 | P2 | Threat-model page in user docs: no E2E encryption, operator visibility, bypass-mode warning, name disclosure | T10, T13, T15 |
 | P3 | Inactivity/time-box session settings (Pro) for stale principals | T7 |
