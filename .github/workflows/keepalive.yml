@@ -44,7 +44,7 @@ permissions: {contents: read}            # the job reads the checkout and nothin
 
 jobs:
   keepalive:
-    runs-on: ubuntu-latest               # preinstalls curl and jq, the script's only two dependencies
+    runs-on: blacksmith-4vcpu-ubuntu-2404               # preinstalls curl and jq, the script's only two dependencies
     timeout-minutes: 5                   # four requests at --max-time 30 plus the health rung's retries
     env:                                 # the adapter's own variable names (P5-0 brief 3.1), not SUPABASE_*
       BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_SUPABASE_URL }}"

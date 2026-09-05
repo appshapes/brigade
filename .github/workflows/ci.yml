@@ -29,7 +29,7 @@ concurrency: {group: "ci-${{ github.ref }}", cancel-in-progress: true}
 
 jobs:
   fast:                                   # no Docker; 4m28s-5m17s across the ten runs above
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 11                   # 2x the 5m16s p90; slowest observed 5m17s on run 33941694993
     steps:
       - uses: actions/checkout@v7
@@ -61,7 +61,7 @@ jobs:
       - run: make plugin-check
 
   macos:                                  # the primary user platform: unix sockets, ps -o lstart, shasum paths
-    runs-on: macos-latest                 # macOS 26 arm64 today [verified]
+    runs-on: blacksmith-6vcpu-macos-15                 # macOS 26 arm64 today [verified]
     timeout-minutes: 7                    # 2x the 3m02s p90; slowest observed 3m12s on run 33920933602
     steps:
       - uses: actions/checkout@v7
@@ -80,7 +80,7 @@ jobs:
   #     `make cross` pins GOTOOLCHAIN, CGO_ENABLED, GOFLAGS, GOAMD64 and GOARM64 (7.4).
   reproducibility:
     needs: [fast, macos]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Two artifact downloads and a diff: 3s to 8s across the ten runs, slowest 8s on run 33936887138. Twice that
     # p90 is under a minute, which is a bound set by network variance rather than by the job; 5 is the floor.
     timeout-minutes: 5
@@ -102,7 +102,7 @@ jobs:
   supabase:                               # Docker; 6m53s-7m27s across the ten runs above, of which the
                                           # `make supabase-start` step is 51s-1m10s and the ghcr.io image pulls
                                           # inside it 34s-38s (timed from the step logs of 33942289055, 33941694993)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: fast
     timeout-minutes: 25                   # unchanged and deliberately loose: 3x the 7m25s p90, slowest 7m27s on
                                           # run 33942289055, because this job pulls images over the network
@@ -153,7 +153,7 @@ jobs:
     if: github.ref == 'refs/heads/master' && vars.BRIGADE_STAGING == 'true'
     needs: [fast, supabase]
     environment: staging
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # No observed run: `vars.BRIGADE_STAGING` has never been set, so this job has only ever been skipped. The
     # bound is therefore NOT a measured p90; it is read across from the `supabase` job's own CLI steps
     # (supabase/setup-cli 7s, and three hosted `supabase` calls) on run 33942289055, with room for a hosted

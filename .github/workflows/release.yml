@@ -25,7 +25,7 @@ permissions:
   contents: write                                   # create the release and upload assets
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # One observed run: the D1 rehearsal, 33698279695, took 1m35s end to end (of which the `make cross` guard was
     # 1m02s and goreleaser itself 9s). A single sample is not a p90, so this bound is deliberately looser than
     # twice it: the workflow runs once per release, a slow module fetch on a cold runner is the plausible
