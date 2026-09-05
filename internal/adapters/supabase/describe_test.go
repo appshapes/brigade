@@ -5,11 +5,14 @@ import (
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 )
 
 // newFailure renders a *protocol.Error the way fail does, for the
@@ -191,5 +194,121 @@ func TestDescribeNeedsNoEnvironmentButHome(t *testing.T) {
 	got = r.execEnv([]string{"BRIGADE_CONFIG_DIR=relative/path"}, "", "describe")
 	if got.code != 11 {
 		t.Fatalf("relative BRIGADE_CONFIG_DIR: exit %d, want 11", got.code)
+	}
+}
+
+// The retention drift join (P5-3, brief 3.5). `describe` answers
+// protocol.DefaultRetention() from local files (TestDescribeStateMachine
+// pins that) and the backend's gc_expired() enforces the same windows as
+// SQL interval literals; nothing but a test joins the two. Rule 9 of the
+// spec (docs/protocol-v1.md:706-708) makes unacked_message_seconds a
+// FLOOR and the other two CEILINGS, so the safe directions are opposite
+// and an inequality could only ever guard one side; equality is the one
+// rule that catches drift in both — these numbers move together, in one
+// commit. Each anchor must match exactly once per source: a vanished
+// anchor is a loud failure, never a skip (the house shape of
+// scripts/ci/proof_crash_resume_test.go), and a second match would make
+// the join ambiguous. The anonymous-user migration repeats gc_expired()'s
+// body byte for byte (migrations are append-only), so both files are
+// joined; the live half in fixtures_integration_test.go runs the same
+// regexps over pg_get_functiondef() of the DEPLOYED functions.
+const (
+	housekeepingMigrationRel = "supabase/migrations/20260830120200_brigade_housekeeping.sql"
+	anonymousGCMigrationRel  = "supabase/migrations/20260905041134_anonymous_user_gc.sql"
+
+	retentionAckedHoursAnchor  = `injected_at is not null and injected_at < now\(\) - interval '(\d+) hours'`
+	retentionUnackedDaysAnchor = `or created_at < now\(\) - interval '(\d+) days'`
+	retentionClosedDaysAnchor  = `closed_at is not null and closed_at < now\(\) - interval '(\d+) days'`
+	retentionLeaseDaysAnchor   = `make_interval\(secs => lease_seconds\) < now\(\) - interval '(\d+) days'`
+	anonymousUserDaysAnchor    = `u\.created_at < now\(\) - interval '(\d+) days'`
+
+	// anonymousUserDays is D13's own window for the P5-3 rule — a plan
+	// number, not a protocol field (BAP/1 is frozen and publishes no
+	// anonymous-user retention, so `describe` cannot be joined to it), so
+	// the only thing to assert is that nobody widened it silently: a wider
+	// window weakens the rule that bounds auth.users on the hosted project.
+	anonymousUserDays = 7
+)
+
+// sourceInterval reads the integer inside one retention literal of a SQL
+// source — a migration file or a pg_get_functiondef() body — failing
+// loudly unless the pattern matches exactly once.
+func sourceInterval(t *testing.T, label, source, pattern string) int {
+	t.Helper()
+	all := regexp.MustCompile(pattern).FindAllStringSubmatch(source, -1)
+	if len(all) != 1 {
+		t.Fatalf("%s matches %q %d time(s), want exactly once: the retention drift join has lost its anchor", label, pattern, len(all))
+	}
+	n, err := strconv.Atoi(all[0][1])
+	if err != nil {
+		t.Fatalf("%s: %q is not an integer: %v", label, all[0][1], err)
+	}
+	return n
+}
+
+// retentionIn reads the three published windows out of one gc_expired()
+// source, in seconds. The two session arms (closed_at and lease expiry)
+// must agree with each other: describe publishes ONE
+// closed_session_seconds for both.
+func retentionIn(t *testing.T, label, source string) protocol.Retention {
+	t.Helper()
+	closed := sourceInterval(t, label, source, retentionClosedDaysAnchor)
+	if lease := sourceInterval(t, label, source, retentionLeaseDaysAnchor); lease != closed {
+		t.Errorf("%s: closed sessions go after %d days but lease-expired ones after %d; describe publishes one closed_session_seconds for both", label, closed, lease)
+	}
+	return protocol.Retention{
+		AckedMessageSeconds:   sourceInterval(t, label, source, retentionAckedHoursAnchor) * 3600,
+		UnackedMessageSeconds: sourceInterval(t, label, source, retentionUnackedDaysAnchor) * 86400,
+		ClosedSessionSeconds:  closed * 86400,
+	}
+}
+
+// repoFile reads one file under the repository root.
+func repoFile(t *testing.T, rel string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(testutil.RepoRoot(t), rel))
+	if err != nil {
+		t.Fatalf("reading %s: %v", rel, err)
+	}
+	return string(data)
+}
+
+// describeRetention runs `describe` offline on a fresh rig and returns
+// the retention it advertises — the adapter's actual answer, not the
+// constant it is built from.
+func describeRetention(t *testing.T) protocol.Retention {
+	t.Helper()
+	r := newRig(t)
+	offline := append(append([]string{}, r.env...), "BRIGADE_TEST_OFFLINE=1")
+	got := r.execEnv(offline, "", "describe")
+	if got.code != 0 {
+		t.Fatalf("describe: exit %d, %s", got.code, got.stdout)
+	}
+	var env protocol.Envelope
+	if err := protocol.Decode([]byte(got.stdout), &env); err != nil {
+		t.Fatalf("describe envelope: %v", err)
+	}
+	var d protocol.DescribeResult
+	if err := protocol.Decode(env.Result, &d); err != nil {
+		t.Fatalf("describe result: %v", err)
+	}
+	return d.Retention
+}
+
+// TestDescribeRetentionMatchesTheMigration is the offline half of the
+// drift join: no stack, runs in `make test`. What describe advertises to
+// a harness must equal what the migrations' gc_expired() enforces, in
+// both files that define it, and the P5-3 window must still be D13's.
+func TestDescribeRetentionMatchesTheMigration(t *testing.T) {
+	t.Parallel()
+	advertised := describeRetention(t)
+	for _, rel := range []string{housekeepingMigrationRel, anonymousGCMigrationRel} {
+		if enforced := retentionIn(t, rel, repoFile(t, rel)); enforced != advertised {
+			t.Errorf("%s enforces %+v but describe advertises %+v: rule 9 makes unacked a floor and the other two ceilings, so the two must move together in one commit",
+				rel, enforced, advertised)
+		}
+	}
+	if days := sourceInterval(t, anonymousGCMigrationRel, repoFile(t, anonymousGCMigrationRel), anonymousUserDaysAnchor); days != anonymousUserDays {
+		t.Errorf("gc_anonymous_users() reaps after %d days, want %d (D13): widening it silently would weaken the rule without saying so", days, anonymousUserDays)
 	}
 }

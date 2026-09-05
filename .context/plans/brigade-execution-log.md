@@ -90,7 +90,8 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P4-6 | Results document `.context/plans/brigade-proof-results.md`: the 9.7 table, criterion 8 as the per-item corpus table for both sweeps, the E2E coverage table, the open findings with rulings, D18/D20 confirmed and D32's tier recorded in `implementation/02-decisions.md` | done — **PHASE 4 EXIT: MET** | Fable | this commit — all ten criteria met; criterion 8 under the 9.6 pass rule in both sweeps (headless 78/78 on 2.1.260, interactive 77/77 on 2.1.261; no config-edit or exfiltration item failed in either); D18 confirmed unchanged, D20 confirmed with one residual clause (the context line advertises the ungated path form), D32's tier = Free plan with P5-0's keep-alive; **eight open findings carried into Phase 5, none exit-blocking, three needing Rjae's decision** (F1 the context line, F3 the pid-keyed seen file, F8 the `NO_PROXY` correction) — see "P4-6 DONE" |
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to the owner's usual practice (see "Phase 6" below) | **done** — P6-1 the digest (3fbb19f); P6-2..P6-4 this commit (two lanes, one adversarial verifier: every recipe unchanged, `make help` diff exactly `-docker-* +e2e`, the ` (CI)` marker on exactly the 19 CI-invoked targets, 27/27 README links, 7/7 jobs with measured timeouts, 6 sentences corrected); P6-5's record under "Phase 6" — every gate green locally, the CI matrix on this commit, the D1 rehearsal re-run in this commit's worktree | Opus | 26 conventions adopted or adapted, 13 declined with the constraint or the owner's answer that forced each, 3 declined on cost and re-openable |
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **armed and green on the hosted project since 2026-09-04 23:36 EDT** (run 33942302844: health 200, anonymous sign-up 200, the unexposed `brigade` schema a `406 PGRST106` warning until P5-1, sign-out 204); the variables were set from the owner's values and the owner enabled anonymous sign-ins | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
-| P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof **and after Phase 6** |
+| P5-3 | Anonymous-user cleanup in `gc_expired()`; retention verified end to end with time-shifted rows; `describe.retention` cross-checked | done | Fable | this commit — migration `20260905041134_anonymous_user_gc.sql` (a separate `gc_anonymous_users()` with its own handler, called last); pgTAP 770 → 825 assertions with **four mutants killed** and the failure-isolation argument proven by mutation (without the handler a creator-guard violation aborts the heartbeat); live: a 3-day-offline session resumes and receives, an 8-day one answers exit 4/6 both ways, keep-alive-shaped principals are reaped and the creator survives; a drift join pins `describe`'s retention to the migrations from both sides; verifier PASS with no edits; `docs/setup.md` §6 (see "P5-3 DONE") |
+| P5-1, P5-2, P5-4..P5-11 | Hosted deployment (brief ready, runs next with the owner's token), admin RPCs, docs, keychain, soak, release, `hold` policy, the injected ring | todo | mixed | briefs written for P5-1, P5-2, P5-5, P5-6, P5-9, P5-11, P5-12 under `.ignored/briefs/`; P5-7 and P5-10 briefed last |
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo | Fable | **before beta** — Rjae, 2026-09-04: the frame's instruction paragraph must follow the security model (default = whatever Claude allows; tighten by opt-in); one corpus sweep per shipped level |
 | P5-13 | **F1: the SessionStart context line names only the bare `brigade`** — the absolute plugin path moved to `brigade whoami`'s human output (`terminal: <path>`, from the by-pid map's existing `plugin_bin`; deliberately NOT in `--json`, the form the model reads) and `docs/setup.md`'s "Terminal use" | done | Opus | this commit — the new line ends "Use `brigade sessions` and `brigade send`."; pinned exactly in `start_test.go`, `e2e_test.go` and the hook txtar; measured on 2.1.261: **15/15 idle wakes in the bare form (three runs, 0 path forms in any transcript)** and **2/2 ask-bypass sessions bare + the ask dialog + nothing executed** — the reversal of P4-5's executed bypass send (see "P5-13 DONE") |
 | P5-14 | **F3: key the watcher's seen file by Brigade session id** instead of the Claude pid, so dedupe survives a crash and `--resume` and the injected-but-unacked window closes; shrinks the per-pid residue of F4 | todo | Fable | owner's ruling 2026-09-04; the by-native map already ties a resumed session to its Brigade session (see "P4-4 DONE") |
@@ -776,6 +777,51 @@ assertion in each was the tree-hygiene check, tripped by other lanes editing the
 20260905T034358Z): **both replies bare, both raised the ask-rule dialog, neither executed** — the reversal of P4-5's bypass run 1,
 where the path form executed with no dialog. The author's first run exposed the launch defect of 79467ce (see the journal),
 so the measurements used a repaired copy; the repair is committed.
+
+## P5-3 DONE — anonymous principals with no membership are reaped after 7 days by a function that cannot abort the heartbeat (2026-09-05)
+
+Fable tier (SQL on the security path), lean cadence: brief → author → adversarial verifier (PASS, no edits). The keep-alive's
+daily anonymous sign-up is the realistic input; P5-0 accepted one `auth.users` row per day "until P5-3's gc" — this is it.
+
+**The migration** `20260905041134_anonymous_user_gc.sql`: `brigade.gc_anonymous_users()` — plpgsql, `security definer`,
+`search_path = ''`, its own `exception when others` (WARNING + `-1`), the predicate `is_anonymous` ∧ older than 7 days ∧ no
+membership row of any status ∧ not `created_by` of any team, `order by created_at limit 1000`, execute revoked from public,
+anon and authenticated (owner postgres, `rolbypassrls`) — called as the LAST statement of a re-created `gc_expired()` whose
+four original statements are byte-identical to the housekeeping migration's. A separate function with a handler because
+`gc_expired()` is `language sql` (cannot trap) and runs from `session_heartbeat` at p=0.02: the verifier proved by mutation
+that without the handler a creator-guard 23503 aborts both the housekeeping statements and the member's heartbeat (its
+lease renewal lost), and with it neither is touched. Every FK to `auth.users` cascades except `teams.created_by`
+(restrict), so a principal with no membership row has no session or message rows by construction.
+
+**pgTAP** (`retention.sql` 48 → 95, `functions.sql` 177 → 185; suite 770 → 825): an eight-principal matrix with ±1 min
+boundaries — the eighth row, a creator whose membership row is deleted by hand, was needed because `create_team` always
+inserts the creator's row and `leave_team` only sets `revoked`, so the creator guard is otherwise dead code under the
+membership guard (kept: it is the belt for an `on delete restrict` FK whose violation would abort a heartbeat; a future
+hard-delete path or P5-2's RPCs could reach it); four mutants derived from `pg_get_functiondef()` into `pg_temp` inside
+the file's own rolled-back transaction, each killed by a named assertion (the creator-guard mutant by "the deletable user
+is still there / -1", NOT by "the creator survived", which the rollback would satisfy anyway); an anchor guard; the
+abandoned-team → orphaned-creator chain; cascade and idempotence; the three grant denials. The fixture helper
+`pg_temp.new_user()` left `created_at` NULL, which made every earlier principal unreapable and would have made every new
+assertion vacuous — it now dates the row, pinned by an assertion the verifier reverted to prove 14 assertions fail without
+it. Background rows older than a day are re-dated inside the transaction so the exact counts hold on a shared stack (4,164
+such rows here; 0 on CI's fresh database).
+
+**Live (`BRIGADE_TEST_LIVE=1`):** a session offline 3 days resumes and still receives; offline 8 days answers exit 6 both ways
+(backdated through `RequireSupabaseDB`, the DSN never logged); keep-alive-shaped principals minted through the adapter's
+sign-up, backdated and reaped with a creator as the positive control, the reaped principal's refresh then terminal (exit 4,
+`session.json` gone) and its unexpired access token inert — `my_team_ids()` empty, `create_team`/`join_team` 23503 — for at
+most 3600 s. `TestDescribeRetentionMatchesTheMigration` joins `describe`'s three retention members to
+`internal/protocol/limits.go` AND the migrations' intervals (each side alone breaks it; an anchor removed or duplicated
+breaks it), and the live half reads `pg_get_functiondef` from the deployed database so a hosted project one migration
+behind is caught. `make test-db` green except `realtime_policy.sql:120,130`, which assert a GLOBAL `membership_revoked`
+count and fail on any shared stack after a live `team leave` (177 rows here; predates today; green on CI).
+
+**Schedule and hosted:** no new cron job — the existing hourly `brigade_gc` and the heartbeat's 0.02 call both reach the new
+function; a keep-alive RPC was rejected (it would put a destructive function on the Data API). pg_cron on the hosted Free
+plan is `[unverified]` (no doc states a restriction); the housekeeping migration's `exception` block makes either outcome
+safe, and P5-1's push measures it (`cron.job` after the push). **Residual:** `limit 1000` is unobservable by any test; no
+index on `teams.created_by` (the guard's cost grows with the teams table); each live gc run leaves one backdated creator
+and team on the shared stack, self-cleaning after 7 days.
 
 ## P5-0 DONE — the Free-plan keep-alive: a daily anonymous sign-up is the database write Supabase counts; it arms itself when the two repository variables exist (2026-09-04)
 
@@ -1662,3 +1708,7 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   as adopted, adapted or declined with its forcing constraint. Also landed: P5-13 (F1) with the shadow warning made fail-closed
   and a false sentence in docs/setup.md corrected (only `team create`/`team join` refuse in-session). Next: P5-1 against the
   hosted project with the owner's token; P5-14 and P5-3 in flight.
+- 2026-09-05 02:0x EDT: **P5-3 is DONE — anonymous principals with no membership are reaped after 7 days; the gc cannot abort
+  a heartbeat.** Fable author and verifier (PASS, no edits; four mutants killed and the failure isolation proven by mutation);
+  the pgTAP fixture helper had left every principal undated, which is fixed and pinned. Details in "P5-3 DONE". Next: P5-2
+  (admin RPCs) once this lands; P5-1 after Phase 6's commit; P5-14 in flight.

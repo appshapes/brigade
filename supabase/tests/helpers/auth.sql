@@ -3,10 +3,15 @@
 -- functions live in pg_temp and vanish with the rollback. pg_prove connects as `postgres`, which
 -- may `set role` to the API roles and may write auth.users directly.
 --
---   pg_temp.new_user(anon)          insert an auth.users row and return its id. E0-1 (d): only `id`
+--   pg_temp.new_user(anon, created) insert an auth.users row and return its id. E0-1 (d): only `id`
 --                                   is NOT NULL without a default, but an id-only insert leaves
 --                                   `aud` and `role` as EMPTY STRINGS and `is_anonymous` false, so
 --                                   `aud`, `role` and `is_anonymous` are set explicitly here.
+--                                   `created_at` is nullable with NO default either (P5-3, measured
+--                                   2026-09-05), and a NULL never satisfies gc_anonymous_users()'s
+--                                   7-day comparison, so it is set too: `created` defaults to now()
+--                                   and a retention fixture backdates it (GoTrue always dates a real
+--                                   sign-up; only a hand-written row could be undated).
 --   pg_temp.login(uid, anon, label) become that principal as PostgREST would present it: both JWT
 --                                   GUCs (auth.uid() prefers the scalar `request.jwt.claim.sub`;
 --                                   auth.jwt() reads the JSON `request.jwt.claims`) and
@@ -23,11 +28,11 @@
 -- the test file's rollback. The `label` lands in user_metadata.human_label of the simulated claims
 -- only; Brigade never reads a label from the JWT (memberships.human_label is the source).
 
-create or replace function pg_temp.new_user(anon boolean default true)
+create or replace function pg_temp.new_user(anon boolean default true, created timestamptz default now())
 returns uuid language plpgsql as $$
 declare uid uuid := gen_random_uuid();
 begin
-  insert into auth.users (id, aud, role, is_anonymous) values (uid, 'authenticated', 'authenticated', anon);
+  insert into auth.users (id, aud, role, is_anonymous, created_at) values (uid, 'authenticated', 'authenticated', anon, created);
   return uid;
 end $$;
 

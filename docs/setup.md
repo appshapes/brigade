@@ -118,3 +118,16 @@ the model runs are inside it. A **local** Supabase stack is out of reach from a 
 `NO_PROXY` and never proxies loopback (`internal/adapters/supabase/client.go`), and E0-8 measured that a loopback
 `allowedDomains` entry does not lift the refusal. Decided 2026-09-04 not to change this for v1 — the hosted domain entry is
 the sandbox story; revisit if a developer needs the local stack from inside a sandboxed session.
+
+### 6. Retention and cleanup
+
+The backend keeps a message until it is acknowledged or **7 days** old, whichever is later, and an acknowledged message for
+24 hours; a session that has been offline for 3 days still receives everything sent to it when it resumes, and one offline
+for 8 days does not (measured live, `TestIntegrationRetentionResumeAfterThreeAndEightDays`). Anonymous principals that
+never joined a team — the keep-alive's daily sign-up is one such — are deleted once they are 7 days old, in batches of up
+to 1,000, by `brigade.gc_anonymous_users()`, which runs last inside `gc_expired()`: from the hourly pg_cron job where the
+extension exists, and opportunistically from about one member heartbeat in fifty everywhere. A principal that created a
+team, or that holds a membership row of any status, is never deleted. A deleted principal's still-unexpired access token
+reads nothing and writes nothing (its RPCs answer an empty set or a foreign-key error) for at most an hour until it expires.
+Nothing here needs an administrator's hand; the numbers are `describe`'s `retention` members, which a test pins to the
+migrations.
