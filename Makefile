@@ -446,13 +446,48 @@ supabase-push-dry: ## Show migrations that would be applied to the linked projec
 supabase-push: ## Apply migrations to the linked project
 	$(supabase) db push
 
+# `config push` sends this config.toml WHOLE, and this config.toml describes the LOCAL stack. Measured against
+# CLI 2.116.0's own config/push/SIDE_EFFECTS.md (P5-1 brief 1.4): it PATCHes ~100 auth fields and, on a gate that
+# is "always processed", PUTs the Postgres settings. Two of the fields it would set are actively harmful on a
+# production project: [auth.rate_limit] anonymous_users = 1000, against a hosted default of 30 per hour per IP
+# -- a 33x abuse ceiling on a project whose publishable key is handed to every team member by design -- and
+# site_url = http://127.0.0.1:3000. `--yes` (which an unattended run needs, and which CI's deploy-staging job
+# already passes) auto-confirms every one of those diffs, and the diff-and-confirm loop is the command's only
+# safety. P5-1 therefore set the three fields it needed one at a time through the Management API instead
+# (scripts/backend-settings.sh). The supported vehicle if a future item wants `config push` back is a
+# [remotes.<name>] block whose project_id matches the ref: @supabase/config merges only the keys that block
+# declares over the base config, so the first key such a block needs is
+#   [remotes.<name>.auth.rate_limit]
+#   anonymous_users = 30
 .PHONY: supabase-config-push
-supabase-config-push: ## Push config.toml settings (anonymous sign-ins, exposed schemas) to the linked project
+supabase-config-push: ## DANGEROUS against a production project -- read the comment above (P5-1); needs i_know=1
+	@[ -n "$(i_know)" ] || { \
+	  echo 'refusing: `config push` sends this config.toml WHOLE, and this config.toml is the LOCAL stack'"'"'s.' >&2; \
+	  echo 'Against a hosted project it would set auth.rate_limit.anonymous_users to 1000 (hosted default 30/h/IP)' >&2; \
+	  echo 'and site_url to http://127.0.0.1:3000. Use `make backend-install project=<ref>`, which sets the fields' >&2; \
+	  echo 'this project actually needs one at a time and reads each one back (P5-1; see the comment above).' >&2; \
+	  echo 'If you really mean it: make supabase-config-push i_know=1' >&2; \
+	  exit 1; }
 	$(supabase) config push
 
+# P5-1. Requires SUPABASE_ACCESS_TOKEN in the environment (a personal access token; NEVER a file path, never
+# argv, never a repository secret of the keep-alive). The database password is NOT needed: on CLI 2.116.0
+# SUPABASE_DB_PASSWORD is a no-op for `link`, and `db push --linked` mints a temporary login role through the
+# Management API with the access token (measured on the hosted project, P5-1: "Initialising login role...").
+# Idempotent: every settings call reads before it writes and reads back after. `dry=1` stops after the dry run
+# and prints the settings diffs without applying anything.
+# NOT `config push` -- see the comment on supabase-config-push above for the measurement that rules it out.
+# Order is not negotiable: the migrations are pushed BEFORE the schema is exposed. With `brigade` exposed and no
+# schema behind it, PostgREST loops on `3F000 schema "brigade" does not exist` (E0-1, migrations-check above).
 .PHONY: backend-install
-backend-install: supabase-link supabase-push supabase-config-push ## One-shot hosted backend setup for a team admin (Phase 5)
-	$(supabase) projects api-keys --project-ref $(project)
+backend-install: ## One-shot hosted backend setup (usage: make backend-install project=<ref> [dry=1])
+	@test -n "$(project)" || { echo 'usage: make backend-install project=<ref> [dry=1]' >&2; exit 1; }
+	$(supabase) link --project-ref $(project)
+	$(supabase) db push --dry-run
+	[ -n "$(dry)" ] || $(supabase) db push --yes
+	scripts/backend-settings.sh $(project) $(if $(dry),--dry-run,)
+	$(supabase) migration list --linked
+	$(supabase) projects api-keys --project-ref $(project)   # no --reveal: the publishable key only
 
 # ========== Git ==========
 

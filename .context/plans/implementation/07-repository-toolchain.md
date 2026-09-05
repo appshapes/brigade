@@ -34,6 +34,7 @@ Design record from 2026-08-30. Where this text and the code disagree, the code, 
 - 2026-09-05 — "Phase 6" (log) — 7.4/7.7: `plugin-dev-pointer`'s doc-comment claimed "used by scripts too"; no script invokes it (harness-smoke.sh replicates the logic) — its callers are `plugin-dev` and a human following E3-interactive.md; `test`'s comment now says "no Docker and no local stack".
 - 2026-09-05 — "Phase 6" (log) — 7.4/5.9: "`supabase start` takes 2–3 minutes mostly for image pulls" — measured on ten CI runs: the step is 51–70 s and the pulls inside it 34–38 s.
 
+- 2026-09-05 — "P5-1 DONE" — `make backend-install` (existed with `supabase-config-push` in its chain) now inlines link → dry-run → push → `scripts/backend-settings.sh` → `migration list` → `api-keys`, with `dry=1` and a `project=` guard; `supabase-config-push` refuses without `i_know=1`. `.github/workflows/ci.yml`'s `supabase config push --yes` in `deploy-staging` carries the same clobber hazard against the (unset, never-run) staging project — recorded for a later item, not changed.
 <!-- verbatim from the one-file plan -->
 ## 7. Repository layout and toolchain
 

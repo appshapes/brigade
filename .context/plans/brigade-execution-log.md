@@ -90,14 +90,16 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P4-6 | Results document `.context/plans/brigade-proof-results.md`: the 9.7 table, criterion 8 as the per-item corpus table for both sweeps, the E2E coverage table, the open findings with rulings, D18/D20 confirmed and D32's tier recorded in `implementation/02-decisions.md` | done — **PHASE 4 EXIT: MET** | Fable | this commit — all ten criteria met; criterion 8 under the 9.6 pass rule in both sweeps (headless 78/78 on 2.1.260, interactive 77/77 on 2.1.261; no config-edit or exfiltration item failed in either); D18 confirmed unchanged, D20 confirmed with one residual clause (the context line advertises the ungated path form), D32's tier = Free plan with P5-0's keep-alive; **eight open findings carried into Phase 5, none exit-blocking, three needing Rjae's decision** (F1 the context line, F3 the pid-keyed seen file, F8 the `NO_PROXY` correction) — see "P4-6 DONE" |
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to the owner's usual practice (see "Phase 6" below) | **done** — P6-1 the digest (3fbb19f); P6-2..P6-4 this commit (two lanes, one adversarial verifier: every recipe unchanged, `make help` diff exactly `-docker-* +e2e`, the ` (CI)` marker on exactly the 19 CI-invoked targets, 27/27 README links, 7/7 jobs with measured timeouts, 6 sentences corrected); P6-5's record under "Phase 6" — every gate green locally, the CI matrix on this commit, the D1 rehearsal re-run in this commit's worktree | Opus | 26 conventions adopted or adapted, 13 declined with the constraint or the owner's answer that forced each, 3 declined on cost and re-openable |
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **armed and green on the hosted project since 2026-09-04 23:36 EDT** (run 33942302844: health 200, anonymous sign-up 200, the unexposed `brigade` schema a `406 PGRST106` warning until P5-1, sign-out 204); the variables were set from the owner's values and the owner enabled anonymous sign-ins | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
-| P5-3 | Anonymous-user cleanup in `gc_expired()`; retention verified end to end with time-shifted rows; `describe.retention` cross-checked | done | Fable | this commit — migration `20260905041134_anonymous_user_gc.sql` (a separate `gc_anonymous_users()` with its own handler, called last); pgTAP 770 → 825 assertions with **four mutants killed** and the failure-isolation argument proven by mutation (without the handler a creator-guard violation aborts the heartbeat); live: a 3-day-offline session resumes and receives, an 8-day one answers exit 4/6 both ways, keep-alive-shaped principals are reaped and the creator survives; a drift join pins `describe`'s retention to the migrations from both sides; verifier PASS with no edits; `docs/setup.md` §6 (see "P5-3 DONE") |
-| P5-1, P5-4..P5-6, P5-8, P5-10, P5-11 | Hosted deployment (running with the owner's token), docs, keychain, soak, release, the injected ring | todo | mixed | briefs for every row under `.ignored/briefs/` (P5-7 and P5-10 written 2026-09-05; P5-10 finds the first-use download untestable while the repository is private — an owner decision) |
+| P5-3 | Anonymous-user cleanup in `gc_expired()`; retention verified end to end with time-shifted rows; `describe.retention` cross-checked | done | Fable | c21c8f8 — migration `20260905041134_anonymous_user_gc.sql` (a separate `gc_anonymous_users()` with its own handler, called last); pgTAP 770 → 825 assertions with **four mutants killed** and the failure-isolation argument proven by mutation (without the handler a creator-guard violation aborts the heartbeat); live: a 3-day-offline session resumes and receives, an 8-day one answers exit 4/6 both ways, keep-alive-shaped principals are reaped and the creator survives; a drift join pins `describe`'s retention to the migrations from both sides; verifier PASS with no edits; `docs/setup.md` §6 (see "P5-3 DONE") |
+| P5-4..P5-6, P5-8, P5-10, P5-11 | docs, keychain, soak, release, the injected ring | todo | mixed | briefs for every row under `.ignored/briefs/` (P5-7 and P5-10 written 2026-09-05; P5-10 finds the first-use download untestable while the repository is private — an owner decision) |
+| P5-1 | **Hosted deployment** (5.11, D32): four migrations pushed, `brigade` exposed through PostgREST, Realtime `private_only`, `make backend-install` end to end, `scripts/backend-settings.sh` | done | Opus | this commit — keep-alive `health 200, signup 200, rpc 200, logout 204` (run 33963399423), hosted conformance 45/0/0 in 160 s, pg_cron present on the Free plan (P5-3's `[unverified]` closed) (see "P5-1 DONE") |
 | P5-9 | **`team_inbound = hold`**: the pending file, the held notice, `brigade inbox`, `brigade inbox release` (terminal-only), the watcher's file-based release | done | Fable | this commit — no protocol change; nine author mutations plus the verifier's; `make e2e` 221/221 from the worktree (see "P5-9 DONE") |
 | P5-2 | **Team administration**: `rotate_join_secret`, `revoke_membership`, `revoke_memberships_by_version`, `transfer_team`; adapter and harness `team rotate-secret|revoke-member|transfer` (terminal-only) | done | Fable | this commit — migration `20260905120000_brigade_team_admin.sql`, `team_admin.sql` 247 assertions, three live tests, I-16 lag 2 ms on both paths so `jwt_expiry` stays 3600 s (see "P5-2 DONE") |
 | P5-7a | **The RFC final pass over `docs/protocol-v1.md` and `CHANGELOG.md`** (the P5-7 carve-out that touches no in-flight file) | done | Opus | this commit — six editorial lines in the protocol doc (one comma; five Appendix B "Suggested home" cells now naming real tests), nothing normative and no JSON block touched (`TestSpecExamplesAreTheTestdataFiles` and `make schema-check` green without regeneration); `CHANGELOG.md` in Keep a Changelog form, 40 items each traced to an artifact at HEAD; P5-7b (security doc, setup, plugin README, README rows) runs after P5-1/2/5/6/9/12 land (see "P5-7a DONE") |
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo | Fable | **before beta** — Rjae, 2026-09-04: the frame's instruction paragraph must follow the security model (default = whatever Claude allows; tighten by opt-in); one corpus sweep per shipped level |
 | P5-13 | **F1: the SessionStart context line names only the bare `brigade`** — the absolute plugin path moved to `brigade whoami`'s human output (`terminal: <path>`, from the by-pid map's existing `plugin_bin`; deliberately NOT in `--json`, the form the model reads) and `docs/setup.md`'s "Terminal use" | done | Opus | this commit — the new line ends "Use `brigade sessions` and `brigade send`."; pinned exactly in `start_test.go`, `e2e_test.go` and the hook txtar; measured on 2.1.261: **15/15 idle wakes in the bare form (three runs, 0 path forms in any transcript)** and **2/2 ask-bypass sessions bare + the ask dialog + nothing executed** — the reversal of P4-5's executed bypass send (see "P5-13 DONE") |
 | P5-14 | **F3: the watcher's seen file keyed by Brigade session id** (`state/seen/<id>.json`, read from the by-pid map both callers already hold; old per-pid files ignored) | done | Fable | this commit — `TestCrashAndResumeDedupe` with a real file store (no re-injection after a "crash" and `--resume` under the same session id with a new pid; a failed post is never remembered; a different key loads nothing) + the 17-row path-encoding table with anti-escape and injectivity assertions + a charset drift join; five mutations each caught by named tests across packages; **`make e2e` 221/221 and the crash-and-resume proof 316/316 with the per-pid seen residue gone (4 → 2 files, `stale_seen` false both arms, exactly-once 5/5)** (see "P5-14 DONE") |
+| P5-15 | **C-12 order dependency in the conformance suite** (found by P5-1's verifier, 2026-09-05): `fixture.go:165` registers A's session with the default 90 s lease and never heartbeats it; `c12_list.go:71` lists with `include_offline = false` and asserts the session is present — passes in id order (10.9 s in), fails under `--shuffle` on the hosted backend (124.8 s in). Fix the fixture's lease or the assertion; the suite is the third-party contract | todo | Opus | brief to write; runs before P5-11's soak, which shuffles |
 
 ## Phase 6 — house conventions (added 2026-09-03, Rjae's request)
 
@@ -933,6 +935,74 @@ crash (F4's prune territory); `--settings`-sourced native policy stays out of th
 
 ---
 
+## P5-1 DONE — the hosted project is deployed: four migrations, two settings, the keep-alive green on every rung, conformance 45/45 against Supabase's cloud (2026-09-05)
+
+Plan row P5-1 (5.11, D32). Opus author with the owner's personal access token (read from the gitignored
+`CLAUDE.user.md` into the environment only), Opus adversarial verifier. Sequence, all through `supabase@2.116.0` and the
+Management API: `link` (no database password — "Initialising login role"), `db push --dry-run` naming exactly the four
+committed migrations, `db push` (exit 0; fallback A only), `migration list --linked` four rows `local == remote`;
+PostgREST `db_schema` `public,graphql_public` → `public,graphql_public,brigade` (the RPC probe flips from `406 PGRST106` to
+`401 42501` on the first try); Realtime `private_only` `null` → `true`; the eight D32 auth fields were already at target
+so **only two PATCHes were issued**; `site_url` and `rate_limit_anonymous_users` (30) never touched. The `PrivateOnly`
+reason string was probed in both polarities (`PrivateOnly: This project only allows private channels` — the server
+capitalises "This"; only the prefix is load-bearing in `classifyReason`). The nine teams the runs created were deleted by
+explicit id, cascading memberships 16 → 0, sessions 118 → 0, messages 273 → 0.
+
+**Measured.** Keep-alive run 33963399423: `health 200, signup 200, rpc 200, logout 204`, zero warnings — the pre-P5-1
+`406` rung is gone. Hosted conformance `--slow` **45 passed / 0 failed / 0 skipped in 160 s** (local 45/0/0 in 80 s); C-33..C-38
+opened real WebSockets against hosted Realtime with `private_only` on, C-37's foreign-topic `Unauthorized` being I-13's hosted
+half. **pg_cron 1.6.4 is present on the Free plan** and `cron.job` holds `brigade_gc` (`17 * * * *`) and `brigade_cron_log_gc`
+(`23 3 * * *`): P5-3's `[unverified]` closes — no D13 degrade to opportunistic-only gc is needed. Anonymous budget: 22
+principals on the project (4 from GitHub runners, 16 from conformance, 2 from the probe) — 18 of the 30/hour from this
+machine's address in one four-minute window; the keep-alive spends GitHub's bucket, not ours.
+
+**Shipped.** `make backend-install project=<ref>` now inlines link → dry-run → push → `scripts/backend-settings.sh` →
+`migration list` → `api-keys`, with `dry=1` and a `project=` guard in `release`'s idiom; `supabase-config-push` keeps its
+name and refuses without `i_know=1` (a comment names the two keys it would clobber and points at `[remotes.<name>]`).
+`scripts/backend-settings.sh` (new) reads ten settings and PATCHes only what differs — re-run after the deployment it
+reported all ten "already correct, no PATCH"; `scripts/ci/backend_settings_test.go` (new) pins it with 11 cases, 11
+unmutated controls and 10 mutations, and found three real defects in the first draft (an idempotence guard that appended
+`brigade` twice; `tr` and `mv` off the restricted PATH). `docs/setup.md` gains "1. Deploying the backend" (the dashboard
+equivalents, the `config push` refusal and why, the PostgREST ordering rule, `wmgtaraqmoufmrnyojzf.supabase.co` as the worked
+`allowedDomains` example); six headings renumbered. Both shellchecks clean; `no-secrets.sh` clean; the PAT appears in no
+file of the 113-file bundle (`.ignored/proof/20260905T112358Z/hosted`).
+
+**Verified (Opus, adversarial): PASS after one doc fix.** Every setting re-read live and compared with the author's before/after
+table and the baseline bundle — `db_schema` carries `brigade`, `private_only` true, the ten auth fields at target,
+`rate_limit_anonymous_users` still 30 and `site_url` still `http://localhost:3000` (never `config.toml`'s
+`127.0.0.1:3000`); `scripts/backend-settings.sh --dry-run` (GETs only) reports all ten "already correct, no PATCH" before
+and after a second conformance run. Migrations 4/4 both sides; `pg_proc` 23 routines, 5 tables, two active `cron.job` rows,
+pg_cron 1.6.4; `information_schema.routines` 0 under the read-only role, confirmed. The keep-alive dispatched again (run
+33964506046): the same four rungs, zero warnings. Gates 0 throughout; `make -n backend-install` shows no token literal or
+reference (the script inherits it from the environment); `backend-install` without `project=` and `supabase-config-push`
+without `i_know=1` both refuse with exit 2 before any network. Ten author mutations caught, plus two of the verifier's (the
+idempotence guard; the forbidden `site_url` field, caught by five cases). **Hosted conformance re-run with `--shuffle`: 44/1/0 —
+the one failure is C-12, a latent order dependency in the suite, not a P5-1 defect:** the fixture registers A's session with
+the default 90 s lease and never heartbeats it, and C-12 lists with `include_offline = false`; in id order C-12 runs at
+10.9 s, in the shuffled hosted order at 124.8 s, past the lease — the backend did what C-14 requires. Filed as **P5-15**
+(fix the fixture's lease or the assertion; `internal/conformance` is the third-party contract and outside P5-1's lane). Its
+eight teams deleted by explicit id (teams 8 → 0, memberships 15 → 0, sessions 117 → 0, messages 273 → 0); 18 anonymous
+sign-ups, no 429. Secret hygiene: the PAT in zero files anywhere; the publishable key only in the verifier's scratch copies of
+two run logs outside the repo. The doc fix: "the dry run lists exactly the files under `supabase/migrations/`" was true only
+on a first deployment — it lists what is not yet applied — and its stop-gate would have misfired on every later run; both
+edits were swept into master by P5-2's commit (433bbd6) with the rest of the section. **After verification the driver pushed
+P5-2's migration to the hosted project** (`db push --dry-run` named exactly `20260905120000_brigade_team_admin.sql`; `db push`
+applied it; `migration list --linked` 5/5; `pg_proc` now 28 routines, the catalogue `functions.sql` pins), under the owner's standing authorisation for Supabase
+account actions. Stale after this row, recorded for P5-7b: `docs/research/house-conventions.md:458` still calls
+`supabase-link/push/config-push` deps of `backend-install`; `CHANGELOG.md:100`'s "pushes the configuration in one step" reads
+as `config push`; the brief's `ci.yml:145` is now `:168`; the hosted advisor grows by four rows with the admin RPCs.
+
+**Findings, recorded.** `public.rls_auto_enable()` is a Supabase-platform `SECURITY DEFINER` function in `public` with
+EXECUTE to PUBLIC — not ours, inert through the Data API (`400 0A000`), and absent from the local image: **a green local
+advisor mirror is not equivalent to a green hosted advisor** (the brief's 3.7 item 6 stays open). Hosted advisor: 25
+findings — the 14 the mirror expects plus `auth_allow_anonymous_sign_ins` ×8 (the advisor observing D32) and
+`auth_leaked_password_protection` ×1 (no passwords exist) and the two platform-object rows. `information_schema.routines`
+answers 0 for `brigade` under the read-only query role; `pg_proc` gives the real 23. The Realtime upgrade probe needs
+`curl --http1.1` (HTTP/2 to the edge answers `500 error code: 1101`). Deviations from the brief: four migrations, not three;
+`db_schema` stores `,brigade` without a space; the two session-timeout fields read `0`, not `null` (same semantics).
+
+---
+
 ## P5-7a DONE — the RFC final pass changed six editorial lines and `CHANGELOG.md` exists (2026-09-05)
 
 The carve-out of the P5-7 brief (its 3.11: `docs/protocol-v1.md`, `CHANGELOG.md` and the root README are the files no
@@ -1067,6 +1137,10 @@ plan is `[unverified]` (no doc states a restriction); the housekeeping migration
 safe, and P5-1's push measures it (`cron.job` after the push). **Residual:** `limit 1000` is unobservable by any test; no
 index on `teams.created_by` (the guard's cost grows with the teams table); each live gc run leaves one backdated creator
 and team on the shared stack, self-cleaning after 7 days.
+
+
+
+**Closed by P5-1 (2026-09-05):** pg_cron 1.6.4 is present on the hosted Free-plan project and `cron.job` holds `brigade_gc` (`17 * * * *`) and `brigade_cron_log_gc` (`23 3 * * *`), so the `[unverified]` above is settled in the migration's favour — the scheduled gc runs; no D13 degrade.
 
 ## P5-0 DONE — the Free-plan keep-alive: a daily anonymous sign-up is the database write Supabase counts; it arms itself when the two repository variables exist (2026-09-04)
 
@@ -1995,3 +2069,8 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
 - 2026-09-05 10:1x EDT: **P5-2 is on master (433bbd6), CI 33965728121 green** (the supabase job replayed the new migration).
   Its commit carries `docs/setup.md` whole, so P5-1's deployment section is on master ahead of P5-1's code (verifier
   running). P5-9's verifier is running in its worktree; P5-6 (keychain) starts now in a worktree at 433bbd6.
+- 2026-09-05 11:0x EDT: **P5-9 is on master (8700d6c)** — the CI run could not be watched: the GitHub CLI's token became
+  invalid mid-morning (`gh auth status`: "The token in default is invalid"), so `gh run list/view` answer 404 while
+  `git push` over SSH keeps working; every push from here until the owner re-runs `gh auth login` lands unwatched. P5-2's
+  migration is on the hosted project (5/5, 28 routines). P5-1 commits next; P5-12 (frame levels) starts in a worktree at
+  8700d6c; P5-6 (keychain) is in flight in its worktree.

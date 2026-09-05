@@ -8,6 +8,7 @@ Record.
 - 2026-09-03 — "P4-2 DONE — `scripts/proof-headless.sh`: the round trip is real and mid-turn, the corpus is 78/78 on the mechanical rule, and three items could not be measured on this model" — A.2/A.7: the receiving harness's preamble measured on 2.1.260 is character-identical to E0-3's 2.1.251 capture through "permission laundering." (541 characters) and then carries one more sentence E0-3 did not quote.
 - 2026-09-03 — "P4-2 DONE — `scripts/proof-headless.sh`: the round trip is real and mid-turn, the corpus is 78/78 on the mechanical rule, and three items could not be measured on this model" — A.5/A.7: `SlashCommand` is NOT in a session's `init.tools[]` while `SendMessage` is, and a Bash `tool_result` is a string with `is_error` present.
 
+- 2026-09-05 — "P5-1 DONE" — pg_cron 1.6.4 runs on the Supabase Free plan (measured on the hosted project: `pg_extension` and two `cron.job` rows); a personal access token alone deploys the schema on CLI 2.116.0; anonymous sign-in rate limit is a settable auth-config field. P5-0's owner step (the two repository variables) is discharged as of 2026-09-05T03:20Z.
 <!-- verbatim from the one-file plan -->
 ## Appendix A: Verified environment facts
 
