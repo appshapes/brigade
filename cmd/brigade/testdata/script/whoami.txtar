@@ -48,6 +48,23 @@ json stdout .result.self_session_id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 status 2 brigade whoami extra
 
+# --- the plugin binary's path: the human form's second line, never --json ---
+# Finding F1 took the path out of the SessionStart context line, so `whoami`
+# is where a HUMAN reads it (docs/setup.md's symlink). The map above carries
+# an empty plugin_bin, which is why want-whoami.txt is one line.
+expand map-plugin-bin.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.json
+expand want-whoami-terminal.in want-whoami-terminal.txt
+exec brigade whoami
+stdout '^session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" \(profile alpha, adapter fake-adapter 0.0.0-fake\); inbound: accept$'
+stdout '^terminal: .*/plugin-root/bin/brigade$'
+# The whole output, not two line patterns: the path is printed in FULL (the
+# human copies it into a symlink) and there is no third line.
+cmp stdout want-whoami-terminal.txt
+! stderr .
+exec brigade whoami --json
+! stdout 'plugin-root'
+! stdout 'terminal'
+
 # --- a map that is not 0600 is refused: the E0-7 trust boundary --------------
 chmod 644 $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.json
 status 11 brigade whoami
@@ -66,6 +83,8 @@ stderr 'brigade whoami failed \(config\): brigade whoami needs a Brigade session
 
 -- map.in --
 {"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "socket_path": "", "profile": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
+-- map-plugin-bin.in --
+{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "socket_path": "", "profile": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "$WORK/.brigade/plugin-root/bin/brigade", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
 -- fake.sh --
 #!/bin/sh
 # The scripted fake adapter behind an absolute path: the by-pid map needs
@@ -84,5 +103,8 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 {"dump_file": "$WORK/dump.ndjson"}
 -- want-whoami.txt --
 session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (profile alpha, adapter fake-adapter 0.0.0-fake); inbound: accept
+-- want-whoami-terminal.in --
+session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (profile alpha, adapter fake-adapter 0.0.0-fake); inbound: accept
+terminal: $WORK/.brigade/plugin-root/bin/brigade
 -- warm.json --
 {}

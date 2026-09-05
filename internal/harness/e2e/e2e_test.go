@@ -69,7 +69,7 @@ func TestSessionLifecycleThroughTheRealBinary(t *testing.T) {
 		t.Fatalf("alice's map: %+v", m)
 	}
 	wantLine := "Brigade: this session is \"" + aliceName + "\" (" + m.BrigadeSessionID + ") in team \"" + teamName +
-		"\"; inbound: accept; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`; terminal commands: " + r.pluginBin + "\n"
+		"\"; inbound: accept; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`.\n"
 	if res.stdout != wantLine {
 		t.Errorf("session-start stdout:\n got %q\nwant %q", res.stdout, wantLine)
 	}

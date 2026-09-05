@@ -8,8 +8,9 @@ to arm and one GitHub rule to remember.
 ## Terminal use
 
 Inside a session the Bash tool finds `brigade` on its PATH because the plugin puts it there. Your own terminal
-does not, and the commands that must run there — `brigade team join`, `brigade profile …`, `brigade inbox` —
-refuse to run from inside a session, because the join secret must never pass through the chat. `brigade whoami`,
+does not, and the two commands that must run there — `brigade team create` and `brigade team join` — refuse to
+run from inside a session, because the join secret must never pass through the chat (`brigade profile …` runs in
+either place; the terminal-only `brigade inbox` commands arrive with P5-9 and P5-5). `brigade whoami`,
 run in a session, prints the plugin binary's absolute path on its own line:
 
 ```

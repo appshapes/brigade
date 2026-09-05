@@ -50,6 +50,12 @@ func idLine(s string) string { return oneLine(sanitizeID(s)) }
 // nameLine sanitises a session or team name for the human form.
 func nameLine(s string) string { return oneLine(protocol.SanitizeName(s)) }
 
+// pathLine sanitises a local path the hook resolved (the plugin binary in
+// `whoami`) for the human form: no cap, because the path is printed to be
+// copied into a symlink, and the attribute breakers dropped so it can
+// neither quote nor break its line.
+func pathLine(s string) string { return oneLine(sanitizeID(s)) }
+
 // labelLine sanitises a human label for the human form and appends the
 // unverified suffix; an empty label renders as the suffix alone, so the
 // column is never silently absent.

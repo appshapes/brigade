@@ -92,7 +92,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **armed and green on the hosted project since 2026-09-04 23:36 EDT** (run 33942302844: health 200, anonymous sign-up 200, the unexposed `brigade` schema a `406 PGRST106` warning until P5-1, sign-out 204); the variables were set from the owner's values and the owner enabled anonymous sign-ins | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof **and after Phase 6** |
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo | Fable | **before beta** — Rjae, 2026-09-04: the frame's instruction paragraph must follow the security model (default = whatever Claude allows; tighten by opt-in); one corpus sweep per shipped level |
-| P5-13 | **F1: the SessionStart context line names only the bare `brigade`** — the absolute plugin path moves to `brigade whoami`'s human output and `docs/setup.md`; hook, its tests, the txtar, the e2e expectation; then one re-run of `scripts/proof-idle-wake.sh` and of P4-5's ask-bypass arm to confirm the path form disappears | wip — **out of order, next** (owner's ruling 2026-09-04: "agreed with your recommendation") | Opus | the finding: 4 of 29 idle wakes and one executed bypass send used the path form the allow-list and the ask rule cannot see (see "P4-3 DONE", "P4-5 DONE", "P4-6 DONE") |
+| P5-13 | **F1: the SessionStart context line names only the bare `brigade`** — the absolute plugin path moved to `brigade whoami`'s human output (`terminal: <path>`, from the by-pid map's existing `plugin_bin`; deliberately NOT in `--json`, the form the model reads) and `docs/setup.md`'s "Terminal use" | done | Opus | this commit — the new line ends "Use `brigade sessions` and `brigade send`."; pinned exactly in `start_test.go`, `e2e_test.go` and the hook txtar; measured on 2.1.261: **15/15 idle wakes in the bare form (three runs, 0 path forms in any transcript)** and **2/2 ask-bypass sessions bare + the ask dialog + nothing executed** — the reversal of P4-5's executed bypass send (see "P5-13 DONE") |
 | P5-14 | **F3: key the watcher's seen file by Brigade session id** instead of the Claude pid, so dedupe survives a crash and `--resume` and the injected-but-unacked window closes; shrinks the per-pid residue of F4 | todo | Fable | owner's ruling 2026-09-04; the by-native map already ties a resumed session to its Brigade session (see "P4-4 DONE") |
 
 ## Phase 6 — house conventions (added 2026-09-03, Rjae's request)
@@ -732,6 +732,25 @@ the dashboard toggle (Authentication → Sign In / Providers → Allow anonymous
 scored runs, all of P4-5) — Supabase CLI 2.116.0, local Postgres 17.6, hosted 17.6.1.166. **What Phase 4 cost, for the record:**
 five proof lanes, ~260 real Claude sessions (84 + 36 + 24 + ~124 + the E3 sitting), the flake and hazard fixes along the way,
 and one day of the lean cadence for P4-3..P4-6 after the cadence change.
+
+## P5-13 DONE — the context line no longer teaches the model a command form the allow-list cannot see (2026-09-05)
+
+Finding F1 (P4-3, P4-5, P4-6; the owner's ruling of 2026-09-04: "agreed with your recommendation"). `startLine` in
+`internal/harness/hook/hook.go` lost its `pluginBin` parameter and the "terminal commands: <path>" tail; the model-facing line is
+now exactly `Brigade: this session is "<name>" (<id>) in team "<team>"; inbound: <policy>; teammates: run `brigade sessions`. Use
+`brigade sessions` and `brigade send`.` The path went to the human surface: `brigade whoami` prints `terminal: <path>` from the
+by-pid map's existing `plugin_bin` (no map change), omitted when empty, and NOT in `--json` — the form the model reads, so
+putting it there would recreate F1 on another surface (`TestWhoamiTerminalLine` asserts both ways; `whoami.txtar` too);
+`docs/setup.md` "Terminal use" documents it with the `ln -s <path> ~/.local/bin/brigade` symlink. Tests pin the new line exactly
+(`start_test.go`, `e2e_test.go`, `hook-session-start.txtar`); the proof scripts match the line by prefix and needed nothing;
+`plugin/README.md` never mentioned the path.
+
+**Measured on 2.1.261 (author):** three idle-wake runs, **15/15 wakes, every reply in the bare form, 0 occurrences of
+`plugin/bin/brigade` in any transcript, stream or watcher log** (bundles 20260905T033211Z, 033819Z, 035133Z; the only failing
+assertion in each was the tree-hygiene check, tripped by other lanes editing the checkout); P4-5's ask-bypass arm ×2 (bundle
+20260905T034358Z): **both replies bare, both raised the ask-rule dialog, neither executed** — the reversal of P4-5's bypass run 1,
+where the path form executed with no dialog. The author's first run exposed the launch defect of 79467ce (see the journal),
+so the measurements used a repaired copy; the repair is committed.
 
 ## P5-0 DONE — the Free-plan keep-alive: a daily anonymous sign-up is the database write Supabase counts; it arms itself when the two repository variables exist (2026-09-04)
 
@@ -1606,3 +1625,8 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   wakes and 2/2 ask-bypass sessions in the bare form, the dialog present, nothing executed — its verifier is running. The
   keep-alive fix commit 635560b also swept in P5-13's `docs/setup.md` "Terminal use" section (a shared file staged whole);
   the section is correct and stays.
+- 2026-09-05 00:4x EDT: **P5-13 (F1) is DONE: the context line names only the bare `brigade`; 15/15 idle wakes and 2/2 ask-bypass
+  sessions now use the bare form, the dialog appears and nothing executes.** The path lives in `brigade whoami`'s human output
+  and docs/setup.md. Details in "P5-13 DONE". Phase 6 lane A landed its Makefile/README work (dead Docker group out, `e2e` in
+  `make help`, the task-table TOC, 27/27 links); lane B and the Phase 6 verifier follow; briefs for P5-1, P5-12, P5-3 and P5-2
+  are being written.

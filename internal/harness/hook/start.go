@@ -354,7 +354,7 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 		warnings = append(warnings, shadowLine(path))
 	}
 	r.pruneCache(f, now)
-	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound, f.pluginBin))
+	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
 	for _, w := range warnings {
 		r.say(w)
 	}
@@ -393,7 +393,12 @@ func (r *run) shadowing(f facts) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	if f.pluginBin != "" && samePath(found, f.pluginBin) {
+	// Fail closed when the plugin's own path is unknown (CLAUDE_PLUGIN_ROOT
+	// unset or relative): without it the guard below cannot tell the
+	// plugin's bootstrap from a shadow, and a warning that names the
+	// plugin's bin/brigade would put the absolute path back in front of the
+	// model — the form P5-13 removed from the context line (F1).
+	if f.pluginBin == "" || samePath(found, f.pluginBin) {
 		return "", false
 	}
 	return found, true

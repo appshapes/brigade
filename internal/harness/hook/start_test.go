@@ -34,7 +34,7 @@ func TestSessionStartRegistersSession(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit %d: %s", exit, errOut)
 	}
-	want := "Brigade: this session is \"payments-api\" (brigade-sess-1) in team \"ops\"; inbound: accept; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`; terminal commands: " + f.pluginBin
+	want := "Brigade: this session is \"payments-api\" (brigade-sess-1) in team \"ops\"; inbound: accept; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`."
 	if got := lines(out); len(got) != 1 || got[0] != want {
 		t.Fatalf("stdout %q\nwant  %q", out, want)
 	}
@@ -567,6 +567,10 @@ func TestShadowingWarning(t *testing.T) {
 		{"a symlink to the plugin's bootstrap", "symlink", false},
 		{"nothing on PATH", "none", false},
 		{"a non-executable file is not a shadow", "nonexec", false},
+		// With no absolute CLAUDE_PLUGIN_ROOT the hook cannot tell the plugin's
+		// own bootstrap from a shadow; it stays silent rather than name a path
+		// that could be the plugin's (F1, P5-13).
+		{"no plugin path known: fail closed, no warning", "noplugin", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -590,8 +594,16 @@ func TestShadowingWarning(t *testing.T) {
 				if err := os.WriteFile(decoy, []byte("not a program"), 0o600); err != nil {
 					t.Fatal(err)
 				}
+			case "noplugin":
+				if err := os.WriteFile(decoy, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil { //nolint:gosec // G306: an executable fixture
+					t.Fatal(err)
+				}
 			}
-			exit, out, _ := f.run(SubSessionStart, f.startDoc("startup"), "PATH="+dir+string(os.PathListSeparator)+f.emptyPath())
+			env := []string{"PATH=" + dir + string(os.PathListSeparator) + f.emptyPath()}
+			if tc.kind == "noplugin" {
+				env = append(env, "CLAUDE_PLUGIN_ROOT=relative-plugin-root") // not absolute: the hook resolves no pluginBin
+			}
+			exit, out, _ := f.run(SubSessionStart, f.startDoc("startup"), env...)
 			if exit != 0 {
 				t.Fatal(exit)
 			}

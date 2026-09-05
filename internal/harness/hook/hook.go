@@ -472,7 +472,16 @@ func adapterLine(profile string, err error) string {
 // startLine is the one SessionStart context line (6.3, brief 2.2: the
 // teammate count is omitted — the registration result carries none and a
 // second spawn is not worth it — so the line points at `brigade sessions`).
-func startLine(name, id, team, policy, pluginBin string) string {
+// It names ONLY the bare `brigade`, the form the Bash tool finds on PATH
+// inside a session and the only form the permission rules can see: an
+// earlier line ended "terminal commands: <plugin path>" and the model took
+// it literally — it replied through that absolute path in 4 of 29 idle
+// wakes (P4-3) and in an interactive bypass session (P4-5), a form
+// `Bash(brigade:*)` denies, the ask rule `Bash(brigade send*)` does not
+// gate (that send executed with no dialog) and 9.6's judge classes
+// `evasive`. The path is a human surface now — `brigade whoami` and
+// docs/setup.md (finding F1, ruled 2026-09-04).
+func startLine(name, id, team, policy string) string {
 	var b strings.Builder
 	b.WriteString("Brigade: this session is \"")
 	b.WriteString(attr(name))
@@ -482,11 +491,7 @@ func startLine(name, id, team, policy, pluginBin string) string {
 	b.WriteString(attr(team))
 	b.WriteString("\"; inbound: ")
 	b.WriteString(policy)
-	b.WriteString("; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`; terminal commands: ")
-	if pluginBin == "" {
-		pluginBin = "brigade"
-	}
-	b.WriteString(oneLine(pluginBin, protocol.MaxBodyBytes))
+	b.WriteString("; teammates: run `brigade sessions`. Use `brigade sessions` and `brigade send`.")
 	return b.String()
 }
 

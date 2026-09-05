@@ -27,6 +27,13 @@ const WhoamiNote = "identity read from this session's map and the adapter's desc
 // Whoami implements `brigade whoami [--json]` (6.4): the session's id,
 // name, team, profile and adapter from the by-pid map and the cached
 // `describe`; no network (the describe is one local spawn).
+//
+// The human form carries a second line, `terminal: <plugin binary>`, when
+// the map knows the path: it is the human-facing home of the plugin
+// binary's location after finding F1 took it out of the SessionStart
+// context line, and what docs/setup.md tells the human to symlink from
+// `~/.local/bin/brigade`. It stays OUT of `--json`, the form the model
+// reads, because a path in front of the model is the finding.
 func Whoami(inv Invocation) error {
 	if len(inv.Args) > 0 {
 		return usage("whoami takes no arguments")
@@ -57,9 +64,12 @@ func Whoami(inv Invocation) error {
 			Note:           WhoamiNote,
 		})
 	}
-	line := "session " + idLine(m.BrigadeSessionID) + " \"" + nameLine(m.SessionName) + "\"" +
+	out := []string{"session " + idLine(m.BrigadeSessionID) + " \"" + nameLine(m.SessionName) + "\"" +
 		" in team \"" + nameLine(m.TeamName) + "\"" +
 		" (profile " + m.Profile + ", adapter " + attrLine(t.describe.Adapter.Name) + " " + attrLine(t.describe.Adapter.Version) + ")" +
-		"; inbound: " + enumLine(m.Inbound)
-	return writeLines(inv.Out, line)
+		"; inbound: " + enumLine(m.Inbound)}
+	if p := pathLine(m.PluginBin); p != "" {
+		out = append(out, "terminal: "+p)
+	}
+	return writeLines(inv.Out, out...)
 }

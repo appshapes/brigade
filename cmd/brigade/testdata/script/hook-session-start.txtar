@@ -38,7 +38,7 @@ cp VERSION $WORK/.brigade/plugin-root/bin/VERSION
 # --- startup: exit 0, the one context line, the maps, describe + register -----
 stdin start.json
 exec brigade hook session-start
-stdout '^Brigade: this session is "payments-api" \(brigade-sess-1\) in team "ops"; inbound: accept; teammates: run `brigade sessions`\. Use `brigade sessions` and `brigade send`; terminal commands: .*/plugin-root/bin/brigade$'
+stdout '^Brigade: this session is "payments-api" \(brigade-sess-1\) in team "ops"; inbound: accept; teammates: run `brigade sessions`\. Use `brigade sessions` and `brigade send`\.$'
 # The shadowing warning (E0-8 (e)) is a second line here and is TRUE: the
 # `brigade` testscript put on this script's PATH is another brigade than
 # the plugin's stub bootstrap under $WORK, exactly the case the check

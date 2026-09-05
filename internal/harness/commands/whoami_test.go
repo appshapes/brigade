@@ -44,6 +44,46 @@ func TestWhoamiSanitisesTheMap(t *testing.T) {
 	}
 }
 
+// TestWhoamiTerminalLine: the plugin binary's path is the human form's
+// second line and nothing else — absent when the map does not know it, and
+// never in --json, the form the model reads (finding F1: the SessionStart
+// context line used to name the path and the model ran it).
+func TestWhoamiTerminalLine(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	m := f.byPID()
+	m.PluginBin = "/opt/plugins/brigade/bin/brigade"
+	f.writeMap(t, m)
+	inv := f.inv(f.sessionEnv(), "")
+	if err := Whoami(inv); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSuffix(f.out.String(), "\n"), "\n")
+	if len(got) != 2 || got[1] != "terminal: /opt/plugins/brigade/bin/brigade" {
+		t.Fatalf("stdout = %q", f.out.String())
+	}
+	f.out.Reset()
+	inv = f.inv(f.sessionEnv(), "")
+	inv.JSON = true
+	if err := Whoami(inv); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(f.out.String(), "/opt/plugins") {
+		t.Errorf("--json names the plugin binary: %s", f.out.String())
+	}
+	// The absent direction, asserted here and not only by TestWhoamiLine's
+	// whole-output comparison: an empty plugin_bin prints no second line at
+	// all, never an empty `terminal: `.
+	f.writeMap(t, f.byPID())
+	f.out.Reset()
+	if err := Whoami(f.inv(f.sessionEnv(), "")); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.out.String(); strings.Contains(got, "terminal:") || strings.Count(got, "\n") != 1 {
+		t.Errorf("an empty plugin_bin still printed a terminal line: %q", got)
+	}
+}
+
 // TestWhoamiJSON pins the envelope members.
 func TestWhoamiJSON(t *testing.T) {
 	t.Parallel()
