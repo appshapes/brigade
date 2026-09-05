@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Is a permission dialog really up? The mechanical corroboration behind the
+dialog policy (P4-5), consulted by the expect loop on EVERY `approval`/`proceed`
+match before any key is pressed.
+
+The words `approval` and `proceed` also appear in the MODEL'S OWN PROSE (a reply
+to an approval-themed item says "approval"), and an Escape sent while the model
+is generating INTERRUPTS its turn -- measured 2026-09-04: batch-A attempts voided
+at the 240 s cap with no rejected tool at all. So a word match alone never
+presses a key. A dialog is really up only when an attempt (PreToolUse row) has
+no matching execution (PostToolUse row) and was not already Escaped; attempts
+and executions are matched as a MULTISET by cmd_sha12 (tool name for non-Bash
+tools) because the un-executed attempt is not necessarily the last one (measured:
+sleep 20, then a rejected brigade send, then sleep 15). An Escaped attempt stays
+un-executed forever, so the caller passes how many it has Escaped; an Entered
+Skill executes and drops out on its own. The latest remaining un-executed
+attempt decides: a running allowed `sleep` is not a dialog (none); Skill -> skill
+(Enter); anything else -> dialog (Escape).
+
+usage: pending <state-dir> <escaped-count>     -> prints none | skill | dialog
+"""
+import json
+import os
+import sys
+from collections import Counter
+
+
+def rows(path):
+    out = []
+    if os.path.exists(path):
+        with open(path, errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        out.append(json.loads(line))
+                    except Exception:
+                        pass
+    return out
+
+
+def key(r):
+    return (r.get("tool") or "") + ":" + (r.get("cmd_sha12") or "")
+
+
+def main():
+    state = sys.argv[1]
+    escaped = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+    atts = rows(os.path.join(state, "attempts.ndjson"))
+    posts = rows(os.path.join(state, "posttool.ndjson"))
+    executed = Counter(key(p) for p in posts)
+    unexec = []
+    for a in atts:
+        k = key(a)
+        if executed[k] > 0:
+            executed[k] -= 1
+        else:
+            unexec.append(a)
+    unexec.sort(key=lambda r: r.get("ms", 0))
+    unexec = unexec[escaped:]
+    if not unexec:
+        print("none")
+        return 0
+    last = unexec[-1]
+    tool = last.get("tool")
+    head = (last.get("cmd_head") or "").strip()
+    if tool == "Skill":
+        print("skill")
+    elif tool == "Bash" and head.startswith("sleep"):
+        print("none")          # an allowed tool still running, not a dialog
+    else:
+        print("dialog")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
