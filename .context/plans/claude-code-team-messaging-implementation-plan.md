@@ -33,10 +33,10 @@ Terms: "adapter" is the program that implements the protocol (`brigade adapter s
 | `implementation/03-architecture.md` | 3. Architecture | 86-327 | Design record, 2026-08-30; 7 corrections |
 | `implementation/04-protocol.md` | 4. Protocol v1 specification outline (Brigade Adapter Protocol, BAP/1) | 328-538 | Design record, 2026-08-30; 3 corrections |
 | `implementation/05-supabase-adapter.md` | 5. Supabase adapter design | 539-1322 | Design record, 2026-08-30; 10 corrections |
-| `implementation/06-plugin.md` | 6. Claude Code plugin design | 1323-1755 | Design record, 2026-08-30; 29 corrections |
+| `implementation/06-plugin.md` | 6. Claude Code plugin design | 1323-1755 | Design record, 2026-08-30; 30 corrections |
 | `implementation/07-repository-toolchain.md` | 7. Repository layout and toolchain | 1756-2575 | Design record, 2026-08-30; 30 corrections |
-| `implementation/08-phases.md` | 8. Phased implementation plan | 2576-2683 | Live; 28 corrections |
-| `implementation/09-testing.md` | 9. Testing strategy | 2684-2904 | Live; 18 corrections |
+| `implementation/08-phases.md` | 8. Phased implementation plan | 2576-2683 | Live; 29 corrections |
+| `implementation/09-testing.md` | 9. Testing strategy | 2684-2904 | Live; 19 corrections |
 | `implementation/10-security.md` | 10. Security: threat summary and mitigations by phase | 2905-2937 | Live; 2 corrections |
 | `implementation/11-risks-open-questions.md` | 11. Risks and mitigations; open questions | 2938-3023 | Live; 1 correction |
 | `implementation/12-out-of-scope.md` | 12. Out of scope (from the logical plan's "do not freeze" list) and future adapters | 3024-3038 | Record; 0 corrections |

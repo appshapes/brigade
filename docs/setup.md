@@ -11,7 +11,7 @@ the one workflow to arm and the one GitHub rule to remember.
 Inside a session the Bash tool finds `brigade` on its PATH because the plugin puts it there. Your own terminal
 does not, and the two commands that must run there — `brigade team create` and `brigade team join` — refuse to
 run from inside a session, because the join secret must never pass through the chat (`brigade profile …` runs in
-either place; `brigade inbox release` is terminal-only too, and `brigade inbox --recent` arrives with P5-5).
+either place; `brigade inbox release` is terminal-only too).
 The three administrative
 commands — `brigade team rotate-secret`, `brigade team revoke-member` and `brigade team transfer` — refuse inside
 a session too, in the same shape: `rotate-secret` with that same line, because it produces a secret;
