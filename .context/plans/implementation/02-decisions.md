@@ -11,6 +11,7 @@ Decisions D1–D36 are settled; corrections below.
 - 2026-09-04 — "P4-6 DONE" — D18/D20/D32: D18 and D20 confirmed against the Phase 4 evidence (D20 with one added residual-risk clause, the absolute-path context line); D32's tier decided as the Free plan with P5-0's keep-alive, superseding the "Pro or self-hosting" recommendation for this account; the D32 gate row's "before P5-1" reworded to name P4-6, which the gates preamble already assigns it to.
 
 - 2026-09-05 — "P5-9 DONE" — D18: the release verb's in-session refusal is the shipped `usage`/exit 2 shape; the value set stays exactly `accept`/`refuse`/`hold`.
+- 2026-09-05 — "P5-6 DISCARDED" (Rjae) — D33: strike "OS keychain (macOS `security`, Linux `secret-tool`)" from the Phase-5-or-later list — dropped outright by the owner on 2026-09-05; D23's file store is the credential model for good. The rest of D33 stands.
 <!-- verbatim from the one-file plan -->
 ## 2. Decision summary
 

@@ -104,6 +104,6 @@ commands and the detached watcher — all exist, are green and were driven end t
 sessions with no person at a keyboard ([the proof results](.context/plans/brigade-proof-results.md): ten success
 criteria met, eight open findings, none blocking). Not done: there is no tagged release yet (`plugin/bin/VERSION`
 reads `0.0.0` and `plugin/bin/checksums.txt` is empty), Phase 6's house conventions are in progress, and Phase 5's
-hardening, admin, keychain, soak and release work is still open — of it, only the Free-plan keep-alive runs against
+hardening, docs, soak and release work is still open — of it, only the Free-plan keep-alive runs against
 a hosted project today. The single source of truth for where the work stands is
 `.context/plans/brigade-execution-log.md`.
