@@ -1,8 +1,22 @@
-# Plan 7.7, transcribed unchanged.
-# DEPENDS ON P1-8: the "Verify goreleaser's build matches the committed checksums" step runs
-# scripts/ci/release-verify.sh, which is a P1-8 deliverable and does not exist yet. This workflow
-# fires only on a `v*` tag, and no tag exists (nor may one be pushed before P1-8 and P2-12's
-# release rehearsal), so the missing script cannot make a run red today.
+# Plan 7.7. Fires on a pushed `v*` tag and on nothing else: no branch trigger, no `workflow_dispatch`. The tag
+# is pushed by `make release version=X.Y.Z` (scripts/release-prep.sh), and a published tag is never moved -- the
+# release model is tag-based and stays that way (the owner's answer (1), 2026-09-04).
+#
+# scripts/ci/release-verify.sh EXISTS -- P1-8 landed it (35 lines) and the "Verify goreleaser's build matches the
+# committed checksums" step below runs it. The header this replaces said it "does not exist yet"; that has been
+# false since P1-8.
+#
+# The "Guard that the plugin pins this tag..." step below is the reproducibility gate the execution log names as
+# a constraint that no convention may override. It is deliberately raw rather than wrapped in a make target:
+# `make cross && diff dist-cross/checksums.txt plugin/bin/checksums.txt` is one of TWO independent expressions of
+# the byte-identical cross-build (scripts/ci/checksums-check.sh rule (c) is the other), and a shared target would
+# let one edit loosen both.
+#
+# What every script in this repository is, who invokes it, and which repository variables and secrets the
+# workflows read: scripts/ci/README.md.
+#
+# The only run of this workflow to date is the D1 release rehearsal, run 33698279695 (2026-09-03, green,
+# v0.0.1-rc1); its findings are the two comments below, which were written from measurements and are still true.
 name: release
 on:
   push:
@@ -12,6 +26,11 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    # One observed run: the D1 rehearsal, 33698279695, took 1m35s end to end (of which the `make cross` guard was
+    # 1m02s and goreleaser itself 9s). A single sample is not a p90, so this bound is deliberately looser than
+    # twice it: the workflow runs once per release, a slow module fetch on a cold runner is the plausible
+    # variance, and re-running a timed-out release job is more expensive than waiting.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with: {fetch-depth: 0}                      # goreleaser needs the tag history for the changelog

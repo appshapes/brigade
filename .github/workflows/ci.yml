@@ -10,6 +10,16 @@
 # step, by landing scripts/proof.sh. No constant-false gate remains anywhere in this file, so every step runs
 # on every push and a green conclusion means every step passed. Do not reintroduce one: gate on a real
 # condition or do not add the step.
+#
+# Every job below sets `timeout-minutes`, because GitHub's default is 360: a hung job burns six hours of the
+# concurrency group before anyone notices. The convention and its measured reason are the house's
+# (thinktech-web/.github/workflows/ci.yml:24-26 -- "Every job sets `timeout-minutes` well above its p90 because
+# the default is 360 min: six e2e jobs hung in the Playwright install step for six hours each in August 2026").
+# Each bound here is twice the p90 of TEN real green runs of this workflow, rounded up, and each comment names
+# the slowest of the ten. Those runs are 33908735238, 33910839825, 33912150864, 33916051347, 33918074768,
+# 33920933602, 33936887138, 33938576261, 33941694993 and 33942289055 (2026-09-04 and 2026-09-05). Re-measure
+# with `gh run list --workflow ci.yml --json databaseId` and `gh run view <id> --json jobs` before tightening
+# one: a bound under a job's real p90 turns a green matrix red for no reason.
 name: ci
 on:
   push: {branches: [master]}
@@ -18,8 +28,9 @@ permissions: {contents: read}
 concurrency: {group: "ci-${{ github.ref }}", cancel-in-progress: true}
 
 jobs:
-  fast:                                   # no Docker; target < 5 minutes
+  fast:                                   # no Docker; 4m28s-5m17s across the ten runs above
     runs-on: ubuntu-latest
+    timeout-minutes: 11                   # 2x the 5m16s p90; slowest observed 5m17s on run 33941694993
     steps:
       - uses: actions/checkout@v7
         with: {fetch-depth: 0}            # P1-8's checksums-check needs tags and the release listing
@@ -51,6 +62,7 @@ jobs:
 
   macos:                                  # the primary user platform: unix sockets, ps -o lstart, shasum paths
     runs-on: macos-latest                 # macOS 26 arm64 today [verified]
+    timeout-minutes: 7                    # 2x the 3m02s p90; slowest observed 3m12s on run 33920933602
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -69,6 +81,9 @@ jobs:
   reproducibility:
     needs: [fast, macos]
     runs-on: ubuntu-latest
+    # Two artifact downloads and a diff: 3s to 8s across the ten runs, slowest 8s on run 33936887138. Twice that
+    # p90 is under a minute, which is a bound set by network variance rather than by the job; 5 is the floor.
+    timeout-minutes: 5
     steps:
       - uses: actions/download-artifact@v8
         with: {name: checksums-ubuntu, path: ubuntu}
@@ -84,10 +99,13 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  supabase:                               # Docker; about 8 minutes (2-3 of them image pulls)
+  supabase:                               # Docker; 6m53s-7m27s across the ten runs above, of which the
+                                          # `make supabase-start` step is 51s-1m10s and the ghcr.io image pulls
+                                          # inside it 34s-38s (timed from the step logs of 33942289055, 33941694993)
     runs-on: ubuntu-latest
     needs: fast
-    timeout-minutes: 25
+    timeout-minutes: 25                   # unchanged and deliberately loose: 3x the 7m25s p90, slowest 7m27s on
+                                          # run 33942289055, because this job pulls images over the network
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -136,6 +154,11 @@ jobs:
     needs: [fast, supabase]
     environment: staging
     runs-on: ubuntu-latest
+    # No observed run: `vars.BRIGADE_STAGING` has never been set, so this job has only ever been skipped. The
+    # bound is therefore NOT a measured p90; it is read across from the `supabase` job's own CLI steps
+    # (supabase/setup-cli 7s, and three hosted `supabase` calls) on run 33942289055, with room for a hosted
+    # project's latency. Replace it with 2x the p90 of the first ten real runs once staging exists.
+    timeout-minutes: 15
     env: {SUPABASE_ACCESS_TOKEN: "${{ secrets.SUPABASE_ACCESS_TOKEN }}", SUPABASE_DB_PASSWORD: "${{ secrets.SUPABASE_DB_PASSWORD }}"}
     steps:
       - uses: actions/checkout@v7

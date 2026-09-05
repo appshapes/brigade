@@ -17,7 +17,6 @@ cover_env          := $(if $(GOCOVERDIR),--env GOCOVERDIR=$(GOCOVERDIR),)
 # binary run without GOCOVERDIR warns on stderr and writes nothing. `test-integration` depends on
 # `build`, so the CI step's own BRIGADE_COVER=1 is enough to rebuild instrumented.
 cover_flags        := $(if $(BRIGADE_COVER),-cover,)
-detach             := --detach
 dist_cross         := dist-cross
 env_test           := .env.test
 go_flags           := -trimpath -buildvcs=false
@@ -65,6 +64,10 @@ unclaude           := env $(patsubst %,-u %,$(unclaude_vars))
 
 # ========== Help ==========
 
+# `make help` also answers "who calls this": a trailing ` (CI)` marks every target that a step of
+# `.github/workflows/*.yml` invokes, and no other target. Adapted from thinktech-web/Makefile:139,143,147,157,
+# which PREFIXES `## Jenkins-invoked: ` instead -- a prefix would push all nineteen descriptions right by its
+# own width in this `%-22s` layout, and four of the nineteen already carried a trailing marker.
 .PHONY: help
 help: ## Show this help message
 	@echo "Make commands"
@@ -72,7 +75,7 @@ help: ## Show this help message
 	@echo "Usage: make [target] [var=value ...]"
 	@echo ""
 	@echo "Available targets:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
 
 # ========== Setup ==========
 
@@ -89,7 +92,7 @@ setup: ## go mod download, pinned golangci-lint and goreleaser into ./bin, dev t
 	git config push.autoSetupRemote true
 
 .PHONY: setup-lint
-setup-lint: ## Install only the pinned golangci-lint into ./bin (what CI runs; no Docker, no goreleaser)
+setup-lint: ## Install only the pinned golangci-lint into ./bin (no Docker, no goreleaser) (CI)
 	mkdir -p $(bin_dir)
 	curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(bin_dir) $(golangci_version)
 
@@ -112,7 +115,7 @@ version-check: ## Fail when the version stamp would be empty (missing or empty p
 	  exit 1; }
 
 .PHONY: build
-build: version-check ## Build bin/brigade plus the dev-only binaries for this host with the release flags (version stamped `<version>-dev`; BRIGADE_COVER=1 adds -cover)
+build: version-check ## Build bin/brigade plus the dev-only binaries for this host with the release flags (version stamped `<version>-dev`; BRIGADE_COVER=1 adds -cover) (CI)
 	$(go_build_env) go build $(go_flags) $(cover_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade ./cmd/brigade
 	$(go_build_env) go build $(go_flags) $(cover_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-adapter-fs ./cmd/brigade-adapter-fs
 	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-fake-adapter ./cmd/brigade-fake-adapter
@@ -123,7 +126,7 @@ clean: ## Remove build artifacts and local caches
 	rm -rf $(bin_dir)/brigade $(bin_dir)/brigade-adapter-fs $(bin_dir)/brigade-fake-adapter $(bin_dir)/brigade-conformance dist $(dist_cross) cover.out $(env_test) playwright-report test-results
 
 .PHONY: typecheck
-typecheck: ## go build ./... and go vet ./... (every package, including tests)
+typecheck: ## go build ./... and go vet ./... (every package, including tests) (CI)
 	go build ./...
 	go vet ./...
 
@@ -160,7 +163,7 @@ fmt: ## gofmt + goimports through golangci-lint
 # so the REAL ack, list and send implementations were never linted (measured in P1-5 with an unused function
 # planted in each twin: 0 issues from the config-tagged run, 1 from each of these).
 .PHONY: lint
-lint: ## golangci-lint for darwin AND linux (config verify + run, formatters included) and a plain gofmt check
+lint: ## golangci-lint for darwin AND linux (config verify + run, formatters included) and a plain gofmt check (CI)
 	$(golangci_lint) config verify
 	@files=$$(go list -f '{{$$d:=.Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}' ./...) || exit 1; \
 	  test -n "$$files" || { echo "gofmt check: go list produced no Go files" >&2; exit 1; }; \
@@ -180,12 +183,12 @@ lint-fix: ## golangci-lint --fix and fmt
 	$(golangci_lint) fmt ./...
 
 .PHONY: test
-test: build ## Unit + testscript + harness + conformance(fs) with -race; no Docker (what `make commit` runs)
+test: build ## Unit + testscript + harness + conformance(fs) with -race; no Docker and no local stack (what `make commit` runs) (CI)
 	go test $(go_test_flags) -covermode=atomic -coverprofile=cover.out ./...
 	$(bin_dir)/brigade-conformance --shared-env BRIGADE_FS_ROOT $(cover_env) --adapter $(bin_dir)/brigade-adapter-fs
 
 .PHONY: vuln
-vuln: build ## govulncheck on the source tree and on the built binary (pinned in tools.mod)
+vuln: build ## govulncheck on the source tree and on the built binary (pinned in tools.mod) (CI)
 	go tool -modfile=$(tools_mod) govulncheck ./...
 	go tool -modfile=$(tools_mod) govulncheck -mode binary $(bin_dir)/brigade
 
@@ -207,7 +210,7 @@ tidy-check: ## Fail if go.mod/go.sum would change (CI)
 # read) left an empty deps.txt behind and the allowlist check then passed having inspected nothing —
 # measured: pipeline exit 0, deps.txt 0 bytes, check exit 0. With the redirect its status is the recipe's.
 .PHONY: deps-check
-deps-check: build ## Fail unless bin/brigade links exactly the modules in docs/allowed-deps.txt (subset, then equality)
+deps-check: build ## Fail unless bin/brigade links exactly the modules in docs/allowed-deps.txt (subset, then equality) (CI)
 	test -s docs/allowed-deps.txt
 	go version -m $(bin_dir)/brigade > $(bin_dir)/buildinfo.txt
 	awk '$$1 == "dep" {print $$2}' $(bin_dir)/buildinfo.txt | LC_ALL=C sort > $(bin_dir)/deps.txt
@@ -236,7 +239,7 @@ schema-check: ## Fail if docs/protocol-v1.schema.json is stale, empty or ungener
 # fixture helper of plan 9.3, which has no plan line — as a test and fails the run with "No plan found in TAP
 # output" while every real assertion passes (measured in P2-4). An explicit list is not recursed.
 .PHONY: test-db
-test-db: ## pgTAP tests in supabase/tests against the running local stack
+test-db: ## pgTAP tests in supabase/tests against the running local stack (CI)
 	$(supabase) test db supabase/tests/*.sql
 
 # No --setup on the conformance line: with the BRIGADE_SUPABASE_* pair in the environment, `team create`/`team join`
@@ -244,7 +247,7 @@ test-db: ## pgTAP tests in supabase/tests against the running local stack
 # own teams, learns the join secret and runs C-28/C-40 instead of skipping them; scripts/ci/conformance-setup-supabase.sh
 # stays as the documented out-of-band alternative for a backend whose principals are provisioned elsewhere.
 .PHONY: test-integration
-test-integration: build ## Adapter integration + conformance(supabase) against the local stack (reads $(env_test))
+test-integration: build ## Adapter integration + conformance(supabase) against the local stack (reads $(env_test)) (CI)
 	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 BRIGADE_TEST_DOCKER=1 go test -count=1 -timeout 20m -run 'Integration|Supabase' ./internal/adapters/supabase/...
 	set -a; . ./$(env_test); set +a; $(bin_dir)/brigade-conformance --slow --env BRIGADE_SUPABASE_URL=$$SUPABASE_URL --env BRIGADE_SUPABASE_PUBLISHABLE_KEY=$$SUPABASE_PUBLISHABLE_KEY $(cover_env) --adapter $(bin_dir)/brigade -- adapter supabase
 
@@ -256,7 +259,7 @@ conformance: build ## Run the conformance suite against an adapter (usage: make 
 	$(bin_dir)/brigade-conformance --adapter $(adapter) $(args)
 
 .PHONY: e2e
-e2e: build ## Phase 4 no-LLM proof in watcher sink mode against the local stack (runs in CI)
+e2e: build ## Phase 4 no-LLM proof in watcher sink mode against the local stack (CI)
 	$(unclaude) scripts/proof.sh
 
 .PHONY: proof
@@ -268,13 +271,13 @@ harness-smoke: build ## Headless claude -p smoke test with the fs adapter (needs
 	$(unclaude) scripts/harness-smoke.sh
 
 .PHONY: advisor-lints
-advisor-lints: ## Security Advisor lint mirrors, run with the psql inside the local database container (no host psql needed)
+advisor-lints: ## Security Advisor lint mirrors, run with the psql inside the local database container (no host psql needed) (CI)
 	docker exec -i supabase_db_brigade psql -U postgres -d postgres -v ON_ERROR_STOP=1 < scripts/ci/advisor-lints.sql
 
 # ========== Plugin ==========
 
 .PHONY: plugin-check
-plugin-check: ## Static checks of plugin/: exec-form hooks, no .mcp.json, VERSION == plugin.json, shellcheck, no secrets
+plugin-check: ## Static checks of plugin/: exec-form hooks, no .mcp.json, VERSION == plugin.json, shellcheck, no secrets (CI)
 	scripts/ci/plugin-check.sh
 	scripts/ci/no-secrets.sh
 
@@ -284,7 +287,7 @@ plugin-validate: ## claude plugin validate on the marketplace and the plugin roo
 	claude plugin validate ./plugin --strict
 
 .PHONY: plugin-dev-pointer
-plugin-dev-pointer: build ## Write the dev-binary pointer (honours XDG_CONFIG_HOME) without launching anything; used by scripts too
+plugin-dev-pointer: build ## Write the dev-binary pointer (honours XDG_CONFIG_HOME) without launching anything; a prerequisite of plugin-dev and the manual step of docs/experiments/E3-interactive.md
 	mkdir -p "$${XDG_CONFIG_HOME:-$$HOME/.config}/brigade"
 	echo "$(CURDIR)/$(bin_dir)/brigade" > "$${XDG_CONFIG_HOME:-$$HOME/.config}/brigade/dev-binary"
 
@@ -342,7 +345,7 @@ print-version: ## Print the version pinned in plugin/bin/VERSION
 	@echo $(plugin_version)
 
 .PHONY: cross
-cross: version-check ## Build dist-cross/brigade_$(version)_<os>_<arch> for every target with the exact release flags, plus checksums.txt
+cross: version-check ## Build dist-cross/brigade_$(version)_<os>_<arch> for every target with the exact release flags, plus checksums.txt (CI)
 	rm -rf $(dist_cross) && mkdir -p $(dist_cross)
 	for t in $(targets); do \
 	  $(go_build_env) GOOS=$${t%/*} GOARCH=$${t#*/} go build $(go_flags) -ldflags '$(ld_flags)' \
@@ -383,7 +386,7 @@ migrations-check: ## Fail unless supabase/migrations/ holds at least one .sql fi
 	  exit 1; }
 
 .PHONY: supabase-start
-supabase-start: migrations-check ## Start the minimal local stack (db, auth, rest, realtime, kong); applies migrations + seed
+supabase-start: migrations-check ## Start the minimal local stack (db, auth, rest, realtime, kong); applies migrations + seed (CI)
 	$(supabase) start -x $(supabase_exclude)
 
 .PHONY: supabase-stop
@@ -391,7 +394,7 @@ supabase-stop: ## Stop the local stack, keep data
 	$(supabase) stop
 
 .PHONY: supabase-clean
-supabase-clean: ## Stop the local stack and delete its data
+supabase-clean: ## Stop the local stack and delete its data (CI)
 	$(supabase) stop --no-backup
 
 .PHONY: supabase-status
@@ -407,7 +410,7 @@ supabase-status: ## Show URLs and keys of the running stack
 # then the SUPABASE_* aliases the plan's own test-integration recipe consumes. Writing via a temp file keeps
 # a failed `supabase status` from truncating a working .env.test.
 .PHONY: supabase-env
-supabase-env: ## Write $(env_test) from the running stack, in both name sets (never commit it)
+supabase-env: ## Write $(env_test) from the running stack, in both name sets (never commit it) (CI)
 	@$(supabase) status -o env > $(env_test).tmp
 	@{ cat $(env_test).tmp; \
 	   echo ''; \
@@ -465,24 +468,6 @@ commit: typecheck pull build test ## Typecheck, pull, build, test, stage, commit
 .PHONY: push
 push: commit ## commit + push
 	git push --verbose
-
-# ========== Docker ==========
-
-.PHONY: docker-build
-docker-build: ## docker compose build $(service)
-	docker compose build $(service)
-
-.PHONY: docker-exec
-docker-exec: ## Exec into a running container (usage: make docker-exec container=... command=sh)
-	docker exec -it $(container) $(command)
-
-.PHONY: docker-stop
-docker-stop: ## docker compose stop $(service)
-	docker compose stop $(service)
-
-.PHONY: docker-up
-docker-up: docker-build ## docker compose up (detached) for $(service)
-	docker compose up --remove-orphans $(detach) $(service)
 
 # Default target
 .DEFAULT_GOAL := help

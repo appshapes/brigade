@@ -194,6 +194,13 @@ supabase/.temp/
 supabase/.branches/
 supabase/.env
 
+# Compiled Python from the promoted Phase 0 experiment drivers. 25 .pyc files were swept into the index by the
+# canonical `git add --verbose :/ .` chain (the `commit` target's stage step) before this rule existed; they have
+# since been removed from the index (`git rm --cached`) and stay on disk, because the drivers still run.
+# scripts/ci/fixtures_test.go fails `make test` if one is ever tracked again.
+__pycache__/
+*.py[cod]
+
 # Belt and braces for the same hazard (plan 7.6). `logs`, `out`, `dist` and `*.out` match at ANY depth, and the
 # `.env.*` / `cover.out` lines above match by basename at any depth too, so the research negations are restated
 # here, LAST, where nothing appended above can override them. Invariant: `git status --ignored docs/research`

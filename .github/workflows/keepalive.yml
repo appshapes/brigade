@@ -23,12 +23,19 @@
 # design -- they are the only two values a team's members ever receive (plugin/README.md, "Administrator:
 # create a team"). A secret would be masked in the log for no gain, and the mask would hide the very hostname
 # a failing run has to name. The secret/service-role key and the personal access token are never here and are
-# never a variable or a secret of this workflow. Until an administrator sets the two variables (docs/setup.md,
-# and `gh variable list` showed none on 2026-09-04) every run is a green no-op that says so on the run page.
+# never a variable or a secret of this workflow. Without the two variables every run is a green no-op that says
+# so on the run page; both were set on this repository on 2026-09-05 (`gh variable list`), and the first GREEN
+# run against the hosted project is 33942302844. It was not the first: the three runs before it that day reached
+# the project and were RED -- 33941582371 and 33941956535 on `anonymous_provider_disabled` (HTTP 422) until the
+# owner enabled anonymous sign-ins, and 33942074574 on the unexposed `brigade` schema's 406 PGRST106 until rung 3
+# was taught to warn rather than fail. docs/setup.md carries the administrator's procedure.
 #
 # A failing run is the alert: Actions e-mails the failure, and the script's `::error::` annotation names the
 # rung that broke and what to do about it. No `concurrency` group: one scheduled run a day, and a manual
 # `workflow_dispatch` beside it is harmless.
+#
+# The rungs, this workflow's two repository variables, and every other script in the repository with its caller:
+# scripts/ci/README.md.
 name: keepalive
 on:
   schedule: [{cron: "37 10 * * *"}]      # 10:37 UTC daily; off the hour on GitHub's own advice (above)

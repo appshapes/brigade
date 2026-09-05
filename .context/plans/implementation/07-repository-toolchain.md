@@ -26,6 +26,13 @@ Design record from 2026-08-30. Where this text and the code disagree, the code, 
 - 2026-08-31 — "Plan corrections from E0-8" (archive) — 7.x CI: `claude plugin validate --strict` does NOT detect a missing hook-command binary, so `scripts/ci/plugin-check.sh` must assert hook-command existence and the executable bit itself.
 - 2026-09-02 — "Phase 1 corrections found on P1-5 entry (2026-09-02, session `15-implement-brigade-0902`)" (archive) — 7.3: `make lint` must run golangci-lint under `GOOS=darwin` AND `GOOS=linux` — CI was red for three commits on a `//go:build linux` file the local gate never loaded.
 - 2026-09-04 — "P4-4 DONE" — 7.1 / 7.4: the file tree lists three proof scripts and the `proof` recipe two links; there are four scripts and four links (`proof.sh` → `proof-headless.sh` → `proof-idle-wake.sh` → `proof-crash-resume.sh`, each under `$(unclaude)`).
+- 2026-09-05 — "Phase 6" (log) — 7.4: the seeded `help` scrape `^[a-zA-Z_-]+:` matches no digit and hid `e2e`, the one target CI runs; it is `^[a-zA-Z0-9_-]+:` now (measured: the change adds exactly `e2e`).
+- 2026-09-05 — "Phase 6" (log) — 7.4: the seeded `docker-*` group and the `detach` variable came from a repository with a compose file; Brigade has none and `$(service)`/`$(container)`/`$(command)` were never defined, so the group is deleted (55 → 51 targets) although 7.4 kept it.
+- 2026-09-05 — "Phase 6" (log) — 7.1: the tree omits `scripts/proof-crash-resume.sh`, `scripts/ci/keepalive.sh`, `scripts/ci/bootstrap-alpine.sh`, `scripts/ci/*_test.go`, `scripts/ci/testdata/` and `scripts/ci/README.md`; its `.github/workflows` list omits `keepalive.yml` and ci.yml's `reproducibility` and `deploy-staging` jobs.
+- 2026-09-05 — "Phase 6" (log) — 7.7: `release.yml`'s header said `scripts/ci/release-verify.sh` "does not exist yet"; P1-8 landed it and the workflow runs it (D1 run 33698279695). Every job now carries `timeout-minutes` from ten measured runs.
+- 2026-09-05 — "Phase 6" (log) — 7.6: `.gitignore` gains `__pycache__/` and `*.py[cod]`; 25 compiled Python files had been swept into the index by `git add :/ .` (removed in 43f90f4; `TestNoCompiledPythonTracked` guards).
+- 2026-09-05 — "Phase 6" (log) — 7.4/7.7: `plugin-dev-pointer`'s doc-comment claimed "used by scripts too"; no script invokes it (harness-smoke.sh replicates the logic) — its callers are `plugin-dev` and a human following E3-interactive.md; `test`'s comment now says "no Docker and no local stack".
+- 2026-09-05 — "Phase 6" (log) — 7.4/5.9: "`supabase start` takes 2–3 minutes mostly for image pulls" — measured on ten CI runs: the step is 51–70 s and the pulls inside it 34–38 s.
 
 <!-- verbatim from the one-file plan -->
 ## 7. Repository layout and toolchain
