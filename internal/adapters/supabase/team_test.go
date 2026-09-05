@@ -659,7 +659,7 @@ func TestTeamVerbsRefuseArgv(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
-	for _, verb := range []string{"create", "join", "leave", "members"} {
+	for _, verb := range []string{"create", "join", "leave", "members", "rotate-secret", "revoke-member", "transfer"} {
 		got := r.fails("usage", 2, "", "team", verb, "--join-secret", "brg1.x.y")
 		if strings.Contains(got.stdout+got.stderr, "brg1.x.y") {
 			t.Fatalf("%s echoed the poison value", verb)
@@ -671,4 +671,323 @@ func TestTeamVerbsRefuseArgv(t *testing.T) {
 	if r.be.total() != 0 {
 		t.Fatalf("%d backend calls for argv refusals", r.be.total())
 	}
+}
+
+// ---- team administration (P5-2, brief 5.6) ----
+
+// rotatedBody is rotate_join_secret's answer for testTeamID: version 2
+// and the given secret.
+func rotatedBody(secret string) string {
+	return `{"status":"rotated","team_id":"` + testTeamID + `","team_name":"ops","secret_version":2,` +
+		`"secret_rotated_at":"2026-09-02T12:00:00.123456+00:00","join_secret":"` + secret + `"}`
+}
+
+// rotatedSecret is the canary the fake backend answers from
+// rotate_join_secret: distinct from testSecret, so a leak of THIS string
+// is the rotation's and no other fixture's.
+var rotatedSecret = protocol.JoinSecretPrefix + testTeamID + "." + strings.Repeat("ef", 16)
+
+// TestTeamRotateSecretWritesTheFileOnly: rotate_join_secret is called with
+// the bound team, the new secret reaches the --secret-file (0600) and
+// nothing else — not stdout, not the result, not the debug log, not the
+// profile directory (the C-05 plant-and-grep form with rotatedSecret as
+// the canary) — the result carries the version, the time and the path,
+// and the stderr line names the file and says the old secret is dead.
+func TestTeamRotateSecretWritesTheFileOnly(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.joined()
+	args := answerRPC(t, r.be, rpcRotateJoinSecret, rotatedBody(rotatedSecret))
+	path := filepath.Join(r.base, "rotated.secret")
+	got := r.exec("", "--log-level", "debug", "team", "rotate-secret", "--secret-file", path)
+	if got.code != 0 {
+		t.Fatalf("exit %d: %s %s", got.code, got.stdout, got.stderr)
+	}
+	if (*args)["p_team_id"] != testTeamID || len(*args) != 1 {
+		t.Fatalf("rotate_join_secret args = %v", *args)
+	}
+	noSecretLeak(t, r, got, false)
+	if strings.Contains(got.stdout+got.stderr, rotatedSecret) || strings.Contains(got.stdout, "join_secret") {
+		t.Fatalf("the rotated secret or a join_secret member reached a stream: %s %s", got.stdout, got.stderr)
+	}
+	result, _ := decode(t, got.stdout)["result"].(map[string]any)
+	if result["team_ref"] != testTeamID || result["team_name"] != "ops" || result["secret_version"] != float64(2) || result["secret_file"] != path {
+		t.Fatalf("result = %v", result)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, str(t, result, "rotated_at")); err != nil {
+		t.Fatalf("rotated_at: %v", err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("secret file: %v %v", info, err)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // the test's own temp file
+	if err != nil || string(data) != rotatedSecret+"\n" {
+		t.Fatalf("secret file content = %q %v", data, err)
+	}
+	if !strings.Contains(got.stderr, "--secret-file") || !strings.Contains(got.stderr, "no longer works") {
+		t.Fatalf("stderr = %q, want the shown-once line naming the file and the dead old secret", got.stderr)
+	}
+	// The profile is untouched: still bound, same team.
+	if state := str(t, r.ok("profile", "status"), "state"); state != protocol.ProfileStateJoined {
+		t.Fatalf("state = %q after a rotation, want joined", state)
+	}
+}
+
+// TestTeamRotateSecretRefusals: --secret-file missing is `usage` and a
+// relative one is `usage`, a missing parent is `config`, all before any
+// call; the ladder (no team bound is `config`, a non-uuid team_ref is the
+// uniform unauthorized without a dial); an answer this adapter cannot
+// read is `internal`; and a write failure AFTER the rotation is `config`
+// secret_file_unwritable with no secret on any stream.
+func TestTeamRotateSecretRefusals(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.joined()
+	r.fails("usage", 2, "", "team", "rotate-secret")
+	r.fails("usage", 2, "", "team", "rotate-secret", "--secret-file", "relative.secret")
+	got := r.fails("config", 11, "", "team", "rotate-secret", "--secret-file", filepath.Join(r.base, "missing", "s"))
+	if details(t, got.stdout)["reason"] != "secret_file_unwritable" {
+		t.Fatalf("details = %v", details(t, got.stdout))
+	}
+	if r.be.total() != 0 {
+		t.Fatalf("%d backend calls before the local checks passed", r.be.total())
+	}
+	path := filepath.Join(r.base, "s.secret")
+	answerRPC(t, r.be, rpcRotateJoinSecret, `{"status":"rotated","team_id":"`+otherTeamID+`","secret_version":2,"join_secret":"`+rotatedSecret+`"}`)
+	r.fails("internal", 1, "", "team", "rotate-secret", "--secret-file", path)
+	answerRPC(t, r.be, rpcRotateJoinSecret, rotatedBody("brg1."+otherTeamID+".abc"))
+	r.fails("internal", 1, "", "team", "rotate-secret", "--secret-file", path)
+	absent(t, path)
+	r.be.onRPC = func(w http.ResponseWriter, _ *http.Request, _, _ string, _ map[string]any) {
+		postgrest(w, http.StatusForbidden, "42501", "brigade:unauthorized")
+	}
+	refused := r.fails("unauthorized", 5, "", "team", "rotate-secret", "--secret-file", path)
+	if refused.stdout != newFailure(t, errNotMember()) {
+		t.Fatalf("a non-creator's rotate: %q, want the uniform unauthorized", refused.stdout)
+	}
+	// The write fails after the rotation: config, the secret is on no stream.
+	dir := filepath.Join(r.base, "gone")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r.be.onRPC = func(w http.ResponseWriter, _ *http.Request, _, _ string, _ map[string]any) {
+		_ = os.Remove(dir)
+		writeJSON(w, http.StatusOK, rotatedBody(rotatedSecret))
+	}
+	got = r.fails("config", 11, "", "--log-level", "debug", "team", "rotate-secret", "--secret-file", filepath.Join(dir, "s"))
+	noSecretLeak(t, r, got, false)
+	if strings.Contains(got.stdout+got.stderr, rotatedSecret) || details(t, got.stdout)["reason"] != "secret_file_unwritable" {
+		t.Fatalf("after a failed write: %s %s", got.stdout, got.stderr)
+	}
+	if !strings.Contains(got.stderr, "rotate again") {
+		t.Fatalf("stderr = %q, want the lost-secret warning", got.stderr)
+	}
+
+	unbound := newRig(t)
+	unbound.initProfile()
+	unbound.writeSession(unbound.session(time.Hour, "rt-1"))
+	unbound.fails("config", 11, "", "team", "rotate-secret", "--secret-file", filepath.Join(unbound.base, "s"))
+	hex := newRig(t)
+	hex.joined()
+	hex.bindTeam("team-0123456789abcdef", "ops")
+	local := hex.fails("unauthorized", 5, "", "team", "rotate-secret", "--secret-file", filepath.Join(hex.base, "s"))
+	if local.stdout != newFailure(t, errNotMember()) || hex.be.calls(rpcPath) != 0 {
+		t.Fatalf("non-uuid team_ref: %q (rpc calls %d)", local.stdout, hex.be.calls(rpcPath))
+	}
+}
+
+// TestTeamRevokeMemberForms: the principal form (flag, flag with --ban,
+// stdin with ban) reaches revoke_membership with p_user_id and p_ban; the
+// version form (flag, stdin) reaches revoke_memberships_by_version with
+// p_max_version; each answer is re-emitted in the fixed result shape.
+func TestTeamRevokeMemberForms(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.joined()
+	revoked := `{"team_id":"` + testTeamID + `","principal_ref":"` + otherTeamID + `","status":"revoked","changed":true,"sessions_closed":1}`
+	banned := strings.Replace(revoked, `"revoked"`, `"banned"`, 1)
+	for _, tc := range []struct {
+		name    string
+		stdin   string
+		args    []string
+		body    string
+		wantBan bool
+	}{
+		{"flag", "", []string{"--principal", otherTeamID}, revoked, false},
+		{"flag with --ban", "", []string{"--principal", otherTeamID, "--ban"}, banned, true},
+		{"stdin", `{"principal_ref":"` + otherTeamID + `"}`, nil, revoked, false},
+		{"stdin with ban", `{"principal_ref":"` + otherTeamID + `","ban":true}`, nil, banned, true},
+	} {
+		args := answerRPC(t, r.be, rpcRevokeMembership, tc.body)
+		got := r.exec(tc.stdin, append([]string{"team", "revoke-member"}, tc.args...)...)
+		if got.code != 0 {
+			t.Fatalf("%s: exit %d %s %s", tc.name, got.code, got.stdout, got.stderr)
+		}
+		if (*args)["p_team_id"] != testTeamID || (*args)["p_user_id"] != otherTeamID || (*args)["p_ban"] != tc.wantBan || len(*args) != 3 {
+			t.Fatalf("%s: revoke_membership args = %v", tc.name, *args)
+		}
+		result, _ := decode(t, got.stdout)["result"].(map[string]any)
+		wantStatus := "revoked"
+		if tc.wantBan {
+			wantStatus = "banned"
+		}
+		if result["team_ref"] != testTeamID || result["principal_ref"] != otherTeamID || result["status"] != wantStatus ||
+			result["changed"] != true || result["sessions_closed"] != float64(1) {
+			t.Fatalf("%s: result = %v", tc.name, result)
+		}
+	}
+	byVersion := `{"team_id":"` + testTeamID + `","max_version":1,"revoked":3,"sessions_closed":4}`
+	for _, tc := range []struct {
+		name  string
+		stdin string
+		args  []string
+	}{
+		{"flag", "", []string{"--max-version", "1"}},
+		{"stdin", `{"joined_secret_version_lte":1}`, nil},
+	} {
+		args := answerRPC(t, r.be, rpcRevokeByVersion, byVersion)
+		got := r.exec(tc.stdin, append([]string{"team", "revoke-member"}, tc.args...)...)
+		if got.code != 0 {
+			t.Fatalf("%s: exit %d %s", tc.name, got.code, got.stdout)
+		}
+		if (*args)["p_team_id"] != testTeamID || (*args)["p_max_version"] != float64(1) || len(*args) != 2 {
+			t.Fatalf("%s: revoke_memberships_by_version args = %v", tc.name, *args)
+		}
+		result, _ := decode(t, got.stdout)["result"].(map[string]any)
+		if result["team_ref"] != testTeamID || result["max_version"] != float64(1) || result["revoked"] != float64(3) || result["sessions_closed"] != float64(4) {
+			t.Fatalf("%s: result = %v", tc.name, result)
+		}
+		if _, present := result["principal_ref"]; present {
+			t.Fatalf("%s: a version revoke answered a principal_ref: %v", tc.name, result)
+		}
+	}
+}
+
+// TestTeamRevokeMemberRefusals: both forms on argv, --ban alone, an empty
+// --principal and a --max-version outside 0..2147483647 are `usage`; a
+// stdin document with neither member, both members, ban on the version
+// form or a version out of range is `invalid_input` naming the member;
+// none of them dials. A --principal that is not uuid-shaped answers the
+// uniform unauthorized with ZERO requests (the counting fake, not
+// BRIGADE_TEST_OFFLINE), byte-identical to the backend's own refusal of a
+// non-creator; the backend's invalid_input:principal_ref (the self-target)
+// is exit 3 naming principal_ref; a 28000 is exit 4.
+func TestTeamRevokeMemberRefusals(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.joined()
+	for _, args := range [][]string{
+		{"--principal", otherTeamID, "--max-version", "1"},
+		{"--ban"},
+		{"--principal", ""},
+		{"--max-version", "-1"},
+		{"--max-version", "2147483648"},
+		{"--max-version", "one"},
+	} {
+		r.fails("usage", 2, "", append([]string{"team", "revoke-member"}, args...)...)
+	}
+	for stdin, field := range map[string]string{
+		`{}`: "principal_ref",
+		`{"principal_ref":"` + otherTeamID + `","joined_secret_version_lte":1}`: "principal_ref",
+		`{"joined_secret_version_lte":1,"ban":true}`:                            "ban",
+		`{"joined_secret_version_lte":-1}`:                                      "joined_secret_version_lte",
+	} {
+		got := r.fails("invalid_input", 3, stdin, "team", "revoke-member")
+		if details(t, got.stdout)["field"] != field {
+			t.Fatalf("%s: details = %v, want field %s", stdin, details(t, got.stdout), field)
+		}
+	}
+	r.fails("invalid_input", 3, "not json", "team", "revoke-member")
+	if r.be.total() != 0 {
+		t.Fatalf("%d backend calls for argv and document refusals", r.be.total())
+	}
+	local := r.fails("unauthorized", 5, "", "team", "revoke-member", "--principal", "principal-0123456789abcdef")
+	if r.be.total() != 0 {
+		t.Fatalf("a non-uuid --principal dialled: %d requests", r.be.total())
+	}
+	r.be.onRPC = func(w http.ResponseWriter, _ *http.Request, _, _ string, _ map[string]any) {
+		postgrest(w, http.StatusForbidden, "42501", "brigade:unauthorized")
+	}
+	raised := r.fails("unauthorized", 5, "", "team", "revoke-member", "--principal", otherTeamID)
+	if local.stdout != raised.stdout || raised.stdout != newFailure(t, errNotMember()) {
+		t.Fatalf("unauthorized differs: local %q, raised %q", local.stdout, raised.stdout)
+	}
+	r.be.onRPC = func(w http.ResponseWriter, _ *http.Request, _, _ string, _ map[string]any) {
+		postgrest(w, http.StatusBadRequest, "22023", "brigade:invalid_input:principal_ref")
+	}
+	got := r.fails("invalid_input", 3, "", "team", "revoke-member", "--principal", testUserID)
+	if details(t, got.stdout)["field"] != "principal_ref" {
+		t.Fatalf("self-target: details = %v", details(t, got.stdout))
+	}
+	r.be.onRPC = func(w http.ResponseWriter, _ *http.Request, _, _ string, _ map[string]any) {
+		postgrest(w, http.StatusUnauthorized, "28000", "brigade:unauthenticated")
+	}
+	r.fails("unauthenticated", 4, "", "team", "revoke-member", "--max-version", "1")
+	answerRPC(t, r.be, rpcRevokeMembership, `{"changed":false}`)
+	r.fails("internal", 1, "", "team", "revoke-member", "--principal", otherTeamID)
+	// The ladder: unbound is config, no credential unauthenticated.
+	unbound := newRig(t)
+	unbound.initProfile()
+	unbound.writeSession(unbound.session(time.Hour, "rt-1"))
+	unbound.fails("config", 11, "", "team", "revoke-member", "--principal", otherTeamID)
+	noCred := newRig(t)
+	noCred.initProfile()
+	noCred.fails("unauthenticated", 4, "", "team", "revoke-member", "--max-version", "1")
+}
+
+// TestTeamTransfer: --principal (or stdin {principal_ref}) reaches
+// transfer_team as p_new_creator and the result is re-emitted; a document
+// without the member is invalid_input; an empty --principal is usage; a
+// non-uuid principal is the uniform unauthorized without a dial; the
+// backend's invalid_input:principal_ref (not an active member) is exit 3
+// naming the member; an unconfirmed answer is internal.
+func TestTeamTransfer(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.joined()
+	body := `{"team_id":"` + testTeamID + `","principal_ref":"` + otherTeamID + `","transferred":true}`
+	for _, tc := range []struct {
+		name  string
+		stdin string
+		args  []string
+	}{
+		{"flag", "", []string{"--principal", otherTeamID}},
+		{"stdin", `{"principal_ref":"` + otherTeamID + `"}`, nil},
+	} {
+		args := answerRPC(t, r.be, rpcTransferTeam, body)
+		got := r.exec(tc.stdin, append([]string{"team", "transfer"}, tc.args...)...)
+		if got.code != 0 {
+			t.Fatalf("%s: exit %d %s", tc.name, got.code, got.stdout)
+		}
+		if (*args)["p_team_id"] != testTeamID || (*args)["p_new_creator"] != otherTeamID || len(*args) != 2 {
+			t.Fatalf("%s: transfer_team args = %v", tc.name, *args)
+		}
+		result, _ := decode(t, got.stdout)["result"].(map[string]any)
+		if result["team_ref"] != testTeamID || result["principal_ref"] != otherTeamID || result["transferred"] != true {
+			t.Fatalf("%s: result = %v", tc.name, result)
+		}
+	}
+	calls := r.be.calls(rpcPath)
+	got := r.fails("invalid_input", 3, `{}`, "team", "transfer")
+	if details(t, got.stdout)["field"] != "principal_ref" {
+		t.Fatalf("details = %v", details(t, got.stdout))
+	}
+	r.fails("usage", 2, "", "team", "transfer", "--principal", "")
+	local := r.fails("unauthorized", 5, "", "team", "transfer", "--principal", "principal-0123456789abcdef")
+	if r.be.calls(rpcPath) != calls {
+		t.Fatalf("a refused transfer dialled")
+	}
+	if local.stdout != newFailure(t, errNotMember()) {
+		t.Fatalf("non-uuid principal: %q", local.stdout)
+	}
+	r.be.onRPC = func(w http.ResponseWriter, _ *http.Request, _, _ string, _ map[string]any) {
+		postgrest(w, http.StatusBadRequest, "22023", "brigade:invalid_input:principal_ref")
+	}
+	got = r.fails("invalid_input", 3, "", "team", "transfer", "--principal", otherTeamID)
+	if details(t, got.stdout)["field"] != "principal_ref" {
+		t.Fatalf("not an active member: details = %v", details(t, got.stdout))
+	}
+	answerRPC(t, r.be, rpcTransferTeam, `{"transferred":false}`)
+	r.fails("internal", 1, "", "team", "transfer", "--principal", otherTeamID)
 }

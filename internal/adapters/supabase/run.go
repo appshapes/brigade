@@ -25,9 +25,11 @@ var errHelp = errors.New("help requested")
 // usageText is the whole help.
 const usageText = "brigade adapter supabase" + ` [--profile <name>] [--log-level <l>] <group> <verb> [flags]
 
-groups:  describe | team <create|join|leave|members> | session <register|heartbeat|list|close>
-         message <send|receive|ack|watch> | profile <init|status|reset|revoke-credentials>
+groups:  describe | team <create|join|leave|members|rotate-secret|revoke-member|transfer>
+         session <register|heartbeat|list|close> | message <send|receive|ack|watch>
+         profile <init|status|reset|revoke-credentials>
 flags:   --session <id>  --include-offline  --limit <n>  --name  --label  --prompt  --secret-file
+         team revoke-member: --principal <ref> [--ban] | --max-version <n>;  team transfer: --principal <ref>
          profile init: --url <https-url> --key <publishable-key> [--force]
 The backend is the profile's (profile init); no environment variable configures it (4.1).`
 

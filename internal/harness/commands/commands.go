@@ -102,8 +102,15 @@ const RetryPause = time.Second
 // The fixed texts of 6.4 that tests and the skill assert word for word.
 const (
 	// RefusalInSession is the whole message of the `usage` refusal of
-	// `team create` and `team join` inside a Claude Code session.
+	// `team create`, `team join` and (P5-2) `team rotate-secret` inside a
+	// Claude Code session: each of the three handles the join secret.
 	RefusalInSession = "run this in your own terminal: the join secret must never pass through the chat"
+	// RefusalAdminInSession is the whole message of the same refusal, in
+	// the same shape (usage, exit 2, details.reason in_session), for
+	// `team revoke-member` and `team transfer` (P5-2): destructive
+	// administrative acts that a session reading untrusted teammate text
+	// must not be talked into (4.5 rule 15) get their own line.
+	RefusalAdminInSession = "run this in your own terminal: team administration is not driven from a session"
 	// AcceptedNote closes every successful `send` line and is the note of
 	// its --json result: 4.5.1 never says "delivered".
 	AcceptedNote = "Accepted means durably stored by the adapter, not read."

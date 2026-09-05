@@ -9,13 +9,15 @@ import (
 const adapterName = progName
 
 // capabilities is the 4.7 registry entries this adapter implements: every
-// team convention but team.admin, the push watch with stdin commands, and
+// team convention including team.admin (P5-2: rotate-secret, revoke-member
+// and transfer, creator only), the push watch with stdin commands, and
 // every session member (brief section 2).
 func capabilities() []string {
 	return []string{
 		"team.create",
 		"team.join",
 		"team.roster",
+		"team.admin",
 		"message.receive",
 		"message.watch.push",
 		"message.watch.stdin_commands",

@@ -85,7 +85,7 @@ func TestDescribeStateMachine(t *testing.T) {
 	if d.Lease != protocol.DefaultLease() || d.Limits != protocol.DefaultLimits() || d.Retention != protocol.DefaultRetention() {
 		t.Fatalf("describe advertises other than the protocol's own limits, lease and retention")
 	}
-	for _, cap := range []string{"team.create", "team.join", "team.roster", "message.receive", "message.watch.push",
+	for _, cap := range []string{"team.create", "team.join", "team.roster", "team.admin", "message.receive", "message.watch.push",
 		"message.watch.stdin_commands", "session.description", "session.resume", "session.workspace_label", "session.inbound"} {
 		found := false
 		for _, have := range d.Capabilities {

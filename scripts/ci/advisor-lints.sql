@@ -11,9 +11,11 @@
 --   rls_enabled_no_policy on brigade.join_attempts: RLS is enabled, there is deliberately NO policy and NO grant to
 --     any API role; the table is written only by the join_team security-definer RPC and read by nobody but postgres
 --     (the join limiter must never be readable through the Data API: it would be a team-existence and attempt oracle).
---   authenticated_security_definer_function_executable on exactly the 13 RPCs plan 5.4 grants to authenticated:
+--   authenticated_security_definer_function_executable on exactly the 17 RPCs plan 5.4 and 5.10 grant to authenticated:
 --     my_team_ids, create_team, join_team, leave_team, register_session, session_heartbeat, close_session,
---     list_sessions, list_members, send_message, fetch_inbox, ack_messages, owns_session_topic. Security definer with
+--     list_sessions, list_members, send_message, fetch_inbox, ack_messages, owns_session_topic, and (P5-2) the four
+--     team-administration RPCs rotate_join_secret, revoke_membership, revoke_memberships_by_version and
+--     transfer_team (team_as_creator, their shared gate, is server-only and must NOT appear). Security definer with
 --     `set search_path = ''` and an explicit revoke from public/anon IS the design (the tables have no write policy;
 --     the RPCs are the only write path, D22). Every other brigade function (helpers, trigger functions, gc_expired)
 --     must NOT appear here: it is granted to nobody (functions.sql asserts the same over pg_catalog).
@@ -39,7 +41,11 @@ insert into advisor_expected values
   ('authenticated_security_definer_function_executable', 'brigade.send_message(uuid, uuid, text, text, text, uuid)'),
   ('authenticated_security_definer_function_executable', 'brigade.fetch_inbox(uuid, integer)'),
   ('authenticated_security_definer_function_executable', 'brigade.ack_messages(uuid, uuid[])'),
-  ('authenticated_security_definer_function_executable', 'brigade.owns_session_topic(text)');
+  ('authenticated_security_definer_function_executable', 'brigade.owns_session_topic(text)'),
+  ('authenticated_security_definer_function_executable', 'brigade.rotate_join_secret(uuid)'),
+  ('authenticated_security_definer_function_executable', 'brigade.revoke_membership(uuid, uuid, boolean)'),
+  ('authenticated_security_definer_function_executable', 'brigade.revoke_memberships_by_version(uuid, integer)'),
+  ('authenticated_security_definer_function_executable', 'brigade.transfer_team(uuid, uuid)');
 
 create temp view api_schemas as select unnest(array['public', 'graphql_public', 'brigade']) as nspname;
 -- Function lints scan only the schemas Brigade owns objects in: graphql_public holds nothing but Supabase's own
@@ -87,7 +93,7 @@ select 'anon_security_definer_function_executable', n.nspname || '.' || p.pronam
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
  where n.nspname in (select nspname from fn_schemas) and p.prosecdef and has_function_privilege('anon', p.oid, 'execute');
 
--- 7. authenticated_security_definer_function_executable: the same for authenticated. Expected: the 13 granted RPCs only.
+-- 7. authenticated_security_definer_function_executable: the same for authenticated. Expected: the 17 granted RPCs only.
 insert into advisor_findings
 select 'authenticated_security_definer_function_executable', n.nspname || '.' || p.proname || '(' || array_to_string(p.proargtypes::regtype[]::text[], ', ') || ')', 'security definer, executable by authenticated'
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace

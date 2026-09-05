@@ -765,7 +765,7 @@ func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
 	}
 	got := dispatch(t, "help")
 	commandsBlock := got.stdout[strings.Index(got.stdout, "Commands:"):strings.Index(got.stdout, "Not implemented yet")]
-	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "team create|join|leave|members", "profile init|status"} {
+	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "team create|join|leave|members|rotate-secret|revoke-member|transfer", "profile init|status"} {
 		if !strings.Contains(commandsBlock, want) {
 			t.Errorf("help's Commands block lacks %q:\n%s", want, commandsBlock)
 		}

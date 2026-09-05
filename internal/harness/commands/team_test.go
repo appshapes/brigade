@@ -79,20 +79,26 @@ func TestTeamMembersOutsideSession(t *testing.T) {
 	}
 }
 
-// TestTeamCreateJoinRefusedInSession is the 6.4 refusal: both verbs, exit
-// 2, the fixed message, no child of any kind (the recorder is empty and
+// TestTeamCreateJoinRefusedInSession is the 6.4 refusal: `create`, `join`
+// and (P5-2) the three administrative verbs, exit 2, reason in_session,
+// the fixed message of the verb's family (RefusalInSession for the three
+// that handle the join secret, RefusalAdminInSession for the two
+// administrative acts), no child of any kind (the recorder is empty and
 // the pass-through would have needed a real adapter that does not exist
 // at the map's path). `leave` is the control: it runs anywhere, so in a
 // session it reaches the (absent) adapter and fails as `unavailable`.
 func TestTeamCreateJoinRefusedInSession(t *testing.T) {
 	t.Parallel()
-	for _, verb := range []string{"create", "join"} {
+	for verb, want := range map[string]string{
+		"create": RefusalInSession, "join": RefusalInSession, "rotate-secret": RefusalInSession,
+		"revoke-member": RefusalAdminInSession, "transfer": RefusalAdminInSession,
+	} {
 		t.Run(verb, func(t *testing.T) {
 			t.Parallel()
 			f := newFixture(t)
-			err := Team(f.inv(f.sessionEnv(), `{"join_secret":"brg1.t.s"}`, verb, "--prompt"))
+			err := Team(f.inv(f.sessionEnv(), `{"join_secret":"brg1.t.s"}`, verb, "--prompt", "--principal", "p", "--secret-file", "/tmp/x"))
 			perr := wantCodeErr(t, err, protocol.CodeUsage, "in_session")
-			if perr.Message != RefusalInSession || perr.Code.Exit() != 2 {
+			if perr.Message != want || perr.Code.Exit() != 2 {
 				t.Errorf("refusal = %+v", perr)
 			}
 			if f.rec.count() != 0 || f.out.Len() != 0 {
@@ -218,6 +224,65 @@ func TestTeamJoinPassesStdioThroughOutsideSession(t *testing.T) {
 		t.Fatalf("team leave err = %v, want ExitStatus 7", err)
 	}
 	if !strings.Contains(f.out.String(), `"conflict"`) {
+		t.Errorf("stdout = %q, want the adapter's failing envelope", f.out.String())
+	}
+}
+
+// TestTeamAdminVerbsPassThroughOutsideSession (P5-2): in a terminal each
+// of the three administrative verbs hands the adapter its streams,
+// forwards `--principal`, `--ban`, `--max-version` and `--secret-file`
+// verbatim and in order, consumes `--profile` and `--log-level` for the
+// harness, forwards stdin (the JSON form) and the adapter's exit status,
+// and prints nothing of its own.
+func TestTeamAdminVerbsPassThroughOutsideSession(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		verb  string
+		stdin string
+		args  []string
+		want  []string
+	}{
+		{"rotate-secret", "", []string{"--profile", "bob", "--secret-file", "/tmp/rotated.secret"}, []string{"--secret-file", "/tmp/rotated.secret"}},
+		{"revoke-member", "", []string{"--principal", "p-carol", "--ban", "--profile", "bob"}, []string{"--principal", "p-carol", "--ban"}},
+		{"revoke-member", "", []string{"--log-level", "debug", "--profile", "bob", "--max-version", "1"}, []string{"--max-version", "1"}},
+		{"revoke-member", `{"principal_ref":"p-carol","ban":true}`, []string{"--profile", "bob"}, nil},
+		{"transfer", `{"principal_ref":"p-carol"}`, []string{"--profile", "bob", "--json"}, nil},
+		{"transfer", "", []string{"--profile", "bob", "--principal", "p-carol"}, []string{"--principal", "p-carol"}},
+	} {
+		t.Run(tc.verb+" "+strings.Join(tc.args, " "), func(t *testing.T) {
+			t.Parallel()
+			f, dump := passThroughFixture(t, "bob", fakeadapter.Script{
+				Responses: map[string][]fakeadapter.Response{
+					"team " + tc.verb: {{Result: []byte(`{"team_ref":"t1","principal_ref":"p-carol","transferred":true}`), Stderr: "fake: " + tc.verb}},
+				},
+			})
+			if err := Team(f.inv(f.terminalEnv(), tc.stdin, append([]string{tc.verb}, tc.args...)...)); err != nil {
+				t.Fatalf("team %s: %v", tc.verb, err)
+			}
+			if !strings.Contains(f.out.String(), `"principal_ref":"p-carol"`) || !strings.Contains(f.errb.String(), "fake: "+tc.verb) {
+				t.Errorf("streams: stdout %q stderr %q, want the adapter's own", f.out.String(), f.errb.String())
+			}
+			invs := readDump(t, dump)
+			if len(invs) != 1 || invs[0].Group != "team" || invs[0].Verb != tc.verb {
+				t.Fatalf("dump = %+v, want one team %s", invs, tc.verb)
+			}
+			if got := invs[0]; !slices.Equal(got.Args, tc.want) || got.StdinBytes != len(tc.stdin) || got.Env["BRIGADE_PROFILE"] != "bob" {
+				t.Errorf("child: args %v (want %v), stdin_bytes %d (want %d), profile %q", got.Args, tc.want, got.StdinBytes, len(tc.stdin), got.Env["BRIGADE_PROFILE"])
+			}
+		})
+	}
+	// The adapter's exit status is forwarded, nothing else printed.
+	f, _ := passThroughFixture(t, "bob", fakeadapter.Script{
+		Responses: map[string][]fakeadapter.Response{
+			"team transfer": {{Error: &protocol.ErrorObject{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}}},
+		},
+	})
+	err := Team(f.inv(f.terminalEnv(), "", "transfer", "--profile", "bob", "--principal", "p-x"))
+	var es ExitStatus
+	if !errorsAs(err, &es) || int(es) != protocol.CodeUnauthorized.Exit() {
+		t.Fatalf("team transfer err = %v, want ExitStatus 5", err)
+	}
+	if !strings.Contains(f.out.String(), `"unauthorized"`) {
 		t.Errorf("stdout = %q, want the adapter's failing envelope", f.out.String())
 	}
 }

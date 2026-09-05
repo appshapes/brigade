@@ -1,7 +1,7 @@
 # `brigade team …` through the real binary with the fs adapter (P3-3,
 # plan 6.4): the terminal pass-through with inherited stdio, the in-session
-# refusal of `team create` and `team join`, `team members`, and the poison
-# flag.
+# refusal of `team create`, `team join` and (P5-2) the three administrative
+# verbs, `team members`, and the poison flag.
 #
 # Two humans in a terminal (CLAUDE_PID unset): alice creates the team, bob
 # joins with the secret alice's `team create` printed — carried between the
@@ -90,6 +90,40 @@ status 2 brigade --json team join --profile bob
 ! stderr .
 json stdout .error.code usage
 json stdout .error.details.reason in_session
+
+# --- the three administrative verbs refuse in a session, one shape ---------
+# (P5-2: `usage`, exit 2, reason in_session for every terminal-only
+# command, with a per-family line — rotate-secret handles the join secret
+# and gets that line; revoke-member and transfer are administration a
+# session reading untrusted teammate text must not be talked into.)
+status 2 brigade team rotate-secret --profile alice --secret-file $WORK/rotated.secret
+! stdout .
+stderr '^brigade team failed \(usage\): run this in your own terminal: the join secret must never pass through the chat$'
+! exists $WORK/rotated.secret
+status 2 brigade team revoke-member --profile alice --principal $BOB --ban
+! stdout .
+stderr '^brigade team failed \(usage\): run this in your own terminal: team administration is not driven from a session$'
+status 2 brigade --json team transfer --profile alice --principal $BOB
+! stderr .
+json stdout .error.code usage
+json stdout .error.details.reason in_session
+json stdout .error.message 'run this in your own terminal: team administration is not driven from a session'
+
+# --- outside a session they pass straight through to the adapter ----------
+# The fs adapter does not implement team.admin, so its own `usage`
+# envelope on STDOUT is the proof that the verb, the profile and the flags
+# reached it (the harness refusal above prints nothing on stdout).
+env CLAUDE_PID=
+status 2 brigade team revoke-member --profile alice --principal $BOB
+json stdout .ok false
+json stdout .error.code usage
+stderr 'unknown team verb'
+status 2 brigade team transfer --profile alice --principal $BOB
+json stdout .error.code usage
+stderr 'unknown team verb'
+status 2 brigade team rotate-secret --profile alice --secret-file $WORK/rotated.secret
+json stdout .error.code usage
+! exists $WORK/rotated.secret
 
 # --- leave runs anywhere; the adapter's exit status is forwarded --------------
 env CLAUDE_PID=

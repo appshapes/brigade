@@ -6,6 +6,7 @@ Live: Phases 4–6 and the testing strategy are still executed from this text; c
 
 None recorded.
 
+- 2026-09-05 — "P5-2 DONE" — open question 12 (JWT expiry): closed by measurement — revocation lag is 2 ms on the hint path and 2 ms on the token-push path; no case for shortening `jwt_expiry` (3600 s stands).
 <!-- verbatim from the one-file plan -->
 ## 11. Risks and mitigations; open questions
 

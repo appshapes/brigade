@@ -71,6 +71,17 @@ Your profile directory (`~/.config/brigade/profiles/<name>`, or under the `confi
 administrative credential. Keep a 0700 backup of it somewhere you control; without it nobody can rotate the secret
 or administer the team.
 
+**Administering the team.** Three more terminal-only commands, for the creator only (they refuse inside a session):
+
+- `<plugin>/bin/brigade team rotate-secret --secret-file <path>` mints a new join secret into a 0600 file (never
+  to the terminal); the old secret stops working, existing members are untouched.
+- `<plugin>/bin/brigade team revoke-member --principal <ref> [--ban]` removes one member at once, or
+  `--max-version <n>` evicts everyone who joined with a superseded secret (never you).
+- `<plugin>/bin/brigade team transfer --principal <ref>` hands the team to another active member.
+
+The procedure, the leaked-secret playbook and what each command does to a running member are in
+[docs/setup.md](../docs/setup.md), "Team administration".
+
 ## Member: join
 
 ```sh
@@ -109,8 +120,10 @@ The order matters. Every step is optional except step 3 when the goal is to remo
    credential. Do this only after step 2 on each profile: a deleted credential whose family was never revoked
    stays usable by any copy of it.
 
-If you **created** the team, step 1 or step 2 ends secret rotation and revocation for it. Rotate the secret or
-transfer the team first, and keep that 0700 backup of the profile directory either way.
+If you **created** the team, step 2 ends secret rotation, revocation and transfer for it, permanently — run
+`<plugin>/bin/brigade team transfer --principal <ref>` to another active member *before* step 1. Step 1 alone
+(`team leave`) is recoverable: `created_by` survives it, and a rejoin with the current secret restores
+administration; step 2 (`profile reset`) is not. Keep that 0700 backup of the profile directory either way.
 
 ## Permissions and confirmation
 
@@ -146,8 +159,9 @@ session map and starts the detached watcher; the watcher injects each teammate's
 and acknowledges only what it injected; `UserPromptSubmit` keeps the watcher alive and surfaces its notice;
 `SessionEnd` closes the session; and the session-bound commands (`sessions`, `send`, `whoami`, `team members`)
 resolve their session from that map, while the terminal commands the two setup sections above use (`profile init`
-with `--adapter`, `profile status|reset|revoke-credentials`, `team create|join|leave`) pass their terminal straight
-through to the adapter — `team create` and `team join` refuse to run from inside a session.
+with `--adapter`, `profile status|reset|revoke-credentials`, `team create|join|leave`,
+`team rotate-secret|revoke-member|transfer`) pass their terminal straight through to the adapter — `team create`,
+`team join` and the three administrative verbs refuse to run from inside a session.
 
 The pins are still at the pre-release `0.0.0` with an empty `bin/checksums.txt`, so there is no release to download
 yet. **Developers** point the bootstrap at a local build instead, with the dev-binary pointer `make plugin-dev`

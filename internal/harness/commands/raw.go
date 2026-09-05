@@ -146,13 +146,28 @@ func verbOf(args []string, command string, verbs []string) (string, []string, er
 	return args[0], args[1:], nil
 }
 
-// refuseInSession is the `usage` refusal of `team create`/`team join`
-// inside a Claude Code session (6.4): the join secret must never pass
-// through the chat, so the command is a terminal's only.
+// refuseInSession is the `usage` refusal of `team create`, `team join`
+// and (P5-2) `team rotate-secret` inside a Claude Code session (6.4): the
+// join secret must never pass through the chat, so the command is a
+// terminal's only.
 func refuseInSession() *protocol.Error {
+	return inSessionRefusal(RefusalInSession)
+}
+
+// refuseAdminInSession is the same refusal in the same shape for
+// `team revoke-member` and `team transfer` (P5-2), with the
+// administration line: one shape for every terminal-only command, a
+// per-family message.
+func refuseAdminInSession() *protocol.Error {
+	return inSessionRefusal(RefusalAdminInSession)
+}
+
+// inSessionRefusal is the one shape of an in-session refusal: `usage`
+// (exit 2), details.reason in_session, and the family's fixed message.
+func inSessionRefusal(message string) *protocol.Error {
 	return &protocol.Error{
 		Code:    protocol.CodeUsage,
-		Message: RefusalInSession,
+		Message: message,
 		Details: map[string]string{"reason": "in_session"},
 	}
 }

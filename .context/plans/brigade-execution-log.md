@@ -91,7 +91,8 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to the owner's usual practice (see "Phase 6" below) | **done** — P6-1 the digest (3fbb19f); P6-2..P6-4 this commit (two lanes, one adversarial verifier: every recipe unchanged, `make help` diff exactly `-docker-* +e2e`, the ` (CI)` marker on exactly the 19 CI-invoked targets, 27/27 README links, 7/7 jobs with measured timeouts, 6 sentences corrected); P6-5's record under "Phase 6" — every gate green locally, the CI matrix on this commit, the D1 rehearsal re-run in this commit's worktree | Opus | 26 conventions adopted or adapted, 13 declined with the constraint or the owner's answer that forced each, 3 declined on cost and re-openable |
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **armed and green on the hosted project since 2026-09-04 23:36 EDT** (run 33942302844: health 200, anonymous sign-up 200, the unexposed `brigade` schema a `406 PGRST106` warning until P5-1, sign-out 204); the variables were set from the owner's values and the owner enabled anonymous sign-ins | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
 | P5-3 | Anonymous-user cleanup in `gc_expired()`; retention verified end to end with time-shifted rows; `describe.retention` cross-checked | done | Fable | this commit — migration `20260905041134_anonymous_user_gc.sql` (a separate `gc_anonymous_users()` with its own handler, called last); pgTAP 770 → 825 assertions with **four mutants killed** and the failure-isolation argument proven by mutation (without the handler a creator-guard violation aborts the heartbeat); live: a 3-day-offline session resumes and receives, an 8-day one answers exit 4/6 both ways, keep-alive-shaped principals are reaped and the creator survives; a drift join pins `describe`'s retention to the migrations from both sides; verifier PASS with no edits; `docs/setup.md` §6 (see "P5-3 DONE") |
-| P5-1, P5-2, P5-4..P5-6, P5-8..P5-11 | Hosted deployment (running with the owner's token), admin RPCs (running), docs, keychain, soak, release, `hold` policy (running in a worktree), the injected ring | todo | mixed | briefs for every row under `.ignored/briefs/` (P5-7 and P5-10 written 2026-09-05; P5-10 finds the first-use download untestable while the repository is private — an owner decision) |
+| P5-1, P5-4..P5-6, P5-8..P5-11 | Hosted deployment (running with the owner's token), docs, keychain, soak, release, `hold` policy (running in a worktree), the injected ring | todo | mixed | briefs for every row under `.ignored/briefs/` (P5-7 and P5-10 written 2026-09-05; P5-10 finds the first-use download untestable while the repository is private — an owner decision) |
+| P5-2 | **Team administration**: `rotate_join_secret`, `revoke_membership`, `revoke_memberships_by_version`, `transfer_team`; adapter and harness `team rotate-secret|revoke-member|transfer` (terminal-only) | done | Fable | this commit — migration `20260905120000_brigade_team_admin.sql`, `team_admin.sql` 247 assertions, three live tests, I-16 lag 2 ms on both paths so `jwt_expiry` stays 3600 s (see "P5-2 DONE") |
 | P5-7a | **The RFC final pass over `docs/protocol-v1.md` and `CHANGELOG.md`** (the P5-7 carve-out that touches no in-flight file) | done | Opus | this commit — six editorial lines in the protocol doc (one comma; five Appendix B "Suggested home" cells now naming real tests), nothing normative and no JSON block touched (`TestSpecExamplesAreTheTestdataFiles` and `make schema-check` green without regeneration); `CHANGELOG.md` in Keep a Changelog form, 40 items each traced to an artifact at HEAD; P5-7b (security doc, setup, plugin README, README rows) runs after P5-1/2/5/6/9/12 land (see "P5-7a DONE") |
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo | Fable | **before beta** — Rjae, 2026-09-04: the frame's instruction paragraph must follow the security model (default = whatever Claude allows; tighten by opt-in); one corpus sweep per shipped level |
 | P5-13 | **F1: the SessionStart context line names only the bare `brigade`** — the absolute plugin path moved to `brigade whoami`'s human output (`terminal: <path>`, from the by-pid map's existing `plugin_bin`; deliberately NOT in `--json`, the form the model reads) and `docs/setup.md`'s "Terminal use" | done | Opus | this commit — the new line ends "Use `brigade sessions` and `brigade send`."; pinned exactly in `start_test.go`, `e2e_test.go` and the hook txtar; measured on 2.1.261: **15/15 idle wakes in the bare form (three runs, 0 path forms in any transcript)** and **2/2 ask-bypass sessions bare + the ask dialog + nothing executed** — the reversal of P4-5's executed bypass send (see "P5-13 DONE") |
@@ -799,6 +800,65 @@ assertion in each was the tree-hygiene check, tripped by other lanes editing the
 20260905T034358Z): **both replies bare, both raised the ask-rule dialog, neither executed** — the reversal of P4-5's bypass run 1,
 where the path form executed with no dialog. The author's first run exposed the launch defect of 79467ce (see the journal),
 so the measurements used a repaired copy; the repair is committed.
+
+## P5-2 DONE — team administration: rotate the secret, revoke a member, transfer the team; a revoked member's channel ends in milliseconds (2026-09-05)
+
+Plan row P5-2 (5.10). Fable author (two lanes: the first killed by the usage window mid-write with the work almost whole
+in the tree; the second inventoried it first, then finished), Fable adversarial verifier. Migration
+`supabase/migrations/20260905120000_brigade_team_admin.sql` adds `rotate_join_secret`, `revoke_membership(p_team_id,
+p_user_id, p_ban)`, `revoke_memberships_by_version(p_team_id, p_max_version)` and `transfer_team` (creator-only, by RLS
+and by an explicit creator check in each function), pinned by `supabase/tests/team_admin.sql` (247 assertions) and the
+catalogue file `functions.sql` (now 28 functions / 17 security-definer / 11 authenticated-executable, 222 assertions);
+`scripts/ci/advisor-lints.sql`'s expected list carries the four new signatures (13 → 17). The adapter gains `team
+rotate-secret --secret-file` (never prints: protocol 4.5 rule 14 makes `team create` the only command whose output may
+carry a secret), `team revoke-member` and `team transfer`, one new capability string and no new error row; the harness
+gains the three terminal-only pass-throughs, refusing in a session with the one shipped shape (`usage`, exit 2,
+`reason: in_session`) and two message constants — `RefusalInSession` for the secret-bearing verbs, `RefusalAdminInSession`
+for the two administrative ones — through a shared `inSessionRefusal(message)`. `docs/setup.md` gains "Team administration"
+(where the authority lives; revoking; the leaked-secret playbook; transferring); `plugin/README.md` and the setup skill
+name the verbs.
+
+**Measured (I-16 lag; the plan's open question 12).** Arm A, revoke with the hint: the watcher's session ended **2 ms**
+after `revoke_membership` returned (the `membership_revoked` frame itself 1 ms after — the same broadcast `leave_team`
+writes). Arm B, the token push: `system` unauthorized **2 ms** after the `access_token` push re-ran the topic policy. Row 3
+(no hint, no push) is bounded by `jwt_expiry` = 3600 s and is unreachable by this adapter, which pushes a token on every
+refresh. **There is no case for shortening `jwt_expiry`**; open question 12 closes on the measurement. The live tests
+`TestIntegrationBanBlocksRejoin`, `TestIntegrationRotateSecret`, `TestIntegrationRevokedChannelStopsAtTokenPush` (with the
+C-08 control) pass; `make test-integration` 173 s with conformance(supabase) `--slow` 45/0/0 unchanged; `make test-db`
+1109 assertions with only the known shared-stack `realtime_policy.sql:120,130` global counts failing; `make e2e` GREEN
+221/221 (a first run red only on phase 9's tree-changed check while other lanes landed files).
+
+**Verified (Fable, adversarial): PASS after two instrument fixes; the migration, adapter, harness and CLI had no defect.**
+Thirty-two SQL mutants (the brief's 23 plus nine of the verifier's own), each applied through the container's psql and run
+against `make test-db`: 26 killed by named assertions; #7 (the gate after the update) is an equivalent mutant — the raise
+rolls the update back in the pgTAP subtransaction; and **five cross-team mutants survived** (closing sessions, broadcasting
+or gating across every team the caller belongs to), which were instrument gaps, not code defects — `team_admin.sql` now
+carries a second team with shared members and ten assertions that kill them (plan 247 → 257; a backdated fixture pins
+`revoked_at` surviving an un-ban). A Go mutant (the `--secret-file` check dropped) fails `TestTeamRotateSecretRefusals`.
+Security core by direct psql, independent of the test file: a non-creator member, a member of nothing, another team's
+creator, a revoked member and the old creator after `transfer_team` all get `42501 brigade:unauthorized` on all four RPCs,
+**byte-identical** to the same call on a random uuid; no JWT → `28000`; the banned-with-correct-secret, wrong-secret and
+unknown-team joins return the same 28-byte `invalid_secret`; `transfer` refuses a non-member, a random uuid and a banned
+target with one `22023`, and self is a no-op. A real `rotate-secret --log-level debug` with a planted canary leaked nothing
+to stdout, stderr, any state/config/data file or sixty `ps -o args` samples; the file is `-rw------- 75` bytes. From-scratch
+replay: `make supabase-reset` then `make test-db` **1109 → 1119 assertions, all pass** (the `realtime_policy.sql` global
+counts pass on a fresh database). I-16 over fifteen runs: arm A 1–3 ms, arm B 2–4 ms; one arm-A run missed C-08's 2 s bound
+while another lane's `go test` ran (5.83 s whole-test) — a load observation for flake note (f), 14/15 ≤ 3 ms. All gates 0
+(`make test` needed a clean re-run: two `internal/conformance` five-second deadlines tripped under a concurrent lane);
+`make test-integration` 140 s with conformance(supabase) 45/0/0; `make e2e` GREEN. The second fix: two sentences in
+`docs/setup.md` claimed `team members` shows each member's secret version — the frozen 4.4.10 row carries none; the playbook
+now takes the version from `rotate-secret`'s own result. **This commit carries `docs/setup.md` whole, so P5-1's "1. Deploying
+the backend" section rides with it ahead of P5-1's code** (the mixed-hunk decision above); nothing in CI reads that section.
+
+**Declined, recorded.** No rotation throttle (a refused second attempt has already rotated). The fs adapter is not extended
+(no `created_by`, no versioning; 250–350 lines for a dev-only adapter). `list_members` is not extended with revoked/banned
+rows: 4.4.10 is frozen at "active members only"; the un-ban gap is answered in the docs by "write the `principal_ref` down
+before you ban" and is an open item for P5-7. **Question for Rjae (recorded, not blocking):** `revoke-member` and
+`transfer` refuse inside a session by default, like the secret-bearing verbs; P5-12's model says the default allows what
+Claude itself allows and users tighten by opt-in. The brief ships the refusal because a wrong default here is unrecoverable
+for a team while the other way costs one round trip; say the word and the two verbs become in-session-capable.
+
+---
 
 ## P5-7a DONE — the RFC final pass changed six editorial lines and `CHANGELOG.md` exists (2026-09-05)
 
@@ -1854,3 +1914,8 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   P5-1 author survived. Relaunched at 07:25: P5-7a fresh; P5-2 resumed by a new author over the partial tree; P5-9 started
   in an isolated worktree at a105d2e (`scratchpad/wt/p5-9`) because P5-2's partial edits sit in the command files P5-9 also
   touches — its diff is applied to master after P5-2 lands.
+- 2026-09-05 08:5x EDT: **P5-7a is on master (c65e45e), CI 33964455536 green.** P5-1's author finished (the hosted project
+  deployed; keep-alive `rpc 200`; hosted conformance 45/45; pg_cron on the Free plan) and P5-2's resumed author finished
+  (migration placed after P5-1's marker); both verifiers are running. P5-9's author is finishing its gates in the worktree.
+  `docs/setup.md` holds both P5-1's and P5-2's sections in one mixed hunk, so whichever of the two commits first carries
+  the file whole, as the keep-alive commit once carried P5-13's section.

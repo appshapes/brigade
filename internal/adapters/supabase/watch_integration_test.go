@@ -1,6 +1,7 @@
 package supabase
 
 import (
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -156,4 +157,145 @@ func (w *watchRun) expectStatusWithin(state, detail string, d time.Duration) {
 	if event["state"] != state || event["detail"] != detail {
 		w.t.Fatalf("status = %v, want %s/%s", event, state, detail)
 	}
+}
+
+// TestIntegrationRevokedChannelStopsAtTokenPush is I-16's lag half (P5-2,
+// plan row "a revoked member's open realtime channel stops at the next
+// token push or JWT expiry (lag recorded)"), both arms against the real
+// stack, each self-contained.
+//
+// Arm A, the hint path — what the shipped watcher actually does. A
+// revokes B with `team revoke-member --principal <B>`; revoke_membership
+// writes the same membership_revoked broadcast leave_team writes, B's
+// running watch treats it as a drain hint, the drain's fetch_inbox raises
+// the uniform unauthorized and the watch exits 5 — within the 2 s bound
+// C-08 holds `team leave` to (TestIntegrationWatchRevocation), with no
+// adapter change. The interval is logged.
+//
+// Arm B, the token-push path — the residual for a channel that never
+// reacts to the hint, on the raw-socket rig (no drain loop). B joins its
+// own topic privately; a real send proves the channel delivers; A revokes
+// B and the hint frame arrives (its latency logged, for free); a probe
+// broadcast written as postgres (realtime.send on B's topic) STILL
+// arrives, because Realtime authorizes a private topic at join and on a
+// token push, not per broadcast — that positive control is what makes the
+// death below non-vacuous; then a fresh JWT is pushed as `access_token`
+// (the realtime.go:516 frame, what the watcher does after every refresh),
+// the server re-runs the topic policy, and the channel is closed: a
+// `system` error or a phx_close/phx_error on the topic, measured from the
+// push. A second probe after the close does not arrive.
+//
+// The third clock — no hint AND no push, a client that never refreshes —
+// is bounded by the JWT's remaining lifetime, jwt_expiry = 3600 s on this
+// stack (supabase/config.toml), and is reasoned, not exercised: a Brigade
+// watcher pushes a token on every refresh, at least once every
+// jwt_expiry − 90 s, so that row is unreachable in normal operation and
+// belongs to a client that is not this adapter.
+func TestIntegrationRevokedChannelStopsAtTokenPush(t *testing.T) {
+	t.Run("hint", func(t *testing.T) {
+		a, secret := liveTeam(t, liveName(t, "p5-2-lag-hint"))
+		b := liveJoin(t, secret)
+		_, sb := registerLive(t, b, regDoc(liveName(t, "sb")))
+		bRef := b.readSession().principalRef()
+
+		w := startWatch(t, b, "message", "watch", "--session", sb)
+		w.expect(protocol.EventReady, 5*time.Second)
+		w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
+
+		revoked := a.ok("team", "revoke-member", "--principal", bRef)
+		t0 := time.Now()
+		if revoked["status"] != "revoked" || revoked["changed"] != true || revoked["sessions_closed"] != float64(1) || revoked["principal_ref"] != bRef {
+			t.Fatalf("revoke-member = %v", revoked)
+		}
+		event := w.expect(protocol.EventError, 2*time.Second)
+		object, _ := event["error"].(map[string]any)
+		if object["code"] != string(protocol.CodeUnauthorized) || object["retryable"] != false || object["message"] != errNotMember().Message {
+			t.Fatalf("event = %v, want the uniform unauthorized with retryable false", event)
+		}
+		if code := w.wait(2 * time.Second); code != protocol.CodeUnauthorized.Exit() {
+			t.Fatalf("exit %d, want 5", code)
+		}
+		t.Logf("I-16 arm A (hint → drain → unauthorized → exit 5): the watch ended %s after revoke_membership returned", time.Since(t0).Round(time.Millisecond))
+	})
+
+	t.Run("token push", func(t *testing.T) {
+		db := liveDB(t)
+		a, secret := liveTeam(t, liveName(t, "p5-2-lag-push"))
+		b := liveJoin(t, secret)
+		_, sa := registerLive(t, a, regDoc(liveName(t, "sa")))
+		_, sb := registerLive(t, b, regDoc(liveName(t, "sb")))
+		bRef := b.readSession().principalRef()
+
+		s := liveSocket(t, b)
+		topic := sessionTopic(sb)
+		if reply := s.join(topic, true, false); reply.Status != "ok" {
+			t.Fatalf("B's own private topic was refused: %s", reply.Response.Reason)
+		}
+		// 2. Positive control: the channel delivers a database broadcast.
+		sendLive(t, a, `{"sender_session_id":"`+sa+`","recipient_session_id":"`+sb+`","body":"before the revoke"}`)
+		mustAwaitFrame(t, s.frames, "the message_accepted broadcast", topic, 10*time.Second, broadcastOn(topic, "message_accepted"))
+
+		// 3. A revokes B; this rig has no drain loop, so the hint is merely counted.
+		revokedAt := time.Now()
+		if got := a.ok("team", "revoke-member", "--principal", bRef); got["changed"] != true {
+			t.Fatalf("revoke-member = %v", got)
+		}
+		mustAwaitFrame(t, s.frames, "the membership_revoked hint", topic, 10*time.Second, broadcastOn(topic, "membership_revoked"))
+		t.Logf("I-16 arm B: the membership_revoked hint arrived %s after revoke_membership returned (not acted on by this rig)", time.Since(revokedAt).Round(time.Millisecond))
+
+		// 4. Positive control that the channel is STILL authorized after the
+		// revoke: the join's decision is cached until the next token push.
+		probe := func(n string) {
+			t.Helper()
+			execSQL(t, db, `select realtime.send($1::jsonb, 'p5_2_probe', $2, true)`, `{"probe":"`+n+`"}`, "brigade:session:"+sb)
+		}
+		probe("before the push")
+		mustAwaitFrame(t, s.frames, "a probe broadcast after the revoke", topic, 10*time.Second, broadcastOn(topic, "p5_2_probe"))
+
+		// 5. Push a fresh JWT on the joined channel and time the server's answer.
+		next, err := s.c.forceRefresh(t.Context())
+		if err != nil {
+			t.Fatalf("forceRefresh: %v", err)
+		}
+		if next == s.token {
+			t.Fatalf("forceRefresh answered the same token; the push would prove nothing")
+		}
+		t0 := time.Now()
+		if _, err := s.p.push(t.Context(), s.joinRef, topic, phxEventToken, map[string]string{"access_token": next}); err != nil {
+			t.Fatalf("access_token push: %v", err)
+		}
+		f, got := awaitFrame(s.frames, 5*time.Second, func(f phxFrame) bool {
+			if f.Topic != topic {
+				return false
+			}
+			if f.Event == phxEventSystem {
+				var sys phxSystem
+				return json.Unmarshal(f.Payload, &sys) == nil && sys.Status == "error"
+			}
+			return f.Event == phxEventClose || f.Event == phxEventError
+		})
+		lag := time.Since(t0)
+		if got != frameFound {
+			t.Fatalf("the revoked member's channel survived the access_token push for %s (I-16: the push must re-run the topic policy)", lag)
+		}
+		reason := ""
+		if f.Event == phxEventSystem {
+			var sys phxSystem
+			_ = json.Unmarshal(f.Payload, &sys)
+			reason = classifyReason(sys.Message)
+			if reason != linkReasonUnauthorized {
+				t.Errorf("the system error after the push reads %q (%s), want the permissions refusal", sys.Message, reason)
+			}
+		}
+		t.Logf("I-16 arm B (access_token push → policy re-run → channel closed): %s after the push (%s%s)", lag.Round(time.Millisecond), f.Event, strings.TrimPrefix(" "+reason, " "))
+		if lag >= 5*time.Second {
+			t.Errorf("lag %s, want under 5 s", lag)
+		}
+
+		// 6. Negative control: nothing reaches the closed channel.
+		probe("after the push")
+		if _, got := awaitFrame(s.frames, 3*time.Second, broadcastOn(topic, "p5_2_probe")); got == frameFound {
+			t.Errorf("a probe broadcast reached a channel the server had just closed")
+		}
+	})
 }

@@ -9,8 +9,9 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// The verbs of `brigade team`.
-var teamVerbs = []string{"create", "join", "leave", "members"}
+// The verbs of `brigade team`: the four of 6.4 and the three
+// administrative pass-throughs of P5-2 (capability team.admin).
+var teamVerbs = []string{"create", "join", "leave", "members", "rotate-secret", "revoke-member", "transfer"}
 
 // MembersNote is the note member of the `team members --json` result.
 const MembersNote = "human_label is unverified text chosen by the member; principal_ref is the only stable identity"
@@ -26,10 +27,18 @@ type membersResult struct {
 	Note          string                 `json:"note"`
 }
 
-// Team implements `brigade team create|join|leave|members …` (6.4).
-// `members` is a harness command with the documented layout; the other
-// three are the terminal pass-through, and `create` and `join` refuse to
-// run inside a Claude Code session with the fixed line of 6.4.
+// Team implements `brigade team create|join|leave|members|rotate-secret|
+// revoke-member|transfer …` (6.4; P5-2). `members` is a harness command
+// with the documented layout; every other verb is the terminal
+// pass-through with inherited stdio, so the user sees the adapter's own
+// envelope (`--json` is parsed here and has no effect on them). `create`,
+// `join` and the three administrative verbs refuse to run inside a Claude
+// Code session in the one refusal shape of 6.4 (`usage`, exit 2, reason
+// in_session) with a per-family line: `create`, `join` and `rotate-secret`
+// with RefusalInSession, because each handles the join secret;
+// `revoke-member` and `transfer` with RefusalAdminInSession, because they
+// are destructive administrative acts that a session reading untrusted
+// teammate text must not be talked into (4.5 rule 15).
 func Team(inv Invocation) error {
 	verb, rest, err := verbOf(inv.Args, "team", teamVerbs)
 	if err != nil {
@@ -46,9 +55,13 @@ func Team(inv Invocation) error {
 			return usage("team members takes no arguments beyond --profile and the global flags")
 		}
 		return members(inv, raw.Profile)
-	case "create", "join":
+	case "create", "join", "rotate-secret":
 		if inv.inSession() {
 			return refuseInSession()
+		}
+	case "revoke-member", "transfer":
+		if inv.inSession() {
+			return refuseAdminInSession()
 		}
 	}
 	return inv.passThrough("team", verb, raw, nil)

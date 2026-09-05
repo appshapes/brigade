@@ -33,9 +33,13 @@ import (
 // channel, and every wait is a select on time.After.
 type rawSocket struct {
 	t      *testing.T
+	c      *command
 	p      *phxClient
 	token  string
 	frames <-chan phxFrame
+	// joinRef is the ref of the last join, which a later push on the
+	// channel (an access_token push, P5-2's I-16 arm B) must carry.
+	joinRef string
 }
 
 // liveSocket dials Realtime for the rig's principal and starts reading.
@@ -54,7 +58,7 @@ func liveSocket(t *testing.T, r *rig) *rawSocket {
 		t.Fatalf("dial: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.CloseNow() })
-	s := &rawSocket{t: t, p: &phxClient{conn: conn, vsn: phxVersionV1, log: c.log}, token: token}
+	s := &rawSocket{t: t, c: c, p: &phxClient{conn: conn, vsn: phxVersionV1, log: c.log}, token: token}
 	s.frames = liveFrames(t, conn, s.p.vsn)
 	return s
 }
@@ -77,6 +81,7 @@ func (s *rawSocket) join(topic string, private, self bool) phxReply {
 	if err := s.p.send(s.t.Context(), ref, ref, topic, phxEventJoin, payload); err != nil {
 		s.t.Fatalf("phx_join: %v", err)
 	}
+	s.joinRef = ref
 	f, got := awaitFrame(s.frames, watchTiming.joinTimeout,
 		func(f phxFrame) bool { return f.Event == phxEventReply && f.Ref == ref })
 	switch got {
@@ -185,5 +190,19 @@ func TestIntegrationRealtimeClientBroadcastIsDropped(t *testing.T) {
 	sendLive(t, a, `{"sender_session_id":"`+sa+`","recipient_session_id":"`+sb+`","body":"the database may broadcast"}`)
 	if got := s.broadcasts(topic, 10*time.Second); got == 0 {
 		t.Fatalf("no broadcast after a real send: the socket was not listening, so the drop above proves nothing")
+	}
+}
+
+// broadcastOn reports whether f is a database broadcast on topic whose
+// inner event is event — the one place in the package that needs the
+// event's name, because I-16 arm B must tell a membership_revoked hint
+// from a probe broadcast on the same topic.
+func broadcastOn(topic, event string) func(phxFrame) bool {
+	return func(f phxFrame) bool {
+		if !hintFor(f, topic) {
+			return false
+		}
+		var b phxBroadcast
+		return json.Unmarshal(f.Payload, &b) == nil && b.Event == event
 	}
 }

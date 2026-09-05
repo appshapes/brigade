@@ -39,7 +39,9 @@ The secret is a bearer capability: anyone holding it can join and pick any label
 
 Your profile directory (`~/.config/brigade/profiles/<name>`, or under the `config_dir` plugin option) is the
 team's only administrative credential. Keep a 0700 backup of it somewhere you control; without it nobody can
-rotate the secret or administer the team.
+rotate the secret or administer the team. Rotating the join secret, revoking a member and transferring the team
+are terminal-only administrative commands that refuse inside a session; the procedure is in `docs/setup.md`,
+"Team administration", in the Brigade repository.
 
 ## 2. Member: join
 

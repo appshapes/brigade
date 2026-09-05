@@ -1,6 +1,8 @@
 package supabase
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -191,5 +193,167 @@ func TestIntegrationMembersAsNonMember(t *testing.T) {
 	}
 	if _, byRef := members(t, a); len(byRef) != 1 {
 		t.Fatalf("A's roster = %v", byRef)
+	}
+}
+
+// TestIntegrationBanBlocksRejoin is I-20 through the binary (P5-2; the
+// SQL half is team_admin.sql section 4): A creates, B joins and leaves so
+// its profile is unbound; A bans B; B's `team join` with the CURRENT,
+// CORRECT secret is exit 5 with stdout byte-identical to B's join with a
+// wrong secret and to a third principal's join for a random team — with a
+// DifferentBytes control so the identity is not vacuous — and every
+// probe stays under the limiter; then A un-bans B and B's join succeeds
+// with rejoined true and the SAME principal_ref.
+func TestIntegrationBanBlocksRejoin(t *testing.T) {
+	a := liveRig(t)
+	created := createLive(t, a, "ban-"+liveName(t, "t"), "alice@example.com")
+	correct, teamRef := str(t, created, "join_secret"), str(t, created, "team_ref")
+	b := liveRig(t)
+	got := joinLive(t, b, correct, "bob@example.com")
+	if got.code != 0 {
+		t.Fatalf("join: exit %d %s %s", got.code, got.stdout, got.stderr)
+	}
+	joined, _ := decode(t, got.stdout)["result"].(map[string]any)
+	bRef := str(t, joined, "principal_ref")
+	if left := b.ok("team", "leave"); left["left"] != true {
+		t.Fatalf("leave = %v", left)
+	}
+
+	banned := a.ok("team", "revoke-member", "--principal", bRef, "--ban")
+	if banned["status"] != "banned" || banned["changed"] != true || banned["principal_ref"] != bRef || banned["team_ref"] != teamRef {
+		t.Fatalf("revoke-member --ban = %v", banned)
+	}
+	if _, byRef := members(t, a); byRef[bRef] != nil {
+		t.Fatalf("a banned member is listed: %v", byRef)
+	}
+
+	want := newFailure(t, errSecretRejected())
+	rBanned := joinLive(t, b, correct, "bob@example.com")
+	rWrong := joinLive(t, b, protocol.JoinSecretPrefix+teamRef+"."+strings.Repeat("0", 32), "bob@example.com")
+	c := liveRig(t)
+	rUnknown := joinLive(t, c, protocol.JoinSecretPrefix+otherTeamID+"."+strings.Repeat("0", 32), "cat@example.com")
+	for name, r := range map[string]outcome{"banned with the correct secret": rBanned, "wrong secret": rWrong, "unknown team": rUnknown} {
+		if r.code != 5 || r.stdout != want {
+			t.Fatalf("%s: exit %d stdout %q, want exit 5 and %q", name, r.code, r.stdout, want)
+		}
+		noSecretLeak(t, b, r, false)
+	}
+	// DifferentBytes control: an envelope known to differ.
+	if control := b.fails("config", 11, "", "team", "members"); control.stdout == want {
+		t.Fatalf("the control envelope equals the refusal; the identity above is vacuous")
+	}
+	if state := str(t, b.ok("profile", "status"), "state"); state != protocol.ProfileStateNotMember {
+		t.Fatalf("state = %q after the refused rejoin, want not_member", state)
+	}
+
+	unbanned := a.ok("team", "revoke-member", "--principal", bRef)
+	if unbanned["status"] != "revoked" || unbanned["changed"] != true {
+		t.Fatalf("un-ban = %v", unbanned)
+	}
+	got = joinLive(t, b, correct, "bob@example.com")
+	if got.code != 0 {
+		t.Fatalf("rejoin after the un-ban: exit %d %s", got.code, got.stdout)
+	}
+	rejoined, _ := decode(t, got.stdout)["result"].(map[string]any)
+	if rejoined["rejoined"] != true || rejoined["principal_ref"] != bRef || rejoined["team_ref"] != teamRef {
+		t.Fatalf("rejoin result = %v, want rejoined true and the same principal", rejoined)
+	}
+	if _, byRef := members(t, a); byRef[bRef] == nil || byRef[bRef]["status"] != "active" {
+		t.Fatalf("A's roster after the rejoin = %v", byRef)
+	}
+}
+
+// TestIntegrationRotateSecret is I-21 and the rotation through the
+// binary (P5-2; 9.9:214 names it TestRotateSecret — the Integration
+// prefix is what Makefile's test-integration selects on). A creates, B
+// and C join at version 1 and register sessions; A rotates with
+// --secret-file: stdout carries no join_secret member and neither stream
+// carries a secret, the file is 0600 and parses, secret_version is 2. D
+// with the OLD secret gets the fixed unauthorized, with the NEW one it
+// joins. B and C are untouched (heartbeat, roster). A revokes by version
+// 1: revoked 2, A itself still works (the caller is excluded), B and C get
+// unauthorized on `session list`, and B rejoins with the new secret. The
+// secret file lives in t.TempDir, removed at cleanup, and is never logged.
+func TestIntegrationRotateSecret(t *testing.T) {
+	a, secretV1 := liveTeam(t, liveName(t, "p5-2-rotate"))
+	teamRef := teamRefOf(t, secretV1)
+	b := liveJoin(t, secretV1)
+	c := liveJoin(t, secretV1)
+	_, sb := registerLive(t, b, regDoc(liveName(t, "sb")))
+	_, sc := registerLive(t, c, regDoc(liveName(t, "sc")))
+
+	path := filepath.Join(t.TempDir(), "rotated.secret")
+	got := a.exec("", "--log-level", "debug", "team", "rotate-secret", "--secret-file", path)
+	if got.code != 0 {
+		t.Fatalf("rotate-secret: exit %d %s %s", got.code, got.stdout, got.stderr)
+	}
+	noSecretLeak(t, a, got, false)
+	if strings.Contains(got.stdout, "join_secret") {
+		t.Fatalf("stdout carries a join_secret member: %s", got.stdout)
+	}
+	result, _ := decode(t, got.stdout)["result"].(map[string]any)
+	if result["team_ref"] != teamRef || result["secret_version"] != float64(2) || result["secret_file"] != path {
+		t.Fatalf("rotate-secret result = %v", result)
+	}
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("secret file: %v %v", info, err)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // the test's own temp file
+	if err != nil {
+		t.Fatal(err)
+	}
+	secretV2 := strings.TrimSpace(string(data))
+	parsed, err := protocol.ParseJoinSecret(secretV2)
+	if err != nil || parsed.TeamRef() != teamRef || secretV2 == secretV1 {
+		t.Fatalf("the rotated secret does not parse, names another team or equals the old one: %v", err)
+	}
+
+	d := liveRig(t)
+	if old := joinLive(t, d, secretV1, "dee@example.com"); old.code != 5 || old.stdout != newFailure(t, errSecretRejected()) {
+		t.Fatalf("old secret: exit %d %q, want the fixed unauthorized", old.code, old.stdout)
+	}
+	if fresh := joinLive(t, d, secretV2, "dee@example.com"); fresh.code != 0 {
+		t.Fatalf("new secret: exit %d %s", fresh.code, fresh.stdout)
+	}
+	// Existing members unaffected.
+	if hb := b.exec(`{}`, "session", "heartbeat", "--session", sb); hb.code != 0 {
+		t.Fatalf("B's heartbeat after the rotation: exit %d %s", hb.code, hb.stdout)
+	}
+	if hb := c.exec(`{}`, "session", "heartbeat", "--session", sc); hb.code != 0 {
+		t.Fatalf("C's heartbeat after the rotation: exit %d %s", hb.code, hb.stdout)
+	}
+	if _, byRef := members(t, b); len(byRef) != 4 {
+		t.Fatalf("B's roster after the rotation = %v, want A, B, C, D", byRef)
+	}
+
+	// The version revoke: B and C (version 1) out, A (the caller) and D
+	// (version 2) untouched.
+	swept := a.ok("team", "revoke-member", "--max-version", "1")
+	if swept["revoked"] != float64(2) || swept["sessions_closed"] != float64(2) || swept["max_version"] != float64(1) || swept["team_ref"] != teamRef {
+		t.Fatalf("revoke-member --max-version 1 = %v", swept)
+	}
+	if _, byRef := members(t, a); len(byRef) != 2 {
+		t.Fatalf("A's roster after the sweep = %v, want A and D (A itself still administers)", byRef)
+	}
+	want := newFailure(t, errNotMember())
+	for name, r := range map[string]*rig{"B": b, "C": c} {
+		if refused := r.fails("unauthorized", 5, "", "session", "list"); refused.stdout != want {
+			t.Fatalf("%s after the sweep: %q", name, refused.stdout)
+		}
+	}
+	if again := joinLive(t, b, secretV1, "bob@example.com"); again.code != 5 {
+		t.Fatalf("B with the OLD secret after the sweep: exit %d %s", again.code, again.stdout)
+	}
+	back := joinLive(t, b, secretV2, "bob@example.com")
+	if back.code != 0 {
+		t.Fatalf("B with the NEW secret: exit %d %s", back.code, back.stdout)
+	}
+	rejoined, _ := decode(t, back.stdout)["result"].(map[string]any)
+	if rejoined["rejoined"] != true {
+		t.Fatalf("B's rejoin = %v, want rejoined true", rejoined)
+	}
+	if _, byRef := members(t, a); len(byRef) != 3 {
+		t.Fatalf("A's roster after B's rejoin = %v", byRef)
 	}
 }

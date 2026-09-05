@@ -2,6 +2,7 @@ package commands
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/protocol"
@@ -83,11 +84,28 @@ func TestWithRaw(t *testing.T) {
 	}
 }
 
-// TestRefuseInSessionText pins the fixed line of 6.4 as a usage error.
+// TestRefuseInSessionText pins the fixed lines of 6.4 as usage errors in
+// ONE shape: refuseInSession (the join-secret line) and, P5-2,
+// refuseAdminInSession (the administration line) both answer `usage`,
+// exit 2 and details.reason in_session; only the message differs, and
+// each names the terminal.
 func TestRefuseInSessionText(t *testing.T) {
 	t.Parallel()
-	err := refuseInSession()
-	if err.Code != protocol.CodeUsage || err.Code.Exit() != 2 || err.Message != RefusalInSession {
-		t.Errorf("refuseInSession = %+v", err)
+	for name, tc := range map[string]struct {
+		err  *protocol.Error
+		want string
+	}{
+		"refuseInSession":      {refuseInSession(), RefusalInSession},
+		"refuseAdminInSession": {refuseAdminInSession(), RefusalAdminInSession},
+	} {
+		if tc.err.Code != protocol.CodeUsage || tc.err.Code.Exit() != 2 || tc.err.Message != tc.want || tc.err.Details["reason"] != "in_session" {
+			t.Errorf("%s = %+v", name, tc.err)
+		}
+		if !strings.HasPrefix(tc.want, "run this in your own terminal: ") {
+			t.Errorf("%s does not name the terminal: %q", name, tc.want)
+		}
+	}
+	if RefusalInSession == RefusalAdminInSession {
+		t.Errorf("the two refusal lines are the same text")
 	}
 }
