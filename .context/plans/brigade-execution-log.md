@@ -2184,3 +2184,7 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
 - 2026-09-05 13:2x EDT: **P5-11 kept, both halves** (Rjae), positioned with the docs and P5-12 as the block right before the
   release. Remaining Phase 5 order: P5-4 and the two small follow-ups (P5-15's grant check, P5-9's notes) → **P5-11 → P5-7b →
   P5-12 → P5-10.**
+- 2026-09-05 13:3x EDT: **P5-7b kept as briefed, with one owner rule for every user-facing document** (Rjae): "use simple language,
+  something an eighth-grader or non-technical team member can consume." Applies to `docs/security.md`, `docs/setup.md`, the
+  plugin README, the root README and the CHANGELOG; the traceability rule (every sentence to a measured source) stands
+  underneath the plain wording. The keychain (P5-6) and ring (P5-5) paragraphs are dropped from the P5-7 brief's outline.
