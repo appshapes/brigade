@@ -36,6 +36,7 @@ Live: Phases 4–6 and the testing strategy are still executed from this text; c
 - 2026-09-05 — "P5-5 DISCARDED" (Rjae) — P5-5 row (the local `injected` ring and `brigade inbox --recent`) is discarded: the owner does not want message bodies stored locally, and the loss case it recovered (a native `hold` set through `--settings`, invisible to the scan) stays a documented blind spot instead. E2E-04 retires with it.
 - 2026-09-05 — "P5-12 deferred" (Rjae) — P5-12 runs LAST in Phase 5, immediately before P5-10, once the tree is ready for beta; its measurement is the full corpus under `open` plus ~10 items under each of `guarded`/`strict` (~100 headless sessions), not three full sweeps.
 - 2026-09-05 — "P5-7b" (Rjae) — the P5-7 row's documents are written in plain language an eighth-grader or a non-technical team member can read; the security page keeps its sentence-by-sentence traceability underneath. The keychain (P5-6) and injected-ring (P5-5) paragraphs are gone with their rows.
+- 2026-09-05 — "P5-10 rulings" (Rjae) — the repository goes public for 0.1.0 (the row's "or at least its releases are public" describes a state GitHub does not offer: release assets follow repository visibility); the owner runs `make release version=0.1.0` or directs a session to — the lane stops one command short; the Homebrew tap leaves the row and becomes **P5-16**, a fast follow after 0.1.0 together with a Linux equivalent (nfpm packages or Linuxbrew).
 <!-- verbatim from the one-file plan -->
 ## 8. Phased implementation plan
 
