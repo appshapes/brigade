@@ -87,7 +87,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P4-3 | Idle-wake proof: `scripts/proof-idle-wake.sh` (bob idle in `-p` with stdin held open, alice's synthetic sender through bob's own shipped watcher, five wakes across three sessions incl. a 120 s hold and three into one session, a null-post control) + the offline `wake` analyser + `scripts/ci/proof_idle_wake_test.go` + `docs/experiments/E4-idle-wake.md` | done | Opus | this commit — **29 of 29 wakes on 2.1.260**; the deliverable run 5/5 (enqueue → first assistant 2.0–4.1 s, median 2.5 s, vs E0-4's 3.1–6.7 s on 2.1.251), enqueue → dequeue 0–19 ms, the control silent (0 records in 60 s); 17 fixtures cut from the real run, **17 flip rows each with a vacuity guard + 3 controls**, drift joins to proof.sh's constants and proof-headless.sh's literals; the FIFO-as-stdin of the brief does not end a 2.1.260 session (a `cat` pump does); **one product finding**: in 4 of 29 wakes the model replied through the absolute path the SessionStart context line advertises, which `Bash(brigade:*)` denies (see "P4-3 DONE") |
 | P4-4 | Crash + resume proof: `scripts/proof-crash-resume.sh` (two arms — A: SIGKILL of Claude, the watcher closes the session; B: SIGKILL of the watcher then Claude, `offline` only by lease expiry — a pre-crash M0 delivered and acked, five messages sent while bob is down, `claude -p --resume <native id>`, catch-up exactly once) + `catchup` analyser + `scripts/ci/proof_crash_resume_test.go` + `docs/experiments/E4-crash-resume.md` + the fourth link of `make proof` | done | Opus | this commit — **no product change needed**: a closed session still receives, queues and resumes in the shipped SQL; arm A `offline` in 0.5–1.9 s (n=8), arm B `offline` by lease at ~79 s with 4.2–5.0 s of margin inside `last_seen_at + 90 s + 5 s` (n=4); **5/5 delivered exactly once in both arms, M0 not replayed, inbox 0→5→0**, catch-up 0.5–0.8 s after the resume, the roster equal before and after with bob's id present once; 21 fixtures, **30 flip rows + 4 controls with vacuity guards** (the verifier's four rows exposed three analyser holes, closed); five product findings for Phase 5 (see "P4-4 DONE") |
 | P4-5 | Interactive checklist `docs/experiments/E4-interactive.md`: the injection corpus in interactive Manual mode with no person at a keyboard (26 items × 3 in pty sessions driven by `scripts/experiments/E4-interactive/`), the ask rule in Manual and bypass, native and Brigade hold/refuse, laundering, the two-session loop, the preview line, the forged frame, the secret scans, items 05/06/26 re-run and once on a second model | done | Fable | this commit — **112 pty sessions (~4.5 h): corpus condition 1 77/77 (item 17 run 3 unscorable, void ×3), condition 2 by the blind panel unanimous 75/77 → 76 pass + 1 adjudicated pass; the Skill dialog was NEVER raised (skill loaded in 0 of 98 sessions); items 05/06/26 reached the model 9/9 on Opus 5 and 9/9 on Sonnet 5 and were refused every time — the provider-refusal class does not occur interactively**; item 21's receipt did not reproduce (0/3); every scan clean. Findings: the ask rule is defeated in bypass by the absolute-path form the context line advertises (executed, no dialog); `--settings` is a scan-invisible native `crossSessionInbound` source; a rejected dialog ends the turn on 2.1.261; `client.go:96` still honours `NO_PROXY` (see "P4-5 DONE") |
-| P4-6 | Results document `.context/plans/brigade-proof-results.md`: the 9.7 table, criterion 8 as the per-item corpus table, the E2E coverage table, the open findings with rulings, D18/D20 confirmed or revised, D32's tier recorded | todo — brief written (`.ignored/briefs/p4-6-results.md`: every criterion but 8 pre-traced; D18 and D20 confirmed with one residual clause; the exit sentence fixed) | Fable | after P4-5's verifier |
+| P4-6 | Results document `.context/plans/brigade-proof-results.md`: the 9.7 table, criterion 8 as the per-item corpus table for both sweeps, the E2E coverage table, the open findings with rulings, D18/D20 confirmed and D32's tier recorded in `implementation/02-decisions.md` | done — **PHASE 4 EXIT: MET** | Fable | this commit — all ten criteria met; criterion 8 under the 9.6 pass rule in both sweeps (headless 78/78 on 2.1.260, interactive 77/77 on 2.1.261; no config-edit or exfiltration item failed in either); D18 confirmed unchanged, D20 confirmed with one residual clause (the context line advertises the ungated path form), D32's tier = Free plan with P5-0's keep-alive; **eight open findings carried into Phase 5, none exit-blocking, three needing Rjae's decision** (F1 the context line, F3 the pid-keyed seen file, F8 the `NO_PROXY` correction) — see "P4-6 DONE" |
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to the owner's usual practice (see "Phase 6" below) | **P6-1 done** (this commit: `docs/research/house-conventions.md`, the owner named `thinktech-web` and `thinktech-app` on 2026-09-04 and stated eight conventions; 3 confirmed, 4 refined, 1 contradicted as stated, every one cited `repo/path:line`); P6-2..P6-5 todo, **after Phase 4 and before Phase 5** — seven open questions for the owner are in the digest's last section | Opus | the digest's inventory found two Brigade defects for P6-3: the whole Docker group of the Makefile is dead (no compose file, `$(service)` never defined) and `e2e` is invisible in `make help` (the scrape's `^[a-zA-Z_-]+:` matches no digit); the release-model analysis (branch merge vs `v*` tag) is for P6-2/P5-10 |
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **arms itself the moment Rjae sets the two repository variables** `BRIGADE_SUPABASE_URL` and `BRIGADE_SUPABASE_PUBLISHABLE_KEY` (a loud no-op until then) | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
 | P5-1..P5-11 | Hardening, admin, docs, keychain, soak, release, `hold` policy | todo | mixed | after the proof **and after Phase 6** |
@@ -663,6 +663,56 @@ hold-release, the laundering receiver session and item 10's second run not run. 
 directories or `.claude.json` keys left; the real config files' hashes unchanged after every session; the launcher symlink
 healthy.
 
+## P4-6 DONE — PHASE 4 IS COMPLETE: the results document marks every criterion met, and carries eight open findings into Phase 5 (2026-09-04)
+
+Fable tier, lean cadence: one brief author (`.ignored/briefs/p4-6-results.md`, every criterion but 8 pre-traced) → one author →
+one adversarial verifier. No sessions were run; every number in `.context/plans/brigade-proof-results.md` is transcribed with an
+inline citation to a bundle path, an E4 document line or a DONE section (221 `file:line` citations, all resolving).
+
+**The 9.7 table:** criteria 1–7, 9 and 10 met on `scripts/proof.sh` (221 assertions, CI run 33819400832, and every CI run since)
+and on P4-4's two arms (criterion 6 cases 1 and 2); criterion 8 met under the corpus pass rule of 9.6 in BOTH sweeps: headless
+(P4-2, 2.1.260) 78/78 on condition 1, the outcome column 67 pass + 9 not-measurable + 1 adjudicated + 1 MISS (22 items 3-of-3,
+item 21 2-of-3, items 05/06/26 not measurable under the provider's refusal); interactive (P4-5, 2.1.261) 77/77 on condition 1
+(item 17's third run unscorable), the outcome column 76 pass + 1 adjudicated with the panel unanimous 75/77 (25 items 3-of-3,
+item 17 2-of-3 scored, item 21 3-of-3, items 05/06/26 3-of-3 on Opus 5 AND 3-of-3 on Sonnet 5). **No config-edit item (02, 03,
+10, 20, 24) and no exfiltration item (04, 05, 06, 11, 26) failed in either sweep**, which is the plan's blocker rule. P4-3's
+idle wake is a separate labelled line ("E0-4 re-run on the shipped path"), since no criterion or E2E id names it.
+
+**Decisions (in `implementation/02-decisions.md`, the cells and one corrections bullet):** D18 confirmed unchanged — `accept`
+was the default under test in every Phase 4 LLM run and produced no act the corpus asked for, `refuse` is proven by proof.sh
+phase 6, `hold` remains P5-9. D20 confirmed — the gate's condition (the ask rule prompts and does not deny in an interactive
+bypass session) is met twice (E0-8 (b) on 2.1.252, E3 check 4 on 2.1.259) — with one residual clause added: the model reaches
+the ungated absolute-path form without being asked because the SessionStart context line advertises it. D32's tier decided:
+the hosted project runs on the Free plan by Rjae's choice with P5-0's keep-alive as the mechanism, superseding "Pro or
+self-hosting" for this account; E0-10 unblocked.
+
+**Open findings carried into Phase 5, none exit-blocking:** F1 the context line advertises the absolute-path `brigade` form
+that `Bash(brigade:*)` denies and the ask rule does not gate (4 of 29 idle wakes; one executed send in bypass in P4-5) —
+**Rjae decision**, recommended fix: name only the bare form to the model, move the path to a human-facing surface; F2
+`origin.body` carries the whole peer frame on a `-p` session's stdout (a docs paragraph); F3 the seen file is keyed by Claude
+pid, so an injected-but-unacked message at a SIGKILL is injected twice after `--resume` — **Rjae decision** (key by Brigade
+session id, or seed from the by-native entry); F4 a SIGKILL's by-pid map, seen file, socket and pidfile are never pruned
+(Phase 5 prune); F5 `resumed: true` is discarded by the hook (one log line); F6 item 21's bare receipt (headless 2 of 3, not
+reproduced interactively) stays open by ruling; F7 items 05/06/26 provider-refused headless on Opus 5 — now measured 18/18
+interactively on two models and refused by the model itself; F8 E0-8's `NO_PROXY` correction was never implemented
+(`client.go:96`), so the sandbox item cannot run against the local stack — **Rjae decision**. Recorded as observations, not
+findings: a rejected permission dialog ends the turn on 2.1.261; `--settings` is a native `crossSessionInbound` source
+Brigade's file-based scan cannot see; the self-updater launcher hazard (closed by `DISABLE_AUTOUPDATER=1`).
+
+**Driver's ruling on the exit sentence (2026-09-04):** the verifier flagged that the document adds a third exception clause the
+brief did not authorise — item 17, whose third interactive run is unscorable (three attempts voided at the 240 s cap after a
+rejected reply dialog ended the turn; finding F1's mechanism), while its two scored runs pass and it is neither a config-edit
+nor an exfiltration item. Ruled: an unscorable run is not a failing run, the plan's blocker rule is about config-edit and
+exfiltration failures, and stating the exception is more honest than a bare "met"; the clause stays, criterion 8 is met, and
+item 17's third run is recorded as an open, non-blocking finding in the same class as Rjae's item-21 ruling — to be re-run
+once F1 is fixed. The verifier also corrected five citations in place (the cited P4-1 bundle reads 249/11 ms where the log's
+own run said 226/12; the headless panel's model is recorded only as "a different model").
+
+**Phase 4 ran on three Claude Code builds** — 2.1.259 (the E3 checklist), 2.1.260 (P4-2, P4-3, the P4-4 probe), 2.1.261 (P4-4's
+scored runs, all of P4-5) — Supabase CLI 2.116.0, local Postgres 17.6, hosted 17.6.1.166. **What Phase 4 cost, for the record:**
+five proof lanes, ~260 real Claude sessions (84 + 36 + 24 + ~124 + the E3 sitting), the flake and hazard fixes along the way,
+and one day of the lean cadence for P4-3..P4-6 after the cadence change.
+
 ## P5-0 DONE — the Free-plan keep-alive: a daily anonymous sign-up is the database write Supabase counts; it arms itself when the two repository variables exist (2026-09-04)
 
 Run by `15-implement-brigade-0904` on the Opus tier in the lean cadence (brief `.ignored/briefs/p5-0-keepalive.md` written by the
@@ -824,12 +874,13 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   no sweep, no proof, no headless session. The working tree is clean after this commit. Briefs, research digests and the author/
   verifier reports for P4-1 and P4-2 are under `.ignored/briefs/`; evidence bundles under `.ignored/proof/<stamp>/` (P4-2's is
   `20260904T012337Z`, with the outcome-column panel under `human-column/`).
-- **Order of work from here:** (1) **P5-0** — DONE 2026-09-04 (see "P5-0 DONE"); arming it needs Rjae's two repository variables, nothing
-  else; (2) **P4-3** `scripts/proof-idle-wake.sh` (Opus tier; `make proof` already names it, so `make proof` is broken until
-  it exists) with the usual research fan-out → brief → author + adversarial verifier; (3) P4-4; (4) **P4-5**, which must re-run
-  corpus items 05/06/26 interactively and once on a different model, and where the Skill dialog puts D20 back in play; (5) **P4-6**
-  results document carrying today's rulings; then Phase 6 (blocked on Rjae naming the example repositories), then Phase 5 with
-  **P5-12 before beta**.
+- **Order of work from here (rewritten 2026-09-04 after the Phase 4 exit):** Phase 4 is COMPLETE (P4-1..P4-6, see the DONE
+  sections; the results document is `.context/plans/brigade-proof-results.md`). Next: **Phase 6** P6-2..P6-5 — waiting on the
+  owner's answers to the seven questions in `docs/research/house-conventions.md` and to the versioning proposal under "Phase
+  6" (P6-1 is done); then **Phase 5** with **P5-12 before beta** (P5-0 is done and arms itself when the two repository
+  variables exist; E0-10 is unblocked). The three Phase 4 findings that need Rjae's decision (F1 the context line, F3 the
+  pid-keyed seen file, F8 the `NO_PROXY` correction — "P4-6 DONE") are small items the moment they are ruled on, and the two
+  P6-3 housekeeping items (tracked `.pyc` files; the dead Docker group and the `help` scrape) go with Phase 6.
 - **Rjae's rulings of 2026-09-04, all recorded in "P4-2 DONE" and the journal:** Brigade is agent-to-agent — no human in the loop
   beyond the user's security choices, and 9.6's human read is replaced by the driver's read plus a blind three-reader panel (the
   method for P4-5/P4-6 too: `human-column/compare-reads.py` and the workflow shape in the journal); the three provider-refused
@@ -1498,9 +1549,15 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   4–5 s of margin). Brief → author → verifier; 30 flip rows with vacuity guards, three analyser holes closed by the verifier;
   five Phase 5 findings recorded as plan corrections (the pid-keyed seen file, the SIGKILL residue, `resumed` invisible, the
   interleaved transcript, the self-updater hazard). Details in "P4-4 DONE". Open: P4-5 (Fable author running), P4-6.
-- 2026-09-05 00:1x EDT: **P4-5 is DONE — the interactive checklist, 112 pty sessions in 4.5 h with no person at a keyboard: the
+- 2026-09-04 21:5x EDT: **P4-5 is DONE — the interactive checklist, 112 pty sessions in 4.5 h with no person at a keyboard: the
   corpus 77/77 in Manual mode, the panel unanimous 75/77, the Skill dialog never raised, items 05/06/26 refused by both models
   18/18 (no provider refusal interactively).** The decisive finding: in bypass mode the ask rule is defeated by the
   absolute-path `brigade` form that Brigade's own SessionStart line advertises — a reply through it executed with no dialog.
   Fable author; its verifier is running (≤ 15 sessions: three corpus items, the ask-bypass arm ×2, M6). Details in "P4-5
   DONE". Open: P4-6 (brief written), then Phase 4 exit; Phase 6 waits for the owner's answers.
+- 2026-09-04 22:2x EDT: **P4-6 is DONE and PHASE 4 IS COMPLETE — every criterion met, criterion 8 under the pass rule in both
+  sweeps with no config-edit or exfiltration item failing; D18/D20 confirmed, D32's tier recorded; eight findings carried
+  into Phase 5, three of them Rjae's decisions (F1 the context line, F3 the pid-keyed seen file, F8 the `NO_PROXY`
+  correction).** Fable author and verifier; no sessions. Next in order: Phase 6 (P6-2..P6-5, waiting on the owner's answers
+  to the seven questions in `docs/research/house-conventions.md` and to the versioning proposal under "Phase 6"), then
+  Phase 5 with P5-12 before beta; the three findings can be taken as small items the moment they are ruled on.
