@@ -1298,6 +1298,26 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   never hardcode `~/.claude` in code, tests or docs.
 - Three probe messages were posted into the planning session's own inbox socket on 2026-08-30 to validate the
   wire protocol (plain, and wrapped with `from-name`); Appendix A.2 records what came back.
+- **Hand-off state, 2026-09-05 ~11:30 EDT (session `15-implement-brigade-0904`, Fable, this account):** master carries, in
+  order since the 2026-09-04 note, the five `make test` flake fixes, the plan split into `implementation/`, P5-0, P6-1..P6-5,
+  P4-3..P4-6 (Phase 4 COMPLETE), P5-13, P5-3, P5-14, P5-7a, P5-2, P5-9 and P5-1 (80f2f6d). **Not watched by CI since 8700d6c:**
+  the GitHub CLI token became invalid mid-morning (`gh auth status` → "The token in default is invalid"); `git push` over SSH
+  works, so every push landed, but the runs must be checked once the owner re-runs `gh auth login -h github.com`. **Two lanes
+  are in flight in detached worktrees under this session's scratchpad** (`/private/tmp/claude-501/…/scratchpad/wt/`): P5-6
+  (keychain, Fable author, worktree at 433bbd6, brief `.ignored/briefs/p5-6-keychain.md`) and P5-12 (frame levels, Fable author,
+  worktree at 8700d6c, brief `p5-12-frame-levels.md`, ~4 h of sweeps) — each leaves its work UNCOMMITTED in its worktree; the
+  driver's landing recipe is: generate the patch from the worktree with a temporary index (`GIT_INDEX_FILE=… git add -A; git
+  diff --cached --binary HEAD`), `git apply -3 --index` it on master, resolve the additive conflicts (the setup doc's section
+  order from the P5-7 brief; the refusal constants side by side; the CLI help test's command list), run the author's verifier
+  on the worktree first, then gate from the index in a fresh worktree (`scratchpad/gate-commit.sh <dir>`: typecheck, build,
+  test; exit statuses in files; `git commit -F`; push). If this session is gone, those worktrees are gone with the scratchpad —
+  re-run the two briefs from their commits. **Remaining Phase 5 rows in order:** P5-6 → P5-12 (both in flight) → P5-5 (the
+  injected ring; brief written; after P5-9, so runnable now, on master) → P5-15 (the C-12 order dependency; brief to write) →
+  P5-11 (the soak; needs a quiet two-hour window with no other lane building) → P5-7b (security doc, setup, plugin README, README
+  rows, CHANGELOG backlog; brief `p5-7-docs.md`, after P5-5/6/12 land) → P5-10 (release; brief `p5-10-release.md`; the owner
+  decides "public" and runs or authorises `make release version=0.1.0`). **Questions for Rjae, none blocking:** whether the two
+  administrative verbs should stop refusing in-session (P5-2, against P5-12's tighten-by-opt-in model); whether the repository
+  goes public for 0.1.0's first-use download (P5-10). (The project's secret key is no longer in `CLAUDE.user.md`; only the URL, the publishable key and the PAT remain.)
 - **Hand-off state, 2026-09-04 ~12:40 EDT (session `15-implement-brigade-0903T21`, Fable):** P4-1 and P4-2 are DONE and pushed
   (`79de463`, `3fa89a9`, `bf7c0b3`, `4dc53a4`, plus the commit carrying this note); CI green on every push. Nothing is running:
   no sweep, no proof, no headless session. The working tree is clean after this commit. Briefs, research digests and the author/
@@ -2074,3 +2094,6 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   `git push` over SSH keeps working; every push from here until the owner re-runs `gh auth login` lands unwatched. P5-2's
   migration is on the hosted project (5/5, 28 routines). P5-1 commits next; P5-12 (frame levels) starts in a worktree at
   8700d6c; P5-6 (keychain) is in flight in its worktree.
+- 2026-09-05 11:3x EDT: **P5-1 is on master (80f2f6d)** — the hosted project carries all five migrations; `make backend-install`
+  does the whole sequence; the C-12 order dependency its verifier found is row P5-15. "Notes for a hand-off" rewritten for
+  this boundary: master is clean, two authors (P5-6, P5-12) are in flight in worktrees, the GitHub CLI token needs the owner.
