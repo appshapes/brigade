@@ -2145,3 +2145,23 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
 - 2026-09-05 11:3x EDT: **P5-1 is on master (80f2f6d)** — the hosted project carries all five migrations; `make backend-install`
   does the whole sequence; the C-12 order dependency its verifier found is row P5-15. "Notes for a hand-off" rewritten for
   this boundary: master is clean, two authors (P5-6, P5-12) are in flight in worktrees, the GitHub CLI token needs the owner.
+- 2026-09-05 12:2x EDT: **P5-15 is on master (ffbf787)** (the conformance fixture's lease; CI unwatched — the CLI token). The
+  hand-off note is 172d2da. In flight in worktrees: P5-6 (keychain, at 433bbd6), P5-12 (frame levels, at 8700d6c), P5-5 (the
+  injected ring, Opus, at 172d2da). P5-11's soak waits for a quiet machine; P5-7b and P5-10 follow.
+- 2026-09-05 13:5x EDT: **The GitHub CLI failure has a cause: this machine's keychain daemon is jammed.** `security
+  list-keychains` hangs past 10 s; `gh` keeps its token in the keychain (`gh:github.com`), so `gh auth status` reports the
+  token invalid and `gh api` answers "Requires authentication" — the token is probably fine. P5-6's author measured that
+  `security add-generic-password -U` on an existing item blocks on a GUI ACL confirmation (the exact F2 hazard its brief
+  named; the shipped `Set` is delete-then-add and never uses `-U`), and found dozens of hung `security` processes, including
+  Claude Code's own credential reads. Owner step: dismiss any keychain dialog on screen (or restart `securityd`), then `gh`
+  works again and the runs since 8700d6c can be read. P5-6's real-keychain test is skipped while the daemon hangs.
+- 2026-09-05 12:2x EDT: **the usage window closed again (429, "resets 12:20pm") and the driver session was restarted under a
+  new session id; its scratchpad came back EMPTY.** Lost with it: the three detached lane worktrees — P5-6's finished author
+  work (26 files, the keychain store; its verifier had been mid-edit adding tests), P5-12's partial plumbing (the frame package
+  was green), P5-5's partial ring — plus the generated P5-6 patch, the gate script, the splice scripts and the drafted P5-6
+  log section and commit message. The briefs and the authors' reports survive (the P5-6 report's measured facts — no
+  `returned 0` line on success; `-U` blocks on a GUI confirmation, so `Set` is delete-then-add; hit path ~18.6 ms — are
+  restated in the hand-off file). Lesson recorded in memory: lane worktrees go under `.ignored/wt/`, patches under
+  `.ignored/patches/` right after each author report, helper scripts under `.ignored/tools/` (the gate and patch scripts are
+  recreated there). The keychain daemon answers again and the GitHub CLI is logged in; the unwatched runs are being read.
+  P5-6, P5-12 and P5-5 must be run again from their briefs; the next session (`15-implement-brigade-0905`) takes over here.
