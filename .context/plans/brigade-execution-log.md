@@ -91,7 +91,8 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P6-1..P6-5 | **House conventions**: adapt CI workflows, `Makefile` targets, `scripts/` and the test harnesses to the owner's usual practice (see "Phase 6" below) | **done** — P6-1 the digest (3fbb19f); P6-2..P6-4 this commit (two lanes, one adversarial verifier: every recipe unchanged, `make help` diff exactly `-docker-* +e2e`, the ` (CI)` marker on exactly the 19 CI-invoked targets, 27/27 README links, 7/7 jobs with measured timeouts, 6 sentences corrected); P6-5's record under "Phase 6" — every gate green locally, the CI matrix on this commit, the D1 rehearsal re-run in this commit's worktree | Opus | 26 conventions adopted or adapted, 13 declined with the constraint or the owner's answer that forced each, 3 declined on cost and re-openable |
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **armed and green on the hosted project since 2026-09-04 23:36 EDT** (run 33942302844: health 200, anonymous sign-up 200, the unexposed `brigade` schema a `406 PGRST106` warning until P5-1, sign-out 204); the variables were set from the owner's values and the owner enabled anonymous sign-ins | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
 | P5-3 | Anonymous-user cleanup in `gc_expired()`; retention verified end to end with time-shifted rows; `describe.retention` cross-checked | done | Fable | this commit — migration `20260905041134_anonymous_user_gc.sql` (a separate `gc_anonymous_users()` with its own handler, called last); pgTAP 770 → 825 assertions with **four mutants killed** and the failure-isolation argument proven by mutation (without the handler a creator-guard violation aborts the heartbeat); live: a 3-day-offline session resumes and receives, an 8-day one answers exit 4/6 both ways, keep-alive-shaped principals are reaped and the creator survives; a drift join pins `describe`'s retention to the migrations from both sides; verifier PASS with no edits; `docs/setup.md` §6 (see "P5-3 DONE") |
-| P5-1, P5-2, P5-4..P5-11 | Hosted deployment (brief ready, runs next with the owner's token), admin RPCs, docs, keychain, soak, release, `hold` policy, the injected ring | todo | mixed | briefs written for P5-1, P5-2, P5-5, P5-6, P5-9, P5-11, P5-12 under `.ignored/briefs/`; P5-7 and P5-10 briefed last |
+| P5-1, P5-2, P5-4..P5-6, P5-8..P5-11 | Hosted deployment (running with the owner's token), admin RPCs (running), docs, keychain, soak, release, `hold` policy (running in a worktree), the injected ring | todo | mixed | briefs for every row under `.ignored/briefs/` (P5-7 and P5-10 written 2026-09-05; P5-10 finds the first-use download untestable while the repository is private — an owner decision) |
+| P5-7a | **The RFC final pass over `docs/protocol-v1.md` and `CHANGELOG.md`** (the P5-7 carve-out that touches no in-flight file) | done | Opus | this commit — six editorial lines in the protocol doc (one comma; five Appendix B "Suggested home" cells now naming real tests), nothing normative and no JSON block touched (`TestSpecExamplesAreTheTestdataFiles` and `make schema-check` green without regeneration); `CHANGELOG.md` in Keep a Changelog form, 40 items each traced to an artifact at HEAD; P5-7b (security doc, setup, plugin README, README rows) runs after P5-1/2/5/6/9/12 land (see "P5-7a DONE") |
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo | Fable | **before beta** — Rjae, 2026-09-04: the frame's instruction paragraph must follow the security model (default = whatever Claude allows; tighten by opt-in); one corpus sweep per shipped level |
 | P5-13 | **F1: the SessionStart context line names only the bare `brigade`** — the absolute plugin path moved to `brigade whoami`'s human output (`terminal: <path>`, from the by-pid map's existing `plugin_bin`; deliberately NOT in `--json`, the form the model reads) and `docs/setup.md`'s "Terminal use" | done | Opus | this commit — the new line ends "Use `brigade sessions` and `brigade send`."; pinned exactly in `start_test.go`, `e2e_test.go` and the hook txtar; measured on 2.1.261: **15/15 idle wakes in the bare form (three runs, 0 path forms in any transcript)** and **2/2 ask-bypass sessions bare + the ask dialog + nothing executed** — the reversal of P4-5's executed bypass send (see "P5-13 DONE") |
 | P5-14 | **F3: the watcher's seen file keyed by Brigade session id** (`state/seen/<id>.json`, read from the by-pid map both callers already hold; old per-pid files ignored) | done | Fable | this commit — `TestCrashAndResumeDedupe` with a real file store (no re-injection after a "crash" and `--resume` under the same session id with a new pid; a failed post is never remembered; a different key loads nothing) + the 17-row path-encoding table with anti-escape and injectivity assertions + a charset drift join; five mutations each caught by named tests across packages; **`make e2e` 221/221 and the crash-and-resume proof 316/316 with the per-pid seen residue gone (4 → 2 files, `stale_seen` false both arms, exactly-once 5/5)** (see "P5-14 DONE") |
@@ -798,6 +799,34 @@ assertion in each was the tree-hygiene check, tripped by other lanes editing the
 20260905T034358Z): **both replies bare, both raised the ask-rule dialog, neither executed** — the reversal of P4-5's bypass run 1,
 where the path form executed with no dialog. The author's first run exposed the launch defect of 79467ce (see the journal),
 so the measurements used a repaired copy; the repair is committed.
+
+## P5-7a DONE — the RFC final pass changed six editorial lines and `CHANGELOG.md` exists (2026-09-05)
+
+The carve-out of the P5-7 brief (its 3.11: `docs/protocol-v1.md`, `CHANGELOG.md` and the root README are the files no
+in-flight lane touches; the README rows wait for `docs/security.md`). Opus author, Opus adversarial verifier.
+
+**The protocol document.** One typo (`:48`, a comma closing a parenthetical in JSON convention 4) and five Appendix B
+"Suggested home" cells that now name the tests that exist: B-3 → `internal/harness/frame` `TestLabelIsAlwaysUnverified`;
+B-4 → `adapterclient` `TestWatchReplayAndCommands`; B-7 → `supabase` `TestPromptWithoutATerminalIsUsage`; B-8 →
+`TestJoinBackendMember`; B-10 → `supabase/tests/retention.sql:97-98` and `TestIntegrationRetentionResumeAfterThreeAndEightDays`
+(the "adapter-specific retention-sweep test" phrase kept because `fixtures_integration_test.go:292` cites it at `:923`). Every
+`4.x`, `C-nn`, `B-n`, `D-n` pointer resolves (checked mechanically); the `hold`/`team.admin` mentions needed no edit; no line
+added or removed, so every `protocol-v1.md:<line>` citation in the code still holds. Refused by the brief's rule and recorded
+in `implementation/08`: three Appendix A defects (C-01's citing section; C-16/C-27 missing 4.4.1) and the five `[no case: B-n]`
+markers that conformance cases now discharge, with the stale Appendix B preamble — P5-7b's, after its verifier confirms each
+citation.
+
+**`CHANGELOG.md`.** Keep a Changelog 1.1.0 + SemVer (no house convention exists), one entry `## [0.1.0] — Unreleased`, eight
+sections, 40 items, each checked against HEAD rather than the plan: seven plugin options (not the brief's nine),
+`team_inbound` = `accept`/`refuse`, no `hold`/`inbox`/frame levels/keychain/admin verbs yet, `make backend-install` in. The
+Security and Known-limitations sections are statements of measured fact (F2's `origin.body` on `-p` stdout, P4-3's 29/29,
+the corpus results) because `docs/security.md` does not exist yet; the version line attributes `0.1.0` to `make release`
+because the tree carries `0.0.0`. Gates: `make schema-check` 0 with no regeneration, `go test ./internal/protocol/...` 0,
+`go test ./scripts/ci/...` 0, `no-secrets.sh` 0, a link check 0 missing / 0 bad anchors; `make lint` covers Go only — the
+repository has no markdown linter (recorded). **Verified (Opus, adversarial): PASS after one fix** — the 40 items traced one by one to an artifact at HEAD; the fix, on one line: the anonymous-user cleanup spares the creator of ANY team (not a "live" one) and it is the function's own exception handler, not its position last, that keeps it from aborting a heartbeat. Two of its notes taken as one-liners: `team_inbound` accepts `hold` and downgrades it to `refuse` with a warning until P5-9; the hosted `allowedDomains` clause is marked as the documented entry, not a measurement. A defect in another lane's landed prose, reported not fixed: `plugin/README.md`'s
+"Leaving and uninstalling" paragraph already says "ends secret rotation and revocation", commands P5-2 is landing — P5-7b's file.
+
+---
 
 ## P5-14 DONE — dedupe survives a crash and `--resume`: the seen file is keyed by the Brigade session id (2026-09-05)
 
@@ -1818,3 +1847,10 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   convention exists — fifteen thinktech checkouts searched); one pass after P5-1/2/5/6/9/12 land, with a free carve-out
   **P5-7a** (RFC pass + CHANGELOG, the files no in-flight lane touches) launched now (Opus). Nine plan corrections are
   in its section 10 for recording at P5-7b's commit.
+- 2026-09-05 07:2x EDT: **P5-14 is on master (a105d2e), CI 33946861801 green.** Between ~01:50 and 02:00 the account's
+  usage window closed (HTTP 429 "session limit, resets 2am") and killed two lanes mid-write: the P5-2 author (its partial
+  work — the adapter's admin verbs, the harness verbs, tests, the setup doc's "Team administration" section, an untracked
+  `supabase/tests/team_admin.sql` — is in the working tree, uncommitted) and the first P5-7a author (nothing written). The
+  P5-1 author survived. Relaunched at 07:25: P5-7a fresh; P5-2 resumed by a new author over the partial tree; P5-9 started
+  in an isolated worktree at a105d2e (`scratchpad/wt/p5-9`) because P5-2's partial edits sit in the command files P5-9 also
+  touches — its diff is applied to master after P5-2 lands.

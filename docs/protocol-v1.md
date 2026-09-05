@@ -45,7 +45,7 @@ object, every NDJSON event and command.
    empty.
 4. **Optional members, null and absence.** An OPTIONAL member is omitted when it has no value. Where a document needs
    to distinguish "no value" from "unchanged" (the members of `HeartbeatRequest` and of the watch `heartbeat`
-   command) absence means unchanged. The members that may carry an explicit JSON `null` are the nullable ones in the
+   command), absence means unchanged. The members that may carry an explicit JSON `null` are the nullable ones in the
    schema: `session_description`, `workspace_label`, `lease_seconds`, `resume`, `reply_to` in a `MessageEnvelope` (not in a
    `SendRequest`), and the optional members of `HeartbeatRequest` and `WatchCommand`. `retryable` is never `null` (4.3).
 5. **Two kinds of cap.** A cap named `*_bytes` is measured in bytes of UTF-8 (`len`); a cap named `*_chars` or
@@ -913,14 +913,14 @@ instead; the rest are candidates for new or extended cases.
 | --- | --- | --- | --- |
 | B-1 | A command that takes no input MUST NOT read stdin | 4.1 stdin | extend C-01 / C-12: run `describe` and `session list` with stdin held open and assert exit within the timeout |
 | B-2 | An adapter MUST send `retryable` on every failing envelope and watch `error` event | 4.3 | extend C-02 (`usage`, `invalid_input` envelopes) and C-37 (`error` event) to assert the member is present |
-| B-3 | Every consumer MUST present `human_label` as unverified | 4.4.3 | harness/CLI unit tests (U-03 covers the frame's `from-label`) |
-| B-4 | A receiver MUST ignore an unknown `status.state` | 4.4.9 | watcher unit test |
+| B-3 | Every consumer MUST present `human_label` as unverified | 4.4.3 | `internal/harness/frame` `TestLabelIsAlwaysUnverified` (U-03: the frame's `from-label` carries the suffix whatever the sender sent) |
+| B-4 | A receiver MUST ignore an unknown `status.state` | 4.4.9 | `internal/harness/adapterclient` `TestWatchReplayAndCommands` (a `status` with an unknown state is skipped, never fatal) |
 | B-5 | Unknown event kinds and unknown command types MUST be ignored by their receiver | 4.4.9 rules | watcher unit test for events; extend C-41 with an unknown `type` line before a valid `ack` for the adapter side |
 | B-6 | A line longer than 1 MiB is dropped and reading continues | 4.4.9 rules | `internal/protocol` `TestLineReaderContentCapBoundary` already covers the reader; extend C-41 with an over-long stdin line for the adapter side |
-| B-7 | `--prompt` without a TTY is `usage` | 4.4.10 | extend C-03 / C-04 with `--prompt` on a pipe |
-| B-8 | `team join` `backend` MUST be a JSON object when present | 4.4.10 | extend C-04 with `"backend": "x"` → exit 3 |
+| B-7 | `--prompt` without a TTY is `usage` | 4.4.10 | `internal/adapters/supabase` `TestPromptWithoutATerminalIsUsage` (both verbs, `--prompt` on a pipe, `usage`, no backend call); extending C-03 / C-04 the same way is still open |
+| B-8 | `team join` `backend` MUST be a JSON object when present | 4.4.10 | `internal/adapters/supabase` `TestJoinBackendMember` (`"backend": "x"` → exit 3, `details.field = "backend"`); extending C-04 the same way is still open |
 | B-9 | Idempotency keys MUST be retained at least as long as the message | 4.5.4 | not observable within the suite's time budget; adapter-specific persistence test |
-| B-10 | An unacknowledged message MUST be retained at least `retention.unacked_message_seconds` | 4.5.9 | not observable within the suite's time budget; adapter-specific retention-sweep test |
+| B-10 | An unacknowledged message MUST be retained at least `retention.unacked_message_seconds` | 4.5.9 | not observable within the suite's time budget; adapter-specific retention-sweep test — `supabase/tests/retention.sql:97-98` (unacked at 6 days kept, at 8 days deleted) and `internal/adapters/supabase` `TestIntegrationRetentionResumeAfterThreeAndEightDays` |
 | B-11 | Adapters never exit 126, 127 or ≥ 128 from their own code | 4.6 | assert across every case that the observed exit status is in `0..12` |
 
 ## Appendix C. The owner's decisions and where each is honoured
