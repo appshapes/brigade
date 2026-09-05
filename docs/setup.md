@@ -83,3 +83,12 @@ The project this workflow keeps alive must be created with the settings listed i
 [plugin/README.md](../plugin/README.md), "Administrator: create a team" — anonymous sign-ins on, CAPTCHA off,
 no Pro session time-box or inactivity limit, Realtime "Allow public access" off, and the migrations from
 `supabase/` applied. That list lives there and is not repeated here.
+
+### 5. The Bash sandbox
+
+With Claude Code's Bash sandbox on, add the hosted project's host (`<ref>.supabase.co`) to `sandbox.network.allowedDomains`
+(plugin/README.md, "Headless and sandboxed sessions"); the hooks and the watcher run outside the sandbox, only the commands
+the model runs are inside it. A **local** Supabase stack is out of reach from a sandboxed session: the adapter honours
+`NO_PROXY` and never proxies loopback (`internal/adapters/supabase/client.go`), and E0-8 measured that a loopback
+`allowedDomains` entry does not lift the refusal. Decided 2026-09-04 not to change this for v1 — the hosted domain entry is
+the sandbox story; revisit if a developer needs the local stack from inside a sandboxed session.
