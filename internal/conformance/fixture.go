@@ -6,10 +6,40 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/protocol"
 )
+
+// SuiteWallClockBudget is the whole-run wall time the suite supports, and
+// the reason the fixture does not take the protocol's default lease.
+//
+// A, B and C's fixture sessions are registered once and NOTHING heartbeats
+// them, while C-12 asserts A's session is present in a LIVE `session list`
+// (`include_offline = false`). Under the 4.4.1 default of 90 s
+// (protocol.LeaseDefaultSeconds) that made the whole suite depend on the
+// case order and on the backend's wall time: measured against the hosted
+// Supabase project on 2026-09-05, C-12 started at t = 10.9 s in id order
+// and passed, and at t = 124.8 s under `--shuffle 5150907` and failed —
+// the fixture rows were `closed=false` with an expired lease, exactly the
+// state C-14 requires an adapter to report `offline`. The fs run's whole
+// wall time is ~20 s, so it never reached its own default lease and the
+// dependency stayed latent there.
+//
+// The fixture therefore registers with the LONGEST lease the adapter
+// advertises (`describe.lease.max_seconds`), and this budget is what the
+// suite promises that lease has to cover: 8 minutes is 3x the slowest
+// measured run (160 s for 45 cases with --slow, hosted; ~20 s on the fs
+// adapter) and sits 2 minutes under protocol.LeaseMaxSeconds, the top of
+// the 4.4.1 default range that both shipped adapters advertise and the
+// Supabase schema pins with a check constraint — so the two numbers can
+// drift apart before either becomes a lie. Three joins keep it honest:
+// TestSuiteWallClockBudgetFitsTheDefaultLeaseRange (the constants),
+// TestFixtureLeaseCoversTheSuiteBudget (what a real adapter grants) and
+// fixture.overrun, which refuses to report a run that outlived the lease
+// it was granted — the "longer suite" half, which no unit test can see.
+const SuiteWallClockBudget = 8 * time.Minute
 
 // fixture is the three-principal, two-team fixture of plan 9.2, built
 // lazily by the first case that asks for it.
@@ -20,6 +50,34 @@ type fixture struct {
 	a, b, c *Principal
 	secret  string       // T1's join secret; "" under --setup
 	extras  []*Principal // every principal T.JoinPrincipal joined into T1
+	// lease is the lease A, B and C's sessions were registered with and
+	// registeredAt the LOCAL instant of that registration: an elapsed time
+	// measured against the suite's own monotonic clock, never against an
+	// adapter's `server_time`, so no clock skew reaches the check.
+	lease        time.Duration
+	registeredAt time.Time
+}
+
+// overrun reports, as a reason, that the run outlived the fixture's lease:
+// every case that ran past it saw A, B and C offline and its result cannot
+// be trusted. It returns "" when the fixture was never built, when it
+// failed to build (that is already a launcher error) or when the lease was
+// still valid at now.
+func (f *fixture) overrun(now time.Time) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.built || f.err != nil || f.lease <= 0 || f.registeredAt.IsZero() {
+		return ""
+	}
+	elapsed := now.Sub(f.registeredAt)
+	if elapsed <= f.lease {
+		return ""
+	}
+	return "the fixture outlived its lease: A, B and C were registered with the longest lease this adapter advertises (" +
+		f.lease.String() + ") and nothing heartbeats them, but " + elapsed.Round(time.Second).String() +
+		" of the run followed that registration, so every case past the lease saw them offline (4.5.8) and this run is not trustworthy" +
+		"; the suite's budget is " + SuiteWallClockBudget.String() +
+		", so a backend this slow needs a longer advertised lease.max_seconds"
 }
 
 // ensure builds the fixture on first use. A failure is a launcher error:
@@ -83,8 +141,16 @@ func (f *fixture) build(t *T) error {
 	if f.c.TeamRef == f.a.TeamRef {
 		return errors.New("fixture: C is in A's team after provisioning; want a second team")
 	}
+	// The lease is the adapter's own maximum, not the protocol default:
+	// see SuiteWallClockBudget. It is read from `describe` like every other
+	// bound the suite applies, so an adapter with its own range is served
+	// its own number, and it is recorded here against the suite's clock for
+	// the end-of-run overrun check.
+	lease := t.Describe().Lease.MaxSeconds
+	f.lease = time.Duration(lease) * time.Second
+	f.registeredAt = time.Now()
 	for _, p := range []*Principal{f.a, f.b, f.c} {
-		if err := f.register(t, p); err != nil {
+		if err := f.register(t, p, lease); err != nil {
 			return err
 		}
 	}
@@ -162,13 +228,18 @@ func (f *fixture) identify(t *T, p *Principal) error {
 	return nil
 }
 
-func (f *fixture) register(t *T, p *Principal) error {
+// register registers p's fixture session with leaseSeconds, the longest
+// lease the adapter advertises. The lease is EXPLICIT and never left to
+// `lease.default_seconds`: nothing heartbeats these three sessions and
+// C-12 requires A's to still be live whenever it happens to run.
+func (f *fixture) register(t *T, p *Principal, leaseSeconds int) error {
 	reg := protocol.SessionRegistration{
 		Harness:        Harness,
 		HarnessVersion: buildinfo.String(),
 		SessionName:    "fixture-" + p.Name,
 		Activity:       protocol.ActivityBusy,
 		Inbound:        protocol.InboundAccept,
+		LeaseSeconds:   &leaseSeconds,
 	}
 	r := t.Exec(p, t.mustJSON(&reg), "session", "register")
 	if err := fixtureError("session register for "+p.Name, r); err != nil {

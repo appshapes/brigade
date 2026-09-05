@@ -129,6 +129,14 @@ func Run(ctx context.Context, opts Options, cases []Case, environ []string, stdo
 		}
 	}
 
+	// The fixture's sessions are registered once and never heartbeated, so
+	// a run that outlives their lease has been reading an offline fixture
+	// for part of its length (4.5.8). That is a launcher error, not an
+	// adapter failure: the results, green or red, are not trustworthy.
+	if reason := r.fixture.overrun(time.Now()); reason != "" {
+		fail(reason)
+		code = ExitLauncher
+	}
 	if hits := r.launcher.scanDir(); len(hits) > 0 {
 		report.addC05(hits)
 	}

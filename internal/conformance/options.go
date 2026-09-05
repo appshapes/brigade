@@ -17,7 +17,8 @@ const (
 	// ExitUsage: bad argv, or an unknown case id in --only/--skip.
 	ExitUsage = 2
 	// ExitLauncher: adapter not found, describe not ok/unparseable/wrong
-	// major, --setup failed, or the fixture could not be built.
+	// major, --setup failed, the fixture could not be built, or the run
+	// outlived the fixture's lease (SuiteWallClockBudget).
 	ExitLauncher = 3
 )
 

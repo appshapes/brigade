@@ -276,7 +276,8 @@ network call.
 `profile.state = "joined"` with `team_ref`, `team_name` and `principal_ref` — that is where it learns each
 principal's identity — then checks that A and B share a `team_ref` and that C's differs, and finally registers one
 session per principal (`fixture-a`, `fixture-b`, `fixture-c`) with a `SessionRegistration` document on stdin, whose
-shape is in *The commands the fixture needs* below.
+shape is in *The commands the fixture needs* below and whose `lease_seconds` is your advertised `lease.max_seconds`,
+for the reason under *Timing*.
 
 **Carry `human_label` through.** The label arrives exactly once, on `team create` / `team join` (or from whatever
 `--setup` does), and every session record the suite later lists must carry one (C-12). Store it on the profile when
@@ -474,6 +475,20 @@ each spawn, not to the run.
 
 `--slow` matters more than its cost suggests: the slow cases are the ones that prove your `state` is computed from
 `lease_until` at read time rather than written once. Run it before you claim conformance.
+
+The suite's three fixture sessions — A's, B's and C's — are registered **once, with `lease_seconds` set to your
+advertised `lease.max_seconds`**, and nothing ever heartbeats them. That is deliberate: C-12 asserts A's fixture
+session is present in a **live** `session list` (`include_offline = false`), so the fixture has to outlive the whole
+run whatever order `--shuffle` puts the cases in. Two consequences for you. Your advertised maximum has to cover a
+whole run: the suite's budget is **8 minutes**, and a run that outlives the lease it was granted is refused with a
+launcher error (exit 3) naming the lease, the elapsed time and the budget — never reported as a case failure, because
+every case past that point read an offline fixture and its result, green or red, means nothing. And a `lease_seconds`
+at the very top of your own advertised range is *requested* on every run, by the first case that touches the fixture;
+only C-14 asserts the value an adapter actually grants, so an adapter that silently clamps a long lease is not told so
+by name — it fails C-12 later with "A's fixture session is absent", and that message now has exactly one likely cause.
+(Measured 2026-09-05: with the fixture on the 90 s default instead, the hosted
+Supabase run failed C-12 at t = 124.8 s under `--shuffle 5150907` and passed it at t = 10.9 s in id order — the
+backend having behaved exactly as C-14 requires.)
 
 ### What a green run does not prove
 

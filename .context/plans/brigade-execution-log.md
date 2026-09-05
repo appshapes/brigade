@@ -99,7 +99,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo | Fable | **before beta** — Rjae, 2026-09-04: the frame's instruction paragraph must follow the security model (default = whatever Claude allows; tighten by opt-in); one corpus sweep per shipped level |
 | P5-13 | **F1: the SessionStart context line names only the bare `brigade`** — the absolute plugin path moved to `brigade whoami`'s human output (`terminal: <path>`, from the by-pid map's existing `plugin_bin`; deliberately NOT in `--json`, the form the model reads) and `docs/setup.md`'s "Terminal use" | done | Opus | this commit — the new line ends "Use `brigade sessions` and `brigade send`."; pinned exactly in `start_test.go`, `e2e_test.go` and the hook txtar; measured on 2.1.261: **15/15 idle wakes in the bare form (three runs, 0 path forms in any transcript)** and **2/2 ask-bypass sessions bare + the ask dialog + nothing executed** — the reversal of P4-5's executed bypass send (see "P5-13 DONE") |
 | P5-14 | **F3: the watcher's seen file keyed by Brigade session id** (`state/seen/<id>.json`, read from the by-pid map both callers already hold; old per-pid files ignored) | done | Fable | this commit — `TestCrashAndResumeDedupe` with a real file store (no re-injection after a "crash" and `--resume` under the same session id with a new pid; a failed post is never remembered; a different key loads nothing) + the 17-row path-encoding table with anti-escape and injectivity assertions + a charset drift join; five mutations each caught by named tests across packages; **`make e2e` 221/221 and the crash-and-resume proof 316/316 with the per-pid seen residue gone (4 → 2 files, `stale_seen` false both arms, exactly-once 5/5)** (see "P5-14 DONE") |
-| P5-15 | **C-12 order dependency in the conformance suite** (found by P5-1's verifier, 2026-09-05): `fixture.go:165` registers A's session with the default 90 s lease and never heartbeats it; `c12_list.go:71` lists with `include_offline = false` and asserts the session is present — passes in id order (10.9 s in), fails under `--shuffle` on the hosted backend (124.8 s in). Fix the fixture's lease or the assertion; the suite is the third-party contract | todo | Opus | brief to write; runs before P5-11's soak, which shuffles |
+| P5-15 | **C-12/C-43 order dependency in the conformance suite** (found by P5-1's verifier under `--shuffle` on the hosted project): the fixture's sessions took the 90 s default lease and were never heartbeated | done | Opus | this commit — the fixture registers with `describe.lease.max_seconds`, an eight-minute suite budget, a run outliving its lease refused with exit 3; a two-second clock-seam reproduction; supabase 45/0/0 under two shuffle seeds incl. C-12 last (see "P5-15 DONE") |
 
 ## Phase 6 — house conventions (added 2026-09-03, Rjae's request)
 
@@ -932,6 +932,54 @@ runs as the user, so `hold` withholds delivery and the model's ordinary context 
 host with a live watcher can have both processes apply one release (stamping is idempotent, the seen file dedupes after the
 first `Done`; a window exists, pre-existing under `accept`); `brigade inbox` lists sessions whose by-pid map survived a
 crash (F4's prune territory); `--settings`-sourced native policy stays out of the scan's reach.
+
+---
+
+## P5-15 DONE — the conformance fixture outlives the run: its sessions take the adapter's maximum lease, and a run that outlives them is refused (2026-09-05)
+
+Found by P5-1's verifier on the hosted project under `--shuffle` (the "P5-1 DONE" section): the fixture registered
+`fixture-a/-b/-c` with no `lease_seconds` — the protocol default of 90 s — and never heartbeated them, while C-12 lists with
+`include_offline = false` and asserts A's fixture session is present. In id order C-12 ran 10.9 s into a run; shuffled on the
+hosted backend it ran at 124.8 s, past the lease, and failed while the backend did exactly what C-14 requires. The fs suite
+(~20 s end to end) could never reach the lease and hid it. C-43 (`session_count ≥ 1`, non-null `last_seen_at`) carried the same
+latent dependency. Opus author and Opus adversarial verifier, in a worktree at 80f2f6d.
+
+**The fix, and what it is not.** The fixture now reads `describe.lease.max_seconds` and registers its three sessions with it —
+read from `describe` like every other bound, so a third-party adapter's own range is honoured (both shipped adapters advertise
+600 s; the Supabase schema pins `between 30 and 600`). The suite states a whole-run budget, `conformance.SuiteWallClockBudget`
+= 8 minutes (3× the slowest measured run, hosted 160 s for 45 cases with `--slow`; two minutes under the 4.4.1 default range's
+600 s), and a run that outlives the lease it was granted is refused at the end with `ExitLauncher` (3) naming the lease, the
+elapsed monotonic time and the budget — every case past that point read a dead fixture and its result meant nothing. Two
+drift joins: a shorter lease fails `TestSuiteWallClockBudgetFitsTheDefaultLeaseRange` and `TestFixtureLeaseCoversTheSuiteBudget`
+(the real grant on A's record through the fs adapter); a longer suite trips the refusal. Heartbeating from a goroutine was
+rejected because `docs/adapter-authors.md` promises adapter authors that no two of their processes are alive outside the ten
+watch cases; flipping C-12 to `include_offline = true` was rejected because it would delete the suite's one live-listing
+assertion. **No wire shape, no case id semantics and no case assertion changed;** `docs/protocol-v1.md` untouched.
+
+**Reproduced without waiting 90 s.** `TestFixtureOutlivesASlowRun` runs the real C-12 against the real fs adapter after a clock
+seam ages every stored session record by 125 s between two cases (the fs adapter computes `state` from `lease_until` at read
+time and no adapter process is alive between cases): with the lease removed it fails with the hosted run's exact message, "A's
+fixture session is absent", and shows `1m29.94s of lease left`; with the fix it passes. Gates: `go test -race -shuffle=on
+./internal/conformance/...` 0; `make lint` 0; `make test` 0 (fs 44/0/1); `make test-integration` 0 (supabase 45/0/0 in 83 s);
+`--slow --shuffle 5150907` (the verifier's seed) 45/0/0 with C-12 at 20/45; `--slow --shuffle 15` 45/0/0 with C-12 last.
+`docs/adapter-authors.md` states the lease rule, the budget, the exit code and the measured numbers.
+
+**Verified (Opus, adversarial): PASS, no edits.** The diff confirmed to touch no case assertion (`cases/**` untouched; `options.go`
+comment-only); the new refusal judged a contract tightening and the right one — past the lease every result is noise, and the
+old behaviour could hand a slow-backend adapter a green run because `--shuffle` put C-12 early; the message names the lever an
+author has (`lease.max_seconds`, protocol-legal above 600). Malformed `describe` lease blocks fail loudly at describe time
+(three shapes probed, all exit 3). The reproduction re-run with only the fixture's `lease_seconds` removed fails with the hosted
+run's exact message; the clock seam is honest (the fs adapter computes `state` from `lease_until` at read time; the helper
+fails below three files; no adapter process alive at the edit). The verifier's own overrun construction against the real fs
+adapter with a two-second advertised lease: exit 3 with the full message; the control exit 0; the clock monotonic with the
+registration stamped before the three registers. Four mutations bite (budget above the range, below the default, non-integral;
+the fs maximum lowered to 100 s). Gates 0 throughout; local supabase 45/0/0 under `--shuffle 163` (chosen by enumerating the
+shuffle offline: C-12 last, started at 79.6 s); `fixture-a/-b/-c` at `lease_seconds = 600` on the local database against the
+schema's `between 30 and 600`. The one finding, settled by the driver: the doc said the top of the lease range "is exercised
+exactly as C-14 exercises the bottom", but the fixture never checks the GRANTED value — a scratch fs adapter that advertised
+600 and clamped to 90 reproduced the C-12 symptom with no mention of the lease; the clause now says the value is requested and
+only C-14 asserts a grant, and the loud grant check in the fixture (decode the register result's `lease_seconds`) is a
+follow-up for the next conformance pass.
 
 ---
 
