@@ -482,10 +482,15 @@ session is present in a **live** `session list` (`include_offline = false`), so 
 run whatever order `--shuffle` puts the cases in. Two consequences for you. Your advertised maximum has to cover a
 whole run: the suite's budget is **8 minutes**, and a run that outlives the lease it was granted is refused with a
 launcher error (exit 3) naming the lease, the elapsed time and the budget — never reported as a case failure, because
-every case past that point read an offline fixture and its result, green or red, means nothing. And a `lease_seconds`
-at the very top of your own advertised range is *requested* on every run, by the first case that touches the fixture;
-only C-14 asserts the value an adapter actually grants, so an adapter that silently clamps a long lease is not told so
-by name — it fails C-12 later with "A's fixture session is absent", and that message now has exactly one likely cause.
+every case past that point read an offline fixture and its result, green or red, means nothing. And the top of your own
+advertised range is exercised on every run, by the first case that touches the fixture, exactly as C-14 exercises the
+bottom. The fixture reads the `lease_seconds` you grant and refuses the run unless it is exactly the value it
+requested: another launcher error (exit 3), raised while the fixture is being built, so no case ever reads a fixture
+whose lease is in doubt, and naming the request, the grant and `lease.max_seconds` as the lever. An adapter that
+silently clamps a long lease is therefore told so by name, instead of failing C-12 much later with "A's fixture
+session is absent". A `lease_seconds` that is absent or not an integer is refused the same way — 4.4.2 requires it and
+the fixture cannot be reasoned about without it — and so is a grant *longer* than you advertised, which contradicts
+your own `describe`.
 (Measured 2026-09-05: with the fixture on the 90 s default instead, the hosted
 Supabase run failed C-12 at t = 124.8 s under `--shuffle 5150907` and passed it at t = 10.9 s in id order — the
 backend having behaved exactly as C-14 requires.)

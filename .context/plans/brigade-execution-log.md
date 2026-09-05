@@ -98,13 +98,13 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P5-5 | ~~Local `injected` ring and `brigade inbox --recent`~~ — **DISCARDED by the owner, 2026-09-05**: it would have stored every injected frame, body included, on disk for seven days to recover messages swallowed by a native `hold` set through `--settings`; a narrow loss case, and the owner does not want message bodies stored locally. Nothing reached master (its partial work was lost with the restart) | discarded | — | the `--settings` blind spot stays documented in `docs/setup.md`; E2E-04 is retired with the row; the one doc sentence that promised `--recent` is removed |
 | P5-6 | ~~OS keychain `SecretStore`~~ — **DISCARDED by the owner, 2026-09-05** ("Where secrets are involved, I want a simple file solution"): the 0600 `session.json` under a 0700 profile directory (D23) stays the only credential store; nothing of P5-6 reached master (its finished work was lost with the restart) | discarded | — | D33's keychain entry struck; the P5-7 security doc drops the keychain paragraph; ADV-7 stays an accepted limit |
 | P5-1 | **Hosted deployment** (5.11, D32): four migrations pushed, `brigade` exposed through PostgREST, Realtime `private_only`, `make backend-install` end to end, `scripts/backend-settings.sh` | done | Opus | this commit — keep-alive `health 200, signup 200, rpc 200, logout 204` (run 33963399423), hosted conformance 45/0/0 in 160 s, pg_cron present on the Free plan (P5-3's `[unverified]` closed) (see "P5-1 DONE") |
-| P5-9 | **`team_inbound = hold`**: the pending file, the held notice, `brigade inbox`, `brigade inbox release` (terminal-only), the watcher's file-based release | done | Fable | this commit — no protocol change; nine author mutations plus the verifier's; `make e2e` 221/221 from the worktree (see "P5-9 DONE") |
+| P5-9 | **`team_inbound = hold`**: the pending file, the held notice, `brigade inbox`, `brigade inbox release` (terminal-only), the watcher's file-based release | done | Fable | this commit — no protocol change; nine author mutations plus the verifier's; `make e2e` 221/221 from the worktree (see "P5-9 DONE"); **two verifier observations, not defects (ruled 2026-09-05, recorded here at the hand-off's request):** the sub-millisecond crash window between consuming the release file and saving the pending file (the code has the correct order and says so), and empty `accept` sessions listed by `brigade inbox` (masked by the terminal filter; one extra spawn, no leak) — candidates for `docs/security.md`'s known limits in P5-7b |
 | P5-2 | **Team administration**: `rotate_join_secret`, `revoke_membership`, `revoke_memberships_by_version`, `transfer_team`; adapter and harness `team rotate-secret|revoke-member|transfer` (terminal-only) | done | Fable | this commit — migration `20260905120000_brigade_team_admin.sql`, `team_admin.sql` 247 assertions, three live tests, I-16 lag 2 ms on both paths so `jwt_expiry` stays 3600 s (see "P5-2 DONE") |
 | P5-7a | **The RFC final pass over `docs/protocol-v1.md` and `CHANGELOG.md`** (the P5-7 carve-out that touches no in-flight file) | done | Opus | this commit — six editorial lines in the protocol doc (one comma; five Appendix B "Suggested home" cells now naming real tests), nothing normative and no JSON block touched (`TestSpecExamplesAreTheTestdataFiles` and `make schema-check` green without regeneration); `CHANGELOG.md` in Keep a Changelog form, 40 items each traced to an artifact at HEAD; P5-7b (security doc, setup, plugin README, README rows) runs after P5-1/2/5/6/9/12 land (see "P5-7a DONE") |
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo — **LAST before the release; measurement cut** | Fable | **Rjae, 2026-09-05: deferred until every other Phase 5 row is done and the tree is ready for beta — it runs immediately before P5-10.** The measurement is the full 78-item corpus under `open` (the default people will run) plus about ten items under each of `guarded` and `strict`: ~100 headless sessions, ~1.5 h, not the brief's ~263 / ~3.8 h. Earlier ruling (2026-09-04): the frame's paragraph follows the security model — the default allows what Claude allows; users tighten by opt-in; one user-specified text via `frame_file`. Brief `.ignored/briefs/p5-12-frame-levels.md` (its §6 sweep table is superseded by this row). |
 | P5-13 | **F1: the SessionStart context line names only the bare `brigade`** — the absolute plugin path moved to `brigade whoami`'s human output (`terminal: <path>`, from the by-pid map's existing `plugin_bin`; deliberately NOT in `--json`, the form the model reads) and `docs/setup.md`'s "Terminal use" | done | Opus | this commit — the new line ends "Use `brigade sessions` and `brigade send`."; pinned exactly in `start_test.go`, `e2e_test.go` and the hook txtar; measured on 2.1.261: **15/15 idle wakes in the bare form (three runs, 0 path forms in any transcript)** and **2/2 ask-bypass sessions bare + the ask dialog + nothing executed** — the reversal of P4-5's executed bypass send (see "P5-13 DONE") |
 | P5-14 | **F3: the watcher's seen file keyed by Brigade session id** (`state/seen/<id>.json`, read from the by-pid map both callers already hold; old per-pid files ignored) | done | Fable | this commit — `TestCrashAndResumeDedupe` with a real file store (no re-injection after a "crash" and `--resume` under the same session id with a new pid; a failed post is never remembered; a different key loads nothing) + the 17-row path-encoding table with anti-escape and injectivity assertions + a charset drift join; five mutations each caught by named tests across packages; **`make e2e` 221/221 and the crash-and-resume proof 316/316 with the per-pid seen residue gone (4 → 2 files, `stale_seen` false both arms, exactly-once 5/5)** (see "P5-14 DONE") |
-| P5-15 | **C-12/C-43 order dependency in the conformance suite** (found by P5-1's verifier under `--shuffle` on the hosted project): the fixture's sessions took the 90 s default lease and were never heartbeated | done | Opus | this commit — the fixture registers with `describe.lease.max_seconds`, an eight-minute suite budget, a run outliving its lease refused with exit 3; a two-second clock-seam reproduction; supabase 45/0/0 under two shuffle seeds incl. C-12 last (see "P5-15 DONE") |
+| P5-15 | **C-12/C-43 order dependency in the conformance suite** (found by P5-1's verifier under `--shuffle` on the hosted project): the fixture's sessions took the 90 s default lease and were never heartbeated | done | Opus | this commit — the fixture registers with `describe.lease.max_seconds`, an eight-minute suite budget, a run outliving its lease refused with exit 3; a two-second clock-seam reproduction; supabase 45/0/0 under two shuffle seeds incl. C-12 last (see "P5-15 DONE"); the grant check landed (P5-15b, this commit) |
 
 ## Phase 6 — house conventions (added 2026-09-03, Rjae's request)
 
@@ -984,7 +984,58 @@ schema's `between 30 and 600`. The one finding, settled by the driver: the doc s
 exactly as C-14 exercises the bottom", but the fixture never checks the GRANTED value — a scratch fs adapter that advertised
 600 and clamped to 90 reproduced the C-12 symptom with no mention of the lease; the clause now says the value is requested and
 only C-14 asserts a grant, and the loud grant check in the fixture (decode the register result's `lease_seconds`) is a
-follow-up for the next conformance pass.
+follow-up for the next conformance pass. (Both of those last two clauses are the record as it stood at P5-15: the
+follow-up landed in P5-15b below, and the doc clause was rewritten with it.)
+
+**Follow-up landed (P5-15b, 2026-09-05):** the fixture now checks the lease it was GRANTED.
+`fixture.register` reads `lease_seconds` from the loose register result (4.4.2 carries it beside the 4.4.3 record;
+`protocol.SessionRecord` has no such member) and returns a `fixture:`-prefixed error — `ensure` turns it into
+`launcherAbort`, `Run` reports it with `ExitLauncher` (3) — when the member is absent, is not an integral JSON number,
+or is not EXACTLY the value requested. The exact-equality ruling (driver's): the request is the adapter's own
+advertised `lease.max_seconds`, so any other grant contradicts its own `describe` and neither number can be trusted as
+the fixture's lease; it is the same shape as C-14's assertion at the bottom of the range, applied to the top on every
+run. A short grant is the C-12 hazard and its message says so by name — the request, the grant, and that a run on this
+grant fails C-12 later as "A's fixture session is absent" with no mention of the lease; a long grant is refused too,
+with a message that does not claim that consequence. Every message names `lease.max_seconds` in `describe` as the
+lever. Nothing else moved: no exported API, no wire shape, no schema, `cases/**` and `docs/protocol-v1.md` untouched.
+
+Two test fakes were non-conforming adapters under the new check and now ECHO the requested lease (POSIX `sed` out of
+the registration document they already receive on stdin): `leaseFake` in `internal/conformance/fixture_lease_test.go`
+(it gains a `grant` argument — `grantEcho`, `grantFixed(n)`, `grantAbsent`, `grantNotAnInteger`) and
+`TestRunSetupProvisionsTheFixture`'s adapter in `run_test.go`, which advertises 600 and used to answer a fixed 90.
+Three new tests: `TestFixtureRefusesAClampedLease` (advertise 123, grant 90 → exit 3 naming 123, 90, the lever and the
+C-12 consequence, with the `--json` report still written; control: the echoing fake → exit 0, stderr without
+"granted"), `TestFixtureRefusesAMissingGrant` (absent and non-integer arms → exit 3) and
+`TestFixtureRefusesALeaseLongerThanTheRequest` (advertise 123, grant 200 → exit 3, and the message must NOT mention
+C-12). Three mutations, each reverted: deleting the call fails all four arms; weakening exact equality to "short of
+the request" fails the longer-grant test and only it; deleting the lever clause fails all four arms. That third
+mutation did NOT bite at first — the tests asserted the bare string `lease.max_seconds`, which the message's opening
+clause ("this adapter's own describe.lease.max_seconds") already satisfies — so the assertion now names the lever
+sentence itself, and the reason is a comment in the test file. `docs/adapter-authors.md`'s lease paragraph replaces
+"only C-14 asserts the value an adapter actually grants" with the truth: the top of your advertised range is exercised
+on every run exactly as C-14 exercises the bottom; the measured 2026-09-05 parenthesis is unchanged, and the file has
+no other sentence saying the grant is unchecked (a case-insensitive grep for `clamp` or `requested` finds two
+lines, both inside the new text).
+Gates in the lane worktree: `go test -race -shuffle=on -count=1 ./internal/conformance/...` exit 0 (70.5 s + 1.3 s);
+`make typecheck build test` exit 0 with the fs suite 44 passed / 0 failed / 1 skipped in 20.4 s; `make lint` exit 0,
+0 issues on darwin, on linux and under each of the four mutant tags.
+
+**Verified (Opus, adversarial):** PASS. The three mutations were re-applied and reverted by the verifier and bite as
+claimed: deleting `checkGrantedLease` fails all four arms; removing the `granted > requested` arm fails
+`TestFixtureRefusesALeaseLongerThanTheRequest` and only it; `lever := ""` fails all four on the lever sentence. The
+verifier's own probe — a fake advertising the 600 s default maximum (the shipped adapters' range) and granting a fixed
+90 — exits 3 naming 600 and 90, still writes the `--json` report, leaves stdout empty without `--json`, and its
+echoing twin exits 0; the run STOPS at the refusal (a second case's body never runs), which the verifier added as a
+permanent assertion in `TestFixtureRefusesAClampedLease` and proved by deleting run.go's `break` (it then fails). No
+other fake in the tree answers `session register` on the fixture path (`launcher_test.go`'s is a scratch principal;
+`internal/harness/hook`'s belong to the harness), and neither shipped adapter clamps:
+`internal/adapters/fs/session.go` echoes, and `brigade.register_session` stores `p_lease_seconds` and returns it
+unchanged (no `least()`) against the schema's `between 30 and 600`, so the hosted 600 s request is granted exactly.
+Two sentences corrected: `docs/adapter-authors.md` regained the qualifier "by the first case that touches the fixture"
+(`--only C-01` builds no fixture, so "on every run" alone was false), and the P5-15 verifier paragraph above is now
+marked as the record as it stood. Gates re-run: `go test -race -shuffle=on -count=1 ./internal/conformance/...` exit 0
+(70.4 s + 1.3 s); `make typecheck build test` exit 0 with the fs suite 44 passed / 0 failed / 1 skipped in 20.33 s;
+`make lint` exit 0, 0 issues in all six runs.
 
 ---
 
@@ -2209,3 +2260,13 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   it later is one line); P5-4 folds into the docs block; P5-15's grant check is a ten-line change done alongside the docs; the
   two P5-9 notes stay notes. Every open item goes to `15-implement-brigade-0905`; nothing is retained here. The owner's own
   steps: flip the repository to public before P5-10's install test, and run (or direct) `make release version=0.1.0`.
+- 2026-09-05 14:2x EDT: **Session `15-implement-brigade-0905` (Fable, `~/.claude-ifthen`) took the hand-off from
+  `15-implement-brigade-0904`.** The peer runs under another config directory and was invisible to native peer messaging, so
+  the registry-copy bridge of the thinktech `handoff` skill was used (both session pairs copied, the ack received, all four
+  copies removed and proven gone). The peer confirmed: nothing retained, no lane running, master clean at `2dc98f5`, CI green
+  (33981032892). Verified here against the repository before any edit. **First lane, P5-15b (Opus author, Opus adversarial
+  verifier, worktree `.ignored/wt/p5-15b`): the conformance fixture now checks the lease it is GRANTED** — landed in this
+  commit (see the follow-up paragraph under "P5-15 DONE"). The two P5-9 notes are recorded in the Status row as observations.
+  **The soak's phase 1 is running on the main tree** (Fable author: the `E5-soak` drivers, `score.py` and M1–M4, no Claude
+  session started); its session phase (M5–M7, the 2 h run, the burst) starts after this commit lands, on a quiet machine.
+  Order from here, unchanged: P5-11 → P5-7b (with P5-4's paragraph) → P5-12 → P5-10 → P5-16.

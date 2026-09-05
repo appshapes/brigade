@@ -229,9 +229,10 @@ func (f *fixture) identify(t *T, p *Principal) error {
 }
 
 // register registers p's fixture session with leaseSeconds, the longest
-// lease the adapter advertises. The lease is EXPLICIT and never left to
-// `lease.default_seconds`: nothing heartbeats these three sessions and
-// C-12 requires A's to still be live whenever it happens to run.
+// lease the adapter advertises, and checks the lease it was GRANTED. The
+// lease is EXPLICIT and never left to `lease.default_seconds`: nothing
+// heartbeats these three sessions and C-12 requires A's to still be live
+// whenever it happens to run.
 func (f *fixture) register(t *T, p *Principal, leaseSeconds int) error {
 	reg := protocol.SessionRegistration{
 		Harness:        Harness,
@@ -250,6 +251,53 @@ func (f *fixture) register(t *T, p *Principal, leaseSeconds int) error {
 		return errors.New("fixture: session register for " + p.Name + ": " + err.Error())
 	}
 	p.session = rec.SessionID
+	return checkGrantedLease(p.Name, leaseSeconds, r.Raw)
+}
+
+// checkGrantedLease refuses the fixture unless the adapter granted
+// EXACTLY the lease the fixture requested, which is the adapter's OWN
+// advertised `lease.max_seconds`: any other grant contradicts its own
+// `describe`, so neither number can be trusted as the lease A, B and C
+// hold. It is the same shape as C-14's assertion at the bottom of the
+// range, applied to the top on every run.
+//
+// The grant is read from the loose result object because 4.4.2 carries
+// `lease_seconds` BESIDE the 4.4.3 record — protocol.SessionRecord has no
+// such member and protocol.Decode tolerates the extra ones — and it is
+// read here rather than left to C-10 (which asserts the member against
+// `lease.default_seconds`, on its own registration, and may run after
+// every case that already read the fixture) because a silent clamp
+// otherwise surfaces only as C-12's "A's fixture session is absent",
+// which names nothing an author can act on. Refusing here is a launcher
+// error: ensure turns it into launcherAbort and Run reports it with
+// ExitLauncher (3) before any case has run against a fixture whose lease
+// nobody knows.
+func checkGrantedLease(name string, requested int, raw map[string]any) error {
+	asked := "fixture: session register for " + name + ": the fixture requested lease_seconds " +
+		strconv.Itoa(requested) + " s, this adapter's own describe.lease.max_seconds, and "
+	lever := "; the lever is lease.max_seconds in describe: advertise the longest lease you will actually grant"
+	unknown := ", so the lease A, B and C hold is unknown and no case that reads them can be reasoned about"
+
+	result, _ := raw["result"].(map[string]any)
+	value, present := result["lease_seconds"]
+	number, isNumber := value.(float64)
+	switch {
+	case !present:
+		return errors.New(asked + "lease_seconds is absent from the result (4.4.2 carries it beside the record, and C-10 asserts it)" + unknown + lever)
+	case !isNumber || number != float64(int(number)):
+		return errors.New(asked + "the granted lease_seconds is not an integer" + unknown + lever)
+	}
+
+	granted := int(number)
+	switch {
+	case granted < requested:
+		return errors.New(asked + "was granted " + strconv.Itoa(granted) +
+			" s: nothing heartbeats A, B and C, so a run on this grant lists them offline " + strconv.Itoa(granted) +
+			" s after the fixture is built (4.5.8) and fails C-12 later as \"A's fixture session is absent\" with no mention of the lease" + lever)
+	case granted > requested:
+		return errors.New(asked + "was granted " + strconv.Itoa(granted) +
+			" s, longer than the maximum this adapter advertises: the grant contradicts describe" + lever)
+	}
 	return nil
 }
 

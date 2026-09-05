@@ -157,14 +157,20 @@ func TestRunDirectoryScanFailsC05(t *testing.T) {
 func TestRunSetupProvisionsTheFixture(t *testing.T) {
 	t.Parallel()
 	// An adapter whose describe says joined once --setup has written a
-	// marker, and whose session register answers a record.
+	// marker, and whose session register answers a record. Its grant ECHOES
+	// the requested lease_seconds: the fixture asks for the advertised
+	// lease.max_seconds and refuses any other grant (P5-15b), so a fake
+	// that answered a fixed number would be a non-conforming adapter.
 	joined := strings.Replace(fakeDescribe(t), `"profile":{"name":"default","state":"unconfigured"}`,
 		`"profile":{"name":"default","state":"joined","team_ref":"'"$(cat "$BRIGADE_CONFIG_DIR/team")"'","team_name":"ops","principal_ref":"'"$BRIGADE_CONFIG_DIR"'","human_label":"x@example.com"}`, 1)
-	record := `{"ok":true,"protocol_version":"1","result":{"session_id":"'"$BRIGADE_CONFIG_DIR"'","session_name":"fixture","principal_ref":"p","state":"active","activity":"busy","inbound":"accept","last_seen_at":"2026-08-30T12:00:00Z","lease_until":"2026-08-30T12:01:30Z","created_at":"2026-08-30T12:00:00Z","is_self":false,"resumed":false,"lease_seconds":90,"server_time":"2026-08-30T12:00:00Z"}}`
 	adapter := writeScript(t, "adapter", `
 case "$1 $2" in
   "describe ") if [ -f "$BRIGADE_CONFIG_DIR/team" ]; then printf '%s\n' '`+joined+`'; else printf '%s\n' '`+fakeDescribe(t)+`'; fi ;;
-  "session register") printf '%s\n' '`+record+`' ;;
+  "session register")
+    cat > "$BRIGADE_CONFIG_DIR/registration.json"
+    `+readRequestedLease+`
+    `+grantEcho+`
+    printf '`+registerRecord+`\n' "$BRIGADE_CONFIG_DIR" "$member" ;;
   *) printf '%s\n' '`+usageEnvelope+`'; exit 2 ;;
 esac
 `)
