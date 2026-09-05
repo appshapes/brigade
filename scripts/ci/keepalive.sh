@@ -20,9 +20,11 @@
 #                      counts. The body is byte-identical to the adapter's (gotrue.go, signUpAnonymous).
 #   3. Data API        POST /rest/v1/rpc/my_team_ids      200 expected -- brigade.my_team_ids() is `security
 #                      definer` and granted to `authenticated` (supabase/migrations/2026...brigade_schema.sql),
-#                      so it answers an empty set for a principal with no membership. A 404 is a `::warning::`
-#                      and not a failure: applying the migrations to the hosted project is P5-1's job, and
-#                      rung 2 has already generated the day's activity.
+#                      so it answers an empty set for a principal with no membership. PostgREST's own "not
+#                      there yet" answers -- PGRST106 (HTTP 406, the schema is not exposed) and PGRST202
+#                      (HTTP 404, the function is missing) -- are a `::warning::` and not a failure:
+#                      applying the migrations to the hosted project is P5-1's job, and rung 2 has already
+#                      generated the day's activity. Any other refusal is the alert.
 #   4. sign-out        POST /auth/v1/logout?scope=global  204 expected; anything else is a `::warning::`,
 #                      never a failure. The one anonymous user a day is deliberate: P5-3's gc removes it.
 #
@@ -126,10 +128,16 @@ rpc_fn=my_team_ids
 rpc=$(curl_status "$body" -H @"$hdr_auth" -H 'Accept-Profile: brigade' -H 'Content-Profile: brigade' -H 'Content-Type: application/json' --data '{}' "$url/rest/v1/rpc/$rpc_fn") || true
 case $rpc in
   200) say "rpc ok (HTTP 200): brigade.$rpc_fn() answered -- the brigade schema is exposed and the migrations are applied" ;;
-  404) warn "the brigade schema or $rpc_fn() is not on this project yet (P5-1 applies the migrations); the sign-up above already counted as activity" ;;
   *)   pg_code=$(jq -r '.code // empty' < "$body" 2>/dev/null) || pg_code=''
        pg_message=$(jq -r '.message // empty' < "$body" 2>/dev/null) || pg_message=''
-       die "the Data API refused POST /rest/v1/rpc/$rpc_fn (HTTP $rpc): code=$pg_code message=$pg_message" ;;
+       # The two shapes of "P5-1 has not run yet", both from PostgREST itself: PGRST106 (HTTP 406) when the
+       # `brigade` schema is not among the API's exposed schemas -- what the hosted project answered on
+       # 2026-09-04 (run 33942074574) -- and PGRST202 (HTTP 404) when the schema is exposed but the function
+       # is not there. Anything else, a bare 404 from the gateway included, is the alert.
+       case $pg_code in
+         PGRST106|PGRST202) warn "the brigade schema or $rpc_fn() is not on this project yet (HTTP $rpc $pg_code; P5-1 applies the migrations and exposes the schema); the sign-up above already counted as activity" ;;
+         *) die "the Data API refused POST /rest/v1/rpc/$rpc_fn (HTTP $rpc): code=$pg_code message=$pg_message" ;;
+       esac ;;
 esac
 
 # ---- 4. sign-out ----------------------------------------------------------------------------------------

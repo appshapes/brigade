@@ -524,6 +524,36 @@ var keepaliveCaseTable = []keepaliveCase{
 		},
 	},
 	{
+		// What the hosted project actually answered on 2026-09-04 (run 33942074574), before P5-1: the `brigade`
+		// schema is not among the API's exposed schemas, so PostgREST answers 406 PGRST106 -- not the 404 the
+		// first version of this script waited for. The same warning, the same green run.
+		name: "an unexposed brigade schema (406 PGRST106) is a warning, not a failure",
+		run: func(t *testing.T, r reporter, script string) {
+			t.Helper()
+			ks := newKeepaliveServer(t)
+			ks.rpcStatus = http.StatusNotAcceptable
+			ks.rpcBody = `{"code":"PGRST106","message":"Invalid schema: brigade"}`
+			run := runKeepalive(t, script, keepaliveVars(ks.url)...)
+			keepalivePass(r, run.result,
+				"::warning::keepalive: the brigade schema or my_team_ids() is not on this project yet (HTTP 406 PGRST106; P5-1 applies the migrations and exposes the schema)",
+				"keepalive: done -- rungs: health 200, signup 200, rpc 406, logout 204")
+		},
+	},
+	{
+		// A 404 that is not PostgREST's PGRST202 -- the gateway's, a wrong path, an HTML body -- is not "P5-1 has
+		// not run yet" and must be the alert, not a warning that hides a broken URL for a year.
+		name: "a 404 without a PostgREST code is the alert",
+		run: func(t *testing.T, r reporter, script string) {
+			t.Helper()
+			ks := newKeepaliveServer(t)
+			ks.rpcStatus = http.StatusNotFound
+			ks.rpcBody = `<html>no Route matched with those values</html>`
+			run := runKeepalive(t, script, keepaliveVars(ks.url)...)
+			keepaliveFail(r, run.result,
+				"::error::keepalive: the Data API refused POST /rest/v1/rpc/my_team_ids (HTTP 404): code= message=")
+		},
+	},
+	{
 		// The hosted project before P5-1 applies the migrations: a warning, never a failure, because rung 2
 		// has already generated the day's activity and that is what this workflow is for.
 		name: "a missing brigade schema is a warning, not a failure",
@@ -534,7 +564,7 @@ var keepaliveCaseTable = []keepaliveCase{
 			ks.rpcBody = `{"code":"PGRST202","message":"Could not find the function brigade.my_team_ids"}`
 			run := runKeepalive(t, script, keepaliveVars(ks.url)...)
 			keepalivePass(r, run.result,
-				"::warning::keepalive: the brigade schema or my_team_ids() is not on this project yet (P5-1 applies the migrations)",
+				"::warning::keepalive: the brigade schema or my_team_ids() is not on this project yet (HTTP 404 PGRST202; P5-1 applies the migrations and exposes the schema)",
 				"the sign-up above already counted as activity",
 				"keepalive: done -- rungs: health 200, signup 200, rpc 404, logout 204")
 			keepaliveWire(r, ks.seen(), [][2]string{
@@ -887,9 +917,15 @@ var keepaliveMutations = []struct {
 	},
 	{
 		"a missing brigade schema becomes a failure",
-		replaceInFile(keepaliveScriptRel, `  404) warn "the brigade schema`, `  404) die "the brigade schema`),
+		replaceInFile(keepaliveScriptRel, `PGRST106|PGRST202) warn "the brigade schema`, `PGRST106|PGRST202) die "the brigade schema`),
 		"a missing brigade schema is a warning, not a failure",
 		"P5-1 has not applied the migrations to the hosted project yet, and the sign-up already counted",
+	},
+	{
+		"the unexposed-schema shape (PGRST106) stops being recognised",
+		replaceInFile(keepaliveScriptRel, `PGRST106|PGRST202) warn`, `PGRST202) warn`),
+		"an unexposed brigade schema (406 PGRST106) is a warning, not a failure",
+		"the hosted project's real pre-P5-1 answer would page the administrator every day",
 	},
 	{
 		"a refused sign-out becomes a failure",

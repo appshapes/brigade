@@ -2,7 +2,31 @@
 
 This document is completed by P5-7, which adds the member-facing setup, the revoke procedure, the "Leaving and
 uninstalling" sequence and the sandbox and shadowing notes. Today it holds only the parts that already exist:
-the hosted project's administrator has one workflow to arm and one GitHub rule to remember.
+how to reach the plugin's binary from your own terminal, and the hosted project's administrator's one workflow
+to arm and one GitHub rule to remember.
+
+## Terminal use
+
+Inside a session the Bash tool finds `brigade` on its PATH because the plugin puts it there. Your own terminal
+does not, and the commands that must run there — `brigade team join`, `brigade profile …`, `brigade inbox` —
+refuse to run from inside a session, because the join secret must never pass through the chat. `brigade whoami`,
+run in a session, prints the plugin binary's absolute path on its own line:
+
+```
+session 09365acd… "payments-api" in team "ops" (profile default, adapter supabase 0.1.0); inbound: accept
+terminal: /Users/you/.claude/plugins/brigade/bin/brigade
+```
+
+Symlink that path onto your own PATH, and your terminal follows the version the plugin is pinned to, upgrade
+for upgrade, with nothing to reinstall — the bootstrap resolves its own symlinks and execs the binary
+`plugin/bin/VERSION` names:
+
+```sh
+ln -s /Users/you/.claude/plugins/brigade/bin/brigade ~/.local/bin/brigade
+```
+
+A symlink, not a copy: a `brigade` on your PATH that is not the plugin's own is what the session-start
+shadowing warning is about, and a copy goes stale at the next plugin upgrade.
 
 ## Hosted project: the administrator's responsibilities
 
@@ -61,7 +85,8 @@ run page names the rung:
   Authentication → Sign In / Providers → Allow anonymous sign-ins; the rest of the project's settings are in
   [plugin/README.md](../plugin/README.md), "Administrator: create a team", which this document does not
   duplicate.
-- *Data API* — an error other than a 404. A 404 is only a warning: it means the `brigade` schema or
+- *Data API* — an error other than PostgREST's own "not there yet" answers. A 406 `PGRST106` (the `brigade`
+  schema is not exposed) or a 404 `PGRST202` (the function is missing) is only a warning: it means the schema or
   `brigade.my_team_ids()` is not on the project yet, which is P5-1's job, and the sign-up on the rung above
   has already generated the day's activity.
 
