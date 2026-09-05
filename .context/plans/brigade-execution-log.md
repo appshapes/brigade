@@ -94,7 +94,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P5-4 | Outbound-confirmation follow-ups: the ask rule in bypass and auto sessions, the deny rule as the off switch, the text-matching limitation; one `docs/security.md` paragraph | todo — folded into P5-7b | Opus | the measurements already exist (E0-8 (b), E3 checks 4–5, P4-5 item 1, P5-13); P5-7b writes the paragraph from them. P5-8 is a retired id (D33). |
 | P5-10 | Release 0.1.0 and distribution | todo — **last** | Opus | **Rjae, 2026-09-05: the repository goes PUBLIC for 0.1.0**, so the first-use download and the marketplace install are tested for real from a fresh `CLAUDE_CONFIG_DIR`; **`make release version=0.1.0` is run by the owner, or by a session the owner directs** — the lane prepares everything and stops one command short. No Homebrew tap in 0.1.0 (moved to P5-16). Brief `.ignored/briefs/p5-10-release.md` (its private-route sections are moot). |
 | P5-16 | **Fast follow after 0.1.0: distribution channels** — a Homebrew tap (goreleaser `homebrew_casks`, now possible on a public repository) and a Linux equivalent (goreleaser `nfpms` `.deb`/`.rpm`, or the same tap through Linuxbrew — decide in the brief) | todo — after 0.1.0 | Opus | added 2026-09-05 at Rjae's request; brief to write; the plugin bootstrap stays the primary path and must not be shadowed by a tap install (E0-8 (e) measured the shadow) |
-| P5-11 | Soak: two interactive sessions on one profile for 2 h (the hourly credential renewal through the file lock, a short exchange every few minutes); the 1,000-hint burst (the watcher wakes once, fetches, drops the rest with one notice) | todo — **the pre-release block** | Fable | **Rjae, 2026-09-05: keep both halves; run when the machine is idle, in the block right before the release: P5-11 → P5-7b → P5-12 → P5-10.** Brief `.ignored/briefs/p5-11-soak.md`. |
+| P5-11 | Soak: two interactive sessions on one profile for 2 h (the hourly credential renewal through the file lock, a short exchange every few minutes); the 1,000-hint burst (the watcher wakes once, fetches, drops the rest with one notice) | done — **E2E-12 green; E2E-13's hint half green, its drop half an honest negative on the shipped race** (Brigade's queue never filled; the bound, the one notice and the redelivery-once are shown only under a labelled construction, never counted) | Fable | this commit — `scripts/experiments/E5-soak/` (Python + `expect` over the E4 rig) and `docs/experiments/E5-soak.md`; 13 sessions in all (12 + the verifier's standalone burst); **2 rotations of the shared credential and exactly 2 server-side `/token` calls in 2 h** (the flock's proof: the second watcher adopted), 0 lockout signals, heartbeats median 30.0 s / max 43.5 s with 0 over the lease, 23/23 beats, 93 frames by id, 102 acks, the t = 119 round trip witnessed in both transcripts and the database; 1,000 hints in a 9.13 s server span → +43 coalesced drains, 0 injections, the session answering in 985/645 ms; **two findings for Rjae: Claude Code 2.1.261 silently drops inbox posts beyond 50 queued while a turn is in flight, after Brigade's ack (9 of 60 frames lost; reproduced by the verifier); the provider's safeguard refuses the third split-token canary of a session and every turn after** (see "P5-11 DONE") |
 | P5-5 | ~~Local `injected` ring and `brigade inbox --recent`~~ — **DISCARDED by the owner, 2026-09-05**: it would have stored every injected frame, body included, on disk for seven days to recover messages swallowed by a native `hold` set through `--settings`; a narrow loss case, and the owner does not want message bodies stored locally. Nothing reached master (its partial work was lost with the restart) | discarded | — | the `--settings` blind spot stays documented in `docs/setup.md`; E2E-04 is retired with the row; the one doc sentence that promised `--recent` is removed |
 | P5-6 | ~~OS keychain `SecretStore`~~ — **DISCARDED by the owner, 2026-09-05** ("Where secrets are involved, I want a simple file solution"): the 0600 `session.json` under a 0700 profile directory (D23) stays the only credential store; nothing of P5-6 reached master (its finished work was lost with the restart) | discarded | — | D33's keychain entry struck; the P5-7 security doc drops the keychain paragraph; ADV-7 stays an accepted limit |
 | P5-1 | **Hosted deployment** (5.11, D32): four migrations pushed, `brigade` exposed through PostgREST, Realtime `private_only`, `make backend-install` end to end, `scripts/backend-settings.sh` | done | Opus | this commit — keep-alive `health 200, signup 200, rpc 200, logout 204` (run 33963399423), hosted conformance 45/0/0 in 160 s, pg_cron present on the Free plan (P5-3's `[unverified]` closed) (see "P5-1 DONE") |
@@ -789,6 +789,88 @@ the dashboard toggle (Authentication → Sign In / Providers → Allow anonymous
 scored runs, all of P4-5) — Supabase CLI 2.116.0, local Postgres 17.6, hosted 17.6.1.166. **What Phase 4 cost, for the record:**
 five proof lanes, ~260 real Claude sessions (84 + 36 + 24 + ~124 + the E3 sitting), the flake and hazard fixes along the way,
 and one day of the lean cadence for P4-3..P4-6 after the cadence change.
+
+## P5-11 DONE — two sessions on one profile renew one credential through the flock for two hours with no lockout; the hint burst drains without injecting; the queue bound is out of reach on the shipped race, and Claude Code's own inbox queue drops acknowledged frames (2026-09-05)
+
+Plan row P5-11 (E2E-12, E2E-13; brief `.ignored/briefs/p5-11-soak.md`). Fable author in two phases — phase 1 built
+`scripts/experiments/E5-soak/` (`e5s.py` the engine, `soak.py`, `burst.py`, `hints.sql`, `score.py`, `baseline.py`,
+`README.md`; Python + `expect`, importing `E4-interactive/{e4i,sender}.py` and `E0-8/common.py`, nothing copied) and
+measured M1–M4 with no model call; phase 2 ran M5, the 6-minute pilot, M6, M7, three instrument pilots, **the
+deliverable (two interactive sessions on profile `bob` for 120 min, beats every 12 min, the bursts at 60 and 90 min,
+under `caffeinate`)**, then the labelled constructed arm once. Fable adversarial verifier after. 12 sessions by the
+author, 1 by the verifier; no void, no re-run, no 429; `claude --version` 2.1.261 and the postgres start time equal at
+both ends of every run. Everything is in `docs/experiments/E5-soak.md` (every number traceable to a bundle under
+`.ignored/proof/20260905T*-{m5,pilot6,m6,m7,pilotb,pilotc,pilotd,soak,constructed,verifier-burst}/`).
+
+**E2E-12, green in every clause.** Two rotations of the shared credential (GoTrue's audit at 20:35:10.56Z and
+21:33:40.59Z, 86.4 and 89.4 s before expiry, against the predicted expiry − 90 s) and **exactly two server-side
+`/token` calls** — two watchers' adapter children share `profiles/bob/session.json` and its sidecar lock, and the
+second to reach its margin adopted the fresher token with no call (the flock's proof; 4 would have been the failure).
+Zero lockout signals by all eight clauses of the brief's 5.3 (0 terminal lines, 0 `lock_timeout`, 0 `unauthorized`,
+`adapter-bob.log` 0 bytes after two hours, `session.json` 0600 and `joined` in all 242 `profile status` samples).
+Heartbeats read from the server's `last_seen_at` every 15 s: median gap 30.0 s, max 42.0/43.5 s, 0 gaps over the 90 s
+lease, 0 `offline` in 121 roster samples. Workload floor: 23/23 beats answered, 93 frames injected by message id (none
+twice), 102 acks, 0 dialogs, 0 provider refusals; the final round trip at t = 119 min: the frame in B 11 ms after A's
+row, B's reply row in the database, the reply framed in A 2.5 s after A's send. RSS over 2 h: watchers 15.0→20.8 MB
+(+1.2 MB/h in the second hour) and 15.5→19.7 MB (+0.2), adapter children +0.7/+0.2 MB/h, the two `claude` processes
++135/+43 MB/h (Claude Code's own); the brief's doubling rule names watcher A and both `claude` pids — a 24 h soak is
+out of scope. `session.log` grows 2.2–2.9 KB/min with a beat every 12 min (280–363 KB in 2 h; 384 B/min idle).
+
+**E2E-13, half green, half an honest negative.** B1: 1,000 fabricated hints (the trigger's own `realtime.send`, from
+SQL — a client cannot broadcast on the topic) in a 9.13 s server span → +43 `fetch_inbox` drains within 3 s against a
+background of 2 per 30 s (the adapter's `onHint` coalescing: 21× fewer drains than hints), 0 injections, the channel
+still joined, the session answering probes in 985 ms during and 645 ms after. B2: 6 senders × 10 messages across two
+principals, 60 accepted in 342 ms, 0 refused, **0 drops and 0 notices: Brigade's 50-entry queue never filled**,
+because the injector posts a frame in ~10 ms and sixty sends land over hundreds of milliseconds across several
+coalesced drains — clauses 10 and 11 of the brief's acceptance are recorded as honest negatives with the measured
+high-water mark, never manufactured (the driver's ruling). The bound (4 drops), exactly one notice and the
+redelivery-once of the dropped ids (4/4, after the adapter child was SIGKILLed and the shipped supervision respawned it
+in 1,018 ms; `watch ready` 554 ms after a kill with no model) were shown once under the labelled `--pause-watcher`
+construction, scored `counted: false`. B3 in the constructed arm: 100 sends over 5 min, no further drop, no second
+notice. The lowered-`jwt_expiry` arm (brief 5.1) is deferred (no stack restart that day); E0-6 stays the 300 s measurement.
+
+**Two findings for Rjae, neither fixed here.** (1) **Claude Code 2.1.261 keeps 50 queued inbox posts while a turn is
+in flight and silently drops the rest — after Brigade has acknowledged them.** In the deliverable's B2 the injector
+posted 60 frames in ~600 ms while session A was mid-turn; Claude Code recorded 50 `queue-operation` enqueues plus one
+direct delivery and the last nine (server seq 52–60) appear nowhere; `socketpost.Post` reads nothing back by design,
+so every post returned success, Brigade acked and the server marked all 60 injected. Reproduced in the constructed arm
+(6 of 57) and by the verifier's standalone run (9 of 60). On the shipped race, E2E-13's "injection stays bounded" is
+Claude Code's bound, and it is lossy; Brigade's own queue (50, oldest-drop, unacked, redelivered after a child
+restart, one notice) never engages. A product question for the release: pace or hold posts while the session is busy
+(the watcher knows the activity flip), or restate the bound and document the loss. (2) **The provider's safeguard on
+the account's default model (`claude-opus-5`) refused the third split-token `READY` canary of a session** (3 of 3,
+`[reasoning_extraction]`) **and every turn after it** (6 of 6); a refused turn carries `stop_reason: refusal`, which
+`e4i.DONE_STOPS` counts as a completed turn. The rig now sends the canary once per session and probes with ordinary
+beats; the deliverable saw 0 refusals in 2 h. Any rig judging a turn by `DONE_STOPS` alone must read `isApiErrorMessage`.
+
+**Verified (Fable, adversarial): PASS.** Re-scored a same-basename copy of the deliverable offline: `summary.json`
+byte-identical (sha `1e9b7cf6…`), the constructed bundle too; re-derived by hand from the raw evidence and the live
+database, read-only: 2 rotations, 2 `/token` calls (exactly four audit events for the actor; `auth.refresh_tokens` 3
+rows / 2 revoked / 2 with `parent`), 0 drops, 0 notices, max 9 frames per sender per minute by calendar and sliding
+window, 102 acks, 93 frames, 23 beats, the heartbeat gaps, the RSS table to the KB, the nine lost posts at seq 52–60,
+13 sessions. The caps arithmetic of the brief's 5.4/5.6 matches `limits.go`, `limiter.go`, `queue.go`, `credentials.go`,
+`watch.go`, the schema and `config.toml`. Planted in a copy of the real bundle: a vacuous row, a frozen rotation series,
+a dead watcher, a fake notice and a wrong-topic B1 — all caught. Re-ran `burst.py` standalone (one session, 15.5 min):
+the same verdicts, and the same Claude Code loss (9 of 60). Corrected in place: the final-round-trip sentence (the
+author had read the driver's post-settle observation instants, ~47.7 s, as latencies; the real round trip is 2.5 s),
+the summary sha, "61 acks" → 60, and two drift-table cells. One weakness left to the driver: the scorer's clause-9
+drain floor (`≥ 1`) was satisfiable by the background rate alone.
+
+**Driver's notes.** The clause-9 floor now requires the 3 s drain delta to exceed the measured background per 30 s
+(`score.py`, its self-test fixture raised to match); the self-test's seven detectors pass and both verified bundles
+re-score byte-identically after the change. The local stack was **recreated at 18:22:08Z (14:22 EDT), between phase
+1's baseline and phase 2, by an actor outside every lane's transcript** — no lane ran a start or stop (every Bash tool
+call of the three lanes was scanned; the drivers only tell the operator to run `make supabase-start`); Docker's proxy
+log shows a registry auth request at that instant, the shape of a `supabase start` from a terminal. Phase 2 re-ran the
+baseline against the recreated stack and it matched; every run records the postgres start time at both ends. Plan
+corrections transcribed beside 5.1/5.6/5.11, 6.6/6.8, the P5-11 row, 9.8/9.9 and A-verified-facts (the flock is
+`flock.go`, the 5 ms retry, two-behind does not revoke, hints drain and only messages drop, the ten-message drop
+window, `profile status` takes no `--json`, a dropped id is re-emitted only after a child restart, the adapter logs
+nothing at INFO on a drain, the canary rule, GoTrue's rotation shapes, the pidfile keys, "acknowledged" means written
+to the socket). For P5-7b: `docs/security.md` names finding (1) as a known limit of this version unless Rjae rules a
+product change first.
+
+---
 
 ## P5-13 DONE — the context line no longer teaches the model a command form the allow-list cannot see (2026-09-05)
 
@@ -2270,3 +2352,10 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   **The soak's phase 1 is running on the main tree** (Fable author: the `E5-soak` drivers, `score.py` and M1–M4, no Claude
   session started); its session phase (M5–M7, the 2 h run, the burst) starts after this commit lands, on a quiet machine.
   Order from here, unchanged: P5-11 → P5-7b (with P5-4's paragraph) → P5-12 → P5-10 → P5-16.
+- 2026-09-05 18:5x EDT: **P5-11 is DONE (this commit): the 2 h two-session soak is green on every E2E-12 clause (2 rotations, 2 `/token`
+  calls, 0 lockout signals), the hint burst drains without injecting, and the drop half of E2E-13 is an honest negative on the
+  shipped race** — shown only under a labelled construction. **Two findings for Rjae** (see "P5-11 DONE"): Claude Code 2.1.261 silently
+  drops inbox posts beyond 50 queued while a turn is in flight, after Brigade's ack (9 of 60 frames lost, reproduced twice) — a
+  release question (pace or hold posts while busy, or document the loss); and the provider's safeguard refuses the third split-token
+  canary of a session and every turn after. The local stack was recreated at 14:22 EDT by an actor outside every lane's transcript.
+  13 sessions, no void. Next: P5-7b (the docs, Opus, worktree; addendum `.ignored/briefs/p5-7b-addendum.md`) → P5-12 → P5-10.
