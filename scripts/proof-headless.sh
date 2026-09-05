@@ -1,7 +1,7 @@
 #!/bin/sh
 # usage: scripts/proof-headless.sh [--only <nn>[,<nn>...]] [--runs <n>] [--rt-runs <n>] [--resume <stamp>] [--skip-roundtrip]
 #        scripts/proof-headless.sh judge <evidence-dir>        (re-score saved artefacts; no model calls)
-#        make proof            (the supported entry point once P4-3 lands: proof.sh, then this, then proof-idle-wake.sh)
+#        make proof            (the supported entry point: proof.sh, then this, then proof-idle-wake.sh, then proof-crash-resume.sh)
 #
 # The headless half of the Phase 4 proof (plan P4-2): two REAL `claude -p` sessions against the LOCAL Supabase stack
 # through the bundled adapter, then the P0-1 injection corpus posted into fresh receiving sessions under the 9.6 pass
@@ -661,12 +661,12 @@ launch() {
   _lsettings=$(jq -cn --arg p "$_lprof" '{pluginConfigs:{"brigade@inline":{options:{profile:$p}}}}')
   sessions_started=$((sessions_started + 1))
   launch_t0=$(now_ms)
+  # DISABLE_AUTOUPDATER: the native launcher ~/.local/bin/claude is a symlink the auto-updater repoints into
+  # $XDG_DATA_HOME/claude/versions/, so an update inside this temporary data home leaves the launcher dangling
+  # when the root is removed -- measured 2026-09-04 16:36 (2.1.260 -> 2.1.261) by P4-4; no session could start until
+  # the symlink was repointed. The variable is not CLAUDE-prefixed, so the strip above keeps it.
   ( cd "$_lcwd" && exec env $strip_args \
       XDG_CONFIG_HOME="$xdg_config" XDG_STATE_HOME="$xdg_state" XDG_DATA_HOME="$xdg_data" \
-      # DISABLE_AUTOUPDATER: the native launcher ~/.local/bin/claude is a symlink the auto-updater repoints into
-      # $XDG_DATA_HOME/claude/versions/, so an update inside this temporary data home leaves the launcher dangling
-      # when the root is removed -- measured 2026-09-04 16:36 (2.1.260 -> 2.1.261) by P4-4; no session could start until
-      # the symlink was repointed. The variable is not CLAUDE-prefixed, so the strip above keeps it.
       DISABLE_AUTOUPDATER=1 \
       claude -p "$_lprompt" -n "$_lname" --plugin-dir "$repo/plugin" --settings "$_lsettings" \
         --permission-mode default --allowedTools "$allowed_tools" \
