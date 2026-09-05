@@ -94,7 +94,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P5-1, P5-2, P5-4..P5-11 | Hosted deployment (brief ready, runs next with the owner's token), admin RPCs, docs, keychain, soak, release, `hold` policy, the injected ring | todo | mixed | briefs written for P5-1, P5-2, P5-5, P5-6, P5-9, P5-11, P5-12 under `.ignored/briefs/`; P5-7 and P5-10 briefed last |
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo | Fable | **before beta** — Rjae, 2026-09-04: the frame's instruction paragraph must follow the security model (default = whatever Claude allows; tighten by opt-in); one corpus sweep per shipped level |
 | P5-13 | **F1: the SessionStart context line names only the bare `brigade`** — the absolute plugin path moved to `brigade whoami`'s human output (`terminal: <path>`, from the by-pid map's existing `plugin_bin`; deliberately NOT in `--json`, the form the model reads) and `docs/setup.md`'s "Terminal use" | done | Opus | this commit — the new line ends "Use `brigade sessions` and `brigade send`."; pinned exactly in `start_test.go`, `e2e_test.go` and the hook txtar; measured on 2.1.261: **15/15 idle wakes in the bare form (three runs, 0 path forms in any transcript)** and **2/2 ask-bypass sessions bare + the ask dialog + nothing executed** — the reversal of P4-5's executed bypass send (see "P5-13 DONE") |
-| P5-14 | **F3: key the watcher's seen file by Brigade session id** instead of the Claude pid, so dedupe survives a crash and `--resume` and the injected-but-unacked window closes; shrinks the per-pid residue of F4 | todo | Fable | owner's ruling 2026-09-04; the by-native map already ties a resumed session to its Brigade session (see "P4-4 DONE") |
+| P5-14 | **F3: the watcher's seen file keyed by Brigade session id** (`state/seen/<id>.json`, read from the by-pid map both callers already hold; old per-pid files ignored) | done | Fable | this commit — `TestCrashAndResumeDedupe` with a real file store (no re-injection after a "crash" and `--resume` under the same session id with a new pid; a failed post is never remembered; a different key loads nothing) + the 17-row path-encoding table with anti-escape and injectivity assertions + a charset drift join; five mutations each caught by named tests across packages; **`make e2e` 221/221 and the crash-and-resume proof 316/316 with the per-pid seen residue gone (4 → 2 files, `stale_seen` false both arms, exactly-once 5/5)** (see "P5-14 DONE") |
 
 ## Phase 6 — house conventions (added 2026-09-03, Rjae's request)
 
@@ -798,6 +798,68 @@ assertion in each was the tree-hygiene check, tripped by other lanes editing the
 20260905T034358Z): **both replies bare, both raised the ask-rule dialog, neither executed** — the reversal of P4-5's bypass run 1,
 where the path form executed with no dialog. The author's first run exposed the launch defect of 79467ce (see the journal),
 so the measurements used a repaired copy; the repair is committed.
+
+## P5-14 DONE — dedupe survives a crash and `--resume`: the seen file is keyed by the Brigade session id (2026-09-05)
+
+Finding F3 (P4-4, P4-6; the owner's ruling of 2026-09-04). Fable tier, lean cadence: brief → author → adversarial verifier.
+`inbound.SeenPath(stateDir, brigadeSessionID)` now names `state/seen/<stem>.json`, the stem being the id verbatim when it is
+1–64 bytes of `[A-Za-z0-9_-]` and its lowercase sha256 hex + `.sha256` otherwise (a total encoding: the protocol forbids relying
+on a session id's structure), so every real id — fs 32-hex, Supabase UUID — stays readable for the txtars and proof scripts,
+which have no hash command. Both callers — the watcher (`watch.go:494`) and the prompt hook's poll path (`prompt.go:164`) —
+pass `m.BrigadeSessionID` from the by-pid map they already hold; no argv, no env (a mid-life key switch is impossible:
+`refreshMap` returns `map_mismatch`). Old `<pid>.seen.json` files are ignored, never adopted (adoption would have to guess a
+pid) and never pruned here (F4's row). Bounds unchanged (2000 ids, 1 MiB, tail-truncation). `/clear` unchanged (same pid and
+session); the `not_found`/`conflict` fallback mints a new id and correctly starts an empty file.
+
+**Tests.** `TestCrashAndResumeDedupe` with a real `FileSeenStore`: pid A injects and acks m1, injects m2 and the "kill" lands
+before its ack; pid B (a new pid, the same session id) sees m2 redelivered and answers `duplicate` — not injected again — and
+a new m3 IS injected (positive control); the arm-2 sketch was strengthened so pid B's first post of m2 fails and the
+redelivery must be `queued`, never `duplicate` (proving "not injected ⇒ not remembered"); a different key loads nothing
+(vacuity control); `/clear` and fresh-registration sub-cases. `TestSeenPath`: a 17-row encoding table including `..`, `/`,
+`\`, NUL, newline, non-ASCII, empty, 4 KiB and a traversal string, every row asserting `filepath.Dir == state/seen`, plus
+suffix injectivity; `TestSeenStemAgreesWithCheckNativeID` pins the charset (the plain cap is 64, `CheckNativeID`'s 80 —
+the divergence stated, not hidden). Five mutations (pid keying in the watcher, in the poll path, in the stem; a constant
+stem; `remember` hoisted above the error check) each fail 2–7 named tests across up to four packages; every scratch copy
+restored byte-for-byte.
+
+**Measured (prefix-stripped, the dev binary):** `make e2e` GREEN 221/221 (bundle 20260905T044618Z; a first run RED only on
+tree hygiene while another lane edited the tree); `scripts/proof-crash-resume.sh` GREEN **316/316** (20260905T044640Z, 147 s,
+4 sessions): both arms `no pid-keyed seen file is left behind (false), the session-keyed one is still there (true)`, exactly-once
+5/5, M0 not replayed; end of run `0 pid-keyed seen file(s) … 2 session-keyed` — E4-crash-resume.md's measured residue of four
+files is now two. The txtars (`hook-prompt`, `watch-sink`) and `proof.sh`'s two lines follow; `proof-crash-resume.sh`'s
+`stale_seen` probe was left unchanged so it flipped to `false` on its own, its residue rows relabelled and one `eq` added;
+the crash-resume fixtures were NOT re-cut (`stale_seen_file_present` is an analyser passthrough: `expect.json` pins each fixture's recorded value generically and the Go test never reads the literal, so the old fixtures stay valid as recordings of old runs — the verifier checked that flipping one IS noticed).
+
+**What is and is not closed.** Closed: a message injected but unacknowledged at a SIGKILL is not injected a second time after
+`--resume` onto the same Brigade session; the backend's `delivery_state` flip stays an independent second control. Not
+closed: a crash followed by a FRESH registration (3.7 case 3). Two live processes on one session id are blocked twice on the
+shipped path (`otherLiveWatcher`; `conflict:session_live`); the one non-pathological construction (a watcher that gave up
+after a ≥5-minute backend outage, then `--resume` from another terminal) is reasoned, not run; for concurrent processes each
+pipeline dedupes from memory, so the shared file is last-writer-wins only after one restarts — bounded and no worse than
+today's empty file. Plan corrections in `implementation/03`, `06`, `09`.
+
+**Verified (Fable, adversarial): PASS after one edit.** The verifier re-ran the five mutations in scratch copies (each caught
+by 2–7 named tests; the author's files byte-identical afterwards), built three charter txtars on the pristine code (a hostile
+`../../etc/x` session id lands as a `.sha256` stem with no `etc` anywhere under the state root; a planted mode-000 pid-keyed
+file is ignored without a warning and left untouched; the poll path and the watcher agree on one file), and re-ran both proofs
+prefix-stripped: `make e2e` 221/221 and `proof-crash-resume.sh` 316/316 with the residue rows `pid-keyed false / session true`
+in both arms. Its one edit: `prompt_test.go` now spells the expected seen path out (`state/seen/<id>.json`) instead of calling
+`SeenPath` on both sides — with the helper on both sides the hook test was blind to an id-ignoring encoding (mutation a2 had
+passed it). Load-only failures under six parallel `go test` runs (`TestRefuseNeverPostsOrAcks`, `TestDetachedWatcherHandlesSIGTERM`)
+join flake note (f).
+
+**Accepted consequence — the driver's ruling (2026-09-05).** "Injected" means `socketpost.Post` returned nil: written and
+closed, nothing read back, no consumption signal exists on the Claude side. A SIGKILL of Claude in the gap between that write
+and the model consuming the frame (measured 12 ms–3.6 s at a turn boundary in E4-crash-resume; mid-turn, the rest of the
+turn) loses the frame with the process, and after `--resume` the session-keyed file now answers the redelivery with `seen`
+and acks it — before P5-14 the resumed pid's empty file let the backend redeliver, which was the double injection F3 was
+raised to remove. **Ruling: accepted as the named at-most-once consequence of 3.7 case 2,** bounded by the enqueue→consume
+gap: the same rule already governs a same-pid watcher restart (U-13), and the alternative — a two-state seen entry that
+re-injects remembered-but-unacked ids on resume — is at-least-once in exactly the sub-window where consumed and unconsumed
+cannot be told apart, i.e. the pre-P5-14 behaviour. The live proof cannot observe either mode (its five messages are sent
+while the session is down; the script's `non_claims` says so). `docs/security.md` (P5-7) carries the sentence. Residual,
+pre-existing, not P5-14's: the watcher logs `session_id` verbatim at start (a hostile id lands in the 0600 log); the poll
+path and the watcher can run concurrently on one file (last-writer-wins `Save`).
 
 ## P5-3 DONE — anonymous principals with no membership are reaped after 7 days by a function that cannot abort the heartbeat (2026-09-05)
 
@@ -1738,3 +1800,21 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   load-only observations recorded as (f). Phase 6 (91065c1) and P5-3 (c21c8f8) are on master, CI green (33945203321).
   Launched: P5-1 against the hosted project with the owner's token; P5-2 (admin RPCs, Fable) holding its migration out of
   the directory until P5-1's push is done; P5-14 in flight.
+- 2026-09-05 01:1x EDT: the atomic-write fix is on master (061c45b, CI 33945812847 green). **The P5-10 release brief is
+  written** (`.ignored/briefs/p5-10-release.md`) with two findings the driver records here: (1) the shipped bootstrap
+  sends no credential of any kind (`plugin/bin/brigade:79`, a bare `curl` of the browser `releases/download/…` URL), and
+  GitHub gives release assets the repository's visibility, so **0.1.0's first-use download cannot be tested while the
+  repository is private — by any route; "public" is an owner decision that gates the distribution half of P5-10** (the
+  release half — tag, workflow, published checksums — runs privately today). (2) Predicted from the code, not yet
+  measured: only `hook session-start` takes the detached download path (`plugin/bin/brigade:103`); a `hook prompt`
+  arriving before the cache is warm takes the synchronous path under `hooks.json`'s 5 s timeout and is killed,
+  every prompt until the download lands. The brief makes measuring it (E0-8's pacing harness) a precondition of the tag.
+  The P5-7 docs brief is in flight; P5-14's verifier, and the P5-1 and P5-2 authors, are still running.
+- 2026-09-05 01:3x EDT: **the P5-7 docs brief is written** (`.ignored/briefs/p5-7-docs.md`): `docs/security.md` in twelve
+  sections, each sentence traced to a DONE section, the results document, an E4 report, a plan section or (for an unlanded
+  item, marked `[P5-n]`) a brief; `docs/setup.md` canonical for procedures, `plugin/README.md` for the artifact surface,
+  the setup skill keeping its copy because a skill body cannot link, a drift test over the three; the RFC pass editorial
+  only (fenced JSON blocks byte-identical to testdata by test); `CHANGELOG.md` in Keep a Changelog form (no house
+  convention exists — fifteen thinktech checkouts searched); one pass after P5-1/2/5/6/9/12 land, with a free carve-out
+  **P5-7a** (RFC pass + CHANGELOG, the files no in-flight lane touches) launched now (Opus). Nine plan corrections are
+  in its section 10 for recording at P5-7b's commit.

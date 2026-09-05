@@ -955,12 +955,12 @@ if log_at_least "$wlog_bob" 'another watcher already serves this session' 1; the
 else
   ok "phase 2: the restart did NOT hit the silent duplicate no-op"
 fi
-seen_file=$state/state/$s_bob.seen.json
+seen_file=$state/state/seen/$b0.json
 seen_missing=0
 for m in "$msg1" "$msg2" "$msg3" "$msg4" "$msg5"; do
   if ! grep -q "$m" "$seen_file" 2>/dev/null; then seen_missing=$((seen_missing + 1)); fi
 done
-eq "U-13: the seen file lists all five injected ids" 0 "$seen_missing"
+eq "U-13: the seen file (keyed by Brigade session id) lists all five injected ids" 0 "$seen_missing"
 ad bob p2-list-after session list --include-offline </dev/null
 b0_state=$(jq -r --arg s "$b0" '.result.sessions[] | select(.session_id == $s) | .state' "$cap/p2-list-after.json" 2>/dev/null || echo '?')
 case $b0_state in

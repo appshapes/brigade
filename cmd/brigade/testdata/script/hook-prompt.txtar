@@ -70,8 +70,8 @@ stdout '^</brigade-message>$'
 ! stdout 'cross-session-message'
 grep -count=1 '"verb":"receive"' dump.ndjson
 grep -count=1 '"verb":"ack"' dump.ndjson
-exists $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.seen.json
-grep 'msg-1' $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.seen.json
+exists $WORK/.brigade/xdg/state/brigade/state/seen/brigade-sess-1.json
+grep 'msg-1' $WORK/.brigade/xdg/state/brigade/state/seen/brigade-sess-1.json
 
 # The adapter re-delivers the same id on the next poll (the scripted
 # receive repeats): a duplicate is acked again, never printed again.

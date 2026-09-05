@@ -491,7 +491,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		TeamName: m.TeamName,
 		Wrap:     true,
 		Clock:    inbound.ClockFunc(d.Clock),
-		Seen:     inbound.FileSeenStore{Path: inbound.SeenPath(rc.env.StateDir, rc.env.ClaudePID)},
+		Seen:     inbound.FileSeenStore{Path: inbound.SeenPath(rc.env.StateDir, m.BrigadeSessionID)},
 		Logger:   lg,
 	})
 	if err != nil {

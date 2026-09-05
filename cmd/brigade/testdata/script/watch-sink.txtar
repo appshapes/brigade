@@ -99,7 +99,10 @@ grep '"msg":"watch ready"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPE
 grep '"msg":"injection reported"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
 grep '"msg":"ack sent"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
 grep '"msg":"watcher exiting","exit":0,"reason":"signal"' $WORK/.brigade/xdg/state/brigade/logs/watcher-$SLEEPER_PID.log
-grep msg-1 $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.seen.json
+# The seen file is keyed by the Brigade session id (P5-14), never by the pid:
+# the session-keyed file holds the id and no pid-keyed file was written.
+grep msg-1 $WORK/.brigade/xdg/state/brigade/state/seen/brigade-sess-1.json
+! exists $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.seen.json
 # The sink still holds exactly the one record: nothing was injected twice.
 grep -count=1 'message_id' $WORK/sink.ndjson
 

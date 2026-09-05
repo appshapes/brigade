@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,7 +23,9 @@ import (
 // the pipeline on the bubble's fake clock (Config.Clock nil → time.Now,
 // which is the bubble's), so a "5 minute" window costs no wall time. The
 // seen store is MemorySeenStore: real files are tested in seen_test.go,
-// outside any bubble.
+// outside any bubble — except TestCrashAndResumeDedupe, whose claim is
+// that a file outlives a process, so it uses a real FileSeenStore and no
+// bubble.
 
 const (
 	senderA = "6f0f2b41-5a3c-49d7-b8e2-0c7a4f1e6d33"
@@ -155,6 +159,159 @@ func TestRestartBeforeAckInjectsOnce(t *testing.T) {
 		p3 := newPipeline(t, Config{})
 		if d := p3.Offer(msg("m1", senderA, "hello")); d.Outcome != OutcomeQueued {
 			t.Fatalf("control without a store: %+v, want queued", d)
+		}
+	})
+}
+
+// TestCrashAndResumeDedupe is the F3 window P4-4 reasoned about and did
+// not construct (3.7 case 2, U-13; P5-14): pid A injects m1 and is
+// SIGKILLed before its ack lands, `claude --resume` re-attaches pid B to
+// the SAME Brigade session, and the backend — whose row is still
+// `accepted` — redelivers m1. The seen file is keyed by the Brigade
+// session id, so pid B finds it and acknowledges WITHOUT injecting. A
+// real FileSeenStore under t.TempDir() and no synctest bubble: a memory
+// store would prove nothing about a file crossing a process, and there
+// are no timers.
+func TestCrashAndResumeDedupe(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "state-root")
+	const sessionID = "brigade-sess-1"
+	// Two DIFFERENT pids (A 4242 crashes, B 4243 resumes), one session. The
+	// pid is no longer part of the key, which is the whole point, so the
+	// two stores are built from the session id alone and must agree.
+	seenA := FileSeenStore{Path: SeenPath(root, sessionID)}
+	seenB := FileSeenStore{Path: SeenPath(root, sessionID)}
+	if seenA.Path != seenB.Path {
+		t.Fatalf("the two pids compute different paths: %q %q", seenA.Path, seenB.Path)
+	}
+
+	// pid A: offer m1, inject it, and stop BEFORE the ack.
+	p1 := newPipeline(t, Config{Seen: seenA})
+	if d := p1.Offer(msg("m1", senderA, "hello")); d.Outcome != OutcomeQueued {
+		t.Fatalf("pid A offer: %+v", d)
+	}
+	item, ok := p1.Next()
+	if !ok || item.MessageID != "m1" {
+		t.Fatalf("pid A Next: %+v %v", item, ok)
+	}
+	if d := p1.Done(item, nil); d.Outcome != OutcomeInjected || !d.Ack { // remember() has saved the file
+		t.Fatalf("pid A Done: %+v", d)
+	}
+	// The ack is what the crash loses: it is simply never sent, so the
+	// adapter's row stays `accepted`. The file is on disk, 0600, with m1.
+	if info, err := os.Stat(seenA.Path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("seen file after pid A's injection: %v %v", info, err)
+	}
+	// "kill" pid A: p1 is never used again.
+
+	// pid B: the resumed session — SAME Brigade session id, DIFFERENT pid.
+	p2 := newPipeline(t, Config{Seen: seenB})
+	if got := p2.Stats().Seen; got != 1 {
+		t.Fatalf("pid B loaded %d seen ids, want 1: the file did not cross the crash", got)
+	}
+	rec := &recorder{}
+	// Arm 1, the regression: the backend redelivers m1 — acked, NOT injected.
+	if d := p2.Offer(msg("m1", senderA, "hello")); d.Outcome != OutcomeDuplicate || !d.Ack || d.MessageID != "m1" {
+		t.Fatalf("pid B redelivery of m1: %+v, want duplicate+ack", d)
+	}
+	if acks := p2.Drain(rec.inject); len(acks) != 0 || len(rec.items) != 0 {
+		t.Fatalf("pid B drained %v and injected %d items after the duplicate, want nothing", acks, len(rec.items))
+	}
+	// Arm 2, the positive control: a genuinely new m2 IS delivered — and
+	// dedupe was not bought at the price of delivery. pid B's first post of
+	// m2 fails (the socket is not up yet after the resume): not injected,
+	// not acked, NOT remembered, so the backend's redelivery is queued
+	// afresh, not a duplicate; then it is injected exactly once and acked.
+	// Without this the test would pass on a pipeline that injects nothing
+	// at all, or on one that remembers an id before the injection succeeds.
+	if d := p2.Offer(msg("m2", senderA, "a new message")); d.Outcome != OutcomeQueued {
+		t.Fatalf("pid B offer of m2: %+v, want queued", d)
+	}
+	boom := errors.New("socket post failed")
+	rec.failWhen = func(Item) error { return boom }
+	if acks := p2.Drain(rec.inject); len(acks) != 0 || len(rec.messages()) != 1 {
+		t.Fatalf("pid B failed post of m2: acks %v, attempts %d, want none and 1", acks, len(rec.messages()))
+	}
+	if ids, err := seenB.Load(); err != nil || strings.Join(ids, ",") != "m1" || p2.Stats().Seen != 1 {
+		t.Fatalf("a failed injection was remembered: file %v %v, seen %d", ids, err, p2.Stats().Seen)
+	}
+	rec.failWhen = nil
+	rec.reset()
+	if d := p2.Offer(msg("m2", senderA, "a new message")); d.Outcome != OutcomeQueued {
+		t.Fatalf("pid B redelivery of m2 after the failed post: %+v, want queued (never a duplicate)", d)
+	}
+	acks := p2.Drain(rec.inject)
+	if len(acks) != 1 || acks[0] != "m2" || len(rec.messages()) != 1 || rec.messages()[0].MessageID != "m2" {
+		t.Fatalf("pid B m2: acks %v, injected %+v", acks, rec.messages())
+	}
+	if ids, err := seenB.Load(); err != nil || strings.Join(ids, ",") != "m1,m2" {
+		t.Fatalf("seen file after pid B: %v %v, want m1,m2", ids, err)
+	}
+	// Arm 3, the vacuity control — the old pid keying modelled as a
+	// DIFFERENT key: a pipeline on another session's file must queue m1.
+	// This is what fails when a caller passes the pid instead of the
+	// session id: the pass above depends on the two pipelines agreeing on
+	// the key, not on m1 being magically remembered.
+	p3 := newPipeline(t, Config{Seen: FileSeenStore{Path: SeenPath(root, "some-other-session")}})
+	if got := p3.Stats().Seen; got != 0 {
+		t.Fatalf("a different key loaded %d ids", got)
+	}
+	if d := p3.Offer(msg("m1", senderA, "hello")); d.Outcome != OutcomeQueued {
+		t.Fatalf("a different key: %+v, want queued", d)
+	}
+
+	t.Run("clear: same pid, same session, the file is reused", func(t *testing.T) {
+		t.Parallel()
+		// SessionStart re-fires on /clear (E0-8) and the hook reuses the
+		// session id (start.go's session-continues branch): one pid, one
+		// session, two pipelines in succession; the second sees the
+		// first's ids under either keying.
+		const clearSession = "brigade-sess-clear"
+		q1 := newPipeline(t, Config{Seen: FileSeenStore{Path: SeenPath(root, clearSession)}})
+		q1.Offer(msg("c1", senderA, "before /clear"))
+		if acks := q1.Drain(func(Item) error { return nil }); len(acks) != 1 {
+			t.Fatalf("before /clear: acks %v", acks)
+		}
+		q2 := newPipeline(t, Config{Seen: FileSeenStore{Path: SeenPath(root, clearSession)}})
+		if q2.Stats().Seen != 1 {
+			t.Fatalf("after /clear loaded %d ids", q2.Stats().Seen)
+		}
+		if d := q2.Offer(msg("c1", senderA, "before /clear")); d.Outcome != OutcomeDuplicate || !d.Ack {
+			t.Fatalf("after /clear: %+v", d)
+		}
+	})
+	t.Run("a fresh registration starts empty", func(t *testing.T) {
+		t.Parallel()
+		// The register-fresh fallback (start.go: a resume hint refused
+		// with not_found or conflict mints a NEW Brigade session, 3.7 case
+		// 3): a new address, an empty inbox, an empty seen file — beside
+		// brigade-sess-1's, which is left exactly as it was.
+		before, err := os.ReadFile(seenB.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fresh := FileSeenStore{Path: SeenPath(root, "brigade-sess-2")}
+		if fresh.Path == seenB.Path || filepath.Dir(fresh.Path) != filepath.Dir(seenB.Path) {
+			t.Fatalf("the fresh session's file is not a distinct sibling: %q vs %q", fresh.Path, seenB.Path)
+		}
+		if _, err := os.Stat(fresh.Path); err == nil {
+			t.Fatal("the fresh session's file already exists")
+		}
+		q := newPipeline(t, Config{Seen: fresh})
+		if q.Stats().Seen != 0 {
+			t.Fatalf("fresh registration loaded %d ids", q.Stats().Seen)
+		}
+		if d := q.Offer(msg("m1", senderA, "hello")); d.Outcome != OutcomeQueued {
+			t.Fatalf("fresh registration: %+v, want queued", d)
+		}
+		if acks := q.Drain(func(Item) error { return nil }); len(acks) != 1 {
+			t.Fatalf("fresh registration drain: %v", acks)
+		}
+		if ids, err := fresh.Load(); err != nil || strings.Join(ids, ",") != "m1" {
+			t.Fatalf("fresh file: %v %v", ids, err)
+		}
+		if after, err := os.ReadFile(seenB.Path); err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("the old session's file changed: %v", err)
 		}
 	})
 }

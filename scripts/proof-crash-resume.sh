@@ -1560,21 +1560,26 @@ run_arm() {
 
   # The residue a crash leaves. Recorded, never asserted -- except the by-pid map, whose survival is the positive
   # proof that no SessionEnd ran (DeleteByPID is called only from end.go:65 and SessionEnd does not fire on
-  # SIGKILL, end.go:15-21).
+  # SIGKILL, end.go:15-21), and the pid-keyed seen file, whose ABSENCE is the live evidence that P5-14 shipped:
+  # the seen file is keyed by the Brigade session id under state/seen/ (inbound/seen.go), so the unchanged
+  # pid-keyed probe now answers "was a pid-keyed file left behind?" and must read false.
   stale_map=false; stale_pidfile=false; stale_seen=false; stale_sock=false
   if [ -f "$state/sessions/by-pid/$bob_pid.json" ]; then stale_map=true; fi
   if [ -f "$state/watchers/$bob_pid.json" ]; then stale_pidfile=true; fi
   if [ -f "$state/state/$bob_pid.seen.json" ]; then stale_seen=true; fi
+  stale_seen_session=false; if [ -f "$state/state/seen/$bob_id.json" ]; then stale_seen_session=true; fi
   if [ -S "$sock" ]; then stale_sock=true; fi
   {
-    printf 'by-pid map      %s  %s\n' "$stale_map" "$state/sessions/by-pid/$bob_pid.json"
-    printf 'watcher pidfile %s  %s\n' "$stale_pidfile" "$state/watchers/$bob_pid.json"
-    printf 'seen file       %s  %s\n' "$stale_seen" "$state/state/$bob_pid.seen.json"
-    printf 'inbox socket    %s  %s\n' "$stale_sock" "$sock"
-    printf 'by-native map   %s  %s\n' "$(if [ -f "$bynative" ]; then printf true; else printf false; fi)" "$bynative"
+    printf 'by-pid map            %s  %s\n' "$stale_map" "$state/sessions/by-pid/$bob_pid.json"
+    printf 'watcher pidfile       %s  %s\n' "$stale_pidfile" "$state/watchers/$bob_pid.json"
+    printf 'seen file (pid-keyed) %s  %s\n' "$stale_seen" "$state/state/$bob_pid.seen.json"
+    printf 'seen file (session)   %s  %s\n' "$stale_seen_session" "$state/state/seen/$bob_id.json"
+    printf 'inbox socket          %s  %s\n' "$stale_sock" "$sock"
+    printf 'by-native map         %s  %s\n' "$(if [ -f "$bynative" ]; then printf true; else printf false; fi)" "$bynative"
   } > "$ed/residue/after-crash.txt"
-  say "measured: arm $arm crash residue: by-pid map $stale_map, watcher pidfile $stale_pidfile, seen file $stale_seen, socket $stale_sock (nothing prunes any of them; the seen file is keyed by PID and does NOT carry across the resume)"
+  say "measured: arm $arm crash residue: by-pid map $stale_map, watcher pidfile $stale_pidfile, pid-keyed seen file $stale_seen, socket $stale_sock (nothing prunes the map, the pidfile or the socket; the seen file is keyed by the Brigade session id and DOES carry across the resume (P5-14): no pid-keyed seen file is left behind ($stale_seen), and the session-keyed one is still there ($stale_seen_session))"
   eq "arm $arm: the dead pid's by-pid map is STILL on disk -- the positive proof that no SessionEnd ran" true "$stale_map"
+  eq "arm $arm: no pid-keyed seen file was left behind (P5-14)" false "$stale_seen"
   if [ "$arm" = a ]; then
     eq "arm a: the watcher pidfile is gone (the watcher ran its own \`release\`)" false "$stale_pidfile"
   else
@@ -2180,13 +2185,16 @@ else
   bad "hygiene: the run changed the repository working tree: $(diff "$git_before" "$git_after" | head -5 | tr '\n' ' ')"
 fi
 check_real_files "end of run"
-# The crash residue is EXPECTED to survive: the by-pid map of every SIGKILLed pid, its seen file, and -- in arm b
-# -- its watcher pidfile. Nothing in the repository prunes any of them (11.7), so they are counted and reported
-# rather than asserted away.
+# The crash residue is EXPECTED to survive: the by-pid map of every SIGKILLed pid and -- in arm b -- its watcher
+# pidfile. Nothing in the repository prunes either (11.7), so they are counted and reported rather than asserted
+# away. The seen file is no longer a pid's residue: since P5-14 it lives under state/seen/ keyed by the Brigade
+# session id and is reused by the resumed process, so the pid-keyed glob below is expected to count 0 and the
+# session-keyed directory one file per Brigade session (two for a two-arm run).
 left_maps=$(find "$state/sessions/by-pid" -maxdepth 1 -type f -name '*.json' ! -name "$sender_pid.json" 2>/dev/null | wc -l | tr -d ' ')
 left_pidfiles=$(find "$state/watchers" -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
 left_seen=$(find "$state/state" -maxdepth 1 -type f -name '*.seen.json' 2>/dev/null | wc -l | tr -d ' ')
-say "measured: crash residue left in the temp state dir at the end of the run: $left_maps by-pid map(s), $left_pidfiles watcher pidfile(s), $left_seen seen file(s) -- every one of them belongs to a pid this run SIGKILLed, nothing in the repository prunes them, and they die with the temp root"
+left_seen_session=$(find "$state/state/seen" -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+say "measured: crash residue left in the temp state dir at the end of the run: $left_maps by-pid map(s), $left_pidfiles watcher pidfile(s), $left_seen pid-keyed seen file(s) under state/ (expected 0 since P5-14) and $left_seen_session session-keyed seen file(s) under state/seen/ (one per Brigade session, reused across the resume) -- the maps and pidfiles belong to a pid this run SIGKILLed, nothing in the repository prunes them, and everything dies with the temp root"
 if pgrep -f "brigade watch" >/dev/null 2>&1 && pgrep -f "brigade watch" | while read -r wp; do
      ps -o command= -p "$wp" 2>/dev/null; done | grep -q "$root_tag"; then
   bad "hygiene: a \`brigade watch\` of this run is still alive"
@@ -2250,7 +2258,7 @@ jq -n --arg stamp "$run_stamp" --arg commit "$commit" --arg cv "$claude_version"
       "n = 1 per arm: this is a proof, not a distribution",
       "the 7-day retention window is NOT exercised (P5-3 owns it); both arms resume within minutes",
       "no interactive session and no expect driver (P4-5 owns those)",
-      "the seen file is keyed by CLAUDE PID (inbound/seen.go:36-38) and therefore does NOT carry across a crash and resume; exactly-once here rests entirely on the backend'"'"'s delivery_state flip. The consequence -- a message INJECTED but not yet ACKED at the instant of the SIGKILL would be injected a second time -- is reasoned from the code and was NOT constructed",
+      "the seen file is keyed by the BRIGADE SESSION ID (inbound/seen.go, P5-14) and survives the crash and resume: the resumed process reads the same state/seen/<session id>.json, measured here as stale_seen_file_present false in both arms (no pid-keyed file left behind). The injected-but-not-yet-acked-at-the-SIGKILL case is now covered by the unit test TestCrashAndResumeDedupe (inbound/pipeline_test.go, a real seen file across two pipelines) and is still NOT constructed live here; the backend'"'"'s delivery_state flip remains the independent second control",
       "`resumed: true` was never observed directly: the adapter returns it and the harness discards it (start.go:148-151), so the re-attach is inferred from the session id, the roster count and the absence of the two hint-failure lines",
       "make proof was not run end to end; the chain was verified mechanically with make -n proof and the 100755 index mode",
       "the delivery MODE (mid-turn / boundary / mixed) is recorded and never required: the watcher fetches before it announces ready, so both are correct behaviour and neither changes the arithmetic",

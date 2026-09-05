@@ -252,7 +252,10 @@ func TestPromptPollRateLimitAndAck(t *testing.T) {
 			t.Fatalf("%s acknowledged without being printed", id)
 		}
 	}
-	seen, err := inbound.FileSeenStore{Path: inbound.SeenPath(f.stateDir, f.pid)}.Load()
+	// The poll's seen file is the WATCHER's: state/seen/<Brigade session id>.json
+	// (P5-14), named here by the literal join rather than inbound.SeenPath so
+	// an encoding that ignored the id could not satisfy this assertion.
+	seen, err := inbound.FileSeenStore{Path: filepath.Join(f.stateDir, "state", "seen", f.mustMap().BrigadeSessionID+".json")}.Load()
 	if err != nil || len(seen) != printed {
 		t.Fatalf("seen file %v %v, want the %d printed ids", seen, err, printed)
 	}

@@ -530,8 +530,12 @@ func (fx *fixture) noticePath() string {
 	return filepath.Join(fx.dirs.BrigadeState, "state", strconv.Itoa(fx.claudePID)+".notice")
 }
 
+// seenPath is the seen file of the fixture's Brigade session (P5-14: keyed
+// by the session id, not the pid; the literal join pins the layout
+// independently of inbound.SeenPath). Every fixture session id — "s1", or
+// the fs adapter's 32 hex — is a safe stem, so the plain branch applies.
 func (fx *fixture) seenPath() string {
-	return filepath.Join(fx.dirs.BrigadeState, "state", strconv.Itoa(fx.claudePID)+".seen.json")
+	return filepath.Join(fx.dirs.BrigadeState, "state", "seen", fx.sessionID+".json")
 }
 
 // logLines parses the watcher log (NDJSON) into maps; a missing log is

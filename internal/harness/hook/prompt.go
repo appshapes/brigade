@@ -161,7 +161,7 @@ func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
 		TeamName: m.TeamName,
 		Wrap:     false,
 		Clock:    inbound.ClockFunc(r.deps.Now),
-		Seen:     inbound.FileSeenStore{Path: inbound.SeenPath(f.stateDir, f.pid)},
+		Seen:     inbound.FileSeenStore{Path: inbound.SeenPath(f.stateDir, m.BrigadeSessionID)},
 		Logger:   r.log,
 	})
 	if err != nil {
