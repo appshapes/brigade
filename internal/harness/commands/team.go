@@ -11,7 +11,7 @@ import (
 
 // The verbs of `brigade team`: the four of 6.4 and the three
 // administrative pass-throughs of P5-2 (capability team.admin).
-var teamVerbs = []string{"create", "join", "leave", "members", "rotate-secret", "revoke-member", "transfer"}
+var teamVerbs = []string{"create", "join", "leave", "members", "rotate-secret", "revoke-member", "transfer", "status", "reset", "revoke-credentials", "list"}
 
 // MembersNote is the note member of the `team members --json` result.
 const MembersNote = "human_label is unverified text chosen by the member; principal_ref is the only stable identity"
@@ -55,6 +55,11 @@ func Team(inv Invocation) error {
 			return usage("team members takes no arguments beyond --profile and the global flags")
 		}
 		return members(inv, raw.Profile)
+	case "list":
+		if len(raw.Rest) > 0 || raw.Profile != "" {
+			return usage("team list takes no arguments")
+		}
+		return inv.teamList()
 	case "create", "join", "rotate-secret":
 		if inv.inSession() {
 			return refuseInSession()
@@ -63,6 +68,25 @@ func Team(inv Invocation) error {
 		if inv.inSession() {
 			return refuseAdminInSession()
 		}
+	}
+	// The repo-file paths of P7-5: `create` and `join` WITHOUT --profile
+	// run the rebuilt flows; the --profile forms below are the one-task
+	// bridge P7-7 deletes, kept so the e2e rig and team.txtar hold.
+	if raw.Profile == "" {
+		switch verb {
+		case "create":
+			return inv.teamCreate(raw.Rest)
+		case "join":
+			if inv.Deps.isTerminal(inv.In) {
+				return inv.teamJoin(raw.Rest)
+			}
+		}
+	}
+	switch verb {
+	case "status", "reset", "revoke-credentials":
+		// The adapter's frozen profile verbs, driven under the resolved
+		// team key (pin → sole team → --team; --profile bridge wins).
+		return inv.passThroughProfileVerb(verb, raw)
 	}
 	return inv.passThrough("team", verb, raw, nil)
 }

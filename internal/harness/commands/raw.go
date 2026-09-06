@@ -23,15 +23,18 @@ const (
 	flagLogLevel = "log-level"
 	flagProfile  = "profile"
 	flagAdapter  = "adapter"
+	flagTeam     = "team"
 )
 
 // rawArgs is one parsed raw argument vector.
 type rawArgs struct {
-	// JSON, LogLevel, Profile and Adapter are the harness's own flags.
+	// JSON, LogLevel, Profile, Adapter and Team are the harness's own
+	// flags; Team is the terminal-only disambiguator of the pin chain.
 	JSON     bool
 	LogLevel string
 	Profile  string
 	Adapter  string
+	Team     string
 	// Rest is everything forwarded to the adapter, in order.
 	Rest []string
 }
@@ -61,7 +64,7 @@ func parseRaw(args []string, adapterFlag bool) (rawArgs, error) {
 			} else if value != "false" {
 				return out, usage("invalid arguments: --json takes no value")
 			}
-		case name == flagLogLevel || name == flagProfile || (adapterFlag && name == flagAdapter):
+		case name == flagLogLevel || name == flagProfile || name == flagTeam || (adapterFlag && name == flagAdapter):
 			if !hasValue {
 				if i+1 >= len(args) {
 					return out, usage("invalid arguments: --" + name + " needs a value")
@@ -77,6 +80,8 @@ func parseRaw(args []string, adapterFlag bool) (rawArgs, error) {
 				out.LogLevel = value
 			case flagProfile:
 				out.Profile = value
+			case flagTeam:
+				out.Team = value
 			default:
 				out.Adapter = value
 			}

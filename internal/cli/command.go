@@ -95,7 +95,7 @@ func init() {
 		},
 		{
 			Name:    "team",
-			Args:    "create|join|leave|members|rotate-secret|revoke-member|transfer [--profile <p>] [adapter flags]",
+			Args:    "create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags]",
 			Summary: "create, join, leave and administer a team, and list its members",
 			Raw:     true,
 			Run:     runTeam,

@@ -97,6 +97,18 @@ type Deps struct {
 	// Lookup answers process facts for the watcher pidfile check of
 	// `inbox release` (procutil.Lookup); a test injects a recorder.
 	Lookup pidfile.LookupFunc
+	// Getwd answers the working directory for the repo-file commands
+	// (`team create`/`join`/terminal resolution by pin); nil is os.Getwd.
+	Getwd func() (string, error)
+	// ReadSecret reads the join secret without echo (team join's TTY
+	// path); nil is term.ReadPassword on the real stdin.
+	ReadSecret func() (string, error)
+	// Confirm asks the consent gate's y/N question; nil prints to Err
+	// and reads a line from In.
+	Confirm func(prompt string) (bool, error)
+	// PromptLine asks one echoed line (team create's name and label);
+	// nil prints to Err and reads a line from In.
+	PromptLine func(prompt string) (string, error)
 }
 
 // RetryPause is the pause before the single retry of `message send` on
@@ -281,7 +293,22 @@ func (inv Invocation) terminalTarget(profileFlag string, passThrough bool) (*tar
 	}
 	profile := profileFlag
 	if profile == "" {
-		profile = config.ProfileName(inv.Environ)
+		if config.InSession(inv.Environ) {
+			// In-session pass-throughs keep the map's world: "default"
+			// here, the map's own profile applied below.
+			profile = config.ProfileName(inv.Environ)
+		} else if env := adapterkit.Getenv(config.Trusted(inv.Environ), config.WatcherProfileVar); env != "" {
+			// An explicit BRIGADE_PROFILE is the shell's bridge form,
+			// alive until P7-7 deletes the profile surface.
+			profile = env
+		} else {
+			// The P7-5 chain: the cwd's pin, else the sole local team,
+			// else "default" on an empty store; ambiguity refuses.
+			profile, err = resolveTeamKeyIn(configDir, "", inv.mustGetwd())
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	t := &target{profile: profile, configDir: configDir, stateDir: stateDir}
 	if passThrough && config.InSession(inv.Environ) {

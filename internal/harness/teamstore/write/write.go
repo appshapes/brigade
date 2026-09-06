@@ -130,6 +130,42 @@ func PatchBindingBackend(configDir, key, adapter, url, publishableKey string) er
 	return adapterkit.SaveProfile(configDir, key, p)
 }
 
+// EnsureBinding makes the binding at teams/<key>/team.json carry the
+// harness-owned members, creating a minimal kit profile when the adapter
+// wrote none (a minimal adapter may not persist a binding at all): an
+// existing binding keeps every adapter-written member and only the
+// backend trio and any EMPTY team member is filled.
+func EnsureBinding(configDir, key, adapter, url, publishableKey, teamRef, teamName, principalRef string) error {
+	p, err := adapterkit.LoadProfile(configDir, key)
+	if err != nil {
+		if !missingBinding(err) {
+			return err
+		}
+		p = &adapterkit.Profile{Version: adapterkit.ProfileVersion, Adapter: adapter}
+	}
+	p.Adapter, p.URL, p.PublishableKey = adapter, url, publishableKey
+	if p.TeamRef == "" {
+		p.TeamRef = teamRef
+	}
+	if p.TeamName == "" {
+		p.TeamName = teamName
+	}
+	if p.PrincipalRef == "" {
+		p.PrincipalRef = principalRef
+	}
+	return adapterkit.SaveProfile(configDir, key, p)
+}
+
+// missingBinding matches both spellings of "no binding yet": the raw
+// fs.ErrNotExist and the kit's profile_missing config refusal.
+func missingBinding(err error) bool {
+	if errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+	var pe *protocol.Error
+	return errors.As(err, &pe) && pe.Details["reason"] == "profile_missing"
+}
+
 // PruneOrphans removes tmp-* credential directories older than maxAge —
 // the crash window between a create's signup and its Promote. The next
 // create or `team list` calls this; fresh temp dirs (a create racing us)
