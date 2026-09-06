@@ -102,7 +102,7 @@ refused with `usage` on every adapter (C-05). The convention flags are `team cre
 MUST be refused with `invalid_input` (C-02), an empty stdin on a command that takes input is `invalid_input`, and a
 malformed document is `invalid_input` (C-02). A command that takes no input MUST NOT read stdin at all — the harness
 spawns such commands with stdin ignored (the null device), and a read would block forever when a human runs the
-adapter by hand `[no case: B-1]`. For `message watch`, stdin is a stream of NDJSON commands (4.4.9) when the adapter
+adapter by hand (C-01). For `message watch`, stdin is a stream of NDJSON commands (4.4.9) when the adapter
 advertises `message.watch.stdin_commands`; otherwise the adapter ignores stdin's content and exits on its EOF.
 
 **stdout.** Exactly one JSON document — a 4.3 envelope — for every command except `message watch`, which writes
@@ -187,7 +187,7 @@ On `ok: false` the process exit status MUST match the code's row in 4.6 (C-02, C
 halves).
 
 **`retryable`.** An adapter MUST send `retryable` on every failing envelope and on every watch `error` event
-`[no case: B-2]`. A consumer that receives an error object without it treats it as `false`: absent fails safe. Consumers
+(C-02, C-37). A consumer that receives an error object without it treats it as `false`: absent fails safe. Consumers
 SHOULD derive retryability from `code` rather than from the flag — only `rate_limited` (exit 8) and `unavailable`
 (exit 9) are ever retryable, so the flag is advisory and can never make another code retryable. The member is a plain
 boolean, never `null`.
@@ -572,10 +572,10 @@ discriminator):
 - An `error` event with `retryable: false` MUST be followed by process exit with the matching 4.6 status (C-37,
   within 10 s); an `error` with `retryable: true` is informational and the watch continues.
 - `status` is informational; a receiver never acts on it beyond logging.
-- Unknown event kinds and unknown command types MUST be ignored by their receiver — logged, never fatal `[no case:
-  B-5]`. Unknown members inside a known event or command are ignored as everywhere (JSON convention 2).
+- Unknown event kinds `[no case: B-5]` and unknown command types (C-41) MUST be ignored by their receiver — logged,
+  never fatal. Unknown members inside a known event or command are ignored as everywhere (JSON convention 2).
 - A line longer than 1 MiB is dropped by the reader with a warning and reading continues with the next line
-  `[no case: B-6]`.
+  (C-41).
 - The watch MUST exit 0 within 5 s of stdin EOF, of a `close` command, or of SIGTERM (C-38, C-41).
 - Each event is exactly one physical line: bodies are JSON-encoded, so a body containing `\n`, `\r`, U+2028 or
   U+2029, or text that looks like a JSON auth line, cannot produce a second line and parses back to the same body
@@ -584,7 +584,7 @@ discriminator):
 ### 4.4.10 Team commands
 
 **`team create`** — request `{"team_name", "human_label"?}` on stdin, or `--name`/`--label`, or `--prompt` (asks for
-the name and the label on a TTY; without a TTY `--prompt` is `usage` `[no case: B-7]`):
+the name and the label on a TTY; without a TTY `--prompt` is `usage` (C-03, C-04)):
 
 ```json
 {"team_name": "ops", "human_label": "alice@example.com"}
@@ -609,7 +609,7 @@ without echo, then for the label, echoed and optional, unless `--label` was give
 ```
 
 `join_secret` is required; `human_label` is optional and ≤ `max_human_label_chars`; `backend` is optional, MUST be a
-JSON object when present (C-02 covers the malformed-document half; the object rule has `[no case: B-8]`), is
+JSON object when present (C-02 covers the malformed-document half; the object rule is C-04), is
 adapter-specific (Supabase: `{"url", "publishable_key"}`) and is accepted only when the profile has no backend
 configured. Result (C-04, C-08):
 
@@ -857,7 +857,7 @@ once.
 
 | Case | Rule (9.2) | Cited in |
 | --- | --- | --- |
-| C-01 | 4.2 | JSON conventions; 4.1 stdout, environment; 4.2 `describe`; 4.4.1; 4.5.13 |
+| C-01 | 4.2 | 4.1 stdin, stdout, environment; 4.2 `describe`; 4.4.1; 4.5.13 |
 | C-02 | 4.6 | JSON convention 1; 4.1 flags, stdin, stdout; 4.3; 4.4.10 `backend` |
 | C-03 | 4.2 (cap `team.create`) | 4.2 `team create`; 4.4.10 result and secret format; 4.5.14 |
 | C-03b | 4.4.10 (cap `team.create`) | 4.2 `team create`; 4.4.10 binding rules |
@@ -872,7 +872,7 @@ once.
 | C-13 | 4.5.7 | 4.2 `session heartbeat`; 4.4.4; 4.5.7 |
 | C-14 | 4.5.8 (slow) | 4.4.3 list result; 4.5.8 |
 | C-15 | 4.5.8 | 4.2 `session close`; 4.4.3 close result; 4.5.8 |
-| C-16 | 4.5.11 | 4.3.1; 4.4.2; 4.5.11 |
+| C-16 | 4.5.11 | 4.3.1; 4.4.1 `limits`; 4.4.2; 4.5.11 |
 | C-17 | 4.5.13 | JSON convention 2; 4.5.13 |
 | C-18 | 4.5.13 | JSON convention 3; 4.4.1 `capabilities`, `limits`; 4.5.13; 4.7 |
 | C-19 | 4.5.8 (cap `session.resume`) | 4.4.2 resume and result; 4.5.7; 4.5.8 |
@@ -884,7 +884,7 @@ once.
 | C-24 | 4.5.7 | 4.4.6 `sender_session_id`; 4.5.5; 4.5.7 |
 | C-25 | 4.5.6 | 4.4.6 `recipient_session_id`; 4.5.6 |
 | C-26 | 4.5.6 | 4.4.3 list result; 4.5.6; 4.5.7 |
-| C-27 | 4.5.11 | 4.3.1; 4.4.6 `body`, `summary`; 4.5.11 |
+| C-27 | 4.5.11 | 4.3.1; 4.4.1 `limits`; 4.4.6 `body`, `summary`; 4.5.11 |
 | C-28 | 4.5.12 | 4.5.12 |
 | C-29 | 4.5.12 | 4.4.6 `reply_to`; 4.4.7; 4.5.12 |
 | C-29b | 4.5.12 | 4.5.12 |
@@ -895,7 +895,7 @@ once.
 | C-34 | 4.5.2 | 4.4.9 rules; 4.5.2 |
 | C-35 | 4.5.2 | 4.4.9 rules; 4.7 |
 | C-36 | 4.5.2 | 4.4.9 rules; 4.5.1; 4.5.2; 4.5.3 |
-| C-37 | 4.5.7 | 4.4.9 `error`, rules; 4.5.7 |
+| C-37 | 4.5.7 | 4.3; 4.4.9 `error`, rules; 4.5.7 |
 | C-38 | 4.4.9 | 4.4.9 rules |
 | C-39 | 4.4.9 | 4.4.9 rules |
 | C-40 | 4.5.2 | 4.4.9 rules; 4.5.2 |
@@ -903,25 +903,25 @@ once.
 | C-42 | 4.4.2 (cap `session.inbound`) | 4.4.2 `inbound`; 4.4.3 `inbound`; 4.4.4; 4.7 |
 | C-43 | 4.2 (cap `team.roster`) | 4.2 `team members`; 4.4.10 `team members`; 4.5.7 |
 
-## Appendix B. Normative statements without a conformance case (input to P1-6)
+## Appendix B. Normative statements without a conformance case when the suite was specified (input to P1-6)
 
-These are the MUSTs above that no case in plan 9.2 checks today. Each is a real requirement; none was given an
-invented id. Several are receiver-side rules the adapter-facing suite cannot observe and belong in unit tests
-instead; the rest are candidates for new or extended cases.
+These are the MUSTs above that had no conformance case when the suite of plan 9.2 was specified. Each is a real
+requirement; none was given an invented id. Several are receiver-side rules the adapter-facing suite cannot observe
+and are checked by a unit test instead; where a case now discharges a row the body cites it; the rest stay open.
 
 | # | Statement | Where | Suggested home |
 | --- | --- | --- | --- |
-| B-1 | A command that takes no input MUST NOT read stdin | 4.1 stdin | extend C-01 / C-12: run `describe` and `session list` with stdin held open and assert exit within the timeout |
-| B-2 | An adapter MUST send `retryable` on every failing envelope and watch `error` event | 4.3 | extend C-02 (`usage`, `invalid_input` envelopes) and C-37 (`error` event) to assert the member is present |
+| B-1 | A command that takes no input MUST NOT read stdin | 4.1 stdin | C-01 (`internal/conformance/cases/c01_describe.go:55-63`: `describe` with stdin a pipe held open answers within the timeout) and C-12 (`c12_list.go:88-89`, the same for `session list`) |
+| B-2 | An adapter MUST send `retryable` on every failing envelope and watch `error` event | 4.3 | the envelope half in C-02 through `T.Fail` (`internal/conformance/t.go:296-300` asserts the member is present) and in C-06 (`c06_unbound.go:80-85`); the `error` event half in C-37 (`c37_watch_foreign.go:86-89`) and C-08 (`c08_leave.go:82`) |
 | B-3 | Every consumer MUST present `human_label` as unverified | 4.4.3 | `internal/harness/frame` `TestLabelIsAlwaysUnverified` (U-03: the frame's `from-label` carries the suffix whatever the sender sent) |
 | B-4 | A receiver MUST ignore an unknown `status.state` | 4.4.9 | `internal/harness/adapterclient` `TestWatchReplayAndCommands` (a `status` with an unknown state is skipped, never fatal) |
-| B-5 | Unknown event kinds and unknown command types MUST be ignored by their receiver | 4.4.9 rules | watcher unit test for events; extend C-41 with an unknown `type` line before a valid `ack` for the adapter side |
-| B-6 | A line longer than 1 MiB is dropped and reading continues | 4.4.9 rules | `internal/protocol` `TestLineReaderContentCapBoundary` already covers the reader; extend C-41 with an over-long stdin line for the adapter side |
-| B-7 | `--prompt` without a TTY is `usage` | 4.4.10 | `internal/adapters/supabase` `TestPromptWithoutATerminalIsUsage` (both verbs, `--prompt` on a pipe, `usage`, no backend call); extending C-03 / C-04 the same way is still open |
-| B-8 | `team join` `backend` MUST be a JSON object when present | 4.4.10 | `internal/adapters/supabase` `TestJoinBackendMember` (`"backend": "x"` → exit 3, `details.field = "backend"`); extending C-04 the same way is still open |
+| B-5 | Unknown event kinds and unknown command types MUST be ignored by their receiver | 4.4.9 rules | commands: C-41 (`internal/conformance/cases/c41_stdin_commands.go:43-60`, an unknown `type` before a valid `ack`, and `:123-125`, which fails on any event an ignored line produces); events: `internal/harness/adapterclient` `TestWatchReplayAndCommands` (an unknown kind is skipped, never fatal), no case |
+| B-6 | A line longer than 1 MiB is dropped and reading continues | 4.4.9 rules | `internal/protocol` `TestLineReaderContentCapBoundary` covers the reader; C-41 (`internal/conformance/cases/c41_stdin_commands.go:62-79`: an over-long stdin line before a `heartbeat`, whose answer proves the line was dropped and reading continued) covers the adapter side |
+| B-7 | `--prompt` without a TTY is `usage` | 4.4.10 | C-03 (`internal/conformance/cases/c03_team_create.go:50-63`) and C-04 (`c04_team_join.go:92-99`): `--prompt` on a pipe is `usage` for both verbs; `internal/adapters/supabase` `TestPromptWithoutATerminalIsUsage` covers the no-backend-call half |
+| B-8 | `team join` `backend` MUST be a JSON object when present | 4.4.10 | C-04 (`internal/conformance/cases/c04_team_join.go:84-90`: `"backend": "x"` is `invalid_input`, `details.field = "backend"`); `internal/adapters/supabase` `TestJoinBackendMember` (exit 3, the same field) |
 | B-9 | Idempotency keys MUST be retained at least as long as the message | 4.5.4 | not observable within the suite's time budget; adapter-specific persistence test |
 | B-10 | An unacknowledged message MUST be retained at least `retention.unacked_message_seconds` | 4.5.9 | not observable within the suite's time budget; adapter-specific retention-sweep test — `supabase/tests/retention.sql:97-98` (unacked at 6 days kept, at 8 days deleted) and `internal/adapters/supabase` `TestIntegrationRetentionResumeAfterThreeAndEightDays` |
-| B-11 | Adapters never exit 126, 127 or ≥ 128 from their own code | 4.6 | assert across every case that the observed exit status is in `0..12` |
+| B-11 | Adapters never exit 126, 127 or ≥ 128 from their own code | 4.6 | asserted on every spawn by the suite itself, not by a case: `internal/conformance/launcher.go:255-259` for request/response commands and `watch.go:337-348` for a watch, each violation attributed to the running case |
 
 ## Appendix C. The owner's decisions and where each is honoured
 

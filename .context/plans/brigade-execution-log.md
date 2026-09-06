@@ -103,7 +103,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P5-2 | **Team administration**: `rotate_join_secret`, `revoke_membership`, `revoke_memberships_by_version`, `transfer_team`; adapter and harness `team rotate-secret|revoke-member|transfer` (terminal-only) | done | Fable | this commit — migration `20260905120000_brigade_team_admin.sql`, `team_admin.sql` 247 assertions, three live tests, I-16 lag 2 ms on both paths so `jwt_expiry` stays 3600 s (see "P5-2 DONE") |
 | P5-7a | **The RFC final pass over `docs/protocol-v1.md` and `CHANGELOG.md`** (the P5-7 carve-out that touches no in-flight file) | done | Opus | this commit — six editorial lines in the protocol doc (one comma; five Appendix B "Suggested home" cells now naming real tests), nothing normative and no JSON block touched (`TestSpecExamplesAreTheTestdataFiles` and `make schema-check` green without regeneration); `CHANGELOG.md` in Keep a Changelog form, 40 items each traced to an artifact at HEAD; P5-7b (security doc, setup, plugin README, README rows) runs after P5-1/2/5/6/9/12 land (see "P5-7a DONE") |
 | P5-7b | **The user-facing documents, in plain language**: `docs/security.md` (new, twelve sections plus "Accepted for this version"), `docs/setup.md` completed and put in order (the administrator, member and leaving procedures, `## Where your credential lives` from the shipped file store, the `[P5-12]` placeholder), the `plugin/README.md` pass (procedures shrunk to commands plus links; seven options), the `README.md` rows and Status, the `CHANGELOG.md` backlog (P5-2, P5-9, P5-1, P5-15/15b, P5-13; the Claude Code queue loss under Known limitations), `scripts/ci/setup_docs_test.go` (the three-way setup drift join, seven mutations) | done | Opus | this commit — every sentence traced (the verifier sampled 26 plus every number; one defect fixed: six terminal-only commands, not five); `grep -rn '\[P5-' docs/` = exactly the three P5-12 marks; the full acceptance gate, `plugin-check`, `checksums-check`, `no-secrets`, a 71-link check, every command form against the binary's help — all green twice (see "P5-7b DONE") |
-| P5-7c | **`docs/protocol-v1.md`'s appendices, editorial only**: the three Appendix A defects (C-01's citing section; C-16/C-27 missing 4.4.1), the five `[no case: B-n]` markers that conformance cases now discharge, and the stale Appendix B preamble — P5-7a left them "for P5-7b's verifier" and P5-7b's scope excluded the file | todo — beside P5-10's prep | Opus | brief §3.7's allow/refuse lists bind (no ```json block, no normative word); `TestSpecExamplesAreTheTestdataFiles` and `make schema-check` green with no regeneration; the P5-7a report names the lines |
+| P5-7c | **`docs/protocol-v1.md`'s appendices, editorial only**: the three Appendix A defects (C-01's citing section; C-16/C-27 missing 4.4.1), the five `[no case: B-n]` markers that conformance cases now discharge, and the stale Appendix B preamble — P5-7a left them "for P5-7b's verifier" and P5-7b's scope excluded the file | done | Opus | this commit — 939 lines before and after (every code citation into the file still resolves); the three Appendix A pointer cells repaired (C-01 → "4.1 stdin"; C-16 and C-27 gain "4.4.1 `limits`"; C-37 gains "4.3"); five body markers discharged by real conformance assertions (B-1 → C-01; B-2 → C-02, C-37; B-5's command half and B-6 → C-41; B-7 → C-03, C-04; B-8 → C-04), B-5's event half and B-11 left marked (no case asserts them); Appendix B's heading, preamble and status cells made true of the column; `make schema-check` 0 with no regeneration, protocol tests 0, no JSON block, no normative word (see "P5-7c DONE") |
 | P5-12 | Frame text levels (`open` default / `guarded` / `strict`) + `frame_file` | todo — **LAST before the release; measurement cut** | Fable | **Rjae, 2026-09-05: deferred until every other Phase 5 row is done and the tree is ready for beta — it runs immediately before P5-10.** The measurement is the full 78-item corpus under `open` (the default people will run) plus about ten items under each of `guarded` and `strict`: ~100 headless sessions, ~1.5 h, not the brief's ~263 / ~3.8 h. Earlier ruling (2026-09-04): the frame's paragraph follows the security model — the default allows what Claude allows; users tighten by opt-in; one user-specified text via `frame_file`. Brief `.ignored/briefs/p5-12-frame-levels.md` (its §6 sweep table is superseded by this row). |
 | P5-13 | **F1: the SessionStart context line names only the bare `brigade`** — the absolute plugin path moved to `brigade whoami`'s human output (`terminal: <path>`, from the by-pid map's existing `plugin_bin`; deliberately NOT in `--json`, the form the model reads) and `docs/setup.md`'s "Terminal use" | done | Opus | this commit — the new line ends "Use `brigade sessions` and `brigade send`."; pinned exactly in `start_test.go`, `e2e_test.go` and the hook txtar; measured on 2.1.261: **15/15 idle wakes in the bare form (three runs, 0 path forms in any transcript)** and **2/2 ask-bypass sessions bare + the ask dialog + nothing executed** — the reversal of P4-5's executed bypass send (see "P5-13 DONE") |
 | P5-14 | **F3: the watcher's seen file keyed by Brigade session id** (`state/seen/<id>.json`, read from the by-pid map both callers already hold; old per-pid files ignored) | done | Fable | this commit — `TestCrashAndResumeDedupe` with a real file store (no re-injection after a "crash" and `--resume` under the same session id with a new pid; a failed post is never remembered; a different key loads nothing) + the 17-row path-encoding table with anti-escape and injectivity assertions + a charset drift join; five mutations each caught by named tests across packages; **`make e2e` 221/221 and the crash-and-resume proof 316/316 with the per-pid seen residue gone (4 → 2 files, `stale_seen` false both arms, exactly-once 5/5)** (see "P5-14 DONE") |
@@ -792,6 +792,43 @@ the dashboard toggle (Authentication → Sign In / Providers → Allow anonymous
 scored runs, all of P4-5) — Supabase CLI 2.116.0, local Postgres 17.6, hosted 17.6.1.166. **What Phase 4 cost, for the record:**
 five proof lanes, ~260 real Claude sessions (84 + 36 + 24 + ~124 + the E3 sitting), the flake and hazard fixes along the way,
 and one day of the lean cadence for P4-3..P4-6 after the cadence change.
+
+## P5-7c DONE — the protocol document's appendices say which conformance cases now discharge which statements, and three index cells point where they should (2026-09-05)
+
+The editorial leftovers of P5-7a (its "for P5-7b's verifier" list), outside P5-7b's scope. Brief
+`.ignored/briefs/p5-7c-protocol-appendices.md` with two driver rulings on where the P5-7 brief's §3.7 allow list and
+the leftovers pull against each other: an Appendix A cell may change only when it is a wrong section pointer proven by
+the case's `Rule` and assertions; a `[no case: B-n]` body marker may change only when a file under
+`internal/conformance/cases/` asserts that MUST (a Go or pgTAP test never counts). Opus author, Opus adversarial
+verifier (PASS, no edits, the verified patch byte-identical), worktree at `fe36367`. BAP/1 stays frozen: 939 lines
+before and after, so `describe_test.go`'s `:706-708`, `fixtures_integration_test.go`'s `:923` and the SQL's `:156`
+still resolve; the changed-line set intersects none of the 31 fenced JSON blocks; MUST/MUST NOT/SHOULD/MAY counts
+unchanged (66/10/9/1/8); `make schema-check` green with no regeneration; `TestSpecExamplesAreTheTestdataFiles` and
+`TestSpecExamplesCanFail` pass; every `4.x` token in `internal/conformance` resolves to a section with that meaning.
+
+**Changed (23 lines, all editorial).** Appendix A: C-01's third cell said "JSON conventions" (C-01 appears nowhere in
+that section) and now says "4.1 stdin"; C-16 and C-27 gain "4.4.1 `limits`" (4.4.1's limits paragraph names both:
+"a value exactly at each cap is accepted (C-16, C-27)"); C-37 gains "4.3". Body markers: B-1 → (C-01)
+(`c01_describe.go:55-63`, `describe` with stdin a held-open pipe answers inside the timeout; C-12 also asserts it);
+B-2 → (C-02, C-37) (`t.go:296-300` on every `T.Fail`; the watch `error` event half in `c37_watch_foreign.go:87-89`
+and `c08_leave.go:81-82`); B-5's command half → (C-41) (`c41_stdin_commands.go:43-60`, an unknown `type` before a
+valid `ack`) with the marker kept on the event half, whose receiver is the consumer an adapter-facing suite cannot
+observe; B-6 → (C-41) (`:62-79`, an over-long line before a `heartbeat` whose answer proves reading continued);
+B-7 → (C-03, C-04) (`c03_team_create.go:50-63`, `c04_team_join.go:92-99`: `--prompt` on a pipe is `usage` for both
+verbs); B-8 → (C-04) (`:84-90`, `"backend": "x"` is `invalid_input` naming `backend`). B-11 stays marked: the check is
+the suite's own launcher/watch global (`launcher.go:255-259`, `watch.go:337-348`), not a case. Appendix B: the heading
+now reads "…without a conformance case when the suite was specified", the preamble says a discharged row is cited in
+the body, and the B-1, B-2, B-5, B-6, B-7, B-8 and B-11 status cells name the real check with file and lines.
+
+**Verified (Opus, adversarial): PASS, no edits.** All sixteen author lines re-derived from the case files and the
+document; a normalised word diff confined every prose change to the three Appendix A cells, the Appendix B preamble
+and cells, and the re-wrapped B-5 bullet (word-for-word identical); no C-nn citation removed; the section map of every
+C-nn occurrence checked against Appendix A. Three follow-ups the verifier proved and the driver applied in this
+commit (the same defect class, each backed by the case lines above): B-7 and B-8 were discharged by C-03/C-04 all
+along, the `retryable` sentence cites C-37 beside C-02 (with "4.3" added to C-37's row), and the Appendix B heading
+was stale. The driver re-ran `make schema-check` and the protocol tests on the main tree after those edits: 0 and 0.
+
+---
 
 ## P5-7b DONE — the user-facing documents in plain language: `docs/security.md` written, `docs/setup.md` completed and put in order, the plugin README trimmed to its own surface, the CHANGELOG backlog, and a three-way drift join over the setup commands (2026-09-05)
 
@@ -2479,3 +2516,6 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   with it. New small row **P5-7c** (the protocol appendices P5-7a left for later). Sent to `15-implement-brigade-090523`: "P5-7b landed
   at <sha>" — P5-12 may now touch the five shared documents after merging that commit. Next here: P5-17's merge on Rjae's ruling,
   then P5-10's prep lane (with P5-7c beside it).
+- 2026-09-05 22:0x EDT: **P5-7c is DONE (this commit)** — the protocol document's appendices reconciled with the suite (seven body
+  markers discharged by real conformance assertions, three index cells repaired, 939 lines before and after, the schema untouched).
+  CI for `fe36367` green (33999363868). Running: P5-10 phase A (mine), P5-12 (090523). PR #1 awaits Rjae's three rulings.
