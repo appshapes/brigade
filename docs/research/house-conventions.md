@@ -654,3 +654,11 @@ if Model A is chosen, the tag-force question (`release-prep.sh:23-27` vs
    deps-check schema-check` across four steps for step-level attribution in the run log. Do you want CI
    collapsed to one named gate target (a `make ci` in the thinktech-app style, `thinktech-app/Makefile:199-206`),
    accepting that a failure then names the target rather than the step?
+
+> [2026-09-05, P5-17: CI moved to Blacksmith runners (PR #1, merged as `897e75a`). A `timeout-minutes` bound measured on one
+> runner class is a bound on that class only: the ten GitHub-hosted runs behind every bound in `ci.yml` make those bounds loose,
+> not wrong, on Blacksmith (run 33996821598: fast 3m00s, macos 2m50s, reproducibility 9s, supabase 6m03s), and re-measurement
+> over ten runs precedes any tightening. Blacksmith runners are self-hosted ephemeral VMs: logs and results ship to
+> app.blacksmith.sh, each live VM has an SSH route, a standing GitHub App holds write access, and the repository — public
+> since 2026-09-05 — requires approval for outside contributors' fork workflows. The Ubuntu image carries shellcheck 0.9.0,
+> measured by the "Runner image inventory" step on every run.]
