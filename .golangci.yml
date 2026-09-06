@@ -35,7 +35,7 @@ linters:
     gosec:
       excludes: [G304]         # file paths are computed from BRIGADE_CONFIG_DIR/BRIGADE_STATE_DIR by design
       config:
-        G301: "0700"           # directories: profiles/ and state dirs are 0700 (T7, T14)
+        G301: "0700"           # directories: teams/ and state dirs are 0700 (T7, T14)
         G302: "0600"           # chmod/create
         G306: "0600"           # WriteFile: every state, profile, credential, map and log file is 0600
     forbidigo:

@@ -101,7 +101,7 @@ type sessionFile struct {
 	ClosedAt           *time.Time `json:"closed_at,omitzero"`
 }
 
-// credentialFile is the adapter's own credential, beside profile.json.
+// credentialFile is the adapter's own credential, beside team.json.
 // Its PRESENCE is the credential — this adapter authenticates nobody, it
 // only remembers who it is. LastTeamRef keeps the team most recently left
 // so a repeated `team leave` can still answer a non-empty team_ref, which
@@ -171,7 +171,7 @@ func (s *store) close() {
 
 // safeRef reports whether an opaque identifier may be used as a path
 // component. Identifiers are opaque (4.8) and arrive from callers and from
-// a rebound profile.json, so "..", a separator or a NUL would otherwise
+// a rebound team.json, so "..", a separator or a NUL would otherwise
 // escape the store. A ref that fails here is simply not found.
 func safeRef(ref string) bool {
 	if ref == "" || len(ref) > 64 {

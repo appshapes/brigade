@@ -11,7 +11,7 @@ import (
 )
 
 // The profile file of 5.2:
-// ${BRIGADE_CONFIG_DIR}/profiles/<name>/profile.json, mode 0600 in a 0700
+// ${BRIGADE_CONFIG_DIR}/teams/<name>/team.json, mode 0600 in a 0700
 // directory, carrying configuration and identity references — NEVER a
 // secret. Credentials live beside it in the adapter's own file
 // (session.json for the Supabase adapter), which is not adapterkit's
@@ -30,8 +30,8 @@ const DefaultProfileName = "default"
 const SecretStoreFile = "file"
 
 const (
-	profilesDirName = "profiles"
-	profileFileName = "profile.json"
+	profilesDirName = "teams"
+	profileFileName = "team.json"
 )
 
 // Profile is the 5.2 profile file schema. All fields but Version and
@@ -113,7 +113,7 @@ func CheckProfileName(name string) error {
 	return nil
 }
 
-// ProfileDir returns ${configDir}/profiles/<name> after validating name.
+// ProfileDir returns ${configDir}/teams/<name> after validating name.
 func ProfileDir(configDir, name string) (string, error) {
 	if err := CheckProfileName(name); err != nil {
 		return "", err
@@ -121,7 +121,7 @@ func ProfileDir(configDir, name string) (string, error) {
 	return filepath.Join(configDir, profilesDirName, name), nil
 }
 
-// ProfilePath returns the profile.json path inside ProfileDir.
+// ProfilePath returns the team.json path inside ProfileDir.
 func ProfilePath(configDir, name string) (string, error) {
 	dir, err := ProfileDir(configDir, name)
 	if err != nil {
@@ -144,7 +144,7 @@ func LoadProfile(configDir, name string) (*Profile, error) {
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, &protocol.Error{
 			Code:    protocol.CodeConfig,
-			Message: "profile is not configured; run `profile init` or `team join` first",
+			Message: "profile is not configured; run `brigade team join` first",
 			Details: map[string]string{"profile": name, "reason": "profile_missing"},
 		}
 	}
@@ -165,7 +165,7 @@ func LoadProfile(configDir, name string) (*Profile, error) {
 	return &p, nil
 }
 
-// SaveProfile validates p and writes it atomically as profile.json, mode
+// SaveProfile validates p and writes it atomically as team.json, mode
 // 0600, creating the 0700 profile directory chain as needed.
 func SaveProfile(configDir, name string, p *Profile) error {
 	if err := p.Validate(); err != nil {

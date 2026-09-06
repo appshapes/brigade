@@ -275,8 +275,8 @@ cleanup() {
   set +e
   # A rebind left mid-flight would leave carol pointing at a foreign team.
   if [ "$rebind_active" = yes ] && [ -f "$carol_profile_backup" ]; then
-    cp "$carol_profile_backup" "$cfg/profiles/carol/profile.json"
-    chmod 600 "$cfg/profiles/carol/profile.json"
+    cp "$carol_profile_backup" "$cfg/teams/carol/team.json"
+    chmod 600 "$cfg/teams/carol/team.json"
     say "teardown: carol's profile restored"
   fi
   kill_wait "$probe_pid" "carol's message watch probe"
@@ -1058,17 +1058,17 @@ ctl_uuid=$(rand_uuid)
 ad carol p4-carol-ctl-notfound message receive --session "$ctl_uuid" </dev/null
 eq "C-43 control: carol's receive of a random uuid is not_found" "$exit_not_found" "$rc"
 
-cp "$cfg/profiles/carol/profile.json" "$carol_profile_backup"
+cp "$cfg/teams/carol/team.json" "$carol_profile_backup"
 chmod 600 "$carol_profile_backup"
 rebind_active=yes
 rebind_carol() {  # rebind_carol <team_ref>
   jq --arg t "$1" '.team_ref=$t' "$carol_profile_backup" > "$scratch/rebind.tmp"
   chmod 600 "$scratch/rebind.tmp"
-  mv "$scratch/rebind.tmp" "$cfg/profiles/carol/profile.json"
+  mv "$scratch/rebind.tmp" "$cfg/teams/carol/team.json"
 }
 restore_carol() {
-  cp "$carol_profile_backup" "$cfg/profiles/carol/profile.json"
-  chmod 600 "$cfg/profiles/carol/profile.json"
+  cp "$carol_profile_backup" "$cfg/teams/carol/team.json"
+  chmod 600 "$cfg/teams/carol/team.json"
 }
 rebind_n=0
 rebind_members_rcs=''
@@ -1083,7 +1083,7 @@ for target in "$ops_ref" "team-$(rand_hex 8)" "$(rand_uuid)"; do
 done
 restore_carol
 rebind_active=no
-if cmp -s "$carol_profile_backup" "$cfg/profiles/carol/profile.json"; then
+if cmp -s "$carol_profile_backup" "$cfg/teams/carol/team.json"; then
   ok "C-43: carol's profile bytes are restored after the three rebinds (a real foreign team_ref, a non-uuid one, a random uuid)"
 else
   bad "C-43: carol's profile was NOT restored to the bytes the backup holds"
@@ -1522,7 +1522,7 @@ umask 077
 : > "$patfile"
 chmod 600 "$patfile"
 for p in alice bob carol; do
-  sf=$cfg/profiles/$p/session.json
+  sf=$cfg/teams/$p/session.json
   if [ -f "$sf" ]; then
     jq -r '.refresh_token // empty' "$sf" >> "$patfile" 2>/dev/null || true
     jq -r '.access_token // empty' "$sf" >> "$patfile" 2>/dev/null || true
@@ -1563,12 +1563,12 @@ umask 022
 #    arguments and only scans the repository, so calling it with a path would be a silent false green).
 sb_secret='sb_secret_[A-Za-z0-9_-]\{8,\}'
 jwt_triple='eyJ[A-Za-z0-9_-]\{8,\}\.eyJ[A-Za-z0-9_-]\{8,\}\.[A-Za-z0-9_-]\{8,\}'
-# An access token IS a JWT and the local stack's keys may be JWT-shaped, so session.json and profile.json are
+# An access token IS a JWT and the local stack's keys may be JWT-shaped, so session.json and team.json are
 # scanned for `sb_secret_` and `service_role` only; every other file is scanned for all three shapes.
 scan_supply() {
-  find "$root" -type f ! -name session.json ! -name profile.json \
+  find "$root" -type f ! -name session.json ! -name team.json \
     -exec env LC_ALL=C grep -al -e "$sb_secret" -e "$jwt_triple" -e 'service_role' {} + 2>/dev/null || true
-  find "$root" -type f \( -name session.json -o -name profile.json \) \
+  find "$root" -type f \( -name session.json -o -name team.json \) \
     -exec env LC_ALL=C grep -al -e "$sb_secret" -e 'service_role' {} + 2>/dev/null || true
 }
 # The canary VALUE is assembled at run time: scripts/ci/no-secrets.sh scans every tracked file, this script

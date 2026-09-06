@@ -7,9 +7,9 @@
 // shipped binary (D26, D35); internal/harness never imports it (depguard)
 // and talks to it only as a child process speaking BAP/1.
 //
-// Files in the profile directory ${BRIGADE_CONFIG_DIR}/profiles/<name>/:
+// Files in the profile directory ${BRIGADE_CONFIG_DIR}/teams/<name>/:
 //
-//	profile.json       adapterkit.Profile with adapter "supabase", the backend
+//	team.json       adapterkit.Profile with adapter "supabase", the backend
 //	                   url and publishable_key (configuration, never a
 //	                   secret), and the team binding (5.2)
 //	session.json       the GoTrue session — access_token, refresh_token,
@@ -27,10 +27,10 @@
 // the server's goes to stderr at debug through the redacting logger.
 //
 // Environment: the adapter reads no BRIGADE_* configuration of its own —
-// profile.json is the configuration — with one exception for a human
+// team.json is the configuration — with one exception for a human
 // shell (4.1): BRIGADE_SUPABASE_URL and BRIGADE_SUPABASE_PUBLISHABLE_KEY
 // are honoured by `team create` and `team join` only, and only when the
-// profile names no backend yet (the pair is then written to profile.json
+// profile names no backend yet (the pair is then written to team.json
 // as `profile init` would write it; a configured profile is never
 // overridden). This is how the conformance suite provisions its own
 // principals without a --setup hook. The rest are test-only switches:

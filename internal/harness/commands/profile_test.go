@@ -111,7 +111,7 @@ func TestWriteDefaultAdapterForms(t *testing.T) {
 		dir := t.TempDir()
 		_, err := writeDefaultAdapter(dir, "p", "ghost")
 		wantCode(t, err, protocol.CodeConfig, config.ReasonAdapterUnregistered)
-		if _, err := os.Stat(filepath.Join(dir, "profiles", "p", "adapter")); !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(dir, "teams", "p", "adapter")); !errors.Is(err, os.ErrNotExist) {
 			t.Error("a sidecar the next SessionStart would refuse was written")
 		}
 		a, err := writeDefaultAdapter(dir, "p", "supabase")
@@ -222,7 +222,7 @@ func TestProfileStatusLine(t *testing.T) {
 		if got := statusLine(tg); got != "profile fresh: default adapter supabase (from bundled)" {
 			t.Errorf("bundled line = %q", got)
 		}
-		// profile member: a registered name in profile.json.
+		// profile member: a registered name in team.json.
 		if err := config.RegisterAdapter(f.dirs.BrigadeConfig, "fs", []string{f.adapterPath}); err != nil {
 			t.Fatal(err)
 		}
@@ -282,7 +282,7 @@ func TestProfileVerbsAndRefusals(t *testing.T) {
 	// that the harness did not treat it as its own by refusing early.
 	err := Profile(f.inv(f.terminalEnv(), "", "init", "--adapter", "ghost"))
 	wantCode(t, err, protocol.CodeConfig, config.ReasonAdapterUnregistered)
-	if _, serr := os.Stat(filepath.Join(f.dirs.BrigadeConfig, "profiles", "default", "adapter")); !errors.Is(serr, os.ErrNotExist) {
+	if _, serr := os.Stat(filepath.Join(f.dirs.BrigadeConfig, "teams", "default", "adapter")); !errors.Is(serr, os.ErrNotExist) {
 		t.Error("a sidecar was written for an unregistered name")
 	}
 	// A profile name that fails the path rule never becomes a path.

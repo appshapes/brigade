@@ -232,11 +232,11 @@ func contains(haystack, needle string) bool { return strings.Contains(haystack, 
 
 // rebind rewrites a profile's team_ref, which is what the conformance
 // launcher's default --rebind hook does for both bundled adapters (9.2,
-// C-26, C-43). The member name `team_ref` in profile.json is therefore
+// C-26, C-43). The member name `team_ref` in team.json is therefore
 // load-bearing, and this helper is the unit-test half of that contract.
 func rebind(t *testing.T, r *rig, profile, teamRef string) {
 	t.Helper()
-	path := filepath.Join(r.cfg, "profiles", profile, "profile.json")
+	path := filepath.Join(r.cfg, "teams", profile, "team.json")
 	data, err := os.ReadFile(path) //nolint:gosec // a path this test built under t.TempDir
 	if err != nil {
 		t.Fatal(err)

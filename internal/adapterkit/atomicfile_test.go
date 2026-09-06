@@ -17,7 +17,7 @@ import (
 
 func TestWriteAtomicModeAndContent(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "profile.json")
+	path := filepath.Join(t.TempDir(), "team.json")
 	data := []byte(`{"version":1}` + "\n")
 	if err := adapterkit.WriteAtomic(path, data); err != nil {
 		t.Fatal(err)
@@ -346,11 +346,11 @@ func TestReadStrictRefusesNonRegular(t *testing.T) {
 func TestMkdirPrivate(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	deep := filepath.Join(root, "profiles", "default")
+	deep := filepath.Join(root, "teams", "default")
 	if err := adapterkit.MkdirPrivate(deep); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{filepath.Join(root, "profiles"), deep} {
+	for _, p := range []string{filepath.Join(root, "teams"), deep} {
 		fi, err := os.Stat(p)
 		if err != nil {
 			t.Fatal(err)

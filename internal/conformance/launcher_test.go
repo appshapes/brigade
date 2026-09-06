@@ -367,8 +367,8 @@ func TestRebindAndRestoreRewriteProfileJSON(t *testing.T) {
 	r := newTestRunner(t, "/usr/bin/env", Options{}, testEnviron)
 	p := scratchPrincipal(t, r, "c")
 	p.TeamRef = "t2"
-	path := p.ConfigDir + "/profiles/default/profile.json"
-	if err := os.MkdirAll(p.ConfigDir+"/profiles/default", 0o700); err != nil {
+	path := p.ConfigDir + "/teams/default/team.json"
+	if err := os.MkdirAll(p.ConfigDir+"/teams/default", 0o700); err != nil {
 		t.Fatal(err)
 	}
 	original := `{"version":1,"adapter":"fs","team_ref":"t2","team_name":"ops"}` + "\n"

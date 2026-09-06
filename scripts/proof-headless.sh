@@ -1528,7 +1528,7 @@ umask 077
 : > "$patfile"
 chmod 600 "$patfile"
 for p in alice bob; do
-  sf=$cfg/profiles/$p/session.json
+  sf=$cfg/teams/$p/session.json
   if [ -f "$sf" ]; then
     jq -r '.refresh_token // empty' "$sf" >> "$patfile" 2>/dev/null || true
     jq -r '.access_token // empty' "$sf" >> "$patfile" 2>/dev/null || true
@@ -1572,10 +1572,10 @@ sb_secret='sb_secret_[A-Za-z0-9_-]\{8,\}'
 jwt_triple='eyJ[A-Za-z0-9_-]\{8,\}\.eyJ[A-Za-z0-9_-]\{8,\}\.[A-Za-z0-9_-]\{8,\}'
 scan_supply() {
   # shellcheck disable=SC2086  # as above
-  find $scan_roots -type f ! -name session.json ! -name profile.json \
+  find $scan_roots -type f ! -name session.json ! -name team.json \
     -exec env LC_ALL=C grep -al -e "$sb_secret" -e "$jwt_triple" -e 'service_role' {} + 2>/dev/null || true
   # shellcheck disable=SC2086  # as above
-  find $scan_roots -type f \( -name session.json -o -name profile.json \) \
+  find $scan_roots -type f \( -name session.json -o -name team.json \) \
     -exec env LC_ALL=C grep -al -e "$sb_secret" -e 'service_role' {} + 2>/dev/null || true
 }
 sb_canary=$(printf 'sb%s%s_0123456789abcdef' '_sec' 'ret')

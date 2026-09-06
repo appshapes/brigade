@@ -300,7 +300,7 @@ func TestJWTRejectedTriggersOneRefreshAndOneRetry(t *testing.T) {
 // TestSignUpAndBind is ensureIdentity + bind, the binding commands' half
 // of the ladder: a profile without a credential mints one anonymous
 // principal (the auth-js body, the api-version header), persists it 0600,
-// binds the team into profile.json and remembers it in session.json.
+// binds the team into team.json and remembers it in session.json.
 func TestSignUpAndBind(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)

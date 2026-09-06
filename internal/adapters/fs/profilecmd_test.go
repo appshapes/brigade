@@ -34,8 +34,8 @@ func TestProfileFilesAre0600(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.ok("", "--profile", "alice", "profile", "init")
-	for _, name := range []string{"profile.json", credentialFileName} {
-		path := filepath.Join(r.cfg, "profiles", "alice", name)
+	for _, name := range []string{"team.json", credentialFileName} {
+		path := filepath.Join(r.cfg, "teams", "alice", name)
 		info, err := lstat(path)
 		if err != nil {
 			t.Fatal(err)
@@ -76,7 +76,7 @@ func TestProfileResetRevokesAndDeletes(t *testing.T) {
 	bobSession := r.register("bob", "bob-1")
 
 	r.ok("", "--profile", "alice", "profile", "reset")
-	absent(t, filepath.Join(r.cfg, "profiles", "alice"))
+	absent(t, filepath.Join(r.cfg, "teams", "alice"))
 
 	// Bob still works, and Alice's sessions have vanished from his view.
 	result := r.ok("", "--profile", "bob", "session", "list", "--include-offline")

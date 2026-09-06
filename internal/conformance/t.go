@@ -29,7 +29,7 @@ type Principal struct {
 
 	dir         string // <run>/principals/<x>
 	session     string // the fixture session id; "" for other principals
-	origProfile []byte // profile.json before the first default Rebind
+	origProfile []byte // team.json before the first default Rebind
 	rebound     bool
 }
 
@@ -497,7 +497,7 @@ func decodeMember(item any, into protocol.Validator) error {
 
 // Rebind binds p's profile to teamRef: through the --rebind command with
 // {"team_ref": …} on stdin when given, else by rewriting `team_ref` in
-// <config>/profiles/default/profile.json, keeping the original bytes for
+// <config>/teams/default/team.json, keeping the original bytes for
 // Restore. Cases that call it ALWAYS `defer t.Restore(p)`.
 func (t *T) Rebind(p *Principal, teamRef string) {
 	if cmd := t.run.opts.Rebind; cmd != "" {
@@ -515,7 +515,7 @@ func (t *T) Rebind(p *Principal, teamRef string) {
 	}
 	var profile map[string]any
 	if err := json.Unmarshal(p.origProfile, &profile); err != nil {
-		t.Fatalf("rebind %s: profile.json does not parse: %v", p.Name, err)
+		t.Fatalf("rebind %s: team.json does not parse: %v", p.Name, err)
 	}
 	profile["team_ref"] = teamRef
 	data, err := json.Marshal(profile)
@@ -529,7 +529,7 @@ func (t *T) Rebind(p *Principal, teamRef string) {
 }
 
 // Restore puts p's original binding back after Rebind: the original
-// profile.json bytes, or the --rebind command with the original team_ref.
+// team.json bytes, or the --rebind command with the original team_ref.
 // It is a no-op for a principal that was never rebound.
 func (t *T) Restore(p *Principal) {
 	if !p.rebound {
@@ -546,7 +546,7 @@ func (t *T) Restore(p *Principal) {
 }
 
 func (t *T) profilePath(p *Principal) string {
-	return filepath.Join(p.ConfigDir, "profiles", "default", "profile.json")
+	return filepath.Join(p.ConfigDir, "teams", "default", "team.json")
 }
 
 // runOperatorCommand runs a --setup/--rebind command (argv split on

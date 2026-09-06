@@ -30,10 +30,10 @@ import (
 // file.
 
 // The environment pair a binding command honours when there is no
-// profile.json to read a backend from (4.1: a BRIGADE_<ADAPTER>_* variable
+// team.json to read a backend from (4.1: a BRIGADE_<ADAPTER>_* variable
 // is honoured only when a human — or the conformance suite — runs the
 // adapter from a shell; under a live session neither arrives). The pair
-// is written to profile.json exactly as `profile init` would write it, so
+// is written to team.json exactly as `profile init` would write it, so
 // every later command reads the file and never the environment; a profile
 // that already names a backend is never overridden by the environment.
 const (
@@ -548,7 +548,7 @@ func errBackendMember() *protocol.Error {
 	}
 }
 
-// bootstrapProfile writes the resolved backend pair into profile.json
+// bootstrapProfile writes the resolved backend pair into team.json
 // when the file does not carry it yet — the implicit `profile init` of a
 // binding command run on a fresh profile — and leaves an already
 // configured file alone. It runs after the request was validated, so a

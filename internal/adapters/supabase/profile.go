@@ -41,7 +41,7 @@ type profileActionResult struct {
 	PrincipalRef string `json:"principal_ref,omitzero"`
 }
 
-// loadProfile reads profile.json. present is false only when the file is
+// loadProfile reads team.json. present is false only when the file is
 // ABSENT; a malformed or world-readable file is `config` (4.6), never a
 // silent "unconfigured".
 func (c *command) loadProfile() (*adapterkit.Profile, bool, error) {
@@ -59,7 +59,7 @@ func (c *command) loadProfile() (*adapterkit.Profile, bool, error) {
 	return p, true, nil
 }
 
-// profileDir is ${BRIGADE_CONFIG_DIR}/profiles/<name>.
+// profileDir is ${BRIGADE_CONFIG_DIR}/teams/<name>.
 func (c *command) profileDir() (string, error) {
 	return adapterkit.ProfileDir(c.cfgDir, c.profileName)
 }
@@ -165,7 +165,7 @@ func (c *command) ensureIdentity(ctx context.Context) error {
 	return c.signUp(ctx)
 }
 
-// bind writes the team binding into profile.json and remembers the team
+// bind writes the team binding into team.json and remembers the team
 // in session.json, so a later `team leave` on an already-unbound profile
 // can still answer a non-empty team_ref (C-08).
 func (c *command) bind(teamRef, teamName, humanLabel string) error {
@@ -406,7 +406,7 @@ func (c *command) signOut(ctx context.Context) error {
 
 // profileRevokeCredentials invalidates the credential at the backend
 // (the global sign-out of 5.1, after the refresh signOut explains) and
-// removes session.json, leaving profile.json and its team binding in
+// removes session.json, leaving team.json and its team binding in
 // place for a rejoin (4.2). Unlike `profile reset`, a sign-out that
 // cannot reach the backend is reported as `unavailable` and nothing is
 // deleted, so the user can retry rather than be left with a live family

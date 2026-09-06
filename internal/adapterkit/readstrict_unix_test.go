@@ -46,7 +46,7 @@ func strictRefusalReason(t *testing.T, path string) string {
 func TestReadStrictRefusesSymlink(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	target := filepath.Join(dir, "profile.json")
+	target := filepath.Join(dir, "team.json")
 	content := []byte(`{"version":1}`)
 	if err := os.WriteFile(target, content, 0o600); err != nil {
 		t.Fatal(err)

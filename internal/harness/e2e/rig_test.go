@@ -307,7 +307,7 @@ func (r *rig) createTeam() {
 			t.Fatalf("profile init %s: %s", p, res.stdout)
 		}
 	}
-	sidecar, err := os.ReadFile(filepath.Join(r.configDir, "profiles", "alice", "adapter"))
+	sidecar, err := os.ReadFile(filepath.Join(r.configDir, "teams", "alice", "adapter"))
 	if err != nil || strings.TrimSpace(string(sidecar)) != r.adapterJSON() {
 		t.Fatalf("alice's sidecar = %q (%v), want %s", sidecar, err, r.adapterJSON())
 	}

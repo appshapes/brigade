@@ -280,12 +280,12 @@ func (c *command) rootPath() (string, error) {
 	return filepath.Join(state, rootDirName), nil
 }
 
-// profileDir is ${BRIGADE_CONFIG_DIR}/profiles/<name>.
+// profileDir is ${BRIGADE_CONFIG_DIR}/teams/<name>.
 func (c *command) profileDir() (string, error) {
 	return adapterkit.ProfileDir(c.cfgDir, c.profileName)
 }
 
-// credentialPath is the adapter's own credential file beside profile.json.
+// credentialPath is the adapter's own credential file beside team.json.
 func (c *command) credentialPath() (string, error) {
 	dir, err := c.profileDir()
 	if err != nil {
@@ -294,7 +294,7 @@ func (c *command) credentialPath() (string, error) {
 	return filepath.Join(dir, credentialFileName), nil
 }
 
-// loadProfile reads profile.json. present is false only when the file is
+// loadProfile reads team.json. present is false only when the file is
 // ABSENT; a malformed or world-readable file is `config` (4.6), never a
 // silent "unconfigured".
 func (c *command) loadProfile() (*adapterkit.Profile, bool, error) {

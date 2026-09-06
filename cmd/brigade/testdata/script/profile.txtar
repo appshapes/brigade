@@ -16,15 +16,15 @@ chmod 755 fs.sh
 exec brigade profile init --profile alice --adapter fs=$WORK/fs.sh
 json stdout .ok true
 json stdout .result.name alice
-exists $WORK/.brigade/brigade-config/profiles/alice/adapter
-grep '^fs$' $WORK/.brigade/brigade-config/profiles/alice/adapter
+exists $WORK/.brigade/brigade-config/teams/alice/adapter
+grep '^fs$' $WORK/.brigade/brigade-config/teams/alice/adapter
 grep '"fs":\["'$WORK'/fs.sh"\]' $WORK/.brigade/brigade-config/adapters.json
-exists $WORK/.brigade/brigade-config/profiles/alice/profile.json
+exists $WORK/.brigade/brigade-config/teams/alice/team.json
 
 # --- `<name>=<JSON array>` registers fixed arguments (a private root) ---------
 exec brigade profile init --profile carol --adapter 'store=["'$WORK'/fs.sh","--root","'$WORK'/store"]'
 json stdout .result.name carol
-grep '^store$' $WORK/.brigade/brigade-config/profiles/carol/adapter
+grep '^store$' $WORK/.brigade/brigade-config/teams/carol/adapter
 grep '"store":\["'$WORK'/fs.sh","--root","'$WORK'/store"\]' $WORK/.brigade/brigade-config/adapters.json
 # The name registered first is kept verbatim beside the new one.
 grep '"fs":\["'$WORK'/fs.sh"\]' $WORK/.brigade/brigade-config/adapters.json
@@ -32,18 +32,18 @@ grep '"fs":\["'$WORK'/fs.sh"\]' $WORK/.brigade/brigade-config/adapters.json
 # --- a bare name must already be registered ----------------------------------
 status 11 brigade profile init --profile dave --adapter ghost
 stderr '^brigade profile failed \(config\)'
-! exists $WORK/.brigade/brigade-config/profiles/dave/adapter
-! exists $WORK/.brigade/brigade-config/profiles/dave/profile.json
+! exists $WORK/.brigade/brigade-config/teams/dave/adapter
+! exists $WORK/.brigade/brigade-config/teams/dave/team.json
 exec brigade profile init --profile dave --adapter fs
-grep '^fs$' $WORK/.brigade/brigade-config/profiles/dave/adapter
+grep '^fs$' $WORK/.brigade/brigade-config/teams/dave/adapter
 
 # --- `<absolute path>` writes the sidecar without a name --------------------
 exec brigade profile init --profile erin --adapter $WORK/fs.sh
-grep '^'$WORK'/fs.sh$' $WORK/.brigade/brigade-config/profiles/erin/adapter
+grep '^'$WORK'/fs.sh$' $WORK/.brigade/brigade-config/teams/erin/adapter
 
 # --- a relative path is refused, and nothing is written ----------------------
 status 11 brigade profile init --profile frank --adapter relative/adapter
-! exists $WORK/.brigade/brigade-config/profiles/frank
+! exists $WORK/.brigade/brigade-config/teams/frank
 
 # --- the adapter's own flags pass through after the harness's ---------------
 # fs's `profile init` refuses to replace an existing profile without --force.
@@ -85,7 +85,7 @@ exec brigade profile revoke-credentials --profile erin
 json stdout .ok true
 exec brigade profile reset --profile erin
 json stdout .ok true
-! exists $WORK/.brigade/brigade-config/profiles/erin/profile.json
+! exists $WORK/.brigade/brigade-config/teams/erin/team.json
 status 2 brigade profile
 stderr 'profile needs a verb'
 

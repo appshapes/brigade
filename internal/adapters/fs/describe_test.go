@@ -113,7 +113,7 @@ func TestDescribeRefusesAWorldReadableProfile(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.ok("", "--profile", "alice", "profile", "init")
-	path := filepath.Join(r.cfg, "profiles", "alice", "profile.json")
+	path := filepath.Join(r.cfg, "teams", "alice", "team.json")
 	if err := chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -450,7 +450,7 @@ func TestAdapterResolutionFailureLine(t *testing.T) {
 		{"relative option", func(*fixture) []string { return []string{config.OptionAdapterCommand + "=adapters/fake"} }, "option"},
 		{"unregistered sidecar name", func(f *fixture) []string {
 			f.noAdapterOption = true
-			dir := filepath.Join(f.configDir, "profiles", "default")
+			dir := filepath.Join(f.configDir, "teams", "default")
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				f.t.Fatal(err)
 			}

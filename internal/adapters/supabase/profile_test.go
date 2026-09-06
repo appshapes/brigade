@@ -75,9 +75,9 @@ func TestProfileInit(t *testing.T) {
 	if p.Adapter != adapterKind || p.URL != "https://x.example" || p.PublishableKey != testKey || p.SecretStore != adapterkit.SecretStoreFile {
 		t.Fatalf("profile = %+v", p)
 	}
-	info, err := os.Stat(filepath.Join(r.profileDir(), "profile.json"))
+	info, err := os.Stat(filepath.Join(r.profileDir(), "team.json"))
 	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("profile.json mode: %v %v", info, err)
+		t.Fatalf("team.json mode: %v %v", info, err)
 	}
 
 	got = r.fails("conflict", 7, "", "profile", "init", "--url", "https://y.example", "--key", testKey)
@@ -174,7 +174,7 @@ func TestProfileReset(t *testing.T) {
 }
 
 // TestProfileRevokeCredentials: the sign-out only, then session.json is
-// removed and profile.json with its binding stays (state
+// removed and team.json with its binding stays (state
 // unauthenticated); a backend that cannot be reached leaves the file and
 // answers `unavailable`; a backend that says the token is already dead
 // counts as done.

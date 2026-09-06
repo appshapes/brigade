@@ -76,8 +76,8 @@ rm $WORK/dump.ndjson
 env BRIGADE_ADAPTER_COMMAND=
 env BRIGADE_CONFIG_DIR=$WORK/.brigade/brigade-config
 env BRIGADE_STATE_DIR=$WORK/.brigade/brigade-state
-mkdir $WORK/.brigade/brigade-config/profiles/evil
-expand sidecar.in $WORK/.brigade/brigade-config/profiles/evil/adapter
+mkdir $WORK/.brigade/brigade-config/teams/evil
+expand sidecar.in $WORK/.brigade/brigade-config/teams/evil/adapter
 exec brigade sessions
 grep '"--profile","evil"' dump.ndjson
 grep '"BRIGADE_PROFILE":"evil"' dump.ndjson

@@ -105,7 +105,7 @@ const MaxStrictBytes = 1 << 20
 //
 // A missing file is returned as the underlying *fs.PathError (so
 // errors.Is(err, fs.ErrNotExist) holds): whether "missing" means `config`
-// (profile.json, 4.6) or `unauthenticated` (session.json, 5.1) is the
+// (team.json, 4.6) or `unauthenticated` (session.json, 5.1) is the
 // caller's mapping, not this helper's.
 func ReadStrict(path string) ([]byte, error) {
 	f, err := openStrict(path)

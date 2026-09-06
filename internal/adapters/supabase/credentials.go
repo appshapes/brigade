@@ -16,7 +16,7 @@ import (
 )
 
 // session.json (5.1, as corrected by E0-6): the credential file beside
-// profile.json, mode 0600, written by adapterkit.WriteAtomic. Every
+// team.json, mode 0600, written by adapterkit.WriteAtomic. Every
 // read-refresh-write runs under the flock on the sidecar
 // session.json.lock (adapterkit.LockFile, 5 ms retries, 10 s bound), the
 // file is RE-READ after the lock is acquired, a refresh happens when fewer
@@ -278,7 +278,7 @@ func (c *command) signUp(ctx context.Context) error {
 
 // rememberTeam stores last_team_ref in session.json, so a repeated `team
 // leave` on an unbound profile still answers the team it left (C-08).
-// A read-only directory is not an error: the binding in profile.json is
+// A read-only directory is not an error: the binding in team.json is
 // what matters and this member is a courtesy.
 func (c *command) rememberTeam(teamRef string) error {
 	if c.cred == nil || c.cred.LastTeamRef == teamRef {

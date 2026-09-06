@@ -13,7 +13,7 @@
 # b in one team, c in another (internal/conformance/fixture.go). What it does, per principal:
 #
 #   1. `profile init --url $SUPABASE_URL --key $SUPABASE_PUBLISHABLE_KEY` — the backend pair of 5.2 written
-#      to profile.json (under a live session no BRIGADE_<ADAPTER>_* variable ever arrives, 4.1);
+#      to team.json (under a live session no BRIGADE_<ADAPTER>_* variable ever arrives, 4.1);
 #   2. a: `team create` with --secret-file into a scratch directory OUTSIDE the run directory (the suite
 #      scans the whole run directory for join-secret shapes at the end and reports a hit as C-05);
 #      b: `team join` with that secret on stdin, then the secret file is removed;

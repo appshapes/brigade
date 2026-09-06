@@ -382,7 +382,7 @@ func (c *command) teamMembers() (any, error) {
 	}, nil
 }
 
-// bind writes the team binding into profile.json and remembers the team in
+// bind writes the team binding into team.json and remembers the team in
 // the credential, so a later `team leave` on an already-unbound profile
 // can still answer a non-empty team_ref.
 func (c *command) bind(teamRef, teamName, humanLabel string) error {

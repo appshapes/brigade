@@ -22,7 +22,7 @@ const BundledAdapterName = "supabase"
 // The two harness-owned files of D36 (3.2).
 const (
 	// SidecarFileName is the per-profile default adapter, one line, in
-	// ${configDir}/profiles/<profile>/.
+	// ${configDir}/teams/<profile>/.
 	SidecarFileName = "adapter"
 	// RegistryFileName maps adapter names to commands, in ${configDir}.
 	RegistryFileName = "adapters.json"
@@ -144,7 +144,7 @@ func DecodeAdapter(s string) (Adapter, error) {
 	}
 }
 
-// SidecarPath is ${configDir}/profiles/<profile>/adapter after validating
+// SidecarPath is ${configDir}/teams/<profile>/adapter after validating
 // the profile name.
 func SidecarPath(configDir, profile string) (string, error) {
 	dir, err := adapterkit.ProfileDir(configDir, profile)
@@ -177,7 +177,7 @@ func CheckAdapterName(name string) error {
 }
 
 // ResolveAdapter applies D36, first match wins: (1) opts.AdapterCommand,
-// the per-session override; (2) the sidecar ${configDir}/profiles/
+// the per-session override; (2) the sidecar ${configDir}/teams/
 // <profile>/adapter (one line, written by `profile init --adapter`, read
 // through ReadStrict); (3) the profile file's top-level `adapter` member,
 // best effort — a missing or unreadable profile or an empty member is not
@@ -368,7 +368,7 @@ func errAdapter(reason, source, message string) *protocol.Error {
 const SourceRegistry = "registry"
 
 // WriteSidecar records value as the profile's default adapter (D36 step
-// 2, `brigade profile init --adapter`): ${configDir}/profiles/<profile>/
+// 2, `brigade profile init --adapter`): ${configDir}/teams/<profile>/
 // adapter, one line, 0600 in a 0700 directory, written atomically. value is
 // parsed exactly as ResolveAdapter will parse it and refused on the same
 // terms, so a sidecar that the next SessionStart would refuse is never

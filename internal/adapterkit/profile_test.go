@@ -46,13 +46,13 @@ func TestProfileSaveLoadRoundTrip(t *testing.T) {
 		t.Fatalf("round trip changed the profile:\ngot  %+v\nwant %+v", got, want)
 	}
 
-	path := filepath.Join(configDir, "profiles", "default", "profile.json")
+	path := filepath.Join(configDir, "teams", "default", "team.json")
 	fi, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("profile is not at the 5.2 path: %v", err)
 	}
 	if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("profile.json mode = %o, want 0600", fi.Mode().Perm())
+		t.Fatalf("team.json mode = %o, want 0600", fi.Mode().Perm())
 	}
 	di, err := os.Stat(filepath.Dir(path))
 	if err != nil {
@@ -70,12 +70,12 @@ func TestProfileSaveLoadRoundTrip(t *testing.T) {
 	}
 	for _, member := range []string{`"version"`, `"adapter"`, `"url"`, `"publishable_key"`, `"team_ref"`, `"team_name"`, `"principal_ref"`, `"human_label"`, `"secret_store"`, `"created_at"`} {
 		if !strings.Contains(string(raw), member) {
-			t.Fatalf("profile.json lacks %s:\n%s", member, raw)
+			t.Fatalf("team.json lacks %s:\n%s", member, raw)
 		}
 	}
 	for _, forbidden := range []string{"access_token", "refresh_token", "join_secret"} {
 		if strings.Contains(string(raw), forbidden) {
-			t.Fatalf("profile.json carries a secret-shaped member %q:\n%s", forbidden, raw)
+			t.Fatalf("team.json carries a secret-shaped member %q:\n%s", forbidden, raw)
 		}
 	}
 }
@@ -106,7 +106,7 @@ func TestLoadProfileWorldReadable(t *testing.T) {
 	if err := adapterkit.SaveProfile(configDir, "default", sampleProfile()); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(configDir, "profiles", "default", "profile.json")
+	path := filepath.Join(configDir, "teams", "default", "team.json")
 	//nolint:gosec // G302: making the profile world-readable is the PRECONDITION of this refusal test
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
@@ -118,11 +118,11 @@ func TestLoadProfileWorldReadable(t *testing.T) {
 func TestLoadProfileMalformedJSON(t *testing.T) {
 	t.Parallel()
 	configDir := t.TempDir()
-	dir := filepath.Join(configDir, "profiles", "default")
+	dir := filepath.Join(configDir, "teams", "default")
 	if err := adapterkit.MkdirPrivate(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := adapterkit.WriteAtomic(filepath.Join(dir, "profile.json"), []byte("{not json")); err != nil {
+	if err := adapterkit.WriteAtomic(filepath.Join(dir, "team.json"), []byte("{not json")); err != nil {
 		t.Fatal(err)
 	}
 	_, err := adapterkit.LoadProfile(configDir, "default")
@@ -132,11 +132,11 @@ func TestLoadProfileMalformedJSON(t *testing.T) {
 func TestLoadProfileUnsupportedVersion(t *testing.T) {
 	t.Parallel()
 	configDir := t.TempDir()
-	dir := filepath.Join(configDir, "profiles", "default")
+	dir := filepath.Join(configDir, "teams", "default")
 	if err := adapterkit.MkdirPrivate(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := adapterkit.WriteAtomic(filepath.Join(dir, "profile.json"), []byte(`{"version":2,"adapter":"supabase"}`)); err != nil {
+	if err := adapterkit.WriteAtomic(filepath.Join(dir, "team.json"), []byte(`{"version":2,"adapter":"supabase"}`)); err != nil {
 		t.Fatal(err)
 	}
 	_, err := adapterkit.LoadProfile(configDir, "default")
@@ -146,11 +146,11 @@ func TestLoadProfileUnsupportedVersion(t *testing.T) {
 func TestLoadProfileMissingAdapter(t *testing.T) {
 	t.Parallel()
 	configDir := t.TempDir()
-	dir := filepath.Join(configDir, "profiles", "default")
+	dir := filepath.Join(configDir, "teams", "default")
 	if err := adapterkit.MkdirPrivate(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := adapterkit.WriteAtomic(filepath.Join(dir, "profile.json"), []byte(`{"version":1}`)); err != nil {
+	if err := adapterkit.WriteAtomic(filepath.Join(dir, "team.json"), []byte(`{"version":1}`)); err != nil {
 		t.Fatal(err)
 	}
 	_, err := adapterkit.LoadProfile(configDir, "default")
@@ -196,8 +196,8 @@ func TestProfilePathRejectsTraversal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != "/cfg/profiles/default/profile.json" {
-		t.Fatalf("path = %q, want /cfg/profiles/default/profile.json", path)
+	if path != "/cfg/teams/default/team.json" {
+		t.Fatalf("path = %q, want /cfg/teams/default/team.json", path)
 	}
 }
 
@@ -207,5 +207,24 @@ func TestSaveProfileValidates(t *testing.T) {
 	bad.Adapter = ""
 	if err := adapterkit.SaveProfile(t.TempDir(), "default", bad); err == nil {
 		t.Fatal("SaveProfile wrote a profile that fails Validate")
+	}
+}
+
+// TestProfilePathGolden pins the store layout: teams/<key>/team.json,
+// with a 32-hex team key as the profile name (P7-3; reverting either
+// constant fails here first).
+func TestProfilePathGolden(t *testing.T) {
+	t.Parallel()
+	key := "0123456789abcdef0123456789abcdef"
+	if err := adapterkit.CheckProfileName(key); err != nil {
+		t.Fatalf("a 32-hex team key must be a legal profile name (the sentence that keeps protocol v1 frozen): %v", err)
+	}
+	got, err := adapterkit.ProfilePath("/cfg", key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join("/cfg", "teams", key, "team.json")
+	if got != want {
+		t.Fatalf("ProfilePath = %q, want %q", got, want)
 	}
 }

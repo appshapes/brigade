@@ -24,11 +24,11 @@ func newFailure(t *testing.T, err *protocol.Error) string {
 	return out.String()
 }
 
-// rewriteProfile edits profile.json as a loose map, the way the
+// rewriteProfile edits team.json as a loose map, the way the
 // conformance suite's default --rebind does.
 func rewriteProfile(t *testing.T, r *rig, edit func(map[string]any)) {
 	t.Helper()
-	path := filepath.Join(r.profileDir(), "profile.json")
+	path := filepath.Join(r.profileDir(), "team.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestDescribeStateMachine(t *testing.T) {
 }
 
 // TestDescribeRefusesInsecureFiles: a group- or world-readable
-// profile.json or session.json is `config`, never a silent state (U-10),
+// team.json or session.json is `config`, never a silent state (U-10),
 // and describe still creates nothing.
 func TestDescribeRefusesInsecureFiles(t *testing.T) {
 	t.Parallel()
@@ -148,7 +148,7 @@ func TestDescribeRefusesInsecureFiles(t *testing.T) {
 	if err := os.Chmod(r.sessionPath(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(filepath.Join(r.profileDir(), "profile.json"), 0o640); err != nil { //nolint:gosec // G302: the group-readable file IS the case under test
+	if err := os.Chmod(filepath.Join(r.profileDir(), "team.json"), 0o640); err != nil { //nolint:gosec // G302: the group-readable file IS the case under test
 		t.Fatal(err)
 	}
 	r.fails("config", 11, "", "describe")
@@ -157,13 +157,13 @@ func TestDescribeRefusesInsecureFiles(t *testing.T) {
 	}
 }
 
-// TestDescribeMalformedProfileIsConfig: a profile.json that does not
+// TestDescribeMalformedProfileIsConfig: a team.json that does not
 // parse, or carries an unknown version, is `config` (4.6).
 func TestDescribeMalformedProfileIsConfig(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.initProfile()
-	path := filepath.Join(r.profileDir(), "profile.json")
+	path := filepath.Join(r.profileDir(), "team.json")
 	if err := os.WriteFile(path, []byte(`{`), 0o600); err != nil {
 		t.Fatal(err)
 	}

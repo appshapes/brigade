@@ -269,7 +269,7 @@ func TestPromptWithoutATerminalIsUsage(t *testing.T) {
 	}
 }
 
-// TestTeamCreateNeedsABackend: with no profile.json and no environment
+// TestTeamCreateNeedsABackend: with no team.json and no environment
 // pair `team create` is `config` profile_missing before stdin is read; a
 // profile without a backend is `config` backend_unconfigured; the
 // BRIGADE_SUPABASE_* pair bootstraps a fresh profile exactly as `profile
@@ -330,7 +330,7 @@ func TestTeamCreateNeedsABackend(t *testing.T) {
 }
 
 // TestTeamCreateOrderOfChecks (section 3): a refused document on a fresh
-// profile creates nothing — no profile.json, no sign-up, no RPC — and a
+// profile creates nothing — no team.json, no sign-up, no RPC — and a
 // backend refusal after sign-up leaves the credential but no binding.
 func TestTeamCreateOrderOfChecks(t *testing.T) {
 	t.Parallel()
@@ -549,7 +549,7 @@ func TestLeaveIsIdempotent(t *testing.T) {
 }
 
 // TestLeaveKeepsTheBindingOnABackendFailure: leave_team refused (a 5xx,
-// a revoked credential) leaves profile.json bound so the leave can be
+// a revoked credential) leaves team.json bound so the leave can be
 // retried; a bound team_ref that is not a backend id is unbound locally
 // without a call.
 func TestLeaveKeepsTheBindingOnABackendFailure(t *testing.T) {

@@ -41,7 +41,7 @@ type Options struct {
 	Setup string
 	// Rebind is a command that rebinds a profile to the team_ref given on
 	// stdin as {"team_ref": "…"} (--rebind); empty means the default
-	// profile.json rewrite.
+	// team.json rewrite.
 	Rebind string
 	// Tags, Only and Skip select cases (--tags, --only, --skip).
 	Tags []string

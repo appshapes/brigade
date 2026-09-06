@@ -156,7 +156,7 @@ func TestResolveAdapterThreeFormsPerSource(t *testing.T) {
 	}
 }
 
-// writeRawProfile writes a profile.json with an arbitrary adapter member.
+// writeRawProfile writes a team.json with an arbitrary adapter member.
 func writeRawProfile(t *testing.T, configDir, profile, adapter string) {
 	t.Helper()
 	path, err := adapterkit.ProfilePath(configDir, profile)
@@ -512,7 +512,7 @@ func TestCheckAdapterName(t *testing.T) {
 func TestSidecarAndRegistryPaths(t *testing.T) {
 	t.Parallel()
 	got, err := config.SidecarPath("/c", "work")
-	if err != nil || got != "/c/profiles/work/adapter" {
+	if err != nil || got != "/c/teams/work/adapter" {
 		t.Fatalf("SidecarPath = %q, %v", got, err)
 	}
 	if _, err := config.SidecarPath("/c", "../"+evilMarker); err == nil {

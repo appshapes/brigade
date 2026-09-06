@@ -198,7 +198,7 @@ func str(t *testing.T, object map[string]any, key string) string {
 // ---- the profile files ----
 
 // profileDir is the rig's default profile directory.
-func (r *rig) profileDir() string { return filepath.Join(r.cfg, "profiles", "default") }
+func (r *rig) profileDir() string { return filepath.Join(r.cfg, "teams", "default") }
 
 // initProfile runs `profile init` against the fake backend.
 func (r *rig) initProfile() {
@@ -206,7 +206,7 @@ func (r *rig) initProfile() {
 	r.ok("profile", "init", "--url", r.be.srv.URL, "--key", testKey)
 }
 
-// bindTeam writes a team binding into profile.json, the way `team join`
+// bindTeam writes a team binding into team.json, the way `team join`
 // will (and the way the conformance suite's default --rebind does).
 func (r *rig) bindTeam(teamRef, teamName string) {
 	r.t.Helper()

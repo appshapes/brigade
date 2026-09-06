@@ -294,7 +294,7 @@ fixture. Plan for provisioning before you plan for any single case.
 
 `--rebind <cmd>` is the other operator hook. Two cases (C-26 and C-43) need a profile pointed at a team it is not a
 member of, to prove there is no team-existence oracle. Without the flag the suite does it itself, by rewriting the
-`team_ref` member of `<BRIGADE_CONFIG_DIR>/profiles/default/profile.json` and restoring the original bytes
+`team_ref` member of `<BRIGADE_CONFIG_DIR>/teams/default/team.json` and restoring the original bytes
 afterwards — which is why a top-level `team_ref` in that file is worth having even if your adapter keeps its real
 binding elsewhere (see *The profile file and where state lives*). If your profile is not a JSON file with that
 member, pass `--rebind <cmd>`: it is run in the principal's environment with `{"team_ref": "…"}` on stdin and must
@@ -821,8 +821,8 @@ Three absolutes, all asserted:
 - **`describe` never fails because of state.** `unconfigured` is a successful answer, `ok: true`, exit 0. There is no
   state in which `describe` returns an error envelope. A *broken* environment or a *broken file* is a different
   thing and does fail, with `config` (exit 11): measured on the fs adapter, that is a relative `BRIGADE_CONFIG_DIR`
-  (`details.reason = "relative_path"`), a `profile.json` that does not parse (`malformed_json`), a `version` the
-  build does not know (`unsupported_version`) and a `profile.json` **or** a credential file that is group- or
+  (`details.reason = "relative_path"`), a `team.json` that does not parse (`malformed_json`), a `version` the
+  build does not know (`unsupported_version`) and a `team.json` **or** a credential file that is group- or
   world-readable (`insecure_mode`, with the offending path in `details.path`). The 0600-in-0700 rule of *The profile
   file and where state lives* is enforced on read, on both files, and `describe` is not exempt from it. "No profile"
   is a state; "a profile I cannot read" is not.
@@ -1111,7 +1111,7 @@ The fs adapter's choice, measured:
 
 | Local state | `describe.profile.state` | `session list` answers |
 | --- | --- | --- |
-| no `profile.json` | `unconfigured` | `config`, exit 11, `details.reason = "profile_missing"` |
+| no `team.json` | `unconfigured` | `config`, exit 11, `details.reason = "profile_missing"` |
 | profile but no credential file | `unauthenticated` | `unauthenticated`, exit 4, `details.reason = "credential_missing"` |
 | credential, no `team_ref` | `not_member` | `config`, exit 11, `details.reason = "no_team_bound"` |
 | credential and a team | `joined` | the list |
@@ -1344,12 +1344,12 @@ shared Go helper (`internal/adapterkit`) writes and the fs adapter follows, and 
 buys you the suite's default `--rebind`.
 
 ```text
-${BRIGADE_CONFIG_DIR}/profiles/<name>/         directory, mode 0700
-${BRIGADE_CONFIG_DIR}/profiles/<name>/profile.json    mode 0600 — configuration and identity, NEVER a secret
-${BRIGADE_CONFIG_DIR}/profiles/<name>/<credential>    mode 0600 — the adapter's own credential file
+${BRIGADE_CONFIG_DIR}/teams/<name>/         directory, mode 0700
+${BRIGADE_CONFIG_DIR}/teams/<name>/team.json    mode 0600 — configuration and identity, NEVER a secret
+${BRIGADE_CONFIG_DIR}/teams/<name>/<credential>    mode 0600 — the adapter's own credential file
 ```
 
-`profile.json` (plan 5.2), as the shared Go helper writes it:
+`team.json` (plan 5.2), as the shared Go helper writes it:
 
 | Member | Type | Notes |
 | --- | --- | --- |
@@ -1376,7 +1376,7 @@ adapter, in that order: `details.reason` `malformed_json`, `unsupported_version`
 answers the same way, because a file it cannot read is a broken environment, not a profile state (section 5).
 
 **Why the top-level `team_ref` matters.** C-26 and C-43 must put a profile in front of a team it is not a member of.
-Without `--rebind` the suite does that by parsing `<config>/profiles/default/profile.json`, replacing the top-level
+Without `--rebind` the suite does that by parsing `<config>/teams/default/team.json`, replacing the top-level
 `team_ref` member, writing it back, and restoring the original bytes afterwards. If your binding lives somewhere else
 — a database row, a keyring, a nested object — those two cases will not work until you supply `--rebind <cmd>`.
 Keeping a top-level `team_ref` here is the cheap option.
@@ -1385,7 +1385,7 @@ Keeping a top-level `team_ref` here is the cheap option.
 credentials, so a credential can be a refresh token, a key handle, a keyring reference or — for a test-only adapter
 — a file whose mere presence stands in for one. It has to answer exactly one question from local files alone,
 without the network, because `describe` asks it on every call (section 5): *does this profile hold something that
-would let it act as its principal?* The fs adapter's answer is `credential.json` beside `profile.json`, mode 0600,
+would let it act as its principal?* The fs adapter's answer is `credential.json` beside `team.json`, mode 0600,
 holding no secret at all because it guards nothing:
 
 ```json
@@ -1397,7 +1397,7 @@ and test-only.
 
 **Credential files.** Mode **0600** in a **0700** directory, written atomically (write a temp file in the same
 directory, `fsync`, rename). Refuse to read one that is group- or world-readable and answer `config` (exit 11): a
-credential another local account can read is not a credential. Never put a secret in `profile.json`, never in
+credential another local account can read is not a credential. Never put a secret in `team.json`, never in
 `describe` output, and never in any file under the user's **project** directory — hooks run with the working
 directory set to the project, which is why every path you resolve must be absolute and rooted in
 `BRIGADE_CONFIG_DIR` or `BRIGADE_STATE_DIR`. The suite walks the whole run directory at the end of every run looking
@@ -1499,7 +1499,7 @@ join secrets are `brg1.<team_ref>.<32 hex>`, of which only the last component is
 prefix and the embedded `team_ref` are fixed by 4.4.10 for every adapter that implements `team create` / `team join`
 (see *Provisioning* above). Only the SHA-256 of the whole secret is stored. Every identifier that becomes a path
 component is checked against `[A-Za-z0-9_-]{1,64}` first and is otherwise simply *not found*, so a hostile
-`--session` or a hand-edited `profile.json` cannot escape the root.
+`--session` or a hand-edited `team.json` cannot escape the root.
 
 **Leases and states** are computed at read time from `closed_at`, `lease_until` and `activity`, never stored. The
 retention sweep runs under the lock at the start of every command except `describe`, and does nothing at all when no

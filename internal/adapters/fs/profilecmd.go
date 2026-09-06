@@ -69,7 +69,7 @@ func (c *command) profileCommand() (any, error) {
 	}
 }
 
-// profileInit creates the profile directory, an unbound profile.json and a
+// profileInit creates the profile directory, an unbound team.json and a
 // credential.json carrying a fresh principal. An existing profile is
 // `conflict` unless --force, which rewrites both files with a NEW
 // principal (4.2: "profile init on a configured profile is conflict unless
