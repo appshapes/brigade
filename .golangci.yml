@@ -66,6 +66,11 @@ linters:
           deny:
             - pkg: github.com/appshapes/brigade/internal/adapters/supabase
               desc: the plugin talks only the adapter protocol; the Supabase adapter is a child process
+        hook-reads-the-store:
+          files: ["**/internal/harness/hook/**"]
+          deny:
+            - pkg: github.com/appshapes/brigade/internal/harness/teamstore/write
+              desc: the hook only reads the team store; every writer is a terminal command (P7-4, attach-only)
   exclusions:
     generated: lax
     presets: [comments, std-error-handling]
