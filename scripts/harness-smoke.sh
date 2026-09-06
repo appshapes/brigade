@@ -211,6 +211,9 @@ bob_session() {
 say "harness-smoke: temp root $smoke_root"
 say "harness-smoke: fs store  $store"
 
+# P7-6: terminal resolution reads the binding's adapter NAME through adapters.json.
+printf '{"fs": %s}\n' "$adapter_array" > "$xdg_config/brigade/adapters.json"
+chmod 600 "$xdg_config/brigade/adapters.json"
 for p in "$alice_profile" "$bob_profile"; do
   terminal "$brigade_bin" profile init --profile "$p" --adapter "$adapter_array" >"$capture/profile-init-$p.json"
 done
@@ -227,6 +230,28 @@ if [ -z "$team_ref" ] || [ "$team_ref" = null ]; then die "team create returned 
 jq -Rn --arg l "$bob_label" '{join_secret: input, human_label: $l}' < "$secret_file" |
   terminal "$brigade_bin" team join --profile "$bob_profile" >"$capture/team-join.json"
 ok "team \"$team_name\" created by $alice_profile and joined by $bob_profile (team_ref $team_ref)"
+
+# --- P7-6: the project owns the team. Bob's store moves under the derived team key, his binding gains the
+# harness-owned backend trio, his session cwd becomes a checkout with .brigade.json, and the pin records the
+# consent his `team join` implies. Alice never runs a session here, so her name-keyed store stays as the
+# terminal bridge uses it.
+smoke_key=$(printf 'fs\nhttp://127.0.0.1:1\n%s' "$team_ref" | shasum -a 256 | cut -c1-32)
+bstore=$xdg_config/brigade/teams
+mv "$bstore/$bob_profile" "$bstore/$smoke_key"
+jq '.adapter="fs" | .url="http://127.0.0.1:1" | .publishable_key="placeholder"' \
+  "$bstore/$smoke_key/team.json" > "$bstore/$smoke_key/team.json.new"
+mv "$bstore/$smoke_key/team.json.new" "$bstore/$smoke_key/team.json"
+chmod 600 "$bstore/$smoke_key/team.json"
+mkdir "$bob_cwd/.git"
+jq -cn --arg r "$team_ref" --arg t "$team_name" \
+  '{version:1,adapter:"fs",url:"http://127.0.0.1:1",publishable_key:"placeholder",team_ref:$r,team_name:$t}' \
+  > "$bob_cwd/.brigade.json"
+canon_bob=$(cd "$bob_cwd" && pwd -P)
+jq -cn --arg d "$canon_bob" --arg r "$team_ref" \
+  '{version:1,projects:{($d):{adapter:"fs",url:"http://127.0.0.1:1",publishable_key:"placeholder",team_ref:$r,consented_at:"2026-09-06T00:00:00Z"}}}' \
+  > "$xdg_config/brigade/projects.json"
+chmod 600 "$xdg_config/brigade/projects.json"
+say "harness-smoke: bob's store keyed $smoke_key; checkout pinned at $canon_bob"
 
 # ---------------------------------------------------------------------------------------------------------------
 # 6. bob's session, registered through the REAL hook (the shipped path; it puts him in the roster)
@@ -250,8 +275,30 @@ fi
 # ---------------------------------------------------------------------------------------------------------------
 # 7. The headless session
 # ---------------------------------------------------------------------------------------------------------------
-settings=$(jq -cn --arg p "$alice_profile" --argjson ac "$adapter_json" \
-  '{pluginConfigs:{"brigade@inline":{options:{profile:$p,adapter_command:$ac}}}}')
+# P7-6: the headless session attaches through ITS checkout and ITS OWN store (two principals of one team
+# cannot share a key-keyed store): alice's credential is copied under the derived key into a session-only
+# config dir, the backend trio completed, the fs adapter registered by name, $proj made a checkout with the
+# team file, and the pin written for it.
+alice_cfg=$smoke_root/cfg-alice-session
+mkdir -p "$alice_cfg/teams"
+cp -R "$xdg_config/brigade/teams/$alice_profile" "$alice_cfg/teams/$smoke_key"
+jq '.adapter="fs" | .url="http://127.0.0.1:1" | .publishable_key="placeholder"' \
+  "$alice_cfg/teams/$smoke_key/team.json" > "$alice_cfg/teams/$smoke_key/team.json.new"
+mv "$alice_cfg/teams/$smoke_key/team.json.new" "$alice_cfg/teams/$smoke_key/team.json"
+chmod 600 "$alice_cfg/teams/$smoke_key/team.json"
+printf '{"fs": %s}\n' "$adapter_array" > "$alice_cfg/adapters.json"
+chmod 600 "$alice_cfg/adapters.json"
+mkdir "$proj/.git"
+cp "$bob_cwd/.brigade.json" "$proj/.brigade.json"
+canon_proj=$(cd "$proj" && pwd -P)
+jq -cn --arg d "$canon_proj" --arg r "$team_ref" \
+  '{version:1,projects:{($d):{adapter:"fs",url:"http://127.0.0.1:1",publishable_key:"placeholder",team_ref:$r,consented_at:"2026-09-06T00:00:00Z"}}}' \
+  > "$alice_cfg/projects.json"
+chmod 600 "$alice_cfg/projects.json"
+
+
+settings=$(jq -cn --arg cd "$alice_cfg" --argjson ac "$adapter_json" \
+  '{pluginConfigs:{"brigade@inline":{options:{config_dir:$cd,adapter_command:$ac}}}}')
 
 prompt="Brigade smoke test. Use ONLY the Bash tool, ONE command per tool call, in this order:
 1. brigade sessions
