@@ -25,6 +25,16 @@
 #   git tag -d v<v> && git push --delete origin v<v>
 # before rerunning (git tag -a refuses an existing local tag). A PUBLISHED tag is never rewritten: bump the
 # patch version instead.
+#
+# The workflow-only fix, which the deletion above does not finish. If the failure was in release.yml (or in
+# anything else this script does not build), a re-run of `make release version=<v>` DIES AT STEP 4: the pins are
+# already <v>, so step 1 is a no-op; no built byte changed, so the cp is a no-op too; and `make push` fails with
+# "nothing to commit". Do step 5 by hand instead:
+#   git tag -a v<v> -m v<v> && git push origin v<v>
+# release.yml triggers on `v*` and on nothing else -- there is no workflow_dispatch -- so a release cannot be
+# re-driven without a tag. And note that deleting the tag leaves the release commit on the branch: it pins <v>
+# against checksums no published release backs, so until the retag keep every fix to non-Go files -- a Go source
+# change makes checksums-check's fresh build differ from the committed file and turns the `fast` job red.
 set -eu
 
 die() { printf 'release-prep: %s\n' "$1" >&2; exit 1; }

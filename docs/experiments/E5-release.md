@@ -1,8 +1,10 @@
 # E5-release — preparing 0.1.0: the preconditions, the practice rehearsal, and the cold-cache first prompt
 
-Date: 2026-09-05 · Ticket 15 · Status: **PHASE A — draft; the phase-B sections are marked pending** ·
+Date: 2026-09-05 (phase A) and 2026-09-06 (phase B) · Ticket 15 · Status: **PHASE A and PHASE B recorded; what is
+left waits for the tag (section 11)** ·
 Harness: `.ignored/proof/<stamp>-release-a/harness/` in the lane worktree (the E0-8 pacing server with a route and a
-request log added, plus a driver and a probe plugin written for this item)
+request log added, plus a driver and a probe plugin written for this item); phase B's records are in
+`.ignored/tools/p5-10b/author/`
 
 Phase A is everything the release needs that does **not** need the release commit or the five shared documents
 (P5-12 owns those right now): the preconditions checklist, a practice `DRY_RUN=1` rehearsal, the version-bump list
@@ -383,41 +385,299 @@ Two things the lane found while re-reading, both for the owner or the driver rat
 
 ---
 
-## For the owner
+## 6. Phase B — the marketplace install, the one-time login, and `CLAUDE_PLUGIN_ROOT`
 
-1. **Set a tag ruleset before anything else.** `refs/tags/v*`, blocking updates and deletions. Today
-   `gh api /repos/appshapes/brigade/rulesets` returns `[]` and `master` is unprotected; the release token
-   (`contents: write`) lives on a third-party runner. Expect: the ruleset listed, and `git push --delete origin
-   v0.1.0` refused thereafter — which is deliberate, and is why the never-published-tag recovery of §5.4 must be
-   done *before* the ruleset if a rehearsal tag is still outstanding.
-2. **Flip the repository to public.** GitHub → Settings → General → Danger zone → Change visibility. Release assets
-   take the repository's visibility; there is no per-release switch. Expect `gh repo view --json isPrivate` to read
-   `false`. In the same sitting: Actions → General → Fork pull request workflows → **"Require approval for all
-   outside collaborators"** (Blacksmith runners are self-hosted VMs and `ci.yml` runs on every `pull_request`), and
-   note that `docs/setup.md` §3's "nothing to do while private" sentence about GitHub's 60-day rule for scheduled
-   workflows becomes a standing responsibility for the keep-alive.
-3. **Run the release, or direct a session to.** From a clean `master`, after the preparation commit and its green CI:
+Phase B's measurements ran on **2026-09-06, 04:06–04:17 UTC**, in the worktree `.ignored/wt/p5-10b`, detached at **`7bc6f61`**
+(P5-12 landed there; P5-18 landed at `1c849bd`; P5-17 merged at `897e75a`). Claude Code **2.1.263** —
+`readlink ~/.local/bin/claude` → `/Users/rjae/.local/share/claude/versions/2.1.263`, the same before and after every
+invocation. Same host as phase A: macOS 26.6.1 (build 25G76), Darwin 25.6.0, arm64. Raw records, one file per
+command, in `.ignored/tools/p5-10b/author/`.
+
+**Sessions: three `claude -p` invocations, two of which became sessions.** All three were nested with the
+environment stripped **by prefix** — every name beginning `CLAUDE` (so `CLAUDECODE` too) plus `AI_AGENT`, keeping
+only `CLAUDE_CONFIG_DIR` — and with `DISABLE_AUTOUPDATER=1`. The two that became sessions also carried a throwaway
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` under one `mktemp -d` root; the first never started a
+session and needed none. The strip removed the same 11 names phase A measured: `AI_AGENT`,
+`CLAUDECODE`, `CLAUDE_CODE_BRIDGE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_ENTRYPOINT`,
+`CLAUDE_CODE_EXECPATH`, `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_MESSAGING_TOKEN`, `CLAUDE_CODE_SESSION_ID`,
+`CLAUDE_EFFORT`, `CLAUDE_PID`. Invocation 1 (the login measurement) exited before a session existed; invocation 2
+(a control) and invocation 3 (the measurement) were real sessions of 4 s and 5 s. Sixteen `claude plugin …` commands
+ran besides, across three throwaway configuration directories and the machine's own; those are not sessions.
+
+### 6.1 What moved since phase A
+
+| Phase A said, at `fe36367` | Now, at `7bc6f61` | How |
+| --- | --- | --- |
+| P5-12 `todo`, in flight | landed in `7bc6f61` | the execution log's "P5-12 DONE" |
+| the cold-cache first prompt is a finding for the owner | P5-18 landed at `1c849bd`: the session-start worker is the only downloader, a failed install is reported once, the retry stamp follows the attempt | "P5-18 DONE" |
+| P5-17 (PR #1) not merged | merged as `897e75a`; master's CI runs on Blacksmith | the log, 2026-09-06 02:0x |
+| the repository is private | **public** | `gh api repos/appshapes/brigade` → `"private": false`, `"visibility": "public"` (04:16:50Z) |
+| no tag ruleset (`[]`) | `protect-release-tags`, id **22364575**, target tag, `refs/tags/v*`, enforcement **active** | `gh api /repos/appshapes/brigade/rulesets` (04:16:50Z) |
+| the outside-collaborator setting not set | `approval_policy: all_external_contributors` | `gh api /repos/appshapes/brigade/actions/permissions/fork-pr-contributor-approval` |
+| CI green on `fe36367` (run 33999363868) | green on `7bc6f61`: run **34010317694**, 7m52s, `fast`, `macos`, `supabase` and `reproducibility` all `success`, `deploy-staging` skipped | `gh run list --workflow=ci.yml --commit 7bc6f61ae71d3442add39c84095ec6b507f45158` |
+| E0-10 inside the "must" list | **waived** for 0.1.0, with the daily keep-alive and P5-1's hosted conformance as the mitigation | the addendum's ruling of 2026-09-05 23:1x |
+| the D1 rehearsal repeated on Blacksmith: not done | done, and torn down — section 9 | the driver's record |
+| no tag, no release | still none: `gh api repos/…/tags` empty, `gh release list` empty (04:16:50Z) | the release is the owner's command |
+
+### 6.2 The instrument, and what could have made it pass for the wrong reason
+
+- **The plugin at `7bc6f61` pins `0.0.0` with an empty `bin/checksums.txt`, so there is no release binary to
+  download.** The session arm therefore put a dev-binary pointer in its throwaway `XDG_CONFIG_HOME` so the
+  marketplace copy's bootstrap had something to `exec`. This section measures **where Claude Code puts a
+  marketplace plugin and what it exports**, not the download: phase A measured the download against a local
+  server, and the real network is after the tag (section 11).
+- **The whole XDG triple is a throwaway**, so the machine's own dev pointer (`~/.config/brigade/dev-binary`, which
+  exists on this machine and would have made any run look green) and its cache could not be borrowed.
+  `~/.local/share/brigade` did not exist before the run and did not exist after it.
+- **A fresh `CLAUDE_CONFIG_DIR` cannot start a session** (6.4 below), so the session arm used the machine's real
+  configuration directory. The marketplace was added there and the plugin installed at **local** scope from a
+  throwaway working directory, then both were removed. Afterwards `settings.json`, `plugins/known_marketplaces.json`
+  and `plugins/installed_plugins.json` are **byte-identical** to copies taken before (`diff`, three times no
+  output), and `plugins/cache` and `plugins/marketplaces` hold exactly what they held before.
+- **The Brigade profile and team are the fs adapter's**, created inside the throwaway config home, so the session
+  registered for real and `brigade whoami` read a real by-pid map rather than a string.
+- **The option that proves the settings key was one the output shows.** The session was launched with
+  `--settings '{"pluginConfigs":{"brigade@brigade":{"options":{"team_inbound":"refuse"}}}}'`; a wrong key would
+  have left the default `accept` in the same line that carries the path.
+
+### 6.3 `CLAUDE_PLUGIN_ROOT` for a marketplace install — the row's `[likely]` comes off
+
+The whole measurement is one `brigade whoami` inside a real session with the marketplace-installed plugin:
+
+```
+session a4de4ad747c7e654982a59622b0a8818 "cwd-1d" in team "p510b" (profile default, adapter brigade-adapter-fs 0.0.0-dev); inbound: refuse
+terminal: /Users/rjae/.claude-ifthen/plugins/cache/brigade/brigade/0.0.0/bin/brigade
+frame: open
+```
+
+The `terminal:` line prints the by-pid map's `plugin_bin`, which the `SessionStart` hook sets from
+`${CLAUDE_PLUGIN_ROOT}` (`internal/harness/hook/hook.go`'s `pluginBin`, `${CLAUDE_PLUGIN_ROOT}/bin/brigade` resolved
+through symlinks). So on Claude Code 2.1.263 a marketplace install's `CLAUDE_PLUGIN_ROOT` is
+
+```
+<configuration directory>/plugins/cache/<marketplace>/<plugin>/<version>/
+```
+
+exactly as both Claude Code documentation pages describe it, **with the version in the path**. Three further
+readings agree:
+
+| What | Measured | How |
+| --- | --- | --- |
+| the second instrument | `/Users/rjae/.claude-ifthen/plugins/cache/brigade/brigade/0.0.0/bin/brigade` | `find "$CLAUDE_CONFIG_DIR/plugins" -maxdepth 6 -name brigade` |
+| the CLI's own answer, in a **fresh** configuration directory | `installPath: /tmp/p5-10b.…/config/plugins/cache/brigade/brigade/0.0.0`, `id: brigade@brigade`, `version: 0.0.0`, `scope: user`, `enabled: true` | `claude plugin list --json` |
+| the marketplace's name | `brigade` (source `github`, repo `appshapes/brigade`), cloned to `<config dir>/plugins/marketplaces/brigade` | `claude plugin marketplace list --json` |
+| the `--plugin-dir` control | the checkout itself, used in place, data directory id `<plugin>-inline` | phase A, section 4 |
+
+**`plugin/README.md`'s claim is confirmed, both halves.** The `pluginConfigs` key is `brigade@brigade` for a
+marketplace install — the option passed under that key produced `inbound: refuse` in the line above — and
+`brigade@inline` for a `--plugin-dir` checkout (phase A). The same id is what the install writes into the settings
+file it declares:
+
+```json
+"enabledPlugins": { "brigade@brigade": true }
+```
+
+Two more facts from the same runs, both relevant to `docs/setup.md`:
+
+- **What is copied.** The plugin copy is the plugin tree only — 56 KB, `bin/brigade` mode `0755`. The marketplace
+  clone beside it is the whole repository, 17 MB. Nothing is compiled, no package manager runs, and no server is
+  started; the install is a git clone plus a directory copy. (The row's negative criterion — "no install step of
+  any other kind runs" — is asserted here for the install itself at `0.0.0`; the after-tag proof still owes the
+  process tree of a first session.)
+- **The transport.** `claude plugin marketplace add appshapes/brigade` printed `Cloning via SSH:
+  git@github.com:appshapes/brigade.git` and succeeded. `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` did **not** change that
+  on 2.1.263 — a second fresh configuration directory cloned over SSH again. With SSH forced to fail
+  (`GIT_SSH_COMMAND=/usr/bin/false`, a third fresh directory) the CLI printed `SSH clone failed, retrying with
+  HTTPS: https://github.com/appshapes/brigade.git` and succeeded. So a user with no GitHub key can add the
+  marketplace from the public repository; the machine's git configuration was otherwise untouched, so a machine
+  with no GitHub account at all is still unmeasured.
+
+### 6.4 The login finding
+
+E0-7 item 4 reproduces on 2.1.263: a fresh `CLAUDE_CONFIG_DIR` does **not** inherit the login.
+
+```
+CLAUDE_CONFIG_DIR=<fresh> claude -p "reply with OK"
+Not logged in · Please run /login          exit 1, about 1 s
+```
+
+What is new, and what `docs/setup.md` now says: **the plugin commands need no login at all.** In that same fresh,
+never-logged-in directory, `claude plugin marketplace add appshapes/brigade`, `claude plugin marketplace list
+--json`, `claude plugin install brigade@brigade -y --scope user` and `claude plugin list --json` each exited **0**,
+and the install reported `9 userConfig options not yet set`. Installing is login-free; starting a session is not.
+
+**Still not measured:** that *one* login makes a fresh configuration directory usable. It needs a browser and is
+the owner's to do. E0-7's own limits sentence stands, and `docs/setup.md` says only what was measured — a
+directory that has never been logged in stops with that line, so log in once in it.
+
+**The command is `claude auth login`, not `claude login`** (the verifier's correction, measured on 2.1.263).
+`claude --help` lists no `login` command: it lists `auth`, whose subcommands are `login`, `logout` and `status`.
+A bare `claude login` is parsed as a *prompt*, so in a fresh configuration directory it answers the same
+`Not logged in · Please run /login` and exits 1 without logging anyone in, and in a logged-in one it would send
+the word "login" to the model. Inside a session the slash command is `/login`, which is what Claude Code's own
+message names. `docs/setup.md` and the checklist below say `claude auth login`. E0-7 and the brief both carry
+the old form; they are records of their own date and are left as they are.
+
+**Two shipped sentences the verifier corrected in `docs/setup.md`.** The login command above, and the install's
+`-y` flag: `claude plugin install brigade@brigade` with **no** flag, stdin and stdout both redirected, in a fresh
+never-logged-in configuration directory, exited **0** with no confirmation prompt (`✔ Successfully installed
+plugin: brigade@brigade (scope: user)`). On 2.1.263 `-y` is documented as accepting a *marketplace-declared
+command* — a plugin installed by running a command, or one whose archive comes through a `headersHelper` — and
+Brigade's marketplace entry declares none, so the flag changes nothing for it. The brief's §6.2 note that `-y` is
+"required when stdin or stdout is not a TTY" is true only of that command-declaring case.
+
+## 7. The version strings
+
+Measured at `7bc6f61` on 2026-09-06. The release flags are the ones `make cross` and `make release` use
+(`GOTOOLCHAIN=go1.27.0 CGO_ENABLED=0 -trimpath -buildvcs=false -ldflags '-s -w -X …/internal/buildinfo.Version=<v>'`).
+
+| Build | `brigade version` prints | Bytes (darwin/arm64) |
+| --- | --- | --- |
+| the release flags at `0.1.0` | **`0.1.0`** | 8,361,218 |
+| `go install github.com/appshapes/brigade/cmd/brigade@7bc6f61ae71d3442add39c84095ec6b507f45158` | **`v0.0.0-20260906035827-7bc6f61ae71d`** | 12,276,130 |
+| `make build` (the dev build) | `0.0.0-dev` | — |
+| `go install …@v0.1.0`, after the tag | `v0.1.0` — the same mechanism, one measurement short | — |
+
+Three things this settles.
+
+1. **The module is public and installable.** That `go install` ran with no credentials, no `GOPRIVATE` and no git
+   configuration of its own: it downloaded `github.com/appshapes/brigade v0.0.0-20260906035827-7bc6f61ae71d`
+   through the module proxy and exited 0. `GOBIN` pointed at the lane's scratch directory on purpose — a `brigade`
+   from `go install` on `PATH` shadows the plugin's pinned bootstrap (E0-8 (e)), which is the warning
+   `docs/setup.md` now carries beside the command.
+2. **The leading `v` is real and is not a defect.** `go install` applies no `-ldflags`, so `internal/buildinfo`
+   falls back to `debug.ReadBuildInfo().Main.Version`, which is the module version — a pseudo-version here, and
+   `v0.1.0` from a tag. The released binary carries `0.1.0` through `-X`. Both documents state the difference and
+   neither "fixes" it.
+3. **The asset is about 8.4 MB and the floors of phase A still hold.** 8,361,218 B against phase A's 8,344,610 B
+   at `fe36367`: `size/45` is 185.8 kB/s (phase A: 185.4), `size/20` is 418.1 kB/s, `size/60` is 139.4 kB/s. The
+   sentence P5-18 put in `docs/setup.md` — roughly 185 kB/s or better — is that middle number.
+
+## 8. The release documents, and what changed in each
+
+The preparation commit lands **before** `make release`, which then rewrites `plugin/bin/VERSION`,
+`plugin/.claude-plugin/plugin.json` and `plugin/bin/checksums.txt` itself. This lane changed none of those three:
+at the end of it `VERSION` still reads `0.0.0` and `checksums.txt` is still 0 bytes.
+
+| File | What phase B wrote |
+| --- | --- |
+| `docs/setup.md` | a new **"Installing the plugin"** section: the marketplace route with both commands and their in-session forms, the one-time login per configuration directory, the `--plugin-dir` route and its `brigade@inline` key, the first-use paragraph (8 MB in the background, roughly 185 kB/s, one `Brigade: not installed:` line if it cannot finish), `go install` in its public form with the leading-`v` and shadowing notes, and the "no Homebrew tap and no `.deb` or `.rpm` in this release" note with its reason |
+| `docs/setup.md`, "Terminal use" | the corrected `terminal:` example — `…/plugins/cache/brigade/brigade/0.1.0/bin/brigade`, from 6.3, with the `frame:` line the shipped `whoami` prints — and the symlink instruction: `ln -sf`, plus the paragraph that settles the version question (**re-point it after a plugin upgrade**; `brigade whoami` prints the new path; a `--plugin-dir` checkout has no version in its path) |
+| `docs/setup.md`, keep-alive section 4 | the repository is public, so GitHub's 60-day rule for scheduled workflows now applies and is an administrator's standing task |
+| `README.md` | the Status paragraph: Phase 5 done, **0.1.0 is the first release** and what `make release` writes, the install line, and what is not in 0.1.0 (no tap, no Linux package, no keychain) |
+| `plugin/README.md` | the Status paragraphs: the frame levels ship; `bin/VERSION` and `bin/checksums.txt` explained as what a session downloads and checks; the pre-release `0.0.0` state described as a state rather than as today. Plus one sentence in the hooks bullet for P5-18's cold-cache behaviour |
+| `docs/adapter-authors.md` | the one sentence about the packaged release pins |
+| `CHANGELOG.md` | the heading dated **2026-09-06**; the release-mechanics half of the entry (how it is installed, what is published — four assets and a `checksums.txt`, macOS and Linux only — and how the plugin trusts them); and P5-18's item under "Added — the plugin" |
+| `docs/security.md` | section 12 "Reporting a problem" completed with the public issues link and the two rules (never paste a secret; leave a security problem's working details out of a first public issue), and the five lines that used the retired word for the injection test set reworded to "the 26 test messages" and "those test messages", with no number changed |
+| `scripts/release-prep.sh` | the recovery header only: the workflow-only fix that dies at step 4, the by-hand step 5, `release.yml`'s `v*`-only trigger, and the red-`fast`-job hazard of a release commit whose tag was deleted. `shellcheck -s sh` 0.11 (local) and 0.9.0 (`koalaman/shellcheck:v0.9.0` in Docker, the version CI's Blacksmith image carries) both exit 0, and so does `sh -n` |
+| `docs/experiments/README.md` | this file's row in the Phase 5 table |
+
+## 9. The release rehearsal on the Blacksmith runner (the driver's, folded in)
+
+The driver ran D1's whole chain again on the merged Blacksmith runner while this lane wrote, on a throwaway branch
+and a throwaway tag, and tore it down. Its record is `.ignored/tools/p5-10b/rehearsal-blacksmith.md` with the raw
+files beside it; the short form:
+
+- `make release version=0.0.1-rc2 branch=rehearsal/0.0.1-rc2` exit 0 — the pins bumped, `make cross`, goreleaser
+  reproducing `dist-cross/checksums.txt` byte for byte, the commit `df9df40` of exactly the three files, and the
+  tag pushed **with the ruleset active** (it blocks updates and deletions, not creation).
+- `release.yml` run **34010542882 on `blacksmith-4vcpu-ubuntu-2404`: every step green in 37 s** (04:03:54–04:04:31
+  UTC), against D1's 1m35s on a GitHub-hosted runner. The guard's `make cross` on the runner reproduced the
+  checksums this machine committed.
+- The published release carried five assets; the published `checksums.txt` was **byte-identical** to the committed
+  `plugin/bin/checksums.txt` (`cmp`), and `shasum -a 256 -c` over the four downloaded binaries was OK four times.
+  `make checksums-check` passed all three rules on the release commit. One honest gap in the driver's record: that
+  the release was not a draft and was a pre-release is **inferred** from which workflow branch ran, not read back —
+  the read-back used a wrong JSON field name and the release was deleted before a second one.
+- Teardown at 04:05:25–04:05:31 UTC: the release deleted, the ruleset's enforcement set to `disabled` for two
+  seconds to allow the tag deletion and set back to `active`, the tag and the branch deleted, the worktree removed;
+  proof read back afterwards — ruleset active, tag 404, release not found, branch 404, master clean at `7bc6f61`.
+
+**What it proves for 0.1.0:** `release.yml` runs end to end on the third-party runner — goreleaser-action, the `gh`
+CLI in the Publish step and the `contents: write` token path — and the assets it publishes are the bytes this
+machine committed. **What it does not:** the `--latest` arm of the Publish step, which only a tag without a
+pre-release suffix takes, and the real-network first use.
+
+## 10. For the owner
+
+Everything below the tag is prepared. Three preconditions are already done and only need a glance; five steps are
+yours. Nothing in this lane ran `make release`, tagged, pushed a tag, or changed a repository setting.
+
+**Already done — verify, do not redo.**
+
+- **The repository is public.** `gh api repos/appshapes/brigade --jq .visibility` → `public` (2026-09-06 04:16:50Z).
+- **The tag ruleset exists and is on.** `gh api /repos/appshapes/brigade/rulesets` → `protect-release-tags`, id
+  **22364575**, target `tag`, `refs/tags/v*`, enforcement `active`, no bypass actors. It blocks updates and
+  deletions, not creation, so `make release` can push `v0.1.0` with it on — the Blacksmith rehearsal did exactly
+  that (section 9). It also means a never-published tag can only be deleted by disabling the ruleset for those few
+  seconds, the way the rehearsal's teardown did.
+- **Fork pull requests need approval.** `gh api /repos/appshapes/brigade/actions/permissions/fork-pr-contributor-approval`
+  → `{"approval_policy":"all_external_contributors"}`. CI runs on self-hosted Blacksmith VMs, so this one matters.
+
+**Your five steps.**
+
+1. **Check the date on the CHANGELOG entry.** `CHANGELOG.md`'s heading reads `## [0.1.0] — 2026-09-06`. If the tag
+   is pushed on another day, change that date first — it is one line, it goes in the preparation commit, and the
+   release body is copied from this section (step 4).
+
+2. **Run the release from a clean `master`**, after the preparation commit is in and its CI is green
+   (`gh run list --workflow=ci.yml --commit <the full 40-character sha>` — a short sha matches nothing):
+
    ```sh
    make release version=0.1.0
    ```
-   Then watch `release.yml` to `success`: `gh run list --workflow=release.yml --limit 3`,
-   `gh run watch <run-id> --exit-status`. Expect six steps and a published, non-draft, non-prerelease `v0.1.0` with
-   five assets. If it fails, the draft is discarded automatically and nothing is published; the tag is not —
-   `git tag -d v0.1.0 && git push --delete origin v0.1.0` is permitted **only** while nothing was published, and a
-   published tag is never moved (a mistake costs a `v0.1.1`).
-4. **Replace the release body.** goreleaser will generate 122 commit lines (measured, §2). After the workflow
-   publishes: `gh release edit v0.1.0 --notes-file <the CHANGELOG's 0.1.0 section>`. This does not move the tag.
-5. **Then hand the distribution proof to the next session**: §6.3's public route from a fresh `CLAUDE_CONFIG_DIR`
-   with its one-time `claude login`, the marketplace install, `CLAUDE_PLUGIN_ROOT` for a marketplace install, the
-   real-network cold-cache timing on GitHub's CDN, and §5.3's published-state verification.
 
-Two decisions of this lane's that need the owner's eye before the tag: **the §6.4 finding** (a bootstrap change in
-its own lane, landing before `v0.1.0`, or a documented limitation) and **`make test`'s flaky watch package**
-(below).
+   What it does: pins `plugin/bin/VERSION` and the plugin manifest to `0.1.0`; builds the four binaries with the
+   release flags; has goreleaser build them again and refuses to go on unless the two `checksums.txt` are
+   byte-identical; copies that file to `plugin/bin/checksums.txt`; commits and pushes `15: Release 0.1.0`; then
+   tags `v0.1.0` and pushes the tag. It refuses a dirty tree, including untracked files.
+
+3. **Watch the workflow to `success`.**
+
+   ```sh
+   gh run list --workflow=release.yml --limit 3
+   gh run watch <run-id> --exit-status
+   ```
+
+   Expect six steps and a published, non-draft, non-prerelease `v0.1.0` with five assets. On Blacksmith the
+   rehearsal took **37 s**. If it fails, the draft is discarded and nothing is published, but **the tag is
+   pushed**: while nothing was published, `git tag -d v0.1.0 && git push --delete origin v0.1.0` is the recovery —
+   it needs the ruleset's enforcement set to `disabled` for those seconds and back to `active` afterwards. A
+   **published** tag is never moved; a mistake costs a `v0.1.1`. If the fix is to the workflow alone, re-running
+   `make release` dies at step 4 with "nothing to commit" — do step 5 by hand, as `scripts/release-prep.sh`'s
+   header now explains.
+
+4. **Replace the release body.** goreleaser generates one line per commit in the whole history — 122 of them,
+   measured in phase A — because there is no earlier tag. After the workflow publishes:
+
+   ```sh
+   gh release edit v0.1.0 --notes-file <a file holding the CHANGELOG's 0.1.0 section>
+   ```
+
+   This edits the description only. It does not move the tag.
+
+5. **Hand the distribution proof to the next session.** It is the row's acceptance criterion and it needs the
+   published tag: a fresh `CLAUDE_CONFIG_DIR` with one `claude auth login`, `claude plugin marketplace add
+   appshapes/brigade`, `claude plugin install brigade@brigade`, then a real session that shows the registration
+   context line after a first-use download verified against the committed checksums — and the published state read
+   back (`gh release view v0.1.0`, five assets, the published `checksums.txt` byte-equal to the committed one), the
+   real-network cold-cache timing, and `make checksums-check` green by its published-release arm on the commit
+   after the release. Section 11 is the list.
 
 ---
 
 ## Findings the release owner should see
+
+**Where each of these stands at phase B (2026-09-06).** Findings 1 and 4 are **fixed**: P5-18 (`1c849bd`) made the
+session-start worker the only downloader, gave the prompt and session-end hooks an immediate return on a cold
+cache, and reports a failed install once — measured there at 0 killed hooks in 19 sessions and one download per
+session. Finding 3 is **settled**: `CLAUDE.md` and `scripts/ci/README.md` are re-pinned to the measured shellcheck
+0.9.0, and this lane ran both versions over the one shell file it edited. Finding 2 (`make test` red twice under
+load in `internal/harness/watch`) **did not reproduce**: `make typecheck lint build test vuln deps-check
+schema-check tidy-check plugin-check checksums-check`, `go test ./internal/protocol/... ./scripts/ci/...` and
+`sh scripts/ci/no-secrets.sh` all exited 0 on `7bc6f61` in this worktree, `make test` included. It stays a flake
+note to watch on the release commit, not a cleared finding.
+
 
 1. **§6.4 is confirmed** (above): 2 degraded prompts at 1 MB/s, 6 at 250 kB/s, and a permanently Brigade-less
    session below 185 kB/s. Recommendation: make `hook <sub>` fail fast on a cold cache, in its own lane, before the
@@ -462,11 +722,77 @@ its own lane, landing before `v0.1.0`, or a documented limitation) and **`make t
 
 ---
 
-## Phase B — pending
+## 11. What is still after the tag
 
-The release commit's `DRY_RUN=1` rehearsal; the D1 rehearsal repeated on Blacksmith (a throwaway tag, torn down);
-the `0.0.0` → `0.1.0` document rewrites and `docs/setup.md`'s install section; `release-prep.sh`'s recovery-header
-comment (both shellcheck versions, whichever they turn out to be); the release run id with per-step durations; the
-published asset table with sizes and sha256s and the byte-equality of the published and committed `checksums.txt`;
-the marketplace measurements; the login finding; the real-network timings; and the row's acceptance criterion end to
-end. This document's row in `docs/experiments/README.md` is added then, not now.
+Phase B stopped one command short, by the owner's ruling. These are the things that need the published `v0.1.0`
+and nothing else, in the order the next session should take them:
+
+1. **The row's acceptance criterion, end to end.** A fresh `CLAUDE_CONFIG_DIR` with its one `claude auth login`, the
+   marketplace install, and a real session that shows the **registration** context line — the one pinned in
+   `internal/harness/hook/start_test.go`, not the "installing in the background" line — after a first-use download
+   verified against the committed checksums. Assert the cache file is absent before the run and present, `0755`,
+   with the right sha256 after it; assert the dev pointer is absent (this machine has one).
+2. **The published state.** `gh release view v0.1.0` (not draft, not prerelease, five assets), every asset's size
+   and sha256, and the published `checksums.txt` byte-equal to `plugin/bin/checksums.txt`.
+3. **The real-network first-use timing**, three cold runs, with the break-evens recomputed for the published
+   asset's real size (section 7 gives them for 8,361,218 B: 418.1 / 185.8 / 139.4 kB/s). Everything measured so
+   far — phase A's arms and P5-18's — came from a local server, never from a network.
+4. **`make checksums-check` by both arms of rule (c):** the fresh-build arm on the release commit, and the
+   published-release arm on the commit after it. The second is what every later commit depends on.
+5. **`go install github.com/appshapes/brigade/cmd/brigade@v0.1.0`**, to turn section 7's last row from a mechanism
+   into a measurement — and `claude plugin uninstall brigade` and `claude plugin marketplace remove brigade`, to
+   prove the round trip and to see what the cache keeps by design.
+6. **The `--latest` arm of the Publish step**, which no rehearsal has exercised: `v0.1.0` carries no pre-release
+   suffix, so it takes the branch neither D1's `v0.0.1-rc1` nor the Blacksmith rehearsal's `v0.0.1-rc2` took.
+
+Two things phase B could not measure and that no tag will settle. That **one** `claude auth login` makes a fresh
+configuration directory usable is still inferred, not measured: it needs a browser (6.4). And a machine with no
+GitHub account at all was not simulated — the SSH-to-HTTPS fallback was measured by forcing SSH to fail on a
+machine whose git configuration was otherwise untouched (6.3).
+
+## 12. Why 0.1.0 has no Homebrew tap, and the four conditions for adding one (brief §7.1, transcribed)
+
+No tap for 0.1.0, for four reasons in descending weight. A tap is new infrastructure the release model does not have —
+a `homebrew-tap` repository, a token with write access to it as a release secret, and a publishing step in
+`release.yml`. A brew-installed `brigade` lands on the PATH position that shadows the plugin's pinned bootstrap: E0-8 (e)
+measured that with another `brigade` earlier on `PATH` the session-start hook printed its shadowing warning **and the
+Bash tool ran the other binary**. The distribution that ships is already the documented one — the plugin bootstrap for
+sessions and, for a terminal, the symlink to the plugin's own binary, which keeps a person on the pinned version
+upgrade for upgrade. And it is unrehearsed: adding it now adds a release step nobody has run to the one workflow that
+must not fail. That is row **P5-16**, after 0.1.0.
+
+**Add a tap only when all four hold**, so the decision reopens on evidence: (i) the repository is public and has at least
+two published releases; (ii) there is a real terminal-only user — someone who wants `brigade` without the Claude Code
+plugin; (iii) the shadowing warning is *measured* to fire for a brew-installed binary, and `docs/setup.md` carries the
+resulting instruction; (iv) the tap repository, its release token and the `homebrew_casks` block are rehearsed on a
+throwaway version the way D1 and the Blacksmith rehearsal (section 9) rehearsed the release.
+
+## 13. What becomes a compatibility surface on the day the tag is pushed (brief §10, transcribed)
+
+Once `v0.1.0` exists, the plugin's pinned version and the published checksums make the release workflow a
+compatibility surface, and a convention change becomes a migration. What hardens, specifically:
+
+1. **`plugin/bin/brigade` is the most frozen file in the repository.** A user who installs 0.1.0 runs 0.1.0's copy of
+   the bootstrap until they update the plugin; a bug in it is fixed only by a plugin update, never by a new binary
+   release. That is why section 3's measurement preceded the tag and why P5-18 landed before it.
+2. **The release URL form and the asset names are frozen for the installed base**:
+   `https://github.com/appshapes/brigade/releases/download/v<version>/brigade_<version>_<os>_<arch>`, verified against
+   a two-space `<sha256>  <asset>` checksum file. `.goreleaser.yaml`'s `name_template` and `formats: [binary]` are now
+   contract, not configuration.
+3. **`checksums-check.sh` rule (c) changes character for every developer.** At `0.0.0` it short-circuits; from 0.1.0
+   on, a commit that changes Go source without bumping the pin makes the fresh build differ and the check falls back
+   to `gh release download v0.1.0 -p checksums.txt`, which needs `gh` and the network. CI has `GH_TOKEN`; a developer
+   without `gh` gets a red `make checksums-check` that says so. This is the new daily cost.
+4. **`go.mod`'s `go` line is a release-reproducibility pin.** The release job rebuilds from the tag and diffs against
+   the committed checksums; a toolchain bump changes the bytes, so bumping Go means bumping the version too, or
+   accepting a red `fast` job until the next release. Stated in `CLAUDE.md`'s Brigade block as of this commit.
+5. **`plugin.json`'s `userConfig` keys, their types and their defaults** are stored in users' settings by the install
+   flow. Renaming any of the nine options, or changing a default, is a migration for anyone on 0.1.0.
+6. **Text that other things pin**: the session-start context line (P5-13, pinned in `start_test.go`, `e2e_test.go` and
+   the hook txtar) and the frame's instruction paragraph at each level (P5-12).
+7. **On-disk shapes**: `state/by-pid/<pid>.json`, `state/seen/<id>.json` (P5-14), the profile directory layout, and
+   `adapters.json` (D36). A 0.1.0 user who upgrades brings these files along.
+8. **Protocol v1** was already frozen (`docs/protocol-v1.md`); 0.1.0 is when that freeze acquires an installed base.
+9. **The keep-alive's public-repository clause is active**: GitHub disables a scheduled workflow after 60 days without
+   repository activity in a public repository. `docs/setup.md` says so for a public repository as of this commit, and
+   the administrator has that standing responsibility.

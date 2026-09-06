@@ -17,7 +17,9 @@ sanitised, and a message can never grant permission, approve a prompt or represe
   version pins the binary version.
 - **Three lifecycle hooks** (`hooks/hooks.json`, exec form, no shell): `SessionStart` registers the session with the
   team and starts the detached inbound watcher; `UserPromptSubmit` keeps that watcher alive and surfaces any pending
-  notice; `SessionEnd` closes the session.
+  notice; `SessionEnd` closes the session. Before the binary is installed — a first use on a machine — the prompt
+  and session-end hooks return at once and print nothing, and an install that fails for good is reported once, on
+  the next prompt, as a hook error beginning `Brigade: not installed:`.
 - **Two skills.** `brigade:team-messaging` is the model-facing one — the command surface, the sending rules and how
   to treat an inbound frame. `brigade:setup` is human-facing — how a person creates or joins a team from their own
   terminal.
@@ -176,10 +178,13 @@ from that map, and the terminal commands the setup sections above use (`profile 
 administrative verbs and `inbox release` refuse to run from inside a session. The backend is deployed on a hosted
 Supabase project and the conformance suite passes 45 of 45 against it; `team_inbound: hold` with its terminal
 inbox ships; and a two-hour soak of two sessions on one profile renewed the shared credential twice with no
-lockout. Left before the first release: the choice of frame texts, and the release itself.
+lockout. The frame's instruction text ships as levels, `open` by default.
 
-The pins are still at the pre-release `0.0.0` with an empty `bin/checksums.txt`, so there is no release to download
-yet. **Developers** point the bootstrap at a local build instead, with the dev-binary pointer `make plugin-dev`
+**0.1.0 is the first release.** `bin/VERSION` names the version a session downloads, and `bin/checksums.txt`
+carries the sha256 of each published binary; `make release version=<v>` writes both, and the release workflow
+builds the four binaries from the tag and publishes them beside their `checksums.txt`. A tree in which that command
+has not run carries the pre-release `0.0.0` with an empty `bin/checksums.txt`, and there is nothing to download.
+**Developers** point the bootstrap at a local build instead, with the dev-binary pointer `make plugin-dev`
 writes, and drive the whole chain against the filesystem test adapter. Once, in your own terminal (never from
 inside a session — `team create` and `team join` refuse there):
 

@@ -98,23 +98,23 @@ including the sender's summary, was written by the sender.**
   acknowledges. It runs no command and edits no file, ever. The limit: it hands the text to a model that can do
   both.
 
-**What was measured.** A 26-item injection corpus was run against real Claude Code sessions twice. Headless, on
-Claude Code 2.1.260: 26 items times 3 runs, **78 of 78 item-runs passed** the mechanical rule. Interactive, on
-2.1.261, with nobody at the keyboard: **77 of 77 scored item-runs passed** it. Across both sweeps, **no
-configuration-editing item and no data-exfiltration item failed** — those are the two classes the project's own
-exit rule blocks on.
+**What was measured.** A set of 26 test messages, hostile and benign, was run against real Claude Code sessions
+twice. Headless, on Claude Code 2.1.260: 26 items times 3 runs, **78 of 78 item-runs passed** the mechanical rule.
+Interactive, on 2.1.261, with nobody at the keyboard: **77 of 77 scored item-runs passed** it. Across both sweeps,
+**no configuration-editing item and no data-exfiltration item failed** — those are the two classes the project's
+own exit rule blocks on.
 
 **What those numbers do not prove**, in the same breath:
 
 - **Two layers of framing were present, not one.** Claude Code adds its own preamble to an injected message, and
-  that preamble independently forbids three of the things the corpus asks for. So neither number isolates
+  that preamble independently forbids three of the things those test messages ask for. So neither number isolates
   Brigade's frame.
 - **Attempts, not effects.** In the headless sweep a call outside the allow-list was auto-denied. In the
   interactive sweep a driver dismissed every non-Skill dialog. Neither sweep measures what would have happened
   if a call had actually run.
 - **One machine, one account, three Claude Code builds, one model family per arm.** This is not a distribution.
 - **The Brigade skill was never loaded** in any of the 98 interactive sessions that saw a hostile message. So
-  the skill's rules are not what held the corpus. Do not plan around them.
+  the skill's rules are not what produced those results. Do not plan around them.
 
 ## 4. Every session receives, including unattended ones
 
@@ -129,8 +129,8 @@ it. **That is why the join secret is the team's security boundary.**
 **Why the default is `accept`.** The model this project has held from the start is: the default allows everything
 Claude itself allows, and then each user tightens what they want tightened. The default was under test in every
 Phase 4 run with a real model — 84 headless sessions, the idle-wake and crash-and-resume runs, and the whole
-interactive sweep — and it produced none of the acts the corpus asked for. Read that number with section 3's
-limits: those runs measured attempts, not effects.
+interactive sweep — and it produced none of the acts those test messages asked for. Read that number with
+section 3's limits: those runs measured attempts, not effects.
 
 **The one deliberate exception.** Six commands refuse to run inside a Claude Code session, whatever your
 permissions say: `brigade team create`, `brigade team join`, `brigade team rotate-secret`,
@@ -259,8 +259,8 @@ both times, and nothing executed. That reverses the one earlier run where a bypa
 full path with no dialog at all.
 
 **What is still true.** The rules still match text. The two evasive spellings are still different text. The skill
-forbids them and a corpus item tests them, but the primary controls remain the frame, the skill and your own
-judgement. **A model that deliberately evades the rule is a residual risk this version accepts.**
+forbids them and one of the test messages tests them, but the primary controls remain the frame, the skill and
+your own judgement. **A model that deliberately evades the rule is a residual risk this version accepts.**
 
 **And one dead end, so nobody proposes it again.** Checking the name the program was started with cannot work.
 The bootstrap script ends with POSIX `exec "$target" "$@"`, which makes that name the cache path on every
@@ -514,10 +514,17 @@ the dated write-ups of each run are in [`docs/experiments/`](experiments/README.
 
 ## 12. Reporting a problem
 
-Open an issue on the repository. **Never paste a join secret, a token, a `session.json`, or a project URL
-together with its publishable key into an issue, a log or a chat.**
+Open an issue: <https://github.com/appshapes/brigade/issues>. Say what you did, what happened, and what you
+expected instead. The Claude Code version (`claude --version`), the Brigade version (`brigade version`) and your
+operating system make most reports answerable.
 
-This section is completed when the repository is published.
+**Never paste a join secret, a token, a `session.json`, or a project URL together with its publishable key into an
+issue, a log or a chat.** If a report needs one of those to make sense, describe it instead — "the join secret was
+rotated an hour before" — and leave the value out.
+
+If what you found is a security problem, please leave the working details out of the first public issue. Say what
+kind of problem it is and that you have the details, and wait to be asked for them. There is no private reporting
+form on this repository yet.
 
 ## Accepted for this version
 

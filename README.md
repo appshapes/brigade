@@ -104,9 +104,17 @@ Phases 1 to 4 and 6 are complete: the protocol is frozen, and the shared library
 the conformance suite, the bundled Supabase adapter, the plugin and its harness — the lifecycle hooks, the
 session-bound commands and the detached watcher — all exist, are green and were driven end to end through real
 Claude Code sessions with no person at a keyboard ([the proof results](.context/plans/brigade-proof-results.md):
-ten success criteria met, eight open findings, none blocking). Phase 5 is all but done: the backend is deployed on
+ten success criteria met, eight open findings, none blocking). Phase 5 delivered the rest: the backend is deployed on
 a hosted project with the daily keep-alive and the conformance suite green against it, team administration and the
-`hold` inbox ship, retention is verified live, the two-hour soak has run, and the user documentation is written.
-Not done: the release itself — there is no tag yet (`plugin/bin/VERSION` reads
-`0.0.0` and `plugin/bin/checksums.txt` is empty). The single source of truth for where the work stands is
+`hold` inbox ship, retention is verified live, the two-hour soak has run, the frame's instruction text ships as
+levels, and the user documentation is written.
+
+**0.1.0 is the first release.** `make release version=0.1.0` pins `plugin/bin/VERSION` and the plugin manifest to
+`0.1.0`, writes the sha256 of each published binary into `plugin/bin/checksums.txt`, and pushes the tag `v0.1.0`;
+the release workflow builds the four binaries from that tag and publishes them beside their `checksums.txt`. A tree
+in which that command has not run carries the pre-release `0.0.0` and an empty checksums file, and its plugin has
+nothing to download. Installing is `claude plugin marketplace add appshapes/brigade` and then
+`claude plugin install brigade@brigade` ([docs/setup.md](docs/setup.md)). Not in 0.1.0: a Homebrew tap or a Linux
+package, and an operating-system keychain for the credential — it is a 0600 file, and
+[docs/security.md](docs/security.md) says what that costs. The single source of truth for where the work stands is
 `.context/plans/brigade-execution-log.md`.

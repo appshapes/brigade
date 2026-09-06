@@ -13,7 +13,8 @@ user-invocable: true
 Every command below is run by a **person, in their own terminal** — never by a model and never through the Bash
 tool. The join secret is a bearer capability: **never paste it into a Claude Code chat**, a commit, an issue or a
 log. The binary the plugin uses is at `${CLAUDE_PLUGIN_ROOT}/bin/brigade`; a symlink such as
-`ln -s ${CLAUDE_PLUGIN_ROOT}/bin/brigade ~/.local/bin/brigade` keeps a terminal on the same pinned version.
+`ln -sf ${CLAUDE_PLUGIN_ROOT}/bin/brigade ~/.local/bin/brigade` keeps a terminal on the same pinned version; the path
+carries the plugin version, so re-run it after a plugin upgrade.
 
 ## 1. Administrator: create a team
 

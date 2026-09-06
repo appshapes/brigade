@@ -10,6 +10,66 @@ protects, what it does not, and what was measured.
 This page is the canonical procedure for every multi-step task below. [plugin/README.md](../plugin/README.md)
 carries the same commands in short form, for a reader who only ever sees the plugin.
 
+## Installing the plugin
+
+Brigade is a Claude Code plugin. Installing it takes two commands. Nothing is compiled and no server is started.
+
+**You log in once per configuration directory.** Claude Code keeps your login inside its own configuration
+directory — `~/.claude`, or the directory `CLAUDE_CONFIG_DIR` names. A directory that has never been logged in
+answers `Not logged in · Please run /login` and stops, so run `claude auth login` once in it — or `/login` from
+inside a session. Adding a marketplace and installing a plugin do not need that login; starting a session does.
+(Measured on Claude Code 2.1.263.)
+
+**The usual way: install from the marketplace.**
+
+```sh
+claude plugin marketplace add appshapes/brigade
+claude plugin install brigade@brigade
+```
+
+Inside a session the same two steps are `/plugin marketplace add appshapes/brigade` and
+`/plugin install brigade@brigade`. Neither command asks you to confirm anything, in a terminal or in a script:
+the install's `-y` flag is for a plugin whose marketplace declares a command to run, and Brigade declares none.
+
+The first command clones this public repository. It tries SSH first and falls back to HTTPS, so you do not need a
+GitHub key. The second copies the plugin into
+`<configuration directory>/plugins/cache/brigade/brigade/<version>/`. That copy is the plugin, and the version is
+part of its path. The plugin's id is `brigade@brigade`, which is also the key its options take in your settings.
+
+Then start a session, or run `/reload-plugins` in one you already have.
+
+**The developer way: a checkout.** From a clone of this repository:
+
+```sh
+claude --plugin-dir ./plugin
+```
+
+That loads the plugin from the checkout, in place, for that one session only. Its options key is `brigade@inline`
+rather than `brigade@brigade`.
+
+**What the first use does.** A first use downloads the 8 MB Brigade binary in the background while you work. It
+needs a connection of roughly 185 kB/s or better; a download attempt gives up after 45 s. If it cannot finish,
+your next prompt shows one line beginning `Brigade: not installed:` and nothing else changes; `/clear` or a new
+session tries again. The download is one file, checked against a checksum that ships inside the plugin, and it
+happens once per version on each machine.
+
+**The command line on its own.** `go install` builds the same command-line tool from source — no plugin, no hooks
+and no watcher, so no session integration:
+
+```sh
+go install github.com/appshapes/brigade/cmd/brigade@v0.1.0
+```
+
+Two things to know about it. It reports its version with a leading `v` (`v0.1.0`) where the released binary
+reports `0.1.0`, because that version comes from the module rather than from the release build. And if it sits on
+your `PATH` ahead of the plugin's own copy, every session starts with a line saying another `brigade` shadows the
+plugin's, and the Bash tool runs that one instead of the version the plugin pins.
+
+**There is no Homebrew tap and no `.deb` or `.rpm` in this release.** The plugin is the supported way to install
+Brigade, and the symlink in "Terminal use" below gives you the same binary in your own terminal. A packaged
+install would put a second, separately versioned `brigade` on your `PATH`, which is the shadowing case above. A
+tap and a Linux package are being considered for a later release.
+
 ## Administrator: create a team
 
 The bundled adapter keeps a team in a Supabase project. Create a **single-purpose** project for it: put nothing
@@ -87,16 +147,22 @@ a session too, in the same shape: `rotate-secret` with that same line, because i
 
 ```
 session 09365acd… "payments-api" in team "ops" (profile default, adapter supabase 0.1.0); inbound: accept
-terminal: /Users/you/.claude/plugins/brigade/bin/brigade
+terminal: /Users/you/.claude/plugins/cache/brigade/brigade/0.1.0/bin/brigade
+frame: open
 ```
 
-Symlink that path onto your own PATH, and your terminal follows the version the plugin is pinned to, upgrade
-for upgrade, with nothing to reinstall — the bootstrap resolves its own symlinks and execs the binary
-`plugin/bin/VERSION` names:
+That is where Claude Code copied the plugin, under your configuration directory (`~/.claude`, or the directory
+`CLAUDE_CONFIG_DIR` names). Symlink it onto your own PATH and your terminal runs the binary the plugin is pinned
+to — the bootstrap resolves its own symlinks and execs the binary `bin/VERSION` names:
 
 ```sh
-ln -s /Users/you/.claude/plugins/brigade/bin/brigade ~/.local/bin/brigade
+ln -sf /Users/you/.claude/plugins/cache/brigade/brigade/0.1.0/bin/brigade ~/.local/bin/brigade
 ```
+
+**Re-point it after a plugin upgrade.** The path carries the plugin's version, and each version is copied into its
+own directory, so the symlink above stops working when you upgrade. Run `brigade whoami` in a session, copy the
+new `terminal:` line, and run the same `ln -sf` again. A checkout loaded with `--plugin-dir` has no version in its
+path (`<checkout>/plugin/bin/brigade`), so a symlink to that one survives.
 
 A symlink, not a copy: a `brigade` on your PATH that is not the plugin's own is what the session-start
 shadowing warning is about, and a copy goes stale at the next plugin upgrade.
@@ -506,11 +572,10 @@ run page names the rung:
 ### 4. GitHub's 60-day rule for scheduled workflows
 
 In a **public** repository, GitHub automatically disables a scheduled workflow when no repository activity has
-occurred for 60 days. This repository is private today, so the rule does not apply and there is nothing to do.
-On the day it becomes public — P5-10 at the earliest, and only if the release is distributed from a public
-repository rather than from public releases alone — keeping the keep-alive armed becomes an administrator's
-task: either a commit at least every 60 days, or a manual re-enable under Actions → keepalive → Enable
-workflow.
+occurred for 60 days. This repository is public, so the rule applies to it and keeping the keep-alive armed is an
+administrator's task: either a commit at least every 60 days, or a re-enable by hand under Actions → keepalive →
+Enable workflow. A disabled keep-alive is silent — it does not fail, it simply stops running — so check the
+workflow's page if the hosted project ever pauses.
 
 ### 5. The hosted project's settings
 

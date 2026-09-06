@@ -23,6 +23,9 @@
   and spawns the bundled adapter as a child process (`brigade adapter supabase …`).
 - The shipped binary links only the modules in docs/allowed-deps.txt (`make deps-check`); dev tools live in tools.mod,
   never in go.mod; go.mod has no `toolchain` line.
+- From 0.1.0 on, go.mod's `go` line is a release-reproducibility pin: the release job rebuilds from the tag and diffs
+  against the committed checksums, so a toolchain bump changes the bytes — bump the version with it, or accept a red
+  `fast` job until the next release (`make checksums-check` rule (c)).
 - `make test` is Docker-free and stack-free: the live Supabase tests are opt-in behind `BRIGADE_TEST_LIVE=1`, which only `make test-integration` (and CI's `supabase` job through it) sets. Run `make supabase-start supabase-env` once, then `make test-all` before pushing anything
   that touches supabase/ or internal/adapters/supabase.
 - Never commit a plugin/bin/checksums.txt or plugin/bin/VERSION you did not produce with `make release`. CI now

@@ -63,7 +63,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | E0-7 | Two sessions, two profiles (option delivery settled) | done | Opus | this commit — `docs/experiments/E0-7.md`; all items pass; a fresh `CLAUDE_CONFIG_DIR` does NOT inherit the login |
 | E0-8 | CLI-only mechanics: bootstrap timing, interactive ask rule, sandbox | done | Opus | this commit — `docs/experiments/E0-8.md`; (a)–(h) all answered; **D20's skill grant HOLDS interactively**; run on 2.1.252 |
 | E0-9 | `crossSessionInbound` hold/refuse interaction | done | Opus | this commit — `docs/experiments/E0-9.md`; hold is loud and never expires (25 min); refuse is silent to BOTH sides |
-| E0-10 | Hosted checks (optional, needs the hosted project) | unblocked 2026-09-04 (the hosted project exists; run with/after P5-1; D32 tier: P4-6) | Opus | |
+| E0-10 | Hosted checks (optional, needs the hosted project) | **waived for 0.1.0 (Rjae, 2026-09-05)** — the hosted project exists since P5-1; the daily keep-alive and P5-1's hosted conformance over TLS are the mitigation; a candidate for after 0.1.0 | Opus | |
 | P1-1 | Go module scaffold, Makefile, lint, CI, plugin pins | done | Opus | `0af93a1` — full gate green; **CI run 33533334741 green (`fast`, `macos`, `reproducibility`)**; cross-host reproducibility MEASURED; **7 plan defects in §7 plus 36 from the adversarial pass** (see "Plan corrections from P1-1" in brigade-execution-log-archive.md) |
 | P1-2 | `internal/protocol` (types, errors, NDJSON, sanitiser, schema) | done | Fable | this commit — full gate green, protocol at ~98% coverage; **2 open `ndjson.go` boundary defects, see "P1-2 DONE" in brigade-execution-log-archive.md**; 7 spec gaps for P1-4 |
 | P1-3 | `internal/adapterkit` (stdin, XDG, atomic writes, flock, redaction) | done | Fable | this commit — full gate green; **E0-6 flock fix EVIDENCED** (contended median 16.96 ms vs the old 101.1 ms); 0 surviving mutations at hand-off |
@@ -92,7 +92,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip`.
 | P5-0 | Free-plan keep-alive workflow (`.github/workflows/keepalive.yml`, daily) | done — **armed and green on the hosted project since 2026-09-04 23:36 EDT** (run 33942302844: health 200, anonymous sign-up 200, the unexposed `brigade` schema a `406 PGRST106` warning until P5-1, sign-out 204); the variables were set from the owner's values and the owner enabled anonymous sign-ins | Opus | this commit — `scripts/ci/keepalive.sh` (health → anonymous sign-up → `brigade.my_team_ids()` → sign-out; the sign-up is the database write Supabase counts), `scripts/ci/keepalive_test.go` (10 offline cases against a fake GoTrue/PostgREST with a recording `curl` shim, **20 mutation rows**, a drift join against `gotrue.go`/`postgrest.go`/the migration, one live case under `BRIGADE_TEST_LIVE=1`: rungs 200/200/200/204 and `auth.users` +1 exactly), `docs/setup.md`; brief → author → adversarial verifier (one vacuous mutation found and closed, three doc sentences corrected against their sources); see "P5-0 DONE" |
 | P5-3 | Anonymous-user cleanup in `gc_expired()`; retention verified end to end with time-shifted rows; `describe.retention` cross-checked | done | Fable | c21c8f8 — migration `20260905041134_anonymous_user_gc.sql` (a separate `gc_anonymous_users()` with its own handler, called last); pgTAP 770 → 825 assertions with **four mutants killed** and the failure-isolation argument proven by mutation (without the handler a creator-guard violation aborts the heartbeat); live: a 3-day-offline session resumes and receives, an 8-day one answers exit 4/6 both ways, keep-alive-shaped principals are reaped and the creator survives; a drift join pins `describe`'s retention to the migrations from both sides; verifier PASS with no edits; `docs/setup.md` §6 (see "P5-3 DONE") |
 | P5-4 | Outbound-confirmation follow-ups: the ask rule in bypass and auto sessions, the deny rule as the off switch, the text-matching limitation; one `docs/security.md` paragraph | done — folded into P5-7b (this commit): its paragraph is `docs/security.md` §5 with §5.1, written from E0-8 (b), E3 checks 4–5, P4-5 item 1 and P5-13's 15/15 and 2/2; the `auto`-mode arm of E2E-09 was never run and §11 names it as a gap || Opus | the measurements already exist (E0-8 (b), E3 checks 4–5, P4-5 item 1, P5-13); P5-7b writes the paragraph from them. P5-8 is a retired id (D33). |
-| P5-10 | Release 0.1.0 and distribution | **phase A done (this commit); phase B after P5-12, P5-17 and the P5-18 decision** — phase A: the §6.4 cold-cache first prompt MEASURED (the prediction holds and is worse: 2 stalled prompts at 1 MB/s, 6 at 250 kB/s, a session below ~185 kB/s never gets Brigade and is never told, the asset re-downloaded on every stalled prompt, and on a fast link the retry stamp written before the registration silences the next minute — `docs/experiments/E5-release.md` §3), a practice `DRY_RUN=1` rehearsal green on `fe36367` with goreleaser and `make cross` byte-identical, the §4 preconditions and the owner's checklist written, the §9 version-bump list verified file by file | Opus | **Rjae, 2026-09-05: the repository goes PUBLIC for 0.1.0**, so the first-use download and the marketplace install are tested for real from a fresh `CLAUDE_CONFIG_DIR`; **`make release version=0.1.0` is run by the owner, or by a session the owner directs** — the lane prepares everything and stops one command short. No Homebrew tap in 0.1.0 (moved to P5-16). Brief `.ignored/briefs/p5-10-release.md` (its private-route sections are moot). |
+| P5-10 | Release 0.1.0 and distribution | **PREPARED — ready for the owner's `make release version=0.1.0` (this commit is the preparation commit)**: phase A measured the cold-cache first prompt (fixed by P5-18) and rehearsed the dry run; phase B wrote the install section, the 0.1.0 version strings, the changelog's release half (dated 2026-09-06), the security document's issue link, the release record and the owner's checklist; the release workflow was rehearsed end to end on the Blacksmith runner (v0.0.1-rc2, 37 s, torn down). Still after the tag, by design: the distribution proof (a fresh config dir, the real-network first use, the published state, `checksums-check`'s published arm, `go install @v0.1.0`, the `--latest` arm of Publish) | Opus | **Rjae, 2026-09-05: the repository goes PUBLIC for 0.1.0**, so the first-use download and the marketplace install are tested for real from a fresh `CLAUDE_CONFIG_DIR`; **`make release version=0.1.0` is run by the owner, or by a session the owner directs** — the lane prepares everything and stops one command short. No Homebrew tap in 0.1.0 (moved to P5-16). Brief `.ignored/briefs/p5-10-release.md` (its private-route sections are moot). |
 | P5-16 | **Fast follow after 0.1.0: distribution channels** — a Homebrew tap (goreleaser `homebrew_casks`, now possible on a public repository) and a Linux equivalent (goreleaser `nfpms` `.deb`/`.rpm`, or the same tap through Linuxbrew — decide in the brief) | todo — after 0.1.0 | Opus | added 2026-09-05 at Rjae's request; brief to write; the plugin bootstrap stays the primary path and must not be shadowed by a tap install (E0-8 (e) measured the shadow) |
 | P5-17 | **Review and approve PR #1 — CI runners move from GitHub-hosted to Blacksmith** (https://github.com/appshapes/brigade/pull/1, auto-generated by Blacksmith's migration wizard on 2026-09-05: `runs-on` changes in `ci.yml` (fast, reproducibility, supabase, deploy-staging → `blacksmith-4vcpu-ubuntu-2404`; macos → `blacksmith-6vcpu-macos-15`), `keepalive.yml` and `release.yml`; 7 lines, 3 files) | done — **merged as `897e75a`** (a local `--no-ff` merge pushed to master: the repository's settings allow only squash/rebase through the web button, and the house rule is merges only), reviewed, approved on GitHub, every job green on Blacksmith (run 34004925556), the macos job on `blacksmith-6vcpu-macos-latest` = macOS 26.3 (Rjae's ruling) | Opus | brief to write. The review must settle, with evidence: (1) why the PR's own `fast` and `macos` checks fail today (run 33996691820: `TestKeepaliveWorkflowAndDocsAgree`, `scripts/ci/keepalive_test.go:731`, whose drift join pins the literal `runs-on: ubuntu-latest` in `keepalive.yml` — the join needs a runner-agnostic witness or the new label, in a commit on the PR branch or right after the merge) and what changes on the new images — tool versions the workflows depend on (shellcheck 0.10 vs 0.11 per CLAUDE.md, Go toolchain download, Docker for the `supabase` job, `ps -o lstart`/unix sockets on the macOS image, the stale "macOS 26 arm64 [verified]" comment against a macOS 15 image); (2) cross-host reproducibility still measured by the `reproducibility` job (both artifact builds now on Blacksmith — a different host class than the release rehearsal measured); (3) the release workflow: `release.yml` builds and publishes the checksummed assets on a third-party runner — secrets exposure (`contents: write`, the `GITHUB_TOKEN`), supply-chain posture (`docs/allowed-deps.txt`, `make checksums-check` reproducing the committed file from a fresh cross-compile), and whether the D1 rehearsal must be re-run on the new runner before 0.1.0; (4) the keep-alive workflow (the two repository variables only, no secret) and its timeouts; (5) every measured `timeout-minutes` comment re-based on the new hardware or left with a note; (6) Blacksmith's cache/observability claims against `docs/research/house-conventions.md` (P6). Outcome: approve and merge (merge commit, never rebase) when the checks are green and the review passes, or record the blocking findings for Rjae; the release lane (P5-10) waits for this row and runs its `DRY_RUN=1` rehearsal on whatever `release.yml` master then carries. |
 | P5-18 | **The bootstrap on a cold cache** (P5-10 phase A's finding): any `hook <sub>` other than `session-start` must never stall a prompt (today each is killed at the 5 s `UserPromptSubmit` timeout until the detached download lands; below ~185 kB/s for ever, silently), the asset is downloaded once per session (today once per stalled prompt), the registration retry stamp is written AFTER an attempt returns (today before it, so a kill mid-registration silences the next minute), and a doomed first use is told once — with the six-shell matrix, both shellchecks (local 0.11, CI 0.9.0), `bootstrap_test.go` and phase A's harness re-run at five arms | done (Rjae, 2026-09-05 23:1x: "go for it") | Fable | this commit — `plugin/bin/brigade` (a cold-cache `hook prompt`/`hook session-end` exits 0 in silence in ~25 ms; the SessionStart worker is the only downloader; a failed install is reported ONCE as a non-blocking hook error `Brigade: not installed: <reason>…` with the worker's exit code), `internal/harness/hook/prompt.go` (the retry stamp written AFTER the attempt returns), tests in both packages plus two busybox cases; measured with phase A's harness: **0 hooks killed in 19 sessions (58 prompts at 1.1–2.3 s against 6.2–7.1 s before), one download per session, the context line on prompt 1 in 4/4 unthrottled sessions, the user told once offline (prompt 2) and below the floor (prompt 7)**; five mutations caught; both shellchecks (0.11, 0.9.0 in Docker), the six-shell matrix 6/6, every gate green (see "P5-18 DONE") |
@@ -186,7 +186,7 @@ workflow a compatibility surface, and a convention change becomes a migration. T
 Phase 5; Rjae moved it ahead of Phase 5 on the strength of that, so the conventions land while the release
 plumbing is still free to change.
 
-**What this costs.** P5-11's release task now runs against workflows Phase 6 has just rewritten, so P6-5's
+**What this costs.** P5-10's release task (P5-11 is the soak) now runs against workflows Phase 6 has just rewritten, so P6-5's
 re-verification is load-bearing: every gate must be green, and the release rehearsal (D1, `scripts/release-prep.sh`
 with `DRY_RUN`) is worth repeating after P6-2 lands rather than trusting the earlier rehearsal's result.
 
@@ -828,6 +828,70 @@ C-nn occurrence checked against Appendix A. Three follow-ups the verifier proved
 commit (the same defect class, each backed by the case lines above): B-7 and B-8 were discharged by C-03/C-04 all
 along, the `retryable` sentence cites C-37 beside C-02 (with "4.3" added to C-37's row), and the Appendix B heading
 was stale. The driver re-ran `make schema-check` and the protocol tests on the main tree after those edits: 0 and 0.
+
+---
+
+## P5-10 PREPARED — the release is ready for the owner's one command: the documents say 0.1.0, the record is written, the workflow is rehearsed on the new runner, and the tree stops one command short of the tag (2026-09-06)
+
+Plan row P5-10 under `.ignored/briefs/p5-10-release.md` and its addendum (§1–§10: public repository, the owner runs the
+release, no tap in 0.1.0, the tag never moves, the tag ruleset, the D1 repeat on Blacksmith, the outside-collaborator
+policy, the wording rule). Two phases, each Opus author → Opus adversarial verifier: **phase A** (`9fb96cf`) measured the
+cold-cache first prompt — the finding that became P5-18 — and rehearsed `DRY_RUN=1`; **phase B** (this commit) in a
+worktree at `7bc6f61`, after every agreed row had landed.
+
+**What phase B shipped.** `docs/setup.md`: an "Installing the plugin" section (the public marketplace route and
+`--plugin-dir`, the one-time `claude auth login` per configuration directory, P5-18's first-use paragraph, `go install`
+in its public form, the no-tap note) and the "Terminal use" example corrected from the measurement (the plugin's path
+carries its version — `…/plugins/cache/brigade/brigade/<version>/bin/brigade` — so the symlink is `ln -sf` and is
+re-pointed after a plugin upgrade); the keep-alive's 60-day sentence for a public repository. `README.md`,
+`plugin/README.md`, `docs/adapter-authors.md`: the 0.0.0 → 0.1.0 rewrites, worded to be true both in this commit and
+after the tag, while `plugin/bin/VERSION`, `plugin.json` and `plugin/bin/checksums.txt` stay at the pre-release state
+for `make release` to write. `CHANGELOG.md`: dated 2026-09-06, the release-mechanics half (how it installs, the four
+assets plus `checksums.txt`, the checksum-pinning model, the `go install` caveat), P5-18's item. `docs/security.md`:
+section 12 completed with the public issues link; the five reworded lines (the wording rule). `scripts/release-prep.sh`:
+the header's workflow-only-fix recovery (clean under shellcheck 0.11, 0.10 and 0.9.0). `docs/experiments/E5-release.md`
+completed: the marketplace `CLAUDE_PLUGIN_ROOT` measurement (three agreeing instruments), the login finding, the
+version-string table, the Blacksmith rehearsal (section 9), the owner's checklist (section 10), what is still after the
+tag (11), and — added by the driver from the brief at landing, the verifier having found them missing — the Homebrew
+decision's four re-opening conditions (12) and the nine compatibility surfaces the tag creates (13).
+`docs/experiments/README.md`: the E5-release row; the E0-10 section says waived. `CLAUDE.md`: the go-line pin.
+
+**The rehearsal on the Blacksmith runner (driver, 2026-09-06 04:03–04:05 UTC).** `make release version=0.0.1-rc2
+branch=rehearsal/0.0.1-rc2` on a throwaway branch: pins bumped, `make cross`, goreleaser byte-identical, commit
+`df9df40`, the tag pushed **with the ruleset active** (it blocks updates and deletions, not creation); `release.yml` run
+34010542882 green on `blacksmith-4vcpu-ubuntu-2404` in **37 s** (D1 on GitHub-hosted: 1m35s): the guard reproduced the
+committed checksums, goreleaser drafted, verify matched, Publish published, Discard skipped. Read back: five assets;
+the published `checksums.txt` byte-identical to the committed file; `shasum -c` OK ×4; `make checksums-check` green on
+the release commit. Torn down: release deleted; the ruleset's enforcement `disabled` at 04:05:26, the tag deleted,
+`active` again at 04:05:28; the branch and worktree removed; proven gone. Draft = false and prerelease = true are
+inferred from the Publish step's branch, not read back (the driver's read-back used a wrong field name).
+
+**Verified (Opus, adversarial): FAIL on the author's report, the deliverable corrected.** Two defects fixed in place
+with measurements: the install section said `claude login` (not a command on 2.1.263 — `claude auth login`, or
+`/login` inside a session) and claimed the install asks for confirmation and needs `-y` (it asks nothing; `-y` is
+for a marketplace that declares a command to run, which Brigade does not); README's "Phase 5 is done" → "Phase 5
+delivered the rest". Two deliverables the author reported done but had not written — the Homebrew re-opening
+conditions and the compatibility-surface list — transcribed by the driver (above). Every gate green twice (the full
+acceptance gate, `plugin-check`, `checksums-check`, `no-secrets`, both shellchecks, a 79-link check, the wording and
+mark greps); the release-flag build at 0.1.0 prints `0.1.0`; the version-bump list verified file by file; pin hygiene
+holds. Left as observations: the `brigade@brigade` settings-key half rests on one session; the experiments README's E5
+row understates the instrument count.
+
+**Honest limits, carried from the record.** The row's acceptance criterion — a fresh install shows the session-start
+line after a first-use download verified against the committed checksums — is proven only against a local server;
+the real-network first use, the published `v0.1.0` state, `checksums-check`'s published arm on the commit after,
+`go install …@v0.1.0`'s version string, and the `--latest` arm of Publish all wait for the tag (E5 §11). That one
+`claude auth login` makes a fresh directory usable is inferred (it needs a browser). A machine with no GitHub account
+was simulated only by forcing SSH to fail.
+
+**The owner's steps, in order (E5-release.md §10):** (0) already done and verified — public, the tag ruleset active,
+outside-contributor approval on, merge commits enabled; (1) check `CHANGELOG.md`'s heading date (2026-09-06; one line
+if the tag slips); (2) from a clean master with this commit's CI green, `make release version=0.1.0`; (3) watch
+`release.yml` to success (`gh run watch <id> --exit-status`; under a minute on Blacksmith) — a failed run publishes
+nothing but leaves the tag, whose deletion needs the ruleset disabled for those seconds; a published tag is never
+moved; (4) `gh release edit v0.1.0 --notes-file <the CHANGELOG's 0.1.0 section>`; (5) hand the distribution proof to
+a session (E5 §11). Private vulnerability reporting is off on the repository (`docs/security.md` §12 says so); turning
+it on is the owner's call.
 
 ---
 
@@ -2715,3 +2779,13 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   the word "corpus" is retired in favour of "the 26 test messages" / "the injection test set". Merged `1c849bd` (P5-18) at
   landing; the whole-tree `-race -count=3` flake and the mid-sweep merge lesson are in "P5-12 DONE". Remaining before the
   tag: P5-10 phase B (`0905`), then Rjae's two steps.
+- 2026-09-06 01:0x EDT: **READY FOR RELEASE. P5-10 phase B landed (this commit): every agreed row is on master and the tree stops
+  one command short of the tag.** The night, in order: P5-18 (`1c849bd`, 0905), P5-12 (`7bc6f61`, 090523 — 133 headless sessions;
+  the frame level stays `open`; the results document ends with a "For Rjae's decision" block on item 21 of the 26 test messages,
+  the bare receipt, which reproduced at every level — no config-edit or secret-sharing item failed), the Blacksmith rehearsal
+  (v0.0.1-rc2, run 34010542882, 37 s, torn down), and P5-10 phase B (Opus author, Opus verifier; two wrong commands in the new
+  install section caught and measured: `claude auth login`, no `-y`). CI green at every step on Blacksmith. Not deferred by the
+  driver: nothing; deferred by Rjae: E0-10 (waived), P5-16 (after 0.1.0), the interactive sweep of the 26 test messages under
+  `open` (owner-gated in P5-12's brief). **Rjae's morning:** rule on the frame level (the default stays `open` unless changed —
+  one line); read E5-release.md §10; `make release version=0.1.0`; watch the run; replace the release body; hand the distribution
+  proof to a session. The standby session 090523 stays reachable (its bridge up) until Rjae says the day is done.

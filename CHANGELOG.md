@@ -7,12 +7,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
-## [0.1.0] — Unreleased
+## [0.1.0] — 2026-09-06
 
 The first release. Plugin and binary version `0.1.0`, produced by `make release`, which writes
 [`plugin/bin/VERSION`](plugin/bin/VERSION) and the sha256 of each published asset into
-[`plugin/bin/checksums.txt`](plugin/bin/checksums.txt); until that run the repository carries the pre-release
-`0.0.0` and an empty checksums file.
+[`plugin/bin/checksums.txt`](plugin/bin/checksums.txt); a tree in which that command has not run carries the
+pre-release `0.0.0` and an empty checksums file.
+
+**How it is installed.** `claude plugin marketplace add appshapes/brigade`, then
+`claude plugin install brigade@brigade` — or `claude --plugin-dir ./plugin` from a checkout, for one session.
+`go install github.com/appshapes/brigade/cmd/brigade@v0.1.0` builds the command-line tool alone, with no plugin, no
+hooks and no watcher; it reports its version as `v0.1.0`, where the released binary reports `0.1.0`. There is no
+Homebrew tap and no `.deb` or `.rpm` in this release.
+
+**What is published.** The GitHub release `v0.1.0` carries four binaries — `brigade_0.1.0_darwin_arm64`,
+`brigade_0.1.0_darwin_amd64`, `brigade_0.1.0_linux_amd64` and `brigade_0.1.0_linux_arm64` — and a `checksums.txt`.
+macOS and Linux only; on Windows that means WSL 2. Each asset is a plain binary, about 8 MB.
+
+**How the plugin trusts them.** The version the plugin wants and the sha256 of every asset are committed inside the
+plugin, before the tag exists. On first use the bootstrap downloads the one asset for your platform, checks it
+against that committed sha256, and refuses to install anything that does not match.
 
 ### Added — the plugin
 
@@ -32,6 +46,10 @@ The first release. Plugin and binary version `0.1.0`, produced by `make release`
   from a project.
 - **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and two skills; CI enforces the file
   allowlist, the exec-form hooks and the absence of `.mcp.json`.
+- **A cold cache never stalls a prompt.** On a first use only the session-start worker downloads the binary; the
+  prompt and session-end hooks return at once until it is installed; a failed install is reported once as a hook
+  error ("Brigade: not installed: …") instead of silently; and the prompt hook's registration-retry stamp is
+  written after the attempt, so a hook killed at its timeout no longer silences the next minute.
 - The line Brigade prints when a session starts names only the bare `brigade`, which is the form Claude Code's
   `ask` and `deny` permission rules match. The plugin binary's own path is in `brigade whoami`'s human output, on
   a `terminal:` line, and deliberately not in `brigade whoami --json`.
