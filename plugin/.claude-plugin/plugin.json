@@ -1,6 +1,6 @@
 {
   "name": "brigade",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Team messaging between Claude Code sessions of different people and machines, through a pluggable adapter CLI (Supabase adapter bundled).",
   "author": {
     "name": "appshapes"
