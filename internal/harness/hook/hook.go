@@ -150,8 +150,9 @@ type Deps struct {
 	// Registry is the fs.FS the session registry is read from; nil means
 	// registry.Dir(config.ClaudeConfigDir(environ)) per run.
 	Registry fs.FS
-	// ReadFile reads the three settings files of the native scan (6.10);
-	// nil means os.ReadFile.
+	// ReadFile reads the three settings files of the native scan (6.10)
+	// and, at SessionStart, the frame_file option's file (P5-12); nil
+	// means os.ReadFile.
 	ReadFile func(string) ([]byte, error)
 	// Spawn is the adapter request/response seam (adapterclient.Client.
 	// Spawn); nil means adapterkit.Spawn, a real child.
@@ -467,6 +468,35 @@ func adapterLine(profile string, err error) string {
 	}
 	return "Brigade: not connected (config): the adapter for profile \"" + attr(profile) +
 		"\" could not be resolved from " + attr(source) + "; run `brigade profile status` in a terminal"
+}
+
+// optionsLine is the context line for an option ParseOptions refused. A
+// frame or frame_file value the parser itself refuses — a level outside
+// the three words, a relative path — is the frame line, whose remedy is
+// the user's settings (the P5-12 verifier's 3.1); every other option keeps
+// the terminal remedy. The reason tokens are the parser's own.
+func optionsLine(err error) string {
+	var perr *protocol.Error
+	if errors.As(err, &perr) {
+		switch perr.Details["option"] {
+		case "frame", "frame_file":
+			return frameLine(err)
+		}
+	}
+	return notConnected(protocol.CodeConfig)
+}
+
+// frameLine is the context line for a frame or frame_file option the hook
+// could not use (P5-12): the fixed details.reason, never the value and
+// never the path; the remedy is the user's settings. The SessionStart
+// context line itself never names the level — that line is model-facing
+// by construction, and the level is the human's configuration (whoami).
+func frameLine(err error) string {
+	_, reason := codeOf(err)
+	if reason == "" {
+		reason = "frame_file_unreadable"
+	}
+	return "Brigade: not connected (config: " + attr(reason) + "); fix the `frame` or `frame_file` option in your settings"
 }
 
 // startLine is the one SessionStart context line (6.3, brief 2.2: the

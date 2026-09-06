@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -82,6 +83,16 @@ type ByPID struct {
 	// Inbound is the EFFECTIVE policy the hook chose: accept, hold or
 	// refuse (6.8).
 	Inbound string `json:"inbound"`
+	// FrameLevel is the instruction paragraph the frame carries: open,
+	// guarded, strict, or custom for a user-supplied clause (P5-12). The
+	// hook resolves it ONCE at SessionStart and freezes it here, so the
+	// watcher never re-reads a user file minutes or hours later.
+	FrameLevel string `json:"frame_level"`
+	// FrameText is the resolved custom clause, EMPTY unless FrameLevel is
+	// custom: a named level's text is a Go constant and is never carried
+	// here, so a rewritten map cannot smuggle a different paragraph in
+	// under a level's name.
+	FrameText string `json:"frame_text"`
 	// SocketPath is CLAUDE_CODE_MESSAGING_SOCKET as the hook saw it, or ""
 	// on a host without an inbox socket. The token is NOT here.
 	SocketPath string `json:"socket_path"`
@@ -109,9 +120,12 @@ type ByPID struct {
 // Validate checks the members every by-pid map must carry before it is
 // written or trusted: a positive pid, a Brigade session id, a valid
 // profile name, an absolute config dir, an inbound value this harness
-// implements (accept, hold or refuse), a well-formed adapter argv and an
-// absolute or empty socket path. The failure is `config` with
-// details.field naming the member; the value is never echoed.
+// implements (accept, hold or refuse), a well-formed adapter argv, an
+// absolute or empty socket path, and the frame members of P5-12 (a level
+// among the four; a text only under custom, and then a non-empty one
+// within frame.MaxCustomBytes that passes frame.CheckClause). The failure
+// is `config` with details.field naming the member; the value is never
+// echoed.
 func (m *ByPID) Validate() error {
 	switch {
 	case m.ClaudePID <= 0:
@@ -128,8 +142,23 @@ func (m *ByPID) Validate() error {
 		return errInvalid("adapter_command")
 	case m.SocketPath != "" && !filepath.IsAbs(m.SocketPath):
 		return errInvalid("socket_path")
+	case !frame.Level(m.FrameLevel).Valid():
+		return errInvalid("frame_level")
+	case m.FrameLevel != string(frame.LevelCustom) && m.FrameText != "":
+		return errInvalid("frame_text")
+	case m.FrameLevel == string(frame.LevelCustom) && frame.CheckClause(m.FrameText) != nil:
+		return errInvalid("frame_text")
 	}
 	return nil
+}
+
+// Instruction is the frame instruction the map carries, for the two
+// injectors (the watcher and the prompt-hook poll) to hand to
+// inbound.Config. It is built, never validated, here: ReadByPID has
+// already validated the members, and inbound.New validates it again as
+// its own layer.
+func (m *ByPID) Instruction() frame.Instruction {
+	return frame.Instruction{Level: frame.Level(m.FrameLevel), Custom: m.FrameText}
 }
 
 // CheckAdapterCommand validates a resolved adapter argv prefix: every

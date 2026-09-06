@@ -12,6 +12,7 @@ import (
 	"testing/synctest"
 
 	"github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/policy"
 )
 
@@ -407,7 +408,7 @@ func TestHoldPolicyFlipIsNotARelease(t *testing.T) {
 func TestHoldWithoutAStoreWarnsOnce(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	p, err := New(Config{Policy: policy.Hold, TeamName: team, Logger: log.New(&buf, slog.LevelDebug, nil)})
+	p, err := New(Config{Policy: policy.Hold, Instruction: frame.Instruction{Level: frame.DefaultLevel}, TeamName: team, Logger: log.New(&buf, slog.LevelDebug, nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +418,7 @@ func TestHoldWithoutAStoreWarnsOnce(t *testing.T) {
 	if n := strings.Count(buf.String(), "no pending store"); n != 1 {
 		t.Fatalf("warned %d times: %s", n, buf.String())
 	}
-	if _, err := New(Config{Policy: "auto"}); err == nil {
+	if _, err := New(Config{Policy: "auto", Instruction: frame.Instruction{Level: frame.DefaultLevel}}); err == nil {
 		t.Fatal("an auto policy was accepted")
 	}
 }

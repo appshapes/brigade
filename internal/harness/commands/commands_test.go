@@ -227,6 +227,7 @@ func (f *fixture) byPID() *sessionmap.ByPID {
 		SessionName:      selfSessionName,
 		PermissionMode:   "default",
 		Inbound:          protocol.InboundAccept,
+		FrameLevel:       "open",
 		Profile:          fixtureProfile,
 		ConfigDir:        f.dirs.BrigadeConfig,
 		AdapterCommand:   []string{f.adapterPath, "--root", "/x"},

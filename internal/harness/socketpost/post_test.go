@@ -95,7 +95,7 @@ func TestPostRoundTripsAFrame(t *testing.T) {
 		HopCount:  1,
 		CreatedAt: time.Date(2026, 8, 30, 12, 0, 5, 0, time.UTC),
 	}
-	content := frame.Wrap(frame.Build(m, "ops"), "payments-api")
+	content := frame.Wrap(frame.Build(m, "ops", frame.Instruction{Level: frame.DefaultLevel}), "payments-api")
 	if err := Post(t.Context(), Target{Path: srv.Path(), Token: testToken}, content, Options{}); err != nil {
 		t.Fatalf("post: %v", err)
 	}

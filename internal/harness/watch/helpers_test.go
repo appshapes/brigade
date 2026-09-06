@@ -22,6 +22,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/backoff"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/watch"
@@ -352,6 +353,7 @@ func (fx *fixture) writeMapWith(edit func(*sessionmap.ByPID)) {
 		TeamName:         fx.teamName,
 		SessionName:      fx.name,
 		Inbound:          fx.inbound,
+		FrameLevel:       string(frame.DefaultLevel),
 		SocketPath:       socket,
 		Profile:          "default",
 		ConfigDir:        fx.dirs.BrigadeConfig,

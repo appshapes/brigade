@@ -10,10 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
@@ -46,7 +48,9 @@ func (r *run) sessionStart() int {
 }
 
 // refreshMap is the `source = compact` path: the session name and
-// updated_at are refreshed in the by-pid map, nothing else happens.
+// updated_at are refreshed in the by-pid map, nothing else happens — the
+// frame members in particular are left as SessionStart froze them, so a
+// mid-session edit of a frame_file cannot take effect on /compact (P5-12).
 func (r *run) refreshMap(f facts, in input) {
 	store := sessionmap.Store{StateDir: f.stateDir}
 	m, err := store.ReadByPID(f.pid)
@@ -67,13 +71,14 @@ func (r *run) refreshMap(f facts, in input) {
 
 // resolved is everything the register/heartbeat paths share.
 type resolved struct {
-	opts    config.Options
-	adapter config.Adapter
-	argv    []string
-	id      identity
-	dec     policy.Decision
-	client  *adapterclient.Client
-	store   sessionmap.Store
+	opts        config.Options
+	adapter     config.Adapter
+	argv        []string
+	id          identity
+	dec         policy.Decision
+	instruction frame.Instruction
+	client      *adapterclient.Client
+	store       sessionmap.Store
 }
 
 // connect registers (or re-attaches to) the Brigade session and prints
@@ -161,11 +166,12 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 }
 
 // resolve reads the options, resolves the adapter (D36), the identity
-// (6.5) and the policy (6.8, 6.10). A failure prints its line.
+// (6.5), the policy (6.8, 6.10) and the frame instruction (P5-12). A
+// failure prints its line.
 func (r *run) resolve(f facts, in input) (resolved, bool) {
 	opts, err := config.ParseOptions(r.environ)
 	if err != nil {
-		r.fail("session-start: options", err, notConnected(protocol.CodeConfig))
+		r.fail("session-start: options", err, optionsLine(err))
 		return resolved{}, false
 	}
 	adapter, err := config.ResolveAdapter(opts, opts.ConfigDir, opts.Profile)
@@ -188,15 +194,83 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		NonInteractive: id.nonInteractive,
 		Entrypoint:     id.entrypoint,
 	})
+	instruction, err := r.frameInstruction(opts)
+	if err != nil {
+		r.fail("session-start: frame text", err, frameLine(err))
+		return resolved{}, false
+	}
 	return resolved{
-		opts:    opts,
-		adapter: adapter,
-		argv:    argv,
-		id:      id,
-		dec:     dec,
-		client:  r.client(adapter, opts.Profile, opts.ConfigDir, f.stateDir),
-		store:   sessionmap.Store{StateDir: f.stateDir},
+		opts:        opts,
+		adapter:     adapter,
+		argv:        argv,
+		id:          id,
+		dec:         dec,
+		instruction: instruction,
+		client:      r.client(adapter, opts.Profile, opts.ConfigDir, f.stateDir),
+		store:       sessionmap.Store{StateDir: f.stateDir},
 	}, true
+}
+
+// frameInstruction resolves the frame's instruction paragraph (P5-12): the
+// named level of the frame option, or — when frame_file is set, which wins
+// — the user's own clause read ONCE, here, through r.deps.ReadFile, folded
+// to one line and checked. The result is frozen into the by-pid map; the
+// watcher and the prompt-hook poll never re-read the file, so a file
+// swapped after SessionStart changes nothing until the next SessionStart
+// (a new session, /clear, /reload-plugins). Every failure is `config` with
+// its own details.reason; the path is never part of any error.
+func (r *run) frameInstruction(opts config.Options) (frame.Instruction, error) {
+	if opts.FrameFile == "" {
+		return frame.Instruction{Level: opts.Frame}, nil
+	}
+	folded, err := readClause(opts.FrameFile, r.deps.ReadFile)
+	if err != nil {
+		return frame.Instruction{}, err
+	}
+	return frame.Instruction{Level: frame.LevelCustom, Custom: folded}, nil
+}
+
+// readClause applies rules 3-7 of the P5-12 brief to a frame_file: an
+// existing regular file (a directory, a FIFO or a device is refused before
+// any open, so nothing can block the hook), within frame.MaxCustomBytes
+// (checked on the size before the read and on the bytes after it), valid
+// UTF-8, then frame.FoldClause and frame.CheckClause. A symlink is
+// followed: the path is the user's own setting.
+func readClause(path string, readFile func(string) ([]byte, error)) (string, error) {
+	fi, err := os.Stat(path)
+	switch {
+	case err != nil:
+		return "", frameFileErr(frame.ReasonFileUnreadable, "frame_file does not exist or cannot be read")
+	case !fi.Mode().IsRegular():
+		return "", frameFileErr(frame.ReasonFileUnreadable, "frame_file is not a regular file")
+	case fi.Size() > frame.MaxCustomBytes:
+		return "", frameFileErr(frame.ReasonFileTooLarge, "frame_file must be at most 4096 bytes")
+	}
+	data, err := readFile(path)
+	if err != nil {
+		return "", frameFileErr(frame.ReasonFileUnreadable, "frame_file does not exist or cannot be read")
+	}
+	if len(data) > frame.MaxCustomBytes {
+		return "", frameFileErr(frame.ReasonFileTooLarge, "frame_file must be at most 4096 bytes")
+	}
+	if !utf8.Valid(data) {
+		return "", frameFileErr(frame.ReasonFileNotUTF8, "frame_file must be UTF-8 text")
+	}
+	folded := frame.FoldClause(string(data))
+	if err := frame.CheckClause(folded); err != nil {
+		return "", err
+	}
+	return folded, nil
+}
+
+// frameFileErr is the `config` failure for a frame_file the hook could not
+// use; fixed text, never the path.
+func frameFileErr(reason, message string) *protocol.Error {
+	return &protocol.Error{
+		Code:    protocol.CodeConfig,
+		Message: message,
+		Details: map[string]string{"option": "frame_file", "reason": reason},
+	}
 }
 
 // adapterArgv is the map's adapter_command: the resolved argv prefix, or
@@ -316,8 +390,9 @@ func (r *run) otherLiveWatcher(f facts, sessionID string) (int, bool) {
 }
 
 // buildMap assembles the by-pid map from the resolved values (3.2). It
-// carries the RESOLVED profile, config dir and adapter command, never a
-// raw option, and never the token.
+// carries the RESOLVED profile, config dir, adapter command and frame
+// instruction (the level, and the folded text only under custom), never a
+// raw option, never the frame_file path, and never the token.
 func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, teamName string, registeredAt, now time.Time) *sessionmap.ByPID {
 	return &sessionmap.ByPID{
 		ClaudePID:        f.pid,
@@ -329,6 +404,8 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		PermissionMode:   in.PermissionMode,
 		NonInteractive:   res.id.nonInteractive,
 		Inbound:          res.dec.Policy.String(),
+		FrameLevel:       string(res.instruction.Level),
+		FrameText:        res.instruction.Custom,
 		SocketPath:       f.socket,
 		Profile:          res.opts.Profile,
 		ConfigDir:        res.opts.ConfigDir,
@@ -350,6 +427,9 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	}
 	r.writeByNative(res.store, in.SessionID, m, now)
 	warnings := append([]string{}, res.dec.Warnings...)
+	if res.opts.FrameWarning != "" {
+		warnings = append(warnings, res.opts.FrameWarning)
+	}
 	if path, ok := r.shadowing(f); ok {
 		warnings = append(warnings, shadowLine(path))
 	}

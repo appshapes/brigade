@@ -39,11 +39,13 @@ const (
 // rule is a real constraint and this pattern is what enforces it here.
 var versionLine = regexp.MustCompile(`(?m)^[[:blank:]]*"version":[[:blank:]]*"([^"]+)"`)
 
-// userConfigOptions is the exact option set of plan 6.1. Adding an eighth option or dropping one is a change
-// to the plugin's public configuration surface and must be a deliberate edit here too.
+// userConfigOptions is the exact option set of plan 6.1 plus P5-12's two frame options. Adding a tenth option or
+// dropping one is a change to the plugin's public configuration surface and must be a deliberate edit here too.
 var userConfigOptions = []string{
 	"adapter_command",
 	"config_dir",
+	"frame",
+	"frame_file",
 	"poll_on_prompt",
 	"profile",
 	"share_workspace_label",
@@ -267,7 +269,7 @@ func checkLicense(r reporter, root string) {
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// (d) userConfig: exactly seven options, each with exactly four fields
+// (d) userConfig: exactly nine options, each with exactly four fields
 
 func checkUserConfig(r reporter, root string) {
 	r.Helper()
@@ -870,7 +872,21 @@ var manifestMutations = []struct {
 	{
 		"d_option_is_removed", checkUserConfig,
 		editUserConfig(func(uc map[string]any) { delete(uc, "poll_on_prompt") }),
-		"the seven options are the plugin's public configuration surface",
+		"the nine options are the plugin's public configuration surface",
+	},
+	{
+		"d_frame_gains_an_enum", checkUserConfig,
+		editUserConfig(func(uc map[string]any) {
+			if opt, ok := uc["frame"].(map[string]any); ok {
+				opt["enum"] = []any{"open", "guarded", "strict"}
+			}
+		}),
+		"P5-12: the hook validates the frame level; a manifest enum would be a second, drifting source of truth",
+	},
+	{
+		"d_frame_is_removed", checkUserConfig,
+		editUserConfig(func(uc map[string]any) { delete(uc, "frame") }),
+		"P5-12: the frame level is one of the nine options; dropping it must be a deliberate edit here too",
 	},
 	{
 		"d_boolean_option_defaults_to_a_string", checkUserConfig,

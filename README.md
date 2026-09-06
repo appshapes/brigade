@@ -107,6 +107,6 @@ Claude Code sessions with no person at a keyboard ([the proof results](.context/
 ten success criteria met, eight open findings, none blocking). Phase 5 is all but done: the backend is deployed on
 a hosted project with the daily keep-alive and the conformance suite green against it, team administration and the
 `hold` inbox ship, retention is verified live, the two-hour soak has run, and the user documentation is written.
-Not done: the choice of frame texts, and the release itself — there is no tag yet (`plugin/bin/VERSION` reads
+Not done: the release itself — there is no tag yet (`plugin/bin/VERSION` reads
 `0.0.0` and `plugin/bin/checksums.txt` is empty). The single source of truth for where the work stands is
 `.context/plans/brigade-execution-log.md`.

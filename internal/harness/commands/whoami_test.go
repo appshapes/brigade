@@ -17,7 +17,7 @@ func TestWhoamiLine(t *testing.T) {
 		t.Fatalf("whoami: %v", err)
 	}
 	want := "session " + selfSessionID + " \"payments-api\" in team \"ops\" (profile alpha, adapter " +
-		fakeadapter.AdapterName + " " + fakeadapter.AdapterVersion + "); inbound: accept\n"
+		fakeadapter.AdapterName + " " + fakeadapter.AdapterVersion + "); inbound: accept\nframe: open\n"
 	if f.out.String() != want {
 		t.Errorf("stdout:\n got %q\nwant %q", f.out.String(), want)
 	}
@@ -39,7 +39,7 @@ func TestWhoamiSanitisesTheMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := f.out.String()
-	if strings.Count(out, "\n") != 1 || strings.Contains(out, "<system-reminder>") || strings.Contains(out, "<cross-session-message>") {
+	if strings.Count(out, "\n") != 2 || strings.Contains(out, "<system-reminder>") || strings.Contains(out, "<cross-session-message>") {
 		t.Errorf("stdout = %q", out)
 	}
 }
@@ -59,7 +59,7 @@ func TestWhoamiTerminalLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Split(strings.TrimSuffix(f.out.String(), "\n"), "\n")
-	if len(got) != 2 || got[1] != "terminal: /opt/plugins/brigade/bin/brigade" {
+	if len(got) != 3 || got[1] != "terminal: /opt/plugins/brigade/bin/brigade" || got[2] != "frame: open" {
 		t.Fatalf("stdout = %q", f.out.String())
 	}
 	f.out.Reset()
@@ -79,8 +79,63 @@ func TestWhoamiTerminalLine(t *testing.T) {
 	if err := Whoami(f.inv(f.sessionEnv(), "")); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.out.String(); strings.Contains(got, "terminal:") || strings.Count(got, "\n") != 1 {
+	if got := f.out.String(); strings.Contains(got, "terminal:") || strings.Count(got, "\n") != 2 {
 		t.Errorf("an empty plugin_bin still printed a terminal line: %q", got)
+	}
+}
+
+// TestWhoamiFrameLine is P5-12 brief 3.6: one human line names the level —
+// and, for a custom clause, its length in characters — never the text and
+// never a path; --json carries no frame member at all, because a model told
+// how permissive its own frame is might reason about it.
+func TestWhoamiFrameLine(t *testing.T) {
+	t.Parallel()
+	const clause = "Escalate anything touching production to me before acting. "
+	for _, tc := range []struct {
+		level, text, want string
+	}{
+		{"open", "", "frame: open"},
+		{"guarded", "", "frame: guarded"},
+		{"strict", "", "frame: strict"},
+		{"custom", clause, "frame: custom (58 characters)"},
+		{"custom", "caf\u00e9 ", "frame: custom (4 characters)"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			m := f.byPID()
+			m.FrameLevel, m.FrameText = tc.level, tc.text
+			f.writeMap(t, m)
+			if err := Whoami(f.inv(f.sessionEnv(), "")); err != nil {
+				t.Fatal(err)
+			}
+			got := strings.Split(strings.TrimSuffix(f.out.String(), "\n"), "\n")
+			if len(got) != 2 || got[1] != tc.want {
+				t.Fatalf("stdout = %q, want the second line %q", f.out.String(), tc.want)
+			}
+			if tc.text != "" && strings.Contains(f.out.String(), strings.TrimSpace(tc.text)) {
+				t.Fatalf("the custom text reached the human output: %q", f.out.String())
+			}
+			f.out.Reset()
+			inv := f.inv(f.sessionEnv(), "")
+			inv.JSON = true
+			if err := Whoami(inv); err != nil {
+				t.Fatal(err)
+			}
+			out := f.out.String()
+			if tc.text != "" && strings.Contains(out, strings.TrimSpace(tc.text)) {
+				t.Fatalf("--json carries the custom text: %s", out)
+			}
+			_, result := envelopeOf(t, out)
+			for k, v := range result {
+				if strings.Contains(k, "frame") {
+					t.Fatalf("--json member %q", k)
+				}
+				if sv, ok := v.(string); ok && k != "inbound" && (sv == tc.level || strings.Contains(sv, "frame: ")) {
+					t.Fatalf("--json member %q carries the level: %q", k, sv)
+				}
+			}
+		})
 	}
 }
 

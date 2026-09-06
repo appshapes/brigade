@@ -68,7 +68,12 @@ var crashResumeSharedLiterals = []string{
 	"frame_separator",
 	"frame_summary_prefix",
 	"frame_unverified_suffix",
-	"frame_preamble_head",
+	"frame_level_default",
+	"frame_preamble_head_shared",
+	"frame_clause_open",
+	"frame_clause_guarded",
+	"frame_clause_strict",
+	"frame_preamble_reply_intro",
 	"frame_preamble_reply",
 	"frame_preamble_tail",
 }

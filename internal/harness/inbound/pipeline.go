@@ -48,6 +48,7 @@ package inbound
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -78,6 +79,12 @@ type Config struct {
 	// Policy is the effective inbound policy (policy.Decide): Accept, Hold
 	// or Refuse. Anything else is an error from New (fail closed, loudly).
 	Policy policy.Policy
+	// Instruction selects the frame's instruction paragraph (P5-12): the
+	// by-pid map's frame_level and frame_text, resolved once by the hook.
+	// One that fails frame.Instruction.Validate is an error from New —
+	// fail closed and loudly, never a silent fallback to a level the user
+	// did not choose.
+	Instruction frame.Instruction
 	// SessionID is the Brigade session id; it is written into and checked
 	// against the pending file by a FilePendingStore.
 	SessionID string
@@ -244,10 +251,13 @@ type heldEntry struct {
 
 // New builds a Pipeline and loads the seen and pending stores. A store
 // that cannot be loaded is logged and the pipeline starts empty; an
-// invalid policy is an error.
+// invalid policy or frame instruction is an error.
 func New(cfg Config) (*Pipeline, error) {
 	if !cfg.Policy.Valid() {
 		return nil, errors.New("inbound: policy must be accept, hold or refuse")
+	}
+	if err := cfg.Instruction.Validate(); err != nil {
+		return nil, fmt.Errorf("inbound: frame instruction: %w", err)
 	}
 	if cfg.Clock == nil {
 		cfg.Clock = SystemClock()
@@ -309,6 +319,27 @@ func (p *Pipeline) SetPolicy(pol policy.Policy) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cfg.Policy = pol
+}
+
+// Instruction is the frame instruction later frames are built with.
+func (p *Pipeline) Instruction() frame.Instruction {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.cfg.Instruction
+}
+
+// SetInstruction changes the frame instruction for later frames, the way
+// SetPolicy changes the policy: the hook rewrites the by-pid map on every
+// SessionStart (a new session, /clear, /reload-plugins), which is when a
+// changed frame option or an edited frame_file takes effect (P5-12). An
+// invalid value is ignored.
+func (p *Pipeline) SetInstruction(in frame.Instruction) {
+	if in.Validate() != nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cfg.Instruction = in
 }
 
 // Offer runs steps 1–6 for one message event and returns the Decision.
@@ -572,7 +603,7 @@ func (p *Pipeline) Next() (Item, bool) {
 		return Item{}, false
 	}
 	q.handed = true
-	content := frame.Build(q.env, p.cfg.TeamName)
+	content := frame.Build(q.env, p.cfg.TeamName, p.cfg.Instruction)
 	if p.cfg.Wrap {
 		content = frame.Wrap(content, q.env.Sender.SessionName)
 	}

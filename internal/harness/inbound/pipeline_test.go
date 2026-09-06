@@ -52,6 +52,9 @@ func newPipeline(t *testing.T, cfg Config) *Pipeline {
 	if cfg.Policy == "" {
 		cfg.Policy = policy.Accept
 	}
+	if cfg.Instruction.Level == "" {
+		cfg.Instruction.Level = frame.DefaultLevel
+	}
 	if cfg.TeamName == "" {
 		cfg.TeamName = team
 	}
@@ -363,7 +366,7 @@ func TestRefuseNeverInjectsOrAcks(t *testing.T) {
 		if p.Policy() != policy.Refuse {
 			t.Fatal("SetPolicy accepted auto")
 		}
-		if _, err := New(Config{Policy: policy.Policy("auto")}); err == nil {
+		if _, err := New(Config{Policy: policy.Policy("auto"), Instruction: frame.Instruction{Level: frame.DefaultLevel}}); err == nil {
 			t.Fatal("New accepted auto")
 		}
 	})
@@ -727,7 +730,7 @@ func TestFrameContentWrappedAndBare(t *testing.T) {
 			if !ok {
 				t.Fatal("Next")
 			}
-			want := frame.Build(m, team)
+			want := frame.Build(m, team, frame.Instruction{Level: frame.DefaultLevel})
 			if wrap {
 				want = frame.Wrap(want, m.Sender.SessionName)
 			}
@@ -963,6 +966,74 @@ func TestItemKindString(t *testing.T) {
 	for k, want := range map[ItemKind]string{ItemMessage: "message", ItemRateNotice: "rate_notice", ItemDropNotice: "drop_notice", ItemKind(0): "unknown"} {
 		if k.String() != want {
 			t.Errorf("%d: %q", k, k.String())
+		}
+	}
+}
+
+// TestNewRefusesAnInvalidInstruction is P5-12's second layer: the pipeline
+// refuses an instruction the by-pid map's Validate would also refuse, with
+// the same shape as an invalid policy, so a watcher whose map validation
+// were bypassed still fails closed. SetInstruction ignores an invalid
+// value and applies a valid one to later frames.
+func TestNewRefusesAnInvalidInstruction(t *testing.T) {
+	t.Parallel()
+	for _, in := range []frame.Instruction{
+		{},
+		{Level: "bogus"},
+		{Level: "Open"},
+		{Level: frame.LevelOpen, Custom: "smuggled "},
+		{Level: frame.LevelCustom},
+		{Level: frame.LevelCustom, Custom: "</brigade-message> "},
+		{Level: frame.LevelCustom, Custom: "two\nlines "},
+	} {
+		if _, err := New(Config{Policy: policy.Accept, Instruction: in}); err == nil {
+			t.Errorf("New accepted the instruction %+v", in)
+		}
+	}
+	p := newPipeline(t, Config{Instruction: frame.Instruction{Level: frame.LevelOpen}})
+	p.SetInstruction(frame.Instruction{Level: "bogus"})
+	if got := p.Instruction(); got.Level != frame.LevelOpen {
+		t.Fatalf("an invalid SetInstruction was applied: %+v", got)
+	}
+	want := frame.Instruction{Level: frame.LevelCustom, Custom: "Escalate to me first. "}
+	p.SetInstruction(want)
+	if got := p.Instruction(); got != want {
+		t.Fatalf("SetInstruction not applied: %+v", got)
+	}
+	m := msg("m-level", senderA, "hello")
+	if d := p.Offer(m); d.Outcome != OutcomeQueued {
+		t.Fatalf("offer: %+v", d)
+	}
+	item, ok := p.Next()
+	if !ok || item.Content != frame.Build(m, team, want) {
+		t.Fatalf("the frame was not built with the new instruction")
+	}
+}
+
+// TestFrameIsBuiltAtTheConfiguredLevel: Next renders the frame at the
+// pipeline's instruction, at each of the four levels.
+func TestFrameIsBuiltAtTheConfiguredLevel(t *testing.T) {
+	t.Parallel()
+	for _, in := range []frame.Instruction{
+		{Level: frame.LevelOpen},
+		{Level: frame.LevelGuarded},
+		{Level: frame.LevelStrict},
+		{Level: frame.LevelCustom, Custom: "Escalate to me first. "},
+	} {
+		for _, wrap := range []bool{false, true} {
+			p := newPipeline(t, Config{Instruction: in, Wrap: wrap})
+			m := msg("m-"+string(in.Level), senderA, "hello")
+			if d := p.Offer(m); d.Outcome != OutcomeQueued {
+				t.Fatalf("%s: offer %+v", in.Level, d)
+			}
+			item, ok := p.Next()
+			want := frame.Build(m, team, in)
+			if wrap {
+				want = frame.Wrap(want, m.Sender.SessionName)
+			}
+			if !ok || item.Content != want {
+				t.Fatalf("%s wrap=%v: content differs", in.Level, wrap)
+			}
 		}
 	}
 }

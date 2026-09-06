@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -16,7 +17,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOptions: %v", err)
 	}
-	want := config.Options{Profile: "default", ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept}
+	want := config.Options{Profile: "default", ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, Frame: frame.DefaultLevel}
 	if got != want {
 		t.Fatalf("defaults =\n %+v\nwant\n %+v", got, want)
 	}
@@ -36,6 +37,8 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		config.OptionShareWorkspaceLabel+"=true",
 		config.OptionWorkspaceLabel+"=laptop",
 		config.OptionPollOnPrompt+"=yes",
+		config.OptionFrame+"=guarded",
+		config.OptionFrameFile+"=/opt/brigade/frame.txt/",
 	)
 	got, err := config.ParseOptions(env)
 	if err != nil {
@@ -49,6 +52,9 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		ShareWorkspaceLabel: true,
 		WorkspaceLabel:      "laptop",
 		PollOnPrompt:        true,
+		Frame:               frame.LevelGuarded,
+		FrameFile:           "/opt/brigade/frame.txt",
+		FrameWarning:        config.WarnFrameBothSet,
 	}
 	if got != want {
 		t.Fatalf("options =\n %+v\nwant\n %+v", got, want)
@@ -155,6 +161,13 @@ func TestParseOptionsInvalidValues(t *testing.T) {
 		{"dot-relative config_dir", []string{config.OptionConfigDir + "=./" + evilMarker}, "config_dir", config.ReasonRelativePath},
 		{"share_workspace_label junk", []string{config.OptionShareWorkspaceLabel + "=maybe" + evilMarker}, "share_workspace_label", config.ReasonInvalidBoolean},
 		{"poll_on_prompt junk", []string{config.OptionPollOnPrompt + "=2"}, "poll_on_prompt", config.ReasonInvalidBoolean},
+		{"frame mixed case", []string{config.OptionFrame + "=Open"}, "frame", config.ReasonInvalidFrameLevel},
+		{"frame is a policy word", []string{config.OptionFrame + "=hold"}, "frame", config.ReasonInvalidFrameLevel},
+		{"frame custom is not a user value", []string{config.OptionFrame + "=custom"}, "frame", config.ReasonInvalidFrameLevel},
+		{"frame junk", []string{config.OptionFrame + "=" + evilMarker}, "frame", config.ReasonInvalidFrameLevel},
+		{"relative frame_file", []string{config.OptionFrameFile + "=rel/" + evilMarker}, "frame_file", config.ReasonRelativePath},
+		{"dot-relative frame_file", []string{config.OptionFrameFile + "=./" + evilMarker}, "frame_file", config.ReasonRelativePath},
+		{"an invalid frame is refused before frame_file is considered", []string{config.OptionFrame + "=" + evilMarker, config.OptionFrameFile + "=/abs/" + evilMarker}, "frame", config.ReasonInvalidFrameLevel},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,6 +194,63 @@ func TestParseOptionsInvalidValues(t *testing.T) {
 		}
 		_, err = config.ParseOptions(d.environ("BRIGADE_PROFILE=../" + evilMarker))
 		assertConfig(t, err, config.ReasonInvalidProfileName)
+	})
+}
+
+// TestParseOptionsFrame is P5-12's option table: unset is open; the three
+// words, with or without surrounding whitespace, are themselves; frame_file
+// is kept as a cleaned absolute path and wins with a warning when both are
+// set; and no BRIGADE_FRAME* variable is ever consulted, in or out of a
+// session — the frame has no terminal fallback on purpose.
+func TestParseOptionsFrame(t *testing.T) {
+	t.Parallel()
+	d := newDirs(t)
+	for _, tc := range []struct {
+		name    string
+		extra   []string
+		level   frame.Level
+		file    string
+		warning string
+	}{
+		{"unset is open", nil, frame.LevelOpen, "", ""},
+		{"open", []string{config.OptionFrame + "=open"}, frame.LevelOpen, "", ""},
+		{"guarded", []string{config.OptionFrame + "=guarded"}, frame.LevelGuarded, "", ""},
+		{"strict", []string{config.OptionFrame + "=strict"}, frame.LevelStrict, "", ""},
+		{"strict with whitespace", []string{config.OptionFrame + "=  strict\n"}, frame.LevelStrict, "", ""},
+		{"empty frame is open", []string{config.OptionFrame + "="}, frame.LevelOpen, "", ""},
+		{"frame_file alone", []string{config.OptionFrameFile + "=/home/u/frame.txt"}, frame.LevelOpen, "/home/u/frame.txt", ""},
+		{"frame_file is cleaned", []string{config.OptionFrameFile + "= /home/u//frame.txt/ "}, frame.LevelOpen, "/home/u/frame.txt", ""},
+		{"both set: the file wins with the warning", []string{config.OptionFrame + "=strict", config.OptionFrameFile + "=/home/u/frame.txt"}, frame.LevelStrict, "/home/u/frame.txt", config.WarnFrameBothSet},
+		{"BRIGADE_FRAME is never consulted in a session", []string{"BRIGADE_FRAME=strict", "BRIGADE_FRAME_FILE=/tmp/" + evilMarker}, frame.LevelOpen, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := config.ParseOptions(d.environ(append([]string{"CLAUDE_PID=4242"}, tc.extra...)...))
+			if err != nil {
+				t.Fatalf("ParseOptions: %v", err)
+			}
+			if got.Frame != tc.level || got.FrameFile != tc.file || got.FrameWarning != tc.warning {
+				t.Fatalf("frame=%q file=%q warning=%q; want %q %q %q", got.Frame, got.FrameFile, got.FrameWarning, tc.level, tc.file, tc.warning)
+			}
+		})
+	}
+	t.Run("BRIGADE_FRAME is never consulted outside a session either", func(t *testing.T) {
+		t.Parallel()
+		// The negative control of brief 4.2: unlike team_inbound and
+		// adapter_command, the frame has no terminal fallback.
+		got, err := config.ParseOptions(d.environ("BRIGADE_FRAME=strict", "BRIGADE_FRAME_FILE=/tmp/"+evilMarker))
+		if err != nil {
+			t.Fatalf("ParseOptions: %v", err)
+		}
+		if got.Frame != frame.LevelOpen || got.FrameFile != "" || got.FrameWarning != "" {
+			t.Fatalf("a BRIGADE_FRAME* variable was consulted: %+v", got)
+		}
+		// Positive control for the control: the sibling option's fallback
+		// IS honoured outside a session, so the environ shape is right.
+		got, err = config.ParseOptions(d.environ("BRIGADE_TEAM_INBOUND=refuse"))
+		if err != nil || got.TeamInbound != config.InboundRefuse {
+			t.Fatalf("the terminal fallback of team_inbound stopped working: %+v %v", got, err)
+		}
 	})
 }
 

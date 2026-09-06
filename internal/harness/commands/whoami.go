@@ -1,6 +1,13 @@
 package commands
 
-import "github.com/appshapes/brigade/internal/protocol"
+import (
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/appshapes/brigade/internal/harness/frame"
+	"github.com/appshapes/brigade/internal/protocol"
+)
 
 // whoamiResult is the --json result of `brigade whoami`: the session's
 // identity from the by-pid map and the adapter from the cached describe.
@@ -33,7 +40,12 @@ const WhoamiNote = "identity read from this session's map and the adapter's desc
 // binary's location after finding F1 took it out of the SessionStart
 // context line, and what docs/setup.md tells the human to symlink from
 // `~/.local/bin/brigade`. It stays OUT of `--json`, the form the model
-// reads, because a path in front of the model is the finding.
+// reads, because a path in front of the model is the finding. The same
+// reasoning, with a sharper edge, keeps the frame level (P5-12) to one
+// human line, `frame: <level>` — never the custom text, never the file
+// path, and nothing in --json: a model told how permissive its own frame
+// is might reason about it, which is not a conversation Brigade should
+// start; the model already reads the clause verbatim in every frame.
 func Whoami(inv Invocation) error {
 	if len(inv.Args) > 0 {
 		return usage("whoami takes no arguments")
@@ -71,5 +83,17 @@ func Whoami(inv Invocation) error {
 	if p := pathLine(m.PluginBin); p != "" {
 		out = append(out, "terminal: "+p)
 	}
+	out = append(out, "frame: "+frameLevelLine(m.FrameLevel, m.FrameText))
 	return writeLines(inv.Out, out...)
+}
+
+// frameLevelLine is the level name and, for a custom clause, its length in
+// characters (the user's own words, without the fold's trailing space) —
+// never the text itself.
+func frameLevelLine(level, text string) string {
+	line := enumLine(level)
+	if level == string(frame.LevelCustom) {
+		line += " (" + strconv.Itoa(utf8.RuneCountInString(strings.TrimSpace(text))) + " characters)"
+	}
+	return line
 }

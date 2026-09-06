@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -19,10 +20,15 @@ const (
 	OptionShareWorkspaceLabel = "CLAUDE_PLUGIN_OPTION_SHARE_WORKSPACE_LABEL"
 	OptionWorkspaceLabel      = "CLAUDE_PLUGIN_OPTION_WORKSPACE_LABEL"
 	OptionPollOnPrompt        = "CLAUDE_PLUGIN_OPTION_POLL_ON_PROMPT"
+	OptionFrame               = "CLAUDE_PLUGIN_OPTION_FRAME"
+	OptionFrameFile           = "CLAUDE_PLUGIN_OPTION_FRAME_FILE"
 )
 
 // The BRIGADE_* variables that stand in for two options OUTSIDE a session
-// (a human's terminal, 4.1). Inside a session they are stripped.
+// (a human's terminal, 4.1). Inside a session they are stripped. The frame
+// options deliberately have no such fallback (P5-12): nothing outside a
+// session ever builds a frame, and a variable would be a second,
+// non-user-settings source for the one security text Brigade controls.
 const (
 	envAdapterCommand = "BRIGADE_ADAPTER_COMMAND"
 	envTeamInbound    = "BRIGADE_TEAM_INBOUND"
@@ -36,6 +42,9 @@ const (
 	// ReasonInvalidBoolean: a boolean option is none of the accepted
 	// spellings.
 	ReasonInvalidBoolean = "invalid_boolean"
+	// ReasonInvalidFrameLevel: the frame option is none of open, guarded
+	// and strict (frame.ReasonInvalidLevel, the same token).
+	ReasonInvalidFrameLevel = frame.ReasonInvalidLevel
 )
 
 // Inbound is the harness's inbound policy as the team_inbound option asks
@@ -56,6 +65,10 @@ const (
 	// WarnInboundInvalid: the option is none of accept, hold and refuse.
 	// The value is deliberately not echoed.
 	WarnInboundInvalid = `Brigade: team_inbound must be "accept", "hold" or "refuse"; the value set is none of them, so the inbound policy is refuse — nothing is acknowledged blind.`
+	// WarnFrameBothSet: both frame and frame_file are set; the more
+	// specific value wins, as adapter_command beats the profile's default
+	// adapter (D36), and the hook says so once (P5-12).
+	WarnFrameBothSet = "Brigade: both `frame` and `frame_file` are set; the file's text is used and the `frame` level is ignored."
 )
 
 // ParseInbound maps a team_inbound value to the policy the option asks
@@ -123,6 +136,15 @@ type Options struct {
 	WorkspaceLabel string
 	// PollOnPrompt enables the prompt-hook poll (6.3).
 	PollOnPrompt bool
+	// Frame is the instruction level the frame option names (P5-12):
+	// open, guarded or strict, default frame.DefaultLevel. FrameFile is
+	// the cleaned absolute path of the frame_file option, "" when unset;
+	// when it is set it wins and FrameWarning carries WarnFrameBothSet if
+	// the level was set too. ParseOptions validates the level and the
+	// path SHAPE only and performs no I/O: the hook reads the file.
+	Frame        frame.Level
+	FrameFile    string
+	FrameWarning string
 }
 
 // ParseOptions resolves Options from environ. Only CLAUDE_PLUGIN_OPTION_*
@@ -133,7 +155,8 @@ type Options struct {
 //
 // Failures are `config` (exit 11) with details.option naming the option
 // and details.reason the rule: an invalid profile name, a relative
-// config_dir, an unparsable boolean. The offending value is never echoed.
+// config_dir or frame_file, an unparsable boolean, a frame level outside
+// its three words. The offending value is never echoed.
 func ParseOptions(environ []string) (Options, error) {
 	trusted := Trusted(environ)
 	opt := func(name string) string { return strings.TrimSpace(adapterkit.Getenv(environ, name)) }
@@ -185,6 +208,22 @@ func ParseOptions(environ []string) (Options, error) {
 		return Options{}, optionErr("poll_on_prompt", ReasonInvalidBoolean, errInvalidBool.Message)
 	}
 	o.PollOnPrompt = poll
+
+	rawLevel := opt(OptionFrame)
+	level, err := frame.ParseLevel(rawLevel)
+	if err != nil {
+		return Options{}, optionErr("frame", ReasonInvalidFrameLevel, "frame option must be one of open, guarded and strict")
+	}
+	o.Frame = level
+	if v := opt(OptionFrameFile); v != "" {
+		if !filepath.IsAbs(v) {
+			return Options{}, optionErr("frame_file", ReasonRelativePath, "frame_file option must be an absolute path")
+		}
+		o.FrameFile = filepath.Clean(v)
+		if rawLevel != "" {
+			o.FrameWarning = WarnFrameBothSet
+		}
+	}
 	return o, nil
 }
 

@@ -54,6 +54,18 @@
       "title": "Poll for messages on each prompt",
       "description": "Fallback for hosts without an inbox socket: fetch unread messages when a prompt is submitted, applying the same inbound policy as the watcher.",
       "default": false
+    },
+    "frame": {
+      "type": "string",
+      "title": "Frame text for incoming messages",
+      "description": "Which instruction paragraph a teammate's message carries: open (the default) states where the message came from, that it is untrusted, that it cannot approve anything or change your settings, and how to reply; guarded adds \"ask your user first\" for settings changes and secrets; strict adds running commands as well. Overridden by frame_file.",
+      "default": "open"
+    },
+    "frame_file": {
+      "type": "string",
+      "title": "Your own frame text (advanced)",
+      "description": "Absolute path to a UTF-8 text file holding your own instruction sentence(s), used instead of the frame level above. The file is read once when the session starts. Brigade's own provenance, untrusted-content and reply text stay as they are.",
+      "default": ""
     }
   }
 }

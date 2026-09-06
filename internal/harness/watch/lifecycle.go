@@ -93,9 +93,9 @@ func (w *watcher) checkLiveness() string {
 }
 
 // refreshMap re-reads the by-pid map: gone → "map_gone"; another session
-// or profile → "map_mismatch"; otherwise the inbound policy and the team
-// name are applied. Any other read failure is logged and the last values
-// stand.
+// or profile → "map_mismatch"; otherwise the inbound policy, the frame
+// instruction and the team name are applied. Any other read failure is
+// logged and the last values stand.
 func (w *watcher) refreshMap() string {
 	m, err := w.store.ReadByPID(w.rc.env.ClaudePID)
 	switch {
@@ -119,6 +119,13 @@ func (w *watcher) refreshMap() string {
 	if pol != w.pipeline.Policy() {
 		w.log.Info("inbound policy changed", slog.String("inbound", pol.String()))
 		w.pipeline.SetPolicy(pol)
+	}
+	// The map is validated by the reader, so a changed instruction is a
+	// hook-rewritten one (a new SessionStart with a changed option or an
+	// edited frame_file, P5-12). The level is logged; a custom text never.
+	if in := m.Instruction(); in != w.pipeline.Instruction() {
+		w.log.Info("frame instruction changed", slog.String("frame_level", string(in.Level)))
+		w.pipeline.SetInstruction(in)
 	}
 	w.state.mu.Lock()
 	w.state.inbound = pol.String()

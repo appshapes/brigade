@@ -494,13 +494,17 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 	if !pol.Valid() {
 		pol = policy.Refuse
 	}
+	// The frame instruction comes from the MAP, as the policy does (P5-12):
+	// the hook resolved it once at SessionStart; an invalid one is a
+	// `config` exit from inbound.New, never a silent fallback.
 	pipe, err := inbound.New(inbound.Config{
-		Policy:    pol,
-		SessionID: m.BrigadeSessionID,
-		TeamName:  m.TeamName,
-		Wrap:      true,
-		Clock:     inbound.ClockFunc(d.Clock),
-		Seen:      inbound.FileSeenStore{Path: inbound.SeenPath(rc.env.StateDir, m.BrigadeSessionID)},
+		Policy:      pol,
+		Instruction: m.Instruction(),
+		SessionID:   m.BrigadeSessionID,
+		TeamName:    m.TeamName,
+		Wrap:        true,
+		Clock:       inbound.ClockFunc(d.Clock),
+		Seen:        inbound.FileSeenStore{Path: inbound.SeenPath(rc.env.StateDir, m.BrigadeSessionID)},
 		Pending: inbound.FilePendingStore{
 			Path: inbound.PendingPath(rc.env.StateDir, m.BrigadeSessionID), SessionID: m.BrigadeSessionID,
 		},

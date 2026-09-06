@@ -25,6 +25,7 @@ func sampleMap(pid int) sessionmap.ByPID {
 		SessionName:      "payments-api",
 		PermissionMode:   "default",
 		Inbound:          protocol.InboundAccept,
+		FrameLevel:       "open",
 		SocketPath:       "/tmp/cc-socks/4242.sock",
 		Profile:          "work",
 		ConfigDir:        "/home/u/.config/brigade",

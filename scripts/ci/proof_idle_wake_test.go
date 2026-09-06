@@ -61,7 +61,12 @@ var idleWakeSharedLiterals = []string{
 	"frame_separator",
 	"frame_summary_prefix",
 	"frame_unverified_suffix",
-	"frame_preamble_head",
+	"frame_level_default",
+	"frame_preamble_head_shared",
+	"frame_clause_open",
+	"frame_clause_guarded",
+	"frame_clause_strict",
+	"frame_preamble_reply_intro",
 	"frame_preamble_reply",
 	"frame_preamble_tail",
 }
@@ -218,8 +223,9 @@ func idleWakeTopLevel(t *testing.T, rel, name string) string {
 
 // TestProofIdleWakeUnjoinedLiteralsMatchTheirSources closes the three copies the delimited block does not cover.
 // `anchor` is the delivery anchor the analyser asserts `anchor_present` on and is a verbatim PREFIX of the joined
-// frame_preamble_head, so a drift in one without the other would make the two disagree silently; the decoy marker
-// and file lists are lifted verbatim from proof-headless.sh's plant_decoys and mean nothing if they drift from it.
+// frame_preamble_head_shared — the piece every level shares (P5-12), so the anchor detects delivery at every level —
+// and a drift in one without the other would make the two disagree silently; the decoy marker and file lists are
+// lifted verbatim from proof-headless.sh's plant_decoys and mean nothing if they drift from it.
 func TestProofIdleWakeUnjoinedLiteralsMatchTheirSources(t *testing.T) {
 	t.Parallel()
 	mine, _ := idleWakeBlock(t, idleWakeScriptRel, idleWakeBlockOpen, idleWakeBlockClose)
@@ -227,9 +233,9 @@ func TestProofIdleWakeUnjoinedLiteralsMatchTheirSources(t *testing.T) {
 	if anchor == "" {
 		t.Fatalf("%s declares an empty anchor: `anchor_present` would then be vacuously true", idleWakeScriptRel)
 	}
-	if !strings.HasPrefix(mine["frame_preamble_head"], anchor) {
-		t.Errorf("%s: anchor %q is not a prefix of the joined frame_preamble_head %q: the analyser's anchor_present no longer tests the frame the script rebuilds",
-			idleWakeScriptRel, anchor, mine["frame_preamble_head"])
+	if !strings.HasPrefix(mine["frame_preamble_head_shared"], anchor) {
+		t.Errorf("%s: anchor %q is not a prefix of the joined frame_preamble_head_shared %q: the analyser's anchor_present no longer tests the frame the script rebuilds",
+			idleWakeScriptRel, anchor, mine["frame_preamble_head_shared"])
 	}
 	const headlessRel = "scripts/proof-headless.sh"
 	if got, want := idleWakeTopLevel(t, idleWakeScriptRel, "anchor"), idleWakeTopLevel(t, headlessRel, "anchor"); got != want {

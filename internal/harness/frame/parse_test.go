@@ -53,7 +53,7 @@ func TestParseAttributes(t *testing.T) {
 
 func TestParseErrors(t *testing.T) {
 	t.Parallel()
-	good := Build(e03Envelope(), "ops")
+	good := Build(e03Envelope(), "ops", Instruction{Level: DefaultLevel})
 	for _, tc := range []struct {
 		name string
 		text string
@@ -113,7 +113,7 @@ func TestParseRoundTrip(t *testing.T) {
 			m := e03Envelope()
 			m.Summary = tc.summary
 			m.Body = tc.body
-			frame := Build(m, "ops")
+			frame := Build(m, "ops", Instruction{Level: DefaultLevel})
 			p, err := Parse(frame)
 			if err != nil {
 				t.Fatalf("parse: %v\n%s", err, frame)
@@ -177,7 +177,7 @@ func TestParseFirstTagLastClose(t *testing.T) {
 // wrapper, and a wrapper tag that appears only in the body.
 func TestParseWrapperVariants(t *testing.T) {
 	t.Parallel()
-	inner := Build(e03Envelope(), "ops")
+	inner := Build(e03Envelope(), "ops", Instruction{Level: DefaultLevel})
 	for _, tc := range []struct {
 		name    string
 		text    string
@@ -222,7 +222,7 @@ func FuzzParseBuildRoundTrip(f *testing.F) {
 		m.Summary = summary
 		m.Sender.HumanLabel = label
 		m.Sender.SessionName = name
-		frame := Build(m, team)
+		frame := Build(m, team, Instruction{Level: DefaultLevel})
 		p, err := Parse(frame)
 		if err != nil {
 			t.Fatalf("parse: %v\n%q", err, frame)

@@ -200,12 +200,13 @@ func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
 		return
 	}
 	pipe, err := inbound.New(inbound.Config{
-		Policy:    pol,
-		SessionID: m.BrigadeSessionID,
-		TeamName:  m.TeamName,
-		Wrap:      false,
-		Clock:     inbound.ClockFunc(r.deps.Now),
-		Seen:      inbound.FileSeenStore{Path: inbound.SeenPath(f.stateDir, m.BrigadeSessionID)},
+		Policy:      pol,
+		Instruction: m.Instruction(),
+		SessionID:   m.BrigadeSessionID,
+		TeamName:    m.TeamName,
+		Wrap:        false,
+		Clock:       inbound.ClockFunc(r.deps.Now),
+		Seen:        inbound.FileSeenStore{Path: inbound.SeenPath(f.stateDir, m.BrigadeSessionID)},
 		Pending: inbound.FilePendingStore{
 			Path: inbound.PendingPath(f.stateDir, m.BrigadeSessionID), SessionID: m.BrigadeSessionID,
 		},
