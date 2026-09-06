@@ -94,12 +94,11 @@ jobs:
       - run: make plugin-check
 
   macos:                                  # the primary user platform: unix sockets, ps -o lstart, shasum paths
-    # Blacksmith's migration wizard mapped `macos-latest` to the PINNED `blacksmith-6vcpu-macos-15`, not to
-    # `blacksmith-6vcpu-macos-latest`: this job now runs one macOS major BEHIND the platform the developer and
-    # the users are on. `blacksmith-6vcpu-macos-latest` (currently 26) and `blacksmith-6vcpu-macos-26` both
-    # exist (docs.blacksmith.sh/blacksmith-runners/overview, read 2026-09-05). Which of the three this job
-    # should name is the owner's call and is P5-17's one open decision; the label below is the wizard's.
-    runs-on: blacksmith-6vcpu-macos-15    # macOS 15.7.4 arm64 [verified: run 33996821598, job 101388707813]
+    # Rjae, 2026-09-05: `blacksmith-6vcpu-macos-latest`, restoring the pre-migration `macos-latest` meaning — the
+    # current macOS major (26 today), the platform the developer and the users are on. The wizard had pinned
+    # `-macos-15` (macOS 15.7.4, one major behind); the "Runner image inventory" step below prints `sw_vers` on
+    # every run, so the version is a measurement, not this comment.
+    runs-on: blacksmith-6vcpu-macos-latest
     timeout-minutes: 7                    # 2x the 3m02s p90; slowest observed 3m12s on run 33920933602
     steps:
       - uses: actions/checkout@v7
