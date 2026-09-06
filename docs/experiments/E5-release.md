@@ -777,8 +777,11 @@ Then the six items above, measured (evidence under `.ignored/tools/p5-10c/proof/
    exactly one degraded prompt per cold run, 3/3, no `not installed`, no killed hook (P5-18's fail-fast); warm cache: hook 245–282 ms,
    0 degraded. Break-evens for the published asset unchanged from section 7 (418.1 / 185.8 / 139.4 kB/s — it is those bytes).
 4. **`make checksums-check`, the fresh-build arm** on `2fb158b`: exit 0, rules (a)(b)(c), twice (author, verifier), only the
-   gitignored `dist-cross/` written. The published-release arm on the commit after the release is CI's on the commit that records
-   this section.
+   gitignored `dist-cross/` written. **The published-release arm of rule (c) is still unexercised in CI**: on the commit that records
+   this section (`722f13f`, run 34031171517) rule (c) passed by its fresh-build arm again — the job log reads "(c) a fresh build of
+   this source reproduces plugin/bin/checksums.txt" — because no Go source changed after the release commit. The download fallback
+   (`gh release download v0.1.0`) engages on the first post-release commit that changes Go source; a docs-only commit cannot
+   exercise it. (Corrected 2026-09-06 after the peer driver read the job log; the first version of this item claimed the arm proven.)
 5. **`go install github.com/appshapes/brigade/cmd/brigade@v0.1.0`** with the default `GOPROXY`: exit 0 in 18 s (the proxy already had
    the tag; `sum.golang.org` both lines); `brigade version` prints exactly `v0.1.0`. The documented uninstall order (`team leave`,
    `profile reset`, `claude plugin uninstall brigade`, `claude plugin marketplace remove brigade`) ran clean twice; kept by design:

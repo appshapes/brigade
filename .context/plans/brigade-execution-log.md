@@ -2840,6 +2840,11 @@ against a ≈240 s worst case; `set -eu` guarded by a text check only; one anony
   green in 43 s on Blacksmith, five assets published (not draft, not prerelease), the published checksums byte-identical to the
   committed file, the body replaced with the CHANGELOG section.** Rjae's morning rulings (to `0905`, relayed): the frame level stays
   `open` (no code change); `090523` ran steps 2–6 of E5-release.md §10 under the landing lock after a "go" in its own session and
-  Rjae's one browser login in the throwaway config dir. The distribution proof: green end to end (5+1 real sessions; the registration line from the marketplace plugin after a verified first-use download; cold cache n = 3, one degraded prompt each; `go install` prints `v0.1.0`; `checksums-check` (a)(b)(c) on `2fb158b`); nine setup-document mismatches recorded as row P5-19. P5-10 `done`; P5-12's row
+  Rjae's one browser login in the throwaway config dir. The distribution proof: green end to end (5+1 real sessions; the registration line from the marketplace plugin after a verified first-use download; cold cache n = 3, one degraded prompt each; `go install` prints `v0.1.0`; `checksums-check` (a)(b)(c) on `2fb158b` by the fresh-build arm); nine setup-document mismatches recorded as row P5-19. P5-10 `done`; P5-12's row
   carries the ruling. Remaining after 0.1.0: P5-16 (the tap and Linux packages), E0-10 (waived for 0.1.0), the interactive sweep of
   the 26 test messages under `open` (owner-gated), item 21 (open, non-blocking), P5-7c-style follow-ups as Rjae rules.
+- 2026-09-06 08:0x EDT: **Correction to "P5-10 DONE — 0.1.0 RELEASED" and E5-release.md §11 item 4** (found by `0905` in the job log of
+  run 34031171517): CI on `722f13f` passed `make checksums-check` rule (c) by its **fresh-build** arm ("a fresh build of this source
+  reproduces plugin/bin/checksums.txt"), not by the published-release download fallback — the record commit changed no Go source.
+  The published-release arm is still unexercised in CI; it engages on the first post-release commit that changes Go source (P5-19,
+  docs only, will not exercise it either). Both sentences reworded in this commit; the 08-phases correction bullet too.
