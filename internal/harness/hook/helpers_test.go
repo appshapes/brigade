@@ -28,6 +28,8 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
@@ -479,6 +481,8 @@ type fixture struct {
 	socket     string
 	stateDir   string
 	configDir  string
+	cwd        string
+	teamKey    string
 	pluginBin  string
 	scriptPath string
 	dumpPath   string
@@ -531,6 +535,10 @@ func newFixture(t *testing.T) *fixture {
 		now:        fixedTime,
 		entrypoint: "cli",
 	}
+	// P7-6: every fixture is born attachable — a checkout, its team
+	// file, the binding and the pin. Tests of the not-joined/drift/silent
+	// paths override f.cwd or the store afterwards.
+	f.seedTeam(t)
 	f.scriptPath = filepath.Join(d.Root, "script.json")
 	f.script = fakeadapter.Script{
 		Describe: describeDoc(protocol.ProtocolVersion, teamName),
@@ -648,16 +656,65 @@ func (f *fixture) run(sub, stdin string, extraEnv ...string) (int, string, strin
 
 // startDoc is a SessionStart stdin document (the 2.1.251 shape).
 func (f *fixture) startDoc(source string) string {
+	cwd := f.cwd
+	if cwd == "" {
+		cwd = "/work/project"
+	}
 	return f.doc(map[string]any{
-		"session_id": f.nativeID, "cwd": "/work/project", "hook_event_name": "SessionStart",
+		"session_id": f.nativeID, "cwd": cwd, "hook_event_name": "SessionStart",
 		"source": source, "session_title": "titled-session", "transcript_path": "/never/read.jsonl",
 	})
 }
 
+// seedTeam builds the P7-6 attach preconditions for this fixture: a
+// checkout with a .brigade.json, the binding under the derived key, and
+// the pin — written BY HAND, because depguard rightly bars even this
+// package's tests from importing teamstore/write.
+func (f *fixture) seedTeam(t *testing.T) {
+	t.Helper()
+	f.seedTeamAdapter(t, "supabase")
+}
+
+// seedTeamAdapter is seedTeam with the team file's dialect a parameter.
+func (f *fixture) seedTeamAdapter(t *testing.T, adapter string) {
+	t.Helper()
+	checkout := filepath.Join(t.TempDir(), "checkout")
+	//nolint:gosec // G301: a checkout tree is an ordinary directory
+	if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	const url, key, ref, name = "https://abc.supabase.co", "sb_publishable_x", "team-1", "ops"
+	doc := `{"version":1,"adapter":"` + adapter + `","url":"` + url + `","publishable_key":"` + key + `","team_ref":"` + ref + `","team_name":"` + name + `"}`
+	if err := os.WriteFile(filepath.Join(checkout, teamfile.FileName), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tk := teamstore.Key(adapter, url, ref)
+	if err := adapterkit.SaveProfile(f.configDir, tk, &adapterkit.Profile{
+		Version: adapterkit.ProfileVersion, Adapter: adapter,
+		URL: url, PublishableKey: key, TeamRef: ref, TeamName: name,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	canon, err := teamfile.Canonicalize(checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pins := `{"version":1,"projects":{` + string(mustJSON(canon)) + `:{"adapter":"` + adapter + `","url":"` + url + `","publishable_key":"` + key + `","team_ref":"` + ref + `","consented_at":"2026-09-06T18:00:00Z"}}}`
+	if err := adapterkit.WriteAtomic(teamstore.PinsPath(f.configDir), []byte(pins)); err != nil {
+		t.Fatal(err)
+	}
+	f.cwd = checkout
+	f.teamKey = tk
+}
+
 // promptDoc is a UserPromptSubmit document.
 func (f *fixture) promptDoc(mode string) string {
+	cwd := f.cwd
+	if cwd == "" {
+		cwd = "/work/project"
+	}
 	return f.doc(map[string]any{
-		"session_id": f.nativeID, "cwd": "/work/project", "hook_event_name": "UserPromptSubmit",
+		"session_id": f.nativeID, "cwd": cwd, "hook_event_name": "UserPromptSubmit",
 		"permission_mode": mode, "prompt": "never read", "prompt_id": "p1", "transcript_path": "/never/read.jsonl",
 	})
 }

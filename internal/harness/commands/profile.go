@@ -199,7 +199,7 @@ func statusLine(t *target) string {
 	} else {
 		line += defaultAdapterText(t) + " (from " + t.defaultAdapter.Source + ")"
 	}
-	if t.session != nil && t.session.Profile == t.profile {
+	if t.session != nil && t.session.TeamKey == t.profile {
 		if override, ok := overrideText(t); ok {
 			line += "; this session overrides it with " + override
 		}

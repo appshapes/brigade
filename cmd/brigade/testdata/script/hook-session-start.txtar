@@ -11,15 +11,8 @@
 # The `brigade` under test is the race-instrumented test binary too; without
 # this every exec spends TSan's 1 s atexit sleep (see fake.sh).
 env GORACE=atexit_sleep_ms=0
-sleeper
-env CLAUDE_PID=$SLEEPER_PID
-env CLAUDE_CODE_SESSION_ID=native-1
-env CLAUDECODE=1
-env CLAUDE_CODE_ENTRYPOINT=cli
-env CLAUDE_CODE_MESSAGING_TOKEN=tok-MUST-NOT-CROSS-4c1f9a
-env CLAUDE_PLUGIN_OPTION_PROFILE=alpha
-env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script.json"]'
 expand script.json.in script.json
+expand script-create.json.in script-create.json
 chmod 755 fake.sh
 # On macOS the FIRST exec of a freshly created executable is suspended
 # while the system assesses it — measured 2026-09-03: 0.2–0.5 s idle and
@@ -35,6 +28,38 @@ cp bootstrap.sh $WORK/.brigade/plugin-root/bin/brigade
 chmod 755 $WORK/.brigade/plugin-root/bin/brigade
 cp VERSION $WORK/.brigade/plugin-root/bin/VERSION
 
+# --- P7-6: the project owns the team. A real `team create` seeds the
+# checkout's .brigade.json, the binding and the per-checkout pin (with the
+# canonicalization done at runtime, where it belongs); the hook then
+# attaches only because the pin and binding agree with the file. The
+# create runs OUTSIDE the session (no CLAUDE_PID yet) with its own script
+# and dump so the hook's spawn counts below stay exact.
+mkdir $WORK/.brigade/xdg/config/brigade
+expand adapters.json.in adapters.json.expanded
+cp adapters.json.expanded $WORK/.brigade/xdg/config/brigade/adapters.json
+chmod 600 $WORK/.brigade/xdg/config/brigade/adapters.json
+mkdir repo/.git
+cd repo
+# The hook ignores BRIGADE_* (U-27) and resolves the XDG config dir; the
+# terminal create must write the SAME store, so its env points there.
+env BRIGADE_CONFIG_DIR=$WORK/.brigade/xdg/config/brigade
+exec brigade team create --adapter fake --url http://127.0.0.1:1 --key placeholder --name ops --secret-file $WORK/join.secret
+cd $WORK
+exists repo/.brigade.json
+# (the FAKE adapter writes no secret file; the real ones do — harness-smoke covers it)
+
+sleeper
+env CLAUDE_PID=$SLEEPER_PID
+env CLAUDE_CODE_SESSION_ID=native-1
+env CLAUDECODE=1
+env CLAUDE_CODE_ENTRYPOINT=cli
+env CLAUDE_CODE_MESSAGING_TOKEN=tok-MUST-NOT-CROSS-4c1f9a
+env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script.json"]'
+expand start.json.in start.json
+expand compact.json.in compact.json
+expand clear.json.in clear.json
+expand start2.json.in start2.json
+
 # --- startup: exit 0, the one context line, the maps, describe + register -----
 stdin start.json
 exec brigade hook session-start
@@ -49,7 +74,7 @@ stderr 'no inbox socket'
 exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 grep '"brigade_session_id":"brigade-sess-1"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 grep '"team_name":"ops"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
-grep '"profile":"alpha"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+grep '"team_key":"2e8074afe5f181510fc60ab1a91ed5eb"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 grep '"config_dir":"'$WORK'/.brigade/xdg/config/brigade"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 grep '"adapter_command":\["'$WORK'/fake.sh","--script","'$WORK'/script.json"\]' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 grep '"socket_path":""' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
@@ -61,8 +86,8 @@ grep '"brigade_session_id":"brigade-sess-1"' $WORK/.brigade/xdg/state/brigade/se
 # Two children: describe, then register — with the from-scratch environment.
 grep -count=1 '"group":"describe"' dump.ndjson
 grep -count=1 '"verb":"register"' dump.ndjson
-grep '"--profile","alpha"' dump.ndjson
-grep '"BRIGADE_PROFILE":"alpha"' dump.ndjson
+grep '"--profile","2e8074afe5f181510fc60ab1a91ed5eb"' dump.ndjson
+grep '"BRIGADE_PROFILE":"2e8074afe5f181510fc60ab1a91ed5eb"' dump.ndjson
 grep '"BRIGADE_STATE_DIR":"'$WORK'/.brigade/xdg/state/brigade"' dump.ndjson
 ! grep CLAUDE_CODE_MESSAGING dump.ndjson
 ! grep MUST-NOT-CROSS dump.ndjson
@@ -129,7 +154,7 @@ env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND=relative/adapter
 rm dump2.ndjson
 stdin start2.json
 exec brigade hook session-start
-stdout '^Brigade: not connected \(config\): the adapter for profile "alpha" could not be resolved from option; run `brigade profile status` in a terminal$'
+stdout '^Brigade: not connected \(config\): the team''s adapter "fake" could not be resolved from option; run `brigade team status` in a terminal$'
 ! stdout relative/adapter
 ! exists dump2.ndjson
 
@@ -174,14 +199,14 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 exit 0
 -- VERSION --
 0.0.0
--- start.json --
-{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
--- compact.json --
-{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "compact", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
--- clear.json --
-{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "clear", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
--- start2.json --
-{"session_id": "native-2", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "second", "transcript_path": "/never/read.jsonl"}
+-- start.json.in --
+{"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- compact.json.in --
+{"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "SessionStart", "source": "compact", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- clear.json.in --
+{"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "SessionStart", "source": "clear", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- start2.json.in --
+{"session_id": "native-2", "cwd": "$WORK/repo", "hook_event_name": "SessionStart", "source": "startup", "session_title": "second", "transcript_path": "/never/read.jsonl"}
 -- garbage.txt --
 this is not a JSON document
 -- script.json.in --
@@ -194,3 +219,7 @@ this is not a JSON document
 {"dump_file": "$WORK/dump2.ndjson", "describe": {"protocol_version":"1","adapter":{"name":"fake-adapter","version":"0.0.0-fake"},"delivery":{"guarantee":"at_least_once","ordering":"none","ack_state":"injected"},"capabilities":["team.create","team.join","team.roster","message.receive","message.watch.push","message.watch.stdin_commands","session.description","session.resume","session.workspace_label","session.inbound"],"limits":{"max_body_bytes":16384,"max_summary_chars":200,"max_session_name_codepoints":64,"max_team_name_codepoints":64,"max_description_chars":256,"max_human_label_chars":128,"max_workspace_label_chars":128,"max_idempotency_key_chars":128,"send_rate":{"per_minute":20,"per_hour":200},"principal_send_rate":{"per_minute":60,"per_hour":600},"max_unacked_per_recipient":60,"max_unacked_per_sender_recipient":15,"max_hop_count":32,"implicit_reply_window_seconds":600},"lease":{"default_seconds":90,"min_seconds":30,"max_seconds":600},"retention":{"unacked_message_seconds":604800,"acked_message_seconds":86400,"closed_session_seconds":604800},"profile":{"name":"alpha","state":"joined","team_ref":"team-1","team_name":"ops","principal_ref":"principal-self","human_label":"me@example.com"}}, "responses": {"session register": [{"error": {"code": "unavailable", "message": "backend down", "retryable": true}}]}}
 -- warm.json --
 {}
+-- adapters.json.in --
+{"fake": ["$WORK/fake.sh", "--script", "$WORK/script-create.json"]}
+-- script-create.json.in --
+{"dump_file": "$WORK/dump-create.ndjson", "responses": {"profile init": [{"result": {"name":"tmp","state":"not_member"}}], "team create": [{"result": {"team_ref":"team-1","team_name":"ops","principal_ref":"principal-admin"}}]}}

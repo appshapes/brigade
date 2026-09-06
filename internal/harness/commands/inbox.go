@@ -406,7 +406,7 @@ func (inv Invocation) receiveFor(m *sessionmap.ByPID, stateDir string) ([]protoc
 	if err != nil {
 		return nil, err
 	}
-	t := &target{session: m, profile: m.Profile, configDir: m.ConfigDir, stateDir: stateDir, adapter: adapter}
+	t := &target{session: m, profile: m.TeamKey, configDir: m.ConfigDir, stateDir: stateDir, adapter: adapter}
 	t.client = inv.client(t)
 	if _, err := t.probe(); err != nil {
 		return nil, err

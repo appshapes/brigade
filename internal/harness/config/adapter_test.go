@@ -11,21 +11,6 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 )
 
-func writeSidecar(t *testing.T, configDir, profile, content string) string {
-	t.Helper()
-	path, err := config.SidecarPath(configDir, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := adapterkit.MkdirPrivate(filepath.Dir(path)); err != nil {
-		t.Fatal(err)
-	}
-	if err := adapterkit.WriteAtomic(path, []byte(content)); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
 func writeRegistry(t *testing.T, configDir, content string) string {
 	t.Helper()
 	if err := adapterkit.MkdirPrivate(configDir); err != nil {
@@ -36,13 +21,6 @@ func writeRegistry(t *testing.T, configDir, content string) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-func writeProfile(t *testing.T, configDir, profile, adapter string) {
-	t.Helper()
-	if err := adapterkit.SaveProfile(configDir, profile, &adapterkit.Profile{Version: adapterkit.ProfileVersion, Adapter: adapter}); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func assertAdapter(t *testing.T, got config.Adapter, argv []string, bundled bool, source string) {
@@ -57,45 +35,32 @@ func assertAdapter(t *testing.T, got config.Adapter, argv []string, bundled bool
 
 func TestResolveAdapterPrecedence(t *testing.T) {
 	t.Parallel()
-	// Option beats sidecar beats profile member beats bundled: the
-	// sources are removed one at a time and the answer moves down.
+	// Option beats the team's adapter name beats bundled (P7-6): the
+	// old sidecar and profile-member READ steps are gone for good.
 	configDir := filepath.Join(t.TempDir(), "config")
-	const profile = "work"
 	writeRegistry(t, configDir, `{"fs": "/opt/registry-fs"}`)
-	writeProfile(t, configDir, profile, "fs")
-	sidecar := writeSidecar(t, configDir, profile, "/opt/sidecar-adapter\n")
 	opts := config.Options{AdapterCommand: "/opt/option-adapter"}
 
-	got, err := config.ResolveAdapter(opts, configDir, profile)
+	got, err := config.ResolveAdapter(opts, configDir, "fs")
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertAdapter(t, got, []string{"/opt/option-adapter"}, false, config.SourceOption)
 
 	opts.AdapterCommand = ""
-	got, err = config.ResolveAdapter(opts, configDir, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertAdapter(t, got, []string{"/opt/sidecar-adapter"}, false, config.SourceSidecar)
-
-	if err := os.Remove(sidecar); err != nil {
-		t.Fatal(err)
-	}
-	got, err = config.ResolveAdapter(opts, configDir, profile)
+	got, err = config.ResolveAdapter(opts, configDir, "fs")
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertAdapter(t, got, []string{"/opt/registry-fs"}, false, config.SourceProfile)
 
-	profilePath, err := adapterkit.ProfilePath(configDir, profile)
+	got, err = config.ResolveAdapter(opts, configDir, "supabase")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(profilePath); err != nil {
-		t.Fatal(err)
-	}
-	got, err = config.ResolveAdapter(opts, configDir, profile)
+	assertAdapter(t, got, nil, true, config.SourceBundled)
+
+	got, err = config.ResolveAdapter(opts, configDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,54 +87,33 @@ func TestResolveAdapterThreeFormsPerSource(t *testing.T) {
 		{"registered name (array entry)", "fs-rooted", []string{"/opt/registry-fs", "--root", "/srv/r"}, false},
 		{"the bundled name", "supabase", nil, true},
 	}
-	sources := []string{config.SourceOption, config.SourceSidecar, config.SourceProfile}
+	sources := []string{config.SourceOption, config.SourceProfile}
 	for _, src := range sources {
 		for _, f := range forms {
 			t.Run(src+"/"+f.name, func(t *testing.T) {
 				t.Parallel()
 				configDir := filepath.Join(t.TempDir(), "config")
-				const profile = "default"
 				writeRegistry(t, configDir, `{"fs": "/opt/registry-fs", "fs-rooted": ["/opt/registry-fs", "--root", "/srv/r"], "supabase": "/opt/never-used"}`)
 				var opts config.Options
-				switch src {
-				case config.SourceOption:
+				name := ""
+				if src == config.SourceOption {
 					opts.AdapterCommand = f.value
-				case config.SourceSidecar:
-					writeSidecar(t, configDir, profile, f.value+"\n")
-				case config.SourceProfile:
-					if strings.HasPrefix(strings.TrimSpace(f.value), "[") || strings.HasPrefix(f.value, "/") {
-						// adapterkit.Profile.Adapter is a name by design; the
-						// parser accepts every form there too, proven by
-						// writing the raw file.
-						writeRawProfile(t, configDir, profile, f.value)
-					} else {
-						writeProfile(t, configDir, profile, f.value)
-					}
+				} else {
+					// The binding's adapter member arrives as the name
+					// parameter now — the CALLER reads the binding.
+					name = f.value
 				}
-				got, err := config.ResolveAdapter(opts, configDir, profile)
+				got, err := config.ResolveAdapter(opts, configDir, name)
 				if err != nil {
 					t.Fatalf("ResolveAdapter: %v", err)
 				}
-				assertAdapter(t, got, f.argv, f.bundled, src)
+				wantSrc := src
+				if src == config.SourceProfile && f.bundled {
+					wantSrc = config.SourceBundled // "supabase" as a name IS the bundled adapter
+				}
+				assertAdapter(t, got, f.argv, f.bundled, wantSrc)
 			})
 		}
-	}
-}
-
-// writeRawProfile writes a team.json with an arbitrary adapter member.
-func writeRawProfile(t *testing.T, configDir, profile, adapter string) {
-	t.Helper()
-	path, err := adapterkit.ProfilePath(configDir, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := adapterkit.MkdirPrivate(filepath.Dir(path)); err != nil {
-		t.Fatal(err)
-	}
-	quoted := strings.ReplaceAll(adapter, `\`, `\\`)
-	quoted = strings.ReplaceAll(quoted, `"`, `\"`)
-	if err := adapterkit.WriteAtomic(path, []byte(`{"version":1,"adapter":"`+quoted+`"}`)); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -211,27 +155,16 @@ func TestResolveAdapterReasons(t *testing.T) {
 				t.Fatalf("details.source = %q", details["source"])
 			}
 		})
-		t.Run("sidecar/"+tc.name, func(t *testing.T) {
+		t.Run("name/"+tc.name, func(t *testing.T) {
 			t.Parallel()
 			configDir := filepath.Join(t.TempDir(), "config")
-			writeSidecar(t, configDir, "default", tc.value)
-			_, err := config.ResolveAdapter(config.Options{}, configDir, "default")
+			_, err := config.ResolveAdapter(config.Options{}, configDir, strings.TrimRight(tc.value, "\n"))
 			details := assertConfig(t, err, tc.reason)
-			if details["source"] != config.SourceSidecar {
+			if details["source"] != config.SourceProfile {
 				t.Fatalf("details.source = %q", details["source"])
 			}
 		})
 	}
-	t.Run("an unresolvable value never falls through to the bundled adapter", func(t *testing.T) {
-		t.Parallel()
-		// The sidecar names an unregistered adapter while the profile
-		// member would have resolved: the sidecar's failure stands.
-		configDir := filepath.Join(t.TempDir(), "config")
-		writeProfile(t, configDir, "default", "supabase")
-		writeSidecar(t, configDir, "default", "unregistered-"+evilMarker)
-		_, err := config.ResolveAdapter(config.Options{}, configDir, "default")
-		assertConfig(t, err, config.ReasonAdapterUnregistered)
-	})
 }
 
 func TestResolveAdapterRegistryProblems(t *testing.T) {
@@ -300,94 +233,6 @@ func TestResolveAdapterRefusesInsecureModes(t *testing.T) {
 		if _, err := config.ResolveAdapter(config.Options{AdapterCommand: "fs"}, configDir, "default"); err != nil {
 			t.Fatalf("control: %v", err)
 		}
-	})
-	t.Run("world-readable sidecar", func(t *testing.T) {
-		t.Parallel()
-		configDir := filepath.Join(t.TempDir(), "config")
-		path := writeSidecar(t, configDir, "default", "/opt/adapter")
-		//nolint:gosec // G302: a group- or world-readable file is the PRECONDITION this test refuses
-		if err := os.Chmod(path, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		_, err := config.ResolveAdapter(config.Options{}, configDir, "default")
-		assertConfig(t, err, "insecure_mode")
-	})
-	t.Run("a sidecar that is a directory", func(t *testing.T) {
-		t.Parallel()
-		configDir := filepath.Join(t.TempDir(), "config")
-		path, err := config.SidecarPath(configDir, "default")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := adapterkit.MkdirPrivate(path); err != nil {
-			t.Fatal(err)
-		}
-		_, err = config.ResolveAdapter(config.Options{}, configDir, "default")
-		assertConfig(t, err, "not_regular")
-	})
-}
-
-func TestResolveAdapterProfileMemberIsBestEffort(t *testing.T) {
-	t.Parallel()
-	t.Run("missing profile", func(t *testing.T) {
-		t.Parallel()
-		got, err := config.ResolveAdapter(config.Options{}, filepath.Join(t.TempDir(), "config"), "default")
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertAdapter(t, got, nil, true, config.SourceBundled)
-	})
-	t.Run("world-readable profile is skipped here (the adapter refuses it later)", func(t *testing.T) {
-		t.Parallel()
-		configDir := filepath.Join(t.TempDir(), "config")
-		writeProfile(t, configDir, "default", "fs")
-		path, err := adapterkit.ProfilePath(configDir, "default")
-		if err != nil {
-			t.Fatal(err)
-		}
-		//nolint:gosec // G302: a group- or world-readable file is the PRECONDITION this test refuses
-		if err := os.Chmod(path, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		got, err := config.ResolveAdapter(config.Options{}, configDir, "default")
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertAdapter(t, got, nil, true, config.SourceBundled)
-	})
-	t.Run("malformed profile is skipped", func(t *testing.T) {
-		t.Parallel()
-		configDir := filepath.Join(t.TempDir(), "config")
-		path, err := adapterkit.ProfilePath(configDir, "default")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := adapterkit.MkdirPrivate(filepath.Dir(path)); err != nil {
-			t.Fatal(err)
-		}
-		if err := adapterkit.WriteAtomic(path, []byte("{not json")); err != nil {
-			t.Fatal(err)
-		}
-		got, err := config.ResolveAdapter(config.Options{}, configDir, "default")
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertAdapter(t, got, nil, true, config.SourceBundled)
-	})
-	t.Run("a profile member that names an unregistered adapter is an error, not a fallthrough", func(t *testing.T) {
-		t.Parallel()
-		configDir := filepath.Join(t.TempDir(), "config")
-		writeProfile(t, configDir, "default", "fs")
-		_, err := config.ResolveAdapter(config.Options{}, configDir, "default")
-		details := assertConfig(t, err, config.ReasonAdapterUnregistered)
-		if details["source"] != config.SourceProfile {
-			t.Fatalf("source = %q", details["source"])
-		}
-	})
-	t.Run("an invalid profile name is refused before any file is touched", func(t *testing.T) {
-		t.Parallel()
-		_, err := config.ResolveAdapter(config.Options{}, filepath.Join(t.TempDir(), "config"), "../"+evilMarker)
-		assertConfig(t, err, "invalid_profile_name")
 	})
 }
 
@@ -580,20 +425,12 @@ func TestRegisterAdapterAndWriteSidecar(t *testing.T) {
 	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("sidecar mode: %v %v", fi, err)
 	}
-	got, err = config.ResolveAdapter(config.Options{}, configDir, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertAdapter(t, got, []string{"/opt/adapter-fs", "--root", "/srv/a b"}, false, config.SourceSidecar)
-	// A path and an array form are accepted too, and overwrite.
+	// P7-6: ResolveAdapter no longer reads the sidecar back — the write
+	// side survives one more commit (P7-7 deletes it with profile.go);
+	// a path and an array form are still accepted, and overwrite.
 	if _, err := config.WriteSidecar(configDir, profile, ` ["/opt/x","--flag"] `); err != nil {
 		t.Fatal(err)
 	}
-	got, err = config.ResolveAdapter(config.Options{}, configDir, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertAdapter(t, got, []string{"/opt/x", "--flag"}, false, config.SourceSidecar)
 }
 
 func TestRegisterAdapterAndWriteSidecarRefusals(t *testing.T) {

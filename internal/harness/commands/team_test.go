@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
@@ -62,11 +63,17 @@ func TestTeamMembersAdapterErrorPassesThrough(t *testing.T) {
 	wantCode(t, Team(f.inv(f.sessionEnv(), "", "members", "extra")), protocol.CodeUsage, "")
 }
 
-// TestTeamMembersOutsideSession runs with --profile and the sidecar.
+// TestTeamMembersOutsideSession runs with --profile and the binding's
+// adapter name (P7-6: the sidecar read step is gone).
 func TestTeamMembersOutsideSession(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	if _, err := config.WriteSidecar(f.dirs.BrigadeConfig, "bob", f.adapterPath+"-bob"); err != nil {
+	if err := config.RegisterAdapter(f.dirs.BrigadeConfig, "bobfake", []string{f.adapterPath + "-bob"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, "bob", &adapterkit.Profile{
+		Version: adapterkit.ProfileVersion, Adapter: "bobfake",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	f.rec.on("team members", okAnswer(membersResultJSON()))
@@ -144,7 +151,15 @@ func passThroughFixture(t *testing.T, profile string, script fakeadapter.Script)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := config.WriteSidecar(f.dirs.BrigadeConfig, profile, string(spec)); err != nil {
+	// P7-6: the sidecar read step is gone; the fake adapter registers by
+	// NAME in adapters.json and the profile's binding names the dialect.
+	if err := adapterkit.WriteAtomic(config.RegistryPath(f.dirs.BrigadeConfig),
+		[]byte(`{"fake": `+string(spec)+`}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, profile, &adapterkit.Profile{
+		Version: adapterkit.ProfileVersion, Adapter: "fake",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return f, dump

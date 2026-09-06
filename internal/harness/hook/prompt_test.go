@@ -290,6 +290,7 @@ func TestPromptPollRateLimitAndAck(t *testing.T) {
 func TestPromptPollOutputCapAcksOnlyPrinted(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
+	f.seedTeam(t)
 	f.spawner.watcherPID = testutil.NewSleeper(t)
 	big := strings.Repeat("x", 6000)
 	msgs := pollMessages("m", senderA, "payments-api", 3, big)

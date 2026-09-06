@@ -108,8 +108,8 @@ func (w *watcher) refreshMap() string {
 	case m.BrigadeSessionID != w.sessionID:
 		w.log.Info("by-pid map names another Brigade session")
 		return "map_mismatch"
-	case m.Profile != w.rc.env.Profile:
-		w.log.Info("by-pid map names another profile")
+	case m.TeamKey != w.rc.env.Profile:
+		w.log.Info("by-pid map names another team key")
 		return "map_mismatch"
 	}
 	pol := policy.Policy(m.Inbound)

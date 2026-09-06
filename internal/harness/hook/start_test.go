@@ -47,7 +47,7 @@ func TestSessionStartRegistersSession(t *testing.T) {
 				t.Errorf("adapter child %s %s received %s", inv.Group, inv.Verb, name)
 			}
 		}
-		if inv.Env["BRIGADE_PROFILE"] != "default" || inv.Env["BRIGADE_STATE_DIR"] != f.stateDir || inv.Env["BRIGADE_CONFIG_DIR"] != f.configDir {
+		if inv.Env["BRIGADE_PROFILE"] != f.teamKey || inv.Env["BRIGADE_STATE_DIR"] != f.stateDir || inv.Env["BRIGADE_CONFIG_DIR"] != f.configDir {
 			t.Errorf("adapter child env %v", inv.Env)
 		}
 	}
@@ -56,7 +56,7 @@ func TestSessionStartRegistersSession(t *testing.T) {
 	switch {
 	case m.ClaudePID != f.pid, m.ClaudeSessionID != f.nativeID, m.BrigadeSessionID != "brigade-sess-1",
 		m.TeamRef != teamRef, m.TeamName != teamName, m.SessionName != "payments-api", m.PermissionMode != "",
-		m.NonInteractive, m.Inbound != "accept", m.SocketPath != f.socket, m.Profile != "default",
+		m.NonInteractive, m.Inbound != "accept", m.SocketPath != f.socket, m.TeamKey != f.teamKey,
 		m.ConfigDir != f.configDir, strings.Join(m.AdapterCommand, "\x00") != strings.Join(wantArgv, "\x00"),
 		m.PluginBin != f.pluginBin, m.HarnessVersion != "2.1.259", !m.RegisteredAt.Equal(fixedTime), !m.UpdatedAt.Equal(fixedTime):
 		t.Fatalf("map %+v", *m)
@@ -90,7 +90,7 @@ func assertWatcherEnv(t *testing.T, env []string, f *fixture) {
 	t.Helper()
 	want := map[string]string{
 		"BRIGADE_CLAUDE_PID":           strconv.Itoa(f.pid),
-		"BRIGADE_PROFILE":              "default",
+		"BRIGADE_PROFILE":              f.teamKey,
 		"BRIGADE_CONFIG_DIR":           f.configDir,
 		"BRIGADE_STATE_DIR":            f.stateDir,
 		"BRIGADE_ADAPTER_COMMAND":      f.adapterOption(),
@@ -445,20 +445,17 @@ func TestAdapterResolutionFailureLine(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		setup      func(f *fixture) []string
+		wantName   string
 		wantSource string
 	}{
-		{"relative option", func(*fixture) []string { return []string{config.OptionAdapterCommand + "=adapters/fake"} }, "option"},
-		{"unregistered sidecar name", func(f *fixture) []string {
+		{"relative option", func(*fixture) []string { return []string{config.OptionAdapterCommand + "=adapters/fake"} }, "supabase", "option"},
+		{"unregistered team-file name", func(f *fixture) []string {
+			// P7-6: the file names a dialect with no adapters.json entry;
+			// the refusal fires at resolution, never execution.
 			f.noAdapterOption = true
-			dir := filepath.Join(f.configDir, "teams", "default")
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				f.t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, "adapter"), []byte("fs\n"), 0o600); err != nil {
-				f.t.Fatal(err)
-			}
+			f.seedTeamAdapter(f.t, "fs")
 			return nil
-		}, "sidecar"},
+		}, "fs", "profile"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -469,7 +466,7 @@ func TestAdapterResolutionFailureLine(t *testing.T) {
 			if exit != 0 {
 				t.Fatal(exit)
 			}
-			want := "Brigade: not connected (config): the adapter for profile \"default\" could not be resolved from " + tc.wantSource + "; run `brigade profile status` in a terminal"
+			want := "Brigade: not connected (config): the team's adapter \"" + tc.wantName + "\" could not be resolved from " + tc.wantSource + "; run `brigade team status` in a terminal"
 			if got := lines(out); len(got) != 1 || got[0] != want {
 				t.Fatalf("stdout %q\nwant  %q", out, want)
 			}
@@ -488,36 +485,48 @@ func TestAdapterResolutionFailureLine(t *testing.T) {
 // arriving at refuse prints its fixed warning as a line of its own.
 func TestPolicyWarnings(t *testing.T) {
 	t.Parallel()
-	settings := "/work/project/.claude/settings.json"
 	for _, tc := range []struct {
 		name        string
 		extra       []string
-		readFile    func(string) ([]byte, error)
+		readFile    func(settings string) func(string) ([]byte, error)
 		wantPolicy  string
-		wantWarning string
+		wantWarning func(settings string) string
 	}{
-		{"default accept", nil, nil, "accept", ""},
-		{"option refuse", []string{config.OptionTeamInbound + "=refuse"}, nil, "refuse", ""},
-		{"option hold is hold with no warning (P5-9)", []string{config.OptionTeamInbound + "=hold"}, nil, "hold", ""},
-		{"option junk is refuse with a warning", []string{config.OptionTeamInbound + "=sometimes"}, nil, "refuse", config.WarnInboundInvalid},
-		{"native refuse in the project file", nil, func(p string) ([]byte, error) {
-			if p == settings {
-				return []byte(`{"crossSessionInbound": "refuse"}`), nil
+		{"default accept", nil, nil, "accept", nil},
+		{"option refuse", []string{config.OptionTeamInbound + "=refuse"}, nil, "refuse", nil},
+		{"option hold is hold with no warning (P5-9)", []string{config.OptionTeamInbound + "=hold"}, nil, "hold", nil},
+		{"option junk is refuse with a warning", []string{config.OptionTeamInbound + "=sometimes"}, nil, "refuse", func(string) string { return config.WarnInboundInvalid }},
+		{"native refuse in the project file", nil, func(settings string) func(string) ([]byte, error) {
+			return func(p string) ([]byte, error) {
+				if p == settings {
+					return []byte(`{"crossSessionInbound": "refuse"}`), nil
+				}
+				return nil, os.ErrNotExist
 			}
-			return nil, os.ErrNotExist
-		}, "refuse", policy.Scan{Found: true, Value: "refuse", File: settings}.Warning()},
-		{"native hold in the user file", nil, func(p string) ([]byte, error) {
-			if strings.HasSuffix(p, "/settings.json") && !strings.HasPrefix(p, "/work") {
-				return []byte(`{"crossSessionInbound": "hold"}`), nil
+		}, "refuse", func(settings string) string {
+			return policy.Scan{Found: true, Value: "refuse", File: settings}.Warning()
+		}},
+		{"native hold in the user file", nil, func(settings string) func(string) ([]byte, error) {
+			return func(p string) ([]byte, error) {
+				if strings.HasSuffix(p, "/settings.json") && p != settings {
+					return []byte(`{"crossSessionInbound": "hold"}`), nil
+				}
+				return nil, os.ErrNotExist
 			}
-			return nil, os.ErrNotExist
-		}, "refuse", ""},
+		}, "refuse", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newFixture(t)
+			// P7-6: the project settings file lives under the seeded
+			// checkout the session actually runs in.
+			settings := filepath.Join(f.cwd, ".claude", "settings.json")
 			if tc.readFile != nil {
-				f.deps.ReadFile = tc.readFile
+				f.deps.ReadFile = tc.readFile(settings)
+			}
+			wantWarning := ""
+			if tc.wantWarning != nil {
+				wantWarning = tc.wantWarning(settings)
 			}
 			seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
 			exit, out, _ := f.run(SubSessionStart, f.startDoc("startup"), tc.extra...)
@@ -529,10 +538,10 @@ func TestPolicyWarnings(t *testing.T) {
 				t.Fatalf("line %q lacks inbound %s", got[0], tc.wantPolicy)
 			}
 			switch {
-			case tc.wantWarning == "" && tc.name != "native hold in the user file" && len(got) != 1:
+			case wantWarning == "" && tc.name != "native hold in the user file" && len(got) != 1:
 				t.Fatalf("%d lines, want 1: %q", len(got), got)
-			case tc.wantWarning != "" && (len(got) != 2 || got[1] != tc.wantWarning):
-				t.Fatalf("lines %q, want the warning %q second", got, tc.wantWarning)
+			case wantWarning != "" && (len(got) != 2 || got[1] != wantWarning):
+				t.Fatalf("lines %q, want the warning %q second", got, wantWarning)
 			case tc.name == "native hold in the user file" && (len(got) != 2 || !strings.Contains(got[1], `"crossSessionInbound": "hold"`) || !strings.Contains(got[1], f.dirs.ClaudeConfig)):
 				t.Fatalf("lines %q, want a warning naming hold and the user file", got)
 			}
@@ -628,6 +637,7 @@ func TestShadowingWarning(t *testing.T) {
 func TestNoSocketNoWatcher(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
+	f.seedTeam(t)
 	f.noSocket = true
 	f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
 	exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
@@ -648,8 +658,9 @@ func TestNoSocketNoWatcher(t *testing.T) {
 func TestPermissionModeRecorded(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
+	f.seedTeam(t)
 	f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
-	doc := f.doc(map[string]any{"session_id": f.nativeID, "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "permission_mode": "bypassPermissions"})
+	doc := f.doc(map[string]any{"session_id": f.nativeID, "cwd": f.cwd, "hook_event_name": "SessionStart", "source": "startup", "permission_mode": "bypassPermissions"})
 	if exit, out, _ := f.run(SubSessionStart, doc); exit != 0 || !strings.Contains(out, "inbound: accept") {
 		t.Fatalf("exit %d out %q", exit, out)
 	}
@@ -664,12 +675,13 @@ func TestPermissionModeRecorded(t *testing.T) {
 func TestPlantedMapIsReplaced(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
+	f.seedTeam(t)
 	f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
 	path, _ := f.store().ByPIDPath(f.pid)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	planted := `{"claude_pid":` + strconv.Itoa(f.pid) + `,"brigade_session_id":"planted","profile":"evil","config_dir":"/evil","inbound":"accept","adapter_command":["/evil/adapter"]}`
+	planted := `{"claude_pid":` + strconv.Itoa(f.pid) + `,"brigade_session_id":"planted","team_key":"evil","config_dir":"/evil","inbound":"accept","adapter_command":["/evil/adapter"]}`
 	if err := os.WriteFile(path, []byte(planted), 0o644); err != nil { //nolint:gosec // G306: the planted, world-readable map is the PRECONDITION
 		t.Fatal(err)
 	}
@@ -677,7 +689,7 @@ func TestPlantedMapIsReplaced(t *testing.T) {
 		t.Fatalf("exit %d out %q", exit, out)
 	}
 	m := f.mustMap()
-	if m.BrigadeSessionID != "brigade-sess-1" || m.Profile != "default" {
+	if m.BrigadeSessionID != "brigade-sess-1" || m.TeamKey != f.teamKey {
 		t.Fatalf("map %+v", *m)
 	}
 	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {

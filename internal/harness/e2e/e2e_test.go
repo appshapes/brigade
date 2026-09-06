@@ -64,7 +64,7 @@ func TestSessionLifecycleThroughTheRealBinary(t *testing.T) {
 	res := r.hook(alice, "session-start", alice.hookDoc("SessionStart", map[string]any{"source": "startup"}))
 	m := r.mustMap(alice)
 	if m.BrigadeSessionID == "" || m.TeamRef != r.teamRef || m.TeamName != teamName || m.SessionName != aliceName ||
-		m.Profile != "alice" || m.SocketPath != sock.Path() || m.Inbound != "accept" || m.HarnessVersion != "2.1.259" ||
+		m.TeamKey != r.teamKey || m.SocketPath != sock.Path() || m.Inbound != "accept" || m.HarnessVersion != "2.1.259" ||
 		m.PluginBin != r.pluginBin || m.ConfigDir != r.configDir || strings.Join(m.AdapterCommand, " ") != strings.Join(r.adapterCmd, " ") {
 		t.Fatalf("alice's map: %+v", m)
 	}
@@ -89,7 +89,7 @@ func TestSessionLifecycleThroughTheRealBinary(t *testing.T) {
 	// --- 2. bob's own session sends; the frame reaches the socket -------
 	r.hook(bob, "session-start", bob.hookDoc("SessionStart", map[string]any{"source": "startup"}))
 	bobMap := r.mustMap(bob)
-	if bobMap.SessionName != bobName || bobMap.Profile != "bob" || bobMap.SocketPath != "" {
+	if bobMap.SessionName != bobName || bobMap.TeamKey != r.teamKey || bobMap.SocketPath != "" {
 		t.Fatalf("bob's map: %+v", bobMap)
 	}
 	if _, err := os.Lstat(r.pidfilePath(bob)); err == nil {
@@ -225,7 +225,7 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	vars, err := config.WatcherEnv{
-		ClaudePID: carol.pid, Profile: "alice", ConfigDir: r.configDir, StateDir: r.stateDir,
+		ClaudePID: carol.pid, Profile: r.teamKey, ConfigDir: r.configDir, StateDir: r.stateDir,
 		Adapter: adapter, TeamInbound: config.InboundAccept,
 	}.Vars()
 	if err != nil {

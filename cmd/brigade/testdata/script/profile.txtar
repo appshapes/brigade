@@ -54,11 +54,11 @@ json stdout .ok true
 
 # --- profile status: the harness line, then the adapter's envelope ----------
 exec brigade profile status --profile alice
-stdout '^profile alice: default adapter fs \(from sidecar\)$'
+stdout '^profile alice: default adapter fs \(from profile\)$'
 stdout '"state":"not_member"'
 ! stderr .
 exec brigade profile status --profile carol
-stdout '^profile carol: default adapter store \(from sidecar\)$'
+stdout '^profile carol: default adapter fs \(from profile\)$'
 
 # A profile with no sidecar and no profile file falls back to the bundled
 # adapter; the pass-through then runs the bundled Supabase adapter, which
@@ -71,12 +71,12 @@ env CLAUDE_PID=4242
 mkdir $WORK/.brigade/xdg/state/brigade/sessions/by-pid
 expand map.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.json
 exec brigade profile status
-stdout '^profile alice: default adapter fs \(from sidecar\); this session overrides it with \["'$WORK'/fs.sh","--root","'$WORK'/override"\]$'
+stdout '^profile alice: default adapter fs \(from profile\); this session overrides it with \["'$WORK'/fs.sh","--root","'$WORK'/override"\]$'
 stdout '"state":"not_member"'
 # With --profile naming another profile, that profile's default is described
 # and no override is reported.
 exec brigade profile status --profile carol
-stdout '^profile carol: default adapter store \(from sidecar\)$'
+stdout '^profile carol: default adapter fs \(from profile\)$'
 ! stdout overrides
 
 # --- the other verbs pass through ---------------------------------------------
@@ -100,4 +100,4 @@ stderr 'profile needs a verb'
 # variable is set here (fixture only, not Brigade behaviour).
 GORACE=atexit_sleep_ms=0 exec brigade-adapter-fs "$@"
 -- map.in --
-{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "profile": "alice", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fs.sh", "--root", "$WORK/override"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
+{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "team_key": "alice", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fs.sh", "--root", "$WORK/override"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}

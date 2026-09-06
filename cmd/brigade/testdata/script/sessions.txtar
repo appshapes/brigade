@@ -82,7 +82,7 @@ status 2 brigade sessions --profile other
 stderr 'not accepted inside a Claude Code session'
 
 -- map.in --
-{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "profile": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
+{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "team_key": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
 -- fake.sh --
 #!/bin/sh
 # The scripted fake adapter behind an absolute path: the by-pid map needs

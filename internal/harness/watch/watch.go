@@ -20,7 +20,7 @@
 // CLAUDE_CODE_MESSAGING_TOKEN and CLAUDE_CONFIG_DIR, and from the by-pid map
 // the hook wrote, which is the trust boundary (E0-7): the Brigade session
 // id, the team, the name, the inbound policy and the profile are read from
-// it, and a map that names another profile than the environment is `config`.
+// it, and a map that names another team key than the environment is `config`.
 // The messaging token is held in memory only, goes on the socket auth line
 // and nowhere else, and is registered with the log redactor.
 //
@@ -483,11 +483,11 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 	case err != nil:
 		return nil, codeOf(err).Exit(), err
 	}
-	if m.Profile != rc.env.Profile {
+	if m.TeamKey != rc.env.Profile {
 		return nil, protocol.CodeConfig.Exit(), &protocol.Error{
 			Code:    protocol.CodeConfig,
 			Message: "the by-pid map names a different profile than the watcher's environment",
-			Details: map[string]string{"reason": "map_profile_mismatch"},
+			Details: map[string]string{"reason": "map_team_key_mismatch"},
 		}
 	}
 	pol := policy.Policy(m.Inbound)

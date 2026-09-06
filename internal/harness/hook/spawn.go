@@ -126,7 +126,7 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 	}
 	env, err := watcherEnviron(r.environ, config.WatcherEnv{
 		ClaudePID:   f.pid,
-		Profile:     m.Profile,
+		Profile:     m.TeamKey,
 		ConfigDir:   m.ConfigDir,
 		StateDir:    f.stateDir,
 		Adapter:     adapter,

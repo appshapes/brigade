@@ -97,7 +97,7 @@ type ByPID struct {
 	// on a host without an inbox socket. The token is NOT here.
 	SocketPath string `json:"socket_path"`
 	// Profile is the resolved profile name.
-	Profile string `json:"profile"`
+	TeamKey string `json:"team_key"`
 	// ConfigDir is the resolved absolute Brigade config directory.
 	ConfigDir string `json:"config_dir"`
 	// AdapterCommand is the resolved argv prefix prepended verbatim to
@@ -132,8 +132,8 @@ func (m *ByPID) Validate() error {
 		return errInvalid("claude_pid")
 	case m.BrigadeSessionID == "":
 		return errInvalid("brigade_session_id")
-	case adapterkit.CheckProfileName(m.Profile) != nil:
-		return errInvalid("profile")
+	case adapterkit.CheckProfileName(m.TeamKey) != nil:
+		return errInvalid("team_key")
 	case !filepath.IsAbs(m.ConfigDir):
 		return errInvalid("config_dir")
 	case m.Inbound != protocol.InboundAccept && m.Inbound != protocol.InboundHold && m.Inbound != protocol.InboundRefuse:

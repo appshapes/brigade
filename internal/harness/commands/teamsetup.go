@@ -459,7 +459,7 @@ func (inv Invocation) dialectTarget(adapterName, key string) (*target, error) {
 	if err != nil {
 		return nil, err
 	}
-	ad, err := config.ResolveAdapter(config.Options{AdapterCommand: adapterName}, configDir, key)
+	ad, err := config.ResolveAdapter(config.Options{}, configDir, adapterName)
 	if err != nil {
 		return nil, err
 	}
@@ -770,4 +770,14 @@ func readSecretTerminal(errW io.Writer) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(b)), nil
+}
+
+// bindingAdapterName answers the dialect a team key's binding names, ""
+// (the bundled adapter) when there is no binding to ask.
+func bindingAdapterName(configDir, key string) string {
+	p, err := adapterkit.LoadProfile(configDir, key)
+	if err != nil {
+		return ""
+	}
+	return p.Adapter
 }

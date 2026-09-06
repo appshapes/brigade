@@ -19,6 +19,9 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/harness/teamstore/write"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
@@ -64,6 +67,9 @@ type rig struct {
 	emptyPath  string // an empty PATH entry (the shadowing check must see nothing)
 	secretFile string
 	teamRef    string
+	teamKey    string   // the derived team key both stores bind under (P7-6)
+	checkout   string   // the project checkout whose .brigade.json names the team
+	configDirB string   // bob's own store: two personas, two config dirs (P7-6)
 	adapterCmd []string // the by-pid map's adapter_command: the wrapper with --root
 
 	mu       sync.Mutex
@@ -93,7 +99,9 @@ func newRig(t *testing.T) *rig {
 		argvLog:   filepath.Join(dirs.Root, "adapter-argv.log"),
 		envLog:    filepath.Join(dirs.Root, "adapter-env.log"),
 	}
-	for _, d := range []string{r.emptyPath, filepath.Join(dirs.PluginRoot, "bin"), filepath.Join(dirs.ClaudeConfig, "sessions"), filepath.Join(dirs.Root, "xdg", "data")} {
+	r.checkout = filepath.Join(dirs.Root, "checkout")
+	r.configDirB = filepath.Join(dirs.Root, "config-bob")
+	for _, d := range []string{r.emptyPath, filepath.Join(dirs.PluginRoot, "bin"), filepath.Join(dirs.ClaudeConfig, "sessions"), filepath.Join(dirs.Root, "xdg", "data"), filepath.Join(r.checkout, ".git"), r.configDirB} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -163,6 +171,7 @@ type session struct {
 	title    string
 	socket   string
 	token    string
+	cwd      string
 }
 
 // newSession starts a sleeper and returns the session facts. A registry
@@ -172,7 +181,7 @@ type session struct {
 func (r *rig) newSession(profile, title, name, socket, token string) session {
 	r.t.Helper()
 	pid := testutil.NewSleeper(r.t)
-	s := session{pid: pid, nativeID: "native-" + profile + "-" + strconv.Itoa(pid), profile: profile, title: title, socket: socket, token: token}
+	s := session{pid: pid, nativeID: "native-" + profile + "-" + strconv.Itoa(pid), profile: profile, title: title, socket: socket, token: token, cwd: r.checkout}
 	if name != "" {
 		entry := fakeregistry.Observed(pid, name, "busy", socket)
 		path := filepath.Join(r.dirs.ClaudeConfig, "sessions", strconv.Itoa(pid)+".json")
@@ -192,9 +201,13 @@ func (r *rig) env(s session) []string {
 		"CLAUDE_CODE_SESSION_ID="+s.nativeID,
 		"CLAUDECODE=1",
 		"CLAUDE_CODE_ENTRYPOINT=cli",
-		config.OptionProfile+"="+s.profile,
 		config.OptionAdapterCommand+"="+r.adapterJSON(),
 	)
+	if s.profile == "bob" {
+		// Two personas, two config dirs (P7-6): bob's sessions read
+		// bob's own store through the config_dir option.
+		env = append(env, config.OptionConfigDir+"="+r.configDirB)
+	}
 	if s.socket != "" {
 		env = append(env, "CLAUDE_CODE_MESSAGING_SOCKET="+s.socket, "CLAUDE_CODE_MESSAGING_TOKEN="+s.token)
 	}
@@ -205,7 +218,7 @@ func (r *rig) env(s session) []string {
 // and prompt are present and never read.
 func (s session) hookDoc(event string, extra map[string]any) string {
 	m := map[string]any{
-		"session_id": s.nativeID, "cwd": "/work/project", "hook_event_name": event,
+		"session_id": s.nativeID, "cwd": s.cwd, "hook_event_name": event,
 		"transcript_path": "/never/read.jsonl",
 	}
 	if s.title != "" {
@@ -300,24 +313,31 @@ func jsonResult[T any](t *testing.T, stdout string) T {
 func (r *rig) createTeam() {
 	t := r.t
 	t.Helper()
+	// P7-6, the project owns the team: alice's NEW-form `team create`
+	// runs in the checkout and writes the .brigade.json, her binding and
+	// her pin; bob joins through the frozen adapter protocol directly
+	// into HIS OWN config dir (the two-personas shape) and his pin and
+	// binding are completed exactly as the harness join would.
 	env := r.baseEnv()
-	for _, p := range []string{"alice", "bob"} {
-		res := r.mustRun(env, "", "profile", "init", "--profile", p, "--adapter", r.adapterJSON())
-		if !strings.Contains(res.stdout, `"state":"not_member"`) {
-			t.Fatalf("profile init %s: %s", p, res.stdout)
-		}
+	if err := config.RegisterAdapter(r.configDir, "fs", r.adapterCmd); err != nil {
+		t.Fatal(err)
 	}
-	sidecar, err := os.ReadFile(filepath.Join(r.configDir, "teams", "alice", "adapter"))
-	if err != nil || strings.TrimSpace(string(sidecar)) != r.adapterJSON() {
-		t.Fatalf("alice's sidecar = %q (%v), want %s", sidecar, err, r.adapterJSON())
+	res := r.runIn(r.checkout, env, "", "team", "create", "--adapter", "fs",
+		"--url", "http://127.0.0.1:1", "--key", "placeholder",
+		"--name", teamName, "--label", aliceLabel, "--secret-file", r.secretFile)
+	if res.exit != 0 {
+		t.Fatalf("team create: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
-	create := `{"team_name":"` + teamName + `","human_label":"` + aliceLabel + `"}`
-	res := r.mustRun(env, create, "team", "create", "--profile", "alice", "--secret-file", r.secretFile)
-	created := jsonResult[protocol.TeamCreateResult](t, res.stdout)
-	if created.TeamRef == "" || created.TeamName != teamName || created.JoinSecret != "" {
-		t.Fatalf("team create: %+v (the secret must be in the file, not on stdout)", created)
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
 	}
-	r.teamRef = created.TeamRef
+	pin, ok, err := teamstore.LookupPin(r.configDir, canon)
+	if err != nil || !ok {
+		t.Fatalf("alice's pin after create: %v %v", ok, err)
+	}
+	r.teamRef = pin.TeamRef
+	r.teamKey = teamstore.Key("fs", "http://127.0.0.1:1", pin.TeamRef)
 	secret, err := os.ReadFile(r.secretFile)
 	if err != nil {
 		t.Fatalf("the secret file the fs adapter writes: %v", err)
@@ -325,15 +345,80 @@ func (r *rig) createTeam() {
 	if strings.Contains(res.stdout, strings.TrimSpace(string(secret))) {
 		t.Fatal("the join secret reached stdout")
 	}
+
+	if err := config.RegisterAdapter(r.configDirB, "fs", r.adapterCmd); err != nil {
+		t.Fatal(err)
+	}
 	join, err := json.Marshal(&protocol.TeamJoinRequest{JoinSecret: strings.TrimSpace(string(secret)), HumanLabel: bobLabel})
 	if err != nil {
 		t.Fatal(err)
 	}
-	res = r.mustRun(env, string(join), "team", "join", "--profile", "bob")
-	joined := jsonResult[protocol.TeamJoinResult](t, res.stdout)
+	envB := append(r.baseEnv(), "BRIGADE_CONFIG_DIR="+r.configDirB)
+	jr := r.runAdapter(envB, string(join), "--profile", r.teamKey, "team", "join")
+	if jr.exit != 0 {
+		t.Fatalf("adapter team join (bob): exit %d\nstdout: %s\nstderr: %s", jr.exit, jr.stdout, jr.stderr)
+	}
+	joined := jsonResult[protocol.TeamJoinResult](t, jr.stdout)
 	if joined.TeamRef != r.teamRef || joined.Rejoined {
 		t.Fatalf("team join: %+v", joined)
 	}
+	if err := write.EnsureBinding(r.configDirB, r.teamKey, "fs", "http://127.0.0.1:1", "placeholder", r.teamRef, teamName, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := write.Pin(r.configDirB, canon, teamstore.Pin{
+		Adapter: "fs", URL: "http://127.0.0.1:1", PublishableKey: "placeholder", TeamRef: r.teamRef,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// runIn is run with the child's working directory set (the repo-file
+// commands resolve the checkout from their cwd).
+func (r *rig) runIn(dir string, env []string, stdin string, args ...string) result {
+	r.t.Helper()
+	//nolint:gosec // G204: the argv is a binary this test built; no shell is involved
+	cmd := exec.CommandContext(r.t.Context(), r.brigade, args...)
+	cmd.Env = env
+	cmd.Dir = dir
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	res := result{stdout: out.String(), stderr: errb.String()}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		res.exit = exit.ExitCode()
+	} else if err != nil {
+		r.t.Fatalf("%s %v: %v", r.brigade, args, err)
+	}
+	return res
+}
+
+// runAdapter drives the fs adapter DIRECTLY over the frozen protocol —
+// what a scripted join does.
+func (r *rig) runAdapter(env []string, stdin string, args ...string) result {
+	r.t.Helper()
+	argv := append(append([]string{}, r.adapterCmd[1:]...), args...)
+	//nolint:gosec // G204: the argv is a binary this test built; no shell is involved
+	cmd := exec.CommandContext(r.t.Context(), r.adapterCmd[0], argv...)
+	cmd.Env = env
+	cmd.Dir = r.dirs.Home
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	res := result{stdout: out.String(), stderr: errb.String()}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		res.exit = exit.ExitCode()
+	} else if err != nil {
+		r.t.Fatalf("%s %v: %v", r.adapterCmd[0], args, err)
+	}
+	return res
 }
 
 // store is the by-pid map store the hooks write to.

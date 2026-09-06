@@ -32,7 +32,7 @@ func validByPID() sessionmap.ByPID {
 		Inbound:          protocol.InboundAccept,
 		FrameLevel:       "open",
 		SocketPath:       "/tmp/cc-socks/4242.sock",
-		Profile:          "default",
+		TeamKey:          "default",
 		ConfigDir:        "/home/u/.config/brigade",
 		AdapterCommand:   []string{"/opt/brigade/adapter-fs", "--root", "/srv/store"},
 		PluginBin:        "/home/u/.local/share/brigade/bin/brigade-0.0.0-darwin-arm64",
@@ -94,8 +94,8 @@ func TestByPIDValidate(t *testing.T) {
 		{name: "pid zero", mutate: func(m *sessionmap.ByPID) { m.ClaudePID = 0 }, wantField: "claude_pid"},
 		{name: "pid negative", mutate: func(m *sessionmap.ByPID) { m.ClaudePID = -4242 }, wantField: "claude_pid"},
 		{name: "no brigade session id", mutate: func(m *sessionmap.ByPID) { m.BrigadeSessionID = "" }, wantField: "brigade_session_id"},
-		{name: "traversing profile", mutate: func(m *sessionmap.ByPID) { m.Profile = "../" + evilMarker }, wantField: "profile"},
-		{name: "empty profile", mutate: func(m *sessionmap.ByPID) { m.Profile = "" }, wantField: "profile"},
+		{name: "traversing team_key", mutate: func(m *sessionmap.ByPID) { m.TeamKey = "../" + evilMarker }, wantField: "team_key"},
+		{name: "empty team_key", mutate: func(m *sessionmap.ByPID) { m.TeamKey = "" }, wantField: "team_key"},
 		{name: "relative config dir", mutate: func(m *sessionmap.ByPID) { m.ConfigDir = "rel/" + evilMarker }, wantField: "config_dir"},
 		{name: "empty config dir", mutate: func(m *sessionmap.ByPID) { m.ConfigDir = "" }, wantField: "config_dir"},
 		{name: "inbound empty", mutate: func(m *sessionmap.ByPID) { m.Inbound = "" }, wantField: "inbound"},
@@ -154,7 +154,7 @@ func TestByPIDValidate(t *testing.T) {
 // byPIDMembers is the 3.2 member list plus P5-12's two frame members, exactly.
 var byPIDMembers = []string{
 	"claude_pid", "claude_session_id", "brigade_session_id", "team_ref", "team_name", "session_name",
-	"permission_mode", "non_interactive", "inbound", "frame_level", "frame_text", "socket_path", "profile", "config_dir", "adapter_command",
+	"permission_mode", "non_interactive", "inbound", "frame_level", "frame_text", "socket_path", "team_key", "config_dir", "adapter_command",
 	"plugin_bin", "harness_version", "registered_at", "updated_at",
 }
 

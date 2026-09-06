@@ -3,6 +3,7 @@ package hook
 import (
 	"encoding/json/v2"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -20,11 +21,11 @@ import (
 // Brigade would acknowledge it, so the scan wins over the option.
 func TestScanStillForcesRefuseOverAHoldOption(t *testing.T) {
 	t.Parallel()
-	settings := "/work/project/.claude/settings.json"
 	for _, native := range []string{"hold", "refuse"} {
 		t.Run("native "+native, func(t *testing.T) {
 			t.Parallel()
 			f := newFixture(t)
+			settings := filepath.Join(f.cwd, ".claude", "settings.json")
 			f.deps.ReadFile = func(p string) ([]byte, error) {
 				if p == settings {
 					return []byte(`{"crossSessionInbound": "` + native + `"}`), nil
@@ -67,6 +68,7 @@ func TestScanStillForcesRefuseOverAHoldOption(t *testing.T) {
 func TestHoldOptionWritesHoldToTheMap(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
+	f.seedTeam(t)
 	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
 	exit, out, _ := f.run(SubSessionStart, f.startDoc("startup"), config.OptionTeamInbound+"=hold")
 	if exit != 0 {

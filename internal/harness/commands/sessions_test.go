@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
@@ -141,13 +142,19 @@ func TestSessionsSanitisedInBothForms(t *testing.T) {
 	}
 }
 
-// TestSessionsOutsideSessionUsesTheProfileAndSidecar (6.4): in a terminal
-// the profile comes from --profile (else BRIGADE_PROFILE) and the adapter
-// from the D36 sidecar; no session id is marked and no map is needed.
-func TestSessionsOutsideSessionUsesTheProfileAndSidecar(t *testing.T) {
+// TestSessionsOutsideSessionUsesTheProfileAndBinding (6.4, P7-6): in a
+// terminal the profile comes from --profile (else BRIGADE_PROFILE) and
+// the adapter from the binding's registered name; no session id is
+// marked and no map is needed.
+func TestSessionsOutsideSessionUsesTheProfileAndBinding(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	if _, err := config.WriteSidecar(f.dirs.BrigadeConfig, "beta", `["`+f.adapterPath+`","--root","/y"]`); err != nil {
+	if err := config.RegisterAdapter(f.dirs.BrigadeConfig, "betafake", []string{f.adapterPath, "--root", "/y"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, "beta", &adapterkit.Profile{
+		Version: adapterkit.ProfileVersion, Adapter: "betafake",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	f.rec.on("session list", okAnswer(listResult()))
@@ -161,11 +168,16 @@ func TestSessionsOutsideSessionUsesTheProfileAndSidecar(t *testing.T) {
 	}
 	argv := f.rec.spec(t, 0).Argv
 	if argv[0] != f.adapterPath || argv[2] != "/y" || argv[slices.Index(argv, "--profile")+1] != "beta" {
-		t.Errorf("argv = %v, want the sidecar's command and --profile beta", argv)
+		t.Errorf("argv = %v, want the registered command and --profile beta", argv)
 	}
 	// --profile wins over BRIGADE_PROFILE.
 	f.out.Reset()
-	if _, err := config.WriteSidecar(f.dirs.BrigadeConfig, "gamma", f.adapterPath+"-g"); err != nil {
+	if err := config.RegisterAdapter(f.dirs.BrigadeConfig, "gammafake", []string{f.adapterPath + "-g"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, "gamma", &adapterkit.Profile{
+		Version: adapterkit.ProfileVersion, Adapter: "gammafake",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := Sessions(f.inv(f.terminalEnv("BRIGADE_PROFILE=beta"), ""), SessionsOptions{Profile: "gamma"}); err != nil {
@@ -173,7 +185,7 @@ func TestSessionsOutsideSessionUsesTheProfileAndSidecar(t *testing.T) {
 	}
 	last := f.rec.spec(t, f.rec.count()-1).Argv
 	if last[0] != f.adapterPath+"-g" || last[slices.Index(last, "--profile")+1] != "gamma" {
-		t.Errorf("argv = %v, want the gamma sidecar and --profile gamma", last)
+		t.Errorf("argv = %v, want the gamma binding and --profile gamma", last)
 	}
 }
 

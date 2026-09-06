@@ -19,6 +19,8 @@ import (
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -72,6 +74,8 @@ func (r *run) refreshMap(f facts, in input) {
 // resolved is everything the register/heartbeat paths share.
 type resolved struct {
 	opts        config.Options
+	teamKey     string
+	teamFile    *teamfile.File
 	adapter     config.Adapter
 	argv        []string
 	id          identity
@@ -165,23 +169,35 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	r.finish(f, in, res, m, now)
 }
 
-// resolve reads the options, resolves the adapter (D36), the identity
-// (6.5), the policy (6.8, 6.10) and the frame instruction (P5-12). A
-// failure prints its line.
+// resolve is the attach-only resolution of P7-6 (brief §4): (1) the
+// project's team file is discovered — none, or no repository at all,
+// means Brigade stays OFF, silently (DEBUG only; a repo without Brigade
+// must not nag); (2) the per-checkout pin must exist and match the file
+// (a human consented HERE, and the file has not been re-pointed since);
+// (3) the binding must exist and match the file field-by-field (the key
+// is never trusted alone); (4) only then is the adapter resolved — by
+// the file's NAME, strictly user-side — and the frozen chain runs with
+// the team key as the profile. The hook can not join: no code path here
+// transmits a secret or writes the store, and the refusal lines echo
+// nothing from a mismatched file.
 func (r *run) resolve(f facts, in input) (resolved, bool) {
 	opts, err := config.ParseOptions(r.environ)
 	if err != nil {
 		r.fail("session-start: options", err, optionsLine(err))
 		return resolved{}, false
 	}
-	adapter, err := config.ResolveAdapter(opts, opts.ConfigDir, opts.Profile)
+	tf, key, ok := r.resolveTeam(opts, in)
+	if !ok {
+		return resolved{}, false
+	}
+	adapter, err := config.ResolveAdapter(opts, opts.ConfigDir, tf.Adapter)
 	if err != nil {
-		r.fail("session-start: adapter resolution", err, adapterLine(opts.Profile, err))
+		r.fail("session-start: adapter resolution", err, adapterLine(tf.Adapter, err))
 		return resolved{}, false
 	}
 	argv, err := adapterArgv(adapter)
 	if err != nil {
-		r.fail("session-start: adapter command", err, adapterLine(opts.Profile, err))
+		r.fail("session-start: adapter command", err, adapterLine(tf.Adapter, err))
 		return resolved{}, false
 	}
 	id := r.identity(f, in)
@@ -201,14 +217,66 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 	}
 	return resolved{
 		opts:        opts,
+		teamKey:     key,
+		teamFile:    tf,
 		adapter:     adapter,
 		argv:        argv,
 		id:          id,
 		dec:         dec,
 		instruction: instruction,
-		client:      r.client(adapter, opts.Profile, opts.ConfigDir, f.stateDir),
+		client:      r.client(adapter, key, opts.ConfigDir, f.stateDir),
 		store:       sessionmap.Store{StateDir: f.stateDir},
 	}, true
+}
+
+// resolveTeam runs steps 1-3: discovery, the pin gate, the binding gate.
+// A false return means the session does not attach; whether a line was
+// printed depends on which gate said no (no file at all says nothing).
+func (r *run) resolveTeam(opts config.Options, in input) (*teamfile.File, string, bool) {
+	path, found := teamfile.Discover(in.Cwd)
+	if !found {
+		r.log.Debug("no team file discovered; Brigade stays off")
+		return nil, "", false
+	}
+	tf, err := teamfile.Parse(path)
+	if err != nil {
+		r.fail("session-start: team file", err, teamFileLine(err))
+		return nil, "", false
+	}
+	canon, err := teamfile.Canonicalize(filepath.Dir(path))
+	if err != nil {
+		r.fail("session-start: canonicalize checkout", err, notConnected(protocol.CodeConfig))
+		return nil, "", false
+	}
+	pin, pinned, err := teamstore.LookupPin(opts.ConfigDir, canon)
+	if err != nil {
+		r.fail("session-start: pin store", err, notConnectedFor(err))
+		return nil, "", false
+	}
+	if !pinned {
+		r.log.Debug("no pin for this checkout", slog.String("canonical", canon))
+		r.say(notJoinedLine(tf.TeamName))
+		return nil, "", false
+	}
+	if !pin.Matches(tf) {
+		// The drift line deliberately echoes NOTHING from the file: the
+		// file in front of us is unconsented input until a human reviews
+		// the change in a terminal.
+		r.say(driftLine)
+		return nil, "", false
+	}
+	key := teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef)
+	binding, err := teamstore.LoadBinding(opts.ConfigDir, key)
+	if err != nil {
+		r.log.Debug("no binding for the pinned team", log.Err(err))
+		r.say(notJoinedLine(tf.TeamName))
+		return nil, "", false
+	}
+	if err := teamstore.VerifyBinding(binding, tf); err != nil {
+		r.fail("session-start: binding mismatch", err, notJoinedLine(tf.TeamName))
+		return nil, "", false
+	}
+	return tf, key, true
 }
 
 // frameInstruction resolves the frame's instruction paragraph (P5-12): the
@@ -407,7 +475,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		FrameLevel:       string(res.instruction.Level),
 		FrameText:        res.instruction.Custom,
 		SocketPath:       f.socket,
-		Profile:          res.opts.Profile,
+		TeamKey:          res.teamKey,
 		ConfigDir:        res.opts.ConfigDir,
 		AdapterCommand:   res.argv,
 		PluginBin:        f.pluginBin,

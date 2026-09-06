@@ -355,7 +355,7 @@ func (fx *fixture) writeMapWith(edit func(*sessionmap.ByPID)) {
 		Inbound:          fx.inbound,
 		FrameLevel:       string(frame.DefaultLevel),
 		SocketPath:       socket,
-		Profile:          "default",
+		TeamKey:          "default",
 		ConfigDir:        fx.dirs.BrigadeConfig,
 		AdapterCommand:   fx.adapterArgv,
 		HarnessVersion:   "test",

@@ -262,7 +262,7 @@ func (inv Invocation) sessionTarget() (*target, error) {
 	t := &target{
 		inSession: true,
 		session:   m,
-		profile:   m.Profile,
+		profile:   m.TeamKey,
 		configDir: m.ConfigDir,
 		stateDir:  stateDir,
 		adapter:   adapter,
@@ -316,15 +316,15 @@ func (inv Invocation) terminalTarget(profileFlag string, passThrough bool) (*tar
 			t.session = m
 			t.configDir = m.ConfigDir
 			if profileFlag == "" {
-				t.profile = m.Profile
+				t.profile = m.TeamKey
 			}
 		}
 	}
 	if err := adapterkit.CheckProfileName(t.profile); err != nil {
 		return nil, err
 	}
-	def, derr := config.ResolveAdapter(config.Options{}, t.configDir, t.profile)
-	if t.session != nil && t.session.Profile == t.profile {
+	def, derr := config.ResolveAdapter(config.Options{}, t.configDir, bindingAdapterName(t.configDir, t.profile))
+	if t.session != nil && t.session.TeamKey == t.profile {
 		// The session's own profile: the command runs on the adapter the
 		// session actually uses (the map's resolved command, override
 		// included); the D36 default is kept for `profile status` and its

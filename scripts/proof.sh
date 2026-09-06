@@ -275,8 +275,8 @@ cleanup() {
   set +e
   # A rebind left mid-flight would leave carol pointing at a foreign team.
   if [ "$rebind_active" = yes ] && [ -f "$carol_profile_backup" ]; then
-    cp "$carol_profile_backup" "$cfg/teams/carol/team.json"
-    chmod 600 "$cfg/teams/carol/team.json"
+    cp "$carol_profile_backup" "$cfg/teams/$key_other/team.json"
+    chmod 600 "$cfg/teams/$key_other/team.json"
     say "teardown: carol's profile restored"
   fi
   kill_wait "$probe_pid" "carol's message watch probe"
@@ -336,7 +336,7 @@ terminal() {
     HOME="$home" XDG_CONFIG_HOME="$xdg_config" XDG_STATE_HOME="$xdg_state" \
     XDG_CACHE_HOME="$xdg_cache" XDG_DATA_HOME="$xdg_data" \
     CLAUDE_CONFIG_DIR="$claude_cfg" \
-    "$var_config_dir=$cfg" "$var_state_dir=$state" BRIGADE_LOG_LEVEL=debug \
+    "$var_config_dir=${terminal_cfg:-$cfg}" "$var_state_dir=$state" BRIGADE_LOG_LEVEL=debug \
     "$@"
 }
 
@@ -353,7 +353,7 @@ session() {
     CLAUDE_CONFIG_DIR="$claude_cfg" \
     CLAUDE_PID="$_spid" CLAUDE_CODE_SESSION_ID="$_snative" \
     CLAUDECODE=1 CLAUDE_CODE_ENTRYPOINT=cli \
-    CLAUDE_PLUGIN_OPTION_PROFILE="$_sprofile" CLAUDE_PLUGIN_OPTION_TEAM_INBOUND="$_sinbound" \
+    CLAUDE_PLUGIN_OPTION_CONFIG_DIR="$(persona_cfg "$_sprofile")" CLAUDE_PLUGIN_OPTION_TEAM_INBOUND="$_sinbound" \
     "$@"
 }
 
@@ -373,8 +373,8 @@ watcher_env() {
       HOME="$home" XDG_CONFIG_HOME="$xdg_config" XDG_STATE_HOME="$xdg_state" \
       XDG_CACHE_HOME="$xdg_cache" XDG_DATA_HOME="$xdg_data" \
       CLAUDE_CONFIG_DIR="$claude_cfg" \
-      "$var_claude_pid=$_wpid" "$var_profile=$_wprofile" \
-      "$var_config_dir=$cfg" "$var_state_dir=$state" \
+      "$var_claude_pid=$_wpid" "$var_profile=$(persona_key "$_wprofile")" \
+      "$var_config_dir=$(persona_cfg "$_wprofile")" "$var_state_dir=$state" \
       "$var_adapter_command=[]" "$var_team_inbound=$_winbound" \
       BRIGADE_LOG_LEVEL=debug \
       "$@"
@@ -383,20 +383,36 @@ watcher_env() {
     HOME="$home" XDG_CONFIG_HOME="$xdg_config" XDG_STATE_HOME="$xdg_state" \
     XDG_CACHE_HOME="$xdg_cache" XDG_DATA_HOME="$xdg_data" \
     CLAUDE_CONFIG_DIR="$claude_cfg" \
-    "$var_claude_pid=$_wpid" "$var_profile=$_wprofile" \
-    "$var_config_dir=$cfg" "$var_state_dir=$state" \
+    "$var_claude_pid=$_wpid" "$var_profile=$(persona_key "$_wprofile")" \
+    "$var_config_dir=$(persona_cfg "$_wprofile")" "$var_state_dir=$state" \
     "$var_adapter_command=[]" "$var_team_inbound=$_winbound" \
     BRIGADE_LOG_LEVEL=debug \
     "$@"
 }
 
-# ad <profile> <capture name> <args...>: one adapter call, stdout to $cap/<name>.json, stderr to $cap/<name>.err,
+# persona_key/persona_cfg: after phase 0.5 moves the stores to the derived team keys (P7-6: the project owns the
+# team), every persona name maps to its team KEY and its own config dir (bob has his own store -- two personas of
+# one team cannot share a key-named credential dir). Before the keys exist the names pass through untouched.
+persona_key() {
+  case $1 in
+    alice|bob) if [ -n "${key_ops:-}" ]; then printf '%s' "$key_ops"; else printf '%s' "$1"; fi ;;
+    carol)     if [ -n "${key_other:-}" ]; then printf '%s' "$key_other"; else printf '%s' "$1"; fi ;;
+    *)         printf '%s' "$1" ;;
+  esac
+}
+persona_cfg() {
+  if [ "$1" = bob ] && [ -n "${cfg_bob:-}" ]; then printf '%s' "$cfg_bob"; else printf '%s' "$cfg"; fi
+}
+
+# ad <persona> <capture name> <args...>: one adapter call, stdout to $cap/<name>.json, stderr to $cap/<name>.err,
 # exit status in $rc. stdin is the caller's, so `jq ... | ad alice x message send` works.
 ad() {
   _ap=$1; _an=$2; shift 2
   rc=0
-  terminal "$brigade" adapter supabase --profile "$_ap" "$@" \
+  terminal_cfg=$(persona_cfg "$_ap")
+  terminal "$brigade" adapter supabase --profile "$(persona_key "$_ap")" "$@" \
     >"$cap/$_an.json" 2>"$cap/$_an.err" || rc=$?
+  unset terminal_cfg
 }
 
 # send_bulk <profile> <sender> <recipient> <body> <key> <outfile>: one raw `message send`, exit status in $rc.
@@ -404,7 +420,7 @@ send_bulk() {
   rc=0
   jq -cn --arg s "$2" --arg r "$3" --arg b "$4" --arg k "$5" \
     '{sender_session_id:$s,recipient_session_id:$r,body:$b,idempotency_key:$k}' \
-    | terminal "$brigade" adapter supabase --profile "$1" message send >"$6" 2>"$6.err" || rc=$?
+    | terminal_cfg=$(persona_cfg "$1") terminal "$brigade" adapter supabase --profile "$(persona_key "$1")" message send >"$6" 2>"$6.err" || rc=$?
 }
 
 # send_reply <profile> <sender> <recipient> <body> <key> <reply_to> <outfile>
@@ -412,21 +428,21 @@ send_reply() {
   rc=0
   jq -cn --arg s "$2" --arg r "$3" --arg b "$4" --arg k "$5" --arg t "$6" \
     '{sender_session_id:$s,recipient_session_id:$r,body:$b,idempotency_key:$k,reply_to:$t}' \
-    | terminal "$brigade" adapter supabase --profile "$1" message send >"$7" 2>"$7.err" || rc=$?
+    | terminal_cfg=$(persona_cfg "$1") terminal "$brigade" adapter supabase --profile "$(persona_key "$1")" message send >"$7" 2>"$7.err" || rc=$?
 }
 
 # ack_one <profile> <session> <message id> <outfile>
 ack_one() {
   rc=0
   jq -cn --arg m "$3" '{message_ids:[$m]}' \
-    | terminal "$brigade" adapter supabase --profile "$1" message ack --session "$2" >"$4" 2>"$4.err" || rc=$?
+    | terminal_cfg=$(persona_cfg "$1") terminal "$brigade" adapter supabase --profile "$(persona_key "$1")" message ack --session "$2" >"$4" 2>"$4.err" || rc=$?
 }
 
 # register <profile> <session name> <capture name>: prints the session id
 register() {
   jq -cn --arg n "$2" \
     '{harness:"claude-code",harness_version:"proof",session_name:$n,activity:"idle",inbound:"accept",lease_seconds:600}' \
-    | terminal "$brigade" adapter supabase --profile "$1" session register \
+    | terminal_cfg=$(persona_cfg "$1") terminal "$brigade" adapter supabase --profile "$(persona_key "$1")" session register \
       >"$cap/$3.json" 2>"$cap/$3.err" || die "session register ($1/$2) failed: see $cap/$3.err"
   jq -r '.result.session_id' "$cap/$3.json"
 }
@@ -490,7 +506,7 @@ no_proc()      { ! pgrep -f "$1" >/dev/null 2>&1; }
 # length` is 0), so the predicate must first require a success envelope with a real array: otherwise any
 # refusal -- not_found, unauthorized, config -- reads as "the inbox is drained".
 inbox_empty()  {
-  terminal "$brigade" adapter supabase --profile "$1" message receive --session "$2" </dev/null 2>/dev/null \
+  terminal_cfg=$(persona_cfg "$1") terminal "$brigade" adapter supabase --profile "$(persona_key "$1")" message receive --session "$2" </dev/null 2>/dev/null \
     | jq -e '.ok == true and (.result.messages | type) == "array" and (.result.messages | length) == 0' >/dev/null
 }
 
@@ -579,6 +595,31 @@ eq "phase 0: carol creates team $team_other" 0 "$rc"
 other_ref=$(jq -r '.result.team_ref' "$cap/team-create-other.json")
 carol_p=$(jq -r '.result.principal_ref' "$cap/team-create-other.json")
 
+# --- phase 0.5: the project owns the team (P7-6) -----------------------------------------------------------------
+# The stores move from persona names to the derived team keys, bob gets his own config dir (two personas of one
+# team cannot share a key-named credential dir), the sessions' cwd becomes a checkout carrying .brigade.json, and
+# each store gets the per-checkout pin a human's `team join` would have written.
+# Key = sha256(adapter \n url \n team_ref), first 32 hex -- the same derivation internal/harness/teamstore pins.
+key_ops=$(printf 'supabase\n%s\n%s' "$supabase_url" "$ops_ref" | shasum -a 256 | cut -c1-32)
+key_other=$(printf 'supabase\n%s\n%s' "$supabase_url" "$other_ref" | shasum -a 256 | cut -c1-32)
+cfg_bob=$root/cfg-bob
+mkdir -p "$cfg_bob/teams"
+chmod 700 "$cfg_bob" "$cfg_bob/teams"
+mv "$cfg/teams/bob" "$cfg_bob/teams/$key_ops"
+mv "$cfg/teams/alice" "$cfg/teams/$key_ops"
+mv "$cfg/teams/carol" "$cfg/teams/$key_other"
+mkdir "$cwd_dir/.git"
+jq -cn --arg u "$supabase_url" --arg k "$supabase_key" --arg r "$ops_ref" --arg t "$team_ops" \
+  '{version:1,adapter:"supabase",url:$u,publishable_key:$k,team_ref:$r,team_name:$t}' > "$cwd_dir/.brigade.json"
+canon_cwd=$(cd "$cwd_dir" && pwd -P)
+for _pcfg in "$cfg" "$cfg_bob"; do
+  jq -cn --arg d "$canon_cwd" --arg u "$supabase_url" --arg k "$supabase_key" --arg r "$ops_ref" \
+    '{version:1,projects:{($d):{adapter:"supabase",url:$u,publishable_key:$k,team_ref:$r,consented_at:"2026-09-06T00:00:00Z"}}}' \
+    > "$_pcfg/projects.json"
+  chmod 600 "$_pcfg/projects.json"
+done
+say "phase 0.5: stores keyed ops=$key_ops other=$key_other; checkout pinned at $canon_cwd"
+
 rm -f "$secret_ops" "$secret_other"
 if [ -e "$secret_ops" ] || [ -e "$secret_other" ]; then
   bad "phase 0: a join-secret file survived the joins"
@@ -610,7 +651,7 @@ map_b0=$state/sessions/by-pid/$s_bob.json
 [ -f "$map_b0" ] || die "the hook wrote no by-pid map for B0 at $map_b0 (stderr: $(cat "$cap/b0-start.err"))"
 b0=$(jq -r '.brigade_session_id' "$map_b0")
 eq "phase 0: B0's by-pid map is 0600" 600 "$(file_mode "$map_b0")"
-eq "phase 0: B0's map names profile bob" bob "$(jq -r '.profile' "$map_b0")"
+eq "phase 0: B0's map carries the ops team key" "$key_ops" "$(jq -r '.team_key' "$map_b0")"
 eq "phase 0: B0's map policy is accept" accept "$(jq -r '.inbound' "$map_b0")"
 eq "phase 0: B0's map names team $team_ops" "$team_ops" "$(jq -r '.team_name' "$map_b0")"
 eq "phase 0: B0's session is named $name_billing" "$name_billing" "$(jq -r '.session_name' "$map_b0")"
@@ -1058,17 +1099,17 @@ ctl_uuid=$(rand_uuid)
 ad carol p4-carol-ctl-notfound message receive --session "$ctl_uuid" </dev/null
 eq "C-43 control: carol's receive of a random uuid is not_found" "$exit_not_found" "$rc"
 
-cp "$cfg/teams/carol/team.json" "$carol_profile_backup"
+cp "$cfg/teams/$key_other/team.json" "$carol_profile_backup"
 chmod 600 "$carol_profile_backup"
 rebind_active=yes
 rebind_carol() {  # rebind_carol <team_ref>
   jq --arg t "$1" '.team_ref=$t' "$carol_profile_backup" > "$scratch/rebind.tmp"
   chmod 600 "$scratch/rebind.tmp"
-  mv "$scratch/rebind.tmp" "$cfg/teams/carol/team.json"
+  mv "$scratch/rebind.tmp" "$cfg/teams/$key_other/team.json"
 }
 restore_carol() {
-  cp "$carol_profile_backup" "$cfg/teams/carol/team.json"
-  chmod 600 "$cfg/teams/carol/team.json"
+  cp "$carol_profile_backup" "$cfg/teams/$key_other/team.json"
+  chmod 600 "$cfg/teams/$key_other/team.json"
 }
 rebind_n=0
 rebind_members_rcs=''
@@ -1083,7 +1124,7 @@ for target in "$ops_ref" "team-$(rand_hex 8)" "$(rand_uuid)"; do
 done
 restore_carol
 rebind_active=no
-if cmp -s "$carol_profile_backup" "$cfg/teams/carol/team.json"; then
+if cmp -s "$carol_profile_backup" "$cfg/teams/$key_other/team.json"; then
   ok "C-43: carol's profile bytes are restored after the three rebinds (a real foreign team_ref, a non-uuid one, a random uuid)"
 else
   bad "C-43: carol's profile was NOT restored to the bytes the backup holds"
@@ -1151,7 +1192,7 @@ fi
 
 watch_probe() {  # watch_probe <session id> <capture name>
   rc=0
-  terminal "$brigade" adapter supabase --profile carol message watch --session "$1" </dev/null \
+  terminal "$brigade" adapter supabase --profile "$key_other" message watch --session "$1" </dev/null \
     >"$cap/$2.out" 2>"$cap/$2.err" &
   probe_pid=$!
   if wait_for "$budget_gone" "carol's \`message watch\` probe to exit" gone "$probe_pid"; then
@@ -1249,8 +1290,10 @@ all_ids=$(printf '%s %s' "$pair_ids" "$a7_id")
 # shellcheck disable=SC2086  # $all_ids is a whitespace-separated list of uuids
 jq -cn '$ARGS.positional | {message_ids: .}' --args $all_ids > "$cap/p5-ack.req"
 rc=0
-terminal "$brigade" adapter supabase --profile bob message ack --session "$b1" \
+terminal_cfg=$cfg_bob
+terminal "$brigade" adapter supabase --profile "$key_ops" message ack --session "$b1" \
   < "$cap/p5-ack.req" >"$cap/p5-ack.json" 2>"$cap/p5-ack.err" || rc=$?
+unset terminal_cfg
 eq "phase 5: bob acknowledges B1's inbox" 0 "$rc"
 eq "phase 5: all 16 accepted ids are acknowledged" 16 \
   "$(jq -r '.result.acked | length' "$cap/p5-ack.json" 2>/dev/null || echo '?')"
@@ -1521,8 +1564,7 @@ fi
 umask 077
 : > "$patfile"
 chmod 600 "$patfile"
-for p in alice bob carol; do
-  sf=$cfg/teams/$p/session.json
+for sf in "$cfg/teams/$key_ops/session.json" "$cfg_bob/teams/$key_ops/session.json" "$cfg/teams/$key_other/session.json"; do
   if [ -f "$sf" ]; then
     jq -r '.refresh_token // empty' "$sf" >> "$patfile" 2>/dev/null || true
     jq -r '.access_token // empty' "$sf" >> "$patfile" 2>/dev/null || true
@@ -1596,7 +1638,7 @@ fi
 
 # 5. `--join-secret` on argv is refused (C-05, U-08). Run AFTER scan 1: the planted value is itself secret-shaped.
 rc=0
-terminal "$brigade" adapter supabase --profile alice session list --join-secret "${join_secret_prefix}x.NOTREAL" \
+terminal "$brigade" adapter supabase --profile "$key_ops" session list --join-secret "${join_secret_prefix}x.NOTREAL" \
   >"$cap/poison.out" 2>"$cap/poison.err" || rc=$?
 eq "C-05 / U-08: --join-secret on argv is refused usage" "$exit_usage" "$rc"
 if grep -q 'NOTREAL' "$cap/poison.out" "$cap/poison.err"; then

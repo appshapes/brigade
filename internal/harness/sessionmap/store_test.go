@@ -336,15 +336,15 @@ func TestStoreReadByPIDMalformedAndInvalid(t *testing.T) {
 		{name: "empty file", content: "", reason: sessionmap.ReasonMapMalformed, check: "not_json"},
 		{name: "duplicate member", content: `{"claude_pid":4242,"claude_pid":4242}`, reason: sessionmap.ReasonMapMalformed, check: "not_json"},
 		{name: "empty object fails validation", content: "{}", reason: sessionmap.ReasonMapInvalid, field: "claude_pid"},
-		{name: "relative adapter in a planted map", content: `{"claude_pid":4242,"brigade_session_id":"x","profile":"default","config_dir":"/c","inbound":"accept","adapter_command":["bin/` + evilMarker + `"]}`, reason: sessionmap.ReasonMapInvalid, field: "adapter_command"},
+		{name: "relative adapter in a planted map", content: `{"claude_pid":4242,"brigade_session_id":"x","team_key":"default","config_dir":"/c","inbound":"accept","adapter_command":["bin/` + evilMarker + `"]}`, reason: sessionmap.ReasonMapInvalid, field: "adapter_command"},
 		{name: "too large", content: "{" + strings.Repeat(" ", sessionmap.MaxMapBytes) + "}", reason: sessionmap.ReasonMapMalformed, check: "too_large"},
 		// P5-12: a hand-written frame_text of 64 KiB pushes the file past MaxMapBytes and the reader's size
 		// guard refuses it before any JSON is parsed; one of 60 KiB fits under the file cap and is refused by
 		// Validate instead (frame_text over frame.MaxCustomBytes) — two layers, both closed.
-		{name: "a 64 KiB frame_text is refused by the reader's size guard", content: `{"claude_pid":4242,"brigade_session_id":"x","profile":"default","config_dir":"/c","inbound":"accept","frame_level":"custom","frame_text":"` + strings.Repeat("x", 64<<10) + ` ","adapter_command":[]}`, reason: sessionmap.ReasonMapMalformed, check: "too_large"},
-		{name: "a 60 KiB frame_text fits the file cap and is refused by Validate", content: `{"claude_pid":4242,"brigade_session_id":"x","profile":"default","config_dir":"/c","inbound":"accept","frame_level":"custom","frame_text":"` + strings.Repeat("x", 60<<10) + ` ","adapter_command":[]}`, reason: sessionmap.ReasonMapInvalid, field: "frame_text"},
-		{name: "a planted frame level outside the set", content: `{"claude_pid":4242,"brigade_session_id":"x","profile":"default","config_dir":"/c","inbound":"accept","frame_level":"` + evilMarker + `","adapter_command":[]}`, reason: sessionmap.ReasonMapInvalid, field: "frame_level"},
-		{name: "a planted map from before P5-12 (no frame_level)", content: `{"claude_pid":4242,"brigade_session_id":"x","profile":"default","config_dir":"/c","inbound":"accept","adapter_command":[]}`, reason: sessionmap.ReasonMapInvalid, field: "frame_level"},
+		{name: "a 64 KiB frame_text is refused by the reader's size guard", content: `{"claude_pid":4242,"brigade_session_id":"x","team_key":"default","config_dir":"/c","inbound":"accept","frame_level":"custom","frame_text":"` + strings.Repeat("x", 64<<10) + ` ","adapter_command":[]}`, reason: sessionmap.ReasonMapMalformed, check: "too_large"},
+		{name: "a 60 KiB frame_text fits the file cap and is refused by Validate", content: `{"claude_pid":4242,"brigade_session_id":"x","team_key":"default","config_dir":"/c","inbound":"accept","frame_level":"custom","frame_text":"` + strings.Repeat("x", 60<<10) + ` ","adapter_command":[]}`, reason: sessionmap.ReasonMapInvalid, field: "frame_text"},
+		{name: "a planted frame level outside the set", content: `{"claude_pid":4242,"brigade_session_id":"x","team_key":"default","config_dir":"/c","inbound":"accept","frame_level":"` + evilMarker + `","adapter_command":[]}`, reason: sessionmap.ReasonMapInvalid, field: "frame_level"},
+		{name: "a planted map from before P5-12 (no frame_level)", content: `{"claude_pid":4242,"brigade_session_id":"x","team_key":"default","config_dir":"/c","inbound":"accept","adapter_command":[]}`, reason: sessionmap.ReasonMapInvalid, field: "frame_level"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -368,7 +368,7 @@ func TestStoreReadByPIDAtTheSizeCapIsAccepted(t *testing.T) {
 	// The positive control for the too_large row: a map padded to exactly
 	// MaxMapBytes still reads.
 	s := newStore(t)
-	body := `{"claude_pid":4242,"brigade_session_id":"x","profile":"default","config_dir":"/c","inbound":"accept","frame_level":"open","adapter_command":[]}`
+	body := `{"claude_pid":4242,"brigade_session_id":"x","team_key":"default","config_dir":"/c","inbound":"accept","frame_level":"open","adapter_command":[]}`
 	content := body + strings.Repeat(" ", sessionmap.MaxMapBytes-len(body))
 	if len(content) != sessionmap.MaxMapBytes {
 		t.Fatalf("padding arithmetic: %d", len(content))

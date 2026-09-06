@@ -73,7 +73,7 @@ func (r *run) sessionEnd() int {
 		r.log.Warn("session-end: the map's adapter command is unusable; no close", log.Err(aerr))
 		return 0
 	}
-	client := r.client(adapter, m.Profile, m.ConfigDir, f.stateDir)
+	client := r.client(adapter, m.TeamKey, m.ConfigDir, f.stateDir)
 	cctx, ccancel := context.WithTimeout(ctx, adapterclient.CloseTimeout)
 	defer ccancel()
 	if _, err := client.Close(cctx, m.BrigadeSessionID); err != nil {

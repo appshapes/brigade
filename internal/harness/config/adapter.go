@@ -176,53 +176,21 @@ func CheckAdapterName(name string) error {
 	return nil
 }
 
-// ResolveAdapter applies D36, first match wins: (1) opts.AdapterCommand,
-// the per-session override; (2) the sidecar ${configDir}/teams/
-// <profile>/adapter (one line, written by `profile init --adapter`, read
-// through ReadStrict); (3) the profile file's top-level `adapter` member,
-// best effort — a missing or unreadable profile or an empty member is not
-// an error at this step; (4) the bundled adapter. Steps (1)–(3) each
-// accept three forms — an absolute path, a JSON array of strings whose
-// first element is an absolute path, or a registered name (the name
-// supabase is implicit and means the bundled adapter) — and once a step
-// yields a value that value must resolve: a relative path, an empty array,
-// a name with no adapters.json entry or anything else is `config` with
-// details.reason adapter_relative, adapter_unregistered or
-// adapter_malformed and details.source naming the step. A bare path
-// containing whitespace is adapter_malformed too: it is almost always a
-// command line, which no shell will ever split here (4.1), and a path with
-// spaces is expressed with the array form. The harness never falls
-// through past a value it could not honour (D36: "never guesses"). No
-// message echoes the value.
-//
-// Only opts.AdapterCommand is read from opts; configDir and profile are
-// passed explicitly so a caller can resolve for a profile other than the
-// options' own.
-func ResolveAdapter(opts Options, configDir, profile string) (Adapter, error) {
+// ResolveAdapter resolves the adapter for a team (P7-6): (1) the
+// adapter_command option — a per-session override, never sourced from
+// any repository file; (2) the adapter NAME the team's binding or the
+// project's team file carries, resolved strictly user-side through
+// adapters.json; (3) the bundled adapter, which the name "supabase" (or
+// no name at all) means. The old sidecar and profile-member read steps
+// are gone: nothing on disk beside the binding names an adapter any
+// more, and the binding names a dialect, never a command.
+func ResolveAdapter(opts Options, configDir, adapterName string) (Adapter, error) {
 	if opts.AdapterCommand != "" {
 		return parseSpec(opts.AdapterCommand, configDir, SourceOption)
 	}
-
-	sidecar, err := SidecarPath(configDir, profile)
-	if err != nil {
-		return Adapter{}, err
+	if adapterName != "" && adapterName != BundledAdapterName {
+		return parseSpec(adapterName, configDir, SourceProfile)
 	}
-	data, err := adapterkit.ReadStrict(sidecar)
-	var perr *protocol.Error
-	switch {
-	case err == nil:
-		return parseSpec(string(data), configDir, SourceSidecar)
-	case errors.Is(err, fs.ErrNotExist):
-	case errors.As(err, &perr):
-		return Adapter{}, perr
-	default:
-		return Adapter{}, errAdapter(ReasonSidecarUnreadable, SourceSidecar, "the profile's adapter sidecar could not be read")
-	}
-
-	if p, err := adapterkit.LoadProfile(configDir, profile); err == nil && p.Adapter != "" {
-		return parseSpec(p.Adapter, configDir, SourceProfile)
-	}
-
 	return Adapter{Bundled: true, Source: SourceBundled}, nil
 }
 
@@ -347,7 +315,7 @@ func decodeArgv(data []byte) ([]string, error) {
 // The fixed messages of adapter resolution failures.
 const (
 	msgRelative          = "the adapter command must be an absolute path, or a JSON array whose first element is one; a relative path is refused because it would resolve against whatever the working directory happens to be"
-	msgUnregistered      = "the adapter name is not registered in adapters.json; register it with `brigade profile init --adapter <name>` or give an absolute path"
+	msgUnregistered      = "the adapter name is not registered in adapters.json; add an entry there mapping the name to the adapter's absolute path or argv"
 	msgMalformed         = "the adapter command is not an absolute path, a JSON array of strings, or a registered name"
 	msgCommandLine       = "the adapter command reads as a command line; there is no shell here (4.1), so give fixed arguments as a JSON array such as [\"/abs/adapter\", \"--flag\"] — a path that itself contains spaces must use the array form too"
 	msgMalformedResolved = "the resolved adapter command must be a JSON array of strings starting with an absolute path, or an absolute path"

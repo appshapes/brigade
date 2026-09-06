@@ -84,8 +84,9 @@ func TestWriteDefaultAdapterForms(t *testing.T) {
 		if got := readSidecar(t, dir, "p"); got != "fs" {
 			t.Errorf("sidecar = %q", got)
 		}
-		// The next SessionStart resolves the same thing through D36.
-		r, err := config.ResolveAdapter(config.Options{}, dir, "p")
+		// The binding's NAME resolves the same thing through the registry
+		// (P7-6: the chain reads names, not profiles).
+		r, err := config.ResolveAdapter(config.Options{}, dir, "fs")
 		if err != nil || !slices.Equal(r.Argv, a.Argv) {
 			t.Errorf("ResolveAdapter after registration = %+v %v", r, err)
 		}
@@ -184,9 +185,9 @@ func TestProfileInitWithAdapterSpawnsThatAdapter(t *testing.T) {
 	if invs[0].Env["BRIGADE_PROFILE"] != "newp" {
 		t.Errorf("BRIGADE_PROFILE = %q", invs[0].Env["BRIGADE_PROFILE"])
 	}
-	r, err := config.ResolveAdapter(config.Options{}, f.dirs.BrigadeConfig, "newp")
-	if err != nil || r.Source != config.SourceSidecar || r.Argv[0] != fakeAdapterBin {
-		t.Errorf("the profile does not resolve to the registered adapter: %+v %v", r, err)
+	r, err := config.ResolveAdapter(config.Options{}, f.dirs.BrigadeConfig, "fake")
+	if err != nil || r.Source != config.SourceProfile || r.Argv[0] != fakeAdapterBin {
+		t.Errorf("the registered name does not resolve to the adapter: %+v %v", r, err)
 	}
 	if !strings.Contains(f.out.String(), `"name":"newp"`) {
 		t.Errorf("stdout = %q", f.out.String())
@@ -206,7 +207,9 @@ func TestProfileStatusLine(t *testing.T) {
 			t.Fatalf("profile status: %v", err)
 		}
 		lines := strings.SplitN(f.out.String(), "\n", 2)
-		want := `profile bob: default adapter ["` + fakeAdapterBin + `","--script","` + filepath.Join(f.dirs.Root, "script.json") + `"] (from sidecar)`
+		// P7-6: the default comes from the binding's NAME through the
+		// registry, and the line names the dialect, never the command.
+		want := `profile bob: default adapter fake (from profile)`
 		if lines[0] != want {
 			t.Errorf("line:\n got %q\nwant %q", lines[0], want)
 		}
@@ -229,7 +232,7 @@ func TestProfileStatusLine(t *testing.T) {
 		if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, "viaprofile", &adapterkit.Profile{Version: 1, Adapter: "fs"}); err != nil {
 			t.Fatal(err)
 		}
-		a, err := config.ResolveAdapter(config.Options{}, f.dirs.BrigadeConfig, "viaprofile")
+		a, err := config.ResolveAdapter(config.Options{}, f.dirs.BrigadeConfig, "fs")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -240,7 +243,7 @@ func TestProfileStatusLine(t *testing.T) {
 		// In a session whose map resolved a DIFFERENT command for the same
 		// profile, the session runs on that command and the line says so.
 		m := f.byPID()
-		m.Profile = "viaprofile"
+		m.TeamKey = "viaprofile"
 		tg.session = m
 		tg.adapter = config.Adapter{Argv: []string{f.adapterPath, "--override"}, Source: config.SourceMap}
 		want := `profile viaprofile: default adapter fs (from profile); this session overrides it with ["` + f.adapterPath + `","--override"]`
@@ -253,7 +256,7 @@ func TestProfileStatusLine(t *testing.T) {
 			t.Errorf("an identical command was reported as an override: %q", got)
 		}
 		// Another profile's map is not consulted.
-		m.Profile = "other"
+		m.TeamKey = "other"
 		tg.adapter = config.Adapter{Argv: []string{"/elsewhere"}, Source: config.SourceMap}
 		if got := statusLine(tg); strings.Contains(got, "overrides") {
 			t.Errorf("another profile's map was reported as an override: %q", got)
@@ -262,7 +265,7 @@ func TestProfileStatusLine(t *testing.T) {
 		tg = &target{profile: "viaprofile", configDir: f.dirs.BrigadeConfig, session: f.byPID(),
 			adapter:    config.Adapter{Argv: []string{f.adapterPath}, Source: config.SourceMap},
 			defaultErr: &protocol.Error{Code: protocol.CodeConfig, Details: map[string]string{"reason": config.ReasonAdapterUnregistered}}}
-		tg.session.Profile = "viaprofile"
+		tg.session.TeamKey = "viaprofile"
 		want = `profile viaprofile: default adapter unresolvable (config: adapter_unregistered); this session overrides it with ["` + f.adapterPath + `"]`
 		if got := statusLine(tg); got != want {
 			t.Errorf("unresolvable line:\n got %q\nwant %q", got, want)

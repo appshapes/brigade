@@ -54,6 +54,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/registry"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -454,10 +455,11 @@ func notConnectedFor(err error) string {
 	return notConnected(code)
 }
 
-// adapterLine is the D36 context line for an adapter that could not be
-// resolved, naming the source (option, sidecar, profile) and never the
-// value.
-func adapterLine(profile string, err error) string {
+// adapterLine is the context line for an adapter name that could not be
+// resolved (P7-6): the name comes from the project's team file, the
+// resolution is strictly user-side (adapters.json), and the remedy is
+// the terminal. The name is a validated dialect name, safe to echo.
+func adapterLine(name string, err error) string {
 	source := ""
 	var perr *protocol.Error
 	if errors.As(err, &perr) {
@@ -466,8 +468,39 @@ func adapterLine(profile string, err error) string {
 	if source == "" {
 		source = "its configuration"
 	}
-	return "Brigade: not connected (config): the adapter for profile \"" + attr(profile) +
-		"\" could not be resolved from " + attr(source) + "; run `brigade profile status` in a terminal"
+	return "Brigade: not connected (config): the team's adapter \"" + attr(name) +
+		"\" could not be resolved from " + attr(source) + "; run `brigade team status` in a terminal"
+}
+
+// notJoinedLine is the one line a valid team file earns before a human
+// has consented in this checkout (brief §4): the sanitized team name is
+// the ONLY repo-sourced string that ever reaches the model, and only
+// here.
+func notJoinedLine(teamName string) string {
+	return "Brigade: not joined: this project uses team \"" + attr(teamName) + "\" — run `brigade team join` in your own terminal."
+}
+
+// driftLine is the swap refusal (brief §5): the committed file no longer
+// matches what the human consented to, the session attaches to NEITHER
+// team, and not one byte of the drifted file is echoed.
+const driftLine = "Brigade: not connected: .brigade.json does not match the team you joined here — run `brigade team join` in your own terminal to review the change."
+
+// teamFileLine renders a team-file refusal: one fixed line per token of
+// the parser's closed list, with the two secret findings taking their
+// own urgent forms (the remedies differ: rotate the JOIN secret for a
+// committed brg1 shape, rotate the SUPABASE key in the dashboard for an
+// sb_secret_ publishable_key).
+func teamFileLine(err error) string {
+	_, reason := codeOf(err)
+	switch reason {
+	case teamfile.ReasonSecretShaped:
+		return "Brigade: not connected: .brigade.json contains what looks like a join secret — remove it and rotate now (brigade team rotate-secret)."
+	case teamfile.ReasonSecretKey:
+		return "Brigade: not connected: .brigade.json's publishable_key looks like a Supabase secret key — remove it and rotate that key in the Supabase dashboard."
+	case "":
+		reason = "unreadable"
+	}
+	return "Brigade: not connected (config: team_file_" + attr(reason) + "): fix .brigade.json."
 }
 
 // optionsLine is the context line for an option ParseOptions refused. A

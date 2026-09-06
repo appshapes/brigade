@@ -191,7 +191,7 @@ func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
 		r.log.Warn("prompt: the map's adapter command is unusable; no poll", log.Err(err))
 		return
 	}
-	client := r.client(adapter, m.Profile, m.ConfigDir, f.stateDir)
+	client := r.client(adapter, m.TeamKey, m.ConfigDir, f.stateDir)
 	rctx, rcancel := context.WithTimeout(ctx, receiveTimeout)
 	received, err := client.Receive(rctx, m.BrigadeSessionID, pollLimit)
 	rcancel()

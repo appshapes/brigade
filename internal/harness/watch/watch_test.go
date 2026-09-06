@@ -212,7 +212,7 @@ func TestMapIsTheTrustBoundary(t *testing.T) {
 		t.Parallel()
 		fx := newFixture(t, fixtureOptions{sink: true})
 		fx.useFake(fakeadapter.Script{})
-		fx.writeMapWith(func(m *sessionmap.ByPID) { m.Profile = "other" })
+		fx.writeMapWith(func(m *sessionmap.ByPID) { m.TeamKey = "other" })
 		code, _, _ := runOnce(t, fx.environ(), fx.args(), fx.deps())
 		if code != 11 {
 			t.Fatalf("exit %d, want 11", code)

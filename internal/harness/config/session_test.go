@@ -27,7 +27,7 @@ func sampleMap(pid int) sessionmap.ByPID {
 		Inbound:          protocol.InboundAccept,
 		FrameLevel:       "open",
 		SocketPath:       "/tmp/cc-socks/4242.sock",
-		Profile:          "work",
+		TeamKey:          "work",
 		ConfigDir:        "/home/u/.config/brigade",
 		AdapterCommand:   []string{"/opt/adapter-fs", "--root", "/srv/store"},
 		PluginBin:        "/plugin/bin/brigade",
@@ -83,7 +83,7 @@ func TestSessionPositiveControlResolvesEveryField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Session: %v", err)
 	}
-	if got.ClaudePID != 4242 || got.Profile != "work" || got.ConfigDir != want.ConfigDir || got.BrigadeSessionID != want.BrigadeSessionID ||
+	if got.ClaudePID != 4242 || got.TeamKey != "work" || got.ConfigDir != want.ConfigDir || got.BrigadeSessionID != want.BrigadeSessionID ||
 		got.TeamRef != want.TeamRef || got.TeamName != want.TeamName || got.SocketPath != want.SocketPath || got.Inbound != want.Inbound ||
 		!slices.Equal(got.AdapterCommand, want.AdapterCommand) || got.ClaudeSessionID != want.ClaudeSessionID || got.SessionName != want.SessionName ||
 		got.PluginBin != want.PluginBin || got.HarnessVersion != want.HarnessVersion || !got.RegisteredAt.Equal(want.RegisteredAt) {
@@ -198,7 +198,7 @@ func TestSessionIgnoresAHostileStateDirInsideASession(t *testing.T) {
 	d := newDirs(t)
 	evilState := filepath.Join(t.TempDir(), "evil-state")
 	planted := sampleMap(4242)
-	planted.Profile = "planted"
+	planted.TeamKey = "planted"
 	writeMap(t, evilState, planted)
 	genuine := sampleMap(4242)
 	writeMap(t, d.brigadeState(), genuine)
@@ -215,8 +215,8 @@ func TestSessionIgnoresAHostileStateDirInsideASession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Profile != "work" {
-		t.Fatalf("the planted map was read: profile %q", got.Profile)
+	if got.TeamKey != "work" {
+		t.Fatalf("the planted map was read: profile %q", got.TeamKey)
 	}
 
 	// Positive control: outside a session the same variable IS the state

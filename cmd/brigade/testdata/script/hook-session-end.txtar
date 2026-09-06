@@ -13,7 +13,6 @@ sleeper
 env CLAUDE_PID=$SLEEPER_PID
 env CLAUDE_CODE_SESSION_ID=native-1
 env CLAUDECODE=1
-env CLAUDE_PLUGIN_OPTION_PROFILE=alpha
 env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script.json"]'
 expand script.json.in script.json
 chmod 755 fake.sh
@@ -26,6 +25,27 @@ chmod 755 fake.sh
 # describe budget (4.1) below meets warm files. (The `brigade` copy is
 # warmed by its own first exec, which has no deadline.)
 exec $WORK/fake.sh --script warm.json describe
+
+# --- P7-6: the project owns the team; a real `team create` seeds the
+# checkout, binding and pin (see hook-session-start.txtar).
+mkdir $WORK/.brigade/xdg/config/brigade
+expand adapters.json.in adapters.json.expanded
+cp adapters.json.expanded $WORK/.brigade/xdg/config/brigade/adapters.json
+chmod 600 $WORK/.brigade/xdg/config/brigade/adapters.json
+expand script-create.json.in script-create.json
+mkdir repo/.git
+cd repo
+env BRIGADE_CONFIG_DIR=$WORK/.brigade/xdg/config/brigade
+env CLAUDE_PID=
+exec brigade team create --adapter fake --url http://127.0.0.1:1 --key placeholder --name ops --secret-file $WORK/join.secret
+env CLAUDE_PID=$SLEEPER_PID
+cd $WORK
+expand start.json.in start.json
+expand start2.json.in start2.json
+expand end-clear.json.in end-clear.json
+expand end-resume.json.in end-resume.json
+expand end-other.json.in end-other.json
+expand end-logout.json.in end-logout.json
 stdin start.json
 exec brigade hook session-start
 stdout '\(brigade-sess-1\)'
@@ -102,18 +122,18 @@ stderr 'session facts'
 # child's environment from scratch, so the variable is set here, not in
 # the script's environment.
 GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
--- start.json --
-{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
--- start2.json --
-{"session_id": "native-2", "cwd": "/work/project", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
--- end-clear.json --
-{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionEnd", "reason": "clear", "transcript_path": "/never/read.jsonl"}
--- end-resume.json --
-{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionEnd", "reason": "resume", "transcript_path": "/never/read.jsonl"}
--- end-other.json --
-{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionEnd", "reason": "other", "transcript_path": "/never/read.jsonl"}
--- end-logout.json --
-{"session_id": "native-1", "cwd": "/work/project", "hook_event_name": "SessionEnd", "reason": "logout", "transcript_path": "/never/read.jsonl"}
+-- start.json.in --
+{"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- start2.json.in --
+{"session_id": "native-2", "cwd": "$WORK/repo", "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api", "transcript_path": "/never/read.jsonl"}
+-- end-clear.json.in --
+{"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "SessionEnd", "reason": "clear", "transcript_path": "/never/read.jsonl"}
+-- end-resume.json.in --
+{"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "SessionEnd", "reason": "resume", "transcript_path": "/never/read.jsonl"}
+-- end-other.json.in --
+{"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "SessionEnd", "reason": "other", "transcript_path": "/never/read.jsonl"}
+-- end-logout.json.in --
+{"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "SessionEnd", "reason": "logout", "transcript_path": "/never/read.jsonl"}
 -- garbage.txt --
 not a JSON document
 -- script.json.in --
@@ -122,3 +142,7 @@ not a JSON document
 {"dump_file": "$WORK/dump2.ndjson", "describe": {"protocol_version":"1","adapter":{"name":"fake-adapter","version":"0.0.0-fake"},"delivery":{"guarantee":"at_least_once","ordering":"none","ack_state":"injected"},"capabilities":["team.create","team.join","team.roster","message.receive","message.watch.push","message.watch.stdin_commands","session.description","session.resume","session.workspace_label","session.inbound"],"limits":{"max_body_bytes":16384,"max_summary_chars":200,"max_session_name_codepoints":64,"max_team_name_codepoints":64,"max_description_chars":256,"max_human_label_chars":128,"max_workspace_label_chars":128,"max_idempotency_key_chars":128,"send_rate":{"per_minute":20,"per_hour":200},"principal_send_rate":{"per_minute":60,"per_hour":600},"max_unacked_per_recipient":60,"max_unacked_per_sender_recipient":15,"max_hop_count":32,"implicit_reply_window_seconds":600},"lease":{"default_seconds":90,"min_seconds":30,"max_seconds":600},"retention":{"unacked_message_seconds":604800,"acked_message_seconds":86400,"closed_session_seconds":604800},"profile":{"name":"alpha","state":"joined","team_ref":"team-1","team_name":"ops","principal_ref":"principal-self","human_label":"me@example.com"}}, "responses": {"session register": [{"result": {"session_id":"brigade-sess-2","session_name":"payments-api","principal_ref":"principal-self","human_label":"me@example.com","state":"active","activity":"busy","inbound":"accept","last_seen_at":"2026-09-02T12:00:00Z","lease_until":"2026-09-02T12:01:30Z","created_at":"2026-09-02T12:00:00Z","is_self":true,"resumed":false,"lease_seconds":90,"server_time":"2026-09-02T12:00:00Z"}}], "session close": [{"error": {"code": "unavailable", "message": "backend down", "retryable": true}}]}}
 -- warm.json --
 {}
+-- adapters.json.in --
+{"fake": ["$WORK/fake.sh", "--script", "$WORK/script-create.json"]}
+-- script-create.json.in --
+{"dump_file": "$WORK/dump-create.ndjson", "responses": {"profile init": [{"result": {"name":"tmp","state":"not_member"}}], "team create": [{"result": {"team_ref":"team-1","team_name":"ops","principal_ref":"principal-admin"}}]}}
