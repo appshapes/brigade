@@ -170,12 +170,14 @@ bootstrap under `sh`, `bash` and `zsh`, and `shellcheck -s sh` over `plugin/bin/
 Invoked by `make plugin-check` (which then runs `no-secrets.sh`) → `ci.yml`'s `fast` job.
 
 Needs `shellcheck` for check 9. Without it the check warns and skips locally, but **dies** when `CI` is set — the
-Ubuntu runner preinstalls it, so a missing shellcheck there is a real failure. CI's runner has shellcheck 0.10
-and a current macOS `brew` has 0.11, and the two disagree; before pushing a change to any shell file run both:
+Ubuntu runner preinstalls it, so a missing shellcheck there is a real failure. CI's runner (Blacksmith's
+`blacksmith-4vcpu-ubuntu-2404` image since P5-17) has shellcheck 0.9.0 — printed by `ci.yml`'s `fast` job in its
+"Runner image inventory" step on every run; re-pin this paragraph and CLAUDE.md's when it changes — and a current
+macOS `brew` has 0.11, and the two disagree; before pushing a change to any shell file run both:
 
 ```sh
 shellcheck -s sh <file>                                                    # 0.11, local
-docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 -s sh <file>
+docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.9.0 -s sh <file>
 ```
 
 ## `scripts/ci/no-secrets.sh`

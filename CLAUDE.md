@@ -31,10 +31,14 @@
   empty and skips the rest), and `make plugin-check` carries the plugin-tree checks — the `plugin/` file
   allowlist, mode 100755 in git for `plugin/bin/brigade` and 100644 for everything else, VERSION == plugin.json,
   no `.mcp.json`/`mcpServers`/`channels`, exec-form hooks whose command paths exist and are executable, `sh -n`
-  and `shellcheck -s sh` — and the only secret scan (`scripts/ci/no-secrets.sh`). CI's Ubuntu runner has shellcheck 0.10 and this machine 0.11, and they
-  disagree (0.10: SC2317 for a trap-invoked function's body and SC2015 for `A && B || C`; 0.11: SC2329 for the same
-  function): before pushing a shell file run
-  `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 -s sh <file>` as well as the local one.
+  and `shellcheck -s sh` — and the only secret scan (`scripts/ci/no-secrets.sh`). CI's Ubuntu runner —
+  Blacksmith's `blacksmith-4vcpu-ubuntu-2404` image since P5-17 — has shellcheck **0.9.0** (printed by `ci.yml`'s
+  `fast` job in its "Runner image inventory" step, run 33998830833; the earlier "0.10" was inferred once from
+  diagnostic codes on the GitHub-hosted runner, never printed) and this machine has 0.11, and versions disagree
+  (0.10 reported SC2317 for a trap-invoked function's body and SC2015 for `A && B || C`; 0.11 reports SC2329 for
+  the same function): before pushing a shell file run
+  `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.9.0 -s sh <file>` as well as the local one, and
+  re-pin this sentence and `scripts/ci/README.md`'s copy whenever the inventory step prints a different version.
 - Local dev: `make plugin-dev` writes the dev-binary pointer and starts Claude Code with the local plugin; `make
   plugin-dev-off` removes it. Two profiles on one machine: pass
   `--settings '{"pluginConfigs":{"brigade@inline":{"options":{"profile":"<name>"}}}}'`.

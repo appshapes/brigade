@@ -19,7 +19,11 @@
 # the slowest of the ten. Those runs are 33908735238, 33910839825, 33912150864, 33916051347, 33918074768,
 # 33920933602, 33936887138, 33938576261, 33941694993 and 33942289055 (2026-09-04 and 2026-09-05). Re-measure
 # with `gh run list --workflow ci.yml --json databaseId` and `gh run view <id> --json jobs` before tightening
-# one: a bound under a job's real p90 turns a green matrix red for no reason.
+# one: a bound under a job's real p90 turns a green matrix red for no reason. Every one of those ten runs was
+# measured on GITHUB-HOSTED hardware (`ubuntu-latest`, `macos-latest`), and since P5-17 these jobs run on
+# Blacksmith, whose first green run of this file (33996821598, 2026-09-05) was faster on all four -- fast 3m00s,
+# macos 2m50s, reproducibility 9s, supabase 6m03s -- so every bound below is LOOSE on the new hardware rather
+# than wrong: leave each one alone until ten Blacksmith runs give it a new p90.
 name: ci
 on:
   push: {branches: [master]}
@@ -29,7 +33,7 @@ concurrency: {group: "ci-${{ github.ref }}", cancel-in-progress: true}
 
 jobs:
   fast:                                   # no Docker; 4m28s-5m17s across the ten runs above
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 11                   # 2x the 5m16s p90; slowest observed 5m17s on run 33941694993
     steps:
       - uses: actions/checkout@v7
@@ -40,6 +44,35 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools.sum
+      # What the IMAGE provides, printed. Four steps below depend on tools no workflow installs: `shellcheck`
+      # (plugin-check.sh check 9, which DIES when CI is set), `curl` and `jq` (scripts/ci/keepalive.sh's preflight
+      # -- keepalive.yml runs on the same label and has no CI coverage at all, so a missing tool there surfaces a
+      # day later by e-mail), `docker` (the `supabase` job) and `gh` (checksums-check.sh rule (c), release.yml's
+      # Publish step). GitHub publishes its image's contents and Blacksmith says its images carry "the same
+      # dependencies supported by GitHub's official runner image" -- neither is a measurement of the runner that
+      # actually ran, and CLAUDE.md's shellcheck sentence rests on a version this repository has never printed
+      # (inferred from SC2317 vs SC2329 on run 33753678522, on the old GitHub-hosted runner). So print it. This
+      # step never gates: each tool's real gate is where it is used. `go version` is setup-go's toolchain, not
+      # the image's.
+      - name: Runner image inventory
+        run: |
+          {
+            echo '### Runner image'
+            echo '```'
+            (. /etc/os-release && echo "$PRETTY_NAME $(uname -m)") || echo 'os-release: ABSENT'
+            for t in shellcheck go docker jq curl gh; do
+              if ! command -v "$t" >/dev/null 2>&1; then echo "$t: ABSENT"; continue; fi
+              case "$t" in
+                shellcheck) shellcheck --version | sed -n 's/^version: /shellcheck /p' ;;
+                go)         go version ;;
+                docker)     docker --version ;;
+                jq)         echo "jq $(jq --version)" ;;
+                curl)       curl --version | head -1 ;;
+                gh)         gh --version | head -1 ;;
+              esac || echo "$t: version check FAILED"
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - run: make setup-lint              # golangci-lint via install.sh into ./bin (pinned)
       - run: make typecheck tidy-check
       - run: make lint
@@ -61,12 +94,33 @@ jobs:
       - run: make plugin-check
 
   macos:                                  # the primary user platform: unix sockets, ps -o lstart, shasum paths
-    runs-on: macos-latest                 # macOS 26 arm64 today [verified]
+    # Rjae, 2026-09-05: `blacksmith-6vcpu-macos-latest`, restoring the pre-migration `macos-latest` meaning — the
+    # current macOS major (26 today), the platform the developer and the users are on. The wizard had pinned
+    # `-macos-15` (macOS 15.7.4, one major behind); the "Runner image inventory" step below prints `sw_vers` on
+    # every run, so the version is a measurement, not this comment.
+    runs-on: blacksmith-6vcpu-macos-latest
     timeout-minutes: 7                    # 2x the 3m02s p90; slowest observed 3m12s on run 33920933602
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with: {go-version-file: go.mod}
+      # As in `fast`, and for the same reason: the macOS version is a fact about the runner, not about the tag.
+      # `make cross` below picks `sha256sum` or `shasum -a 256` by what is on PATH (the Makefile's `sha256`), so
+      # which one this image has is exactly what the `reproducibility` job's diff depends on. Run 33996821598
+      # already answered it once -- job 101388707813 echoed `cd dist-cross && sha256sum brigade_* > checksums.txt`
+      # -- so this step keeps a measured fact printed rather than settling an unknown.
+      - name: Runner image inventory
+        run: |
+          {
+            echo '### Runner image'
+            echo '```'
+            (sw_vers && uname -m) || echo 'sw_vers: FAILED'
+            go version || echo 'go: version check FAILED'
+            for t in sha256sum shasum; do
+              if command -v "$t" >/dev/null 2>&1; then echo "$t: $(command -v "$t")"; else echo "$t: ABSENT"; fi
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - run: make build && go test -race -shuffle=on -count=1 -timeout 15m ./...
       - run: make cross && cat dist-cross/checksums.txt >> "$GITHUB_STEP_SUMMARY"   # must equal the fast job's and the developer's (P1-1)
       - uses: actions/upload-artifact@v7
@@ -80,7 +134,7 @@ jobs:
   #     `make cross` pins GOTOOLCHAIN, CGO_ENABLED, GOFLAGS, GOAMD64 and GOARM64 (7.4).
   reproducibility:
     needs: [fast, macos]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Two artifact downloads and a diff: 3s to 8s across the ten runs, slowest 8s on run 33936887138. Twice that
     # p90 is under a minute, which is a bound set by network variance rather than by the job; 5 is the floor.
     timeout-minutes: 5
@@ -102,7 +156,7 @@ jobs:
   supabase:                               # Docker; 6m53s-7m27s across the ten runs above, of which the
                                           # `make supabase-start` step is 51s-1m10s and the ghcr.io image pulls
                                           # inside it 34s-38s (timed from the step logs of 33942289055, 33941694993)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: fast
     timeout-minutes: 25                   # unchanged and deliberately loose: 3x the 7m25s p90, slowest 7m27s on
                                           # run 33942289055, because this job pulls images over the network
@@ -153,7 +207,7 @@ jobs:
     if: github.ref == 'refs/heads/master' && vars.BRIGADE_STAGING == 'true'
     needs: [fast, supabase]
     environment: staging
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # No observed run: `vars.BRIGADE_STAGING` has never been set, so this job has only ever been skipped. The
     # bound is therefore NOT a measured p90; it is read across from the `supabase` job's own CLI steps
     # (supabase/setup-cli 7s, and three hosted `supabase` calls) on run 33942289055, with room for a hosted

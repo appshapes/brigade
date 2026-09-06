@@ -44,7 +44,10 @@ permissions: {contents: read}            # the job reads the checkout and nothin
 
 jobs:
   keepalive:
-    runs-on: ubuntu-latest               # preinstalls curl and jq, the script's only two dependencies
+    # curl and jq are the script's only two dependencies. On the Blacksmith image curl is VERIFIED (run
+    # 33996821598, the `fast` job's `make setup-lint`); jq is verified by no run on it -- ci.yml's `fast`
+    # job prints both on every push from P5-17 on. keepalive.sh's own preflight dies loudly if either is gone.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5                   # four requests at --max-time 30 plus the health rung's retries
     env:                                 # the adapter's own variable names (P5-0 brief 3.1), not SUPABASE_*
       BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_SUPABASE_URL }}"
