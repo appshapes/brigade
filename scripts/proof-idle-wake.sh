@@ -1674,7 +1674,7 @@ scan_brg1() {  # prints the names of the files that match; never their contents
   # shellcheck disable=SC2086  # $scan_roots is a list of absolute directories without whitespace
   find $scan_roots -type f -exec env LC_ALL=C grep -aEl -- "$brg1_shape" {} + 2>/dev/null || true
 }
-printf 'brg1.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.0123456789abcdef0123456789abcdef\n' > "$canary/planted.txt"
+printf '%saaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.0123456789abcdef0123456789abcdef\n' "$join_secret_prefix" > "$canary/planted.txt"
 chmod 600 "$canary/planted.txt"
 hits=$(scan_brg1 | tr '\n' ' ' | sed 's/ *$//')
 if [ "$hits" = "$canary/planted.txt" ]; then

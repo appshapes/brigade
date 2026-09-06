@@ -38,6 +38,29 @@ func TestWriteAtomicModeAndContent(t *testing.T) {
 	}
 }
 
+func TestWriteAtomicModeHonorsRequestedMode(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "brigade.json")
+	data := []byte(`{"version":1}` + "\n")
+	if err := adapterkit.WriteAtomicMode(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o644 {
+		t.Fatalf("mode = %o, want 0644 (the variant must not fall back to 0600)", fi.Mode().Perm())
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatalf("content = %q, want %q", got, data)
+	}
+}
+
 func TestWriteAtomicReplacesWorldReadableWith0600(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "session.json")

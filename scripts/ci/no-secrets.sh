@@ -8,6 +8,11 @@
 # Patterns, everywhere in scope -- tracked text, plugin/, AND every built binary:
 #   * a JWT-shaped triple  eyJ<8+>.eyJ<8+>.<8+>     (a Supabase legacy anon/service key looks exactly like this)
 #   * a Supabase secret key  sb_secret_<8+>
+#   * a Brigade join secret  brg1.<ref>.<8+>        -- in TEXT files only, never in a binary: the conformance
+#     suite's frozen brg1.x.y fixtures compile into the binaries, where the string table's concatenated
+#     neighbours always extend the tail past the pattern's minimum, so brg1-in-a-binary is noise by
+#     construction. A real join secret is runtime data; the text scan catches the accident at the source
+#     before it could ever be compiled in. The bare brg1. prefix alone is legitimate text everywhere (P7-1).
 # Pattern, in plugin/ text files ONLY -- never in a binary:
 #   * the word service_role. The role NAME is not a key: the migrations legitimately REVOKE from that role, the
 #     Makefile names SERVICE_ROLE_KEY, and the Supabase adapter embeds it as an error-mapping string and as the
@@ -26,6 +31,7 @@ die() { printf 'no-secrets: %s\n' "$1" >&2; exit 1; }
 
 jwt='eyJ[A-Za-z0-9_-]\{8,\}\.eyJ[A-Za-z0-9_-]\{8,\}\.[A-Za-z0-9_-]\{8,\}'
 sbsecret='sb_secret_[A-Za-z0-9_-]\{8,\}'
+brg1='brg1\.[A-Za-z0-9_-]\{1,\}\.[A-Za-z0-9_-]\{8,\}'
 
 tmp=$(mktemp -t no-secrets.XXXXXX) || die "cannot create a temporary file"
 plug=$(mktemp -t no-secrets-plugin.XXXXXX) || die "cannot create a temporary file"
@@ -47,6 +53,8 @@ trap 'rm -f "$tmp" "$plug"' EXIT HUP INT TERM
   case $f in
     *_test.go|*/testdata/*|testdata/*) continue ;;
     docs/research/*|docs/experiments/*|scripts/injection-corpus/*|supabase/migrations/*) continue ;;
+    scripts/experiments/*) continue ;;  # historical-record drivers, same rationale as docs/experiments (P7-1)
+    docs/protocol-v1.md) continue ;;    # frozen; its join_secret examples are brg1-shaped on purpose (P7-1)
   esac
   [ -f "$f" ] || continue
   printf '%s\n' "$f"
@@ -57,9 +65,14 @@ count=$(grep -c . "$tmp" || true)
 
 hits=0
 while IFS= read -r f; do
-  if grep -aHn -e "$jwt" -e "$sbsecret" "$f" >&2; then hits=$((hits + 1)); fi
+  case $f in
+    dist-cross/*|bin/brigade*)
+      if grep -aHn -e "$jwt" -e "$sbsecret" "$f" >&2; then hits=$((hits + 1)); fi ;;
+    *)
+      if grep -aHn -e "$jwt" -e "$sbsecret" -e "$brg1" "$f" >&2; then hits=$((hits + 1)); fi ;;
+  esac
 done < "$tmp"
-[ "$hits" = 0 ] || die "$hits file(s) above contain a JWT-shaped string or an sb_secret_ key"
+[ "$hits" = 0 ] || die "$hits file(s) above contain a JWT-shaped string, an sb_secret_ key or a brg1. join secret"
 
 # ---- service_role: plugin/ text files only, never the binaries ------------------------------------------------------
 find plugin -type f -print | LC_ALL=C sort -u > "$plug"
@@ -73,4 +86,4 @@ if [ "$plugcount" -gt 0 ]; then
 fi
 [ "$plughits" = 0 ] || die "$plughits file(s) above under plugin/ name service_role"
 
-printf 'no-secrets: scanned %s tracked/plugin/built file(s) for JWT and sb_secret_ shapes, and %s plugin/ file(s) additionally for service_role: clean\n' "$count" "$plugcount"
+printf 'no-secrets: scanned %s tracked/plugin/built file(s) for JWT, sb_secret_ and brg1. shapes, and %s plugin/ file(s) additionally for service_role: clean\n' "$count" "$plugcount"

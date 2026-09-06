@@ -556,6 +556,7 @@ func TestHookSubcommandListMatchesTheGoConstants(t *testing.T) {
 const (
 	plantedJWT       = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoicGxhbnRlZC1jb250cm9sIn0.not-a-real-signature-value" //nolint:gosec // G101: a planted positive control for the scanner under test
 	plantedSecretKey = "sb_secret_planted_control_not_a_real_key"                                                            //nolint:gosec // G101: as above
+	plantedJoin      = "brg1.t-planted.control-not-a-real-join-secret"                                                       //nolint:gosec // G101: as above
 )
 
 func TestNoSecrets(t *testing.T) {
@@ -598,6 +599,48 @@ func TestNoSecrets(t *testing.T) {
 		wantFail(t, r, "internal/config.go")
 	})
 
+	t.Run("a planted brg1 join secret under plugin/ fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		tr.write("plugin/README.md", "secret: "+plantedJoin+"\n")
+		tr.git("add", "plugin")
+		r := runScript(t, "no-secrets.sh", tr.root, tr.env())
+		wantFail(t, r, "plugin/README.md", "brg1")
+	})
+
+	t.Run("a planted brg1 join secret in a tracked source file fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		tr.write("internal/config.go", "const s = \""+plantedJoin+"\"\n")
+		tr.git("add", "internal")
+		r := runScript(t, "no-secrets.sh", tr.root, tr.env())
+		wantFail(t, r, "internal/config.go", "brg1")
+	})
+
+	t.Run("the bare brg1. prefix without the three-part shape passes", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		// The protocol's own invalid_input text spells `expected brg1.<team_ref>.<secret>`; the prefix
+		// alone, and prefix-plus-one-part, are legitimate tracked text everywhere.
+		tr.write("docs/notes.md", "the prefix is brg1. and the form is brg1.<team_ref>.<secret>\n")
+		tr.git("add", "docs")
+		r := runScript(t, "no-secrets.sh", tr.root, tr.env())
+		wantPass(t, r, "clean")
+	})
+
+	t.Run("a planted brg1 join secret under scripts/experiments/ passes (excluded historical drivers)", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		tr.write("scripts/experiments/E9/driver.py", "CANARY = \""+plantedJoin+"\"\n")
+		tr.git("add", "scripts")
+		r := runScript(t, "no-secrets.sh", tr.root, tr.env())
+		wantPass(t, r, "clean")
+	})
+
 	t.Run("a planted JWT in an excluded fixture tree passes", func(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
@@ -625,6 +668,17 @@ func TestNoSecrets(t *testing.T) {
 
 		tr.write(bin, "\x00\x01PGRST service_role\x00"+plantedJWT+"\x00\n")
 		wantFail(t, runScript(t, "no-secrets.sh", tr.root, tr.env()), bin, "JWT-shaped")
+	})
+
+	t.Run("a brg1 shape in a built binary passes (conformance fixtures compile in)", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		// The conformance suite's frozen brg1.x.y fixtures land in every built binary, where the string
+		// table's neighbours extend the tail past the pattern's minimum. The brg1 scan is text-only;
+		// the same binary must still fail on the genuinely binary-scoped shapes (asserted above).
+		tr.write("bin/brigade", "\x00ELF\x00brg1.x.yconcatenated-neighbour-strings\x00\n")
+		wantPass(t, runScript(t, "no-secrets.sh", tr.root, tr.env()), "clean")
 	})
 
 	t.Run("an sb_secret_ key in a built binary fails", func(t *testing.T) {

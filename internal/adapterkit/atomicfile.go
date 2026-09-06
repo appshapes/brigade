@@ -29,6 +29,16 @@ func MkdirPrivate(dir string) error {
 // the mode; a pre-existing world-readable file at path is REPLACED by the
 // 0600 result, because the rename swaps the inode.
 func WriteAtomic(path string, data []byte) error {
+	return WriteAtomicMode(path, data, 0o600)
+}
+
+// WriteAtomicMode is WriteAtomic with the final mode a parameter. It
+// exists for the one public file Brigade ever writes — the 0644
+// `.brigade.json` a team's administrator commits to the repository —
+// and everything private stays on WriteAtomic's fixed 0600. The mode is
+// applied to the temporary file before any byte lands, so no reader ever
+// observes the destination path with a mode other than the one asked for.
+func WriteAtomicMode(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-")
 	if err != nil {
@@ -40,7 +50,7 @@ func WriteAtomic(path string, data []byte) error {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("adapterkit: atomic write %s: %w", step, err)
 	}
-	if err := f.Chmod(0o600); err != nil {
+	if err := f.Chmod(mode); err != nil {
 		return fail("chmod", err)
 	}
 	if _, err := f.Write(data); err != nil {
