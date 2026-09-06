@@ -1,6 +1,6 @@
 # E5-release — preparing 0.1.0: the preconditions, the practice rehearsal, and the cold-cache first prompt
 
-Date: 2026-09-05 (phase A) and 2026-09-06 (phase B) · Ticket 15 · Status: **PHASE A and PHASE B recorded; what is
+Date: 2026-09-05 (phase A) and 2026-09-06 (phase B) · Ticket 15 · Status: **RELEASED 2026-09-06 — tag `v0.1.0` on `2fb158b`, run 34029404604, five assets; section 11 measured after the tag (see "Measured after the tag"). Before that: PHASE A and PHASE B recorded; what is
 left waits for the tag (section 11)** ·
 Harness: `.ignored/proof/<stamp>-release-a/harness/` in the lane worktree (the E0-8 pacing server with a route and a
 request log added, plus a driver and a probe plugin written for this item); phase B's records are in
@@ -749,6 +749,56 @@ Two things phase B could not measure and that no tag will settle. That **one** `
 configuration directory usable is still inferred, not measured: it needs a browser (6.4). And a machine with no
 GitHub account at all was not simulated — the SSH-to-HTTPS fallback was measured by forcing SSH to fail on a
 machine whose git configuration was otherwise untouched (6.3).
+
+### Measured after the tag (2026-09-06, the distribution proof; driver `15-implement-brigade-090523`, Fable author + verifier)
+
+Steps 2–4 of section 10 ran at 07:07–07:10 EDT at Rjae's word: `make release version=0.1.0` from the clean main checkout at `9787b35`
+(release commit `2fb158b`: exactly `plugin/bin/VERSION`, `plugin/.claude-plugin/plugin.json`, the four-line `plugin/bin/checksums.txt`),
+the annotated tag `v0.1.0` pushed with the ruleset active, `release.yml` run 34029404604 green in 43 s (guard, goreleaser, verify,
+Publish success, the draft discard skipped — the `--latest` arm's first run; `releases/latest` answers `v0.1.0`), published
+2026-09-06T11:09:50Z, not draft, not prerelease, five assets, the body replaced from the CHANGELOG's 0.1.0 section (15,197 bytes).
+
+Then the six items above, measured (evidence under `.ignored/tools/p5-10c/proof/`; every number re-derived by the verifier):
+
+1. **The acceptance criterion holds.** A fresh `CLAUDE_CONFIG_DIR` with one `claude auth login` (Rjae's, in a terminal);
+   `claude plugin marketplace add appshapes/brigade` and `claude plugin install brigade@brigade` exit 0 with no prompt (SSH clone;
+   plugin root `<config>/plugins/cache/brigade/brigade/0.1.0`, its `bin/brigade` byte-identical to the repository's); the first-use
+   download of `brigade_0.1.0_darwin_arm64` (8,361,218 B in 0.823 s, 10.2 MB/s, a foreground download by the terminal `profile init`
+   the setup document has the user run first) verified against the committed checksums and cached `0755` under
+   `~/.local/share/brigade/bin` (absent before; sha256 = the committed line; the dev pointer absent as the proof saw it); then a real
+   `claude -p` session on the hosted project whose SessionStart hook printed the registration line of `start_test.go:37`'s shape
+   (hook 282 ms), not the "installing in the background" line — six such sessions in all (author 5, verifier 1).
+2. **The published state**: five assets — 9,046,336 / 8,361,218 / 8,859,808 / 8,192,160 / 370 B — each sha256 equal to GitHub's digest
+   and to the committed `checksums.txt` line; the published `checksums.txt` byte-identical (`cmp`) to `plugin/bin/checksums.txt` at
+   `2fb158b`; `shasum -a 256 -c` OK 4/4.
+3. **Real-network first-use timing**, cold cache, n = 3 (only the cached binary removed between runs): download 0.957 / 1.099 / 0.753 s
+   (mean 0.936 s; 7.6–11.1 MB/s from GitHub's CDN), the cache landed 0.95–1.28 s after launch, SessionStart returned the background
+   line in 19–20 ms, the prompt sent at launch went without Brigade and the second prompt's hook (509–580 ms) registered the session —
+   exactly one degraded prompt per cold run, 3/3, no `not installed`, no killed hook (P5-18's fail-fast); warm cache: hook 245–282 ms,
+   0 degraded. Break-evens for the published asset unchanged from section 7 (418.1 / 185.8 / 139.4 kB/s — it is those bytes).
+4. **`make checksums-check`, the fresh-build arm** on `2fb158b`: exit 0, rules (a)(b)(c), twice (author, verifier), only the
+   gitignored `dist-cross/` written. The published-release arm on the commit after the release is CI's on the commit that records
+   this section.
+5. **`go install github.com/appshapes/brigade/cmd/brigade@v0.1.0`** with the default `GOPROXY`: exit 0 in 18 s (the proxy already had
+   the tag; `sum.golang.org` both lines); `brigade version` prints exactly `v0.1.0`. The documented uninstall order (`team leave`,
+   `profile reset`, `claude plugin uninstall brigade`, `claude plugin marketplace remove brigade`) ran clean twice; kept by design:
+   the Brigade cache, and — Claude Code 2.1.263's own behaviour — the plugin copy under `plugins/cache/…/0.1.0/` with an
+   `.orphaned_at` marker, and a `settings.json` of two empty maps.
+6. **The `--latest` arm of Publish** ran for the first time and succeeded; `releases/latest` = `v0.1.0`.
+
+**What did not match the documents** (nine, each confirmed by the verifier; Status row P5-19 in the execution log): the first use is a
+foreground download on the documented terminal path, not "in the background while you work"; "the session starts with a line like
+this one" holds only on a warm cache; "available on your next prompt" was the second prompt for a script that prompts at launch;
+the install prints an undocumented `9 userConfig options not yet set` line; `team create --name/--label` are documented only in the
+README's developer paragraph; the `whoami` example says `adapter supabase` where the binary prints `adapter brigade-adapter-supabase`;
+the administrator is sent to `whoami` in a session before one exists; `claude plugin marketplace remove` is undocumented and
+`plugin uninstall` keeps the plugin copy; the publishable key's value is in no document (by the documented model the administrator
+sends it — say so).
+
+**Still unmeasured after the tag**: the HTTPS fallback and a machine with no GitHub account; a pty session's cold-cache first prompt;
+the Linux and Intel assets (hashed, not run); the proxy's "not seen yet" retry arm; a slow link (7.6–11.1 MB/s here; section 3
+covers 250 kB/s from a local server); the login itself (measured by use only). Two empty throwaway teams (`p510c`, `p510cv`) remain
+on the hosted project.
 
 ## 12. Why 0.1.0 has no Homebrew tap, and the four conditions for adding one (brief §7.1, transcribed)
 
