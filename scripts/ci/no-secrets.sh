@@ -31,7 +31,10 @@ die() { printf 'no-secrets: %s\n' "$1" >&2; exit 1; }
 
 jwt='eyJ[A-Za-z0-9_-]\{8,\}\.eyJ[A-Za-z0-9_-]\{8,\}\.[A-Za-z0-9_-]\{8,\}'
 sbsecret='sb_secret_[A-Za-z0-9_-]\{8,\}'
-brg1='brg1\.[A-Za-z0-9_-]\{1,\}\.[A-Za-z0-9_-]\{8,\}'
+# The ref class includes '.' because ParseJoinSecret deliberately allows dotted team refs (D2); the
+# tail stays dot-free so prose like 'brg1. and more words' cannot match. A JSON-escaped secret is
+# invisible to any text grep by construction -- the teamfile parser's post-decode check owns that case.
+brg1='brg1\.[A-Za-z0-9._-]\{1,\}\.[A-Za-z0-9_-]\{8,\}'
 
 tmp=$(mktemp -t no-secrets.XXXXXX) || die "cannot create a temporary file"
 plug=$(mktemp -t no-secrets-plugin.XXXXXX) || die "cannot create a temporary file"

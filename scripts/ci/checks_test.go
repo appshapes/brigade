@@ -619,6 +619,17 @@ func TestNoSecrets(t *testing.T) {
 		wantFail(t, r, "internal/config.go", "brg1")
 	})
 
+	t.Run("a planted brg1 secret with a dotted team ref fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		// ParseJoinSecret allows '.' inside the team ref; the scan's ref class must too (D2).
+		tr.write("docs/notes.md", "leak: brg1.team.ref.dotted-control-not-real\n")
+		tr.git("add", "docs")
+		r := runScript(t, "no-secrets.sh", tr.root, tr.env())
+		wantFail(t, r, "docs/notes.md", "brg1")
+	})
+
 	t.Run("the bare brg1. prefix without the three-part shape passes", func(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
