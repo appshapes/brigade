@@ -761,6 +761,264 @@ func TestBootstrapSessionStartHookPreRelease(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------------------------------------
+// every other hook on a cold cache: P5-18
+
+// markerPath is the verdict the detached worker leaves beside the target when its install fails for good.
+func (f *fixture) markerPath(dataHome string) string { return f.cachePath(dataHome) + ".failed" }
+
+// plantMarker writes a marker as a worker would have, so a case can start from "the last install failed".
+func (f *fixture) plantMarker(dataHome, line string) {
+	f.t.Helper()
+	if err := os.MkdirAll(f.cacheDir(dataHome), 0o700); err != nil {
+		f.t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(f.markerPath(dataHome), []byte(line), 0o600); err != nil {
+		f.t.Fatalf("writing the marker: %v", err)
+	}
+}
+
+// waitForFile polls until path exists. The deadline is a hang catcher, never a performance bound.
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s did not appear in time", path)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func wantAbsent(t *testing.T, path, what string) {
+	t.Helper()
+	if _, err := os.Lstat(path); err == nil {
+		t.Fatalf("%s: %s exists", what, path)
+	}
+}
+
+// wantSilentZero is the answer every cold-cache hook other than session-start gives while the worker is still
+// running, or has never run: exit 0 with nothing on either stream, so the prompt costs nothing.
+func wantSilentZero(t *testing.T, r result) {
+	t.Helper()
+	wantCode(t, r, 0)
+	if r.stdout != "" || r.stderr != "" {
+		t.Fatalf("stdout %q stderr %q, want nothing on either stream", r.stdout, r.stderr)
+	}
+}
+
+// TestBootstrapHooksOnColdCache pins P5-18: the SessionStart worker is the only downloader a hook ever starts.
+// `hook prompt` and `hook session-end` on a cold cache return at once without a request (E5 §3 measured the
+// synchronous ones killed at their 5 s timeout, each re-downloading the asset); the worker's final failure is
+// written to a marker that the next `hook prompt` reports once, on stderr, with the worker's exit code; a new
+// SessionStart voids the verdict and any successful install removes it.
+func TestBootstrapHooksOnColdCache(t *testing.T) {
+	t.Parallel()
+
+	// The server holds every answer for holdFor, so a hook that took the download path could not return in less
+	// than that; against a loopback server that answers at once "did not download" would be unobservable.
+	const holdFor = 2 * time.Second
+
+	for _, sub := range []string{"prompt", "session-end"} {
+		t.Run("hook "+sub+" never downloads: exit 0, silent, no request", func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.srv.setDelay(holdFor)
+			r := f.run("", "hook", sub)
+			wantSilentZero(t, r)
+			if r.took >= holdFor/2 {
+				t.Fatalf("hook %s took %s, but the server holds every answer for %s: it waited on a download", sub, r.took, holdFor)
+			}
+			wantRequests(t, f.srv, 0)
+			wantNothingInstalled(t, f, f.data)
+		})
+	}
+
+	t.Run("a failed background download is reported once, by the next hook prompt, with exit 9", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.base = f.srv.URL + "/404" // a route the server answers 404: curl does not retry that
+		r := f.run("", "hook", "session-start")
+		wantCode(t, r, 0)
+		if got := strings.TrimRight(r.stdout, "\n"); got != hookContextLine {
+			t.Fatalf("stdout is %q, want exactly the context line %q", got, hookContextLine)
+		}
+		marker := f.markerPath(f.data)
+		waitForFile(t, marker)
+		wantNoTempFile(t, f, f.data)
+		data, err := os.ReadFile(marker)
+		if err != nil || !strings.HasPrefix(string(data), "9 download failed: ") {
+			t.Fatalf("marker %q %v, want `9 download failed: …`", data, err)
+		}
+		// session-end never consumes the verdict: a user who never prompted again must still be told next time.
+		wantSilentZero(t, f.run("", "hook", "session-end"))
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("hook session-end consumed the marker: %v", err)
+		}
+		p := f.run("", "hook", "prompt")
+		wantCode(t, p, 9)
+		if p.stdout != "" {
+			t.Fatalf("stdout is %q, want nothing: the report goes to stderr, never into the model's context", p.stdout)
+		}
+		wantStderrContains(t, p,
+			"Brigade: not installed: download failed: "+f.base+"/v"+fixtureVersion+"/"+assetName(),
+			sha256hex(fakeRelease),
+			f.cachePath(f.data),
+			"Team messaging is off in this session; /clear or a new session retries the install",
+		)
+		if !strings.HasPrefix(p.stderr, "Brigade: not installed: download failed: ") {
+			t.Fatalf("the fact and the cause must lead the line (the TUI cuts it after ~160-200 characters, measured): %q", p.stderr)
+		}
+		if strings.Count(p.stderr, "\n") != 1 {
+			t.Fatalf("the report must be exactly one line: %q", p.stderr)
+		}
+		wantAbsent(t, marker, "the marker survived the report")
+		// Told once: the next prompt, and the one after, cost nothing.
+		wantSilentZero(t, f.run("", "hook", "prompt"))
+		wantSilentZero(t, f.run("", "hook", "prompt"))
+		wantRequests(t, f.srv, 1)
+		wantNothingInstalled(t, f, f.data)
+	})
+
+	t.Run("a wrong checksum in the background is reported with exit 11 and installs nothing", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.base = f.srv.URL + "/bad" // the same asset name, different bytes
+		r := f.run("", "hook", "session-start")
+		wantCode(t, r, 0)
+		marker := f.markerPath(f.data)
+		waitForFile(t, marker)
+		wantNoTempFile(t, f, f.data)
+		wantAbsent(t, f.cachePath(f.data), "the impostor was installed")
+		p := f.run("", "hook", "prompt")
+		wantCode(t, p, 11)
+		// The line names both sums: the committed one it expected and the impostor's it got.
+		wantStderrContains(t, p, "Brigade: not installed: checksum mismatch for "+assetName(),
+			"expected "+sha256hex(fakeRelease), "got "+sha256hex(wrongRelease))
+		wantAbsent(t, marker, "the marker survived the report")
+		wantSilentZero(t, f.run("", "hook", "prompt"))
+		wantRequests(t, f.srv, 1)
+		wantNothingInstalled(t, f, f.data)
+	})
+
+	t.Run("a new session start voids the old verdict before its worker runs, and a good install leaves none", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.srv.setDelay(holdFor)
+		f.plantMarker(f.data, "9 a verdict from an earlier session\n")
+		r := f.run("", "hook", "session-start")
+		wantCode(t, r, 0)
+		// Voided synchronously, by the hook itself: the worker has not even connected yet (the server holds the
+		// answer for holdFor), so a prompt hook fired right after the SessionStart can never report a stale verdict.
+		wantAbsent(t, f.markerPath(f.data), "the old verdict outlived the new session start")
+		if _, err := os.Stat(f.cachePath(f.data)); err == nil {
+			t.Fatal("the cache was already warm when the hook returned: the hook waited for the download")
+		}
+		wantSilentZero(t, f.run("", "hook", "prompt")) // warming: nothing to say, nothing to download
+		waitForFile(t, f.cachePath(f.data))
+		wantInstalled(t, f, f.data)
+		wantAbsent(t, f.markerPath(f.data), "a marker survived a successful install")
+		p := f.run("", "hook", "prompt")
+		wantCode(t, p, 0)
+		wantArgv(t, p, "hook", "prompt")
+		wantRequests(t, f.srv, 1)
+	})
+
+	t.Run("a stale marker never outlives a synchronous install", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.plantMarker(f.data, "11 a verdict from an earlier session\n")
+		r := f.run("", "whoami")
+		wantCode(t, r, 0)
+		wantArgv(t, r, "whoami")
+		wantInstalled(t, f, f.data)
+		wantAbsent(t, f.markerPath(f.data), "a marker survived a successful install")
+	})
+
+	t.Run("a planted marker is reported by hook prompt with the code it names, and an unknown code becomes 9", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			line string
+			code int
+			want string
+		}{
+			{"11 checksum mismatch for x: refusing to install\n", 11, "checksum mismatch for x"},
+			{"9 download failed: nowhere\n", 9, "download failed: nowhere"},
+			{"77 not a bootstrap code\n", 9, "not a bootstrap code"},
+			{"9\n", 9, "unknown reason"},
+		} {
+			f := newFixture(t)
+			f.plantMarker(f.data, tc.line)
+			p := f.run("", "hook", "prompt")
+			wantCode(t, p, tc.code)
+			wantStderrContains(t, p, "Brigade: not installed: "+tc.want)
+			wantAbsent(t, f.markerPath(f.data), "the marker survived the report")
+			wantRequests(t, f.srv, 0)
+		}
+	})
+
+	t.Run("any other hook argv keeps the synchronous path", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.plantMarker(f.data, "9 never reported: only hook prompt reports\n")
+		r := f.run("", "hook", "status", "--verbose")
+		wantCode(t, r, 0)
+		wantArgv(t, r, "hook", "status", "--verbose")
+		wantRequests(t, f.srv, 1)
+		wantInstalled(t, f, f.data)
+		wantAbsent(t, f.markerPath(f.data), "a marker survived a successful install")
+	})
+
+	t.Run("the pointer file wins for hooks too", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		dev := filepath.Join(f.root, "dev", "brigade")
+		writeExecutable(t, dev, "#!/bin/sh\necho DEV \"$@\"\n")
+		writeExecutable(t, filepath.Join(f.config, "brigade", "dev-binary"), dev+"\n")
+		f.plantMarker(f.data, "9 never reported: the pointer comes first\n")
+		for _, sub := range []string{"session-start", "prompt", "session-end"} {
+			r := f.run("", "hook", sub)
+			wantCode(t, r, 0)
+			if got := strings.TrimRight(r.stdout, "\n"); got != "DEV hook "+sub {
+				t.Fatalf("stdout is %q, want %q", got, "DEV hook "+sub)
+			}
+		}
+		wantRequests(t, f.srv, 0)
+		if _, err := os.Stat(f.markerPath(f.data)); err != nil {
+			t.Fatalf("the pointer path touched the marker: %v", err)
+		}
+	})
+
+	t.Run("a warm cache execs every hook with no request", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		wantCode(t, f.run("", "whoami"), 0)
+		wantRequests(t, f.srv, 1)
+		for _, sub := range []string{"session-start", "prompt", "session-end"} {
+			r := f.run("", "hook", sub)
+			wantCode(t, r, 0)
+			wantArgv(t, r, "hook", sub)
+		}
+		wantRequests(t, f.srv, 1)
+	})
+
+	t.Run("the pre-release state still fails every hook loudly", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.writeVersion("0.0.0")
+		f.writeChecksumsRaw("")
+		for _, sub := range []string{"prompt", "session-end"} {
+			r := f.run("", "hook", sub)
+			wantCode(t, r, 11)
+			wantStderrContains(t, r, "make plugin-dev")
+		}
+		wantRequests(t, f.srv, 0)
+	})
+}
+
+// ---------------------------------------------------------------------------------------------------------
 // syntax, and the second shell
 
 func TestBootstrapSyntax(t *testing.T) {

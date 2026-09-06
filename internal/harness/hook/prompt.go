@@ -96,23 +96,29 @@ func (r *run) heldNotice(f facts, m *sessionmap.ByPID) {
 }
 
 // retryConnect re-runs the registration at most once per
-// registerRetryInterval, inside the prompt budget.
+// registerRetryInterval, inside the prompt budget. The stamp is written
+// only AFTER the attempt returns (P5-18): Claude Code kills a hook that
+// outlives its timeout with SIGTERM, and a stamp written before the
+// attempt (E5 §3 measured it on a cold cache: download inside the budget,
+// registration killed at 5 s) silenced every prompt for the next minute
+// with nothing on screen. A killed attempt now leaves no stamp and the next
+// prompt tries again; a RETURNED failure still stamps, so a backend that is
+// down is asked once a minute, not once a prompt.
 func (r *run) retryConnect(ctx context.Context, f facts, in input) {
 	stamp := retryStampPath(f.stateDir, f.pid)
-	now := r.deps.Now()
 	if data, err := adapterkit.ReadStrict(stamp); err == nil {
-		if last, perr := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(data))); perr == nil && now.Sub(last) < registerRetryInterval {
+		if last, perr := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(data))); perr == nil && r.deps.Now().Sub(last) < registerRetryInterval {
 			r.log.Debug("prompt: not registered; the last retry was recent")
 			return
 		}
 	}
+	r.log.Info("prompt: not registered; retrying the registration")
+	r.connect(ctx, f, in, min(r.deps.PidfileWait, promptPidfileWait))
 	if err := adapterkit.MkdirPrivate(filepath.Join(f.stateDir, "state")); err == nil {
-		if werr := adapterkit.WriteAtomic(stamp, []byte(now.Format(time.RFC3339Nano)+"\n")); werr != nil {
+		if werr := adapterkit.WriteAtomic(stamp, []byte(r.deps.Now().Format(time.RFC3339Nano)+"\n")); werr != nil {
 			r.log.Debug("prompt: retry stamp not written", log.Err(werr))
 		}
 	}
-	r.log.Info("prompt: not registered; retrying the registration")
-	r.connect(ctx, f, in, min(r.deps.PidfileWait, promptPidfileWait))
 }
 
 // ensureWatcher respawns the watcher when its pidfile is missing or dead

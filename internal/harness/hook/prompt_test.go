@@ -2,15 +2,18 @@ package hook
 
 import (
 	"bytes"
+	"context"
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
@@ -421,5 +424,88 @@ func TestPromptBrokenMapDoesNothing(t *testing.T) {
 	}
 	if exit, _, _ := f.run(SubPrompt, f.promptDoc("default"), config.OptionPollOnPrompt+"=true"); exit != 0 || f.spawner.count() != spawns+1 || len(seam.callsFor("message receive")) != 1 {
 		t.Fatalf("control: exit %d spawns %d receives %d", exit, f.spawner.count()-spawns, len(seam.callsFor("message receive")))
+	}
+}
+
+// TestPromptRetryStampFollowsTheAttempt (P5-18): the retry stamp is written
+// only AFTER a registration attempt returns, never before it. Claude Code
+// kills a hook that outlives its timeout with SIGTERM, and nothing runs
+// after that — so "no stamp at the instant of the register call" is
+// exactly "a killed attempt leaves no stamp", and the next prompt tries
+// again. A RETURNED failure still stamps: thirty seconds later there is no
+// attempt, and the stamp the next attempt finds is the OLD one.
+func TestPromptRetryStampFollowsTheAttempt(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.spawner.watcherPID = testutil.NewSleeper(t)
+	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {
+		errResp(protocol.CodeUnavailable, ""), errResp(protocol.CodeUnavailable, ""), okResp(registerDoc("brigade-sess-1", "payments-api", false)),
+	}})
+	stamp := retryStampPath(f.stateDir, f.pid)
+	// The seam reads the stamp at the instant of every register call.
+	var mu sync.Mutex
+	var seen []string
+	inner := f.deps.Spawn
+	f.deps.Spawn = func(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+		if verbOf(spec.Argv) == "session register" {
+			data, err := os.ReadFile(stamp)
+			if err != nil {
+				data = []byte("<absent>")
+			}
+			mu.Lock()
+			seen = append(seen, strings.TrimSpace(string(data)))
+			mu.Unlock()
+		}
+		return inner(ctx, spec)
+	}
+	observed := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string{}, seen...)
+	}
+	if exit, _, _ := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 || f.mapExists() {
+		t.Fatalf("session-start: exit %d map %v", exit, f.mapExists())
+	}
+	if _, err := os.Lstat(stamp); err == nil {
+		t.Fatal("SessionStart wrote a retry stamp")
+	}
+	// Prompt 1: an attempt that fails and RETURNS. No stamp exists while the
+	// adapter is being asked; one exists afterwards, with this attempt's time.
+	exit, out, _ := f.run(SubPrompt, f.promptDoc("default"))
+	if exit != 0 || !strings.HasPrefix(out, "Brigade: not connected (unavailable)") {
+		t.Fatalf("exit %d out %q", exit, out)
+	}
+	if got := observed(); len(got) != 2 || got[1] != "<absent>" {
+		t.Fatalf("stamp at the register calls %q, want the prompt's (second) call to find none", got)
+	}
+	data, err := adapterkit.ReadStrict(stamp)
+	if err != nil {
+		t.Fatalf("no stamp after the returned failure: %v", err)
+	}
+	first := strings.TrimSpace(string(data))
+	if first != fixedTime.Format(time.RFC3339Nano) {
+		t.Fatalf("stamp %q, want %s", first, fixedTime.Format(time.RFC3339Nano))
+	}
+	// Thirty seconds later: the returned failure rate-limits; no attempt.
+	f.now = fixedTime.Add(30 * time.Second)
+	if exit, out, _ := f.run(SubPrompt, f.promptDoc("default")); exit != 0 || out != "" {
+		t.Fatalf("exit %d out %q", exit, out)
+	}
+	if n := len(seam.callsFor("session register")); n != 2 {
+		t.Fatalf("%d register calls, want still 2", n)
+	}
+	// A minute later: a fresh attempt, which finds the OLD stamp (not one
+	// written for itself), succeeds, and stamps its own time afterwards.
+	f.now = fixedTime.Add(61 * time.Second)
+	exit, out, _ = f.run(SubPrompt, f.promptDoc("default"))
+	if exit != 0 || !strings.Contains(out, `this session is "payments-api" (brigade-sess-1)`) || !f.mapExists() {
+		t.Fatalf("exit %d out %q map %v", exit, out, f.mapExists())
+	}
+	if got := observed(); len(got) != 3 || got[2] != first {
+		t.Fatalf("stamp at the third register call %q, want the earlier attempt's %q", got, first)
+	}
+	data, err = adapterkit.ReadStrict(stamp)
+	if err != nil || strings.TrimSpace(string(data)) != f.now.Format(time.RFC3339Nano) {
+		t.Fatalf("stamp after the successful attempt %q %v, want %s", data, err, f.now.Format(time.RFC3339Nano))
 	}
 }

@@ -6,7 +6,10 @@
 #
 # Plan 6.2, with the E0-8 correction: on a cold cache the SessionStart hook (argv `hook session-start …`) starts
 # the download detached and returns immediately, because a synchronous first use measured 33.5 s at 250 kB/s and
-# blocked session startup, while the background variant returned the hook in 0.02 s.
+# blocked session startup, while the background variant returned the hook in 0.02 s. P5-18: that worker is the
+# ONLY downloader a hook ever starts -- `hook prompt` and `hook session-end` on a cold cache return at once (E5 §3
+# measured the synchronous `hook prompt` killed at its 5 s timeout on every cold-cache prompt, re-downloading each
+# time), and `hook prompt` reports the worker's final failure once, from the marker the worker leaves.
 set -u
 
 fail() { printf 'brigade: %s\n' "$2" >&2; exit "$1"; }   # 9 = unavailable (network); 11 = config (pins, platform, integrity)
@@ -54,6 +57,10 @@ fi
 cache_dir=$xdg_data/brigade/bin
 target=$cache_dir/brigade-$version-$os-$arch
 [ -x "$target" ] && exec "$target" "$@"
+# The marker the detached SessionStart worker leaves when its install fails for good (P5-18): one line,
+# `<exit code> <reason>`, beside the target it names (so a later version never reads it). The next `hook prompt`
+# reports it once and removes it; a new SessionStart voids it and every successful install removes it.
+failed=$target.failed
 
 # ---- first use: download, verify, install atomically, exec --------------------------------------------------------
 asset=brigade_${version}_${os}_${arch}
@@ -83,12 +90,14 @@ else fail 11 "curl or wget is required to download $url; or download it yourself
 
 # install <tmpfile>: verify, make executable, and rename into place. Prints nothing on success.
 install_verified() {
+  [ -f "$1" ] || fail 9 "download interrupted before it could be verified"   # a worker signalled between download and verify must not report a checksum mismatch that never happened
   actual=$(sha "$1")
   [ "$actual" = "$expected" ] || fail 11 "checksum mismatch for $asset: expected $expected, got $actual; refusing to install"
   chmod 0755 "$1"
   # macOS: curl sets no com.apple.quarantine attribute (verified), but strip one if a browser download left it
   if [ "$os" = darwin ] && command -v xattr >/dev/null 2>&1; then xattr -d com.apple.quarantine "$1" 2>/dev/null || true; fi
   mv -f "$1" "$target" || fail 11 "cannot install $target"       # rename(2): atomic; concurrent first runs are harmless
+  rm -f "$failed"
 }
 
 umask 077
@@ -101,15 +110,47 @@ mkdir -p "$cache_dir" || fail 11 "cannot create $cache_dir"
 # nothing that needs the binary NOW is handed a success it cannot use. The temp file is created INSIDE the
 # subshell so that the parent, which exits immediately, carries no trap over the background job's file.
 if [ $# -ge 2 ] && [ "$1" = hook ] && [ "$2" = session-start ]; then
+  rm -f "$failed"    # a new session start is a new attempt: the previous verdict is void
   (
-    tmp=$(mktemp "$cache_dir/.brigade-$version.XXXXXX") || exit 11
+    # Inside the worker a failure goes to the marker, not to a stderr nobody reads: `<exit code> <reason>`,
+    # written whole and renamed into place, so a prompt hook never sees a half-written line -- and written only
+    # after the download's temp file is gone, so a visible verdict means nothing of the attempt is left behind.
+    fail() { [ -n "${tmp:-}" ] && rm -f "$tmp"; printf '%s %s\n' "$1" "$2" > "$failed.tmp" && mv -f "$failed.tmp" "$failed"; exit "$1"; }
+    tmp=$(mktemp "$cache_dir/.brigade-$version.XXXXXX") || fail 11 "cannot create a temporary file in $cache_dir"
     trap 'rm -f "$tmp"' EXIT HUP INT TERM
-    fetch "$tmp" "$url" || exit 9
+    fetch "$tmp" "$url" || fail 9 "download failed: $url. Check network or proxy access, or download the file yourself, verify sha256 $expected, and install it as $target"
     install_verified "$tmp"
     trap - EXIT HUP INT TERM
   ) </dev/null >/dev/null 2>&1 &
   printf 'Brigade: installing the brigade binary in the background; team messaging becomes available on your next prompt\n'
   exit 0
+fi
+
+# ---- P5-18: the two other hooks hooks.json runs return at once on a cold cache and never download ---------------
+# Measured (E5 §3): on the synchronous path a cold-cache `hook prompt` was killed at its 5 s timeout -- 2 prompts at
+# 1 MB/s, 6 at 250 kB/s, every prompt for ever below curl's floor -- each kill re-downloading the asset beside the
+# worker, and a kill during the registration left a retry stamp that silenced the next minute. So: the worker above
+# is the only downloader; `hook prompt` reports the worker's final verdict once (its exit code and reason on stderr,
+# which Claude Code 2.1.261 draws on screen as a non-blocking hook error -- measured; a context line on stdout is
+# never drawn) and removes it; otherwise both hooks exit 0 silently, so a warming cache costs a prompt nothing (a
+# silent NON-ZERO exit would draw "No stderr output" on every prompt -- also measured). Exactly the two argv shapes
+# plugin/hooks/hooks.json produces: a human, the Bash tool, any other argv and a warm cache never reach this line.
+if [ $# -ge 2 ] && [ "$1" = hook ]; then
+  case $2 in
+    prompt)
+      if [ -s "$failed" ]; then
+        read -r code reason < "$failed" 2>/dev/null || code=9   # a marker that vanished or cannot be read still reports once, never as the shell's own error
+        rm -f "$failed"
+        case $code in 9|11) ;; *) code=9 ;; esac
+        # The fact first, then the cause: the TUI cuts this line with an ellipsis (measured on a pty: after about
+        # 200 characters at 200 columns, and after 161 characters, wrapped, at 80 columns), so the remedy and the
+        # sha256/install path at the end are the part that is lost on screen; they stay intact in the transcript.
+        printf 'Brigade: not installed: %s. Team messaging is off in this session; /clear or a new session retries the install\n' "${reason:-unknown reason}" >&2
+        exit "$code"
+      fi
+      exit 0 ;;
+    session-end) exit 0 ;;
+  esac
 fi
 
 tmp=$(mktemp "$cache_dir/.brigade-$version.XXXXXX") || fail 11 "cannot create a temporary file in $cache_dir"

@@ -12,7 +12,10 @@
 #
 # Cases, one PASS/FAIL line each: first run (cold cache: downloads, verifies, installs 0755, execs, passes argv
 # and stdin through), second run (the served asset is DELETED first, so a warm-cache run that still succeeds
-# proves it made no request), wrong checksum (exit 11, nothing installed). Exits non-zero if any case FAILs.
+# proves it made no request), the P5-18 hooks on a cold cache (`hook prompt` and `hook session-end` exit 0 in
+# silence with the asset not even served; a `hook session-start` whose detached download fails leaves the
+# failure marker, which the next `hook prompt` reports once with exit 9), wrong checksum (exit 11, nothing
+# installed). Exits non-zero if any case FAILs.
 set -eu
 
 image=alpine:3.20
@@ -31,9 +34,10 @@ set -u
 version=9.9.9
 port=8080
 fails=0
+passes=0
 
 say() { printf '%s\n' "$*"; }
-pass() { printf 'PASS  %s\n' "$*"; }
+pass() { printf 'PASS  %s\n' "$*"; passes=$((passes + 1)); }
 fail() { printf 'FAIL  %s\n' "$*"; fails=$((fails + 1)); }
 
 say "busybox: $(busybox | head -n 1)"
@@ -124,6 +128,69 @@ printf '\n'
 cat
 FAKE
 
+# ---- case 4 (P5-18): a cold-cache `hook prompt` / `hook session-end` never downloads --------------------------
+# The served asset is deleted first: a hook that took the download path would exit 9 with a `download failed`
+# line, not the exit 0 and silence required here.
+rm -f "/srv/v$version/$asset"
+for sub in prompt session-end; do
+  status=0
+  run_bootstrap /work/h4 hook "$sub" || status=$?
+  if [ "$status" != 0 ]; then
+    fail "cold-cache hook $sub: exit $status (expected 0)"; sed 's/^/      err| /' /work/err.txt
+  elif [ -s /work/out.txt ] || [ -s /work/err.txt ]; then
+    fail "cold-cache hook $sub: printed something: out='$(cat /work/out.txt)' err='$(cat /work/err.txt)'"
+  elif [ -e "/work/h4/data/brigade/bin/brigade-$version-linux-$arch" ]; then
+    fail "cold-cache hook $sub: installed a binary"
+  else
+    pass "cold-cache hook $sub: exit 0, silent, nothing downloaded (the asset was not even served)"
+  fi
+done
+
+# ---- case 5 (P5-18): a failed detached install is reported once, by the next `hook prompt`, with exit 9 -------
+marker=/work/h4/data/brigade/bin/brigade-$version-linux-$arch.failed
+status=0
+run_bootstrap /work/h4 hook session-start || status=$?
+i=0
+while [ ! -s "$marker" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+if [ "$status" != 0 ]; then
+  fail "hook session-start: exit $status (expected 0)"; sed 's/^/      err| /' /work/err.txt
+elif ! grep -q 'installing the brigade binary in the background' /work/out.txt; then
+  fail "hook session-start: no context line: '$(cat /work/out.txt)'"
+elif [ ! -s "$marker" ]; then
+  fail "hook session-start: the detached worker left no failure marker at $marker"
+elif ! grep -q '^9 download failed: ' "$marker"; then
+  fail "failure marker content: '$(cat "$marker")'"
+elif [ -n "$(find /work/h4/data/brigade/bin -name '.brigade-*' -print -quit)" ]; then
+  fail "the failed worker left a .brigade-* temp file behind"
+else
+  status=0
+  run_bootstrap /work/h4 hook prompt || status=$?
+  if [ "$status" != 9 ]; then
+    fail "hook prompt after a failed install: exit $status (expected 9)"; sed 's/^/      err| /' /work/err.txt
+  elif ! grep -q '^Brigade: not installed: download failed: ' /work/err.txt; then
+    fail "hook prompt after a failed install: stderr is '$(cat /work/err.txt)'"
+  elif [ -s /work/out.txt ]; then
+    fail "hook prompt after a failed install: stdout is '$(cat /work/out.txt)'"
+  elif [ -e "$marker" ]; then
+    fail "hook prompt after a failed install: the marker survived the report"
+  else
+    status=0
+    run_bootstrap /work/h4 hook prompt || status=$?
+    if [ "$status" != 0 ] || [ -s /work/out.txt ] || [ -s /work/err.txt ]; then
+      fail "second hook prompt: exit $status out='$(cat /work/out.txt)' err='$(cat /work/err.txt)' (expected 0 and silence)"
+    else
+      pass "failed detached install: session-start returned at once, the marker was written, hook prompt reported it once with exit 9, then silence"
+    fi
+  fi
+fi
+cat > "/srv/v$version/$asset" <<'FAKE'
+#!/bin/sh
+printf 'ARGV:'
+for a in "$@"; do printf ' %s' "$a"; done
+printf '\n'
+cat
+FAKE
+
 # ---- case 3: a wrong checksum installs nothing -------------------------------------------------------------
 printf '%s  %s\n' 0000000000000000000000000000000000000000000000000000000000000000 "$asset" > /work/plugin/bin/checksums.txt
 status=0
@@ -140,9 +207,9 @@ fi
 
 say ""
 if [ "$fails" = 0 ]; then
-  say "bootstrap-alpine: 3/3 cases PASS"
+  say "bootstrap-alpine: $passes/$passes cases PASS"
   exit 0
 fi
-say "bootstrap-alpine: $fails case(s) FAILED"
+say "bootstrap-alpine: $fails of $((passes + fails)) case(s) FAILED"
 exit 1
 INNER
