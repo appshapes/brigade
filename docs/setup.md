@@ -60,11 +60,11 @@ to-do: every option has a working default (see [plugin/README.md](../plugin/READ
 and no watcher, so no session integration:
 
 ```sh
-go install github.com/appshapes/brigade/cmd/brigade@v0.1.0
+go install github.com/appshapes/brigade/cmd/brigade@v0.2.0
 ```
 
-Two things to know about it. It reports its version with a leading `v` (`v0.1.0`) where the released binary
-reports `0.1.0`, because that version comes from the module rather than from the release build. And if it sits on
+Two things to know about it. It reports its version with a leading `v` (`v0.2.0`) where the released binary
+reports `0.2.0`, because that version comes from the module rather than from the release build. And if it sits on
 your `PATH` ahead of the plugin's own copy, every session starts with a line saying another `brigade` shadows the
 plugin's, and the Bash tool runs that one instead of the version the plugin pins.
 

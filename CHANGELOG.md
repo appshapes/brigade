@@ -7,6 +7,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [0.2.0] — 2026-09-07
+
+**The project owns the team.** 0.2.0 replaces per-user profiles with a committed project file: a Brigade team now
+belongs to a repository, named by `.brigade.json` at its top level, and every session in that checkout joins that
+team with no per-session configuration. This is a **breaking** change with no migration path — there are no users
+of 0.1.0 to migrate — so a 0.1.0 credential store is not read by 0.2.0.
+
+### Changed — breaking
+
+- **`.brigade.json`, committed at the repository top level, names the team.** It carries only public values —
+  the backend URL, the publishable key, the team's reference and name — so it is safe in version control; the
+  join secret is never in it. Discovery walks up from the session's working directory and stops at the repository
+  toplevel: a directory outside any repository names no team, and a file above the toplevel is never read.
+- **`brigade team create` is one command in the checkout.** It creates the team, writes `.brigade.json`, and
+  stores the administrator's credential; `--secret-file` is now **required** and must be an absolute path outside
+  the repository. The old `brigade profile init` + `team create --prompt` pair is gone.
+- **`brigade team join` takes no arguments.** In the project checkout it reads `.brigade.json`, shows the team and
+  backend host and asks the human to confirm before the secret is typed, then reads the secret without echo. There
+  is no `--profile`, `--url` or `--key`. A second checkout, or a member of two teams whose file is re-pointed by a
+  pull, re-runs `team join` to consent to the change; the join secret is required for any move to a different team.
+- **The user-facing profile concept is deleted.** The `profile` plugin option, `brigade profile init|status|reset|
+  revoke-credentials`, and `--profile` on the harness commands are gone. Their replacements are the project file,
+  `brigade team status|reset|revoke-credentials|list`, and `--team <ref-or-name>` (terminal only). The credential
+  store moved from `~/.config/brigade/profiles/<name>/` to `~/.config/brigade/teams/<key>/`.
+- **The SessionStart hook is attach-only.** It attaches a session to a team only when the project file, a
+  per-checkout pin recording a human's consent, and the local binding all agree; a re-pointed file attaches to
+  neither team and prints one line until a human reviews the change. A repository with no `.brigade.json` leaves
+  Brigade silently off.
+- **An adapter is named, not commanded, by the project.** `.brigade.json`'s `adapter` field is a dialect name,
+  resolved on the reader's own machine through `~/.config/brigade/adapters.json`; the bundled `supabase` adapter
+  needs no entry. A hostile clone can never point a session at an executable.
+
+The **adapter protocol (BAP/1) is unchanged**: the frozen wire contract, including its `--profile` vocabulary,
+still stands, and the harness drives adapters with an internally derived team key as the profile name.
+
+### Fixed
+
+- The setup documents match what a new user sees: the cold-cache first-use download and the registration line on a
+  later prompt, the `8 userConfig options not yet set` line, `claude plugin marketplace remove`, and the frame-level
+  ruling recorded in [`docs/security.md`](docs/security.md) (the ten corrections tracked as P5-19).
+
 ## [0.1.0] — 2026-09-06
 
 The first release. Plugin and binary version `0.1.0`, produced by `make release`, which writes
