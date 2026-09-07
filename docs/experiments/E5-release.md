@@ -1,7 +1,9 @@
-# E5-release — preparing 0.1.0: the preconditions, the practice rehearsal, and the cold-cache first prompt
+# E5-release — the 0.1.0 and 0.2.0 releases: preconditions, rehearsal, and the distribution proof
 
-Date: 2026-09-05 (phase A) and 2026-09-06 (phase B) · Ticket 15 · Status: **RELEASED 2026-09-06 — tag `v0.1.0` on `2fb158b`, run 34029404604, five assets; section 11 measured after the tag (see "Measured after the tag"). Before that: PHASE A and PHASE B recorded; what is
-left waits for the tag (section 11)** ·
+Date: 2026-09-05/06 (0.1.0) and 2026-09-07 (0.2.0) · Ticket 15 · Status: **0.2.0 RELEASED 2026-09-07 — tag
+`v0.2.0` on `ccc6a12`, release run 34109358721, five assets; the distribution proof is in "0.2.0 release
+(P7-9)" at the end of this document. 0.1.0 RELEASED 2026-09-06 — tag `v0.1.0` on `2fb158b`, run 34029404604,
+five assets; section 11 measured after the tag (see "Measured after the tag")** ·
 Harness: `.ignored/proof/<stamp>-release-a/harness/` in the lane worktree (the E0-8 pacing server with a route and a
 request log added, plus a driver and a probe plugin written for this item); phase B's records are in
 `.ignored/tools/p5-10b/author/`
@@ -849,3 +851,51 @@ compatibility surface, and a convention change becomes a migration. What hardens
 9. **The keep-alive's public-repository clause is active**: GitHub disables a scheduled workflow after 60 days without
    repository activity in a public repository. `docs/setup.md` says so for a public repository as of this commit, and
    the administrator has that standing responsibility.
+
+---
+
+## 0.2.0 release (P7-9)
+
+Date: 2026-09-07 · Host: macOS 26.6.1, Darwin 25.6.0, arm64 · Go go1.27.0 (`go.mod` go line `1.27.0`,
+**unchanged** since 0.1.0 — no toolchain bump, so the release rebuilds reproducibly) · goreleaser v2.18.0.
+
+0.2.0 is "the project owns the team" (P7-1..P7-8): the committed `.brigade.json`, one-command `team create`,
+parameterless `team join`, the attach-only hook, and the deletion of the user-facing profile concept. Breaking, no
+migration (zero users), no protocol change.
+
+**The release sequence, run end to end (Rjae's ruling 2026-09-07).**
+
+1. Release-prep commit `3cf0bab`: the `## [0.2.0]` changelog section (breaking changes lead) and the version
+   strings that move with the release (`go install …@v0.2.0`, the "current release" prose). Version pins
+   (`VERSION`, `plugin.json`) left for `make release` to bump.
+2. `DRY_RUN=1 make release version=0.2.0` — steps 1–3 only: bumped the pins, `make cross` built the four targets,
+   and **goreleaser reproduced `dist-cross/checksums.txt` byte for byte** (the drift guard between
+   `.goreleaser.yaml` and the Makefile). The dry-run pin changes were reset to a clean tree.
+3. `make release version=0.2.0` — the real run: pinned `VERSION`/`plugin.json` to 0.2.0, rebuilt, cross-checked
+   with goreleaser again, committed the checksums as `ccc6a12` ("15: Release 0.2.0") through the full push gate,
+   tagged `v0.2.0` and pushed the tag.
+4. Release workflow **run 34109358721, success**: rebuilt the four binaries from the tag, verified them against
+   the committed `plugin/bin/checksums.txt`, and published the release `v0.2.0` (not a draft).
+
+**Acceptance criteria — all met.**
+
+| Criterion | Result |
+| --- | --- |
+| `make deps-check` green, `docs/allowed-deps.txt` zero-diff | ✅ the new packages (`teamfile`, `teamstore`, `teamstore/write`) are stdlib + internal only |
+| `go.mod` `go` line unchanged since 0.1.0 | ✅ `git diff 3cf0bab..ccc6a12 -- go.mod` empty |
+| `make plugin-check`: VERSION == plugin.json == 0.2.0 | ✅ |
+| `checksums-check` rule (c) on the release-record commit passes **by its fresh-build arm** (the `5ae1d18` precedent) | ✅ "(c) a fresh build of this source reproduces plugin/bin/checksums.txt" — never the published-release fallback |
+| The tag's release run reproduces the committed checksums and publishes | ✅ run 34109358721, five assets |
+| Published `checksums.txt` == committed `plugin/bin/checksums.txt` | ✅ byte-identical |
+| Every published binary's sha256 matches `checksums.txt` (the plugin's own download check) | ✅ all four `OK` under `shasum -a 256 -c` |
+| `go install github.com/appshapes/brigade/cmd/brigade@v0.2.0` builds and reports `v0.2.0` | ✅ (the module-derived leading `v`; the released binary reports `0.2.0`) |
+| The create→commit→join→attach→send→inject→reply loop on the released model | ✅ proven GREEN by `make harness-smoke` (P7-6b) against a build byte-identical to the release cross-compile; a real `claude -p` session attached through `.brigade.json`, the pin and the binding and completed the loop |
+
+**Published assets** (release `v0.2.0`): `brigade_0.2.0_{darwin_arm64,darwin_amd64,linux_amd64,linux_arm64}` and
+`checksums.txt` — five, macOS and Linux only (Windows means WSL 2), ~8 MB each.
+
+**One arm owner-gated, not run here.** A fresh-configuration-dir **marketplace** install of the *published* plugin
+driving a real session against a *hosted* Supabase project — the E5-release-style end-to-end distribution proof —
+needs real Claude Code, a network and a hosted project, and stays the owner's to run at the keyboard, as for 0.1.0.
+Its every component is covered above: the download-and-verify path (the checksum match), the binary itself (`go
+install` + the sha256 checks), and the session loop (harness-smoke on the byte-identical build).
