@@ -21,7 +21,10 @@ a reference of the form `see "P5-10 DONE — 0.1.0 RELEASED"` resolves there. Th
 2. Read `docs/research/README.md` for what the eleven digests contain and `docs/research/decisions-2026-08-30.md`
    for the decision brief (it overrides the plan where they disagree).
 3. Read `.context/plans/v0.1.0-followups.md` for everything open after 0.1.0, then find the first row below with
-   status `todo`, run it at the model tier in its column, and update its row.
+   status `todo`, run it at the model tier in its column, and update its row. As of the 0.2.0 release the two live
+   `todo` rows are **P5-16** (Homebrew tap / Linux distribution channels) and **P7-6c** (migrate the three sibling
+   proof drivers — `proof-headless.sh`, `proof-idle-wake.sh`, `proof-crash-resume.sh` — to the repo-file model);
+   every other P-row is `done`.
 
 ## Model tier policy
 
