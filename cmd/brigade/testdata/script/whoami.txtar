@@ -38,7 +38,7 @@ json stdout .ok true
 json stdout .result.session_id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 json stdout .result.session_name payments-api
 json stdout .result.team_name ops
-json stdout .result.profile alpha
+! stdout '"profile"'
 json stdout .result.inbound accept
 json stdout .result.adapter_name fake-adapter
 json stdout .result.adapter_version 0.0.0-fake
@@ -55,7 +55,7 @@ status 2 brigade whoami extra
 expand map-plugin-bin.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.json
 expand want-whoami-terminal.in want-whoami-terminal.txt
 exec brigade whoami
-stdout '^session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" \(profile alpha, adapter fake-adapter 0.0.0-fake\); inbound: accept$'
+stdout '^session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" \(adapter fake-adapter 0.0.0-fake\); inbound: accept$'
 stdout '^terminal: .*/plugin-root/bin/brigade$'
 # The whole output, not two line patterns: the path is printed in FULL (the
 # human copies it into a symlink) and the only line after it is the frame
@@ -103,10 +103,10 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 -- script.json.in --
 {"dump_file": "$WORK/dump.ndjson"}
 -- want-whoami.txt --
-session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (profile alpha, adapter fake-adapter 0.0.0-fake); inbound: accept
+session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (adapter fake-adapter 0.0.0-fake); inbound: accept
 frame: open
 -- want-whoami-terminal.in --
-session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (profile alpha, adapter fake-adapter 0.0.0-fake); inbound: accept
+session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (adapter fake-adapter 0.0.0-fake); inbound: accept
 terminal: $WORK/.brigade/plugin-root/bin/brigade
 frame: open
 -- warm.json --

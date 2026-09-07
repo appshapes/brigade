@@ -16,7 +16,7 @@ func TestWhoamiLine(t *testing.T) {
 	if err := Whoami(f.inv(f.sessionEnv(), "")); err != nil {
 		t.Fatalf("whoami: %v", err)
 	}
-	want := "session " + selfSessionID + " \"payments-api\" in team \"ops\" (profile alpha, adapter " +
+	want := "session " + selfSessionID + " \"payments-api\" in team \"ops\" (adapter " +
 		fakeadapter.AdapterName + " " + fakeadapter.AdapterVersion + "); inbound: accept\nframe: open\n"
 	if f.out.String() != want {
 		t.Errorf("stdout:\n got %q\nwant %q", f.out.String(), want)
@@ -153,7 +153,7 @@ func TestWhoamiJSON(t *testing.T) {
 		t.Fatalf("envelope not ok: %s", f.out.String())
 	}
 	if result["session_id"] != selfSessionID || result["self_session_id"] != selfSessionID ||
-		result["team_name"] != fixtureTeamName || result["profile"] != fixtureProfile ||
+		result["team_name"] != fixtureTeamName || result["profile"] != nil ||
 		result["adapter_name"] != fakeadapter.AdapterName || result["inbound"] != "accept" || result["note"] != WhoamiNote {
 		t.Errorf("result = %v", result)
 	}

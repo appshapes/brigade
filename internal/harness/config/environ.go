@@ -112,14 +112,6 @@ func BrigadeStateDir(environ []string) (string, error) {
 	return adapterkit.StateDir(Trusted(environ))
 }
 
-// ProfileName resolves the profile a TERMINAL command acts on when no
-// --profile flag was given: BRIGADE_PROFILE outside a session, "default"
-// inside one (where the profile comes from the options or the map, never
-// from the environment).
-func ProfileName(environ []string) string {
-	return adapterkit.ProfileName(Trusted(environ))
-}
-
 // ClaudePID reads CLAUDE_PID as a positive integer. Unset is `config`
 // with details.reason not_in_session; a non-integer or non-positive value
 // is `config` with invalid_claude_pid. The value is never echoed.
@@ -128,7 +120,7 @@ func ClaudePID(environ []string) (int, error) {
 	if raw == "" {
 		return 0, &protocol.Error{
 			Code:    protocol.CodeConfig,
-			Message: "not inside a Claude Code session (CLAUDE_PID is unset); this command runs from a session's Bash tool, and the terminal commands take --profile instead",
+			Message: "not inside a Claude Code session (CLAUDE_PID is unset); this command runs from a session's Bash tool; the terminal commands resolve their team from the checkout's pin (or --team)",
 			Details: map[string]string{"reason": ReasonNotInSession, "variable": ClaudePIDVar},
 		}
 	}

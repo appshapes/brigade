@@ -353,15 +353,16 @@ func TestSendIgnoresHostileEnvironment(t *testing.T) {
 		}
 	}
 
-	// Control: outside a session the shell's BRIGADE_PROFILE is the user's
-	// own and IS honoured — the same variable steers the child's --profile.
+	// P7-7: the profile surface is gone EVERYWHERE — outside a session
+	// the shell's BRIGADE_PROFILE steers nothing either; the chain
+	// resolves (an empty store answers the default name).
 	g := newFixture(t)
 	g.rec.on("session list", okAnswer(listResult()))
 	if err := Sessions(g.inv(g.terminalEnv("BRIGADE_PROFILE=evil"), ""), SessionsOptions{}); err != nil {
 		t.Fatalf("control: sessions in a terminal: %v", err)
 	}
 	argv := g.rec.spec(t, 0).Argv
-	if argv[slices.Index(argv, "--profile")+1] != "evil" {
-		t.Errorf("control: argv %v does not honour the shell's BRIGADE_PROFILE outside a session", argv)
+	if argv[slices.Index(argv, "--profile")+1] != "default" {
+		t.Errorf("control: argv %v let the shell's BRIGADE_PROFILE steer the child", argv)
 	}
 }

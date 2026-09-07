@@ -32,7 +32,8 @@ bin/brigade-adapter-fs message receive --session <B>
 bin/brigade-adapter-fs message watch --session <B>          # NDJSON until stdin EOF, a close command or SIGTERM
 ```
 
-`team create` prints the join secret once. A second profile joins with it:
+`team create` writes the join secret to its `--secret-file`. A second persona (its own `BRIGADE_CONFIG_DIR`)
+joins with it over the frozen adapter protocol:
 
 ```sh
 echo '{"join_secret":"brg1.…","human_label":"them@example.com"}' \

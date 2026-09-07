@@ -14,8 +14,9 @@ import (
 type SessionsOptions struct {
 	// All includes offline sessions.
 	All bool
-	// Profile is --profile, honoured in a terminal only.
-	Profile string
+	// Team is --team, honoured in a terminal only: a team ref or name
+	// resolved through the local store.
+	Team string
 }
 
 // SessionsNote is the note member of the `sessions --json` result.
@@ -48,7 +49,7 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	if len(inv.Args) > 0 {
 		return usage("sessions takes no arguments")
 	}
-	t, err := inv.resolveSession(opts.Profile)
+	t, err := inv.resolveSession(opts.Team)
 	if err != nil {
 		return err
 	}

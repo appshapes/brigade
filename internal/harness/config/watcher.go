@@ -67,7 +67,7 @@ func FromWatcherEnv(environ []string) (WatcherEnv, error) {
 		w.Profile = adapterkit.DefaultProfileName
 	}
 	if err := adapterkit.CheckProfileName(w.Profile); err != nil {
-		return WatcherEnv{}, watcherErr(WatcherProfileVar, ReasonInvalidProfileName, "the watcher's profile name is invalid")
+		return WatcherEnv{}, watcherErr(WatcherProfileVar, "invalid_team_key", "the watcher's team key is invalid")
 	}
 
 	for _, d := range []struct {

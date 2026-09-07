@@ -354,25 +354,18 @@ func TestCheckAdapterName(t *testing.T) {
 	}
 }
 
-func TestSidecarAndRegistryPaths(t *testing.T) {
+func TestRegistryPath(t *testing.T) {
 	t.Parallel()
-	got, err := config.SidecarPath("/c", "work")
-	if err != nil || got != "/c/teams/work/adapter" {
-		t.Fatalf("SidecarPath = %q, %v", got, err)
-	}
-	if _, err := config.SidecarPath("/c", "../"+evilMarker); err == nil {
-		t.Fatal("SidecarPath accepted a traversing profile")
-	}
 	if got := config.RegistryPath("/c"); got != "/c/adapters.json" {
 		t.Fatalf("RegistryPath = %q", got)
 	}
 }
 
-// TestRegisterAdapterAndWriteSidecar is the P3-3 seam of D36: `profile init
-// --adapter` registers a third-party name in adapters.json and writes the
-// profile's sidecar, and what it writes is exactly what ResolveAdapter
-// reads back.
-func TestRegisterAdapterAndWriteSidecar(t *testing.T) {
+// TestRegisterAdapter is D36's registry half (P7-7: the sidecar is
+// gone): a registered name is what the option and the binding's name
+// resolve through, 0600, later registrations overwriting their own
+// entry only.
+func TestRegisterAdapter(t *testing.T) {
 	t.Parallel()
 	configDir := filepath.Join(t.TempDir(), "config")
 	const profile = "work"
@@ -403,37 +396,9 @@ func TestRegisterAdapterAndWriteSidecar(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertAdapter(t, got, []string{"/opt/other2"}, false, config.SourceOption)
-
-	// The sidecar: a registered name resolves and is written as one line;
-	// the next SessionStart reads it back with Source sidecar.
-	a, err := config.WriteSidecar(configDir, profile, "fs")
-	if err != nil {
-		t.Fatalf("WriteSidecar: %v", err)
-	}
-	assertAdapter(t, a, []string{"/opt/adapter-fs", "--root", "/srv/a b"}, false, config.SourceSidecar)
-	path, err := config.SidecarPath(configDir, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(raw) != "fs\n" {
-		t.Fatalf("sidecar content %q, want %q", raw, "fs\n")
-	}
-	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
-		t.Fatalf("sidecar mode: %v %v", fi, err)
-	}
-	// P7-6: ResolveAdapter no longer reads the sidecar back — the write
-	// side survives one more commit (P7-7 deletes it with profile.go);
-	// a path and an array form are still accepted, and overwrite.
-	if _, err := config.WriteSidecar(configDir, profile, ` ["/opt/x","--flag"] `); err != nil {
-		t.Fatal(err)
-	}
 }
 
-func TestRegisterAdapterAndWriteSidecarRefusals(t *testing.T) {
+func TestRegisterAdapterRefusals(t *testing.T) {
 	t.Parallel()
 	t.Run("register refusals write nothing", func(t *testing.T) {
 		t.Parallel()
@@ -484,36 +449,5 @@ func TestRegisterAdapterAndWriteSidecarRefusals(t *testing.T) {
 		if string(raw) != "{not json" {
 			t.Fatalf("the malformed registry was replaced: %q", raw)
 		}
-	})
-	t.Run("sidecar refusals write nothing", func(t *testing.T) {
-		t.Parallel()
-		configDir := filepath.Join(t.TempDir(), "config")
-		for _, tc := range []struct {
-			value  string
-			reason string
-		}{
-			{"unregistered-" + evilMarker, config.ReasonAdapterUnregistered},
-			{"bin/" + evilMarker, config.ReasonAdapterRelative},
-			{"/opt/adapter --root " + evilMarker, config.ReasonAdapterMalformed},
-			{"", config.ReasonAdapterMalformed},
-		} {
-			_, err := config.WriteSidecar(configDir, "default", tc.value)
-			details := assertConfig(t, err, tc.reason)
-			if details["source"] != config.SourceSidecar {
-				t.Fatalf("%q: source = %q", tc.value, details["source"])
-			}
-		}
-		if _, err := config.WriteSidecar(configDir, "../"+evilMarker, "/opt/adapter"); err == nil {
-			t.Fatal("a traversing profile name was accepted")
-		}
-		if _, err := os.Stat(configDir); !os.IsNotExist(err) {
-			t.Fatalf("a refused sidecar created the config dir (stat err %v)", err)
-		}
-		// Positive control: the bundled name needs no registry and writes.
-		a, err := config.WriteSidecar(configDir, "default", "supabase")
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertAdapter(t, a, nil, true, config.SourceSidecar)
 	})
 }

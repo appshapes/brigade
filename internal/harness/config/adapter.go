@@ -31,7 +31,6 @@ const (
 // The Adapter.Source values.
 const (
 	SourceOption  = "option"
-	SourceSidecar = "sidecar"
 	SourceProfile = "profile"
 	SourceBundled = "bundled"
 	// SourceMap: rebuilt from the by-pid map's adapter_command
@@ -55,10 +54,9 @@ const (
 	// ReasonRegistryMalformed: adapters.json is not an object of
 	// string-or-array values.
 	ReasonRegistryMalformed = "registry_malformed"
-	// ReasonSidecarUnreadable and ReasonRegistryUnreadable: an I/O failure
+	// ReasonRegistryUnreadable: an I/O failure
 	// other than "missing" or a mode refusal (which ReadStrict reports as
 	// insecure_mode).
-	ReasonSidecarUnreadable  = "sidecar_unreadable"
 	ReasonRegistryUnreadable = "registry_unreadable"
 )
 
@@ -142,16 +140,6 @@ func DecodeAdapter(s string) (Adapter, error) {
 	default:
 		return Adapter{}, errAdapter(ReasonAdapterMalformed, SourceEnv, msgMalformedResolved)
 	}
-}
-
-// SidecarPath is ${configDir}/teams/<profile>/adapter after validating
-// the profile name.
-func SidecarPath(configDir, profile string) (string, error) {
-	dir, err := adapterkit.ProfileDir(configDir, profile)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, SidecarFileName), nil
 }
 
 // RegistryPath is ${configDir}/adapters.json.
@@ -334,32 +322,6 @@ func errAdapter(reason, source, message string) *protocol.Error {
 // SourceRegistry names adapters.json itself as the source of a failure of
 // RegisterAdapter.
 const SourceRegistry = "registry"
-
-// WriteSidecar records value as the profile's default adapter (D36 step
-// 2, `brigade profile init --adapter`): ${configDir}/teams/<profile>/
-// adapter, one line, 0600 in a 0700 directory, written atomically. value is
-// parsed exactly as ResolveAdapter will parse it and refused on the same
-// terms, so a sidecar that the next SessionStart would refuse is never
-// written — a registered name must therefore be in adapters.json BEFORE the
-// sidecar names it (RegisterAdapter first). The resolved Adapter (Source
-// sidecar) is returned so the caller can spawn it.
-func WriteSidecar(configDir, profile, value string) (Adapter, error) {
-	a, err := parseSpec(value, configDir, SourceSidecar)
-	if err != nil {
-		return Adapter{}, err
-	}
-	path, err := SidecarPath(configDir, profile)
-	if err != nil {
-		return Adapter{}, err
-	}
-	if err := adapterkit.MkdirPrivate(filepath.Dir(path)); err != nil {
-		return Adapter{}, errAdapter(ReasonSidecarUnreadable, SourceSidecar, "the profile directory could not be created")
-	}
-	if err := adapterkit.WriteAtomic(path, []byte(strings.TrimSpace(value)+"\n")); err != nil {
-		return Adapter{}, errAdapter(ReasonSidecarUnreadable, SourceSidecar, "the profile's adapter sidecar could not be written")
-	}
-	return a, nil
-}
 
 // RegisterAdapter adds or replaces the entry name → argv in
 // ${configDir}/adapters.json (D36: a third-party name is registered once by

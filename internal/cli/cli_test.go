@@ -498,7 +498,7 @@ func TestCommandTableIsWellFormed(t *testing.T) {
 			t.Errorf("%s: multi-call entrypoints are hidden from `help`", c.Name)
 		}
 	}
-	for _, want := range []string{"version", "help", "sessions", "send", "whoami", "team", "profile", "inbox", "hook", "watch", "adapter"} {
+	for _, want := range []string{"version", "help", "sessions", "send", "whoami", "team", "inbox", "hook", "watch", "adapter"} {
 		if !seen[want] {
 			t.Errorf("the 6.4 command %q is missing from the table", want)
 		}
@@ -749,7 +749,7 @@ func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
 			t.Errorf("%s: still a placeholder (Task %q)", c.Name, c.Task)
 		}
 	}
-	for _, raw := range []string{"team", "profile"} {
+	for _, raw := range []string{"team"} {
 		if cmd, _ := Lookup(raw); !cmd.Raw {
 			t.Errorf("%s: not Raw; the adapter flags it forwards would be usage errors", raw)
 		}
@@ -764,7 +764,7 @@ func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
 		t.Errorf("help still carries a placeholder block:\n%s", got.stdout)
 	}
 	commandsBlock := got.stdout[strings.Index(got.stdout, "Commands:"):strings.Index(got.stdout, "Global flags:")]
-	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer", "profile init|status", "inbox [release]"} {
+	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer", "inbox [release]"} {
 		if !strings.Contains(commandsBlock, want) {
 			t.Errorf("help's Commands block lacks %q:\n%s", want, commandsBlock)
 		}
@@ -877,7 +877,7 @@ func TestExitStatusIsForwardedSilentlySerial(t *testing.T) {
 func TestSessionBoundCommandsOutsideASessionFailCleanly(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{
-		{"sessions"}, {"send", "x"}, {"whoami"}, {"team", "members"}, {"profile", "status"},
+		{"sessions"}, {"send", "x"}, {"whoami"}, {"team", "members"}, {"team", "status"},
 	} {
 		got := dispatch(t, args...)
 		if got.exit == ExitOK || got.exit == CodeInternal.Exit() {

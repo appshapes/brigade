@@ -47,7 +47,6 @@ var userConfigOptions = []string{
 	"frame",
 	"frame_file",
 	"poll_on_prompt",
-	"profile",
 	"share_workspace_label",
 	"team_inbound",
 	"workspace_label",

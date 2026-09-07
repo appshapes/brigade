@@ -20,18 +20,19 @@ func TestParseRaw(t *testing.T) {
 		wantErr     bool
 	}{
 		{"adapter flags pass", []string{"--prompt", "--label", "x"}, false, rawArgs{Rest: []string{"--prompt", "--label", "x"}}, false},
-		{"profile consumed", []string{"--profile", "bob", "--prompt"}, false, rawArgs{Profile: "bob", Rest: []string{"--prompt"}}, false},
-		{"profile= form", []string{"--profile=bob"}, false, rawArgs{Profile: "bob"}, false},
-		{"single dash", []string{"-profile", "bob", "-json"}, false, rawArgs{Profile: "bob", JSON: true}, false},
+		{"team consumed", []string{"--team", "ops", "--prompt"}, false, rawArgs{Team: "ops", Rest: []string{"--prompt"}}, false},
+		{"team= form", []string{"--team=ops"}, false, rawArgs{Team: "ops"}, false},
+		{"single dash", []string{"-team", "ops", "-json"}, false, rawArgs{Team: "ops", JSON: true}, false},
+		{"profile is not the harness's any more (P7-7)", []string{"--profile", "bob"}, false, rawArgs{Rest: []string{"--profile", "bob"}}, false},
 		{"json and log-level", []string{"--json", "--log-level", "debug", "--force"}, false, rawArgs{JSON: true, LogLevel: "debug", Rest: []string{"--force"}}, false},
 		{"json=false", []string{"--json=false"}, false, rawArgs{}, false},
 		{"adapter only when allowed", []string{"--adapter", "fs"}, false, rawArgs{Rest: []string{"--adapter", "fs"}}, false},
 		{"adapter consumed for init", []string{"--adapter", "fs", "--url", "u"}, true, rawArgs{Adapter: "fs", Rest: []string{"--url", "u"}}, false},
 		{"adapter= form", []string{"--adapter=fs=/opt/fs"}, true, rawArgs{Adapter: "fs=/opt/fs"}, false},
-		{"double dash forwards verbatim", []string{"--profile", "p", "--", "--profile", "q", "--json"}, false, rawArgs{Profile: "p", Rest: []string{"--profile", "q", "--json"}}, false},
+		{"double dash forwards verbatim", []string{"--team", "p", "--", "--team", "q", "--json"}, false, rawArgs{Team: "p", Rest: []string{"--team", "q", "--json"}}, false},
 		{"positional kept", []string{"name", "-", "--prompt"}, false, rawArgs{Rest: []string{"name", "-", "--prompt"}}, false},
-		{"missing value", []string{"--profile"}, false, rawArgs{}, true},
-		{"empty value", []string{"--profile="}, false, rawArgs{}, true},
+		{"missing value", []string{"--team"}, false, rawArgs{}, true},
+		{"empty value", []string{"--team="}, false, rawArgs{}, true},
 		{"bad level", []string{"--log-level", "shout"}, false, rawArgs{}, true},
 		{"json with a value", []string{"--json=maybe"}, false, rawArgs{}, true},
 	}
@@ -46,7 +47,7 @@ func TestParseRaw(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseRaw: %v", err)
 			}
-			if got.JSON != tc.want.JSON || got.LogLevel != tc.want.LogLevel || got.Profile != tc.want.Profile ||
+			if got.JSON != tc.want.JSON || got.LogLevel != tc.want.LogLevel || got.Team != tc.want.Team ||
 				got.Adapter != tc.want.Adapter || !slices.Equal(got.Rest, tc.want.Rest) {
 				t.Errorf("parseRaw(%v) = %+v, want %+v", tc.args, got, tc.want)
 			}

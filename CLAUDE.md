@@ -43,8 +43,9 @@
   `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.9.0 -s sh <file>` as well as the local one, and
   re-pin this sentence and `scripts/ci/README.md`'s copy whenever the inventory step prints a different version.
 - Local dev: `make plugin-dev` writes the dev-binary pointer and starts Claude Code with the local plugin; `make
-  plugin-dev-off` removes it. Two profiles on one machine: pass
-  `--settings '{"pluginConfigs":{"brigade@inline":{"options":{"profile":"<name>"}}}}'`.
+  plugin-dev-off` removes it. Two personas on one machine: pass
+  `--settings '{"pluginConfigs":{"brigade@inline":{"options":{"config_dir":"<dir>"}}}}'` (P7-7: the profile
+  option is gone; each persona is its own credential store).
 - Experiment reports live in docs/experiments/ and their driver scripts in scripts/experiments/; the research digests and
   their evidence are committed under docs/research/ (the threat model defines U-01..U-25, I-01..I-33, E2E-*, CI-*;
   U-26..U-28 and I-34 are this plan's additions, defined in its sections 9.8/9.9); scratch in .ignored/; plans in

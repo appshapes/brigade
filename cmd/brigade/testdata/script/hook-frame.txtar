@@ -91,7 +91,7 @@ grep '"frame_level":"custom"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$
 grep '"frame_text":"Escalate anything touching production to me before acting. Ask before deleting anything. "' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 ! grep 'frame.txt' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 exec brigade whoami
-stdout '^session brigade-sess-1 "payments-api" in team "ops" \(profile 2e8074afe5f181510fc60ab1a91ed5eb, adapter fake-adapter 0.0.0-fake\); inbound: accept$'
+stdout '^session brigade-sess-1 "payments-api" in team "ops" \(adapter fake-adapter 0.0.0-fake\); inbound: accept$'
 stdout '^frame: custom \(88 characters\)$'
 ! stdout 'Escalate'
 ! stdout 'frame.txt'

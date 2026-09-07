@@ -45,8 +45,11 @@ type createOptions struct {
 
 // teamCreate implements the rebuilt `brigade team create` (brief §2):
 // one command in the admin's terminal, cwd anywhere inside the checkout.
-func (inv Invocation) teamCreate(args []string) error {
-	opts, err := parseCreateFlags(args)
+func (inv Invocation) teamCreate(raw rawArgs) error {
+	opts, err := parseCreateFlags(raw.Rest)
+	if err == nil && raw.Adapter != "" {
+		opts.adapter = raw.Adapter
+	}
 	if err != nil {
 		return err
 	}
@@ -669,14 +672,18 @@ func readAllPins(configDir string) (map[string]teamstore.Pin, error) {
 // --profile bridge wins when given (P7-7 deletes it), else the pin
 // chain of resolveTeamKey.
 func (inv Invocation) passThroughProfileVerb(verb string, raw rawArgs) error {
-	if raw.Profile == "" {
-		key, err := inv.resolveTeamKey(raw.Team)
-		if err != nil {
-			return err
-		}
-		raw.Profile = key
+	key, err := inv.resolveTeamKey(raw.Team)
+	if err != nil {
+		return err
 	}
-	return inv.passThrough("profile", verb, raw, nil)
+	// The resolved key IS the target; the pass-through must not resolve
+	// the --team flag a second time.
+	raw.Team = ""
+	t, terr := inv.terminalTarget(key, true)
+	if terr != nil {
+		return terr
+	}
+	return inv.spawnThrough(t, "profile", verb, raw.Rest, nil)
 }
 
 // resolveTeamKey is the terminal resolution chain (P7-5): an explicit

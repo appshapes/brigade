@@ -185,9 +185,6 @@ func TestHostileInheritedValuesU27(t *testing.T) {
 			if got, err := config.BrigadeStateDir(env); err != nil || got != tc.inState {
 				t.Fatalf("StateDir = %q, %v; want %q", got, err, tc.inState)
 			}
-			if got := config.ProfileName(env); got != tc.inProf {
-				t.Fatalf("ProfileName = %q, want %q", got, tc.inProf)
-			}
 		})
 		t.Run(tc.name+" outside a session", func(t *testing.T) {
 			t.Parallel()
@@ -200,9 +197,6 @@ func TestHostileInheritedValuesU27(t *testing.T) {
 				assertConfig(t, err, "relative_path")
 			} else if err != nil || got != tc.outState {
 				t.Fatalf("StateDir = %q, %v; want %q", got, err, tc.outState)
-			}
-			if got := config.ProfileName(env); got != tc.outProf {
-				t.Fatalf("ProfileName = %q, want %q", got, tc.outProf)
 			}
 		})
 	}

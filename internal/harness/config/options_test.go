@@ -17,7 +17,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOptions: %v", err)
 	}
-	want := config.Options{Profile: "default", ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, Frame: frame.DefaultLevel}
+	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, Frame: frame.DefaultLevel}
 	if got != want {
 		t.Fatalf("defaults =\n %+v\nwant\n %+v", got, want)
 	}
@@ -30,7 +30,6 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 	d := newDirs(t)
 	env := d.environ(
 		"CLAUDE_PID=4242",
-		config.OptionProfile+"=work",
 		config.OptionConfigDir+"=/opt/brigade-config/",
 		config.OptionAdapterCommand+`=["/opt/adapter","--root","/x"]`,
 		config.OptionTeamInbound+"=refuse",
@@ -45,7 +44,6 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		t.Fatalf("ParseOptions: %v", err)
 	}
 	want := config.Options{
-		Profile:             "work",
 		ConfigDir:           "/opt/brigade-config",
 		AdapterCommand:      `["/opt/adapter","--root","/x"]`,
 		TeamInbound:         config.InboundRefuse,
@@ -117,7 +115,7 @@ func TestParseOptionsHostileInheritedU27(t *testing.T) {
 		},
 		{
 			name:    "an explicit option beats the inherited value everywhere",
-			environ: []string{"BRIGADE_PROFILE=" + evilMarker, "BRIGADE_CONFIG_DIR=" + evilAbs, config.OptionProfile + "=work", config.OptionConfigDir + "=/opt/c"},
+			environ: []string{"BRIGADE_PROFILE=" + evilMarker, "BRIGADE_CONFIG_DIR=" + evilAbs, config.OptionConfigDir + "=/opt/c"},
 			in:      want{profile: "work", configDir: "/opt/c", inbound: config.InboundAccept},
 			out:     want{profile: "work", configDir: "/opt/c", inbound: config.InboundAccept},
 		},
@@ -128,8 +126,8 @@ func TestParseOptionsHostileInheritedU27(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseOptions: %v", err)
 		}
-		if got.Profile != w.profile || got.ConfigDir != w.configDir || got.AdapterCommand != w.adapter || got.TeamInbound != w.inbound {
-			t.Fatalf("got profile=%q config=%q adapter=%q inbound=%q; want %+v", got.Profile, got.ConfigDir, got.AdapterCommand, got.TeamInbound, w)
+		if got.ConfigDir != w.configDir || got.AdapterCommand != w.adapter || got.TeamInbound != w.inbound {
+			t.Fatalf("got config=%q adapter=%q inbound=%q; want %+v", got.ConfigDir, got.AdapterCommand, got.TeamInbound, w)
 		}
 	}
 	for _, tc := range cases {
@@ -153,10 +151,6 @@ func TestParseOptionsInvalidValues(t *testing.T) {
 		option string
 		reason string
 	}{
-		{"traversing profile", []string{config.OptionProfile + "=../" + evilMarker}, "profile", config.ReasonInvalidProfileName},
-		{"dot profile", []string{config.OptionProfile + "=." + evilMarker}, "profile", config.ReasonInvalidProfileName},
-		{"profile with a slash", []string{config.OptionProfile + "=a/" + evilMarker}, "profile", config.ReasonInvalidProfileName},
-		{"profile too long", []string{config.OptionProfile + "=" + strings.Repeat("a", 65)}, "profile", config.ReasonInvalidProfileName},
 		{"relative config_dir", []string{config.OptionConfigDir + "=rel/" + evilMarker}, "config_dir", config.ReasonRelativePath},
 		{"dot-relative config_dir", []string{config.OptionConfigDir + "=./" + evilMarker}, "config_dir", config.ReasonRelativePath},
 		{"share_workspace_label junk", []string{config.OptionShareWorkspaceLabel + "=maybe" + evilMarker}, "share_workspace_label", config.ReasonInvalidBoolean},
@@ -188,12 +182,14 @@ func TestParseOptionsInvalidValues(t *testing.T) {
 		t.Parallel()
 		// Positive control for the strip rule: an inherited value that
 		// would FAIL validation is ignored rather than refused.
-		got, err := config.ParseOptions(d.environ("CLAUDE_PID=4242", "BRIGADE_PROFILE=../"+evilMarker))
-		if err != nil || got.Profile != "default" {
-			t.Fatalf("ParseOptions = %+v, %v", got, err)
+		// P7-7: the profile option is gone; a hostile BRIGADE_PROFILE has
+		// nothing to poison in the options at all, in or out of a session.
+		if _, err := config.ParseOptions(d.environ("CLAUDE_PID=4242", "BRIGADE_PROFILE=../"+evilMarker)); err != nil {
+			t.Fatalf("ParseOptions = %v", err)
 		}
-		_, err = config.ParseOptions(d.environ("BRIGADE_PROFILE=../" + evilMarker))
-		assertConfig(t, err, config.ReasonInvalidProfileName)
+		if _, err := config.ParseOptions(d.environ("BRIGADE_PROFILE=../" + evilMarker)); err != nil {
+			t.Fatalf("ParseOptions (terminal) = %v", err)
+		}
 	})
 }
 

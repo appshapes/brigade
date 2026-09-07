@@ -69,11 +69,11 @@ func init() {
 		},
 		{
 			Name:    "sessions",
-			Args:    "[--all] [--profile <p>]",
+			Args:    "[--all] [--team <ref-or-name>]",
 			Summary: "list the team's sessions",
 			Flags: func(fs *flag.FlagSet) {
 				fs.Bool("all", false, "include offline sessions")
-				fs.String("profile", "", "the profile to act on (terminal only; a session's profile comes from its map)")
+				fs.String("team", "", "the team to act on, by ref or name (terminal only; a session's team comes from its map)")
 			},
 			Run: runSessions,
 		},
@@ -99,13 +99,6 @@ func init() {
 			Summary: "create, join, leave and administer a team, and list its members",
 			Raw:     true,
 			Run:     runTeam,
-		},
-		{
-			Name:    "profile",
-			Args:    "init|status|reset|revoke-credentials [--profile <p>] [--adapter <name-or-command>] [adapter flags]",
-			Summary: "manage the local profile and its credentials",
-			Raw:     true,
-			Run:     runProfile,
 		},
 		{
 			Name:    "inbox",
@@ -223,8 +216,8 @@ func stringFlag(cx *Context, name string) string {
 // runSessions is the table's Run for `sessions`.
 func runSessions(cx *Context, args []string) error {
 	return harnesscmd.Sessions(invocation(cx, args), harnesscmd.SessionsOptions{
-		All:     cx.Bool("all"),
-		Profile: stringFlag(cx, "profile"),
+		All:  cx.Bool("all"),
+		Team: stringFlag(cx, "team"),
 	})
 }
 
@@ -256,9 +249,4 @@ func runInbox(cx *Context, args []string) error {
 // flags are parsed by the command).
 func runTeam(cx *Context, args []string) error {
 	return harnesscmd.Team(invocation(cx, args))
-}
-
-// runProfile is the table's Run for `profile` (raw).
-func runProfile(cx *Context, args []string) error {
-	return harnesscmd.Profile(invocation(cx, args))
 }

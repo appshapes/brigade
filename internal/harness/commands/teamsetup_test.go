@@ -277,7 +277,7 @@ func TestTeamJoinNonTTYNeverOpensTheFile(t *testing.T) {
 	// stdin join (the scripted path, correction 7) must succeed through
 	// the real pass-through regardless, which proves the non-TTY path
 	// never opens the repo file.
-	f, dump := passThroughFixture(t, "bob", fakeadapter.Script{
+	f, dump := passThroughFixture(t, fakeadapter.Script{
 		Responses: map[string][]fakeadapter.Response{
 			"team join": {{Result: []byte(`{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_2","rejoined":false}`)}},
 		},
@@ -288,7 +288,7 @@ func TestTeamJoinNonTTYNeverOpensTheFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := `{"join_secret":"` + setupSecret + `"}`
-	iv := f.inv(f.terminalEnv(), doc, "join", "--profile", "bob")
+	iv := f.inv(f.terminalEnv(), doc, "join", "--team", "t_bob")
 	iv.Deps.Getwd = func() (string, error) { return top, nil }
 	iv.Deps.IsTerminal = func(io.Reader) bool { return false }
 	iv.Deps.Spawn = nil // the real fake adapter, across the process boundary

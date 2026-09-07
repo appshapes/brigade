@@ -298,11 +298,11 @@ plugin-dev-pointer: build ## Write the dev-binary pointer (honours XDG_CONFIG_HO
 #                   fs-adapter subdirectory, so neither --root nor BRIGADE_FS_ROOT is needed (and
 #                   BRIGADE_FS_ROOT would not arrive anyway: the harness builds every adapter child's
 #                   environment from scratch).
-#   profile=<name>  the `profile` option (E0-7's two-profiles-on-one-machine shape). A profile whose sidecar
-#                   already names its adapter — what `profile init --adapter` writes — needs NO adapter= at all.
+#   config_dir=<d>  the `config_dir` option (the two-personas-on-one-machine dev shape, P7-7: each persona
+#                   is its own credential store; the profile option is gone).
 comma := ,
 plugin_dev_adapter_opt = $(if $(filter fs,$(adapter)),"adapter_command":"[\"$(CURDIR)/$(bin_dir)/brigade-adapter-fs\"]")
-plugin_dev_profile_opt = $(if $(profile),"profile":"$(profile)")
+plugin_dev_profile_opt = $(if $(config_dir),"config_dir":"$(config_dir)")
 plugin_dev_opts = $(plugin_dev_adapter_opt)$(if $(and $(plugin_dev_adapter_opt),$(plugin_dev_profile_opt)),$(comma))$(plugin_dev_profile_opt)
 # mode=<default|acceptEdits|plan|auto|dontAsk|bypassPermissions> passes --permission-mode. An account that opted into
 # Claude Code's auto-mode default offer starts a plain `claude` in `auto`, where no permission prompt or Skill dialog
@@ -310,24 +310,25 @@ plugin_dev_opts = $(plugin_dev_adapter_opt)$(if $(and $(plugin_dev_adapter_opt),
 plugin_dev_mode = $(if $(mode),--permission-mode $(mode))
 
 .PHONY: plugin-dev
-plugin-dev: plugin-dev-pointer ## Start Claude Code with the local plugin (usage: make plugin-dev [adapter=fs] [profile=<name>] [mode=default])
+plugin-dev: plugin-dev-pointer ## Start Claude Code with the local plugin (usage: make plugin-dev [adapter=fs] [config_dir=<dir>] [mode=default])
 # ONCE per machine, in your own terminal (never from inside a session: `team create`/`team join` refuse there),
-# before the first `make plugin-dev adapter=fs`. `profile init --adapter` writes the D36 sidecar, so every later
-# session finds the fs adapter by itself and `adapter_command` — hence `adapter=fs` — becomes unnecessary:
+# before the first `make plugin-dev adapter=fs`. Register the fs adapter by NAME in adapters.json, then create
+# the team IN YOUR PROJECT CHECKOUT — `team create` writes `.brigade.json`, the binding and the pin, and every
+# later session in that checkout attaches by itself (`adapter=fs` stays useful as the per-session override):
 #
 #   make build
-#   bin/brigade profile init --adapter '["'"$PWD"'/bin/brigade-adapter-fs"]'
-#   bin/brigade team create --name ops --label dev --secret-file ~/brigade-ops.secret
+#   printf '{"fs": ["%s/bin/brigade-adapter-fs"]}\n' "$PWD" > ~/.config/brigade/adapters.json && chmod 600 ~/.config/brigade/adapters.json
+#   bin/brigade team create --adapter fs --url http://127.0.0.1:1 --key placeholder --name ops --label dev --secret-file ~/brigade-ops.secret
 #
-# A SECOND profile on the same machine (`make plugin-dev profile=bob`) joins that team instead of creating one.
-# The join secret goes from the 0600 file into the request document on stdin and never onto argv:
+# A SECOND persona on the same machine (`make plugin-dev config_dir=$HOME/.config/brigade-bob`) joins that team
+# into ITS OWN store. The join secret goes from the 0600 file into the request document on stdin, never argv:
 #
-#   bin/brigade profile init --profile bob --adapter '["'"$PWD"'/bin/brigade-adapter-fs"]'
+#   printf '{"fs": ["%s/bin/brigade-adapter-fs"]}\n' "$PWD" > $HOME/.config/brigade-bob/adapters.json && chmod 600 $HOME/.config/brigade-bob/adapters.json
 #   { printf '{"human_label":"bob","join_secret":"'; tr -d '\n' < ~/brigade-ops.secret; printf '"}'; } | \
-#     bin/brigade team join --profile bob
+#     BRIGADE_CONFIG_DIR=$HOME/.config/brigade-bob bin/brigade team join --adapter fs
 #
-# (`bin/brigade team join --profile bob --prompt` is the interactive form: the fs adapter reads the secret from
-# the TTY without echo.) Check what a profile resolves to with `bin/brigade profile status --profile <name>`.
+# (In the project checkout, `bin/brigade team join` at a TTY is the interactive form: the consent gate, then the
+# secret read without echo.) Check what a team resolves to with `bin/brigade team status` in the checkout.
 ifeq ($(plugin_dev_opts),)
 	$(unclaude) claude $(plugin_dev_mode) --plugin-dir ./plugin
 else

@@ -78,7 +78,7 @@ json stdout .result.sessions.3.state offline
 status 2 brigade sessions extra
 stderr 'brigade sessions failed \(usage\)'
 status 2 brigade sessions --nope
-status 2 brigade sessions --profile other
+status 2 brigade sessions --team other
 stderr 'not accepted inside a Claude Code session'
 
 -- map.in --

@@ -13,7 +13,6 @@ import (
 // exports USER-SET values only, as CLAUDE_PLUGIN_OPTION_<KEY>; defaults
 // are never exported and are applied here.
 const (
-	OptionProfile             = "CLAUDE_PLUGIN_OPTION_PROFILE"
 	OptionConfigDir           = "CLAUDE_PLUGIN_OPTION_CONFIG_DIR"
 	OptionAdapterCommand      = "CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND"
 	OptionTeamInbound         = "CLAUDE_PLUGIN_OPTION_TEAM_INBOUND"
@@ -38,7 +37,6 @@ const (
 const (
 	// ReasonInvalidProfileName: the profile option fails
 	// adapterkit.CheckProfileName.
-	ReasonInvalidProfileName = "invalid_profile_name"
 	// ReasonInvalidBoolean: a boolean option is none of the accepted
 	// spellings.
 	ReasonInvalidBoolean = "invalid_boolean"
@@ -114,8 +112,6 @@ var errInvalidBool = &protocol.Error{
 // are the hook's configuration; the session-bound commands and the
 // watcher never see them and read the by-pid map instead.
 type Options struct {
-	// Profile is the validated profile name; default "default".
-	Profile string
 	// ConfigDir is the absolute Brigade config directory: the config_dir
 	// option, else the XDG default — never BRIGADE_CONFIG_DIR inside a
 	// session.
@@ -161,14 +157,6 @@ func ParseOptions(environ []string) (Options, error) {
 	trusted := Trusted(environ)
 	opt := func(name string) string { return strings.TrimSpace(adapterkit.Getenv(environ, name)) }
 	var o Options
-
-	o.Profile = opt(OptionProfile)
-	if o.Profile == "" {
-		o.Profile = adapterkit.ProfileName(trusted)
-	}
-	if err := adapterkit.CheckProfileName(o.Profile); err != nil {
-		return Options{}, optionErr("profile", ReasonInvalidProfileName, "profile option must be 1-64 characters from letters, digits, dot, dash and underscore, and must not start with a dot")
-	}
 
 	if v := opt(OptionConfigDir); v != "" {
 		if !filepath.IsAbs(v) {

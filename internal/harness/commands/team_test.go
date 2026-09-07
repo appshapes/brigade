@@ -2,6 +2,7 @@ package commands
 
 import (
 	"encoding/json/v2"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -73,12 +74,14 @@ func TestTeamMembersOutsideSession(t *testing.T) {
 	}
 	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, "bob", &adapterkit.Profile{
 		Version: adapterkit.ProfileVersion, Adapter: "bobfake",
+		URL: "https://abc.supabase.co", PublishableKey: "k",
+		TeamRef: "t_bob", TeamName: "bobteam",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	f.rec.on("team members", okAnswer(membersResultJSON()))
-	if err := Team(f.inv(f.terminalEnv(), "", "members", "--profile", "bob")); err != nil {
-		t.Fatalf("team members --profile bob: %v", err)
+	if err := Team(f.inv(f.terminalEnv(), "", "members", "--team", "t_bob")); err != nil {
+		t.Fatalf("team members --team t_bob: %v", err)
 	}
 	argv := f.rec.spec(t, 0).Argv
 	if argv[0] != f.adapterPath+"-bob" || argv[slices.Index(argv, "--profile")+1] != "bob" {
@@ -134,7 +137,7 @@ func TestTeamVerbs(t *testing.T) {
 // passThroughFixture wires the REAL fake adapter binary as the profile's
 // sidecar default in a terminal config dir, with a dump file, so the
 // pass-through can be observed across the process boundary.
-func passThroughFixture(t *testing.T, profile string, script fakeadapter.Script) (*fixture, string) {
+func passThroughFixture(t *testing.T, script fakeadapter.Script) (*fixture, string) {
 	t.Helper()
 	f := newFixture(t)
 	dump := filepath.Join(f.dirs.Root, "dump.ndjson")
@@ -157,8 +160,10 @@ func passThroughFixture(t *testing.T, profile string, script fakeadapter.Script)
 		[]byte(`{"fake": `+string(spec)+`}`)); err != nil {
 		t.Fatal(err)
 	}
-	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, profile, &adapterkit.Profile{
+	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, "bob", &adapterkit.Profile{
 		Version: adapterkit.ProfileVersion, Adapter: "fake",
+		URL: "https://abc.supabase.co", PublishableKey: "k",
+		TeamRef: "t_bob", TeamName: "bobteam",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +195,7 @@ func readDump(t *testing.T, path string) []fakeadapter.Invocation {
 // values — the hostile inherited variables of U-27 never cross.
 func TestTeamJoinPassesStdioThroughOutsideSession(t *testing.T) {
 	t.Parallel()
-	f, dump := passThroughFixture(t, "bob", fakeadapter.Script{
+	f, dump := passThroughFixture(t, fakeadapter.Script{
 		Responses: map[string][]fakeadapter.Response{
 			"team join":  {{Result: []byte(`{"team_ref":"t1","team_name":"ops","principal_ref":"p-bob","rejoined":false}`), Stderr: "fake: joined"}},
 			"team leave": {{Error: &protocol.ErrorObject{Code: protocol.CodeConflict, Message: "not bound"}}},
@@ -198,7 +203,7 @@ func TestTeamJoinPassesStdioThroughOutsideSession(t *testing.T) {
 	})
 	env := f.terminalEnv("BRIGADE_ADAPTER_COMMAND=/evil", "CLAUDE_CODE_MESSAGING_TOKEN="+msgTok)
 	doc := `{"join_secret":"brg1.t1.secret","human_label":"bob@example.com"}`
-	if err := Team(f.inv(env, doc, "join", "--profile", "bob", "--label", "bob@example.com")); err != nil {
+	if err := Team(f.inv(env, doc, "join", "--team", "t_bob", "--label", "bob@example.com")); err != nil {
 		t.Fatalf("team join: %v", err)
 	}
 	if !strings.Contains(f.out.String(), `"principal_ref":"p-bob"`) {
@@ -233,7 +238,7 @@ func TestTeamJoinPassesStdioThroughOutsideSession(t *testing.T) {
 	// The exit status is forwarded as an ExitStatus: nothing else printed.
 	f.out.Reset()
 	f.errb.Reset()
-	err := Team(f.inv(env, "", "leave", "--profile", "bob"))
+	err := Team(f.inv(env, "", "leave", "--team", "t_bob"))
 	var es ExitStatus
 	if !errorsAs(err, &es) || int(es) != protocol.CodeConflict.Exit() {
 		t.Fatalf("team leave err = %v, want ExitStatus 7", err)
@@ -246,7 +251,7 @@ func TestTeamJoinPassesStdioThroughOutsideSession(t *testing.T) {
 // TestTeamAdminVerbsPassThroughOutsideSession (P5-2): in a terminal each
 // of the three administrative verbs hands the adapter its streams,
 // forwards `--principal`, `--ban`, `--max-version` and `--secret-file`
-// verbatim and in order, consumes `--profile` and `--log-level` for the
+// verbatim and in order, consumes `--team` and `--log-level` for the
 // harness, forwards stdin (the JSON form) and the adapter's exit status,
 // and prints nothing of its own.
 func TestTeamAdminVerbsPassThroughOutsideSession(t *testing.T) {
@@ -257,16 +262,16 @@ func TestTeamAdminVerbsPassThroughOutsideSession(t *testing.T) {
 		args  []string
 		want  []string
 	}{
-		{"rotate-secret", "", []string{"--profile", "bob", "--secret-file", "/tmp/rotated.secret"}, []string{"--secret-file", "/tmp/rotated.secret"}},
-		{"revoke-member", "", []string{"--principal", "p-carol", "--ban", "--profile", "bob"}, []string{"--principal", "p-carol", "--ban"}},
-		{"revoke-member", "", []string{"--log-level", "debug", "--profile", "bob", "--max-version", "1"}, []string{"--max-version", "1"}},
-		{"revoke-member", `{"principal_ref":"p-carol","ban":true}`, []string{"--profile", "bob"}, nil},
-		{"transfer", `{"principal_ref":"p-carol"}`, []string{"--profile", "bob", "--json"}, nil},
-		{"transfer", "", []string{"--profile", "bob", "--principal", "p-carol"}, []string{"--principal", "p-carol"}},
+		{"rotate-secret", "", []string{"--team", "t_bob", "--secret-file", "/tmp/rotated.secret"}, []string{"--secret-file", "/tmp/rotated.secret"}},
+		{"revoke-member", "", []string{"--principal", "p-carol", "--ban", "--team", "t_bob"}, []string{"--principal", "p-carol", "--ban"}},
+		{"revoke-member", "", []string{"--log-level", "debug", "--team", "t_bob", "--max-version", "1"}, []string{"--max-version", "1"}},
+		{"revoke-member", `{"principal_ref":"p-carol","ban":true}`, []string{"--team", "t_bob"}, nil},
+		{"transfer", `{"principal_ref":"p-carol"}`, []string{"--team", "t_bob", "--json"}, nil},
+		{"transfer", "", []string{"--team", "t_bob", "--principal", "p-carol"}, []string{"--principal", "p-carol"}},
 	} {
 		t.Run(tc.verb+" "+strings.Join(tc.args, " "), func(t *testing.T) {
 			t.Parallel()
-			f, dump := passThroughFixture(t, "bob", fakeadapter.Script{
+			f, dump := passThroughFixture(t, fakeadapter.Script{
 				Responses: map[string][]fakeadapter.Response{
 					"team " + tc.verb: {{Result: []byte(`{"team_ref":"t1","principal_ref":"p-carol","transferred":true}`), Stderr: "fake: " + tc.verb}},
 				},
@@ -287,12 +292,12 @@ func TestTeamAdminVerbsPassThroughOutsideSession(t *testing.T) {
 		})
 	}
 	// The adapter's exit status is forwarded, nothing else printed.
-	f, _ := passThroughFixture(t, "bob", fakeadapter.Script{
+	f, _ := passThroughFixture(t, fakeadapter.Script{
 		Responses: map[string][]fakeadapter.Response{
 			"team transfer": {{Error: &protocol.ErrorObject{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}}},
 		},
 	})
-	err := Team(f.inv(f.terminalEnv(), "", "transfer", "--profile", "bob", "--principal", "p-x"))
+	err := Team(f.inv(f.terminalEnv(), "", "transfer", "--team", "t_bob", "--principal", "p-x"))
 	var es ExitStatus
 	if !errorsAs(err, &es) || int(es) != protocol.CodeUnauthorized.Exit() {
 		t.Fatalf("team transfer err = %v, want ExitStatus 5", err)
@@ -301,3 +306,7 @@ func TestTeamAdminVerbsPassThroughOutsideSession(t *testing.T) {
 		t.Errorf("stdout = %q, want the adapter's failing envelope", f.out.String())
 	}
 }
+
+// errorsAs is errors.As with the call-site noise folded away (moved here
+// from the deleted profile_test.go).
+func errorsAs[T error](err error, target *T) bool { return errors.As(err, target) }

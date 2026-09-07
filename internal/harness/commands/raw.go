@@ -6,12 +6,13 @@ import (
 	"strings"
 
 	adapterlog "github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// This file is the argument grammar of the raw commands (`team`,
-// `profile`): the harness consumes exactly its own flags — the globals
-// --json and --log-level, the profile selector --profile and, for `profile
+// This file is the argument grammar of the raw command (`team`): the
+// harness consumes exactly its own flags — the globals --json and
+// --log-level, the team selector --team and, for the scripted paths,
 // init`, --adapter — and forwards every other argument to the adapter in
 // order, so an adapter flag the harness has never heard of (--prompt,
 // --url, --secret-file, a future one) reaches it untouched (6.4). A bare
@@ -21,18 +22,16 @@ import (
 const (
 	flagJSON     = "json"
 	flagLogLevel = "log-level"
-	flagProfile  = "profile"
 	flagAdapter  = "adapter"
 	flagTeam     = "team"
 )
 
 // rawArgs is one parsed raw argument vector.
 type rawArgs struct {
-	// JSON, LogLevel, Profile, Adapter and Team are the harness's own
-	// flags; Team is the terminal-only disambiguator of the pin chain.
+	// JSON, LogLevel, Adapter and Team are the harness's own flags;
+	// Team is the terminal-only disambiguator of the pin chain.
 	JSON     bool
 	LogLevel string
-	Profile  string
 	Adapter  string
 	Team     string
 	// Rest is everything forwarded to the adapter, in order.
@@ -64,7 +63,7 @@ func parseRaw(args []string, adapterFlag bool) (rawArgs, error) {
 			} else if value != "false" {
 				return out, usage("invalid arguments: --json takes no value")
 			}
-		case name == flagLogLevel || name == flagProfile || name == flagTeam || (adapterFlag && name == flagAdapter):
+		case name == flagLogLevel || name == flagTeam || (adapterFlag && name == flagAdapter):
 			if !hasValue {
 				if i+1 >= len(args) {
 					return out, usage("invalid arguments: --" + name + " needs a value")
@@ -78,8 +77,6 @@ func parseRaw(args []string, adapterFlag bool) (rawArgs, error) {
 			switch name {
 			case flagLogLevel:
 				out.LogLevel = value
-			case flagProfile:
-				out.Profile = value
 			case flagTeam:
 				out.Team = value
 			default:
@@ -115,9 +112,26 @@ func (inv Invocation) withRaw(raw rawArgs) Invocation {
 // non-nil, runs after the adapter is resolved and before it is spawned
 // (`profile status` prints its harness line there).
 func (inv Invocation) passThrough(group, verb string, raw rawArgs, before func(*target) error) error {
-	t, err := inv.terminalTarget(raw.Profile, true)
+	key := ""
+	if raw.Team != "" {
+		var err error
+		if key, err = inv.resolveTeamKey(raw.Team); err != nil {
+			return err
+		}
+	}
+	t, err := inv.terminalTarget(key, true)
 	if err != nil {
 		return err
+	}
+	if raw.Adapter != "" {
+		// Correction 7: the scripted path names its dialect with
+		// --adapter; the name resolves user-side like the team file's.
+		ad, aerr := config.ResolveAdapter(config.Options{}, t.configDir, raw.Adapter)
+		if aerr != nil {
+			return aerr
+		}
+		t.adapter = ad
+		t.client = inv.client(t)
 	}
 	return inv.spawnThrough(t, group, verb, raw.Rest, before)
 }

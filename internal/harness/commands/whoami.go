@@ -16,7 +16,6 @@ type whoamiResult struct {
 	SessionName    string   `json:"session_name"`
 	TeamRef        string   `json:"team_ref"`
 	TeamName       string   `json:"team_name"`
-	Profile        string   `json:"profile"`
 	Inbound        string   `json:"inbound"`
 	AdapterName    string   `json:"adapter_name"`
 	AdapterVersion string   `json:"adapter_version"`
@@ -64,7 +63,6 @@ func Whoami(inv Invocation) error {
 			SessionName:    protocol.SanitizeName(m.SessionName),
 			TeamRef:        sanitizeID(m.TeamRef),
 			TeamName:       protocol.SanitizeName(m.TeamName),
-			Profile:        m.TeamKey,
 			Inbound:        protocol.SanitizeAttribute(m.Inbound),
 			AdapterName:    protocol.SanitizeAttribute(t.describe.Adapter.Name),
 			AdapterVersion: protocol.SanitizeAttribute(t.describe.Adapter.Version),
@@ -78,7 +76,7 @@ func Whoami(inv Invocation) error {
 	}
 	out := []string{"session " + idLine(m.BrigadeSessionID) + " \"" + nameLine(m.SessionName) + "\"" +
 		" in team \"" + nameLine(m.TeamName) + "\"" +
-		" (profile " + m.TeamKey + ", adapter " + attrLine(t.describe.Adapter.Name) + " " + attrLine(t.describe.Adapter.Version) + ")" +
+		" (adapter " + attrLine(t.describe.Adapter.Name) + " " + attrLine(t.describe.Adapter.Version) + ")" +
 		"; inbound: " + enumLine(m.Inbound)}
 	if p := pathLine(m.PluginBin); p != "" {
 		out = append(out, "terminal: "+p)

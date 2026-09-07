@@ -13,7 +13,6 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/cli"
-	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
@@ -345,7 +344,7 @@ func TestHostileInheritedBrigadeIgnored(t *testing.T) {
 	f2 := newFixture(t)
 	f2.spawner.watcherPID = testutil.NewSleeper(t)
 	f2.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-2", "payments-api", false))}})
-	if exit, _, _ := f2.run(SubSessionStart, f2.startDoc("startup"), "BRIGADE_PROFILE=evil", config.OptionProfile+"=alpha"); exit != 0 {
+	if exit, _, _ := f2.run(SubSessionStart, f2.startDoc("startup"), "BRIGADE_PROFILE=evil", "CLAUDE_PLUGIN_OPTION_PROFILE=alpha"); exit != 0 {
 		t.Fatal(exit)
 	}
 	// P7-6: the profile OPTION is dead too — neither the hostile env var

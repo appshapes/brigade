@@ -232,17 +232,24 @@ func (t *target) selfSessionID() string {
 // resolveSession resolves the target of a SESSION-BOUND command (6.4):
 // inside a session from the by-pid map alone, outside from --profile /
 // BRIGADE_PROFILE and the D36 chain. It then runs the cached `describe`
-// (the protocol check → protocol_mismatch). profileFlag is the --profile
+// (the protocol check → protocol_mismatch). teamFlag is the --team
 // value; inside a session it is a usage error, because the session's
 // profile is the map's and nothing else (E0-7).
-func (inv Invocation) resolveSession(profileFlag string) (*target, error) {
+func (inv Invocation) resolveSession(teamFlag string) (*target, error) {
 	if config.InSession(inv.Environ) {
-		if profileFlag != "" {
-			return nil, usage("--profile is not accepted inside a Claude Code session; the session's profile comes from its session map")
+		if teamFlag != "" {
+			return nil, usage("--team is not accepted inside a Claude Code session; the session's team comes from its session map")
 		}
 		return inv.sessionTarget()
 	}
-	return inv.terminalTarget(profileFlag, false)
+	key := ""
+	if teamFlag != "" {
+		var err error
+		if key, err = inv.resolveTeamKey(teamFlag); err != nil {
+			return nil, err
+		}
+	}
+	return inv.terminalTarget(key, false)
 }
 
 // sessionTarget builds the target from the by-pid map.
@@ -294,13 +301,9 @@ func (inv Invocation) terminalTarget(profileFlag string, passThrough bool) (*tar
 	profile := profileFlag
 	if profile == "" {
 		if config.InSession(inv.Environ) {
-			// In-session pass-throughs keep the map's world: "default"
-			// here, the map's own profile applied below.
-			profile = config.ProfileName(inv.Environ)
-		} else if env := adapterkit.Getenv(config.Trusted(inv.Environ), config.WatcherProfileVar); env != "" {
-			// An explicit BRIGADE_PROFILE is the shell's bridge form,
-			// alive until P7-7 deletes the profile surface.
-			profile = env
+			// In-session pass-throughs keep the map's world: the default
+			// name here, the map's own team key applied below.
+			profile = adapterkit.DefaultProfileName
 		} else {
 			// The P7-5 chain: the cwd's pin, else the sole local team,
 			// else "default" on an empty store; ambiguity refuses.

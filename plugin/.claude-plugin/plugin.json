@@ -13,22 +13,16 @@
     "cross-session"
   ],
   "userConfig": {
-    "profile": {
-      "type": "string",
-      "title": "Brigade profile",
-      "description": "Adapter profile name; each profile is bound to exactly one team.",
-      "default": "default"
-    },
     "config_dir": {
       "type": "string",
       "title": "Brigade config directory (advanced)",
-      "description": "Where adapter profiles live; leave empty for the platform default (~/.config/brigade), and note that the plugin ignores BRIGADE_CONFIG_DIR from the environment on purpose.",
+      "description": "Where Brigade's credential store lives; leave empty for the platform default (~/.config/brigade), and note that the plugin ignores BRIGADE_CONFIG_DIR from the environment on purpose.",
       "default": ""
     },
     "adapter_command": {
       "type": "string",
       "title": "Adapter command override (advanced)",
-      "description": "Per-session override of the profile's default adapter, given as an absolute path to an adapter executable, a JSON array such as [\"/abs/adapter\", \"--flag\"], or a name registered in adapters.json — never a shell command, and empty means the adapter the profile was created with.",
+      "description": "Per-session override of the adapter the team's binding names, given as an absolute path to an adapter executable, a JSON array such as [\"/abs/adapter\", \"--flag\"], or a name registered in adapters.json — never a shell command, and empty means the adapter the project's team file names.",
       "default": ""
     },
     "team_inbound": {

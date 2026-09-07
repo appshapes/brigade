@@ -44,7 +44,7 @@ func Team(inv Invocation) error {
 	if err != nil {
 		return err
 	}
-	raw, err := parseRaw(rest, false)
+	raw, err := parseRaw(rest, true)
 	if err != nil {
 		return err
 	}
@@ -52,11 +52,11 @@ func Team(inv Invocation) error {
 	switch verb {
 	case "members":
 		if len(raw.Rest) > 0 {
-			return usage("team members takes no arguments beyond --profile and the global flags")
+			return usage("team members takes no arguments beyond --team and the global flags")
 		}
-		return members(inv, raw.Profile)
+		return members(inv, raw.Team)
 	case "list":
-		if len(raw.Rest) > 0 || raw.Profile != "" {
+		if len(raw.Rest) > 0 {
 			return usage("team list takes no arguments")
 		}
 		return inv.teamList()
@@ -69,17 +69,15 @@ func Team(inv Invocation) error {
 			return refuseAdminInSession()
 		}
 	}
-	// The repo-file paths of P7-5: `create` and `join` WITHOUT --profile
-	// run the rebuilt flows; the --profile forms below are the one-task
-	// bridge P7-7 deletes, kept so the e2e rig and team.txtar hold.
-	if raw.Profile == "" {
-		switch verb {
-		case "create":
-			return inv.teamCreate(raw.Rest)
-		case "join":
-			if inv.Deps.isTerminal(inv.In) {
-				return inv.teamJoin(raw.Rest)
-			}
+	// The repo-file paths (P7-5; bridge-free since P7-7): `create` always
+	// runs the rebuilt flow; a TTY `join` reads the project's team file,
+	// and a non-TTY join stays the fully explicit stdin pass-through.
+	switch verb {
+	case "create":
+		return inv.teamCreate(raw)
+	case "join":
+		if inv.Deps.isTerminal(inv.In) {
+			return inv.teamJoin(raw.Rest)
 		}
 	}
 	switch verb {
@@ -96,8 +94,8 @@ func Team(inv Invocation) error {
 // sessions, seen <ago>`. The capability (team.roster) is not pre-checked:
 // an adapter without it answers with its own error, which is reported as
 // it is.
-func members(inv Invocation, profileFlag string) error {
-	t, err := inv.resolveSession(profileFlag)
+func members(inv Invocation, teamFlag string) error {
+	t, err := inv.resolveSession(teamFlag)
 	if err != nil {
 		return err
 	}

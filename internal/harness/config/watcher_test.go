@@ -61,7 +61,7 @@ func TestFromWatcherEnvTable(t *testing.T) {
 		{"relative config dir", replace(config.WatcherConfigDirVar, "rel/"+evilMarker), config.ReasonRelativePath, nil},
 		{"missing state dir", replace(config.WatcherStateDirVar, ""), config.ReasonWatcherEnvIncomplete, nil},
 		{"relative state dir", replace(config.WatcherStateDirVar, "rel/"+evilMarker), config.ReasonRelativePath, nil},
-		{"invalid profile", replace(config.WatcherProfileVar, "../"+evilMarker), config.ReasonInvalidProfileName, nil},
+		{"invalid team key", replace(config.WatcherProfileVar, "../"+evilMarker), "invalid_team_key", nil},
 		{"adapter name is refused (resolution is the hook's)", replace(config.WatcherAdapterCommandVar, "fs"), config.ReasonAdapterMalformed, nil},
 		{"adapter relative in array", replace(config.WatcherAdapterCommandVar, `["bin/`+evilMarker+`"]`), config.ReasonAdapterRelative, nil},
 		{"profile defaults", replace(config.WatcherProfileVar, ""), "", func(t *testing.T, w config.WatcherEnv) {
@@ -122,7 +122,7 @@ func TestFromWatcherEnvReadsExactlyTheSixVariables(t *testing.T) {
 	// Decoys that a confused reader might honour: the hook's option
 	// variables, a session's CLAUDE_PID, an adapter-specific variable.
 	env := append(completeWatcherEnv(),
-		config.OptionProfile+"=optionprofile",
+		"CLAUDE_PLUGIN_OPTION_PROFILE=optionprofile",
 		config.OptionTeamInbound+"=accept",
 		config.OptionAdapterCommand+"=/opt/option-adapter",
 		"CLAUDE_PID=1",

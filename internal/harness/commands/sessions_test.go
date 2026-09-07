@@ -142,9 +142,9 @@ func TestSessionsSanitisedInBothForms(t *testing.T) {
 	}
 }
 
-// TestSessionsOutsideSessionUsesTheProfileAndBinding (6.4, P7-6): in a
-// terminal the profile comes from --profile (else BRIGADE_PROFILE) and
-// the adapter from the binding's registered name; no session id is
+// TestSessionsOutsideSessionUsesTheProfileAndBinding (6.4, P7-7): in a
+// terminal the team comes from --team resolved through the local store
+// and the adapter from the binding's registered name; no session id is
 // marked and no map is needed.
 func TestSessionsOutsideSessionUsesTheProfileAndBinding(t *testing.T) {
 	t.Parallel()
@@ -154,11 +154,13 @@ func TestSessionsOutsideSessionUsesTheProfileAndBinding(t *testing.T) {
 	}
 	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, "beta", &adapterkit.Profile{
 		Version: adapterkit.ProfileVersion, Adapter: "betafake",
+		URL: "https://abc.supabase.co", PublishableKey: "k",
+		TeamRef: "t_beta", TeamName: "betateam",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	f.rec.on("session list", okAnswer(listResult()))
-	if err := Sessions(f.inv(f.terminalEnv("BRIGADE_PROFILE=beta"), ""), SessionsOptions{}); err != nil {
+	if err := Sessions(f.inv(f.terminalEnv("BRIGADE_PROFILE=evil"), ""), SessionsOptions{Team: "t_beta"}); err != nil {
 		t.Fatalf("sessions in a terminal: %v", err)
 	}
 	// The canned result flags the alice record is_self (the profile's own
@@ -170,18 +172,20 @@ func TestSessionsOutsideSessionUsesTheProfileAndBinding(t *testing.T) {
 	if argv[0] != f.adapterPath || argv[2] != "/y" || argv[slices.Index(argv, "--profile")+1] != "beta" {
 		t.Errorf("argv = %v, want the registered command and --profile beta", argv)
 	}
-	// --profile wins over BRIGADE_PROFILE.
+	// --team resolves by name too, and the hostile env stays inert.
 	f.out.Reset()
 	if err := config.RegisterAdapter(f.dirs.BrigadeConfig, "gammafake", []string{f.adapterPath + "-g"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := adapterkit.SaveProfile(f.dirs.BrigadeConfig, "gamma", &adapterkit.Profile{
 		Version: adapterkit.ProfileVersion, Adapter: "gammafake",
+		URL: "https://abc.supabase.co", PublishableKey: "k",
+		TeamRef: "t_gamma", TeamName: "gammateam",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := Sessions(f.inv(f.terminalEnv("BRIGADE_PROFILE=beta"), ""), SessionsOptions{Profile: "gamma"}); err != nil {
-		t.Fatalf("sessions --profile gamma: %v", err)
+	if err := Sessions(f.inv(f.terminalEnv("BRIGADE_PROFILE=evil"), ""), SessionsOptions{Team: "gammateam"}); err != nil {
+		t.Fatalf("sessions --team gammateam: %v", err)
 	}
 	last := f.rec.spec(t, f.rec.count()-1).Argv
 	if last[0] != f.adapterPath+"-g" || last[slices.Index(last, "--profile")+1] != "gamma" {
@@ -194,13 +198,13 @@ func TestSessionsOutsideSessionUsesTheProfileAndBinding(t *testing.T) {
 func TestSessionsProfileFlagRefusedInSession(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	err := Sessions(f.inv(f.sessionEnv(), ""), SessionsOptions{Profile: "other"})
+	err := Sessions(f.inv(f.sessionEnv(), ""), SessionsOptions{Team: "other"})
 	wantCode(t, err, protocol.CodeUsage, "")
 	if f.rec.count() != 0 {
 		t.Errorf("%d children spawned", f.rec.count())
 	}
-	if err := Sessions(f.inv(f.sessionEnv(), ""), SessionsOptions{All: true, Profile: ""}); err == nil {
-		t.Fatal("positive control: the same run without --profile must reach the adapter and fail on the unscripted verb")
+	if err := Sessions(f.inv(f.sessionEnv(), ""), SessionsOptions{All: true, Team: ""}); err == nil {
+		t.Fatal("positive control: the same run without --team must reach the adapter and fail on the unscripted verb")
 	}
 }
 

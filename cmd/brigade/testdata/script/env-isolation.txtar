@@ -81,9 +81,9 @@ grep '"BRIGADE_STATE_DIR":"'$WORK'/.brigade/xdg/state/brigade"' dump.ndjson
 ! grep MUST-NOT-CROSS dump.ndjson
 ! grep cc-socks dump.ndjson
 
-# `sessions` and `whoami` likewise: the profile in the line is the map's.
+# `sessions` and `whoami` likewise: the identity is the map's.
 exec brigade whoami
-stdout 'profile alpha'
+stdout 'in team "ops"'
 ! stdout evil
 
 # --- the positive control: outside a session the shell's BRIGADE_* are ---------
@@ -218,6 +218,6 @@ hostile environment, honest map
 -- script-create.json.in --
 {"dump_file": "$WORK/dump-create.ndjson", "responses": {"profile init": [{"result": {"name":"tmp","state":"not_member"}}], "team create": [{"result": {"team_ref":"team-1","team_name":"ops","principal_ref":"principal-admin"}}]}}
 -- binding.in --
-{"version":1,"adapter":"evilfake"}
+{"version":1,"adapter":"evilfake","url":"http://127.0.0.1:1","publishable_key":"p","team_ref":"t_evil","team_name":"evilteam"}
 -- evil-registry.in --
 {"evilfake": ["$WORK/fake.sh", "--script", "$WORK/script.json"]}
