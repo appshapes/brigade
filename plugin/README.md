@@ -28,13 +28,12 @@ sanitised, and a message can never grant permission, approve a prompt or represe
 
 ## Options
 
-Nine options, all optional, all with working defaults:
+Eight options, all optional, all with working defaults:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `profile` | `default` | which adapter profile this session uses; a profile is bound to exactly one team |
-| `config_dir` | *(empty)* | where profiles live; empty means `~/.config/brigade`. `BRIGADE_CONFIG_DIR` from the environment is ignored on purpose |
-| `adapter_command` | *(empty)* | per-session override of the profile's default adapter: an absolute path, a JSON array, or a name registered in `adapters.json`. Never a shell command |
+| `config_dir` | *(empty)* | where Brigade's credential store lives; empty means `~/.config/brigade`. `BRIGADE_CONFIG_DIR` from the environment is ignored on purpose |
+| `adapter_command` | *(empty)* | per-session override of the adapter the team's file names: an absolute path, a JSON array, or a name registered in `adapters.json`. Never a shell command |
 | `team_inbound` | `accept` | `accept` delivers every team message immediately, in every permission mode; `refuse` never delivers and never acknowledges; `hold` records each message, delivers nothing, and waits for you to run `brigade inbox release` in your own terminal |
 | `share_workspace_label` | `false` | send `workspace_label` with this session; never the working directory path |
 | `workspace_label` | *(empty)* | the label shared when `share_workspace_label` is on |
@@ -72,17 +71,21 @@ repository's `supabase/` directory. Members ever receive only two values, and bo
 URL** and the **publishable key**. The database password, the personal access token and the project's secret key
 never leave your machine.
 
+**In the project checkout**, one command writes the team, the committed `.brigade.json` and your own credential:
+
 ```sh
-<plugin>/bin/brigade profile init --url https://<ref>.supabase.co --key sb_publishable_…
-<plugin>/bin/brigade team create --prompt --secret-file ~/brigade-<team>.secret
+<plugin>/bin/brigade team create --url https://<ref>.supabase.co --key sb_publishable_… \
+  --name <team> --secret-file ~/brigade-<team>.secret
+git add .brigade.json && git commit && git push
 ```
 
-`team create` asks for the team name and your display label on the TTY, and writes the join secret to a 0600 file
-instead of your terminal scrollback. Then send each member three things: the project URL, the publishable key (both
-non-secret, so any channel will do) and the join secret **over a password-grade channel** — a password manager
-share, not chat and not email. The secret is a bearer capability: anyone holding it can join and pick any label.
+`--secret-file` is required and must be an absolute path outside the repository; it holds the join secret at mode
+0600 instead of your terminal scrollback. `.brigade.json` carries only public values (URL, key, team ref and
+name), so committing it is safe. Then send each member the join secret **over a password-grade channel** — a
+password manager share, not chat and not email.
+The secret is a bearer capability: anyone holding it can join and pick any label.
 
-Your profile directory (`~/.config/brigade/profiles/<name>`, or under the `config_dir` option) is the team's only
+Your credential directory (`~/.config/brigade/teams/<key>`, or under the `config_dir` option) is the team's only
 administrative credential. Keep a 0700 backup of it somewhere you control; without it nobody can rotate the secret
 or administer the team.
 
@@ -96,28 +99,30 @@ or administer the team.
 
 The procedure, the leaked-secret playbook and what each command does to a running member are in
 [docs/setup.md](../docs/setup.md), "Team administration". The full setup procedure, with the reasons behind each
-step, is [docs/setup.md](../docs/setup.md), "Administrator: create a team"; what the join secret and the profile
+step, is [docs/setup.md](../docs/setup.md), "Administrator: create a team"; what the join secret and the credential
 directory are worth to an attacker is [docs/security.md](../docs/security.md).
 
 ## Member: join
 
+Clone the project, then **in the checkout**:
+
 ```sh
-<plugin>/bin/brigade profile init --url https://<ref>.supabase.co --key sb_publishable_…
-<plugin>/bin/brigade team join --profile default --prompt
+<plugin>/bin/brigade team join
 ```
 
-`--prompt` reads the join secret without echo and then asks for an optional display label, so the secret never
-reaches your scrollback or your shell history — and never a chat.
+`team join` reads the project's `.brigade.json`, shows the team and backend host it names and asks you to confirm,
+then reads the join secret without echo — so the secret never reaches your scrollback, your shell history or a
+chat. There is no `--profile`, no `--url` and no `--key`: the project file supplies all of that.
 
-- The URL must be `https://`; the adapter refuses anything else except a loopback host.
+- The URL in the file must be `https://`; the adapter refuses anything else except a loopback host.
 - If your sessions run with the Bash sandbox on, add the project host (`<ref>.supabase.co`) to
   `sandbox.network.allowedDomains`, or the first send is refused.
-- Then start a Claude Code session, or run `/reload-plugins` in one you already have. The session-start line names
-  your team, this session's name and id, and the inbound policy.
-- One profile is bound to exactly one team. A second team means a second profile — pass `--profile <name>` to both
-  commands above — chosen per session with the `profile` option.
-- A backend other than the bundled Supabase adapter is chosen once, at `profile init`, with
-  `--adapter <name-or-command>`; `docs/adapter-authors.md` explains the three forms.
+- Then start a Claude Code session in the checkout, or run `/reload-plugins` in one you already have. The
+  session-start line names your team, this session's name and id, and the inbound policy.
+- A second checkout of the same project needs `team join` once too, but no secret. Several projects means several
+  `.brigade.json` files: join each once, then `cd` between them — nothing is shared or switched.
+- A backend other than the bundled Supabase adapter is named in the project file's `adapter` field, resolved to a
+  command through your own `adapters.json`; `docs/adapter-authors.md` explains it.
 
 [docs/setup.md](../docs/setup.md), "Member: join a team", is the same procedure with the reasons.
 
@@ -125,8 +130,8 @@ reaches your scrollback or your shell history — and never a chat.
 
 The order matters. Every step is optional except step 3 when the goal is to remove the plugin.
 
-1. `<plugin>/bin/brigade team leave --profile default`
-2. `<plugin>/bin/brigade profile reset --profile default` — **run step 1 first:** after a reset the membership and
+1. `<plugin>/bin/brigade team leave`
+2. `<plugin>/bin/brigade team reset` — **run step 1 first:** after a reset the membership and
    its sessions can no longer be closed from this machine.
 3. `claude plugin uninstall brigade`
 4. `rm -rf ~/.local/state/brigade ~/.local/share/brigade` (or the `XDG_STATE_HOME`/`XDG_DATA_HOME` equivalents)
@@ -172,15 +177,14 @@ The plugin works end to end. `SessionStart` registers the session with its team,
 the detached watcher; the watcher injects each teammate's message into the session's inbox and acknowledges only
 what it injected; `UserPromptSubmit` keeps the watcher alive and surfaces its notice; `SessionEnd` closes the
 session. The session-bound commands (`sessions`, `send`, `whoami`, `team members`, `inbox`) resolve their session
-from that map, and the terminal commands the setup sections above use (`profile init` with `--adapter`,
-`profile status|reset|revoke-credentials`, `team create|join|leave`, `team rotate-secret|revoke-member|transfer`,
-`inbox release`) pass their terminal straight through to the adapter — `team create`, `team join`, the three
+from that map, and the terminal commands the setup sections above use (`team create|join|leave|status|reset|revoke-credentials|list`,
+`team rotate-secret|revoke-member|transfer`, `inbox release`) pass their terminal straight through to the adapter — `team create`, `team join`, the three
 administrative verbs and `inbox release` refuse to run from inside a session. The backend is deployed on a hosted
 Supabase project and the conformance suite passes 45 of 45 against it; `team_inbound: hold` with its terminal
-inbox ships; and a two-hour soak of two sessions on one profile renewed the shared credential twice with no
+inbox ships; and a two-hour soak of two sessions on one team renewed the shared credential twice with no
 lockout. The frame's instruction text ships as levels, `open` by default.
 
-**0.1.0 is the first release.** `bin/VERSION` names the version a session downloads, and `bin/checksums.txt`
+**0.1.0 is the current release.** `bin/VERSION` names the version a session downloads, and `bin/checksums.txt`
 carries the sha256 of each published binary; `make release version=<v>` writes both, and the release workflow
 builds the four binaries from the tag and publishes them beside their `checksums.txt`. A tree in which that command
 has not run carries the pre-release `0.0.0` with an empty `bin/checksums.txt`, and there is nothing to download.
@@ -190,14 +194,16 @@ inside a session — `team create` and `team join` refuse there):
 
 ```sh
 make build
-bin/brigade profile init --adapter '["'"$PWD"'/bin/brigade-adapter-fs"]'
-bin/brigade team create --name ops --label dev --secret-file ~/brigade-ops.secret
+printf '{"fs": ["%s/bin/brigade-adapter-fs"]}\n' "$PWD" > ~/.config/brigade/adapters.json && chmod 600 ~/.config/brigade/adapters.json
+cd <a project checkout>
+bin/brigade team create --adapter fs --url http://127.0.0.1:1 --key placeholder --name ops --label dev --secret-file ~/brigade-ops.secret
 ```
 
-`profile init --adapter` writes the profile's sidecar, so from then on `make plugin-dev` alone starts a session
-already bound to that adapter; `make plugin-dev adapter=fs` passes the same command again as a per-session
-override, and `make plugin-dev profile=<name>` picks a second profile on the same machine (`make plugin-dev-off`
-removes the pointer). `internal/adapters/fs/README.md` has the second-profile join and the two-store variant;
+Registering the fs adapter by name in `adapters.json` lets a project's `.brigade.json` name `fs`; `team create` in
+the checkout writes the file and the pin, so from then on `make plugin-dev` alone starts a session already
+attached. `make plugin-dev adapter=fs` passes the adapter as a per-session override, and
+`make plugin-dev config_dir=<dir>` gives a second persona its own store on the same machine (`make plugin-dev-off`
+removes the pointer). `internal/adapters/fs/README.md` has the second-persona join and the two-store variant;
 `docs/experiments/E3-wiring.md` is the measured record of both. One thing to expect while developing: symlinking
 your **own build** onto `PATH` (`ln -s <repo>/bin/brigade ~/.local/bin/brigade`) makes every session start with the
 extra line ``Brigade: another `brigade` at … shadows the plugin's``, because that path does not resolve to this

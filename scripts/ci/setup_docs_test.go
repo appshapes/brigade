@@ -42,11 +42,11 @@ var whitespaceRun = regexp.MustCompile(`\s+`)
 // the sixth is the sentence that says what holding the join secret buys, which is the one security claim all
 // three copies must make in the same words.
 var setupDocWitnesses = []string{
-	"brigade profile init --url https://<ref>.supabase.co --key sb_publishable_",
-	"brigade team create --prompt --secret-file ~/brigade-<team>.secret",
-	"brigade team join --profile default --prompt",
-	"brigade team leave --profile default",
-	"brigade profile reset --profile default",
+	"brigade team create --url https://<ref>.supabase.co --key sb_publishable_",
+	"--name <team> --secret-file ~/brigade-<team>.secret",
+	"brigade team join",
+	"brigade team leave",
+	"brigade team reset",
 	"The secret is a bearer capability: anyone holding it can join and pick any label",
 }
 
@@ -131,17 +131,17 @@ var setupDocMutations = []struct {
 }{
 	{
 		"a_setup_doc_changes_a_flag",
-		replaceOnceIn("docs/setup.md", "team join --profile default --prompt", "team join --profile default"),
-		"a flag dropped in one copy is a command that reader runs wrong",
+		replaceOnceIn("docs/setup.md", "--name <team> --secret-file ~/brigade-<team>.secret", "--name <team> --secret-out ~/brigade-<team>.secret"),
+		"a flag mistyped in one copy is a command that reader runs wrong",
 	},
 	{
 		"b_plugin_readme_changes_a_flag",
-		replaceOnceIn("plugin/README.md", "team create --prompt --secret-file", "team create --prompt --secret-out"),
+		replaceOnceIn("plugin/README.md", "team create --url https://<ref>.supabase.co --key sb_publishable_", "team create --url https://<ref>.supabase.co --secret sb_publishable_"),
 		"the marketplace reader may see only this copy",
 	},
 	{
 		"c_skill_changes_a_profile_name",
-		replaceOnceIn("plugin/skills/setup/SKILL.md", "profile reset --profile default", "profile reset --profile main"),
+		replaceOnceIn("plugin/skills/setup/SKILL.md", "brigade team reset", "brigade team wipe"),
 		"the skill body cannot follow a link, so its commands must be right on their own",
 	},
 	{

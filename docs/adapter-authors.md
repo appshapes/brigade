@@ -1949,26 +1949,20 @@ go test ./cmd/brigade -run 'TestScript/fs-message'
 
 ## Wiring your adapter into the plugin
 
-A profile carries a **default adapter**, and a session may **override** it (plan decision D36, 2026-09-02). One team
-per session and one adapter per session stay as they are.
+The project's team file names your adapter by a short **name**; a session may **override** it. One team per session
+and one adapter per session stay as they are.
 
-- **The profile's default.** A human creates a profile through the harness with `brigade profile init
-  [--profile <p>] --adapter <name-or-command> …`. The harness records the choice beside the profile (a 0600 file in
-  the user's own config directory) and then runs *your* `profile init` with the remaining arguments. A third-party
-  adapter is registered once by name in `${BRIGADE_CONFIG_DIR}/adapters.json` with the form
-  `--adapter <name>=<absolute path or JSON array>` (`--adapter pg=/usr/local/bin/brigade-adapter-pg`, or
-  `--adapter 'pg=["/usr/local/bin/brigade-adapter-pg","--root","/srv/brigade"]'`), after which `--adapter <name>`
-  alone selects it for any profile; or the command is given directly, without a name, as an absolute path or a JSON
-  array. From then on, selecting the profile selects your adapter: no launch option needs to be restated, and
-  `brigade profile status [--profile <p>]` names the default in force.
-- **The session override.** The plugin option `adapter_command` overrides the profile's default for one session. It
-  takes the same two forms — an absolute path such as `/usr/local/bin/brigade-adapter-pg`, or a JSON array whose
+- **The team file's name.** A project's committed `.brigade.json` carries an `adapter` field — `"supabase"`, `"fs"`,
+  yours. The harness resolves that name strictly on the reader's own machine: through
+  `${BRIGADE_CONFIG_DIR}/adapters.json` (see *Being chosen*, above), or, for the name `supabase`, the bundled
+  adapter with no registry at all. The repo file names a *dialect*; it never names a command or a path, so a hostile
+  clone can never point a session at an executable. An unregistered name fails at session start with `config` and
+  one clear line — never execution.
+- **The session override.** The plugin option `adapter_command` overrides the team's adapter for one session. It
+  takes the same forms — an absolute path such as `/usr/local/bin/brigade-adapter-pg`, or a JSON array whose
   elements are the executable and fixed arguments prepended verbatim to every invocation, such as
-  `["/usr/local/bin/brigade-adapter-pg", "--root", "/srv/brigade"]` — or a registered name. An override that cannot
-  read the profile fails at session start with `config` and one clear line; the harness never guesses.
-- **The fallback.** A profile created by running an adapter directly, outside the harness, has no sidecar; the
-  harness then reads the profile file's top-level `adapter` member as a registry name, best effort (the shared Go
-  helper writes it; you may or may not), and finally falls back to the bundled Supabase adapter.
+  `["/usr/local/bin/brigade-adapter-pg", "--root", "/srv/brigade"]`, or a registered name. The override is a user
+  setting, never sourced from any repository file.
 
 The harness spawns the resolved command as an argument array with `exec` and **no shell**: no globbing, no `~`
 expansion, no `sh -c`, no quoting rules. A shell script is a fine adapter, but it needs a shebang line and the
@@ -1979,11 +1973,12 @@ comes from. A team lives on exactly one backend: every member's adapter must spe
 the protocol deliberately leaves to adapters (4.8).
 
 The whole chain runs today: the plugin manifest and the `plugin/bin` bootstrap, the harness commands
-(`profile init --adapter`, `profile status`, the `team` pass-through, `sessions`, `send`, `whoami`, `team members`), the
+(`team create|join|leave|status|reset|revoke-credentials|list`, the `team` admin pass-through, `sessions`, `send`, `whoami`,
+`team members`), the
 three lifecycle hooks and the detached watcher. A local build behind the dev pointer (`make plugin-dev`) drives your
 adapter from inside a live Claude Code session, and that is the sequence measured in `docs/experiments/E3-wiring.md`.
 The packaged release pins — `plugin/bin/VERSION` and `plugin/bin/checksums.txt`, written by `make release`, whose
-first release is `0.1.0` — name the binary a session downloads and the sha256 it is checked against. Which binary a
+current release is `0.1.0` — name the binary a session downloads and the sha256 it is checked against. Which binary a
 developer installs does not change how the harness runs your adapter. `brigade-conformance` and a shell
 remain the way to exercise your adapter on its own; the section below is everything the harness adds on top.
 
@@ -1995,11 +1990,15 @@ not an aspiration.
 
 **One spawn seam, no shell, ever.** Every request/response command is one `exec` of an argument array
 (`internal/harness/adapterclient`): `<adapter_command…> [--profile <p>] <group> <verb> [flags…]`, request document
-on stdin, one envelope on stdout, the process exits. There is no `sh -c`, no glob, no `~` expansion and no quoting
+on stdin, one envelope on stdout, the process exits. The Claude Code harness's own user surface has **no**
+profiles — the project's committed `.brigade.json` names the team, and the harness drives your adapter with an
+internally derived team key as the `--profile <p>` value — so the profile vocabulary you implement (the flag, the
+`profile init/status/reset/revoke-credentials` verbs, `describe.profile.*`) is unchanged; only who supplies the
+name differs. There is no `sh -c`, no glob, no `~` expansion and no quoting
 layer to defend against. A shell script is a perfectly good adapter — it needs a shebang line and the executable
 bit. The one long-running child, `message watch`, is spawned the same way and kept alive by the watcher.
 
-**The fixed arguments of `adapter_command` are yours.** Whether the command comes from the profile's sidecar, from
+**The fixed arguments of `adapter_command` are yours.** Whether the command comes from the team's binding by name, from
 `adapters.json` or from the session's `adapter_command` option, a JSON array's elements are the executable and
 fixed arguments **prepended verbatim** to every invocation, so `["/usr/local/bin/brigade-adapter-pg", "--root",
 "/srv/brigade"]` plus `["describe"]` is one well-formed argv. Accept your own fixed flags in the LEADING position
@@ -2072,8 +2071,9 @@ harness instead:
 This is why exit statuses **126, 127 and ≥ 128 are never yours to emit**: they are how a spawn failure looks, and
 the harness will read them as one.
 
-**`team` and `profile` pass your terminal straight through.** `brigade team create|join|leave` and `brigade profile
-init|status|reset|revoke-credentials` do not go through the request/response path: the harness resolves the adapter,
+**The terminal `team` verbs pass your terminal straight through.** `brigade team create|join|leave` and the
+adapter's `profile init|status|reset|revoke-credentials` verbs (which the harness drives internally under a team
+key) do not go through the request/response path: the harness resolves the adapter,
 builds the same from-scratch environment, and then hands your process the caller's **own stdin, stdout and stderr**,
 with no deadline, forwarding your exit status verbatim. So `--prompt` sees a real TTY, a no-echo secret prompt
 works, and your envelope reaches the human's terminal unaltered. Two consequences: your `team create` may print the
@@ -2081,27 +2081,22 @@ join secret on **stdout** (4.4.10 is the one exception to the no-secrets rule; o
 it), and `team create`/`team join` are refused with `usage` when they are run from inside a session — a join secret
 must never pass through a chat.
 
-**Being chosen: the D36 registration syntax.** A human binds a profile to your adapter once:
+**Being chosen: registering your name.** A human registers your adapter under a short name once, by hand-editing
+`${BRIGADE_CONFIG_DIR}/adapters.json` (mode 0600) — a JSON object mapping each name to its executable, as an
+absolute path or a JSON array of the executable and fixed arguments:
 
-```sh
-brigade profile init [--profile <p>] --adapter <spec> [your own profile-init flags…]
+```json
+{
+  "pg": "/usr/local/bin/brigade-adapter-pg",
+  "pg-rooted": ["/usr/local/bin/brigade-adapter-pg", "--root", "/srv/brigade"]
+}
 ```
 
-where `<spec>` is one of an absolute path, a JSON array, a registered name, or `<name>=<absolute path | JSON array>`
-which registers that name in `${BRIGADE_CONFIG_DIR}/adapters.json` and uses it in the same breath:
-
-```sh
-brigade profile init --adapter /usr/local/bin/brigade-adapter-pg
-brigade profile init --adapter '["/usr/local/bin/brigade-adapter-pg","--root","/srv/brigade"]'
-brigade profile init --adapter 'pg=["/usr/local/bin/brigade-adapter-pg","--root","/srv/brigade"]'
-brigade profile init --profile staging --adapter pg          # the name, once registered
-```
-
-A relative path is refused and nothing is written. The harness writes the sidecar **before** it spawns your own
-`profile init` with the remaining flags, so a failed `profile init` still leaves the profile bound to you and a
-retry does not need `--adapter` again. `brigade profile status [--profile <p>]` prints which adapter is in force and
-where that came from (`from sidecar` / `from profile` / `bundled`), then passes through to your own `profile
-status`.
+A project's committed `.brigade.json` then names your dialect in its `adapter` field (`"adapter": "pg"`), and every
+session in that checkout resolves the name through the reader's own `adapters.json`. A name with no entry, an
+entry that is a relative path, or a malformed file is refused — never executed. The bundled `supabase` adapter
+needs no entry; it is the name that resolves with no registry at all. A one-off per-session override is the
+`adapter_command` plugin option, which takes the same three forms (absolute path, JSON array, registered name).
 
 ## Before you claim conformance
 

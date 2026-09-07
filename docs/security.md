@@ -20,10 +20,10 @@ A member of a team holds four things:
 - the **project URL** of the backend, such as `https://<ref>.supabase.co`;
 - the **publishable key** of that project;
 - the **join secret**;
-- their own **profile directory**, which holds their credential.
+- their own **credential directory** (`~/.config/brigade/teams/<key>`), which holds their credential.
 
 The URL and the publishable key are not secret. They are meant to be shared, and Supabase says so. The join
-secret and the profile directory are the two that matter.
+secret and the credential directory are the two that matter.
 
 Brigade is designed against seven kinds of attacker. Six of them are held off. The seventh is accepted.
 
@@ -36,7 +36,7 @@ Brigade is designed against seven kinds of attacker. Six of them are held off. T
 - Someone who got hold of the join secret. They become a member.
 - The supply chain: whoever could tamper with the binary you download. Section 10 covers it.
 - **Any program running as you, on your own machine.** This one is **accepted**, not defended against. A program
-  running under your user account can read your profile files and Brigade's state files. Section 8 says what
+  running under your user account can read your credential files and Brigade's state files. Section 8 says what
   that means and section 10 says what narrows it.
 
 **What is not a boundary.** Display names and labels are free text. Any member can pick any of them, copy
@@ -349,7 +349,7 @@ Four things in Brigade are secret-shaped. Here is where each one lives.
   no-echo prompt, or from a file you pass with `--secret-file`. Putting it on the command line with
   `--join-secret` is refused outright, exit 2, and the value is echoed nowhere. `brigade team create` and
   `brigade team join` refuse to run inside a Claude Code session, so the secret never passes through the chat.
-- **The refresh token:** in `~/.config/brigade/profiles/<name>/session.json`. The file is mode 0600 inside a 0700
+- **The refresh token:** in `~/.config/brigade/teams/<key>/session.json`. The file is mode 0600 inside a 0700
   directory, written atomically, and refused outright if it is readable by anyone else.
 - **The access token:** the same file. It lasts at most one hour.
 - **The messaging token:** the environment only. Its SHA-256 hash goes in the watcher's pidfile. The token itself
@@ -357,36 +357,36 @@ Four things in Brigade are secret-shaped. Here is where each one lives.
 
 **Why the refresh token is the one that matters.** Supabase refresh tokens rotate and never expire on their own.
 So a copy of `session.json` keeps acting as you until the whole token family is revoked at the backend.
-`brigade profile revoke-credentials` and `brigade profile reset` do that revocation, and they refresh the
+`brigade team revoke-credentials` and `brigade team reset` do that revocation, and they refresh the
 credential first, so a stale access token can no longer make the word "revoked" a lie. A token that is two or
 more steps behind is refused and the family survives; tolerating a token one step behind is what makes crash
 recovery work.
 
-`brigade profile status` shows the profile name, its state, the backend URL, the team, your principal reference
-and the time the access token expires. It never shows a token. `brigade profile reset` revokes the family and
-deletes the profile directory.
+`brigade team status` shows the team, the backend URL, your principal reference
+and the time the access token expires. It never shows a token. `brigade team reset` revokes the family and
+deletes the local credential.
 
-**The seventh attacker, plainly.** Any program running **as you** can read the profile files, Brigade's session
+**The seventh attacker, plainly.** Any program running **as you** can read the credential files, Brigade's session
 map and the cached binary. That is a stated, accepted limit of this version. Brigade also prefers its own session
 map over the environment when it resolves a session's configuration, which makes that map a trust boundary
 guarded by file permissions alone.
 
-**Under the Bash sandbox.** A sandboxed command cannot write to the profile directory, so a credential refresh
+**Under the Bash sandbox.** A sandboxed command cannot write to the credential directory, so a credential refresh
 there happens in memory only and nothing is persisted. The watcher, which runs outside the sandbox, is the
 process that refreshes and saves.
 
 ## 9. Running a team, and losing the ability to
 
 **The creator is the only administrator.** A team's `created_by` value is the only administrative authority, and
-the creator's profile directory is the only credential that exercises it. Anonymous credentials cannot be
-recovered — that is by design, not an oversight. So `brigade profile reset`, a lost or deleted `session.json`, or
+the creator's credential directory is the only credential that exercises it. Anonymous credentials cannot be
+recovered — that is by design, not an oversight. So `brigade team reset`, a lost or deleted `session.json`, or
 the backend detecting a reused refresh token each ends secret rotation, member revocation and transfer for that
 team, **permanently**.
 
-**Keep a 0700 backup of the profile directory.** If you may ever hand the team over, run `brigade team transfer`
+**Keep a 0700 backup of the credential directory.** If you may ever hand the team over, run `brigade team transfer`
 **first**, while you still can. After the loss there is nothing to transfer, and the only remaining recovery is
 to create a new team and re-invite everyone. `brigade team leave` does **not** end your administration:
-`created_by` survives a leave, so rejoining with the current secret restores it. `brigade profile reset` does end
+`created_by` survives a leave, so rejoining with the current secret restores it. `brigade team reset` does end
 it. [`docs/setup.md`](setup.md), "Leaving and uninstalling", has the order.
 
 **What the administrative commands mean.** The steps are in [`docs/setup.md`](setup.md); here is what they buy.
@@ -416,7 +416,9 @@ team out of its own recovery and onboarding.
 
 **Where Brigade puts things.** Session maps, pidfiles, logs and held-message records live under
 `~/.local/state/brigade`, mode 0600 inside 0700. Cached binaries live under `~/.local/share/brigade`. Profiles
-and credentials live under `~/.config/brigade`. **Nothing is written into your project directory.**
+and credentials live under `~/.config/brigade`. **Nothing is written into your project directory except the
+one team file `.brigade.json`, written once by the administrator's `team create`, which carries only public
+values** (the backend URL, the publishable key, the team's reference and name — never the join secret).
 
 **The shadowing warning.** The plugin adds its own `bin/` to the end of the Bash tool's PATH, so another
 `brigade` earlier on your PATH would run instead. Brigade checks for that at session start and says so:
@@ -451,7 +453,7 @@ rm -rf ~/.local/state/brigade ~/.local/share/brigade
 rm -rf ~/.config/brigade
 ```
 
-The second one deletes your profiles and credentials, so run `brigade profile reset` on each profile first.
+The second one deletes your team credentials, so run `brigade team reset` for each team first.
 
 **Not being sent the same message twice.** Brigade remembers what it has already delivered in a file keyed by
 the **Brigade session id**, so a `claude -p --resume` back onto the same Brigade session keeps that memory. It
@@ -480,7 +482,7 @@ every planted control firing.
 
 Ten success criteria were set for this project and all ten are met. A no-model proof script of **221
 assertions** runs in continuous integration on every push. Phase 4 ran five proof lanes and about **260 real
-Claude Code sessions** across three Claude Code builds. A later two-hour soak ran two sessions on one profile
+Claude Code sessions** across three Claude Code builds. A later two-hour soak ran two sessions on one team
 with two credential renewals and no lockout, and absorbed a burst of 1,000 realtime hints without injecting
 anything.
 
@@ -493,7 +495,7 @@ anything.
 | Not-seen-twice memory was keyed by process id | **Closed.** Section 10 |
 | A `SIGKILL` leaves files nothing prunes | **Open.** No correctness consequence measured. Section 10 |
 | A "resumed" flag no instrument can see | Cosmetic. The hook discards it |
-| One of the 26 test messages (the acknowledgement bait, item 21) drew a bare receipt: 2 of 3 headless runs of the old text, and at every frame level in E5-frame-levels (6 of 11 runs) | Open and non-blocking. It did not reproduce interactively (0 of 3); the default-level decision is in E5-frame-levels.md, "For Rjae's decision" |
+| One of the 26 test messages (the acknowledgement bait, item 21) drew a bare receipt: 2 of 3 headless runs of the old text, and at every frame level in E5-frame-levels (6 of 11 runs) | Open and non-blocking. It did not reproduce interactively (0 of 3); ruled 2026-09-06 (Rjae): the default stays `open` with no code change, and item 21 stays an open, non-blocking finding |
 | Three exfiltration items were refused upstream headless | **Closed** by interactive measurement on two models |
 | The sandbox and a loopback backend | **Dropped for this version** by the owner. Section 10 |
 
@@ -532,9 +534,9 @@ Every item below is a known limit that this version ships with, on purpose.
 
 - No end-to-end encryption. The person who runs the backend project can read every message.
 - No verified human identity. Names and labels are free text and are shown as unverified.
-- Only a creator role. Losing the creator's profile ends rotation and revocation for that team, unless a
+- Only a creator role. Losing the creator's credential ends rotation and revocation for that team, unless a
   transfer was made before the loss.
-- Programs running as you, on your machine, can read your profile files, Brigade's session map and the cached
+- Programs running as you, on your machine, can read your credential files, Brigade's session map and the cached
   binary.
 - A determined member can still send 60 messages a minute and 600 an hour, and keep 15 unacknowledged messages
   in each teammate's inbox. The response is to revoke them.

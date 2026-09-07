@@ -9,7 +9,7 @@ sanitised, and a message can never grant permission, approve a prompt or represe
 
 Brigade ships as a Claude Code plugin. The plugin talks to its backend through an **adapter**: a separate executable
 that speaks the Brigade Adapter Protocol (BAP/1) on argv, stdin and stdout. The bundled adapter targets Supabase;
-any other backend is its own adapter, selected per profile.
+any other backend is its own adapter, named by the project's committed `.brigade.json`.
 
 # Table of Contents
 
@@ -48,8 +48,8 @@ service), everything you need is in this repository, in this order:
 
 Facts that changed since the early brief some of you read: the ten open questions about section 4 are decided, the
 lease range is each adapter's own and is advertised in `describe`, the suite reads no poll interval — so a polling
-adapter gets the same 5 s delivery deadline as a push one — and a profile carries its default adapter while a
-session may override it. [`docs/protocol-v1.md`](docs/protocol-v1.md) Appendix C names each decision and the
+adapter gets the same 5 s delivery deadline as a push one — and the project's team file names the adapter while a
+session option may override it. [`docs/protocol-v1.md`](docs/protocol-v1.md) Appendix C names each decision and the
 sentence that honours it, and the wording questions a second implementation may surface are collected as BAP/1.x
 items in [the execution log](.context/plans/brigade-execution-log.md), where an answer changes a minor revision and
 never the frozen major.
