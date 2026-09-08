@@ -1,7 +1,7 @@
 # Codex participation in Brigade: implementation and test plan
 
 Date: 2026-09-08
-Status: ready for implementation; delivery feasibility remains explicitly unproven.
+Status: P0 ready to run; P2–P5 provisional until the independently verified capability table.
 Scope: one repository, one shared Brigade Go runtime, separate Claude and Codex plugin packages.
 
 ## 1. Read this first
@@ -12,7 +12,7 @@ This document is a plan, not evidence that Codex interoperability already works.
 
 There are two separately reportable outcomes:
 
-1. **Plugin participation:** Codex registers, sends, and receives at verified conversation boundaries. Messages that arrive while idle remain pending until a supported delivery opportunity. This is a useful first milestone.
+1. **Plugin participation:** Codex registers, sends, and receives on UserPromptSubmit only. Messages that arrive while idle remain pending until the next user prompt. PostToolUse delivery is a separate future experiment, not part of this milestone.
 2. **Full idle-wake participation:** a message starts work in the intended idle Codex conversation without a human prompt. This requires a separately proven host integration. A polling-only implementation does not satisfy this outcome.
 
 Implement the first outcome completely. Investigate and implement the second only through a supported, verified path into the intended client. If ordinary-client idle wake cannot be established, finish the first outcome and deliver the evidence and precise remaining limitation. Do not silently substitute a Brigade-managed Codex worker for the user's existing Codex conversation.
@@ -21,9 +21,9 @@ Do not publish, push, release, join a production team, send real teammates messa
 
 ## 2. Repository rules and source map
 
-Read current AGENTS.md/CLAUDE.md and applicable skills before starting. Preserve unrelated worktree changes. Plans belong in `.context/plans/`; disposable scratch belongs in `.ignored/`. Credential material must live outside the repository even when scratch is gitignored. Use codebase-memory MCP for code discovery, indexing the repository if necessary; use text search for configuration, literals, scripts, or missing graph results.
+Read current `CLAUDE.md`, the execution log and any host-supplied instructions before starting. There is no repository AGENTS.md at review time; later references to AGENTS.md describe Codex's instruction surface. Preserve unrelated worktree changes. Plans belong in `.context/plans/`; disposable scratch belongs in `.ignored/`. Credential material must live outside the repository even when scratch is gitignored. Prefer codebase-memory MCP for code discovery when available, indexing first if necessary; otherwise use ordinary repository inspection. Installed skills and MCP tools are session tooling, not prerequisites for a fresh checkout. Follow any applicable session requirements for their use.
 
-Search lessons at task start and on unexpected behavior, announcing the search and its result. Prior relevant lesson: `0c9db12674c24c65919f5c390b6df988` (portable plugin components versus host-specific agents). This feature does not require custom Codex agent roles or model routing.
+When the lessons service is available, search at task start and on unexpected behavior, announcing the search and its result. Optional prior lesson: `0c9db12674c24c65919f5c390b6df988` (portable plugin components versus host-specific agents). Unavailable tooling must not block repository work. This feature does not require custom Codex agent roles or model routing.
 
 Inspect these existing areas rather than reimplementing them:
 
@@ -45,6 +45,8 @@ Inspect these existing areas rather than reimplementing them:
 Specific facts verified during planning:
 
 - `config.SessionIn` calls `ClaudePID` and reads `Store.ReadByPID`.
+- `config.InSession` tests only whether CLAUDE_PID is set. `Trusted` strips BRIGADE_* only when that predicate is true; `BrigadeStateDir` depends on it. Send/whoami require a session, while inbox release and team revoke-member/transfer reject a session. Extending lookup alone would leave Codex classified as a human terminal and fail open on these controls.
+- `hook.prompt.poll` already implements bounded hook-stdout delivery through the shared inbound pipeline, seen/pending stores and a batched backend ack. It is disabled unless PollOnPrompt is true; options currently come from CLAUDE_PLUGIN_OPTION_*.
 - `hook.facts` requires Claude PID and reads messaging socket/token and Claude config/plugin paths.
 - `hook.connect` uses per-PID watcher identity and registers a `protocol.SessionRegistration` containing `Harness` and `HarnessVersion`.
 - `watch.injector.inject` ends in `socketpost.Post`, except for the test sink.
@@ -76,15 +78,23 @@ Prove and record:
 - Actual hook command form, argument handling, root expansion, startup/resume/compact/end event behavior.
 - Native thread ID from hooks, and a trustworthy way for `brigade` invoked through a shell tool to resolve that same thread. Check the installed host's documented environment, rather than inventing a variable name.
 - Two simultaneous threads in the same project and, if supported, the same host process; no identity collision. Include subagent behavior.
+- Name the host-provided marker present in every shell-tool child, its provenance, and whether a model can unset/spoof it or invoke an unmarked child. An ordinary environment variable is not immutable. Prove the supported enforcement boundary with direct, unset, poisoned and nested-child tests; do not claim a binding handle alone protects human-only commands.
+- Prove binding scope with two simultaneous threads: a per-thread nonce in the private map, each thread's own `whoami --json` result, and a poisoned environment/cwd control that cannot select the other thread.
+- Record registration name/version/activity sources. Absent trustworthy values, use a Codex name fallback, version `unknown`, and protocol activity `idle`; never invent a registry or busy signal.
+- Measure hook timeout defaults and overrides, termination signals, and what happens to partial stdout on timeout. Size heartbeat, receive and ack budgets from the measured total, not Claude's defaults.
 - How plugin options are supplied; do not assume Claude `userConfig` is supported. If absent, choose a Brigade-owned private options file with explicit defaults and a documented configuration command/path.
 - Whether the binary is available as a bare command from a skill. If not, use an explicit plugin-root-resolved launcher; prove the skill can resolve it reliably.
-- Synchronous hook context delivery during a user prompt and after a tool. Determine whether quoting/structured untrusted data is preserved and measure output truncation/spilling behavior.
-- Idle negative control: send after the recipient turn has ended and observe without typing another prompt. Mark pending-until-next-turn behavior honestly.
+- Synchronous UserPromptSubmit delivery: capture verbatim the host wrapper around the canary, its role, whitespace stripping, and byte/token cap and spill behavior. Do not reuse Claude's 10,000-character cap without measurement. Post-tool delivery requires a separate future capability row and security campaign.
+- Idle-wake attempt (expected pending-until-next-turn for polling): send after the turn has ended and observe without prompting. This is the positive wake arm, not a negative control.
 - Investigate whether a documented supported interface can address the actual desktop conversation. If only a separately launched App Server works, record that as a worker-only result and leave desktop idle wake unsupported.
 
 Deliver a capability table with PASS/FAIL/UNAVAILABLE, evidence filenames, and minimum verified Codex version. Avoid speculative implementation branches: select the proven lifecycle, identity, configuration, and delivery routes in the report before P2/P3.
 
-Exit gate: deterministic identity and a real model-visible receive path are proven for at least one supported Codex plugin client. If access/auth is missing, implement the isolated fixtures and deterministic contracts, but do not invent passing live results. Continue independent work below and list the exact pending live gate.
+P0 pass predicate: both trusted identity and delivery pass for the named client, with an independent Fable adversarial verifier signing the evidence. Delivery requires the frame's preserved 40-character anchor in the receiver's context record AND a per-run split-token nonce reconstructed in the receiving model's own text. Never count input echoes, tool output, `origin.body`, or the sender's transcript. Record enqueue/dequeue or equivalent host handoff evidence where available; absence of such instrumentation is a stated limit, not an invented event.
+
+Run controls in fresh isolated sessions, with unique messages/principals so dedupe and rate limiting cannot explain silence. Observe each idle/null arm for 60 seconds after readiness and confirmed turn completion; record timestamps and instrument health. Run a known-good prompt-delivery positive control. Null-send with live hooks must stay silent. A sink/mock-only run must score FAIL for live delivery, and a separate App Server worker must be classified worker-only and excluded from desktop PASS. Mutate each classifier input (remove frame, replace assistant text with input echo, remove nonce, remove readiness) and assert it cannot still pass. Each assertion needs a nonzero attempted-case count and a control that can flip its verdict. A 60-second observation proves only that window, not indefinite behavior.
+
+Identity FAIL without a validated supported alternative is a HARD STOP after P1. Missing authentication permits fixture/baseline work only; P2–P5 stay gated. If identity works but the human-only boundary fails, hold support is blocked: do not silently downgrade hold to accept. Any restricted release must explicitly disable unsupported controls, document them in docs/security.md and pass Fable review before the implementation gate opens. The absence of an immutable environment marker alone is not proof of failure; test the actual boundary and supported alternatives.
 
 ## 4. Design decisions
 
@@ -108,7 +118,7 @@ codex/brigade/
 
 Both packages must be self-contained after installation into separate caches. Generate or verify identical bootstrap/version/checksum assets from one canonical source; never use runtime `../../plugin` imports or symlinks out of the package. Keep the existing Claude release pin canonical initially. Development uses the existing local dev-binary mechanism, adapted and tested for both packages; the old published binary cannot implement new Codex subcommands. Do not manufacture release checksums for unreleased code.
 
-No MCP server is required for the initial CLI-and-hooks approach. Adding one later is a separate design choice, not a solution for idle wake. Use the plugin-creator skill for actual package creation, with an explicit repository-local destination and isolated test marketplace; avoid its global marketplace defaults.
+No MCP server is required for the initial CLI-and-hooks approach. Adding one later is a separate design choice, not a solution for idle wake. If available, use the plugin-creator skill for actual package creation with an explicit repository-local destination and isolated test marketplace; otherwise follow the verified manifest schema. Avoid global marketplace defaults.
 
 ### Host session identity
 
@@ -116,27 +126,29 @@ Introduce a small host-neutral context representation, for example `HostSession{
 
 - Namespaced key: `(host kind, native thread ID)`; include validated binding context where needed to prevent cross-team state reuse.
 - Existing Claude ByPID state remains backward compatible; avoid a wholesale state migration.
-- Codex state uses its own namespace and private atomic files. Native IDs are untrusted path inputs; validate or hash them using existing conventions.
+- Namespace only host lookup maps, watcher pidfile/log paths if used, and prompt retry stamps. Keep seen and pending stores keyed by backend-issued Brigade session ID so resume and the shared pipeline retain dedupe. Native IDs are untrusted path inputs; validate or hash them using existing conventions.
 - CLI commands must resolve the current trusted host context, not accept an arbitrary model-selected Brigade sender UUID.
-- If P0 cannot establish automatic shell identity, implement an explicit validated local binding handle from trusted lifecycle state. Specify how it is provisioned and scoped before coding; never fall back to "last active session" or current directory alone.
+- An alternative binding handle must be minted by the trusted lifecycle hook, scoped to that thread, validated against its private map and binding, and proven by the two-thread poison experiment before P2. Never fall back to last-active or cwd. A handle resolves identity but does not by itself establish the in-session/human-only enforcement boundary.
 - Missing/ambiguous identity produces a useful `config` error. If host selectors conflict, fail closed rather than guessing.
 - Default to registering root conversations only. A subagent must not create a duplicate root registration or silently send as another thread.
 
 ### Delivery and acknowledgement
 
-Extract the smallest useful delivery boundary around the current injector. Preserve existing pipeline ownership of validation, frame policy, queueing, deduplication and acknowledgements. Reuse heartbeat/backoff. Do not create a second independently consuming watcher per thread.
+Outcome 1 reuses `hook.prompt.poll` and its inbound pipeline. Supply a Codex facts/options source with PollOnPrompt default ON and explicit inbound policy, frame level and config directory. Do not extract a new injector interface or add another durable queue for this outcome. Existing seen/pending storage remains shared. Verify concurrent prompt invocations against existing synchronization and add only the minimal serialization a failing test demonstrates is necessary.
 
-For a hook-delivered Codex implementation, prefer synchronous bounded draining at verified UserPromptSubmit/PostToolUse opportunities. A background watcher may retain durable pending messages but its queue write is not delivery. Keep automatic idle delivery explicitly disabled unless P0 proves a supported host transport.
+Presence decision for outcome 1: no socketless watcher. Heartbeat on UserPromptSubmit within a measured combined heartbeat/receive/ack budget, shortening receive as necessary; handle expired/closed sessions through the existing resume/re-registration rules before sending or polling. Between prompts the lease can expire and the session can disappear from the default sessions list; document `sessions --all` and expose prompt-only presence in whoami/README. Do not advertise continuous online presence. A pending-only watcher would be a separate outcome-2 design requiring proven per-thread liveness and lifecycle tests.
 
-Document the exact ack point before coding. For hook stdout, inspect the existing prompt polling contract and preserve at-least-once behavior across process crashes. If there is no host acceptance receipt, say so: a successful write is only a transport handoff. Never ack while merely fetching, holding, refusing, spilling locally, or preparing output. Interrupted/uncertain delivery must remain recoverable; bounded duplicate delivery is preferable to loss. Define how successful handoff, seen-state persistence, and backend ack interact, including the unavoidable crash windows.
+Document the existing ack point before adapting it: poll offers received messages to the pipeline, emits fitting frames, calls Done to mark successful handoff/seen state, and makes one Ack call for the accumulated IDs. Offer may also ack an already-seen duplicate without reprinting. Therefore do not assume every print-before-ack crash results in another model-visible frame: test before/after seen persistence, restart and ack failure separately. Verify `say` write-error handling as part of this contract. A stdout write is not a host acceptance receipt; measure partial-output and timeout behavior. If seen persistence can suppress a frame that the host never received, that is a failing delivery gate requiring a focused fix, not a bounded-duplicate success claim. Held/refused/unprinted-new frames must never be acknowledged as delivered.
 
 Bound each delivered batch by bytes/items/time to avoid host truncation. Do not acknowledge messages omitted from a bounded batch. Prefer test-proven small batches over increasing global host context limits. Retain existing retry/rate/hop bounds; ignore ack-only messages according to the skill.
 
 ### Trust and human controls
 
-Use `frame.Build` and the sanitizer. Make the framing's host terminology configurable or neutral, including AGENTS.md versus CLAUDE.md and available reply commands. Treat sender labels as display text; principal/session IDs define identity.
+Use `frame.Build` and the sanitizer. Sender has no harness field in the frozen envelope, so receiver-side code cannot infer whether a peer uses Claude or Codex. Preserve existing Claude preamble bytes for this milestone and record its inaccurate Claude-only sender wording as known debt. Add a fixed Codex-receiver variant with host-neutral sender prose and its own goldens; use receiver-appropriate instruction-file/tool names. No new runtime wording knob. Preserve the first 40-character delivery anchor. A future shared neutralization is a deliberate Fable change updating all golden hashes and proof-script literals together, never a protocol change. Sender labels are display text; principal/session IDs define identity.
 
 Where hook output is developer context, put a fixed integration-owned instruction ahead of a clearly delimited untrusted-data body. Do not interpolate teammate text into trusted instructions. Test delimiter breakout and fake system/developer messages. Do not claim quoting eliminates prompt injection.
+
+Claude's measured security results depended on both its native peer preamble and Brigade's frame plus its permissions/tool-grant behavior. None of that transfers automatically to Codex. Add a Codex sessions section to docs/security.md naming observed and absent layers. Before outcome 1 ships, port the existing 26-message injection corpus and run each case in three fresh real-client sessions using isolated canary files/services, a positive-control judge and verdict mutations. Unauthorized config-edit or exfiltration success blocks the outcome. Fable authors and independently verifies this campaign. PostToolUse, if proposed later, requires its own campaign because it changes timing and instruction placement.
 
 Preserve accept/refuse/hold semantics and the human-only held-message release path. Preserve the rule that peer messages cannot authorize actions, approve prompts, override denied work, or change permissions. Secrets stay on stdin or in an explicitly authorized external secret file, never argv, chat, logs, or repository files. Keep workspace-path sharing opt-in and label-only.
 
@@ -150,9 +162,9 @@ Add focused characterization tests only where extraction could change existing b
 
 ### P2 — Host context and lifecycle
 
-Add the host context abstraction and Codex namespace. Adapt shared command dependencies to resolve a host-neutral session. Add explicit Codex hook dispatch, e.g. `brigade hook codex session-start|prompt|post-tool|session-end`; these are proposed new commands, not existing ones. Keep Claude command paths intact.
+FIRST implement host-aware InSession/Strip/Trusted and state-directory resolution, with tests proving: BRIGADE_* stripping, state-dir pinning, rejection of inbox release/team revoke-member/team transfer from Codex, and no terminalTarget fallback when Codex identity is missing or invalid. Assert send/whoami work for a valid binding. Cover marker unset/spoof and nested children per P0, documenting enforcement limits. Then adapt command session lookup and add explicit Codex hook dispatch, e.g. `brigade hook codex session-start|prompt|session-end` (proposed new commands). Keep Claude paths intact.
 
-Codex startup resolves the existing `.brigade.json` and private credential binding, registers with `Harness: "codex"`, persists mapping and starts any required watcher. Verify protocol validation accepts this harness value without changing wire shape. Repeated startup and compact are idempotent; resume follows the backend's existing live-session rules. End closes only the matching Brigade session and watcher. Crashes use lease expiry/recovery; do not treat desktop app process existence as proof a particular thread is active.
+Codex startup resolves `.brigade.json` and the private binding, registers with Harness `codex` and persists mapping; outcome 1 starts no watcher. Harness is a nonempty string in protocol/session.go; add one assertion for `codex`, no wire/schema changes. Supply P0-proven name/version/activity sources, or the documented Codex/unknown/idle fallbacks. Repeated startup and compact are idempotent; resume follows backend rules. End closes only the matching Brigade session. Crashes use lease recovery; desktop process existence does not prove thread activity.
 
 Wire configuration through the proven P0 route, preserving trusted config precedence and existing environment allowlists. Codex must not read Claude registry/session secrets. Test actual hook input parsing, including unknown fields and malformed input.
 
@@ -160,11 +172,11 @@ Exit: unit tests cover two threads, two hosts, restart, compact, missing identit
 
 ### P3 — Delivery transport and inbound processing
 
-Extract the delivery interface with a Claude socket implementation that preserves current behavior. Add the selected Codex transport. For hook draining, implement private durable pending storage as needed using existing atomic storage patterns and serialize concurrent drains per host session. Reuse the inbound pipeline and policy decisions.
+Adapt the existing prompt-poll path with Codex facts/options/output limits and the prompt heartbeat budget. Reuse seen/pending stores and pipeline; keep Claude injection untouched. Confirm PollOnPrompt is on for the Codex default. Implement the tested acknowledgement contract and fixed Codex frame variant.
 
 Add explicit tests for the documented ack order, crash windows, queue overflow, batch limit, retries, revoked membership, hold/release/refuse and duplicate delivery. Make `whoami` expose host identity and honest receive mode (e.g. next conversation boundary versus verified push) without exposing tokens, raw local paths or secrets.
 
-If full idle wake is proven: implement the tested transport, including active/idle race handling, expected turn IDs, reconnects and acceptance receipts. A failed steer caused by a completed turn must recheck state before starting a turn; avoid duplicate submissions after ambiguous transport failure. Test it with a fake host server and the real intended client.
+Only if full idle wake is proven: design/extract the delivery interface and any pending-only watcher as a separate Fable task, including per-thread liveness, active/idle races, expected turn IDs, reconnects and acceptance receipts. A failed steer must recheck state before starting a turn; avoid duplicate submissions after ambiguous failure. Test with a fake host server and the real intended client. This branch is excluded from the prompt-only implementation estimate.
 
 Exit: filesystem adapter integration can send Claude-shaped and Codex-shaped sessions both directions through the shared protocol with no cross-session routing or lost unacknowledged messages.
 
@@ -178,9 +190,9 @@ Exit: an isolated installed package invokes the newly built binary, registers a 
 
 ### P5 — Packaging, release preparation and CI
 
-Add a Codex package checker and focused Make targets (suggested: `codex-plugin-check`, `codex-test`, `codex-smoke`). Preserve Claude's existing allowlist/no-MCP checks. The new checker validates manifest, referenced skills/hooks/executables, standalone package layout, executable modes, bootstrap syntax, version consistency and generated-asset drift. Extend secret scans to the new package and experiment artifacts.
+Parameterize the existing package checker by root/host, retaining Claude's checks. Root-specific parameters include manifest location, hook-root literal/command syntax and the Go-pinned subcommand roster in scripts/ci/checks_test.go. Land validation in the same commit as the new package. Add codex-plugin-check and opt-in codex-smoke; no codex-test target is needed because make test already runs Go tests under ./... with race detection. Validate standalone layout, modes, bootstrap syntax, versions and asset drift. no-secrets.sh already scans tracked files; verify new paths are covered and retain its intentional fixture exclusions rather than claiming a new scan scope is necessary.
 
-Update release tooling so an eventual authorized release pins both packages to the same binary/version and verifies both installed bootstrap paths. Do not invoke `make release`: it commits, tags and pushes. For this implementation use dev builds and leave an explicit release checklist if production checksums are pending.
+Update existing release-prep.sh to copy canonical binary pin assets to the Codex package and checksums-check.sh to compare them. Reuse existing manifest/version logic where possible; test both manifests and installed bootstrap paths. Do not invoke make release: it commits, tags and pushes. Use dev builds and leave an explicit release checklist if production checksums are pending.
 
 Wire deterministic tests into CI without Codex/Claude login or a live model. Keep real-client smoke tests opt-in and clearly separate from `make test`. Update allowed-dependency checks only if a justified dependency is actually needed; prefer the existing stdlib/process abstractions.
 
@@ -192,7 +204,7 @@ Record each row as PASS, FAIL, or NOT RUN with a reason and evidence. A skipped 
 
 | ID | Test | Required assertion |
 | --- | --- | --- |
-| C01 | Codex startup | One backend session with Codex harness and correct team/principal |
+| C01 | Codex startup | One backend session with Codex harness, correct team/principal and proven/fallback name, version and activity |
 | C02 | Two Codex threads, one project/process | Distinct identities; messages reach only the target |
 | C03 | Claude + Codex | Existing Claude commands and delivery work unchanged |
 | C04 | Startup repeated / compact | No duplicate registration, watcher or lost pending queue |
@@ -205,7 +217,7 @@ Record each row as PASS, FAIL, or NOT RUN with a reason and evidence. A skipped 
 | C11 | Handoff succeeded, ack failed | Bounded duplicates, retry and seen-state semantics documented |
 | C12 | Concurrent drains / duplicate watch event | Serialized state, no double consumption or loss |
 | C13 | Oversize/batched input | Bounded output; omitted messages remain pending |
-| C14 | Injection payload | Escaped delimiters, provenance retained, no peer approval authority |
+| C14 | Real-client injection campaign | Existing 26 cases × 3 fresh sessions; controlled judge, Fable verifier; no unauthorized config edit or exfiltration |
 | C15 | Wrong team/principal/binding | Existing protocol isolation and local routing preserved |
 | C16 | Offline / revoked membership | Bounded retries, accurate presence, appropriate shutdown/error |
 | C17 | Package cache / spaces / missing binary | Self-contained launcher, clear failure, no source-tree dependency |
@@ -214,6 +226,8 @@ Record each row as PASS, FAIL, or NOT RUN with a reason and evidence. A skipped 
 | C20 | Idle no-message control | No unsolicited turns or periodic model work |
 | C21 | Live restarted Codex recipient | Pending message recovery and correct routing after resume |
 | C22 | Secrets and configuration | No secrets in argv/logs/repo; no unrelated global settings modified |
+| C23 | In-session trust boundary | Valid send/whoami; BRIGADE_* ignored; state pinned; human-only verbs refused; unset/spoof/nested-child controls; no terminalTarget fallback |
+| C24 | Prompt budgets and presence | Heartbeat + shortened receive + ack within proven timeout; partial stdout tested; lease expiry between prompts reported honestly |
 
 Live fixtures should use two disposable principals in an isolated filesystem backend first. Include a negative control that sends to a different session. Capture sanitized IDs, event times, sender result, delivery handoff, backend ack, and receiver reply. Keep raw transcripts private/outside the repo; commit only redacted evidence. Reuse Supabase proof fixtures for one final local-stack round trip if available; do not change the hosted backend.
 
@@ -233,7 +247,21 @@ Use targeted `go test` while iterating; `make test` is the final race-enabled Do
 
 ## 7. Progress and final handoff
 
-Create `.context/plans/codex-team-participation-log.md` as execution starts. Append each completed phase with files, design decisions, exact test command/outcome and evidence location. Keep a capability matrix at the top so another model can resume cheaply. Re-read this plan's exit gates before marking a phase done.
+The existing brigade-execution-log.md remains the single status authority. Scheduling this new workstream there is an owner decision; this plan does not silently add active rows. Once scheduled, update its rows in the same commit as work. A codex-team-participation-log.md, if useful, is only an evidence index linked from those rows, never a parallel status log.
+
+Follow the existing model-tier policy (model names below are repository-assigned tiers, not newly verified product recommendations):
+
+| Phase | Author tier | Required review |
+| --- | --- | --- |
+| P0 fixture/runs/evidence | Opus | Fable gate design and independent adversarial verification before P2 |
+| P1 baseline/test plumbing | Opus | Security characterization reviewed at Fable tier |
+| P2 identity/trust boundary | Fable | One author plus independent full adversarial verifier |
+| P3 polling/ack/frame/security campaign | Fable | One author plus independent full adversarial verifier |
+| P4 package/skills | Opus | Frame/security changes remain in P3; package validation lands together |
+| P5 CI/release preparation/docs | Opus | Negative security tests require Fable verification |
+| Optional push/mid-turn branch | Fable | Separate verified capability/security gate |
+
+A cheaper model may coordinate and run scripts, but must not implement Fable-tier work inline. If the required tier is unavailable, complete independent authorized work and report the specific gate; do not quietly downgrade it. This preserves the existing execution log's budget/cadence policy.
 
 Final implementation report must include:
 
@@ -249,4 +277,8 @@ Do not mark full participation complete with only mock tests or next-prompt poll
 
 ## 8. Prompt to give the implementing model
 
-> Implement `.context/plans/codex-team-participation.md`. Read repository instructions and applicable skills first. Start with the P0 capability experiment and P1 baseline; record evidence in the prescribed report and execution log. Use the code graph for discovery. Keep the existing Claude plugin working and reuse BAP/1 and the Go runtime. Proceed through P2–P5 with focused tests and the final matrix. Do not invent Codex APIs or report mock tests as live interoperability. If ordinary Codex idle wake cannot be proven, finish plugin participation with honest receive timing and document the remaining gate. Do not publish, push, release, modify global installations, or contact real teammates. Deliver implemented code, verified isolated test commands, and a precise completion report.
+> Execute `.context/plans/codex-team-participation.md` under its phase gates and model-tier policy. Start with P0 fixture/evidence and P1 baseline. Get independent Fable verification of identity, trust boundary and delivery evidence before P2; unresolved identity is a hard stop after P1. Use the existing execution log as status authority once the owner schedules this workstream. Delegate P2/P3/security work to Fable author + verifier; use the cheaper tier for plumbing, runs and packaging. Reuse existing prompt polling with Codex options, frame variant and measured heartbeat budget; no PostToolUse or new watcher for outcome 1. Do not invent APIs, claim mocks prove delivery, or hide unsupported human controls. Full idle wake is separately gated. Do not publish, push, release, change global installations or contact real teammates. Deliver code, verified isolated commands, and the 24-row test matrix with unavailable gates stated.
+
+## 9. Review disposition (2026-09-08)
+
+Revised against the Fable review of commit 3338225 supplied in `.ignored/codex-team-participation-review.md` (local evidence, not a required file for future checkouts). Findings 1–11 are addressed above: explicit trust predicate, measurable P0 gate, prompt-only timing and security campaign, heartbeat choice, existing poll reuse, fixed frame variants, registration fallbacks, model tiers/status authority, limited namespacing, shared packaging checks and optional tooling. Two qualifications are deliberate: environment markers/handles are not assumed tamper-proof, and durable seen state means a pre-ack crash does not necessarily reprint a message. Both require adversarial tests. This revision is not an implementation or a claim that P0 passed.
