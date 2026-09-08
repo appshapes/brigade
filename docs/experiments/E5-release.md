@@ -899,3 +899,51 @@ driving a real session against a *hosted* Supabase project — the E5-release-st
 needs real Claude Code, a network and a hosted project, and stays the owner's to run at the keyboard, as for 0.1.0.
 Its every component is covered above: the download-and-verify path (the checksum match), the binary itself (`go
 install` + the sha256 checks), and the session loop (harness-smoke on the byte-identical build).
+
+## 0.3.0 release (P7-12)
+
+Date: 2026-09-08 · Host: macOS 26.6.1, Darwin 25.6.0, arm64 · Go go1.27.0 (`go.mod` go line `1.27.0`,
+**unchanged** since 0.1.0 — no toolchain bump, so the release rebuilds reproducibly) · goreleaser v2.18.0.
+
+0.3.0 is "joining from inside a session" (P7-11, P7-11b): `team create`, `team join` and `team rotate-secret` run
+inside a Claude Code session, `team join --secret-file <path>` reads the secret from the file `team create` wrote
+(location checked, mode and owner not), SessionStart's start facts carry the store to a not-yet-attached session,
+and the `..` bypass of the outside-the-repository check is closed. Additive, no protocol change.
+
+**The release sequence, run end to end (Rjae's ruling 2026-09-08, "go ahead and release a new version").**
+
+1. Release-prep commit `3177dae`: the `## [0.3.0]` changelog section (verified by a one-lens adversarial pass over
+   every sentence against the two feature commits; its seven wording findings folded in) and the version strings
+   that move (`go install …@v0.3.0`, the `v0.3.0`/`0.3.0` sentence, the whoami/symlink examples, plugin/README's
+   current-release line, adapter-authors'). Version pins left for `make release` to bump.
+2. `DRY_RUN=1 scripts/release-prep.sh 0.3.0` — steps 1–3 only: bumped the pins, `make cross` built the four
+   targets, and **goreleaser reproduced `dist-cross/checksums.txt` byte for byte**. The dry-run pin changes were
+   reset to a clean tree.
+3. `make release version=0.3.0` — the real run: pinned `VERSION`/`plugin.json` to 0.3.0, rebuilt, cross-checked
+   with goreleaser again, committed the checksums as `a337a43` ("15: Release 0.3.0") through the full push gate,
+   tagged `v0.3.0` and pushed the tag.
+4. Release workflow **run 34247726834, success**: rebuilt the four binaries from the tag, verified them against
+   the committed `plugin/bin/checksums.txt`, and published the release `v0.3.0` (not a draft).
+
+**Acceptance criteria — all met.**
+
+| Criterion | Result |
+| --- | --- |
+| `make deps-check` green, `docs/allowed-deps.txt` zero-diff | ✅ `git diff ccc6a12..a337a43 -- docs/allowed-deps.txt` empty (the new packages are stdlib + internal only) |
+| `go.mod` `go` line unchanged since 0.1.0 | ✅ `git diff 3177dae..a337a43 -- go.mod` empty |
+| `make plugin-check`: VERSION == plugin.json == 0.3.0 | ✅ |
+| `checksums-check` rule (c) on the release commit passes **by its fresh-build arm** | ✅ CI run 34247724877 (`fast` job) on `a337a43` — "(c) a fresh build of this source reproduces plugin/bin/checksums.txt" — never the published-release fallback; `fast`, `macos`, `supabase` and `reproducibility` all green |
+| The tag's release run reproduces the committed checksums and publishes | ✅ run 34247726834, five assets |
+| Published `checksums.txt` == committed `plugin/bin/checksums.txt` | ✅ byte-identical (`diff` empty) |
+| Every published binary's sha256 matches `checksums.txt` (the plugin's own download check) | ✅ all four `OK` under `shasum -a 256 -c` |
+| `go install github.com/appshapes/brigade/cmd/brigade@v0.3.0` builds and reports `v0.3.0` | ✅ (`GOPROXY=direct` into a scratch `GOBIN`; `brigade version` → `v0.3.0`) |
+| The in-session join on the released model | ✅ `cmd/brigade/testdata/script/team.txtar` drives the real binary: carol creates and dave joins (`--secret-file` on a plain copy of the file) inside a session, into the stores the start facts name, no secret on either stream; `make test` green on `a337a43` |
+
+**Published assets** (release `v0.3.0`): `brigade_0.3.0_{darwin_arm64,darwin_amd64,linux_amd64,linux_arm64}` and
+`checksums.txt` — five, macOS and Linux only (Windows means WSL 2), ~8–9 MB each.
+
+**Not re-run here.** `make harness-smoke` (the send→inject→reply loop) was not re-run for 0.3.0: nothing on the
+messaging path or the wire changed. The owner-gated arm stands as for 0.2.0 — a fresh-configuration-dir marketplace
+install of the published plugin against a hosted project — and now has one more thing to measure at the keyboard:
+`!brigade team join --secret-file <path>` typed with the `!` prefix (the tree measured the Bash tool, not `!`;
+brief ruling 3).
