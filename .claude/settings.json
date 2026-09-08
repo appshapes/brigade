@@ -1,0 +1,5 @@
+{
+  "enabledPlugins": {
+    "brigade@brigade": true
+  }
+}
