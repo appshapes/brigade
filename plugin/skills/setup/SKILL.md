@@ -1,11 +1,11 @@
 ---
 name: setup
 description: >-
-  How a HUMAN creates or joins a Brigade team — with the `!` prefix inside a session, or from their own terminal —
-  and how to leave and uninstall: the Supabase project prerequisites, `team create` (which writes the project's
-  committed `.brigade.json`), the one-command `team join --secret-file`, and the removal order. Use when someone
-  asks how to set Brigade up, join a team, add a teammate, leave, or remove the plugin. It never asks anyone to
-  paste a join secret into the chat.
+  How a HUMAN creates or joins a Brigade team — `team create` with the `!` prefix inside a session or from a
+  terminal, `/brigade:join <path>` to join — and how to leave and uninstall: the Supabase project prerequisites,
+  `team create` (which writes the project's committed `.brigade.json`), the one-line `/brigade:join <path>`, and
+  the removal order. Use when someone asks how to set Brigade up, join a team, add a teammate, leave, or remove
+  the plugin. It never asks anyone to paste a join secret into the chat.
 user-invocable: true
 ---
 

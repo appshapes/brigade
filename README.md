@@ -91,7 +91,7 @@ so no `--setup` hook is needed.
 | `internal/adapters/fs`, `cmd/brigade-adapter-fs` | the reference adapter (dev and test only) |
 | `internal/conformance`, `cmd/brigade-conformance` | the conformance suite (dev and test only) |
 | `cmd/brigade` | the one shipped binary: the plugin harness and the bundled Supabase adapter |
-| `plugin/` | what the Claude Code plugin ships: the manifest, the lifecycle hooks, the two skills, the sh bootstrap and the release pins |
+| `plugin/` | what the Claude Code plugin ships: the manifest, the lifecycle hooks, the four skills, the sh bootstrap and the release pins |
 | `supabase/` | the Supabase backend: migrations, pgTAP tests, local stack config |
 | `scripts/` | the proof scripts behind `make e2e` and `make proof`, the headless smoke test and the release sequence |
 | [`scripts/ci/`](scripts/ci/README.md) | the CI checks (plugin tree, secrets, release pins, keep-alive), their fixtures and the Go drift tests that pin them |

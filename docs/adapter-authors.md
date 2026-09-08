@@ -1978,7 +1978,7 @@ The whole chain runs today: the plugin manifest and the `plugin/bin` bootstrap, 
 three lifecycle hooks and the detached watcher. A local build behind the dev pointer (`make plugin-dev`) drives your
 adapter from inside a live Claude Code session, and that is the sequence measured in `docs/experiments/E3-wiring.md`.
 The packaged release pins — `plugin/bin/VERSION` and `plugin/bin/checksums.txt`, written by `make release`, whose
-current release is `0.3.0` — name the binary a session downloads and the sha256 it is checked against. Which binary a
+current release is `0.4.0` — name the binary a session downloads and the sha256 it is checked against. Which binary a
 developer installs does not change how the harness runs your adapter. `brigade-conformance` and a shell
 remain the way to exercise your adapter on its own; the section below is everything the harness adds on top.
 

@@ -7,6 +7,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [0.4.0] — 2026-09-08
+
+**Two skills, one install path.** A member joins with `/brigade:join <path>`; the plugin updates with
+`/brigade:update`; and installing is the two `/plugin` commands typed inside a session — the only install form
+the docs show, because it always acts on the session's own configuration directory. Nothing changes on the wire: the
+adapter protocol (BAP/1) is untouched.
+
+### Added
+
+- **`/brigade:join <path>`** runs `brigade team join --secret-file <path>` on the secret file the administrator
+  sent and relays the result; with no argument it re-consents a second checkout of a team this machine already
+  holds. It runs only when the user invokes it, and the session attaches at the next prompt (one already attached
+  to another team, after `/reload-plugins`).
+- **`/brigade:update`** runs `claude plugin marketplace update brigade` and `claude plugin update brigade@brigade`
+  from inside the session, so they act on that session's configuration directory, and ends by asking the user to
+  run `/reload-plugins` — the one step nothing but the user can take. Like `/brigade:join`, it runs only when the
+  user invokes it; for that turn it declares `allowed-tools: Bash(claude plugin:*)`.
+
+### Changed
+
+- **Installing is `/plugin marketplace add appshapes/brigade` then `/plugin install brigade@brigade`**, inside a
+  Claude Code session; uninstalling is done from `/plugin` too. The `claude plugin …` command-line form left the
+  user documents: run in a terminal, it installs into whatever configuration directory that terminal has, which
+  is not necessarily the one a session uses. The six `make` targets 0.3.0 carried — `brigade-install`,
+  `brigade-update`, `plugin-marketplace-add`, `plugin-install`, `plugin-marketplace-update`, `plugin-update` — are
+  gone for the same reason. A project can enable Brigade for its collaborators through
+  `.claude/settings.json` (`enabledPlugins` plus an `extraKnownMarketplaces` entry for the `brigade`
+  marketplace, as this repository's does): a collaborator who trusts the folder gets the marketplace added and is
+  told the one install command that remains.
+- The member path in `docs/setup.md`, the plugin README and the setup skill is `/brigade:join <path>`; the
+  `!brigade team join --secret-file <path>` form 0.3.0 documented is no longer shown (the `!` prefix remains the
+  administrator's way to run `team create` inside a session). The team-messaging skill points the model at
+  `/brigade:join` for a join the user asks for.
+- **The plugin tree is open.** The repository's CI checks the plugin manifests for invariants only — well-formed
+  JSON, the name and version pins, the three Brigade hooks wired in exec form with no matcher, the marketplace
+  entry, a recognised frontmatter surface, the team-messaging grant, and the absence of MCP and channel wiring.
+  The rules that pinned the exact set of skills, options, option fields and types, hooks, the other manifest keys,
+  the licence, the mode of every file but the bootstrap, the README's wording and the words a skill may contain
+  are gone: more skills, supporting files beside a `SKILL.md`, more hooks and more options need no change to CI.
+
+### Security
+
+- Two skills carry an unprompted grant for the turn that invokes them: `/brigade:join` declares
+  `allowed-tools: Bash(brigade:*)` and `/brigade:update` declares `allowed-tools: Bash(claude plugin:*)`. Both
+  run only when the user invokes them (`disable-model-invocation`), and `docs/security.md`, section 5, lists
+  them beside the team-messaging grant.
+
 ## [0.3.0] — 2026-09-08
 
 **Joining from inside a session.** The three `brigade team` verbs that handle the join secret — `create`, `join`
