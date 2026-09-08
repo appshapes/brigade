@@ -947,3 +947,57 @@ messaging path or the wire changed. The owner-gated arm stands as for 0.2.0 — 
 install of the published plugin against a hosted project — and now has one more thing to measure at the keyboard:
 `!brigade team join --secret-file <path>` typed with the `!` prefix (the tree measured the Bash tool, not `!`;
 brief ruling 3).
+
+## 0.4.0 release (P7-14)
+
+Date: 2026-09-08 · Host: macOS 26.6.1, Darwin 25.6.0, arm64 · Go go1.27.0 (`go.mod` go line `1.27.0`,
+**unchanged** since 0.1.0) · goreleaser v2.18.0.
+
+0.4.0 is "two skills, one install path" (P7-13): `/brigade:join <path>` and `/brigade:update`, the `/plugin`
+commands as the only documented install form, the six `make` install/update targets gone, the plugin tree opened
+(CI checks invariants only), and this repository's `.claude/settings.json` enabling `brigade@brigade` for every
+collaborator with the `brigade` marketplace named beside it. No Go source under internal/ or cmd/ changed since
+0.3.0, so the binaries are byte-identical to 0.3.0's apart from the version stamp; no protocol change.
+
+**The release sequence, run end to end (Rjae's ruling 2026-09-08, "Yes, release 0.4.0").**
+
+1. Release-prep commit `63318f8`: the `## [0.4.0]` changelog section (a one-lens adversarial pass over every
+   sentence; its eight wording findings folded in, one of which — "two skills" in two READMEs — was a stale
+   count rather than changelog text), the version strings that move, and the `extraKnownMarketplaces` entry in
+   `.claude/settings.json` (the project-scope install had written only `enabledPlugins`, because the marketplace
+   was already known on this machine — a collaborator's would not be). Version pins left for `make release`.
+2. `DRY_RUN=1 scripts/release-prep.sh 0.4.0` — steps 1–3 only: bumped the pins, `make cross` built the four
+   targets, and **goreleaser reproduced `dist-cross/checksums.txt` byte for byte**. Pins reset to a clean tree.
+3. `make release version=0.4.0` — the real run: pinned `VERSION`/`plugin.json` to 0.4.0, rebuilt, cross-checked
+   with goreleaser again, committed the checksums as `6f9fb27` ("15: Release 0.4.0") through the full push gate,
+   tagged `v0.4.0` and pushed the tag.
+4. Release workflow **run 34258274984, success**: rebuilt the four binaries from the tag, verified them
+   against the committed `plugin/bin/checksums.txt`, and published the release `v0.4.0` (not a draft).
+
+**Acceptance criteria — all met.**
+
+| Criterion | Result |
+| --- | --- |
+| `make deps-check` green, `docs/allowed-deps.txt` zero-diff | ✅ `git diff a337a43..6f9fb27 -- docs/allowed-deps.txt` empty (no Go source changed) |
+| `go.mod` `go` line unchanged since 0.1.0 | ✅ `git diff a337a43..6f9fb27 -- go.mod` empty |
+| `make plugin-check`: VERSION == plugin.json == 0.4.0 | ✅ |
+| `checksums-check` rule (c) on the release commit passes **by its fresh-build arm** | ✅ CI run 34258272271 (`fast` job) on `6f9fb27` — "(c) a fresh build of this source reproduces plugin/bin/checksums.txt" — never the published-release fallback; `fast`, `macos`, `supabase` and `reproducibility` all green |
+| The tag's release run reproduces the committed checksums and publishes | ✅ run 34258274984, five assets |
+| Published `checksums.txt` == committed `plugin/bin/checksums.txt` | ✅ byte-identical (`diff` empty) |
+| Every published binary's sha256 matches `checksums.txt` (the plugin's own download check) | ✅ all four `OK` under `shasum -a 256 -c` |
+| `go install github.com/appshapes/brigade/cmd/brigade@v0.4.0` builds and reports `v0.4.0` | ✅ (`GOPROXY=direct` into a scratch `GOBIN`; `brigade version` → `v0.4.0`) |
+| The two skills reach a session | ✅ `plugin/skills/{join,update}/SKILL.md` ship in the tagged tree; `make plugin-check` admits them; the manifest gate reads their frontmatter (`disable-model-invocation`, `allowed-tools`) as recognised keys |
+
+**Published assets** (release `v0.4.0`): `brigade_0.4.0_{darwin_arm64,darwin_amd64,linux_amd64,linux_arm64}` and
+`checksums.txt` — five, macOS and Linux only (Windows means WSL 2), ~8–9 MB each.
+
+**Measured in this session, before the tag.** `/plugin marketplace add appshapes/brigade` and
+`/plugin install brigade@brigade` typed at the prompt of a session running on `CLAUDE_CONFIG_DIR=~/.claude-ifthen`
+installed into that directory ("Plugin is now active."), where the earlier terminal `make brigade-install` had
+installed into `~/.claude` — the reason the CLI form left the docs. The session's next prompt carried the
+registration line (team `brigade`), the plugin having downloaded the 0.3.0 binary in the background.
+
+**Not re-run here.** `make harness-smoke`: nothing on the messaging path or the wire changed. Owner-gated as
+before: a fresh-configuration-dir marketplace install of the *published* plugin against the hosted project — now
+with `/brigade:join <path>` typed by a real member — and a collaborator opening this repository cold, to see
+Claude Code add the marketplace from `.claude/settings.json` and print the one install command that remains.
