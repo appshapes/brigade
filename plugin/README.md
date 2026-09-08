@@ -20,9 +20,10 @@ sanitised, and a message can never grant permission, approve a prompt or represe
   notice; `SessionEnd` closes the session. Before the binary is installed — a first use on a machine — the prompt
   and session-end hooks return at once and print nothing, and an install that fails for good is reported once, on
   the next prompt, as a hook error beginning `Brigade: not installed:`.
-- **Two skills.** `brigade:team-messaging` is the model-facing one — the command surface, the sending rules and how
+- **Four skills.** `brigade:team-messaging` is the model-facing one — the command surface, the sending rules and how
   to treat an inbound frame. `brigade:setup` is human-facing — how a person creates or joins a team, from a session
-  or a terminal.
+  or a terminal. `/brigade:join <path>` runs the member's join on the secret file for them, and `/brigade:update`
+  moves the plugin to the marketplace's current release (then `/reload-plugins`).
 - **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and two skills; there is nothing else in
   the tree, and CI enforces that.
 
@@ -109,14 +110,15 @@ directory are worth to an attacker is [docs/security.md](../docs/security.md).
 Clone the project, save the secret file your administrator sent you outside the repository, open a Claude Code
 session in the checkout, and join:
 
-```sh
-!brigade team join --secret-file ~/brigade-<team>.secret
+```
+/brigade:join ~/brigade-<team>.secret
 ```
 
-`brigade` is on the session's PATH, so there is no path to find. `team join` reads the project's `.brigade.json`,
-prints the team and backend host it is joining (the command is the consent), reads the secret from the file and
-joins; its output never carries the secret. The file's mode and owner are never checked — only that it is outside
-the repository. In your own terminal, `brigade team join` alone asks you to confirm
+That runs `brigade team join --secret-file ~/brigade-<team>.secret` for you and relays the output; `brigade` is on
+the session's PATH, so there is no path to find. `team join` reads the project's `.brigade.json`, prints the team
+and backend host it is joining (invoking it is the consent), reads the secret from the file and joins; its output
+never carries the secret. The file's mode and owner are never checked — only that it is outside the repository.
+Later, `/brigade:update` then `/reload-plugins` moves to a newer release. In your own terminal, `brigade team join` alone asks you to confirm
 and reads the secret without echo. Either way the secret never reaches your scrollback, your shell history or a
 chat. There is no `--profile`, no `--url` and no `--key`: the project file supplies all of that.
 
@@ -141,7 +143,7 @@ The order matters. Every step is optional except step 3 when the goal is to remo
 1. `brigade team leave` (with `!` in a session, or in a terminal)
 2. `brigade team reset` — **run step 1 first:** after a reset the membership and
    its sessions can no longer be closed from this machine.
-3. `claude plugin uninstall brigade`
+3. uninstall `brigade` from `/plugin`, the plugin manager inside a session
 4. `rm -rf ~/.local/state/brigade ~/.local/share/brigade` (or the `XDG_STATE_HOME`/`XDG_DATA_HOME` equivalents)
 5. `rm -rf ~/.config/brigade` (or the directory named by the `config_dir` option)
 

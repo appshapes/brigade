@@ -220,13 +220,14 @@ func TestPluginCheck(t *testing.T) {
 		wantFail(t, r, "not allow-listed", ".DS_Store")
 	})
 
-	t.Run("a skill outside skills/<name>/SKILL.md fails", func(t *testing.T) {
+	t.Run("a file beside a skill's SKILL.md passes (open by default, 2026-09-08)", func(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
 		tr.pluginTree()
-		tr.write("plugin/skills/teammsg/extra/SKILL.md", "# nope\n")
+		tr.write("plugin/skills/teammsg/reference.md", "# supporting material\n")
+		tr.git("add", "plugin")
 		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
-		wantFail(t, r, "not allow-listed")
+		wantPass(t, r, "allow-listed paths")
 	})
 
 	t.Run("a 100644 bootstrap fails", func(t *testing.T) {
@@ -238,15 +239,15 @@ func TestPluginCheck(t *testing.T) {
 		wantFail(t, r, "must be 100755")
 	})
 
-	t.Run("a second executable under plugin/ fails", func(t *testing.T) {
+	t.Run("a second executable under plugin/ passes (open by default, 2026-09-08)", func(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
 		tr.pluginTree()
 		tr.write("plugin/README.md", "# brigade\n")
-		tr.git("add", "plugin/README.md")
+		tr.git("add", "plugin")
 		tr.git("update-index", "--add", "--chmod=+x", "plugin/README.md")
 		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
-		wantFail(t, r, "must be 100644")
+		wantPass(t, r, "100755")
 	})
 
 	t.Run("a VERSION that is not a single token fails", func(t *testing.T) {
@@ -467,46 +468,16 @@ func TestPluginCheck(t *testing.T) {
 		wantPass(t, r, "names a brigade hook subcommand that exists")
 	})
 
-	// ---- check 7: the plugin README's Status paragraph (P3-6) -----------------------------------------
+	// ---- check 7 (retired 2026-09-08): the README's wording is the owner's, not CI's ---------------------
 
-	t.Run("a plugin README that still says the wiring is not implemented fails", func(t *testing.T) {
+	t.Run("a plugin README's wording is not checked", func(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
 		tr.pluginTree()
-		tr.write("plugin/README.md", "# brigade\n\n## Status\n\nThe hooks and the commands are not implemented yet.\n")
+		tr.write("plugin/README.md", "# brigade\n\nNot runnable yet, and no Status section either.\n")
 		tr.git("add", "plugin")
 		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
-		wantFail(t, r, "still disclaims the wiring")
-	})
-
-	t.Run("a plugin README that says the wiring is not runnable fails", func(t *testing.T) {
-		t.Parallel()
-		tr := newTree(t)
-		tr.pluginTree()
-		tr.write("plugin/README.md", "# brigade\n\n## Status\n\nNot runnable yet: the harness lands with P3-3.\n")
-		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
-		wantFail(t, r, "still disclaims the wiring")
-	})
-
-	t.Run("a plugin README with no Status section fails", func(t *testing.T) {
-		t.Parallel()
-		tr := newTree(t)
-		tr.pluginTree()
-		tr.write("plugin/README.md", "# brigade\n\nEverything works.\n")
-		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
-		wantFail(t, r, "no '## Status' section")
-	})
-
-	t.Run("a plugin README with a Status section and no disclaimer passes", func(t *testing.T) {
-		t.Parallel()
-		tr := newTree(t)
-		tr.pluginTree()
-		tr.write("plugin/README.md", "# brigade\n\n## Status\n\nThe hooks, the commands and the watcher run end to end.\n")
-		tr.git("add", "plugin")
-		r := runScript(t, "plugin-check.sh", tr.root, tr.env())
-		wantPass(t, r, "no 'not implemented' disclaimer")
+		wantPass(t, r, "all checks passed")
 	})
 }
 
@@ -700,7 +671,7 @@ func TestNoSecrets(t *testing.T) {
 		wantFail(t, runScript(t, "no-secrets.sh", tr.root, tr.env()), "bin/brigade", "sb_secret_")
 	})
 
-	t.Run("service_role fails under plugin/ but not in the source", func(t *testing.T) {
+	t.Run("the word service_role is not a secret shape anywhere (retired 2026-09-08)", func(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
 		tr.pluginTree()
@@ -708,9 +679,9 @@ func TestNoSecrets(t *testing.T) {
 		tr.git("add", "supabase")
 		wantPass(t, runScript(t, "no-secrets.sh", tr.root, tr.env()), "clean")
 
-		tr.write("plugin/README.md", "uses the service_role key\n")
+		tr.write("plugin/README.md", "Brigade never uses the service_role key.\n")
 		tr.git("add", "plugin")
-		wantFail(t, runScript(t, "no-secrets.sh", tr.root, tr.env()), "service_role")
+		wantPass(t, runScript(t, "no-secrets.sh", tr.root, tr.env()), "clean")
 	})
 }
 

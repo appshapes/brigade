@@ -162,7 +162,7 @@ make checksums-check          # must be green again, with VERSION back at 0.0.0
 ## `scripts/ci/plugin-check.sh`
 
 The static checks of the shipped plugin tree: the `plugin/` file allowlist, mode `100755` in git for
-`plugin/bin/brigade` and `100644` for everything else, `plugin/bin/VERSION` == `plugin/.claude-plugin/plugin.json`'s `"version"`, no `.mcp.json`
+`plugin/bin/brigade`, `plugin/bin/VERSION` == `plugin/.claude-plugin/plugin.json`'s `"version"`, no `.mcp.json`
 and no `mcpServers`/`channels`, exec-form hooks whose command paths exist and are executable, `sh -n` on the
 bootstrap under `sh`, `bash` and `zsh`, and `shellcheck -s sh` over `plugin/bin/brigade`, `scripts/ci/*.sh` and
 `scripts/*.sh`. It exits on the first failure and prints one `ok:` line per check.

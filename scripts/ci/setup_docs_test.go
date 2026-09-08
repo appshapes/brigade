@@ -3,13 +3,13 @@
 // deliberate decision, not an accident: a skill body cannot follow a link, and a marketplace reader may only
 // ever see plugin/README.md. What each copy carries differs (docs/setup.md has the reasons, the README has the
 // commands plus a link, the skill has the commands with ${CLAUDE_PLUGIN_ROOT} substituted) — but the COMMANDS
-// and the bearer-capability sentence must be identical in all three, because a command that drifts is a command
-// one of the three readers runs wrong.
+// must be identical in every copy that exists, because a command that drifts is a command one of the readers
+// runs wrong.
 //
-// The join is deliberately narrow. It pins the five invocation forms a person types and the one sentence that
-// tells them what the join secret is worth. It does not pin prose, so a lane may rewrite the reasons in
-// docs/setup.md without touching this file; it bites the moment a flag, a profile name or that sentence moves in
-// one copy and not the others.
+// The join is deliberately narrow. It pins the five invocation forms a person types and nothing else: not
+// prose, not which copies exist (a copy may be consolidated away — Rjae's ruling 2026-09-08, open by default),
+// so a lane may rewrite the reasons in docs/setup.md without touching this file; it bites the moment a flag or
+// a verb moves in one copy and not the others.
 package ci_test
 
 import (
@@ -38,22 +38,22 @@ var pluginBinPrefix = regexp.MustCompile(`(\$\{CLAUDE_PLUGIN_ROOT\}|<plugin>)/bi
 // one line in one copy and across two in another; that is formatting, not drift, and must not fail the join.
 var whitespaceRun = regexp.MustCompile(`\s+`)
 
-// The six witnesses. Five are the invocation forms of the three procedures (create, join, leave, uninstall);
-// the sixth is the sentence that says what holding the join secret buys, which is the one security claim all
-// three copies must make in the same words.
+// The five witnesses: the invocation forms of the procedures a person types (create, join, leave, reset).
 var setupDocWitnesses = []string{
 	"brigade team create --url https://<ref>.supabase.co --key sb_publishable_",
 	"--name <team> --secret-file ~/brigade-<team>.secret",
 	"brigade team join",
 	"brigade team leave",
 	"brigade team reset",
-	"The secret is a bearer capability: anyone holding it can join and pick any label",
 }
 
-// checkSetupDocs asserts every witness in every copy, with the path prefix normalised away.
+// checkSetupDocs asserts every witness in every copy that exists, with the path prefix normalised away.
 func checkSetupDocs(r reporter, root string) {
 	r.Helper()
 	for _, rel := range setupDocFiles {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			continue // a copy that is gone has nothing to drift
+		}
 		text, ok := readText(r, root, rel)
 		if !ok {
 			continue
@@ -61,8 +61,8 @@ func checkSetupDocs(r reporter, root string) {
 		normalised := whitespaceRun.ReplaceAllString(pluginBinPrefix.ReplaceAllString(text, "brigade"), " ")
 		for _, witness := range setupDocWitnesses {
 			if !strings.Contains(normalised, witness) {
-				r.Errorf("%s does not carry %q; the three setup copies (%s) must name the same commands and "+
-					"the same bearer-capability sentence (plan 6.9)", rel, witness, strings.Join(setupDocFiles, ", "))
+				r.Errorf("%s does not carry %q; the setup copies (%s) must name the same commands (plan 6.9)",
+					rel, witness, strings.Join(setupDocFiles, ", "))
 			}
 		}
 	}
@@ -143,37 +143,6 @@ var setupDocMutations = []struct {
 		"c_skill_changes_a_profile_name",
 		replaceOnceIn("plugin/skills/setup/SKILL.md", "brigade team reset", "brigade team wipe"),
 		"the skill body cannot follow a link, so its commands must be right on their own",
-	},
-	{
-		"d_setup_doc_drops_the_bearer_sentence",
-		replaceOnceIn("docs/setup.md",
-			"The secret is a bearer capability",
-			"The secret lets a member in"),
-		"the one security claim all three copies must make in the same words",
-	},
-	{
-		"e_plugin_readme_softens_the_bearer_sentence",
-		replaceOnceIn("plugin/README.md",
-			"anyone holding it can join and pick any label",
-			"anyone holding it can join"),
-		"softening it in one copy is exactly the drift this join exists to catch",
-	},
-	{
-		"f_skill_softens_the_bearer_sentence",
-		replaceOnceIn("plugin/skills/setup/SKILL.md",
-			"The secret is a bearer capability",
-			"The secret is a password"),
-		"same sentence, third copy",
-	},
-	{
-		"g_a_copy_goes_missing",
-		func(t *testing.T, root string) {
-			t.Helper()
-			if err := os.Remove(filepath.Join(root, filepath.FromSlash("plugin/skills/setup/SKILL.md"))); err != nil {
-				t.Fatalf("removing the skill: %v", err)
-			}
-		},
-		"a deleted copy must read as a failure, not as agreement",
 	},
 }
 

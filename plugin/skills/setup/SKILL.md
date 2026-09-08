@@ -60,14 +60,15 @@ transferring the team are terminal-only administrative commands that refuse insi
 Clone the project, save the secret file your administrator sent you outside the repository, open a Claude Code
 session in the checkout, and join:
 
-```sh
-!brigade team join --secret-file ~/brigade-<team>.secret
+```
+/brigade:join ~/brigade-<team>.secret
 ```
 
-`team join` reads the project's `.brigade.json`, prints the team and backend host it is joining (the command is
-the consent), reads the secret from the file and joins; its output never carries the secret, and this session
-attaches at your next prompt (one already attached to another team stays there until `/reload-plugins`). Delete
-the file once every machine that needs it has joined. In your own terminal,
+That runs `brigade team join --secret-file ~/brigade-<team>.secret` and relays the output. `team join` reads the
+project's `.brigade.json`, prints the team and backend host it is joining (invoking it is the consent), reads the
+secret from the file and joins; its output never carries the secret, and this session attaches at your next prompt
+(one already attached to another team stays there until `/reload-plugins`). Delete the file once every machine
+that needs it has joined. In your own terminal,
 `brigade team join` alone shows what the file names, asks you to confirm, then reads the secret without echo.
 Either way the secret never reaches your scrollback, your shell history or a chat. There is no `--profile`, no
 `--url` and no `--key`: the project file supplies all of that.
@@ -95,7 +96,7 @@ The order matters. Every step is optional except step 3 when the goal is to remo
 2. `brigade team reset` revokes the credential family on the backend and deletes the
    local credential. **Run step 1 first:** after a reset the membership and its sessions can no longer be closed
    from this machine, and a later rejoin mints a new principal that teammates see as a new person.
-3. `claude plugin uninstall brigade` removes the plugin itself.
+3. Uninstall `brigade` from `/plugin`, the plugin manager inside a session; that removes the plugin itself.
 4. `rm -rf ~/.local/state/brigade ~/.local/share/brigade` (or the `XDG_STATE_HOME`/`XDG_DATA_HOME` equivalents)
    removes the session maps, pidfiles, logs and the cached binaries. Keep
    `~/.local/state/brigade/sessions/by-native` if a later reinstall should resume your old Brigade sessions.

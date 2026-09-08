@@ -7,10 +7,13 @@
 # plugin/hooks/hooks.json and plugin/skills/ arrive with P3-1).
 #
 # 1  plugin/ holds only allow-listed paths            5  hooks.json is exec-form and its commands exist
-# 2  plugin/bin/brigade is 100755 in git, rest 100644 6  every hook `args` names a subcommand the binary has
-# 3  VERSION is one token and equals plugin.json      7  plugin/README.md's Status does not disclaim the wiring
+# 2  plugin/bin/brigade is 100755 in git              6  every hook `args` names a subcommand the binary has
+# 3  VERSION is one token and equals plugin.json      7  (retired 2026-09-08: README wording is not CI's business)
 # 4  no mcpServers, no channels anywhere under plugin/ 8  sh -n / bash -n / zsh -n on the bootstrap
 #    (a .mcp.json file is check 1's job)              9  shellcheck -s sh on the bootstrap and the CI scripts
+#
+# What CI does NOT police (Rjae's ruling 2026-09-08, open by default): which skills exist and what they declare,
+# what sits beside a skill's SKILL.md, the modes of anything but the bootstrap, and the README's wording.
 #
 # The JSON checks are textual on purpose: hooks.json and plugin.json are small hand-written manifests, jq is not
 # on every host that runs `make plugin-check`, and the schema half is covered by `make plugin-validate`
@@ -34,9 +37,7 @@ find plugin -type f -print | LC_ALL=C sort | while IFS= read -r f; do
   rel=${f#plugin/}
   case $rel in
     bin/brigade|bin/VERSION|bin/checksums.txt|.claude-plugin/plugin.json|hooks/hooks.json|README.md) ;;
-    skills/*/SKILL.md)
-      mid=${rel#skills/}; mid=${mid%/SKILL.md}
-      case $mid in ''|*/*) die "not allow-listed: $f (skills must be skills/<name>/SKILL.md)" ;; esac ;;
+    skills/*/*) ;;   # a skill directory and whatever it carries beside its SKILL.md
     *) die "not allow-listed under plugin/: $f" ;;
   esac
 done
@@ -52,12 +53,10 @@ printf '%s\n' "$modes" | while IFS= read -r line; do
   case $path in
     plugin/bin/brigade)
       [ "$mode" = 100755 ] || die "plugin/bin/brigade is $mode in the index, must be 100755 (git update-index --add --chmod=+x plugin/bin/brigade)" ;;
-    *)
-      [ "$mode" = 100644 ] || die "$path is $mode in the index, must be 100644 (only plugin/bin/brigade is executable)" ;;
   esac
 done
 printf '%s\n' "$modes" | grep -q '^100755 .*	plugin/bin/brigade$' || die "git does not track plugin/bin/brigade as 100755"
-ok "plugin/bin/brigade is 100755 in git and nothing else under plugin/ is executable"
+ok "plugin/bin/brigade is 100755 in git"
 
 # ---- 3. the version pin ------------------------------------------------------------------------------------------
 [ -r plugin/bin/VERSION ] || die "missing plugin/bin/VERSION"
@@ -160,20 +159,9 @@ else
   skip "hook subcommand names: $hooks_json does not exist yet"
 fi
 
-# ---- 7. the plugin README's Status paragraph does not disclaim the wiring -------------------------------------------
-# P3-1 shipped a Status paragraph that said plainly that the hooks and commands did not run yet, and the setup
-# skill carried a "not runnable yet" note. P3-3..P3-6 made them run; a stale disclaimer is worse than none,
-# because it is the first thing a user reads about whether the plugin works. This is a text check on purpose:
-# it is the only assertion in the repository that the shipped README keeps up with the shipped code.
-if [ -f plugin/README.md ]; then
-  if grep -nEi 'not (yet )?(implemented|runnable)|do(es)? not (yet )?(run|work) yet|no[t] working yet' plugin/README.md >&2; then
-    die "plugin/README.md still disclaims the wiring (the lines above): the hooks, the commands and the watcher run"
-  fi
-  grep -q '^## Status' plugin/README.md || die "plugin/README.md has no '## Status' section"
-  ok "plugin/README.md has a Status section and no 'not implemented' disclaimer"
-else
-  skip "plugin/README.md Status paragraph: the file does not exist yet"
-fi
+# ---- 7. (retired 2026-09-08) ---------------------------------------------------------------------------------------
+# The README's Status paragraph was checked for a "not implemented yet" disclaimer (P3-6). Wording in the shipped
+# README is the owner's, not CI's (Rjae's ruling: open by default).
 
 # ---- 8. the bootstrap parses under every shell a user might have --------------------------------------------------
 [ -f plugin/bin/brigade ] || die "missing plugin/bin/brigade"

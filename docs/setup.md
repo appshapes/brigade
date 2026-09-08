@@ -13,7 +13,8 @@ carries the same commands in short form, for a reader who only ever sees the plu
 
 ## Installing the plugin
 
-Brigade is a Claude Code plugin. Installing it takes two commands. Nothing is compiled and no server is started.
+Brigade is a Claude Code plugin. Installing it takes two commands, typed inside a Claude Code session. Nothing is
+compiled and no server is started.
 
 **You log in once per configuration directory.** Claude Code keeps your login inside its own configuration
 directory — `~/.claude`, or the directory `CLAUDE_CONFIG_DIR` names. A directory that has never been logged in
@@ -21,23 +22,23 @@ answers `Not logged in · Please run /login` and stops, so run `claude auth logi
 inside a session. Adding a marketplace and installing a plugin do not need that login; starting a session does.
 (Measured on Claude Code 2.1.263.)
 
-**The usual way: install from the marketplace.**
+**The usual way: install from the marketplace**, at the prompt of a Claude Code session:
 
-```sh
-claude plugin marketplace add appshapes/brigade
-claude plugin install brigade@brigade
+```
+/plugin marketplace add appshapes/brigade
+/plugin install brigade@brigade
 ```
 
-Inside a session the same two steps are `/plugin marketplace add appshapes/brigade` and
-`/plugin install brigade@brigade`. Neither command asks you to confirm anything, in a terminal or in a script:
-the install's `-y` flag is for a plugin whose marketplace declares a command to run, and Brigade declares none.
+Neither command asks you to confirm anything: an install's confirmation is for a plugin whose marketplace declares
+a command to run, and Brigade declares none.
 
 The first command clones this public repository. It tries SSH first and falls back to HTTPS, so you do not need a
 GitHub key. The second copies the plugin into
 `<configuration directory>/plugins/cache/brigade/brigade/<version>/`. That copy is the plugin, and the version is
 part of its path. The plugin's id is `brigade@brigade`, which is also the key its options take in your settings.
 
-Then start a session, or run `/reload-plugins` in one you already have.
+The install ends with either `Plugin is now active.` or `Run /reload-plugins to activate.`; do what it says. To
+move to a newer release later, run `/brigade:update`, then `/reload-plugins`.
 
 **The developer way: a checkout.** From a clone of this repository:
 
@@ -122,18 +123,18 @@ The secret is a bearer capability: anyone holding it can join and pick any label
 Clone the project, save the secret file your administrator sent you somewhere outside the repository — say
 `~/brigade-<team>.secret` — and open a Claude Code session in the checkout. Then, at the prompt:
 
-```sh
-!brigade team join --secret-file ~/brigade-<team>.secret
+```
+/brigade:join ~/brigade-<team>.secret
 ```
 
-The `!` prefix runs a command on the session's Bash tool, where `brigade` is already on PATH; nothing here asks
-you to find where the plugin lives. `team join` reads the project's `.brigade.json`, prints one line naming the
-team and the backend host it is joining — the command you typed is the consent — reads the secret from the file,
-and joins. Its output names the team, never the secret. Brigade checks that the file is outside the repository
-and nothing else about it — not its mode, not its owner: where you keep it is your call. Delete it once every
-machine that needs it has joined.
+That runs `brigade team join --secret-file ~/brigade-<team>.secret` for you and relays what it printed; `brigade`
+is on the session's PATH, so nothing here asks you to find where the plugin lives. `team join` reads the project's
+`.brigade.json`, prints one line naming the team and the backend host it is joining — invoking it is the consent —
+reads the secret from the file, and joins. Its output names the team, never the secret. Brigade checks that the
+file is outside the repository and nothing else about it — not its mode, not its owner: where you keep it is your
+call. Delete it once every machine that needs it has joined.
 
-In your own terminal the same command needs no file: `brigade team join` (after the symlink from "Terminal use")
+The same command in your own terminal needs no file: `brigade team join` (after the symlink from "Terminal use")
 shows what the file names, asks you to confirm **before** you type anything, then reads the secret without echoing
 it. Either way the secret never reaches your scrollback, your shell history or a chat: never paste it into one.
 (There is no `--profile`, no `--url` and no `--key`: the project file supplies all of that.)
@@ -419,12 +420,8 @@ This revokes the credential family at the backend and deletes the local credenti
 a reset there is no credential left on this machine, so the membership and its sessions can no longer be closed
 from here, and a later rejoin mints a new principal that teammates see as a new person.
 
-**3. Remove the plugin.**
-
-```sh
-claude plugin uninstall brigade
-claude plugin marketplace remove brigade      # optional: also forget the marketplace
-```
+**3. Remove the plugin.** From `/plugin`, the plugin manager inside a session, uninstall `brigade`; optionally
+also remove the `brigade` marketplace there.
 
 Uninstalling from the last scope that has it also deletes the plugin's own data directory, which this version of
 Brigade does not use. Brigade's state is in the XDG directories instead, which is exactly why a `--resume` after

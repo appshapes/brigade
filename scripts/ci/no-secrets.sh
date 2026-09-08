@@ -13,12 +13,8 @@
 #     neighbours always extend the tail past the pattern's minimum, so brg1-in-a-binary is noise by
 #     construction. A real join secret is runtime data; the text scan catches the accident at the source
 #     before it could ever be compiled in. The bare brg1. prefix alone is legitimate text everywhere (P7-1).
-# Pattern, in plugin/ text files ONLY -- never in a binary:
-#   * the word service_role. The role NAME is not a key: the migrations legitimately REVOKE from that role, the
-#     Makefile names SERVICE_ROLE_KEY, and the Supabase adapter embeds it as an error-mapping string and as the
-#     SQL role name, so a shipped binary carrying it is clean. A real service-role KEY is JWT-shaped and is
-#     therefore already caught, in binaries included, by the shape scan above. The rule survives for plugin/
-#     because nothing hand-written and shipped to a user's machine has any business naming that role.
+# The word service_role is NOT a pattern (retired 2026-09-08, Rjae: open by default): the role name is not a key,
+# and a real service-role key is JWT-shaped and caught by the shape scan above wherever it appears.
 #
 # Scope: every file under plugin/, every tracked file except the fixture-bearing trees listed below, plus
 # dist-cross/ and bin/brigade* when a build left them behind (scanned with grep -a as binaries). The scanned
@@ -37,9 +33,8 @@ sbsecret='sb_secret_[A-Za-z0-9_-]\{8,\}'
 brg1='brg1\.[A-Za-z0-9._-]\{1,\}\.[A-Za-z0-9_-]\{8,\}'
 
 tmp=$(mktemp -t no-secrets.XXXXXX) || die "cannot create a temporary file"
-plug=$(mktemp -t no-secrets-plugin.XXXXXX) || die "cannot create a temporary file"
-# The trap removes exactly the two absolute mktemp paths it created, nothing else.
-trap 'rm -f "$tmp" "$plug"' EXIT HUP INT TERM
+# The trap removes exactly the absolute mktemp path it created, nothing else.
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
 
 # ---- the credential-shape scope: tracked text, plugin/, and any built binary ---------------------------------------
 # Deliberate exclusions: the redaction tests and the research/experiment evidence carry JWT-shaped fixtures on
@@ -77,16 +72,4 @@ while IFS= read -r f; do
 done < "$tmp"
 [ "$hits" = 0 ] || die "$hits file(s) above contain a JWT-shaped string, an sb_secret_ key or a brg1. join secret"
 
-# ---- service_role: plugin/ text files only, never the binaries ------------------------------------------------------
-find plugin -type f -print | LC_ALL=C sort -u > "$plug"
-
-plugcount=$(grep -c . "$plug" || true)
-plughits=0
-if [ "$plugcount" -gt 0 ]; then
-  while IFS= read -r f; do
-    if grep -aHn -e 'service_role' "$f" >&2; then plughits=$((plughits + 1)); fi
-  done < "$plug"
-fi
-[ "$plughits" = 0 ] || die "$plughits file(s) above under plugin/ name service_role"
-
-printf 'no-secrets: scanned %s tracked/plugin/built file(s) for JWT, sb_secret_ and brg1. shapes, and %s plugin/ file(s) additionally for service_role: clean\n' "$count" "$plugcount"
+printf 'no-secrets: scanned %s tracked/plugin/built file(s) for JWT, sb_secret_ and brg1. shapes: clean\n' "$count"

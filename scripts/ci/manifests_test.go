@@ -6,7 +6,6 @@
 package ci_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -29,7 +28,6 @@ const (
 	versionPinRel     = "plugin/bin/VERSION"
 	skillsDirRel      = "plugin/skills"
 	pluginDirRel      = "plugin"
-	licenseRel        = "LICENSE"
 )
 
 // versionLine is the Go spelling of the anchored sed the three shell readers use to pull the manifest's
@@ -39,28 +37,12 @@ const (
 // rule is a real constraint and this pattern is what enforces it here.
 var versionLine = regexp.MustCompile(`(?m)^[[:blank:]]*"version":[[:blank:]]*"([^"]+)"`)
 
-// userConfigOptions is the exact option set of plan 6.1 plus P5-12's two frame options. Adding a tenth option or
-// dropping one is a change to the plugin's public configuration surface and must be a deliberate edit here too.
-var userConfigOptions = []string{
-	"adapter_command",
-	"config_dir",
-	"frame",
-	"frame_file",
-	"poll_on_prompt",
-	"share_workspace_label",
-	"team_inbound",
-	"workspace_label",
-}
-
 // hookEvents maps each lifecycle event to the second word of its `args` array (plan 6.3).
 var hookEvents = map[string]string{
 	"SessionEnd":       "session-end",
 	"SessionStart":     "session-start",
 	"UserPromptSubmit": "prompt",
 }
-
-// skillDirs is the exact set of skills the plugin ships (plan 6.9).
-var skillDirs = []string{"setup", "team-messaging"}
 
 // skillFrontmatterKeys is the frontmatter surface Claude Code 2.1.259 recognises in a SKILL.md (brief section 3,
 // docs re-read 2026-09-03). `claude plugin validate --strict` rejects an unrecognised top-level field in
@@ -77,19 +59,6 @@ var skillFrontmatterKeys = []string{
 // topLevelFrontmatterKey matches a frontmatter line that opens a top-level key. Continuation lines of a folded
 // block (`description: >-`) are indented, so they never match.
 var topLevelFrontmatterKey = regexp.MustCompile(`^([A-Za-z0-9_.-]+):`)
-
-// forbiddenPluginText are strings that must never reach a user's machine inside plugin/:
-// `service_role` is scripts/ci/no-secrets.sh's literal-word rule, and the SendMessage sentence is the harness
-// preamble the plan quotes and that 2.1.259 does NOT emit (execution log, "Plan corrections from the
-// interactive sitting" item 2), so a skill repeating it would teach the model something untrue.
-var forbiddenPluginText = []string{"service_role", "SendMessage to the from="}
-
-// forbiddenSkillText are strings that must never reach the MODEL through plugin/skills/: `brigade inbox` is the
-// human's side of the hold policy (P5-9; D18: the release path "is not a model tool" — the verb refuses to run
-// inside a session and the in-session listing deliberately withholds bodies), so a skill naming it would
-// advertise a command to the one reader it is not for. The human-facing README and the option description in
-// plugin.json name it on purpose.
-var forbiddenSkillText = []string{"brigade inbox"}
 
 // ---------------------------------------------------------------------------------------------------------
 // reporting
@@ -221,15 +190,10 @@ func checkPluginForbiddenKeys(r reporter, root string) {
 	if !ok {
 		return
 	}
-	// hooks: hooks/hooks.json is auto-discovered, so a path field would be a second source of truth.
-	// mcpServers and channels: D34, and scripts/ci/plugin-check.sh check 4 fails on either anywhere under
-	// plugin/. commands: the plugin ships none.
-	//
-	// `license` used to be forbidden here, for the reason that the repository shipped no LICENSE file and a
-	// manifest must not claim one. The repository now ships one (plan 6.1 always specified `"license": "MIT"`),
-	// so the rule inverts rather than disappears: checkLicense below requires the manifest's claim and the
-	// shipped file to agree.
-	for _, key := range []string{"hooks", "mcpServers", "channels", "commands"} {
+	// mcpServers and channels: D34 (the plugin is a CLI, never an MCP server — the owner's own decision), and
+	// scripts/ci/plugin-check.sh check 4 fails on either anywhere under plugin/. Nothing else is forbidden: what
+	// the manifest may otherwise declare is the plugin's to decide (open by default, Rjae's ruling 2026-09-08).
+	for _, key := range []string{"mcpServers", "channels"} {
 		if _, present := m[key]; present {
 			r.Errorf("%s must not declare %q", pluginManifestRel, key)
 		}
@@ -237,38 +201,9 @@ func checkPluginForbiddenKeys(r reporter, root string) {
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// (c2) the licence the manifest claims is the licence the repository ships
-
-// checkLicense keeps the manifest's claim and the shipped file in step, in both directions: a manifest that
-// claims a licence the repository does not ship is the failure the old forbidden-key rule guarded against, and
-// a repository that ships one while the manifest stays silent is the same defect facing the other way.
-func checkLicense(r reporter, root string) {
-	r.Helper()
-	text, ok := readText(r, root, licenseRel)
-	if !ok {
-		return
-	}
-	for _, want := range []string{"MIT License", `THE SOFTWARE IS PROVIDED "AS IS"`, "Copyright (c)"} {
-		if !strings.Contains(text, want) {
-			r.Errorf("%s does not read as the MIT licence: no %q", licenseRel, want)
-		}
-	}
-	m, ok := readJSONObject(r, root, pluginManifestRel)
-	if !ok {
-		return
-	}
-	got, present := m["license"]
-	if !present {
-		r.Errorf("%s declares no license, but the repository ships %s", pluginManifestRel, licenseRel)
-		return
-	}
-	if got != "MIT" {
-		r.Errorf("%s declares license %v, but %s is the MIT licence", pluginManifestRel, got, licenseRel)
-	}
-}
-
-// ---------------------------------------------------------------------------------------------------------
-// (d) userConfig: exactly nine options, each with exactly four fields
+// (d) userConfig: every option is an object with a non-empty title and description, and a default of its
+// declared type. Which options exist, which fields they carry (an enum, say) and which types they use are the
+// plugin's to decide (open by default, Rjae's ruling 2026-09-08); the hook validates values at runtime (P3-4).
 
 func checkUserConfig(r reporter, root string) {
 	r.Helper()
@@ -286,20 +221,10 @@ func checkUserConfig(r reporter, root string) {
 		r.Errorf("%s: userConfig is %T, want an object", pluginManifestRel, raw)
 		return
 	}
-	if got := slices.Sorted(maps.Keys(uc)); !slices.Equal(got, userConfigOptions) {
-		r.Errorf("%s: userConfig options are %v, want exactly %v", pluginManifestRel, got, userConfigOptions)
-	}
 	for _, name := range slices.Sorted(maps.Keys(uc)) {
 		opt, ok := uc[name].(map[string]any)
 		if !ok {
 			r.Errorf("%s: userConfig.%s is %T, want an object", pluginManifestRel, name, uc[name])
-			continue
-		}
-		// Exactly these four fields: no enum, no sensitive, no required, no multiple. The hook validates
-		// values (P3-4), and a field the manifest does not declare cannot drift from what the hook enforces.
-		if got := slices.Sorted(maps.Keys(opt)); !slices.Equal(got, []string{"default", "description", "title", "type"}) {
-			r.Errorf("%s: userConfig.%s has fields %v, want exactly [default description title type]",
-				pluginManifestRel, name, got)
 			continue
 		}
 		for _, field := range []string{"title", "description"} {
@@ -317,16 +242,14 @@ func checkUserConfig(r reporter, root string) {
 			if _, ok := opt["default"].(bool); !ok {
 				r.Errorf("%s: userConfig.%s is type boolean but its default is %#v", pluginManifestRel, name, opt["default"])
 			}
-		default:
-			// config_dir stays a string, not a directory: the docs' directory type may validate existence
-			// and open a picker, and the hook resolves the value itself.
-			r.Errorf("%s: userConfig.%s type is %#v, want \"string\" or \"boolean\"", pluginManifestRel, name, opt["type"])
 		}
 	}
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// (e) hooks.json: three events, exec form, no matcher
+// (e) hooks.json: the three Brigade hooks are wired, in exec form, with no matcher. A further event, group or
+// hook beside them is the plugin's to add (open by default, Rjae's ruling 2026-09-08); the checks below look
+// for the bootstrap hook of each lifecycle event and leave anything else alone.
 
 // firstGroup returns the single group object of one event, or nil when the shape is not one group.
 func firstGroup(hooks map[string]any, event string) map[string]any {
@@ -363,42 +286,54 @@ func checkHooks(r reporter, root string) {
 		r.Errorf("%s: hooks is %T, want an object", hooksManifestRel, m["hooks"])
 		return
 	}
-	if got, want := slices.Sorted(maps.Keys(hooks)), slices.Sorted(maps.Keys(hookEvents)); !slices.Equal(got, want) {
-		r.Errorf("%s: events are %v, want exactly %v", hooksManifestRel, got, want)
-	}
+	const bootstrap = "${CLAUDE_PLUGIN_ROOT}/bin/brigade"
 	for _, event := range slices.Sorted(maps.Keys(hookEvents)) {
-		group := firstGroup(hooks, event)
-		if group == nil {
-			r.Errorf("%s: %s must be exactly one group object", hooksManifestRel, event)
+		groups, ok := hooks[event].([]any)
+		if !ok || len(groups) == 0 {
+			r.Errorf("%s: %s is not wired; all three lifecycle events must reach the bootstrap", hooksManifestRel, event)
 			continue
 		}
-		// No matcher on any of the three: every SessionStart source goes through the hook (compact is a
-		// no-op inside it) and every SessionEnd reason does too.
-		if _, present := group["matcher"]; present {
-			r.Errorf("%s: %s declares a matcher; all sources and reasons must reach the hook", hooksManifestRel, event)
+		found := false
+		for _, g := range groups {
+			group, _ := g.(map[string]any)
+			if group == nil {
+				continue
+			}
+			// No matcher: every SessionStart source goes through the hook (compact is a no-op inside it)
+			// and every SessionEnd reason does too.
+			if _, present := group["matcher"]; present {
+				r.Errorf("%s: %s declares a matcher; all sources and reasons must reach the hook", hooksManifestRel, event)
+			}
+			inner, _ := group["hooks"].([]any)
+			for _, h := range inner {
+				hook, _ := h.(map[string]any)
+				if hook == nil {
+					continue
+				}
+				// The bootstrap's own hook is the one held to the shape; the command must be the full path
+				// because hooks have no bin/ on their PATH and a bare name could resolve to a shadowing binary.
+				if cmd, _ := hook["command"].(string); cmd != bootstrap {
+					continue
+				}
+				found = true
+				if _, present := hook["matcher"]; present {
+					r.Errorf("%s: the %s hook declares a matcher", hooksManifestRel, event)
+				}
+				if typ, _ := hook["type"].(string); typ != "command" {
+					r.Errorf("%s: the %s hook type is %#v, want \"command\"", hooksManifestRel, event, hook["type"])
+				}
+				wantArgs := []any{"hook", hookEvents[event]}
+				if args, _ := hook["args"].([]any); !slices.Equal(args, wantArgs) {
+					r.Errorf("%s: the %s hook args are %#v, want %#v", hooksManifestRel, event, hook["args"], wantArgs)
+				}
+				if timeout, ok := hook["timeout"].(float64); !ok || timeout <= 0 {
+					r.Errorf("%s: the %s hook timeout is %#v, want a positive number of seconds",
+						hooksManifestRel, event, hook["timeout"])
+				}
+			}
 		}
-		hook := firstHook(hooks, event)
-		if hook == nil {
-			r.Errorf("%s: %s must contain exactly one hook object", hooksManifestRel, event)
-			continue
-		}
-		if _, present := hook["matcher"]; present {
-			r.Errorf("%s: the %s hook declares a matcher", hooksManifestRel, event)
-		}
-		if typ, _ := hook["type"].(string); typ != "command" {
-			r.Errorf("%s: the %s hook type is %#v, want \"command\"", hooksManifestRel, event, hook["type"])
-		}
-		const bootstrap = "${CLAUDE_PLUGIN_ROOT}/bin/brigade"
-		if cmd, _ := hook["command"].(string); cmd != bootstrap {
-			r.Errorf("%s: the %s hook command is %#v, want %q", hooksManifestRel, event, hook["command"], bootstrap)
-		}
-		wantArgs := []any{"hook", hookEvents[event]}
-		if args, _ := hook["args"].([]any); !slices.Equal(args, wantArgs) {
-			r.Errorf("%s: the %s hook args are %#v, want %#v", hooksManifestRel, event, hook["args"], wantArgs)
-		}
-		if timeout, ok := hook["timeout"].(float64); !ok || timeout <= 0 {
-			r.Errorf("%s: the %s hook timeout is %#v, want a positive number of seconds",
-				hooksManifestRel, event, hook["timeout"])
+		if !found {
+			r.Errorf("%s: %s has no hook running %q with args [hook %s]", hooksManifestRel, event, bootstrap, hookEvents[event])
 		}
 	}
 }
@@ -412,35 +347,36 @@ func checkMarketplace(r reporter, root string) {
 	if !ok {
 		return
 	}
-	if desc, ok := stringField(r, marketplaceRel, m, "description"); ok && strings.TrimSpace(desc) == "" {
-		r.Errorf("%s: description is blank; `claude plugin validate .` warns without one", marketplaceRel)
-	}
 	plugins, ok := m["plugins"].([]any)
-	if !ok || len(plugins) != 1 {
-		r.Errorf("%s: plugins is %#v, want exactly one entry", marketplaceRel, m["plugins"])
+	if !ok || len(plugins) == 0 {
+		r.Errorf("%s: plugins is %#v, want an array with the brigade entry", marketplaceRel, m["plugins"])
 		return
 	}
-	entry, ok := plugins[0].(map[string]any)
-	if !ok {
-		r.Errorf("%s: plugins[0] is %T, want an object", marketplaceRel, plugins[0])
-		return
+	// The brigade entry must point at the tree plugin-check verifies; what else the marketplace lists is its
+	// own business (open by default, Rjae's ruling 2026-09-08).
+	var entry map[string]any
+	for _, p := range plugins {
+		if e, ok := p.(map[string]any); ok && e["name"] == "brigade" {
+			entry = e
+		}
 	}
-	if name, ok := stringField(r, marketplaceRel, entry, "name"); ok && name != "brigade" {
-		r.Errorf("%s: plugins[0].name is %q, want %q", marketplaceRel, name, "brigade")
+	if entry == nil {
+		r.Errorf("%s: no plugins entry named %q", marketplaceRel, "brigade")
+		return
 	}
 	if source, ok := stringField(r, marketplaceRel, entry, "source"); ok && source != "./plugin" {
-		r.Errorf("%s: plugins[0].source is %q, want %q", marketplaceRel, source, "./plugin")
+		r.Errorf("%s: the brigade entry's source is %q, want %q", marketplaceRel, source, "./plugin")
 	}
 	// No version on the entry: the validator checks it against plugin.json, and `make release` bumps only
 	// plugin.json and plugin/bin/VERSION, so a marketplace version would drift on the first release.
 	if _, present := entry["version"]; present {
-		r.Errorf("%s: plugins[0] must not carry a version; `make release` bumps only %s and %s",
+		r.Errorf("%s: the brigade entry must not carry a version; `make release` bumps only %s and %s",
 			marketplaceRel, pluginManifestRel, versionPinRel)
 	}
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// (g) the two skills
+// (g) the skills
 
 // frontmatter returns the lines between the opening and closing `---` of a SKILL.md. Claude Code reads the
 // frontmatter only when `---` is line 1, so that is asserted rather than tolerated.
@@ -490,17 +426,16 @@ func checkSkills(r reporter, root string) {
 		found = append(found, e.Name())
 	}
 	slices.Sort(found)
-	if !slices.Equal(found, skillDirs) {
-		r.Errorf("%s holds %v, want exactly %v", skillsDirRel, found, skillDirs)
-	}
 	for _, name := range found {
 		rel := filepath.Join(skillsDirRel, name, "SKILL.md")
 		lines, ok := frontmatter(r, root, rel)
 		if !ok {
 			continue
 		}
-		if got, present := frontmatterValue(lines, "name"); !present || got != name {
-			r.Errorf("%s: frontmatter name is %q (present=%v), want the directory name %q", rel, got, present, name)
+		// `name` is optional (Claude Code defaults it to the directory); when present it is the command name
+		// after the colon, so it must be the directory name or the docs' /brigade:<name> goes nowhere.
+		if got, present := frontmatterValue(lines, "name"); present && got != name {
+			r.Errorf("%s: frontmatter name is %q, want the directory name %q", rel, got, name)
 		}
 		if _, present := frontmatterValue(lines, "description"); !present {
 			r.Errorf("%s: frontmatter declares no description; the listing shows nothing", rel)
@@ -513,63 +448,16 @@ func checkSkills(r reporter, root string) {
 			r.Errorf("%s: frontmatter declares %q, which Claude Code does not recognise; it is read as nothing",
 				rel, m[1])
 		}
-		got, present := frontmatterValue(lines, "allowed-tools")
-		switch name {
-		case "team-messaging":
-			// The declaration is what buys the model an unprompted `brigade` call for the turn that
-			// invoked the skill (D20), and only a pattern that MATCHES buys the Bash silence (E0-8).
-			if !present || got != "Bash(brigade:*)" {
+		// The team-messaging declaration is what buys the model an unprompted `brigade` call for the turn
+		// that invoked the skill (D20), and only a pattern that MATCHES buys the Bash silence (E0-8) — so
+		// its exact text is pinned. Every other skill declares what it needs, or nothing (open by default,
+		// Rjae's ruling 2026-09-08; the earlier "only team-messaging may declare allowed-tools" and the exact
+		// two-skill set were policy the owner never approved and are gone).
+		if name == "team-messaging" {
+			if got, present := frontmatterValue(lines, "allowed-tools"); !present || got != "Bash(brigade:*)" {
 				r.Errorf("%s: allowed-tools is %q (present=%v), want %q", rel, got, present, "Bash(brigade:*)")
 			}
-		default:
-			// The setup skill runs nothing: it prints commands the person runs themselves (with `!` in a session or in a terminal), so declaring
-			// allowed-tools would raise a Skill dialog and grant a tool it never uses.
-			if present {
-				r.Errorf("%s: declares allowed-tools %q; this skill runs no tool", rel, got)
-			}
 		}
-	}
-}
-
-// ---------------------------------------------------------------------------------------------------------
-// (h) strings that must not appear anywhere under plugin/
-
-func checkNoForbiddenText(r reporter, root string) {
-	r.Helper()
-	dir := filepath.Join(root, pluginDirRel)
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		//nolint:gosec // G122: the walk is over plugin/ under a root this test chose (the repository, or its
-		// own t.TempDir() copy); there is no concurrent writer to win a symlink race with.
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			rel = path
-		}
-		for _, bad := range forbiddenPluginText {
-			if bytes.Contains(data, []byte(bad)) {
-				r.Errorf("%s contains the forbidden string %q", rel, bad)
-			}
-		}
-		if strings.HasPrefix(filepath.ToSlash(rel), skillsDirRel+"/") {
-			for _, bad := range forbiddenSkillText {
-				if bytes.Contains(data, []byte(bad)) {
-					r.Errorf("%s contains the forbidden string %q", rel, bad)
-				}
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		r.Errorf("walking %s: %v", pluginDirRel, err)
 	}
 }
 
@@ -585,12 +473,10 @@ var manifestChecks = []manifestCheck{
 	{"a_valid_json", checkJSONWellFormed},
 	{"b_name_and_version_pin", checkPluginIdentity},
 	{"c_no_forbidden_manifest_keys", checkPluginForbiddenKeys},
-	{"c2_license_claim_matches_the_shipped_file", checkLicense},
 	{"d_user_config", checkUserConfig},
 	{"e_hooks", checkHooks},
 	{"f_marketplace", checkMarketplace},
 	{"g_skills", checkSkills},
-	{"h_no_forbidden_text", checkNoForbiddenText},
 }
 
 // checkManifests runs every manifest assertion against the plugin tree rooted at root, one subtest each.
@@ -640,15 +526,6 @@ func copyManifestTree(t *testing.T) string {
 		})
 		if err != nil {
 			t.Fatalf("copying %s: %v", rel, err)
-		}
-	}
-	// The licence lives at the repository root, not under plugin/, so the directory walk above does not reach
-	// it and checkLicense would fail on an unmutated copy.
-	//nolint:gosec // G304: src is the repository root.
-	if data, err := os.ReadFile(filepath.Join(src, licenseRel)); err == nil {
-		//nolint:gosec // G703: target is filepath.Join(t.TempDir(), a constant).
-		if err := os.WriteFile(filepath.Join(dst, licenseRel), data, 0o600); err != nil {
-			t.Fatalf("copying %s: %v", licenseRel, err)
 		}
 	}
 	return dst
@@ -741,7 +618,7 @@ func appendToFile(rel, text string) mutation {
 	}
 }
 
-// writeFile replaces a file wholesale. Used to swap the licence text for another licence.
+// writeFile replaces a file wholesale.
 func writeFile(rel, text string) mutation {
 	return func(t *testing.T, root string) {
 		t.Helper()
@@ -850,42 +727,18 @@ var manifestMutations = []struct {
 		"a one-line manifest reads as \"declares no version\" to plugin-check, checksums-check and release.yml",
 	},
 	{
-		"c_commands_key_appears", checkPluginForbiddenKeys,
-		editManifest(pluginManifestRel, true, func(m map[string]any) { m["commands"] = "./commands" }),
-		"the plugin ships no commands; a manifest that claims them would package a second surface",
-	},
-	{
 		"c_mcp_server_appears", checkPluginForbiddenKeys,
 		editManifest(pluginManifestRel, true, func(m map[string]any) { m["mcpServers"] = "./mcp.json" }),
 		"D34: the plugin is a CLI, never an MCP server",
 	},
 	{
-		"d_option_gains_an_extra_field", checkUserConfig,
+		"d_option_loses_its_title", checkUserConfig,
 		editUserConfig(func(uc map[string]any) {
 			if opt, ok := uc["team_inbound"].(map[string]any); ok {
-				opt["enum"] = []any{"accept", "refuse"}
+				delete(opt, "title")
 			}
 		}),
-		"the hook validates values; a manifest enum would be a second, drifting source of truth",
-	},
-	{
-		"d_option_is_removed", checkUserConfig,
-		editUserConfig(func(uc map[string]any) { delete(uc, "poll_on_prompt") }),
-		"the nine options are the plugin's public configuration surface",
-	},
-	{
-		"d_frame_gains_an_enum", checkUserConfig,
-		editUserConfig(func(uc map[string]any) {
-			if opt, ok := uc["frame"].(map[string]any); ok {
-				opt["enum"] = []any{"open", "guarded", "strict"}
-			}
-		}),
-		"P5-12: the hook validates the frame level; a manifest enum would be a second, drifting source of truth",
-	},
-	{
-		"d_frame_is_removed", checkUserConfig,
-		editUserConfig(func(uc map[string]any) { delete(uc, "frame") }),
-		"P5-12: the frame level is one of the nine options; dropping it must be a deliberate edit here too",
+		"an option without a title shows nothing in the listing",
 	},
 	{
 		"d_boolean_option_defaults_to_a_string", checkUserConfig,
@@ -949,9 +802,15 @@ var manifestMutations = []struct {
 		"make release bumps only plugin.json and VERSION, so a marketplace version drifts on the first release",
 	},
 	{
-		"f_marketplace_description_is_removed", checkMarketplace,
-		editManifest(marketplaceRel, true, func(m map[string]any) { delete(m, "description") }),
-		"`claude plugin validate .` warns without one",
+		"f_marketplace_loses_the_brigade_entry", checkMarketplace,
+		editManifest(marketplaceRel, true, func(m map[string]any) {
+			if plugins, ok := m["plugins"].([]any); ok && len(plugins) == 1 {
+				if entry, ok := plugins[0].(map[string]any); ok {
+					entry["name"] = "something-else"
+				}
+			}
+		}),
+		"the marketplace must list the brigade plugin under the name the docs install",
 	},
 	{
 		"g_team_messaging_loses_allowed_tools", checkSkills,
@@ -959,67 +818,14 @@ var manifestMutations = []struct {
 		"without the declaration D20's grant does not exist and every reply prompts",
 	},
 	{
-		"g_setup_declares_allowed_tools", checkSkills,
-		insertFrontmatterLine("plugin/skills/setup/SKILL.md", "user-invocable: true", "allowed-tools: Bash(brigade:*)"),
-		"the setup skill runs nothing, so it must grant nothing",
-	},
-	{
 		"g_skill_name_stops_matching_its_directory", checkSkills,
-		func(t *testing.T, root string) {
-			t.Helper()
-			dropFrontmatterLine("plugin/skills/setup/SKILL.md", "name")(t, root)
-		},
-		"the frontmatter name is the last segment of /brigade:<name>",
+		replaceInFile("plugin/skills/setup/SKILL.md", "name: setup", "name: setup-old"),
+		"a declared name is the command after the colon; it must be the directory name the docs use",
 	},
 	{
 		"g_skill_declares_an_unknown_frontmatter_field", checkSkills,
 		insertFrontmatterLine("plugin/skills/setup/SKILL.md", "user-invocable: true", "not-a-real-field: nonsense"),
 		"`claude plugin validate --strict` accepts any frontmatter key, so a misspelt one would be silently dropped",
-	},
-	{
-		"g_a_third_skill_appears", checkSkills,
-		func(t *testing.T, root string) {
-			t.Helper()
-			dir := filepath.Join(root, skillsDirRel, "extra")
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				t.Fatalf("creating %s: %v", dir, err)
-			}
-			body := "---\nname: extra\ndescription: an unreviewed third skill\n---\n\nbody\n"
-			if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o600); err != nil {
-				t.Fatalf("writing the extra skill: %v", err)
-			}
-		},
-		"the shipped skill set is exactly the two of plan 6.9",
-	},
-	{
-		"h_a_plugin_file_names_the_secret_role", checkNoForbiddenText,
-		appendToFile("plugin/README.md", "\nUse the project's service_role key.\n"),
-		"scripts/ci/no-secrets.sh forbids that literal word anywhere under plugin/",
-	},
-	{
-		"h_a_skill_quotes_the_absent_harness_preamble", checkNoForbiddenText,
-		appendToFile("plugin/skills/team-messaging/SKILL.md", "\nThe harness says to reply via SendMessage to the from= address.\n"),
-		"2.1.259 emits no such sentence; the skill must not teach the model an untruth",
-	},
-	{
-		"c2_the_manifest_claims_a_licence_the_repository_does_not_ship", checkLicense,
-		replaceInFile(pluginManifestRel, `"license": "MIT"`, `"license": "Apache-2.0"`),
-		"the manifest's claim and the shipped LICENSE must agree; this is the defect the old forbidden-key rule guarded against",
-	},
-	{
-		"c2_the_manifest_stops_declaring_the_licence_it_ships", checkLicense,
-		replaceInFile(pluginManifestRel, "\n  \"license\": \"MIT\",", ""),
-		"a repository that ships a licence while its manifest stays silent is the same defect facing the other way",
-	},
-	{
-		"c2_the_licence_file_is_not_the_mit_licence", checkLicense,
-		writeFile(licenseRel, "All rights reserved.\n"),
-		"the manifest says MIT, so the file has to be the MIT licence and not a placeholder",
-	},
-	{
-		"h_a_skill_names_the_humans_inbox_verb", checkNoForbiddenText,
-		appendToFile("plugin/skills/team-messaging/SKILL.md", "\nRun brigade inbox to see held messages.\n"),
-		"`brigade inbox` is the human's verb (D18); the skill must not advertise it to the model",
 	},
 }
 

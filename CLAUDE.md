@@ -34,7 +34,7 @@
   verifies them on every push: `make checksums-check` requires the committed file to be reproduced by a fresh
   cross-compile or backed by the published release (in the pre-release `0.0.0` state it requires the file to be
   empty and skips the rest), and `make plugin-check` carries the plugin-tree checks — the `plugin/` file
-  allowlist, mode 100755 in git for `plugin/bin/brigade` and 100644 for everything else, VERSION == plugin.json,
+  allowlist, mode 100755 in git for `plugin/bin/brigade`, VERSION == plugin.json,
   no `.mcp.json`/`mcpServers`/`channels`, exec-form hooks whose command paths exist and are executable, `sh -n`
   and `shellcheck -s sh` — and the only secret scan (`scripts/ci/no-secrets.sh`). CI's Ubuntu runner —
   Blacksmith's `blacksmith-4vcpu-ubuntu-2404` image since P5-17 — has shellcheck **0.9.0** (printed by `ci.yml`'s
