@@ -61,11 +61,11 @@ to-do: every option has a working default (see [plugin/README.md](../plugin/READ
 and no watcher, so no session integration:
 
 ```sh
-go install github.com/appshapes/brigade/cmd/brigade@v0.2.0
+go install github.com/appshapes/brigade/cmd/brigade@v0.3.0
 ```
 
-Two things to know about it. It reports its version with a leading `v` (`v0.2.0`) where the released binary
-reports `0.2.0`, because that version comes from the module rather than from the release build. And if it sits on
+Two things to know about it. It reports its version with a leading `v` (`v0.3.0`) where the released binary
+reports `0.3.0`, because that version comes from the module rather than from the release build. And if it sits on
 your `PATH` ahead of the plugin's own copy, every session starts with a line saying another `brigade` shadows the
 plugin's, and the Bash tool runs that one instead of the version the plugin pins.
 
@@ -171,8 +171,8 @@ repository, never on a stream the chat sees. `brigade whoami`, run in a session,
 absolute path on its own line:
 
 ```
-session 09365acd… "payments-api" in team "ops" (adapter supabase 0.2.0); inbound: accept
-terminal: /Users/you/.claude/plugins/cache/brigade/brigade/0.2.0/bin/brigade
+session 09365acd… "payments-api" in team "ops" (adapter supabase 0.3.0); inbound: accept
+terminal: /Users/you/.claude/plugins/cache/brigade/brigade/0.3.0/bin/brigade
 frame: open
 ```
 
@@ -181,7 +181,7 @@ That is where Claude Code copied the plugin, under your configuration directory 
 to — the bootstrap resolves its own symlinks and execs the binary `bin/VERSION` names:
 
 ```sh
-ln -sf /Users/you/.claude/plugins/cache/brigade/brigade/0.2.0/bin/brigade ~/.local/bin/brigade
+ln -sf /Users/you/.claude/plugins/cache/brigade/brigade/0.3.0/bin/brigade ~/.local/bin/brigade
 ```
 
 **Re-point it after a plugin upgrade.** The path carries the plugin's version, and each version is copied into its

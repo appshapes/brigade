@@ -7,6 +7,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [0.3.0] — 2026-09-08
+
+**Joining from inside a session.** The three `brigade team` verbs that handle the join secret — `create`, `join`
+and `rotate-secret` — now run inside a Claude Code session, where `brigade` is already on the Bash tool's PATH.
+A member's whole path is one line at the prompt, `!brigade team join --secret-file <path>`, on the file
+`team create` wrote and the administrator sent; nobody has to find where the plugin lives. (Not under the Bash
+sandbox, which cannot write the credential directory — run them in a terminal there.) Nothing changes on the
+wire: the adapter protocol (BAP/1) is untouched, and adapters never see the new flag.
+
+### Added
+
+- **`brigade team join --secret-file <path>`** reads the join secret from a file — the only form inside a session,
+  where stdin is `/dev/null`, and accepted in a terminal too. The path must be absolute and outside the repository
+  (its real location, symlinks resolved; a `..` component is refused outright); its mode and owner are never
+  checked. Inside a session there is no y/N prompt: the command is the consent, and the join prints the team and
+  host it joined and nothing secret. A change of team still needs the secret file; a second checkout of a team
+  this machine already holds needs no file.
+- **The current session attaches by itself** after an in-session join, at the next prompt; a session already
+  attached to another team is told it stays there until `/reload-plugins` or a new session.
+- **Start facts.** SessionStart now records, for every session joined or not, the store the hooks use and the
+  plugin's path, so an in-session `team create` or `team join` in a not-yet-attached session — a persona's
+  `config_dir` included — writes the right store, and `team list`, `--team` and the pass-throughs read it:
+  `rotate-secret` works right after an in-session `team create`, before the first prompt.
+- `brigade team rotate-secret`'s `--secret-file` is now held to `team create`'s outside-the-repository rule for an
+  absolute path in a checkout, before the adapter is spawned; a join secret given as the value is refused the way
+  `--join-secret` is.
+
+### Changed
+
+- `team revoke-member`, `team transfer` and `inbox release` are the commands that still refuse inside a session
+  (three, where 0.2.0 had six). The session-start line for an unjoined checkout, the `not connected` lines, the
+  drift line and the watcher's stop notice name `brigade team join` as runnable where they are printed; the
+  `--join-secret` refusal names `--secret-file` as the remedy. `team create`'s second line is now
+  `wrote .brigade.json at the repository toplevel` — no path under the checkout reaches a session's transcript.
+- `docs/setup.md`, both skills and the plugin README show the in-session form first and the terminal form as the
+  alternative; `docs/security.md` records what the change concedes and recommends per-verb `ask` rules for anyone
+  who wants a dialog on the three verbs in every permission mode.
+
+### Security
+
+- The team-messaging skill's `allowed-tools: Bash(brigade:*)` grant, and any `permissions.allow: Bash(brigade:*)`
+  rule of your own, now cover the three verbs: the model may run `brigade team join --secret-file <path>` when
+  your user asks for it by name, and a session can pin a second checkout to a team this machine already holds, or
+  accept a publishable-key-only change to `.brigade.json`, without a person at a prompt. A change of team still
+  needs the secret file. `docs/security.md`, section 4, states it in full.
+
+### Fixed
+
+- **A secret file could be placed inside the repository through `..`.** The outside-the-repository check on
+  `--secret-file` was lexical: `<outside>/lnk/../x.secret`, with `lnk` a symlink into the checkout, passed while
+  the kernel wrote the file inside. This affected `team create` in 0.2.0 too. A `..` component is now refused on
+  every verb.
+- `docs/security.md` said `team join` already read the secret from `--secret-file`; it did not until now.
+- The scripted `team join` refusal named `--profile`, a flag 0.2.0 removed; it names `--team`.
+
 ## [0.2.0] — 2026-09-07
 
 **The project owns the team.** 0.2.0 replaces per-user profiles with a committed project file: a Brigade team now
