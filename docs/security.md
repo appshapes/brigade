@@ -132,10 +132,14 @@ Phase 4 run with a real model — 84 headless sessions, the idle-wake and crash-
 interactive sweep — and it produced none of the acts those test messages asked for. Read that number with
 section 3's limits: those runs measured attempts, not effects.
 
-**The one deliberate exception.** Three commands refuse to run inside a Claude Code session, whatever your
-permissions say: `brigade team revoke-member`, `brigade team transfer` and `brigade inbox release`. Each is hard
-to undo, and each is exactly the sort of act a teammate's text could talk a session into. They run in your own
-terminal instead.
+**The one deliberate exception.** Three commands refuse to run inside a Claude Code session: `brigade team
+revoke-member`, `brigade team transfer` and `brigade inbox release`. Each is hard to undo, and each is exactly the
+sort of act a teammate's text could talk a session into. They run in your own terminal instead. Read the refusal
+for what it is: the command notices it is inside a session by the environment Claude Code gives the Bash tool
+(`CLAUDE_PID`), and a command that strips that environment first — `env -u CLAUDE_PID brigade team revoke-member …`
+— runs as if from a terminal (measured 2026-09-08). The gate that holds is Claude Code's own: that command text
+matches no `Bash(brigade:*)` rule, so in the default mode it raises the ask dialog; in `bypassPermissions` nothing
+stands between the model and the verb, the same as for every other command in that mode.
 
 The three commands that handle the join secret — `brigade team create`, `brigade team join` and
 `brigade team rotate-secret` — used to refuse as well, so that the secret could never pass through the chat. They
