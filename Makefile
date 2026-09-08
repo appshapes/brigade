@@ -38,7 +38,16 @@ goreleaser_version := v2.18.0
 ld_flags            = -s -w -X github.com/appshapes/brigade/internal/buildinfo.Version=$(version)
 mutant_tags        := mutant_noack mutant_teamleak mutant_trustsender mutant_caporder
 ld_flags_dev        = -s -w -X github.com/appshapes/brigade/internal/buildinfo.Version=$(version)-dev
+# The plugin's two identifiers, from .claude-plugin/marketplace.json and plugin/.claude-plugin/plugin.json:
+# the marketplace is named `brigade` and a plugin id is `<plugin>@<marketplace>`. Both are hardcoded rather
+# than read out of the manifests for the reason scripts/ci/plugin-check.sh gives for its own textual checks --
+# jq is not a dependency of this repository -- and `make plugin-check` is what keeps the manifests honest.
+# plugin_market_src is the marketplace SOURCE, not its name: override it to install from a fork, or from this
+# tree (`plugin_market_src=.`), neither of which changes the name or the id above.
+plugin_id          := brigade@brigade
 plugin_json        := plugin/.claude-plugin/plugin.json
+plugin_market_name := brigade
+plugin_market_src  ?= appshapes/brigade
 plugin_version     := $(shell cat plugin/bin/VERSION)
 sha256              = $(if $(shell command -v sha256sum),sha256sum,shasum -a 256)
 supabase           ?= npx --yes supabase@2.116.0
@@ -67,7 +76,7 @@ unclaude           := env $(patsubst %,-u %,$(unclaude_vars))
 # `make help` also answers "who calls this": a trailing ` (CI)` marks every target that a step of
 # `.github/workflows/*.yml` invokes, and no other target. Adapted from thinktech-web/Makefile:139,143,147,157,
 # which PREFIXES `## Jenkins-invoked: ` instead -- a prefix would push all nineteen descriptions right by its
-# own width in this `%-22s` layout, and four of the nineteen already carried a trailing marker.
+# own width in this `%-25s` layout, and four of the nineteen already carried a trailing marker.
 .PHONY: help
 help: ## Show this help message
 	@echo "Make commands"
@@ -75,7 +84,7 @@ help: ## Show this help message
 	@echo "Usage: make [target] [var=value ...]"
 	@echo ""
 	@echo "Available targets:"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-25s %s\n", $$1, $$2}'
 
 # ========== Setup ==========
 
@@ -285,6 +294,48 @@ plugin-check: ## Static checks of plugin/: exec-form hooks, no .mcp.json, VERSIO
 plugin-validate: ## claude plugin validate on the marketplace and the plugin root
 	claude plugin validate .
 	claude plugin validate ./plugin --strict
+
+# The USER path: the two commands every member of a team runs, and their two update halves. A developer wants
+# them too rather than only `plugin-dev`, because the dev-binary pointer is the FIRST branch of
+# plugin/bin/brigade and skips the whole download-verify-cache path the release actually ships on -- so a tree
+# driven only by the pointer never exercises what a member's machine does. Installed at the default `user`
+# scope, which is the configuration directory (CLAUDE_CONFIG_DIR, else ~/.claude): every session of that
+# directory gets the plugin, unlike `plugin-dev`, whose --plugin-dir loads it for one session as brigade@inline.
+#
+# Neither command takes `-y`, on purpose. That flag auto-accepts a marketplace-declared install command, and
+# this marketplace declares none (docs/setup.md, "Installing the plugin"), so nothing here prompts today -- and
+# a prompt that appears later is the one thing worth reading rather than something suppressed in advance.
+#
+# `brigade-install` and `brigade-update` are the two a person actually types; the four halves stay separately
+# runnable. Their order is the prerequisite list, left to right, which is what `commit: typecheck pull build
+# test` already relies on -- a guarantee of a serial make, and none of these is ever run under `-j`.
+.PHONY: brigade-install
+brigade-install: plugin-marketplace-add plugin-install ## First time: add the marketplace, then install the plugin (the user path)
+
+.PHONY: brigade-update
+brigade-update: plugin-marketplace-update plugin-update ## After a release: re-pull the marketplace, then update the plugin (restart Claude Code to apply)
+
+.PHONY: plugin-marketplace-add
+plugin-marketplace-add: ## Add the Brigade marketplace (usage: make plugin-marketplace-add [plugin_market_src=<repo|path>])
+	claude plugin marketplace add $(plugin_market_src)
+
+.PHONY: plugin-install
+plugin-install: ## Install the plugin from the marketplace, for every session of this configuration directory
+	claude plugin install $(plugin_id)
+
+# Run the two in this order: `marketplace update` re-pulls the marketplace from its source, and `plugin update`
+# then installs out of that local clone. AFTER A RELEASE is the intended moment for both, and the only one this
+# pair is meant for: the install path is versioned (<config dir>/plugins/cache/brigade/brigade/<version>/) and
+# `make release` is the only thing that moves plugin.json's version, so a release is what gives `plugin update`
+# a new version to install. Between releases the version does not move and this pair is not the tool -- use
+# `plugin-dev` for a plugin-tree change, and the dev-binary pointer for a binary change.
+.PHONY: plugin-marketplace-update
+plugin-marketplace-update: ## Re-pull the marketplace from its source (run this before plugin-update)
+	claude plugin marketplace update $(plugin_market_name)
+
+.PHONY: plugin-update
+plugin-update: ## Update the installed plugin to the marketplace's version (restart Claude Code to apply)
+	claude plugin update $(plugin_id)
 
 .PHONY: plugin-dev-pointer
 plugin-dev-pointer: build ## Write the dev-binary pointer (honours XDG_CONFIG_HOME) without launching anything; a prerequisite of plugin-dev and the manual step of docs/experiments/E3-interactive.md
