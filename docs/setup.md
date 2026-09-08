@@ -193,7 +193,7 @@ repository, never on a stream the chat sees. `brigade whoami`, run in a session,
 absolute path on its own line:
 
 ```
-session 09365acd… "payments-api" in team "ops" (adapter supabase 0.4.1); inbound: accept
+session 09365acd… "payments-api" in team "ops" (adapter brigade-adapter-supabase 0.4.1); inbound: accept
 terminal: /Users/you/.claude/plugins/cache/brigade/brigade/0.4.1/bin/brigade
 frame: open
 ```
