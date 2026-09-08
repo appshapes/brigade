@@ -22,29 +22,44 @@ answers `Not logged in · Please run /login` and stops, so run `claude auth logi
 inside a session. Adding a marketplace and installing a plugin do not need that login; starting a session does.
 (Measured on Claude Code 2.1.263.)
 
-**The usual way: install from the marketplace**, at the prompt of a Claude Code session:
+**Joining a project that already uses Brigade** — one command, at the prompt of a Claude Code session opened in
+the checkout (trust the folder when asked):
+
+```
+/plugin install brigade@brigade
+```
+
+The project's committed `.claude/settings.json` names the `brigade` marketplace, so Claude Code adds it when you
+trust the folder and tells you that this one command remains. The command copies the plugin into
+`<configuration directory>/plugins/cache/brigade/brigade/<version>/` — that copy is the plugin, and the version is
+part of its path — and ends with either `Plugin is now active.` or `Run /reload-plugins to activate.`; do what it
+says. It asks you to confirm nothing: an install's confirmation is for a plugin whose marketplace declares a
+command to run, and Brigade declares none. The plugin's id is `brigade@brigade`, which is also the key its options
+take in your settings. To move to a newer release later, run `/brigade:update`, then `/reload-plugins`.
+
+**The first machine of a project** — an administrator about to create its team, or any checkout whose
+`.claude/settings.json` does not yet name the marketplace — adds the marketplace first:
 
 ```
 /plugin marketplace add appshapes/brigade
 /plugin install brigade@brigade
 ```
 
-Neither command asks you to confirm anything: an install's confirmation is for a plugin whose marketplace declares
-a command to run, and Brigade declares none.
+The first command clones this public repository; it tries SSH first and falls back to HTTPS, so you do not need a
+GitHub key. Answer the install's scope question with the project, and Claude Code writes `enabledPlugins` into
+`.claude/settings.json`. **It writes the marketplace only when it was not already known** — and you just made it
+known — so add it by hand, commit the file, and every collaborator after you has the one-command path above:
 
-The first command clones this public repository. It tries SSH first and falls back to HTTPS, so you do not need a
-GitHub key. The second copies the plugin into
-`<configuration directory>/plugins/cache/brigade/brigade/<version>/`. That copy is the plugin, and the version is
-part of its path. The plugin's id is `brigade@brigade`, which is also the key its options take in your settings.
+```json
+{
+  "enabledPlugins": { "brigade@brigade": true },
+  "extraKnownMarketplaces": { "brigade": { "source": { "source": "github", "repo": "appshapes/brigade" } } }
+}
+```
 
-The install ends with either `Plugin is now active.` or `Run /reload-plugins to activate.`; do what it says. To
-move to a newer release later, run `/brigade:update`, then `/reload-plugins`.
-
-**A project can enable Brigade for every collaborator.** When `/plugin install` is answered with the project
-scope, Claude Code writes `.claude/settings.json` in the repository — `enabledPlugins` and, so that other machines
-know where the `brigade` marketplace is, `extraKnownMarketplaces` (this repository carries both). A collaborator
-who trusts the folder then has the marketplace added for them and is told the one command that remains,
-`/plugin install brigade@brigade`; the marketplace step is theirs to skip.
+(Measured on Claude Code 2.1.263: the project-scope install of an already-known marketplace wrote `enabledPlugins`
+alone; the collaborator half — the marketplace added on trust, the install command shown — is Claude Code's
+documented behaviour, not yet measured by a collaborator here.)
 
 **The developer way: a checkout.** From a clone of this repository:
 
@@ -68,11 +83,11 @@ to-do: every option has a working default (see [plugin/README.md](../plugin/READ
 and no watcher, so no session integration:
 
 ```sh
-go install github.com/appshapes/brigade/cmd/brigade@v0.4.0
+go install github.com/appshapes/brigade/cmd/brigade@v0.4.1
 ```
 
-Two things to know about it. It reports its version with a leading `v` (`v0.4.0`) where the released binary
-reports `0.4.0`, because that version comes from the module rather than from the release build. And if it sits on
+Two things to know about it. It reports its version with a leading `v` (`v0.4.1`) where the released binary
+reports `0.4.1`, because that version comes from the module rather than from the release build. And if it sits on
 your `PATH` ahead of the plugin's own copy, every session starts with a line saying another `brigade` shadows the
 plugin's, and the Bash tool runs that one instead of the version the plugin pins.
 
@@ -178,8 +193,8 @@ repository, never on a stream the chat sees. `brigade whoami`, run in a session,
 absolute path on its own line:
 
 ```
-session 09365acd… "payments-api" in team "ops" (adapter supabase 0.4.0); inbound: accept
-terminal: /Users/you/.claude/plugins/cache/brigade/brigade/0.4.0/bin/brigade
+session 09365acd… "payments-api" in team "ops" (adapter supabase 0.4.1); inbound: accept
+terminal: /Users/you/.claude/plugins/cache/brigade/brigade/0.4.1/bin/brigade
 frame: open
 ```
 
@@ -188,7 +203,7 @@ That is where Claude Code copied the plugin, under your configuration directory 
 to — the bootstrap resolves its own symlinks and execs the binary `bin/VERSION` names:
 
 ```sh
-ln -sf /Users/you/.claude/plugins/cache/brigade/brigade/0.4.0/bin/brigade ~/.local/bin/brigade
+ln -sf /Users/you/.claude/plugins/cache/brigade/brigade/0.4.1/bin/brigade ~/.local/bin/brigade
 ```
 
 **Re-point it after a plugin upgrade.** The path carries the plugin's version, and each version is copied into its

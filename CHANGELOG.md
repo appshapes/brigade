@@ -7,6 +7,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [0.4.1] — 2026-09-08
+
+### Fixed
+
+- **`/brigade:update` works on a project-scope install.** It ran `claude plugin update brigade@brigade` with no
+  scope, which defaults to the user scope and fails with `not installed at scope user` for the install a project's
+  `.claude/settings.json` gives every collaborator. It now passes `--scope project` and falls back to
+  `--scope user`.
+
+### Changed
+
+- The member's install is one command, `/plugin install brigade@brigade`, in a session opened in a project whose
+  `.claude/settings.json` names the `brigade` marketplace; `/plugin marketplace add appshapes/brigade` is the
+  first machine's step only. The docs now say that a project-scope install writes the marketplace entry only when
+  the marketplace was not already known — an administrator adds it by hand — with the JSON to paste.
+
 ## [0.4.0] — 2026-09-08
 
 **Two skills, one install path.** A member joins with `/brigade:join <path>`; the plugin updates with

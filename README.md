@@ -113,8 +113,9 @@ levels, and the user documentation is written.
 `0.1.0`, writes the sha256 of each published binary into `plugin/bin/checksums.txt`, and pushes the tag `v0.1.0`;
 the release workflow builds the four binaries from that tag and publishes them beside their `checksums.txt`. A tree
 in which that command has not run carries the pre-release `0.0.0` and an empty checksums file, and its plugin has
-nothing to download. Installing is `/plugin marketplace add appshapes/brigade` and then
-`/plugin install brigade@brigade` inside a Claude Code session ([docs/setup.md](docs/setup.md)). Not in 0.1.0: a Homebrew tap or a Linux
+nothing to download. Installing is `/plugin install brigade@brigade` inside a Claude Code session opened in a
+project that names the marketplace, as this repository does; elsewhere, `/plugin marketplace add appshapes/brigade`
+first ([docs/setup.md](docs/setup.md)). Not in 0.1.0: a Homebrew tap or a Linux
 package, and an operating-system keychain for the credential — it is a 0600 file, and
 [docs/security.md](docs/security.md) says what that costs. The single source of truth for where the work stands is
 `.context/plans/brigade-execution-log.md`.

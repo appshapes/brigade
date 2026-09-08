@@ -10,8 +10,11 @@ allowed-tools: Bash(claude plugin:*)
 
 # Update the plugin
 
-1. Run `claude plugin marketplace update brigade`, then `claude plugin update brigade@brigade` — one per Bash call,
-   from this session, so they act on this session's configuration directory. Relay each command's output.
+1. Run `claude plugin marketplace update brigade`, then `claude plugin update brigade@brigade --scope project` —
+   one per Bash call, from this session, so they act on this session's configuration directory. A project enables
+   Brigade for its collaborators at the project scope, which `claude plugin update` does not default to; if that
+   answers `not installed at scope project`, run `claude plugin update brigade@brigade --scope user` instead. Relay
+   each command's output.
 2. The new version loads only when the user runs `/reload-plugins` or starts a new session; nothing you can run
    does that. End with one line telling them to run `/reload-plugins`. If the update reports the plugin is already
    current, say that instead.

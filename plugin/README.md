@@ -195,7 +195,7 @@ Supabase project and the conformance suite passes 45 of 45 against it; `team_inb
 inbox ships; and a two-hour soak of two sessions on one team renewed the shared credential twice with no
 lockout. The frame's instruction text ships as levels, `open` by default.
 
-**0.4.0 is the current release.** `bin/VERSION` names the version a session downloads, and `bin/checksums.txt`
+**0.4.1 is the current release.** `bin/VERSION` names the version a session downloads, and `bin/checksums.txt`
 carries the sha256 of each published binary; `make release version=<v>` writes both, and the release workflow
 builds the four binaries from the tag and publishes them beside their `checksums.txt`. A tree in which that command
 has not run carries the pre-release `0.0.0` with an empty `bin/checksums.txt`, and there is nothing to download.
