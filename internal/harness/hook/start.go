@@ -186,6 +186,11 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		r.fail("session-start: options", err, optionsLine(err))
 		return resolved{}, false
 	}
+	// The start facts go down BEFORE the team gates (P7-11): joined or not,
+	// a command run inside this session can then find the store the hooks
+	// use. Best effort — a session that cannot write its state directory
+	// fails at the map write below with its own line.
+	r.writeStartFacts(f, in, opts)
 	tf, key, ok := r.resolveTeam(opts, in)
 	if !ok {
 		return resolved{}, false
@@ -227,6 +232,25 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		client:      r.client(adapter, key, opts.ConfigDir, f.stateDir),
 		store:       sessionmap.Store{StateDir: f.stateDir},
 	}, true
+}
+
+// writeStartFacts records what the hook knows before the team gates —
+// the resolved config dir above all — so an in-session `team create` or
+// `team join` in a not-yet-attached session writes to the same store the
+// hooks read (P7-11). Through sessionmap (the state directory), never the
+// team store: the hook still cannot join.
+func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
+	store := sessionmap.Store{StateDir: f.stateDir}
+	err := store.WriteStart(&sessionmap.StartFacts{
+		ClaudePID:       f.pid,
+		ClaudeSessionID: in.SessionID,
+		ConfigDir:       opts.ConfigDir,
+		PluginBin:       f.pluginBin,
+		WrittenAt:       r.deps.Now(),
+	})
+	if err != nil {
+		r.log.Warn("session-start: start facts not written", log.Err(err))
+	}
 }
 
 // resolveTeam runs steps 1-3: discovery, the pin gate, the binding gate.

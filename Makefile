@@ -362,8 +362,8 @@ plugin_dev_mode = $(if $(mode),--permission-mode $(mode))
 
 .PHONY: plugin-dev
 plugin-dev: plugin-dev-pointer ## Start Claude Code with the local plugin (usage: make plugin-dev [adapter=fs] [config_dir=<dir>] [mode=default])
-# ONCE per machine, in your own terminal (never from inside a session: `team create`/`team join` refuse there),
-# before the first `make plugin-dev adapter=fs`. Register the fs adapter by NAME in adapters.json, then create
+# ONCE per machine, in your own terminal (inside a session works too since P7-11 — `team join --secret-file` —
+# but `make plugin-dev` itself runs outside one), before the first `make plugin-dev adapter=fs`. Register the fs adapter by NAME in adapters.json, then create
 # the team IN YOUR PROJECT CHECKOUT — `team create` writes `.brigade.json`, the binding and the pin, and every
 # later session in that checkout attaches by itself (`adapter=fs` stays useful as the per-session override):
 #

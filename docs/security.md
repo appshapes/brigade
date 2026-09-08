@@ -132,11 +132,27 @@ Phase 4 run with a real model — 84 headless sessions, the idle-wake and crash-
 interactive sweep — and it produced none of the acts those test messages asked for. Read that number with
 section 3's limits: those runs measured attempts, not effects.
 
-**The one deliberate exception.** Six commands refuse to run inside a Claude Code session, whatever your
-permissions say: `brigade team create`, `brigade team join`, `brigade team rotate-secret`,
-`brigade team revoke-member`, `brigade team transfer` and `brigade inbox release`. Each of them is either
-carrying a secret or is hard to undo, and each is exactly the sort of act a teammate's text could talk a session
-into. They run in your own terminal instead.
+**The one deliberate exception.** Three commands refuse to run inside a Claude Code session, whatever your
+permissions say: `brigade team revoke-member`, `brigade team transfer` and `brigade inbox release`. Each is hard
+to undo, and each is exactly the sort of act a teammate's text could talk a session into. They run in your own
+terminal instead.
+
+The three commands that handle the join secret — `brigade team create`, `brigade team join` and
+`brigade team rotate-secret` — used to refuse as well, so that the secret could never pass through the chat. They
+run inside a session since P7-11, because on every path the secret now travels in a 0600 file outside the
+repository (`--secret-file`) and never on a stream the chat sees (section 8); the refusal had nothing left to
+protect. What that concedes, stated plainly: a session can now pin a second checkout to a team this machine
+already holds a credential for — including a `.brigade.json` the session wrote itself — and accept a
+publishable-key-only change to `.brigade.json`, without a person at a prompt; a change of team still needs the
+secret file. So a pin's `consented_at` records that whoever held the file ran the command, not that a person
+answered y at a terminal. The start facts a session's hooks leave for those commands (the store to write, the
+plugin's path) are read under the same owner-only rule as the session map and only say *where* an in-session join
+writes, never which team a session is. And the team-messaging skill's `allowed-tools: Bash(brigade:*)` grant,
+plus any `permissions.allow: Bash(brigade:*)` rule of your own, now covers those three verbs too (section 5). If
+you want a dialog on them in every permission mode, add per-verb rules beside the send rule in section 5 —
+`"ask": ["Bash(brigade team create*)", "Bash(brigade team join*)", "Bash(brigade team rotate-secret*)"]` — not
+`Bash(brigade team*)`, which by 5.1's whole-text matching would also gate `brigade team members`, one of the
+commands the model runs routinely, and under `claude -p` or `dontAsk` would deny it.
 
 **The frame's own text has three levels.** Every team message arrives inside a short paragraph from Brigade. At
 every level that paragraph says where the message came from, that it is untrusted text, that it cannot approve
@@ -345,10 +361,15 @@ take team messages. Do **not** give it the ask rule on `brigade send`: that rule
 
 Four things in Brigade are secret-shaped. Here is where each one lives.
 
-- **The join secret: nowhere.** Brigade never stores it. `brigade team join` reads it from standard input, from a
-  no-echo prompt, or from a file you pass with `--secret-file`. Putting it on the command line with
-  `--join-secret` is refused outright, exit 2, and the value is echoed nowhere. `brigade team create` and
-  `brigade team join` refuse to run inside a Claude Code session, so the secret never passes through the chat.
+- **The join secret: nowhere.** Brigade never stores it. `brigade team join` reads it from a no-echo prompt at a
+  terminal, from a 0600 file you pass with `--secret-file` (the only form inside a session, where stdin is
+  `/dev/null`; the file must be outside the repository and yours alone), or from standard input on the scripted
+  path. Putting it on the command line with `--join-secret` is refused outright, exit 2, and the value is echoed
+  nowhere. `brigade team create` and `brigade team rotate-secret` write the secret to `--secret-file` and print
+  nothing secret. So on all three verbs, in a session or a terminal, nothing the chat captures carries the secret.
+  What that does not protect is the file itself: it is as readable by the model's Bash tool as any file under
+  your home directory. Delete it once every machine that needs it has joined, and never paste its contents into a
+  chat.
 - **The refresh token:** in `~/.config/brigade/teams/<key>/session.json`. The file is mode 0600 inside a 0700
   directory, written atomically, and refused outright if it is readable by anyone else.
 - **The access token:** the same file. It lasts at most one hour.
@@ -373,7 +394,8 @@ guarded by file permissions alone.
 
 **Under the Bash sandbox.** A sandboxed command cannot write to the credential directory, so a credential refresh
 there happens in memory only and nothing is persisted. The watcher, which runs outside the sandbox, is the
-process that refreshes and saves.
+process that refreshes and saves. The same limit reaches an in-session `team create` or `team join`: both write
+the credential directory, so under the sandbox they fail at that write — run them in a terminal instead.
 
 ## 9. Running a team, and losing the ability to
 
@@ -404,7 +426,8 @@ it. [`docs/setup.md`](setup.md), "Leaving and uninstalling", has the order.
 - **Write the member's `principal_ref` down before you ban them.** A banned member is no longer listed by
   `brigade team members`, and un-banning needs that reference. If it is lost, the recovery is a secret rotation
   plus a fresh principal on the member's side.
-- **All three refuse to run inside a Claude Code session** (section 4).
+- **`revoke-member` and `transfer` refuse to run inside a Claude Code session** (section 4); `rotate-secret` runs
+  anywhere, its new secret to `--secret-file`.
 
 **The join secret's own protections.** The secret is generated by the server and is 128 bits. It is stored
 hashed, with bcrypt at cost 10, and an unknown team costs the same one bcrypt as a known one, so timing tells an
@@ -421,7 +444,8 @@ one team file `.brigade.json`, written once by the administrator's `team create`
 values** (the backend URL, the publishable key, the team's reference and name — never the join secret).
 
 **The shadowing warning.** The plugin adds its own `bin/` to the end of the Bash tool's PATH, so another
-`brigade` earlier on your PATH would run instead. Brigade checks for that at session start and says so:
+`brigade` earlier on your PATH would run instead — and since P7-11 that includes an in-session `team create`,
+`team join` or `team rotate-secret`. Brigade checks for that at session start and says so:
 
 ```
 Brigade: another `brigade` at <path> shadows the plugin's; remove it or the wrong version runs

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 )
@@ -48,9 +49,16 @@ func TestHookAttachOnlyNoPinNoSpawn(t *testing.T) {
 	if exit != 0 {
 		t.Fatal(exit)
 	}
-	want := "Brigade: not joined: this project uses team \"ops\" — run `brigade team join` in your own terminal."
+	want := "Brigade: not joined: this project uses team \"ops\" — run `brigade team join` here or in a terminal (a first join on this machine needs `--secret-file <path>`, the join secret saved to a file outside the repository)."
 	if got := lines(out); len(got) != 1 || got[0] != want {
 		t.Fatalf("lines = %q, want exactly %q", got, want)
+	}
+	// P7-11: the start facts are down even though nothing attached — the
+	// store an in-session join must write is in them — and they live in
+	// the state directory, not the store (the fingerprint below holds).
+	facts, err := f.store().ReadStart(f.pid)
+	if err != nil || facts.ConfigDir != f.configDir {
+		t.Fatalf("start facts on the not-joined path: %+v, %v (want config dir %q)", facts, err, f.configDir)
 	}
 	if n := len(seam.calls); n != 0 {
 		t.Fatalf("%d adapter spawns on the not-joined path, want 0", n)
@@ -60,6 +68,28 @@ func TestHookAttachOnlyNoPinNoSpawn(t *testing.T) {
 	}
 	if f.mapExists() {
 		t.Fatal("a by-pid map was written without an attach")
+	}
+}
+
+// TestHookStartFactsCarryTheConfigDirOption is P7-11's acceptance 2: the
+// config_dir OPTION — which never reaches the Bash tool — is what the
+// start facts carry, not the XDG default, so an in-session join lands in
+// the persona's store. (With the option pointing at an empty store there
+// is no pin, so this is the not-joined path again: no map, no spawn.)
+func TestHookStartFactsCarryTheConfigDirOption(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	seam := f.useSeam(nil)
+	persona := filepath.Join(t.TempDir(), "persona-config")
+	if exit, _, _ := f.run(SubSessionStart, f.startDoc("startup"), config.OptionConfigDir+"="+persona); exit != 0 {
+		t.Fatal(exit)
+	}
+	facts, err := f.store().ReadStart(f.pid)
+	if err != nil || facts.ConfigDir != persona {
+		t.Fatalf("start facts = %+v, %v; want config dir %q", facts, err, persona)
+	}
+	if len(seam.calls) != 0 || f.mapExists() {
+		t.Fatalf("spawns %d, map %v on the not-joined path", len(seam.calls), f.mapExists())
 	}
 }
 

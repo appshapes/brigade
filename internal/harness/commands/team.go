@@ -2,10 +2,13 @@ package commands
 
 import (
 	"context"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -28,17 +31,18 @@ type membersResult struct {
 }
 
 // Team implements `brigade team create|join|leave|members|rotate-secret|
-// revoke-member|transfer …` (6.4; P5-2). `members` is a harness command
-// with the documented layout; every other verb is the terminal
+// revoke-member|transfer …` (6.4; P5-2; P7-11). `members` is a harness
+// command with the documented layout; every other verb is the terminal
 // pass-through with inherited stdio, so the user sees the adapter's own
-// envelope (`--json` is parsed here and has no effect on them). `create`,
-// `join` and the three administrative verbs refuse to run inside a Claude
-// Code session in the one refusal shape of 6.4 (`usage`, exit 2, reason
-// in_session) with a per-family line: `create`, `join` and `rotate-secret`
-// with RefusalInSession, because each handles the join secret;
-// `revoke-member` and `transfer` with RefusalAdminInSession, because they
-// are destructive administrative acts that a session reading untrusted
-// teammate text must not be talked into (4.5 rule 15).
+// envelope (`--json` is parsed here and has no effect on them). Two verbs
+// refuse to run inside a Claude Code session, in the one refusal shape of
+// 6.4 (`usage`, exit 2, reason in_session): `revoke-member` and `transfer`,
+// destructive administrative acts that a session reading untrusted
+// teammate text must not be talked into (4.5 rule 15). The three verbs
+// that handle the join secret — `create`, `join`, `rotate-secret` — run
+// anywhere since P7-11, because on every path the secret travels in a
+// 0600 --secret-file outside the repository and never on a stream the
+// chat sees; inside a session `brigade` is on PATH, which is the point.
 func Team(inv Invocation) error {
 	verb, rest, err := verbOf(inv.Args, "team", teamVerbs)
 	if err != nil {
@@ -60,23 +64,25 @@ func Team(inv Invocation) error {
 			return usage("team list takes no arguments")
 		}
 		return inv.teamList()
-	case "create", "join", "rotate-secret":
-		if inv.inSession() {
-			return refuseInSession()
-		}
 	case "revoke-member", "transfer":
 		if inv.inSession() {
 			return refuseAdminInSession()
 		}
+	case "rotate-secret":
+		if err := inv.checkForwardedSecretFile(raw.Rest); err != nil {
+			return err
+		}
 	}
 	// The repo-file paths (P7-5; bridge-free since P7-7): `create` always
-	// runs the rebuilt flow; a TTY `join` reads the project's team file,
-	// and a non-TTY join stays the fully explicit stdin pass-through.
+	// runs the rebuilt flow; a `join` at a terminal or inside a session
+	// reads the project's team file (in a session the secret comes from
+	// --secret-file, P7-11); a non-TTY join outside a session stays the
+	// fully explicit stdin pass-through (correction 7).
 	switch verb {
 	case "create":
 		return inv.teamCreate(raw)
 	case "join":
-		if inv.Deps.isTerminal(inv.In) {
+		if inv.Deps.isTerminal(inv.In) || inv.inSession() {
 			return inv.teamJoin(raw.Rest)
 		}
 	}
@@ -87,6 +93,39 @@ func Team(inv Invocation) error {
 		return inv.passThroughProfileVerb(verb, raw)
 	}
 	return inv.passThrough("team", verb, raw, nil)
+}
+
+// checkForwardedSecretFile applies create's outside-the-repository rule to
+// the --secret-file that `rotate-secret` forwards to the adapter (P7-11):
+// the adapter checks that the path is absolute and its directory exists,
+// and nothing about the checkout — which inside a session is the cwd. The
+// flag is read here, never consumed; a relative path is left to the
+// adapter's own refusal, and outside any checkout there is nothing to be
+// inside of.
+func (inv Invocation) checkForwardedSecretFile(rest []string) error {
+	value := ""
+	for i, arg := range rest {
+		switch {
+		case arg == "--secret-file" || arg == "-secret-file":
+			if i+1 < len(rest) {
+				value = rest[i+1]
+			}
+		case strings.HasPrefix(arg, "--secret-file=") || strings.HasPrefix(arg, "-secret-file="):
+			_, value, _ = strings.Cut(arg, "=")
+		}
+	}
+	if strings.HasPrefix(value, protocol.JoinSecretPrefix) {
+		// A join secret where a path should be would ride the child's argv
+		// (C-05); the value is never echoed.
+		return usage("join secrets must never be passed on the command line; --secret-file names a file, and the secret goes in it")
+	}
+	if value == "" || !filepath.IsAbs(value) {
+		return nil
+	}
+	if top, ok := teamfile.Toplevel(inv.mustGetwd()); ok {
+		return checkSecretFileOutside(value, top)
+	}
+	return nil
 }
 
 // members implements `brigade team members [--json]`: one line per member,

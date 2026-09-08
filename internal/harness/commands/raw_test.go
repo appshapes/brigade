@@ -85,28 +85,19 @@ func TestWithRaw(t *testing.T) {
 	}
 }
 
-// TestRefuseInSessionText pins the fixed lines of 6.4 as usage errors in
-// ONE shape: refuseInSession (the join-secret line) and, P5-2,
-// refuseAdminInSession (the administration line) both answer `usage`,
-// exit 2 and details.reason in_session; only the message differs, and
-// each names the terminal.
+// TestRefuseInSessionText pins the fixed line of 6.4 as a usage error in
+// ONE shape: refuseAdminInSession (the administration line, P5-2) answers
+// `usage`, exit 2 and details.reason in_session, and names the terminal.
+// The join-secret line is gone (P7-11): the three verbs that handle the
+// secret run inside a session, and TestTeamAdminVerbsRefusedInSession is
+// the regression pin that the administration pair did not follow them.
 func TestRefuseInSessionText(t *testing.T) {
 	t.Parallel()
-	for name, tc := range map[string]struct {
-		err  *protocol.Error
-		want string
-	}{
-		"refuseInSession":      {refuseInSession(), RefusalInSession},
-		"refuseAdminInSession": {refuseAdminInSession(), RefusalAdminInSession},
-	} {
-		if tc.err.Code != protocol.CodeUsage || tc.err.Code.Exit() != 2 || tc.err.Message != tc.want || tc.err.Details["reason"] != "in_session" {
-			t.Errorf("%s = %+v", name, tc.err)
-		}
-		if !strings.HasPrefix(tc.want, "run this in your own terminal: ") {
-			t.Errorf("%s does not name the terminal: %q", name, tc.want)
-		}
+	err := refuseAdminInSession()
+	if err.Code != protocol.CodeUsage || err.Code.Exit() != 2 || err.Message != RefusalAdminInSession || err.Details["reason"] != "in_session" {
+		t.Errorf("refuseAdminInSession = %+v", err)
 	}
-	if RefusalInSession == RefusalAdminInSession {
-		t.Errorf("the two refusal lines are the same text")
+	if !strings.HasPrefix(RefusalAdminInSession, "run this in your own terminal: ") {
+		t.Errorf("the administration line does not name the terminal: %q", RefusalAdminInSession)
 	}
 }

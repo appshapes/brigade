@@ -21,7 +21,7 @@ const PoisonFlag = "join-secret"
 
 // poisonMessage is fixed text. It must never quote the offending argument.
 const poisonMessage = "join secrets must never be passed on the command line; " +
-	"run `" + Program + " team join --prompt` in your own terminal, or supply the secret on stdin"
+	"put the secret in a 0600 file outside the repository and run `" + Program + " team join --secret-file <path>`, or supply it on stdin"
 
 // errPoison is returned by the poison flag's Set method. The flag package
 // wraps it with %v rather than %w and the wrapped text contains the secret,

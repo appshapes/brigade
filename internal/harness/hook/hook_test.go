@@ -154,6 +154,11 @@ func TestEveryAdapterFailureExitsZero(t *testing.T) {
 			if f.mapExists() || f.spawner.count() != 0 {
 				t.Fatalf("map written %v or watcher spawned %d after a failed registration", f.mapExists(), f.spawner.count())
 			}
+			// P7-11: the start facts went down before the network was
+			// touched — a failed registration leaves them in place.
+			if !f.startFactsExist() {
+				t.Fatal("no start facts after a failed registration")
+			}
 			if got := f.seam.verbs(); strings.Join(got, ",") != "describe,session register" {
 				t.Fatalf("calls %q", got)
 			}
@@ -167,7 +172,7 @@ func TestEveryAdapterFailureExitsZero(t *testing.T) {
 		f := newFixture(t)
 		f.useSeam(map[string][]fakeadapter.Response{"session register": {errResp(protocol.CodeConfig, "profile_missing")}})
 		exit, out, _ := f.run(SubSessionStart, f.startDoc("startup"))
-		want := "Brigade: not connected (config: profile_missing); run `brigade team join` in a terminal"
+		want := "Brigade: not connected (config: profile_missing); run `brigade team join`"
 		if got := lines(out); exit != 0 || len(got) != 1 || got[0] != want {
 			t.Fatalf("exit %d stdout %q, want %q", exit, out, want)
 		}
@@ -207,7 +212,7 @@ func assertNotConnected(t *testing.T, exit int, out, errOut string, code protoco
 	if got := lines(out); len(got) != 1 || got[0] != want {
 		t.Fatalf("stdout %q, want %q", out, want)
 	}
-	wantTail := "run `brigade team join` in a terminal"
+	wantTail := "run `brigade team join`"
 	if code.Retryable() {
 		wantTail = "retrying at your next prompt"
 	}

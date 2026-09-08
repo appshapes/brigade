@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/teamstore/write"
@@ -113,6 +115,13 @@ func parseCreateFlags(args []string) (*createOptions, error) {
 // inside the discovered repository toplevel: the secret must never live
 // under the project directory, however it is spelled.
 func checkSecretFileOutside(secretFile, top string) error {
+	// A `..` component is refused outright (P7-11, verifier finding): Dir
+	// and Clean collapse `lnk/..` lexically, while the kernel resolves the
+	// symlink first — so `<outside>/lnk/../x.secret` with `lnk` pointing
+	// into the checkout would pass both spellings below and land inside.
+	if slices.Contains(strings.Split(secretFile, string(filepath.Separator)), "..") {
+		return usage("--secret-file must not contain a `..` component; spell the path plainly")
+	}
 	dir := filepath.Clean(filepath.Dir(secretFile))
 	// Both the literal spelling and the symlink-resolved one are checked:
 	// a path may be inside the checkout under either form and must not
@@ -233,7 +242,7 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, an
 	}
 	return writeLines(inv.Out,
 		"created team \""+protocol.SanitizeName(answer.TeamName)+"\" ("+sanitizeID(answer.TeamRef)+")",
-		"wrote "+filePath,
+		"wrote "+teamfile.FileName+" at the repository toplevel",
 		"the join secret is in "+opts.secretFile+" (0600); share it over a password-grade channel only",
 		"next: git add "+teamfile.FileName+" && git commit && git push — the file carries only public values",
 	)
@@ -243,15 +252,26 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, an
 // (brief §3): TTY-only on the repo-file path; a non-TTY join reads the
 // one stdin document exactly as before and never opens the repo file.
 func (inv Invocation) teamJoin(args []string) error {
-	label, err := parseJoinFlags(args)
+	label, secretFile, err := parseJoinFlags(args)
 	if err != nil {
 		return err
 	}
-	if !inv.Deps.isTerminal(inv.In) {
-		return usage("team join without a terminal reads the stdin document form: pipe a TeamJoinRequest and pass --profile (the scripted path) — the repo file is read only at a terminal")
+	if !inv.Deps.isTerminal(inv.In) && !inv.inSession() {
+		return usage("team join without a terminal reads the stdin document form: pipe a TeamJoinRequest and pass --team (the scripted path) — the repo file is read at a terminal or inside a Claude Code session")
 	}
-	if _, err := inv.requireToplevel("team join"); err != nil {
+	top, err := inv.requireToplevel("team join")
+	if err != nil {
 		return err
+	}
+	if secretFile != "" {
+		// Create's rules, unchanged: absolute, and never under the
+		// checkout in either spelling (P7-11).
+		if !filepath.IsAbs(secretFile) {
+			return usage("--secret-file must be an absolute path outside this project (a relative path would land in the repository)")
+		}
+		if err := checkSecretFileOutside(secretFile, top); err != nil {
+			return err
+		}
 	}
 	path, ok := teamfile.Discover(inv.mustGetwd())
 	if !ok {
@@ -265,26 +285,29 @@ func (inv Invocation) teamJoin(args []string) error {
 	if err != nil {
 		return err
 	}
-	return inv.joinWithFile(path, f, label)
+	return inv.joinWithFile(path, f, label, secretFile)
 }
 
-// parseJoinFlags: the one optional flag is --label.
-func parseJoinFlags(args []string) (string, error) {
-	var label string
+// parseJoinFlags: the two optional flags are --label and, since P7-11,
+// --secret-file (the join secret read from a 0600 file — the only secret
+// source inside a session, where stdin is /dev/null; accepted at a
+// terminal too). Everything else comes from the project's team file.
+func parseJoinFlags(args []string) (label, secretFile string, err error) {
 	fs := flag.NewFlagSet("team join", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&label, "label", "", "")
+	fs.StringVar(&secretFile, "secret-file", "", "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
-		return "", usage("team join takes only --label; everything else comes from the project's " + teamfile.FileName)
+		return "", "", usage("team join takes only --label and --secret-file; everything else comes from the project's " + teamfile.FileName)
 	}
-	return label, nil
+	return label, secretFile, nil
 }
 
 // joinWithFile runs the consent gate and either the first join (secret)
 // or the re-consent path (brief §5 with the review's high fix: the
 // secret is required for any pin rewrite that changes adapter, url or
 // team_ref; only a publishable-key-only drift re-consents without one).
-func (inv Invocation) joinWithFile(path string, f *teamfile.File, label string) error {
+func (inv Invocation) joinWithFile(path string, f *teamfile.File, label, secretFile string) error {
 	t, err := inv.dialectTarget(f.Adapter, teamstore.Key(f.Adapter, f.URL, f.TeamRef))
 	if err != nil {
 		return err
@@ -295,12 +318,12 @@ func (inv Invocation) joinWithFile(path string, f *teamfile.File, label string) 
 	}
 	binding, berr := teamstore.LoadBinding(t.configDir, t.profile)
 	if berr == nil && binding.TeamRef == f.TeamRef {
-		return inv.reconsent(t, canon, f, binding)
+		return inv.reconsent(t, canon, f, binding, secretFile)
 	}
 	if berr != nil && !bindingMissing(berr) {
 		return berr
 	}
-	return inv.firstJoin(t, canon, f, label)
+	return inv.firstJoin(t, canon, f, label, secretFile)
 }
 
 // bindingMissing reports "no credential for this team yet": the raw
@@ -318,9 +341,18 @@ func bindingMissing(err error) bool {
 // typed — host, name and ref from the file, the adapter named whenever
 // it is not the bundled one (review low fix 6).
 func (inv Invocation) confirmGate(f *teamfile.File, action string) error {
-	line := action + " team \"" + f.TeamName + "\" (" + sanitizeID(f.TeamRef) + ") at " + hostOf(f.URL)
+	line := action + " team \"" + nameLine(f.TeamName) + "\" (" + sanitizeID(f.TeamRef) + ") at " + attrLine(hostOf(f.URL))
 	if f.Adapter != config.BundledAdapterName {
-		line += " via adapter \"" + f.Adapter + "\""
+		line += " via adapter \"" + attrLine(f.Adapter) + "\""
+	}
+	if inv.inSession() {
+		// No terminal to ask on — stdin is /dev/null — so the invocation
+		// is the consent: typed by the person with `!`, or run by the model
+		// through the Bash tool (where default mode shows the argv in a
+		// permission dialog). The line below is what the transcript
+		// records (P7-11). Every membership-grade path still needs the
+		// secret file.
+		return writeLines(inv.Out, line+" — consented by this invocation")
 	}
 	ok, err := inv.confirm(line + "? [y/N] ")
 	if err != nil {
@@ -340,23 +372,32 @@ func (inv Invocation) confirmGate(f *teamfile.File, action string) error {
 // the secret (no echo), check its embedded team ref against the file
 // BEFORE any network (review medium fix 4 — no existence oracle), then
 // the frozen stdin document to the adapter, then binding + pin.
-func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label string) error {
-	if err := inv.confirmGate(f, "join"); err != nil {
-		return err
-	}
-	secret, err := inv.readSecret()
-	if err != nil {
-		return err
-	}
-	parsed, err := protocol.ParseJoinSecret(secret)
-	if err != nil {
-		return err
-	}
-	if parsed.TeamRef() != f.TeamRef {
-		return &protocol.Error{
-			Code:    protocol.CodeInvalidInput,
-			Message: "this secret is for a different team than this project's " + teamfile.FileName + " names; nothing was sent",
-			Details: map[string]string{"reason": "secret_team_mismatch"},
+func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label, secretFile string) error {
+	var secret string
+	var err error
+	if inv.inSession() {
+		// Inside a session the secret file is read AND checked — shape and
+		// team — before the consent line is printed, so a refusal leaves
+		// no half-record on stdout; at a terminal the gate comes first,
+		// then the no-echo read, then the same checks.
+		if secret, err = inv.joinSecret(secretFile); err != nil {
+			return err
+		}
+		if err := checkJoinSecret(secret, f); err != nil {
+			return err
+		}
+		if err := inv.confirmGate(f, "join"); err != nil {
+			return err
+		}
+	} else {
+		if err := inv.confirmGate(f, "join"); err != nil {
+			return err
+		}
+		if secret, err = inv.joinSecret(secretFile); err != nil {
+			return err
+		}
+		if err := checkJoinSecret(secret, f); err != nil {
+			return err
 		}
 	}
 	backend, err := json.Marshal(map[string]string{"url": f.URL, "publishable_key": f.PublishableKey})
@@ -379,12 +420,30 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 	return inv.writePinAndReport(t, canon, f, "joined")
 }
 
+// checkJoinSecret is the local half of a join, before any network (review
+// medium fix 4 — no existence oracle): the secret parses, and its
+// embedded team ref is the file's.
+func checkJoinSecret(secret string, f *teamfile.File) error {
+	parsed, err := protocol.ParseJoinSecret(secret)
+	if err != nil {
+		return err
+	}
+	if parsed.TeamRef() != f.TeamRef {
+		return &protocol.Error{
+			Code:    protocol.CodeInvalidInput,
+			Message: "this secret is for a different team than this project's " + teamfile.FileName + " names; nothing was sent",
+			Details: map[string]string{"reason": "secret_team_mismatch"},
+		}
+	}
+	return nil
+}
+
 // reconsent handles `team join` where a credential for the file's team
 // already exists: live membership via the core `session list`
 // (correction 4), then the per-field diff against the pin, then either
 // the secret-free key-only path (which also rewrites the binding —
 // correction 1) or a fresh secret join for a cross-team move.
-func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, binding *adapterkit.Profile) error {
+func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, binding *adapterkit.Profile, secretFile string) error {
 	pin, pinned, err := teamstore.LookupPin(t.configDir, canon)
 	if err != nil {
 		return err
@@ -395,17 +454,23 @@ func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, bindi
 	if _, err := t.client.ListSessions(context.Background(), false); err != nil {
 		// The credential no longer works (revoked server-side, or the
 		// key rotated under it): fall back to a normal secret join.
-		return inv.firstJoin(t, canon, f, "")
+		return inv.firstJoin(t, canon, f, "", secretFile)
 	}
 	if pinned {
 		inv.printDiff(pin, f)
 	}
+	crossTeam := pinned && (pin.Adapter != f.Adapter || pin.URL != f.URL || pin.TeamRef != f.TeamRef)
+	if crossTeam && inv.inSession() {
+		// The membership-grade path prints its own consent line, after the
+		// secret file has been checked: no half-record on a refusal.
+		return inv.firstJoin(t, canon, f, "", secretFile)
+	}
 	if err := inv.confirmGate(f, "re-consent to"); err != nil {
 		return err
 	}
-	if pinned && (pin.Adapter != f.Adapter || pin.URL != f.URL || pin.TeamRef != f.TeamRef) {
+	if crossTeam {
 		// The high fix: a cross-team re-point is a membership-grade event.
-		return inv.firstJoin(t, canon, f, "")
+		return inv.firstJoin(t, canon, f, "", secretFile)
 	}
 	if binding.PublishableKey != f.PublishableKey {
 		// Key-only drift: rewrite pin AND binding together, no secret.
@@ -425,10 +490,10 @@ func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, bindi
 // printDiff shows old → new for every drifted pin member.
 func (inv Invocation) printDiff(pin *teamstore.Pin, f *teamfile.File) {
 	pairs := []struct{ name, old, new string }{
-		{"adapter", pin.Adapter, f.Adapter},
-		{"backend host", hostOf(pin.URL), hostOf(f.URL)},
-		{"publishable key", pin.PublishableKey, f.PublishableKey},
-		{"team", pin.TeamRef, f.TeamRef},
+		{"adapter", attrLine(pin.Adapter), attrLine(f.Adapter)},
+		{"backend host", attrLine(hostOf(pin.URL)), attrLine(hostOf(f.URL))},
+		{"publishable key", attrLine(pin.PublishableKey), attrLine(f.PublishableKey)},
+		{"team", sanitizeID(pin.TeamRef), sanitizeID(f.TeamRef)},
 	}
 	for _, p := range pairs {
 		if p.old != p.new {
@@ -445,7 +510,117 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 	}); err != nil {
 		return err
 	}
-	return writeLines(inv.Out, did+" team \""+f.TeamName+"\" ("+sanitizeID(f.TeamRef)+"); sessions in this checkout attach on their next start")
+	name := nameLine(f.TeamName)
+	if inv.inSession() {
+		head := did + " team \"" + name + "\" (" + sanitizeID(f.TeamRef) + ")"
+		pid, perr := config.ClaudePID(inv.Environ)
+		if perr == nil {
+			// A session that already has a map is attached — to this team
+			// (nothing to do) or to another (the prompt hook only registers
+			// an UNmapped session, so only a restart moves it).
+			if m, merr := config.Session(inv.Environ, t.stateDir); merr == nil {
+				if m.TeamRef == f.TeamRef {
+					return writeLines(inv.Out, head+"; this session is already attached to it")
+				}
+				return writeLines(inv.Out, head+"; this session stays on team \""+nameLine(m.TeamName)+"\" until /reload-plugins or a new session")
+			}
+			// The prompt hook re-registers an unmapped session once a
+			// minute (P5-18); without its stamp the very next prompt
+			// attaches this one.
+			_ = os.Remove(config.RegisterRetryStamp(t.stateDir, pid))
+		}
+		return writeLines(inv.Out, head+"; this session attaches at your next prompt")
+	}
+	return writeLines(inv.Out, did+" team \""+name+"\" ("+sanitizeID(f.TeamRef)+"); sessions in this checkout attach on their next start")
+}
+
+// joinSecret is the secret of a first join or a cross-team re-point: from
+// --secret-file when given — the only source inside a session, where
+// stdin is /dev/null and nothing can be typed — else the no-echo read at
+// the terminal. The file is read under the rule every private file
+// Brigade reads obeys (regular, 0600, owned by the caller, no symlink)
+// and its first line, trimmed, is the secret. The refusal for a session
+// that omits the flag says how to make the file and never asks for the
+// secret itself.
+func (inv Invocation) joinSecret(secretFile string) (string, error) {
+	if secretFile == "" {
+		if inv.inSession() {
+			return "", usage("team join inside a Claude Code session needs --secret-file <path>: save the join secret to a 0600 file outside this project yourself — never paste it into the chat — then run this again")
+		}
+		return inv.readSecret()
+	}
+	data, err := adapterkit.ReadStrict(secretFile)
+	if err != nil {
+		return "", secretFileUnreadable(err)
+	}
+	first, _, _ := strings.Cut(string(data), "\n")
+	return strings.TrimSpace(first), nil
+}
+
+// secretFileUnreadable maps a --secret-file read failure to `config`: the
+// strict reader's own refusal (mode, owner, symlink) passes through with
+// its advice; a missing file and any other I/O failure get fixed text.
+// The file's contents are never part of any message.
+func secretFileUnreadable(err error) error {
+	var pe *protocol.Error
+	if errors.As(err, &pe) {
+		return pe
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return &protocol.Error{
+			Code:    protocol.CodeConfig,
+			Message: "the file named by --secret-file does not exist",
+			Details: map[string]string{"reason": "secret_file_missing"},
+		}
+	}
+	return &protocol.Error{
+		Code:    protocol.CodeConfig,
+		Message: "the file named by --secret-file could not be read",
+		Details: map[string]string{"reason": "secret_file_unreadable"},
+	}
+}
+
+// storeDir is the config directory a store READER uses: the shell's outside
+// a session; inside one, the map's when the session is attached, else the
+// start facts' (an in-session create or join just happened, or SessionStart
+// failed), else the XDG default. Writers (create, join) go through
+// dialectTarget, which insists on the start facts.
+func (inv Invocation) storeDir() (string, error) {
+	configDir, err := config.BrigadeConfigDir(inv.Environ)
+	if err != nil || !inv.inSession() {
+		return configDir, err
+	}
+	stateDir, err := config.BrigadeStateDir(inv.Environ)
+	if err != nil {
+		return "", err
+	}
+	if m, merr := config.Session(inv.Environ, stateDir); merr == nil {
+		return m.ConfigDir, nil
+	}
+	if facts, ferr := inv.startFacts(stateDir); ferr == nil {
+		return facts.ConfigDir, nil
+	}
+	return configDir, nil
+}
+
+// startFacts reads what SessionStart recorded for this process (P7-11):
+// above all the store the hooks use, which the config_dir option names
+// and which never reaches the Bash tool's environment. A session without
+// the file cannot know where to write and refuses rather than guess.
+func (inv Invocation) startFacts(stateDir string) (*sessionmap.StartFacts, error) {
+	pid, err := config.ClaudePID(inv.Environ)
+	if err != nil {
+		return nil, err
+	}
+	facts, err := (sessionmap.Store{StateDir: stateDir}).ReadStart(pid)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, &protocol.Error{
+			Code:    protocol.CodeConfig,
+			Message: "this session has no start facts (the SessionStart hook did not run, or the plugin was enabled mid-session), so the store to write is unknown; run /reload-plugins, then run this again",
+			Details: map[string]string{"reason": config.ReasonNotRegistered},
+		}
+	}
+	return facts, err
 }
 
 // dialectTarget builds a terminal target for an adapter NAME (the repo
@@ -461,6 +636,17 @@ func (inv Invocation) dialectTarget(adapterName, key string) (*target, error) {
 	stateDir, err := config.BrigadeStateDir(inv.Environ)
 	if err != nil {
 		return nil, err
+	}
+	if inv.inSession() {
+		// Inside a session the environment cannot say where the store is
+		// (BRIGADE_* is ignored and the config_dir option never reaches the
+		// Bash tool): the start facts SessionStart wrote carry the resolved
+		// directory, joined or not (P7-11).
+		facts, ferr := inv.startFacts(stateDir)
+		if ferr != nil {
+			return nil, ferr
+		}
+		configDir = facts.ConfigDir
 	}
 	ad, err := config.ResolveAdapter(config.Options{}, configDir, adapterName)
 	if err != nil {
@@ -591,7 +777,7 @@ func protocolMismatch(message string) *protocol.Error {
 // teamList implements `brigade team list`: the store rendered humanly —
 // team, host, principal, pinned checkouts — plus the orphan prune.
 func (inv Invocation) teamList() error {
-	configDir, err := config.BrigadeConfigDir(inv.Environ)
+	configDir, err := inv.storeDir()
 	if err != nil {
 		return err
 	}
@@ -693,7 +879,7 @@ func (inv Invocation) passThroughProfileVerb(verb string, raw rawArgs) error {
 // the legacy "default" so a machine with no teams behaves as before
 // (the adapter's own unconfigured answer does the talking).
 func (inv Invocation) resolveTeamKey(teamFlag string) (string, error) {
-	configDir, err := config.BrigadeConfigDir(inv.Environ)
+	configDir, err := inv.storeDir()
 	if err != nil {
 		return "", err
 	}

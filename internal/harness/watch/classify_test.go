@@ -76,8 +76,8 @@ var errBoom = boom{}
 func TestStopNoticeWording(t *testing.T) {
 	t.Parallel()
 	for code, want := range map[protocol.Code]string{
-		protocol.CodeUnauthenticated:  "Brigade: watcher stopped: unauthenticated; run `brigade team join` again in a terminal",
-		protocol.CodeUnauthorized:     "Brigade: watcher stopped: unauthorized; run `brigade team join` again in a terminal",
+		protocol.CodeUnauthenticated:  "Brigade: watcher stopped: unauthenticated; run `brigade team join` again",
+		protocol.CodeUnauthorized:     "Brigade: watcher stopped: unauthorized; run `brigade team join` again",
 		protocol.CodeProtocolMismatch: "Brigade: watcher stopped: protocol_mismatch; the adapter speaks a different protocol version than this plugin; update one of them",
 		protocol.CodeConfig:           "Brigade: watcher stopped: config; run `brigade profile status` in a terminal",
 		protocol.CodeInternal:         "Brigade: watcher stopped: internal; it will be restarted at your next prompt",

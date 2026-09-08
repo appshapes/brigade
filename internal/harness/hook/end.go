@@ -65,6 +65,9 @@ func (r *run) sessionEnd() int {
 	if derr := store.DeleteByPID(f.pid); derr != nil {
 		r.log.Warn("session-end: session map not removed", log.Err(derr))
 	}
+	if derr := store.DeleteStart(f.pid); derr != nil {
+		r.log.Debug("session-end: start facts not removed", log.Err(derr))
+	}
 	if m == nil {
 		return 0
 	}

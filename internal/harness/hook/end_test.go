@@ -34,14 +34,15 @@ func TestSessionEndReasons(t *testing.T) {
 			watcher := testutil.NewSleeper(t)
 			f.spawner.watcherPID = watcher
 			seam := registered(t, f, map[string][]fakeadapter.Response{"session close": {okResp(closeDoc())}})
+			f.writeStartFacts(t)
 			exit, out, errOut := f.run(SubSessionEnd, f.endDoc(tc.reason))
 			if exit != 0 || out != "" {
 				t.Fatalf("exit %d out %q err %q", exit, out, errOut)
 			}
 			closes := seam.callsFor("session close")
 			if !tc.teardown {
-				if len(closes) != 0 || !alive(watcher) || !f.mapExists() {
-					t.Fatalf("reason %q tore the session down: closes %d alive %v map %v", tc.reason, len(closes), alive(watcher), f.mapExists())
+				if len(closes) != 0 || !alive(watcher) || !f.mapExists() || !f.startFactsExist() {
+					t.Fatalf("reason %q tore the session down: closes %d alive %v map %v start facts %v", tc.reason, len(closes), alive(watcher), f.mapExists(), f.startFactsExist())
 				}
 				if _, err := os.Lstat(f.pidfilePath()); err != nil {
 					t.Fatalf("pidfile gone: %v", err)
@@ -54,6 +55,9 @@ func TestSessionEndReasons(t *testing.T) {
 			}
 			if f.mapExists() {
 				t.Fatal("the by-pid map survived")
+			}
+			if f.startFactsExist() {
+				t.Fatal("the start facts survived")
 			}
 			if bn, err := f.store().ReadByNative(f.nativeID); err != nil || bn.BrigadeSessionID != "brigade-sess-1" {
 				t.Fatalf("by-native must be kept: %+v %v", bn, err)

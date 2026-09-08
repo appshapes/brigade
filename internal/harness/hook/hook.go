@@ -434,23 +434,23 @@ func isCode(err error, codes ...protocol.Code) bool {
 
 // notConnected is the context line for a failed registration (6.3): a
 // retryable code is retried by the next prompt hook; anything else needs
-// the human in a terminal.
+// the human to join again — here or in a terminal (P7-11).
 func notConnected(code protocol.Code) string {
 	if code.Retryable() {
 		return "Brigade: not connected (" + string(code) + "); retrying at your next prompt"
 	}
-	return "Brigade: not connected (" + string(code) + "); run `brigade team join` in a terminal"
+	return "Brigade: not connected (" + string(code) + "); run `brigade team join`"
 }
 
 // notConnectedFor is notConnected for an adapter failure: a `config` the
 // adapter produced carries its fixed details.reason (profile_missing, a
 // malformed profile, …) so the line says WHY the resolved adapter cannot
 // read the profile (the P3-4 row, D36) and never just the code; the
-// remedy stays the terminal. The reason is a fixed token, never a value.
+// remedy is a join. The reason is a fixed token, never a value.
 func notConnectedFor(err error) string {
 	code, reason := codeOf(err)
 	if code == protocol.CodeConfig && reason != "" {
-		return "Brigade: not connected (config: " + attr(reason) + "); run `brigade team join` in a terminal"
+		return "Brigade: not connected (config: " + attr(reason) + "); run `brigade team join`"
 	}
 	return notConnected(code)
 }
@@ -475,15 +475,19 @@ func adapterLine(name string, err error) string {
 // notJoinedLine is the one line a valid team file earns before a human
 // has consented in this checkout (brief §4): the sanitized team name is
 // the ONLY repo-sourced string that ever reaches the model, and only
-// here.
+// here. The remedy is runnable as printed — in this session `brigade` is
+// on PATH (P7-11) — and names no path of its own: the human supplies the
+// secret file's, and the model never invents one.
 func notJoinedLine(teamName string) string {
-	return "Brigade: not joined: this project uses team \"" + attr(teamName) + "\" — run `brigade team join` in your own terminal."
+	return "Brigade: not joined: this project uses team \"" + attr(teamName) + "\" — run `brigade team join` here or in a terminal (a first join on this machine needs `--secret-file <path>`, the join secret saved to a file outside the repository)."
 }
 
 // driftLine is the swap refusal (brief §5): the committed file no longer
 // matches what the human consented to, the session attaches to NEITHER
-// team, and not one byte of the drifted file is echoed.
-const driftLine = "Brigade: not connected: .brigade.json does not match the team you joined here — run `brigade team join` in your own terminal to review the change."
+// team, and not one byte of the drifted file is echoed. A cross-team
+// change needs the secret file (owner ruling 3): the join backstop, not
+// the refusal, is what a re-pointed file runs into.
+const driftLine = "Brigade: not connected: .brigade.json does not match the team you joined here — run `brigade team join` to review the change (a cross-team change needs --secret-file)."
 
 // teamFileLine renders a team-file refusal: one fixed line per token of
 // the parser's closed list, with the two secret findings taking their
@@ -708,5 +712,5 @@ func noticePath(stateDir string, pid int) string { return stateFile(stateDir, pi
 
 // retryStampPath records the last registration retry of the prompt hook.
 func retryStampPath(stateDir string, pid int) string {
-	return stateFile(stateDir, pid, ".register-retry")
+	return config.RegisterRetryStamp(stateDir, pid)
 }

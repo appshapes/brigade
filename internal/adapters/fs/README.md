@@ -84,10 +84,10 @@ must be free to try again rather than end up bound to a team nobody can join.
 
 ## Under the plugin
 
-The fs adapter is the backend `make plugin-dev adapter=fs` uses, and this is the whole onboarding — run **once, in
-your own terminal**, before the first session. Not from inside a Claude Code session: `team create` and `team join`
-refuse there with `usage` ("run this in your own terminal: the join secret must never pass through the chat"). The
-sequence below is the one measured in `docs/experiments/E3-wiring.md`.
+The fs adapter is the backend `make plugin-dev adapter=fs` uses, and this is the whole onboarding — run **once**,
+before the first session, in your own terminal (inside a session works too since P7-11, with `--secret-file` on the
+join; `make plugin-dev` itself runs outside one). The sequence below is the terminal one, measured in
+`docs/experiments/E3-wiring.md`.
 
 ```sh
 make build

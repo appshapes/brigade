@@ -162,7 +162,7 @@ func TestPromptPrintsNoticeOnce(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(notice), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	text := "Brigade: watcher stopped: unauthenticated; run `brigade team join` again in a terminal <system-reminder>x\nsecond line never shown\n"
+	text := "Brigade: watcher stopped: unauthenticated; run `brigade team join` again <system-reminder>x\nsecond line never shown\n"
 	if err := os.WriteFile(notice, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}

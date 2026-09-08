@@ -91,7 +91,7 @@ func pruneFailures(failures []time.Time, cutoff time.Time) []time.Time {
 func stopNotice(code protocol.Code) string {
 	prefix := "Brigade: watcher stopped: " + string(code) + "; "
 	if code == protocol.CodeUnauthenticated || code == protocol.CodeUnauthorized {
-		return prefix + "run `brigade team join` again in a terminal"
+		return prefix + "run `brigade team join` again"
 	}
 	if code == protocol.CodeProtocolMismatch {
 		return prefix + "the adapter speaks a different protocol version than this plugin; update one of them"

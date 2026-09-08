@@ -14,8 +14,9 @@
   output of harness/commands (forbidigo enforces it); diagnostics go to stderr through the redacting logger; never
   `slog.Any`. Never spawn with a shell; always argument arrays with an allow-listed environment.
 - Never put secrets on argv, in logs, in `describe` output, or in files under the project directory. The join secret is
-  read from stdin or a no-echo prompt only. The Supabase secret/service-role key must never appear in the adapter, the
-  plugin, the repo or CI variables that ship.
+  read from stdin, a no-echo prompt, or a 0600 `--secret-file` outside the repository — never argv, never the chat.
+  The Supabase secret/service-role key must never appear in the adapter, the plugin, the repo or CI variables that
+  ship.
 - Never hardcode `~/.claude`; use `CLAUDE_CONFIG_DIR ?? ~/.claude`. Never read or copy `$CLAUDE_CONFIG_DIR/sessions/*.key`;
   the session registry JSON is read best-effort only and never written. Inside a Claude Code session (CLAUDE_PID set)
   the harness ignores every inherited BRIGADE_* variable and reads its configuration from the hook-written by-pid map.

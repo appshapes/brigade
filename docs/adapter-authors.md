@@ -2078,8 +2078,9 @@ builds the same from-scratch environment, and then hands your process the caller
 with no deadline, forwarding your exit status verbatim. So `--prompt` sees a real TTY, a no-echo secret prompt
 works, and your envelope reaches the human's terminal unaltered. Two consequences: your `team create` may print the
 join secret on **stdout** (4.4.10 is the one exception to the no-secrets rule; offer a `--secret-file` and prefer
-it), and `team create`/`team join` are refused with `usage` when they are run from inside a session — a join secret
-must never pass through a chat.
+it), and the harness runs `team create` and `team join` inside a session too (P7-11) — there it drives your
+`team create` with `--secret-file` and captured stdio, and a join's secret reaches you inside the stdin document,
+read by the harness from a 0600 file — so a join secret never passes through a chat.
 
 **Being chosen: registering your name.** A human registers your adapter under a short name once, by hand-editing
 `${BRIGADE_CONFIG_DIR}/adapters.json` (mode 0600) — a JSON object mapping each name to its executable, as an

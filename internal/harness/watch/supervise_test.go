@@ -200,7 +200,7 @@ func TestUnauthorizedStopsWithNotice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("notice: %v", err)
 	}
-	if string(notice) != "Brigade: watcher stopped: unauthorized; run `brigade team join` again in a terminal\n" {
+	if string(notice) != "Brigade: watcher stopped: unauthorized; run `brigade team join` again\n" {
 		t.Errorf("notice = %q", notice)
 	}
 	if _, err := os.Stat(fx.pidfilePath()); !os.IsNotExist(err) {
@@ -284,7 +284,7 @@ func TestFatalErrorEventWithoutExitIsStopped(t *testing.T) {
 		t.Errorf("log: %v", fx.logLines())
 	}
 	notice, _ := os.ReadFile(fx.noticePath())
-	if string(notice) != "Brigade: watcher stopped: unauthenticated; run `brigade team join` again in a terminal\n" {
+	if string(notice) != "Brigade: watcher stopped: unauthenticated; run `brigade team join` again\n" {
 		t.Errorf("notice = %q", notice)
 	}
 }

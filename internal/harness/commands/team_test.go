@@ -89,18 +89,19 @@ func TestTeamMembersOutsideSession(t *testing.T) {
 	}
 }
 
-// TestTeamCreateJoinRefusedInSession is the 6.4 refusal: `create`, `join`
-// and (P5-2) the three administrative verbs, exit 2, reason in_session,
-// the fixed message of the verb's family (RefusalInSession for the three
-// that handle the join secret, RefusalAdminInSession for the two
-// administrative acts), no child of any kind (the recorder is empty and
-// the pass-through would have needed a real adapter that does not exist
-// at the map's path). `leave` is the control: it runs anywhere, so in a
-// session it reaches the (absent) adapter and fails as `unavailable`.
-func TestTeamCreateJoinRefusedInSession(t *testing.T) {
+// TestTeamAdminVerbsRefusedInSession is the 6.4 refusal as it stands
+// after P7-11: `revoke-member` and `transfer` (P5-2), exit 2, reason
+// in_session, RefusalAdminInSession, no child of any kind (the recorder
+// is empty and the pass-through would have needed a real adapter that
+// does not exist at the map's path). The three verbs that handle the join
+// secret are no longer here — insession_test.go is where they run in a
+// session — and this test is the regression pin that the administration
+// pair did not open with them (owner ruling 2, 2026-09-08). `leave` is
+// the control: it runs anywhere, so in a session it reaches the (absent)
+// adapter and fails as `unavailable`.
+func TestTeamAdminVerbsRefusedInSession(t *testing.T) {
 	t.Parallel()
 	for verb, want := range map[string]string{
-		"create": RefusalInSession, "join": RefusalInSession, "rotate-secret": RefusalInSession,
 		"revoke-member": RefusalAdminInSession, "transfer": RefusalAdminInSession,
 	} {
 		t.Run(verb, func(t *testing.T) {

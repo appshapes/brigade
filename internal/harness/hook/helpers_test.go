@@ -752,6 +752,22 @@ func (f *fixture) mapExists() bool {
 	return err == nil
 }
 
+// startFactsExist reports whether SessionStart's start facts are down for
+// this session (P7-11).
+func (f *fixture) startFactsExist() bool {
+	p, _ := f.store().StartPath(f.pid)
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+// writeStartFacts seeds the start facts as SessionStart would have.
+func (f *fixture) writeStartFacts(t *testing.T) {
+	t.Helper()
+	if err := f.store().WriteStart(&sessionmap.StartFacts{ClaudePID: f.pid, ConfigDir: f.configDir}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // pidfilePath is this session's watcher pidfile.
 func (f *fixture) pidfilePath() string { return pidfile.Path(f.stateDir, f.pid) }
 

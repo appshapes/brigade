@@ -284,3 +284,7 @@ The three open questions of §8, ruled by Rjae:
    drift re-consents without one.
 
 Also adopted: all eight review fixes above. Target: 0.2.0, breaking, no protocol change.
+
+**2026-09-08.** Reversed for three of the six "survives untouched" verbs: `team create`, `team join` and
+`team rotate-secret` run inside a session (P7-11, `.context/plans/in-session-team-verbs.md`); `revoke-member`, `transfer`
+and `inbox release` stay under this ruling.

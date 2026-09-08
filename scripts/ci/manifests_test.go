@@ -522,7 +522,7 @@ func checkSkills(r reporter, root string) {
 				r.Errorf("%s: allowed-tools is %q (present=%v), want %q", rel, got, present, "Bash(brigade:*)")
 			}
 		default:
-			// The setup skill runs nothing: it prints commands for a human's own terminal, so declaring
+			// The setup skill runs nothing: it prints commands the person runs themselves (with `!` in a session or in a terminal), so declaring
 			// allowed-tools would raise a Skill dialog and grant a tool it never uses.
 			if present {
 				r.Errorf("%s: declares allowed-tools %q; this skill runs no tool", rel, got)

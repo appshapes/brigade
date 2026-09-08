@@ -128,7 +128,7 @@ env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'
 expand script-unauth.json.in script-unauth.json
 stdin start2.json
 exec brigade hook session-start
-stdout '^Brigade: not connected \(unauthenticated\); run `brigade team join` in a terminal$'
+stdout '^Brigade: not connected \(unauthenticated\); run `brigade team join`$'
 stderr 'unauthenticated'
 ! exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 
@@ -145,7 +145,7 @@ env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'
 expand script-config.json.in script-config.json
 stdin start2.json
 exec brigade hook session-start
-stdout '^Brigade: not connected \(config: profile_missing\); run `brigade team join` in a terminal$'
+stdout '^Brigade: not connected \(config: profile_missing\); run `brigade team join`$'
 ! exists $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
 
 # The D36 line: an adapter that cannot be resolved names its source, never
@@ -162,13 +162,13 @@ stdout '^Brigade: not connected \(config\): the team''s adapter "fake" could not
 env CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND='["'$WORK'/fake.sh","--script","'$WORK'/script.json"]'
 stdin garbage.txt
 exec brigade hook session-start
-stdout '^Brigade: not connected \(config\); run `brigade team join` in a terminal$'
+stdout '^Brigade: not connected \(config\); run `brigade team join`$'
 
 # Outside a session (no CLAUDE_PID): exit 0, the config line.
 env CLAUDE_PID=
 stdin start2.json
 exec brigade hook session-start
-stdout '^Brigade: not connected \(config\); run `brigade team join` in a terminal$'
+stdout '^Brigade: not connected \(config\); run `brigade team join`$'
 
 # --- the one non-zero answer is usage, which no hooks.json produces -----------
 status 2 brigade hook

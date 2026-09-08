@@ -1,8 +1,9 @@
 # Setting up Brigade
 
 Brigade lets the Claude Code sessions of different people send each other messages. Setting it up involves three
-roles. An **administrator** creates the backend project and the team. A **member** joins that team from their own
-terminal. Anyone who has joined can then **use** Brigade from a session.
+roles. An **administrator** creates the backend project and the team. A **member** joins that team with one
+command, from inside a Claude Code session or from a terminal. Anyone who has joined can then **use** Brigade from
+a session.
 
 **Read [docs/security.md](security.md) before you put Brigade on a team's machines.** It says what Brigade
 protects, what it does not, and what was measured.
@@ -90,21 +91,22 @@ else in that project, because anyone who can read its database can read every me
 needs are listed in [plugin/README.md](../plugin/README.md), "Administrator: create a team", and
 "Hosted project: the administrator's responsibilities" below is how to put a project into that state.
 
-Then, **in your own terminal, inside the project checkout**:
+Then, **inside the project checkout** — from a Claude Code session, where the `!` prefix runs a command on the
+Bash tool's PATH (which already carries `brigade`), or from your own terminal:
 
 ```sh
-<plugin>/bin/brigade team create --url https://<ref>.supabase.co --key sb_publishable_… \
+!brigade team create --url https://<ref>.supabase.co --key sb_publishable_… \
   --name <team> --secret-file ~/brigade-<team>.secret
-git add .brigade.json && git commit && git push
 ```
 
-Write `brigade` on its own instead of `<plugin>/bin/brigade` once you have made the symlink from "Terminal use"
-below. `<plugin>` is the plugin's directory; `brigade whoami` prints the full path inside a session.
+then `git add .brigade.json && git commit && git push`. In a terminal, drop the `!` and use the symlink from
+"Terminal use" below (or the full `<plugin>/bin/brigade`, where `<plugin>` is the plugin's directory).
 
 `team create` creates the team, writes `.brigade.json` at the repository's top level, and stores your own
 credential locally so your sessions attach at once. `--secret-file` (**required**, and it must be an absolute path
 outside the repository) writes the join secret to a file with mode 0600, so it never reaches your terminal
-scrollback and never the repository. `team create` refuses to run inside a Claude Code session.
+scrollback, the conversation, or the repository. Inside a session the command's output lands in the chat — it names
+the team and the file, never the secret.
 
 **Then commit `.brigade.json` and send each member the join secret.** The file already carries the URL and the
 publishable key, so a member who has the repository needs nothing else public. Send the join secret **over a
@@ -117,25 +119,37 @@ anyone holding it can join and pick any label.
 
 ## Member: join a team
 
-Clone the project, then **in your own terminal, inside the checkout**, with the join secret your administrator
-sent you:
+Clone the project and open a Claude Code session in the checkout. Put the join secret your administrator sent you
+in a file outside the repository — from your password manager through the clipboard, so it is never typed and
+never shown — then join:
 
 ```sh
-<plugin>/bin/brigade team join
+!umask 077; pbpaste > ~/brigade-<team>.secret      # macOS; on Linux, xclip -o -selection clipboard, or wl-paste
+!brigade team join --secret-file ~/brigade-<team>.secret
 ```
 
-`team join` reads the project's `.brigade.json`, shows you the team name and the backend host it names, and asks
-you to confirm **before** you type anything. It then reads the join secret without echoing it, so the secret never
-reaches your scrollback, your shell history or a chat. `team join` refuses to run inside a Claude Code session for
-that reason. (There is no `--profile`, no `--url` and no `--key`: the project file supplies all of that.)
+The `!` prefix runs a command on the session's Bash tool, where `brigade` is already on PATH; nothing here asks
+you to find where the plugin lives. A redirection keeps an existing file's mode, so if the file is already there
+from an earlier attempt, remove it first. `team join` reads the project's `.brigade.json`, prints one line naming
+the team and the backend host it is joining — the command you typed is the consent — reads the secret from the
+file, and joins. Its output names the team, never the secret. Delete the file once every machine that needs it
+has joined.
+
+In your own terminal the same command needs no file: `brigade team join` (after the symlink from "Terminal use")
+shows what the file names, asks you to confirm **before** you type anything, then reads the secret without echoing
+it. Either way the secret never reaches your scrollback, your shell history or a chat: never paste it into one.
+(There is no `--profile`, no `--url` and no `--key`: the project file supplies all of that.)
 
 - The URL in the file must start with `https://`. The adapter refuses anything else, except a loopback host.
 - If your sessions run with the Bash sandbox on, add the project host (`<ref>.supabase.co`) to
   `sandbox.network.allowedDomains`, or the first send is refused.
-- Then start a Claude Code session in the checkout, or run `/reload-plugins` in one you already have.
+- Joined from inside a session, that session attaches at your next prompt (a session that was already attached
+  to another team stays there until `/reload-plugins` or a new session, and the join says so). Joined from a
+  terminal, start a Claude Code session in the checkout, or run `/reload-plugins` in one you already have.
 - **A second checkout of the same project** needs `team join` once too, but no secret: it shows what the file
-  names, you confirm, and you are joined. If a pull changes `.brigade.json` to point at a different team, your
-  next session prints one line saying so and attaches to nothing until you run `team join` and review the change.
+  names (in a terminal, you confirm) and you are joined. If a pull changes `.brigade.json` to point at a different
+  team, your next session prints one line saying so and attaches to nothing until you run `team join` and review
+  the change — a change of team needs `--secret-file` again.
 - Working across **several projects** is nothing special: each has its own `.brigade.json`, you join each once, and
   `cd` between them. Nothing is shared and nothing is switched.
 - A backend other than the bundled Supabase adapter is named in the project file's `adapter` field; the name
@@ -149,13 +163,14 @@ Brigade: this session is "payments-api" (09365acd…) in team "ops"; inbound: ac
 
 ## Terminal use
 
-Inside a session the Bash tool finds `brigade` on its PATH because the plugin puts it there. Your own terminal
-does not, and the two commands that must run there — `brigade team create` and `brigade team join` — refuse to
-run from inside a session, because the join secret must never pass through the chat (`brigade inbox release` is
-terminal-only too). The three administrative commands — `brigade team rotate-secret`, `brigade team revoke-member`
-and `brigade team transfer` — refuse inside a session too, in the same shape: `rotate-secret` with that same line,
-because it produces a secret; `revoke-member` and `transfer` with their own, because administration is not driven
-by chat. `brigade whoami`, run in a session, prints the plugin binary's absolute path on its own line:
+Inside a session the Bash tool finds `brigade` on its PATH because the plugin puts it there, and the `!` prefix
+runs a command there from the prompt. Your own terminal does not have it, and three commands run only there:
+`brigade team revoke-member` and `brigade team transfer`, because administration is not driven from a session, and
+`brigade inbox release`, because releasing a held message is the human's decision. Inside a session each refuses
+with `usage` (exit 2) and says so. The three commands that handle the join secret — `team create`, `team join`
+and `team rotate-secret` — run in either place: on every path the secret travels in a 0600 file outside the
+repository, never on a stream the chat sees. `brigade whoami`, run in a session, prints the plugin binary's
+absolute path on its own line:
 
 ```
 session 09365acd… "payments-api" in team "ops" (adapter supabase 0.2.0); inbound: accept
@@ -303,10 +318,10 @@ principal, which teammates see as a new person.
 
 ## Team administration
 
-Every command in this section runs in **your own terminal**; inside a session each one refuses the way `team create`
-and `team join` do (`usage`, exit 2): `rotate-secret` with their line, `revoke-member` and `transfer` with
-`run this in your own terminal: team administration is not driven from a session`. They are pass-throughs to the
-adapter, so what you see is the adapter's
+`rotate-secret` runs inside a session or in your own terminal — its new secret goes to `--secret-file`, which must be
+an absolute path outside the repository. `revoke-member` and `transfer` run in **your own terminal** only; inside a
+session each refuses (`usage`, exit 2) with `run this in your own terminal: team administration is not driven from
+a session`. All three are pass-throughs to the adapter, so what you see is the adapter's
 own JSON envelope (`--json` is parsed and has no effect on them, exactly as for `team create`), and they exist only
 on an adapter that advertises the capability `team.admin` — the bundled Supabase adapter does.
 
@@ -381,13 +396,13 @@ banned, and what the creator's credential directory is worth to an attacker — 
 
 ## Leaving and uninstalling
 
-The order matters. Every step is optional except step 3, when the goal is to remove the plugin. Run them **in
-your own terminal**.
+The order matters. Every step is optional except step 3, when the goal is to remove the plugin. Steps 1 and 2 run
+with `!` inside a session or in your own terminal.
 
 **1. Leave the team.**
 
 ```sh
-<plugin>/bin/brigade team leave
+brigade team leave
 ```
 
 This closes your open sessions in that team and marks your membership revoked, so teammates stop seeing your
@@ -399,7 +414,7 @@ step is reversible.
 **2. Revoke and delete the credential.**
 
 ```sh
-<plugin>/bin/brigade team reset
+brigade team reset
 ```
 
 This revokes the credential family at the backend and deletes the local credential. **Run step 1 first.** After

@@ -116,17 +116,15 @@ type Deps struct {
 // enough that the model's 20 s budget is not doubled by waiting.
 const RetryPause = time.Second
 
-// The fixed texts of 6.4 that tests and the skill assert word for word.
+// The fixed texts of 6.4 that the tests assert word for word.
 const (
-	// RefusalInSession is the whole message of the `usage` refusal of
-	// `team create`, `team join` and (P5-2) `team rotate-secret` inside a
-	// Claude Code session: each of the three handles the join secret.
-	RefusalInSession = "run this in your own terminal: the join secret must never pass through the chat"
-	// RefusalAdminInSession is the whole message of the same refusal, in
-	// the same shape (usage, exit 2, details.reason in_session), for
-	// `team revoke-member` and `team transfer` (P5-2): destructive
+	// RefusalAdminInSession is the whole message of the `usage` refusal
+	// (exit 2, details.reason in_session) of `team revoke-member` and
+	// `team transfer` inside a Claude Code session (P5-2): destructive
 	// administrative acts that a session reading untrusted teammate text
-	// must not be talked into (4.5 rule 15) get their own line.
+	// must not be talked into (4.5 rule 15). The secret-handling verbs —
+	// `create`, `join`, `rotate-secret` — stopped refusing in P7-11: their
+	// secret travels in a 0600 --secret-file on every path, never the chat.
 	RefusalAdminInSession = "run this in your own terminal: team administration is not driven from a session"
 	// RefusalReleaseInSession is the whole message of the `usage` refusal
 	// of `inbox release` inside a Claude Code session (D18: the release
@@ -320,6 +318,17 @@ func (inv Invocation) terminalTarget(profileFlag string, passThrough bool) (*tar
 			t.configDir = m.ConfigDir
 			if profileFlag == "" {
 				t.profile = m.TeamKey
+			}
+		} else if facts, ferr := inv.startFacts(stateDir); ferr == nil {
+			// Not attached yet — an in-session create or join just
+			// happened, or SessionStart failed (P7-11): the start facts
+			// name the store and the terminal chain (the cwd's pin) the
+			// team, so `rotate-secret` works before the next prompt.
+			t.configDir = facts.ConfigDir
+			if profileFlag == "" {
+				if key, kerr := resolveTeamKeyIn(t.configDir, "", inv.mustGetwd()); kerr == nil {
+					t.profile = key
+				}
 			}
 		}
 	}

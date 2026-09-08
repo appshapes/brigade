@@ -4,8 +4,10 @@
 # binding and her pin; bob joins through the fully explicit non-TTY
 # stdin pass-through into HIS OWN store (two principals of one team
 # cannot share a key-keyed credential dir), resolved by the chain (his
-# store's sole team). The in-session refusals, the poison flag, the
-# roster and the admin pass-throughs keep their old assertions.
+# store's sole team). Inside a session (P7-11) carol CREATES a second
+# team and dave JOINS it with `--secret-file`, each into the store the
+# start facts name; the poison flag, the roster, the two administrative
+# refusals and the admin pass-throughs keep their old assertions.
 
 # The `brigade` under test is the race-instrumented test binary; without
 # this every exec spends TSan's 1 s atexit sleep (see fs.sh).
@@ -84,25 +86,74 @@ status 2 brigade team join --join-secret brg1.team-x.notreal-but-poisoned
 ! stderr brg1.team-x
 stderr 'never be passed on the command line'
 
-# --- inside a session, create and join refuse with the fixed line ------------
+# --- inside a session the three secret-handling verbs run (P7-11). The
+# store is the one the start facts SessionStart leaves name — a persona
+# directory, never the XDG default the environment would suggest — and
+# the secret travels in 0600 files on every path: create writes it, join
+# reads it, neither prints it. stdin is not a terminal here, exactly as in
+# the Bash tool. ---------------------------------------------------------
 env CLAUDE_PID=4242
-stdin join.json
-status 2 brigade team join --prompt
-! stdout .
-stderr '^brigade team failed \(usage\): run this in your own terminal: the join secret must never pass through the chat$'
-stdin create.json
-status 2 brigade team create
-stderr '^brigade team failed \(usage\): run this in your own terminal: the join secret must never pass through the chat$'
-status 2 brigade --json team join
-! stderr .
-json stdout .error.code usage
-json stdout .error.details.reason in_session
+mkdir $WORK/.brigade/xdg/state/brigade/sessions/by-pid
+mkdir $WORK/carol-config
+cp registry.json $WORK/carol-config/adapters.json
+chmod 600 $WORK/carol-config/adapters.json
+expand start-carol.json.in start-carol.json
+cp start-carol.json $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.start.json
+chmod 600 $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.start.json
+mkdir repo2/.git
+cd repo2
+exec brigade team create --adapter fs --url http://127.0.0.1:1 --key placeholder --name ops2 --label carol@example.com --secret-file $WORK/team2.secret
+stdout 'created team "ops2"'
+stdout '^wrote \.brigade\.json at the repository toplevel$'
+! stdout repo2
+! stdout brg1
+! stderr brg1
+exists $WORK/repo2/.brigade.json
+exists $WORK/team2.secret
+exists $WORK/carol-config/projects.json
+! exists $WORK/.brigade/xdg/config/brigade/projects.json
+cd $WORK
 
-# --- the three administrative verbs refuse in a session, one shape ---------
-status 2 brigade team rotate-secret --secret-file $WORK/rotated.secret
+# dave's session: the start facts name HIS store. Without the file the
+# join refuses with the remedy before any spawn; a file inside the
+# checkout is refused; with the file he is joined, the secret on neither
+# stream, and this session attaches at its next prompt.
+mkdir $WORK/dave-config
+cp registry.json $WORK/dave-config/adapters.json
+chmod 600 $WORK/dave-config/adapters.json
+expand start-dave.json.in start-dave.json
+cp start-dave.json $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.start.json
+cd repo2
+status 2 brigade team join
 ! stdout .
-stderr '^brigade team failed \(usage\): run this in your own terminal: the join secret must never pass through the chat$'
-! exists $WORK/rotated.secret
+stderr 'needs --secret-file'
+! exists $WORK/dave-config/projects.json
+status 2 brigade team join --secret-file $WORK/repo2/inside.secret
+! stdout .
+stderr 'must not be inside this project'
+exec brigade team join --secret-file $WORK/team2.secret --label dave@example.com
+stdout '^join team "ops2" \(.*\) at 127\.0\.0\.1.* — consented by this invocation$'
+stdout '^joined team "ops2" \(.*\); this session attaches at your next prompt$'
+! stdout brg1
+! stderr brg1
+exists $WORK/dave-config/projects.json
+! exists $WORK/.brigade/xdg/config/brigade/projects.json
+# rotate-secret: create's outside-the-repository rule applies to the
+# forwarded --secret-file, before any spawn; a path outside reaches the
+# adapter (the fs adapter answers its own `usage` — the verb got there)
+# under the store the start facts name, before this session ever prompted.
+status 2 brigade team rotate-secret --secret-file $WORK/repo2/rotated.secret
+! stdout .
+stderr 'must not be inside this project'
+! exists $WORK/repo2/rotated.secret
+status 2 brigade team rotate-secret --secret-file $WORK/rotated2.secret
+json stdout .ok false
+json stdout .error.code usage
+stderr 'unknown team verb'
+! exists $WORK/rotated2.secret
+cd $WORK
+
+# --- the two administrative verbs refuse in a session, one shape ------------
 status 2 brigade team revoke-member --principal $BOB --ban
 ! stdout .
 stderr '^brigade team failed \(usage\): run this in your own terminal: team administration is not driven from a session$'
@@ -163,5 +214,9 @@ printf '{"join_secret":"%s","human_label":"bob@example.com"}\n' "$secret" > "$2"
 {"fs": ["$WORK/fs.sh"]}
 -- create.json --
 {"team_name": "ops", "human_label": "alice@example.com"}
+-- start-carol.json.in --
+{"claude_pid":4242,"claude_session_id":"native-1","config_dir":"$WORK/carol-config","plugin_bin":"","written_at":"2026-09-08T10:00:00Z"}
+-- start-dave.json.in --
+{"claude_pid":4242,"claude_session_id":"native-1","config_dir":"$WORK/dave-config","plugin_bin":"","written_at":"2026-09-08T10:00:00Z"}
 -- register-a.json --
 {"harness": "claude-code", "harness_version": "2.1.251", "session_name": "payments-api", "activity": "busy", "inbound": "accept"}

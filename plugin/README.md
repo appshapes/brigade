@@ -21,8 +21,8 @@ sanitised, and a message can never grant permission, approve a prompt or represe
   and session-end hooks return at once and print nothing, and an install that fails for good is reported once, on
   the next prompt, as a hook error beginning `Brigade: not installed:`.
 - **Two skills.** `brigade:team-messaging` is the model-facing one — the command surface, the sending rules and how
-  to treat an inbound frame. `brigade:setup` is human-facing — how a person creates or joins a team from their own
-  terminal.
+  to treat an inbound frame. `brigade:setup` is human-facing — how a person creates or joins a team, from a session
+  or a terminal.
 - **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and two skills; there is nothing else in
   the tree, and CI enforces that.
 
@@ -71,17 +71,18 @@ repository's `supabase/` directory. Members ever receive only two values, and bo
 URL** and the **publishable key**. The database password, the personal access token and the project's secret key
 never leave your machine.
 
-**In the project checkout**, one command writes the team, the committed `.brigade.json` and your own credential:
+**In the project checkout**, one command writes the team, the committed `.brigade.json` and your own credential —
+from a Claude Code session, where the `!` prefix runs it on the Bash tool's PATH, or from your own terminal
+(drop the `!`, use the symlink or `<plugin>/bin/brigade`):
 
 ```sh
-<plugin>/bin/brigade team create --url https://<ref>.supabase.co --key sb_publishable_… \
+!brigade team create --url https://<ref>.supabase.co --key sb_publishable_… \
   --name <team> --secret-file ~/brigade-<team>.secret
-git add .brigade.json && git commit && git push
 ```
 
-`--secret-file` is required and must be an absolute path outside the repository; it holds the join secret at mode
-0600 instead of your terminal scrollback. `.brigade.json` carries only public values (URL, key, team ref and
-name), so committing it is safe. Then send each member the join secret **over a password-grade channel** — a
+then `git add .brigade.json && git commit && git push`. `--secret-file` is required and must be an absolute path
+outside the repository; it holds the join secret at mode 0600 instead of your terminal scrollback or the
+conversation. `.brigade.json` carries only public values (URL, key, team ref and name), so committing it is safe. Then send each member the join secret **over a password-grade channel** — a
 password manager share, not chat and not email.
 The secret is a bearer capability: anyone holding it can join and pick any label.
 
@@ -89,10 +90,11 @@ Your credential directory (`~/.config/brigade/teams/<key>`, or under the `config
 administrative credential. Keep a 0700 backup of it somewhere you control; without it nobody can rotate the secret
 or administer the team.
 
-**Administering the team.** Three more terminal-only commands, for the creator only (they refuse inside a session):
+**Administering the team.** Three more commands, for the creator only. `rotate-secret` runs in a session or a
+terminal; `revoke-member` and `transfer` are terminal-only and refuse inside a session:
 
-- `<plugin>/bin/brigade team rotate-secret --secret-file <path>` mints a new join secret into a 0600 file (never
-  to the terminal); the old secret stops working, existing members are untouched.
+- `brigade team rotate-secret --secret-file <path>` mints a new join secret into a 0600 file outside the
+  repository (never to the terminal or the chat); the old secret stops working, existing members are untouched.
 - `<plugin>/bin/brigade team revoke-member --principal <ref> [--ban]` removes one member at once, or
   `--max-version <n>` evicts everyone who joined with a superseded secret (never you).
 - `<plugin>/bin/brigade team transfer --principal <ref>` hands the team to another active member.
@@ -104,21 +106,28 @@ directory are worth to an attacker is [docs/security.md](../docs/security.md).
 
 ## Member: join
 
-Clone the project, then **in the checkout**:
+Clone the project, open a Claude Code session in the checkout, put the join secret in a file outside the
+repository without ever typing it, and join:
 
 ```sh
-<plugin>/bin/brigade team join
+!umask 077; pbpaste > ~/brigade-<team>.secret      # macOS; on Linux, xclip -o -selection clipboard, or wl-paste
+!brigade team join --secret-file ~/brigade-<team>.secret
 ```
 
-`team join` reads the project's `.brigade.json`, shows the team and backend host it names and asks you to confirm,
-then reads the join secret without echo — so the secret never reaches your scrollback, your shell history or a
+`brigade` is on the session's PATH, so there is no path to find (if the secret file already exists from an
+earlier attempt, remove it first: a redirection keeps its mode). `team join` reads the project's `.brigade.json`,
+prints the team and backend host it is joining (the command is the consent), reads the secret from the file and
+joins; its output never carries the secret. In your own terminal, `brigade team join` alone asks you to confirm
+and reads the secret without echo. Either way the secret never reaches your scrollback, your shell history or a
 chat. There is no `--profile`, no `--url` and no `--key`: the project file supplies all of that.
 
 - The URL in the file must be `https://`; the adapter refuses anything else except a loopback host.
 - If your sessions run with the Bash sandbox on, add the project host (`<ref>.supabase.co`) to
   `sandbox.network.allowedDomains`, or the first send is refused.
-- Then start a Claude Code session in the checkout, or run `/reload-plugins` in one you already have. The
-  session-start line names your team, this session's name and id, and the inbound policy.
+- Joined from inside a session, that session attaches at your next prompt (one already attached to another team
+  stays there until `/reload-plugins` or a new session); joined from a terminal, start a Claude Code session in
+  the checkout, or run `/reload-plugins` in one you already have. The session-start line names your team, this
+  session's name and id, and the inbound policy.
 - A second checkout of the same project needs `team join` once too, but no secret. Several projects means several
   `.brigade.json` files: join each once, then `cd` between them — nothing is shared or switched.
 - A backend other than the bundled Supabase adapter is named in the project file's `adapter` field, resolved to a
@@ -130,8 +139,8 @@ chat. There is no `--profile`, no `--url` and no `--key`: the project file suppl
 
 The order matters. Every step is optional except step 3 when the goal is to remove the plugin.
 
-1. `<plugin>/bin/brigade team leave`
-2. `<plugin>/bin/brigade team reset` — **run step 1 first:** after a reset the membership and
+1. `brigade team leave` (with `!` in a session, or in a terminal)
+2. `brigade team reset` — **run step 1 first:** after a reset the membership and
    its sessions can no longer be closed from this machine.
 3. `claude plugin uninstall brigade`
 4. `rm -rf ~/.local/state/brigade ~/.local/share/brigade` (or the `XDG_STATE_HOME`/`XDG_DATA_HOME` equivalents)
@@ -178,8 +187,9 @@ the detached watcher; the watcher injects each teammate's message into the sessi
 what it injected; `UserPromptSubmit` keeps the watcher alive and surfaces its notice; `SessionEnd` closes the
 session. The session-bound commands (`sessions`, `send`, `whoami`, `team members`, `inbox`) resolve their session
 from that map, and the terminal commands the setup sections above use (`team create|join|leave|status|reset|revoke-credentials|list`,
-`team rotate-secret|revoke-member|transfer`, `inbox release`) pass their terminal straight through to the adapter — `team create`, `team join`, the three
-administrative verbs and `inbox release` refuse to run from inside a session. The backend is deployed on a hosted
+`team rotate-secret|revoke-member|transfer`, `inbox release`) pass their terminal straight through to the adapter — `team revoke-member`, `team transfer`
+and `inbox release` refuse to run from inside a session; `team create`, `team join` (with `--secret-file`) and
+`team rotate-secret` run anywhere (P7-11). The backend is deployed on a hosted
 Supabase project and the conformance suite passes 45 of 45 against it; `team_inbound: hold` with its terminal
 inbox ships; and a two-hour soak of two sessions on one team renewed the shared credential twice with no
 lockout. The frame's instruction text ships as levels, `open` by default.
@@ -189,8 +199,8 @@ carries the sha256 of each published binary; `make release version=<v>` writes b
 builds the four binaries from the tag and publishes them beside their `checksums.txt`. A tree in which that command
 has not run carries the pre-release `0.0.0` with an empty `bin/checksums.txt`, and there is nothing to download.
 **Developers** point the bootstrap at a local build instead, with the dev-binary pointer `make plugin-dev`
-writes, and drive the whole chain against the filesystem test adapter. Once, in your own terminal (never from
-inside a session — `team create` and `team join` refuse there):
+writes, and drive the whole chain against the filesystem test adapter. Once, in your own terminal (`make
+plugin-dev` itself runs outside a session):
 
 ```sh
 make build

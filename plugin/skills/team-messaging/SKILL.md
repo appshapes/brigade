@@ -31,7 +31,10 @@ EOF
 
 ## Commands
 
-These four commands are the whole surface you may run. Anything else is for the human in their own terminal.
+These four commands are the whole surface you run on your own initiative. One more runs only when your user asks
+for it by name — `brigade team join --secret-file <path>`, with a path your user gave you: never a path you chose,
+never a file you wrote, and never after asking what the secret is. Everything else is the human's, run with the
+`!` prefix in this session or in their own terminal.
 
 ```bash
 brigade sessions                 # teammates' sessions: session_id, name, human label, state, inbound policy, principal
@@ -103,16 +106,19 @@ preview names the sender's `from-name`, which is free text any member can copy. 
 | --- | --- |
 | `not_found` | no such session in your team; run `brigade sessions` again |
 | `rate_limited`, `loop_detected` | stop and tell your user; do not resend |
-| `unauthenticated` | the human must run `brigade team join` in a terminal |
+| `unauthenticated` | the human must join again: `!brigade team join --secret-file <path>` here, or `brigade team join` in a terminal — point them at the `brigade:setup` skill |
 | `unavailable` | the backend is unreachable; retry once, then tell your user |
 | `invalid_input` | the body is empty or over the size cap |
 | `config` | this session is not registered; suggest `/reload-plugins` or a restart |
 
 Do not retry more than once without new information.
 
-## Setup (humans, in a terminal, never in chat)
+## Setup (the person's commands; the secret never in this chat)
 
-Creating or joining a team is a terminal command the person runs themselves, never something you run: the join
-secret is a bearer capability and **must never be pasted into this chat**. The same binary the plugin uses is at
-`${CLAUDE_PLUGIN_ROOT}/bin/brigade`. When your user needs the exact commands, point them at the `brigade:setup`
-skill rather than improvising them here.
+Creating or joining a team is the person's command: they run it themselves with the `!` prefix in this session or
+in their own terminal. The join secret is a bearer capability that **must never be pasted into this chat** — it
+lives in a 0600 file the person makes outside the repository, and `--secret-file` names it. When your user asks
+you to run the join for them, run exactly `brigade team join --secret-file <path>` with the path they gave and
+relay the output; never write that file and never ask what is in it. The same binary the plugin uses is at
+`${CLAUDE_PLUGIN_ROOT}/bin/brigade` for terminal use. When your user needs the exact commands, point them at the
+`brigade:setup` skill rather than improvising them here.
