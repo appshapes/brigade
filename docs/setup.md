@@ -108,10 +108,10 @@ outside the repository) writes the join secret to a file with mode 0600, so it n
 scrollback, the conversation, or the repository. Inside a session the command's output lands in the chat — it names
 the team and the file, never the secret.
 
-**Then commit `.brigade.json` and send each member the join secret.** The file already carries the URL and the
-publishable key, so a member who has the repository needs nothing else public. Send the join secret **over a
-password-grade channel** — a password-manager share, not chat and not email. The secret is a bearer capability:
-anyone holding it can join and pick any label.
+**Then commit `.brigade.json` and send each member the secret file** `team create` wrote. `.brigade.json` already
+carries the URL and the publishable key, so a member who has the repository needs nothing else public. Send the
+secret file **over a password-grade channel** — a password-manager share, not chat and not email.
+The secret is a bearer capability: anyone holding it can join and pick any label.
 
 **Keep a 0700 backup of your credential directory** (`~/.config/brigade/teams/<key>`, or wherever the
 `config_dir` option points). It is the team's only administrative credential. What its loss costs you is in
@@ -119,21 +119,19 @@ anyone holding it can join and pick any label.
 
 ## Member: join a team
 
-Clone the project and open a Claude Code session in the checkout. Put the join secret your administrator sent you
-in a file outside the repository — from your password manager through the clipboard, so it is never typed and
-never shown — then join:
+Clone the project, save the secret file your administrator sent you somewhere outside the repository — say
+`~/brigade-<team>.secret` — and open a Claude Code session in the checkout. Then, at the prompt:
 
 ```sh
-!umask 077; pbpaste > ~/brigade-<team>.secret      # macOS; on Linux, xclip -o -selection clipboard, or wl-paste
 !brigade team join --secret-file ~/brigade-<team>.secret
 ```
 
 The `!` prefix runs a command on the session's Bash tool, where `brigade` is already on PATH; nothing here asks
-you to find where the plugin lives. A redirection keeps an existing file's mode, so if the file is already there
-from an earlier attempt, remove it first. `team join` reads the project's `.brigade.json`, prints one line naming
-the team and the backend host it is joining — the command you typed is the consent — reads the secret from the
-file, and joins. Its output names the team, never the secret. Delete the file once every machine that needs it
-has joined.
+you to find where the plugin lives. `team join` reads the project's `.brigade.json`, prints one line naming the
+team and the backend host it is joining — the command you typed is the consent — reads the secret from the file,
+and joins. Its output names the team, never the secret. Brigade checks that the file is outside the repository
+and nothing else about it — not its mode, not its owner: where you keep it is your call. Delete it once every
+machine that needs it has joined.
 
 In your own terminal the same command needs no file: `brigade team join` (after the symlink from "Terminal use")
 shows what the file names, asks you to confirm **before** you type anything, then reads the secret without echoing
@@ -168,7 +166,7 @@ runs a command there from the prompt. Your own terminal does not have it, and th
 `brigade team revoke-member` and `brigade team transfer`, because administration is not driven from a session, and
 `brigade inbox release`, because releasing a held message is the human's decision. Inside a session each refuses
 with `usage` (exit 2) and says so. The three commands that handle the join secret — `team create`, `team join`
-and `team rotate-secret` — run in either place: on every path the secret travels in a 0600 file outside the
+and `team rotate-secret` — run in either place: on every path the secret travels in a file outside the
 repository, never on a stream the chat sees. `brigade whoami`, run in a session, prints the plugin binary's
 absolute path on its own line:
 

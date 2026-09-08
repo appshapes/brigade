@@ -139,9 +139,8 @@ terminal instead.
 
 The three commands that handle the join secret — `brigade team create`, `brigade team join` and
 `brigade team rotate-secret` — used to refuse as well, so that the secret could never pass through the chat. They
-run inside a session since P7-11, because on every path the secret now travels in a 0600 file outside the
-repository (`--secret-file`) and never on a stream the chat sees (section 8); the refusal had nothing left to
-protect. What that concedes, stated plainly: a session can now pin a second checkout to a team this machine
+run inside a session since P7-11, because on every path the secret now travels in a file outside the repository
+(`--secret-file`) and never on a stream the chat sees (section 8); the refusal had nothing left to protect. What that concedes, stated plainly: a session can now pin a second checkout to a team this machine
 already holds a credential for — including a `.brigade.json` the session wrote itself — and accept a
 publishable-key-only change to `.brigade.json`, without a person at a prompt; a change of team still needs the
 secret file. So a pin's `consented_at` records that whoever held the file ran the command, not that a person
@@ -362,14 +361,14 @@ take team messages. Do **not** give it the ask rule on `brigade send`: that rule
 Four things in Brigade are secret-shaped. Here is where each one lives.
 
 - **The join secret: nowhere.** Brigade never stores it. `brigade team join` reads it from a no-echo prompt at a
-  terminal, from a 0600 file you pass with `--secret-file` (the only form inside a session, where stdin is
-  `/dev/null`; the file must be outside the repository and yours alone), or from standard input on the scripted
-  path. Putting it on the command line with `--join-secret` is refused outright, exit 2, and the value is echoed
-  nowhere. `brigade team create` and `brigade team rotate-secret` write the secret to `--secret-file` and print
-  nothing secret. So on all three verbs, in a session or a terminal, nothing the chat captures carries the secret.
-  What that does not protect is the file itself: it is as readable by the model's Bash tool as any file under
-  your home directory. Delete it once every machine that needs it has joined, and never paste its contents into a
-  chat.
+  terminal, from the file you pass with `--secret-file` (the only form inside a session, where stdin is
+  `/dev/null`), or from standard input on the scripted path. Putting it on the command line with `--join-secret`
+  is refused outright, exit 2, and the value is echoed nowhere. `brigade team create` and
+  `brigade team rotate-secret` write the secret to `--secret-file` (mode 0600, as written) and print nothing
+  secret. So on all three verbs, in a session or a terminal, nothing the chat captures carries the secret. The
+  file itself is the member's: Brigade checks that it is outside the repository and nothing about its mode or
+  owner, and it is as readable by the model's Bash tool as any file under your home directory. Delete it once
+  every machine that needs it has joined, and never paste its contents into a chat.
 - **The refresh token:** in `~/.config/brigade/teams/<key>/session.json`. The file is mode 0600 inside a 0700
   directory, written atomically, and refused outright if it is readable by anyone else.
 - **The access token:** the same file. It lasts at most one hour.

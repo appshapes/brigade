@@ -36,10 +36,13 @@ func writeStartFacts(t *testing.T, f *fixture, configDir string) {
 	}
 }
 
-// writeSecretFile puts secret in a 0600 file at path.
+// writeSecretFile puts secret in a file at path — mode 0644, the mode a
+// member's saved copy usually has: Brigade checks where the file is and
+// nothing about its mode or owner (owner ruling 4), so every test that
+// joins through such a file is the positive control for that.
 func writeSecretFile(t *testing.T, path, secret string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(secret+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(secret+"\n"), 0o644); err != nil { //nolint:gosec // G306: a member's own copy, mode deliberately NOT 0600
 		t.Fatal(err)
 	}
 }
@@ -157,8 +160,8 @@ func TestTeamJoinInSessionSecretFileRefusals(t *testing.T) { //nolint:tparallel 
 	f, top := joinFixture(t)
 	persona := filepath.Join(f.dirs.Root, "persona-config")
 	writeStartFacts(t, f, persona)
-	insecure := filepath.Join(f.dirs.Root, "insecure.secret")
-	if err := os.WriteFile(insecure, []byte(setupSecret+"\n"), 0o644); err != nil { //nolint:gosec // G306: the insecure mode IS the case
+	huge := filepath.Join(f.dirs.Root, "huge.secret")
+	if err := os.WriteFile(huge, make([]byte, 65<<10), 0o644); err != nil { //nolint:gosec // G306: a member's own file
 		t.Fatal(err)
 	}
 	other := filepath.Join(f.dirs.Root, "other.secret")
@@ -170,7 +173,8 @@ func TestTeamJoinInSessionSecretFileRefusals(t *testing.T) { //nolint:tparallel 
 	if err := os.Symlink(filepath.Join(top, "sub"), filepath.Join(f.dirs.Root, "lnk")); err != nil {
 		t.Fatal(err)
 	}
-	// A symlink outside the checkout to a real 0600 secret inside it.
+	// A symlink outside the checkout to a real secret file inside it: the
+	// file's real location is inside, so it is refused as inside.
 	writeSecretFile(t, filepath.Join(top, "real.secret"), setupSecret)
 	if err := os.Symlink(filepath.Join(top, "real.secret"), filepath.Join(f.dirs.Root, "sl.secret")); err != nil {
 		t.Fatal(err)
@@ -182,9 +186,10 @@ func TestTeamJoinInSessionSecretFileRefusals(t *testing.T) { //nolint:tparallel 
 		{"relative", "rel.secret", protocol.CodeUsage},
 		{"inside the checkout", filepath.Join(top, "in.secret"), protocol.CodeUsage},
 		{"dot-dot through a symlink into the checkout", f.dirs.Root + "/lnk/../in.secret", protocol.CodeUsage},
-		{"symlink to a file inside the checkout", filepath.Join(f.dirs.Root, "sl.secret"), protocol.CodeConfig},
+		{"symlink to a file inside the checkout", filepath.Join(f.dirs.Root, "sl.secret"), protocol.CodeUsage},
 		{"missing", filepath.Join(f.dirs.Root, "missing.secret"), protocol.CodeConfig},
-		{"group-readable", insecure, protocol.CodeConfig},
+		{"a directory", f.dirs.Root, protocol.CodeConfig},
+		{"too large to be a secret file", huge, protocol.CodeInvalidInput},
 		{"malformed", malformed, protocol.CodeInvalidInput},
 		{"another team's secret", other, protocol.CodeInvalidInput},
 	} {

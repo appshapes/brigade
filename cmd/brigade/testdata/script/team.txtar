@@ -116,7 +116,8 @@ cd $WORK
 
 # dave's session: the start facts name HIS store. Without the file the
 # join refuses with the remedy before any spawn; a file inside the
-# checkout is refused; with the file he is joined, the secret on neither
+# checkout is refused; with the file — a plain copy, the mode a saved
+# attachment has, never checked — he is joined, the secret on neither
 # stream, and this session attaches at its next prompt.
 mkdir $WORK/dave-config
 cp registry.json $WORK/dave-config/adapters.json
@@ -131,7 +132,8 @@ stderr 'needs --secret-file'
 status 2 brigade team join --secret-file $WORK/repo2/inside.secret
 ! stdout .
 stderr 'must not be inside this project'
-exec brigade team join --secret-file $WORK/team2.secret --label dave@example.com
+cp $WORK/team2.secret $WORK/shared.secret
+exec brigade team join --secret-file $WORK/shared.secret --label dave@example.com
 stdout '^join team "ops2" \(.*\) at 127\.0\.0\.1.* — consented by this invocation$'
 stdout '^joined team "ops2" \(.*\); this session attaches at your next prompt$'
 ! stdout brg1

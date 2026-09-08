@@ -34,6 +34,13 @@ for an unjoined session). `revoke-member` and `transfer` keep their own refusal 
    mention the dialog only for the model-run form). The docs show the `!` form because it is what a human reaches
    for.
 
+4. **`--secret-file` is read plainly** (ruled after the landing commit, 2026-09-08): Brigade checks that the file is
+   outside the repository — the repository's own rule, already on `create` — and nothing about its mode or owner.
+   The administrator's `team create` wrote the file, members save the copy they were sent wherever they like, and
+   `!brigade team join --secret-file <path>` reads it. The 0600/owner check the landing commit carried came from
+   reusing the store reader, not from any requirement on the harness, and is gone with the `umask` line the docs
+   had grown around it.
+
 This reverses, for three of six verbs, the 2026-09-06 ruling in `team-ux-v2-proposal.md` ("Survives untouched",
 :197; :54, :78) and the P7-5/P7-7 acceptance lines that carried the refusals through 0.2.0 (`team-ux-v2-implementation-plan.md:130`, `:195`). The other three stay under that ruling.
 
@@ -79,11 +86,10 @@ may not drive; *secrets* travel in files on every path.
 ### 3.2 `team join --secret-file <path>` (harness-only; no wire change)
 
 - New optional flag beside `--label` in `parseJoinFlags`. The path must be **absolute** (`usage` otherwise, mirroring
-  create's :106-107), must **not resolve inside the discovered toplevel** (`checkSecretFileOutside`, both spellings),
-  and must be readable. Read through `adapterkit.ReadStrict` (no symlink, owner-only — the same rule as every other
-  secret-bearing file Brigade reads); the first line, trimmed, is the secret. A file that is group- or world-readable
-  is refused with `config` (`secret_file_not_private`) — the same discipline as the stores; the message says
-  `chmod 600`.
+  create's :106-107) and must **not resolve inside the discovered toplevel** (`checkSecretFileOutside`, both
+  spellings, a `..` component refused outright, and — since a join's file exists — its symlink-resolved location
+  checked too). The file is read plainly, following symlinks, up to 64 KiB; the first line, trimmed, is the secret.
+  Its mode and owner are never checked (ruling 4).
 - The flag replaces the no-echo read, nothing else: `firstJoin` continues with `ParseJoinSecret` → the team-ref check
   before any network (:355-361) → the **captured** `Call` with the existing `{join_secret,…}` stdin document (:366).
   The adapters never see the flag; protocol v1 is untouched.
@@ -161,8 +167,8 @@ Every fixed line that sent the model to a terminal for `join` is rewritten; none
   `brigade team join` to review the change (a cross-team change needs --secret-file).`
 - `notConnected` (`:442`), `notConnectedFor` (`:453`), `classify.go:94`'s stop notice: `run `brigade team join`` —
   the "in a terminal" qualifier goes.
-- `parse.go:23-24` (the `--join-secret` poison remedy): `put the secret in a 0600 file outside the repository and pass
-  --secret-file <path> to team join, or supply it on stdin` — `--prompt` is no longer a harness remedy.
+- `parse.go:23-24` (the `--join-secret` poison remedy): `put the secret in a file outside the repository and run
+  brigade team join --secret-file <path>, or supply it on stdin` — `--prompt` is no longer a harness remedy.
 - `internal/harness/config/session.go:42` (not registered) is unchanged.
 
 ### 3.8 Skills and permissions
@@ -180,8 +186,8 @@ Every fixed line that sent the model to a terminal for `join` is rewritten; none
 
 ### 3.9 Records and rules
 
-- `CLAUDE.md:16-17`: "The join secret is read from stdin, a no-echo prompt, or a 0600 `--secret-file` outside the
-  repository — never argv, never the chat."
+- `CLAUDE.md:16-17`: "The join secret is read from stdin, a no-echo prompt, or a `--secret-file` outside the
+  repository (whose mode and owner Brigade never checks — owner ruling 4) — never argv, never the chat."
 - `CHANGELOG.md`: the next version's entry records the reversal explicitly against the 0.1.0 lines (`:129-133`) and
   the 0.2.0 join entry (`:26`) — written at release prep, per the P7-9 convention; the execution-log row carries the
   obligation until then.
@@ -243,8 +249,8 @@ stays byte for byte). Add, in-session (`sessionEnv` + a start-facts file in the 
   on stdout, binding + pin written **in the start-facts config dir** (not the XDG default), the retry stamp removed,
   the success line names the next prompt; a raw team name with control characters is sanitized on stdout.
 - join without `--secret-file` and no binding: `usage` naming the flag, zero spawns, store unchanged.
-- `--secret-file` relative / inside the toplevel (literal and via symlink) / missing / group-readable: the refusal,
-  zero spawns.
+- `--secret-file` relative / inside the toplevel (literal, via `lnk/..`, via a symlinked file) / missing / a
+  directory / larger than 64 KiB: the refusal, zero spawns. A 0644 file joins — every positive test uses one.
 - wrong-team secret from a file: `invalid_input`, zero spawns.
 - second checkout, no flag: pinned; cross-team drift without the flag: `usage`; with the flag: joined.
 - no start-facts file in a session: `config`, zero spawns, nothing written.
@@ -274,8 +280,7 @@ stays byte for byte). Add, in-session (`sessionEnv` + a start-facts file in the 
 text. The member path everywhere reads:
 
 ```
-!umask 077; pbpaste > ~/brigade-<team>.secret      # the secret from your password manager, never echoed
-!brigade team join --secret-file ~/brigade-<team>.secret
+!brigade team join --secret-file ~/brigade-<team>.secret      # the file team create wrote, saved anywhere outside the repo
 ```
 
 with the terminal form (`brigade team join`, no-echo prompt, after the symlink) as the alternative.
@@ -329,3 +334,8 @@ with the terminal form (`brigade team join`, no-echo prompt, after the symlink) 
   gap); the three setup copies disagreed on where `leave`/`reset` run (unified); a redirection keeps an existing
   file's mode (noted); the setup skill's "two commands" vs the code's three (fixed); the brief's citations were to
   the pre-change tree (now said so).
+
+**Ruling 4 (same day, after the landing commit).** The verifier's symlinked-file and group-readable rows were closed
+by the strict reader; ruling 4 replaces that with the location rule alone — the file's real path (symlinks
+resolved) must be outside the repository — and the group-readable case becomes the positive control. Docs, skills,
+`CLAUDE.md` and the txtar (dave joins through a plain `cp` of the file) follow.

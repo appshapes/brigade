@@ -14,7 +14,8 @@
   output of harness/commands (forbidigo enforces it); diagnostics go to stderr through the redacting logger; never
   `slog.Any`. Never spawn with a shell; always argument arrays with an allow-listed environment.
 - Never put secrets on argv, in logs, in `describe` output, or in files under the project directory. The join secret is
-  read from stdin, a no-echo prompt, or a 0600 `--secret-file` outside the repository — never argv, never the chat.
+  read from stdin, a no-echo prompt, or a `--secret-file` outside the repository (whose mode and owner Brigade never
+  checks — owner ruling 4, 2026-09-08) — never argv, never the chat.
   The Supabase secret/service-role key must never appear in the adapter, the plugin, the repo or CI variables that
   ship.
 - Never hardcode `~/.claude`; use `CLAUDE_CONFIG_DIR ?? ~/.claude`. Never read or copy `$CLAUDE_CONFIG_DIR/sessions/*.key`;

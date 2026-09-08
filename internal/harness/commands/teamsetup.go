@@ -265,12 +265,20 @@ func (inv Invocation) teamJoin(args []string) error {
 	}
 	if secretFile != "" {
 		// Create's rules, unchanged: absolute, and never under the
-		// checkout in either spelling (P7-11).
+		// checkout in either spelling (P7-11). A join's file exists, so its
+		// real location is checked too: a symlink outside the checkout to
+		// a file inside it is inside. Nothing else about the file is
+		// checked — not its mode, not its owner (owner ruling 4).
 		if !filepath.IsAbs(secretFile) {
 			return usage("--secret-file must be an absolute path outside this project (a relative path would land in the repository)")
 		}
 		if err := checkSecretFileOutside(secretFile, top); err != nil {
 			return err
+		}
+		if resolved, rerr := filepath.EvalSymlinks(secretFile); rerr == nil {
+			if err := checkSecretFileOutside(resolved, top); err != nil {
+				return err
+			}
 		}
 	}
 	path, ok := teamfile.Discover(inv.mustGetwd())
@@ -537,19 +545,20 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 // joinSecret is the secret of a first join or a cross-team re-point: from
 // --secret-file when given — the only source inside a session, where
 // stdin is /dev/null and nothing can be typed — else the no-echo read at
-// the terminal. The file is read under the rule every private file
-// Brigade reads obeys (regular, 0600, owned by the caller, no symlink)
-// and its first line, trimmed, is the secret. The refusal for a session
-// that omits the flag says how to make the file and never asks for the
-// secret itself.
+// the terminal. The file is the one `team create` wrote and the
+// administrator sent; its first line, trimmed, is the secret. Brigade
+// checks WHERE the file is (teamJoin: outside the repository) and nothing
+// about its mode or owner (owner ruling 4, 2026-09-08): where a member
+// keeps it is theirs. The refusal for a session that omits the flag says
+// so and never asks for the secret itself.
 func (inv Invocation) joinSecret(secretFile string) (string, error) {
 	if secretFile == "" {
 		if inv.inSession() {
-			return "", usage("team join inside a Claude Code session needs --secret-file <path>: save the join secret to a 0600 file outside this project yourself — never paste it into the chat — then run this again")
+			return "", usage("team join inside a Claude Code session needs --secret-file <path>: save the secret file your administrator sent you outside this project, then run this again — never paste the secret into the chat")
 		}
 		return inv.readSecret()
 	}
-	data, err := adapterkit.ReadStrict(secretFile)
+	data, err := readSecretFile(secretFile)
 	if err != nil {
 		return "", secretFileUnreadable(err)
 	}
@@ -557,14 +566,42 @@ func (inv Invocation) joinSecret(secretFile string) (string, error) {
 	return strings.TrimSpace(first), nil
 }
 
-// secretFileUnreadable maps a --secret-file read failure to `config`: the
-// strict reader's own refusal (mode, owner, symlink) passes through with
-// its advice; a missing file and any other I/O failure get fixed text.
-// The file's contents are never part of any message.
+// maxSecretFileBytes bounds what joinSecret reads: a secret file is one
+// short line, and anything past this is not one.
+const maxSecretFileBytes = 64 << 10
+
+// readSecretFile reads path, following symlinks, up to maxSecretFileBytes.
+func readSecretFile(path string) ([]byte, error) {
+	f, err := os.Open(path) //nolint:gosec // G304: the member's own --secret-file, named on their own argv
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxSecretFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxSecretFileBytes {
+		return nil, errSecretFileTooLarge
+	}
+	return data, nil
+}
+
+// errSecretFileTooLarge is readSecretFile's refusal of a file that is not
+// a secret file; secretFileUnreadable names it.
+var errSecretFileTooLarge = errors.New("secret file too large")
+
+// secretFileUnreadable maps a --secret-file read failure to a fixed
+// message: a missing file, a file too large to be a secret file, and any
+// other I/O failure (a directory, a permission denied). The file's
+// contents are never part of any message.
 func secretFileUnreadable(err error) error {
-	var pe *protocol.Error
-	if errors.As(err, &pe) {
-		return pe
+	if errors.Is(err, errSecretFileTooLarge) {
+		return &protocol.Error{
+			Code:    protocol.CodeInvalidInput,
+			Message: "the file named by --secret-file is not a secret file (larger than 64 KiB)",
+			Details: map[string]string{"reason": "secret_file_too_large"},
+		}
 	}
 	if errors.Is(err, fs.ErrNotExist) {
 		return &protocol.Error{

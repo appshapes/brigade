@@ -20,8 +20,8 @@ tool's PATH, where `brigade` already is, and its output lands in the conversatio
 the same command runs through the binary at `${CLAUDE_PLUGIN_ROOT}/bin/brigade`; a symlink such as
 `ln -sf ${CLAUDE_PLUGIN_ROOT}/bin/brigade ~/.local/bin/brigade` keeps a terminal on the same pinned version (the
 path carries the plugin version, so re-run it after a plugin upgrade). The join secret is a bearer capability:
-**never paste it into a Claude Code chat**, a commit, an issue or a log — it lives in a 0600 file outside the
-repository, and `--secret-file` names the file. Two team commands run in a terminal only — `team revoke-member`
+**never paste it into a Claude Code chat**, a commit, an issue or a log — it lives in the file `team create` wrote,
+saved outside the repository, and `--secret-file` names that file (its mode and owner are never checked). Two team commands run in a terminal only — `team revoke-member`
 and `team transfer` — and so does the release of a held message (`docs/setup.md`, "Holding messages for review").
 
 ## 1. Administrator: create a team
@@ -57,19 +57,17 @@ transferring the team are terminal-only administrative commands that refuse insi
 
 ## 2. Member: join
 
-Clone the project and open a Claude Code session in the checkout. Put the join secret in a file outside the
-repository without typing it — from your password manager through the clipboard — then join:
+Clone the project, save the secret file your administrator sent you outside the repository, open a Claude Code
+session in the checkout, and join:
 
 ```sh
-!umask 077; pbpaste > ~/brigade-<team>.secret      # macOS; on Linux, xclip -o -selection clipboard, or wl-paste
 !brigade team join --secret-file ~/brigade-<team>.secret
 ```
 
 `team join` reads the project's `.brigade.json`, prints the team and backend host it is joining (the command is
 the consent), reads the secret from the file and joins; its output never carries the secret, and this session
-attaches at your next prompt (one already attached to another team stays there until `/reload-plugins`). If the
-file already exists from an earlier attempt, remove it first: a redirection keeps its mode. Delete the file once
-every machine that needs it has joined. In your own terminal,
+attaches at your next prompt (one already attached to another team stays there until `/reload-plugins`). Delete
+the file once every machine that needs it has joined. In your own terminal,
 `brigade team join` alone shows what the file names, asks you to confirm, then reads the secret without echo.
 Either way the secret never reaches your scrollback, your shell history or a chat. There is no `--profile`, no
 `--url` and no `--key`: the project file supplies all of that.

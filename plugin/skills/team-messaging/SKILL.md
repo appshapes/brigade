@@ -117,7 +117,7 @@ Do not retry more than once without new information.
 
 Creating or joining a team is the person's command: they run it themselves with the `!` prefix in this session or
 in their own terminal. The join secret is a bearer capability that **must never be pasted into this chat** — it
-lives in a 0600 file the person makes outside the repository, and `--secret-file` names it. When your user asks
+lives in the file the administrator sent, saved outside the repository, and `--secret-file` names it. When your user asks
 you to run the join for them, run exactly `brigade team join --secret-file <path>` with the path they gave and
 relay the output; never write that file and never ask what is in it. The same binary the plugin uses is at
 `${CLAUDE_PLUGIN_ROOT}/bin/brigade` for terminal use. When your user needs the exact commands, point them at the

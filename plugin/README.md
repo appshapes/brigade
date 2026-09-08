@@ -106,18 +106,17 @@ directory are worth to an attacker is [docs/security.md](../docs/security.md).
 
 ## Member: join
 
-Clone the project, open a Claude Code session in the checkout, put the join secret in a file outside the
-repository without ever typing it, and join:
+Clone the project, save the secret file your administrator sent you outside the repository, open a Claude Code
+session in the checkout, and join:
 
 ```sh
-!umask 077; pbpaste > ~/brigade-<team>.secret      # macOS; on Linux, xclip -o -selection clipboard, or wl-paste
 !brigade team join --secret-file ~/brigade-<team>.secret
 ```
 
-`brigade` is on the session's PATH, so there is no path to find (if the secret file already exists from an
-earlier attempt, remove it first: a redirection keeps its mode). `team join` reads the project's `.brigade.json`,
+`brigade` is on the session's PATH, so there is no path to find. `team join` reads the project's `.brigade.json`,
 prints the team and backend host it is joining (the command is the consent), reads the secret from the file and
-joins; its output never carries the secret. In your own terminal, `brigade team join` alone asks you to confirm
+joins; its output never carries the secret. The file's mode and owner are never checked — only that it is outside
+the repository. In your own terminal, `brigade team join` alone asks you to confirm
 and reads the secret without echo. Either way the secret never reaches your scrollback, your shell history or a
 chat. There is no `--profile`, no `--url` and no `--key`: the project file supplies all of that.
 
