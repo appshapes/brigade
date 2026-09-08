@@ -208,7 +208,8 @@ response to that is to revoke them** (section 9).
 
 **A known limit of Claude Code, not of Brigade.** Claude Code 2.1.261 keeps at most **50** inbox messages waiting
 while a session is busy with a turn. If more than 50 arrive during one turn, Claude Code drops the rest — after
-Brigade has already acknowledged them, and neither side is told. This was measured in the soak run: 9 of 60
+Brigade has already acknowledged them, and neither side is told. The bound is Claude Code's own and published in
+its documentation ("queue of 50"), which is why it is recorded here as a limit rather than fixed in Brigade. This was measured in the soak run: 9 of 60
 frames in one burst, and the loss was seen in three separate runs. Brigade's own queue of 50, with its drop notice, only engages when
 the session has been idle long enough, which the shipped speeds make rare.
 
@@ -548,9 +549,11 @@ operating system make most reports answerable.
 issue, a log or a chat.** If a report needs one of those to make sense, describe it instead — "the join secret was
 rotated an hour before" — and leave the value out.
 
-If what you found is a security problem, please leave the working details out of the first public issue. Say what
-kind of problem it is and that you have the details, and wait to be asked for them. There is no private reporting
-form on this repository yet.
+If what you found is a security problem, report it privately: **Security → Report a vulnerability** on the
+repository (<https://github.com/appshapes/brigade/security/advisories/new>). Private vulnerability reporting has
+been enabled since 2026-09-08, so the report is visible only to the maintainers until a fix is published;
+[`SECURITY.md`](../SECURITY.md) is the policy GitHub shows beside the form. Do not open a public issue for a
+suspected vulnerability.
 
 ## Accepted for this version
 

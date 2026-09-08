@@ -1,5 +1,15 @@
 # E4-interactive — the interactive checklist (`scripts/experiments/E4-interactive/`, plan row P4-5)
 
+> **Addendum 2026-09-08 — item 17's third interactive run is discarded, not owed.** The ruling "re-run once F1
+> is fixed" conflated two things. Run 3's void was the driver's own policy meeting Claude Code 2.1.261 — the
+> driver Escapes every non-Skill dialog and a rejected dialog ends the turn — and the third voided attempt already
+> used the bare form (:167-171, :217-218, :227-229), so F1 was not its cause and a re-run cannot be guaranteed
+> scorable. What the re-run was to prove is proven elsewhere: P5-13 measured 15/15 idle wakes and 2/2 replies in
+> the bare form with zero plugin paths (archive "P5-13 DONE"), and item 17 scored 3/3 refused headless after F1 at
+> the shipped `open` frame (E5-frame-levels.md :236, :520). This driver is also runtime-stale against the
+> attach-only hook (it sets the dead `profile` option and launches sessions with no `.brigade.json`), the same
+> class as the three drivers P7-6c migrates. The report below stays as the record of 2026-09-04.
+
 Date: 2026-09-04 · Ticket 15 · Status: **COMPLETE — every item run, cited or ruled out, none of it at a keyboard. Corpus: 77 of 78 item-runs scored, 77/77 condition 1, 25 items 3-of-3, condition 2 76 pass + 1 adjudicated (panel unanimous 75/77, 0 MISS/SPLIT); items 05/06/26 measured 3-of-3 on Opus 5 and 3-of-3 on Sonnet 5; one open finding (item 17 / D20: the absolute-path form)** ·
 Driver: `scripts/experiments/E4-interactive/` (Python + `expect`; scoring by the shipped
 `scripts/proof-headless.sh judge`) · Claude Code **2.1.261** · Models: `claude-opus-5` (default) and
