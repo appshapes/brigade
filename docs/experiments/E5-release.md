@@ -1001,3 +1001,16 @@ registration line (team `brigade`), the plugin having downloaded the 0.3.0 binar
 before: a fresh-configuration-dir marketplace install of the *published* plugin against the hosted project — now
 with `/brigade:join <path>` typed by a real member — and a collaborator opening this repository cold, to see
 Claude Code add the marketplace from `.claude/settings.json` and print the one install command that remains.
+
+## 0.4.1 release (P7-15)
+
+Date: 2026-09-08 · same host and toolchain as 0.4.0. A patch: `/brigade:update` passes the install scope
+(`--scope project`, falling back to `--scope user`) — measured on this repository's project-scope install, where
+the unscoped `claude plugin update brigade@brigade` failed `not installed at scope user` and the scoped one moved
+0.3.0 → 0.4.0 — and the docs make the member's install one command with the marketplace named by the project's
+`.claude/settings.json`. Sequence, at Rjae's request without the dry run (the real run performs the same goreleaser
+cross-check before it commits): release-prep `eb44542`; `make release version=0.4.1` → `d1c0ff7`, tag `v0.4.1`;
+release workflow **run 34260830816, success**, five assets, published `checksums.txt` byte-identical to the
+committed file, all four binaries `OK`; `go install …@v0.4.1` → `v0.4.1`; CI run 34260828100 on `d1c0ff7` green in all
+four jobs, rule (c) by the fresh-build arm. Owner-gated as for 0.4.0: a real member's `/plugin install` +
+`/brigade:join`, and `/brigade:update` on a collaborator's project-scope install.
