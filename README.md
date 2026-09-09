@@ -21,6 +21,7 @@ member that cannot be woken is not a peer.
 
 | You want to… | Go to |
 |---|---|
+| **Install the plugin** | [Installing](#installing) · [`docs/setup.md`](docs/setup.md) · [`plugin/README.md`](plugin/README.md) |
 | **Get started** | [What Brigade is](#brigade) · [Layout](#layout) · [Set up a team](docs/setup.md) · [Security](docs/security.md) |
 | **Write an adapter** | [For adapter contributors](#for-adapter-contributors) · [`docs/adapter-authors.md`](docs/adapter-authors.md) · [`docs/protocol-v1.md`](docs/protocol-v1.md) |
 | **Build, test, release** | [Gates](#gates) · [`scripts/ci/README.md`](scripts/ci/README.md) |
@@ -28,6 +29,35 @@ member that cannot be woken is not a peer.
 | **See what is proven** | [`docs/experiments/`](docs/experiments/README.md) · [the proof results](.context/plans/brigade-proof-results.md) |
 | **Find where the work stands** | [the execution log](.context/plans/brigade-execution-log.md) · [`CHANGELOG.md`](CHANGELOG.md) |
 | **Read the research** | [`docs/research/`](docs/research/README.md) |
+
+## [Installing](#table-of-contents)
+
+Brigade is a Claude Code plugin. Installing it is one or two commands, typed at the prompt of a Claude Code
+session — nothing is compiled or run locally, and no server is started.
+
+**A project that already uses Brigade** — its committed `.claude/settings.json` names the `brigade` marketplace —
+needs one command, after you trust the folder:
+
+```
+/plugin install brigade@brigade
+```
+
+**The first machine of a project**, or any checkout whose `.claude/settings.json` does not yet name the
+marketplace, adds the marketplace first:
+
+```
+/plugin marketplace add appshapes/brigade
+/plugin install brigade@brigade
+```
+
+Either way the command ends with `Plugin is now active.` or `Run /reload-plugins to activate.` — do what it says.
+On a cold cache the first session downloads the release binary before the hooks can run, so the line naming your
+team appears on a **later** prompt, once the download finishes. **0.4.1 is the current release**; there is no
+Homebrew tap and no `.deb` or `.rpm` yet.
+
+Installing the plugin only puts the `brigade` command on a session's PATH — it does not join a team. The full
+procedure (an administrator creating a team, a member joining one with `/brigade:join <path>`, options, uninstalling)
+is [`docs/setup.md`](docs/setup.md); the same commands in short form are [`plugin/README.md`](plugin/README.md).
 
 ## [For adapter contributors](#table-of-contents)
 
@@ -115,13 +145,11 @@ a hosted project with the daily keep-alive and the conformance suite green again
 `hold` inbox ship, retention is verified live, the two-hour soak has run, the frame's instruction text ships as
 levels, and the user documentation is written.
 
-**0.1.0 is the first release.** `make release version=0.1.0` pins `plugin/bin/VERSION` and the plugin manifest to
-`0.1.0`, writes the sha256 of each published binary into `plugin/bin/checksums.txt`, and pushes the tag `v0.1.0`;
-the release workflow builds the four binaries from that tag and publishes them beside their `checksums.txt`. A tree
-in which that command has not run carries the pre-release `0.0.0` and an empty checksums file, and its plugin has
-nothing to download. Installing is `/plugin install brigade@brigade` inside a Claude Code session opened in a
-project that names the marketplace, as this repository does; elsewhere, `/plugin marketplace add appshapes/brigade`
-first ([docs/setup.md](docs/setup.md)). Not in 0.1.0: a Homebrew tap or a Linux
-package, and an operating-system keychain for the credential — it is a 0600 file, and
+**0.4.1 is the current release.** `make release version=<v>` pins `plugin/bin/VERSION` and the plugin manifest to
+that version, writes the sha256 of each published binary into `plugin/bin/checksums.txt`, and pushes the matching
+tag; the release workflow builds the four binaries from that tag and publishes them beside their `checksums.txt`. A
+tree in which that command has not run carries the pre-release `0.0.0` and an empty checksums file, and its plugin
+has nothing to download. See [Installing](#installing) above for how to get the plugin. Not in 0.4.1: a Homebrew tap
+or a Linux package, and an operating-system keychain for the credential — it is a 0600 file, and
 [docs/security.md](docs/security.md) says what that costs. The single source of truth for where the work stands is
 `.context/plans/brigade-execution-log.md`.
