@@ -221,3 +221,9 @@ __pycache__/
 ._*
 .Spotlight-V100
 .Trashes
+
+# Local AI-tooling state, same hazard as the .pyc rule above: the canonical `git add --verbose :/ .` chain
+# swept these into a commit on 2026-09-09 (e33690e) before this rule existed; removed with `git rm --cached`,
+# left on disk since Claude Code and the Serena MCP server both still use them locally.
+.claude/.claude-md-seen-mtimes
+.serena/
