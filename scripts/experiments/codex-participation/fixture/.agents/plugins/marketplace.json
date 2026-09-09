@@ -1,0 +1,20 @@
+{
+  "name": "brigade-p0",
+  "interface": {
+    "displayName": "Brigade P0"
+  },
+  "plugins": [
+    {
+      "name": "brigade-capability-probe",
+      "source": {
+        "source": "local",
+        "path": "./plugins/brigade-capability-probe"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

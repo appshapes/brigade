@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-09-08",
+  "repository_revision": "d7088fca2fbdd0a7216da189b0d19f62ab38a14f",
+  "client": {
+    "name": "codex-cli",
+    "version": "0.153.4",
+    "model": "gpt-6-astra",
+    "os": "macOS 26.6",
+    "kernel": "Darwin 25.6.0"
+  },
+  "delivery": {
+    "attempted_runs": 5,
+    "anchor_in_assistant_text": 5,
+    "split_nonce_in_assistant_text": 5,
+    "author_verdict": "PASS",
+    "independent_fable_verification": "UNAVAILABLE"
+  },
+  "identity": {
+    "session_hash": "ab09006ef53c7034",
+    "attempted_cases": 4,
+    "direct_marker_matches_hook_session": true,
+    "unset_child_is_unmarked": true,
+    "poisoned_child_accepts_replacement": true,
+    "nested_child_is_unmarked": true,
+    "shell_lookup_route": "PASS",
+    "human_only_boundary": "FAIL"
+  },
+  "baseline": {
+    "typecheck": "PASS",
+    "plugin_check": "PASS",
+    "test": "FAIL_PREEXISTING_SUBPROCESS_TIMEOUT"
+  },
+  "gate": "FAIL",
+  "next_phase": "HARD_STOP_AFTER_P1"
+}

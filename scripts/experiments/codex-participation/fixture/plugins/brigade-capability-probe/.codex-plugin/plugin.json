@@ -1,0 +1,18 @@
+{
+  "name": "brigade-capability-probe",
+  "version": "0.1.0+codex.20260908212638",
+  "description": "Brigade Capability Probe plugin",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Brigade Capability Probe",
+    "shortDescription": "Use Brigade Capability Probe in Codex.",
+    "longDescription": "Brigade Capability Probe adds a local Codex plugin scaffold.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me use Brigade Capability Probe."
+  }
+}
