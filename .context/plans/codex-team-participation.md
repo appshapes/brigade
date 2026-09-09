@@ -1,7 +1,7 @@
 # Codex participation in Brigade: implementation and test plan
 
 Date: 2026-09-08
-Status: P0 ready to run; P2–P5 provisional until the independently verified capability table.
+Status: closed 2026-09-09 by Rjae — not pursued. Codex has no supported way to wake a live conversation (outcome 2 below; `docs/experiments/codex-participation.md`), so a Codex member could only be a mailbox, never a peer; OpenAI models are used by keeping Claude Code as the session and adding OpenAI's `openai/codex-plugin-cc`. Kept as the record — nothing below is to be implemented; the ruling is on row P8-1 in `.context/plans/brigade-execution-log-archive.md`.
 Scope: one repository, one shared Brigade Go runtime, separate Claude and Codex plugin packages.
 
 ## 1. Read this first

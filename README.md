@@ -11,6 +11,12 @@ Brigade ships as a Claude Code plugin. The plugin talks to its backend through a
 that speaks the Brigade Adapter Protocol (BAP/1) on argv, stdin and stdout. The bundled adapter targets Supabase;
 any other backend is its own adapter, named by the project's committed `.brigade.json`.
 
+Brigade integrates with the harness, not with a model: a member is a Claude Code session, whatever model answers in it. To use
+OpenAI models, keep Claude Code as the session and add OpenAI's official plugin for Claude Code,
+[`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc), which lets the session delegate to Codex; Brigade needs
+nothing for that. A Codex plugin of Brigade's own is not planned: Codex has no supported way to wake a live conversation, and a
+member that cannot be woken is not a peer.
+
 # Table of Contents
 
 | You want to… | Go to |
