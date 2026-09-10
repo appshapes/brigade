@@ -68,5 +68,21 @@ measurement note to the argv list") and "Verify the fix was pushed" passed. PASS
    `b82edd7`. Fix: `review-pull-request.yml` `allowed_bots: "claude,github-actions"` (the hub and release-notes
    keep `"claude"`), committed as the correction below; PR #3 closed and reopened to re-run the reviewer.
 
-**(c) `--auto` waits** — not yet exercised here (no approval has landed); the thinktech-api observation above stands.
-**(h)** — pending PR #3's merge.
+**(c) `--auto` waits — PROVEN on this repository.** After the reopen (14:18:32) a fresh `ci` run 34488196052 started
+on head `b82edd7` at 14:18:33; the reviewer (run 34488196063, actor Rjae) submitted `APPROVED` at 14:20:28; the
+`auto merge` run executed at 14:20:50 with CI still in progress — `gh pr merge --auto` armed — and the PR merged at
+**14:27:06, 24 s after that CI run completed at 14:26:42**, merged by Rjae (the PAT, a ruleset bypass actor). So
+`--auto` waits for the four required checks even though the merging identity could bypass them; the deterministic
+contingency in `auto-merge.yml` did not fire. Half (iii) — an approval landing on an already-green PR, where the
+`||` fallback (guarded by `gh pr checks --required`) runs — has not yet occurred and is recorded when it does.
+
+**(h) documentation refresh, both halves — PASS.** Squash commit **`4a9d5a3`**, title `15: Refresh the structural
+documentation (#3)` (GitHub appends the PR number; the `15: ` prefix rule holds), body = the PR body (`PR_BODY`), so
+`Closes #2` closed issue #2 at 14:27:07. Observation for Rjae: Blacksmith's "codesmith" App appends an HTML footer
+to every PR body, which `PR_BODY` now copies into the squash commit's message; either `squash_merge_commit_message`
+goes to `BLANK` (losing `Closes #N` from the commit body — the issue still closes through the PR) or the codesmith
+footer is switched off in Blacksmith. Cosmetic; no loop behaviour depends on it.
+
+**Elapsed, dispatch to merge: 45 min 34 s** (13:41:32 → 14:27:06), of which ~20 min were the two stalls above
+(manual run approval, the reviewer's actor refusal) that are now fixed; the loop's own work was ~7.5 min of agent,
+~2.5 min of fixer, two ~2 min reviews and two ~8 min CI runs.
