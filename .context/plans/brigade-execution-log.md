@@ -34,8 +34,13 @@ below the marker dated 2026-09-09. The complete post-release work list
    the session and adding OpenAI's `openai/codex-plugin-cc`; Brigade needs no code for that. The brief
    (`.context/plans/codex-team-participation.md`) and its P0 evidence (`docs/experiments/codex-participation.md`) stay as
    the record. On 2026-09-10 Rjae chartered the agentic-workflows brief (`.context/plans/agentic-workflows.md`, v4) and
-   rows P9-1..P9-7 were opened and done the same day, in one commit. **There are no live rows. The next substantial
-   work is a second adapter**, which Rjae will chart as its own brief; nothing is to be started on it until then.
+   rows P9-1..P9-7 were opened and done the same day, in one commit. On 2026-09-10 Rjae also ruled that
+   `brigade sessions` should report the **model**, the **context** (used/available) and the **usage limits**
+   (used/available), and that the **statusline payload is the source** — not the transcript, which cannot supply
+   usage limits or a context window size at all and whose use would need a T10 exception. The brief is
+   `.context/plans/session-properties.md` (v1); its rows **P10-1..P10-4 are the live rows**, and **the brief's §7
+   rulings are open — P10-1 is not to be started until they are answered.** After P10 the next substantial work is a
+   second adapter, which Rjae will chart as its own brief; nothing is to be started on it until then.
 
 ## Model tier policy
 
@@ -63,7 +68,7 @@ is a smaller model, Fable-tier work goes to subagents (`model: 'fable'`), never 
 
 ## Status
 
-Legend: `done` · `todo` · `blocked (<reason>)` · `wip` · `won't do (<date>)`. Every row through the 0.4.1 release and the Codex workstream is in the archive; the seven P9 rows below were opened and closed together on 2026-09-10, and no other rows are live (see Start here, step 3).
+Legend: `done` · `todo` · `blocked (<reason>)` · `wip` · `won't do (<date>)`. Every row through the 0.4.1 release and the Codex workstream is in the archive; the seven P9 rows below were opened and closed together on 2026-09-10, and the four P10 rows below them are live (see Start here, step 3).
 
 | ID | Task (plan §, named in the row) | Status | Model | Commit / evidence |
 | --- | --- | --- | --- | --- |
@@ -74,3 +79,7 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip` · `won't do (<date>)`
 | P9-5 | **Remedy (a) of the brief's §4.7**: BOTH edits to `release.yml` — the widened top-level `permissions:` and the `notes` job that calls `release-notes.yml` — plus record (g) | done | Opus | this commit — `release.yml`'s `permissions:` widened to `contents`/`issues`/`id-token` and the `notes` job added, passing exactly one named secret; first runs to be recorded in `docs/experiments/agentic-workflows-first-runs.md` as they happen |
 | P9-6 | `update-documentation.yml` (`auto_merge: true`) and `.claude/agents/documenter.md`; record (h), both halves, follows on the first run | done | Opus | this commit — `update-documentation.yml` (`auto_merge: true`) and `.claude/agents/documenter.md`; first runs to be recorded in `docs/experiments/agentic-workflows-first-runs.md` as they happen **First run 2026-09-10: PASS** — dispatched by hand; issue #2 → PR #3 → `CHANGES_REQUESTED` → fix `b82edd7` → `APPROVED` → squash-merged as `4a9d5a3`, issue closed by the merge; record (h) in `docs/experiments/agentic-workflows-first-runs.md`, with the two first-run findings (the fork-approval policy set to `first_time_contributors`; the reviewer's `allowed_bots` gains `github-actions`, b3538a0). |
 | P9-7 | **The seeded memory marker** `.context/plans/agent-memory/review-repository.md` (`Date: (unseeded)`, `Commit: (none)`, `Scope: whole tree`) and the first `review-repository` pass | done | Opus | this commit — the seeded marker and `review-repository.yml` (monthly cron live, no `auto-merge` label); first runs to be recorded in `docs/experiments/agentic-workflows-first-runs.md` as they happen |
+| P10-1 | The statusline cache: the `brigade statusline` subcommand, the `BRIGADE_STATE_DIR` by-pid cache format, the timestamp-and-withhold-stale rule of the brief's §5.3, and the wiring shape ruled in its §7 (a); the `plugin/` allowlist and `make plugin-check` implications (`.context/plans/session-properties.md` §5.1) | blocked (brief §7 (a) and (d) open) | Opus | not started; §7 (d), whether a plugin may supply `statusLine` at all, is the one unmeasured input and decides whether the plugin can ship this working or every user wires it by hand |
+| P10-2 | **The wire change, in ONE commit** (`docs/protocol-v1.md:3-9`): `model`, `context` and `usage_limits` on `SessionRegistration`, `SessionRecord` and `HeartbeatRequest` plus their `Validate` arms; `limits.go` caps and the matching `Limits` members; `describe.go` capability and limits rows; `watch.go` `WatchCommand`; `make schema`; `docs/protocol-v1.md` §§4.4.1-4.4.4 with the byte-identical `internal/protocol/testdata/examples/*.json`; the conformance suite; **both** adapters including the new Supabase migration (`.context/plans/session-properties.md` §5.2, §6) | todo | Fable | not started; Fable per the model-tier policy (protocol/schema design, Supabase SQL, conformance). Two measured traps in the brief's §6: the Postgres `grant` lines name full argument-type lists, so a new RPC parameter creates an overload that trips `supabase/tests/functions.sql`'s 28-function assertion, and `schema.patchProp` fails loudly on a member added without its cap patch |
+| P10-3 | Display: the `columns(...)` call in `internal/harness/commands/sessions.go`, `sanitizeRecord` in `format.go:99-118`, `whoami.go`, and every golden — `sessions.txtar` (a byte-for-byte `cmp`), roughly a dozen further txtar files carrying complete `describe`/`register` documents, the 20 `proof-crash-resume` fixture dirs and `internal/conformance/fixture_lease_test.go:73` (`.context/plans/session-properties.md` §5.4, §6) | todo | Opus | not started; follows P10-2 |
+| P10-4 | User-facing docs: the statusline wiring (tee or wrapper, per §7 (a)) in `docs/setup.md`, the session sections of `docs/adapter-authors.md`, and the README (`.context/plans/session-properties.md` §6) | todo | Opus | not started; follows P10-2 |
