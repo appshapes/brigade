@@ -7,7 +7,7 @@ and its runtime dependencies, and a `| Type | Name | Notes |` table of the GitHu
 Two adaptations of that shape, both deliberate:
 
 - **It lives beside the scripts themselves, rather than under `.github/`.** Brigade's CI scripts are not
-  workflow-only: ten of the fifteen shell scripts are reached through `make`, only three are reached from a
+  workflow-only: ten of the sixteen shell scripts are reached through `make`, only four are reached from a
   workflow without a target of their own, and the remaining two are reached by nothing at all. Moving them would
   break `scripts/ci/plugin-check.sh`'s shellcheck glob (`scripts/ci/*.sh scripts/*.sh`), the `make` recipes that
   name them by path, `ci.yml`'s steps, and the ten Go drift tests that open them by path.
@@ -32,7 +32,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `.github/workflows/_create-claude-issue.yml` | `workflow_call` | Reusable factory: creates the `claude`-labelled work order with `GH_ACTIONS_TOKEN` so the `issues: labeled` event fires. |
 | `.github/workflows/update-documentation.yml` | monthly cron, `workflow_dispatch` | Structural documentation refresh through the loop. Opens its PR **with** the auto-merge label. |
 | `.github/workflows/review-repository.yml` | monthly cron, `workflow_dispatch` | Reviewer pass over the tree; opens a PR with minimal fixes and **no** auto-merge label — that one merges by hand. |
-| `.github/workflows/release-notes.yml` | `workflow_dispatch` — from `release.yml` after the publish, or by hand with `-f tag=v…`; `release: published` and `workflow_call` are declared but dead: the job token raises no `release` event, and a call from the tag-push workflow runs the action under `push`, which it refuses (run 34537045037) | Writes the published release's notes from `CHANGELOG.md` and the log, and opens the "run `/brigade:update`" announcement. |
+| `.github/workflows/release-notes.yml` | `workflow_dispatch` only — from `release.yml` after the publish, or by hand with `-f tag=v…` (the `release: published` and `workflow_call` triggers are gone: the job token raises no `release` event, and a call from the tag-push workflow ran the action under `push`, which it refuses, run 34537045037) | Drafts the published release's notes from `CHANGELOG.md` and the log with one agent, refuses anything that does not exist with `release-notes-lint.sh`, has a second agent review the draft against the sources, allows one fix cycle, and only then publishes the notes and opens the "run `/brigade:update`" announcement — both from shell steps, idempotently. |
 | `.github/workflows/update-dependencies.yml` | monthly cron, `workflow_dispatch` | Dependency bump through the loop: `go.mod` and `tools.mod` by the agent, the action pins reported in the PR body (not edited) (`.claude/agents/developer.md`, dependency-update mode). Opens its PR **with** the auto-merge label. |
 
 ## Index
@@ -50,6 +50,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/ci/checksums-check.sh` | `make checksums-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/advisor-lints.sql` | `make advisor-lints` → `ci.yml`'s `supabase` job |
 | `scripts/ci/release-verify.sh` | `release.yml` only — no `make` target |
+| `scripts/ci/release-notes-lint.sh` | `release-notes.yml` only — no `make` target |
 | `scripts/ci/keepalive.sh` | `keepalive.yml` only — no `make` target |
 | `scripts/ci/bootstrap-alpine.sh` | nothing — run by hand, see its section |
 | `scripts/ci/conformance-setup-supabase.sh` | nothing — passed by an adapter author to `--setup`, see its section |
@@ -244,6 +245,24 @@ directory it reads exists only inside the release job. `checks_test.go` proves e
 # only meaningful against a real goreleaser dist/, e.g. after `bin/goreleaser release --snapshot --clean`
 scripts/ci/release-verify.sh dist/checksums.txt plugin/bin/checksums.txt
 ```
+
+## `scripts/ci/release-notes-lint.sh`
+
+The deterministic half of the release-notes gate: `release-notes-lint.sh <notes-file> <tag>` refuses a drafted
+set of notes that names a `/brigade:<skill>` the plugin does not have (read from `plugin/skills/` and
+`plugin/commands/` of the checkout), a `brigade <verb>` the CLI does not have, or an asset that did not ship;
+that leaves a shipped asset unnamed; that never names the released version or says "Unreleased"; or that carries
+a placeholder or anything secret-shaped. One `FAIL:` line per finding (the writer's fix cycle reads them back),
+`ok:` lines for what passed, exit 1 on any finding. Born of the v0.5.0 notes, which named a `/brigade:sessions`
+skill that never existed.
+
+Invoked by `.github/workflows/release-notes.yml` after each draft — no `make` target. The workflow derives the two
+lists from the truth itself and passes them in the environment: `BRIGADE_NOTES_COMMANDS` from `brigade --help`
+of a fresh build and `BRIGADE_NOTES_ASSETS` from `gh release view --json assets`; `BRIGADE_NOTES_SKILLS`
+overrides the tree for the tests. `scripts/ci/release_notes_lint_test.go` runs it on fixtures with a passing
+control beside every refusal.
+
+Needs `sh`, `grep`, `sed`, `sort`.
 
 ## `scripts/ci/keepalive.sh`
 

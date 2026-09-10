@@ -1,125 +1,101 @@
-# When a release is published, write its notes from the repository's own record and tell members to update.
-# Read-only except for two writes: `gh release edit --notes` and one `gh issue create`.
+# Write a published release's notes from the repository's own record, gate them, and tell members to update.
 #
-# ---------------------------------------------------------------------------------------------------------
-# READ THIS BEFORE RELYING ON THE `release` TRIGGER.
-# release.yml publishes the draft with `gh release edit --draft=false` authenticated by `${{ github.token }}`,
-# and GitHub does not raise workflow-triggering events for actions taken with GITHUB_TOKEN. So on today's
-# release.yml the `release: published` trigger below FIRES NEVER — silently, exactly the failure mode brake 3
-# is about, pointing the other way.
+# Four stages, in one job: a writer agent DRAFTS the notes to a file outside the checkout; a deterministic lint
+# (scripts/ci/release-notes-lint.sh) refuses anything that does not exist — a skill, a CLI command, an asset — or
+# that is placeholder, "Unreleased" or secret-shaped; a reviewer agent reads the draft against CHANGELOG.md, the
+# tag's log and the plugin tree and answers APPROVED or CHANGES_REQUESTED with findings; the writer gets exactly
+# one fix cycle; and only an APPROVED, lint-clean draft is published. The publish and the announcement issue are
+# shell steps, not the agent: the two writes are deterministic and idempotent (a re-dispatch rewrites the same
+# notes and opens no second issue). Why: the v0.5.0 notes, written by one agent straight onto the release page,
+# named a `/brigade:sessions` skill that does not exist (P9-8, 2026-09-10).
 #
-# Three remedies, in the brief's order of preference (§4.7 deltas):
-#   (a) RECOMMENDED — release.yml gains a second job `needs: goreleaser` that calls this workflow through
-#       `workflow_call`. No event needed, no new credential, and the notes are written by the same run that
-#       published the tag. It DOES cost one edit beyond the added job: a called workflow's job may request only
-#       permissions the CALLER already holds, and release.yml today grants `contents: write` and nothing else,
-#       so the `notes` job's `issues: write` and `id-token: write` would fail validation outright ("is
-#       requesting 'issues: write', but is only allowed 'issues: none'"). release.yml's top-level `permissions:`
-#       block must be widened to all three — see §6, where the widened block is shown.
-#   (b) release.yml's Publish step authenticates with GH_ACTIONS_TOKEN instead of github.token, so the publish
-#       raises a real `release: published`. That puts Rjae's account-wide classic PAT on the release path, which
-#       is the one place this repository has been most conservative — and remedy (a) needs no credential at all,
-#       which is most of why (a) is recommended.
-#   (c) leave the trigger unfired and run this workflow by hand (`workflow_dispatch`) after each release.
-# All three triggers are declared below so whichever the owner picks needs no edit here. §5 (g) records it on
-# a pre-release tag.
-# ---------------------------------------------------------------------------------------------------------
+# How it is reached. release.yml's last step dispatches this workflow after the publish (`workflow_dispatch`,
+# actor `github-actions` — one of the two events the job token may raise, and the one event path from a tag push
+# that claude-code-action accepts: a `workflow_call` from release.yml ran the action under the tag `push` and it
+# refused, run 34537045037; the `release: published` trigger never fires from a `github.token` publish). It can
+# also be run by hand: `gh workflow run release-notes.yml -f tag=v0.5.1`.
 name: release notes
 
 on:
-  release:
-    types: [published]
-  workflow_call:
-    inputs:
-      tag:
-        required: true
-        type: string
-    secrets:
-      # Declared EXPLICITLY so the caller in §6 can pass this one credential and only this one. The alternative
-      # — `secrets: inherit` on the caller — would hand this workflow every repository secret it has, including
-      # GH_ACTIONS_TOKEN, which is Rjae's account-wide classic PAT and has no business on the release path or in
-      # any job that runs an agent (§1.1.1 (iii)). §4.4 states the same rule for the issue factory.
-      claude_code_oauth_token:
-        required: true
   workflow_dispatch:
     inputs:
       tag:
-        description: The tag to write notes for, e.g. v0.5.0
+        description: The tag to write notes for, e.g. v0.5.1
         required: true
         type: string
 
 jobs:
   notes:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 20         # not a p90; a bounded read-only session plus two API writes
+    timeout-minutes: 30         # not a p90: two bounded agent sessions, at most four, plus a build and two writes
     permissions:
       contents: write           # `gh release edit --notes` is a contents write
       issues: write             # the one announcement issue
-      id-token: write
+      id-token: write           # claude-code-action's OIDC
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      NOTES_DIR: /tmp/brigade-notes
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0        # the agent reads `git log <previous tag>..<tag>`; a shallow clone has no tags
+          fetch-depth: 0        # the agents read `git log <previous tag>..<tag>`; a shallow clone has no tags
+      - uses: actions/setup-go@v7
+        with: {go-version-file: go.mod}
 
-      - name: Write the notes and announce
-        # THE ONE ACTION PINNED BY SHA, not by major tag — deliberately breaking the house style the other three
-        # brigade workflows keep (§4's conventions; open question 7.7, adopted 2026-09-10). It is the only action
-        # in this repository that runs a MODEL with repository write access, so a mutable tag moving under it
-        # changes what an autonomous agent does, not merely how a step behaves.
-        # Re-resolve for the current `v1` whenever this pin is bumped —
-        #   gh api repos/anthropics/claude-code-action/git/ref/tags/v1 --jq '.object.sha'
-        #   (an annotated tag needs one more hop: gh api .../git/tags/<sha> --jq '.object.sha')
-        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
+      # The two lists the lint needs, from the truth itself: the CLI's own `--help` of a fresh build (never a
+      # hand-kept list), and the assets that actually shipped. The plugin's skills the lint reads from the tree.
+      - name: Prepare the draft directory and the lint's lists
+        run: |
+          mkdir -p "$NOTES_DIR"
+          go build -o "$NOTES_DIR/brigade" ./cmd/brigade
+          commands=$("$NOTES_DIR/brigade" --help | awk '/^Commands:/{f=1;next} /^Global flags:/{f=0} f && /^  [a-z]/{print $1}' | tr '\n' ' ')
+          assets=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | tr '\n' ' ')
+          test -n "$commands" && test -n "$assets"
+          { echo "BRIGADE_NOTES_COMMANDS=$commands"; echo "BRIGADE_NOTES_ASSETS=$assets"; } >> "$GITHUB_ENV"
+          echo "commands: $commands"; echo "assets: $assets"
+        env: {GH_TOKEN: "${{ github.token }}"}
+
+      # ---- round 1 ------------------------------------------------------------------------------------------
+      - name: Draft the notes
+        id: draft1
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1 — pinned by SHA: the one action that runs a MODEL with repository write access
         with:
-          # `github-actions` is the actor of the dispatch release.yml raises with the job token (measured on v0.5.1,
-          # run 34539842793: the dispatch arrived, and the action refused "non-human actor: github-actions (type:
-          # Bot)"), exactly as review-pull-request.yml learned on the loop's first run.
-          allowed_bots: "claude,github-actions"
-          # One expression covers all three triggers: secret names are case-insensitive in Actions, so this
-          # resolves to the `claude_code_oauth_token` the caller passes under `workflow_call`, and to the
-          # repository secret of the same name under `release` and `workflow_dispatch`.
+          allowed_bots: "claude,github-actions"   # github-actions is release.yml's dispatch actor (run 34539842793 measured the refusal)
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-5 --max-turns 20"
+          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 25"
           show_full_output: false
-          # The tag expression `github.event.release.tag_name || inputs.tag` appears three times in the prompt
-          # below and is repeated rather than hoisted into `env:`: `github.event.release.tag_name` is set on the
-          # `release` trigger and `inputs.tag` on the other two, and a PROMPT is not a shell — it cannot expand
-          # an environment variable, so an `env: RELEASE_TAG:` block here would be set and never read.
           prompt: |
-            Release ${{ github.event.release.tag_name || inputs.tag }} of brigade has been published.
-
-            Write its release notes and announce it. Exactly this, and nothing else:
+            Release ${{ inputs.tag }} of brigade has been published. DRAFT its release notes — write them to the
+            file /tmp/brigade-notes/notes.md with the Write tool and do nothing else. You do not publish: a lint
+            and a reviewer read that file after you, and a shell step publishes it if they approve.
 
             1. Read the section of `CHANGELOG.md` for this version. It is the authority on what changed and why;
                do not restate the commit log over it.
-            2. Read `git log --oneline <previous tag>..${{ github.event.release.tag_name || inputs.tag }}` for
-               anything the changelog omitted, and `gh release view <tag> --json assets` for the assets that
-               actually shipped.
-            3. Compose notes: what changed for a USER of the plugin, then anything an ADAPTER AUTHOR must know,
-               then the assets and their checksums file. Keep the changelog's own wording where it exists.
-               Never invent a change that is not in the changelog or the log. Name a slash command or a skill
-               only if it exists under `plugin/skills/` or `plugin/commands/` — read them first; the roster is the
-               `brigade sessions` command a session runs on request, not a skill (the v0.5.0 notes named a
-               `/brigade:sessions` that does not exist).
-            4. Publish them with `gh release edit <tag> --notes "<the notes>"`. Do not use --notes-file (no
-               temporary files under the project directory) and do not touch --draft or --latest: release.yml
-               owns the publish state.
-            5. Open ONE issue titled `<version> is out — run /brigade:update` whose body tells members the one
-               command they run and links the release. Nothing else; do not label it `claude` (it is an
-               announcement, not a work order, and the `claude` label would start an agent on it).
+            2. Read `git log --oneline <previous tag>..${{ inputs.tag }}` for anything the changelog omitted, and
+               `gh release view ${{ inputs.tag }} --json assets` for the assets that actually shipped.
+            3. Compose: what changed for a USER of the plugin, then anything an ADAPTER AUTHOR must know, then the
+               assets and their checksums file, every one of them by name. Keep the changelog's own wording where
+               it exists. Never invent a change that is not in the changelog or the log.
+            4. Name a slash command or a skill ONLY if it exists: list `plugin/skills/` and `plugin/commands/` and
+               name only what is there. Name a `brigade <verb>` ONLY if `/tmp/brigade-notes/brigade --help` lists
+               that verb. The roster is the `brigade sessions` command a session runs on request — there is no
+               `/brigade:sessions` skill (the v0.5.0 notes invented one, and this is why you are being checked).
+            5. The first line is one sentence saying what the release is. Use the version number, never
+               "Unreleased". No placeholders.
 
-            Do not edit any file in the repository. Do not push. Do not open a pull request.
+            Do not edit any file in the repository. Do not push. Do not run `gh release edit` or `gh issue create`.
           settings: |
             {
               "permissions": {
                 "allow": [
+                  "Write(//tmp/brigade-notes/notes.md)",
+                  "Read(//tmp/brigade-notes/**)",
+                  "Bash(/tmp/brigade-notes/brigade --help:*)",
                   "Bash(git log:*)",
                   "Bash(git show:*)",
                   "Bash(git tag:*)",
                   "Bash(gh release view:*)",
                   "Bash(gh release list:*)",
-                  "Bash(gh release edit:*)",
-                  "Bash(gh issue create:*)",
                   "Bash(ls:*)",
                   "Bash(cat:*)",
                   "Bash(grep:*)",
@@ -133,12 +109,204 @@ jobs:
                 ]
               }
             }
-          # No WebFetch and no WebSearch here either (§1.1.1 (iv)) — this list never had them, and now that is a
-          # stated rule rather than an accident: the notes are composed from CHANGELOG.md, `git log` and
-          # `gh release view`, all of which are already in the checkout or behind the job's own token.
-          # The two writes are the ONLY two `gh` verbs on the allowlist that write, and the job's token grants
-          # exactly the two scopes they need. NO GH_ACTIONS_TOKEN here, for two independent reasons: this job
-          # runs an agent, so it may not hold the PAT at all (§1.1.1 (iii)); and neither `gh release edit` nor
-          # `gh issue create` has to fire a downstream workflow — the announcement issue deliberately must NOT
-          # (it carries no `claude` label, and a GITHUB_TOKEN-made issue raises no event either way, which is
-          # belt and braces).
+          # No WebFetch, no WebSearch, no `gh` write verb: the draft is composed from the checkout and the job's
+          # own token, and the writes happen in the shell steps below. NO GH_ACTIONS_TOKEN anywhere in this job.
+
+      - name: Lint the draft
+        id: lint1
+        continue-on-error: true   # a failure is a finding for the fix cycle, recorded for the writer to read
+        run: scripts/ci/release-notes-lint.sh "$NOTES_DIR/notes.md" "$RELEASE_TAG" | tee "$NOTES_DIR/lint.txt"; exit "${PIPESTATUS[0]}"
+
+      - name: Review the draft
+        id: review1
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
+        with:
+          allowed_bots: "claude,github-actions"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 20"
+          show_full_output: false
+          prompt: |
+            You are the reviewer of a DRAFT of the release notes for ${{ inputs.tag }} of brigade, at
+            /tmp/brigade-notes/notes.md. Write your verdict to /tmp/brigade-notes/review.md with the Write tool:
+            the FIRST line is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line, each naming the
+            sentence and what is wrong. Do nothing else.
+
+            Check every claim against the sources, assuming each is wrong until you have seen it right:
+            - Every change described is in `CHANGELOG.md`'s section for this version or in
+              `git log --oneline <previous tag>..${{ inputs.tag }}`; nothing is invented, nothing important
+              in the changelog is missing, and the changelog's meaning is not distorted.
+            - Every `/brigade:<name>` exists under `plugin/skills/` or `plugin/commands/`; every `brigade <verb>`
+              is listed by `/tmp/brigade-notes/brigade --help`.
+            - The assets named are exactly `gh release view ${{ inputs.tag }} --json assets`.
+            - The notes address a USER of the plugin first, then an ADAPTER AUTHOR; they name the version;
+              they say "Unreleased" nowhere; there is no placeholder.
+            - If /tmp/brigade-notes/lint.txt has `FAIL:` lines, every one of them is a finding.
+            Approve only when you found nothing. Do not edit any file but review.md. Do not push.
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Write(//tmp/brigade-notes/review.md)",
+                  "Read(//tmp/brigade-notes/**)",
+                  "Bash(/tmp/brigade-notes/brigade --help:*)",
+                  "Bash(git log:*)",
+                  "Bash(git show:*)",
+                  "Bash(git tag:*)",
+                  "Bash(gh release view:*)",
+                  "Bash(gh release list:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(jq:*)"
+                ],
+                "deny": [
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+
+      - name: Read the round-1 verdict
+        id: verdict1
+        run: |
+          test -f "$NOTES_DIR/review.md" || { echo "the reviewer wrote no review.md" >&2; exit 1; }
+          verdict=$(head -n 1 "$NOTES_DIR/review.md" | tr -d '[:space:]')
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          echo "round 1: lint ${{ steps.lint1.outcome }}, review $verdict"; cat "$NOTES_DIR/review.md"
+
+      # ---- round 2: exactly one fix cycle ---------------------------------------------------------------------
+      - name: Fix the draft
+        id: draft2
+        if: steps.lint1.outcome != 'success' || steps.verdict1.outputs.verdict != 'APPROVED'
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
+        with:
+          allowed_bots: "claude,github-actions"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 25"
+          show_full_output: false
+          prompt: |
+            Your draft of the release notes for ${{ inputs.tag }} of brigade, /tmp/brigade-notes/notes.md, was
+            not approved. Read /tmp/brigade-notes/lint.txt (deterministic checks; every `FAIL:` line is a fact) and
+            /tmp/brigade-notes/review.md (the reviewer's findings), fix EVERY finding, and rewrite
+            /tmp/brigade-notes/notes.md with the Write tool. The same rules apply: only what is in `CHANGELOG.md`
+            or the tag's `git log`; only skills under `plugin/skills/` or `plugin/commands/`; only verbs that
+            `/tmp/brigade-notes/brigade --help` lists; every shipped asset named; the version named; no
+            "Unreleased", no placeholder. Do nothing else: do not publish, do not edit the repository, do not push.
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Write(//tmp/brigade-notes/notes.md)",
+                  "Read(//tmp/brigade-notes/**)",
+                  "Bash(/tmp/brigade-notes/brigade --help:*)",
+                  "Bash(git log:*)",
+                  "Bash(git show:*)",
+                  "Bash(git tag:*)",
+                  "Bash(gh release view:*)",
+                  "Bash(gh release list:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(jq:*)"
+                ],
+                "deny": [
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+
+      - name: Lint the fix
+        id: lint2
+        if: steps.draft2.outcome == 'success'
+        continue-on-error: true
+        run: scripts/ci/release-notes-lint.sh "$NOTES_DIR/notes.md" "$RELEASE_TAG" | tee "$NOTES_DIR/lint.txt"; exit "${PIPESTATUS[0]}"
+
+      - name: Review the fix
+        id: review2
+        if: steps.draft2.outcome == 'success'
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
+        with:
+          allowed_bots: "claude,github-actions"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 20"
+          show_full_output: false
+          prompt: |
+            You are the reviewer of the SECOND draft of the release notes for ${{ inputs.tag }} of brigade, at
+            /tmp/brigade-notes/notes.md; your first review is /tmp/brigade-notes/review.md and the lint's result is
+            /tmp/brigade-notes/lint.txt. Overwrite /tmp/brigade-notes/review.md with the Write tool: the FIRST
+            line is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line. Apply the same checks as
+            before — every change in `CHANGELOG.md` or `git log --oneline <previous tag>..${{ inputs.tag }}`,
+            every `/brigade:<name>` under `plugin/skills/` or `plugin/commands/`, every `brigade <verb>` in
+            `/tmp/brigade-notes/brigade --help`, the assets exactly `gh release view ${{ inputs.tag }} --json
+            assets`, user first then adapter author, the version named, no "Unreleased", no placeholder, and no
+            `FAIL:` line left in lint.txt. Approve only when you found nothing. Do nothing else.
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Write(//tmp/brigade-notes/review.md)",
+                  "Read(//tmp/brigade-notes/**)",
+                  "Bash(/tmp/brigade-notes/brigade --help:*)",
+                  "Bash(git log:*)",
+                  "Bash(git show:*)",
+                  "Bash(git tag:*)",
+                  "Bash(gh release view:*)",
+                  "Bash(gh release list:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(jq:*)"
+                ],
+                "deny": [
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+
+      # ---- the gate --------------------------------------------------------------------------------------------
+      - name: Gate on the final lint and verdict
+        run: |
+          if [ "${{ steps.draft2.outcome }}" = "skipped" ]; then
+            lint="${{ steps.lint1.outcome }}"; round=1
+          else
+            lint="${{ steps.lint2.outcome }}"; round=2
+          fi
+          verdict=$(head -n 1 "$NOTES_DIR/review.md" | tr -d '[:space:]')
+          echo "round $round: lint $lint, review $verdict"
+          if [ "$lint" != "success" ] || [ "$verdict" != "APPROVED" ]; then
+            echo "::error::the notes were not approved after $round round(s); nothing was published (draft, lint and review are attached as an artifact)"
+            exit 1
+          fi
+      - name: Attach the draft, lint and review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-${{ inputs.tag }}
+          path: |
+            /tmp/brigade-notes/notes.md
+            /tmp/brigade-notes/lint.txt
+            /tmp/brigade-notes/review.md
+          if-no-files-found: ignore
+
+      # ---- the two writes, by the shell, idempotent -------------------------------------------------------------
+      - name: Publish the notes
+        run: gh release edit "$RELEASE_TAG" --notes-file "$NOTES_DIR/notes.md"   # never --draft or --latest: release.yml owns the publish state
+        env: {GH_TOKEN: "${{ github.token }}"}
+      - name: Announce, once
+        run: |
+          version=${RELEASE_TAG#v}
+          title="$version is out — run /brigade:update"
+          if gh issue list --state all --search "\"$title\" in:title" --json title --jq '.[].title' | grep -q -F "$title"; then
+            echo "announcement exists; not opening a second one"; exit 0
+          fi
+          gh issue create --title "$title" --body "$(printf 'Brigade %s is published. To get it, run:\n\n```\n/brigade:update\n```\n\nthen `/reload-plugins`.\n\nRelease notes: https://github.com/%s/releases/tag/%s\n' "$version" "$GITHUB_REPOSITORY" "$RELEASE_TAG")"
+        env: {GH_TOKEN: "${{ github.token }}"}
+        # No `claude` label: it is an announcement, not a work order, and the label would start an agent on it.
