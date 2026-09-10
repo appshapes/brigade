@@ -1,0 +1,220 @@
+# The reviewer half of the loop. Read-only because the job's GITHUB_TOKEN is `contents: read` — that, and only
+# that, is the boundary: a merge and a push are both content writes, so no tool the agent holds can perform one.
+# The `deny` list below is the belt: an `allow` list that merely OMITS Write/Edit withholds nothing, because the
+# action grants the general edit tools by default (see §4.1's note), so the denial has to be written out.
+# A reviewer that can push is not a reviewer.
+name: review pr
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# brake 4, first half. The autonomous fixer can push more than once per cycle; without cancellation each push
+# would spawn a full reviewer session, most of them reviewing stale heads — and each stale CHANGES_REQUESTED
+# verdict burns a slot of the fix cap for work already superseded.
+concurrency:
+  group: review-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Same-repository PRs only. A fork PR cannot read `secrets.CLAUDE_CODE_OAUTH_TOKEN` (GitHub does not expose
+    # secrets to fork PRs), so a reviewer job on one would fail at authentication on every drive-by contribution
+    # and teach everyone to ignore a red X. Fork PRs get CI — after the "require approval for all outside
+    # collaborators" gate — and a human reviewer.
+    #
+    # ONE clause, and that is the whole gate. Earlier drafts carried a second, `github.actor != 'dependabot[bot]'`,
+    # because a Dependabot branch lives in THIS repository and would therefore pass the same-repo test while
+    # being unable to read the repository's secrets. Rjae's ruling of 2026-09-10 removes Dependabot from this
+    # repository entirely — dependency bumps are the agent's job (§4.8) — so that clause is DELETED, not
+    # commented out. A dependency PR now arrives like any other agent PR and is reviewed like one.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # NOT a measured p90 (no runs exist): a read-only review session with --max-turns 30 over a repository of
+    # this size. Re-pin from ten real runs (P9-3).
+    timeout-minutes: 30
+    permissions:
+      contents: read           # the reviewer must not be able to push. This is the boundary; the allowlist is the belt.
+      pull-requests: write     # `gh pr review` needs it
+      id-token: write          # claude-code-action's OIDC
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0       # the guard below diffs base...head against the MERGE BASE; a depth-1 clone has none
+
+      # ---------------------------------------------------------------- brigade's fifth brake, deterministic
+      # Three repository invariants that must never depend on an agent's judgement, checked before the agent
+      # runs so a violating PR is never even reviewed (let alone approved and auto-merged):
+      #
+      #  (1) plugin/bin/VERSION and plugin/bin/checksums.txt are produced ONLY by `make release`, on master,
+      #      by the owner (CLAUDE.md). A PR that touches either is claiming bytes nobody built.
+      #  (2) go.mod's `go` line is a release-reproducibility pin: the release job rebuilds from the tag and
+      #      diffs against the committed checksums, so bumping it changes the shipped bytes. Only a release
+      #      bumps it (CLAUDE.md, `make checksums-check` rule (c)).
+      #  (3) A protocol wire-shape change means internal/protocol, docs/protocol-v1.schema.json, the conformance
+      #      suite and BOTH adapters in ONE commit. This check is the cheap half — the schema must move with the
+      #      types; `make schema-check` in ci.yml is the real gate and the conformance suite is the rest.
+      #
+      # A human doing release work pushes straight to master and never sees this file.
+      #
+      # The BODY lives in scripts/ci/pr-guard.sh, not inline here, and that is a house rule rather than taste:
+      # scripts/ci/README.md is built on a near-1:1 workflow-to-script relation, `make plugin-check`'s check 9
+      # runs `shellcheck -s sh` over `scripts/ci/*.sh scripts/*.sh` only, the pinned shellcheck 0.9.0 container
+      # rule is written against files, and ten Go drift tests open these scripts BY PATH. Twenty-five lines of
+      # shell inlined in a workflow escapes all four.
+      - name: Guard the release pins, the go line and the protocol join
+        id: guard
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # `set -o pipefail` explicitly: Actions runs `run:` blocks as `bash -e {0}`, which does NOT set it, so
+          # without this line `tee` would decide the step's exit status and a tripped guard would report green.
+          set -o pipefail
+          scripts/ci/pr-guard.sh "$BASE_SHA" "$HEAD_SHA" 2>&1 | tee "$RUNNER_TEMP/pr-guard.log"
+
+      # Open question 7.8, ADOPTED (converged with brigade-33 2026-09-10) and landed here in P9-2 rather than
+      # deferred: a tripped guard must SAY WHY on the pull request. Without this step the PR parks with a red X,
+      # no review and no comment — and the next reader (agent or human) has to open a run log to learn that the
+      # blocker is a repository invariant rather than a flaky check.
+      #
+      # `github.token`, deliberately, and it is the whole reason this is safe to add now: a GITHUB_TOKEN comment
+      # raises no workflow-triggering event, so it CHAINS TO NOTHING — no `issue_comment` run, no fixer, no loop.
+      # The body carries no '@claude' mention either, belt and braces (§4.1's clause would ignore it anyway,
+      # since the comment's author is github-actions[bot], which the actor filter excludes).
+      - name: Explain a guard trip on the PR
+        if: ${{ failure() && steps.guard.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Written under RUNNER_TEMP, never under the project directory (CLAUDE.md), and read back with
+          # --body-file so the error text needs no shell quoting.
+          {
+            echo "This pull request trips \`scripts/ci/pr-guard.sh\`, so the reviewer agent did not run and no"
+            echo "review will be submitted. The guard checks three repository invariants that sit outside an"
+            echo "agent's judgement (release pins, \`go.mod\`'s \`go\` line, the protocol join) — see CLAUDE.md."
+            echo
+            echo '```'
+            sed 's/^::error:://' "$RUNNER_TEMP/pr-guard.log"
+            echo '```'
+          } > "$RUNNER_TEMP/pr-guard-comment.md"
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/pr-guard-comment.md"
+      - name: Review
+        # THE ONE ACTION PINNED BY SHA, not by major tag — deliberately breaking the house style the other three
+        # brigade workflows keep (§4's conventions; open question 7.7, adopted 2026-09-10). It is the only action
+        # in this repository that runs a MODEL with repository write access, so a mutable tag moving under it
+        # changes what an autonomous agent does, not merely how a step behaves.
+        # Re-resolve for the current `v1` whenever this pin is bumped —
+        #   gh api repos/anthropics/claude-code-action/git/ref/tags/v1 --jq '.object.sha'
+        #   (an annotated tag needs one more hop: gh api .../git/tags/<sha> --jq '.object.sha')
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
+        with:
+          # After the autonomous fixer pushes as claude[bot], the resulting `synchronize` run's ACTOR is that
+          # bot; without this name the action rejects the run and the loop dead-ends unreviewed. The `opened`
+          # run needs no second name: that PR was created with Rjae's PAT, so its actor is a human with write
+          # access. Explicit list, one entry, never '*'.
+          allowed_bots: "claude"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5 --max-turns 30"
+          show_full_output: false
+          prompt: |
+            You are the reviewer agent. Read `.claude/agents/reviewer.md` for your
+            operating instructions and review pull request
+            #${{ github.event.pull_request.number }} in PR-review mode.
+
+            You MUST end your session by actually executing
+            `gh pr review ${{ github.event.pull_request.number }} --approve --body "<summary>"`
+            or
+            `gh pr review ${{ github.event.pull_request.number }} --request-changes --body "<findings>"`.
+            Your final text response is discarded: a verdict not submitted via
+            `gh pr review` does not exist, and this job fails if no review lands.
+            If the submission command errors, retry it, and surface a persistent
+            failure with `gh pr comment` before ending the session.
+
+            When requesting changes, end the review body with the following
+            line, written as plain text on its own line — do NOT wrap it in
+            backticks or quotes, or the fixer's mention-detection regex will
+            not match it:
+
+            @claude Read `.claude/agents/developer.md`, then address every blocker in this review: apply the fixes directly on this PR branch and push.
+
+            The `.claude/agents/developer.md` clause is not decoration: this
+            trailer is the ONLY thing in the whole loop that hands the fixer
+            its rules file. Nothing else in the fix path names it — the issue
+            bodies of the two scheduled agents name documenter.md and
+            reviewer.md, and a human's issue names nothing — so without it the
+            gate list, the never-`make commit` rule and the pin prohibitions
+            reach the writer through CLAUDE.md's short paragraph alone.
+
+            Never put an @claude mention in an approval body — it would
+            trigger a needless autonomous fix run.
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(gh:*)",
+                  "Bash(git:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(find:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(jq:*)"
+                ],
+                "deny": [
+                  "Write",
+                  "Edit",
+                  "MultiEdit",
+                  "NotebookEdit",
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+          # The four bare tool names in `deny` are the belt, and they have to be WRITTEN: the action grants the
+          # general edit tools by default, so leaving them off the `allow` list withholds nothing (§4.1's note
+          # says the same thing from the writer's side, where those defaults are what let it edit a Go file).
+          # `Bash(gh:*)` includes `gh pr merge`. It cannot merge: the job's GITHUB_TOKEN is `contents: read`, and
+          # a merge is a content write. That is why the permissions block above is the boundary and this list is
+          # only the belt. No `make`, no `go`, no `docker`: a reviewer that can run the build can also write files
+          # through a build script.
+          # No WebFetch and no WebSearch either, and here the case is even plainer than for the writer (§4.1): a
+          # reviewer reads a diff in a checkout it already has, and the OAuth token in its environment is
+          # reachable to anything it runs (§1.1.1). Reviewing a PR whose diff is hostile is this agent's ENTIRE
+          # job, so it is the one agent whose prompt is adversarial by construction — give it no fetch verb.
+
+      # ---------------------------------------------------------------- fail-loud verifier 2
+      # A reviewer session can end "successfully" without ever submitting the review (observed 2026-08-01 in the
+      # reference's sibling repos: green check, zero reviews, auto-merge never armed). Fail loudly so a silent
+      # no-op can never read as success.
+      - name: Verify a review was submitted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # One line per claude review AT HEAD: "STATE<TAB>has-trailer". Paginated so a long-lived PR (>100
+          # reviews) cannot hide the newest review.
+          reviews=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+            --jq ".[] | select((.user.login // \"\" | startswith(\"claude\")) and .commit_id == \"$HEAD_SHA\") | [.state, (.body // \"\" | contains(\"@claude\") | tostring)] | @tsv")
+          if [ -z "$reviews" ]; then
+            echo "::error::Reviewer session ended without submitting a formal review at head $HEAD_SHA"
+            exit 1
+          fi
+          last=$(printf '%s\n' "$reviews" | tail -n 1)
+          state=${last%%$'\t'*}
+          has_trailer=${last##*$'\t'}
+          # A CHANGES_REQUESTED verdict without the '@claude' trailer never arms the autonomous fixer — the PR
+          # would silently park, so fail loud.
+          if [ "$state" = "CHANGES_REQUESTED" ] && [ "$has_trailer" != "true" ]; then
+            echo "::error::CHANGES_REQUESTED review at $HEAD_SHA lacks the @claude fixer trailer — the autonomous fix loop will not arm"
+            exit 1
+          fi

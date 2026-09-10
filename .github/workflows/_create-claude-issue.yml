@@ -1,0 +1,67 @@
+# Reusable factory: creates the issue that IS the work order. Every scheduled agent is fifteen lines because of
+# this file. The issue body becomes the agent's prompt (claude.yml runs in tag mode), which is why the callers
+# write agent-role prose into `body` rather than instructions into YAML: agent policy stays in committed files
+# under .claude/agents/, reviewable in a PR, changeable without touching CI.
+name: create claude issue
+
+on:
+  workflow_call:
+    inputs:
+      title:
+        # FOLDED (`>-`), not a plain scalar: this prose contains "15: " and a colon-space inside a plain scalar
+        # is a YAML syntax error ("mapping values are not allowed in this context") that would stop this whole
+        # file loading — taking both scheduled workflows with it. Same rule for every description below.
+        description: >-
+          An imperative summary. claude.yml turns it into the PR title `15: <title>`, which becomes the squash
+          commit subject — so write it the way the commit should read.
+        required: true
+        type: string
+      body:
+        required: true
+        type: string
+      auto_merge:
+        description: Adds the `auto-merge` label, which auto-merge.yml requires. Default FALSE here — the
+          reference defaults it to true, which is the wrong default for a repository whose owner is the only
+          committer. Each caller opts in explicitly.
+        required: false
+        type: boolean
+        default: false
+      maintenance:
+        description: Adds the `maintenance` label, which exempts the PR from the execution-log-row rule
+          (owner ruling 4, 2026-09-09). Default true — a scheduled agent's work is maintenance by definition.
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      gh_actions_token:
+        # FOLDED for the same reason as `title` above: "secrets: inherit" carries a colon-space.
+        description: >-
+          Rjae's classic PAT (the repository secret GH_ACTIONS_TOKEN). Secrets are passed EXPLICITLY, never
+          `secrets: inherit`, so this workflow can reach exactly one credential and never
+          CLAUDE_CODE_OAUTH_TOKEN. This workflow runs no agent, which is what makes holding the PAT permissible
+          here at all (§1.1.1 (iii)).
+        required: true
+
+jobs:
+  create-issue:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5           # one `gh issue create`; not a p90, a floor
+    permissions: {}              # the PAT does the write; the job token needs nothing
+    steps:
+      # The `issues: labeled` event MUST fire, or claude.yml never sees the work order and the scheduled agents
+      # produce nothing but silent issues. GITHUB_TOKEN's writes raise no workflow events; a PAT's do. This is
+      # brake 3 in its constructive direction.
+      - name: Create issue
+        env:
+          GH_TOKEN: ${{ secrets.gh_actions_token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: ${{ inputs.title }}
+          BODY: ${{ inputs.body }}
+          AUTO_MERGE: ${{ inputs.auto_merge }}
+          MAINTENANCE: ${{ inputs.maintenance }}
+        run: |
+          set -euo pipefail
+          LABELS=(--label claude)                                   # `claude` is what claude.yml's `if:` keys on
+          if [ "$MAINTENANCE" = "true" ]; then LABELS+=(--label maintenance); fi
+          if [ "$AUTO_MERGE" = "true" ]; then LABELS+=(--label auto-merge); fi
+          gh issue create --title "$TITLE" --body "$BODY" "${LABELS[@]}"

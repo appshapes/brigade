@@ -7,12 +7,12 @@ and its runtime dependencies, and a `| Type | Name | Notes |` table of the GitHu
 Two adaptations of that shape, both deliberate:
 
 - **It lives beside the scripts themselves, rather than under `.github/`.** Brigade's CI scripts are not
-  workflow-only: nine of the thirteen shell scripts are reached through `make`, only two are reached from a
+  workflow-only: ten of the fifteen shell scripts are reached through `make`, only three are reached from a
   workflow without a target of their own, and the remaining two are reached by nothing at all. Moving them would
   break `scripts/ci/plugin-check.sh`'s shellcheck glob (`scripts/ci/*.sh scripts/*.sh`), the `make` recipes that
   name them by path, `ci.yml`'s steps, and the ten Go drift tests that open them by path.
 - **It also carries the workflow table** that the house keeps in `thinktech-app/.github/workflows/README.md`,
-  rather than a second index over there. Brigade has three workflows and fourteen scripts in a near-1:1
+  rather than a second index over there. Brigade has eleven workflows and fifteen scripts in a near-1:1
   relation, and two indexes of the same thing drift. `thinktech-php` keeps its own workflow table out of its
   own workflow directory for the same reason.
 
@@ -26,6 +26,14 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `.github/workflows/ci.yml` | push to `master`, and every pull request | Five jobs: `fast` (lint, typecheck, unit + conformance(fs) tests, vuln, dependency and schema guards, `make checksums-check`, `make plugin-check`), `macos` (`go test` on the primary user platform plus `make cross`), `reproducibility` (the ubuntu and macOS cross-builds must be byte-identical), `supabase` (the local stack: pgTAP, advisor lints, the integration suite, conformance(supabase) and `make e2e`), and `deploy-staging` (skipped until `BRIGADE_STAGING` is set). |
 | `.github/workflows/release.yml` | a pushed `v*` tag | Guards that `plugin/bin/VERSION` and `plugin/.claude-plugin/plugin.json` pin the tag and that `make cross` reproduces `plugin/bin/checksums.txt`, runs goreleaser into a draft release, verifies the built binaries against the committed checksums with `release-verify.sh`, then publishes the draft or discards it. |
 | `.github/workflows/keepalive.yml` | daily cron (`37 10 * * *` UTC) and `workflow_dispatch` | Runs `keepalive.sh` so the hosted Supabase project answers a few database requests a day and the Free plan never pauses it. |
+| `.github/workflows/claude.yml` | `issues` (labeled/assigned), `pull_request` (opened/labeled), `pull_request_review`, comment events, `workflow_dispatch` | The agentic hub: implements a `claude`-labelled issue on a branch and opens its PR, or applies a reviewer's blockers on a PR branch. Bounded by a derived fix cap (`MAX_ATTEMPTS 3`), actor filters, the PAT/`GITHUB_TOKEN` switch and per-PR concurrency. Two jobs: `agent`, then `open-pr` (`needs:`), which is the only one that holds `GH_ACTIONS_TOKEN`. |
+| `.github/workflows/review-pull-request.yml` | `pull_request` (opened/synchronize/reopened), same-repo only | Deterministic guard (release pins, the `go` line, the protocol join) then the read-only reviewer agent; fails loudly if no review lands at head, and comments on the PR when the guard trips. |
+| `.github/workflows/auto-merge.yml` | `pull_request_review` (submitted) | Arms `gh pr merge --squash --auto` with `GH_ACTIONS_TOKEN` when the reviewer approved the current head of an `auto-merge`-labelled PR. The `master` ruleset makes the four CI checks required, which is what `--auto` waits for. |
+| `.github/workflows/_create-claude-issue.yml` | `workflow_call` | Reusable factory: creates the `claude`-labelled work order with `GH_ACTIONS_TOKEN` so the `issues: labeled` event fires. |
+| `.github/workflows/update-documentation.yml` | monthly cron, `workflow_dispatch` | Structural documentation refresh through the loop. Opens its PR **with** the auto-merge label. |
+| `.github/workflows/review-repository.yml` | monthly cron, `workflow_dispatch` | Reviewer pass over the tree; opens a PR with minimal fixes and **no** auto-merge label — that one merges by hand. |
+| `.github/workflows/release-notes.yml` | `release: published`, `workflow_call`, `workflow_dispatch` | Writes the published release's notes from `CHANGELOG.md` and the log, and opens the "run `/brigade:update`" announcement. |
+| `.github/workflows/update-dependencies.yml` | monthly cron, `workflow_dispatch` | Dependency bump through the loop: `go.mod` and `tools.mod` by the agent, the action pins reported in the PR body (not edited) (`.claude/agents/developer.md`, dependency-update mode). Opens its PR **with** the auto-merge label. |
 
 ## Index
 
@@ -45,6 +53,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/ci/keepalive.sh` | `keepalive.yml` only — no `make` target |
 | `scripts/ci/bootstrap-alpine.sh` | nothing — run by hand, see its section |
 | `scripts/ci/conformance-setup-supabase.sh` | nothing — passed by an adapter author to `--setup`, see its section |
+| `scripts/ci/pr-guard.sh` | `.github/workflows/review-pull-request.yml` (not `make`) |
 
 `release-verify.sh` and `keepalive.sh` have no `make` target on purpose, and the house does the same with its own
 workflow-only scripts (`thinktech-php` runs `send-weekly-metrics.yml`, `phinx-ownership.yml` and
@@ -68,6 +77,8 @@ Names only. No value of any of these appears in this repository, and none may be
 | Secret | `SUPABASE_ACCESS_TOKEN` | `ci.yml`'s `deploy-staging` job: the Supabase CLI's personal access token. |
 | Secret | `SUPABASE_DB_PASSWORD` | `ci.yml`'s `deploy-staging` job: the staging project's database password. |
 | Secret | `SUPABASE_PROJECT_ID` | `ci.yml`'s `deploy-staging` job: the staging project's ref, passed to `supabase link`. |
+| Secret | `GH_ACTIONS_TOKEN` | A classic personal access token of the owner's account (`repo`, `workflow`, `read:org`), read by `claude.yml`'s `open-pr` job, `auto-merge.yml` and `_create-claude-issue.yml`. It exists because `GITHUB_TOKEN`'s writes raise no workflow events, and it is deliberately absent from every job that runs an agent: a classic PAT cannot be scoped to one repository. |
+| Secret | `CLAUDE_CODE_OAUTH_TOKEN` | The model credential for `anthropics/claude-code-action`, read by `claude.yml`, `review-pull-request.yml` and `release-notes.yml`. Never reaches `_create-claude-issue.yml` or `auto-merge.yml`. |
 | Token | `GITHUB_TOKEN` / `GH_TOKEN` | The job token GitHub mints per run, never a stored secret. `ci.yml` passes it to `make checksums-check` for rule (c)'s release fallback; `release.yml` passes it to goreleaser and to the two `gh release edit`/`delete` steps. |
 
 **The Supabase secret key, the service-role key and the Supabase personal access token are never a variable or a

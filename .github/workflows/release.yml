@@ -21,8 +21,15 @@ name: release
 on:
   push:
     tags: ["v*"]
+# A called workflow's job may request only permissions the CALLER already holds: release-notes.yml's `notes`
+# job asks for `issues: write` (the announcement issue) and `id-token: write` (claude-code-action's OIDC), and
+# with the current block GitHub fails the run at validation — "is requesting 'issues: write', but is only
+# allowed 'issues: none'" — before a single step executes. Widening here widens the ceiling, not the grant:
+# each job still gets what its own block asks for, and `goreleaser` asks for nothing new.
 permissions:
   contents: write                                   # create the release and upload assets
+  issues: write
+  id-token: write
 jobs:
   goreleaser:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -66,3 +73,18 @@ jobs:
         if: failure()
         run: gh release delete "${GITHUB_REF_NAME}" --yes || true
         env: {GH_TOKEN: "${{ github.token }}"}
+# The `notes` job exists because release.yml's Publish step runs `gh release edit --draft=false`
+# authenticated by `${{ github.token }}`, and GITHUB_TOKEN's writes raise no workflow-triggering events — so
+# release-notes.yml's `release: published` trigger would never fire. Calling it directly needs no event.
+#
+# No `timeout-minutes` here: GitHub rejects it on a job that `uses:` a reusable workflow. The 20-minute bound
+# lives on release-notes.yml's own `notes` job (§4.5 states the exception).
+  notes:
+    needs: goreleaser
+    uses: ./.github/workflows/release-notes.yml
+    with: {tag: "${{ github.ref_name }}"}
+    # ONE secret, named — never `secrets: inherit`, which would hand the release path every repository secret
+    # this repo holds, GH_ACTIONS_TOKEN (Rjae's account-wide classic PAT) included. §4.4 states the rule and
+    # §4.7's `workflow_call.secrets` block is what makes passing exactly one possible.
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

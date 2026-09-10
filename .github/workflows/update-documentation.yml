@@ -1,0 +1,43 @@
+# Monthly structural-documentation refresh. SCOPED, deliberately: paths, make targets, versions and command
+# names in the four documents a reader actually follows. Not prose, not reasoning, and explicitly NOT
+# docs/security.md or docs/protocol-v1.md — those are argued documents whose sentences carry rulings, and an
+# agent rewriting them for "accuracy" would be rewriting decisions. The gate is CI's own doc-witness tests
+# (scripts/ci/setup_docs_test.go joins the five invocation forms across docs/setup.md, plugin/README.md and
+# plugin/skills/setup/SKILL.md; `make test` runs it).
+name: update documentation
+
+on:
+  schedule:
+    - cron: '17 9 1 * *'    # monthly, 1st, 09:17 UTC. Off the hour on GitHub's own advice (keepalive.yml's
+                            # header quotes it: scheduled runs are delayed at the top of the hour), and clear of
+                            # the other two monthly agents — review-repository at 04:43 and update-dependencies
+                            # at 11:29, both LIVE, so three agent sessions never contend for the runner.
+  workflow_dispatch:
+
+jobs:
+  # NO `timeout-minutes` here, and that is the one documented exception to CLAUDE.md's "every CI job sets
+  # timeout-minutes": GitHub REJECTS `timeout-minutes` on a job whose body is `uses:` a reusable workflow. The
+  # bound lives where the steps do — on `_create-claude-issue.yml`'s own `create-issue` job (5 minutes). The
+  # same exception applies to review-repository.yml and update-dependencies.yml below, and to the `notes:` job
+  # §6 adds to release.yml.
+  create-issue:
+    uses: ./.github/workflows/_create-claude-issue.yml
+    secrets:
+      gh_actions_token: ${{ secrets.GH_ACTIONS_TOKEN }}
+    with:
+      # TRUE from day one, and that is a ruling rather than a default. v3 of the brief proposed holding this at
+      # `false` for two months so a human would read the first few diffs; Rjae rejected the hold on 2026-09-10 —
+      # they have run this exact loop on numerous projects for many months, and a burn-in that answers a
+      # question already answered elsewhere is just a delay. So the original agreement (Rjae's workflows-item 4:
+      # documentation PRs auto-merge) stands unqualified. The gate on the content is the reviewer agent plus
+      # CI's doc-witness join; the scope guard is documenter.md's four-in, two-out file list.
+      auto_merge: true
+      maintenance: true     # exempt from the execution-log-row rule
+      title: Refresh the structural documentation
+      body: >-
+        You are the documenter agent. Read `.claude/agents/documenter.md` for your operating instructions and
+        follow them exactly. Scope: structural drift only — paths, `make` target names, version strings, command
+        names and file layout — in `docs/setup.md`, `plugin/README.md`, `README.md` and `docs/adapter-authors.md`.
+        Do not touch `docs/security.md` or `docs/protocol-v1.md`. Run `make test` before you push: the
+        doc-witness tests are the gate on the three setup copies. If nothing is structurally stale, change
+        nothing and say so — the workflow closes this issue automatically when no branch is pushed.

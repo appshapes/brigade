@@ -59,3 +59,12 @@
   least three — `CLAUDE_CODE_BRIDGE_SESSION_ID`, `CLAUDE_EFFORT` and `AI_AGENT` (that last one is not even
   `CLAUDE_`-prefixed), measured in E0-4 and E0-7 — and the next Claude Code release can add more.
 - Commit messages: `15: <Imperative summary>`; `make push message="15: ..."`; merges only, never rebase.
+- Repository automation: an issue labelled `claude` is a work order for the agentic loop
+  (`.github/workflows/claude.yml`). An agent working on a PR branch follows `.claude/agents/developer.md`; the
+  PR reviewer follows `.claude/agents/reviewer.md`. Agents commit with plain `git` on their branch and never run
+  `make commit`, `make push` or `make release`. A PR labelled `maintenance` is exempt from the execution-log-row
+  rule (owner ruling, 2026-09-09); its squash-merge title, `15: <Imperative summary>`, satisfies the
+  commit-message rule. Agent memory lives under `.context/plans/agent-memory/`, never under `.claude/`.
+  `anthropics/claude-code-action` is pinned by **full commit SHA** — the only action in this repository that is,
+  because it is the only one that runs a model with repository write access; every other action stays on its
+  major tag.

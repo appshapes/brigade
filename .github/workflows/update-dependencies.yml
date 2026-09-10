@@ -1,0 +1,52 @@
+# Monthly dependency bump, driven by the AGENT rather than by Dependabot. Rjae's ruling of 2026-09-10: this is
+# how their other repositories already work, and it is the shape the reference uses too (thinktech-api's
+# .github/workflows/update-dependencies.yml, read 2026-09-10 — a cron, a workflow_dispatch and a fifteen-line
+# call into the issue factory).
+#
+# Why an agent and not the ecosystem tool, since this brief's own history has it both ways:
+#   * `tools.mod` is a second module file that Dependabot's gomod ecosystem does not discover, because it is
+#     not named `go.mod`. An agent runs `go get -modfile=tools.mod -u ...` and needs nobody's support matrix.
+#   * `anthropics/claude-code-action` is pinned by SHA (§4's conventions), and a SHA pin is not a version a
+#     version-bumper can reason about. An agent re-resolves the SHA for the current `v1` and fixes the comment.
+#   * A major bump's interesting half is the call site that no longer compiles. That is agent work by nature,
+#     and routing it through the loop means the fix cycle handles it on the same branch rather than a red PR
+#     arriving on a schedule for a human to rescue.
+#   * One PR a month either way; the difference is that this one can finish the job.
+#
+# Every rule that BOUNDS the bump lives in `.claude/agents/developer.md`'s dependency-update mode, not here —
+# the division every scheduled workflow in this brief keeps: agent policy in a committed file reviewable in a
+# PR, CI in fifteen lines of YAML.
+name: update dependencies
+
+on:
+  schedule:
+    - cron: '29 11 1 * *'   # monthly, 1st, 11:29 UTC. Off the hour (keepalive.yml's reasoning: scheduled runs
+                            # are delayed at the top of the hour), and clear of the other two monthly agents —
+                            # update-documentation at 09:17, review-repository at 04:43 — so no two agent
+                            # sessions contend for the runner.
+  workflow_dispatch:
+
+jobs:
+  # No `timeout-minutes`: GitHub rejects it on a job whose body is `uses:` a reusable workflow (§4.5 states the
+  # exception in full). The bound lives on `_create-claude-issue.yml`'s own `create-issue` job.
+  create-issue:
+    uses: ./.github/workflows/_create-claude-issue.yml
+    secrets:
+      gh_actions_token: ${{ secrets.GH_ACTIONS_TOKEN }}
+    with:
+      auto_merge: true      # a green bump merges itself; the reviewer agent and the four CI checks are the gate
+      maintenance: true     # exempt from the execution-log-row rule
+      title: Update the Go modules, the tool modules and the action pins
+      # FOLDED (`>-`) like every other body in this brief: a plain scalar containing a colon-space is a YAML
+      # syntax error, and `go.mod`'s `go` line is exactly the sort of prose that grows one.
+      body: >-
+        You are the implementing agent. Read `.claude/agents/developer.md` for your operating instructions and
+        follow its **dependency update** mode exactly. Bring the direct modules in `go.mod` and the tools in
+        `tools.mod` up to date. You cannot edit `.github/workflows/`: REPORT in the PR body which action pins
+        are behind, including the re-resolved `claude-code-action` SHA for the current `v1`. Never bump `go.mod`'s `go` line —
+        it is a release-reproducibility pin and only Rjae moves it. Keep `docs/allowed-deps.txt` zero-diff: if a
+        bump would pull a new module into the shipped binary, leave that module alone and say so in the PR body
+        rather than editing the allow-list. Majors are allowed, and adapting the call sites is part of the job.
+        Run `make typecheck tidy-check lint build test deps-check plugin-check` before you push. If nothing is
+        behind, change nothing and say so — the workflow closes this issue automatically when no branch is
+        pushed.

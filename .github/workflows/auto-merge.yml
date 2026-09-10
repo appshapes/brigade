@@ -1,0 +1,86 @@
+# Arms a merge when — and only when — the reviewer agent approved the CURRENT head of a PR that was labelled for
+# auto-merge at creation time. It does not merge: `--auto` hands the PR to GitHub, which merges it when the
+# branch ruleset's required checks (fast, macos, reproducibility, supabase) pass. The ruleset is what makes the
+# word "auto" mean "when green" instead of "now" — see the brief's §1.2 blocker 3.
+#
+# READ §1.2 BLOCKER 3 BEFORE TRUSTING THAT SENTENCE. The merging identity here is GH_ACTIONS_TOKEN, a classic
+# PAT of Rjae's account, and Rjae is a repository admin — an actor the master ruleset lets bypass. So the wait
+# does not rest on the ruleset REFUSING this merger; it rests on `gh pr merge --auto` choosing to wait for the
+# required checks anyway. That is the one thing this brief checks deliberately before relying on the gate
+# (§5 (c)), and it can be answered first by looking at thinktech-api, which runs the same PAT-based loop today.
+# If the answer is no, the contingency is written out at the bottom of this file — swap two lines, no redesign.
+name: auto merge
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  auto-merge:
+    # brake 4, second half. The commit_id clause pins the approval to the CURRENT head: with the autonomous
+    # fixer pushing to PR branches, an approval from a reviewer session that started on an older head must never
+    # arm a merge for commits it never reviewed.
+    #
+    # The label clause is the policy switch, and it is LIVE FROM DAY ONE. Two of the three scheduled callers set
+    # it — update-documentation.yml and update-dependencies.yml both pass `auto_merge: true` — and one never
+    # does: review-repository.yml, because a whole-tree review merges by hand (Rjae's standing decision 5, which
+    # is a permanent policy and not a burn-in measure). Earlier drafts expected this `if:` to be false on every
+    # run for the first two months; Rjae rejected that staging on 2026-09-10, so expect it to fire on the first
+    # documentation or dependency PR that the reviewer approves.
+    if: |
+      github.event.review.state == 'approved' &&
+      startsWith(github.event.review.user.login, 'claude') &&
+      contains(join(github.event.pull_request.labels.*.name, ','), 'auto-merge') &&
+      github.event.review.commit_id == github.event.pull_request.head.sha
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5          # one API call; not a p90, a floor. Raise it if the contingency below is adopted:
+                                # `gh pr checks --watch` blocks for the length of a CI matrix (~10 min p90), so
+                                # 20 is the right bound there, not 5.
+    # The job's own GITHUB_TOKEN does nothing here: the merge authenticates with GH_ACTIONS_TOKEN below.
+    # Declaring an empty block rather than inheriting the default is the point — the reference's
+    # `contents: write` on this job is vestigial and misleading.
+    permissions: {}
+    steps:
+      # --squash: the merge commit's subject must read `15: <Imperative summary>` (CLAUDE.md). That subject comes
+      # from the PR TITLE because the repository is configured with squash_merge_commit_title=PR_TITLE (§4.10);
+      # GitHub's default, COMMIT_OR_PR_TITLE, would use the single commit's own subject on a one-commit PR and
+      # the rule would hold only by luck. The title itself is minted with the `15: ` prefix by claude.yml.
+      #
+      # The `||` fallback is not defensive noise, it is the COMMON path. `--auto` calls GitHub's
+      # enablePullRequestAutoMerge mutation, which ERRORS with "Pull request is in clean status" when the PR is
+      # already mergeable — and here it usually is: ci.yml's p90s are fast 5m16s, macos 3m02s, supabase 7m25s,
+      # while a reviewer session runs longer than that, so by the time the approval lands all four required
+      # checks are green. Without the fallback the everyday case is a red auto-merge job and a PR that never
+      # merges, while §5 (c)'s red-CI half passes and proves nothing about it. With it: arm if the PR is
+      # still waiting, merge outright if it is already green — the checks have been satisfied either way.
+      # The fallback is GUARDED by `gh pr checks --required`: the PAT is a ruleset bypass actor, so a bare
+      # plain merge would land past the four required checks on ANY `--auto` error — the one gate §1.2
+      # blocker 3 rests on. The guard costs nothing on the already-green path and refuses every other.
+      - name: Merge when green
+        env:
+          # Rjae's classic PAT. This job runs NO agent, which is the only reason the token may appear in it
+          # (§1.1.1 (iii)). It is also, unavoidably, an admin identity — see the CONTINGENCY below.
+          GH_TOKEN: ${{ secrets.GH_ACTIONS_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: gh pr merge "$PR" --squash --auto --repo "$REPO" || { gh pr checks "$PR" --required --repo "$REPO" && gh pr merge "$PR" --squash --repo "$REPO"; }
+
+      # ---------------------------------------------------------------- CONTINGENCY, deterministic
+      # ADOPT THIS ONLY IF §5 (c) SHOWS `--auto` DOES NOT WAIT under an admin PAT's ruleset bypass. It is
+      # written out here, now, so that finding costs a two-line swap rather than a redesign at the worst moment.
+      #
+      # Replace the whole `run:` line above with the two commands below, in this order, and raise this job's
+      # `timeout-minutes` to 20 (a full CI matrix, p90 ~10 min, is now inside the job):
+      #
+      #   run: |
+      #     set -euo pipefail
+      #     # Blocks until every REQUIRED check reports, and exits non-zero the moment one fails. `--required`
+      #     # is what confines the wait to the ruleset's four contexts; `--fail-fast` is what stops a red PR
+      #     # from being merged by the next line rather than merely delaying it.
+      #     gh pr checks "$PR" --required --watch --fail-fast --repo "$REPO"
+      #     gh pr merge "$PR" --squash --repo "$REPO"
+      #
+      # What that trades: the gate becomes "we do not ASK to merge until the checks are green" rather than
+      # "GitHub declines to merge" — a weaker guarantee, because it lives in this file rather than in the
+      # ruleset, but a deterministic one, and it is the same four checks either way. The `--auto` form is
+      # preferred while it works precisely because the waiting is GitHub's job and not ours.

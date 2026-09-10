@@ -1,0 +1,41 @@
+# Monthly repository review, live from day one, plus `workflow_dispatch`. The reviewer agent reads the tree
+# and opens a PR with MINIMAL fixes — and that PR carries no `auto-merge` label, so however green it goes it
+# waits for Rjae. The loop still reviews it and still fixes its own blockers; only the merge is human (owner's
+# decision, workflows 5 — a standing policy about whole-tree reviews, NOT a burn-in measure, so it does not
+# expire and nothing here is waiting to be flipped later).
+#
+# Note the standing state of play the agent must respect: the execution log records that there are no live rows
+# and that the next substantial work is a second adapter, chartered separately — so this agent proposes fixes,
+# never features, and never opens work.
+name: review repository
+
+on:
+  # MONTHLY, LIVE FROM DAY ONE. v3 of the brief proposed `workflow_dispatch` only until a second adapter was
+  # chartered, on the reasoning that a quiet tree gives a monthly pass nothing useful to do; Rjae rejected that
+  # hold on 2026-09-10 along with every other staged rollout, so Rjae's original workflows-item 5 — monthly —
+  # stands unqualified. A no-op month is a correct month and costs one agent run; the agent's own instructions
+  # (§4.9.1, review-repository mode) are what stop it inventing work in a finished tree.
+  #
+  # The minute stays clear of the other two monthly agents: update-documentation at 09:17 and
+  # update-dependencies at 11:29, so no two agent sessions contend for the runner.
+  schedule:
+    - cron: '43 4 1 * *'    # monthly, 1st, 04:43 UTC — off the hour (keepalive.yml's reasoning)
+  workflow_dispatch:
+
+jobs:
+  create-issue:
+    uses: ./.github/workflows/_create-claude-issue.yml
+    secrets:
+      gh_actions_token: ${{ secrets.GH_ACTIONS_TOKEN }}
+    with:
+      auto_merge: false     # deliberate: merging waits for Rjae
+      maintenance: true
+      title: Review the repository and apply minimal fixes
+      body: >-
+        You are the reviewer agent. Read `.claude/agents/reviewer.md` for your operating instructions and follow
+        the **review-repository** mode exactly. Read `.context/plans/agent-memory/review-repository.md` for the
+        commit you last reviewed and take your scope from it. Make precise, minimal corrections only; propose
+        nothing new. Run `make typecheck tidy-check lint build test deps-check schema-check plugin-check` before
+        you push, and update the memory marker in the same commit. Never touch `plugin/bin/**`, never bump
+        `go.mod`'s `go` line, and keep `docs/allowed-deps.txt` zero-diff. If the tree is already correct, change
+        nothing and say so — the workflow closes this issue automatically when no branch is pushed.

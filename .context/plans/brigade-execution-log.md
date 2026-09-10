@@ -2,6 +2,8 @@
 
 The single source of truth for **where the work stands**. The plan says what to build; this file says what is done,
 what is next, and which model tier each remaining task should run on. Update it in the same commit as the work.
+**Exception (Rjae, 2026-09-09): a pull request labelled `maintenance` — the agentic workflows' own PRs,
+dependency bumps included — carries no row.**
 
 Ticket 15 · branch `master` · merges only, never rebase · commit messages `15: <Imperative summary>` ·
 `make push message="15: …"` for every commit after the first.
@@ -31,8 +33,9 @@ below the marker dated 2026-09-09. The complete post-release work list
    conversation, so a Codex member could only be a mailbox, never a peer. OpenAI models are used by keeping Claude Code as
    the session and adding OpenAI's `openai/codex-plugin-cc`; Brigade needs no code for that. The brief
    (`.context/plans/codex-team-participation.md`) and its P0 evidence (`docs/experiments/codex-participation.md`) stay as
-   the record. **There are no live rows. The next substantial work is a second adapter**, which Rjae will chart as its own
-   brief; nothing is to be started on it until then.
+   the record. On 2026-09-10 Rjae chartered the agentic-workflows brief (`.context/plans/agentic-workflows.md`, v4) and
+   rows P9-1..P9-7 were opened and done the same day, in one commit. **There are no live rows. The next substantial
+   work is a second adapter**, which Rjae will chart as its own brief; nothing is to be started on it until then.
 
 ## Model tier policy
 
@@ -60,8 +63,14 @@ is a smaller model, Fable-tier work goes to subagents (`model: 'fable'`), never 
 
 ## Status
 
-Legend: `done` · `todo` · `blocked (<reason>)` · `wip` · `won't do (<date>)`. Every row through the 0.4.1 release and the Codex workstream is in the archive; no live rows as of 2026-09-09 (see Start here, step 3).
+Legend: `done` · `todo` · `blocked (<reason>)` · `wip` · `won't do (<date>)`. Every row through the 0.4.1 release and the Codex workstream is in the archive; the seven P9 rows below were opened and closed together on 2026-09-10, and no other rows are live (see Start here, step 3).
 
 | ID | Task (plan §, named in the row) | Status | Model | Commit / evidence |
 | --- | --- | --- | --- | --- |
-
+| P9-1 | GitHub configuration: verify the two repository secrets (both already set, 2026-09-10) and **note their renewal dates**, set the squash-merge title source (the only setting that actually changes), the three labels, the outside-collaborator UI gate, the `master` ruleset (agentic-workflows brief §4.10 (1)–(7)) | done | Opus | `gh secret list` and the `gh api` read-backs recorded in `docs/experiments/agentic-workflows-first-runs.md` (ruleset `master-pr-checks`, id 22773942; squash title `PR_TITLE`, body `PR_BODY`; the three labels); the outside-collaborator approval was already `all_external_contributors`, so no UI step was needed; renewal dates recorded there (PAT none, OAuth token 2027-09-10); §5 (c) answered from `thinktech-api` in the same file |
+| P9-2 | **Everything in the brief's §4, in ONE commit** (§4.10 (8) — no staging, no burn-in): the **eight workflows** `claude.yml` (two jobs, `agent` → `open-pr`), `review-pull-request.yml` (including the `gh pr comment` on a guard trip), `auto-merge.yml`, `_create-claude-issue.yml`, `update-documentation.yml` (`auto_merge: true`), `review-repository.yml` (monthly cron live), `release-notes.yml` and `update-dependencies.yml`; plus `scripts/ci/pr-guard.sh`, the three `.claude/agents/*.md`, and **every record line** — `scripts/ci/README.md`'s eight workflow rows, its one script row, its two configuration rows and its opening-sentence counts, `CLAUDE.md`'s paragraph, and this log's exemption sentence; resolve the `claude-code-action` SHA pin (7.7) | done | Opus | this commit — the eight workflows, `scripts/ci/pr-guard.sh` (mode 100755), `.claude/agents/{reviewer,documenter,developer}.md` and every record line above; `make plugin-check lint test` green; `pr-guard.sh` through both shellchecks (local **and** the pinned 0.9.0 container) |
+| P9-3 | The loop's provisional budgets (`timeout-minutes`, `--max-turns`) pinned in the workflow files; records (a)–(d), (i) and (j) — and the re-pin from ten real runs — follow on the first runs | done | Opus | this commit — the loop is live and the provisional budgets are pinned in it; first runs to be recorded in `docs/experiments/agentic-workflows-first-runs.md` as they happen. Adds no file, so no `scripts/ci/README.md` row |
+| P9-4 | `update-dependencies.yml` and `.claude/agents/developer.md`'s dependency-update mode; records (e) and (f) — rule (c) green through the published-release arm, the plugin serving the last release until `make release` — follow on the first run | done | Opus | this commit — `update-dependencies.yml` and `.claude/agents/developer.md`'s dependency-update mode; first runs to be recorded in `docs/experiments/agentic-workflows-first-runs.md` as they happen. Adds no file |
+| P9-5 | **Remedy (a) of the brief's §4.7**: BOTH edits to `release.yml` — the widened top-level `permissions:` and the `notes` job that calls `release-notes.yml` — plus record (g) | done | Opus | this commit — `release.yml`'s `permissions:` widened to `contents`/`issues`/`id-token` and the `notes` job added, passing exactly one named secret; first runs to be recorded in `docs/experiments/agentic-workflows-first-runs.md` as they happen |
+| P9-6 | `update-documentation.yml` (`auto_merge: true`) and `.claude/agents/documenter.md`; record (h), both halves, follows on the first run | done | Opus | this commit — `update-documentation.yml` (`auto_merge: true`) and `.claude/agents/documenter.md`; first runs to be recorded in `docs/experiments/agentic-workflows-first-runs.md` as they happen |
+| P9-7 | **The seeded memory marker** `.context/plans/agent-memory/review-repository.md` (`Date: (unseeded)`, `Commit: (none)`, `Scope: whole tree`) and the first `review-repository` pass | done | Opus | this commit — the seeded marker and `review-repository.yml` (monthly cron live, no `auto-merge` label); first runs to be recorded in `docs/experiments/agentic-workflows-first-runs.md` as they happen |
