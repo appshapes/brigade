@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
@@ -141,7 +142,7 @@ func stubWatcher(args []string) int {
 	}
 	entry := pidfile.Entry{
 		PID: self, StartToken: info.StartToken, BrigadeSessionID: m.BrigadeSessionID,
-		SocketPath: socket, TokenSHA256: pidfile.TokenSHA256(token),
+		SocketPath: socket, TokenSHA256: pidfile.TokenSHA256(token), Version: buildinfo.String(),
 	}
 	path := pidfile.Path(w.StateDir, w.ClaudePID)
 	if cerr := pidfile.Create(path, entry); cerr != nil {
@@ -254,6 +255,7 @@ func (s *spawnRecorder) Spawn(_ context.Context, spec SpawnSpec) (int, error) {
 		PID: s.watcherPID, StartToken: info.StartToken, BrigadeSessionID: m.BrigadeSessionID,
 		SocketPath:  adapterkit.Getenv(spec.Env, envMessagingSocket),
 		TokenSHA256: pidfile.TokenSHA256(adapterkit.Getenv(spec.Env, envMessagingToken)),
+		Version:     buildinfo.String(),
 	}
 	path := pidfile.Path(w.StateDir, w.ClaudePID)
 	if cerr := pidfile.Create(path, entry); cerr != nil {
@@ -848,7 +850,7 @@ func liveEntry(t *testing.T, pid int, sessionID, socket, tokenHash string) pidfi
 	if err != nil || !info.Exists || info.StartToken == "" {
 		t.Fatalf("pid %d is not live: %+v %v", pid, info, err)
 	}
-	return pidfile.Entry{PID: pid, StartToken: info.StartToken, BrigadeSessionID: sessionID, SocketPath: socket, TokenSHA256: tokenHash}
+	return pidfile.Entry{PID: pid, StartToken: info.StartToken, BrigadeSessionID: sessionID, SocketPath: socket, TokenSHA256: tokenHash, Version: buildinfo.String()}
 }
 
 // forge changes the last character of a token.

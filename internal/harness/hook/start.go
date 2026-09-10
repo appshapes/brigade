@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
@@ -106,11 +107,9 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// D9): a live watcher for this pid that serves the session the map
 	// names means the session continues.
 	if existing != nil && verdict.Found && verdict.Alive && verdict.Entry.BrigadeSessionID == existing.BrigadeSessionID {
-		if verdict.Entry.SocketPath != f.socket || verdict.Entry.TokenSHA256 != pidfile.TokenSHA256(f.token) {
-			// The socket path or the token rotated: the watcher holds
-			// stale coordinates and every later post would fail
-			// own-child verification (D9). Cold in practice (E0-5 (c)).
-			r.log.Info("watcher coordinates changed; respawning", slog.Int("watcher_pid", verdict.Entry.PID))
+		if reason := respawnReason(verdict.Entry, f); reason != "" {
+			r.log.Info("watcher "+reason+"; respawning", slog.Int("watcher_pid", verdict.Entry.PID),
+				slog.String("watcher_version", verdict.Entry.Version))
 			r.stopWatcher(verdict.Entry, f)
 			m := r.buildMap(f, in, res, existing.BrigadeSessionID, existing.TeamRef, existing.TeamName, existing.RegisteredAt, now)
 			r.spawnWatcher(ctx, f, m, pidfileWait)
@@ -171,6 +170,26 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	}
 	r.spawnWatcher(ctx, f, m, pidfileWait)
 	r.finish(f, in, res, m, now)
+}
+
+// respawnReason says why a live watcher serving this session must be
+// replaced, or "" when it stays. "coordinates changed": the socket path or
+// the token rotated, so the watcher holds stale coordinates and every
+// later post would fail own-child verification (D9; cold in practice,
+// E0-5 (c)). "version changed": the watcher was spawned by another Brigade
+// version — the pidfile carries buildinfo.String() from 0.5.1, and one
+// without it is a 0.5.0 or older watcher — and an updated plugin must
+// replace it, or the session keeps running the old watcher until it ends
+// (found on the 0.5.0 update: every running watcher stayed 0.4.1 and no
+// session ever reported a model).
+func respawnReason(e pidfile.Entry, f facts) string {
+	if e.SocketPath != f.socket || e.TokenSHA256 != pidfile.TokenSHA256(f.token) {
+		return "coordinates changed"
+	}
+	if e.Version != buildinfo.String() {
+		return "version changed"
+	}
+	return ""
 }
 
 // resolve is the attach-only resolution of P7-6 (brief §4): (1) the

@@ -415,3 +415,32 @@ func TestReplaceToleratesAVanishedFile(t *testing.T) {
 		t.Fatalf("Read after Replace = %+v, %v", got, err)
 	}
 }
+
+// TestVersionRoundTripsAndIsOptional: the version member a 0.5.1 watcher
+// writes reads back exactly, and a pidfile without one (0.5.0 and older)
+// still reads, with Version "" — never the current version, so the hooks
+// replace that watcher.
+func TestVersionRoundTripsAndIsOptional(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	with := pidfile.Entry{PID: os.Getpid(), StartToken: "tok", BrigadeSessionID: "s1", SocketPath: "/tmp/x.sock", TokenSHA256: "h", Version: "0.5.1"}
+	path := filepath.Join(dir, "with.json")
+	if err := pidfile.Create(path, with); err != nil {
+		t.Fatal(err)
+	}
+	got, err := pidfile.Read(path)
+	if err != nil || got != with {
+		t.Fatalf("Read = %+v, %v; want %+v", got, err, with)
+	}
+	old := pidfile.Entry{PID: os.Getpid(), StartToken: "tok", BrigadeSessionID: "s1"}
+	if strings.Contains(string(pidfile.Encode(old)), "version") {
+		t.Fatalf("an unversioned entry encodes a version member: %s", pidfile.Encode(old))
+	}
+	legacy := filepath.Join(dir, "legacy.json")
+	if err := os.WriteFile(legacy, pidfile.Encode(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := pidfile.Read(legacy); err != nil || got.Version != "" {
+		t.Fatalf("a legacy pidfile read as %+v, %v; want Version empty", got, err)
+	}
+}

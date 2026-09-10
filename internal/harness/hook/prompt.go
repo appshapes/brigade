@@ -12,6 +12,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/inbound"
@@ -140,9 +141,22 @@ func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID) {
 		return
 	}
 	v, err := pidfile.Check(pidfile.Path(f.stateDir, f.pid), r.deps.Lookup)
-	if err != nil {
+	switch {
+	case err != nil:
 		r.log.Warn("prompt: watcher pidfile unreadable; spawning anyway", log.Err(err))
-	} else if v.Found && v.Alive {
+	case v.Found && v.Alive && v.Entry.Version == buildinfo.String():
+		return
+	case v.Found && v.Alive:
+		// A live watcher of another Brigade version — the plugin was
+		// updated under a running session. Replace it here, at the next
+		// prompt, rather than when the session ends (the SessionStart
+		// path's respawnReason, applied to the coordinates it cannot
+		// have changed). Within the prompt budget: watcherStopWait plus
+		// promptPidfileWait leave room for the process to exit.
+		r.log.Info("prompt: watcher version changed; respawning", slog.Int("watcher_pid", v.Entry.PID),
+			slog.String("watcher_version", v.Entry.Version))
+		r.stopWatcher(v.Entry, f)
+		r.spawnWatcher(ctx, f, m, min(r.deps.PidfileWait, promptPidfileWait))
 		return
 	}
 	r.log.Info("prompt: watcher not alive; respawning")

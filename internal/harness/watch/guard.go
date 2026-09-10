@@ -9,6 +9,7 @@ import (
 	"time"
 
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -47,6 +48,7 @@ func (w *watcher) acquire() (bool, int) {
 		BrigadeSessionID: w.sessionID,
 		SocketPath:       w.rc.socketPath,
 		TokenSHA256:      tokenSHA,
+		Version:          buildinfo.String(),
 	}
 	for attempt := range guardAttempts {
 		cerr := pidfile.Create(w.pidPath, w.entry)

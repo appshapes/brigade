@@ -16,5 +16,7 @@ allowed-tools: Bash(claude plugin:*)
    answers `not installed at scope project`, run `claude plugin update brigade@brigade --scope user` instead. Relay
    each command's output.
 2. The new version loads only when the user runs `/reload-plugins` or starts a new session; nothing you can run
-   does that. End with one line telling them to run `/reload-plugins`. If the update reports the plugin is already
+   does that. The session's background watcher — the process that heartbeats and injects — is replaced by the new
+   version at the next prompt after that (0.5.1; before it, a running session kept its old watcher until it
+   ended). End with one line telling them to run `/reload-plugins`. If the update reports the plugin is already
    current, say that instead.

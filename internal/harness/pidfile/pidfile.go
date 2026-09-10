@@ -53,6 +53,12 @@ type Entry struct {
 	// TokenSHA256 is [TokenSHA256] of the messaging token the watcher was
 	// spawned with, or empty in sink mode where there is no token.
 	TokenSHA256 string `json:"token_sha256"`
+	// Version is buildinfo.String() of the binary the watcher runs, from
+	// 0.5.1; the hooks replace a live watcher whose version is not their
+	// own, so a plugin update reaches a running session at its next prompt
+	// instead of when the session ends. A pidfile without it (0.5.0 and
+	// older) reads as "", which is never the current version.
+	Version string `json:"version,omitzero"`
 }
 
 // maxBytes bounds what [Read] will load: a pidfile is a few hundred bytes,

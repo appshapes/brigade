@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
@@ -363,6 +364,8 @@ func TestClearRespawnsWhenCoordinatesChange(t *testing.T) {
 	}{
 		{"rotated token hash", func(_ *fixture, e *pidfile.Entry) { e.TokenSHA256 = forge(e.TokenSHA256) }},
 		{"new socket path", func(f *fixture, _ *pidfile.Entry) { f.socket = filepath.Join(f.dirs.Root, "moved.sock") }},
+		{"another Brigade version", func(_ *fixture, e *pidfile.Entry) { e.Version = "0.4.1" }},
+		{"no version at all (a 0.5.0 watcher)", func(_ *fixture, e *pidfile.Entry) { e.Version = "" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -397,7 +400,7 @@ func TestClearRespawnsWhenCoordinatesChange(t *testing.T) {
 				t.Fatalf("calls %q (no second registration expected)", got)
 			}
 			v, err := pidfile.Check(f.pidfilePath(), f.deps.Lookup)
-			if err != nil || !v.Alive || v.Entry.PID != replacement || v.Entry.SocketPath != f.socket || v.Entry.TokenSHA256 != pidfile.TokenSHA256(msgTok) {
+			if err != nil || !v.Alive || v.Entry.PID != replacement || v.Entry.SocketPath != f.socket || v.Entry.TokenSHA256 != pidfile.TokenSHA256(msgTok) || v.Entry.Version != buildinfo.String() {
 				t.Fatalf("new pidfile %+v %v", v, err)
 			}
 			if m := f.mustMap(); m.SocketPath != f.socket || m.BrigadeSessionID != "brigade-sess-1" {

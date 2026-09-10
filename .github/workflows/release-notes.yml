@@ -94,7 +94,10 @@ jobs:
                actually shipped.
             3. Compose notes: what changed for a USER of the plugin, then anything an ADAPTER AUTHOR must know,
                then the assets and their checksums file. Keep the changelog's own wording where it exists.
-               Never invent a change that is not in the changelog or the log.
+               Never invent a change that is not in the changelog or the log. Name a slash command or a skill
+               only if it exists under `plugin/skills/` or `plugin/commands/` — read them first; the roster is the
+               `brigade sessions` command a session runs on request, not a skill (the v0.5.0 notes named a
+               `/brigade:sessions` that does not exist).
             4. Publish them with `gh release edit <tag> --notes "<the notes>"`. Do not use --notes-file (no
                temporary files under the project directory) and do not touch --draft or --latest: release.yml
                owns the publish state.

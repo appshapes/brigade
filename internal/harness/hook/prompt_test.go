@@ -141,8 +141,10 @@ func TestPromptRefreshesTranscriptPath(t *testing.T) {
 }
 
 // TestPromptEnsuresWatcher: a missing, dead or forged pidfile respawns the
-// watcher from the map's values; a live one is left alone; without a
-// socket nothing is spawned.
+// watcher from the map's values; a live one of this version is left alone,
+// a live one of another version (or of none — a 0.5.0 watcher) is
+// replaced, so an update reaches a running session at its next prompt;
+// without a socket nothing is spawned.
 func TestPromptEnsuresWatcher(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -172,6 +174,28 @@ func TestPromptEnsuresWatcher(t *testing.T) {
 				t.Fatal(err)
 			}
 			e.StartToken = forge(e.StartToken)
+			if err := os.WriteFile(f.pidfilePath(), pidfile.Encode(e), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, false, true},
+		{"a watcher of another version is replaced", func(t *testing.T, f *fixture, _ int) {
+			t.Helper()
+			e, err := pidfile.Read(f.pidfilePath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.Version = "0.4.1"
+			if err := os.WriteFile(f.pidfilePath(), pidfile.Encode(e), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, false, true},
+		{"an unversioned pidfile (a 0.5.0 or older watcher) is replaced", func(t *testing.T, f *fixture, _ int) {
+			t.Helper()
+			e, err := pidfile.Read(f.pidfilePath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.Version = ""
 			if err := os.WriteFile(f.pidfilePath(), pidfile.Encode(e), 0o600); err != nil {
 				t.Fatal(err)
 			}

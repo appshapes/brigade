@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [0.5.1] — 2026-09-10
+
+### Fixed
+
+- **An update now reaches a session that is already running.** The hooks replace a live watcher whose Brigade
+  version is not their own — at the next prompt, and at SessionStart (`/reload-plugins`, `/clear`) — instead of
+  leaving it until the session ends; the watcher's pidfile carries its version from this release, and one without
+  a version (0.5.0 and older) is replaced too. Measured after the 0.5.0 update on a machine with five running
+  sessions: every watcher was still the 0.4.1 binary, so no session reported its model or context until it was
+  restarted. Sessions started after this update, and running sessions at their next prompt after `/reload-plugins`,
+  report both.
+- The v0.5.0 release notes named a `/brigade:sessions` skill that does not exist (the roster is the `brigade
+  sessions` command a session runs); corrected on the release page, and `release-notes.yml` now tells the agent to
+  name only commands it has verified under `plugin/`.
+
 ## [0.5.0] — 2026-09-10
 
 ### Added
