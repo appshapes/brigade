@@ -122,3 +122,17 @@ and `release-notes.yml` allowed only `claude`, the same gap `review-pull-request
 run (`b3538a0`). **Fix** (this commit): `allowed_bots: "claude,github-actions"`. The v0.5.1 notes were written by a
 hand dispatch meanwhile (a human actor passes the gate as it stood). The next release is the first that will run the
 whole path unattended.
+
+**P9-8, the release-notes gate — two runs on v0.5.1 (23:13 and 23:24 UTC).** Run **34541118273**, the first with
+the gate: the writer drafted, the lint ran, the reviewer ran, and the verdict step failed because no `review.md`
+existed — and no `notes.md` either. The action's result for each agent said `permission_denials_count: 2`: it
+honours every `Bash(<prefix>:*)` rule in `settings` and none of the `Write(//tmp/…)` rules, so both agents were
+refused the one write they were told to make and stopped. **The gate held**: nothing was published; the page kept
+the earlier hand-written notes. Fix (`64f5b2a`): the agents write with `tee <path> <<'EOF'` from the Bash tool
+under a `Bash(tee <path>:*)` rule, each agent step's execution log is copied into the artifact, and the verdict
+parser takes `APPROVED`/`CHANGES_REQUESTED` anywhere on the first line. Run **34541572413**, the first complete
+pass: draft → lint clean → **reviewer: CHANGES_REQUESTED** — the lead said "a patch release with one fix" while
+`CHANGELOG.md`'s `## [0.5.1]` has two `### Fixed` entries, "undercounts and distorts the changelog" — → fix →
+lint clean → **APPROVED** → published → the announcement step found issue #5 and opened no second one. Four agent
+sessions, about eleven minutes end to end. The published notes name `/brigade:update`, `brigade sessions` and the
+five assets, and nothing that does not exist.
