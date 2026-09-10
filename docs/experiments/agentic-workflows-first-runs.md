@@ -36,4 +36,37 @@ PR merges.
 
 ## First runs (§5 (a)–(j)) — recorded as each path fires
 
-_None yet. Each entry: date, run id(s), the pass predicate from §5, what was observed, and any deviation._
+### 2026-09-10 — first live run: `update-documentation` dispatched by hand at 13:41:32 UTC
+
+**(a) issue → agent → PR, App identity.** `gh workflow run update-documentation.yml` → run 34484227312 (`update
+documentation`, success) → issue #2 "Refresh the structural documentation", labels `claude` + `maintenance` +
+`auto-merge`, authored by Rjae's PAT → the `claude` workflow fired on the `labeled` event (run 34484257940; job
+`agent` 13:42:01–13:49:21, job `open-pr` 13:49:34–13:49:42) → branch `claude/issue-2-20260910-1342` → PR #3 titled
+**`15: Refresh the structural documentation`**, labels `auto-merge` + `maintenance`, body `Closes #2`, 5 lines changed
+in `README.md` and `docs/adapter-authors.md`. PASS. Two cosmetic observations: the three label events queue three
+`claude` runs in the issue's concurrency group and GitHub cancels the two pending ones (runs 34484258780,
+34484259270 show `cancelled`; only the `claude`-label run was ever going to pass the `if:`); and Blacksmith's
+"codesmith" App appends its own footer to the PR body.
+
+**(b) review → fix, first cycle.** `review pr` run 34485085258 (actor Rjae, success): `claude[bot]` submitted
+`CHANGES_REQUESTED` at 13:51:38 — "two of the three refreshed facts check out; the third replaces a stale statement
+with a false one" — with the fixer trailer. The `claude` workflow fired on `pull_request_review` (run
+34485296081): the fix gate counted 1 ≤ 3 and proceeded, the fixer pushed `b82edd7` ("15: Confine the fs-only
+measurement note to the argv list") and "Verify the fix was pushed" passed. PASS for the gate and the push.
+
+**Two findings from the fix push, both fixed the same day:**
+
+1. **Approval policy vs. the loop's own pushes.** GitHub attributes the fixer's push — made with the Claude App
+   token the action mints via OIDC — to `github-actions[bot]` (commit `b82edd7`: author and committer login
+   `github-actions[bot]`, name `claude[bot]`). Under `approval_policy: all_external_contributors` the resulting
+   `review pr` and `ci` runs (34485452913, 34485452904) parked at `action_required`; both were approved by hand
+   (`POST …/actions/runs/{id}/approve`) and the policy was set to **`first_time_contributors`** — GitHub's default
+   for public repositories, which still gates every first-time outside human. Whether the bot is exempt under it
+   is answered by the next fixer push; if not, `first_time_contributors_new_to_github` is the remaining step.
+2. **`allowed_bots` on the reviewer.** The approved re-review run 34485452913 (actor `github-actions[bot]`) was
+   refused by the action's own trigger check — every inner step `skipped`, the step failed, no review at head
+   `b82edd7`. Fix: `review-pull-request.yml` `allowed_bots: "claude,github-actions"` (the hub and release-notes
+   keep `"claude"`), committed as the correction below; PR #3 closed and reopened to re-run the reviewer.
+
+**(c) `--auto` waits** — not yet exercised here (no approval has landed); the thinktech-api observation above stands.
+**(h)** — pending PR #3's merge.

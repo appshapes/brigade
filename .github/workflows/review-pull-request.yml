@@ -114,11 +114,14 @@ jobs:
         #   (an annotated tag needs one more hop: gh api .../git/tags/<sha> --jq '.object.sha')
         uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
         with:
-          # After the autonomous fixer pushes as claude[bot], the resulting `synchronize` run's ACTOR is that
-          # bot; without this name the action rejects the run and the loop dead-ends unreviewed. The `opened`
-          # run needs no second name: that PR was created with Rjae's PAT, so its actor is a human with write
-          # access. Explicit list, one entry, never '*'.
-          allowed_bots: "claude"
+          # After the autonomous fixer pushes, the resulting `synchronize` run's ACTOR is a bot; without its
+          # name the action rejects the run and the loop dead-ends unreviewed. MEASURED 2026-09-10 (PR #3, run
+          # 34485452913): GitHub attributes the fixer's App-token push to `github-actions[bot]`, not `claude[bot]`,
+          # so both names are needed here — `github-actions` events can only come from this repository's own
+          # workflow tokens (a fork PR's token is read-only and cannot push or comment). The `opened` run needs
+          # neither: that PR was created with Rjae's PAT, so its actor is a human with write access. Explicit
+          # list, two entries, never '*'.
+          allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-5 --max-turns 30"
           show_full_output: false

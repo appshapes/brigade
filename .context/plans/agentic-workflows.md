@@ -216,7 +216,7 @@ env:
 **Claude GitHub App** (`claude[bot]`, bot_id 41898282) and (b) issues and PRs are created by a **PAT belonging to
 a human**. Brigade now has exactly that arrangement. Three consequences:
 
-- **(a)** `allowed_bots` is **exactly `"claude"`** — one name, as Rjae's decision 2 says, with no widening. An
+- **(a)** `allowed_bots` is **exactly `"claude"`** — one name, as Rjae's decision 2 says, with no widening. **Measured on the first live run (2026-09-10, PR #3): GitHub attributes the fixer's App-token push to `github-actions[bot]`, so the REVIEWER's list is `"claude,github-actions"` (§4.2); the hub's and release-notes' lists stay `"claude"`. Safe because `github-actions` events arise only from this repository's own workflow tokens.** An
   issue or a PR created with `GH_ACTIONS_TOKEN` is authored by **Rjae**, a human with write access, so it passes
   the action's default write-access check as a person rather than through the bot filter at all. The two-name
   `"claude,brigade-bot"` list that earlier drafts of this brief needed existed only to admit our own App's
@@ -1080,11 +1080,14 @@ exit "$fail"
         #   (an annotated tag needs one more hop: gh api .../git/tags/<sha> --jq '.object.sha')
         uses: anthropics/claude-code-action@<RESOLVE-AT-IMPLEMENTATION>   # v1
         with:
-          # After the autonomous fixer pushes as claude[bot], the resulting `synchronize` run's ACTOR is that
-          # bot; without this name the action rejects the run and the loop dead-ends unreviewed. The `opened`
-          # run needs no second name: that PR was created with Rjae's PAT, so its actor is a human with write
-          # access. Explicit list, one entry, never '*'.
-          allowed_bots: "claude"
+          # After the autonomous fixer pushes, the resulting `synchronize` run's ACTOR is a bot; without its
+          # name the action rejects the run and the loop dead-ends unreviewed. MEASURED 2026-09-10 (PR #3, run
+          # 34485452913): GitHub attributes the fixer's App-token push to `github-actions[bot]`, not `claude[bot]`,
+          # so both names are needed here — `github-actions` events can only come from this repository's own
+          # workflow tokens (a fork PR's token is read-only and cannot push or comment). The `opened` run needs
+          # neither: that PR was created with Rjae's PAT, so its actor is a human with write access. Explicit
+          # list, two entries, never '*'.
+          allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-5 --max-turns 30"
           show_full_output: false
