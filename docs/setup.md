@@ -602,14 +602,26 @@ public by design. The secret key, the service-role key, the database password an
 stay on your machine. Creating the first team is `brigade team create` — see "Administrator: create a team" at
 the top of this document.
 
-### 2. The two repository variables
+### 2. The repository variables
 
-The keep-alive workflow reads the hosted project's url and publishable key from repository **variables**:
+The keep-alive workflow reads each hosted project's url and publishable key from repository **variables**:
 
 ```sh
 gh variable set BRIGADE_SUPABASE_URL --body https://<ref>.supabase.co
 gh variable set BRIGADE_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
 ```
+
+**One job per project, one variable pair per job.** `keepalive.yml` has a job for each hosted project a team
+uses; a second project adds a job and a second pair, which is how `thinktech-brigade` is kept alive from this
+repository even though its team lives in another one:
+
+```sh
+gh variable set BRIGADE_THINKTECH_SUPABASE_URL --body https://<ref>.supabase.co
+gh variable set BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
+```
+
+The script itself stays single-project: each job maps its own pair onto the two names `keepalive.sh` reads, so
+a red run names the job, and therefore the project, on the run page.
 
 or Settings → Secrets and variables → Actions → Variables in the web interface. Use the names above exactly:
 they are the adapter's own environment names, and `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` already name the

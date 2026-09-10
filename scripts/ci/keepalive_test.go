@@ -736,6 +736,21 @@ func TestKeepaliveWorkflowAndDocsAgree(t *testing.T) {
 		"uses: actions/checkout@v7",
 		"run: "+keepaliveScriptRel,
 	)
+	// One job per hosted project, each with its own variable pair (thinktech-brigade added 2026-09-10). The
+	// second job maps its pair onto the SAME two names the script reads, so keepalive.sh stays single-project.
+	keepaliveMentions(t, keepaliveWorkflowRel, workflow,
+		"keepalive-thinktech:",
+		`BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_THINKTECH_SUPABASE_URL }}"`,
+		`BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY }}"`,
+	)
+	for _, name := range []string{"BRIGADE_THINKTECH_SUPABASE_URL", "BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY"} {
+		keepaliveMentions(t, keepaliveDocRel, doc, "gh variable set "+name)
+	}
+	// Each project's job must run the script exactly once, so a second project cannot silently go unchecked.
+	if got := strings.Count(workflow, "run: "+keepaliveScriptRel); got != strings.Count(workflow, "runs-on:") {
+		t.Errorf("%s has %d `run: %s` steps but %d jobs: every keep-alive job must climb the rungs",
+			keepaliveWorkflowRel, got, keepaliveScriptRel, strings.Count(workflow, "runs-on:"))
+	}
 	// A secret would be masked in the log for no gain, and there is no secret this workflow may hold.
 	if strings.Contains(workflow, "secrets.") {
 		t.Errorf("%s names a secret: the url and the publishable key are public by design and are VARIABLES; "+
