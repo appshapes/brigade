@@ -564,8 +564,8 @@ Three things are `usage` (`error.code = "usage"`, **exit 2**) and C-02 and C-05 
    streams.
 
 Two more argv answers are `usage` too. 4.1 and 4.6 cover them as "bad argv" without naming them one at a time, and
-the reference adapter answers this way (measured on `bin/brigade-adapter-fs`; the Supabase adapter is P2 and is not
-written, so nothing on this page is measured on two adapters):
+the reference adapter answers this way (measured on `bin/brigade-adapter-fs`; nothing on this page is measured on the
+bundled Supabase adapter, so nothing here is measured on two adapters):
 
 4. a **missing required flag** — `session heartbeat` or `session close` with no `--session` — is `usage`, exit 2;
 5. a **flag value that is out of range or unparseable** — `--limit 0`, `--limit 500`, `--limit abc`,
@@ -1463,8 +1463,8 @@ messages, every team's membership and every session's inbox; there is no authent
 `credential.json` file beside the profile *is* the credential, and the join secret's digest sits next to the data it
 protects. Nothing ships it.
 
-It exists for four reasons: it will be the second BAP/1 implementation once the bundled Supabase adapter is written
-(P2; today it is the only one), so the plugin can be proved to carry no Supabase assumption; it runs the conformance
+It exists for four reasons: it is a second BAP/1 implementation beside the bundled Supabase adapter
+(`internal/adapters/supabase`), so the plugin can be proved to carry no Supabase assumption; it runs the conformance
 suite in seconds instead of the tens of seconds a hosted backend costs; it is the harness's test fixture; and it is
 the dry run for the object-store adapter — the closest published precedent for a polling adapter over a dumb store.
 
