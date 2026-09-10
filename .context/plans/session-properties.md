@@ -154,9 +154,18 @@ Two wiring shapes, to be chosen in §7 (a):
   child and passes the child's stdout through. One edit, cannot break the existing statusline, and is the better
   ergonomics for a plugin that wants to ship a working default.
 
-Whether a **plugin** may supply `statusLine` itself is **unresolved** and is the one open measurement (§7 (d)).
-Evidence leans no: the binary carries a settings-source gate map listing `statusLine:false` alongside
-`plugins:true`. If a plugin cannot, every user wires this by hand and the columns are blank until they do.
+**A plugin cannot supply `statusLine`.** Measured 2026-09-10 on 2.1.267, from two independent code paths:
+`subagentStatusLine` resolves through `Rst()`, which reads **plugin** settings (guarded by `pluginBaseLoaded` and a
+`tengu_plugin_settings_premature_read` telemetry event), whereas `statusLine` resolves through `lve()`, which takes
+the value from ordinary settings and allows only a `policySettings` override — it never reads plugin settings; and
+the plugin-contributable surface registry is `["agent","subagentStatusLine"]`, which does not include `statusLine`.
+So Brigade **cannot ship this working**: every user adds `brigade statusline` to their own `statusLine.command` by
+hand, and the columns stay blank until they do. This settles §7 (d) and makes the wrapper the better of the two
+shapes in §7 (a).
+
+(An earlier draft of this section cited a "settings-source gate map" as leaning evidence. That was a misreading:
+the two maps at `Wr(e,s)` are feature-disable maps for restricted trust modes and say nothing about plugin
+sourcing. The conclusion is unchanged; the evidence above replaces it.)
 
 ### 5.2 The protocol members
 
@@ -241,7 +250,8 @@ one-commit rule is now mechanically enforced rather than conventional.
   account consumption to the whole team.
 - **(c) Headless coverage** — is a permanently blank set of columns for `-p` sessions acceptable? If not, the
   statusline route cannot satisfy the requirement and §3.4's JS hooks route is the only candidate that can.
-- **(d) Plugin-supplied `statusLine`** — unmeasured (§5.1). Needs one empirical check before P10-1 is scoped.
+- **(d) Plugin-supplied `statusLine`** — **answered 2026-09-10: no** (§5.1). A plugin can ship a
+  `subagentStatusLine` but not a `statusLine`, so the wiring is always a manual, per-user step.
 - **(e) Percentage-only usage limits** — confirm that `used_percentage` + `resets_at` is enough, given that no
   absolute quota figure exists anywhere (§3.1).
 
@@ -250,7 +260,8 @@ one-commit rule is now mechanically enforced rather than conventional.
 - **Headless blind spot (permanent).** `-p` sessions have no statusline, so all three columns stay empty for
   them. Not fixable within this route.
 - **Opt-in blanks.** `brigade sessions` is a cross-machine roster; a teammate who has not wired their script shows
-  blank columns and Brigade cannot fix that for them. The `workspace_label` precedent sets the same expectation.
+  blank columns and Brigade cannot fix that for them — the plugin cannot pre-wire it (§5.1), so this is a manual step
+  for every user on the team. The `workspace_label` precedent sets the same expectation.
 - **`rate_limits` may never appear.** Subscription accounts only, after the first API response, and only while the
   window has not reset (§3.2). An API-key account yields nothing.
 - **Undocumented payload shape.** The statusline payload is documented, but three members this design reads —
