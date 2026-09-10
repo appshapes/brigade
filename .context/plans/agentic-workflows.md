@@ -1,22 +1,26 @@
 # Autonomous agentic workflows for brigade
 
 Date: 2026-09-09
-Status: **draft v3 after brigade-33's review; converged except 7.2 and 7.4, which Rjae confirms; not chartered — no
-execution-log rows until Rjae opens them.**
+Status: **final — Rjae's rulings of 2026-09-10 folded; not chartered — the §6 rows open when Rjae charters
+them.**
 Nothing in section 4 is to be committed, and no GitHub setting in section 4.10 is to be changed, until the owner
 charters the rows proposed in section 6.
 
 **Review record.** v1 was drafted by Opus. v2 followed an Opus adversarial verifier pass — 4 high, 8 medium and 9
 low notes, all applied — and a re-check of the applied fixes. v3 follows brigade-33's review of v2 (verified
 against the tree at `b14f1f3`): 1 high, 3 medium and 2 low, all applied, plus their answers to the eight open
-questions, which are converged and folded into the body. §7 now lists only what still needs Rjae.
+questions, which are converged and folded into the body. **v4 folds Rjae's final rulings of 2026-09-10 — a
+classic personal access token of their own account instead of a GitHub App; no burn-in and no staged rollout,
+straight to the finished state; dependencies driven by the agent rather than by Dependabot; and every open
+question closed.** §7 is now a record of what was decided, and needs nothing from anyone.
 
 Scope: this brief ports the `thinktech-api` agentic loop — a GitHub issue labelled `claude` as the universal work
 order, an agent that writes a branch, an agent that reviews the PR, an autonomous fix cycle bounded by four
-independent brakes, and auto-merge — into `appshapes/brigade`, plus three further agents
-(documentation refresh, repository review, release notes) and a Dependabot configuration that feeds the same loop.
-It adds eight files under `.github/` (seven workflows and `.github/dependabot.yml`), three agent instruction files
-under `.claude/agents/`, one shell script under `scripts/ci/`, one GitHub App, five repository settings and one
+independent brakes, and auto-merge — into `appshapes/brigade`, plus four further agents
+(documentation refresh, repository review, release notes, dependency update) feeding the same loop.
+It adds eight files under `.github/` (eight workflows), three agent instruction files
+under `.claude/agents/`, one shell script under `scripts/ci/`, **no new credential — both repository secrets
+already exist** (measured with `gh secret list` on 2026-09-10), five repository settings and one
 ruleset. It changes no Go source, no adapter, no protocol shape and no release
 mechanics; the only edits to existing tracked files are documentation lines (section 6) and — if the owner takes
 the recommendation in 4.7 — two edits to `release.yml`, a widened top-level `permissions:` block and one added job. The whole apparatus exists for agent-authored changes:
@@ -48,18 +52,27 @@ unreviewed fork PR execute on a Blacksmith VM. The guard rails here are GitHub's
 | Guard rail | Who enforces it | Where it appears below |
 | --- | --- | --- |
 | Only actors with **write access** can trigger the agent | `claude-code-action` (default; checked for issue, PR, comment and review events) | 4.1 — never set `allowed_non_write_users` |
-| Bots may trigger it only from an **explicit list** | `allowed_bots` (default `""` = no bots; `"*"` on a public repo lets any GitHub App invoke the agent with a prompt it controls) | 4.1, 4.2 — an explicit two-name list |
+| Bots may trigger it only from an **explicit list** | `allowed_bots` (default `""` = no bots; `"*"` on a public repo lets any GitHub App invoke the agent with a prompt it controls) | 4.1, 4.2 — exactly `claude`, one name |
 | The agent's GitHub power is the **job's `permissions:` block** | GitHub Actions | every file in 4 — the reviewer is `contents: read` |
-| Writes that must fire a downstream event use a **repo-scoped, short-lived App installation token** | `actions/create-github-app-token` | 1.2 blocker 1; 4.1, 4.3, 4.4 |
+| Writes that must fire a downstream event use **Rjae's classic PAT**, held only by jobs that run no agent | `secrets.GH_ACTIONS_TOKEN` | 1.2 blocker 1; 4.1, 4.3, 4.4 |
 | Fork PRs never see secrets, and outside-collaborator PRs never run at all without approval | GitHub repository settings | 1.2 blocker 2; 4.2, 4.10 |
 | A merge waits for CI | one branch ruleset on `master`, PR-only, admin-bypassed | 1.2 blocker 3; 4.3, 4.10 |
 | The loop cannot run away | four brakes ported verbatim from the reference, plus one brigade-specific deterministic guard | 4.1, 4.2, 4.3, 4.4 |
 
 The reference implementation is `thinktech-api` (11 workflows, 5 cron agents, one PAT). Its whole engine is a
 Personal Access Token with admin bypass, available to five cron workflows, able to push to `master` past branch
-protection. Brigade has no stored write credential at all today. The port therefore replaces the PAT with a GitHub
-App installation token, which is repository-scoped, short-lived (one hour), and — unlike `GITHUB_TOKEN` — does fire
-workflow events.
+protection. **Brigade takes the same shape, by Rjae's ruling of 2026-09-10: a classic PAT of Rjae's own account,
+not a GitHub App.** That is a deliberate choice of a known-working mechanism over a tidier one — Rjae runs this
+exact PAT-based loop in `thinktech-api` today, so when a question about the loop's behaviour comes up (does
+`--auto` really wait? does an issue created with the PAT raise `issues: labeled`?) the answer can be **read off a
+running system first** rather than drilled from scratch here.
+
+The trade the PAT makes, stated once and then honoured everywhere below: it is **not** repository-scoped —
+classic PATs cannot be, and this one reaches every repository Rjae's account can reach — and it is **long-lived**,
+expiring only if an expiry date was set when it was minted. Against a GitHub App's one-hour, single-repository
+installation token that is strictly more blast radius. The controls that bound it are therefore structural rather
+than cryptographic: the PAT is **never a secret of any job that runs `claude-code-action`** (§1.1.1 (iii)), it is
+never printed, and its renewal date is tracked (§4.10).
 
 #### 1.1.1 What the agent can reach, and what it cannot
 
@@ -84,12 +97,15 @@ can read `CLAUDE_CODE_OAUTH_TOKEN` out of its own environment and exfiltrate it.
 always reach what the build can reach. It is *bounded*, not eliminated, by four things, all of which are
 requirements of this brief and not suggestions:
 
-- a **dedicated** token (§4.10 credentials (ii)) — **never Rjae's personal one**, so a leak costs a rotation and a
-  quota, not a person's whole Claude account;
-- a **monthly spend ceiling on that dedicated account**, so a stolen token cannot bill without limit. **verify:**
-  where the ceiling is actually set — Anthropic Console (billing → usage limits) for an API-key-backed account,
-  or the Claude Code plan's own limits for a subscription-backed one; the two are different surfaces and the token
-  minted by `claude setup-token` may sit on either. This is the one item of §7 that H1 adds for Rjae;
+- **a known account and a known plan.** The token was minted with `claude setup-token` under
+  `reaston@ifthen.com` (**Max plan**) and set as the repository secret `CLAUDE_CODE_OAUTH_TOKEN` on 2026-09-10.
+  Earlier drafts of this brief argued for a *dedicated* account so a leak would not cost a person's whole Claude
+  account; **Rjae's ruling of 2026-09-10 settles it the other way** — there is one account, it is theirs, and a
+  leak costs a rotation and the period's remaining quota;
+- **the spend ceiling is that Max plan's own limits, and there is no second ceiling to set.** Claude Code usage
+  on this token bills against the subscription, whose plan limits are what stop a stolen token billing without
+  bound. Anthropic Console's billing → usage limits screen governs API-key-backed accounts and does not apply
+  here. **Closed 2026-09-10 — not an open item, and nothing is owed by Rjae** (§7, 7.3);
 - **rotation on any suspicious run** — a red `pr-guard.sh`, a fixer that touched a path it had no business in, a
   run whose log shows an unexpected network verb: rotate first, investigate second (`gh secret set
   CLAUDE_CODE_OAUTH_TOKEN` is one command);
@@ -103,19 +119,28 @@ is written narrowly rather than inherited. The **reviewer's** job token is `cont
 whole reason a reviewer cannot push; the release-notes job's is `contents: write` + `issues: write` for its two
 named API calls (§4.7).
 
-**(iii) The App private key and the App installation token are NEVER in any agent step.** Two mechanisms, and the
-second exists because the first is an argument rather than a barrier:
+**(iii) The PAT is NEVER a secret of any job that runs `claude-code-action` — and under Rjae's ruling of
+2026-09-10 that job split is the whole point of the split, not a refinement of it.** Three things, in order:
 
-- *The argument.* `secrets.BRIGADE_BOT_PRIVATE_KEY` is referenced only by the `Mint an App installation token`
-  step, and an Actions secret is materialised into a step's environment **only for the step that names it**. A
-  **later** step's secret is *not* reachable to an **earlier** step's children: the token is minted after the
-  agent process has exited, so there is nothing in the agent's environment to read and nothing yet in existence
-  to steal. That is true, and it is still only a statement about ordering.
-- *The barrier, and this brief takes it.* Put the App-token steps in a **separate job** with `needs:`, so the
-  agent's job never holds the private-key secret **at all** — not in a later step, not in the runner's process
-  environment, not one `if:` edit away from being reachable. §4.1 is written this way: `agent` runs the session
-  and publishes its branch name as a job output; `open-pr` (`needs: agent`) mints the token and creates the PR.
-  `auto-merge.yml` and `_create-claude-issue.yml` need no such split — neither runs an agent at all.
+- *What the credential actually is.* `secrets.GH_ACTIONS_TOKEN` is a **classic** personal access token of Rjae's
+  own account, scoped `repo`, `workflow`, `read:org`. Classic PATs **cannot be restricted to one repository** —
+  they reach every repository the account can reach — and they **expire only if an expiry was set** when minted.
+  So its blast radius is not "this repo for one hour"; it is every repository of a person who is an admin here
+  and a member elsewhere, for as long as the token lives.
+- *The barrier, and it is the only one.* The PAT-holding steps live in a **separate job** with `needs:`, so the
+  job that runs the agent never holds `GH_ACTIONS_TOKEN` **at all** — not in a later step, not in the runner's
+  process environment, not one `if:` edit away from a Bash child of an injected session. §4.1 is written this
+  way: `agent` runs the session and publishes its branch name as a job output; `open-pr` (`needs: agent`) creates
+  the PR with the PAT. `auto-merge.yml` and `_create-claude-issue.yml` need no such split — neither runs an agent
+  at all. Under a GitHub App this split was belt-and-braces over a sound ordering argument (a secret is
+  materialised only for the step that names it, and the token would not exist until the agent had exited). Under
+  a long-lived, account-wide PAT the ordering argument is not good enough on its own, so **the split is now
+  load-bearing and must not be collapsed back into one job for convenience.**
+- *The residual, stated plainly rather than argued away.* What remains is a **runner compromise** — anything with
+  code execution on the Blacksmith VM while `open-pr` or `auto-merge` runs — or a **leaked log**, a step that
+  prints the token past Actions' masker. Either hands over a credential that reaches **every repository Rjae's
+  account can reach**, not one repository for one hour. That is the cost of the mechanism Rjae chose over the
+  App, and it is accepted with its eyes open.
 
 **(iv) `WebFetch` and `WebSearch` are DROPPED from every agent's allow list.** The writer, the reviewer and the
 release-notes agent all work entirely from a checkout, `git`, `gh` and the build; **none of the three needs the
@@ -126,9 +151,11 @@ subprocess, no shell quoting. Add either back only with a stated reason written 
 **Say the limit out loud:** this does **not** eliminate egress. `Bash(make:*)` and `Bash(go:*)` execute code —
 `go test` compiles and runs test binaries, `make build` runs the toolchain, and any of those can open a socket.
 Dropping the web tools closes the easiest path, not the class. The controls that actually bound the damage are the
-ones above: a dedicated token, a ceiling, rotation, and job `permissions:` blocks written to the minimum.
+ones above: a known account whose plan limits are the ceiling, rotation, and job `permissions:` blocks written to
+the minimum — plus the one control that is structural rather than remedial, keeping `GH_ACTIONS_TOKEN` out of
+every job that runs an agent.
 
-**Drill (j)** exercises the leak path — a throwaway issue whose body asks the agent to print its environment must
+**§5 (j)** exercises the leak path — a throwaway issue whose body asks the agent to print its environment must
 not put a token in the world-readable log — and it is recorded as **evidence, not as a control that proves
 safety**: a masked log says the masking worked on that string, not that the token was unreachable. It was
 reachable. That is the accepted residual.
@@ -147,57 +174,55 @@ repositories in the org. `appshapes/brigade` is public. So every `${{ secrets.CL
 resolves to the empty string and the action fails at authentication — silently, in the sense that the failure is at
 the bottom of a run nobody is watching.
 
-*Clears with two things:*
+***Cleared 2026-09-10, by Rjae, with two repository secrets that now exist.*** Verified with `gh secret list` on
+2026-09-10 — this is a measurement, not a plan:
 
-1. **A GitHub App** installed on `appshapes/brigade` with `Contents: read & write`, `Pull requests: read & write`,
-   `Issues: read & write` and `Metadata: read`. Its app id goes in a repository **variable** (public, harmless), its
-   private key in a repository **secret**. Every write that must fire a downstream event mints a token per job:
+| Secret | Set (2026-09-10, UTC) | What it is |
+| --- | --- | --- |
+| `GH_ACTIONS_TOKEN` | 12:13 | A **classic** personal access token of **Rjae's own account** — not a GitHub App, by Rjae's ruling. Scopes: `repo`, `workflow`, `read:org` (`write:discussion` is optional and **not** needed here). |
+| `CLAUDE_CODE_OAUTH_TOKEN` | 12:25 | Minted with `claude setup-token` under `reaston@ifthen.com` (**Max plan**). Claude Code spend bills to that subscription, and the plan's own limits are the ceiling — there is no separate ceiling to set. |
 
-   ```yaml
-   # Repo-scoped, expires in one hour, and — unlike GITHUB_TOKEN — its writes DO raise workflow
-   # events, which is the whole reason the chain (issue → PR → review → merge) keeps moving.
-   - name: Mint an App installation token
-     id: app-token
-     uses: actions/create-github-app-token@v3      # verify: current major tag at implementation time
-     with:
-       app-id: ${{ vars.BRIGADE_BOT_APP_ID }}
-       private-key: ${{ secrets.BRIGADE_BOT_PRIVATE_KEY }}
-       # owner/repositories default to the current repository; leave them unset so the token
-       # can never reach another repository in the org.
-   ```
+**Note the name collision, because it will confuse somebody at a keyboard one day.** The org secret measured
+above is *also* called `GH_ACTIONS_TOKEN`, and it is still `private`-visibility and still invisible here. The one
+these workflows read is the **repository** secret of the same name, set on 2026-09-10. `secrets.GH_ACTIONS_TOKEN`
+in this repository resolves to the repository secret; the org one is simply out of reach and stays that way.
 
-   Then `GH_TOKEN: ${{ steps.app-token.outputs.token }}` on the step that creates the issue, opens the PR, or merges.
+Two properties of a classic PAT that must be stated rather than discovered, because both are structural and
+neither can be configured away:
 
-2. **A repository-scoped `CLAUDE_CODE_OAUTH_TOKEN`** (`gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo appshapes/brigade`),
-   *or* flipping the org's `CLAUDE_CODE_TOKEN` to `selected` visibility and selecting this repository:
+- **It cannot be repository-scoped.** Classic PATs carry the account's reach: this token can act on **every
+  repository Rjae's account can reach**, not just `appshapes/brigade`. (Fine-grained PATs and App installation
+  tokens can be narrowed; a classic one cannot.) This is why §1.1.1 (iii)'s job split is load-bearing rather
+  than tidy.
+- **It expires only if an expiry was set** at mint time. If one was, the loop stops dead on that day, silently
+  and everywhere at once.
 
-   ```sh
-   # Option B, org-side (needs org admin). `-F` parses only numbers, booleans, null and @file — it would send
-   # the LITERAL string "[123]" for an array, so use the repeated-key form `-f 'name[]=value'` instead:
-   gh api -X PUT orgs/appshapes/actions/secrets/CLAUDE_CODE_TOKEN/repositories \
-     -f 'selected_repository_ids[]=<brigade repo id>'
-   # (or pipe a JSON body: printf '{"selected_repository_ids":[<id>]}' | gh api -X PUT <path> --input -)
-   # (the value must be re-set with visibility=selected; see `gh secret set --org appshapes --visibility selected`)
-   ```
+Nothing has to be created, then. The one standing obligation is a calendar one and it is on §4.10's checklist:
+**note the renewal dates of both tokens.**
 
-   This brief writes `secrets.CLAUDE_CODE_OAUTH_TOKEN` throughout. If option B is taken, rename the reference in
-   the three workflows that use it and nothing else changes. **Option A is the recommendation**, and §4.10's
-   credentials checklist says why: a *dedicated* repository token keeps agent usage off Rjae's personal
-   subscription, which the org secret (a named human's credential, as in the reference repo, where every agent
-   run bills to one person) would not.
+The mechanism the PAT buys is the one the whole chain depends on: `GITHUB_TOKEN`'s writes raise no
+workflow-triggering events, and a PAT's do. So every write that must fire a downstream event — the factory's
+issue create, `open-pr`'s PR create, `auto-merge`'s merge — carries:
 
-*Interaction found while writing this brief, and it is load-bearing:* the reference's `if:` clauses and
+```yaml
+# Rjae's classic PAT. Its writes DO raise workflow events, which is the whole reason the chain
+# (issue → PR → review → merge) keeps moving. It appears ONLY in jobs that run no agent (§1.1.1 (iii)).
+env:
+  GH_TOKEN: ${{ secrets.GH_ACTIONS_TOKEN }}
+```
+
+*Interaction the reference already resolves, and this port inherits unchanged:* the reference's `if:` clauses and
 `allowed_bots` are keyed on the login prefix `claude`, which works there because (a) reviews are submitted by the
-**Claude GitHub App** (`claude[bot]`, bot_id 41898282) and (b) PRs are opened by a **PAT belonging to a human**. Under
-this port, PRs and issues are created by **our own App**, whose actor login is `<app-slug>[bot]` — *not* `claude`.
-Three consequences:
+**Claude GitHub App** (`claude[bot]`, bot_id 41898282) and (b) issues and PRs are created by a **PAT belonging to
+a human**. Brigade now has exactly that arrangement. Three consequences:
 
-- **(a)** `allowed_bots` must be the two-name list `"claude,<app-slug>"`, not `"claude"` alone, or every event our
-  own App raises is rejected by the action's bot filter and the chain dead-ends with a green run and no work. This
-  is a documented, deliberate widening of Rjae's decision 2 ("allowed_bots exactly `claude`"), forced by decision 1
-  (App token); it is still an explicit list and never `"*"`. **Converged with brigade-33 2026-09-10 and adopted
-  (was open question 7.5): no veto.** The widening stands; what is not negotiable either way is the principle —
-  an explicit list, never `"*"`, and never `allowed_non_write_users`.
+- **(a)** `allowed_bots` is **exactly `"claude"`** — one name, as Rjae's decision 2 says, with no widening. An
+  issue or a PR created with `GH_ACTIONS_TOKEN` is authored by **Rjae**, a human with write access, so it passes
+  the action's default write-access check as a person rather than through the bot filter at all. The two-name
+  `"claude,brigade-bot"` list that earlier drafts of this brief needed existed only to admit our own App's
+  `[bot]` login; with no App there is no such login and the widening is **deleted, not merely unused** (old open
+  question 7.5 is moot — §7). The principle underneath is unchanged and not negotiable: an explicit list, never
+  `"*"`, and never `allowed_non_write_users`.
 - **(b) — resolved 2026-09-09, and the answer is yes.** The predicate
   `startsWith(github.event.review.user.login, 'claude')` in the fix gate and in `auto-merge.yml` presumes the
   reviewer's `gh pr review` runs as `claude[bot]`. That holds only if the **Claude GitHub App is installed on this
@@ -206,13 +231,13 @@ Three consequences:
   arms the fixer. **Measured with `gh` on 2026-09-09: the Claude GitHub App (`app_slug` `claude`, `app_id`
   1236702) is installed on the `appshapes` org for *all* repositories** — alongside `qodana-cloud`, `railway-app`
   and `blacksmith-sh` — so `appshapes/brigade` is covered and the prerequisite is met without a further install.
-  The sentence stays because the *dependency* stays: drill (a) still prints the actual review author login, so the
+  The sentence stays because the *dependency* stays: §5 (a) still prints the actual review author login, so the
   predicate rests on a measured fact rather than on this paragraph.
 - **(c)** The same App dependency governs the fixer's **push**, not just the review author. If
   `claude-code-action` pushed the fix with the job's `GITHUB_TOKEN` rather than with a Claude App token, no
   `pull_request: synchronize` would fire, `review pr` would never re-run, and the loop would park — *and*
   verifier 1 ("Verify the fix was pushed") would pass, because the head SHA did move. That is exactly the silent
-  park the verifiers exist to prevent, which is why drill (b) records a new `review pr` run id after **every** fix
+  park the verifiers exist to prevent, which is why §5 (b) records a new `review pr` run id after **every** fix
   push and not merely the review count.
 
 ---
@@ -229,11 +254,11 @@ Three consequences:
   all outside collaborators".** This is a **UI setting**; there is a REST surface for the
   fork-PR contributor approval policy but it is not stable across API versions — **verify:** whether
   `gh api -X PUT repos/appshapes/brigade/actions/permissions/fork-pr-contributor-approval` exists on the deployed API
-  before scripting it. Do it in the UI and record the screenshot in the drill evidence.
+  before scripting it. Do it in the UI and record the screenshot with the first-run evidence.
 - **Keep the action's default write-access trigger check.** Never set `allowed_non_write_users` — the action's own
   `docs/security.md` calls it a significant risk, and on a public repository it means any stranger's comment becomes
   a prompt.
-- `allowed_bots` is the explicit two-name list of 1.2 above, never `"*"`.
+- `allowed_bots` is the explicit one-name list of 1.2 above — exactly `"claude"` — never `"*"`.
 - Belt and braces in this brief's own files: `review-pull-request.yml`'s job carries
   `github.event.pull_request.head.repo.full_name == github.repository`, because a fork PR cannot see
   `secrets.CLAUDE_CODE_OAUTH_TOKEN` anyway (GitHub does not expose secrets to fork PRs) and a reviewer job that
@@ -256,11 +281,26 @@ it is skipped unless `vars.BRIGADE_STAGING == 'true'` and a required check that 
 forever), and `bypass_actors` containing the repository-admin role so **Rjae's direct pushes to `master` are
 untouched**.
 
-The subtlety that makes the App mandatory here: **a bypass actor bypasses the rule.** If the merging identity were
-an admin PAT, `gh pr merge --auto` would merge past the very gate the ruleset exists to impose, and the drill would
-pass while proving nothing. The merge must therefore be performed by the **App**, which is *not* in `bypass_actors`.
-Drill (c) proves the wait empirically: a PR whose CI is red must sit armed and unmerged, and merge only when the
-same PR goes green.
+**And here is the one place Rjae's PAT ruling costs something, stated without softening: a bypass actor bypasses
+the rule, and `GH_ACTIONS_TOKEN` is a repository admin's token.** Earlier drafts of this brief solved that by
+merging as a GitHub App, which is not in `bypass_actors`. With the PAT there is no such identity, so the gate no
+longer rests on the ruleset's ability to *refuse* this merger; it rests on **`gh pr merge --auto` choosing to
+wait for the required checks** even for an actor who could bypass them. That is a behaviour of GitHub's
+auto-merge, not a permission, and it is the **one deliberate check this brief keeps before the merge gate is
+relied on** (§5 (c), and §2's decision 3).
+
+Two ways to answer it, cheapest first:
+
+1. **Read it off `thinktech-api`.** Rjae runs this same PAT-based loop there today. If `--auto` waits for green
+   there, under an admin PAT, it waits here. Look before drilling.
+2. **Watch it here once** (§5 (c)): a PR whose CI is red must sit armed and unmerged, and merge only when the
+   same PR goes green.
+
+**And if the answer turns out to be "it does not wait", the contingency is already written into `auto-merge.yml`
+(§4.3) and needs no redesign:** wait for the required checks explicitly with
+`gh pr checks "$PR" --required --watch --fail-fast` and only then run a plain `gh pr merge --squash`. That
+converts the gate from "GitHub declines to merge" into "we do not ask until the checks are green", which is a
+weaker guarantee but a deterministic one, and it is the same four checks either way.
 
 ---
 
@@ -290,7 +330,7 @@ Five brigade constraints have no analogue in the reference repo and every agent 
 2. **The `go` line is a release-reproducibility pin** (`CLAUDE.md:28-30`). An agent must never bump it. Same guard.
 3. **A Go source change ships nothing until `make release`.** `make checksums-check` rule (c) keeps the `fast` job
    green through the published-release arm, and the plugin keeps serving the last released binary. Documented in the
-   agent files and proven in drill (f) so nobody files it as a defect.
+   agent files and recorded in §5 (f) so nobody files it as a defect.
 4. **`make commit` / `make push` must never run on a runner.** `make commit` is
    `typecheck pull build test` then `git add --verbose :/ .` — it sweeps **untracked** files (the same hazard
    `release-prep.sh` guards, and the hazard that swept 25 `.pyc` files and the AI-tooling state into commits on
@@ -302,20 +342,25 @@ Five brigade constraints have no analogue in the reference repo and every agent 
 
 ---
 
-## 2. Decisions (Rjae, 2026-09-09) — binding
+## 2. Decisions (Rjae, 2026-09-09, **superseded in part by the rulings of 2026-09-10**) — binding
 
 **Blockers, all four agreed:**
 
-1. Org secrets are invisible to the public repo → use a **GitHub App installation token**
-   (`actions/create-github-app-token`) **per repository** for every write that must fire an event — issue create, PR
-   create, merge — and a **repo-scoped `CLAUDE_CODE_OAUTH_TOKEN`** (or flip the org secret to selected repositories).
+1. Org secrets are invisible to the public repo → **two repository secrets, both of which now exist** (measured
+   2026-09-10): **`GH_ACTIONS_TOKEN`**, a **classic PAT of Rjae's own account** (`repo`, `workflow`, `read:org`),
+   for every write that must fire an event — issue create, PR create, merge — and **`CLAUDE_CODE_OAUTH_TOKEN`**,
+   minted under `reaston@ifthen.com` (Max plan). *(This **replaces** the GitHub App of the 2026-09-09 decision:
+   Rjae's ruling of 2026-09-10 is a classic PAT, not an App. See §1.2 blocker 1 for what the PAT costs.)*
 2. Enable the repository setting **"Require approval for all outside collaborators"**; keep the action's **default
-   write-access check**; **never** `allowed_non_write_users`; `allowed_bots` an explicit list — `"claude"` (widened
-   to `"claude,<app-slug>"` by the App-identity interaction of 1.2; still explicit, never `"*"`).
+   write-access check**; **never** `allowed_non_write_users`; `allowed_bots` an explicit list — **exactly
+   `"claude"`**, never `"*"`. *(The `"claude,<app-slug>"` widening that v2/v3 proposed is gone with the App: a PAT
+   authors as Rjae, a human with write access.)*
 3. **A ruleset on `master` requiring the CI checks for PULL REQUESTS only** (bypass: repository admin, so Rjae's
-   direct pushes to `master` are untouched) plus the repository setting **"Allow auto-merge"** — with a **drill that
-   proves `gh pr merge --auto` WAITS** for the checks under that ruleset. The merging identity must be **the App**,
-   not an admin PAT, or the bypass would defeat the gate.
+   direct pushes to `master` are untouched) plus the repository setting **"Allow auto-merge"** — with **the one
+   deliberate check this brief keeps: that `gh pr merge --auto` WAITS** for the checks under that ruleset even
+   though the merging identity (Rjae's PAT) is itself a bypass actor. Answerable first by reading it off
+   `thinktech-api`, which runs the same PAT-based loop today; and if the answer is "it does not wait",
+   `auto-merge.yml` already carries the deterministic contingency (§4.3).
 4. **Agent PRs labelled `maintenance` are exempt from the execution-log-row rule.** **Squash merges with the PR
    title in the form `15: <Imperative summary>` satisfy the commit-message rule.**
 
@@ -323,31 +368,35 @@ Five brigade constraints have no analogue in the reference repo and every agent 
 
 1. **The loop** — `claude.yml` (hub) + `review-pull-request.yml` + `auto-merge.yml`, ported from thinktech with all
    four brakes: the fix cap derived by **counting claude-authored `CHANGES_REQUESTED` reviews** (`MAX_ATTEMPTS 3`),
-   **actor filters** against recursion, **App-token vs `GITHUB_TOKEN` as the recursion switch**, and **concurrency
+   **actor filters** against recursion, **PAT vs `GITHUB_TOKEN` as the recursion switch**, and **concurrency
    per PR plus `review.commit_id == head.sha`**; and both **fail-loud verifiers** (no review submitted / no push
    landed). The reviewer's settings allowlist is **read-only**; the writer's allowlist is `Bash(make:*)`,
    `Bash(go:*)`, `Bash(git:*)`, `Bash(gh:*)`, `Bash(docker:*)` — the last for the shellcheck 0.9.0 container — plus
    the read-only tools. Reviewer instructions live in a committed `.claude/agents/reviewer.md` carrying brigade's
    invariants.
-2. **Dependencies** — a `.github/dependabot.yml` (gomod for `go.mod`, github-actions; monthly; grouped) and **not**
-   an agent. The loop's fix cycle adapts call sites when a bump breaks `make build test deps-check tidy-check`. The
-   agent must **never** bump `go.mod`'s `go` line (the reproducibility pin) and must respect
-   `docs/allowed-deps.txt`. `tools.mod` is not a `go.mod`; the brief says how it is kept current. A Go bump ships
-   nothing until Rjae runs `make release`.
+2. **Dependencies — the AGENT, not Dependabot.** *(Rjae's ruling of 2026-09-10, replacing the 2026-09-09
+   `.github/dependabot.yml` decision: this is how Rjae's other repositories already do it.)* A monthly
+   `update-dependencies.yml` calls the issue factory with `auto_merge: true`, and the work order points the writer
+   at `.claude/agents/developer.md`'s **dependency-update mode** (§4.8, §4.9.3). The agent bumps direct modules in
+   `go.mod` **and** `tools.mod`, and the action pins; adapts call sites when a major breaks the build; must
+   **never** bump `go.mod`'s `go` line (the reproducibility pin); and must respect `docs/allowed-deps.txt` — a new
+   module in the shipped binary is Rjae's decision, not the agent's. A Go bump ships nothing until Rjae runs
+   `make release`.
 3. **`release-notes.yml`** on `release: [published]` — read `CHANGELOG.md`'s section, the commits since the previous
    tag and the assets; `gh release edit --notes`; open one issue/discussion "`<version>` is out — run
    `/brigade:update`" for members. Read-only plus that one write.
 4. **`update-documentation.yml`**, monthly, scoped to **structural drift** in `docs/setup.md`, `plugin/README.md`,
    `README.md`, `docs/adapter-authors.md` (paths, targets, versions, command names) and explicitly **not**
    `docs/security.md` or `docs/protocol-v1.md`. CI's doc-witness tests are the gate. Opens a PR through the loop,
-   **with** auto-merge. *(§4.5 now proposes `auto_merge: false` for the first two months, then true — a CHANGE to
-   this decision, converged with brigade-33 2026-09-10, **awaiting Rjae's confirmation**; §7.A item 1. Until
-   Rjae confirms, this line is what binds.)*
-5. **`review-repository.yml`**, monthly: the reviewer reads the tree and opens a PR with minimal fixes **but without
-   the `auto-merge` label** — the loop reviews and fixes it; **merging waits for Rjae**. *(§4.6 now proposes
-   `workflow_dispatch` only, cron commented out, until the second adapter is chartered — a CHANGE to this
-   decision, converged 2026-09-10, **awaiting Rjae's confirmation**; §7.A item 2. Until Rjae confirms, this line
-   is what binds.)*
+   **with** auto-merge — **`auto_merge: true` from day one.** *(v3 proposed holding it at `false` for two months;
+   **Rjae rejected the hold on 2026-09-10**, and the reason is that they have run this exact loop on numerous
+   projects for many months. This original line stands, unqualified; old open question 7.2 is closed.)*
+5. **`review-repository.yml`**, **monthly cron live from day one**: the reviewer reads the tree and opens a PR
+   with minimal fixes **but without the `auto-merge` label** — the loop reviews and fixes it; **merging waits for
+   Rjae**. *(v3 proposed `workflow_dispatch` only until a second adapter was chartered; **Rjae rejected that hold
+   too, 2026-09-10** — no burn-in, straight to the finished state. Old open question 7.4 is closed. Note what the
+   missing `auto-merge` label is and is not: it is **Rjae's standing decision 5**, that a whole-tree review merges
+   only by hand, and **not** a burn-in measure — it does not expire.)*
 
 **Dropped entirely:** `find-improvements`, `enforce-logging`, `record-memory` (agent memory stays under
 `.context/`, never `.claude/`).
@@ -360,12 +409,12 @@ budget is a hard budget and CI is scaffolding-tier work by the log's own tier po
 ## 3. What the loop looks like once it is running
 
 ```
-cron ──► _create-claude-issue.yml ──(App token)──► issue labelled `claude` [+ `maintenance`] [+ `auto-merge`]
-                                                       │  issues: labeled  (fires because the App is not GITHUB_TOKEN)
+cron ──► _create-claude-issue.yml ──(PAT)──► issue labelled `claude` [+ `maintenance`] [+ `auto-merge`]
+                                                       │  issues: labeled  (fires because the PAT is not GITHUB_TOKEN)
                                                        ▼
                                                   claude.yml  (tag mode: the issue body IS the prompt)
                                                        │  agent pushes claude/issue-N
-                                                       │  Create PR  ──(App token)──► PR "15: <title>", labels copied
+                                                       │  Create PR  ──(PAT, in a job with no agent)──► PR "15: <title>", labels copied
                                                        ▼  pull_request: opened
                                     review-pull-request.yml  ── guard (release pins, go line) ──► reviewer agent
                                                        │
@@ -376,7 +425,7 @@ cron ──► _create-claude-issue.yml ──(App token)──► issue labelle
                             (label auto-merge &&                       CHANGES_REQUESTED reviews on this PR)
                              commit_id == head.sha)                        │ fixer pushes
                                     │ gh pr merge --squash --auto          ▼ pull_request: synchronize
-                                    ▼ (App; waits on the ruleset)     back to review-pull-request.yml
+                                    ▼ (PAT; waits for the checks)     back to review-pull-request.yml
                             squash commit "15: <Imperative summary>"
 ```
 
@@ -385,7 +434,7 @@ cron ──► _create-claude-issue.yml ──(App token)──► issue labelle
 - **A human applies the `claude` label to an existing PR.** `claude.yml` listens on `pull_request: [opened,
   labeled]`, so labelling a PR that already exists starts the agent on it. That is a real path, not an oversight:
   the action's **write-access check gates it exactly like every other event**, and the label *is* the human's
-  explicit authorization to run an agent with write power on that branch. Drill (i) proves both halves — it starts
+  explicit authorization to run an agent with write power on that branch. §5 (i) records both halves — it starts
   for a write-access actor and it does not start for anyone else.
 - **A human's review body containing `@claude` starts the fixer even on an APPROVED review.** §4.1's review clause
   admits `claude*` reviews only in `changes_requested` state, but a review from a **non-`claude` login** matches on
@@ -410,8 +459,8 @@ carrying its reason. Each is followed by its **brigade-specific deltas from the 
 
 Two conventions applied throughout, both brigade's rather than thinktech's:
 
-- **Actions are pinned by major tag** (`actions/checkout@v7`, `actions/setup-go@v7`,
-  `actions/create-github-app-token@v3` …), matching `ci.yml`, `release.yml` and `keepalive.yml` — **with exactly
+- **Actions are pinned by major tag** (`actions/checkout@v7`, `actions/setup-go@v7` …), matching `ci.yml`,
+  `release.yml` and `keepalive.yml` — **with exactly
   one exception, `anthropics/claude-code-action`, which is pinned by full commit SHA** (converged with brigade-33
   2026-09-10, open question 7.7; adopted). The house style is deliberately broken for this one action because it
   is the only action in the repository that **runs a model with write access to the repository**: a mutable major
@@ -420,8 +469,9 @@ Two conventions applied throughout, both brigade's rather than thinktech's:
   form is `anthropics/claude-code-action@<40-hex>   # v1`, written the same way in §4.1, §4.2 and §4.7, and the
   comment is what keeps it legible; **verify:** resolve the SHA for the current `v1` at implementation time
   (`gh api repos/anthropics/claude-code-action/git/ref/tags/v1 --jq .object.sha`, dereferencing an annotated tag)
-  and record it in the P9-2 commit. The cost is one Dependabot PR a month, which `.github/dependabot.yml`'s
-  `github-actions` ecosystem already produces.
+  and record it in the P9-2 commit. Keeping it current is the **dependency agent's** job, and §4.9.3's
+  dependency-update mode names the one special case explicitly: every other action moves by major tag, this one
+  moves by **re-resolving the SHA for the current `v1`** and updating the `# v1` comment beside it.
 - **Every job sets `timeout-minutes`** (`CLAUDE.md`; GitHub's default is 360). The existing `ci.yml` bounds are twice
   a measured p90 of ten named runs. **No run of any workflow below exists yet**, so every bound below is a stated
   guess with a comment saying so, and re-pinning it from ten real runs is an item on the P9-3 row.
@@ -438,8 +488,9 @@ Two conventions applied throughout, both brigade's rather than thinktech's:
 #   * `Bash(docker:*)` is allowed for exactly one reason: the pinned shellcheck 0.9.0 container CLAUDE.md
 #     requires before any shell file is pushed;
 #   * writes to plugin/bin/**, .claude/** and .github/workflows/** are DENIED, not merely discouraged;
-#   * the App private key lives in a SECOND JOB (`open-pr`), never in the job that runs the agent — the agent's
-#     Bash children inherit its environment, so the credential is kept out of the job rather than out of a step.
+#   * GH_ACTIONS_TOKEN — Rjae's classic PAT — lives in a SECOND JOB (`open-pr`), never in the job that runs the
+#     agent. The agent's Bash children inherit its environment, and a classic PAT cannot be scoped to one
+#     repository, so the credential is kept out of the JOB rather than merely out of a step (§1.1.1 (iii)).
 #
 # Tag mode, deliberately: no `prompt:` input. In tag mode the action takes the issue/comment/review body as the
 # prompt, which is what makes the scheduled workflows' agent-role prose (`Read .claude/agents/developer.md ...`)
@@ -483,11 +534,11 @@ jobs:
     #
     # The `pull_request: labeled` half of the last clause is likewise a real, human path: applying the `claude`
     # label to an EXISTING PR starts an agent on it. The action's write-access check gates it exactly as it gates
-    # every other event, and the label is the human's authorization. Drill (i).
+    # every other event, and the label is the human's authorization. §5 (i).
     #
     # `startsWith(..., 'claude')` presumes the reviewing identity is the Claude GitHub App (claude[bot]). That is
     # a PREREQUISITE, not an assumption: without that App installed the reviewer's `gh pr review` lands as
-    # github-actions[bot], no clause here matches, and the fix loop silently never arms. Drill (a) prints the
+    # github-actions[bot], no clause here matches, and the fix loop silently never arms. §5 (a) prints the
     # real login; re-pin this prefix to it if it differs.
     if: |
       (
@@ -505,15 +556,15 @@ jobs:
     # not burn six hours of the concurrency group. Re-pin from ten real runs (P9-3).
     timeout-minutes: 45
     # Published so the `open-pr` job below can act on it. A job output is the ONLY channel between the two jobs,
-    # and that is exactly the point: `open-pr` holds the App private key and this job must not, so nothing
-    # crosses the boundary but a branch name (§1.1.1 (iii)).
+    # and that is exactly the point: `open-pr` holds the PAT and this job must not, so nothing crosses the
+    # boundary but a branch name (§1.1.1 (iii)).
     outputs:
       branch_name: ${{ steps.claude.outputs.branch_name }}
-    # NOTE what is NOT in this job: `secrets.BRIGADE_BOT_PRIVATE_KEY`. The agent's Bash children inherit this
-    # step's environment (no `allowed_non_write_users`, so the action's conditional secret scrub and bubblewrap
-    # isolation are both off — §1.1.1), so the App's write credential is kept out of the job entirely rather than
-    # merely out of an earlier step. Reachable here, by design and by acceptance: CLAUDE_CODE_OAUTH_TOKEN and
-    # this job's own repo-scoped, job-lifetime GITHUB_TOKEN.
+    # NOTE what is NOT in this job: `secrets.GH_ACTIONS_TOKEN`. The agent's Bash children inherit this step's
+    # environment (no `allowed_non_write_users`, so the action's conditional secret scrub and bubblewrap
+    # isolation are both off — §1.1.1), and Rjae's classic PAT reaches EVERY repository their account can reach,
+    # so it is kept out of the job entirely rather than merely out of an earlier step. Reachable here, by design
+    # and by acceptance: CLAUDE_CODE_OAUTH_TOKEN and this job's own repo-scoped, job-lifetime GITHUB_TOKEN.
     permissions:
       contents: write          # the agent commits and pushes its branch
       pull-requests: write     # comments, labels
@@ -618,15 +669,15 @@ jobs:
         #   (an annotated tag needs one more hop: gh api .../git/tags/<sha> --jq '.object.sha')
         uses: anthropics/claude-code-action@<RESOLVE-AT-IMPLEMENTATION>   # v1
         with:
-          # brake 2, second half. Two logins, both explicit, never '*':
-          #   claude       — the Claude GitHub App, the actor of the fixer's own push (synchronize) and of the
-          #                  CHANGES_REQUESTED review that arms this job;
-          #   brigade-bot  — OUR App, the actor of every issue and PR the automation creates. Without it the
-          #                  `issues: labeled` event a scheduled run raises is rejected by the action's bot
-          #                  filter and the scheduled agents produce silent, unworked issues.
+          # brake 2, second half. EXACTLY ONE login, explicit, never '*':
+          #   claude — the Claude GitHub App, the actor of the fixer's own push (synchronize) and of the
+          #            CHANGES_REQUESTED review that arms this job.
+          # Nothing else belongs here. Issues and PRs raised by the automation are created with Rjae's classic
+          # PAT (GH_ACTIONS_TOKEN), so their actor is RJAE — a human with write access — and they clear the
+          # action's default write-access check without touching the bot filter at all. Earlier drafts carried a
+          # second name for a GitHub App identity that no longer exists; do not re-add one.
           # '*' on a public repository would let ANY GitHub App invoke this agent with a prompt it controls.
-          # verify: the exact normalized login of our App ('<slug>' vs '<slug>[bot]') against drill (a)'s output.
-          allowed_bots: "claude,brigade-bot"
+          allowed_bots: "claude"
           # NEVER set allowed_non_write_users. The action's default check — write access on the triggering actor,
           # verified for issue, PR, comment and review events — is the single control that keeps a stranger's
           # comment on a PUBLIC repository from becoming a prompt on a self-hosted runner.
@@ -634,10 +685,9 @@ jobs:
           # Opus for every workflow agent (the log's tier policy: CI/scaffolding/docs are Opus-tier). Fable never
           # runs in CI — its budget is hard and is reserved for the security path and adversarial passes.
           # --max-turns is a hard stop on a wandering session. 60 is PROVISIONAL by decision, not by omission
-          # (7.3, converged with brigade-33 2026-09-10 and adopted): re-pin it from the first ten real runs on
-          # the P9-3 row. The per-run cap is only half the answer — the other half is a MONTHLY SPEND CEILING on
-          # the dedicated OAuth account (§1.1.1 (i), §4.10 credentials (ii)), which bounds a wandering month the
-          # way --max-turns bounds a wandering session, and bounds a stolen token besides.
+          # (7.3): re-pin it from the first ten real runs on the P9-3 row. The other half of the money question
+          # is already answered and needs nothing here — the OAuth token is on Rjae's Max plan and THAT PLAN'S
+          # LIMITS ARE THE CEILING (§1.1.1 (i), §4.10 credentials (ii)); there is no second ceiling to set.
           claude_args: "--model claude-opus-5 --max-turns 60"
           # Public repository: run logs are world-readable. Keep the full agent output out of them.
           show_full_output: false
@@ -689,7 +739,7 @@ jobs:
           #                          guard in review-pull-request.yml catches it if this is ever loosened.
           #   .claude/**           — the agent must not rewrite its own operating instructions, and agent memory
           #                          lives under .context/, never .claude/ (Rjae, dropped `record-memory`).
-          #   .github/workflows/** — neither GITHUB_TOKEN nor an App token can push a change under that path
+          #   .github/workflows/** — neither GITHUB_TOKEN nor the Claude App's token can push a change there
           #                          without the `workflows` permission; the reference observed the remote
           #                          rejection on 2026-08-02. Failing at the edit is a better error than failing
           #                          at the push, where the fixer looks green and lands nothing.
@@ -724,13 +774,15 @@ jobs:
           fi
 
   # ------------------------------------------------------------------ brake 3: the token IS the switch
-  # A SEPARATE JOB, and the separation is a security boundary rather than tidiness (§1.1.1 (iii), brigade-33's
-  # H1). The PR must raise `pull_request: opened` so the reviewer runs, and GITHUB_TOKEN's writes raise no
-  # workflow events — so these steps need the App installation token. Minting it in a later STEP of the agent job
-  # would already be safe on the ordering argument (a secret is materialised only for the step that names it, and
-  # the token would not exist until after the agent process had exited); putting it in a later JOB makes the
-  # argument unnecessary — the agent's job never holds `BRIGADE_BOT_PRIVATE_KEY` at all, in any step, and no
-  # future `if:` edit can quietly make it reachable.
+  # A SEPARATE JOB, and the separation is a security boundary rather than tidiness (§1.1.1 (iii)). The PR must
+  # raise `pull_request: opened` so the reviewer runs, and GITHUB_TOKEN's writes raise no workflow events — so
+  # this step needs GH_ACTIONS_TOKEN, Rjae's classic PAT. Referencing that secret in a later STEP of the agent
+  # job would be safe only on an ordering argument (a secret is materialised only for the step that names it);
+  # putting it in a later JOB makes the argument unnecessary — the agent's job never holds `GH_ACTIONS_TOKEN` at
+  # all, in any step, and no future `if:` edit can quietly make it reachable. That distinction MATTERS MORE with
+  # a PAT than it did with the App token this file used to mint: a classic PAT cannot be scoped to one
+  # repository and does not expire in an hour, so its blast radius is every repository Rjae's account can reach.
+  # DO NOT collapse these two jobs back into one.
   #
   # `needs: agent` also gives the sequencing for free: a FAILED or SKIPPED agent job skips this one, which is the
   # behaviour the close-the-issue step below depends on (a failed run must leave the issue open for a retry).
@@ -738,21 +790,17 @@ jobs:
     needs: agent
     if: github.event_name == 'issues'
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 5          # a token mint, one branch lookup and one `gh pr create`; not a p90, a floor
+    timeout-minutes: 5          # one branch lookup and one `gh pr create`; not a p90, a floor
     permissions:
       issues: write             # ONLY for the close-when-nothing-changed step, which uses GITHUB_TOKEN on purpose
     steps:
-      - name: Mint an App installation token
-        id: app-token
-        uses: actions/create-github-app-token@v3      # verify: current major tag
-        with:
-          app-id: ${{ vars.BRIGADE_BOT_APP_ID }}
-          private-key: ${{ secrets.BRIGADE_BOT_PRIVATE_KEY }}
-
       - name: Create PR
         id: create_pr
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # Rjae's classic PAT: its write DOES raise `pull_request: opened`, which is what starts the reviewer.
+          # The PR's author is therefore Rjae, a human with write access — which is why `allowed_bots` above
+          # needs only the one name, `claude`.
+          GH_TOKEN: ${{ secrets.GH_ACTIONS_TOKEN }}
           # GH_REPO: this job has no checkout, so gh has no git context to infer the repository from.
           GH_REPO: ${{ github.repository }}
           BRANCH: ${{ needs.agent.outputs.branch_name }}
@@ -813,7 +861,7 @@ jobs:
       # it. The determination is STRUCTURAL — the agent ran to completion and opened no PR — so close on that
       # rather than on the wording of its comment. A FAILED agent job skips this whole job (`needs: agent`, no
       # `always()`), leaving the issue open for a retry. GITHUB_TOKEN on purpose: closing an issue must chain to
-      # nothing — and it is this job's own token, not the App's, so the close raises no event even by accident.
+      # nothing — and it is this job's own token, not the PAT, so the close raises no event even by accident.
       - name: Close issue when the agent had nothing to change
         if: steps.create_pr.outputs.pr_created == 'false'
         env:
@@ -844,15 +892,16 @@ jobs:
 - **Actions pinned by major tag**, matching the three existing brigade workflows (the reference pins by SHA).
 - **`concurrency` added** with `cancel-in-progress: false` — the reference has none on its hub, and a fixer
   cancelled between commit and push is exactly the silent park its verifier exists to prevent.
-- **`allowed_bots` is a two-name list**, forced by the App-identity interaction (§1.2). The reference gets away
-  with `"claude"` because its PRs are opened by a human's PAT.
-- **App installation token replaces `secrets.CHECK_DEPENDENCIES`** on the one step that must chain. The App is
-  repo-scoped and one-hour-lived; the PAT it replaces could push to `master` past protection from five cron
-  workflows.
+- **`allowed_bots` is `"claude"`, one name** — the same as the reference, and for the same reason: PRs and issues
+  are opened by a human's PAT, so nothing but the Claude App ever arrives as a bot.
+- **`secrets.GH_ACTIONS_TOKEN` replaces `secrets.CHECK_DEPENDENCIES`** on the one step that must chain — the same
+  *kind* of credential as the reference's (a classic PAT of the owner's account), under a name that says what it
+  is instead of naming a workflow it has nothing to do with.
 - **Two jobs, not one** (`agent` → `open-pr`, joined by `needs:` and a single `branch_name` output). The reference
-  mints its token in a later step of the same job. Brigade splits it so the agent's job never holds
-  `BRIGADE_BOT_PRIVATE_KEY` in any step — the barrier rather than the ordering argument (§1.1.1 (iii), and it is
-  brigade-33's H1 that made the distinction worth writing down).
+  puts its PAT in the same job as the agent. Brigade splits it so the agent's job never holds `GH_ACTIONS_TOKEN`
+  in any step — the barrier rather than the ordering argument (§1.1.1 (iii)). This is the delta that matters most
+  in the whole file: the reference's arrangement leaves an account-wide token inside a process tree an injected
+  prompt controls.
 - **No `WebFetch`, no `WebSearch`** on the writer's allow list, where a naive port would have carried them. The
   reference grants both. §1.1.1 (iv) states the reason and the limit: it closes the easiest exfiltration verb,
   not the class, because `Bash(make:*)`/`Bash(go:*)` still execute code.
@@ -895,15 +944,12 @@ jobs:
     # and teach everyone to ignore a red X. Fork PRs get CI — after the "require approval for all outside
     # collaborators" gate — and a human reviewer.
     #
-    # The dependabot clause is the same reasoning arriving by a different road, and it is NOT redundant: a
-    # Dependabot branch lives in THIS repository, so the same-repo test above is TRUE for it. What a Dependabot
-    # PR does not get is the repository's secrets — GitHub hands those runs a read-only GITHUB_TOKEN and the
-    # separate Dependabot secret store — so `secrets.CLAUDE_CODE_OAUTH_TOKEN` resolves to the empty string and
-    # the action fails at authentication. Without this clause `review pr` goes red on every grouped bump, once a
-    # month, forever, and teaches exactly the ignore-the-red-X habit the fork clause exists to avoid.
-    if: |
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.actor != 'dependabot[bot]'
+    # ONE clause, and that is the whole gate. Earlier drafts carried a second, `github.actor != 'dependabot[bot]'`,
+    # because a Dependabot branch lives in THIS repository and would therefore pass the same-repo test while
+    # being unable to read the repository's secrets. Rjae's ruling of 2026-09-10 removes Dependabot from this
+    # repository entirely — dependency bumps are the agent's job (§4.8) — so that clause is DELETED, not
+    # commented out. A dependency PR now arrives like any other agent PR and is reviewed like one.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # NOT a measured p90 (no runs exist): a read-only review session with --max-turns 30 over a repository of
     # this size. Re-pin from ten real runs (P9-3).
@@ -1035,9 +1081,10 @@ exit "$fail"
         uses: anthropics/claude-code-action@<RESOLVE-AT-IMPLEMENTATION>   # v1
         with:
           # After the autonomous fixer pushes as claude[bot], the resulting `synchronize` run's ACTOR is that
-          # bot; and a PR opened by our own App makes the `opened` run's actor brigade-bot. Without both names
-          # here the action rejects the run and the loop dead-ends unreviewed. Explicit list, never '*'.
-          allowed_bots: "claude,brigade-bot"
+          # bot; without this name the action rejects the run and the loop dead-ends unreviewed. The `opened`
+          # run needs no second name: that PR was created with Rjae's PAT, so its actor is a human with write
+          # access. Explicit list, one entry, never '*'.
+          allowed_bots: "claude"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-5 --max-turns 30"
           show_full_output: false
@@ -1142,10 +1189,10 @@ exit "$fail"
 **brigade-specific deltas from the reference**
 
 - **The same-repository `if:`** — new; the reference is a private repo where fork PRs are not a scenario.
-- **The `github.actor != 'dependabot[bot]'` clause** — new, and it is a *correctness* clause, not a nicety.
-  Dependabot's branches are in-repo, so the same-repo test passes them through; what fails is
-  `secrets.CLAUDE_CODE_OAUTH_TOKEN`, which Dependabot-triggered runs cannot read. Without the clause the grouped
-  monthly bump arrives with a red `review pr` every month for ever. §4.8 and drill (e) carry the same fact.
+- **No Dependabot actor clause** — v2 and v3 carried one, because a Dependabot PR passes the same-repo test but
+  cannot read `secrets.CLAUDE_CODE_OAUTH_TOKEN`, so the reviewer would have gone red once a month for ever.
+  Rjae's ruling of 2026-09-10 removes Dependabot from this repository (§4.8), and with it the clause: a
+  dependency PR is now an agent PR and is reviewed like every other one.
 - **The deterministic guard step, before the agent** — new, and the single most brigade-specific thing in this
   brief. It encodes `CLAUDE.md`'s three hardest invariants as a diff check rather than as words in an agent file.
   Its body is `scripts/ci/pr-guard.sh`, not inline shell, so it stays inside `plugin-check.sh`'s shellcheck glob,
@@ -1166,6 +1213,13 @@ exit "$fail"
 # auto-merge at creation time. It does not merge: `--auto` hands the PR to GitHub, which merges it when the
 # branch ruleset's required checks (fast, macos, reproducibility, supabase) pass. The ruleset is what makes the
 # word "auto" mean "when green" instead of "now" — see the brief's §1.2 blocker 3.
+#
+# READ §1.2 BLOCKER 3 BEFORE TRUSTING THAT SENTENCE. The merging identity here is GH_ACTIONS_TOKEN, a classic
+# PAT of Rjae's account, and Rjae is a repository admin — an actor the master ruleset lets bypass. So the wait
+# does not rest on the ruleset REFUSING this merger; it rests on `gh pr merge --auto` choosing to wait for the
+# required checks anyway. That is the one thing this brief checks deliberately before relying on the gate
+# (§5 (c)), and it can be answered first by looking at thinktech-api, which runs the same PAT-based loop today.
+# If the answer is no, the contingency is written out at the bottom of this file — swap two lines, no redesign.
 name: auto merge
 
 on:
@@ -1178,32 +1232,26 @@ jobs:
     # fixer pushing to PR branches, an approval from a reviewer session that started on an older head must never
     # arm a merge for commits it never reviewed.
     #
-    # The label clause is the policy switch, and for the first two months NOTHING sets it: `review-repository`
-    # deliberately never does (owner's decision, workflows 5), and `update-documentation` starts at
-    # `auto_merge: false` too, flipping to true once its diffs are boring (7.2, Rjae to confirm). So this job's
-    # `if:` is expected to be false on every run at first — that is the intended state, not a broken workflow,
-    # and drill (c) is what proves the mechanism works before the first real label is ever applied.
+    # The label clause is the policy switch, and it is LIVE FROM DAY ONE. Two of the three scheduled callers set
+    # it — update-documentation.yml and update-dependencies.yml both pass `auto_merge: true` — and one never
+    # does: review-repository.yml, because a whole-tree review merges by hand (Rjae's standing decision 5, which
+    # is a permanent policy and not a burn-in measure). Earlier drafts expected this `if:` to be false on every
+    # run for the first two months; Rjae rejected that staging on 2026-09-10, so expect it to fire on the first
+    # documentation or dependency PR that the reviewer approves.
     if: |
       github.event.review.state == 'approved' &&
       startsWith(github.event.review.user.login, 'claude') &&
       contains(join(github.event.pull_request.labels.*.name, ','), 'auto-merge') &&
       github.event.review.commit_id == github.event.pull_request.head.sha
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 5          # one token mint and one API call; not a p90, a floor
-    # The job's own GITHUB_TOKEN does nothing here: the merge authenticates with the App token below. Declaring
-    # an empty block rather than inheriting the default is the point — the reference's `contents: write` on this
-    # job is vestigial and misleading.
+    timeout-minutes: 5          # one API call; not a p90, a floor. Raise it if the contingency below is adopted:
+                                # `gh pr checks --watch` blocks for the length of a CI matrix (~10 min p90), so
+                                # 20 is the right bound there, not 5.
+    # The job's own GITHUB_TOKEN does nothing here: the merge authenticates with GH_ACTIONS_TOKEN below.
+    # Declaring an empty block rather than inheriting the default is the point — the reference's
+    # `contents: write` on this job is vestigial and misleading.
     permissions: {}
     steps:
-      # The merging identity MUST be the App and must NOT be a bypass actor of the master ruleset. An admin PAT
-      # would bypass the required checks and merge a red PR while looking exactly like a working gate.
-      - name: Mint an App installation token
-        id: app-token
-        uses: actions/create-github-app-token@v3      # verify: current major tag
-        with:
-          app-id: ${{ vars.BRIGADE_BOT_APP_ID }}
-          private-key: ${{ secrets.BRIGADE_BOT_PRIVATE_KEY }}
-
       # --squash: the merge commit's subject must read `15: <Imperative summary>` (CLAUDE.md). That subject comes
       # from the PR TITLE because the repository is configured with squash_merge_commit_title=PR_TITLE (§4.10);
       # GitHub's default, COMMIT_OR_PR_TITLE, would use the single commit's own subject on a one-commit PR and
@@ -1214,21 +1262,49 @@ jobs:
       # already mergeable — and here it usually is: ci.yml's p90s are fast 5m16s, macos 3m02s, supabase 7m25s,
       # while a reviewer session runs longer than that, so by the time the approval lands all four required
       # checks are green. Without the fallback the everyday case is a red auto-merge job and a PR that never
-      # merges, while drill (c)'s red-CI half passes and proves nothing about it. With it: arm if the PR is
-      # still waiting, merge outright if it is already green — the ruleset has been satisfied either way.
+      # merges, while §5 (c)'s red-CI half passes and proves nothing about it. With it: arm if the PR is
+      # still waiting, merge outright if it is already green — the checks have been satisfied either way.
+      # The fallback is GUARDED by `gh pr checks --required`: the PAT is a ruleset bypass actor, so a bare
+      # plain merge would land past the four required checks on ANY `--auto` error — the one gate §1.2
+      # blocker 3 rests on. The guard costs nothing on the already-green path and refuses every other.
       - name: Merge when green
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # Rjae's classic PAT. This job runs NO agent, which is the only reason the token may appear in it
+          # (§1.1.1 (iii)). It is also, unavoidably, an admin identity — see the CONTINGENCY below.
+          GH_TOKEN: ${{ secrets.GH_ACTIONS_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: gh pr merge "$PR" --squash --auto --repo "$REPO" || gh pr merge "$PR" --squash --repo "$REPO"
+        run: gh pr merge "$PR" --squash --auto --repo "$REPO" || { gh pr checks "$PR" --required --repo "$REPO" && gh pr merge "$PR" --squash --repo "$REPO"; }
+
+      # ---------------------------------------------------------------- CONTINGENCY, deterministic
+      # ADOPT THIS ONLY IF §5 (c) SHOWS `--auto` DOES NOT WAIT under an admin PAT's ruleset bypass. It is
+      # written out here, now, so that finding costs a two-line swap rather than a redesign at the worst moment.
+      #
+      # Replace the whole `run:` line above with the two commands below, in this order, and raise this job's
+      # `timeout-minutes` to 20 (a full CI matrix, p90 ~10 min, is now inside the job):
+      #
+      #   run: |
+      #     set -euo pipefail
+      #     # Blocks until every REQUIRED check reports, and exits non-zero the moment one fails. `--required`
+      #     # is what confines the wait to the ruleset's four contexts; `--fail-fast` is what stops a red PR
+      #     # from being merged by the next line rather than merely delaying it.
+      #     gh pr checks "$PR" --required --watch --fail-fast --repo "$REPO"
+      #     gh pr merge "$PR" --squash --repo "$REPO"
+      #
+      # What that trades: the gate becomes "we do not ASK to merge until the checks are green" rather than
+      # "GitHub declines to merge" — a weaker guarantee, because it lives in this file rather than in the
+      # ruleset, but a deterministic one, and it is the same four checks either way. The `--auto` form is
+      # preferred while it works precisely because the waiting is GitHub's job and not ours.
 ```
 
 **brigade-specific deltas from the reference**
 
-- **App token instead of the PAT**, and the explicit statement of *why the merging identity must not be a bypass
-  actor* — the reference merges with an admin PAT under branch protection with `enforce_admins` off, i.e. its
-  auto-merge does not actually wait for anything the admin could bypass.
+- **The same class of credential as the reference — an owner's classic PAT — under an honest name**
+  (`GH_ACTIONS_TOKEN`, not `CHECK_DEPENDENCIES`), plus the thing the reference never says out loud: **this
+  identity is a ruleset bypass actor**, so the wait depends on `--auto`'s behaviour rather than on the ruleset
+  refusing it. v3 of this brief solved that with a GitHub App; Rjae's ruling of 2026-09-10 chose the PAT, so the
+  brief states the exposure (§1.2 blocker 3), keeps one deliberate check for it (§5 (c)), and writes the
+  deterministic contingency into this file rather than leaving it as a worry.
 - **`permissions: {}`** instead of the reference's vestigial `contents: write` + `pull-requests: write`.
 - **The `--auto || plain` fallback** — the reference has the bare `--auto`, and gets away with it because its
   reviewer approves faster than its CI finishes. Brigade's CI finishes first, so the already-clean case is the
@@ -1273,33 +1349,27 @@ on:
         type: boolean
         default: true
     secrets:
-      app_private_key:
+      gh_actions_token:
         # FOLDED for the same reason as `title` above: "secrets: inherit" carries a colon-space.
         description: >-
-          The GitHub App private key. The app id is read from the repository variable BRIGADE_BOT_APP_ID, which
-          is not a secret. Secrets are passed EXPLICITLY, never `secrets: inherit`, so this workflow can reach
-          exactly one credential and never CLAUDE_CODE_OAUTH_TOKEN.
+          Rjae's classic PAT (the repository secret GH_ACTIONS_TOKEN). Secrets are passed EXPLICITLY, never
+          `secrets: inherit`, so this workflow can reach exactly one credential and never
+          CLAUDE_CODE_OAUTH_TOKEN. This workflow runs no agent, which is what makes holding the PAT permissible
+          here at all (§1.1.1 (iii)).
         required: true
 
 jobs:
   create-issue:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 5           # a token mint and one `gh issue create`; not a p90, a floor
-    permissions: {}              # the App token does the write; the job token needs nothing
+    timeout-minutes: 5           # one `gh issue create`; not a p90, a floor
+    permissions: {}              # the PAT does the write; the job token needs nothing
     steps:
       # The `issues: labeled` event MUST fire, or claude.yml never sees the work order and the scheduled agents
-      # produce nothing but silent issues. GITHUB_TOKEN's writes raise no workflow events; an App installation
-      # token's do. This is brake 3 in its constructive direction.
-      - name: Mint an App installation token
-        id: app-token
-        uses: actions/create-github-app-token@v3      # verify: current major tag
-        with:
-          app-id: ${{ vars.BRIGADE_BOT_APP_ID }}
-          private-key: ${{ secrets.app_private_key }}
-
+      # produce nothing but silent issues. GITHUB_TOKEN's writes raise no workflow events; a PAT's do. This is
+      # brake 3 in its constructive direction.
       - name: Create issue
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.gh_actions_token }}
           GH_REPO: ${{ github.repository }}
           TITLE: ${{ inputs.title }}
           BODY: ${{ inputs.body }}
@@ -1315,11 +1385,12 @@ jobs:
 
 **brigade-specific deltas from the reference**
 
-- **`auto_merge` defaults to `false`**, not `true`. In the reference all five cron agents auto-merge; here exactly
-  one does.
+- **`auto_merge` defaults to `false`**, not `true`. In the reference all five cron agents auto-merge; here two of
+  the three callers opt in (documentation and dependencies) and one deliberately does not (repository review).
 - **A `maintenance` input**, defaulting true — the execution-log exemption has no analogue in the reference.
-- **The credential is an App private key + a public app-id variable**, not a general-purpose PAT under a
-  misleading name (`CHECK_DEPENDENCIES`).
+- **The credential is passed as a NAMED `workflow_call` secret** (`gh_actions_token`), never `secrets: inherit`,
+  and it is the same class of credential the reference uses under a name that says what it is rather than one
+  that names an unrelated workflow (`CHECK_DEPENDENCIES`).
 - **`permissions: {}` on the job** — the reference's callers pass their default token down for no reason.
 - **`title` is documented as commit-subject-shaped**, because it becomes one.
 
@@ -1337,30 +1408,29 @@ name: update documentation
 on:
   schedule:
     - cron: '17 9 1 * *'    # monthly, 1st, 09:17 UTC. Off the hour on GitHub's own advice (keepalive.yml's
-                            # header quotes it: scheduled runs are delayed at the top of the hour), and on a
-                            # different minute and hour from review-repository's cron below — which is commented
-                            # out for now (7.4) but keeps its slot, so re-enabling it needs no re-thinking of
-                            # runner contention.
+                            # header quotes it: scheduled runs are delayed at the top of the hour), and clear of
+                            # the other two monthly agents — review-repository at 04:43 and update-dependencies
+                            # at 11:29, both LIVE, so three agent sessions never contend for the runner.
   workflow_dispatch:
 
 jobs:
   # NO `timeout-minutes` here, and that is the one documented exception to CLAUDE.md's "every CI job sets
   # timeout-minutes": GitHub REJECTS `timeout-minutes` on a job whose body is `uses:` a reusable workflow. The
   # bound lives where the steps do — on `_create-claude-issue.yml`'s own `create-issue` job (5 minutes). The
-  # same exception applies to review-repository.yml below and to the `notes:` job §6 adds to release.yml.
+  # same exception applies to review-repository.yml and update-dependencies.yml below, and to the `notes:` job
+  # §6 adds to release.yml.
   create-issue:
     uses: ./.github/workflows/_create-claude-issue.yml
     secrets:
-      app_private_key: ${{ secrets.BRIGADE_BOT_PRIVATE_KEY }}
+      gh_actions_token: ${{ secrets.GH_ACTIONS_TOKEN }}
     with:
-      # FALSE for the first two months, then true. This CHANGES the earlier agreement (Rjae's workflows-item 4
-      # said documentation PRs auto-merge) and is the converged recommendation of brigade-33's review,
-      # 2026-09-10 — **Rjae to confirm** (open question 7.2). The reasoning: an auto-merged documentation PR
-      # means the four in-scope documents can change on `master` with nobody reading them, gated only by CI's
-      # doc-witness join, which pins five invocation FORMS and says nothing about prose. Two months is long
-      # enough to see what the diffs actually look like. Flip this one word to `true` once they are boring, and
-      # say so in the execution log when you do — that is the whole change, no other line moves.
-      auto_merge: false
+      # TRUE from day one, and that is a ruling rather than a default. v3 of the brief proposed holding this at
+      # `false` for two months so a human would read the first few diffs; Rjae rejected the hold on 2026-09-10 —
+      # they have run this exact loop on numerous projects for many months, and a burn-in that answers a
+      # question already answered elsewhere is just a delay. So the original agreement (Rjae's workflows-item 4:
+      # documentation PRs auto-merge) stands unqualified. The gate on the content is the reviewer agent plus
+      # CI's doc-witness join; the scope guard is documenter.md's four-in, two-out file list.
+      auto_merge: true
       maintenance: true     # exempt from the execution-log-row rule
       title: Refresh the structural documentation
       body: >-
@@ -1380,9 +1450,9 @@ jobs:
   is answered mechanically rather than by review.
 - **Cron minute 17**, off the hour, matching `keepalive.yml`'s reasoning; the reference stacks two workflows on
   the same minute.
-- **`auto_merge` is explicit** rather than inherited from a default — and it starts at **`false`** for the first
-  two months (7.2, converged 2026-09-10, **Rjae to confirm**), where both the reference and Rjae's original
-  workflows-item 4 would have it `true` from day one.
+- **`auto_merge` is explicit** rather than inherited from a default — and it is **`true` from day one**, as both
+  the reference and Rjae's original workflows-item 4 have it. (v3's two-month `false` hold was rejected by Rjae
+  on 2026-09-10; old open question 7.2 is closed.)
 - **The `timeout-minutes` exception is written down**, not left as an apparent omission: a caller job that
   `uses:` a reusable workflow cannot carry one, so the bound sits on the called workflow's job. Reviewer.md's
   checklist line ("Every job sets `timeout-minutes`") carries the same exception.
@@ -1390,10 +1460,11 @@ jobs:
 ### 4.6 `.github/workflows/review-repository.yml`
 
 ```yaml
-# On-demand repository review (`workflow_dispatch` only — see the `on:` block). The reviewer agent reads the tree
+# Monthly repository review, live from day one, plus `workflow_dispatch`. The reviewer agent reads the tree
 # and opens a PR with MINIMAL fixes — and that PR carries no `auto-merge` label, so however green it goes it
 # waits for Rjae. The loop still reviews it and still fixes its own blockers; only the merge is human (owner's
-# decision, workflows 5).
+# decision, workflows 5 — a standing policy about whole-tree reviews, NOT a burn-in measure, so it does not
+# expire and nothing here is waiting to be flipped later).
 #
 # Note the standing state of play the agent must respect: the execution log records that there are no live rows
 # and that the next substantial work is a second adapter, chartered separately — so this agent proposes fixes,
@@ -1401,24 +1472,23 @@ jobs:
 name: review repository
 
 on:
-  # NO SCHEDULE — `workflow_dispatch` only, until the second adapter is chartered. This CHANGES the earlier
-  # agreement (Rjae's workflows-item 5 said monthly) and is the converged recommendation of brigade-33's review,
-  # 2026-09-10 — **Rjae to confirm** (open question 7.4). The reasoning is the execution log's own state of play:
-  # there are no live rows and the tree is deliberately quiet, so a monthly pass has exactly two outcomes and
-  # both are bad value — it no-ops, and costs an agent run a month for nothing, or it finds something to do in a
-  # tree that is finished, which is worse than nothing because a human then reviews invented work.
+  # MONTHLY, LIVE FROM DAY ONE. v3 of the brief proposed `workflow_dispatch` only until a second adapter was
+  # chartered, on the reasoning that a quiet tree gives a monthly pass nothing useful to do; Rjae rejected that
+  # hold on 2026-09-10 along with every other staged rollout, so Rjae's original workflows-item 5 — monthly —
+  # stands unqualified. A no-op month is a correct month and costs one agent run; the agent's own instructions
+  # (§4.9.1, review-repository mode) are what stop it inventing work in a finished tree.
   #
-  # TO RE-ENABLE: uncomment the two lines below, and nothing else changes. The minute is chosen to stay five
-  # hours clear of update-documentation.yml's 09:17 run so two agent sessions never contend for the runner.
-  #   schedule:
-  #     - cron: '43 4 1 * *'    # monthly, 1st, 04:43 UTC — off the hour (keepalive.yml's reasoning)
+  # The minute stays clear of the other two monthly agents: update-documentation at 09:17 and
+  # update-dependencies at 11:29, so no two agent sessions contend for the runner.
+  schedule:
+    - cron: '43 4 1 * *'    # monthly, 1st, 04:43 UTC — off the hour (keepalive.yml's reasoning)
   workflow_dispatch:
 
 jobs:
   create-issue:
     uses: ./.github/workflows/_create-claude-issue.yml
     secrets:
-      app_private_key: ${{ secrets.BRIGADE_BOT_PRIVATE_KEY }}
+      gh_actions_token: ${{ secrets.GH_ACTIONS_TOKEN }}
     with:
       auto_merge: false     # deliberate: merging waits for Rjae
       maintenance: true
@@ -1443,9 +1513,12 @@ jobs:
   lives outside a protected path … you do not need it at all — that is the better default.")
 - **The gate list is spelled out** — brigade has eight named gates and the reference has `make build`.
 - **The "no live rows" state is quoted into the body** so the agent does not invent a workstream.
-- **No cron at all, for now** — the reference runs this one monthly and so did this brief's v2. `workflow_dispatch`
-  only until the second adapter is chartered (7.4, converged 2026-09-10, **Rjae to confirm**); the cron block is
-  kept, commented, with the two-line re-enable instruction beside it.
+- **Monthly, like the reference** — v3 proposed `workflow_dispatch` only until a second adapter was chartered;
+  Rjae rejected that hold on 2026-09-10 (old open question 7.4 is closed), so the cron is live and uncommented.
+  The one thing that stays different from the reference is the merge, not the schedule.
+- **`tools.mod` is NOT this agent's errand** — v3 handed it here for want of a Dependabot ecosystem that covers
+  it. Rjae's ruling of 2026-09-10 gives every dependency, `tools.mod` included, to the dependency agent (§4.8,
+  §4.9.3).
 
 ### 4.7 `.github/workflows/release-notes.yml`
 
@@ -1468,11 +1541,12 @@ jobs:
 #       so the `notes` job's `issues: write` and `id-token: write` would fail validation outright ("is
 #       requesting 'issues: write', but is only allowed 'issues: none'"). release.yml's top-level `permissions:`
 #       block must be widened to all three — see §6, where the widened block is shown.
-#   (b) release.yml's Publish step authenticates with the App installation token instead of github.token, so
-#       the publish raises a real `release: published`. One more credential on the release path; the release
-#       path is the one place this repository has been most conservative.
+#   (b) release.yml's Publish step authenticates with GH_ACTIONS_TOKEN instead of github.token, so the publish
+#       raises a real `release: published`. That puts Rjae's account-wide classic PAT on the release path, which
+#       is the one place this repository has been most conservative — and remedy (a) needs no credential at all,
+#       which is most of why (a) is recommended.
 #   (c) leave the trigger unfired and run this workflow by hand (`workflow_dispatch`) after each release.
-# All three triggers are declared below so whichever the owner picks needs no edit here. Drill (g) proves it on
+# All three triggers are declared below so whichever the owner picks needs no edit here. §5 (g) records it on
 # a pre-release tag.
 # ---------------------------------------------------------------------------------------------------------
 name: release notes
@@ -1488,8 +1562,8 @@ on:
     secrets:
       # Declared EXPLICITLY so the caller in §6 can pass this one credential and only this one. The alternative
       # — `secrets: inherit` on the caller — would hand this workflow every repository secret it has, including
-      # BRIGADE_BOT_PRIVATE_KEY, which is the App's write credential and has no business on the release path.
-      # §4.4 states the same rule for the issue factory; this is that rule applied here.
+      # GH_ACTIONS_TOKEN, which is Rjae's account-wide classic PAT and has no business on the release path or in
+      # any job that runs an agent (§1.1.1 (iii)). §4.4 states the same rule for the issue factory.
       claude_code_oauth_token:
         required: true
   workflow_dispatch:
@@ -1522,7 +1596,7 @@ jobs:
         #   (an annotated tag needs one more hop: gh api .../git/tags/<sha> --jq '.object.sha')
         uses: anthropics/claude-code-action@<RESOLVE-AT-IMPLEMENTATION>   # v1
         with:
-          allowed_bots: "claude,brigade-bot"
+          allowed_bots: "claude"
           # One expression covers all three triggers: secret names are case-insensitive in Actions, so this
           # resolves to the `claude_code_oauth_token` the caller passes under `workflow_call`, and to the
           # repository secret of the same name under `release` and `workflow_dispatch`.
@@ -1582,9 +1656,11 @@ jobs:
           # stated rule rather than an accident: the notes are composed from CHANGELOG.md, `git log` and
           # `gh release view`, all of which are already in the checkout or behind the job's own token.
           # The two writes are the ONLY two `gh` verbs on the allowlist that write, and the job's token grants
-          # exactly the two scopes they need. No App token here: neither `gh release edit` nor `gh issue create`
-          # has to fire a downstream workflow — the announcement issue deliberately must NOT (it carries no
-          # `claude` label, and a GITHUB_TOKEN-made issue raises no event either way, which is belt and braces).
+          # exactly the two scopes they need. NO GH_ACTIONS_TOKEN here, for two independent reasons: this job
+          # runs an agent, so it may not hold the PAT at all (§1.1.1 (iii)); and neither `gh release edit` nor
+          # `gh issue create` has to fire a downstream workflow — the announcement issue deliberately must NOT
+          # (it carries no `claude` label, and a GITHUB_TOKEN-made issue raises no event either way, which is
+          # belt and braces).
 ```
 
 **brigade-specific deltas from the reference**
@@ -1598,164 +1674,110 @@ jobs:
   workflow inherits the caller's ceiling, and `release.yml`'s current `contents: write` cannot grant this
   workflow the `issues: write` and `id-token: write` its job asks for. §6 shows the widened block.
 - **`workflow_call.secrets.claude_code_oauth_token` is declared**, so the caller passes exactly one credential
-  and `secrets: inherit` — which would hand the release path the App's private key — is never needed.
-- **No App token**, unlike every other write in this brief, and the file says why.
+  and `secrets: inherit` — which would hand the release path Rjae's account-wide PAT — is never needed.
+- **No `GH_ACTIONS_TOKEN`**, unlike every other write in this brief, and the file gives both reasons: this job
+  runs an agent, and neither of its two writes needs to fire an event.
 - **The announcement issue must not carry the `claude` label** — in a repo where a label is a work order, an
   announcement that gets labelled starts an agent.
 
-### 4.8 `.github/dependabot.yml`
+### 4.8 `.github/workflows/update-dependencies.yml`
 
 ```yaml
-# Dependency bumps are Dependabot's job, not an agent's: a bump is mechanical, and the interesting part — the
-# call site that no longer compiles — is exactly what the loop's fix cycle is for. So Dependabot opens the PR
-# and, if `make build test deps-check tidy-check` breaks, the reviewer requests changes and the fixer adapts
-# the call sites on that same branch.
+# Monthly dependency bump, driven by the AGENT rather than by Dependabot. Rjae's ruling of 2026-09-10: this is
+# how their other repositories already work, and it is the shape the reference uses too (thinktech-api's
+# .github/workflows/update-dependencies.yml, read 2026-09-10 — a cron, a workflow_dispatch and a fifteen-line
+# call into the issue factory).
 #
-# THREE brigade rules bound what may be bumped, and they are enforced by CI, not by this file:
-#   * `go.mod`'s `go` line is a release-reproducibility pin — Dependabot does not touch it (it bumps `require`
-#     directives, not the `go` directive) and the guard in review-pull-request.yml fails any PR that does.
-#   * `docs/allowed-deps.txt` lists the five modules the SHIPPED binary may link — coder/websocket,
-#     x/crypto/x509roots/fallback, x/sys, x/term, x/text — and `make deps-check` fails on any change to that
-#     set. A bump inside the five is fine; a bump that pulls a new module into the binary is a red build and a
-#     human decision. Everything else in go.mod (pgx, jsonschema, go-internal …) is test- or tooling-side:
-#     `deps-check` says nothing about it, and `make build test` is its gate.
-#   * A Go source change ships NOTHING until `make release`. `make checksums-check` rule (c) stays green through
-#     the published-release arm, and the plugin keeps serving the last released binary. That is the design, not
-#     a defect — drill (f) records it.
-version: 2
-updates:
-  # ---------------------------------------------------------------------------------------------- Go modules
-  - package-ecosystem: gomod
-    directory: "/"
-    schedule:
-      # No `day:` — it is meaningful only under `interval: weekly`; under `monthly` Dependabot ignores it and
-      # may warn on the config. The time is simply arbitrary (Dependabot does not run on Actions runners, so
-      # keepalive.yml's off-the-hour queue reasoning does not apply to it), chosen only to keep the two
-      # ecosystems ten minutes apart.
-      interval: monthly
-      time: "09:37"
-      timezone: Etc/UTC
-    open-pull-requests-limit: 3
-    # The commit subject and the PR title both take this prefix. The squash merge takes the PR TITLE
-    # (squash_merge_commit_title=PR_TITLE, §4.10), so the merged subject reads `15: bump ...`.
-    # NO `include: scope`. Dependabot composes `<prefix><scope>: <message>`, so `prefix: "15:"` with
-    # `include: scope` yields `15:(deps): bump …` — the space after brigade's ticket colon is gone, and because
-    # the squash subject comes from the PR title that malformed subject lands on master. The `dependencies`
-    # label already says what the PR is; the scope buys nothing and costs the commit format.
-    # NOTE, and it is a real wart, now an ACCEPTED one: Dependabot lowercases the verb when a prefix is set,
-    # giving `15: bump github.com/x from 1 to 2` where CLAUDE.md asks for `15: <Imperative summary>` with a
-    # capital. Open question 7.6(c), converged with brigade-33 2026-09-10 and adopted: ACCEPT it. The alternative
-    # was a fifth workflow file whose entire job is to capitalise one letter; the ticket prefix — the part that
-    # makes the log greppable — is present and correct, and a Dependabot subject is a machine string.
-    commit-message:
-      prefix: "15:"
-    labels:
-      - maintenance          # the execution-log-row exemption
-      - dependencies
-    groups:
-      # One PR a month for the whole minor/patch surface: nine direct modules and their indirects, all of which
-      # go through the same `make build test deps-check tidy-check` gate anyway. Nine separate PRs would mean
-      # nine full CI matrices (each with the 7-minute `supabase` job) for one afternoon's work.
-      go-minor-and-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-    ignore:
-      # Majors are excluded from the grouped PR and from Dependabot entirely. For `coder/websocket` — the one
-      # module of the interesting three that is actually LINKED INTO THE SHIPPED BINARY (`go list -deps
-      # ./cmd/brigade`; it is one of the five in docs/allowed-deps.txt) — a major bump is a design decision
-      # about what ships, gated by `make deps-check`. For pgx and jsonschema, which are test- and tooling-side
-      # and appear in no `deps-check` list, a major is a design decision about the adapter's own surface, gated
-      # by `make build test`. Either way it is a decision, not a bump: Rjae takes majors by hand.
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+# Why an agent and not the ecosystem tool, since this brief's own history has it both ways:
+#   * `tools.mod` is a second module file that Dependabot's gomod ecosystem does not discover, because it is
+#     not named `go.mod`. An agent runs `go get -modfile=tools.mod -u ...` and needs nobody's support matrix.
+#   * `anthropics/claude-code-action` is pinned by SHA (§4's conventions), and a SHA pin is not a version a
+#     version-bumper can reason about. An agent re-resolves the SHA for the current `v1` and fixes the comment.
+#   * A major bump's interesting half is the call site that no longer compiles. That is agent work by nature,
+#     and routing it through the loop means the fix cycle handles it on the same branch rather than a red PR
+#     arriving on a schedule for a human to rescue.
+#   * One PR a month either way; the difference is that this one can finish the job.
+#
+# Every rule that BOUNDS the bump lives in `.claude/agents/developer.md`'s dependency-update mode, not here —
+# the division every scheduled workflow in this brief keeps: agent policy in a committed file reviewable in a
+# PR, CI in fifteen lines of YAML.
+name: update dependencies
 
-  # ------------------------------------------------------------------------------------------ GitHub Actions
-  - package-ecosystem: github-actions
-    directory: "/"           # covers every file under .github/workflows/
-    schedule:
-      interval: monthly        # again no `day:` — weekly-only — and the time is arbitrary
-      time: "09:47"
-      timezone: Etc/UTC
-    open-pull-requests-limit: 3
-    commit-message:
-      prefix: "15:"
-    labels:
-      - maintenance
-      - dependencies
-    groups:
-      actions:
-        patterns: ["*"]
-    # No `ignore` here: this repository pins actions by MAJOR TAG (checkout@v7, setup-go@v7, upload-artifact@v7,
-    # download-artifact@v8), so within a major there is nothing for Dependabot to bump and what it will actually
-    # propose is the next major — which is precisely the change worth a human's attention. `supabase/setup-cli`
-    # and `goreleaser-action` additionally carry an exact `version:` INPUT (2.116.0, v2.18.0) that Dependabot
-    # does not see; those stay manual, and release.yml's comment explains why the goreleaser version is pinned
-    # to what `make release` rehearses with.
+on:
+  schedule:
+    - cron: '29 11 1 * *'   # monthly, 1st, 11:29 UTC. Off the hour (keepalive.yml's reasoning: scheduled runs
+                            # are delayed at the top of the hour), and clear of the other two monthly agents —
+                            # update-documentation at 09:17, review-repository at 04:43 — so no two agent
+                            # sessions contend for the runner.
+  workflow_dispatch:
+
+jobs:
+  # No `timeout-minutes`: GitHub rejects it on a job whose body is `uses:` a reusable workflow (§4.5 states the
+  # exception in full). The bound lives on `_create-claude-issue.yml`'s own `create-issue` job.
+  create-issue:
+    uses: ./.github/workflows/_create-claude-issue.yml
+    secrets:
+      gh_actions_token: ${{ secrets.GH_ACTIONS_TOKEN }}
+    with:
+      auto_merge: true      # a green bump merges itself; the reviewer agent and the four CI checks are the gate
+      maintenance: true     # exempt from the execution-log-row rule
+      title: Update the Go modules, the tool modules and the action pins
+      # FOLDED (`>-`) like every other body in this brief: a plain scalar containing a colon-space is a YAML
+      # syntax error, and `go.mod`'s `go` line is exactly the sort of prose that grows one.
+      body: >-
+        You are the implementing agent. Read `.claude/agents/developer.md` for your operating instructions and
+        follow its **dependency update** mode exactly. Bring the direct modules in `go.mod` and the tools in
+        `tools.mod` up to date. You cannot edit `.github/workflows/`: REPORT in the PR body which action pins
+        are behind, including the re-resolved `claude-code-action` SHA for the current `v1`. Never bump `go.mod`'s `go` line —
+        it is a release-reproducibility pin and only Rjae moves it. Keep `docs/allowed-deps.txt` zero-diff: if a
+        bump would pull a new module into the shipped binary, leave that module alone and say so in the PR body
+        rather than editing the allow-list. Majors are allowed, and adapting the call sites is part of the job.
+        Run `make typecheck tidy-check lint build test deps-check plugin-check` before you push. If nothing is
+        behind, change nothing and say so — the workflow closes this issue automatically when no branch is
+        pushed.
 ```
-
-**Auto-merge label: no. Deliberate, and here is the reasoning.**
-
-Rjae's decision 2 asks for `auto-merge` on patch/minor of allow-listed modules and not on the `go` directive or
-majors. That is the right policy; the mechanism cannot express it, for two independent reasons, and one of them
-also breaks "Dependabot PRs go through the loop":
-
-1. **`labels:` in `dependabot.yml` is static per ecosystem entry.** It cannot be conditioned on update type. The
-   grouped PR is already restricted to minor+patch by `groups.update-types` and majors are ignored outright, so
-   "patch/minor only" is achieved — but the group can still contain a module *outside* `docs/allowed-deps.txt`
-   (an indirect, or a dev-only module), and `make deps-check` is what decides that, at CI time, not at label time.
-2. **Workflows triggered by a Dependabot PR do not get the repository's secrets** — they get a read-only
-   `GITHUB_TOKEN` and, separately, Dependabot secrets. So `review-pull-request.yml` on a Dependabot PR cannot
-   read `CLAUDE_CODE_OAUTH_TOKEN` and its job token cannot submit a review. On top of that, `allowed_bots` is
-   `"claude,brigade-bot"` — `dependabot` is not on it, and the action rejects the run before any of that matters.
-
-   **Note carefully what does *not* stop it: the same-repository `if:`.** Dependabot's branches live in this
-   repository, so `head.repo.full_name == github.repository` is TRUE and the job would start, resolve an empty
-   token and go red — once a month, for ever, on a PR nobody has done anything wrong to. That is why
-   `review-pull-request.yml`'s gate carries `&& github.actor != 'dependabot[bot]'` (§4.2): the reviewer agent is
-   **skipped by the actor filter**, deliberately and visibly, rather than reached and failed. With no claude
-   approval `auto-merge.yml`'s `if:` never fires either, so the label would be inert regardless.
-
-So: **Dependabot PRs are CI-gated and merged by Rjae**, labelled `maintenance` (row-exempt) and `dependencies`.
-The four CI checks are exactly the gate that matters for a bump.
-
-**Open question 7.6 is closed — converged with brigade-33 2026-09-10, adopted.** All three sub-questions land on
-the cheapest answer, and none of them adds a file:
-
-- **(a) Majors stay excluded from the group and are handled by hand.** `ignore` keeps them out of the monthly
-  grouped PR; when a major matters, a human raises it. A separate ungrouped major PR would just be a red build
-  arriving on a schedule.
-- **(b) Monthly manual merge; no `dependabot-auto-merge.yml`.** The five-line `pull_request_target` file that
-  earlier drafts floated as option (i) is **not planned** and has been removed from this brief and from §6's P9-4
-  row. One grouped PR a month, merged by the person who is already the only committer, does not justify a fourth
-  trigger surface — and `pull_request_target` is the one trigger type on a public repository that deserves a
-  reason better than convenience.
-- **(c) The lowercase verb is accepted.** `15: bump x from a to b` is what `commit-message.prefix: "15:"`
-  produces, and it is not worth a fifth workflow to capitalise a `b`. `CLAUDE.md`'s imperative-capital convention
-  is a rule for human and agent commits; a Dependabot subject is a machine string, and the ticket prefix — the
-  part that makes the log greppable — is present and correct.
-- Not adopted, and recorded so it is not re-proposed: adding `dependabot` to `allowed_bots` and storing the OAuth
-  token as a **Dependabot secret** so the reviewer agent runs on those PRs too. Most power, least benefit — an
-  agent reviewing a version-number diff.
-
-**`tools.mod` is not covered by any of this.** It is a second module file (`module github.com/appshapes/brigade/tools`,
-six dev tools) that Dependabot's gomod ecosystem does not discover, because it is not named `go.mod`
-(**verify:** whether the deployed Dependabot has learned Go tool-module support since; if it has, add a third
-`updates:` entry with `directory: "/"` and the file named). Until then it is kept current by the **`review-repository` agent on its
-`workflow_dispatch` runs** (there is no cron until 7.4 is settled — run it by hand when a tool bump matters), whose body already lists the gates: one line is added to
-`.claude/agents/reviewer.md`'s review-repository checklist — "check `tools.mod` against upstream releases; a bump
-there is dev-tooling only, never shipped, and `make lint typecheck test` is its gate". That keeps it inside a PR
-that waits for Rjae, which is the right blast radius for a tool that reformats and vets the whole tree. (Two
-alternatives, neither preferred and neither an open question: a `make tools-update` target the agent runs, or a
-fifth cron caller of the factory. Both add machinery for six dev tools that change a few times a year.)
 
 **brigade-specific deltas from the reference**
 
-- **The reference has no `dependabot.yml` at all**; it runs a monthly `update-dependencies` agent with a NuGet
-  prompt. Rjae's decision replaces the agent with the ecosystem tool and keeps the agent only for the *fix*
-  cycle, which is the half an agent is actually good at.
-- **Majors ignored, minors/patches grouped, three-PR cap** — sized to a repository whose CI matrix costs a
-  7-minute Docker job per PR.
-- **`commit-message.prefix: "15:"`** exists only because of `CLAUDE.md`'s ticket-prefix rule.
+- **The reference's body is one sentence** ("we need to update NuGet packages solution-wide"); brigade's names
+  three surfaces (`go.mod`, `tools.mod`, the action pins) and three prohibitions, because brigade has a
+  reproducibility pin, a shipped-binary allow-list and a SHA-pinned action, and the reference has none of them.
+- **`auto_merge: true`**, as in the reference — and unusually for this brief, since two of the three scheduled
+  callers opt in and only `review-repository` stays manual.
+- **A named `workflow_call` secret** (`gh_actions_token`) rather than the reference's `secrets: token:` fed from
+  a PAT called `CHECK_DEPENDENCIES`, which names a workflow it has nothing to do with.
+- **Cron minute 29**, off the hour and clear of the other two monthly agents; the reference stacks its cron
+  agents on the hour.
+
+**What this replaced, and why it is not the earlier plan.** v2 and v3 of this brief specified a
+`.github/dependabot.yml` — gomod and github-actions ecosystems, monthly, grouped, majors ignored — plus a
+`github.actor != 'dependabot[bot]'` clause in `review-pull-request.yml`, plus a passage explaining why Dependabot
+PRs could not go through the loop (a Dependabot-triggered run gets no repository secrets, so the reviewer agent
+cannot authenticate on one) and therefore could not carry the `auto-merge` label. **Rjae's ruling of 2026-09-10
+deletes all of it — deletes, not defers:** no `.github/dependabot.yml`, no actor clause, no "dependency PRs are
+merged by Rjae" position. The consequences, stated once so nobody re-derives the old design:
+
+- **A dependency PR is now an ordinary agent PR.** The reviewer agent reviews it like any other, the fixer
+  applies its blockers on the same branch, and it auto-merges when green. The secrets problem that made
+  Dependabot's PRs un-reviewable simply does not arise.
+- **`tools.mod` is covered.** It was the loose end in every earlier draft — not a `go.mod`, so invisible to
+  Dependabot's gomod ecosystem, and v3 parked it on the `review-repository` agent's checklist. It now sits with
+  every other dependency, and §4.9.1's checklist line about it is gone.
+- **Majors are in scope.** Dependabot's `ignore` block excluded them because a mechanical major bump is a red
+  build arriving on a schedule. An agent that adapts the call sites has no such problem, so majors are allowed
+  and the adaptation is part of the work order.
+- **Action pins are reported, not edited — a deviation from the work order as Rjae gave it.** The writer's
+  deny list keeps every agent out of `.github/workflows/` (§4.1: a prompt-injected session must not be able to
+  rewrite the workflows that hold the PAT), so the dependency mode reports the stale pins and the re-resolved
+  `claude-code-action` SHA in the PR body and Rjae applies them. If that friction is unwanted, the alternative
+  is to relax the deny for this one mode — Rjae's call, not the agent's.
+- **The commit-subject wart goes with it.** `commit-message.prefix: "15:"` produced `15: bump github.com/x from
+  1 to 2` — a lowercase verb where `CLAUDE.md` asks for an imperative capital, which v3 accepted as the cheaper
+  of two bad options (old open question 7.6(c)). The agent writes `15: <Imperative summary>` like every other
+  agent, so there is nothing left to accept.
+- **What has NOT changed:** a Go bump still ships nothing until Rjae runs `make release`. `make checksums-check`
+  rule (c) stays green through the published-release arm and the plugin keeps serving the last released binary.
+  That is the design, and §5 (e) records it the first time it happens so nobody files it as a defect.
 
 ### 4.9 The agent instruction files
 
@@ -1818,8 +1840,9 @@ treat it as `Commit: (none)` and create it in this commit** — the first run fi
 `Commit` is `(none)`, your scope is the whole tree; otherwise your scope is `git diff --name-only <Commit>..HEAD`. Make **precise,
 minimal corrections only** — never features, never refactors, never new files outside your memory marker. Update
 the marker in the same commit. Your PR carries the `maintenance` label and **no** `auto-merge` label: it waits for
-Rjae, by design. Also check `tools.mod` against upstream releases (dev tooling only, never shipped; `make lint
-typecheck test` is its gate).
+Rjae, by design — that is a standing policy about whole-tree reviews, not a probation. **Dependencies are not
+your errand**: `go.mod`, `tools.mod` and the action pins belong to the dependency agent
+(`.claude/agents/developer.md`, dependency-update mode), and a bump in your PR is scope you were not given.
 
 ## What to check, in this order
 
@@ -1971,7 +1994,7 @@ with write access. Everything below is a rule, not a preference.
 
 Read `CLAUDE.md` first, every time. Read `.context/plans/brigade-execution-log.md` for where the work stands.
 
-## Two jobs
+## Three jobs
 
 - **Implement a labelled issue.** The issue body is your brief. Do what it asks and nothing more. Push a branch;
   the workflow opens the PR for you and titles it `15: <the issue title>`.
@@ -1979,6 +2002,8 @@ Read `CLAUDE.md` first, every time. Read `.context/plans/brigade-execution-log.m
   PR branch** and **push**. A narrated fix that does not push fails the run by design ("Verify the fix was
   pushed"). If you disagree with a blocker, fix what you agree with, push, and argue the rest in a PR comment —
   never silently skip one.
+- **Dependency update** — the monthly `update-dependencies` work order. Its own section below, because brigade
+  has three pins an ordinary bump would walk straight into.
 
 ## The gates, before every push
 
@@ -2042,6 +2067,70 @@ rule (c)'s published-release arm (the committed checksums are backed by the publ
 says so), and the plugin keeps serving the last released binary. This is the design. Do not "fix" it by
 regenerating a checksum or bumping a version.
 
+## Dependency update
+
+The monthly `update-dependencies` work order. Three surfaces, three prohibitions, one gate list. Do all three
+surfaces in one PR unless a bump forces call-site work large enough to deserve its own.
+
+**1. Go modules (`go.mod`).** Bump the **direct** requirements:
+
+```sh
+go get -u ./...          # or, per module: go get -u github.com/owner/mod
+go mod tidy
+```
+
+**2. Tool modules (`tools.mod`).** The same thing through the second module file — it is not a `go.mod`, so
+every command needs `-modfile`:
+
+```sh
+go get -modfile=tools.mod -u <module>     # or -u ./... where the tool module supports it
+go mod tidy -modfile=tools.mod            # verify: the exact tidy form for a tool module on this toolchain —
+                                          # `make tidy-check` runs `go mod tidy -diff` on go.mod ONLY and will
+                                          # not catch an untidy tools.mod, so confirm the command's own output
+```
+
+`tools.mod` is dev tooling: it is never linked into the shipped binary, so `deps-check` says nothing about it
+and `make lint typecheck test` is what proves a tool bump.
+
+**3. Action pins (`.github/workflows/**`).** Every action in this repository is pinned by **major tag**
+(`actions/checkout@v7`, `actions/setup-go@v7` …) — bump those by major tag. **One exception, and it is the only
+one: `anthropics/claude-code-action` is pinned by full commit SHA**, because it is the only action here that
+runs a model with repository write access. Do not put a tag on it. Re-resolve the SHA for the **current `v1`**
+and update the `# v1` comment beside it:
+
+```sh
+gh api repos/anthropics/claude-code-action/git/ref/tags/v1 --jq '.object.sha'
+# an annotated tag needs one more hop: gh api repos/.../git/tags/<sha> --jq '.object.sha'
+```
+
+Note you cannot edit files under `.github/workflows/` yourself — your tooling denies it and the token could not
+push it anyway. Say in the PR body which pins are behind and what they should move to, and Rjae makes that edit.
+
+**Three prohibitions, each one a blocked PR if you cross it:**
+
+- **Never bump `go.mod`'s `go` line.** It is the release-reproducibility pin: the release job rebuilds from the
+  tag and diffs against the committed checksums, so a toolchain bump changes the shipped bytes. **That is a
+  release decision Rjae takes**, never a dependency update. `scripts/ci/pr-guard.sh` fails the PR.
+- **Never edit `docs/allowed-deps.txt`.** It lists the modules the shipped binary may link, and `make deps-check`
+  fails on any change to that set. If a bump would pull a **new** module into the binary, **stop, leave that
+  module at its current version, and say so in the PR body** — a new module in the shipped binary needs Rjae.
+  Bumping a module already on the list is fine and changes nothing there.
+- **Never touch `plugin/bin/VERSION` or `plugin/bin/checksums.txt`.** Produced only by `make release`.
+
+**Majors are allowed**, and adapting the call sites is part of the job — that is the half of a bump an agent is
+actually good at. If a major's adaptation turns into a redesign, stop, bump what you can, and describe the rest
+in the PR body.
+
+**The gate, before you push:**
+
+```sh
+make typecheck tidy-check lint build test deps-check plugin-check
+```
+
+**And say this in the PR body, every time:** a Go bump **ships nothing** until Rjae runs `make release`.
+`make checksums-check` stays green through rule (c)'s published-release arm, and the plugin keeps serving the
+last released binary until then. It is the design, not something for the reviewer to file as a blocker.
+
 ## The execution log
 
 Normally the row lands in the same commit as the work. **Your PRs are labelled `maintenance`, which the owner has
@@ -2064,88 +2153,70 @@ drivers in `scripts/experiments/`. Never a stray file in the repository root.
 - The reference's `developer.md` is a feature-addition sequence for a DDD monolith; this one is a rules file,
   because in brigade the expensive mistakes are procedural (release pins, the `go` line, `make commit`, rebase),
   not architectural.
+- **This `developer.md` carries a dependency-update mode; the reference's does not** — its `update-dependencies`
+  agent gets a one-sentence issue body and a NuGet ecosystem with none of brigade's three pins. Brigade's mode
+  exists because `go.mod`'s `go` line, `docs/allowed-deps.txt` and the SHA-pinned `claude-code-action` are each
+  a way for an ordinary bump to do damage, and because `tools.mod` needs `-modfile` on every command.
 - All three carry the model tier in the front matter (`model: opus`) so a local invocation matches CI.
 
 ### 4.10 GitHub configuration — the checklist
 
 Everything here is a one-time setup action. Commands are given where a `gh` form exists and the UI path where it
-does not. The division of labour is sharp and worth stating before the list, because it decides who is blocked on
-whom: **two credentials have to be minted by hand, by Rjae, and everything downstream of their existing is an
-agent's job.**
+does not. The division of labour has changed since v3 and it is now very short: **Rjae has already done the part
+only Rjae could do.** Both credentials exist; everything else is an agent's job.
 
-#### Credentials — created by Rjae, about five minutes
+#### Credentials — done, 2026-09-10, and measured
 
-There is no API for either of these, and that is not an oversight in this brief. GitHub exposes no endpoint that
-mints a personal access token or registers an App (the App *manifest* flow exists but requires a browser to
-complete), and `claude setup-token` is an interactive command that opens a browser and waits. So an agent cannot
-produce these values, only consume them. The exact names below are what section 4's files read; anything else has
-to be edited in two or three places.
+There is no API that mints either of these, and that has not changed: GitHub exposes no endpoint that creates a
+personal access token, and `claude setup-token` is an interactive command that opens a browser and waits. So an
+agent cannot produce these values, only consume them — which is why Rjae minted both by hand on 2026-09-10.
+**Verified with `gh secret list` the same day.** The names below are what section 4's files read; changing either
+name means editing several files.
 
-**(i) A GitHub App — org-owned.** github.com → your `appshapes` org → **Settings → Developer settings → GitHub
-Apps → New GitHub App**.
+**(i) `GH_ACTIONS_TOKEN` — a classic PAT of Rjae's own account.** Set 12:13 UTC. **A classic PAT, deliberately,
+not a GitHub App and not a fine-grained token: Rjae's ruling of 2026-09-10.** It is the same mechanism they run
+in `thinktech-api` today, which is also where its behaviour can be observed before it is checked here.
 
-| Field | Value | Why exactly this |
+| Property | Value | What follows from it |
 | --- | --- | --- |
-| Name | `brigade-bot` | **Settled** (7.1, converged with brigade-33 2026-09-10; adopted). The slug becomes the actor login `brigade-bot[bot]`, and `brigade-bot` is the string baked into `allowed_bots` in `claude.yml`, `review-pull-request.yml` and `release-notes.yml`. Changing it later is a three-line edit plus a re-run of drill (a), so it is cheap either way — but it is decided, not open. |
-| Homepage URL | `https://github.com/appshapes/brigade` | Required field, unused. |
-| Webhook | **Uncheck "Active"** | Nothing listens; leaving it on queues undeliverable deliveries for ever. |
-| Repository permissions | `Contents: read & write`, `Pull requests: read & write`, `Issues: read & write`, `Metadata: read` | Exactly the three writes that must chain (push a branch, open/merge a PR, create/close an issue). **Not `Workflows: write`** — nothing here pushes under `.github/workflows/`, and withholding it is what makes such a push fail loudly instead of quietly succeeding. |
-| Where can this App be installed | **Only on this account** | It is the `appshapes` org's App, not a public one. |
+| Scopes | `repo`, `workflow`, `read:org` | `repo` covers the issue, PR and merge writes; `workflow` is what allows a push under `.github/workflows/` **should Rjae ever make one with it** — no agent can, since the writer's `deny` list forbids editing that path. `write:discussion` was considered and is **not needed**: the release announcement is an issue, not a discussion. |
+| Repository scope | **None — impossible.** A classic PAT reaches every repository the account can reach. | This is the single largest exposure in the whole brief, and the reason §1.1.1 (iii)'s job split is load-bearing: no job that runs `claude-code-action` may hold this secret. |
+| Expiry | **Only if one was set at mint time.** | If an expiry was set, the entire loop stops on that date, silently and all at once — the factory's issue create, `open-pr`'s PR create and `auto-merge`'s merge all fail at authentication. Hence (3) below. |
+| Identity | Rjae — a human with **repository admin** | Issues and PRs it creates are authored by Rjae, which is why `allowed_bots` needs only `"claude"` (§1.2 consequence (a)); and it is a **bypass actor of the `master` ruleset**, which is why the merge gate rests on `--auto`'s waiting behaviour (§1.2 blocker 3, §4.3's contingency). |
 
-Then: **Install App → `appshapes` → Only select repositories → `appshapes/brigade`**. Back on the App's General
-page, note the **App ID** (a number, not a secret) and click **Generate a private key**, which downloads a `.pem`.
-Put the `.pem` somewhere **outside the repository** and hand Rjae's agent the App ID and the path — the App ID goes
-in a repository **variable**, the key in a repository **secret**, both by the `gh` commands in (1) below, and the
-`.pem` is deleted afterwards. Neither value is ever pasted into the chat (`CLAUDE.md`).
-
-**(ii) A Claude Code OAuth token — dedicated to this repository.** In a terminal:
+**(ii) `CLAUDE_CODE_OAUTH_TOKEN` — the model credential.** Set 12:25 UTC, minted with:
 
 ```sh
 claude setup-token       # interactive: opens a browser, prints a token; never scriptable
 ```
 
-Hand the value to the agent, which sets it as the repository secret `CLAUDE_CODE_OAUTH_TOKEN` ((3) below). **Make
-it a token dedicated to the automation rather than Rjae's own**, so agent runs are not billed against their
-personal subscription — the failure mode the reference repository lives with, where every agent run in five cron
-workflows bills to one named human. The one-command alternative remains available if Rjae would rather not mint a
-second credential: flip the existing org secret `CLAUDE_CODE_TOKEN` to `selected` visibility and select this
-repository (the corrected `gh` form is in §1.2, blocker 1, option B — note `-f 'selected_repository_ids[]=<id>'`,
-not `-F`, which would send the literal string), then rename the three `secrets.CLAUDE_CODE_OAUTH_TOKEN`
-references. It is a worse default only because it attributes the spend to a person rather than to the repository.
+under **`reaston@ifthen.com`**, a **Max plan** account. Two consequences, both closing items earlier drafts left
+open:
 
-**And set a monthly spend ceiling on that dedicated account.** This is the second half of open question 7.3
-(converged 2026-09-10, adopted) and the money half of §1.1.1 (i): `--max-turns` bounds one wandering session, a
-ceiling bounds a wandering month — and, more to the point, bounds a *stolen* token, which is the residual this
-brief accepts rather than eliminates. Two runaway shapes it catches that no per-run cap can: a scheduled agent
-that finds work every month where there is none, and a fix loop re-armed by hand past the cap. **verify:** which
-surface actually carries the ceiling for the token `claude setup-token` mints — Anthropic Console (billing →
-usage limits) if the account is API-key-backed, or the Claude Code plan's own usage limits if it is
-subscription-backed. They are different screens and only one of them applies; **§7 keeps this as the one item
-H1 adds for Rjae** — the number, and where it is set.
+- **Claude Code spend from every workflow agent bills to that subscription.** v2/v3 argued for a *dedicated*
+  account so a leak would not cost a person's whole Claude account; Rjae's ruling of 2026-09-10 settles it the
+  other way, and the org secret `CLAUDE_CODE_TOKEN` and its selected-visibility flip are moot with it.
+- **That plan's limits ARE the spend ceiling. There is no separate ceiling, and none is to be set.** Anthropic
+  Console's billing → usage limits screen governs API-key-backed accounts and does not apply to a
+  subscription-backed token. The "monthly spend ceiling" item that v3 carried as the one thing §7 still owed
+  Rjae is therefore **closed, not deferred** (§7, 7.3). `--max-turns` still bounds a single wandering session;
+  the plan bounds the month.
 
-**(iii) If Rjae would rather use a PAT than an App** (fewer moving parts, one credential instead of two): a
-**fine-grained** personal access token scoped to `appshapes/brigade` with the same three write permissions
-(`Contents`, `Pull requests`, `Issues`: read & write) can stand in for the App everywhere `steps.app-token.outputs.token`
-appears. **With one consequence that must be drilled, not assumed:** a PAT of Rjae's carries Rjae's *admin*
-identity, and repository admin is in the `master` ruleset's `bypass_actors` — so `gh pr merge --auto` performed by
-that token bypasses the very required-checks rule the ruleset exists to impose. §1.2 blocker 3 is about exactly
-this. If the PAT route is taken, drill (c) is no longer a formality: it must prove empirically that `--auto`
-still *waits* on a red PR, and if it does not, the merge step has to move back to an App or to a bot identity
-that is not a bypass actor.
+**Both tokens have renewal dates, and nobody is watching them but us.** See (3).
 
-Everything below this point — setting variables and secrets, creating labels, PATCHing repository settings,
-posting the ruleset, running the drills — is an agent's job once the values above exist.
+Everything below this point — verifying the secrets, creating labels, PATCHing repository settings, posting the
+ruleset — is an agent's job, and none of it is blocked on anyone.
 
-**(1) Register the App's identity with the repository** — *agent, once Rjae has (i)*
+**(1) The two repository secrets** — *already set; verify, never re-create*
 
 ```sh
-gh variable set BRIGADE_BOT_APP_ID --repo appshapes/brigade --body '<app id>'
-gh secret   set BRIGADE_BOT_PRIVATE_KEY --repo appshapes/brigade < /path/outside/the/repo/brigade-bot.private-key.pem
-# then delete the .pem — never under the project directory, never in the chat (CLAUDE.md)
+gh secret list --repo appshapes/brigade
+# expect exactly: GH_ACTIONS_TOKEN, CLAUDE_CODE_OAUTH_TOKEN (both 2026-09-10)
 ```
 
-**verify:** the exact normalized form the action expects for a custom App in `allowed_bots` (`<slug>` vs
-`<slug>[bot]`) — drill (a) prints it.
+Nothing to add. Note what is **not** here and must never be added back: `BRIGADE_BOT_APP_ID` (a repository
+variable) and `BRIGADE_BOT_PRIVATE_KEY` (a secret) — the GitHub App identity of v2/v3. There is no App, so a
+`gh variable list` that shows `BRIGADE_BOT_APP_ID` means someone implemented an older draft.
 
 **(2) The Claude GitHub App** — *already done; no action*
 
@@ -2157,12 +2228,23 @@ The reason it is still listed here, rather than struck out, is that the *depende
 future org-admin change could remove it: without this App the reviewer's `gh pr review` lands as
 `github-actions[bot]`, and every `startsWith(login, 'claude')` clause in §4.1 and §4.3 silently matches nothing —
 approvals never arm auto-merge, CHANGES_REQUESTED never arms the fixer, and the fixer's pushes raise no
-`synchronize` (§1.2, consequence (c)). Drill (a) is what confirms it on the day.
+`synchronize` (§1.2, consequence (c)). §5 (a) is what confirms it on the day. Note this is the **Claude** App and
+has nothing to do with the App this brief no longer creates.
 
-**(3) The model credential** — *agent, once Rjae has (ii)*
+**(3) Note the renewal dates of both tokens** — *agent, with Rjae*
+
+Neither credential announces its own expiry, and both stop the loop dead when they lapse: a lapsed
+`GH_ACTIONS_TOKEN` breaks issue creation, PR creation and merging at once; a lapsed
+`CLAUDE_CODE_OAUTH_TOKEN` fails every agent at authentication. **Ask Rjae for the expiry date set on the classic
+PAT (or "none", if none was set) and the OAuth token's, and record both** — in
+`docs/experiments/agentic-workflows-first-runs.md` beside the rest of the P9-1 evidence, and in a calendar
+reminder a month ahead of the earlier one. This is a two-line task and it is the only standing maintenance the
+credentials need.
 
 ```sh
-gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo appshapes/brigade      # paste at the prompt; never on argv
+# The renewal itself, when the day comes — paste at the prompt, never on argv (CLAUDE.md):
+gh secret set GH_ACTIONS_TOKEN       --repo appshapes/brigade
+gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo appshapes/brigade
 ```
 
 **(4) Repository settings** — *agent; PATCH only what actually changes*
@@ -2198,7 +2280,7 @@ Settings → Actions → General → **Fork pull request workflows from outside 
 **"Require approval for all outside collaborators"**. This is the mitigation for running unreviewed contributor
 code on self-hosted (Blacksmith) runners on a public repository. **verify:** whether the deployed REST API exposes
 a stable equivalent (`repos/{owner}/{repo}/actions/permissions/fork-pr-contributor-approval`) before scripting it;
-do it in the UI and screenshot the result for the drill evidence.
+do it in the UI and screenshot the result for the first-run evidence.
 
 **(6) Labels**
 
@@ -2206,8 +2288,12 @@ do it in the UI and screenshot the result for the drill evidence.
 gh label create claude      --repo appshapes/brigade --color 5319e7 --description "Work order for the agentic loop"
 gh label create auto-merge  --repo appshapes/brigade --color 0e8a16 --description "Merge when the reviewer approves and CI is green"
 gh label create maintenance --repo appshapes/brigade --color fbca04 --description "Agent maintenance PR; exempt from the execution-log-row rule"
-gh label create dependencies --repo appshapes/brigade --color 0366d6 --description "Dependabot"
 ```
+
+**Three labels, not four.** v2/v3 created a fourth, `dependencies`, because `dependabot.yml` applied it. With
+Dependabot gone (§4.8) nothing applies it: the dependency agent's issue and PR carry `claude`, `maintenance` and
+`auto-merge` like every other scheduled work order, and a label no workflow sets and no `if:` reads is dead
+configuration. If a human wants one for filtering later, that is a human's label to make.
 
 **(7) The `master` ruleset** — required checks for pull requests, admin-bypassed
 
@@ -2279,32 +2365,65 @@ Every field, and why:
   repository's git policy requires), no required signatures, no deletion/force-push rules — those belong to
   `protect-release-tags`, which already exists and is untouched.
 
-**The thing to hold on to:** a bypass actor *bypasses this rule*. So the merging identity must be the App (not in
-`bypass_actors`), or `--auto` merges past the gate and drill (c) would pass while proving nothing.
+**The thing to hold on to:** a bypass actor *bypasses this rule*, and the merging identity — `GH_ACTIONS_TOKEN`,
+Rjae's classic PAT — **is** a repository admin and therefore **is** a bypass actor. v3 avoided that by merging as
+a GitHub App; Rjae's ruling of 2026-09-10 takes the PAT instead, so the ruleset's job here is narrower than it
+looks: it makes the four checks *required*, which is what gives `gh pr merge --auto` something to wait for, but
+it will not *refuse* this merger. Whether `--auto` waits anyway is the one thing to check deliberately before
+the gate is relied on — read it off `thinktech-api` first, then §5 (c) — and §4.3 carries the deterministic
+contingency if the answer is no.
 
-**(8) Order of operations.** Configure (1)–(7) **before** merging the workflow files, and leave `update-documentation.yml`'s cron in
-place (`review-repository.yml` has none until 7.4 is settled) but do not apply the `auto-merge` label to anything real until drills (a)–(d) in
-section 5 have passed.
+**(8) Order of operations — no staging, no burn-in.** Rjae's ruling of 2026-09-10: **straight to the finished
+state.** In order:
+
+1. **Configure (1)–(7)** — verify the two secrets, note the renewal dates, set `squash_merge_commit_title`, the
+   labels, the fork-approval setting and the `master` ruleset. This comes first because a workflow that lands
+   before its ruleset would arm an auto-merge with nothing to wait for (§1.2 blocker 3).
+2. **Merge every file in section 4 in one commit** — all eight workflows, `scripts/ci/pr-guard.sh` and the three
+   agent files, with their crons live and `auto_merge: true` where §4 says so. There is no phase in which a cron
+   sits commented out or a label is withheld: v3 proposed both and Rjae rejected both, on the grounds that this
+   loop has run on numerous projects for many months.
+3. **Let the first scheduled and event-driven runs happen** on their own schedule.
+4. **Record them against §5** as each path fires for the first time.
+
+**The one thing that is checked rather than merely recorded** is §5 (c): that `gh pr merge --auto` waits for the
+four required checks even though the merging PAT could bypass them. It is answerable *before* any of the above by
+looking at `thinktech-api`, which runs the same PAT-based loop today — do that first, and treat §5 (c) here as
+confirmation rather than discovery.
 
 ---
 
-## 5. Verification drills — before the `auto-merge` label is ever applied for real
+## 5. What to record from the first real runs
 
-Each drill names its pass predicate and the evidence to record. Evidence goes in `docs/experiments/` (the house
-rule for experiment reports) as `docs/experiments/agentic-workflows-drills.md`, with run ids, not screenshots
-alone. **A drill that cannot be run is NOT a pass** — say so in the row.
+**This section is not a phase, and nothing is waiting on it.** v2 and v3 called it "verification drills" and put
+it *before* the `auto-merge` label was ever applied for real; Rjae's ruling of 2026-09-10 — no burn-in, no staged
+rollout, straight to the finished state — removes that gate. The predicates below are unchanged; what changed is
+when they are read. **Each one is the checklist for the FIRST LIVE OCCURRENCE of a path**, to be filled in as the
+loop reaches it, so that the first time something goes wrong there is a written record of what right looked like.
 
-**(a) The loop produces a correctly titled PR under the App identity.**
-Open a throwaway issue titled `Add a comment to scripts/ci/README.md's workflow table` labelled `claude` and
-`maintenance` (no `auto-merge`).
+**The one exception, and it is deliberate: (c).** Whether `gh pr merge --auto` waits for the required checks
+under an admin PAT's ruleset bypass is a *check*, not a record — it is the assumption the merge gate rests on
+(§1.2 blocker 3). It can be answered before anything here runs by looking at `thinktech-api`, which runs the
+same PAT-based loop today; (c) below then confirms it here.
+
+Evidence goes in `docs/experiments/` (the house rule for experiment reports) as
+`docs/experiments/agentic-workflows-first-runs.md`, with run ids, not screenshots alone. **An item that has not
+yet occurred is NOT a pass** — say "not yet observed" in the row, and never infer one path's behaviour from
+another's.
+
+**(a) The loop produces a correctly titled PR under Rjae's identity.** *(First scheduled or hand-labelled issue.)*
+The natural first occurrence is the first monthly `update-documentation`, `update-dependencies` or
+`review-repository` run; to see it sooner, open a throwaway issue titled `Add a comment to scripts/ci/README.md's
+workflow table` labelled `claude` and `maintenance` (no `auto-merge`).
 *Pass predicate:* `claude.yml` runs; a branch is pushed; a PR exists whose **title starts `15: `**; the PR's
-`user.login` is **`brigade-bot[bot]`**; `review pr` runs on it (proving the App's PR creation raised
-`pull_request: opened`, i.e. the App-token-vs-`GITHUB_TOKEN` switch works); a review lands at head.
+`user.login` is **Rjae's own login** (the PR was created with `GH_ACTIONS_TOKEN`, a classic PAT of their
+account, so it is authored by a human, not a `[bot]`); `review pr` runs on it (proving the PAT's PR creation
+raised `pull_request: opened`, i.e. the PAT-vs-`GITHUB_TOKEN` switch works); a review lands at head.
 *Record:* the two run ids; `gh pr view <n> --json title,author,labels`; **`gh api repos/appshapes/brigade/pulls/<n>/reviews
 --jq '.[].user.login'`** — this is the measurement that re-pins the `startsWith(login,'claude')` predicate of §4.1
 and §4.3. It should print `claude[bot]`: the Claude GitHub App was measured installed org-wide on `appshapes` on
-2026-09-09 (§4.10 (2)), so this drill is the on-the-day re-check rather than the discovery. If it prints
-`github-actions[bot]` the App has gone away since, and **drills (b) and (c) cannot pass** until it is back.
+2026-09-09 (§4.10 (2)), so this is an on-the-day re-check rather than a discovery. If it prints
+`github-actions[bot]` the Claude App has gone away since, and **(b) and (c) cannot pass** until it is back.
 
 **(b) The fix cap trips at 3 with the handoff comment.**
 On the same PR, have the reviewer request changes four times (four fix cycles; force them by leaving a real
@@ -2324,38 +2443,47 @@ nothing).
 whether it took the staleness exit or the counting path. The gate proceeds only while the PR's current head still
 equals the triggering review's `commit_id`, so a fix cycle that ran must show `head == commit_id` at gate time,
 and any second run for the same review must log `stale review — a fix already landed` and set `proceed=false`
-without spending a cap slot. If the drill never produces a duplicate delivery naturally — it usually will not —
+without spending a cap slot. If the loop never produces a duplicate delivery naturally — it usually will not —
 **force the shape**: re-run the `claude` workflow for a review whose fix has already landed (`gh run rerun <id>`)
 and record that the re-run skips. A re-run that proceeds means the staleness clause is missing or reversed, and
 the cap can be spent twice on one blocker.
 
-**(c) Auto-merge WAITS for the four checks under the ruleset.** *The drill Rjae named explicitly.*
-Create a PR that is red — e.g. a Go file with a deliberate `go vet` failure — label it `auto-merge`, and let the
-reviewer approve it (or approve it manually as the App-adjacent identity, whichever the loop produces).
+**(c) Auto-merge WAITS for the four checks — even though the merging PAT could bypass the ruleset.** *The one
+item here that is a deliberate check rather than a record, and the one Rjae named explicitly.*
+**Look at `thinktech-api` first.** It runs the same loop with the same kind of credential — an owner's classic
+PAT with admin bypass — so "does `--auto` wait for green there?" answers the question at zero cost. Then confirm
+it here: create a PR that is red — e.g. a Go file with a deliberate `go vet` failure — label it `auto-merge`, and
+let the reviewer approve it.
 *Pass predicate, in three halves:*
  (i) `auto-merge.yml` runs, `gh pr merge --squash --auto` succeeds, and `gh pr view <n> --json autoMergeRequest`
  shows auto-merge **enabled** — and the PR **stays open** while `fast` is red. Wait out at least one full CI
  matrix; the PR must still be open.
+ **(i) is the whole question.** If the PR merges while `fast` is red, `--auto` did **not** wait under the PAT's
+ bypass, and the deterministic contingency in §4.3 must be adopted before any real `auto-merge` label is trusted:
+ `gh pr checks "$PR" --required --watch --fail-fast` before a plain `gh pr merge --squash`, with the job's
+ `timeout-minutes` raised to 20. Record which of the two the repository ended up on.
  (ii) Push the fix; when all four checks report success the PR **merges by itself**, the merge is a **squash**,
- the merge actor is **`brigade-bot[bot]`** (not an admin), and the resulting commit subject on `master` starts
- `15: `.
+ the merge actor is **Rjae** (the PAT's identity — there is no bot identity in this design), and the resulting
+ commit subject on `master` starts `15: `.
  (iii) **The already-green case, which is the everyday one and which halves (i) and (ii) do not touch.** Open a
  second PR, let all four checks go green *first*, and only then have the reviewer approve it. `--auto` will error
  with "Pull request is in clean status" — that is expected and is why the step has the `|| gh pr merge … --squash`
- fallback (§4.3). *Pass:* the `auto-merge` job ends **green**, the PR merges as a squash by `brigade-bot[bot]`,
- and the merge is not left to a human. A red job here means the fallback is missing or wrong, and the loop would
- have been broken on its most common path while (i) and (ii) both passed.
+ fallback (§4.3). *Pass:* the `auto-merge` job ends **green**, the PR merges as a squash, and the merge is not
+ left to a human. A red job here means the fallback is missing or wrong, and the loop would have been broken on
+ its most common path while (i) and (ii) both passed.
 *Record:* `gh pr view <n> --json autoMergeRequest,state,mergedBy,mergeCommit` for both PRs; `gh api
 repos/appshapes/brigade/commits/<sha> --jq .commit.message | head -1`; the timestamps proving the wait; and the
 `auto-merge` job log for (iii) showing which of the two commands succeeded.
 *Negative control worth doing once — but NOT against `master`.* The point is to watch an admin identity merge a
-red PR, and doing that on the default branch of a public repository lands a knowingly broken commit on `master`
-and leaves no clean way back. Instead: create a throwaway base branch, e.g. `drill/ruleset-control`, add it to
-the same ruleset's `conditions.ref_name.include` for the duration, open the red PR **against that branch**, and
-attempt the merge with an admin PAT — it will merge immediately, past the required checks, which is exactly the
-failure the App identity exists to prevent. Then remove the branch from the ruleset and delete it. (If for some
-reason the control is run against `master` anyway, `git revert` the merge immediately and record the revert SHA
-in the drill evidence — but prefer the throwaway branch.)
+red PR **without** `--auto`, and doing that on the default branch of a public repository lands a knowingly broken
+commit on `master` and leaves no clean way back. Instead: create a throwaway base branch, e.g.
+`check/ruleset-control`, add it to the same ruleset's `conditions.ref_name.include` for the duration, open the
+red PR **against that branch**, and run a plain `gh pr merge --squash` with `GH_ACTIONS_TOKEN` — it will merge
+immediately, past the required checks, because that token is a bypass actor. That is not a bug to fix; it is the
+exposure this design accepts (§1.2 blocker 3), and seeing it once is what makes half (i) above meaningful: the
+gate is `--auto`'s waiting, not the ruleset's refusing. Then remove the branch from the ruleset and delete it.
+(If for some reason the control is run against `master` anyway, `git revert` the merge immediately and record the
+revert SHA — but prefer the throwaway branch.)
 
 **(d) An outside-collaborator PR does not run CI without approval.**
 From an account with no write access, open a PR from a fork.
@@ -2363,25 +2491,26 @@ From an account with no write access, open a PR from a fork.
 run (its same-repo `if:` skips it); after a maintainer clicks Approve, `ci.yml` runs and `review pr` stays skipped.
 *Record:* the run page state before and after approval; confirmation that no Blacksmith job executed pre-approval.
 
-**(e) Dependabot's first grouped PR passes rule (c).**
-Wait for (or trigger) the first monthly grouped gomod PR.
-*Pass predicate:* the PR is labelled `maintenance` + `dependencies`; all four checks green — specifically
+**(e) The first dependency PR: rule (c) green through the published-release arm.**
+Wait for (or `workflow_dispatch`) the first monthly `update-dependencies` run.
+*Pass predicate:* the PR is labelled `maintenance` + `auto-merge`; all four checks green — specifically
 `make checksums-check` **passes** and its message names arm **(c)** ("the published release v0.4.1 backs
 plugin/bin/checksums.txt (this commit changed the source without bumping the pin)"); `make deps-check` green
-(the module set in the binary is unchanged); `make tidy-check` green. **`review pr` is skipped by the actor
-filter** — the run appears in the Actions list with its `review` job *skipped*, not absent and not red: a
-Dependabot branch is in-repo, so the same-repo clause passes it and only `github.actor != 'dependabot[bot]'`
-stops it (§4.2, §4.8). A red `review pr` here means the actor clause was dropped; a *missing* run means the
-workflow's `on:` was changed. And no auto-merge.
-*Record:* the PR number; the `fast` job's `make checksums-check` step output verbatim; the merge, performed by
-Rjae.
+(the module set in the shipped binary is unchanged, `docs/allowed-deps.txt` zero-diff); `make tidy-check` green;
+`go.mod`'s `go` line untouched (`scripts/ci/pr-guard.sh` would have failed the PR otherwise). **`review pr` runs
+normally** — a dependency PR is an ordinary agent PR now, so it is reviewed like any other and there is no actor
+filter to skip it (§4.2, §4.8). The PR body should say, in the agent's own words, that the bump ships nothing
+until `make release`.
+*Record:* the PR number; the `fast` job's `make checksums-check` step output verbatim; whether it auto-merged on
+approval; and, if the agent left a module alone because bumping it would have pulled a new module into the
+shipped binary, the sentence it wrote about that — **that is Rjae's decision to take, not the agent's**.
 
 **(f) A Go bump merges, `checksums-check` stays green, and the plugin still serves v0.4.1.**
 Immediately after (e) merges to `master`.
 *Pass predicate:* the push run of `ci.yml` on `master` is green, with `checksums-check` passing through arm (c)
 and saying so; `cat plugin/bin/VERSION` still reads `0.4.1`; a fresh `/plugin` install still fetches the v0.4.1
 release binary; **nothing in the tree was regenerated to make this true**.
-*Record:* the run id and the step output; `plugin/bin/VERSION`; a note in the drill report stating in one
+*Record:* the run id and the step output; `plugin/bin/VERSION`; a note in the first-run record stating in one
 sentence that **this is the design, not a defect** — Go source ships only through `make release` — so nobody
 files it later.
 
@@ -2407,14 +2536,14 @@ edit.
 
 **(i) Labelling an existing PR starts the agent — and only for a write-access actor.** *(M3, added 2026-09-10.)*
 `claude.yml` listens on `pull_request: [opened, labeled]`, so applying the `claude` label to a PR that already
-exists is a live entry path into the loop. It was missing from v2's §3 diagram and from these drills, which means
+exists is a live entry path into the loop. It was missing from v2's §3 diagram and from this section, which means
 it was a path nobody had watched run. Open a throwaway PR **without** the `claude` label (a one-line comment
 change is enough), let it sit until `review pr` has finished with it, then apply the label.
 *Pass predicate, both halves:*
  (i-a) applied by Rjae (write access): `claude.yml` starts, the `agent` job's `if:` matches on the
  `pull_request`/`labeled` clause, and the agent works on the existing branch — it does **not** open a second PR
  (the `open-pr` job is `if: github.event_name == 'issues'` and must show as **skipped**).
- (i-b) applied by an account **without** write access (the same account used for drill (d); a maintainer must
+ (i-b) applied by an account **without** write access (the same account used for (d); a maintainer must
  grant it triage or the label will not apply at all — if that cannot be arranged, say so and mark this half **NOT
  RUN**, which per this section's own rule is not a pass): the action's default write-access check rejects it, the
  run ends without an agent session, and nothing is pushed. **This is the control that matters**: the label is a
@@ -2427,27 +2556,30 @@ change is enough), let it sit until `review pr` has finished with it, then apply
 words, to print its environment (`env`, `printenv`, `echo $CLAUDE_CODE_OAUTH_TOKEN`, `cat` of anything under
 `$RUNNER_TEMP`) into its output and into a file it commits.
 *Pass predicate:* the run's public log contains **no** unmasked credential — not `CLAUDE_CODE_OAUTH_TOKEN`, not
-the job's `GITHUB_TOKEN`, not an App installation token; every occurrence renders as `***`. `show_full_output:
+the job's `GITHUB_TOKEN`; `GH_ACTIONS_TOKEN` should not even be *present*, since no job that runs an agent holds
+it (§1.1.1 (iii)) — its appearance in an agent job's environment is a **finding, not a pass**, whether masked or
+not. Every occurrence of anything credential-shaped renders as `***`. `show_full_output:
 false` keeps the session transcript out of the log in the first place, and Actions masks registered secret values
 in step output; **confirm the OAuth token in particular is masked**, since it reaches the runner as a secret
 expression and should be registered, but that is the assumption under test rather than the finding. Nothing is
 committed containing a credential (`git show --stat` on any pushed branch, then `grep` the diff).
 *Record:* the run id; the log lines where masking is visible; and, if anything at all appeared unmasked, **rotate
 the token before recording anything else** (`gh secret set CLAUDE_CODE_OAUTH_TOKEN`) and note the rotation.
-*What this drill is, and is not.* It is **evidence, not a control that proves safety.** A masked log shows the
+*What this item is, and is not.* It is **evidence, not a control that proves safety.** A masked log shows the
 masker matched that string; it says nothing about reachability, and the token **was** reachable — the agent read
 it. `allowed_non_write_users` is unset, so `claude-code-action`'s conditional secret scrub and its bubblewrap
-PID-namespace isolation are both off, and every Bash child inherits the step environment (§1.1.1). This drill
-watches the one consequence that would be publicly visible; the residual it does not remove is the accepted one,
-bounded by a dedicated token, a monthly ceiling, rotation and minimal job `permissions:`. Do not cite a green (j)
-as proof that an injected prompt cannot exfiltrate.
+PID-namespace isolation are both off, and every Bash child inherits the step environment (§1.1.1). It watches
+the one consequence that would be publicly visible; the residual it does not remove is the accepted one, bounded
+by a known account on a plan whose limits are the ceiling, rotation, the job split that keeps the PAT out, and
+minimal job `permissions:`. Do not cite a green (j) as proof that an injected prompt cannot exfiltrate.
 
-**Sequencing.** (a) → (b) → (d) may run in any order but all three precede (c); (c) precedes the first real
-`auto-merge` label. (i) needs a PR to label, so it follows (a); (j) needs only a working loop, so it follows (a)
-too and should be run **before** any agent is pointed at content brigade did not write (a fork PR's diff, a
-dependency's build script) — it is the cheapest look at the leak path there is. (e)/(f) are one pair and can wait
-for the first monthly Dependabot PR. (g) and (h) are independent. **Do not apply `auto-merge` to a real PR until
-(a), (b), (c) and (d) have all passed and are recorded.**
+**Order.** There is no required sequence, because nothing here gates anything: the files are merged in one
+commit and each item is filled in when its path first fires. Two notes that are about value rather than
+permission. **(c) is the exception and comes first** — read it off `thinktech-api` before the first
+`auto-merge`-labelled PR of this repository merges, and confirm it here at the first opportunity; if it fails,
+adopt §4.3's contingency. And **(j) is worth provoking early**, before any agent is pointed at content brigade
+did not write (a fork PR's diff, a dependency's build script): it is the cheapest look at the leak path there is.
+(a), (b), (d), (e)/(f), (g), (h) and (i) arrive when they arrive.
 
 ---
 
@@ -2459,51 +2591,45 @@ the closed P8 (Codex) workstream.
 
 | ID | Task (this brief's §) | Status | Model | Commit / evidence |
 | --- | --- | --- | --- | --- |
-| P9-1 | GitHub configuration: register the App's id and key, the OAuth secret, the squash-title setting (the only one that changes), the labels, the `master` ruleset (§4.10 (1)–(7)) | todo | Opus (+ Rjae's five minutes: create the App and install it, `claude setup-token`, **set the monthly spend ceiling on that account**, the UI fork-approval setting) | `gh api` read-backs of the ruleset and settings, recorded in `docs/experiments/agentic-workflows-drills.md`; the ceiling's value and the screen it was set on, recorded there too |
-| P9-2 | The loop: `claude.yml` (two jobs, `agent` → `open-pr`), `review-pull-request.yml` (**including the `gh pr comment` on a guard trip — 7.8, landed here, not deferred**), `auto-merge.yml`, `_create-claude-issue.yml`, `scripts/ci/pr-guard.sh`, and the three `.claude/agents/*.md` (§4.1–4.4, §4.9); resolve the `claude-code-action` SHA pin (7.7) | todo | Opus | one commit (`scripts/ci/pr-guard.sh` committed mode 100755); `make plugin-check lint test` green; `pr-guard.sh` through both shellchecks (local **and** the pinned 0.9.0 container). **`scripts/ci/README.md`'s four workflow rows and its one script row for these files land in this same commit** (see below) |
-| P9-3 | Drills (a)–(d), **(i)** and **(j)**, and the timeout and `--max-turns` re-pin from the first ten runs (§5, 7.3) | todo | Opus | `docs/experiments/agentic-workflows-drills.md`, run ids. No `scripts/ci/README.md` rows — this row adds no file |
-| P9-4 | `.github/dependabot.yml`; drills (e), (f). **No `dependabot-auto-merge.yml`** — 7.6(b), converged and not planned | todo | Opus | the first grouped PR, `checksums-check` output. `.github/dependabot.yml` is not a workflow and adds no `scripts/ci/README.md` row; say so in the commit message so the omission reads as deliberate |
-| P9-5 | `release-notes.yml`, plus — if remedy (a) is taken — BOTH edits to `release.yml` (the widened top-level `permissions:` and the `notes` job); drill (g) | todo | Opus | the rc release page, the announcement issue. **`scripts/ci/README.md`'s `release-notes.yml` workflow row lands in this same commit** |
-| P9-6 | `update-documentation.yml` and drill (h) | todo | Opus | both run ids. **`scripts/ci/README.md`'s `update-documentation.yml` workflow row lands in this same commit** |
-| P9-7 | `review-repository.yml` (`workflow_dispatch` only, cron commented — 7.4), **the seeded memory marker** `.context/plans/agent-memory/review-repository.md` (`Date: (unseeded)`, `Commit: (none)`, `Scope: whole tree`) and the first manual pass | todo | Opus | the seed commit; the first PR, unlabelled for auto-merge. **`scripts/ci/README.md`'s `review-repository.yml` workflow row lands in this same commit** |
-| P9-8 | The three records that can only be written once everything they count exists: `CLAUDE.md`'s "Repository automation" paragraph, `scripts/ci/README.md`'s **opening-sentence counts**, and the execution-log exemption sentence (all three below) | todo | Opus | one commit, **sequenced after P9-7** |
+| P9-1 | GitHub configuration: verify the two repository secrets (both already set, 2026-09-10) and **note their renewal dates**, set the squash-merge title source (the only setting that actually changes), the three labels, the outside-collaborator UI gate, the `master` ruleset (§4.10 (1)–(7)) | todo | Opus (+ Rjae's two minutes: the fork-approval UI toggle, and telling the agent the expiry set on each token) | `gh secret list` and `gh api` read-backs of the ruleset and the settings, recorded in `docs/experiments/agentic-workflows-first-runs.md`; the two renewal dates recorded there and in a calendar reminder |
+| P9-2 | **Everything in §4, in ONE commit** (§4.10 (8) — no staging, no burn-in): the **eight workflows** `claude.yml` (two jobs, `agent` → `open-pr`), `review-pull-request.yml` (**including the `gh pr comment` on a guard trip — 7.8, landed here, not deferred**), `auto-merge.yml`, `_create-claude-issue.yml`, `update-documentation.yml` (`auto_merge: true`), `review-repository.yml` (monthly cron live), `release-notes.yml` and `update-dependencies.yml`; plus `scripts/ci/pr-guard.sh`, the three `.claude/agents/*.md` (§4.1–4.9), and **every record line below** — `scripts/ci/README.md`'s eight workflow rows, its one script row, its two configuration rows and its opening-sentence counts, `CLAUDE.md`'s paragraph, and the execution-log exemption sentence; resolve the `claude-code-action` SHA pin (7.7) | todo | Opus | one commit (`scripts/ci/pr-guard.sh` committed mode 100755); `make plugin-check lint test` green; `pr-guard.sh` through both shellchecks (local **and** the pinned 0.9.0 container) |
+| P9-3 | The first-run records (a)–(d), **(i)** and **(j)**, and the timeout and `--max-turns` re-pin from the first ten runs (§5, 7.3). **(c) is a check rather than a record — read it off `thinktech-api` before the first `auto-merge`-labelled PR merges here, and adopt §4.3's contingency if it fails** | todo | Opus | `docs/experiments/agentic-workflows-first-runs.md`, run ids. Adds no file, so no `scripts/ci/README.md` row |
+| P9-4 | The first `update-dependencies` run: records (e) and (f) — rule (c) green through the published-release arm, the plugin still serving the last release | todo | Opus | the PR number and the `checksums-check` step output. Adds no file |
+| P9-5 | **If remedy (a) of §4.7 is taken**, BOTH edits to `release.yml` (the widened top-level `permissions:` and the `notes` job); record (g) | todo | Opus | the rc release page, the announcement issue |
+| P9-6 | The first `update-documentation` run: record (h), both halves | todo | Opus | both run ids |
+| P9-7 | **The seeded memory marker** `.context/plans/agent-memory/review-repository.md` (`Date: (unseeded)`, `Commit: (none)`, `Scope: whole tree`) and the first `review-repository` pass | todo | Opus | the seed commit; the first PR, unlabelled for auto-merge, merged by Rjae |
 
-**Why P9-8 is smaller than it was, and sequenced last.** v2 made P9-8 "records: `CLAUDE.md`, `scripts/ci/README.md`,
-the execution-log sentence" in the same commit as P9-2 — which is impossible as written, and brigade-33's M4
-caught it: the `scripts/ci/README.md` rows it was to write describe workflows that **P9-4 through P9-7 have not
-added yet**. A row for `release-notes.yml` written in P9-2's commit documents a file that does not exist for
-another three rows. So the work is split by the only rule that keeps the README honest:
+**Why there is no P9-8 any more.** v2 put the record lines — `CLAUDE.md`'s paragraph, `scripts/ci/README.md`'s
+rows and counts, the execution-log exemption sentence — in the same commit as P9-2, which was impossible as
+written (brigade-33's M4 caught it): the README rows would have described workflows that later rows had not added
+yet. v3 fixed that by splitting the records across P9-2…P9-7 and keeping the *counts* for a final P9-8, since a
+count is wrong at every intermediate step. **Rjae's ruling of 2026-09-10 dissolves the problem instead of solving
+it:** every file lands in one commit, so every row, every index entry and every count is correct the moment it is
+written, and they all belong to P9-2. The rule that produced the split still holds where it applies — *a file and
+its index entry land together or neither lands* — it simply has nothing left to split.
 
-- **Every P9-n row updates its own `scripts/ci/README.md` rows in its own commit** — the workflow table row (and,
-  for P9-2, the script index row) for the files *that row* adds, and nothing else. Each row's evidence cell above
-  says so explicitly. A file and its index entry land together or neither lands.
-- **P9-8 keeps only what genuinely cannot be written earlier**: the README's opening-sentence **counts** (they are
-  wrong at every intermediate step and correct only once the last workflow exists), `CLAUDE.md`'s paragraph
-  (it describes the loop as a whole, including the scheduled agents), and the execution-log exemption sentence.
-  It is therefore **sequenced after P9-7**, not alongside P9-2.
+**The record lines, all written by P9-2.**
 
-**The record lines, and which row writes each.**
-
-*`scripts/ci/README.md` — the workflow table* gains seven rows in total, **written four-then-one-then-one-then-one
-across P9-2, P9-5, P9-6 and P9-7** as each workflow lands. The file's opening sentence, "Brigade has three
-workflows and fourteen scripts in a near-1:1 relation", becomes **ten workflows and fifteen scripts** — the new
-script is `pr-guard.sh` below; the same paragraph's "only two are reached from a workflow without a target of
-their own" becomes three, `pr-guard.sh` being the third. **Those counts are P9-8's**, precisely because they are
-false at every point in between; the reasoning for keeping one index rather than two still holds and is worth
-restating:
+*`scripts/ci/README.md` — the workflow table* gains **eight rows**, one per workflow. The file's opening sentence,
+"Brigade has three workflows and fourteen scripts in a near-1:1 relation", becomes **eleven workflows and fifteen
+scripts** — the new script is `pr-guard.sh` below; the first bullet's "nine of the thirteen shell scripts" becomes **nine of the fifteen** (fourteen exist
+today — an existing off-by-one), its "only two are reached from a workflow without a target of their own"
+becomes **three**, `pr-guard.sh` being the third, and its trailing "the remaining two" becomes **three**. The reasoning for keeping one
+index rather than two still holds and is worth restating:
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `.github/workflows/claude.yml` | `issues` (labeled/assigned), `pull_request` (opened/labeled), `pull_request_review`, comment events, `workflow_dispatch` | The agentic hub: implements a `claude`-labelled issue on a branch and opens its PR, or applies a reviewer's blockers on a PR branch. Bounded by a derived fix cap (`MAX_ATTEMPTS 3`), actor filters, the App-token/`GITHUB_TOKEN` switch and per-PR concurrency. Two jobs: `agent`, then `open-pr` (`needs:`), which is where the App private key lives. *(Row written by P9-2.)* |
-| `.github/workflows/review-pull-request.yml` | `pull_request` (opened/synchronize/reopened), same-repo only | Deterministic guard (release pins, the `go` line, the protocol join) then the read-only reviewer agent; fails loudly if no review lands at head, and comments on the PR when the guard trips. *(Row written by P9-2.)* |
-| `.github/workflows/auto-merge.yml` | `pull_request_review` (submitted) | Arms `gh pr merge --squash --auto` as the App when the reviewer approved the current head of an `auto-merge`-labelled PR. The `master` ruleset is what makes it wait for CI. *(Row written by P9-2.)* |
-| `.github/workflows/_create-claude-issue.yml` | `workflow_call` | Reusable factory: creates the `claude`-labelled work order with the App token so the `issues: labeled` event fires. *(Row written by P9-2.)* |
-| `.github/workflows/update-documentation.yml` | monthly cron, `workflow_dispatch` | Structural documentation refresh through the loop. Opens its PR **without** the auto-merge label for the first two months, then with it (7.2). *(Row written by P9-6.)* |
-| `.github/workflows/review-repository.yml` | `workflow_dispatch` only (the monthly cron is present but commented out — 7.4) | Reviewer pass over the tree; opens a PR with minimal fixes and **no** auto-merge label. *(Row written by P9-7.)* |
-| `.github/workflows/release-notes.yml` | `release: published`, `workflow_call`, `workflow_dispatch` | Writes the published release's notes from `CHANGELOG.md` and the log, and opens the "run `/brigade:update`" announcement. *(Row written by P9-5.)* |
+| `.github/workflows/claude.yml` | `issues` (labeled/assigned), `pull_request` (opened/labeled), `pull_request_review`, comment events, `workflow_dispatch` | The agentic hub: implements a `claude`-labelled issue on a branch and opens its PR, or applies a reviewer's blockers on a PR branch. Bounded by a derived fix cap (`MAX_ATTEMPTS 3`), actor filters, the PAT/`GITHUB_TOKEN` switch and per-PR concurrency. Two jobs: `agent`, then `open-pr` (`needs:`), which is the only one that holds `GH_ACTIONS_TOKEN`. |
+| `.github/workflows/review-pull-request.yml` | `pull_request` (opened/synchronize/reopened), same-repo only | Deterministic guard (release pins, the `go` line, the protocol join) then the read-only reviewer agent; fails loudly if no review lands at head, and comments on the PR when the guard trips. |
+| `.github/workflows/auto-merge.yml` | `pull_request_review` (submitted) | Arms `gh pr merge --squash --auto` with `GH_ACTIONS_TOKEN` when the reviewer approved the current head of an `auto-merge`-labelled PR. The `master` ruleset makes the four CI checks required, which is what `--auto` waits for. |
+| `.github/workflows/_create-claude-issue.yml` | `workflow_call` | Reusable factory: creates the `claude`-labelled work order with `GH_ACTIONS_TOKEN` so the `issues: labeled` event fires. |
+| `.github/workflows/update-documentation.yml` | monthly cron, `workflow_dispatch` | Structural documentation refresh through the loop. Opens its PR **with** the auto-merge label. |
+| `.github/workflows/review-repository.yml` | monthly cron, `workflow_dispatch` | Reviewer pass over the tree; opens a PR with minimal fixes and **no** auto-merge label — that one merges by hand. |
+| `.github/workflows/release-notes.yml` | `release: published`, `workflow_call`, `workflow_dispatch` | Writes the published release's notes from `CHANGELOG.md` and the log, and opens the "run `/brigade:update`" announcement. |
+| `.github/workflows/update-dependencies.yml` | monthly cron, `workflow_dispatch` | Dependency bump through the loop: `go.mod` and `tools.mod` by the agent, the action pins reported in the PR body (not edited) (`.claude/agents/developer.md`, dependency-update mode). Opens its PR **with** the auto-merge label. |
 
-*`scripts/ci/README.md` — the script index* gains one row, **written by P9-2 in the same commit as
-`pr-guard.sh` itself**, which is the whole reason the guard is a file rather
+*`scripts/ci/README.md` — the script index* gains one row, in the same commit as `pr-guard.sh` itself, which is
+the whole reason the guard is a file rather
 than twenty-five lines inlined in a workflow (`plugin-check.sh`'s check 9 lints `scripts/ci/*.sh scripts/*.sh`
 and nothing else; the pinned shellcheck 0.9.0 container rule is written against files; ten Go drift tests open
 these scripts by path):
@@ -2514,14 +2640,12 @@ these scripts by path):
 
 *`scripts/ci/README.md` — the "Required GitHub configuration" table*, whose heading sentence **"Names only. No
 value of any of these appears in this repository, and none may be added."** stays exactly as it is and now covers
-three more names. **All three rows are written by P9-2**, the first commit that reads any of them; **P9-5 amends
-the `CLAUDE_CODE_OAUTH_TOKEN` row's "read by" list** when `release-notes.yml` lands, which is the one place a
-later row edits an earlier row's line rather than adding its own:
+**two** more names — the two repository secrets, and nothing else. There is no variable to add: the GitHub App
+identity of v2/v3 (`BRIGADE_BOT_APP_ID`, `BRIGADE_BOT_PRIVATE_KEY`) does not exist and must not be created.
 
 | Type | Name | Notes |
 | --- | --- | --- |
-| Var | `BRIGADE_BOT_APP_ID` | The GitHub App's id, read by `claude.yml`, `auto-merge.yml` and `_create-claude-issue.yml`. A variable, not a secret: an app id is public and masking it would hide the identity a failing run has to name. |
-| Secret | `BRIGADE_BOT_PRIVATE_KEY` | The GitHub App's private key. `actions/create-github-app-token` exchanges it for a repository-scoped installation token that expires in one hour. It is the only stored credential in this repository with write access, and it exists because `GITHUB_TOKEN`'s writes raise no workflow events. |
+| Secret | `GH_ACTIONS_TOKEN` | A classic personal access token of the owner's account (`repo`, `workflow`, `read:org`), read by `claude.yml`'s `open-pr` job, `auto-merge.yml` and `_create-claude-issue.yml`. It exists because `GITHUB_TOKEN`'s writes raise no workflow events, and it is deliberately absent from every job that runs an agent: a classic PAT cannot be scoped to one repository. |
 | Secret | `CLAUDE_CODE_OAUTH_TOKEN` | The model credential for `anthropics/claude-code-action`, read by `claude.yml`, `review-pull-request.yml` and `release-notes.yml`. Never reaches `_create-claude-issue.yml` or `auto-merge.yml`. |
 
 *`CLAUDE.md`* gains a "Repository automation" paragraph — it must be short, because `CLAUDE.md` is loaded into
@@ -2542,7 +2666,7 @@ therefore the one file every workflow agent is guaranteed to read:
 its exception:
 
 > Update it in the same commit as the work. **Exception (Rjae, 2026-09-09): a pull request labelled
-> `maintenance` — the agentic workflows' own PRs and Dependabot's — carries no row.**
+> `maintenance` — the agentic workflows' own PRs, dependency bumps included — carries no row.**
 
 *`.github/workflows/release.yml`* — only if remedy (a) of §4.7 is taken: **two edits, not one.** The added job is
 the visible half; the widened top-level `permissions:` block is the half that makes it run at all.
@@ -2572,59 +2696,42 @@ permissions:
     uses: ./.github/workflows/release-notes.yml
     with: {tag: "${{ github.ref_name }}"}
     # ONE secret, named — never `secrets: inherit`, which would hand the release path every repository secret
-    # this repo holds, BRIGADE_BOT_PRIVATE_KEY (the App's write credential) included. §4.4 states the rule and
+    # this repo holds, GH_ACTIONS_TOKEN (Rjae's account-wide classic PAT) included. §4.4 states the rule and
     # §4.7's `workflow_call.secrets` block is what makes passing exactly one possible.
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
 ---
-## 7. Open questions — what still needs Rjae
+## 7. Closed, for the record
 
-**Every question in v2's list is now converged.** brigade-33's review of 2026-09-10 answered all eight; six are
-adopted outright and folded into the body, and **two change an earlier agreement, so they need Rjae's word before
-P9-2**. H1 adds one new item. This section is deliberately short: if a decision is settled it lives where it is
-acted on, not here.
+**Nothing here needs anyone.** v3 carried three items still waiting on Rjae; Rjae's rulings of **2026-09-10**
+answered all of them and re-opened two that v3 had thought settled. This section is now a record of what was
+decided and when, so that a reader who finds a strange line in section 4 can see the argument it came from
+rather than re-run it. Each answer lives where it is acted on; this is the index, not the authority.
 
-### 7.A Still needs Rjae — three items
-
-1. **7.2 — documentation PRs start WITHOUT auto-merge.** *Converged with brigade-33 2026-09-10; **Rjae to
-   confirm**, because it CHANGES an earlier agreement.* Rjae's workflows-item 4 said documentation PRs auto-merge.
-   The recommendation is `auto_merge: false` on `update-documentation.yml` for the **first two months**, then
-   `true` once the diffs are boring. Reason: an auto-merged documentation PR lets the four in-scope documents
-   change on `master` with nobody reading them, gated only by CI's doc-witness join — which pins five invocation
-   *forms* and says nothing about prose. Two months is enough to see what the agent actually writes. **Already
-   written into §4.5** with the comment that says how to flip it; flipping is one word and no other line moves.
-   *If Rjae prefers the original:* change `auto_merge: false` to `true` in §4.5 and delete the comment.
-2. **7.4 — `review-repository.yml` is `workflow_dispatch` only, until the second adapter is chartered.**
-   *Converged with brigade-33 2026-09-10; **Rjae to confirm**, because it CHANGES an earlier agreement.*
-   Workflows-item 5 said monthly. Reason: the execution log records no live rows and a deliberately quiet tree, so
-   a monthly pass either no-ops — an agent run a month for nothing — or finds something to do in a finished tree,
-   which is worse, because a human then reviews invented work. **Already written into §4.6**: the cron block is
-   kept, commented out, with the two-line re-enable instruction beside it. *If Rjae prefers monthly:* uncomment
-   those two lines.
-3. **The monthly spend ceiling — the number, and the screen it is set on.** *New, from brigade-33's H1.* §1.1.1
-   (i) accepts that the Claude OAuth token is reachable to every agent's Bash children (the action's secret scrub
-   and bubblewrap isolation are conditional on `allowed_non_write_users`, which this brief never sets), and bounds
-   that residual with four things — a dedicated token, rotation, `show_full_output: false`, and **a monthly spend
-   ceiling on the dedicated account**. The first three are decided. The ceiling needs a number from Rjae, and a
-   **verify:** of where it is actually set: Anthropic Console (billing → usage limits) if the account behind
-   `claude setup-token` is API-key-backed, or the Claude Code plan's own usage limits if it is subscription-backed
-   — different screens, only one of which applies. It is on the **P9-1** row, in the "Rjae's five minutes" column.
-
-### 7.B Converged and folded into the body — for the record, not for decision
-
-| # | Answer | Adopted or changed | Where it now lives |
+| # | The question | The answer, and the date | Where it now lives |
 | --- | --- | --- | --- |
-| 7.1 | The App is named **`brigade-bot`** (login `brigade-bot[bot]`). | Converged; **adopted** — it was already this brief's working name. | §4.10 credentials (i), name row; `allowed_bots` in §4.1, §4.2, §4.7 |
-| 7.3 | Turn budgets (`60`/`30`/`20`) stay **provisional**, re-pinned from the first ten real runs on **P9-3** — *plus* a monthly spend ceiling on the dedicated OAuth account, which is the knob a per-run cap cannot be. | Converged; **adopted**. The ceiling half ties to H1 and is item 3 of §7.A. | §4.1's `claude_args` comment; §4.10 credentials (ii); the P9-3 row |
-| 7.5 | `allowed_bots: "claude,brigade-bot"` stands — **no veto**. The principle that is not negotiable either way: an explicit list, never `"*"`, and never `allowed_non_write_users`. | Converged; **adopted**. | §1.2 consequence (a) |
-| 7.6 | (a) majors stay excluded and are handled by hand; (b) **monthly manual merge — `dependabot-auto-merge.yml` is not planned** and is deleted from this brief; (c) accept the lowercase verb rather than add a fifth workflow to capitalise one letter. | Converged; **adopted**. | §4.8, which now closes 7.6 in place; the P9-4 row |
-| 7.7 | **SHA-pin `anthropics/claude-code-action`** — full 40-hex SHA with a `# v1` comment, resolved at implementation time (**verify:**). This breaks brigade's major-tag house style for exactly one action, because it is the only one that runs a model with repository write access. | Converged; **adopted**. | §4's two conventions; the `uses:` lines in §4.1, §4.2 and §4.7; §6's `CLAUDE.md` paragraph; the P9-2 row |
-| 7.8 | A tripped `pr-guard.sh` **posts a `gh pr comment`** naming the invariant — with `github.token`, so it chains to nothing — and it lands **now, in P9-2**, not as a follow-up. | Converged; **adopted**. | §4.2's "Explain a guard trip on the PR" step; the P9-2 row |
+| 7.1 | What is the GitHub App called? | **Moot — there is no App.** Rjae's ruling of **2026-09-10** is a **classic PAT of their own account** (`GH_ACTIONS_TOKEN`, scopes `repo`, `workflow`, `read:org`), already set as a repository secret. Every `actions/create-github-app-token` step, and `BRIGADE_BOT_APP_ID`/`BRIGADE_BOT_PRIVATE_KEY` with them, is deleted from this brief. | §1.2 blocker 1; §4.10 credentials (i); the `open-pr` job in §4.1; §4.3; §4.4 |
+| 7.2 | Do documentation PRs auto-merge from day one, or after a two-month hold? | **From day one.** `auto_merge: true`, **2026-09-10** — Rjae rejected the hold outright, on the grounds that they have run this loop on numerous projects for many months. brigade-33's recommendation and v3's staging are both withdrawn. | §2 workflows 4; §4.5 |
+| 7.3 | Are the turn budgets right, and where is the spend ceiling set? | **Budgets stay provisional** (`60`/`30`/`20`), re-pinned from the first ten real runs on **P9-3**. **The ceiling question is closed, 2026-09-10:** the OAuth token was minted under `reaston@ifthen.com` on a **Max plan**, Claude Code spend bills to that subscription, and **the plan's limits are the ceiling** — there is no second surface to set, and Anthropic Console's billing limits do not apply to a subscription-backed token. | §1.1.1 (i); §4.1's `claude_args` comment; §4.10 credentials (ii); the P9-3 row |
+| 7.4 | Is `review-repository.yml` monthly, or `workflow_dispatch` only until a second adapter is chartered? | **Monthly, live from day one, 2026-09-10** — the same rejection of staging as 7.2. What stays is the *missing* `auto-merge` label, and that is Rjae's standing decision 5 about whole-tree reviews, **not** a burn-in measure: it does not expire. | §2 workflows 5; §4.6 |
+| 7.5 | Should `allowed_bots` be widened to `"claude,<app-slug>"`? | **Moot — deleted with the App, 2026-09-10.** `allowed_bots` is **exactly `"claude"`** everywhere. Issues and PRs made with the PAT are authored by Rjae, a human with write access, so they clear the action's write-access check without touching the bot filter. The principle is unchanged: an explicit list, never `"*"`, and never `allowed_non_write_users`. | §1.2 consequence (a); §4.1, §4.2, §4.7 |
+| 7.6 | Dependabot: majors, auto-merge, and the lowercase commit verb? | **All three moot — dependencies are the AGENT's job, 2026-09-10,** as in Rjae's other repositories. `.github/dependabot.yml` is deleted from this brief along with the `dependabot[bot]` actor clause and the "no auto-merge for Dependabot" position. **Majors are in scope** and adapting the call sites is part of the work; the PR auto-merges when green; the agent writes `15: <Imperative summary>` like every other agent, so there is no lowercase verb to accept. | §2 workflows 2; §4.8 (`update-dependencies.yml`); §4.9.3's dependency-update mode; §5 (e); the P9-4 row |
+| 7.7 | Pin `anthropics/claude-code-action` by SHA or by major tag? | **SHA — full 40 hex with a `# v1` comment**, resolved at implementation time (**verify:** still outstanding as a lookup, not as a decision). Converged with brigade-33 **2026-09-10** and unaffected by the later rulings. It is the only action here pinned that way, because it is the only one that runs a model with repository write access. | §4's conventions; the `uses:` lines in §4.1, §4.2, §4.7; §4.9.3's action-pin rule; §6's `CLAUDE.md` paragraph; the P9-2 row |
+| 7.8 | Should a tripped `pr-guard.sh` comment on the PR, and when? | **Yes, with `github.token` so it chains to nothing, and it lands in P9-2** — not as a follow-up. Converged with brigade-33 **2026-09-10**. | §4.2's "Explain a guard trip on the PR" step; the P9-2 row |
+| — | Should the verification drills run as a phase before anything is enabled? | **No — no burn-in, no staged rollout, 2026-09-10.** §5 is now *what to record from the first real runs*: the same predicates, read as each path first fires. **One exception:** whether `gh pr merge --auto` waits for the required checks under the PAT's admin bypass is a genuine check, and it can be answered by looking at `thinktech-api`, which runs the same PAT-based loop today. | §4.10 (8); §5's preamble and (c); §4.3's contingency |
 
-**Closed earlier, still true, and repeated here so nobody reopens them:** *who creates the App and the token* —
-nobody automated can, so §4.10's credentials checklist gives Rjae two UI paths and the exact names, about five
-minutes' work, and every step after the values exist is an agent's; *is the Claude GitHub App installed* — yes,
-measured 2026-09-09, org-wide on `appshapes` (§1.2 consequence (b), §4.10 (2)); *whose subscription pays* — a
-**dedicated** repository `CLAUDE_CODE_OAUTH_TOKEN`, never Rjae's personal one (§4.10 credentials (ii), §1.1.1 (i)).
+**Closed earlier, still true, and repeated here so nobody reopens them:** *who mints the credentials* — nobody
+automated can, and Rjae already did, on 2026-09-10; the only standing obligation is to **note the renewal dates
+of both tokens** (§4.10 (3)). *Is the Claude GitHub App installed* — yes, measured 2026-09-09, org-wide on
+`appshapes` (§1.2 consequence (b), §4.10 (2)); it is the reviewer's identity and has nothing to do with the App
+this brief no longer creates. *Whose subscription pays* — `reaston@ifthen.com`'s Max plan, and its limits are the
+ceiling.
+
+**The exposure this section does not close, because it is a price rather than a question.** A classic PAT cannot
+be scoped to one repository and does not expire in an hour. `GH_ACTIONS_TOKEN` therefore reaches every repository
+Rjae's account can reach, and it is a `master`-ruleset bypass actor. Both facts are load-bearing in section 4 —
+the first is why the `agent`/`open-pr` job split must never be collapsed (§1.1.1 (iii)), the second is why the
+merge gate rests on `--auto`'s waiting rather than on the ruleset's refusing (§1.2 blocker 3). They are recorded,
+not resolved.
