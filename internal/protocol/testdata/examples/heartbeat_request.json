@@ -1,1 +1,1 @@
-{"activity": "idle", "session_name": "payments-api", "session_description": "tenant_id migration runner", "inbound": "hold", "lease_seconds": 120}
+{"activity": "idle", "session_name": "payments-api", "session_description": "tenant_id migration runner", "inbound": "hold", "lease_seconds": 120, "model": "claude-opus-5[1m]", "context_used_tokens": 189681}

@@ -7,6 +7,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [Unreleased]
+
+### Added
+
+- **`brigade sessions` shows which model each session is running and how full its context is.** A session record
+  carries two new optional members — `model`, the harness's own model identity (`claude-opus-5[1m]`), and
+  `context_used_tokens`, the number of tokens that session's context currently holds — sent on the session's first
+  heartbeat, a couple of seconds after it registers, and refreshed on every heartbeat after that. The human line gains `model=claude-opus-5[1m]` and `context=190k` between
+  `principal=…` and the `seen …` column, and `brigade sessions --json` gains `.sessions[].model` and
+  `.sessions[].context_used_tokens`. A session whose harness reports neither prints exactly what it printed
+  before. `model` is display text like every other name on the wire: capped, sanitised and unverified.
+- **The two values are read from your own transcript, on your own machine.** The detached watcher reads the
+  session's transcript file incrementally — far enough to find the latest model attachment and the latest
+  assistant record's token usage, and no further — just before each heartbeat, and sends the two derived values
+  in the heartbeat it was already sending. Neither the transcript nor its path leaves the machine: the path is
+  held only in Brigade's 0600 by-pid state, where the watcher reads it, and the protocol still has no member for
+  a transcript path, a native session id, a working directory, a hostname or a username (threat model T10,
+  [`docs/security.md`](docs/security.md)).
+- **BAP/1 grows two optional members, and stays v1.** `model` and `context_used_tokens` are optional and nullable
+  on `SessionRegistration`, `SessionRecord`, `HeartbeatRequest` and the watch `heartbeat` command; on a heartbeat
+  absent means *unchanged*, and the harness never clears them. Two new capabilities gate them — `session.model`
+  and `session.context_used_tokens` — and an adapter that advertises neither accepts both members and ignores
+  them, exactly as with `session.inbound`. `describe.limits` gains `max_model_chars` (128 code points);
+  `context_used_tokens` is bounded by the wire format itself (`0..2^53 − 1`) and has no `limits` member. Both
+  bundled adapters advertise both capabilities. An adapter written against 0.4.1 keeps conforming unchanged —
+  unknown members are accepted and ignored (JSON convention 2, C-17) — and gains the two members whenever it
+  decides to store them.
+- **Conformance case C-44** covers the registration round trip, the heartbeat update, "a heartbeat with neither
+  leaves both alone" and both caps. The suite is **46 cases**.
+
+### Changed
+
+- **Administrators: one new migration to apply, and it is required.**
+  `supabase/migrations/20260910193200_session_model_context.sql` adds `model` and `context_used_tokens` to
+  `brigade.sessions` and re-creates `brigade.register_session`, `brigade.session_heartbeat` and
+  `brigade.session_record` with them. The bundled Supabase adapter sends the two
+  new parameters on every `session register` and `session heartbeat`, so a project whose functions predate the
+  migration refuses both calls: apply it **before** the team updates the plugin. Apply it exactly the way
+  [`docs/setup.md`](docs/setup.md) *Deploying the backend* documents — `read -rs SUPABASE_ACCESS_TOKEN && export
+  SUPABASE_ACCESS_TOKEN`, then `make backend-install project=<ref>`, which dry-runs `supabase db push`, applies
+  only what is pending and lists the versions on both sides; `npx --yes supabase@2.116.0 db push --yes
+  --project-ref <ref>` is the same step by hand. The frozen migrations are not touched.
+
 ## [0.4.1] — 2026-09-08
 
 ### Fixed

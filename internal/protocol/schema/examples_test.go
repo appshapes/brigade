@@ -174,6 +174,14 @@ func causeAt(err error, member string, errorKind any) bool {
 				if _, ok := e.ErrorKind.(*kind.MaxLength); ok {
 					return true
 				}
+			case *kind.Minimum:
+				if _, ok := e.ErrorKind.(*kind.Minimum); ok {
+					return true
+				}
+			case *kind.Maximum:
+				if _, ok := e.ErrorKind.(*kind.Maximum); ok {
+					return true
+				}
 			}
 		}
 		for _, c := range e.Causes {
@@ -232,6 +240,71 @@ func TestValidationCanFail(t *testing.T) {
 			t.Fatalf("over-cap session_name failed, but not with maxLength at /session_name:\n%v", err)
 		}
 	})
+}
+
+// TestC44BoundsAreInTheCommittedSchema: the maxLength on `model` and the
+// 0..2^53-1 bounds on `context_used_tokens` are in the committed schema on
+// ALL FOUR shapes that carry them (4.4.2, 4.4.3, 4.4.4 and the watch
+// heartbeat command of 4.4.9; C-44). patchProp fails loudly on a patch
+// naming an unknown property, but a patch that is simply missing is
+// silent, and `make schema-check` only compares the generator with the
+// committed file — a bound absent from both passes everything else in
+// this package. So each bound is driven from the shape's own example, at
+// the edge and one past it: 128 then 129 code points of a 2-byte rune (a
+// byte-counting maxLength fails the 128 case first), 0 and 2^53-1 then
+// -1 and 2^53; null stays valid on every shape (JSON convention 4).
+func TestC44BoundsAreInTheCommittedSchema(t *testing.T) {
+	t.Parallel()
+	for _, s := range []struct{ def, example string }{
+		{"SessionRegistration", "session_registration"},
+		{"SessionRecord", "session_record"},
+		{"HeartbeatRequest", "heartbeat_request"},
+		{"WatchCommand", "watch_command_heartbeat"},
+	} {
+		t.Run(s.def, func(t *testing.T) {
+			t.Parallel()
+			if exampleDefs[s.example] != s.def {
+				t.Fatalf("%s.json is mapped to %q, not %s", s.example, exampleDefs[s.example], s.def)
+			}
+			sch := compileDef(t, s.def)
+			instance := func(member string, value any) map[string]any {
+				inst := readInstance(t, filepath.Join(examplesDir, s.example+".json")).(map[string]any)
+				inst[member] = value
+				return inst
+			}
+			for _, ok := range []struct {
+				name, member string
+				value        any
+			}{
+				{"model at the cap", "model", strings.Repeat("é", protocol.MaxModelChars)},
+				{"model null", "model", nil},
+				{"context_used_tokens 0", "context_used_tokens", 0.0},
+				{"context_used_tokens 2^53-1", "context_used_tokens", float64(protocol.MaxContextUsedTokens)},
+				{"context_used_tokens null", "context_used_tokens", nil},
+			} {
+				if err := sch.Validate(instance(ok.member, ok.value)); err != nil {
+					t.Errorf("%s rejected by $defs/%s:\n%v", ok.name, s.def, err)
+				}
+			}
+			for _, bad := range []struct {
+				name, member string
+				value, kind  any
+			}{
+				{"model one over the cap", "model", strings.Repeat("é", protocol.MaxModelChars+1), &kind.MaxLength{}},
+				{"context_used_tokens -1", "context_used_tokens", -1.0, &kind.Minimum{}},
+				{"context_used_tokens 2^53", "context_used_tokens", float64(protocol.MaxContextUsedTokens) + 1, &kind.Maximum{}},
+			} {
+				err := sch.Validate(instance(bad.member, bad.value))
+				if err == nil {
+					t.Errorf("%s validated against $defs/%s: the bound is not in the committed schema", bad.name, s.def)
+					continue
+				}
+				if !causeAt(err, bad.member, bad.kind) {
+					t.Errorf("%s failed against $defs/%s, but not with %T at /%s:\n%v", bad.name, s.def, bad.kind, bad.member, err)
+				}
+			}
+		})
+	}
 }
 
 // TestC23ForgedSenderMembersFail checks the C-23 half of the P1-2

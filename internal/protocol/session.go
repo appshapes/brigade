@@ -33,7 +33,11 @@ type ResumeRef struct {
 // SessionRegistration is the `session register` request (4.4.2,
 // harness → adapter). It deliberately has no member for a native session
 // id, cwd, hostname, username or transcript path (threat model T10):
-// adding one is a spec change, not a convenience.
+// adding one is a spec change, not a convenience. Model and
+// ContextUsedTokens are the two facts the harness derives locally from
+// that transcript — harness-reported, unverified, optional and nullable;
+// capabilities session.model and session.context_used_tokens (C-44) —
+// and the transcript itself and its path never travel.
 type SessionRegistration struct {
 	Harness            string     `json:"harness"`
 	HarnessVersion     string     `json:"harness_version"`
@@ -43,6 +47,8 @@ type SessionRegistration struct {
 	Inbound            string     `json:"inbound"`
 	LeaseSeconds       *int       `json:"lease_seconds,omitzero"`
 	WorkspaceLabel     *string    `json:"workspace_label,omitzero"`
+	Model              *string    `json:"model,omitzero"`
+	ContextUsedTokens  *int       `json:"context_used_tokens,omitzero"`
 	Resume             *ResumeRef `json:"resume,omitzero"`
 }
 
@@ -79,6 +85,14 @@ func (r *SessionRegistration) Validate() error {
 			return err
 		}
 	}
+	if r.Model != nil {
+		if err := optionalText("model", *r.Model, MaxModelChars); err != nil {
+			return err
+		}
+	}
+	if err := contextUsedTokensInRange(r.ContextUsedTokens); err != nil {
+		return err
+	}
 	if r.Resume != nil {
 		if err := requireString("resume.session_id", r.Resume.SessionID); err != nil {
 			return err
@@ -89,8 +103,12 @@ func (r *SessionRegistration) Validate() error {
 
 // SessionRecord is one session as the adapter reports it (4.4.3,
 // adapter → harness). human_label is unverified and every consumer MUST
-// present it as such; it and session_name are untrusted input at every
-// layer (4.5.11).
+// present it as such; it, session_name and model are untrusted input at
+// every layer (4.5.11). Model and ContextUsedTokens are as the owning
+// harness last reported them (4.4.2, 4.4.4; capabilities session.model
+// and session.context_used_tokens, C-44): harness-reported, unverified,
+// and absent when it never reported one or the adapter lacks the
+// capability.
 type SessionRecord struct {
 	SessionID          string    `json:"session_id"`
 	SessionName        string    `json:"session_name"`
@@ -105,6 +123,8 @@ type SessionRecord struct {
 	Harness            string    `json:"harness,omitzero"`
 	HarnessVersion     string    `json:"harness_version,omitzero"`
 	WorkspaceLabel     *string   `json:"workspace_label,omitzero"`
+	Model              *string   `json:"model,omitzero"`
+	ContextUsedTokens  *int      `json:"context_used_tokens,omitzero"`
 	CreatedAt          time.Time `json:"created_at"`
 	IsSelf             bool      `json:"is_self"`
 }
@@ -151,18 +171,32 @@ func (s *SessionRecord) Validate() error {
 			return err
 		}
 	}
+	if s.Model != nil {
+		if err := optionalText("model", *s.Model, MaxModelChars); err != nil {
+			return err
+		}
+	}
+	if err := contextUsedTokensInRange(s.ContextUsedTokens); err != nil {
+		return err
+	}
 	return requireTime("created_at", s.CreatedAt)
 }
 
 // HeartbeatRequest is the `session heartbeat` request (4.4.4). Every
 // member is optional — the session comes from --session — and an absent
-// member means "unchanged", which is why each is a pointer.
+// member means "unchanged", which is why each is a pointer. Model and
+// ContextUsedTokens (harness-reported, unverified; capabilities
+// session.model and session.context_used_tokens, C-44) follow the same
+// rule and one more: the harness never clears them — it omits them and
+// the stored values stand.
 type HeartbeatRequest struct {
 	Activity           *string `json:"activity,omitzero"`
 	SessionName        *string `json:"session_name,omitzero"`
 	SessionDescription *string `json:"session_description,omitzero"`
 	Inbound            *string `json:"inbound,omitzero"`
 	LeaseSeconds       *int    `json:"lease_seconds,omitzero"`
+	Model              *string `json:"model,omitzero"`
+	ContextUsedTokens  *int    `json:"context_used_tokens,omitzero"`
 }
 
 // Validate implements Validator.
@@ -190,7 +224,15 @@ func (h *HeartbeatRequest) Validate() error {
 			return err
 		}
 	}
-	return leaseSecondsInRange("lease_seconds", h.LeaseSeconds)
+	if err := leaseSecondsInRange("lease_seconds", h.LeaseSeconds); err != nil {
+		return err
+	}
+	if h.Model != nil {
+		if err := optionalText("model", *h.Model, MaxModelChars); err != nil {
+			return err
+		}
+	}
+	return contextUsedTokensInRange(h.ContextUsedTokens)
 }
 
 // HeartbeatResult is the `session heartbeat` result (4.4.4).

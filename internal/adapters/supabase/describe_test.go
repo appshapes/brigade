@@ -86,7 +86,8 @@ func TestDescribeStateMachine(t *testing.T) {
 		t.Fatalf("describe advertises other than the protocol's own limits, lease and retention")
 	}
 	for _, cap := range []string{"team.create", "team.join", "team.roster", "team.admin", "message.receive", "message.watch.push",
-		"message.watch.stdin_commands", "session.description", "session.resume", "session.workspace_label", "session.inbound"} {
+		"message.watch.stdin_commands", "session.description", "session.resume", "session.workspace_label", "session.inbound",
+		"session.model", "session.context_used_tokens"} {
 		found := false
 		for _, have := range d.Capabilities {
 			found = found || have == cap

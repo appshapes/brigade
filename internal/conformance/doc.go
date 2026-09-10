@@ -2,7 +2,7 @@
 // library behind the dev binary cmd/brigade-conformance and behind the
 // `go test` subtests of suite_test.go (TestConformanceFS/C-25), so that
 // `go test ./...` stays a complete gate on its own. The cases themselves
-// live in the sibling package cases (one file per plan case, C-01..C-43
+// live in the sibling package cases (one file per plan case, C-01..C-44
 // plus C-03b, C-19b and C-29b); this package never imports it, and the
 // case authors code against the T API of t.go and the WatchProc API of
 // watch.go, nothing else.

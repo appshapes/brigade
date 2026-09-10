@@ -1,1 +1,1 @@
-{"type": "heartbeat", "activity": "busy", "session_name": "payments-api", "inbound": "accept", "lease_seconds": 90}
+{"type": "heartbeat", "activity": "busy", "session_name": "payments-api", "inbound": "accept", "lease_seconds": 90, "model": "claude-opus-5[1m]", "context_used_tokens": 189681}

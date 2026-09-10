@@ -337,6 +337,7 @@ func TestStoreReadByPIDMalformedAndInvalid(t *testing.T) {
 		{name: "duplicate member", content: `{"claude_pid":4242,"claude_pid":4242}`, reason: sessionmap.ReasonMapMalformed, check: "not_json"},
 		{name: "empty object fails validation", content: "{}", reason: sessionmap.ReasonMapInvalid, field: "claude_pid"},
 		{name: "relative adapter in a planted map", content: `{"claude_pid":4242,"brigade_session_id":"x","team_key":"default","config_dir":"/c","inbound":"accept","adapter_command":["bin/` + evilMarker + `"]}`, reason: sessionmap.ReasonMapInvalid, field: "adapter_command"},
+		{name: "relative transcript path in a planted map", content: `{"claude_pid":4242,"brigade_session_id":"x","team_key":"default","config_dir":"/c","inbound":"accept","frame_level":"open","transcript_path":"` + evilMarker + `.jsonl","adapter_command":[]}`, reason: sessionmap.ReasonMapInvalid, field: "transcript_path"},
 		{name: "too large", content: "{" + strings.Repeat(" ", sessionmap.MaxMapBytes) + "}", reason: sessionmap.ReasonMapMalformed, check: "too_large"},
 		// P5-12: a hand-written frame_text of 64 KiB pushes the file past MaxMapBytes and the reader's size
 		// guard refuses it before any JSON is parsed; one of 60 KiB fits under the file cap and is refused by

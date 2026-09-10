@@ -26,9 +26,11 @@ var conformanceSeed = flag.Int64("conformance-seed", 0,
 
 // wholeRunPass, wholeRunFail and wholeRunSkip are the counts the fs
 // adapter must produce for the whole non-slow run: every case but C-14
-// passes, C-14 is the one skip (it is tagged slow), nothing fails.
+// passes (C-44 included: the fs adapter advertises session.model and
+// session.context_used_tokens), C-14 is the one skip (it is tagged slow),
+// nothing fails.
 const (
-	wholeRunPass = 44
+	wholeRunPass = 45
 	wholeRunFail = 0
 	wholeRunSkip = 1
 )
@@ -93,12 +95,12 @@ func TestConformanceFS(t *testing.T) {
 // under -race; wholeRunCeiling is the ceiling asserted here. The test is
 // deliberately NOT parallel: Go runs the sequential tests of a package
 // before resuming the parallel ones, so this run is measured on an
-// otherwise idle process rather than alongside forty-five per-case runs
+// otherwise idle process rather than alongside forty-six per-case runs
 // and four mutant builds, which doubled its wall time when it was parallel.
 //
 // It runs SHUFFLED, with a seed that changes on every invocation. The
 // cases share a fixture, a store and the adapter's rate budgets, so id
-// order is one order out of 45! and a case that silently depends on
+// order is one order out of 46! and a case that silently depends on
 // running after another one passes for years in id order — the P1-6
 // verifier found exactly two such cases (C-01 and C-12) with a throwaway
 // shuffling tool that the binary itself did not have. The seed is logged

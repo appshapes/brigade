@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/protocol"
@@ -106,6 +107,13 @@ func TestSessionRegisterArgumentsAndResult(t *testing.T) {
 	if got := arg(t, args, "p_workspace_label"); got != nil {
 		t.Errorf("p_workspace_label = %v, want null", got)
 	}
+	// model and context_used_tokens are always named, null when absent
+	// (C-44): the RPC's defaults are never leaned on.
+	for _, name := range []string{"p_model", "p_context_used_tokens"} {
+		if got := arg(t, args, name); got != nil {
+			t.Errorf("%s = %v, want null for an absent member", name, got)
+		}
+	}
 	if _, present := args["p_resume_session_id"]; present {
 		t.Errorf("p_resume_session_id was sent for a registration with no resume")
 	}
@@ -169,14 +177,17 @@ func TestSessionRegisterLeaseRange(t *testing.T) {
 	}
 }
 
-// A requested lease inside the range is sent verbatim.
+// A requested lease inside the range is sent verbatim, and so are the
+// optional members — model with its [1m] suffix and context_used_tokens as
+// a number (C-44).
 func TestSessionRegisterLeaseHonoured(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
 	seen := r.be.captureRPC(only(registerJSON(testSessionID, "s", false)))
 	doc := `{"harness":"h","harness_version":"1","session_name":"s","activity":"idle","inbound":"hold",` +
-		`"session_description":"d","workspace_label":"w","lease_seconds":30}`
+		`"session_description":"d","workspace_label":"w","lease_seconds":30,` +
+		`"model":"claude-opus-5[1m]","context_used_tokens":189681}`
 	if got := r.exec(doc, "session", "register"); got.code != 0 {
 		t.Fatalf("exit %d: %s", got.code, got.stdout)
 	}
@@ -192,6 +203,34 @@ func TestSessionRegisterLeaseHonoured(t *testing.T) {
 	}
 	if got := arg(t, args, "p_inbound"); got != "hold" {
 		t.Errorf("p_inbound = %v, want hold", got)
+	}
+	if got := arg(t, args, "p_model"); got != "claude-opus-5[1m]" {
+		t.Errorf("p_model = %v, want claude-opus-5[1m]", got)
+	}
+	if got := arg(t, args, "p_context_used_tokens"); got != float64(189681) {
+		t.Errorf("p_context_used_tokens = %v, want 189681", got)
+	}
+}
+
+// model over max_model_chars and a negative context_used_tokens are
+// invalid_input naming the member BEFORE any dial (C-44): the protocol's
+// Validate runs in readInput, and the RPC's own raise is never reached.
+func TestSessionRegisterModelAndTokensCaps(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.joined()
+	for _, tc := range []struct{ field, doc string }{
+		{"model", `{"harness":"h","harness_version":"1","session_name":"s","activity":"idle","inbound":"hold","model":"` +
+			strings.Repeat("é", protocol.MaxModelChars+1) + `"}`},
+		{"context_used_tokens", `{"harness":"h","harness_version":"1","session_name":"s","activity":"idle","inbound":"hold","context_used_tokens":-1}`},
+	} {
+		got := r.fails("invalid_input", 3, tc.doc, "session", "register")
+		if details(t, got.stdout)["field"] != tc.field {
+			t.Errorf("details = %v, want field %s", details(t, got.stdout), tc.field)
+		}
+	}
+	if r.be.total() != 0 {
+		t.Errorf("the backend was called for a member the protocol refuses")
 	}
 }
 
@@ -287,8 +326,9 @@ func TestSessionHeartbeat(t *testing.T) {
 		t.Errorf("p_lease_seconds = %v", v)
 	}
 	// An absent member means unchanged, which is JSON null for the RPC's
-	// coalesce() arguments (4.4.4).
-	for _, name := range []string{"p_name", "p_description", "p_inbound"} {
+	// coalesce() arguments (4.4.4) — model and context_used_tokens too, so
+	// a heartbeat never clears them (C-44).
+	for _, name := range []string{"p_name", "p_description", "p_inbound", "p_model", "p_context_used_tokens"} {
 		if v := arg(t, args, name); v != nil {
 			t.Errorf("%s = %v, want null for an absent member", name, v)
 		}
@@ -301,6 +341,35 @@ func TestSessionHeartbeat(t *testing.T) {
 	}
 	if err := protocol.Decode(raw, &res); err != nil {
 		t.Fatalf("the heartbeat result does not validate: %v", err)
+	}
+}
+
+// A heartbeat that carries model and context_used_tokens names them for
+// the RPC verbatim (C-44); zero is a value, not absence.
+func TestSessionHeartbeatModelAndTokens(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.joined()
+	seen := r.be.captureRPC(only(`{"session_id":"` + testSessionID + `","state":"idle",` +
+		`"lease_until":"2026-09-02T12:01:30+00:00","server_time":"2026-09-02T12:00:00+00:00"}`))
+	got := r.exec(`{"model":"claude-sonnet-5","context_used_tokens":0}`, "session", "heartbeat", "--session", testSessionID)
+	if got.code != 0 {
+		t.Fatalf("exit %d: %s", got.code, got.stdout)
+	}
+	args := (*seen)[0]
+	if v := arg(t, args, "p_model"); v != "claude-sonnet-5" {
+		t.Errorf("p_model = %v, want claude-sonnet-5", v)
+	}
+	if v := arg(t, args, "p_context_used_tokens"); v != float64(0) {
+		t.Errorf("p_context_used_tokens = %v, want 0", v)
+	}
+	// Over the cap: invalid_input naming the member, no dial (C-44).
+	e := r.fails("invalid_input", 3, `{"model":"`+strings.Repeat("m", protocol.MaxModelChars+1)+`"}`, "session", "heartbeat", "--session", testSessionID)
+	if details(t, e.stdout)["field"] != "model" {
+		t.Errorf("details = %v, want field model", details(t, e.stdout))
+	}
+	if len(*seen) != 1 {
+		t.Errorf("%d RPCs, want the one accepted heartbeat only", len(*seen))
 	}
 }
 

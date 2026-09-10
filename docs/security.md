@@ -61,8 +61,18 @@ their own machine. None of them is ever a repository variable and none of them s
 [`docs/setup.md`](setup.md) has the administrator's procedure.
 
 **What is deliberately never sent.** Brigade does not send your Claude Code session id, your working directory,
-your hostname, your username or your transcript. It sends a workspace label only if you turn
+your hostname, your username, your transcript or the path to it. It sends a workspace label only if you turn
 `share_workspace_label` on, and that is a label you choose, never a path.
+
+**Two facts Brigade now reads from your transcript — on this machine.** So that `brigade sessions` can tell your team
+which model a session is running and how full its context is, Brigade reports two values with each session: the
+**model identity** (`claude-opus-5[1m]`) and the **context occupancy in tokens**. It gets both by reading your
+session's own transcript file, locally, in the background watcher on your own machine, roughly every 30 seconds — and
+it sends **only those two values**, the one string and the one number. Nothing else from the transcript is read out,
+kept or transmitted: no prompt, no answer, no file name, no tool call. The transcript is never uploaded, and **its
+path is never sent** either — it is held only in Brigade's own 0600 state directory, where the background watcher
+finds it. The model string is handled like every other display string on the wire — capped, sanitised, and never taken
+as fact — because it is a harness's word about itself, not something the backend can check.
 
 **How long the backend keeps a message.** An unacknowledged message is kept for at least **7 days**. An
 acknowledged one may be deleted **24 hours** after the acknowledgement. A closed or expired session is removed

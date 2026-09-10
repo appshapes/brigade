@@ -24,6 +24,13 @@ const (
 	// a label like human_label and shares its size, but is its own limit
 	// and its own `limits` member (P1-4 decision 1).
 	MaxWorkspaceLabelChars = 128
+	// MaxModelChars caps a harness-reported model identity (`model`:
+	// 4.4.2, 4.4.3, 4.4.4 and the watch heartbeat command of 4.4.9;
+	// capability session.model, C-44), in code points. It is label-sized
+	// like human_label, but is its own limit and its own `limits` member,
+	// max_model_chars (the rule of P1-4 decision 1: no member borrows
+	// another member's cap).
+	MaxModelChars = 128
 	// MaxIdempotencyKeyChars caps an idempotency key, in code points.
 	MaxIdempotencyKeyChars = 128
 	// SendRatePerMinute and SendRatePerHour bound one sender session.
@@ -45,6 +52,17 @@ const (
 	// answer still counts as a reply for hop counting (4.5.12).
 	ImplicitReplyWindowSeconds = 600
 )
+
+// MaxContextUsedTokens bounds `context_used_tokens` (4.4.2, 4.4.3, 4.4.4
+// and the watch heartbeat command of 4.4.9; capability
+// session.context_used_tokens, C-44): 2^53 - 1, the largest integer JSON
+// carries exactly. A consumer whose JSON number is an IEEE 754 double
+// (JavaScript, and every language that follows it) rounds anything
+// larger, so a count above the bound could not round-trip as sent; the
+// harness reports a measured count and nothing real comes within orders
+// of magnitude of it. It is a wire-format bound, not an adapter's cap,
+// so unlike MaxModelChars it has no `limits` member (4.4.1).
+const MaxContextUsedTokens = 1<<53 - 1
 
 // The protocol v1 lease bounds of plan 4.4.1, in seconds.
 const (
@@ -89,6 +107,7 @@ type Limits struct {
 	MaxDescriptionChars          int      `json:"max_description_chars"`
 	MaxHumanLabelChars           int      `json:"max_human_label_chars"`
 	MaxWorkspaceLabelChars       int      `json:"max_workspace_label_chars"`
+	MaxModelChars                int      `json:"max_model_chars"`
 	MaxIdempotencyKeyChars       int      `json:"max_idempotency_key_chars"`
 	SendRate                     SendRate `json:"send_rate"`
 	PrincipalSendRate            SendRate `json:"principal_send_rate"`
@@ -122,6 +141,7 @@ func DefaultLimits() Limits {
 		MaxDescriptionChars:          MaxDescriptionChars,
 		MaxHumanLabelChars:           MaxHumanLabelChars,
 		MaxWorkspaceLabelChars:       MaxWorkspaceLabelChars,
+		MaxModelChars:                MaxModelChars,
 		MaxIdempotencyKeyChars:       MaxIdempotencyKeyChars,
 		SendRate:                     SendRate{PerMinute: SendRatePerMinute, PerHour: SendRatePerHour},
 		PrincipalSendRate:            SendRate{PerMinute: PrincipalSendRatePerMinute, PerHour: PrincipalSendRatePerHour},

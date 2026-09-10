@@ -108,6 +108,7 @@ func (l *Limits) validate() error {
 		{"limits.max_description_chars", l.MaxDescriptionChars},
 		{"limits.max_human_label_chars", l.MaxHumanLabelChars},
 		{"limits.max_workspace_label_chars", l.MaxWorkspaceLabelChars},
+		{"limits.max_model_chars", l.MaxModelChars},
 		{"limits.max_idempotency_key_chars", l.MaxIdempotencyKeyChars},
 		{"limits.send_rate.per_minute", l.SendRate.PerMinute},
 		{"limits.send_rate.per_hour", l.SendRate.PerHour},

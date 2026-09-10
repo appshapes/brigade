@@ -178,6 +178,7 @@ func defaultCapabilities() []string {
 		"message.watch.push", "message.watch.stdin_commands",
 		"session.description", "session.resume",
 		"session.workspace_label", "session.inbound",
+		"session.model", "session.context_used_tokens",
 	}
 }
 

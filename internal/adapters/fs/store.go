@@ -84,6 +84,12 @@ type memberFile struct {
 // carries no `state`: the state of 4.5.8 is computed at READ time from
 // closed_at, lease_until and activity, so a stored value could never go
 // stale.
+//
+// Model and ContextUsedTokens are the two facts the owning harness derives
+// from its own transcript (4.4.2, 4.4.4; capabilities session.model and
+// session.context_used_tokens, C-44). They are stored exactly as reported
+// — unverified text and a count, absent until a harness reports one — and
+// the transcript and its path never reach this adapter at all (T10).
 type sessionFile struct {
 	SessionID          string     `json:"session_id"`
 	SessionName        string     `json:"session_name"`
@@ -97,6 +103,8 @@ type sessionFile struct {
 	Harness            string     `json:"harness,omitzero"`
 	HarnessVersion     string     `json:"harness_version,omitzero"`
 	WorkspaceLabel     *string    `json:"workspace_label,omitzero"`
+	Model              *string    `json:"model,omitzero"`
+	ContextUsedTokens  *int       `json:"context_used_tokens,omitzero"`
 	CreatedAt          time.Time  `json:"created_at"`
 	ClosedAt           *time.Time `json:"closed_at,omitzero"`
 }
@@ -527,7 +535,9 @@ func sessionState(f *sessionFile, now time.Time) string {
 
 // record renders a session as the SessionRecord of 4.4.3. The human label
 // is read from the member file at read time, so a label changed by a later
-// `team join` shows up everywhere at once.
+// `team join` shows up everywhere at once. model and context_used_tokens
+// pass straight through and stay absent until the owning harness reports
+// them (C-44); this adapter never derives, checks or ages them.
 func (s *store) record(team string, f *sessionFile, isSelf bool) (protocol.SessionRecord, error) {
 	label := ""
 	if m, ok, err := s.loadMember(team, f.PrincipalRef); err != nil {
@@ -549,6 +559,8 @@ func (s *store) record(team string, f *sessionFile, isSelf bool) (protocol.Sessi
 		Harness:            f.Harness,
 		HarnessVersion:     f.HarnessVersion,
 		WorkspaceLabel:     f.WorkspaceLabel,
+		Model:              f.Model,
+		ContextUsedTokens:  f.ContextUsedTokens,
 		CreatedAt:          f.CreatedAt,
 		IsSelf:             isSelf,
 	}, nil

@@ -21,8 +21,9 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// prompt is `brigade hook prompt` (6.3): refresh permission_mode, keep the
-// watcher alive, print the watcher's notice once, run the opt-in poll
+// prompt is `brigade hook prompt` (6.3): refresh permission_mode and the
+// transcript path in the map, keep the watcher alive, print the watcher's
+// notice once, run the opt-in poll
 // through the shared inbound pipeline, and print the held notice while
 // anything is held under the `hold` policy (P5-9). It prints nothing on
 // the common path and exits 0 whatever happens (exit 2 would erase the
@@ -53,8 +54,16 @@ func (r *run) prompt() int {
 		r.log.Warn("prompt: the session map cannot be trusted; nothing done", log.Err(err))
 		return 0
 	}
+	changed := false
 	if in.PermissionMode != "" && in.PermissionMode != m.PermissionMode {
 		m.PermissionMode = in.PermissionMode
+		changed = true
+	}
+	if p := transcriptPath(in); p != "" && p != m.TranscriptPath {
+		m.TranscriptPath = p
+		changed = true
+	}
+	if changed {
 		m.UpdatedAt = r.deps.Now()
 		if werr := store.WriteByPID(m); werr != nil {
 			r.log.Warn("prompt: session map not updated", log.Err(werr))

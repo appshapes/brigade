@@ -74,12 +74,16 @@ func (c *command) sessionCommand() (any, error) {
 }
 
 // sessionRegister implements 4.4.2 (C-10, C-11, C-16, C-17, C-19, C-19b,
-// C-31, C-42). An absent lease_seconds means lease.default_seconds, which
-// this adapter sends explicitly rather than leaning on the RPC's own
+// C-31, C-42, C-44). An absent lease_seconds means lease.default_seconds,
+// which this adapter sends explicitly rather than leaning on the RPC's own
 // default, so `describe` and the backend can never disagree. A resume id
 // that is not uuid-shaped is the uniform not_found before any dial, which
 // is byte-identical to the backend's PT404 for a foreign or unknown id
-// (C-19).
+// (C-19). model and context_used_tokens (C-44) go as p_model and
+// p_context_used_tokens, null when absent: the registration is the
+// session's whole state, and readInput's Validate has already applied the
+// protocol's caps (max_model_chars, 0..MaxContextUsedTokens), so the RPC's
+// own checks are the belt beneath.
 func (c *command) sessionRegister() (any, error) {
 	if err := c.parse(newFlags()); err != nil {
 		return nil, err
@@ -100,15 +104,17 @@ func (c *command) sessionRegister() (any, error) {
 		seconds = *req.LeaseSeconds
 	}
 	args := rpcArgs{
-		"p_team_id":         c.profile.TeamRef,
-		"p_name":            req.SessionName,
-		"p_description":     req.SessionDescription,
-		"p_activity":        req.Activity,
-		"p_inbound":         req.Inbound,
-		"p_harness":         req.Harness,
-		"p_harness_version": req.HarnessVersion,
-		"p_workspace_label": req.WorkspaceLabel,
-		"p_lease_seconds":   seconds,
+		"p_team_id":             c.profile.TeamRef,
+		"p_name":                req.SessionName,
+		"p_description":         req.SessionDescription,
+		"p_activity":            req.Activity,
+		"p_inbound":             req.Inbound,
+		"p_harness":             req.Harness,
+		"p_harness_version":     req.HarnessVersion,
+		"p_workspace_label":     req.WorkspaceLabel,
+		"p_lease_seconds":       seconds,
+		"p_model":               req.Model,
+		"p_context_used_tokens": req.ContextUsedTokens,
 	}
 	if req.Resume != nil {
 		if !validUUID(req.Resume.SessionID) {
@@ -123,10 +129,11 @@ func (c *command) sessionRegister() (any, error) {
 	return out, nil
 }
 
-// sessionHeartbeat implements 4.4.4 (C-13, C-15, C-42). Every member of
-// the request is optional and absent means unchanged, which is exactly
+// sessionHeartbeat implements 4.4.4 (C-13, C-15, C-42, C-44). Every member
+// of the request is optional and absent means unchanged, which is exactly
 // what session_heartbeat's coalesce() arguments express, so a nil pointer
-// is sent as JSON null rather than as the current value.
+// is sent as JSON null rather than as the current value — model and
+// context_used_tokens included, which is how a heartbeat never clears them.
 func (c *command) sessionHeartbeat() (any, error) {
 	fs := newFlags()
 	session := fs.String("session", "", "the session to renew")
@@ -152,12 +159,14 @@ func (c *command) sessionHeartbeat() (any, error) {
 	}
 	out := &protocol.HeartbeatResult{}
 	err = c.rpc(c.ctx, "session_heartbeat", rpcArgs{
-		"p_session_id":    id,
-		"p_activity":      req.Activity,
-		"p_name":          req.SessionName,
-		"p_description":   req.SessionDescription,
-		"p_inbound":       req.Inbound,
-		"p_lease_seconds": req.LeaseSeconds,
+		"p_session_id":          id,
+		"p_activity":            req.Activity,
+		"p_name":                req.SessionName,
+		"p_description":         req.SessionDescription,
+		"p_inbound":             req.Inbound,
+		"p_lease_seconds":       req.LeaseSeconds,
+		"p_model":               req.Model,
+		"p_context_used_tokens": req.ContextUsedTokens,
 	}, out)
 	if err != nil {
 		return nil, err

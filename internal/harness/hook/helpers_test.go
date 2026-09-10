@@ -427,8 +427,9 @@ func registerDoc(id, name string, resumed bool) jsontext.Value {
 	})
 }
 
-func heartbeatDoc(id string) jsontext.Value {
-	return mustJSON(protocol.HeartbeatResult{SessionID: id, State: protocol.SessionStateActive, LeaseUntil: fixedTime.Add(90 * time.Second), ServerTime: fixedTime})
+// heartbeatDoc is a `session heartbeat` result for the fixture's session.
+func heartbeatDoc() jsontext.Value {
+	return mustJSON(protocol.HeartbeatResult{SessionID: "brigade-sess-1", State: protocol.SessionStateActive, LeaseUntil: fixedTime.Add(90 * time.Second), ServerTime: fixedTime})
 }
 
 func closeDoc() jsontext.Value {
@@ -544,7 +545,7 @@ func newFixture(t *testing.T) *fixture {
 		Describe: describeDoc(protocol.ProtocolVersion, teamName),
 		Responses: map[string][]fakeadapter.Response{
 			"session register":  {okResp(registerDoc("brigade-sess-1", "payments-api", false))},
-			"session heartbeat": {okResp(heartbeatDoc("brigade-sess-1"))},
+			"session heartbeat": {okResp(heartbeatDoc())},
 			"session close":     {okResp(closeDoc())},
 			"message receive":   {okResp(receiveDoc())},
 			"message ack":       {okResp(ackDoc())},

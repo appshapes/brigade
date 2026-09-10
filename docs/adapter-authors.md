@@ -93,8 +93,8 @@ Omit it without penalty.
 ## Run the conformance suite
 
 The suite is the definition of "works with Brigade". It runs your adapter as three principals in two teams, using
-protocol commands only, and checks every rule of the protocol document that a black-box test can see: 45 cases,
-`C-01`..`C-43` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
+protocol commands only, and checks every rule of the protocol document that a black-box test can see: 46 cases,
+`C-01`..`C-44` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
 
 ```text
 $ bin/brigade-conformance -h
@@ -328,6 +328,8 @@ case-insensitively.
 - A case whose `cap:` tag names a capability your `describe` does not advertise is reported **SKIP** with the reason
   *"capability not advertised"*. That is not a pass and not a failure: it is a statement that you told the suite you
   do not implement that, so it did not look.
+- A case may carry **more than one** `cap:` tag, and skips when **either** capability is missing: C-44 carries
+  `cap:session.model` and `cap:session.context_used_tokens`, so advertising one of the two still skips it.
 - A `slow` case without `--slow` is reported **SKIP** too. `--tags slow` selects it and still skips it; only `--slow`
   runs it.
 - A case can also skip **at run time**, from inside its own body, when the fixture cannot give it what it needs — and
@@ -339,7 +341,7 @@ case-insensitively.
   C-07,C-28,C-40` reports "1 passed, 0 failed, 2 skipped". C-04, C-07 and C-08 have their own fallbacks and keep
   running as long as `team.create` is advertised. Count all of it before you pick a provisioning route: `--setup`
   with neither team capability costs you C-03, C-03b, C-04 and C-08 to the `cap:` tags **and** C-28 and C-40 to
-  this rule — six of the 45, on a run that still exits 0.
+  this rule — six of the 46, on a run that still exits 0.
 - A selection matching **no** case is a usage error (exit 2), never a pass. `--tags cap:nosuch` printing
   "0 passed, 0 failed, 0 skipped" with exit 0 would read exactly like a clean run, so the suite refuses before it
   launches anything. An unknown id in `--only`/`--skip` is a usage error for the same reason.
@@ -374,7 +376,9 @@ C-43   PASS   0.05s  4.2 team members
 44 passed, 0 failed, 1 skipped in 20.36s.
 ```
 
-(The `…` lines are elided here; the run prints one line per case.) The human table always goes to **stderr**, in
+(The `…` lines are elided here; the run prints one line per case. That transcript is a **45**-case run, measured
+before C-44 — 4.4.2 `model` and `context_used_tokens` — joined the suite; a run today selects 46 and prints `C-44`
+after `C-43`.) The human table always goes to **stderr**, in
 every mode. With `--json` the machine-readable report goes to **stdout** and nothing else does, so
 `brigade-conformance --json … > report.json` gives you a clean document — with one caveat worth knowing before
 you wire this into CI: a launcher error raised *before* the first case (adapter not found, `describe` not ok
@@ -399,7 +403,9 @@ $ bin/brigade-conformance --shared-env BRIGADE_FS_ROOT --adapter bin/brigade-ada
     "session.description",
     "session.resume",
     "session.workspace_label",
-    "session.inbound"
+    "session.inbound",
+    "session.model",
+    "session.context_used_tokens"
   ],
   "results": [
     {
@@ -466,8 +472,9 @@ make conformance adapter=/abs/path/to/your-adapter args="--shared-env BRIGADE_FS
 ### Timing
 
 The whole fs run measured **20.4 s** wall clock on a developer laptop, and **26.5 s** with `--slow` (45 cases, none
-skipped); `--slow` runs the one `slow` case, C-14, and C-19b's lease-expiry arm, both of which sleep out a real
-lease. Most of the fs run is the handful of cases that sleep on purpose — redelivery, the rate-limit windows, the
+skipped — the numbers are that run's, taken before C-44 made the suite 46; C-44 is a register/list/heartbeat round
+trip and costs milliseconds); `--slow` runs the one `slow` case, C-14, and C-19b's lease-expiry arm, both of which
+sleep out a real lease. Most of the fs run is the handful of cases that sleep on purpose — redelivery, the rate-limit windows, the
 watch's stdin commands, the paged catch-up and the two hop chains, in that order of cost (measured at 5.3 s, 3.3 s,
 2.4 s, 2.0 s, 1.4 s and 1.3 s of a 20.5 s run). A network adapter is slower — every command is a round trip — so
 budget minutes rather than seconds, and note that the per-command timeout (`--timeout`, 20 s by default) applies to
@@ -843,10 +850,11 @@ profile, reformatted for reading only (on the wire it is one line inside the env
   "delivery": {"guarantee": "at_least_once", "ordering": "none", "ack_state": "injected"},
   "capabilities": ["team.create", "team.join", "team.roster", "message.receive",
                    "message.watch.stdin_commands", "session.description", "session.resume",
-                   "session.workspace_label", "session.inbound"],
+                   "session.workspace_label", "session.inbound", "session.model",
+                   "session.context_used_tokens"],
   "limits": {"max_body_bytes": 16384, "max_summary_chars": 200, "max_session_name_codepoints": 64,
              "max_team_name_codepoints": 64, "max_description_chars": 256, "max_human_label_chars": 128,
-             "max_workspace_label_chars": 128, "max_idempotency_key_chars": 128,
+             "max_workspace_label_chars": 128, "max_model_chars": 128, "max_idempotency_key_chars": 128,
              "send_rate": {"per_minute": 20, "per_hour": 200},
              "principal_send_rate": {"per_minute": 60, "per_hour": 600},
              "max_unacked_per_recipient": 60, "max_unacked_per_sender_recipient": 15,
@@ -882,6 +890,7 @@ suite asserts that a value exactly *at* each cap is accepted, so you may not adv
 | `max_description_chars` | 256 | code points | `session_description` |
 | `max_human_label_chars` | 128 | code points | `human_label` everywhere |
 | `max_workspace_label_chars` | 128 | code points | `workspace_label` |
+| `max_model_chars` | 128 | code points | `model` (registration, record, heartbeat and the watch `heartbeat` command) |
 | `max_idempotency_key_chars` | 128 | code points | `idempotency_key` |
 | `send_rate.per_minute` / `.per_hour` | 20 / 200 | messages | one sender session's send budget |
 | `principal_send_rate.per_minute` / `.per_hour` | 60 / 600 | messages | one principal's budget across all its sessions |
@@ -920,6 +929,8 @@ first-class answer, not a failure.
 | `session.resume` | the `resume` member of `session register` |
 | `session.workspace_label` | the `workspace_label` member |
 | `session.inbound` | `inbound` is stored and reported (without it you accept the member and ignore it) |
+| `session.model` | `model` is stored and reported (without it you accept the member and ignore it). Harness-reported, unverified display text (C-44) |
+| `session.context_used_tokens` | `context_used_tokens` is stored and reported (without it you accept the member and ignore it). Harness-reported, unverified (C-44) |
 | `delivery.processed` | reserved; not implemented by any v1 consumer |
 
 `message watch` itself is **not** optional — every adapter implements the NDJSON stream. What is optional is the
@@ -997,8 +1008,9 @@ Result:
 **`SessionRecord`, member by member.** This is one real record from `bin/brigade-adapter-fs`, listed with
 `session list --session <its own id>`. It is the same session the `session register` of section 10 created, from the
 same run, so the two blocks agree member for member — `harness` and `harness_version` are the registration's, copied
-through unchanged. The three optional, nullable members (`session_description`, `workspace_label` and, in the
-register result, `resume`) were not in that registration, so they are **absent** rather than `null`:
+through unchanged. The optional, nullable members (`session_description`, `workspace_label`, `model`,
+`context_used_tokens` and, in the register result, `resume`) were not in that registration, so they are **absent**
+rather than `null`:
 
 ```json
 {
@@ -1031,6 +1043,8 @@ register result, `resume`) were not in that registration, so they are **absent**
 | `last_seen_at`, `lease_until`, `created_at` | yes | RFC 3339 timestamps, all three, all non-zero |
 | `harness`, `harness_version` | optional | copied from the registration |
 | `workspace_label` | optional, nullable | ≤ `max_workspace_label_chars` |
+| `model` | optional, nullable | ≤ `max_model_chars`; the model identity the owning harness last reported at registration or on a heartbeat; **harness-reported, unverified** display text — store and echo it, never parse it. Absent when the harness never reported one, and absent from every record if you do not advertise `session.model` |
+| `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1`, the owning harness's own count of the tokens its context holds, as last reported. **Harness-reported and unverified**; absent when never reported, and absent from every record without `session.context_used_tokens` |
 | `is_self` | yes | see below; `false` on every record unless `--session` named it |
 
 **`state` is computed at read time, never stored** (4.5.8):
@@ -1133,13 +1147,15 @@ it, so you are not blocked on a section you have not reached yet.
 the suite does while building the fixture, are under *Provisioning: `--setup`, and when you need it* above; their
 shapes are 4.4.10. On the `--setup` route your script does that work instead and neither command need exist.)
 
-**Input** (`SessionRegistration`, one JSON document on stdin):
+**Input** (`SessionRegistration`, one JSON document on stdin — 4.4.2's own example, every optional member
+shown):
 
 ```json
 {
   "harness": "claude-code", "harness_version": "2.1.251",
   "session_name": "payments-api", "session_description": null,
   "activity": "busy", "inbound": "accept", "lease_seconds": 90, "workspace_label": null,
+  "model": "claude-opus-5[1m]", "context_used_tokens": 189681,
   "resume": {"session_id": "a session_id previously returned to this principal"}
 }
 ```
@@ -1153,6 +1169,8 @@ shapes are 4.4.10. On the `--setup` route your script does that work instead and
 | `session_description` | optional, nullable | capability `session.description` |
 | `lease_seconds` | optional, nullable | within **your** advertised `lease.min_seconds..lease.max_seconds`, else `invalid_input`; absent means `lease.default_seconds` |
 | `workspace_label` | optional, nullable | capability `session.workspace_label` |
+| `model` | optional, nullable | ≤ `max_model_chars`, else `invalid_input` naming `model`; capability `session.model` |
+| `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1`, else `invalid_input` naming `context_used_tokens`; capability `session.context_used_tokens` |
 | `resume.session_id` | optional | capability `session.resume` |
 
 **A missing required member is `invalid_input`, never a default.** "Required" in that table is the protocol's word
@@ -1162,6 +1180,15 @@ not a registration with a guessed `idle`/`accept`. Measured on the fs adapter, `
 false,"details":{"reason":"invalid_value","field":"activity","allowed":"busy, idle"}}`, exit 3. Being lenient here
 costs you nothing in the four cases — the suite always sends all five required members — and costs you C-16 and C-27
 in a full run, which check that the caps and the shape are enforced before anything is persisted (4.5.11).
+
+**`model` and `context_used_tokens` are two facts, not a channel.** They arrive because the harness derived them on
+its own machine — for Claude Code, from the session's transcript — and 4.4.2 is explicit that the registration has
+no member for a native session id, a working directory, a hostname, a username or a transcript path (threat model
+T10).
+Store the two values, echo them back on the record and cap them; never treat `model` as a key to look anything up
+under, and never ask for the source they came from. Both are optional in the shape *and* in your build: without
+`session.model` / `session.context_used_tokens` you accept each member and ignore it, exactly as with `inbound`
+(4.7). C-44 checks both halves — the round trip when you advertise them, and the caps either way.
 
 **`lease_seconds`, in full.** It is optional *and* nullable (JSON convention 4), and both forms mean the same
 thing: absent or `null` grants `lease.default_seconds`, measured 90 on the fs adapter. A value outside your own
@@ -1181,7 +1208,7 @@ from the profile at register time" as the rule rather than as advice.
 `lease_seconds` (integer, the lease actually granted) and `server_time` (timestamp). One flat object, not a
 nested one. This is a real result from `bin/brigade-adapter-fs` for exactly the document
 `{"harness": "claude-code", "harness_version": "2.1.251", "session_name": "payments-api", "activity": "busy",
-"inbound": "accept"}` — the input above without its three optional members, which is why they are absent from the
+"inbound": "accept"}` — the input above without its optional members, which is why they are absent from the
 output — and it is the same session the record in section 7 lists:
 
 ```json
@@ -1294,7 +1321,7 @@ Three decisions in that territory are genuinely yours, and inventing an answer i
 
 One thing in that territory is *not* optional: `message watch` is core (4.2). Every adapter writes the NDJSON stream,
 starting with one `ready` event whose `mode` is `polling` unless you advertise `message.watch.push` (4.4.9, 4.7), and
-nine of the 45 cases (C-33..C-41) are about it.
+nine of the 46 cases (C-33..C-41) are about it.
 
 ## The environment your adapter runs in
 
@@ -2019,6 +2046,15 @@ inherited; treat an empty value as unset and pick your own default. Everything e
 `NODE_OPTIONS`, an inherited `BRIGADE_*`, every `CLAUDE_CODE_MESSAGING_*`, and any `BRIGADE_<ADAPTER>_*` of your
 own — is absent by construction, because the list above is an allow-list and not a deny-list. The inbox socket
 token exists in exactly one process's environment, the watcher's, and reaches no adapter child.
+
+**Two extra facts ride on the heartbeat.** The Claude Code harness's watcher heartbeats its session about every
+30 s and on every activity flip, and on that path it may report `model` and `context_used_tokens` (4.4.2, 4.4.4 and
+the watch `heartbeat` command of 4.4.9): the model identity the session is running, and how many tokens its context
+currently holds. It derives both **locally**, from that session's own transcript file on the user's machine, just
+before it sends; the transcript, its path, the native session id, the cwd, the hostname and the username all stay
+there (T10). Absent means unchanged and the harness never clears them, so a heartbeat that could not read the
+transcript leaves whatever you stored alone. Advertise `session.model` / `session.context_used_tokens` and store
+what arrives; advertise neither and accept-and-ignore — both are conformant, and both are what C-44 measures.
 
 **Timeouts, by command.** The harness bounds each call with a context deadline; the constants are
 `internal/harness/adapterclient`'s:

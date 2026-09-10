@@ -78,6 +78,68 @@ func TestPromptUpdatesPermissionMode(t *testing.T) {
 	}
 }
 
+// TestPromptRefreshesTranscriptPath: a prompt document naming another
+// absolute transcript_path rewrites the map with it and a new updated_at
+// (in one write with a changed permission_mode); the same path, a
+// relative one or none rewrites nothing; and nothing the prompt hook
+// prints or sends carries the path.
+func TestPromptRefreshesTranscriptPath(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.spawner.watcherPID = testutil.NewSleeper(t)
+	seam := registered(t, f, nil)
+	if m := f.mustMap(); m.TranscriptPath != "/never/read.jsonl" {
+		t.Fatalf("map after start %+v", *m)
+	}
+	prompt := func(path any, mode string) string {
+		doc := map[string]any{"session_id": f.nativeID, "cwd": f.cwd, "hook_event_name": "UserPromptSubmit", "permission_mode": mode, "prompt": "never read"}
+		if path != nil {
+			doc["transcript_path"] = path
+		}
+		return f.doc(doc)
+	}
+	// The start document carried no permission_mode, so the first prompt's
+	// mode is a change of its own; the second, identical, is not.
+	f.now = fixedTime.Add(time.Minute)
+	if exit, out, _ := f.run(SubPrompt, prompt("/never/read.jsonl", "default")); exit != 0 || out != "" {
+		t.Fatalf("exit %d out %q", exit, out)
+	}
+	if m := f.mustMap(); m.PermissionMode != "default" || m.TranscriptPath != "/never/read.jsonl" || !m.UpdatedAt.Equal(f.now) {
+		t.Fatalf("map after the first prompt %+v", *m)
+	}
+	f.now = fixedTime.Add(90 * time.Second)
+	if exit, out, _ := f.run(SubPrompt, prompt("/never/read.jsonl", "default")); exit != 0 || out != "" {
+		t.Fatalf("exit %d out %q", exit, out)
+	}
+	if m := f.mustMap(); !m.UpdatedAt.Equal(fixedTime.Add(time.Minute)) {
+		t.Fatalf("an unchanged document rewrote the map: %v", m.UpdatedAt)
+	}
+	// A new absolute path and a new mode: one write.
+	f.now = fixedTime.Add(2 * time.Minute)
+	if exit, out, _ := f.run(SubPrompt, prompt("/home/u/.claude/projects/-work/native-1.jsonl", "plan")); exit != 0 || out != "" {
+		t.Fatalf("exit %d out %q", exit, out)
+	}
+	m := f.mustMap()
+	if m.TranscriptPath != "/home/u/.claude/projects/-work/native-1.jsonl" || m.PermissionMode != "plan" || !m.UpdatedAt.Equal(f.now) {
+		t.Fatalf("map %+v", *m)
+	}
+	// A relative path, an empty one and an absent member: dropped, no rewrite.
+	f.now = fixedTime.Add(3 * time.Minute)
+	for _, path := range []any{"relative.jsonl", "", nil} {
+		if exit, _, _ := f.run(SubPrompt, prompt(path, "plan")); exit != 0 {
+			t.Fatal(exit)
+		}
+		if m := f.mustMap(); m.TranscriptPath != "/home/u/.claude/projects/-work/native-1.jsonl" || !m.UpdatedAt.Equal(fixedTime.Add(2*time.Minute)) {
+			t.Fatalf("path %v changed the map: %+v", path, *m)
+		}
+	}
+	for _, c := range seam.calls {
+		if strings.Contains(string(c.Stdin), ".jsonl") {
+			t.Fatalf("an adapter call carries the transcript path: %s", c.Stdin)
+		}
+	}
+}
+
 // TestPromptEnsuresWatcher: a missing, dead or forged pidfile respawns the
 // watcher from the map's values; a live one is left alone; without a
 // socket nothing is spawned.

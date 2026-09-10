@@ -1065,7 +1065,7 @@ func TestWatchStdinCommands(t *testing.T) {
 	if object["retryable"] != true || object["code"] != string(protocol.CodeInvalidInput) {
 		t.Fatalf("event = %v, want a retryable invalid_input", event)
 	}
-	w.send(`{"type":"heartbeat","activity":"busy","session_name":"renamed","lease_seconds":120}`)
+	w.send(`{"type":"heartbeat","activity":"busy","session_name":"renamed","lease_seconds":120,"model":"claude-sonnet-5","context_used_tokens":2048}`)
 	event = w.expect(protocol.EventHeartbeatOK, 5*time.Second)
 	if event["state"] != protocol.SessionStateActive || event["session_id"] != watchSession {
 		t.Fatalf("event = %v, want heartbeat_ok active", event)
@@ -1077,6 +1077,23 @@ func TestWatchStdinCommands(t *testing.T) {
 	}
 	if args["p_activity"] != "busy" || args["p_name"] != "renamed" || args["p_lease_seconds"] != float64(120) || args["p_description"] != nil {
 		t.Fatalf("session_heartbeat args = %v", args)
+	}
+	// model and context_used_tokens ride the stdin heartbeat as they ride
+	// the RPC path (C-44); absent, they are named null so the stored values
+	// stand.
+	if args["p_model"] != "claude-sonnet-5" || args["p_context_used_tokens"] != float64(2048) {
+		t.Fatalf("session_heartbeat args = %v, want model claude-sonnet-5 and context_used_tokens 2048", args)
+	}
+	w.send(`{"type":"heartbeat","activity":"busy"}`)
+	w.expect(protocol.EventHeartbeatOK, 5*time.Second)
+	if err := json.Unmarshal(r.be.last(rpcPath+"session_heartbeat").body, &args); err != nil {
+		t.Fatal(err)
+	}
+	if v, present := args["p_model"]; !present || v != nil {
+		t.Fatalf("session_heartbeat args = %v, want p_model named and null when absent", args)
+	}
+	if v, present := args["p_context_used_tokens"]; !present || v != nil {
+		t.Fatalf("session_heartbeat args = %v, want p_context_used_tokens named and null when absent", args)
 	}
 
 	// A session closed by another process: conflict, retryable, the watch

@@ -227,6 +227,29 @@
               "type": "null"
             }
           ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context_used_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "maximum": 9007199254740991,
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "type": "object"
@@ -298,6 +321,9 @@
         "max_workspace_label_chars": {
           "type": "integer"
         },
+        "max_model_chars": {
+          "type": "integer"
+        },
         "max_idempotency_key_chars": {
           "type": "integer"
         },
@@ -329,6 +355,7 @@
         "max_description_chars",
         "max_human_label_chars",
         "max_workspace_label_chars",
+        "max_model_chars",
         "max_idempotency_key_chars",
         "send_rate",
         "principal_send_rate",
@@ -634,6 +661,29 @@
             }
           ]
         },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context_used_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "maximum": 9007199254740991,
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "created_at": {
           "type": "string",
           "format": "date-time"
@@ -701,6 +751,29 @@
             {
               "type": "string",
               "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context_used_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "maximum": 9007199254740991,
+              "minimum": 0
             },
             {
               "type": "null"
@@ -901,6 +974,29 @@
             {
               "type": "integer",
               "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context_used_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "maximum": 9007199254740991,
+              "minimum": 0
             },
             {
               "type": "null"

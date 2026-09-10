@@ -160,6 +160,7 @@ func TestRequiredPinsDecisions2And5(t *testing.T) {
 		{"AckRequest", "message_ids"},           // decision 5
 		{"Limits", "max_team_name_codepoints"},  // decision 1
 		{"Limits", "max_workspace_label_chars"}, // decision 1
+		{"Limits", "max_model_chars"},           // C-44: its own limits member, on decision 1's footing
 		{"WatchReady", "mode"},                  // decision 4
 		{"WatchStatus", "state"},                // decision 4
 	} {
@@ -168,7 +169,11 @@ func TestRequiredPinsDecisions2And5(t *testing.T) {
 		}
 	}
 	for _, c := range []struct{ def, member string }{
-		{"WatchCommand", "message_ids"}, // optional: only the ack command carries it
+		{"WatchCommand", "message_ids"},  // optional: only the ack command carries it
+		{"SessionRegistration", "model"}, // C-44: optional and nullable on all four shapes
+		{"SessionRecord", "context_used_tokens"},
+		{"HeartbeatRequest", "model"},
+		{"WatchCommand", "context_used_tokens"},
 		{"WatchStatus", "detail"},
 		{"ErrorObject", "details"},
 		{"ErrorObject", "retry_after_ms"},

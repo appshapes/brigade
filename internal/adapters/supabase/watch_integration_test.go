@@ -59,7 +59,7 @@ func TestIntegrationWatchLiveDelivery(t *testing.T) {
 		t.Errorf("the acknowledged message is still in the inbox: %v", got)
 	}
 
-	w.send(`{"type":"heartbeat","activity":"idle","lease_seconds":120}`)
+	w.send(`{"type":"heartbeat","activity":"idle","lease_seconds":120,"model":"claude-sonnet-5","context_used_tokens":2048}`)
 	hb := w.expect(protocol.EventHeartbeatOK, 5*time.Second)
 	if hb["session_id"] != sb || hb["state"] != protocol.SessionStateIdle {
 		t.Errorf("heartbeat_ok = %v", hb)
@@ -80,6 +80,11 @@ func TestIntegrationWatchLiveDelivery(t *testing.T) {
 		s, _ := item.(map[string]any)
 		if s["session_id"] == sb && s["state"] != protocol.SessionStateOffline {
 			t.Errorf("the close command did not close the session: %v", s)
+		}
+		// The stdin heartbeat's model and context_used_tokens reached the
+		// row (C-44), and closing kept them.
+		if s["session_id"] == sb && (s["model"] != "claude-sonnet-5" || s["context_used_tokens"] != float64(2048)) {
+			t.Errorf("the stdin heartbeat's model/context_used_tokens did not reach the session: %v", s)
 		}
 	}
 }

@@ -163,6 +163,194 @@ func TestDecision1LimitsPublishBothCaps(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------
+// Session model and context occupancy (plan session-properties, C-44):
+// `model` has its OWN cap, 128 code points, published in `limits` as
+// max_model_chars on exactly decision 1's footing; `context_used_tokens`
+// is bounded by 2^53 - 1, the largest integer JSON carries exactly, and
+// has no `limits` member because it is a wire-format bound, not a cap an
+// adapter chooses. Both are optional, nullable and, on a heartbeat,
+// "absent means unchanged" (JSON convention 4). The numbers below are
+// literals for the same reason as decision 1's.
+// ---------------------------------------------------------------------
+
+// modelShapes are the four shapes that carry `model` and
+// `context_used_tokens` (4.4.2, 4.4.3, 4.4.4 and the watch heartbeat
+// command of 4.4.9), each built with the two members set from the
+// arguments (nil leaves one absent).
+func modelShapes() []struct {
+	name  string
+	build func(model *string, tokens *int) Validator
+} {
+	return []struct {
+		name  string
+		build func(model *string, tokens *int) Validator
+	}{
+		{"registration", func(m *string, n *int) Validator {
+			r := validRegistration()
+			r.Model, r.ContextUsedTokens = m, n
+			return &r
+		}},
+		{"record", func(m *string, n *int) Validator {
+			r := validRecord()
+			r.Model, r.ContextUsedTokens = m, n
+			return &r
+		}},
+		{"heartbeat", func(m *string, n *int) Validator {
+			return &HeartbeatRequest{Model: m, ContextUsedTokens: n}
+		}},
+		{"watch heartbeat command", func(m *string, n *int) Validator {
+			return &WatchCommand{Type: CommandHeartbeat, Model: m, ContextUsedTokens: n}
+		}},
+	}
+}
+
+func TestModelCapIs128Chars(t *testing.T) {
+	t.Parallel()
+	euro := "€" // 3 bytes, 1 code point: a byte counter would fail the 128 case
+	at := strings.Repeat(euro, 128)
+	over := strings.Repeat(euro, 129)
+	for _, s := range modelShapes() {
+		t.Run(s.name, func(t *testing.T) {
+			t.Parallel()
+			if err := s.build(strptr(at), nil).Validate(); err != nil {
+				t.Fatalf("a 128-code-point model was rejected: %v", err)
+			}
+			// The full Claude Code identity, [1m] suffix included, is well
+			// within the cap and passes as written.
+			if err := s.build(strptr("claude-opus-5[1m]"), nil).Validate(); err != nil {
+				t.Fatalf("the example model identity was rejected: %v", err)
+			}
+			err := s.build(strptr(over), nil).Validate()
+			requireInvalidInput(t, err, "model")
+			d := detailsOf(t, err)
+			if d["limit"] != "128" || d["unit"] != "codepoints" || d["actual"] != "129" || d["reason"] != "too_long" {
+				t.Fatalf("details = %v, want limit 128 codepoints, actual 129, reason too_long", d)
+			}
+			requireInvalidInput(t, s.build(strptr("\xff"), nil).Validate(), "model")
+		})
+	}
+	if MaxModelChars != 128 {
+		t.Fatalf("MaxModelChars = %d, the design says 128", MaxModelChars)
+	}
+}
+
+// TestLimitsPublishMaxModelChars: the cap is a wire member of `limits`
+// under exactly this name, carries exactly this number, is advertised by
+// the describe example, and is validated like every other limit — so
+// C-18 requires it of every adapter without a change to the case.
+func TestLimitsPublishMaxModelChars(t *testing.T) {
+	t.Parallel()
+	out, err := json.Marshal(DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(out, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := wire["max_model_chars"]; !ok || got != 128.0 {
+		t.Errorf("limits.max_model_chars = %v (present %v), want 128: %s", got, ok, out)
+	}
+	if _, leaked := wire["max_context_used_tokens"]; leaked {
+		t.Errorf("limits carries a context_used_tokens bound; 2^53-1 is a wire-format fact, not a limits member: %s", out)
+	}
+	var example struct {
+		Capabilities []string       `json:"capabilities"`
+		Limits       map[string]any `json:"limits"`
+	}
+	if err := json.Unmarshal(readExample(t, "describe_result.json"), &example); err != nil {
+		t.Fatal(err)
+	}
+	if example.Limits["max_model_chars"] != 128.0 {
+		t.Errorf("describe_result.json limits = %v, want max_model_chars 128", example.Limits)
+	}
+	// The example advertises both capabilities under exactly these strings.
+	for _, want := range []string{"session.model", "session.context_used_tokens"} {
+		found := false
+		for _, c := range example.Capabilities {
+			if c == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("describe_result.json capabilities %v lack %q", example.Capabilities, want)
+		}
+	}
+	d := validDescribe(t)
+	d.Limits.MaxModelChars = 0
+	requireInvalidInput(t, d.Validate(), "limits.max_model_chars")
+}
+
+// TestContextUsedTokensBoundIsJSONExactInteger pins the bound at its
+// edges on every shape, with the details a caller reads, and pins zero
+// as a VALUE: an empty context is 0, not absent.
+func TestContextUsedTokensBoundIsJSONExactInteger(t *testing.T) {
+	t.Parallel()
+	if MaxContextUsedTokens != 9007199254740991 {
+		t.Fatalf("MaxContextUsedTokens = %d, want 2^53-1 = 9007199254740991", MaxContextUsedTokens)
+	}
+	for _, s := range modelShapes() {
+		t.Run(s.name, func(t *testing.T) {
+			t.Parallel()
+			for _, ok := range []int{0, 2048, 189681, 9007199254740991} {
+				if err := s.build(nil, intptr(ok)).Validate(); err != nil {
+					t.Errorf("context_used_tokens=%d rejected: %v", ok, err)
+				}
+			}
+			for _, bad := range []int{-1, 9007199254740992} {
+				err := s.build(nil, intptr(bad)).Validate()
+				requireInvalidInput(t, err, "context_used_tokens")
+				want := map[string]string{"field": "context_used_tokens", "reason": "out_of_range", "min": "0", "max": "9007199254740991"}
+				if got := detailsOf(t, err); !reflect.DeepEqual(got, want) {
+					t.Errorf("context_used_tokens=%d: details = %v, want exactly %v", bad, got, want)
+				}
+			}
+			// Absent is valid on every shape: on a heartbeat it means
+			// unchanged, on a registration or record it means not reported.
+			if err := s.build(nil, nil).Validate(); err != nil {
+				t.Errorf("absent model and context_used_tokens rejected: %v", err)
+			}
+		})
+	}
+}
+
+// TestModelAndTokensAreNullableAndOptional: an explicit null parses as
+// absent on every shape (JSON convention 4), the bare example values
+// round-trip, and a zero count is emitted — omitzero on a pointer omits
+// nil, not a pointer to 0.
+func TestModelAndTokensAreNullableAndOptional(t *testing.T) {
+	t.Parallel()
+	var h HeartbeatRequest
+	if err := Decode([]byte(`{"model":null,"context_used_tokens":null}`), &h); err != nil {
+		t.Fatalf("explicit nulls rejected: %v", err)
+	}
+	if h.Model != nil || h.ContextUsedTokens != nil {
+		t.Fatalf("explicit null did not parse as absent: %+v", h)
+	}
+	var c WatchCommand
+	if err := Decode([]byte(`{"type":"heartbeat","model":null,"context_used_tokens":null}`), &c); err != nil {
+		t.Fatalf("explicit nulls on the watch command rejected: %v", err)
+	}
+	if c.Model != nil || c.ContextUsedTokens != nil {
+		t.Fatalf("explicit null did not parse as absent: %+v", c)
+	}
+	out, err := json.Marshal(&HeartbeatRequest{ContextUsedTokens: intptr(0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != `{"context_used_tokens":0}` {
+		t.Fatalf("a zero count marshalled as %s; zero is a value, not absence", out)
+	}
+	out, err = json.Marshal(&HeartbeatRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != `{}` {
+		t.Fatalf("an empty heartbeat marshalled as %s; absent members are omitted", out)
+	}
+}
+
+// ---------------------------------------------------------------------
 // Decision 2: retryable is a plain bool. Producers MUST emit it;
 // consumers treat absent as false; Code.Retryable() is the source of
 // truth and the wire flag is advisory.
@@ -340,6 +528,11 @@ func TestDecision3InvalidInputDetailsAreFrozen(t *testing.T) {
 			r.LeaseSeconds = intptr(0)
 			return r.Validate()
 		}, map[string]string{"field": "lease_seconds", "reason": "out_of_range", "min": "1"}},
+		{"out of range (JSON exact-integer bound)", func() error {
+			r := validRegistration()
+			r.ContextUsedTokens = intptr(-1)
+			return r.Validate()
+		}, map[string]string{"field": "context_used_tokens", "reason": "out_of_range", "min": "0", "max": "9007199254740991"}},
 		{"conditional presence", func() error {
 			p := ProfileInfo{Name: "default", State: ProfileStateNotMember, TeamRef: "t1"}
 			return p.validate()
@@ -399,6 +592,10 @@ func TestDecision3EveryValidateFieldIsAWireMemberPath(t *testing.T) {
 		&Envelope{}, &ErrorObject{},
 		&TeamCreateRequest{TeamName: long},
 		&SessionRegistration{Harness: "h", HarnessVersion: "v", SessionName: "n", Activity: ActivityBusy, Inbound: InboundAccept, WorkspaceLabel: strptr(long)},
+		&SessionRegistration{Harness: "h", HarnessVersion: "v", SessionName: "n", Activity: ActivityBusy, Inbound: InboundAccept, Model: strptr(long)},
+		&HeartbeatRequest{ContextUsedTokens: intptr(-1)},
+		&WatchCommand{Type: CommandHeartbeat, Model: strptr(long)},
+		&WatchCommand{Type: CommandHeartbeat, ContextUsedTokens: intptr(-1)},
 	}
 	for i, v := range failures {
 		err := v.Validate()

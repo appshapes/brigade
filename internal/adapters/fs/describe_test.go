@@ -72,17 +72,22 @@ func TestDescribeAdvertisesTheProtocolConstants(t *testing.T) {
 	t.Parallel()
 	result := newRig(t).ok("", "describe")
 	capabilities, _ := result["capabilities"].([]any)
-	found := false
+	advertised := map[string]bool{}
 	for _, c := range capabilities {
-		if c == "message.receive" {
-			found = true
+		if name, isString := c.(string); isString {
+			advertised[name] = true
 		}
 		if c == "message.watch.push" {
 			t.Fatal("message.watch.push is advertised, but the watch polls (C-33)")
 		}
 	}
-	if !found {
-		t.Fatalf("capabilities lack message.receive: %v", capabilities)
+	// session.model and session.context_used_tokens are what unlock the two
+	// members of C-44: an adapter that stores and reports them MUST say so,
+	// or decideSkips skips the case and the round-trip is never proved.
+	for _, want := range []string{"message.receive", "session.model", "session.context_used_tokens"} {
+		if !advertised[want] {
+			t.Fatalf("capabilities lack %s: %v", want, capabilities)
+		}
 	}
 	lease, _ := result["lease"].(map[string]any)
 	if lease["min_seconds"] != float64(1) || lease["default_seconds"] != float64(90) ||
@@ -93,8 +98,9 @@ func TestDescribeAdvertisesTheProtocolConstants(t *testing.T) {
 	for _, key := range []string{
 		"max_body_bytes", "max_summary_chars", "max_session_name_codepoints",
 		"max_team_name_codepoints", "max_description_chars", "max_human_label_chars",
-		"max_workspace_label_chars", "max_idempotency_key_chars", "max_unacked_per_recipient",
-		"max_unacked_per_sender_recipient", "max_hop_count", "implicit_reply_window_seconds",
+		"max_workspace_label_chars", "max_model_chars", "max_idempotency_key_chars",
+		"max_unacked_per_recipient", "max_unacked_per_sender_recipient", "max_hop_count",
+		"implicit_reply_window_seconds",
 	} {
 		if value, _ := limits[key].(float64); value <= 0 {
 			t.Fatalf("limits.%s = %v, want a positive number", key, limits[key])

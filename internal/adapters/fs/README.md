@@ -189,7 +189,7 @@ when no team exists.
 `limits` and `retention`, and these capabilities (4.7):
 
 `team.create`, `team.join`, `team.roster`, `message.receive`, `message.watch.stdin_commands`, `session.description`,
-`session.resume`, `session.workspace_label`, `session.inbound`.
+`session.resume`, `session.workspace_label`, `session.inbound`, `session.model`, `session.context_used_tokens`.
 
 It does **not** advertise `message.watch.push`: it polls, so the watch's `ready` event says `"mode": "polling"` and a
 consumer expects two poll intervals of latency rather than five seconds (C-33, C-35).

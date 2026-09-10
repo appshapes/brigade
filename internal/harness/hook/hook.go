@@ -109,9 +109,15 @@ const (
 
 // The hook stdin members this package reads (6.3, 6.5; the 2.1.251
 // evidence under docs/research/claude-plugin-mcp-evidence). permission_mode
-// and session_title are optional everywhere; transcript_path and prompt
-// are deliberately absent from the type — they are never read, stored or
-// sent.
+// and session_title are optional everywhere. transcript_path — the
+// documented common hook member naming the session's own NDJSON
+// transcript — IS read: the hook keeps it, when absolute, in the 0600
+// by-pid map (transcriptPath), where the detached watcher finds it and
+// reads the file locally for the two facts a heartbeat carries, the model
+// and the context occupancy (internal/harness/transcript). The path itself
+// is never sent, never logged and never printed, and the hook never opens
+// the file (T10); `prompt` stays absent from the type — never read,
+// stored or sent.
 type input struct {
 	SessionID      string `json:"session_id"`
 	Cwd            string `json:"cwd"`
@@ -120,6 +126,17 @@ type input struct {
 	Reason         string `json:"reason"`
 	PermissionMode string `json:"permission_mode"`
 	SessionTitle   string `json:"session_title"`
+	TranscriptPath string `json:"transcript_path"`
+}
+
+// transcriptPath is the document's transcript_path when it is absolute,
+// else "" — the rule the socket path follows in facts: a relative value is
+// not a file the watcher may open, and the map refuses one (Validate).
+func transcriptPath(in input) string {
+	if filepath.IsAbs(in.TranscriptPath) {
+		return in.TranscriptPath
+	}
+	return ""
 }
 
 // The SessionStart `source` and SessionEnd `reason` values the hook keys on.

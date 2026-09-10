@@ -3,11 +3,14 @@
 -- not_found byte-identical to a random uuid), session_heartbeat (another member -> not_found; after close ->
 -- conflict:session_closed), close_session, list_sessions (state from time-shifted last_seen_at, cap + truncated,
 -- online-before-offline when cut, revoked members hidden, no is_self), workspace_label and inbound round-trips,
--- the registration rate limit, input caps, and byte-identical brigade:unauthorized for register_session,
--- list_sessions and list_members against another team's id and a random uuid (timing recorded).
+-- model and context_used_tokens round-trips (C-44; 20260910193200_session_model_context.sql: returned by
+-- register_session and list_sessions, updated and kept by session_heartbeat, cleared by a resume that omits them,
+-- capped at 128 code points and at zero), the registration rate limit, input caps, and byte-identical
+-- brigade:unauthorized for register_session, list_sessions and list_members against another team's id and a
+-- random uuid (timing recorded).
 begin;
 \ir helpers/auth.sql
-select plan(113);
+select plan(133);
 
 create function pg_temp.err(q text) returns text language plpgsql as $$
 begin
@@ -58,10 +61,19 @@ select (:'reg2'::jsonb)->>'session_id' as s_a1b \gset
 select is((:'reg2'::jsonb)->>'state', 'idle', 'register (defaults): idle');
 select ok((:'reg2'::jsonb)->'inbound' = 'null'::jsonb and (:'reg2'::jsonb)->'workspace_label' = 'null'::jsonb, 'register (defaults): inbound and workspace_label are null when not given (never a default label)');
 select is(((:'reg2'::jsonb)->>'lease_seconds')::int, 90, 'register (defaults): lease_seconds 90');
+select ok((:'reg2'::jsonb)->'model' = 'null'::jsonb and (:'reg2'::jsonb)->'context_used_tokens' = 'null'::jsonb, 'register (defaults): model and context_used_tokens are present and null when not given (C-44)');
+-- C-44: the two transcript facts, the 11th and 12th positional arguments (appended by
+-- 20260910193200_session_model_context.sql), come back exactly as given — the [1m] suffix included.
+select brigade.register_session(:'team_a'::uuid, 'modelled', null, 'idle', null, 'claude-code', '2.1.267', null, 90, null, 'claude-opus-5[1m]', 189681) as reg3 \gset
+select (:'reg3'::jsonb)->>'session_id' as s_a1c \gset
+select is((:'reg3'::jsonb)->>'model', 'claude-opus-5[1m]', 'register: model returned exactly as given (C-44)');
+select is(((:'reg3'::jsonb)->>'context_used_tokens')::bigint, 189681::bigint, 'register: context_used_tokens returned exactly as given (C-44)');
 select pg_temp.logout();
 select is((select workspace_label from brigade.sessions where id = :'s_a1'::uuid), '/Users/alice/proj', 'register: workspace_label stored only as given');
 select is((select workspace_label from brigade.sessions where id = :'s_a1b'::uuid), null::text, 'register: no workspace_label stored when none was given');
 select is((select inbound from brigade.sessions where id = :'s_a1'::uuid), 'hold', 'register: inbound stored');
+select is((select model from brigade.sessions where id = :'s_a1c'::uuid), 'claude-opus-5[1m]', 'register: model stored as given');
+select is((select context_used_tokens from brigade.sessions where id = :'s_a1c'::uuid), 189681::bigint, 'register: context_used_tokens stored as given');
 
 -- 2. Input caps (code points, not bytes; lease 30..600 is the Supabase adapter''s range, D12).
 select pg_temp.login(:'a1', true, 'Alice');
@@ -78,6 +90,12 @@ select throws_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'n',
 select throws_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'n', null, 'idle', null, null, null, null, null)$$, '22023', 'brigade:invalid_input:lease_seconds', 'register: a null lease is invalid_input');
 select lives_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'n30', null, 'idle', null, null, null, null, 30)$$, 'register: lease 30 accepted');
 select lives_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'n600', null, 'idle', null, null, null, null, 600)$$, 'register: lease 600 accepted');
+-- model: 128 code points (max_model_chars), context_used_tokens: non-negative; both raise the D15 text with the
+-- member's wire name so the adapter's details.field is model / context_used_tokens (C-44).
+select throws_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'n', null, 'idle', null, null, null, null, 90, null, repeat('m', 129))$$, '22023', 'brigade:invalid_input:model', 'register: a 129-code-point model is invalid_input:model (C-44)');
+select lives_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'n-model', null, 'idle', null, null, null, null, 90, null, repeat('é', 128))$$, 'register: a 128-code-point model of 256 bytes is accepted (char_length)');
+select throws_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'n', null, 'idle', null, null, null, null, 90, null, null, -1)$$, '22023', 'brigade:invalid_input:context_used_tokens', 'register: context_used_tokens -1 is invalid_input:context_used_tokens (C-44)');
+select lives_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'n-zero', null, 'idle', null, null, null, null, 90, null, null, 0)$$, 'register: context_used_tokens 0 is accepted (a value, not absence)');
 select pg_temp.logout();
 select throws_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'n')$$, '28000', 'brigade:unauthenticated', 'register without claims is unauthenticated');
 
@@ -126,11 +144,13 @@ select pg_temp.login(:'a1', true, 'Alice');
 select is((brigade.close_session(:'s_a1'::uuid))->>'state', 'offline', 'close_session: state offline');
 select is(jsonb_array_length(brigade.fetch_inbox(:'s_a1'::uuid)), 1, 'fetch_inbox on a CLOSED owned session works and holds the parked message (C-31)');
 select is(jsonb_array_length(brigade.list_sessions(:'team_a'::uuid)->'sessions') , (select count(*)::int from brigade.sessions where team_id = :'team_a'::uuid and closed_at is null), 'list_sessions (default) omits the closed session');
-select brigade.register_session(:'team_a'::uuid, 'main again', 'resumed', 'busy', 'accept', null, null, '/elsewhere', 200, :'s_a1'::uuid) as res \gset
+select brigade.register_session(:'team_a'::uuid, 'main again', 'resumed', 'busy', 'accept', null, null, '/elsewhere', 200, :'s_a1'::uuid, 'claude-opus-5[1m]', 4096) as res \gset
 select is((:'res'::jsonb)->>'resumed', 'true', 'resume of an owned CLOSED session: resumed = true');
 select is((:'res'::jsonb)->>'session_id', :'s_a1', 'resume: the same session_id');
 select is((:'res'::jsonb)->>'session_name', 'main again', 'resume: name updated in place');
 select is((:'res'::jsonb)->>'workspace_label', '/elsewhere', 'resume: workspace_label updated as given');
+select is((:'res'::jsonb)->>'model', 'claude-opus-5[1m]', 'resume: model updated as given (C-44)');
+select is(((:'res'::jsonb)->>'context_used_tokens')::bigint, 4096::bigint, 'resume: context_used_tokens updated as given');
 select is(((:'res'::jsonb)->>'lease_seconds')::int, 200, 'resume: lease updated');
 select is((:'res'::jsonb)->>'state', 'active', 'resume: state from the new activity');
 select is(jsonb_array_length(brigade.fetch_inbox(:'s_a1'::uuid)), 1, 'resume: the pending message is still there');
@@ -147,6 +167,8 @@ select brigade.register_session(:'team_a'::uuid, 'after expiry', null, 'idle', n
 select is((:'res2'::jsonb)->>'resumed', 'true', 'resume of an owned EXPIRED session: resumed = true');
 select is(((:'res2'::jsonb)->>'last_seen_at')::timestamptz, now(), 'resume: last_seen_at is now()');
 select is(((:'res2'::jsonb)->>'lease_until')::timestamptz, now() + interval '90 seconds', 'resume: lease_until from the new lease');
+select ok((:'res2'::jsonb)->'model' = 'null'::jsonb and (:'res2'::jsonb)->'context_used_tokens' = 'null'::jsonb,
+          'resume without them: model and context_used_tokens are cleared like workspace_label (a registration is the whole state; the first heartbeat reports them again)');
 select pg_temp.logout();
 
 -- 5. Heartbeat: another member -> not_found (identical to a random id); the owner updates last_seen_at and fields;
@@ -162,13 +184,20 @@ select is((:'hb'::jsonb)->>'session_id', :'s_a1', 'heartbeat: session_id echoed'
 select is((:'hb'::jsonb)->>'state', 'active', 'heartbeat: state from the new activity');
 select is(((:'hb'::jsonb)->>'lease_until')::timestamptz, now() + interval '300 seconds', 'heartbeat: lease_until = now() + the new lease');
 select is(((:'hb'::jsonb)->>'server_time')::timestamptz, now(), 'heartbeat: server_time');
+-- C-44: model and context_used_tokens are the 7th and 8th arguments; the bare heartbeat that follows is the
+-- "absent means unchanged" proof for them as for every other member (4.4.4).
+select lives_ok($$select brigade.session_heartbeat('$$ || :'s_a1' || $$', null, null, null, null, null, 'claude-sonnet-5', 2048)$$, 'heartbeat: model and context_used_tokens accepted (C-44)');
 select lives_ok($$select brigade.session_heartbeat('$$ || :'s_a1' || $$')$$, 'heartbeat with no optional argument is accepted');
 select throws_ok($$select brigade.session_heartbeat('$$ || :'s_a1' || $$', null, null, null, null, 29)$$, '22023', 'brigade:invalid_input:lease_seconds', 'heartbeat: lease 29 is invalid_input');
 select throws_ok($$select brigade.session_heartbeat('$$ || :'s_a1' || $$', 'sleepy')$$, '22023', 'brigade:invalid_input:activity', 'heartbeat: an unknown activity is invalid_input');
 select throws_ok($$select brigade.session_heartbeat('$$ || :'s_a1' || $$', null, repeat('n', 65))$$, '22023', 'brigade:invalid_input:session_name', 'heartbeat: a 65-code-point name is invalid_input');
+select throws_ok($$select brigade.session_heartbeat('$$ || :'s_a1' || $$', null, null, null, null, null, repeat('m', 129))$$, '22023', 'brigade:invalid_input:model', 'heartbeat: a 129-code-point model is invalid_input:model (C-44)');
+select throws_ok($$select brigade.session_heartbeat('$$ || :'s_a1' || $$', null, null, null, null, null, null, -1)$$, '22023', 'brigade:invalid_input:context_used_tokens', 'heartbeat: context_used_tokens -1 is invalid_input:context_used_tokens (C-44)');
 select pg_temp.logout();
 select is((select last_seen_at from brigade.sessions where id = :'s_a1'::uuid), now(), 'heartbeat: last_seen_at touched');
 select is((select (activity, name, description, inbound, lease_seconds)::text from brigade.sessions where id = :'s_a1'::uuid), '(busy,hb-name,hb-desc,refuse,300)', 'heartbeat: activity, name, description, inbound and lease stored; a later null keeps them');
+select is((select model from brigade.sessions where id = :'s_a1'::uuid), 'claude-sonnet-5', 'heartbeat: model stored; a later null keeps it (a heartbeat never clears it, 4.4.4)');
+select is((select context_used_tokens from brigade.sessions where id = :'s_a1'::uuid), 2048::bigint, 'heartbeat: context_used_tokens stored; a later null keeps it');
 select pg_temp.login(:'a1', true, 'Alice');
 select lives_ok($$select brigade.close_session('$$ || :'s_a1' || $$')$$, 'close_session on the open session');
 select throws_ok($$select brigade.session_heartbeat('$$ || :'s_a1' || $$')$$, 'P0001', 'brigade:conflict:session_closed', 'heartbeat after close is conflict:session_closed');
@@ -181,7 +210,7 @@ select is((select activity from brigade.sessions where id = :'s_a1'::uuid), 'idl
 --    before offline when cut, human_label on every record, revoked members hidden.
 select pg_temp.login(:'a1', true, 'Alice');
 select (brigade.register_session(:'team_a'::uuid, 'l-idle', null, 'idle', null, null, null, null, 60))->>'session_id' as l1 \gset
-select (brigade.register_session(:'team_a'::uuid, 'l-busy', null, 'busy', null, null, null, null, 60))->>'session_id' as l2 \gset
+select (brigade.register_session(:'team_a'::uuid, 'l-busy', null, 'busy', null, null, null, null, 60, null, 'claude-opus-5[1m]', 189681))->>'session_id' as l2 \gset
 select (brigade.register_session(:'team_a'::uuid, 'l-stale', null, 'idle', null, null, null, null, 60))->>'session_id' as l5 \gset
 select (brigade.register_session(:'team_a'::uuid, 'l-closed2', null, 'idle', null, null, null, null, 60))->>'session_id' as l6 \gset
 select lives_ok($$select brigade.close_session('$$ || :'l6' || $$'::uuid)$$, 'fixture: l-closed2 (A1''s) closed, its last_seen_at stays now()');
@@ -215,6 +244,9 @@ select is((:'ls'::jsonb)->>'team_name', 'Team A', 'list_sessions: team_name');
 select is((select count(*) from jsonb_array_elements((:'ls_all'::jsonb)->'sessions') s where s->>'human_label' is null), 0::bigint, 'list_sessions: every record carries human_label (C-12)');
 select is((select s->>'human_label' from jsonb_array_elements((:'ls_all'::jsonb)->'sessions') s where s->>'session_id' = :'l3'), 'Bob', 'list_sessions: the label is the owner''s membership label');
 select is((select count(*) from jsonb_array_elements((:'ls_all'::jsonb)->'sessions') s where s ? 'is_self'), 0::bigint, 'list_sessions: no is_self field (the adapter''s job)');
+select is((select s->>'model' from jsonb_array_elements((:'ls'::jsonb)->'sessions') s where s->>'session_id' = :'l2'), 'claude-opus-5[1m]', 'list_sessions: the record carries model exactly as registered (C-44)');
+select is((select (s->>'context_used_tokens')::bigint from jsonb_array_elements((:'ls'::jsonb)->'sessions') s where s->>'session_id' = :'l2'), 189681::bigint, 'list_sessions: the record carries context_used_tokens (C-44)');
+select is((select count(*) from jsonb_array_elements((:'ls_all'::jsonb)->'sessions') s where not (s ? 'model' and s ? 'context_used_tokens')), 0::bigint, 'list_sessions: every record carries the model and context_used_tokens members (null when never reported)');
 select brigade.list_sessions(:'team_a'::uuid, true, 2) as ls_cut \gset
 select is(jsonb_array_length((:'ls_cut'::jsonb)->'sessions'), 2, 'list_sessions (limit 2): two records');
 select is((:'ls_cut'::jsonb)->>'truncated', 'true', 'list_sessions (limit 2): truncated = true');

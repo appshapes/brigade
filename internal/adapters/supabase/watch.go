@@ -672,11 +672,13 @@ func (w *watcher) ack(ids []string) (int, bool) {
 }
 
 // heartbeat is `session heartbeat` over stdin (no session_description on
-// this command, 4.4.9).
+// this command, 4.4.9; model and context_used_tokens ride it like the RPC
+// path's, C-44, null when absent so the stored values stand).
 func (w *watcher) heartbeat(cmd *protocol.WatchCommand) (int, bool) {
 	req := &protocol.HeartbeatRequest{
 		Activity: cmd.Activity, SessionName: cmd.SessionName,
 		Inbound: cmd.Inbound, LeaseSeconds: cmd.LeaseSeconds,
+		Model: cmd.Model, ContextUsedTokens: cmd.ContextUsedTokens,
 	}
 	if err := req.Validate(); err != nil {
 		return w.c.watchRetryable(w.events, err), false
@@ -686,12 +688,14 @@ func (w *watcher) heartbeat(cmd *protocol.WatchCommand) (int, bool) {
 	}
 	out := &protocol.HeartbeatResult{}
 	err := w.c.rpc(w.ctx, "session_heartbeat", rpcArgs{
-		"p_session_id":    w.id,
-		"p_activity":      req.Activity,
-		"p_name":          req.SessionName,
-		"p_description":   nil,
-		"p_inbound":       req.Inbound,
-		"p_lease_seconds": req.LeaseSeconds,
+		"p_session_id":          w.id,
+		"p_activity":            req.Activity,
+		"p_name":                req.SessionName,
+		"p_description":         nil,
+		"p_inbound":             req.Inbound,
+		"p_lease_seconds":       req.LeaseSeconds,
+		"p_model":               req.Model,
+		"p_context_used_tokens": req.ContextUsedTokens,
 	}, out)
 	if err != nil {
 		return w.commandFailed(err)

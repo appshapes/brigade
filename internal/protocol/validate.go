@@ -118,3 +118,19 @@ func hopCountInRange(field string, v int) error {
 	}
 	return nil
 }
+
+// contextUsedTokensInRange checks an optional context_used_tokens member
+// when present: 0..MaxContextUsedTokens (4.4.2, 4.4.3, 4.4.4, 4.4.9).
+// Zero is a value — an empty context — not absence; absence is the nil
+// pointer, which on a heartbeat means unchanged (JSON convention 4). The
+// member is a top-level one on all four shapes, so the field name is
+// fixed here rather than passed.
+func contextUsedTokensInRange(v *int) error {
+	if v == nil {
+		return nil
+	}
+	if *v < 0 || *v > MaxContextUsedTokens {
+		return errOutOfRange("context_used_tokens", 0, MaxContextUsedTokens)
+	}
+	return nil
+}

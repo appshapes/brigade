@@ -169,14 +169,18 @@ func (w *WatchError) Validate() error {
 
 // WatchCommand is one NDJSON command on `message watch` stdin (4.4.9). A
 // single struct covers all three types; the members beyond Type belong to
-// the type Validate switches on.
+// the type Validate switches on. The heartbeat members are those of
+// HeartbeatRequest (4.4.4) less session_description — model and
+// context_used_tokens included (C-44), with the same rules.
 type WatchCommand struct {
-	Type         string   `json:"type"`
-	MessageIDs   []string `json:"message_ids,omitzero"`
-	Activity     *string  `json:"activity,omitzero"`
-	SessionName  *string  `json:"session_name,omitzero"`
-	Inbound      *string  `json:"inbound,omitzero"`
-	LeaseSeconds *int     `json:"lease_seconds,omitzero"`
+	Type              string   `json:"type"`
+	MessageIDs        []string `json:"message_ids,omitzero"`
+	Activity          *string  `json:"activity,omitzero"`
+	SessionName       *string  `json:"session_name,omitzero"`
+	Inbound           *string  `json:"inbound,omitzero"`
+	LeaseSeconds      *int     `json:"lease_seconds,omitzero"`
+	Model             *string  `json:"model,omitzero"`
+	ContextUsedTokens *int     `json:"context_used_tokens,omitzero"`
 }
 
 // Known reports whether the command type is one this protocol version
@@ -221,7 +225,15 @@ func (c *WatchCommand) Validate() error {
 				return err
 			}
 		}
-		return leaseSecondsInRange("lease_seconds", c.LeaseSeconds)
+		if err := leaseSecondsInRange("lease_seconds", c.LeaseSeconds); err != nil {
+			return err
+		}
+		if c.Model != nil {
+			if err := optionalText("model", *c.Model, MaxModelChars); err != nil {
+				return err
+			}
+		}
+		return contextUsedTokensInRange(c.ContextUsedTokens)
 	case CommandClose:
 		return nil
 	default:

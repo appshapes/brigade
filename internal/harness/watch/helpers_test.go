@@ -1,12 +1,14 @@
 package watch_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math/rand/v2"
 	"os"
@@ -112,9 +114,12 @@ func runHelper(mode string, rest []string) int {
 
 // helperAdapter is a BAP/1 adapter whose `message watch` exits at once
 // with the status in its leading `exit=<n>` argument (after an optional
-// `ready` event when the argument is `ready-exit=<n>`); every other
-// verb is `describe`, answered with a valid document. The harness appends
-// `--profile <p> <group> [verb] [flags]` after the fixed arguments.
+// `ready` event when the argument is `ready-exit=<n>`), or — with a
+// leading `record=<file>` — says ready and then records every stdin
+// command line it receives in that file, answering each (recordWatch);
+// every other verb is `describe`, answered with a valid document. The
+// harness appends `--profile <p> <group> [verb] [flags]` after the fixed
+// arguments.
 func helperAdapter(argv []string) int {
 	if len(argv) == 0 {
 		return 64
@@ -144,6 +149,10 @@ func helperAdapter(argv []string) int {
 	}
 	if group == "message" && verb == "watch" {
 		kind, value, _ := strings.Cut(spec, "=")
+		if kind == "record" {
+			//nolint:forbidigo // a helper adapter reads the real stdin: it IS the child
+			return recordWatch(value, os.Stdin, out)
+		}
 		code, _ := strconv.Atoi(value)
 		if kind == "ready-exit" {
 			b, _ := json.Marshal(&protocol.WatchReady{Event: protocol.EventReady, ProtocolVersion: protocol.ProtocolVersion, SessionID: "s1", Mode: protocol.WatchModePolling})
@@ -155,6 +164,70 @@ func helperAdapter(argv []string) int {
 	b, _ := json.Marshal(&env)
 	_, _ = out.Write(append(b, '\n'))
 	return 1
+}
+
+// recordWatch is the helper adapter's `message watch` in record mode: a
+// ready event (push), then every command line the watcher writes to its
+// stdin appended VERBATIM to path — the stdin-command heartbeat path is
+// otherwise invisible from outside the child — and answered as the fake
+// adapter answers it (acked, heartbeat_ok), until a close command or EOF.
+func recordWatch(path string, stdin io.Reader, out io.Writer) int {
+	emit := func(v any) {
+		if b, err := json.Marshal(v); err == nil {
+			_, _ = out.Write(append(b, '\n'))
+		}
+	}
+	emit(&protocol.WatchReady{Event: protocol.EventReady, ProtocolVersion: protocol.ProtocolVersion, SessionID: "s1", Mode: protocol.WatchModePush})
+	sc := bufio.NewScanner(stdin)
+	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil { //nolint:gosec // G703: the record path is the test's own argument
+			_, _ = f.Write(append(append([]byte{}, line...), '\n'))
+			_ = f.Close()
+		}
+		var cmd protocol.WatchCommand
+		if err := json.Unmarshal(line, &cmd); err != nil {
+			continue
+		}
+		switch cmd.Type {
+		case protocol.CommandAck:
+			emit(&protocol.WatchAcked{Event: protocol.EventAcked, MessageIDs: append([]string{}, cmd.MessageIDs...), Unknown: []string{}})
+		case protocol.CommandHeartbeat:
+			now := time.Now().UTC()
+			emit(&protocol.WatchHeartbeatOK{Event: protocol.EventHeartbeatOK, SessionID: "s1", State: protocol.SessionStateActive, LeaseUntil: now.Add(90 * time.Second), ServerTime: now})
+		case protocol.CommandClose:
+			return 0
+		}
+	}
+	return 0
+}
+
+// recordedHeartbeats parses the heartbeat commands a record-mode helper
+// wrote to path, in order; a missing file is none.
+func recordedHeartbeats(t *testing.T, path string) []protocol.WatchCommand {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var out []protocol.WatchCommand
+	for line := range bytes.SplitSeq(data, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var cmd protocol.WatchCommand
+		if err := json.Unmarshal(line, &cmd); err != nil {
+			t.Fatalf("recorded command is not JSON: %q", line)
+		}
+		if cmd.Type == protocol.CommandHeartbeat {
+			out = append(out, cmd)
+		}
+	}
+	return out
 }
 
 // helperAdapterArgv is the adapter_command that runs this test binary as

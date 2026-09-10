@@ -96,6 +96,12 @@ type ByPID struct {
 	// SocketPath is CLAUDE_CODE_MESSAGING_SOCKET as the hook saw it, or ""
 	// on a host without an inbox socket. The token is NOT here.
 	SocketPath string `json:"socket_path"`
+	// TranscriptPath is the native transcript path from the hook's stdin,
+	// read by the watcher for the model and context facts; it is never
+	// sent to any backend (T10). "" when the hook document carried none
+	// (or a relative one); omitted from the file then, so a map from
+	// before it existed still reads.
+	TranscriptPath string `json:"transcript_path,omitzero"`
 	// Profile is the resolved profile name.
 	TeamKey string `json:"team_key"`
 	// ConfigDir is the resolved absolute Brigade config directory.
@@ -121,7 +127,9 @@ type ByPID struct {
 // written or trusted: a positive pid, a Brigade session id, a valid
 // profile name, an absolute config dir, an inbound value this harness
 // implements (accept, hold or refuse), a well-formed adapter argv, an
-// absolute or empty socket path, and the frame members of P5-12 (a level
+// absolute or empty socket path, an absolute or empty transcript path (the
+// watcher opens it; a relative one would name a file relative to whatever
+// its cwd is), and the frame members of P5-12 (a level
 // among the four; a text only under custom, and then a non-empty one
 // within frame.MaxCustomBytes that passes frame.CheckClause). The failure
 // is `config` with details.field naming the member; the value is never
@@ -142,6 +150,8 @@ func (m *ByPID) Validate() error {
 		return errInvalid("adapter_command")
 	case m.SocketPath != "" && !filepath.IsAbs(m.SocketPath):
 		return errInvalid("socket_path")
+	case m.TranscriptPath != "" && !filepath.IsAbs(m.TranscriptPath):
+		return errInvalid("transcript_path")
 	case !frame.Level(m.FrameLevel).Valid():
 		return errInvalid("frame_level")
 	case m.FrameLevel != string(frame.LevelCustom) && m.FrameText != "":

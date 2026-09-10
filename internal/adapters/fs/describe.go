@@ -32,6 +32,8 @@ func capabilities() []string {
 		"session.resume",
 		"session.workspace_label",
 		"session.inbound",
+		"session.model",
+		"session.context_used_tokens",
 	}
 }
 

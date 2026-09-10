@@ -257,6 +257,96 @@ func TestInboundRoundTrip(t *testing.T) {
 	}
 }
 
+// TestModelAndContextUsedTokensRoundTrip covers C-44 (capabilities
+// session.model and session.context_used_tokens): both members survive
+// registration and a heartbeat, a heartbeat that carries neither leaves
+// the stored values standing — the harness never CLEARS them (4.4.4) —
+// a session that never reported either carries neither member at all, and
+// each is capped where 4.4.2 says. The values are stored exactly as sent:
+// this adapter neither derives nor checks them.
+func TestModelAndContextUsedTokensRoundTrip(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.team("alice", "ops")
+	record := func(want string) map[string]any {
+		t.Helper()
+		for _, entry := range mustSessions(t, r.ok("", "--profile", "alice", "session", "list")) {
+			if str(t, entry, "session_id") == want {
+				return entry
+			}
+		}
+		t.Fatalf("session %s is not listed", want)
+		return nil
+	}
+
+	result := r.ok(`{"harness":"h","harness_version":"1","session_name":"m","activity":"busy",`+
+		`"inbound":"accept","model":"claude-opus-5[1m]","context_used_tokens":189681}`,
+		"--profile", "alice", "session", "register")
+	id := str(t, result, "session_id")
+	if str(t, result, "model") != "claude-opus-5[1m]" || result["context_used_tokens"] != float64(189681) {
+		t.Fatalf("the register result dropped the two members: %v", result)
+	}
+	if listed := record(id); str(t, listed, "model") != "claude-opus-5[1m]" ||
+		listed["context_used_tokens"] != float64(189681) {
+		t.Fatalf("the registered values did not reach the record: %v", listed)
+	}
+
+	r.ok(`{"model":"claude-sonnet-5","context_used_tokens":2048}`,
+		"--profile", "alice", "session", "heartbeat", "--session", id)
+	if listed := record(id); str(t, listed, "model") != "claude-sonnet-5" ||
+		listed["context_used_tokens"] != float64(2048) {
+		t.Fatalf("the heartbeat did not apply the new values: %v", listed)
+	}
+
+	r.ok(`{"activity":"idle"}`, "--profile", "alice", "session", "heartbeat", "--session", id)
+	if listed := record(id); str(t, listed, "model") != "claude-sonnet-5" ||
+		listed["context_used_tokens"] != float64(2048) {
+		t.Fatalf("a heartbeat carrying neither member changed them: %v", listed)
+	}
+
+	quiet := r.register("alice", "quiet")
+	listed := record(quiet)
+	for _, key := range []string{"model", "context_used_tokens"} {
+		if _, present := listed[key]; present {
+			t.Fatalf("%s is present on a session that never reported one: %v", key, listed)
+		}
+	}
+}
+
+// TestModelAndContextUsedTokensCaps covers the C-44 refusals: a model of
+// exactly max_model_chars CODE POINTS is accepted and one past it is
+// invalid_input naming `model`, and a negative context_used_tokens is
+// invalid_input naming `context_used_tokens`. The probe is "é", two bytes
+// per code point, so a byte-counting cap would pass the over-cap value.
+func TestModelAndContextUsedTokensCaps(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.team("alice", "ops")
+	registerWith := func(extra string) string {
+		return `{"harness":"h","harness_version":"1","session_name":"caps","activity":"busy",` +
+			`"inbound":"accept",` + extra + `}`
+	}
+	at := strings.Repeat("é", protocol.MaxModelChars)
+	over := strings.Repeat("é", protocol.MaxModelChars+1)
+
+	r.ok(registerWith(`"model":"`+at+`"`), "--profile", "alice", "session", "register")
+	for _, probe := range []struct {
+		extra string
+		field string
+	}{
+		{`"model":"` + over + `"`, "model"},
+		{`"context_used_tokens":-1`, "context_used_tokens"},
+	} {
+		got := r.fails("invalid_input", 3, registerWith(probe.extra),
+			"--profile", "alice", "session", "register")
+		object, _ := decode(t, got.stdout)["error"].(map[string]any)
+		details, _ := object["details"].(map[string]any)
+		if details["field"] != probe.field {
+			t.Fatalf("details = %v, want field %q", details, probe.field)
+		}
+	}
+}
+
 // TestResumeKeepsTheInbox covers C-19: a closed session re-opens in place
 // with its pending messages, a foreign id is not_found and an unknown id
 // gives byte-identical JSON.

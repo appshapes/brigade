@@ -109,6 +109,7 @@ func (c *command) sessionRegister() (any, error) {
 	}
 	f.SessionName, f.Activity, f.Inbound = req.SessionName, req.Activity, req.Inbound
 	f.SessionDescription, f.WorkspaceLabel = req.SessionDescription, req.WorkspaceLabel
+	f.Model, f.ContextUsedTokens = req.Model, req.ContextUsedTokens
 	f.Harness, f.HarnessVersion = req.Harness, req.HarnessVersion
 	f.LeaseSeconds = seconds
 	f.LastSeenAt = now
@@ -183,6 +184,17 @@ func (s *store) heartbeat(team, principal, id string, req *protocol.HeartbeatReq
 	}
 	if req.LeaseSeconds != nil {
 		f.LeaseSeconds = *req.LeaseSeconds
+	}
+	// model and context_used_tokens follow the same absent-means-unchanged
+	// rule, and 4.4.4 adds that a harness never CLEARS them: it omits them
+	// and the stored values stand. A heartbeat that carries neither
+	// therefore leaves both exactly as the last one that did left them
+	// (C-44).
+	if req.Model != nil {
+		f.Model = req.Model
+	}
+	if req.ContextUsedTokens != nil {
+		f.ContextUsedTokens = req.ContextUsedTokens
 	}
 	now := s.now().UTC()
 	f.LastSeenAt = now

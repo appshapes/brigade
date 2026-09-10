@@ -47,6 +47,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -62,6 +63,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/registry"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/socketpost"
+	"github.com/appshapes/brigade/internal/harness/transcript"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -458,6 +460,19 @@ type watcher struct {
 	state    *shared
 	injector *injector
 
+	// transcript is the incremental reader of the session's native
+	// transcript (internal/harness/transcript), refreshed right before
+	// each heartbeat for the model and context facts it carries; nil
+	// while the map names no path. lastModel is the model value last
+	// heartbeated, for the one log line a change earns. Both are used
+	// by heartbeat() alone — the session's command writer — under
+	// transcriptMu, which exists because attempt's writerStopWait hang
+	// catcher lets a writer stalled on a child's full stdin pipe outlive
+	// its attempt, so two writers can briefly coexist.
+	transcriptMu sync.Mutex
+	transcript   *transcript.Reader
+	lastModel    string
+
 	// ctx ends with a signal, the Stop channel or a liveness verdict;
 	// cancel is what every exit path calls first.
 	ctx    context.Context
@@ -540,7 +555,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		pidPath:     pidfile.Path(rc.env.StateDir, rc.env.ClaudePID),
 		releasePath: inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
-			m.SessionName, m.Inbound),
+			m.SessionName, m.Inbound, m.TranscriptPath),
 	}
 	return w, 0, nil
 }

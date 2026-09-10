@@ -93,15 +93,28 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	now := inv.Deps.now()
 	lines := make([]string, 0, len(records)+2)
 	for _, r := range records {
-		line := columns(
+		fields := []string{
 			idLine(r.SessionID),
 			nameLine(r.SessionName),
 			labelLine(r.HumanLabel),
 			enumLine(r.State),
-			"inbound="+enumLine(r.Inbound),
-			"principal="+idLine(r.PrincipalRef),
-			seenAgo(r.LastSeenAt, list.ServerTime, now),
-		)
+			"inbound=" + enumLine(r.Inbound),
+			"principal=" + idLine(r.PrincipalRef),
+		}
+		// model and context_used_tokens are optional on the wire (4.4.3):
+		// a harness that reports neither, and an adapter without the two
+		// capabilities, leave the line exactly the shape it has always
+		// had, so the columns appear only for the sessions that have the
+		// facts. model is unverified text like session_name, capped and
+		// stripped of the attribute breakers by modelLine (4.5.11).
+		if r.Model != nil {
+			fields = append(fields, "model="+modelLine(*r.Model))
+		}
+		if r.ContextUsedTokens != nil {
+			fields = append(fields, "context="+tokensLine(*r.ContextUsedTokens))
+		}
+		fields = append(fields, seenAgo(r.LastSeenAt, list.ServerTime, now))
+		line := columns(fields...)
 		// The marker is keyed on the map's own id, not on the adapter's
 		// is_self: is_self is true for every session of this PROFILE (a
 		// second Claude window on the same profile included), while "this

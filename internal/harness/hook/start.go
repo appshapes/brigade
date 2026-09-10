@@ -49,10 +49,11 @@ func (r *run) sessionStart() int {
 	return 0
 }
 
-// refreshMap is the `source = compact` path: the session name and
-// updated_at are refreshed in the by-pid map, nothing else happens — the
-// frame members in particular are left as SessionStart froze them, so a
-// mid-session edit of a frame_file cannot take effect on /compact (P5-12).
+// refreshMap is the `source = compact` path: the session name, the
+// permission mode, the transcript path and updated_at are refreshed in the
+// by-pid map, nothing else happens — the frame members in particular are
+// left as SessionStart froze them, so a mid-session edit of a frame_file
+// cannot take effect on /compact (P5-12).
 func (r *run) refreshMap(f facts, in input) {
 	store := sessionmap.Store{StateDir: f.stateDir}
 	m, err := store.ReadByPID(f.pid)
@@ -64,6 +65,9 @@ func (r *run) refreshMap(f facts, in input) {
 	m.SessionName = id.name
 	if in.PermissionMode != "" {
 		m.PermissionMode = in.PermissionMode
+	}
+	if p := transcriptPath(in); p != "" {
+		m.TranscriptPath = p
 	}
 	m.UpdatedAt = r.deps.Now()
 	if err := store.WriteByPID(m); err != nil {
@@ -484,7 +488,10 @@ func (r *run) otherLiveWatcher(f facts, sessionID string) (int, bool) {
 // buildMap assembles the by-pid map from the resolved values (3.2). It
 // carries the RESOLVED profile, config dir, adapter command and frame
 // instruction (the level, and the folded text only under custom), never a
-// raw option, never the frame_file path, and never the token.
+// raw option, never the frame_file path, and never the token. The
+// transcript path is the document's own (absolute, else none): /clear
+// re-fires SessionStart with a new native session and a new transcript,
+// and this rewrite is how the watcher learns of it.
 func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, teamName string, registeredAt, now time.Time) *sessionmap.ByPID {
 	return &sessionmap.ByPID{
 		ClaudePID:        f.pid,
@@ -499,6 +506,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		FrameLevel:       string(res.instruction.Level),
 		FrameText:        res.instruction.Custom,
 		SocketPath:       f.socket,
+		TranscriptPath:   transcriptPath(in),
 		TeamKey:          res.teamKey,
 		ConfigDir:        res.opts.ConfigDir,
 		AdapterCommand:   res.argv,

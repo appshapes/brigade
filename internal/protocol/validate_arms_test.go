@@ -74,6 +74,10 @@ func TestDefaultsMatchThePlanExample(t *testing.T) {
 func TestValidationArms(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("€", MaxHumanLabelChars+1)
+	// A model one code point over max_model_chars, in a multi-byte
+	// character (the C-44 probe uses "é"): a byte counter would reject a
+	// legal 128-code-point value long before this one.
+	longModel := strings.Repeat("é", MaxModelChars+1)
 	base := validDescribe(t)
 	cases := []struct {
 		name  string
@@ -111,6 +115,17 @@ func TestValidationArms(t *testing.T) {
 			return &r
 		}},
 		{"registration workspace_label overlong", "workspace_label", func() Validator { r := validRegistration(); r.WorkspaceLabel = strptr(long); return &r }},
+		{"registration model overlong", "model", func() Validator { r := validRegistration(); r.Model = strptr(longModel); return &r }},
+		{"registration context_used_tokens negative", "context_used_tokens", func() Validator {
+			r := validRegistration()
+			r.ContextUsedTokens = intptr(-1)
+			return &r
+		}},
+		{"registration context_used_tokens beyond 2^53-1", "context_used_tokens", func() Validator {
+			r := validRegistration()
+			r.ContextUsedTokens = intptr(MaxContextUsedTokens + 1)
+			return &r
+		}},
 
 		{"record session_id", "session_id", func() Validator { r := validRecord(); r.SessionID = ""; return &r }},
 		{"record session_name", "session_name", func() Validator { r := validRecord(); r.SessionName = ""; return &r }},
@@ -132,6 +147,13 @@ func TestValidationArms(t *testing.T) {
 		{"record last_seen_at", "last_seen_at", func() Validator { r := validRecord(); r.LastSeenAt = time.Time{}; return &r }},
 		{"record lease_until", "lease_until", func() Validator { r := validRecord(); r.LeaseUntil = time.Time{}; return &r }},
 		{"record workspace_label overlong", "workspace_label", func() Validator { r := validRecord(); r.WorkspaceLabel = strptr(long); return &r }},
+		{"record model overlong", "model", func() Validator { r := validRecord(); r.Model = strptr(longModel); return &r }},
+		{"record context_used_tokens negative", "context_used_tokens", func() Validator { r := validRecord(); r.ContextUsedTokens = intptr(-1); return &r }},
+		{"record context_used_tokens beyond 2^53-1", "context_used_tokens", func() Validator {
+			r := validRecord()
+			r.ContextUsedTokens = intptr(MaxContextUsedTokens + 1)
+			return &r
+		}},
 		{"record created_at", "created_at", func() Validator { r := validRecord(); r.CreatedAt = time.Time{}; return &r }},
 
 		{"heartbeat activity", "activity", func() Validator { return &HeartbeatRequest{Activity: strptr("sprinting")} }},
@@ -144,6 +166,11 @@ func TestValidationArms(t *testing.T) {
 		}},
 		{"heartbeat inbound", "inbound", func() Validator { return &HeartbeatRequest{Inbound: strptr("maybe")} }},
 		{"heartbeat lease", "lease_seconds", func() Validator { return &HeartbeatRequest{LeaseSeconds: intptr(0)} }},
+		{"heartbeat model overlong", "model", func() Validator { return &HeartbeatRequest{Model: strptr(longModel)} }},
+		{"heartbeat context_used_tokens negative", "context_used_tokens", func() Validator { return &HeartbeatRequest{ContextUsedTokens: intptr(-1)} }},
+		{"heartbeat context_used_tokens beyond 2^53-1", "context_used_tokens", func() Validator {
+			return &HeartbeatRequest{ContextUsedTokens: intptr(MaxContextUsedTokens + 1)}
+		}},
 
 		{"heartbeat result session_id", "session_id", func() Validator {
 			return &HeartbeatResult{State: SessionStateActive, LeaseUntil: time.Now(), ServerTime: time.Now()}
@@ -234,6 +261,15 @@ func TestValidationArms(t *testing.T) {
 			return &WatchCommand{Type: CommandHeartbeat, SessionName: strptr(strings.Repeat("x", MaxSessionNameCodepoints+1))}
 		}},
 		{"watch command heartbeat inbound", "inbound", func() Validator { return &WatchCommand{Type: CommandHeartbeat, Inbound: strptr("maybe")} }},
+		{"watch command heartbeat model overlong", "model", func() Validator {
+			return &WatchCommand{Type: CommandHeartbeat, Model: strptr(longModel)}
+		}},
+		{"watch command heartbeat context_used_tokens negative", "context_used_tokens", func() Validator {
+			return &WatchCommand{Type: CommandHeartbeat, ContextUsedTokens: intptr(-1)}
+		}},
+		{"watch command heartbeat context_used_tokens beyond 2^53-1", "context_used_tokens", func() Validator {
+			return &WatchCommand{Type: CommandHeartbeat, ContextUsedTokens: intptr(MaxContextUsedTokens + 1)}
+		}},
 
 		{"error object code", "error.code", func() Validator { return &ErrorObject{Message: "x"} }},
 		{"error object message", "error.message", func() Validator { return &ErrorObject{Code: CodeInternal} }},

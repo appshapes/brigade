@@ -80,19 +80,27 @@ func registerLive(t *testing.T, r *rig, doc string) (map[string]any, string) {
 }
 
 // TestIntegrationSessionLifecycle: register, list, heartbeat and close
-// against the real RPCs (I-04, I-05, U-22, C-10..C-15, C-42). The record
-// validates as a SessionRecord, human_label comes from the membership
-// (C-12), the computed state follows activity and closure, and `inbound`
-// round-trips through registration and heartbeat.
+// against the real RPCs (I-04, I-05, U-22, C-10..C-15, C-42, C-44). The
+// record validates as a SessionRecord, human_label comes from the
+// membership (C-12), the computed state follows activity and closure, and
+// `inbound`, `model` and `context_used_tokens` round-trip through
+// registration and heartbeat — the last two exactly (the [1m] suffix kept,
+// the count as a number), and a heartbeat that omits them leaves them
+// standing (4.4.4).
 func TestIntegrationSessionLifecycle(t *testing.T) {
 	r, _ := liveTeam(t, liveName(t, "p2-8-lifecycle"))
 	name := liveName(t, "s")
 	doc := `{"harness":"brigade-test","harness_version":"0.0.0","session_name":"` + name +
-		`","activity":"busy","inbound":"hold","session_description":"d","workspace_label":"w"}`
+		`","activity":"busy","inbound":"hold","session_description":"d","workspace_label":"w",` +
+		`"model":"claude-opus-5[1m]","context_used_tokens":189681}`
 	result, id := registerLive(t, r, doc)
 
 	if resumed, _ := result["resumed"].(bool); resumed {
 		t.Errorf("session register: resumed true on a new session (4.4.2)")
+	}
+	if result["model"] != "claude-opus-5[1m]" || result["context_used_tokens"] != float64(189681) {
+		t.Errorf("session register: model %v, context_used_tokens %v, want claude-opus-5[1m] and 189681 (C-44)",
+			result["model"], result["context_used_tokens"])
 	}
 	if seconds, _ := result["lease_seconds"].(float64); int(seconds) != protocol.LeaseDefaultSeconds {
 		t.Errorf("lease_seconds = %v, want %d", result["lease_seconds"], protocol.LeaseDefaultSeconds)
@@ -129,6 +137,9 @@ func TestIntegrationSessionLifecycle(t *testing.T) {
 		if rec["session_description"] != "d" || rec["workspace_label"] != "w" {
 			t.Errorf("session list: description %v, workspace_label %v", rec["session_description"], rec["workspace_label"])
 		}
+		if rec["model"] != "claude-opus-5[1m]" || rec["context_used_tokens"] != float64(189681) {
+			t.Errorf("session list: model %v, context_used_tokens %v, want the registration's (C-44)", rec["model"], rec["context_used_tokens"])
+		}
 	}
 	if !found {
 		t.Fatalf("session list: the registered session is absent (%v)", list)
@@ -137,9 +148,10 @@ func TestIntegrationSessionLifecycle(t *testing.T) {
 		t.Errorf("session list: team_name is empty")
 	}
 
-	// heartbeat: renews, renames and changes inbound (C-13, C-42).
+	// heartbeat: renews, renames, changes inbound and reports a model switch
+	// with a new occupancy (C-13, C-42, C-44).
 	newName := liveName(t, "renamed")
-	got := r.exec(`{"session_name":"`+newName+`","inbound":"refuse","activity":"idle"}`,
+	got := r.exec(`{"session_name":"`+newName+`","inbound":"refuse","activity":"idle","model":"claude-sonnet-5","context_used_tokens":2048}`,
 		"session", "heartbeat", "--session", id)
 	if got.code != 0 {
 		t.Fatalf("session heartbeat: exit %d, %s", got.code, got.stdout)
@@ -156,6 +168,20 @@ func TestIntegrationSessionLifecycle(t *testing.T) {
 		rec, _ := s.(map[string]any)
 		if rec["session_id"] == id && (rec["session_name"] != newName || rec["inbound"] != protocol.InboundRefuse) {
 			t.Errorf("session list after heartbeat: name %v, inbound %v", rec["session_name"], rec["inbound"])
+		}
+		if rec["session_id"] == id && (rec["model"] != "claude-sonnet-5" || rec["context_used_tokens"] != float64(2048)) {
+			t.Errorf("session list after heartbeat: model %v, context_used_tokens %v, want claude-sonnet-5 and 2048 (C-44)", rec["model"], rec["context_used_tokens"])
+		}
+	}
+	// A heartbeat that omits both leaves them standing: absent means
+	// unchanged, and the harness never clears them (4.4.4, C-44).
+	if got := r.exec(`{"activity":"idle"}`, "session", "heartbeat", "--session", id); got.code != 0 {
+		t.Fatalf("session heartbeat (bare): exit %d, %s", got.code, got.stdout)
+	}
+	for _, s := range r.ok("session", "list")["sessions"].([]any) {
+		rec, _ := s.(map[string]any)
+		if rec["session_id"] == id && (rec["model"] != "claude-sonnet-5" || rec["context_used_tokens"] != float64(2048)) {
+			t.Errorf("session list after a bare heartbeat: model %v, context_used_tokens %v changed (4.4.4)", rec["model"], rec["context_used_tokens"])
 		}
 	}
 

@@ -218,7 +218,16 @@ func compositeChecks(t *testing.T) map[string]func(t *testing.T, where string, r
 				t.Errorf("%s: sessions is empty; the example should show a record", where)
 			}
 			for i, s := range list.Sessions {
-				validateTyped(t, where+" sessions["+strconv.Itoa(i)+"]", s, "SessionRecord", &protocol.SessionRecord{})
+				at := where + " sessions[" + strconv.Itoa(i) + "]"
+				validateTyped(t, at, s, "SessionRecord", &protocol.SessionRecord{})
+				// Like the register result above, a listed record shows the
+				// WHOLE SessionRecord, optional members included (the nullable
+				// ones as null), so a member added to the type — model and
+				// context_used_tokens, C-44 — cannot be left out of the 4.4.3
+				// example: Validate alone passes a record without them.
+				if got := topLevelMembers(t, s); !reflect.DeepEqual(got, recordMembers) {
+					t.Errorf("%s has members %v, want exactly the SessionRecord members %v", at, got, recordMembers)
+				}
 			}
 		},
 		// message receive result (4.4.5).

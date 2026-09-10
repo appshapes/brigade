@@ -214,6 +214,26 @@ func TestNullableMembersRoundTripWithValues(t *testing.T) {
 			fresh: func() Validator { return &SessionRecord{} },
 		},
 		{
+			// Zero is a value the comparator can see: an empty context is
+			// 0 on the wire, never pruned like a null.
+			name: "record with a zero context_used_tokens and no model",
+			doc: `{"session_id":"s1","session_name":"payments-api","principal_ref":"p1",` +
+				`"human_label":"alice@example.com","state":"idle","activity":"idle","inbound":"accept",` +
+				`"last_seen_at":"2026-08-30T12:00:00Z","lease_until":"2026-08-30T12:01:30Z",` +
+				`"context_used_tokens":0,"created_at":"2026-08-30T11:55:00Z","is_self":false}`,
+			fresh: func() Validator { return &SessionRecord{} },
+		},
+		{
+			name:  "heartbeat carrying only model and context_used_tokens",
+			doc:   `{"model":"claude-sonnet-5","context_used_tokens":2048}`,
+			fresh: func() Validator { return &HeartbeatRequest{} },
+		},
+		{
+			name:  "watch heartbeat command carrying only model and context_used_tokens",
+			doc:   `{"type":"heartbeat","model":"claude-sonnet-5","context_used_tokens":0}`,
+			fresh: func() Validator { return &WatchCommand{} },
+		},
+		{
 			name: "envelope with reply_to",
 			doc: `{"protocol_version":"1","kind":"text","message_id":"m2","team_ref":"t1",` +
 				`"sender":{"principal_ref":"p1","human_label":"alice@example.com","session_id":"s1","session_name":"payments-api"},` +

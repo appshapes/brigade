@@ -229,6 +229,7 @@ func (c *command) handleCommand(
 		req := &protocol.HeartbeatRequest{
 			Activity: cmd.Activity, SessionName: cmd.SessionName,
 			Inbound: cmd.Inbound, LeaseSeconds: cmd.LeaseSeconds,
+			Model: cmd.Model, ContextUsedTokens: cmd.ContextUsedTokens,
 		}
 		if verr := req.Validate(); verr != nil {
 			return c.watchRetryable(events, verr), false

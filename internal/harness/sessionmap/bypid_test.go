@@ -32,6 +32,7 @@ func validByPID() sessionmap.ByPID {
 		Inbound:          protocol.InboundAccept,
 		FrameLevel:       "open",
 		SocketPath:       "/tmp/cc-socks/4242.sock",
+		TranscriptPath:   "/home/u/.claude/projects/-home-u-work/beee3690-1111-4222-8333-444455556666.jsonl",
 		TeamKey:          "default",
 		ConfigDir:        "/home/u/.config/brigade",
 		AdapterCommand:   []string{"/opt/brigade/adapter-fs", "--root", "/srv/store"},
@@ -104,6 +105,11 @@ func TestByPIDValidate(t *testing.T) {
 		{name: "relative adapter executable", mutate: func(m *sessionmap.ByPID) { m.AdapterCommand = []string{"bin/" + evilMarker} }, wantField: "adapter_command"},
 		{name: "empty adapter argv element", mutate: func(m *sessionmap.ByPID) { m.AdapterCommand = []string{"/opt/a", ""} }, wantField: "adapter_command"},
 		{name: "relative socket path", mutate: func(m *sessionmap.ByPID) { m.SocketPath = evilMarker + ".sock" }, wantField: "socket_path"},
+		// The transcript path (T10): absolute or none; a relative one would
+		// have the watcher open a file relative to whatever its cwd is.
+		{name: "empty transcript path is valid (a hook document without one)", mutate: func(m *sessionmap.ByPID) { m.TranscriptPath = "" }},
+		{name: "relative transcript path", mutate: func(m *sessionmap.ByPID) { m.TranscriptPath = evilMarker + ".jsonl" }, wantField: "transcript_path"},
+		{name: "dot-relative transcript path", mutate: func(m *sessionmap.ByPID) { m.TranscriptPath = "./" + evilMarker }, wantField: "transcript_path"},
 		// P5-12: the frame members, brief 3.3's four rules.
 		{name: "frame level guarded is valid", mutate: func(m *sessionmap.ByPID) { m.FrameLevel = "guarded" }},
 		{name: "frame level strict is valid", mutate: func(m *sessionmap.ByPID) { m.FrameLevel = "strict" }},
@@ -151,11 +157,37 @@ func TestByPIDValidate(t *testing.T) {
 	}
 }
 
-// byPIDMembers is the 3.2 member list plus P5-12's two frame members, exactly.
+// byPIDMembers is the 3.2 member list plus P5-12's two frame members and
+// the transcript path the watcher reads for the model and context facts,
+// exactly.
 var byPIDMembers = []string{
 	"claude_pid", "claude_session_id", "brigade_session_id", "team_ref", "team_name", "session_name",
-	"permission_mode", "non_interactive", "inbound", "frame_level", "frame_text", "socket_path", "team_key", "config_dir", "adapter_command",
+	"permission_mode", "non_interactive", "inbound", "frame_level", "frame_text", "socket_path", "transcript_path", "team_key", "config_dir", "adapter_command",
 	"plugin_bin", "harness_version", "registered_at", "updated_at",
+}
+
+// TestTranscriptPathIsOmittedWhenEmpty: a map without a transcript path
+// carries no transcript_path member at all, so a file from before the
+// member existed and one written by a hook document without the path
+// look the same and both read.
+func TestTranscriptPathIsOmittedWhenEmpty(t *testing.T) {
+	t.Parallel()
+	m := validByPID()
+	m.TranscriptPath = ""
+	data, err := json.Marshal(&m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "transcript_path") {
+		t.Fatalf("an empty transcript path was written: %s", data)
+	}
+	var back sessionmap.ByPID
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.TranscriptPath != "" || back.Validate() != nil {
+		t.Fatalf("round trip: %+v", back)
+	}
 }
 
 func TestByPIDWireShapeIsExactlyThePlanListAndNeverATokenMember(t *testing.T) {

@@ -56,7 +56,7 @@ func TestSessionStartRegistersSession(t *testing.T) {
 	switch {
 	case m.ClaudePID != f.pid, m.ClaudeSessionID != f.nativeID, m.BrigadeSessionID != "brigade-sess-1",
 		m.TeamRef != teamRef, m.TeamName != teamName, m.SessionName != "payments-api", m.PermissionMode != "",
-		m.NonInteractive, m.Inbound != "accept", m.SocketPath != f.socket, m.TeamKey != f.teamKey,
+		m.NonInteractive, m.Inbound != "accept", m.SocketPath != f.socket, m.TranscriptPath != "/never/read.jsonl", m.TeamKey != f.teamKey,
 		m.ConfigDir != f.configDir, strings.Join(m.AdapterCommand, "\x00") != strings.Join(wantArgv, "\x00"),
 		m.PluginBin != f.pluginBin, m.HarnessVersion != "2.1.259", !m.RegisteredAt.Equal(fixedTime), !m.UpdatedAt.Equal(fixedTime):
 		t.Fatalf("map %+v", *m)
@@ -183,6 +183,82 @@ func TestRegistrationCarriesNoLocalFacts(t *testing.T) {
 	}
 }
 
+// TestTranscriptPathIsKeptForTheWatcherOnly (T10): the document's
+// transcript_path lands in the by-pid map when absolute and is dropped
+// when relative or absent; the registration carries no trace of it (the
+// two facts derived from the file are the watcher's to report); a
+// /compact or /clear document naming another absolute path refreshes it,
+// a relative one on /compact leaves it alone.
+func TestTranscriptPathIsKeptForTheWatcherOnly(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		path any // the document member; nil omits it
+		want string
+	}{
+		{"absolute path is kept", "/home/u/.claude/projects/-work/native-1.jsonl", "/home/u/.claude/projects/-work/native-1.jsonl"},
+		{"relative path is dropped", "projects/native-1.jsonl", ""},
+		{"empty path is dropped", "", ""},
+		{"absent member is none", nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.spawner.watcherPID = testutil.NewSleeper(t)
+			seam := f.useSeam(map[string][]fakeadapter.Response{
+				"session register":  {okResp(registerDoc("brigade-sess-1", "payments-api", false))},
+				"session heartbeat": {okResp(heartbeatDoc())},
+			})
+			doc := map[string]any{"session_id": f.nativeID, "cwd": f.cwd, "hook_event_name": "SessionStart", "source": "startup", "session_title": "payments-api"}
+			if tc.path != nil {
+				doc["transcript_path"] = tc.path
+			}
+			if exit, out, _ := f.run(SubSessionStart, f.doc(doc)); exit != 0 || !strings.Contains(out, "(brigade-sess-1)") {
+				t.Fatalf("exit %d out %q", exit, out)
+			}
+			if m := f.mustMap(); m.TranscriptPath != tc.want {
+				t.Fatalf("map transcript_path %q, want %q", m.TranscriptPath, tc.want)
+			}
+			raw := seam.callsFor("session register")[0].Stdin
+			if strings.Contains(string(raw), "transcript") || strings.Contains(string(raw), "native-1.jsonl") || strings.Contains(string(raw), "model") {
+				t.Fatalf("the registration carries the transcript: %s", raw)
+			}
+			// /compact with another absolute path refreshes the map, no
+			// network; a relative one leaves the value alone.
+			f.now = fixedTime.Add(time.Minute)
+			doc["source"], doc["transcript_path"] = "compact", "/home/u/.claude/projects/-work/native-1.compacted.jsonl"
+			if exit, out, _ := f.run(SubSessionStart, f.doc(doc)); exit != 0 || out != "" {
+				t.Fatalf("compact: exit %d out %q", exit, out)
+			}
+			if m := f.mustMap(); m.TranscriptPath != "/home/u/.claude/projects/-work/native-1.compacted.jsonl" || !m.UpdatedAt.Equal(f.now) {
+				t.Fatalf("map after compact %+v", *m)
+			}
+			doc["transcript_path"] = "relative.jsonl"
+			if exit, _, _ := f.run(SubSessionStart, f.doc(doc)); exit != 0 {
+				t.Fatal(exit)
+			}
+			if m := f.mustMap(); m.TranscriptPath != "/home/u/.claude/projects/-work/native-1.compacted.jsonl" {
+				t.Fatalf("a relative path on compact changed the map: %q", m.TranscriptPath)
+			}
+			// /clear: a new native session and transcript; the rewritten
+			// map carries the new path (the watcher picks it up from there).
+			f.nativeID = "d2c72366-0000-4000-8000-000000000002"
+			doc["session_id"], doc["source"], doc["transcript_path"] = f.nativeID, "clear", "/home/u/.claude/projects/-work/native-2.jsonl"
+			if exit, out, _ := f.run(SubSessionStart, f.doc(doc)); exit != 0 || !strings.Contains(out, "(brigade-sess-1)") {
+				t.Fatalf("clear: exit %d out %q", exit, out)
+			}
+			if m := f.mustMap(); m.TranscriptPath != "/home/u/.claude/projects/-work/native-2.jsonl" || m.ClaudeSessionID != f.nativeID {
+				t.Fatalf("map after clear %+v", *m)
+			}
+			for _, c := range seam.calls {
+				if strings.Contains(string(c.Stdin), ".jsonl") {
+					t.Fatalf("an adapter call carries the transcript path: %s", c.Stdin)
+				}
+			}
+		})
+	}
+}
+
 // TestCompactRefreshesMapOnly: `source = compact` re-resolves the name
 // and rewrites updated_at, with no adapter call, no spawn and no output.
 func TestCompactRefreshesMapOnly(t *testing.T) {
@@ -230,7 +306,7 @@ func TestClearKeepsSessionAndHeartbeats(t *testing.T) {
 	f.spawner.watcherPID = watcher
 	seam := f.useSeam(map[string][]fakeadapter.Response{
 		"session register":  {okResp(registerDoc("brigade-sess-1", "payments-api", false))},
-		"session heartbeat": {okResp(heartbeatDoc("brigade-sess-1"))},
+		"session heartbeat": {okResp(heartbeatDoc())},
 	})
 	if exit, _, _ := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
 		t.Fatal(exit)
@@ -251,6 +327,11 @@ func TestClearKeepsSessionAndHeartbeats(t *testing.T) {
 	}
 	if hb.SessionName == nil || *hb.SessionName != "payments-api" || hb.Activity == nil || *hb.Activity != "busy" || hb.Inbound == nil || *hb.Inbound != "accept" {
 		t.Fatalf("heartbeat %+v", hb)
+	}
+	// The hook never reads the transcript: the model and context members
+	// are the watcher's alone.
+	if hb.Model != nil || hb.ContextUsedTokens != nil {
+		t.Fatalf("the hook's heartbeat carries transcript facts: %+v", hb)
 	}
 	m := f.mustMap()
 	if m.BrigadeSessionID != "brigade-sess-1" || m.ClaudeSessionID != f.nativeID || !m.RegisteredAt.Equal(fixedTime) || !m.UpdatedAt.Equal(f.now) {
@@ -290,7 +371,7 @@ func TestClearRespawnsWhenCoordinatesChange(t *testing.T) {
 			f.spawner.watcherPID = old
 			seam := f.useSeam(map[string][]fakeadapter.Response{
 				"session register":  {okResp(registerDoc("brigade-sess-1", "payments-api", false))},
-				"session heartbeat": {okResp(heartbeatDoc("brigade-sess-1"))},
+				"session heartbeat": {okResp(heartbeatDoc())},
 			})
 			if exit, _, _ := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
 				t.Fatal(exit)

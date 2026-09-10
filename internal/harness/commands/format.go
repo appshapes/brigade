@@ -75,6 +75,26 @@ func attrLine(s string) string { return oneLine(protocol.SanitizeAttribute(s)) }
 // validated it against a closed set, so this is belt and braces.
 func enumLine(s string) string { return oneLine(protocol.SanitizeAttribute(s)) }
 
+// modelLine sanitises a harness-reported model identity for the human
+// form exactly as nameLine does a session name: the 6.7 rules 1-3 with
+// the 128-code-point cap of 4.5.11 (every tag-like `<` neutralised, so the
+// value can open no tag), folded onto one line. It is text a remote
+// harness derived from its own transcript — unverified, like the name
+// beside it — and it gets the same treatment, no more and no less.
+func modelLine(s string) string { return oneLine(protocol.SanitizeModel(s)) }
+
+// tokensLine renders a context occupancy for the human form: exact below
+// a thousand, otherwise thousands rounded to the nearest (189681 ->
+// "190k", 1500 -> "2k", 999 -> "999"). The column is an at-a-glance
+// figure in a line that already carries six others; the --json form
+// carries the integer the adapter returned.
+func tokensLine(n int) string {
+	if n < 1000 {
+		return strconv.Itoa(n)
+	}
+	return strconv.Itoa((n+500)/1000) + "k"
+}
+
 // seenAgo renders the "seen <n>s ago" column from the adapter's own clock
 // (server_time), so the age is stable for a given result and never depends
 // on the local clock; a zero server time falls back to now.
@@ -113,6 +133,13 @@ func sanitizeRecord(r *protocol.SessionRecord) {
 	if r.WorkspaceLabel != nil {
 		l := protocol.SanitizeLabel(*r.WorkspaceLabel)
 		r.WorkspaceLabel = &l
+	}
+	// model is unverified harness-reported text like human_label (4.5.11),
+	// so it is sanitised in both forms; context_used_tokens is an integer
+	// the wire validation already bounded, so there is nothing to sanitise.
+	if r.Model != nil {
+		m := protocol.SanitizeModel(*r.Model)
+		r.Model = &m
 	}
 }
 

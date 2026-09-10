@@ -18,37 +18,43 @@ import (
 // shared is the state the event loop, the liveness tick and the injector
 // read and write: the socket target (the registry may move it), the
 // session name and activity (the registry: /rename, busy/idle), the
-// inbound policy (the by-pid map).
+// inbound policy and the transcript path (the by-pid map).
 type shared struct {
 	mu       sync.Mutex
 	target   socketpost.Target
 	name     string
 	activity string
 	inbound  string
-	flip     bool // an activity change the next tick must heartbeat at once
+	// transcriptPath is the map's transcript_path, "" when it carries
+	// none: the file the command writer reads for the heartbeat's model
+	// and context facts. It is local state and never logged.
+	transcriptPath string
+	flip           bool // an activity change the next tick must heartbeat at once
 }
 
-func newShared(target socketpost.Target, name, inbound string) *shared {
+func newShared(target socketpost.Target, name, inbound, transcriptPath string) *shared {
 	return &shared{
-		target:   target,
-		name:     name,
-		activity: protocol.ActivityIdle,
-		inbound:  inbound,
+		target:         target,
+		name:           name,
+		activity:       protocol.ActivityIdle,
+		inbound:        inbound,
+		transcriptPath: transcriptPath,
 	}
 }
 
 // snapshot copies the shared state under the lock.
 type sharedSnapshot struct {
-	target   socketpost.Target
-	name     string
-	activity string
-	inbound  string
+	target         socketpost.Target
+	name           string
+	activity       string
+	inbound        string
+	transcriptPath string
 }
 
 func (s *shared) snapshot() sharedSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return sharedSnapshot{target: s.target, name: s.name, activity: s.activity, inbound: s.inbound}
+	return sharedSnapshot{target: s.target, name: s.name, activity: s.activity, inbound: s.inbound, transcriptPath: s.transcriptPath}
 }
 
 // takeFlip reports and clears a pending activity flip.
@@ -94,8 +100,8 @@ func (w *watcher) checkLiveness() string {
 
 // refreshMap re-reads the by-pid map: gone → "map_gone"; another session
 // or profile → "map_mismatch"; otherwise the inbound policy, the frame
-// instruction and the team name are applied. Any other read failure is
-// logged and the last values stand.
+// instruction, the name and the transcript path are applied. Any other
+// read failure is logged and the last values stand.
 func (w *watcher) refreshMap() string {
 	m, err := w.store.ReadByPID(w.rc.env.ClaudePID)
 	switch {
@@ -131,6 +137,13 @@ func (w *watcher) refreshMap() string {
 	w.state.inbound = pol.String()
 	if w.state.name == "" && m.SessionName != "" {
 		w.state.name = m.SessionName
+	}
+	// /clear gives the session a new native transcript and the hook
+	// rewrites the map with its path; the next heartbeat's facts come
+	// from the new file. Logged without the path (T10).
+	if m.TranscriptPath != w.state.transcriptPath {
+		w.log.Info("transcript path updated from the by-pid map", slog.Bool("present", m.TranscriptPath != ""))
+		w.state.transcriptPath = m.TranscriptPath
 	}
 	w.state.mu.Unlock()
 	return ""
@@ -176,4 +189,13 @@ func (w *watcher) refreshRegistry() {
 // cap), then every run of whitespace folded to one space.
 func oneLineName(raw string) string {
 	return strings.Join(strings.Fields(protocol.SanitizeName(raw)), " ")
+}
+
+// oneLineModel sanitises a transcript model identity for the heartbeat
+// the same way: protocol.SanitizeModel (the pipeline with the
+// max_model_chars cap of 4.4.1), then whitespace folded to one space, so
+// what travels as `model` is one line that passes 4.4.4's rules whatever
+// the transcript held.
+func oneLineModel(raw string) string {
+	return strings.Join(strings.Fields(protocol.SanitizeModel(raw)), " ")
 }

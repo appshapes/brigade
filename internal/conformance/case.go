@@ -23,7 +23,7 @@ func TagCap(capability string) string { return capTagPrefix + capability }
 // A Case is one conformance case. The cases package builds one per plan
 // row; Run selects and executes them in the order given.
 type Case struct {
-	// ID is the plan id: "C-01" … "C-43", "C-03b", "C-19b", "C-29b".
+	// ID is the plan id: "C-01" … "C-44", "C-03b", "C-19b", "C-29b".
 	ID string
 	// Rule is the 9.2 rule column, e.g. "4.5.3 ack idempotent"; it is the
 	// text after the duration in the human table.

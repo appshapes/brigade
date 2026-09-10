@@ -120,6 +120,15 @@ func SanitizeDescription(s string) string {
 	return truncateRunes(Sanitize(s), MaxDescriptionChars)
 }
 
+// SanitizeModel sanitises a harness-reported model identity (`model`,
+// 4.4.2-4.4.4): rules 1-3 with the MaxModelChars code-point cap. The
+// value is unverified text like human_label — a harness derives it from
+// its own transcript and an adapter stores it as sent — so every display
+// of it, `sessions` included, goes through here (4.5.11).
+func SanitizeModel(s string) string {
+	return truncateRunes(Sanitize(s), MaxModelChars)
+}
+
 // SanitizeAttribute sanitises a value destined for a tag attribute in
 // the injected frame (rule 4): rules 1-2, then '"', '<', '>' and
 // newlines are dropped so the value can neither escape its quotes nor

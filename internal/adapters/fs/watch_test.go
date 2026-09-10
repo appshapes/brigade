@@ -217,7 +217,12 @@ func TestWatchStdinCommands(t *testing.T) {
 		t.Fatalf("acked event = %v", event)
 	}
 
-	w.send(`{"type":"heartbeat","activity":"idle","session_name":"renamed","lease_seconds":120}`)
+	// The stdin heartbeat carries the same members `session heartbeat` does,
+	// model and context_used_tokens included (4.4.9, C-44); the assertion
+	// that they reached the store is below, once the watch has let the lock
+	// go.
+	w.send(`{"type":"heartbeat","activity":"idle","session_name":"renamed","lease_seconds":120,` +
+		`"model":"claude-opus-5[1m]","context_used_tokens":189681}`)
 	event = w.next()
 	if event["event"] != protocol.EventHeartbeatOK || event["state"] != protocol.SessionStateIdle {
 		t.Fatalf("event = %v, want heartbeat_ok", event)
@@ -236,11 +241,20 @@ func TestWatchStdinCommands(t *testing.T) {
 		!strings.Contains(w.stderr.String(), "line_too_long") {
 		t.Fatalf("stderr did not log the skipped lines: %s", w.stderr.String())
 	}
-	// `close` closed the session as `session close` would.
+	// `close` closed the session as `session close` would, and the stdin
+	// heartbeat applied model and context_used_tokens as `session
+	// heartbeat` would.
 	listed := mustSessions(t, r.ok("", "--profile", "bob", "session", "list", "--include-offline"))
 	for _, entry := range listed {
-		if str(t, entry, "session_id") == bob && str(t, entry, "state") != protocol.SessionStateOffline {
+		if str(t, entry, "session_id") != bob {
+			continue
+		}
+		if str(t, entry, "state") != protocol.SessionStateOffline {
 			t.Fatalf("the close command did not close the session: %v", entry)
+		}
+		if str(t, entry, "model") != "claude-opus-5[1m]" ||
+			entry["context_used_tokens"] != float64(189681) {
+			t.Fatalf("the stdin heartbeat did not apply model and context_used_tokens: %v", entry)
 		}
 	}
 	// The acknowledged message is gone for good.
