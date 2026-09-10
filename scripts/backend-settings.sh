@@ -36,9 +36,11 @@
 #
 # Credentials: the access token is a bearer credential for the whole run, so it reaches curl through a 0600
 # header file (`-H @<file>`) and never on argv -- `ps` and any debug log see argv (CLAUDE.md). No response body
-# is ever printed: the postgrest GET carries `jwt_secret` and the auth GET carries ~24 `external_*_secret`
-# fields, `smtp_pass`, `sms_vonage_api_secret`, `nimbus_oauth_client_secret` and five `hook_*_secrets` arrays.
-# Only the named scalar fields this script compares are ever read out of a body, through a jq allow-list.
+# is ever printed: the auth GET carries ~24 `external_*_secret` fields, `smtp_pass`, `sms_vonage_api_secret`,
+# `nimbus_oauth_client_secret` and five `hook_*_secrets` arrays. (The postgrest GET used to carry `jwt_secret`
+# too; measured 2026-09-10 it is absent for a personal access token, part of the same platform change that
+# broke `supabase link` -- do not rely on either state.) Only the named scalar fields this script compares are
+# ever read out of a body, through a jq allow-list.
 #
 # Exit: 0 when every field ends at its target (or would, under --dry-run); non-zero on an HTTP failure, a
 # missing token, or a read-back that does not match.

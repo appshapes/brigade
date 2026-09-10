@@ -455,7 +455,7 @@ target; *human* = documented for a person (README/CLAUDE.md/plan); *script* = in
 | | `supabase-env:410` | write .env.test in both name sets | **CI:100**, human |
 | | `supabase-reset:425` | recreate from migrations + seed | human |
 | | `migration-new:429` | create a timestamped migration | human |
-| Supabase (hosted) | `supabase-link:435`, `supabase-push-dry:439`, `supabase-push:443`, `supabase-config-push:447` | link / dry-run / apply / push config | standalone since P5-1 (`backend-install` inlines link → dry-run → push → `scripts/backend-settings.sh` → `migration list` → `api-keys`; `supabase-config-push` refuses without `i_know=1`); human; `deploy-staging` uses the raw `supabase` CLI (`ci.yml:144-145`), **not** these |
+| Supabase (hosted) | `supabase-link:435`, `supabase-push-dry:439`, `supabase-push:443`, `supabase-config-push:447` | link / dry-run / apply / push config | standalone since P5-1 (`backend-install` inlines dry-run → push → `scripts/backend-settings.sh` → `migration list` → filtered `api-keys`, each with `--project-ref`; the `link` step was removed 2026-09-10 when Supabase stopped revealing the legacy `service_role` key to a PAT and `supabase-link` broke upstream; `supabase-config-push` refuses without `i_know=1`); human; `deploy-staging` uses the raw `supabase` CLI (`ci.yml:144-145`), **not** these |
 | | `backend-install:451` | one-shot hosted setup for a team admin | human (Phase 5, `docs/setup.md`) |
 | Git | `pull:457`, `commit:461`, `push:466` | plain merge; gate+commit; +push | human; `release-prep.sh:140` calls `make push` |
 | Docker | `docker-build:472`, `docker-exec:476`, `docker-stop:480`, `docker-up:484` | `docker compose …` | **NOTHING — see below** |

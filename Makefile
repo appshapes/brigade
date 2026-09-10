@@ -435,8 +435,13 @@ migration-new: ## Create supabase/migrations/<timestamp>_$(name).sql (usage: mak
 
 # ========== Supabase (hosted project; needs SUPABASE_ACCESS_TOKEN) ==========
 
+# `link` is BROKEN platform-side since about 2026-09-05 and nothing in this repository needs it any more: it
+# reveals the legacy service_role key, which Supabase no longer hands to a personal access token, so it dies on
+# `LegacyLinkAuthTokenError` for every project and every token (measured 2026-09-10 on CLI 2.116.0 and 2.117.0).
+# Kept only because a linked checkout is still what the bare `supabase-push*` targets below read. Prefer
+# `make backend-install project=<ref>`, or pass --project-ref yourself.
 .PHONY: supabase-link
-supabase-link: ## Link a hosted project (usage: make supabase-link project=<ref>)
+supabase-link: ## Link a hosted project -- BROKEN upstream; use backend-install or --project-ref (usage: make supabase-link project=<ref>)
 	$(supabase) link --project-ref $(project)
 
 .PHONY: supabase-push-dry
@@ -471,10 +476,23 @@ supabase-config-push: ## DANGEROUS against a production project -- read the comm
 	  exit 1; }
 	$(supabase) config push
 
-# P5-1. Requires SUPABASE_ACCESS_TOKEN in the environment (a personal access token; NEVER a file path, never
-# argv, never a repository secret of the keep-alive). The database password is NOT needed: on CLI 2.116.0
-# SUPABASE_DB_PASSWORD is a no-op for `link`, and `db push --linked` mints a temporary login role through the
-# Management API with the access token (measured on the hosted project, P5-1: "Initialising login role...").
+# P5-1, repaired 2026-09-10. Requires SUPABASE_ACCESS_TOKEN in the environment (a personal access token; NEVER
+# a file path, never argv, never a repository secret of the keep-alive). The database password is NOT needed:
+# every command below passes --project-ref and `db push` mints a temporary login role through the Management
+# API with the access token ("Initialising login role...", POST /v1/projects/<ref>/cli/login-role).
+#
+# NO `link` STEP, and that is not a simplification: `link` is BROKEN against every project and every token.
+# Measured 2026-09-10 on CLI 2.116.0 AND 2.117.0 -- `link` fetches GET /v1/projects/<ref>/api-keys?reveal=true
+# to read the legacy service_role key, Supabase now refuses that reveal to personal access tokens, and the
+# command dies on `LegacyLinkAuthTokenError: ... does not have the necessary privileges`. The proof that this
+# is a platform change and not a token problem: the token that deployed wmgtaraqmoufmrnyojzf on 2026-09-05
+# fails this way today against that same project. Brigade never needed `link` -- it writes only
+# supabase/.temp/, and `db push` / `migration list` take --project-ref directly.
+#
+# `projects api-keys` prints EVERY key, including the legacy service_role JWT, so its output is filtered to the
+# publishable key here: that value is the only one a team member ever receives, and the service-role key must
+# never reach a terminal or a CI log (CLAUDE.md).
+#
 # Idempotent: every settings call reads before it writes and reads back after. `dry=1` stops after the dry run
 # and prints the settings diffs without applying anything.
 # NOT `config push` -- see the comment on supabase-config-push above for the measurement that rules it out.
@@ -483,12 +501,11 @@ supabase-config-push: ## DANGEROUS against a production project -- read the comm
 .PHONY: backend-install
 backend-install: ## One-shot hosted backend setup (usage: make backend-install project=<ref> [dry=1])
 	@test -n "$(project)" || { echo 'usage: make backend-install project=<ref> [dry=1]' >&2; exit 1; }
-	$(supabase) link --project-ref $(project)
-	$(supabase) db push --dry-run
-	[ -n "$(dry)" ] || $(supabase) db push --yes
+	$(supabase) db push --dry-run --project-ref $(project)
+	[ -n "$(dry)" ] || $(supabase) db push --yes --project-ref $(project)
 	scripts/backend-settings.sh $(project) $(if $(dry),--dry-run,)
-	$(supabase) migration list --linked
-	$(supabase) projects api-keys --project-ref $(project)   # no --reveal: the publishable key only
+	$(supabase) migration list --project-ref $(project)
+	$(supabase) projects api-keys --project-ref $(project) --output json | jq -r '(if type == "array" then . else .keys end)[] | select(.type == "publishable") | "publishable key: " + .api_key'
 
 # ========== Git ==========
 

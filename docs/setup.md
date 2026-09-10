@@ -108,6 +108,17 @@ join that project's team. The administrator writes the file once with `team crea
 
 ## Administrator: create a team
 
+**The whole path, in order** — the sections below are not in this order, so this is the list to follow:
+
+1. Create the Supabase project ("Hosted project: the administrator's responsibilities", section 0).
+2. Deploy the backend into it: `make backend-install project=<ref>` (same chapter, section 1). **This must
+   happen before step 3** — `team create` writes to a project that already has the migrations and the exposed
+   `brigade` schema.
+3. `brigade team create …` in the project checkout (this section), then commit `.brigade.json`.
+4. Send each member the secret file; they run `/brigade:join` ("Member: join a team").
+5. If the project is on the Free plan, arm a keep-alive for it or it pauses after about 7 days (same chapter,
+   sections 2 and 3). One keep-alive workflow serves one project.
+
 The bundled adapter keeps a team in a Supabase project. Create a **single-purpose** project for it: put nothing
 else in that project, because anyone who can read its database can read every message. The settings the project
 needs are listed in [plugin/README.md](../plugin/README.md), "Administrator: create a team", and
@@ -482,40 +493,78 @@ see [docs/security.md](security.md), "Running a team, and losing the ability to"
 
 ## Hosted project: the administrator's responsibilities
 
+### 0. Creating the project
+
+Only these are fixed when the project is created; everything else Brigade needs is applied afterwards by
+`make backend-install`, which is idempotent and reads every field back.
+
+- **Region** — the one choice that **cannot be changed later**. Put it near the people who will use it.
+- **Postgres** — the current default (17, `ga` release channel) is right; Brigade pins nothing.
+- **Database password** — generate one and don't bother recording it. Nothing in this document uses it, and it
+  can be reset from the dashboard at any time.
+- **Enable Data API** — **on**, and leave its exposed-schema list at the default `public`. **Do not add
+  `brigade` here.** The schema does not exist until the migrations run, and a project exposing a schema that is
+  not there leaves PostgREST looping on `3F000 schema "brigade" does not exist`, never turning healthy, with an
+  error that names PostgREST rather than the cause (E0-1). `scripts/backend-settings.sh` appends `brigade`
+  *after* the push, which is why the order in section 1 is not negotiable.
+- **Automatically expose new tables** — off, though it does not matter: `20260830120000_brigade_schema.sql`
+  issues `revoke all on all tables in schema brigade` after creating them and then grants exactly what it
+  wants, so whatever this sets is overwritten. Off matches the intent — `join_attempts` is deliberately
+  server-only, with no grants and no policies.
+- **Enable automatic RLS** — on, equally redundant: the same migration enables row-level security explicitly on
+  all five tables.
+
+Free plan allows two active projects per organization. A Brigade project must be **single-purpose**: anyone who
+can read its database can read every message on the team.
+
 ### 1. Deploying the backend
 
 Everything a Brigade team needs lives in one single-purpose Supabase project: a handful of tables and the RPCs
 that are the only write path into them, in a schema called `brigade`, exposed on the Data API, with Realtime
-restricted to private channels. Deploying it is five commands and takes a few seconds.
+restricted to private channels. Deploying it is **one command** and takes a few seconds.
 
 You need a **personal access token** (Account → Access Tokens in the dashboard, `sbp_…`) in
-`SUPABASE_ACCESS_TOKEN`. You do **not** need the database password. The CLI has a `--password` flag on both
-commands below, which makes everyone assume otherwise, but on CLI 2.116.0 `SUPABASE_DB_PASSWORD` is accepted and
-ignored by `link`, and `db push --linked` mints a temporary login role for itself through the Management API
-using the access token — the push prints `Initialising login role...` when it does. A personal access token
-alone deploys the whole schema.
+`SUPABASE_ACCESS_TOKEN`. A token scoped to the one project is enough — measured 2026-09-10 deploying
+`thinktech-brigade` end to end with a fine-grained token holding no organization access at all. You do **not**
+need the database password, and you do **not** need `supabase login`: `db push --project-ref <ref>` mints a
+temporary login role for itself through the Management API using the access token, printing
+`Initialising login role...` when it does.
 
 Paste the token at a prompt rather than typing it on a command line, so it never reaches your shell history
-(`read -s` is bash and zsh; `npx supabase login` is the interactive alternative):
+(`read -s` is bash and zsh):
 
 ```sh
 read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN   # paste sbp_…; nothing is echoed
-npx --yes supabase@2.116.0 link --project-ref <ref>           # writes only supabase/.temp/, which is gitignored
-npx --yes supabase@2.116.0 db push --dry-run                  # lists the migrations that are not applied yet
-npx --yes supabase@2.116.0 db push --yes
-scripts/backend-settings.sh <ref>                             # the settings below, one field at a time
-npx --yes supabase@2.116.0 migration list --linked            # every version on BOTH sides
-```
-
-or, as one command:
-
-```sh
 make backend-install project=<ref>          # add dry=1 to stop after the dry run and only print the diffs
 ```
 
-`migration list --linked` is the check: every migration in `supabase/migrations/` must appear in both the
+which is these five, if you would rather run them one at a time:
+
+```sh
+npx --yes supabase@2.116.0 db push --dry-run --project-ref <ref>   # the migrations not applied yet
+npx --yes supabase@2.116.0 db push --yes --project-ref <ref>
+scripts/backend-settings.sh <ref>                                  # the settings below, one field at a time
+npx --yes supabase@2.116.0 migration list --project-ref <ref>      # every version on BOTH sides
+npx --yes supabase@2.116.0 projects api-keys --project-ref <ref>   # prints EVERY key -- see the warning below
+```
+
+**There is no `link` step, and adding one will fail.** `supabase link` reads the project's legacy
+`service_role` key through `GET /v1/projects/<ref>/api-keys?reveal=true`; Supabase no longer hands that reveal
+to a personal access token, so `link` dies on
+`LegacyLinkAuthTokenError: … does not have the necessary privileges` — for **every** project and **every**
+token, on CLI 2.116.0 and 2.117.0 alike (measured 2026-09-10). That this is a platform change rather than a
+token problem was settled by re-running `link` against `wmgtaraqmoufmrnyojzf` with the very token that deployed
+it on 2026-09-05: it fails today, on the project it already built. Brigade never needed `link` — it writes only
+`supabase/.temp/`, and every command above takes `--project-ref` directly.
+
+**`projects api-keys` prints every key, the legacy `service_role` JWT included.** Only the publishable key is
+ever handed to a team member. `make backend-install` filters its output down to that one line for exactly this
+reason; if you run the command by hand, do not paste its output anywhere.
+
+`migration list` is the check: every migration in `supabase/migrations/` must appear in both the
 `Local` and the `Remote` column, in version order, with no one-sided row. `db push --dry-run` before it is the
-gate (`make supabase-push-dry` runs the same dry run against the linked project) — it names the migrations that
+gate (`make supabase-push-dry` runs the same dry run against the linked project, which needs a
+`link` that no longer works; prefer `make backend-install project=<ref> dry=1`) — it names the migrations that
 are **not applied yet**, which on a first deployment is every file under
 `supabase/migrations/` and on a later run is only what is still pending (an empty list means the project is
 already up to date). If it names a file you do not recognise, stop and find out why before pushing.

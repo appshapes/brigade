@@ -628,8 +628,9 @@ func TestBackendSettingsScriptIsExecutableAndParses(t *testing.T) {
 }
 
 // TestBackendSettingsMakefileAgrees joins the script to the target that runs it: `make backend-install` must
-// call it, must NOT call `config push`, and the standalone `supabase-config-push` target must refuse without
-// i_know=1. A P5-1 that left `config push` in the chain is exactly the regression this row exists to catch.
+// call it, must NOT call `config push` or `link`, must not print unfiltered `api-keys` output, and the
+// standalone `supabase-config-push` target must refuse without i_know=1. A P5-1 that left `config push` in the
+// chain is exactly the regression this row exists to catch.
 func TestBackendSettingsMakefileAgrees(t *testing.T) {
 	t.Parallel()
 	//nolint:gosec // G304: the repository's own Makefile
@@ -645,12 +646,22 @@ func TestBackendSettingsMakefileAgrees(t *testing.T) {
 	chain := mk[at:]
 	for _, want := range []string{
 		"scripts/backend-settings.sh $(project)",
-		"$(supabase) db push --dry-run",
-		"$(supabase) migration list --linked",
+		"$(supabase) db push --dry-run --project-ref $(project)",
+		"$(supabase) migration list --project-ref $(project)",
 	} {
 		if !strings.Contains(chain, want) {
 			t.Errorf("backend-install does not run %q", want)
 		}
+	}
+	// Repaired 2026-09-10: `link` reveals the legacy service_role key, Supabase no longer hands that to a
+	// personal access token, and the command dies on LegacyLinkAuthTokenError for every project and every
+	// token (CLI 2.116.0 and 2.117.0). Nothing in the chain may reach for it again.
+	if strings.Contains(chain, "$(supabase) link") {
+		t.Errorf("backend-install runs `link`, which is broken upstream and was never needed:\n%s", chain)
+	}
+	// `projects api-keys` prints every key, the legacy service_role JWT included. The chain must filter it.
+	if strings.Contains(chain, "projects api-keys") && !strings.Contains(chain, "publishable") {
+		t.Errorf("backend-install prints unfiltered api-keys output, which leaks the service_role key:\n%s", chain)
 	}
 	if strings.Contains(chain, "config push") || strings.Contains(chain, "supabase-config-push") {
 		t.Errorf("backend-install still reaches `config push`, which P5-1 removed from its chain:\n%s", chain)
