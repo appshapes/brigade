@@ -564,8 +564,8 @@ Three things are `usage` (`error.code = "usage"`, **exit 2**) and C-02 and C-05 
    streams.
 
 Two more argv answers are `usage` too. 4.1 and 4.6 cover them as "bad argv" without naming them one at a time, and
-the reference adapter answers this way (measured on `bin/brigade-adapter-fs`; nothing on this page is measured on the
-bundled Supabase adapter, so nothing here is measured on two adapters):
+the reference adapter answers this way (measured on `bin/brigade-adapter-fs`; these answers are not measured on the
+bundled Supabase adapter, so nothing in this list is measured on two adapters):
 
 4. a **missing required flag** — `session heartbeat` or `session close` with no `--session` — is `usage`, exit 2;
 5. a **flag value that is out of range or unparseable** — `--limit 0`, `--limit 500`, `--limit abc`,
