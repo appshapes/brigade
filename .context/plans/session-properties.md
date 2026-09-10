@@ -365,9 +365,16 @@ Two further rulings this brief records:
 - **Occupancy is a lagging number.** It is the latest assistant record's usage, refreshed immediately before each
   heartbeat, so it is at most one heartbeat interval (30 s) old and it does not move while a session is idle —
   which is the truth about that session, not staleness.
-- **A migration that must be applied before the plugin updates.** The Supabase adapter sends the two new RPC
-  parameters unconditionally, so a project whose functions predate the migration refuses `session register` and
-  `session heartbeat`. The `CHANGELOG.md` "Unreleased" entry says so and names the procedure in `docs/setup.md`.
+- **Adapter and schema versions are not ours to pair** (Rjae, 2026-09-10: releases must be schema-compatible in
+  both directions, because a member updates the plugin and an administrator migrates on their own clocks). The
+  first cut sent the two new RPC parameters unconditionally, so this adapter against an un-migrated project
+  refused every heartbeat — a lease lost to a missing migration. P10-5 (`internal/adapters/supabase/compat.go`)
+  made the rule mechanical: a migration only appends parameters with defaults; the adapter names an appended
+  parameter only when it has a value; on `PGRST202` it sends the call again without it, remembers the backend as
+  legacy for ten minutes in the profile directory, warns once naming the migration, and withholds the two
+  capabilities from `describe` meanwhile; the first success with the parameters clears the marker. Both hosted
+  projects were migrated the same day. What remains open is how an administrator applies a migration from the
+  plugin alone, without this repository — charted as `.context/plans/backend-upgrade.md`.
 - **One machine's transcript, one machine's read.** The reader runs in the watcher, as the user, on the user's own
   machine, and sends two values. If that ever stops being true — a hosted watcher, a remote session — this design
   has to be re-argued from §4, not extended.

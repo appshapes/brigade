@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
-## [Unreleased]
+## [0.5.0] — 2026-09-10
 
 ### Added
 
@@ -39,16 +39,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
-- **Administrators: one new migration to apply, and it is required.**
+- **Administrators: one new migration to apply — when you like.**
   `supabase/migrations/20260910193200_session_model_context.sql` adds `model` and `context_used_tokens` to
   `brigade.sessions` and re-creates `brigade.register_session`, `brigade.session_heartbeat` and
-  `brigade.session_record` with them. The bundled Supabase adapter sends the two
-  new parameters on every `session register` and `session heartbeat`, so a project whose functions predate the
-  migration refuses both calls: apply it **before** the team updates the plugin. Apply it exactly the way
-  [`docs/setup.md`](docs/setup.md) *Deploying the backend* documents — `read -rs SUPABASE_ACCESS_TOKEN && export
-  SUPABASE_ACCESS_TOKEN`, then `make backend-install project=<ref>`, which dry-runs `supabase db push`, applies
-  only what is pending and lists the versions on both sides; `npx --yes supabase@2.116.0 db push --yes
-  --project-ref <ref>` is the same step by hand. The frozen migrations are not touched.
+  `brigade.session_record` with them, the two new RPC parameters **appended with defaults**. Releases are
+  schema-compatible in both directions and nothing has to be sequenced: an older adapter never names the
+  parameters and works unchanged on a migrated project, and this adapter works on a project that has **not**
+  been migrated — a call that carries no fact matches the older signature as before, and a heartbeat that does
+  carry one is refused once (`PGRST202`), sent again without it and succeeds, so no lease is lost; the adapter
+  says so once on stderr naming the migration, stores neither value until the migration lands (the two
+  columns stay blank for that team), re-checks every 10 minutes, and its `describe` withholds the two
+  capabilities meanwhile. Apply it the way [`docs/setup.md`](docs/setup.md) *Deploying the backend* documents —
+  `read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN`, then `make backend-install project=<ref>`,
+  which dry-runs `supabase db push`, applies only what is pending and lists the versions on both sides. The
+  frozen migrations are not touched. Both hosted projects were migrated on 2026-09-10.
 
 ## [0.4.1] — 2026-09-08
 

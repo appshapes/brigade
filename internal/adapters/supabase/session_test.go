@@ -27,9 +27,9 @@ func sessionRecordJSON(id, name, state string) string {
 		`"workspace_label":null,"created_at":"2026-09-02T12:00:00.5+00:00"}`
 }
 
-// registerJSON is register_session's answer.
-func registerJSON(id, name string, resumed bool) string {
-	rec := sessionRecordJSON(id, name, protocol.SessionStateActive)
+// registerJSON is register_session's answer for testSessionID.
+func registerJSON(name string, resumed bool) string {
+	rec := sessionRecordJSON(testSessionID, name, protocol.SessionStateActive)
 	tail := `,"resumed":false,"lease_seconds":90,"server_time":"2026-09-02T12:00:00.5+00:00"}`
 	if resumed {
 		tail = `,"resumed":true,"lease_seconds":90,"server_time":"2026-09-02T12:00:00.5+00:00"}`
@@ -77,7 +77,7 @@ func TestSessionRegisterArgumentsAndResult(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
-	seen := r.be.captureRPC(only(registerJSON(testSessionID, "s-1", false)))
+	seen := r.be.captureRPC(only(registerJSON("s-1", false)))
 	if got := r.exec(registration("s-1"), "session", "register"); got.code != 0 {
 		t.Fatalf("exit %d: %s", got.code, got.stdout)
 	}
@@ -107,11 +107,13 @@ func TestSessionRegisterArgumentsAndResult(t *testing.T) {
 	if got := arg(t, args, "p_workspace_label"); got != nil {
 		t.Errorf("p_workspace_label = %v, want null", got)
 	}
-	// model and context_used_tokens are always named, null when absent
-	// (C-44): the RPC's defaults are never leaned on.
-	for _, name := range []string{"p_model", "p_context_used_tokens"} {
-		if got := arg(t, args, name); got != nil {
-			t.Errorf("%s = %v, want null for an absent member", name, got)
+	// model and context_used_tokens are the APPENDED parameters of
+	// migration 20260910193200 and are omitted when absent (compat.go): a
+	// call that does not name them matches the older signature on a
+	// backend without the migration, which a registration must.
+	for _, name := range sessionAppendedParams {
+		if got, present := args[name]; present {
+			t.Errorf("%s = %v was named on a registration with no value for it", name, got)
 		}
 	}
 	if _, present := args["p_resume_session_id"]; present {
@@ -125,7 +127,7 @@ func TestSessionRegisterResultShape(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
-	r.be.captureRPC(only(registerJSON(testSessionID, "s-1", true)))
+	r.be.captureRPC(only(registerJSON("s-1", true)))
 	got := r.exec(registration("s-1"), "session", "register")
 	if got.code != 0 {
 		t.Fatalf("exit %d: %s", got.code, got.stdout)
@@ -184,7 +186,7 @@ func TestSessionRegisterLeaseHonoured(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
-	seen := r.be.captureRPC(only(registerJSON(testSessionID, "s", false)))
+	seen := r.be.captureRPC(only(registerJSON("s", false)))
 	doc := `{"harness":"h","harness_version":"1","session_name":"s","activity":"idle","inbound":"hold",` +
 		`"session_description":"d","workspace_label":"w","lease_seconds":30,` +
 		`"model":"claude-opus-5[1m]","context_used_tokens":189681}`
@@ -326,11 +328,19 @@ func TestSessionHeartbeat(t *testing.T) {
 		t.Errorf("p_lease_seconds = %v", v)
 	}
 	// An absent member means unchanged, which is JSON null for the RPC's
-	// coalesce() arguments (4.4.4) — model and context_used_tokens too, so
-	// a heartbeat never clears them (C-44).
-	for _, name := range []string{"p_name", "p_description", "p_inbound", "p_model", "p_context_used_tokens"} {
+	// coalesce() arguments (4.4.4). model and context_used_tokens are the
+	// appended parameters of migration 20260910193200 and are OMITTED when
+	// absent instead (compat.go: the call then matches the older signature
+	// too); the RPC's default is null, so a heartbeat never clears them
+	// either way (C-44).
+	for _, name := range []string{"p_name", "p_description", "p_inbound"} {
 		if v := arg(t, args, name); v != nil {
 			t.Errorf("%s = %v, want null for an absent member", name, v)
+		}
+	}
+	for _, name := range sessionAppendedParams {
+		if v, present := args[name]; present {
+			t.Errorf("%s = %v was named on a heartbeat with no value for it", name, v)
 		}
 	}
 	var res protocol.HeartbeatResult

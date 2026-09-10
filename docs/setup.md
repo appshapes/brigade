@@ -569,6 +569,16 @@ are **not applied yet**, which on a first deployment is every file under
 `supabase/migrations/` and on a later run is only what is still pending (an empty list means the project is
 already up to date). If it names a file you do not recognise, stop and find out why before pushing.
 
+**Plugin versions and migrations are independent, by design.** A member updates the plugin when they like and
+you apply a migration when you like, and Brigade is built so the two never have to be sequenced: a migration
+only ever *appends* RPC parameters with defaults, so an older adapter works unchanged on a migrated project,
+and a newer adapter works on a project you have not migrated yet — it names a new parameter only when it has
+a value for it, and when the project refuses one (`PGRST202`) it sends the call again without it, drops that
+value rather than the call, says so once on stderr naming the migration, and checks again every ten
+minutes. What you lose until you migrate is only what the migration adds (for `20260910193200`, the `model=`
+and `context=` columns of `brigade sessions` stay blank for your team); nothing else changes. Migrate at your
+convenience, then, and `migration list` tells you where each project stands.
+
 **Order matters, and it is not a preference.** Apply the migrations *before* exposing the `brigade` schema on the
 Data API. A project that exposes a schema which does not exist yet leaves PostgREST looping on
 `3F000 schema "brigade" does not exist`; it never becomes healthy, and the error it reports names PostgREST

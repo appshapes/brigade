@@ -62,7 +62,7 @@ func (c *command) describe() (any, error) {
 			Ordering:  "none",
 			AckState:  protocol.AckStateInjected,
 		},
-		Capabilities: capabilities(),
+		Capabilities: c.advertisedCapabilities(),
 		Limits:       protocol.DefaultLimits(),
 		Lease:        protocol.DefaultLease(),
 		Retention:    protocol.DefaultRetention(),

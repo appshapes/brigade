@@ -687,7 +687,7 @@ func (w *watcher) heartbeat(cmd *protocol.WatchCommand) (int, bool) {
 		return w.c.watchRetryable(w.events, err), false
 	}
 	out := &protocol.HeartbeatResult{}
-	err := w.c.rpc(w.ctx, "session_heartbeat", rpcArgs{
+	err := w.c.rpcAppended(w.ctx, "session_heartbeat", rpcArgs{
 		"p_session_id":          w.id,
 		"p_activity":            req.Activity,
 		"p_name":                req.SessionName,
@@ -696,7 +696,7 @@ func (w *watcher) heartbeat(cmd *protocol.WatchCommand) (int, bool) {
 		"p_lease_seconds":       req.LeaseSeconds,
 		"p_model":               req.Model,
 		"p_context_used_tokens": req.ContextUsedTokens,
-	}, out)
+	}, sessionAppendedParams, out)
 	if err != nil {
 		return w.commandFailed(err)
 	}

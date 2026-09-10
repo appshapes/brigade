@@ -1079,21 +1079,24 @@ func TestWatchStdinCommands(t *testing.T) {
 		t.Fatalf("session_heartbeat args = %v", args)
 	}
 	// model and context_used_tokens ride the stdin heartbeat as they ride
-	// the RPC path (C-44); absent, they are named null so the stored values
-	// stand.
+	// the RPC path (C-44); absent, they are omitted (compat.go) and the
+	// RPC's null defaults leave the stored values standing.
 	if args["p_model"] != "claude-sonnet-5" || args["p_context_used_tokens"] != float64(2048) {
 		t.Fatalf("session_heartbeat args = %v, want model claude-sonnet-5 and context_used_tokens 2048", args)
 	}
 	w.send(`{"type":"heartbeat","activity":"busy"}`)
 	w.expect(protocol.EventHeartbeatOK, 5*time.Second)
+	// A fresh map: Unmarshal into the one above would MERGE and keep the
+	// previous call's members, hiding an omitted one.
+	args = map[string]any{}
 	if err := json.Unmarshal(r.be.last(rpcPath+"session_heartbeat").body, &args); err != nil {
 		t.Fatal(err)
 	}
-	if v, present := args["p_model"]; !present || v != nil {
-		t.Fatalf("session_heartbeat args = %v, want p_model named and null when absent", args)
+	if v, present := args["p_model"]; present {
+		t.Fatalf("session_heartbeat args = %v, want p_model omitted when absent (compat.go: the appended parameter matches the older signature only when unnamed), got %v", args, v)
 	}
-	if v, present := args["p_context_used_tokens"]; !present || v != nil {
-		t.Fatalf("session_heartbeat args = %v, want p_context_used_tokens named and null when absent", args)
+	if v, present := args["p_context_used_tokens"]; present {
+		t.Fatalf("session_heartbeat args = %v, want p_context_used_tokens omitted when absent, got %v", args, v)
 	}
 
 	// A session closed by another process: conflict, retryable, the watch

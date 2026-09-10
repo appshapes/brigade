@@ -123,7 +123,7 @@ func (c *command) sessionRegister() (any, error) {
 		args["p_resume_session_id"] = req.Resume.SessionID
 	}
 	out := &sessionRegisterResult{}
-	if err := c.rpc(c.ctx, "register_session", args, out); err != nil {
+	if err := c.rpcAppended(c.ctx, "register_session", args, sessionAppendedParams, out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -158,7 +158,7 @@ func (c *command) sessionHeartbeat() (any, error) {
 		return nil, errNotFound()
 	}
 	out := &protocol.HeartbeatResult{}
-	err = c.rpc(c.ctx, "session_heartbeat", rpcArgs{
+	err = c.rpcAppended(c.ctx, "session_heartbeat", rpcArgs{
 		"p_session_id":          id,
 		"p_activity":            req.Activity,
 		"p_name":                req.SessionName,
@@ -167,7 +167,7 @@ func (c *command) sessionHeartbeat() (any, error) {
 		"p_lease_seconds":       req.LeaseSeconds,
 		"p_model":               req.Model,
 		"p_context_used_tokens": req.ContextUsedTokens,
-	}, out)
+	}, sessionAppendedParams, out)
 	if err != nil {
 		return nil, err
 	}
