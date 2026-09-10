@@ -121,7 +121,7 @@ so no `--setup` hook is needed.
 | `docs/adapter-authors.md` | how to write and prove an adapter |
 | [`docs/setup.md`](docs/setup.md) | how to set up Brigade for a team |
 | [`docs/security.md`](docs/security.md) | what Brigade protects, what it does not, and what was measured |
-| [`docs/experiments/`](docs/experiments/README.md) | the dated experiment writeups (Phases 0, 3 and 4): what was measured, and what each run does *not* prove |
+| [`docs/experiments/`](docs/experiments/README.md) | the dated experiment writeups (Phases 0, 3, 4 and 5): what was measured, and what each run does *not* prove |
 | [`docs/research/`](docs/research/README.md) | the research digests the plan was written from, and the security threat model that defines the test ids |
 | `internal/protocol`, `internal/adapterkit` | the wire types with `Validate()`, and the shared adapter plumbing |
 | `internal/adapters/fs`, `cmd/brigade-adapter-fs` | the reference adapter (dev and test only) |
