@@ -113,3 +113,12 @@ before the "outlived its lease" path, so the three expected phrases were absent.
 locally three times in a row and `go test -count=3` on the file; the re-run of the failed job (`gh run rerun
 --failed`) went green, and `reproducibility` — the checksums against the now-published release — passed with it.
 Recorded in `.context/plans/v0.1.0-followups.md` as an obligation: a real-clock test on a shared runner.
+
+**(g), second pass — v0.5.1 (23:53 UTC): the dispatch path fires; the actor gate stops it.** `release.yml` run
+**34539771452** published v0.5.1 and its new last step raised release-notes.yml run **34539842793** as a
+`workflow_dispatch` — the event problem is gone — and the action refused that run at once: *"Workflow initiated by
+non-human actor: github-actions (type: Bot). Add bot to allowed_bots list"*. The dispatch's actor is the job token,
+and `release-notes.yml` allowed only `claude`, the same gap `review-pull-request.yml` closed on the loop's first
+run (`b3538a0`). **Fix** (this commit): `allowed_bots: "claude,github-actions"`. The v0.5.1 notes were written by a
+hand dispatch meanwhile (a human actor passes the gate as it stood). The next release is the first that will run the
+whole path unattended.

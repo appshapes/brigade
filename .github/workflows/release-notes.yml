@@ -71,7 +71,10 @@ jobs:
         #   (an annotated tag needs one more hop: gh api .../git/tags/<sha> --jq '.object.sha')
         uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
         with:
-          allowed_bots: "claude"
+          # `github-actions` is the actor of the dispatch release.yml raises with the job token (measured on v0.5.1,
+          # run 34539842793: the dispatch arrived, and the action refused "non-human actor: github-actions (type:
+          # Bot)"), exactly as review-pull-request.yml learned on the loop's first run.
+          allowed_bots: "claude,github-actions"
           # One expression covers all three triggers: secret names are case-insensitive in Actions, so this
           # resolves to the `claude_code_oauth_token` the caller passes under `workflow_call`, and to the
           # repository secret of the same name under `release` and `workflow_dispatch`.
