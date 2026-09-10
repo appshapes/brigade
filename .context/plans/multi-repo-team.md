@@ -88,5 +88,12 @@ recommendation is a verb or a docs change, that is a separate row Rjae charters.
 ## 6. Why this is low-risk to what works
 
 Nothing ships. The one live measurement joins a throwaway checkout to the existing team through the same path any
-member already uses for a second checkout, and leaves it with `brigade team reset` in that checkout only. If
-step 1 fails on the fs rig, the study stops there and reports.
+member already uses for a second checkout. **Cleanup is local only — never `brigade team reset`,
+`revoke-credentials` or `leave` from the throwaway checkout:** all three act at the backend on the credential or
+membership that every checkout on that machine shares (`docs/setup.md` "Two commands end the credential"), so
+any of them would end the *real* member's access, not the throwaway's. (Found by `frank-brigade-vscode` on
+2026-09-10 before running it; the first draft of this section said `team reset`, which was wrong.) Undo the
+throwaway by deleting its directory and removing its entry from `${configDir}/projects.json` by hand — a local
+0600 file, edited while no `brigade` writer runs — or simply delete the directory and leave the orphaned pin,
+which nothing ever consults. Note this as measurement 5's first finding: there is no checkout-scoped undo verb.
+If step 1 fails on the fs rig, the study stops there and reports.
