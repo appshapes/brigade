@@ -14,6 +14,11 @@
 # that claude-code-action accepts: a `workflow_call` from release.yml ran the action under the tag `push` and it
 # refused, run 34537045037; the `release: published` trigger never fires from a `github.token` publish). It can
 # also be run by hand: `gh workflow run release-notes.yml -f tag=v0.5.1`.
+#
+# The agents write their files with `tee` from the Bash tool, under a `Bash(tee <path>:*)` prefix rule: the first
+# gated run (34541118273) showed the action honouring every Bash rule and none of the `Write(//tmp/…)` rules —
+# two denials per agent, no file, and nothing published (the gate held). Each agent step's execution log is
+# copied into the artifact, so the next failure is readable from the run page.
 name: release notes
 
 on:
@@ -66,8 +71,10 @@ jobs:
           show_full_output: false
           prompt: |
             Release ${{ inputs.tag }} of brigade has been published. DRAFT its release notes — write them to the
-            file /tmp/brigade-notes/notes.md with the Write tool and do nothing else. You do not publish: a lint
-            and a reviewer read that file after you, and a shell step publishes it if they approve.
+            file /tmp/brigade-notes/notes.md and do nothing else. The Write tool is NOT available in this job:
+            write the file from the Bash tool with a quoted heredoc, exactly
+            `tee /tmp/brigade-notes/notes.md <<'EOF'` … `EOF`. You do not publish: a lint and a reviewer read
+            that file after you, and a shell step publishes it if they approve.
 
             1. Read the section of `CHANGELOG.md` for this version. It is the authority on what changed and why;
                do not restate the commit log over it.
@@ -88,7 +95,7 @@ jobs:
             {
               "permissions": {
                 "allow": [
-                  "Write(//tmp/brigade-notes/notes.md)",
+                  "Bash(tee /tmp/brigade-notes/notes.md:*)",
                   "Read(//tmp/brigade-notes/**)",
                   "Bash(/tmp/brigade-notes/brigade --help:*)",
                   "Bash(git log:*)",
@@ -112,6 +119,9 @@ jobs:
           # No WebFetch, no WebSearch, no `gh` write verb: the draft is composed from the checkout and the job's
           # own token, and the writes happen in the shell steps below. NO GH_ACTIONS_TOKEN anywhere in this job.
 
+      - name: Keep the drafter's execution log
+        if: always()
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$NOTES_DIR/draft1-execution.json" 2>/dev/null || true
       - name: Lint the draft
         id: lint1
         continue-on-error: true   # a failure is a finding for the fix cycle, recorded for the writer to read
@@ -127,9 +137,10 @@ jobs:
           show_full_output: false
           prompt: |
             You are the reviewer of a DRAFT of the release notes for ${{ inputs.tag }} of brigade, at
-            /tmp/brigade-notes/notes.md. Write your verdict to /tmp/brigade-notes/review.md with the Write tool:
-            the FIRST line is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line, each naming the
-            sentence and what is wrong. Do nothing else.
+            /tmp/brigade-notes/notes.md. Write your verdict to /tmp/brigade-notes/review.md from the Bash tool with
+            a quoted heredoc, exactly `tee /tmp/brigade-notes/review.md <<'EOF'` … `EOF` (the Write tool is NOT
+            available in this job): the FIRST line is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding
+            per line, each naming the sentence and what is wrong. Do nothing else.
 
             Check every claim against the sources, assuming each is wrong until you have seen it right:
             - Every change described is in `CHANGELOG.md`'s section for this version or in
@@ -146,7 +157,7 @@ jobs:
             {
               "permissions": {
                 "allow": [
-                  "Write(//tmp/brigade-notes/review.md)",
+                  "Bash(tee /tmp/brigade-notes/review.md:*)",
                   "Read(//tmp/brigade-notes/**)",
                   "Bash(/tmp/brigade-notes/brigade --help:*)",
                   "Bash(git log:*)",
@@ -168,11 +179,14 @@ jobs:
               }
             }
 
+      - name: Keep the reviewer's execution log
+        if: always()
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$NOTES_DIR/review1-execution.json" 2>/dev/null || true
       - name: Read the round-1 verdict
         id: verdict1
         run: |
           test -f "$NOTES_DIR/review.md" || { echo "the reviewer wrote no review.md" >&2; exit 1; }
-          verdict=$(head -n 1 "$NOTES_DIR/review.md" | tr -d '[:space:]')
+          verdict=$(head -n 1 "$NOTES_DIR/review.md" | grep -o -E 'CHANGES_REQUESTED|APPROVED' | head -n 1)
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           echo "round 1: lint ${{ steps.lint1.outcome }}, review $verdict"; cat "$NOTES_DIR/review.md"
 
@@ -190,7 +204,8 @@ jobs:
             Your draft of the release notes for ${{ inputs.tag }} of brigade, /tmp/brigade-notes/notes.md, was
             not approved. Read /tmp/brigade-notes/lint.txt (deterministic checks; every `FAIL:` line is a fact) and
             /tmp/brigade-notes/review.md (the reviewer's findings), fix EVERY finding, and rewrite
-            /tmp/brigade-notes/notes.md with the Write tool. The same rules apply: only what is in `CHANGELOG.md`
+            /tmp/brigade-notes/notes.md from the Bash tool with a quoted heredoc, exactly
+            `tee /tmp/brigade-notes/notes.md <<'EOF'` … `EOF` (the Write tool is NOT available). The same rules apply: only what is in `CHANGELOG.md`
             or the tag's `git log`; only skills under `plugin/skills/` or `plugin/commands/`; only verbs that
             `/tmp/brigade-notes/brigade --help` lists; every shipped asset named; the version named; no
             "Unreleased", no placeholder. Do nothing else: do not publish, do not edit the repository, do not push.
@@ -198,7 +213,7 @@ jobs:
             {
               "permissions": {
                 "allow": [
-                  "Write(//tmp/brigade-notes/notes.md)",
+                  "Bash(tee /tmp/brigade-notes/notes.md:*)",
                   "Read(//tmp/brigade-notes/**)",
                   "Bash(/tmp/brigade-notes/brigade --help:*)",
                   "Bash(git log:*)",
@@ -220,6 +235,9 @@ jobs:
               }
             }
 
+      - name: Keep the fixer's execution log
+        if: always()
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$NOTES_DIR/draft2-execution.json" 2>/dev/null || true
       - name: Lint the fix
         id: lint2
         if: steps.draft2.outcome == 'success'
@@ -238,8 +256,9 @@ jobs:
           prompt: |
             You are the reviewer of the SECOND draft of the release notes for ${{ inputs.tag }} of brigade, at
             /tmp/brigade-notes/notes.md; your first review is /tmp/brigade-notes/review.md and the lint's result is
-            /tmp/brigade-notes/lint.txt. Overwrite /tmp/brigade-notes/review.md with the Write tool: the FIRST
-            line is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line. Apply the same checks as
+            /tmp/brigade-notes/lint.txt. Overwrite /tmp/brigade-notes/review.md from the Bash tool with a quoted
+            heredoc, exactly `tee /tmp/brigade-notes/review.md <<'EOF'` … `EOF` (the Write tool is NOT available):
+            the FIRST line is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line. Apply the same checks as
             before — every change in `CHANGELOG.md` or `git log --oneline <previous tag>..${{ inputs.tag }}`,
             every `/brigade:<name>` under `plugin/skills/` or `plugin/commands/`, every `brigade <verb>` in
             `/tmp/brigade-notes/brigade --help`, the assets exactly `gh release view ${{ inputs.tag }} --json
@@ -249,7 +268,7 @@ jobs:
             {
               "permissions": {
                 "allow": [
-                  "Write(//tmp/brigade-notes/review.md)",
+                  "Bash(tee /tmp/brigade-notes/review.md:*)",
                   "Read(//tmp/brigade-notes/**)",
                   "Bash(/tmp/brigade-notes/brigade --help:*)",
                   "Bash(git log:*)",
@@ -272,6 +291,9 @@ jobs:
             }
 
       # ---- the gate --------------------------------------------------------------------------------------------
+      - name: Keep the second reviewer's execution log
+        if: always()
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$NOTES_DIR/review2-execution.json" 2>/dev/null || true
       - name: Gate on the final lint and verdict
         run: |
           if [ "${{ steps.draft2.outcome }}" = "skipped" ]; then
@@ -279,7 +301,7 @@ jobs:
           else
             lint="${{ steps.lint2.outcome }}"; round=2
           fi
-          verdict=$(head -n 1 "$NOTES_DIR/review.md" | tr -d '[:space:]')
+          verdict=$(head -n 1 "$NOTES_DIR/review.md" | grep -o -E 'CHANGES_REQUESTED|APPROVED' | head -n 1)
           echo "round $round: lint $lint, review $verdict"
           if [ "$lint" != "success" ] || [ "$verdict" != "APPROVED" ]; then
             echo "::error::the notes were not approved after $round round(s); nothing was published (draft, lint and review are attached as an artifact)"
@@ -294,6 +316,7 @@ jobs:
             /tmp/brigade-notes/notes.md
             /tmp/brigade-notes/lint.txt
             /tmp/brigade-notes/review.md
+            /tmp/brigade-notes/*-execution.json
           if-no-files-found: ignore
 
       # ---- the two writes, by the shell, idempotent -------------------------------------------------------------
