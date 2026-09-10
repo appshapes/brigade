@@ -86,3 +86,30 @@ footer is switched off in Blacksmith. Cosmetic; no loop behaviour depends on it.
 **Elapsed, dispatch to merge: 45 min 34 s** (13:41:32 → 14:27:06), of which ~20 min were the two stalls above
 (manual run approval, the reviewer's actor refusal) that are now fixed; the loop's own work was ~7.5 min of agent,
 ~2.5 min of fixer, two ~2 min reviews and two ~8 min CI runs.
+
+### 2026-09-10 — first release through the loop: v0.5.0 (`make release version=0.5.0`, 22:21 UTC)
+
+**(g) release notes — FAIL on the designed path, PASS on the fixed one.** `release.yml` run **34537045037**: the
+`goreleaser` job passed end to end (the pin guard, `make cross` reproducing `plugin/bin/checksums.txt`, goreleaser's
+draft, `release-verify.sh`, and the publish with `--latest` for a final version — the four binaries and
+`checksums.txt` were public at 22:22:39). The `notes` job — the reusable `release-notes.yml` called through
+`workflow_call` — died in `claude-code-action`'s first step with **`Action failed with error: Unsupported event
+type: push`**: a called job runs under the caller's event, a tag `push`, and the action gates on the event type.
+Neither remedy in the brief's §4.7 could have worked as written: the `release: published` trigger never fires
+because the publish uses `github.token` (job-token writes raise no workflow runs), and the call inherits `push`.
+**Fix** (this commit): `release.yml` no longer calls the workflow; its last step is
+`gh workflow run release-notes.yml -f tag="${GITHUB_REF_NAME}"` — `workflow_dispatch` is one of the two events the
+job token *may* raise — under `actions: write`, and the caller's `issues: write` / `id-token: write` ceiling is
+gone (those live in `release-notes.yml`, which grants them itself). **Proof**: the same dispatch run by hand for
+v0.5.0, run **34537527402**, succeeded in one pass — the notes are on
+<https://github.com/appshapes/brigade/releases/tag/v0.5.0> and the announcement is issue **#4** (`0.5.0 is out — run
+/brigade:update`, no `claude` label, as the prompt requires). The pre-release arm of (g) — `--latest` withheld on a
+`-rc` tag — is still unmeasured; nothing here changed it.
+
+**A `fast` flake, not a regression.** The `ci` run on the release commit, **34537042672**, failed `fast` in
+`internal/conformance` `TestRunRefusesARunThatOutlivedTheFixtureLease` (`fixture_lease_test.go:276`): the test
+registers a fixture on a real 1 s lease and sleeps 2 s, and on the runner the launcher aborted for another reason
+before the "outlived its lease" path, so the three expected phrases were absent. The same tree passed `make test`
+locally three times in a row and `go test -count=3` on the file; the re-run of the failed job (`gh run rerun
+--failed`) went green, and `reproducibility` — the checksums against the now-published release — passed with it.
+Recorded in `.context/plans/v0.1.0-followups.md` as an obligation: a real-clock test on a shared runner.
