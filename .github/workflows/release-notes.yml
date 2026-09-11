@@ -86,8 +86,9 @@ jobs:
                it exists. Never invent a change that is not in the changelog or the log.
             4. Name a slash command or a skill ONLY if it exists: list `plugin/skills/` and `plugin/commands/` and
                name only what is there — the listing of the checkout you are drafting for, never a name you
-               remember. The v0.5.0 notes named a `/brigade:sessions` skill that had not been written yet, and
-               that slip is why you are being checked.
+               remember. Name a `brigade <verb>` ONLY if `/tmp/brigade-notes/brigade --help` lists that verb. The
+               v0.5.0 notes named a `/brigade:sessions` skill that had not been written yet, and that slip is why
+               you are being checked.
             5. The first line is one sentence saying what the release is. Use the version number, never
                "Unreleased". No placeholders.
 
