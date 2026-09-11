@@ -118,7 +118,10 @@ func absentSkill(t *testing.T) string {
 	t.Helper()
 	root := testutil.RepoRoot(t)
 	for i := 0; ; i++ {
-		name := fmt.Sprintf("no-such-skill-%d", i)
+		name := "no-such-skill"
+		if i > 0 {
+			name = fmt.Sprintf("no-such-skill-%d", i)
+		}
 		if _, err := os.Stat(filepath.Join(root, "plugin", "skills", name)); err == nil {
 			continue
 		}

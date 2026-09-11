@@ -195,8 +195,10 @@ Brigade: this session is "payments-api" (09365acd…) in team "ops"; inbound: ac
 `/brigade:sessions` prints that roster whenever you want it, and `/brigade:sessions --all` includes the sessions
 that are offline. It prints what the command prints and nothing else — no table of its own, no summary, no
 comparison with the last time you asked — so two runs of it, in one session or in different ones, differ only
-where the team differs. Asking for the roster in words instead gets you the same command, formatted however that
-turn's session saw fit.
+where the team differs. Asking for the roster in words runs the same command, and `brigade:team-messaging` tells
+the session to print what it printed there too — but that is one rule inside a skill the session loads for other
+reasons and may not have in play at all. The slash command is the one bound to the passthrough, which is what
+makes it identical every time.
 
 ## Terminal use
 
