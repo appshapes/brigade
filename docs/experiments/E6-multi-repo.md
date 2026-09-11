@@ -40,7 +40,8 @@ Every path below is written `<repo>/…`; team, session and principal references
 ## Recommendation: works as-is, docs only
 
 No code change, no new verb. The mechanism is complete; the documentation describes a narrower world than the code
-implements. Four places say so, and the third already concedes half of it:
+implements. Four places say so; the third of them already concedes half of it, and the fourth is the second
+placement of the same consequence:
 
 1. **`docs/setup.md:99-103`, "The project owns the team".** It reads "A Brigade team belongs to a **project**: one
    file, `.brigade.json`, committed at the repository's top level, names the team every session in that checkout
@@ -173,10 +174,15 @@ first — and the default carries the checkout only until someone renames the se
   than the rare one: the sessions a sender most needs to tell apart are exactly the ones a person is most likely
   to have renamed after what they are working on.
 - **`workspace_label` is opt-in, `--json`-only.** With `share_workspace_label` and `workspace_label` set, the
-  value reaches the wire and `brigade sessions --json` shows it. On the live team only the checkout that set it
-  carried one; every other session reported `<absent>`. It appears in **no** human-readable output — not
-  `sessions`, not `whoami`. The only reference to it outside the protocol types is the `--json` sanitiser
-  (`internal/harness/commands/format.go:133-135`).
+  value reaches the wire: the option pair is parsed and gated in `internal/harness/config/options.go:19-20`,
+  `:127-132`, `:185-191`, `hook/start.go:154-156` puts the label on the registration, and both adapters carry it
+  (`internal/adapters/supabase/session.go:114`, `internal/adapters/fs/session.go:111`, `fs/store.go:105`). Then
+  `brigade sessions --json` shows it. On the live team only the checkout that set it carried one; every other
+  session reported `<absent>`. What it never reaches is **human-readable output** — not `sessions`, not `whoami`:
+  the only `WorkspaceLabel` reference in the whole of `internal/harness/commands/` is the `--json` sanitiser
+  (`format.go:133-135`), and the human renderer builds its line from id, name, human label, state, inbound and
+  principal, plus model and context when those are present (`sessions.go:96-103`). `whoami` has no reference at
+  all.
 - **`from-label` is the human label, always.** `frame.go:352` writes `label(m.Sender.HumanLabel)`; there is no
   branch for a workspace label. Confirmed on a real delivered frame: `from-name="live-team-checkout"`,
   `from-label="(unverified)"` with no value, and no workspace label anywhere in the tag line. The frame's
