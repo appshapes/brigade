@@ -2,13 +2,17 @@
 
 Date: 2026-09-11 · Ticket 15 · Row P11-1 · Status: **closed; the answer is "works as-is, docs only"**
 Brief: `.context/plans/multi-repo-team.md` (chartered 2026-09-10, corrected at `d94bfe4`)
-Driver: `.ignored/e6-multi-repo/run-phase-a.sh` (scratch, not committed — it builds nothing the tree needs)
+Driver: `.ignored/e6-multi-repo/run-phase-a.sh` (scratch, not committed). **The fs-rig half is not reproducible
+from the tree as it stands:** the driver also needs a hand-written `adapters.json` registering the fs adapter by
+name (see the finding at the end of 3.1), so re-running it means re-doing that step by hand. Committing a driver
+under `scripts/experiments/` was not done because this study ships nothing; if the rig is wanted as a standing
+fixture, that is its own row.
 
 **One Brigade team already spans several repositories. Nothing in the code prevents it, nothing needed changing to
 make it work, and both halves were run rather than reasoned about — the fs-adapter rig first, then the live
-`brigade` team.** What is missing is three sentences of documentation. The identification question has a better
-answer than the brief expected: the session *name* already distinguishes checkouts, because it defaults to the
-checkout's directory name.
+`brigade` team.** What is missing is a few sentences of documentation. On identification the answer is partial: the
+session *name* carries the checkout by default, but only as the **last** of three sources, so a renamed session
+drops it — and the member that survives a rename, `workspace_label`, is `--json`-only and never in the frame.
 
 Every path below is written `<repo>/…`; team, session and principal references are truncated to eight characters.
 
@@ -27,7 +31,7 @@ Every path below is written `<repo>/…`; team, session and principal references
 | --- | --- | --- |
 | 3.1 | Two repositories, one team, fs rig | **Works.** Secret-free join in the second checkout; both sessions on one listing; delivery both ways; two pins, one team. |
 | 3.2 | The same on the live team | **Works.** Confirmed against the real `brigade` team and torn down to a byte-identical config. |
-| 3.3 | Telling repositories apart | **Already solved by the session name** (`basename(cwd)`), visible in `sessions` *and* in the frame's `from-name`. `workspace_label` works but is opt-in, `--json`-only, and never in the frame. |
+| 3.3 | Telling repositories apart | **Solved for the default case only.** The session name carries `basename(cwd)` — but as the last of three sources, so a `/rename`d session drops it. `workspace_label` survives a rename but is opt-in, `--json`-only, and never in the frame. |
 | 3.4 | The join affordance | **Hand-copying is enough.** Measured friction: one `cp`, one `brigade team join`, no secret. A verb would save one `cp`. |
 | 3.5 | What breaks | **Nothing breaks.** Four findings below, none blocking; the sharpest is that there is no checkout-scoped undo verb. |
 | 3.6 | The workaround, compared | Native cross-session messaging is same-machine, not durable, and not addressed by team — a bridge, not a substitute. |
@@ -52,6 +56,10 @@ implements. Three places say so, and the third already concedes half of it:
    already holds a credential for" — is exactly the mechanism this study exercised, so it needs no correction, only
    the consequence stated: **`team reset`, `team revoke-credentials` and `team leave` act on the credential or
    membership every checkout on the machine shares**, so there is no way to detach one checkout with a `team` verb.
+4. **`docs/setup.md:336-343`, "Two commands end the credential".** The same consequence belongs here too, and this
+   is the more important of the two placements: this is where someone who wants to detach *one* checkout actually
+   looks, and today the section tells them only that both commands revoke at the backend, without saying that
+   "the backend" means every checkout on the machine.
 
 `brigade team list` needs nothing: it already prints `checkouts:` as a plural, one line per team.
 
@@ -140,13 +148,19 @@ removed from `projects.json` with a read-modify-write that preserved mode 0600 a
 ## 3.3 Telling repositories apart
 
 The brief expected `workspace_label` to be the answer. It is available, but it is not the one a reader reaches
-first, and the default is better than expected.
+first — and the default carries the checkout only until someone renames the session.
 
-- **The session name already distinguishes checkouts.** It defaults to `basename(cwd)`, so two repositories give
-  two names with no configuration: `repo-a`/`repo-b` on the rig, `live-team-checkout` on the live team. It is the
-  second column of `brigade sessions`, and it is the frame's **`from-name`** — so a receiver can tell "the
-  back-end session" from "the front-end session" **in the message itself**. For ThinkTech this reads `thinktech`
-  and `thinktech-api` with nothing set.
+- **The session name carries the checkout by default, and a rename drops it.** The name is resolved as
+  `entry.Name` (the Claude Code registry name) → `session_title` → `basename(cwd)`, **first non-empty wins**
+  (`internal/harness/hook/hook.go:666`), so the checkout's directory name is the **last** resort, not a property
+  of the checkout. When the first two are empty the basename does show — `repo-a`/`repo-b` on the rig,
+  `live-team-checkout` on the live team — and it appears both in the second column of `brigade sessions` and in
+  the frame's **`from-name`**, so a receiver can then tell "the back-end session" from "the front-end session"
+  **in the message itself**. But a named session carries no repository: on this team's own roster at the time of
+  writing, `18-support-multi-repo-teams` and `19-create-brigade-sessions-skill` are both sessions in `brigade`
+  checkouts and neither name contains the basename (this session, renamed, was another). For ThinkTech that is the
+  awkward case rather than the rare one: the sessions a sender most needs to tell apart are exactly the ones a
+  person is most likely to have renamed after what they are working on.
 - **`workspace_label` is opt-in, `--json`-only.** With `share_workspace_label` and `workspace_label` set, the
   value reaches the wire and `brigade sessions --json` shows it. On the live team only the checkout that set it
   carried one; every other session reported `<absent>`. It appears in **no** human-readable output — not
@@ -157,9 +171,11 @@ first, and the default is better than expected.
   `from-label="(unverified)"` with no value, and no workspace label anywhere in the tag line. The frame's
   attribute list is fixed (U-04, `frame.go:70-79`), so this is a reading, not a change.
 
-**So identification is a docs matter, not a wire matter.** Nothing needs building. If the human-readable
-`sessions` line should also show `workspace_label`, that is a small CLI change and a separate row — but the
-session name already carries the information, which is why this study does not recommend it.
+**So identification is a docs matter, not a wire matter** — the data is already on the wire and nothing needs
+building to make one team span two repositories. Whether the human-readable `sessions` line should also show
+`workspace_label` is **left open** rather than recommended against: the session name covers the default case, and
+`workspace_label` is what survives a rename, so for a team whose sessions are routinely renamed the `--json`-only
+placement is the weak point. That is a small CLI change and a separate row if Rjae wants it.
 
 *Caveat on the frame evidence:* the synthetic session's watcher inherited the driving session's messaging socket
 (the driver used `env`, not `env -i`), so both test messages were injected into the driving session. That is an
