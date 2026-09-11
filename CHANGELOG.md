@@ -19,6 +19,11 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   nothing around it. It is `disable-model-invocation: true`, so it is yours alone; a model reading the roster
   before it sends still goes through `brigade:team-messaging` as before. No change to the CLI or to what it
   prints.
+- **Asking for the roster in words is steadier too.** `brigade:team-messaging` now carries one rendering rule:
+  when it is *showing* you the roster rather than reading it to address a message, it prints what the command
+  printed and does not tabulate, count, summarise or compare it with an earlier run. The slash command is still
+  the deterministic path — this only keeps the prose path, which is where the problem was reported, from
+  reformatting freely.
 
 ## [0.5.2] — 2026-09-11
 
@@ -45,9 +50,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   sessions: every watcher was still the 0.4.1 binary, so no session reported its model or context until it was
   restarted. Sessions started after this update, and running sessions at their next prompt after `/reload-plugins`,
   report both.
-- The v0.5.0 release notes named a `/brigade:sessions` skill that does not exist (the roster is the `brigade
-  sessions` command a session runs); corrected on the release page, and `release-notes.yml` now tells the agent to
-  name only commands it has verified under `plugin/`.
+- The v0.5.0 release notes named a `/brigade:sessions` skill that did not exist at the time (the roster was the
+  `brigade sessions` command a session ran; the skill itself was written later); corrected on the release page,
+  and `release-notes.yml` now tells the agent to name only commands it has verified under `plugin/`.
 
 ## [0.5.0] — 2026-09-10
 

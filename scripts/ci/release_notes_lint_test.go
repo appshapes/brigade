@@ -2,6 +2,7 @@ package ci_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,7 +81,7 @@ func TestReleaseNotesLintRefusals(t *testing.T) {
 		assets   string
 		want     string
 	}{
-		{"a skill that does not exist", strings.Replace(goodNotes, "`/brigade:update`", "`/brigade:update`, then `/brigade:roster`", 1), commands, assets, "FAIL: /brigade:roster is not a skill"},
+		{"a skill that does not exist", strings.Replace(goodNotes, "`/brigade:update`", "`/brigade:update`, then `/brigade:no-such-skill`", 1), commands, assets, "FAIL: /brigade:no-such-skill is not a skill"},
 		{"a CLI command that does not exist", strings.Replace(goodNotes, "`brigade sessions`", "`brigade roster`", 1), commands, assets, "FAIL: brigade roster is not a command"},
 		{"a fenced command that does not exist", strings.Replace(goodNotes, "brigade sessions --json", "brigade roster --json", 1), commands, assets, "FAIL: brigade roster is not a command"},
 		{"an asset that did not ship", strings.Replace(goodNotes, "- checksums.txt\n", "- checksums.txt\n- brigade_0.5.1_windows_amd64\n", 1), commands, assets, "FAIL: asset brigade_0.5.1_windows_amd64 is named but did not ship"},
@@ -106,20 +107,40 @@ func TestReleaseNotesLintRefusals(t *testing.T) {
 	}
 }
 
+// absentSkill returns a /brigade:<name> this checkout does not have, so the
+// test cannot go red because someone added a skill by that name. It did once:
+// the name written here was `sessions`, and P11-4 shipped that skill, turning
+// the refusal below into a pass. A literal is the trap; deriving the name from
+// the tree removes the class rather than relocating it to the next plausible
+// alias (`roster`, which this repository's own prose already uses for the
+// roster feature, would have been exactly that).
+func absentSkill(t *testing.T) string {
+	t.Helper()
+	root := testutil.RepoRoot(t)
+	for i := 0; ; i++ {
+		name := fmt.Sprintf("no-such-skill-%d", i)
+		if _, err := os.Stat(filepath.Join(root, "plugin", "skills", name)); err == nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, "plugin", "commands", name+".md")); err == nil {
+			continue
+		}
+		return name
+	}
+}
+
 // TestReleaseNotesLintReadsTheSkillsFromThePluginTree: with no
-// BRIGADE_NOTES_SKILLS the real plugin tree is the authority. The name it
-// refuses is `roster`, which the plugin has never had and is not planned.
-// The v0.5.0 slip itself, `/brigade:sessions`, is now a real skill, so the
-// test written against that name started passing the day the skill landed —
-// which is how this one was found.
+// BRIGADE_NOTES_SKILLS the real plugin tree is the authority, and a name the
+// tree does not carry is refused from the tree itself.
 func TestReleaseNotesLintReadsTheSkillsFromThePluginTree(t *testing.T) {
 	t.Parallel()
 	code, out := lint(t, goodNotes, commands, assets, "")
 	if code != 0 {
 		t.Fatalf("the good notes failed against the plugin tree: exit %d\n%s", code, out)
 	}
-	code, out = lint(t, strings.Replace(goodNotes, "`/brigade:update`", "`/brigade:roster`", 1), commands, assets, "")
-	if code != 1 || !strings.Contains(out, "FAIL: /brigade:roster is not a skill") {
+	absent := absentSkill(t)
+	code, out = lint(t, strings.Replace(goodNotes, "`/brigade:update`", "`/brigade:"+absent+"`", 1), commands, assets, "")
+	if code != 1 || !strings.Contains(out, "FAIL: /brigade:"+absent+" is not a skill") {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 }
