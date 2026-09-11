@@ -55,6 +55,11 @@ func (w *watcher) heartbeat(s *session) {
 		Model: model, ContextUsedTokens: tokens,
 	})
 	if err != nil {
+		if code, details := errorParts(err); sessionGone(code, details) {
+			w.log.Info("the session was closed under the watcher; re-opening", slog.String("code", string(code)))
+			w.reopen(s)
+			return
+		}
 		w.log.Warn("session heartbeat failed", adlog.Err(err))
 		return
 	}

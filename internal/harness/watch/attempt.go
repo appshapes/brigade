@@ -210,6 +210,13 @@ func (w *watcher) handleEvent(s *session, r *attemptResult, ev adapterclient.Eve
 			slog.Bool("wire_retryable", ev.Error.Retryable),
 			slog.Bool("retryable", retryable),
 			slog.String("message", ev.Error.Message))
+		// A closed or vanished session is re-opened by the watcher itself
+		// (reopen.go), off the event loop: the child stays, the next
+		// heartbeat follows the re-open.
+		if sessionGone(ev.Error.Code, ev.Error.Details) {
+			w.log.Info("the session was closed under the watcher; re-opening", slog.String("code", string(ev.Error.Code)))
+			go w.reopen(s)
+		}
 		// The wire flag says whether the CHILD will exit (4.4.9); the
 		// grace timer only bounds an adapter that then does not. The
 		// classification itself is by code (4.3), on the exit status.

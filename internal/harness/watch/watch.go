@@ -48,6 +48,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -473,6 +474,12 @@ type watcher struct {
 	transcript   *transcript.Reader
 	lastModel    string
 
+	// harnessVersion is the map's harness_version, carried on a re-open
+	// registration (reopen.go); reopening keeps two re-open triggers —
+	// the RPC path's error and an error event — from racing.
+	harnessVersion string
+	reopening      atomic.Bool
+
 	// ctx ends with a signal, the Stop channel or a liveness verdict;
 	// cancel is what every exit path calls first.
 	ctx    context.Context
@@ -543,15 +550,21 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		Spawn:     d.Spawn,
 	}
 	w := &watcher{
-		deps:        d,
-		rc:          rc,
-		environ:     environ,
-		log:         lg,
-		client:      client,
-		store:       store,
-		sessionID:   m.BrigadeSessionID,
-		teamRef:     m.TeamRef,
-		pipeline:    pipe,
+		deps:      d,
+		rc:        rc,
+		environ:   environ,
+		log:       lg,
+		client:    client,
+		store:     store,
+		sessionID: m.BrigadeSessionID,
+		teamRef:   m.TeamRef,
+		pipeline:  pipe,
+		harnessVersion: func() string {
+			if m.HarnessVersion != "" {
+				return m.HarnessVersion
+			}
+			return "unknown"
+		}(),
 		pidPath:     pidfile.Path(rc.env.StateDir, rc.env.ClaudePID),
 		releasePath: inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},

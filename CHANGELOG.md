@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [0.5.2] — 2026-09-11
+
+### Fixed
+
+- **A replaced watcher no longer leaves its session closed.** 0.5.1's fix replaced a running session's watcher
+  at the next prompt after a plugin update — and the watcher it stopped closed the Brigade session on its way
+  out, so the replacement heartbeated a closed session for the rest of the Claude session and the team saw it
+  offline (measured on 2026-09-11 on a live session). The watcher now re-opens its own session whenever a
+  heartbeat is answered `conflict: session_closed` or `not_found`: one `session register` with the session's
+  own id as the resume hint, its current name, activity, inbound policy, lease, model and context, and the next
+  heartbeat follows at once. Both hook paths — the prompt hook's replacement and SessionStart's on `/clear` —
+  are covered by the same code, and a session that truly cannot be re-opened stops the watcher with reason
+  `session_gone` so the next prompt tries again.
+
 ## [0.5.1] — 2026-09-10
 
 ### Fixed
