@@ -20,10 +20,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   before it sends still goes through `brigade:team-messaging` as before. No change to the CLI or to what it
   prints.
 - **Asking for the roster in words is steadier too.** `brigade:team-messaging` now carries one rendering rule:
-  when it is *showing* you the roster rather than reading it to address a message, it prints what the command
-  printed and does not tabulate, count, summarise or compare it with an earlier run. The slash command is still
-  the deterministic path — this only keeps the prose path, which is where the problem was reported, from
-  reformatting freely.
+  when it is *showing* you the output of `brigade sessions` or `brigade team members`, rather than reading it to
+  address a message, it prints what the command printed and does not tabulate, count, summarise or compare it
+  with an earlier run. The slash command is still the deterministic path — this is one rule inside a skill the
+  session may not have loaded at all, so it makes the prose path steadier, not identical.
 
 ## [0.5.2] — 2026-09-11
 
