@@ -10,9 +10,10 @@ fixture, that is its own row.
 
 **One Brigade team already spans several repositories. Nothing in the code prevents it, nothing needed changing to
 make it work, and both halves were run rather than reasoned about — the fs-adapter rig first, then the live
-`brigade` team.** What is missing is a few sentences of documentation. On identification the answer is partial: the
-session *name* carries the checkout by default, but only as the **last** of three sources, so a renamed session
-drops it — and the member that survives a rename, `workspace_label`, is `--json`-only and never in the frame.
+`brigade` team.** What is missing is a few sentences of documentation. On identification the answer is partial: an
+unrenamed session's name does carry its checkout, but as `<basename>-<suffix>` and because **Claude Code** derives
+it that way — not through Brigade's own fallback, which never fires in a real session — so a `/rename` drops it,
+and the member that survives a rename, `workspace_label`, is `--json`-only and never in the frame.
 
 Every path below is written `<repo>/…`; team, session and principal references are truncated to eight characters.
 
@@ -31,7 +32,7 @@ Every path below is written `<repo>/…`; team, session and principal references
 | --- | --- | --- |
 | 3.1 | Two repositories, one team, fs rig | **Works.** Secret-free join in the second checkout; both sessions on one listing; delivery both ways; two pins, one team. |
 | 3.2 | The same on the live team | **Works.** Confirmed against the real `brigade` team and torn down to a byte-identical config. |
-| 3.3 | Telling repositories apart | **Solved for the default case only.** The session name carries `basename(cwd)` — but as the last of three sources, so a `/rename`d session drops it. `workspace_label` survives a rename but is opt-in, `--json`-only, and never in the frame. |
+| 3.3 | Telling repositories apart | **Solved for the unrenamed case only, and not by Brigade.** Claude Code derives the session name as `<basename>-<suffix>`; Brigade's own `basename(cwd)` fallback is last of three and never fires in a real session. A `/rename` drops the checkout. `workspace_label` survives a rename but is opt-in, `--json`-only, and never in the frame. |
 | 3.4 | The join affordance | **Hand-copying is enough.** Measured friction: one `cp`, one `brigade team join`, no secret. A verb would save one `cp`. |
 | 3.5 | What breaks | **Nothing breaks.** Four findings below, none blocking; the sharpest is that there is no checkout-scoped undo verb. |
 | 3.6 | The workaround, compared | Native cross-session messaging is same-machine, not durable, and not addressed by team — a bridge, not a substitute. |
@@ -39,7 +40,7 @@ Every path below is written `<repo>/…`; team, session and principal references
 ## Recommendation: works as-is, docs only
 
 No code change, no new verb. The mechanism is complete; the documentation describes a narrower world than the code
-implements. Three places say so, and the third already concedes half of it:
+implements. Four places say so, and the third already concedes half of it:
 
 1. **`docs/setup.md:99-103`, "The project owns the team".** It reads "A Brigade team belongs to a **project**: one
    file, `.brigade.json`, committed at the repository's top level, names the team every session in that checkout
@@ -156,11 +157,21 @@ first — and the default carries the checkout only until someone renames the se
   of the checkout. When the first two are empty the basename does show — `repo-a`/`repo-b` on the rig,
   `live-team-checkout` on the live team — and it appears both in the second column of `brigade sessions` and in
   the frame's **`from-name`**, so a receiver can then tell "the back-end session" from "the front-end session"
-  **in the message itself**. But a named session carries no repository: on this team's own roster at the time of
-  writing, `18-support-multi-repo-teams` and `19-create-brigade-sessions-skill` are both sessions in `brigade`
-  checkouts and neither name contains the basename (this session, renamed, was another). For ThinkTech that is the
-  awkward case rather than the rare one: the sessions a sender most needs to tell apart are exactly the ones a
-  person is most likely to have renamed after what they are working on.
+  **in the message itself**.
+- **In a real Claude Code session Brigade's fallback never fires, and that is the important part.** `entry.Name` is
+  always populated, so the third candidate is effectively dead code outside a synthetic rig. Measured across this
+  machine's session registry: **8 entries with `nameSource: derived`** (never renamed) are every one of them
+  `<basename>-<suffix>` — `brigade-b3`, `brigade-c2`, `brigade-80`, `ifthen-pipeline-data-16` — and **15 with
+  `nameSource: user`** are typically unrelated to their checkout, such as `code-graph-main` in a checkout whose
+  basename is `ifthen-code-graph`. So a repository is legible in the name because **Claude Code derives its own
+  session name from the directory and appends a disambiguating suffix**, not because of anything Brigade does. Two
+  consequences worth stating plainly: the name carries `<basename>-<suffix>`, never the bare basename, so it is
+  matched by prefix and not by equality; and anything built on "the session name identifies the checkout" rests on
+  a Claude Code naming convention Brigade neither sets nor controls, plus nobody having run `/rename`.
+- **A rename drops it.** `18-support-multi-repo-teams`, on this team's roster while this was written, is a session
+  in a `brigade` checkout whose name contains no basename at all. For ThinkTech that is the awkward case rather
+  than the rare one: the sessions a sender most needs to tell apart are exactly the ones a person is most likely
+  to have renamed after what they are working on.
 - **`workspace_label` is opt-in, `--json`-only.** With `share_workspace_label` and `workspace_label` set, the
   value reaches the wire and `brigade sessions --json` shows it. On the live team only the checkout that set it
   carried one; every other session reported `<absent>`. It appears in **no** human-readable output — not
