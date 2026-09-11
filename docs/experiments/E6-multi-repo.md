@@ -175,8 +175,12 @@ first — and the default carries the checkout only until someone renames the se
 - **`workspace_label` is opt-in, `--json`-only.** With `share_workspace_label` and `workspace_label` set, the
   value reaches the wire and `brigade sessions --json` shows it. On the live team only the checkout that set it
   carried one; every other session reported `<absent>`. It appears in **no** human-readable output — not
-  `sessions`, not `whoami`. The only reference to it outside the protocol types is the `--json` sanitiser
-  (`internal/harness/commands/format.go:133-135`).
+  `sessions`, not `whoami`. Scoped precisely: within `internal/harness/commands/` the **only** use is the `--json`
+  sanitiser (`format.go:133-135`), and the human renderer builds its line from id, name, label, state, inbound,
+  principal and optionally model/context — no workspace label — while `whoami` references it nowhere. The label is
+  of course plumbed elsewhere, which is how it reaches the wire at all: the option pair and its gate
+  (`config/options.go:19-20,127-132,185-191`), the registration that carries it (`hook/start.go:154-156`), and both
+  adapters (`adapters/supabase/session.go:114`, `adapters/fs/session.go:111`, `adapters/fs/store.go:105`).
 - **`from-label` is the human label, always.** `frame.go:352` writes `label(m.Sender.HumanLabel)`; there is no
   branch for a workspace label. Confirmed on a real delivered frame: `from-name="live-team-checkout"`,
   `from-label="(unverified)"` with no value, and no workspace label anywhere in the tag line. The frame's
