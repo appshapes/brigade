@@ -51,6 +51,11 @@ brigade team members             # the roster: principal, human label, last seen
 Every one of them accepts `--json` for machine-readable output. Without it, the output is human-readable and
 stable.
 
+When you are **showing** the output of `brigade sessions` or `brigade team members` to your user, rather than
+reading it to address a message, print what the command printed: do not tabulate, count, summarise, or compare it
+with an earlier run. `/brigade:sessions` is the command bound to that for the session roster, and it is what your
+user should reach for.
+
 ## Sending
 
 1. Run `brigade sessions` first. Address by `session_id`; `name` and `human label` are display strings that any

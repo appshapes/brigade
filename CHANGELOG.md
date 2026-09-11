@@ -7,6 +7,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [Unreleased]
+
+### Added
+
+- **`/brigade:sessions` prints the roster the same way every time.** Asking a session for the team's sessions in
+  words ran `brigade sessions` and then rendered it however that turn saw fit — a markdown table one time, a
+  bullet list the next, sometimes with an unrequested comparison against an earlier run, and differently in two
+  sessions of the same team. The new skill is a passthrough: `/brigade:sessions` runs `brigade sessions`,
+  `/brigade:sessions --all` adds the offline sessions, and the command's own output is printed verbatim with
+  nothing around it. It is `disable-model-invocation: true`, so it is yours alone; a model reading the roster
+  before it sends still goes through `brigade:team-messaging` as before. No change to the CLI or to what it
+  prints.
+- **Asking for the roster in words is steadier too.** `brigade:team-messaging` now carries one rendering rule:
+  when it is *showing* you the output of `brigade sessions` or `brigade team members`, rather than reading it to
+  address a message, it prints what the command printed and does not tabulate, count, summarise or compare it
+  with an earlier run. The slash command is still the deterministic path — this is one rule inside a skill the
+  session may not have loaded at all, so it makes the prose path steadier, not identical.
+
 ## [0.5.2] — 2026-09-11
 
 ### Fixed
@@ -32,9 +50,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   sessions: every watcher was still the 0.4.1 binary, so no session reported its model or context until it was
   restarted. Sessions started after this update, and running sessions at their next prompt after `/reload-plugins`,
   report both.
-- The v0.5.0 release notes named a `/brigade:sessions` skill that does not exist (the roster is the `brigade
-  sessions` command a session runs); corrected on the release page, and `release-notes.yml` now tells the agent to
-  name only commands it has verified under `plugin/`.
+- The v0.5.0 release notes named a `/brigade:sessions` skill that did not exist at the time (the roster was the
+  `brigade sessions` command a session ran; the skill itself was written later); corrected on the release page,
+  and `release-notes.yml` now tells the agent to name only commands it has verified under `plugin/`.
 
 ## [0.5.0] — 2026-09-10
 

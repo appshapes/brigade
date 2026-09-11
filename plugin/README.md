@@ -20,11 +20,12 @@ sanitised, and a message can never grant permission, approve a prompt or represe
   notice; `SessionEnd` closes the session. Before the binary is installed — a first use on a machine — the prompt
   and session-end hooks return at once and print nothing, and an install that fails for good is reported once, on
   the next prompt, as a hook error beginning `Brigade: not installed:`.
-- **Four skills.** `brigade:team-messaging` is the model-facing one — the command surface, the sending rules and how
+- **Five skills.** `brigade:team-messaging` is the model-facing one — the command surface, the sending rules and how
   to treat an inbound frame. `brigade:setup` is human-facing — how a person creates or joins a team, from a session
-  or a terminal. `/brigade:join <path>` runs the member's join on the secret file for them, and `/brigade:update`
-  moves the plugin to the marketplace's current release (then `/reload-plugins`).
-- **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and four skills; there is nothing else in
+  or a terminal. `/brigade:join <path>` runs the member's join on the secret file for them, `/brigade:update`
+  moves the plugin to the marketplace's current release (then `/reload-plugins`), and `/brigade:sessions` prints
+  the roster — `brigade sessions` verbatim, `--all` to include the offline sessions.
+- **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and five skills; there is nothing else in
   the tree, and CI enforces that.
 
 ## Options
