@@ -7,7 +7,7 @@
 # one fix cycle; and only an APPROVED, lint-clean draft is published. The publish and the announcement issue are
 # shell steps, not the agent: the two writes are deterministic and idempotent (a re-dispatch rewrites the same
 # notes and opens no second issue). Why: the v0.5.0 notes, written by one agent straight onto the release page,
-# named a `/brigade:sessions` skill that does not exist (P9-8, 2026-09-10).
+# named a `/brigade:sessions` skill that did not exist (P9-8, 2026-09-10; it was written later, and does now).
 #
 # How it is reached. release.yml's last step dispatches this workflow after the publish (`workflow_dispatch`,
 # actor `github-actions` — one of the two events the job token may raise, and the one event path from a tag push
@@ -85,9 +85,9 @@ jobs:
                assets and their checksums file, every one of them by name. Keep the changelog's own wording where
                it exists. Never invent a change that is not in the changelog or the log.
             4. Name a slash command or a skill ONLY if it exists: list `plugin/skills/` and `plugin/commands/` and
-               name only what is there. Name a `brigade <verb>` ONLY if `/tmp/brigade-notes/brigade --help` lists
-               that verb. The roster is the `brigade sessions` command a session runs on request — there is no
-               `/brigade:sessions` skill (the v0.5.0 notes invented one, and this is why you are being checked).
+               name only what is there — the listing of the checkout you are drafting for, never a name you
+               remember. The v0.5.0 notes named a `/brigade:sessions` skill that had not been written yet, and
+               that slip is why you are being checked.
             5. The first line is one sentence saying what the release is. Use the version number, never
                "Unreleased". No placeholders.
 

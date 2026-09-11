@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [Unreleased]
+
+### Added
+
+- **`/brigade:sessions` prints the roster the same way every time.** Asking a session for the team's sessions in
+  words ran `brigade sessions` and then rendered it however that turn saw fit — a markdown table one time, a
+  bullet list the next, sometimes with an unrequested comparison against an earlier run, and differently in two
+  sessions of the same team. The new skill is a passthrough: `/brigade:sessions` runs `brigade sessions`,
+  `/brigade:sessions --all` adds the offline sessions, and the command's own output is printed verbatim with
+  nothing around it. It is `disable-model-invocation: true`, so it is yours alone; a model reading the roster
+  before it sends still goes through `brigade:team-messaging` as before. No change to the CLI or to what it
+  prints.
+
 ## [0.5.2] — 2026-09-11
 
 ### Fixed

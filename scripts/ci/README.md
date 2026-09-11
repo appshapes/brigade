@@ -254,7 +254,8 @@ set of notes that names a `/brigade:<skill>` the plugin does not have (read from
 that leaves a shipped asset unnamed; that never names the released version or says "Unreleased"; or that carries
 a placeholder or anything secret-shaped. One `FAIL:` line per finding (the writer's fix cycle reads them back),
 `ok:` lines for what passed, exit 1 on any finding. Born of the v0.5.0 notes, which named a `/brigade:sessions`
-skill that never existed.
+skill that had not been written yet. That skill exists now, so the tests refuse `/brigade:roster` instead —
+a name the plugin has never had.
 
 Invoked by `.github/workflows/release-notes.yml` after each draft — no `make` target. The workflow derives the two
 lists from the truth itself and passes them in the environment: `BRIGADE_NOTES_COMMANDS` from `brigade --help`

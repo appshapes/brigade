@@ -55,7 +55,7 @@ func lint(t *testing.T, notes, commands, assets, skills string) (int, string) {
 const (
 	commands = "version help sessions send whoami team inbox"
 	assets   = "brigade_0.5.1_darwin_arm64 brigade_0.5.1_linux_amd64 checksums.txt"
-	skills   = "join setup team-messaging update"
+	skills   = "join sessions setup team-messaging update"
 )
 
 func TestReleaseNotesLintPassesGoodNotes(t *testing.T) {
@@ -80,7 +80,7 @@ func TestReleaseNotesLintRefusals(t *testing.T) {
 		assets   string
 		want     string
 	}{
-		{"a skill that does not exist", strings.Replace(goodNotes, "`/brigade:update`", "`/brigade:update`, then `/brigade:sessions`", 1), commands, assets, "FAIL: /brigade:sessions is not a skill"},
+		{"a skill that does not exist", strings.Replace(goodNotes, "`/brigade:update`", "`/brigade:update`, then `/brigade:roster`", 1), commands, assets, "FAIL: /brigade:roster is not a skill"},
 		{"a CLI command that does not exist", strings.Replace(goodNotes, "`brigade sessions`", "`brigade roster`", 1), commands, assets, "FAIL: brigade roster is not a command"},
 		{"a fenced command that does not exist", strings.Replace(goodNotes, "brigade sessions --json", "brigade roster --json", 1), commands, assets, "FAIL: brigade roster is not a command"},
 		{"an asset that did not ship", strings.Replace(goodNotes, "- checksums.txt\n", "- checksums.txt\n- brigade_0.5.1_windows_amd64\n", 1), commands, assets, "FAIL: asset brigade_0.5.1_windows_amd64 is named but did not ship"},
@@ -107,16 +107,19 @@ func TestReleaseNotesLintRefusals(t *testing.T) {
 }
 
 // TestReleaseNotesLintReadsTheSkillsFromThePluginTree: with no
-// BRIGADE_NOTES_SKILLS the real plugin tree is the authority, and it has
-// no `sessions` skill — the v0.5.0 slip, refused from the tree itself.
+// BRIGADE_NOTES_SKILLS the real plugin tree is the authority. The name it
+// refuses is `roster`, which the plugin has never had and is not planned.
+// The v0.5.0 slip itself, `/brigade:sessions`, is now a real skill, so the
+// test written against that name started passing the day the skill landed —
+// which is how this one was found.
 func TestReleaseNotesLintReadsTheSkillsFromThePluginTree(t *testing.T) {
 	t.Parallel()
 	code, out := lint(t, goodNotes, commands, assets, "")
 	if code != 0 {
 		t.Fatalf("the good notes failed against the plugin tree: exit %d\n%s", code, out)
 	}
-	code, out = lint(t, strings.Replace(goodNotes, "`/brigade:update`", "`/brigade:sessions`", 1), commands, assets, "")
-	if code != 1 || !strings.Contains(out, "FAIL: /brigade:sessions is not a skill") {
+	code, out = lint(t, strings.Replace(goodNotes, "`/brigade:update`", "`/brigade:roster`", 1), commands, assets, "")
+	if code != 1 || !strings.Contains(out, "FAIL: /brigade:roster is not a skill") {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 }
