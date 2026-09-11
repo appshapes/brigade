@@ -136,3 +136,16 @@ pass: draft → lint clean → **reviewer: CHANGES_REQUESTED** — the lead said
 lint clean → **APPROVED** → published → the announcement step found issue #5 and opened no second one. Four agent
 sessions, about eleven minutes end to end. The published notes name `/brigade:update`, `brigade sessions` and the
 five assets, and nothing that does not exist.
+
+**P9-8 on v0.5.2 — the first unattended dispatch (09:15 UTC) and its re-run (09:31 UTC).** `release.yml` run
+**34583228799** published v0.5.2 and dispatched release-notes.yml as run **34583310273** — actor `github-actions`,
+now allowed — which drafted, passed the lint, and then **the reviewer step failed**: the reviewer spent 28 turns at
+`xhigh` reading `internal/harness/watch/reopen.go` against the draft's claims, matching every asset digest to
+`checksums.txt`, and found one real inaccuracy ("the plugin ships the binary for your platform" — it does not; the
+bootstrap downloads it) — and `claude-code-action` fails a step whose agent exceeds `--max-turns` (20) even after
+it has written its verdict. Nothing was published; the page kept goreleaser's default until the fix. Fix
+(`d684bca`): 50 turns for all four agent steps, `continue-on-error` on them so the lint and the verdict file decide
+rather than the action's exit status (a missing review counts as `CHANGES_REQUESTED` and the fix cycle runs), the
+keep-log steps copy only their own agent's log, and the reviewer's read-only verbs (`git diff`, `git ls-files`,
+`head`, `wc`, `file`, `shasum`) are allowed. The re-dispatch, run **34583822028**: draft → lint clean → **APPROVED in
+round one** → published → issue **#6**. The next release is the one to watch for a fully unattended pass.
