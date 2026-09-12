@@ -676,9 +676,7 @@ func TestShadowingWarning(t *testing.T) {
 			decoy := filepath.Join(dir, "brigade")
 			switch tc.kind {
 			case "shadow":
-				if err := os.WriteFile(decoy, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil { //nolint:gosec // G306: an executable fixture
-					t.Fatal(err)
-				}
+				testutil.WriteExecutable(t, decoy, []byte("#!/bin/sh\nexit 0\n"))
 			case "symlink":
 				if err := os.Symlink(f.pluginBin, decoy); err != nil {
 					t.Fatal(err)
@@ -688,9 +686,7 @@ func TestShadowingWarning(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "noplugin":
-				if err := os.WriteFile(decoy, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil { //nolint:gosec // G306: an executable fixture
-					t.Fatal(err)
-				}
+				testutil.WriteExecutable(t, decoy, []byte("#!/bin/sh\nexit 0\n"))
 			}
 			env := []string{"PATH=" + dir + string(os.PathListSeparator) + f.emptyPath()}
 			if tc.kind == "noplugin" {

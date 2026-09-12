@@ -161,7 +161,7 @@ func TestSessionLifecycleThroughTheRealBinary(t *testing.T) {
 	}
 	// The respawned watcher serves the session: a second `watch ready` in
 	// the shared log, and the session is still OPEN in the store, so the
-	// closed_at assertion after session-end below is load-bearing.
+	// close assertion after session-end below is load-bearing.
 	testutil.Eventually(t, waitLong, pollEvery, func() bool { return r.logCount(alice, "watch ready") >= 2 })
 	if s := r.sessionFile(m.BrigadeSessionID); s.ClosedAt != nil {
 		t.Fatalf("the session was closed before session-end: %+v", s)
@@ -187,8 +187,28 @@ func TestSessionLifecycleThroughTheRealBinary(t *testing.T) {
 	if bn, err := r.store().ReadByNative(alice.nativeID); err != nil || bn.BrigadeSessionID != m.BrigadeSessionID {
 		t.Errorf("the by-native map must survive session-end: %+v %v", bn, err)
 	}
+	// Both closers run under production budgets the rig cannot raise:
+	// the hook's one-shot `session close` (adapterclient.CloseTimeout,
+	// 1 s) and the SIGTERMed watcher's own close (CloseWaitClean, 1 s),
+	// each one store write with two F_FULLFSYNCs in the fs adapter,
+	// measured up to 6.2 s under a whole-tree `go test -race` on
+	// 2026-09-11. When both budgets expire the session stays open, lease
+	// expiry is authoritative (3.8), and the hook says so on stderr. That
+	// line is the witness that the close was attempted through the real
+	// binary and the only outcome tolerated besides closed_at: a bare
+	// closed_at assertion here failed a whole-tree run on 2026-09-05 with
+	// the watcher gone 1.15 s after session-end (its budget spent). That
+	// the close lands when its budget allows is asserted on the watcher's
+	// side by internal/harness/watch's TestRefuseNeverPostsOrAcks and
+	// TestHoldWritesPendingAndNeverPostsOrAcks under a hang-catcher budget,
+	// and on the hook's side by hook's TestSessionEnd* against a fake
+	// client; neither depends on this machine's disk.
 	if s := r.sessionFile(m.BrigadeSessionID); s.ClosedAt == nil {
-		t.Errorf("the session was not closed in the store: %+v", s)
+		if !strings.Contains(res.stderr, "session-end: close did not complete") || !strings.Contains(res.stderr, "deadline") {
+			t.Errorf("the session was not closed in the store and the hook did not report an expired close budget: %+v\nstderr: %s", s, res.stderr)
+		} else {
+			t.Logf("both close budgets expired; lease expiry is authoritative. hook stderr: %s", res.stderr)
+		}
 	}
 	r.hook(bob, "session-end", bob.hookDoc("SessionEnd", map[string]any{"reason": "other"}))
 

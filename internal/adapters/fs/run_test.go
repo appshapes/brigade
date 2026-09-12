@@ -193,7 +193,7 @@ func TestCommandsThatTakeNoInputNeverReadStdin(t *testing.T) {
 				if code != 0 {
 					t.Fatalf("exit %d", code)
 				}
-			case <-time.After(10 * time.Second):
+			case <-time.After(hangCatcher):
 				t.Fatal("the command read stdin and blocked")
 			}
 		})

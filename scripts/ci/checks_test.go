@@ -878,10 +878,7 @@ func writeExec(t *testing.T, path, body string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	//nolint:gosec // G306: an executable test fixture; 0700 keeps it owner-only
-	if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
-		t.Fatalf("writing %s: %v", path, err)
-	}
+	testutil.WriteExecutable(t, path, []byte(body))
 }
 
 // ---------------------------------------------------------------------------------------------------------

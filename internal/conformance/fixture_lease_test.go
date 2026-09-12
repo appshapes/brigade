@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"encoding/json/v2"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -159,7 +160,7 @@ func TestFixtureRefusesAClampedLease(t *testing.T) {
 	// that records whether its body ran can pin that.
 	later := false
 	cases := append(fixtureCase(), Case{ID: "C-02", Rule: "after the refusal", Tags: []string{TagCore}, Run: func(*T) { later = true }})
-	code, stdout, stderr := run(t, Options{Adapter: adapter, Setup: setup, JSON: true}, cases)
+	code, stdout, stderr := run(t, viaShell(adapter, Options{Setup: shellCommand(t, setup), JSON: true}), cases)
 	if code != ExitLauncher {
 		t.Errorf("a clamped lease exited %d, want %d\n%s", code, ExitLauncher, stderr)
 	}
@@ -181,7 +182,7 @@ func TestFixtureRefusesAClampedLease(t *testing.T) {
 	// Control: the same adapter granting what it advertises passes, and
 	// says nothing about a grant.
 	echoing, echoSetup := leaseFake(t, protocol.Lease{DefaultSeconds: 90, MinSeconds: 30, MaxSeconds: advertisedMax}, grantEcho)
-	code, _, stderr = run(t, Options{Adapter: echoing, Setup: echoSetup}, fixtureCase())
+	code, _, stderr = run(t, viaShell(echoing, Options{Setup: shellCommand(t, echoSetup)}), fixtureCase())
 	if code != ExitPass {
 		t.Errorf("an adapter that grants what it advertises exited %d, want %d\n%s", code, ExitPass, stderr)
 	}
@@ -209,7 +210,7 @@ func TestFixtureRefusesAMissingGrant(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			adapter, setup := leaseFake(t, protocol.Lease{DefaultSeconds: 90, MinSeconds: 30, MaxSeconds: advertisedMax}, tc.grant)
-			code, _, stderr := run(t, Options{Adapter: adapter, Setup: setup}, fixtureCase())
+			code, _, stderr := run(t, viaShell(adapter, Options{Setup: shellCommand(t, setup)}), fixtureCase())
 			if code != ExitLauncher {
 				t.Errorf("exit %d, want %d\n%s", code, ExitLauncher, stderr)
 			}
@@ -233,7 +234,7 @@ func TestFixtureRefusesALeaseLongerThanTheRequest(t *testing.T) {
 	t.Parallel()
 	const advertisedMax, grantedMore = 123, 200
 	adapter, setup := leaseFake(t, protocol.Lease{DefaultSeconds: 90, MinSeconds: 30, MaxSeconds: advertisedMax}, grantFixed(grantedMore))
-	code, _, stderr := run(t, Options{Adapter: adapter, Setup: setup}, fixtureCase())
+	code, _, stderr := run(t, viaShell(adapter, Options{Setup: shellCommand(t, setup)}), fixtureCase())
 	if code != ExitLauncher {
 		t.Errorf("a grant longer than the request exited %d, want %d\n%s", code, ExitLauncher, stderr)
 	}
@@ -256,18 +257,24 @@ func TestFixtureRefusesALeaseLongerThanTheRequest(t *testing.T) {
 // rather than one puzzling case failure in one case order.
 //
 // The adapter here advertises a 1 s maximum, so the fixture is granted 1 s
-// and a case that sleeps 2 s outlives it; the control is the same adapter
-// with no sleep.
+// and a case that sleeps 2 s outlives it. The arm is deterministic in the
+// direction that matters: the elapsed time is measured on the suite's own
+// monotonic clock (fixture.registeredAt to the end of Run) and load can
+// only lengthen it; its one CI failure (run 34537042672) was ETXTBSY on
+// the fake's first spawn, not this clock. There is no in-run control at
+// this lease: "three registrations finish inside 1 s" is a stopwatch on
+// process spawns, not a property of the check. The no-overrun side is
+// TestFixtureOverrunIsMeasuredAgainstTheLease on injected instants, and
+// every other fixture-building run in this file passes under a lease the
+// run cannot approach.
 func TestRunRefusesARunThatOutlivedTheFixtureLease(t *testing.T) {
 	t.Parallel()
 	adapter, setup := leaseFake(t, protocol.Lease{DefaultSeconds: 1, MinSeconds: 1, MaxSeconds: 1}, grantEcho)
-	opts := Options{Adapter: adapter, Setup: setup}
-
 	slow := []Case{{ID: "C-01", Rule: "slow case", Tags: []string{TagCore}, Run: func(t *T) {
 		t.A()
 		t.Sleep(2 * time.Second)
 	}}}
-	code, _, stderr := run(t, opts, slow)
+	code, _, stderr := run(t, viaShell(adapter, Options{Setup: shellCommand(t, setup)}), slow)
 	if code != ExitLauncher {
 		t.Errorf("a run that outlived the fixture lease exited %d, want %d\n%s", code, ExitLauncher, stderr)
 	}
@@ -276,14 +283,45 @@ func TestRunRefusesARunThatOutlivedTheFixtureLease(t *testing.T) {
 			t.Errorf("stderr does not say %q:\n%s", want, stderr)
 		}
 	}
+}
 
-	quick := []Case{{ID: "C-01", Rule: "quick case", Tags: []string{TagCore}, Run: func(t *T) { t.A() }}}
-	code, _, stderr = run(t, opts, quick)
-	if code != ExitPass {
-		t.Errorf("a run inside the fixture lease exited %d, want %d\n%s", code, ExitPass, stderr)
+// TestFixtureOverrunIsMeasuredAgainstTheLease pins fixture.overrun on
+// instants the test chooses — inside the lease, exactly at it (the `<=`),
+// one nanosecond past it — and on the fixtures that have nothing to
+// measure. It is the no-overrun side of the check, which a run cannot
+// assert without putting a stopwatch on its own spawns; overrun takes
+// `now` for exactly this.
+func TestFixtureOverrunIsMeasuredAgainstTheLease(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	built := func(lease time.Duration) *fixture {
+		return &fixture{built: true, lease: lease, registeredAt: at}
 	}
-	if strings.Contains(stderr, "outlived") {
-		t.Errorf("a run inside the fixture lease reported an overrun:\n%s", stderr)
+	for name, tc := range map[string]struct {
+		f    *fixture
+		now  time.Time
+		want string
+	}{
+		"inside the lease":   {built(time.Second), at.Add(500 * time.Millisecond), ""},
+		"exactly at it":      {built(time.Second), at.Add(time.Second), ""},
+		"one ns past it":     {built(time.Second), at.Add(time.Second + time.Nanosecond), "the fixture outlived its lease"},
+		"never built":        {&fixture{}, at.Add(time.Hour), ""},
+		"failed to build":    {&fixture{built: true, err: errors.New("x"), lease: time.Second, registeredAt: at}, at.Add(time.Hour), ""},
+		"lease never learnt": {&fixture{built: true, registeredAt: at}, at.Add(time.Hour), ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := tc.f.overrun(tc.now)
+			if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
+				t.Fatalf("overrun = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	past := built(time.Second).overrun(at.Add(3 * time.Second))
+	for _, want := range []string{"1s", "3s", "nothing heartbeats them", SuiteWallClockBudget.String()} {
+		if !strings.Contains(past, want) {
+			t.Errorf("the reason does not carry %q: %s", want, past)
+		}
 	}
 }
 
@@ -314,7 +352,7 @@ func TestFixtureRegistersWithTheAdvertisedMaximumLease(t *testing.T) {
 			}
 		}
 	}}}
-	if code, _, stderr := run(t, Options{Adapter: adapter, Setup: setup}, read); code != ExitPass {
+	if code, _, stderr := run(t, viaShell(adapter, Options{Setup: shellCommand(t, setup)}), read); code != ExitPass {
 		t.Fatalf("exit %d\n%s", code, stderr)
 	}
 }

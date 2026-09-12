@@ -99,12 +99,27 @@ func warmExecutable(bin string) {
 	_ = cmd.Run()
 }
 
-// runHelper is the helper process body.
+// runHelper is the helper process body. The watcher takes the real
+// dependencies, with one exception a leading `close-wait=<duration>`
+// argument sets: the exit path's session-close budget (CloseWaitClean and
+// CloseWaitDeath). The production 1 s is a performance bound on the fs
+// child's close — one store write, measured up to 6.2 s under a
+// whole-tree-shaped fsync storm on 2026-09-11 — and the detached test
+// asserts closed_at, so the budget must be a hang catcher there.
 func runHelper(mode string, rest []string) int {
 	switch mode {
 	case "watcher":
+		deps := watch.RealDeps()
+		if len(rest) > 0 && strings.HasPrefix(rest[0], "close-wait=") {
+			d, err := time.ParseDuration(strings.TrimPrefix(rest[0], "close-wait="))
+			if err != nil {
+				return 64
+			}
+			deps.CloseWaitClean, deps.CloseWaitDeath = d, d
+			rest = rest[1:]
+		}
 		//nolint:forbidigo // the detached watcher under test names the real process streams
-		return watch.Run(rest, cli.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr}, os.Environ(), watch.RealDeps())
+		return watch.Run(rest, cli.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr}, os.Environ(), deps)
 	case "adapter":
 		return helperAdapter(rest)
 	default:
@@ -117,6 +132,7 @@ func runHelper(mode string, rest []string) int {
 // `ready` event when the argument is `ready-exit=<n>`), or — with a
 // leading `record=<file>` — says ready and then records every stdin
 // command line it receives in that file, answering each (recordWatch);
+// `mute=<file>` is record mode whose heartbeats are never answered;
 // every other verb is `describe`, answered with a valid document. The
 // harness appends `--profile <p> <group> [verb] [flags]` after the fixed
 // arguments.
@@ -149,9 +165,9 @@ func helperAdapter(argv []string) int {
 	}
 	if group == "message" && verb == "watch" {
 		kind, value, _ := strings.Cut(spec, "=")
-		if kind == "record" {
+		if kind == "record" || kind == "mute" {
 			//nolint:forbidigo // a helper adapter reads the real stdin: it IS the child
-			return recordWatch(value, os.Stdin, out)
+			return recordWatch(value, os.Stdin, out, kind == "record")
 		}
 		code, _ := strconv.Atoi(value)
 		if kind == "ready-exit" {
@@ -171,7 +187,9 @@ func helperAdapter(argv []string) int {
 // stdin appended VERBATIM to path — the stdin-command heartbeat path is
 // otherwise invisible from outside the child — and answered as the fake
 // adapter answers it (acked, heartbeat_ok), until a close command or EOF.
-func recordWatch(path string, stdin io.Reader, out io.Writer) int {
+// With answerHeartbeats false a heartbeat is recorded and never answered:
+// the child the one-outstanding-heartbeat rule is about.
+func recordWatch(path string, stdin io.Reader, out io.Writer, answerHeartbeats bool) int {
 	emit := func(v any) {
 		if b, err := json.Marshal(v); err == nil {
 			_, _ = out.Write(append(b, '\n'))
@@ -197,6 +215,9 @@ func recordWatch(path string, stdin io.Reader, out io.Writer) int {
 		case protocol.CommandAck:
 			emit(&protocol.WatchAcked{Event: protocol.EventAcked, MessageIDs: append([]string{}, cmd.MessageIDs...), Unknown: []string{}})
 		case protocol.CommandHeartbeat:
+			if !answerHeartbeats {
+				continue
+			}
 			now := time.Now().UTC()
 			emit(&protocol.WatchHeartbeatOK{Event: protocol.EventHeartbeatOK, SessionID: "s1", State: protocol.SessionStateActive, LeaseUntil: now.Add(90 * time.Second), ServerTime: now})
 		case protocol.CommandClose:
@@ -260,6 +281,19 @@ type fixture struct {
 	teamName    string
 	inbound     string
 	name        string
+
+	// closeWait is the exit path's session-close budget (CloseWaitClean
+	// and CloseWaitDeath) for a fixture whose child honours `close` at
+	// once — the fs adapter persists it and ends its stream, the helper
+	// adapter returns on it — so only a hung child ever reaches the budget
+	// and it is a hang catcher. Zero keeps the production 1 s / 3 s for
+	// the fake adapter's fixtures: a fake mid-replay reads no stdin until
+	// its script ends, so there the budget is what ends the attempt.
+	// Measured 2026-09-11 under a whole-tree-shaped fsync storm on macOS:
+	// the fs child took up to 6.2 s to persist a close (one store write,
+	// two F_FULLFSYNC) against the 1 s production budget, and the abandoned
+	// close left closed_at unset (TestRefuseNeverPostsOrAcks five times).
+	closeWait time.Duration
 
 	// fs adapter only
 	root            string
@@ -326,6 +360,7 @@ func (fx *fixture) useHelper(mode string) {
 	fx.t.Helper()
 	fx.adapterArgv = helperAdapterArgv(fx.t, mode)
 	fx.sessionID = "s1"
+	fx.closeWait = waitShort
 }
 
 // useFS builds the fs store: the owner creates the team and registers the
@@ -336,6 +371,7 @@ func (fx *fixture) useFS() {
 	t.Helper()
 	fx.root = fx.dirs.FSRoot
 	fx.adapterArgv = []string{fsAdapterBin, "--root", fx.root}
+	fx.closeWait = waitShort
 	fx.owner = fx.fsClient("default")
 	fx.peer = fx.fsClient("peer")
 	ctx, cancel := context.WithTimeout(t.Context(), waitShort)
@@ -506,8 +542,10 @@ func (fx *fixture) deps() watch.Deps {
 	return watch.Deps{
 		PollInterval:      50 * time.Millisecond,
 		HeartbeatInterval: 300 * time.Millisecond,
-		ReadyTimeout:      20 * time.Second,
+		ReadyTimeout:      waitShort,
 		ReplaceWait:       500 * time.Millisecond,
+		CloseWaitClean:    fx.closeWait,
+		CloseWaitDeath:    fx.closeWait,
 		RestartSchedule: func() *backoff.Schedule {
 			return backoff.New(5*time.Millisecond, 40*time.Millisecond, seeded(1))
 		},

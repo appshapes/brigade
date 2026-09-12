@@ -12,7 +12,9 @@
   Validate), docs/protocol-v1.schema.json (`make schema`), the conformance suite and both adapters in one commit.
 - Never write to stdout from a command, the watcher or an adapter except protocol JSON/NDJSON or the documented human
   output of harness/commands (forbidigo enforces it); diagnostics go to stderr through the redacting logger; never
-  `slog.Any`. Never spawn with a shell; always argument arrays with an allow-listed environment.
+  `slog.Any`. Never spawn with a shell in shipped code; always argument arrays with an allow-listed environment.
+  A test fixture that is a shell script is launched as `/bin/sh <script>` (an argv array, never `sh -c`) so the
+  fresh file is read, not exec'd: exec'ing it is what macOS's first-exec assessment and Linux's ETXTBSY need.
 - Never put secrets on argv, in logs, in `describe` output, or in files under the project directory. The join secret is
   read from stdin, a no-echo prompt, or a `--secret-file` outside the repository (whose mode and owner Brigade never
   checks — owner ruling 4, 2026-09-08) — never argv, never the chat.

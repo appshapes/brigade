@@ -15,12 +15,12 @@ func TestReadInputTerminalRefusal(t *testing.T) {
 	t.Parallel()
 	master, slave := openPTY(t)
 	// If the terminal check were broken, ReadInput would try to READ the
-	// slave; feed it a document now and hang up after 10 s, so a defect
+	// slave; feed it a document now and hang up after 30 s, so a defect
 	// fails the test rather than hanging it. The delayed close matters:
 	// closing the master at once could unmake the slave's terminal-ness
 	// before the check under test even ran.
 	_, _ = master.WriteString(`{"x":1}`)
-	timer := time.AfterFunc(10*time.Second, func() { _ = master.Close() })
+	timer := time.AfterFunc(30*time.Second, func() { _ = master.Close() })
 	defer timer.Stop()
 	_, err := adapterkit.ReadInput(slave)
 	perr := asProtocol(t, err)
@@ -44,10 +44,11 @@ func TestChildProcessTTYUsageEnvelope(t *testing.T) {
 	master, slave := openPTY(t)
 	// Anti-hang: a correct child never reads its stdin; a broken terminal
 	// check would block on the slave. Feed it a document now and hang up
-	// after 10 s, so a defect fails the assertions below instead of
-	// wedging the suite.
+	// after 30 s (a hang catcher: a child that has not reached its
+	// terminal check by then is stuck, not slow), so a defect fails the
+	// assertions below instead of wedging the suite.
 	_, _ = master.WriteString(`{"x":1}`)
-	timer := time.AfterFunc(10*time.Second, func() { _ = master.Close() })
+	timer := time.AfterFunc(30*time.Second, func() { _ = master.Close() })
 	defer timer.Stop()
 	stdout, stderr := runChildEcho(t, slave)
 	env := decodeEnvelope(t, childEnvelope(t, stdout))

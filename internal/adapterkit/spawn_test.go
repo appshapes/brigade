@@ -13,33 +13,59 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 )
 
 // Every child in this file is a REAL process: a /bin/sh script written to
-// the test's own directory and exec'd directly (argv arrays, no `sh -c`),
-// because the four mapped failure modes — timeout, signal death, missing
-// executable, stdout overflow — only exist across a process boundary.
+// the test's own directory and launched as `/bin/sh <script>` (argv
+// arrays, no `sh -c`), because the four mapped failure modes — timeout,
+// signal death, missing executable, stdout overflow — only exist across a
+// process boundary.
 
 // childPATH is the only PATH the scripts get: enough to find sleep, cat,
 // dd and wc on both supported platforms, and handed over explicitly
 // because Spawn never inherits an environment.
 const childPATH = "PATH=/usr/bin:/bin"
 
+// spawnHangCatcher bounds a Spawn whose child never exits on its own, so
+// a Spawn that ignored its deadline is reported here rather than by the
+// package timeout. It is never a performance bound: what it covers is
+// SIGTERM-to-reap of a child, which the kernel owns.
+const spawnHangCatcher = 30 * time.Second
+
 // writeChildScript writes an executable /bin/sh script into the test's
-// directory and returns its path.
+// directory and returns its path. It goes through testutil.WriteExecutable
+// because every test here forks in parallel: run 34355720402 lost
+// two_envelopes to ETXTBSY on a child.sh a sibling's fork still held open
+// (the mechanism and the numbers are on the helper). Since childArgv the
+// shell READS the script and nothing execs it, so the ForkLock hold here
+// is belt-and-braces and the 0700 mode is not load-bearing; the helper
+// stays because the tree-wide witness TestNoTestWritesAnExecutableAnyOtherWay
+// requires it.
 func writeChildScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "child.sh")
-	//nolint:gosec // G306: a test child must be executable; 0700 keeps it owner-only, matching the repo's G302 dir rule
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
-		t.Fatalf("write child script: %v", err)
-	}
+	testutil.WriteExecutable(t, path, []byte("#!/bin/sh\n"+body+"\n"))
 	return path
+}
+
+// childArgv is the argv Spawn runs a writeChildScript child with:
+// `/bin/sh <script> args...`, so the freshly written file is READ by the
+// shell and never exec'd itself. Exec'ing a fresh file is what both flake
+// mechanisms need: macOS assesses a new executable on its first exec
+// (0.7–4.9 s per file at load average 20; 25 at once p50 1.7 s / max
+// 3.1 s on an idle machine, against ≤ 23 ms through /bin/sh), and Linux
+// refuses it with ETXTBSY while a sibling's fork holds the writer's fd.
+// /bin/sh is assessed once for the life of the machine and nothing holds
+// it open for writing. The child sees the same argv: $1 is still args[0].
+func childArgv(script string, args ...string) []string {
+	return append([]string{"/bin/sh", script}, args...)
 }
 
 // envelopeLine renders one VALID success envelope through the kit's own
@@ -127,7 +153,7 @@ func TestSpawnSuccessEnvelope(t *testing.T) {
 	t.Parallel()
 	script := writeChildScript(t, "printf '%s\\n' '"+envelopeLine(t, map[string]string{"session_id": "s-1"})+"'")
 	res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-		Argv: []string{script},
+		Argv: childArgv(script),
 		Env:  []string{childPATH},
 	})
 	if err != nil {
@@ -153,7 +179,7 @@ func TestSpawnStdinDocument(t *testing.T) {
 		t.Parallel()
 		doc := []byte(`{"hello":"adapter"}`)
 		res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-			Argv:  []string{script},
+			Argv:  childArgv(script),
 			Env:   []string{childPATH},
 			Stdin: doc,
 		})
@@ -170,7 +196,7 @@ func TestSpawnStdinDocument(t *testing.T) {
 		// A child that reads a nil Stdin must see immediate EOF, not a
 		// pipe it can block on: this test finishing at all is the point.
 		res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-			Argv: []string{script},
+			Argv: childArgv(script),
 			Env:  []string{childPATH},
 		})
 		if err != nil {
@@ -191,7 +217,7 @@ func TestSpawnTimeout(t *testing.T) {
 	defer cancel()
 	start := time.Now()
 	res, err := adapterkit.Spawn(ctx, adapterkit.SpawnSpec{
-		Argv:      []string{script, heartbeat},
+		Argv:      childArgv(script, heartbeat),
 		Env:       []string{childPATH},
 		WaitDelay: 500 * time.Millisecond,
 	})
@@ -217,8 +243,10 @@ func TestSpawnTimeout(t *testing.T) {
 	if sig, ok := perr.Details["signal"]; ok {
 		t.Fatalf("timeout mapping carries details.signal=%q; the signal is an effect, not the cause", sig)
 	}
-	if elapsed > 5*time.Second {
-		t.Fatalf("Spawn took %v against a 250ms deadline and a 500ms wait delay", elapsed)
+	// The child never exits on its own, so Spawn returning at all is the
+	// proof that the deadline was honoured; the bound is the hang catcher.
+	if elapsed > spawnHangCatcher {
+		t.Fatalf("Spawn took %v against a 250ms deadline and a 500ms wait delay; the %v hang catcher fired", elapsed, spawnHangCatcher)
 	}
 	assertChildStopped(t, heartbeat)
 }
@@ -239,7 +267,7 @@ func TestSpawnSignalDeath(t *testing.T) {
 			t.Parallel()
 			script := writeChildScript(t, "kill -"+tc.sig+" $$")
 			res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-				Argv: []string{script},
+				Argv: childArgv(script),
 				Env:  []string{childPATH},
 			})
 			if res != nil {
@@ -326,7 +354,7 @@ func TestSpawnStdoutThatIsNotAnEnvelope(t *testing.T) {
 			t.Parallel()
 			script := writeChildScript(t, tc.body)
 			res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-				Argv: []string{script},
+				Argv: childArgv(script),
 				Env:  []string{childPATH},
 			})
 			if res != nil {
@@ -354,7 +382,7 @@ func TestSpawnAdapterErrorEnvelopePassesThrough(t *testing.T) {
 	})
 	script := writeChildScript(t, "printf '%s\\n' '"+line+"'\nexit "+strconv.Itoa(exit))
 	res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-		Argv: []string{script},
+		Argv: childArgv(script),
 		Env:  []string{childPATH},
 	})
 	if err != nil {
@@ -386,7 +414,7 @@ func TestSpawnOverflowCancelsRunawayChild(t *testing.T) {
 	defer cancel()
 	start := time.Now()
 	res, err := adapterkit.Spawn(ctx, adapterkit.SpawnSpec{
-		Argv:      []string{script, heartbeat},
+		Argv:      childArgv(script, heartbeat),
 		Env:       []string{childPATH},
 		WaitDelay: 500 * time.Millisecond,
 	})
@@ -403,13 +431,14 @@ func TestSpawnOverflowCancelsRunawayChild(t *testing.T) {
 		t.Fatalf(`details.reason = %q, want "stdout_overflow"`, got)
 	}
 	// The cap must CANCEL the child, not merely stop recording: the
-	// return happens long before the outer deadline, which is still live.
+	// return happens before the outer deadline, which is still live. That
+	// is the whole claim; the wall time is logged, not bounded, because
+	// SIGTERM-to-reap of a child mid-dd is the kernel's and a bound on it
+	// under the 20 s deadline could only measure load.
 	if ctx.Err() != nil {
 		t.Fatalf("outer context expired (%v): the cap did not cancel the child, the deadline did", ctx.Err())
 	}
-	if elapsed > 10*time.Second {
-		t.Fatalf("Spawn took %v to stop a runaway child; the cap should have cancelled it immediately", elapsed)
-	}
+	t.Logf("Spawn stopped the runaway child after %v", elapsed)
 	assertChildStopped(t, heartbeat)
 }
 
@@ -432,7 +461,7 @@ func TestSpawnStdoutCapBoundary(t *testing.T) {
 		}
 		script := writeChildScript(t, `cat "$1"`)
 		res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-			Argv: []string{script, payload},
+			Argv: childArgv(script, payload),
 			Env:  []string{childPATH},
 		})
 		if err != nil {
@@ -451,7 +480,7 @@ func TestSpawnStdoutCapBoundary(t *testing.T) {
 		}
 		script := writeChildScript(t, `cat "$1"`)
 		res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-			Argv: []string{script, payload},
+			Argv: childArgv(script, payload),
 			Env:  []string{childPATH},
 		})
 		if res != nil {
@@ -468,20 +497,23 @@ func TestSpawnWaitDelayGrandchildResultStands(t *testing.T) {
 	t.Parallel()
 	// The child misbehaves exactly as 7.3 warns — it hands its stdout to
 	// a grandchild — but exits 0 with a valid result already printed.
-	// The grandchild outlives the test by a wide margin on purpose: the
-	// bound below is a hang catcher against ITS lifetime, not a
-	// performance bound on the wait delay (a 5 s bound tripped at 5.56 s
-	// under a loaded -race run whose isolated time is 0.5 s).
+	// The grandchild outlives the test on purpose and leaves its pid in a
+	// file: that it is STILL ALIVE when Spawn returns is the witness that
+	// Spawn did not wait it out (a 15 s upper bound on the return was a
+	// stopwatch; a 5 s one tripped at 5.56 s under a loaded -race run
+	// whose isolated time is 0.5 s). The test kills it afterwards.
+	pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
 	script := writeChildScript(t,
 		"printf '%s\\n' '"+envelopeLine(t, map[string]string{"session_id": "s-wd"})+"'\n"+
 			"sleep 30 &\n"+
+			"echo $! > "+pidFile+"\n"+
 			"exit 0")
 	var logBuf bytes.Buffer
 	childLog := slog.New(slog.NewJSONHandler(&logBuf, nil))
 
 	start := time.Now()
 	res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-		Argv:      []string{script},
+		Argv:      childArgv(script),
 		Env:       []string{childPATH},
 		WaitDelay: 300 * time.Millisecond,
 		Logger:    childLog,
@@ -504,13 +536,25 @@ func TestSpawnWaitDelayGrandchildResultStands(t *testing.T) {
 		t.Fatalf("the tolerated ErrWaitDelay case must be logged (7.3); log: %q", logBuf.String())
 	}
 	// Returned when WaitDelay forced the pipes closed, without waiting
-	// out the grandchild's 30 s: the lower bound proves the delay was
-	// honoured, the upper bound (half the grandchild's lifetime) catches
-	// a Spawn that waited for the grandchild, and the wall time is logged
-	// so a slow run is visible without being a failure.
+	// out the grandchild: the lower bound proves the delay was honoured
+	// (Spawn waits it out before forcing the pipes), and the grandchild
+	// still being alive proves Spawn did not wait for it. The wall time
+	// is logged so a slow run is visible without being a failure.
 	t.Logf("Spawn returned after %v with a 300ms wait delay and a 30 s grandchild", elapsed)
-	if elapsed < 200*time.Millisecond || elapsed > 15*time.Second {
-		t.Fatalf("Spawn took %v, want more than the 300ms wait delay and far less than the grandchild's 30 s lifetime", elapsed)
+	if elapsed < 200*time.Millisecond {
+		t.Fatalf("Spawn took %v, want at least the 300ms wait delay", elapsed)
+	}
+	raw, err := os.ReadFile(pidFile) //nolint:gosec // G304: a pid file the test's own script wrote under t.TempDir
+	if err != nil {
+		t.Fatalf("the grandchild's pid file: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatalf("the grandchild's pid file %q: %v", raw, err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("the grandchild %d is gone when Spawn returned (%v): Spawn waited for it instead of honouring WaitDelay", pid, err)
 	}
 }
 
@@ -518,7 +562,7 @@ func TestSpawnWaitDelayWithoutResultIsInternal(t *testing.T) {
 	t.Parallel()
 	script := writeChildScript(t, "sleep 3 &\nexit 0")
 	res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-		Argv:      []string{script},
+		Argv:      childArgv(script),
 		Env:       []string{childPATH},
 		WaitDelay: 300 * time.Millisecond,
 	})
@@ -541,7 +585,7 @@ func TestSpawnNeverInheritsParentEnvironment(t *testing.T) {
 	// Env nil must mean EMPTY, not inherited (3.2): printf and the ${...}
 	// expansion are shell builtins, so the child needs no PATH at all.
 	res, err := adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-		Argv: []string{script},
+		Argv: childArgv(script),
 	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
@@ -554,7 +598,7 @@ func TestSpawnNeverInheritsParentEnvironment(t *testing.T) {
 	// DOES see a value that is passed explicitly, so the "unset" above is
 	// isolation, not a broken probe.
 	res, err = adapterkit.Spawn(t.Context(), adapterkit.SpawnSpec{
-		Argv: []string{script},
+		Argv: childArgv(script),
 		Env:  []string{"BRIGADE_SPAWN_CANARY=handed-over"},
 	})
 	if err != nil {

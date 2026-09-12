@@ -21,7 +21,7 @@ var testEnviron = []string{"PATH=/usr/bin:/bin", "TMPDIR=/tmp/brigade-test", "CL
 // brief's list — nothing missing, nothing extra.
 func TestChildEnvironmentIsExactlyTheSectionThreeSet(t *testing.T) {
 	t.Parallel()
-	r := newTestRunner(t, "/usr/bin/env", Options{Env: []string{"FOO=bar", "SUPABASE_KEY=k"}, SharedEnv: "BRIGADE_FS_ROOT"}, testEnviron)
+	r := newTestRunner(t, Options{Adapter: "/usr/bin/env", Env: []string{"FOO=bar", "SUPABASE_KEY=k"}, SharedEnv: "BRIGADE_FS_ROOT"}, testEnviron)
 	p := scratchPrincipal(t, r, "env")
 	res, _ := r.launcher.spawn(t.Context(), "T", p, []string{"BRIGADE_TEST_OFFLINE=1"}, nil, false)
 	if res.err != nil {
@@ -50,7 +50,7 @@ func TestChildEnvironmentIsExactlyTheSectionThreeSet(t *testing.T) {
 
 func TestArgvPrependsFixedArgs(t *testing.T) {
 	t.Parallel()
-	r := newTestRunner(t, "/x/adapter", Options{FixedArgs: []string{"adapter", "supabase"}}, testEnviron)
+	r := newTestRunner(t, Options{Adapter: "/x/adapter", FixedArgs: []string{"adapter", "supabase"}}, testEnviron)
 	got := r.launcher.argv([]string{"session", "list"})
 	if !slices.Equal(got, []string{"/x/adapter", "adapter", "supabase", "session", "list"}) {
 		t.Fatalf("argv: %v", got)
@@ -97,7 +97,7 @@ func failingScript(tb testing.TB, name, body string) string {
 
 func spawnCase(t *testing.T, adapter string, opts Options, args ...string) CaseResult {
 	t.Helper()
-	r := newTestRunner(t, adapter, opts, testEnviron)
+	r := newTestRunner(t, viaShell(adapter, opts), testEnviron)
 	return runFake(t, r, func(ct *T) {
 		p := ct.Scratch("x")
 		ct.Exec(p, nil, args...)
@@ -166,7 +166,7 @@ func TestKnownSecretScanFiresAndNotOtherwise(t *testing.T) {
 	const secret = "s3cr3t-value-without-prefix"
 	adapter := failingScript(t, "adapter", "printf '%s\\n' '"+ok+"'; echo 'note "+secret+"' >&2")
 	for _, known := range []bool{false, true} {
-		r := newTestRunner(t, adapter, Options{}, testEnviron)
+		r := newTestRunner(t, viaShell(adapter, Options{}), testEnviron)
 		if known {
 			r.launcher.addSecret(secret)
 		}
@@ -184,7 +184,7 @@ func TestTeamCreateStdoutIsExemptButLearned(t *testing.T) {
 	t.Parallel()
 	create := `{"ok":true,"protocol_version":"1","result":{"team_ref":"t","team_name":"ops","join_secret":"brg1.t.abc","principal_ref":"p"}}`
 	adapter := failingScript(t, "adapter", "printf '%s\\n' '"+create+"'")
-	r := newTestRunner(t, adapter, Options{}, testEnviron)
+	r := newTestRunner(t, viaShell(adapter, Options{}), testEnviron)
 	res := runFake(t, r, func(ct *T) { ct.Exec(ct.Scratch("x"), nil, "team", "create") })
 	if res.Status != StatusPass {
 		t.Fatalf("team create stdout flagged: %q", res.Reason)
@@ -201,7 +201,7 @@ func TestTeamCreateStdoutIsExemptButLearned(t *testing.T) {
 
 func TestRunDirectoryScan(t *testing.T) {
 	t.Parallel()
-	r := newTestRunner(t, "/usr/bin/env", Options{}, testEnviron)
+	r := newTestRunner(t, Options{Adapter: "/usr/bin/env"}, testEnviron)
 	p := scratchPrincipal(t, r, "x")
 	if hits := r.launcher.scanDir(); len(hits) != 0 {
 		t.Fatalf("clean directory flagged: %v", hits)
@@ -229,14 +229,19 @@ func TestExecStdinOpenCatchesAStdinReader(t *testing.T) {
 	t.Parallel()
 	ok := `{"ok":true,"protocol_version":"1","result":{}}`
 	reader := failingScript(t, "reader", "cat >/dev/null; printf '%s\\n' '"+ok+"'")
-	r := newTestRunner(t, reader, Options{Timeout: 500 * time.Millisecond}, testEnviron)
+	r := newTestRunner(t, viaShell(reader, Options{Timeout: 500 * time.Millisecond}), testEnviron)
 	res := runFake(t, r, func(ct *T) { ct.ExecStdinOpen(ct.Scratch("x"), "describe") })
 	if res.Status != StatusFail || !strings.Contains(res.Reason, "did not exit within") {
 		t.Fatalf("stdin reader: status %s, reason %q", res.Status, res.Reason)
 	}
-	// Positive control: a command that never reads stdin returns at once.
+	// Positive control: a command that never reads stdin is not held by the
+	// open pipe. Its completion is awaited under the hang catcher, never
+	// timed: the claim is that it exits at all with the pipe still open.
+	// (The 5 s it had was crossed 9 times in 20 loaded runs by a fake that
+	// had not yet started; the negative control's 500 ms is the subject of
+	// that arm and its input, a `cat` on a pipe nobody writes, is fixed.)
 	silent := failingScript(t, "silent", "printf '%s\\n' '"+ok+"'")
-	r = newTestRunner(t, silent, Options{Timeout: 5 * time.Second}, testEnviron)
+	r = newTestRunner(t, viaShell(silent, Options{Timeout: fakeDeadline}), testEnviron)
 	res = runFake(t, r, func(ct *T) {
 		got := ct.ExecStdinOpen(ct.Scratch("x"), "describe")
 		if got.Envelope == nil || !got.Envelope.OK {
@@ -251,7 +256,7 @@ func TestExecStdinOpenCatchesAStdinReader(t *testing.T) {
 func TestStdinBytesReachTheChild(t *testing.T) {
 	t.Parallel()
 	echo := failingScript(t, "echo", `printf '{"ok":true,"protocol_version":"1","result":{"got":"'"$(cat)"'"}}\n'`)
-	r := newTestRunner(t, echo, Options{}, testEnviron)
+	r := newTestRunner(t, viaShell(echo, Options{}), testEnviron)
 	res := runFake(t, r, func(ct *T) {
 		raw := ct.OKRaw(ct.Exec(ct.Scratch("x"), []byte("hello"), "session", "register"))
 		if raw["got"] != "hello" {
@@ -275,7 +280,7 @@ case "$1" in
   nr) printf '%s\n' '`+noRetryable+`'; exit 6 ;;
 esac
 `)
-	r := newTestRunner(t, adapter, Options{}, testEnviron)
+	r := newTestRunner(t, viaShell(adapter, Options{}), testEnviron)
 	check := func(name string, body func(*T), wantStatus Status, wantReason string) {
 		t.Helper()
 		res := runFake(t, r, body)
@@ -317,7 +322,7 @@ esac
 		ct.DifferentBytes("different", a, c)
 		ct.DifferentBytes("control", a, b)
 	}, StatusFail, "control: stdout of nf and nf are identical")
-	r2 := newTestRunner(t, wrongExit, Options{}, testEnviron)
+	r2 := newTestRunner(t, viaShell(wrongExit, Options{}), testEnviron)
 	res := runFake(t, r2, func(ct *T) { ct.Fail(ct.Exec(ct.Scratch("x"), nil, "nf"), protocol.CodeNotFound) })
 	if res.Status != StatusFail || !strings.Contains(res.Reason, "want exit 6 for not_found, got 7") {
 		t.Fatalf("exit mismatch: %s %q", res.Status, res.Reason)
@@ -326,7 +331,7 @@ esac
 
 func TestSkipNoteAndPanicOutcomes(t *testing.T) {
 	t.Parallel()
-	r := newTestRunner(t, "/usr/bin/env", Options{}, testEnviron)
+	r := newTestRunner(t, Options{Adapter: "/usr/bin/env"}, testEnviron)
 	if res := runFake(t, r, func(ct *T) { ct.Note("seen %d", 1); ct.Skip("not today") }); res.Status != StatusSkip || res.Reason != "not today" || len(res.Notes) != 1 {
 		t.Fatalf("skip: %+v", res)
 	}
@@ -351,20 +356,26 @@ func TestSkipNoteAndPanicOutcomes(t *testing.T) {
 
 func TestSleepHonoursTheContext(t *testing.T) {
 	t.Parallel()
-	r := newTestRunner(t, "/usr/bin/env", Options{}, testEnviron)
+	r := newTestRunner(t, Options{Adapter: "/usr/bin/env"}, testEnviron)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	ct := newT(ctx, r, Case{ID: "T-02"})
-	start := time.Now()
-	ct.Sleep(10 * time.Second)
-	if time.Since(start) > time.Second {
+	// An hour-long Sleep on a cancelled context returns at once; one that
+	// ignored the context would still be sleeping when the hang catcher
+	// fires, so this cannot pass by being slow and cannot fail by being
+	// slow (a 1 s bound on the return was a stopwatch on a select).
+	done := make(chan struct{})
+	go func() { ct.Sleep(time.Hour); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(fakeDeadline):
 		t.Fatal("Sleep ignored the cancelled context")
 	}
 }
 
 func TestRebindAndRestoreRewriteProfileJSON(t *testing.T) {
 	t.Parallel()
-	r := newTestRunner(t, "/usr/bin/env", Options{}, testEnviron)
+	r := newTestRunner(t, Options{Adapter: "/usr/bin/env"}, testEnviron)
 	p := scratchPrincipal(t, r, "c")
 	p.TeamRef = "t2"
 	path := p.ConfigDir + "/teams/default/team.json"
@@ -396,7 +407,7 @@ func TestRebindAndRestoreRewriteProfileJSON(t *testing.T) {
 func TestRebindThroughTheOperatorCommand(t *testing.T) {
 	t.Parallel()
 	rebind := failingScript(t, "rebind", `cat > "$BRIGADE_CONFIG_DIR/rebound.json"`)
-	r := newTestRunner(t, "/usr/bin/env", Options{Rebind: rebind}, testEnviron)
+	r := newTestRunner(t, Options{Adapter: "/usr/bin/env", Rebind: shellCommand(t, rebind)}, testEnviron)
 	p := scratchPrincipal(t, r, "c")
 	p.TeamRef = "orig"
 	res := runFake(t, r, func(ct *T) {
@@ -413,7 +424,7 @@ func TestRebindThroughTheOperatorCommand(t *testing.T) {
 		t.Fatalf("%s %q", res.Status, res.Reason)
 	}
 	failing := failingScript(t, "rebind-fail", "exit 3")
-	r = newTestRunner(t, "/usr/bin/env", Options{Rebind: failing}, testEnviron)
+	r = newTestRunner(t, Options{Adapter: "/usr/bin/env", Rebind: shellCommand(t, failing)}, testEnviron)
 	res = runFake(t, r, func(ct *T) { ct.Rebind(scratchPrincipal(t, r, "d"), "t1") })
 	if res.Status != StatusFail || !strings.Contains(res.Reason, "--rebind command for d exited 3") {
 		t.Fatalf("%s %q", res.Status, res.Reason)

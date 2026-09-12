@@ -21,12 +21,26 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/testutil"
 )
 
 // The watch's unit tests: a fake Phoenix server (join ok, a scripted
 // refusal, hints, heartbeats, access_token pushes, a dropped socket) in
 // front of the rig's fake GoTrue/PostgREST, and an in-process watch
 // driven through pipes. Nothing here dials the real stack.
+
+// hangCatcher bounds every positive wait in this file — an event, a join
+// attempt, a fetch count, an exit. It is a "did this ever happen" bound
+// and never a performance one: a test that pins WHICH path delivered
+// something does it by construction — the other timers set to an hour, a
+// fetch count, a frame count — so under load a wait here can only be
+// slow, never wrong. The 2-5 s budgets it replaces were margins over the
+// shipped 3 s settling drain and over hint, join and refusal latencies
+// under -race, and a 3 s window lost a dead heat with the settling
+// interval by the length of one RPC in run 33907417452 ("no watch event
+// within 2.999999519s"). Negative windows (quiet) keep their lengths: a
+// negative window can only pass falsely under load, never fail falsely.
+const hangCatcher = 30 * time.Second
 
 // ---- the fake Phoenix server ----
 
@@ -42,11 +56,13 @@ type fakePhoenix struct {
 	joinTokens chan string       // the access_token of every join attempt
 	refuse     atomic.Value      // a non-empty string refuses joins with that reason
 	silent     atomic.Bool       // when set, heartbeats go unanswered
-	joinDelay  atomic.Int64      // nanoseconds between a join's arrival and its ok reply (the server's join latency)
 	heartbeats atomic.Int32
 	leaves     atomic.Int32
 	dials      atomic.Int32
 	closed     atomic.Int32 // sockets whose read loop has ended
+
+	mu       sync.Mutex
+	joinHold chan struct{} // when set, every join's ok reply waits on it (holdJoins); the socket is read meanwhile
 }
 
 // A fakeChannel is one joined topic on one socket.
@@ -126,19 +142,27 @@ func (ph *fakePhoenix) serve(conn *websocket.Conn) {
 			}
 			ch = &fakeChannel{ph: ph, conn: conn, topic: f.Topic, joinRef: ref}
 			ph.attempts <- ch
-			// The server's join latency: the JWT check, the topic policy's
-			// query on a cold tenant, a runner's Kong in front. A broadcast
-			// on the topic meanwhile is not this socket's (see broadcast).
-			if d := time.Duration(ph.joinDelay.Load()); d > 0 {
-				select {
-				case <-time.After(d):
-				case <-ctx.Done():
-					return
-				}
+			if gate := ph.joinGate(); gate != nil {
+				// The server's join latency, held open by the test: the JWT
+				// check, the topic policy's query on a cold tenant, a runner's
+				// Kong in front. A broadcast on the topic meanwhile is not
+				// this socket's (see broadcast). The read loop goes on, so a
+				// frame the link writes on the pending channel is counted
+				// and its close is seen as it happens.
+				pending := ch
+				go func() {
+					select {
+					case <-gate:
+					case <-ctx.Done():
+						return
+					}
+					if ctx.Err() == nil {
+						ph.complete(pending)
+					}
+				}()
+				continue
 			}
-			ch.joined.Store(true)
-			ph.reply(conn, f.Topic, ref, ref, `{"status":"ok","response":{"postgres_changes":[]}}`)
-			ph.joined <- ch
+			ph.complete(ch)
 		case phxEventHB:
 			ph.heartbeats.Add(1)
 			if !ph.silent.Load() {
@@ -164,7 +188,7 @@ func (ph *fakePhoenix) reply(conn *websocket.Conn, topic, ref, joinRef, payload 
 		frame += `,"join_ref":"` + joinRef + `"`
 	}
 	frame += "}"
-	ctx, cancel := context.WithTimeout(ph.t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ph.t.Context(), hangCatcher)
 	defer cancel()
 	_ = conn.Write(ctx, websocket.MessageText, []byte(frame))
 }
@@ -211,19 +235,63 @@ func (ch *fakeChannel) drop() {
 func (ch *fakeChannel) write(frame string) {
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
-	ctx, cancel := context.WithTimeout(ch.ph.t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ch.ph.t.Context(), hangCatcher)
 	defer cancel()
 	_ = ch.conn.Write(ctx, websocket.MessageText, []byte(frame))
 }
 
-// nextJoin waits for a join.
+// complete answers a join attempt: the ok reply, and the channel joined.
+func (ph *fakePhoenix) complete(ch *fakeChannel) {
+	ch.joined.Store(true)
+	ph.reply(ch.conn, ch.topic, ch.joinRef, ch.joinRef, `{"status":"ok","response":{"postgres_changes":[]}}`)
+	ph.joined <- ch
+}
+
+// holdJoins makes every join's ok reply wait until release is called (or
+// the test ends): the server's join latency, held for as long as the test
+// wants, so "the socket has not finished joining" is a state the test
+// holds rather than a delay it has to outrun. The socket is still read
+// while the join is pending, so a frame the link writes on it meanwhile —
+// a phx_leave it must not send — is counted, and its close is seen at
+// once.
+func (ph *fakePhoenix) holdJoins(t *testing.T) (release func()) {
+	t.Helper()
+	gate := make(chan struct{})
+	ph.mu.Lock()
+	ph.joinHold = gate
+	ph.mu.Unlock()
+	release = sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+	return release
+}
+
+func (ph *fakePhoenix) joinGate() chan struct{} {
+	ph.mu.Lock()
+	defer ph.mu.Unlock()
+	return ph.joinHold
+}
+
+// nextJoin waits for a join to complete.
 func (ph *fakePhoenix) nextJoin() *fakeChannel {
 	ph.t.Helper()
 	select {
 	case ch := <-ph.joined:
 		return ch
-	case <-time.After(10 * time.Second):
-		ph.t.Fatal("no realtime join within 10 s")
+	case <-time.After(hangCatcher):
+		ph.t.Fatalf("no realtime join within %s", hangCatcher)
+		return nil
+	}
+}
+
+// nextAttempt waits for a join attempt to reach the server, answered or
+// not.
+func (ph *fakePhoenix) nextAttempt() *fakeChannel {
+	ph.t.Helper()
+	select {
+	case ch := <-ph.attempts:
+		return ch
+	case <-time.After(hangCatcher):
+		ph.t.Fatalf("no realtime join attempt within %s", hangCatcher)
 		return nil
 	}
 }
@@ -352,7 +420,7 @@ func (in *fakeInbox) fetched() int {
 // counts later drains, or scripts a refusal, starts from a known point.
 func (in *fakeInbox) settled(t *testing.T, n int) int {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(hangCatcher)
 	for in.fetched() < n && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -489,8 +557,8 @@ func startWatchWith(t *testing.T, r *rig, wrap func(io.Writer) io.Writer, args .
 		// catcher: stdin EOF ends a watch within 5 s by 4.4.9.
 		select {
 		case <-w.exited:
-		case <-time.After(30 * time.Second):
-			t.Errorf("the watch goroutine did not exit within 30 s of stdin closing")
+		case <-time.After(hangCatcher):
+			t.Errorf("the watch goroutine did not exit within %s of stdin closing", hangCatcher)
 		}
 	})
 	return w
@@ -573,7 +641,7 @@ func (w *watchRun) send(line string) {
 func (w *watchRun) exit() int {
 	w.t.Helper()
 	_ = w.stdin.Close()
-	return w.wait(5 * time.Second)
+	return w.wait(hangCatcher)
 }
 
 // wait returns the exit status within d.
@@ -591,7 +659,7 @@ func (w *watchRun) wait(d time.Duration) int {
 // expectReady asserts the one-time first event of 4.4.9 with mode push.
 func (w *watchRun) expectReady() {
 	w.t.Helper()
-	event := w.next(5 * time.Second)
+	event := w.next(hangCatcher)
 	if event["event"] != protocol.EventReady || event["session_id"] != watchSession ||
 		event["mode"] != protocol.WatchModePush || event["protocol_version"] != protocol.ProtocolVersion {
 		w.t.Fatalf("first event = %v, want a push ready for %s", event, watchSession)
@@ -602,7 +670,7 @@ func (w *watchRun) expectReady() {
 // and detail.
 func (w *watchRun) expectStatus(state, detail string) {
 	w.t.Helper()
-	event := w.next(5 * time.Second)
+	event := w.next(hangCatcher)
 	if event["event"] != protocol.EventStatus || event["state"] != state || event["detail"] != detail {
 		w.t.Fatalf("event = %v, want status %s/%s", event, state, detail)
 	}
@@ -619,14 +687,20 @@ func messageID(t *testing.T, event map[string]any) string {
 
 // ---- the tests ----
 
-// TestWatchPushReadyLiveAndHints covers C-33, C-35 and C-36 in push mode
-// at the shipped timers: ready first with mode push, status live once the
-// private channel is joined, a hint makes the message arrive at once (the
-// drain timer is 30 s away), a second hint for the same message drains
-// again and emits nothing twice, and stdin EOF ends the watch with exit 0
-// after a phx_leave.
+// TestWatchPushReadyLiveAndHints covers C-33, C-35 and C-36 in push mode:
+// ready first with mode push, status live once the private channel is
+// joined, a hint makes the message arrive, a second hint for the same
+// message drains again and emits nothing twice, and stdin EOF ends the
+// watch with exit 0 after a phx_leave. Every drain timer is an hour here,
+// so a hint is the only thing that can run the drain that delivers: the
+// message arriving at all is the proof of the hint path, and the fetch
+// count pins one drain per hint. (At the shipped timers the proof was a
+// 700 ms bound on the hint's latency against the 30 s live timer — a
+// performance bound under -race and load — and the 3 s settling drain
+// could add a fetch to the count meanwhile.)
 func TestWatchPushReadyLiveAndHints(t *testing.T) {
-	t.Parallel()
+	drainTiming(t, time.Hour, time.Hour)
+	settleTiming(t, time.Hour)
 	r, ph, in := watchRig(t)
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
 	w.expectReady()
@@ -639,16 +713,13 @@ func TestWatchPushReadyLiveAndHints(t *testing.T) {
 
 	hinted := in.accept("hinted")
 	ch.hint(hinted)
-	start := time.Now()
-	if got := messageID(t, w.expect(protocol.EventMessage, 5*time.Second)); got != hinted {
+	if got := messageID(t, w.expect(protocol.EventMessage, hangCatcher)); got != hinted {
 		t.Fatalf("message %s, want the hinted %s", got, hinted)
-	}
-	if took := time.Since(start); took > 700*time.Millisecond {
-		t.Errorf("the hinted message took %s; the hint should beat the %s drain timer", took, watchTiming.drainLive)
 	}
 	// A duplicate hint (a burst of senders, a lost ack) is one more drain
 	// and no second emission.
 	ch.hint(hinted)
+	in.settled(t, before+2)
 	w.quiet(1500 * time.Millisecond)
 	if got := in.fetched(); got != before+2 {
 		t.Errorf("fetch_inbox ran %d time(s) after the join, want 2 (one per hint)", got-before)
@@ -661,20 +732,41 @@ func TestWatchPushReadyLiveAndHints(t *testing.T) {
 	}
 }
 
+// TestWatchTimingIsPlan56 pins the shipped drain cadence on the constants:
+// plan 5.6's 30 s live timer (what a lost hint costs: one RPC per 30 s
+// per watcher), the 10 s polling timer, and two settling drains 3 s apart
+// after every join. TestWatchTimerOnlyDoesNotDrainEarly used to witness
+// the live timer by not seeing it fire within 5 s of the settling drains,
+// a window on the wall clock; the cadence is the property, so it is
+// asserted here and that test runs with the live timer an hour away.
+// Not parallel: it reads the package's timing while no test mutates it.
+func TestWatchTimingIsPlan56(t *testing.T) {
+	if watchTiming.drainLive != 30*time.Second || watchTiming.drainPolling != 10*time.Second {
+		t.Fatalf("drain timers live %s polling %s, want 30s and 10s (plan 5.6)", watchTiming.drainLive, watchTiming.drainPolling)
+	}
+	if watchTiming.settle != 3*time.Second || settleDrains != 2 {
+		t.Fatalf("settling drains %d × %s, want 2 × 3s (runs 33696302372 and 33756168929)", settleDrains, watchTiming.settle)
+	}
+}
+
 // TestWatchTimerOnlyDoesNotDrainEarly is the negative control for plan
-// 5.6's drain timer at the SHIPPED intervals, in two halves. First the
-// settling window: a message accepted WITHOUT a hint right after the
-// join is found by the two 3 s settling drains (watchTiming.settle) —
-// the fan-out to a fresh join is not warm at once, and this is what
-// bounds a lost broadcast to ~3 s instead of 30. Then the steady state:
-// once those two drains have run, a hint-less message is NOT fetched
-// within 5 s, because the live timer is 30 s. The channel is the fast
-// path and the timer only bounds what a lost hint costs — one RPC per
-// 30 s per watcher, not one per second — so the suite's deadlines
-// (C-08, C-35) are met by hints and the settling drains, never by this
-// timer.
+// 5.6's drain timer, in two halves. First the settling window: a message
+// accepted WITHOUT a hint right after the join is found by the two 3 s
+// settling drains (watchTiming.settle, shipped) — the fan-out to a fresh
+// join is not warm at once, and this is what bounds a lost broadcast to
+// ~3 s instead of 30. Then the steady state: once those two drains have
+// run, a hint-less message is NOT fetched within 5 s, because no timer
+// is due. The live and polling timers are an hour here so the settling
+// drains are the only timer left and the wait for them is a hang
+// catcher rather than a window that had to close before the live timer
+// (2 × settle = 6 s, then 20 s against the 36 s the live timer needed);
+// the shipped 30 s / 10 s cadence is pinned by TestWatchTimingIsPlan56.
+// The channel is the fast path and the timer only bounds what a lost
+// hint costs — one RPC per 30 s per watcher, not one per second — so the
+// suite's deadlines (C-08, C-35) are met by hints and the settling
+// drains, never by this timer.
 func TestWatchTimerOnlyDoesNotDrainEarly(t *testing.T) {
-	t.Parallel()
+	drainTiming(t, time.Hour, time.Hour)
 	r, ph, in := watchRig(t)
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
 	w.expectReady()
@@ -684,16 +776,21 @@ func TestWatchTimerOnlyDoesNotDrainEarly(t *testing.T) {
 
 	lost := in.accept("no hint, lost right after the join")
 	joined := time.Now()
-	if got := messageID(t, w.expect(protocol.EventMessage, 2*watchTiming.settle)); got != lost {
+	// Only a settling drain (due 3 s and 6 s after the join) can find it:
+	// the live timer is an hour away, and the wait is a hang catcher.
+	if got := messageID(t, w.expect(protocol.EventMessage, hangCatcher)); got != lost {
 		t.Fatalf("message %s, want the hint-less %s found by a settling drain", got, lost)
 	}
 	t.Logf("the settling drain found a hint-less message %s after the join (settle %s)", time.Since(joined).Round(time.Millisecond), watchTiming.settle)
 	before := in.settled(t, 4)
 
+	// Both settling drains spent (settleDrains = 2) and no timer due: a
+	// third drain within 5 s would be a settling drain too many or a
+	// timer that fired with an hour on it.
 	in.accept("no hint, after the settling drains")
 	w.quiet(5 * time.Second)
 	if got := in.fetched(); got != before {
-		t.Fatalf("fetch_inbox ran %d more time(s) within 5 s with no hint once settling was over; the live drain timer is %s, want none", got-before, watchTiming.drainLive)
+		t.Fatalf("fetch_inbox ran %d more time(s) within 5 s with no hint once the %d settling drains were spent, want none", got-before, settleDrains)
 	}
 	if code := w.exit(); code != 0 {
 		t.Fatalf("exit %d, want 0 on stdin EOF (C-38)", code)
@@ -710,10 +807,10 @@ func TestWatchCatchUpBeforeReady(t *testing.T) {
 	second := in.accept("second")
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
 	w.expectReady()
-	if got := messageID(t, w.next(5*time.Second)); got != first {
+	if got := messageID(t, w.next(hangCatcher)); got != first {
 		t.Fatalf("first catch-up message %s, want %s", got, first)
 	}
-	if got := messageID(t, w.next(5*time.Second)); got != second {
+	if got := messageID(t, w.next(hangCatcher)); got != second {
 		t.Fatalf("second catch-up message %s, want %s", got, second)
 	}
 	ph.nextJoin()
@@ -749,17 +846,22 @@ func TestWatchForeignSessionIsTheUniformNotFound(t *testing.T) {
 	}
 }
 
-// TestWatchRevocationEndsTheWatch covers C-08 at the shipped timers:
-// leave_team writes a membership_revoked broadcast on the session's topic
-// before it closes the session; the watch treats it as a hint and drains
-// at once, the backend answers the uniform unauthorized, and the watch
-// emits ONE unauthorized error event, retryable false, with the fixed
-// message, and exits 5 — within 2 s of the broadcast (C-08 allows the
-// 5 s push budget; the hint path is well inside it) although the drain
-// timer is 30 s away, which is what pins the hint (a timer-only watch
-// sits here).
+// TestWatchRevocationEndsTheWatch covers C-08: leave_team writes a
+// membership_revoked broadcast on the session's topic before it closes
+// the session; the watch treats it as a hint and drains at once, the
+// backend answers the uniform unauthorized, and the watch emits ONE
+// unauthorized error event, retryable false, with the fixed message, and
+// exits 5. Every drain timer is an hour here, so the broadcast is the
+// only way the watch can learn of the revocation: the error arriving at
+// all is the proof of the hint path (C-08's 5 s push budget is met by it,
+// never by a timer — a timer-only watch sits here for ever), and the
+// fetch count pins the one drain it ran. (At the shipped timers the proof
+// was a 2 s bound against the 30 s live timer — a performance bound under
+// -race and load — and the 3 s settling drain would have found the 403
+// too.)
 func TestWatchRevocationEndsTheWatch(t *testing.T) {
-	t.Parallel()
+	drainTiming(t, time.Hour, time.Hour)
+	settleTiming(t, time.Hour)
 	r, ph, in := watchRig(t)
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
 	w.expectReady()
@@ -768,70 +870,65 @@ func TestWatchRevocationEndsTheWatch(t *testing.T) {
 	in.settled(t, 2)
 
 	in.refuseAll(http.StatusForbidden, "42501", "brigade:unauthorized")
-	revoked := time.Now()
 	ch.revoke()
-	event := w.expect(protocol.EventError, 2*time.Second)
+	event := w.expect(protocol.EventError, hangCatcher)
 	object, _ := event["error"].(map[string]any)
 	if object["code"] != string(protocol.CodeUnauthorized) || object["retryable"] != false || object["message"] != errNotMember().Message {
 		t.Fatalf("event = %v, want the uniform unauthorized with retryable false", event)
 	}
-	if code := w.wait(2 * time.Second); code != protocol.CodeUnauthorized.Exit() {
+	if code := w.wait(hangCatcher); code != protocol.CodeUnauthorized.Exit() {
 		t.Fatalf("exit %d, want %d", code, protocol.CodeUnauthorized.Exit())
 	}
-	if took := time.Since(revoked); took > 2*time.Second {
-		t.Errorf("the revocation took %s to end a watch whose channel was joined; want under 2 s (C-08 allows the 5 s push budget)", took)
+	if got := r.be.calls(rpcPath + "fetch_inbox"); got != 3 {
+		t.Errorf("fetch_inbox was called %d time(s), want 3: the catch-up, the drain on join ok and the one the broadcast ran", got)
 	}
 }
 
 // TestWatchSlowJoinStillSeesARevocationAfterReady is C-08's failure in CI
 // run 33678110011 ("no error event within 2s", 2.24 s on the runner)
-// reproduced in-process, the latencies exaggerated so that only the
-// START ORDER decides. The backend answers the first fetch_inbox after
-// 2 s and the server completes the join 3 s after phx_join (a runner's
-// Kong and Realtime, a cold tenant's policy query); the suite's `team
-// leave` — here the membership_revoked broadcast — lands the instant
-// `ready` is read. The socket has not finished joining, so the server
-// never delivers that broadcast to it (the fake drops it the same way),
-// and the revocation can only be found by the drain that follows the
-// join. Dialled BEFORE the first fetch, the join is 2 s old at `ready`
-// and completes 1 s later: the watch ends inside the 2 s bound. Dialled
-// after the catch-up — the old order — it completes 3 s after the
-// revocation, past the bound, and nothing but that late drain or the
-// 30 s live timer would ever see it.
+// reproduced in-process, with the START ORDER the only thing that
+// decides. The backend holds the first fetch_inbox and the server holds
+// the join (a runner's Kong and Realtime, a cold tenant's policy query);
+// the suite's `team leave` — here the membership_revoked broadcast — lands
+// the instant `ready` is read. The socket has not finished joining, so
+// the server never delivers that broadcast to it (the fake drops it the
+// same way), and the revocation can only be found by the drain that
+// follows the join. Dialled BEFORE the first fetch, the join attempt
+// reaches the server while that fetch is still held — the order witness:
+// with the old dial-after-catch-up order no attempt can arrive until the
+// fetch is released, and the wait for one fails — and the drain on join
+// ok finds the revocation once the join is let through. Every drain timer
+// is an hour, so nothing else could. (The clock version — the fetch
+// answered at 2 s, the join at 3 s, the error due within 2 s of `ready` —
+// carried the order claim in a 1 s margin, and its `select` with a
+// `default` on the attempt let a slow dial pass unexercised.)
 func TestWatchSlowJoinStillSeesARevocationAfterReady(t *testing.T) {
-	t.Parallel()
-	const fetchLatency, joinLatency, bound = 2 * time.Second, 3 * time.Second, 2 * time.Second
+	drainTiming(t, time.Hour, time.Hour)
+	settleTiming(t, time.Hour)
 	r, ph, in := watchRig(t)
-	ph.joinDelay.Store(int64(joinLatency))
+	completeJoin := ph.holdJoins(t)
 	release := in.holdFirstFetch(t)
-	time.AfterFunc(fetchLatency, release)
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
+	ch := ph.nextAttempt() // while the first fetch is held: the dial preceded it
+	release()
 	w.expectReady()
 	in.refuseAll(http.StatusForbidden, "42501", "brigade:unauthorized")
-	revoked := time.Now()
-	var ch *fakeChannel
-	select {
-	case ch = <-ph.attempts:
-		ch.revoke()
-	default:
-		t.Logf("no phx_join had reached the fake at ready; the revocation was broadcast to no socket of this watch")
+	ch.revoke()
+	if ch.dropped.Load() != 1 {
+		t.Fatalf("the revocation did not hit a socket still joining (dropped %d, want 1); the test did not exercise the window", ch.dropped.Load())
 	}
-	event := w.expect(protocol.EventError, bound)
+	completeJoin()
+	event := w.expect(protocol.EventError, hangCatcher)
 	object, _ := event["error"].(map[string]any)
 	if object["code"] != string(protocol.CodeUnauthorized) || object["retryable"] != false || object["message"] != errNotMember().Message {
 		t.Fatalf("event = %v, want the uniform unauthorized with retryable false", event)
 	}
-	if code := w.wait(2 * time.Second); code != protocol.CodeUnauthorized.Exit() {
+	if code := w.wait(hangCatcher); code != protocol.CodeUnauthorized.Exit() {
 		t.Fatalf("exit %d, want %d", code, protocol.CodeUnauthorized.Exit())
 	}
-	took := time.Since(revoked)
-	if ch == nil || ch.dropped.Load() != 1 {
-		t.Errorf("the revocation did not hit a socket still joining (attempt seen: %v); the test did not exercise the window", ch != nil)
-	}
 	if got := r.be.calls(rpcPath + "fetch_inbox"); got != 2 {
-		t.Errorf("fetch_inbox was called %d time(s), want 2: the catch-up and the post-join drain that found the revocation", got)
+		t.Errorf("fetch_inbox was called %d time(s), want 2: the catch-up and the drain on join ok that found the revocation", got)
 	}
-	t.Logf("the revocation ended the watch %s after a leave that hit a joining socket (join %s, first fetch %s)", took, joinLatency, fetchLatency)
 }
 
 // TestWatchHintDuringTheCatchUpIsNotLost: the channel joins while the
@@ -840,10 +937,12 @@ func TestWatchSlowJoinStillSeesARevocationAfterReady(t *testing.T) {
 // started), a message is accepted and hinted meanwhile, and once the
 // catch-up completes every frame that queued has its effect: `status
 // live`, the message on the post-join drain, and the hint's own drain —
-// three fetches, nothing lost, the drain timers (10 s polling, 30 s
-// live) never involved.
+// three fetches, nothing lost, no timer involved: every drain timer is an
+// hour here, so the count is exact (at the shipped timers the 3 s
+// settling drain could add a fourth fetch inside the 1 s quiet window).
 func TestWatchHintDuringTheCatchUpIsNotLost(t *testing.T) {
-	t.Parallel()
+	drainTiming(t, time.Hour, time.Hour)
+	settleTiming(t, time.Hour)
 	r, ph, in := watchRig(t)
 	held := in.accept("held in the catch-up")
 	gate := make(chan struct{})
@@ -858,11 +957,11 @@ func TestWatchHintDuringTheCatchUpIsNotLost(t *testing.T) {
 	hinted := in.accept("hinted during the catch-up")
 	ch.hint(hinted)
 	open()
-	if got := messageID(t, w.next(5*time.Second)); got != held {
+	if got := messageID(t, w.next(hangCatcher)); got != held {
 		t.Fatalf("catch-up message %s, want %s", got, held)
 	}
 	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
-	if got := messageID(t, w.expect(protocol.EventMessage, 2*time.Second)); got != hinted {
+	if got := messageID(t, w.expect(protocol.EventMessage, hangCatcher)); got != hinted {
 		t.Fatalf("message %s, want the hinted %s", got, hinted)
 	}
 	in.settled(t, 3)
@@ -890,12 +989,12 @@ func TestWatchPreReadyFailureCancelsTheDial(t *testing.T) {
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
 	ph.nextJoin() // the join completes while the ownership check is pending
 	release()
-	event := w.next(5 * time.Second)
+	event := w.next(hangCatcher)
 	object, _ := event["error"].(map[string]any)
 	if event["event"] != protocol.EventError || object["code"] != string(protocol.CodeNotFound) || object["retryable"] != false || object["message"] != errNotFound().Message {
 		t.Fatalf("first event = %v, want the uniform not_found error", event)
 	}
-	if code := w.wait(5 * time.Second); code != protocol.CodeNotFound.Exit() {
+	if code := w.wait(hangCatcher); code != protocol.CodeNotFound.Exit() {
 		t.Fatalf("exit %d, want %d", code, protocol.CodeNotFound.Exit())
 	}
 	for line := range w.lines {
@@ -911,10 +1010,7 @@ func TestWatchPreReadyFailureCancelsTheDial(t *testing.T) {
 	// path (leaves 0) while this machine takes the second. The joined
 	// path's leave is pinned by the EOF and SIGTERM exit tests after
 	// `status live`.
-	deadline := time.Now().Add(2 * time.Second)
-	for ph.closed.Load() < 1 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.Eventually(t, hangCatcher, 10*time.Millisecond, func() bool { return ph.closed.Load() >= 1 })
 	if ph.dials.Load() != 1 || ph.closed.Load() != 1 || ph.leaves.Load() > 1 {
 		t.Fatalf("dials %d, leaves %d, sockets closed %d; want 1, at most 1, 1: the pending link closed on the refusal",
 			ph.dials.Load(), ph.leaves.Load(), ph.closed.Load())
@@ -936,7 +1032,7 @@ func TestWatchJoinRefusedKeepsPolling(t *testing.T) {
 	w.expectReady()
 	w.expectStatus(protocol.StatusStatePolling, linkReasonUnauthorized)
 	id := in.accept("polled")
-	if got := messageID(t, w.expect(protocol.EventMessage, 3*time.Second)); got != id {
+	if got := messageID(t, w.expect(protocol.EventMessage, hangCatcher)); got != id {
 		t.Fatalf("message %s, want %s", got, id)
 	}
 	if code := w.exit(); code != 0 {
@@ -961,7 +1057,7 @@ func TestWatchBadTokenRefreshesAndRejoins(t *testing.T) {
 		if first == second {
 			t.Fatalf("the rejoin presented the refused token again")
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(hangCatcher):
 		t.Fatal("no join attempt")
 	}
 	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
@@ -1004,8 +1100,8 @@ func TestWatchTransportLossReconnectsAndPushesToken(t *testing.T) {
 		if pushed != r.readSession().AccessToken {
 			t.Fatalf("the pushed token is not the refreshed one on disk")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("no access_token push within 5 s of the refresh")
+	case <-time.After(hangCatcher):
+		t.Fatalf("no access_token push within %s of the refresh", hangCatcher)
 	}
 	if code := w.exit(); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -1042,7 +1138,7 @@ func TestWatchStdinCommands(t *testing.T) {
 	id := in.accept("ack me")
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
 	w.expectReady()
-	if got := messageID(t, w.next(5*time.Second)); got != id {
+	if got := messageID(t, w.next(hangCatcher)); got != id {
 		t.Fatalf("catch-up %s, want %s", got, id)
 	}
 	ph.nextJoin()
@@ -1052,7 +1148,7 @@ func TestWatchStdinCommands(t *testing.T) {
 	w.send(`{not json at all`)
 	w.send(`{"type":"ack","message_ids":["` + strings.Repeat("x", protocol.MaxLineBytes) + `"]}`)
 	w.send(`{"type":"ack","message_ids":["` + id + `","nosuchmessage"]}`)
-	event := w.expect(protocol.EventAcked, 5*time.Second)
+	event := w.expect(protocol.EventAcked, hangCatcher)
 	acked, _ := event["message_ids"].([]any)
 	unknown, _ := event["unknown"].([]any)
 	if len(acked) != 1 || acked[0] != id || len(unknown) != 1 || unknown[0] != "nosuchmessage" {
@@ -1060,13 +1156,13 @@ func TestWatchStdinCommands(t *testing.T) {
 	}
 
 	w.send(`{"type":"heartbeat","lease_seconds":9999}`)
-	event = w.expect(protocol.EventError, 5*time.Second)
+	event = w.expect(protocol.EventError, hangCatcher)
 	object, _ := event["error"].(map[string]any)
 	if object["retryable"] != true || object["code"] != string(protocol.CodeInvalidInput) {
 		t.Fatalf("event = %v, want a retryable invalid_input", event)
 	}
 	w.send(`{"type":"heartbeat","activity":"busy","session_name":"renamed","lease_seconds":120,"model":"claude-sonnet-5","context_used_tokens":2048}`)
-	event = w.expect(protocol.EventHeartbeatOK, 5*time.Second)
+	event = w.expect(protocol.EventHeartbeatOK, hangCatcher)
 	if event["state"] != protocol.SessionStateActive || event["session_id"] != watchSession {
 		t.Fatalf("event = %v, want heartbeat_ok active", event)
 	}
@@ -1085,7 +1181,7 @@ func TestWatchStdinCommands(t *testing.T) {
 		t.Fatalf("session_heartbeat args = %v, want model claude-sonnet-5 and context_used_tokens 2048", args)
 	}
 	w.send(`{"type":"heartbeat","activity":"busy"}`)
-	w.expect(protocol.EventHeartbeatOK, 5*time.Second)
+	w.expect(protocol.EventHeartbeatOK, hangCatcher)
 	// A fresh map: Unmarshal into the one above would MERGE and keep the
 	// previous call's members, hiding an omitted one.
 	args = map[string]any{}
@@ -1105,14 +1201,14 @@ func TestWatchStdinCommands(t *testing.T) {
 	in.closed = true
 	in.mu.Unlock()
 	w.send(`{"type":"heartbeat","activity":"idle"}`)
-	event = w.expect(protocol.EventError, 5*time.Second)
+	event = w.expect(protocol.EventError, hangCatcher)
 	object, _ = event["error"].(map[string]any)
 	if object["retryable"] != true || object["code"] != string(protocol.CodeConflict) {
 		t.Fatalf("event = %v, want a retryable conflict", event)
 	}
 
 	w.send(`{"type":"close"}`)
-	if code := w.wait(5 * time.Second); code != 0 {
+	if code := w.wait(hangCatcher); code != 0 {
 		t.Fatalf("exit %d after close, want 0", code)
 	}
 	in.mu.Lock()
@@ -1148,7 +1244,7 @@ func TestWatchCommandRevocationIsFatal(t *testing.T) {
 		return true
 	})
 	w.send(`{"type":"ack","message_ids":["` + watchSession + `"]}`)
-	event := w.expect(protocol.EventError, 5*time.Second)
+	event := w.expect(protocol.EventError, hangCatcher)
 	object, _ := event["error"].(map[string]any)
 	if object["retryable"] != true || object["code"] != string(protocol.CodeUnavailable) {
 		t.Fatalf("event = %v, want a retryable unavailable", event)
@@ -1159,12 +1255,12 @@ func TestWatchCommandRevocationIsFatal(t *testing.T) {
 		return true
 	})
 	w.send(`{"type":"ack","message_ids":["` + watchSession + `"]}`)
-	event = w.expect(protocol.EventError, 5*time.Second)
+	event = w.expect(protocol.EventError, hangCatcher)
 	object, _ = event["error"].(map[string]any)
 	if object["retryable"] != false || object["code"] != string(protocol.CodeUnauthorized) {
 		t.Fatalf("event = %v, want a fatal unauthorized", event)
 	}
-	if code := w.wait(5 * time.Second); code != protocol.CodeUnauthorized.Exit() {
+	if code := w.wait(hangCatcher); code != protocol.CodeUnauthorized.Exit() {
 		t.Fatalf("exit %d, want 5", code)
 	}
 }
@@ -1182,7 +1278,7 @@ func TestWatchOutageIsReportedOnceThenRecovers(t *testing.T) {
 	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
 
 	in.refuseAll(http.StatusServiceUnavailable, "", "")
-	event := w.expect(protocol.EventError, 5*time.Second)
+	event := w.expect(protocol.EventError, hangCatcher)
 	object, _ := event["error"].(map[string]any)
 	if object["retryable"] != true || object["code"] != string(protocol.CodeUnavailable) {
 		t.Fatalf("event = %v, want a retryable unavailable", event)
@@ -1190,7 +1286,7 @@ func TestWatchOutageIsReportedOnceThenRecovers(t *testing.T) {
 	w.quiet(2500 * time.Millisecond)
 	in.allow()
 	id := in.accept("after the outage")
-	if got := messageID(t, w.expect(protocol.EventMessage, 3*time.Second)); got != id {
+	if got := messageID(t, w.expect(protocol.EventMessage, hangCatcher)); got != id {
 		t.Fatalf("message %s, want %s", got, id)
 	}
 	if code := w.exit(); code != 0 {
@@ -1209,7 +1305,7 @@ func TestWatchHostileBodyIsOneLine(t *testing.T) {
 	id := in.accept(body)
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
 	w.expectReady()
-	event := w.next(5 * time.Second)
+	event := w.next(hangCatcher)
 	if messageID(t, event) != id {
 		t.Fatalf("event = %v", event)
 	}
@@ -1227,43 +1323,49 @@ func TestWatchHostileBodyIsOneLine(t *testing.T) {
 // `ready` may find the join still unanswered — a foreign session's is, for
 // the server's whole 5 s backoff (C-37) — and a Phoenix socket process
 // waits on the channel's join and processes nothing else meanwhile, the
-// close handshake included (the fake sleeps in its read loop the same
-// way). The watch does not wait for a handshake nobody will answer: no
-// phx_leave, the socket closed outright, the exit at once — not the
-// whole leave bound later, which the handshake ran out on every refused
-// watch when it was attempted (C-37 measured at 0.4 s before the early
-// dial, 2.4 s with it and the handshake).
+// close handshake included. The watch does not wait for a handshake nobody
+// will answer: no phx_leave, the socket closed outright — not the whole
+// leave bound later, which the handshake ran out on every refused watch
+// when it was attempted (C-37 measured at 0.4 s before the early dial,
+// 2.4 s with it and the handshake). The witness is the frames, not the
+// exit's latency: the fake holds the join but keeps reading the socket,
+// so a phx_leave the link wrote on the pending channel is counted and
+// the close is seen as it happens. (The 1 s bound on the exit that stood
+// here was a performance bound under -race and load, and against a fake
+// that slept in its read loop `leaves == 0` could not tell a leave that
+// was never sent from one that was never read.)
 func TestWatchPreReadyFailureWithAJoinPendingExitsAtOnce(t *testing.T) {
 	t.Parallel()
 	r, ph, in := watchRig(t)
-	ph.joinDelay.Store(int64(10 * time.Second))
+	ph.holdJoins(t) // never released: the join is pending for the whole watch
 	in.refuseAll(http.StatusNotFound, "PT404", "brigade:not_found")
 	release := in.holdFirstFetch(t)
 	w := startWatch(t, r, "message", "watch", "--session", watchSession)
-	select {
-	case <-ph.attempts:
-	case <-time.After(5 * time.Second):
-		t.Fatal("no phx_join within 5 s while the ownership check was pending")
-	}
-	start := time.Now()
+	ph.nextAttempt() // the join is pending while the ownership check is
 	release()
-	event := w.next(5 * time.Second)
+	event := w.next(hangCatcher)
 	object, _ := event["error"].(map[string]any)
 	if event["event"] != protocol.EventError || object["code"] != string(protocol.CodeNotFound) {
 		t.Fatalf("first event = %v, want the uniform not_found error", event)
 	}
-	if code := w.wait(5 * time.Second); code != protocol.CodeNotFound.Exit() {
+	if code := w.wait(hangCatcher); code != protocol.CodeNotFound.Exit() {
 		t.Fatalf("exit %d, want %d", code, protocol.CodeNotFound.Exit())
 	}
-	if took := time.Since(start); took >= phxLeaveTimeout {
-		t.Errorf("the refused watch took %s to exit with its join pending; want well under the %s close bound", took, phxLeaveTimeout)
-	}
-	if ph.leaves.Load() != 0 {
-		t.Errorf("phx_leave sent %d time(s) on a channel never joined, want 0", ph.leaves.Load())
+	testutil.Eventually(t, hangCatcher, 10*time.Millisecond, func() bool { return ph.closed.Load() >= 1 })
+	if ph.dials.Load() != 1 || ph.leaves.Load() != 0 || ph.closed.Load() != 1 {
+		t.Fatalf("dials %d, leaves %d, sockets closed %d; want 1, 0, 1: the pending link closed outright, with no leave handshake",
+			ph.dials.Load(), ph.leaves.Load(), ph.closed.Load())
 	}
 }
 
-// ---- the timing-dependent tests: not parallel, shortened intervals ----
+// ---- the tests that rewrite watchTiming: not parallel ----
+//
+// Shortened intervals for the cadences under test; hour-long ones where a
+// test proves WHICH path delivered by leaving it the only one that can.
+// TestWatchPushReadyLiveAndHints, TestWatchRevocationEndsTheWatch,
+// TestWatchSlowJoinStillSeesARevocationAfterReady and
+// TestWatchHintDuringTheCatchUpIsNotLost above use the helpers the same
+// way.
 
 // shortTiming shortens the watch's intervals for one non-parallel test
 // and restores them afterwards.
@@ -1299,10 +1401,10 @@ func settleTiming(t *testing.T, settle time.Duration) {
 
 // TestWatchSettleDrainFindsARevocationWhileTheJoinIsPending: C-08's other
 // CI failure (run 33756168929, no error event within the 5 s budget). The
-// join takes longer than the budget and NO broadcast reaches the watch,
-// so only a timer can find the revocation; the polling timer is an hour
-// here, and the settling drain armed at `ready` finds it inside 2 s.
-// The negative arm proves the settling drain is what found it: with the
+// join is held for the whole watch and NO broadcast reaches it, so only a
+// timer can find the revocation; the polling timer is an hour here, and
+// the settling drain armed at `ready` is the one that finds it. The
+// negative arm proves the settling drain is what found it: with the
 // settling interval at an hour too, nothing arrives within 2 s.
 func TestWatchSettleDrainFindsARevocationWhileTheJoinIsPending(t *testing.T) {
 	drainTiming(t, time.Hour, time.Hour)
@@ -1317,7 +1419,7 @@ func TestWatchSettleDrainFindsARevocationWhileTheJoinIsPending(t *testing.T) {
 		t.Run(arm.name, func(t *testing.T) {
 			settleTiming(t, arm.settle)
 			r, ph, in := watchRig(t)
-			ph.joinDelay.Store(int64(10 * time.Second))
+			ph.holdJoins(t) // never released: the join is pending for the whole watch
 			w := startWatch(t, r, "message", "watch", "--session", watchSession)
 			w.expectReady()
 			in.refuseAll(http.StatusForbidden, "42501", "brigade:unauthorized")
@@ -1329,12 +1431,12 @@ func TestWatchSettleDrainFindsARevocationWhileTheJoinIsPending(t *testing.T) {
 				}
 				return
 			}
-			event := w.expect(protocol.EventError, 2*time.Second)
+			event := w.expect(protocol.EventError, hangCatcher)
 			object, _ := event["error"].(map[string]any)
 			if object["code"] != string(protocol.CodeUnauthorized) || object["retryable"] != false {
 				t.Fatalf("event = %v, want the uniform unauthorized with retryable false", event)
 			}
-			if code := w.wait(2 * time.Second); code != protocol.CodeUnauthorized.Exit() {
+			if code := w.wait(hangCatcher); code != protocol.CodeUnauthorized.Exit() {
 				t.Fatalf("exit %d, want %d", code, protocol.CodeUnauthorized.Exit())
 			}
 			if got := r.be.calls(rpcPath + "fetch_inbox"); got != 2 {
@@ -1363,7 +1465,7 @@ func TestWatchSettleDrainAfterJoinFindsALostBroadcast(t *testing.T) {
 	in.settled(t, 2)
 
 	lost := in.accept("broadcast lost right after the join")
-	if got := messageID(t, w.expect(protocol.EventMessage, 2*time.Second)); got != lost {
+	if got := messageID(t, w.expect(protocol.EventMessage, hangCatcher)); got != lost {
 		t.Fatalf("message %s, want the hint-less %s found by a settling drain", got, lost)
 	}
 	// Let the second settling drain run too, then the cadence is over.
@@ -1410,7 +1512,7 @@ func TestWatchDrainTimerWhileLive(t *testing.T) {
 	// interval is an hour and the settling cadence is over, so nothing but
 	// the 250 ms live timer can deliver this message however slow the
 	// runner is.
-	if got := messageID(t, w.expect(protocol.EventMessage, 10*time.Second)); got != timed {
+	if got := messageID(t, w.expect(protocol.EventMessage, hangCatcher)); got != timed {
 		t.Fatalf("message %s, want the timed %s", got, timed)
 	}
 	w.quiet(1000 * time.Millisecond)
@@ -1429,13 +1531,9 @@ func TestWatchHeartbeatUnansweredReconnects(t *testing.T) {
 	w.expectReady()
 	ph.nextJoin()
 	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
-	deadline := time.Now().Add(3 * time.Second)
-	for ph.heartbeats.Load() < 2 && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if ph.heartbeats.Load() < 2 {
-		t.Fatalf("heartbeats = %d, want at least 2 on a %s cadence", ph.heartbeats.Load(), watchTiming.heartbeat)
-	}
+	// Two heartbeats on the 150 ms cadence: a hang catcher, not a bound on
+	// the cadence.
+	testutil.Eventually(t, hangCatcher, 20*time.Millisecond, func() bool { return ph.heartbeats.Load() >= 2 })
 	ph.silent.Store(true)
 	w.expectStatus(protocol.StatusStatePolling, linkReasonHeartbeat)
 	ph.silent.Store(false)
@@ -1457,16 +1555,16 @@ func TestWatchOutageBudgetEndsTheWatch(t *testing.T) {
 	ph.nextJoin()
 	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
 	in.refuseAll(http.StatusBadGateway, "", "")
-	first := w.expect(protocol.EventError, 5*time.Second)
+	first := w.expect(protocol.EventError, hangCatcher)
 	if object, _ := first["error"].(map[string]any); object["retryable"] != true {
 		t.Fatalf("first event = %v, want retryable", first)
 	}
-	final := w.expect(protocol.EventError, 5*time.Second)
+	final := w.expect(protocol.EventError, hangCatcher)
 	object, _ := final["error"].(map[string]any)
 	if object["retryable"] != false || object["code"] != string(protocol.CodeUnavailable) {
 		t.Fatalf("final event = %v, want a fatal unavailable", final)
 	}
-	if code := w.wait(5 * time.Second); code != protocol.CodeUnavailable.Exit() {
+	if code := w.wait(hangCatcher); code != protocol.CodeUnavailable.Exit() {
 		t.Fatalf("exit %d, want 9", code)
 	}
 }
@@ -1484,7 +1582,7 @@ func TestWatchExitsZeroOnSIGTERM(t *testing.T) {
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
-	if code := w.wait(5 * time.Second); code != 0 {
+	if code := w.wait(hangCatcher); code != 0 {
 		t.Fatalf("exit %d after SIGTERM, want 0", code)
 	}
 	if ph.leaves.Load() != 1 {
@@ -1529,8 +1627,8 @@ func TestWatchSIGTERMHandlerPrecedesReady(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 	close(gate)
-	w.expect(protocol.EventMessage, 5*time.Second)
-	if code := w.wait(5 * time.Second); code != 0 {
+	w.expect(protocol.EventMessage, hangCatcher)
+	if code := w.wait(hangCatcher); code != 0 {
 		t.Fatalf("exit %d after a SIGTERM sent on ready, want 0", code)
 	}
 }

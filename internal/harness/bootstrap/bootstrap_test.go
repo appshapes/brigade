@@ -64,11 +64,14 @@ type server struct {
 	mu sync.Mutex
 
 	hits map[string]int
-	// delay is how long the good route holds each response before answering. It exists so that "the
-	// SessionStart hook returned before the download finished" is a measurement and not an inference: on a
-	// loopback server that answers in microseconds, a synchronous first use and a detached one are
-	// indistinguishable, and every timing assertion about the hook is vacuous.
-	delay time.Duration
+	// hold, when set, is a gate the good route waits on before answering: the response is held until the
+	// test releases it, so "the hook returned while the download was still in flight" is an ordering the
+	// test observes, never a clock comparison. A synchronous hook cannot return before the release. The
+	// timed hold this replaces (2 s, the hook's wall time compared against half of it) failed under load on
+	// this 18-CPU machine at load average 16-24: a correctly detached session-start took 1.05 s and 1.48 s
+	// in 2 of 30 runs, and prompt/session-end took 1.04-3.19 s in 5 of 60 — a /bin/sh spawn from a -race
+	// test binary is over 1 s there — while the gate ran 30 of 30 under the same load.
+	hold chan struct{}
 }
 
 func newServer(t *testing.T) *server {
@@ -81,8 +84,12 @@ func newServer(t *testing.T) *server {
 		s.mu.Unlock()
 		switch r.URL.Path {
 		case good:
-			if d := s.responseDelay(); d > 0 {
-				time.Sleep(d)
+			if gate := s.gate(); gate != nil {
+				select {
+				case <-gate:
+				case <-r.Context().Done():
+					return
+				}
 			}
 			_, _ = w.Write([]byte(fakeRelease))
 		case "/bad" + good:
@@ -95,17 +102,24 @@ func newServer(t *testing.T) *server {
 	return s
 }
 
-// setDelay makes every later answer on the good route take at least d.
-func (s *server) setDelay(d time.Duration) {
+// holdAnswers makes every later answer on the good route wait until the returned release is called; the
+// test's cleanup releases it too, so a held handler never outlives the test.
+func (s *server) holdAnswers(t *testing.T) (release func()) {
+	t.Helper()
+	gate := make(chan struct{})
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.delay = d
+	s.hold = gate
+	s.mu.Unlock()
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(release)
+	return release
 }
 
-func (s *server) responseDelay() time.Duration {
+func (s *server) gate() chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.delay
+	return s.hold
 }
 
 // requests is the total number of HTTP requests this server has answered, and the per-path breakdown, taken
@@ -167,10 +181,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatalf("fixture: reading %s: %v", src, err)
 	}
-	//nolint:gosec // G306: the file under test must be executable; 0700 keeps it owner-only
-	if err := os.WriteFile(f.script, body, 0o700); err != nil {
-		t.Fatalf("fixture: writing %s: %v", f.script, err)
-	}
+	testutil.WriteExecutable(t, f.script, body)
 	f.srv = newServer(t)
 	f.base = f.srv.URL
 	f.writeVersion(fixtureVersion)
@@ -235,7 +246,6 @@ type result struct {
 	code   int
 	stdout string
 	stderr string
-	took   time.Duration
 }
 
 func (f *fixture) run(stdin string, args ...string) result {
@@ -245,6 +255,46 @@ func (f *fixture) run(stdin string, args ...string) result {
 
 func (f *fixture) runAs(shell, script, stdin string, args ...string) result {
 	f.t.Helper()
+	r, err := f.runAsE(shell, script, stdin, args...)
+	if err != nil {
+		f.t.Fatalf("running %s %s: %v", shell, script, err)
+	}
+	return r
+}
+
+// hangCatcher bounds a hook that must return while the server holds its answer, and a file the detached
+// worker must install once it is released. It is never a performance bound: a detached hook returns in tens
+// of milliseconds idle and a few seconds under load, and a hook that waited on the held download would sit
+// in curl until its --max-time 45 s and come back with exit 9, which wantCode reports first; only a hook
+// wedged on something else reaches this.
+const hangCatcher = 60 * time.Second
+
+// runHeld runs the script while the server holds every download answer and fails the test if it does not
+// return within hangCatcher: only a hook that waited on the download can still be running then.
+func (f *fixture) runHeld(stdin string, args ...string) result {
+	f.t.Helper()
+	type outcome struct {
+		r   result
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		r, err := f.runAsE(f.shell, f.script, stdin, args...)
+		done <- outcome{r, err}
+	}()
+	select {
+	case o := <-done:
+		if o.err != nil {
+			f.t.Fatalf("running %s %s: %v", f.shell, f.script, o.err)
+		}
+		return o.r
+	case <-time.After(hangCatcher):
+		f.t.Fatalf("%v did not return within %s while the server held the download: the hook waited on it", args, hangCatcher)
+		return result{}
+	}
+}
+
+func (f *fixture) runAsE(shell, script, stdin string, args ...string) (result, error) {
 	//nolint:gosec // G204: a fixed shell name and this test's own temp script path; no shell string is built
 	cmd := exec.CommandContext(f.t.Context(), shell, append([]string{script}, args...)...)
 	cmd.Env = f.env()
@@ -253,18 +303,17 @@ func (f *fixture) runAs(shell, script, stdin string, args ...string) result {
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
-	start := time.Now()
 	err := cmd.Run()
-	r := result{stdout: out.String(), stderr: errb.String(), took: time.Since(start)}
+	r := result{stdout: out.String(), stderr: errb.String()}
 	var ee *exec.ExitError
 	switch {
 	case err == nil:
 	case errors.As(err, &ee):
 		r.code = ee.ExitCode()
 	default:
-		f.t.Fatalf("running %s %s: %v", shell, script, err)
+		return r, err
 	}
-	return r
+	return r, nil
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -363,10 +412,7 @@ func writeExecutable(t *testing.T, path, body string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
 	}
-	//nolint:gosec // G306: an executable test fixture; 0700 keeps it owner-only
-	if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
-		t.Fatalf("writing %s: %v", path, err)
-	}
+	testutil.WriteExecutable(t, path, []byte(body))
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -698,39 +744,27 @@ func TestBootstrapSessionStartHook(t *testing.T) {
 
 	// The whole point of the E0-8 correction is that the hook does NOT wait for the download, and against a
 	// loopback server that answers in microseconds that is unobservable: a fully synchronous hook returns in
-	// 20 ms too. So the server is made slow first. A synchronous first use cannot return in less than
-	// hookDownloadDelay; a detached one returns at once and leaves the cache file missing on the way out.
-	const hookDownloadDelay = 2 * time.Second
-	f.srv.setDelay(hookDownloadDelay)
+	// 20 ms too. So the server holds its answer until the test releases it: a synchronous first use cannot
+	// return while it is held; a detached one returns at once and leaves the cache file missing on the way out.
+	release := f.srv.holdAnswers(t)
 
 	p := f.cachePath(f.data)
-	r := f.run("", "hook", "session-start")
+	r := f.runHeld("", "hook", "session-start")
 	wantCode(t, r, 0)
 	if got := strings.TrimRight(r.stdout, "\n"); got != hookContextLine {
 		t.Fatalf("stdout is %q, want exactly the context line %q", got, hookContextLine)
 	}
-	if r.took >= hookDownloadDelay/2 {
-		t.Fatalf("the hook took %s, but the server holds every answer for %s: the download was not detached",
-			r.took, hookDownloadDelay)
-	}
 	if _, err := os.Stat(p); err == nil {
-		t.Fatalf("%s already existed when the hook returned: the hook waited for the download", p)
+		t.Fatalf("%s already existed when the hook returned, with the download still held: the hook waited for it", p)
 	}
+	release()
 
-	// The install happens behind the hook. Poll rather than sleep: the point of the measurement is that the
-	// hook returned before this finished, not how long this takes.
-	deadline := time.Now().Add(hookDownloadDelay + 10*time.Second)
-	for {
-		if fi, err := os.Stat(p); err == nil {
-			if got := fi.Mode().Perm(); got != 0o755 {
-				t.Fatalf("cached binary %s has mode %#o, want 0755", p, got)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the detached download did not install %s in time", p)
-		}
-		time.Sleep(20 * time.Millisecond)
+	// The install happens behind the hook, once the answer is released.
+	waitForFile(t, p)
+	if fi, err := os.Stat(p); err != nil {
+		t.Fatal(err)
+	} else if got := fi.Mode().Perm(); got != 0o755 {
+		t.Fatalf("cached binary %s has mode %#o, want 0755", p, got)
 	}
 	wantNoTempFile(t, f, f.data)
 
@@ -780,7 +814,7 @@ func (f *fixture) plantMarker(dataHome, line string) {
 // waitForFile polls until path exists. The deadline is a hang catcher, never a performance bound.
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(hangCatcher)
 	for {
 		if _, err := os.Stat(path); err == nil {
 			return
@@ -817,20 +851,15 @@ func wantSilentZero(t *testing.T, r result) {
 func TestBootstrapHooksOnColdCache(t *testing.T) {
 	t.Parallel()
 
-	// The server holds every answer for holdFor, so a hook that took the download path could not return in less
-	// than that; against a loopback server that answers at once "did not download" would be unobservable.
-	const holdFor = 2 * time.Second
-
 	for _, sub := range []string{"prompt", "session-end"} {
 		t.Run("hook "+sub+" never downloads: exit 0, silent, no request", func(t *testing.T) {
 			t.Parallel()
 			f := newFixture(t)
-			f.srv.setDelay(holdFor)
-			r := f.run("", "hook", sub)
+			// The server would hold a download for ever: a hook that took the download path could not come
+			// back silent with exit 0, and the request count is the complete witness that none was tried.
+			f.srv.holdAnswers(t)
+			r := f.runHeld("", "hook", sub)
 			wantSilentZero(t, r)
-			if r.took >= holdFor/2 {
-				t.Fatalf("hook %s took %s, but the server holds every answer for %s: it waited on a download", sub, r.took, holdFor)
-			}
 			wantRequests(t, f.srv, 0)
 			wantNothingInstalled(t, f, f.data)
 		})
@@ -906,17 +935,18 @@ func TestBootstrapHooksOnColdCache(t *testing.T) {
 	t.Run("a new session start voids the old verdict before its worker runs, and a good install leaves none", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t)
-		f.srv.setDelay(holdFor)
+		release := f.srv.holdAnswers(t)
 		f.plantMarker(f.data, "9 a verdict from an earlier session\n")
-		r := f.run("", "hook", "session-start")
+		r := f.runHeld("", "hook", "session-start")
 		wantCode(t, r, 0)
-		// Voided synchronously, by the hook itself: the worker has not even connected yet (the server holds the
-		// answer for holdFor), so a prompt hook fired right after the SessionStart can never report a stale verdict.
+		// Voided synchronously, by the hook itself: the worker's download is still held by the server, so a
+		// prompt hook fired right after the SessionStart can never report a stale verdict.
 		wantAbsent(t, f.markerPath(f.data), "the old verdict outlived the new session start")
 		if _, err := os.Stat(f.cachePath(f.data)); err == nil {
-			t.Fatal("the cache was already warm when the hook returned: the hook waited for the download")
+			t.Fatal("the cache was already warm when the hook returned, with the download still held: the hook waited for it")
 		}
 		wantSilentZero(t, f.run("", "hook", "prompt")) // warming: nothing to say, nothing to download
+		release()
 		waitForFile(t, f.cachePath(f.data))
 		wantInstalled(t, f, f.data)
 		wantAbsent(t, f.markerPath(f.data), "a marker survived a successful install")

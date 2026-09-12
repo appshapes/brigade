@@ -34,33 +34,50 @@ func fakeWatch(tb testing.TB, lines []string, exit int) string {
 
 func watchCase(t *testing.T, adapter string, body func(*T, *WatchProc)) CaseResult {
 	t.Helper()
-	r := newTestRunner(t, adapter, Options{}, testEnviron)
+	r := newTestRunner(t, viaShell(adapter, Options{}), testEnviron)
 	return runFake(t, r, func(ct *T) {
 		w := ct.Watch(ct.Scratch("x"), "s1")
 		body(ct, w)
 	})
 }
 
+// awaitExit waits for the fake to exit through Wait and turns a hang into
+// the case's failure. Wait's own timeout path kills the process, which
+// marks it signalled and skips the B-11 check, so a case that ignored
+// Wait's ok read "pass" off a fake that had never printed a line: 7 of 20
+// loaded runs said `exit 127 waited: pass ""` and 6 LineDiscipline
+// subtests `status pass, reason ""` (2026-09-11). A fake that has not
+// exited by fakeDeadline is now reported as exactly that.
+func awaitExit(ct *T, w *WatchProc) int {
+	exit, ok := w.Wait(fakeDeadline)
+	if !ok {
+		ct.Fatalf("the fake did not exit within %s", fakeDeadline)
+	}
+	return exit
+}
+
 func TestWatchEventsAreTypedAndUnknownKindsIgnored(t *testing.T) {
 	t.Parallel()
 	res := watchCase(t, fakeWatch(t, []string{readyLine, unknownLine, statusLine, messageLine}, 0), func(ct *T, w *WatchProc) {
-		ready := w.Expect(protocol.EventReady, 5*time.Second)
+		ready := w.Expect(protocol.EventReady, fakeDeadline)
 		if ready.Ready == nil || ready.Ready.Mode != protocol.WatchModePolling || ready.Raw["session_id"] != "s1" {
 			ct.Errorf("ready: %+v", ready)
 		}
-		msg := w.Expect(protocol.EventMessage, 5*time.Second)
+		msg := w.Expect(protocol.EventMessage, fakeDeadline)
 		if msg.Message == nil || msg.Message.Message.MessageID != "m1" {
 			ct.Errorf("message: %+v", msg)
 		}
+		// Nothing can arrive here whatever the machine does: the fake has
+		// printed everything it has and answers only stdin, still silent.
 		w.ExpectNone(300 * time.Millisecond)
 		w.Command(protocol.WatchCommand{Type: protocol.CommandAck, MessageIDs: []string{"m1"}})
-		acked := w.Expect(protocol.EventAcked, 5*time.Second)
+		acked := w.Expect(protocol.EventAcked, fakeDeadline)
 		if acked.Acked == nil || len(acked.Acked.MessageIDs) != 1 {
 			ct.Errorf("acked: %+v", acked)
 		}
 		w.CloseStdin()
-		if exit, ok := w.Wait(5 * time.Second); !ok || exit != 0 {
-			ct.Errorf("exit %d ok %v", exit, ok)
+		if exit := awaitExit(ct, w); exit != 0 {
+			ct.Errorf("exit %d", exit)
 		}
 		kinds := make([]string, 0)
 		for _, ev := range w.Events() {
@@ -88,9 +105,9 @@ func TestWatchLineDisciplineFailures(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			res := watchCase(t, fakeWatch(t, tc.lines, 0), func(_ *T, w *WatchProc) {
+			res := watchCase(t, fakeWatch(t, tc.lines, 0), func(ct *T, w *WatchProc) {
 				w.CloseStdin()
-				w.Wait(5 * time.Second)
+				awaitExit(ct, w)
 			})
 			if res.Status != StatusFail || !strings.Contains(res.Reason, tc.want) {
 				t.Fatalf("status %s, reason %q; want %q", res.Status, res.Reason, tc.want)
@@ -101,6 +118,9 @@ func TestWatchLineDisciplineFailures(t *testing.T) {
 
 func TestWatchExpectDeadlineAbortsAndExpectNoneFlags(t *testing.T) {
 	t.Parallel()
+	// The deadline is the subject here and the input is fixed: this fake
+	// never says `message`, so the 300 ms elapse whatever the machine is
+	// doing and the abort names them.
 	res := watchCase(t, fakeWatch(t, []string{readyLine}, 0), func(ct *T, w *WatchProc) {
 		w.Expect(protocol.EventMessage, 300*time.Millisecond)
 		ct.Errorf("not reached")
@@ -108,8 +128,16 @@ func TestWatchExpectDeadlineAbortsAndExpectNoneFlags(t *testing.T) {
 	if res.Status != StatusFail || !strings.Contains(res.Reason, "no `message` event within 300ms") || strings.Contains(res.Reason, "not reached") {
 		t.Fatalf("%s %q", res.Status, res.Reason)
 	}
-	res = watchCase(t, fakeWatch(t, []string{readyLine, messageLine}, 0), func(_ *T, w *WatchProc) {
-		w.Expect(protocol.EventReady, 5*time.Second)
+	// ExpectNone's flagging is asserted on a queue that is already full
+	// and closed: the fake has exited before ExpectNone runs, so `message`
+	// is waiting behind `ready` and the quiet period ends at EOF rather
+	// than on the clock. Read live, the 500 ms were a stopwatch between the
+	// fake's two printf statements, and a sh descheduled between them
+	// passed the wrong way.
+	res = watchCase(t, fakeWatch(t, []string{readyLine, messageLine}, 0), func(ct *T, w *WatchProc) {
+		w.CloseStdin()
+		awaitExit(ct, w)
+		w.Expect(protocol.EventReady, fakeDeadline)
 		w.ExpectNone(500 * time.Millisecond)
 	})
 	if res.Status != StatusFail || !strings.Contains(res.Reason, "unexpected `message` event") {
@@ -119,9 +147,9 @@ func TestWatchExpectDeadlineAbortsAndExpectNoneFlags(t *testing.T) {
 
 func TestWatchExitRangeAndSignals(t *testing.T) {
 	t.Parallel()
-	res := watchCase(t, fakeWatch(t, []string{readyLine}, 9), func(_ *T, w *WatchProc) {
+	res := watchCase(t, fakeWatch(t, []string{readyLine}, 9), func(ct *T, w *WatchProc) {
 		w.CloseStdin()
-		w.Wait(5 * time.Second)
+		awaitExit(ct, w)
 	})
 	if res.Status != StatusPass {
 		t.Fatalf("exit 9: %s %q", res.Status, res.Reason)
@@ -129,40 +157,47 @@ func TestWatchExitRangeAndSignals(t *testing.T) {
 	// A watch that exits on its own outside 0..12 is a B-11 failure, whether
 	// the case waits for it or the runner reaps it.
 	oneTwentySeven := writeScript(t, "watch127", "printf '%s\\n' '"+readyLine+"'; exit 127")
-	res = watchCase(t, oneTwentySeven, func(_ *T, w *WatchProc) { w.Wait(5 * time.Second) })
+	res = watchCase(t, oneTwentySeven, func(ct *T, w *WatchProc) { awaitExit(ct, w) })
 	if res.Status != StatusFail || !strings.Contains(res.Reason, "exit status 127 is outside 0..12 (B-11)") {
 		t.Fatalf("exit 127 waited: %s %q", res.Status, res.Reason)
 	}
-	res = watchCase(t, oneTwentySeven, func(_ *T, w *WatchProc) {
-		w.Expect(protocol.EventReady, 5*time.Second)
-		time.Sleep(200 * time.Millisecond)
+	// The reaped arm needs a process that has ALREADY exited by itself when
+	// the case returns, without Wait (whose B-11 check is the arm above's):
+	// the case waits on the reader's done signal directly. A 200 ms sleep
+	// stood here, racing the sh's `exit 127` against the runner's kill,
+	// whose reapKilled exemption would have read the lost race as a pass.
+	res = watchCase(t, oneTwentySeven, func(ct *T, w *WatchProc) {
+		w.Expect(protocol.EventReady, fakeDeadline)
+		select {
+		case <-w.done:
+		case <-time.After(fakeDeadline):
+			ct.Fatalf("the fake did not exit within %s", fakeDeadline)
+		}
 	})
 	if res.Status != StatusFail || !strings.Contains(res.Reason, "(B-11)") {
 		t.Fatalf("exit 127 reaped: %s %q", res.Status, res.Reason)
 	}
 	// A signal the case sent is not a failure; Wait reports -1.
 	res = watchCase(t, fakeWatch(t, []string{readyLine}, 0), func(ct *T, w *WatchProc) {
-		w.Expect(protocol.EventReady, 5*time.Second)
+		w.Expect(protocol.EventReady, fakeDeadline)
 		w.Kill()
-		if exit, ok := w.Wait(5 * time.Second); !ok || exit != -1 {
-			ct.Errorf("after Kill: exit %d ok %v", exit, ok)
+		if exit := awaitExit(ct, w); exit != -1 {
+			ct.Errorf("after Kill: exit %d", exit)
 		}
 	})
 	if res.Status != StatusPass {
 		t.Fatalf("killed: %s %q", res.Status, res.Reason)
 	}
 	res = watchCase(t, fakeWatch(t, []string{readyLine}, 0), func(ct *T, w *WatchProc) {
-		w.Expect(protocol.EventReady, 5*time.Second)
+		w.Expect(protocol.EventReady, fakeDeadline)
 		w.Signal(syscall.SIGTERM)
-		if _, ok := w.Wait(5 * time.Second); !ok {
-			ct.Errorf("SIGTERM: no exit")
-		}
+		awaitExit(ct, w)
 	})
 	if res.Status != StatusPass {
 		t.Fatalf("SIGTERM: %s %q", res.Status, res.Reason)
 	}
 	// A watch still running at the end of the case is killed, not failed.
-	res = watchCase(t, fakeWatch(t, []string{readyLine}, 0), func(_ *T, w *WatchProc) { w.Expect(protocol.EventReady, 5*time.Second) })
+	res = watchCase(t, fakeWatch(t, []string{readyLine}, 0), func(_ *T, w *WatchProc) { w.Expect(protocol.EventReady, fakeDeadline) })
 	if res.Status != StatusPass {
 		t.Fatalf("left running: %s %q", res.Status, res.Reason)
 	}
@@ -175,8 +210,12 @@ func TestWatchWaitDeadlineKills(t *testing.T) {
 		if _, ok := w.Wait(300 * time.Millisecond); ok {
 			ct.Errorf("Wait reported an exit while stdin was open")
 		}
-		if time.Since(start) > 3*time.Second {
-			ct.Errorf("Wait did not return promptly after its deadline")
+		// Wait's timeout path kills the process and waits for the reap.
+		// SIGKILL-to-reap latency is the kernel's (the load logs put a 5 s
+		// Wait plus one kill and reap at 6.7–9.9 s), so the bound on it is
+		// the hang catcher, not a promptness claim.
+		if time.Since(start) > fakeDeadline {
+			ct.Errorf("Wait did not return after its deadline")
 		}
 	})
 	if res.Status != StatusPass {
@@ -188,8 +227,8 @@ func TestWatchOverlongLineIsNoted(t *testing.T) {
 	t.Parallel()
 	long := writeScript(t, "long", "printf '%s\\n' '"+readyLine+"'; head -c 1100000 /dev/zero | tr '\\0' 'x'; printf '\\n%s\\n' '"+statusLine+"'")
 	res := watchCase(t, long, func(_ *T, w *WatchProc) {
-		w.Expect(protocol.EventReady, 5*time.Second)
-		w.Expect(protocol.EventStatus, 5*time.Second)
+		w.Expect(protocol.EventReady, fakeDeadline)
+		w.Expect(protocol.EventStatus, fakeDeadline)
 	})
 	if res.Status != StatusPass || len(res.Notes) != 1 || !strings.Contains(res.Notes[0], "over 1 MiB") {
 		t.Fatalf("%s %q notes %v", res.Status, res.Reason, res.Notes)
