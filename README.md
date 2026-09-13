@@ -25,6 +25,7 @@ member that cannot be woken is not a peer.
 | **Get started** | [What Brigade is](#brigade) · [Layout](#layout) · [Set up a team](docs/setup.md) · [Security](docs/security.md) |
 | **Write an adapter** | [For adapter contributors](#for-adapter-contributors) · [`docs/adapter-authors.md`](docs/adapter-authors.md) · [`docs/protocol-v1.md`](docs/protocol-v1.md) |
 | **Build, test, release** | [Gates](#gates) · [`scripts/ci/README.md`](scripts/ci/README.md) |
+| **Work on Brigade with Claude Code** | [`docs/claude-code-usage.md`](docs/claude-code-usage.md): the agents, the skills, the daily workflow, the Trello CLI |
 | **Run the plugin locally** | [`plugin/README.md`](plugin/README.md) |
 | **See what is proven** | [`docs/experiments/`](docs/experiments/README.md) · [the proof results](.context/plans/brigade-proof-results.md) |
 | **Find where the work stands** | [the execution log](.context/plans/brigade-execution-log.md) · [`CHANGELOG.md`](CHANGELOG.md) |
@@ -104,8 +105,10 @@ invokes — [`scripts/ci/README.md`](scripts/ci/README.md) says what each CI scr
 
 Go 1.27.0 is pinned in `go.mod` with no `toolchain` line, and [`docs/allowed-deps.txt`](docs/allowed-deps.txt) binds
 only the shipped `brigade` binary, not your adapter. `master` only, merges only, never rebase; commit messages
-`15: <Imperative summary>`, through `make push message="15: …"`. Plans live in `.context/plans/`, ephemeral scratch
-in `.ignored/` (gitignored).
+`15: <Imperative summary>`, through `make push message="15: …"` — the number is the card on the AppShapes Trello
+board the work belongs to (15 is the build-out card), and [`docs/claude-code-usage.md`](docs/claude-code-usage.md)
+sets up the Trello CLI and lists the skills that read and create cards. Plans live in `.context/plans/`, ephemeral
+scratch in `.ignored/` (gitignored).
 
 To run the conformance suite against the bundled adapter and a local stack, pass the backend as
 `--env BRIGADE_SUPABASE_URL=… --env BRIGADE_SUPABASE_PUBLISHABLE_KEY=…` — `team create`/`team join` honour that pair
@@ -121,6 +124,7 @@ so no `--setup` hook is needed.
 | `docs/adapter-authors.md` | how to write and prove an adapter |
 | [`docs/setup.md`](docs/setup.md) | how to set up Brigade for a team |
 | [`docs/security.md`](docs/security.md) | what Brigade protects, what it does not, and what was measured |
+| [`docs/claude-code-usage.md`](docs/claude-code-usage.md) | how the repository is worked on with Claude Code: agents, skills, the daily workflow, the Trello CLI |
 | [`docs/experiments/`](docs/experiments/README.md) | the dated experiment writeups (Phases 0, 3, 4 and 5): what was measured, and what each run does *not* prove |
 | [`docs/research/`](docs/research/README.md) | the research digests the plan was written from, and the security threat model that defines the test ids |
 | `internal/protocol`, `internal/adapterkit` | the wire types with `Validate()`, and the shared adapter plumbing |
