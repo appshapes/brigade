@@ -105,8 +105,8 @@ invokes — [`scripts/ci/README.md`](scripts/ci/README.md) says what each CI scr
 
 Go 1.27.0 is pinned in `go.mod` with no `toolchain` line, and [`docs/allowed-deps.txt`](docs/allowed-deps.txt) binds
 only the shipped `brigade` binary, not your adapter. `master` only, merges only, never rebase; commit messages
-`15: <Imperative summary>`, through `make push message="15: …"` — the number is the card on the AppShapes Trello
-board the work belongs to (15 is the build-out card), and [`docs/claude-code-usage.md`](docs/claude-code-usage.md)
+`<card>: <Imperative summary>`, through `make push message="<card>: …"` — the number is the card on the AppShapes
+Trello board the work belongs to, and [`docs/claude-code-usage.md`](docs/claude-code-usage.md)
 sets up the Trello CLI and lists the skills that read and create cards. Plans live in `.context/plans/`, ephemeral
 scratch in `.ignored/` (gitignored).
 

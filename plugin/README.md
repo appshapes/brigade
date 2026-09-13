@@ -129,8 +129,9 @@ chat. There is no `--profile`, no `--url` and no `--key`: the project file suppl
   stays there until `/reload-plugins` or a new session); joined from a terminal, start a Claude Code session in
   the checkout, or run `/reload-plugins` in one you already have. The session-start line names your team, this
   session's name and id, and the inbound policy.
-- A second checkout of the same project needs `team join` once too, but no secret. Several projects means several
-  `.brigade.json` files: join each once, then `cd` between them — nothing is shared or switched.
+- A second checkout of the same project on this machine needs `team join` once too, but no secret. One team can
+  span several repositories: commit the same `.brigade.json` in each and join each checkout once; a different
+  `.brigade.json` is a different team. Either way, `cd` between checkouts — nothing is shared or switched.
 - A backend other than the bundled Supabase adapter is named in the project file's `adapter` field, resolved to a
   command through your own `adapters.json`; `docs/adapter-authors.md` explains it.
 

@@ -35,9 +35,9 @@ team-messaging skill that handles incoming frames — are documented in
 
 Brigade is developed on `master`: merges only, never rebase, and every commit goes through the
 `make push` gate (typecheck, pull, build, test). A ticket is a card on the AppShapes Trello board;
-its number is the commit prefix (`15:` is the build-out card that most of the history carries;
-`20:` is the intermittent-failures card). A commit that finishes a plan row updates the execution
-log in the same commit.
+its number is the commit prefix (`20:` for the intermittent-failures card; the history before
+2026-09-13 carries `15:`, the build-out card). A commit that finishes a plan row updates the
+execution log in the same commit.
 
 Your typical cycle for working on a card:
 
