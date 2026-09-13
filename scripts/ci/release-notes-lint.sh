@@ -2,8 +2,9 @@
 # usage: scripts/ci/release-notes-lint.sh <notes-file> <tag>
 #
 # The deterministic half of the release-notes gate (release-notes.yml): the drafted notes may not name anything
-# that does not exist. A model composed them, and the v0.5.0 notes named a `/brigade:sessions` skill that was never
-# there — a grounding slip that more thinking makes rarer and that this script makes impossible. It exits 1 on the
+# that does not exist. A model composed them, and the v0.5.0 notes named a `/brigade:sessions` skill that did not
+# exist at the time — a grounding slip that more thinking makes rarer and that this script makes impossible. (That
+# skill was written later and is real now; the slip was naming it before it was.) It exits 1 on the
 # first class of failure, printing one `FAIL:` line per finding so the writer's fix cycle can read them back, and
 # `ok:` lines for what it checked. It reads nothing but the notes, the plugin tree and three environment variables:
 #

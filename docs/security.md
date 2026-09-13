@@ -262,11 +262,17 @@ approval does offer one, and dismissing it that way is what makes an allow-rule 
 Code 2.1.259.
 
 **What the skill buys, and what it does not.** The `brigade:team-messaging` skill declares
-`allowed-tools: Bash(brigade:*)`. That removes prompts for the turn that invoked the skill, and only that turn. The `join` and `update` skills carry the same kind of grant for their own turn — `Bash(brigade:*)` and
-`Bash(claude plugin:*)` respectively — and run only when the user invokes them.
-Declaring it also raises one Skill dialog in Manual mode, whose second option is scoped to the project directory
-it names. The honest counterweight: in 98 interactive sessions that saw a hostile message, **the skill was never
-loaded once**. Do not plan around it.
+`allowed-tools: Bash(brigade:*)`. That removes prompts for the turn that invoked the skill, and only that turn.
+Declaring `allowed-tools` also raises one Skill dialog in Manual mode, whose second option is scoped to the
+project directory it names. The honest counterweight: in 98 interactive sessions that saw a hostile message,
+**`brigade:team-messaging` was never loaded once** (§3). Do not plan around it.
+
+The `join`, `update` and `sessions` skills carry the same kind of grant for their own turn — `Bash(brigade:*)`,
+`Bash(claude plugin:*)` and `Bash(brigade sessions:*)` respectively — and run only when the user invokes them.
+The `sessions` grant is the narrowest of the three: it reaches one read-only verb, where `Bash(brigade:*)`
+reaches every `brigade` verb and `Bash(claude plugin:*)` installs and removes software. The `sessions` skill is
+also `disable-model-invocation: true`, as `join` and `update` are — none of the three is ever loaded by the
+model on its own, so the §3 measurement says nothing about them either way.
 
 ### 5.1 The text-matching limit, and what was done about it
 
