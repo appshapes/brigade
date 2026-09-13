@@ -33,14 +33,14 @@
     },
     "share_workspace_label": {
       "type": "boolean",
-      "title": "Share a workspace label",
-      "description": "Send the workspace label below with this session, never the working directory path.",
-      "default": false
+      "title": "Share the repository name",
+      "description": "Send this session's repository name with it as workspace_label — the name from the checkout's origin remote, else its directory's name, never the working directory path — so teammates can tell which repository a session is in (brigade sessions shows it as repo=). Off withholds it.",
+      "default": true
     },
     "workspace_label": {
       "type": "string",
       "title": "Workspace label",
-      "description": "The label shared when share_workspace_label is on.",
+      "description": "A label to send instead of the repository name while share_workspace_label is on.",
       "default": ""
     },
     "poll_on_prompt": {

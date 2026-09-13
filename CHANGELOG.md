@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [Unreleased]
+
+### Added
+
+- **`brigade sessions` tells you which repository each session is in.** A session now registers its
+  repository's name as its `workspace_label` with nothing configured — the name from the checkout's `origin`
+  remote, else the checkout directory's name, never a path — and the roster shows it as a `repo=` column beside
+  the session's name; `whoami` prints it as `repo:`. It is what tells a session in one of a team's repositories
+  from a session in the next now that one team can span several (the P11-1 study), and unlike the session name
+  it survives a `/rename`. `share_workspace_label` now defaults to on and withholds the name when off;
+  `workspace_label` sends a label of your own instead. The watcher carries the label when it re-opens a session,
+  so a re-open no longer clears it at the backend. Nothing on the wire changed: `workspace_label` has been a
+  BAP/1 member since 0.1.0.
+
 ## [0.5.2] — 2026-09-11
 
 ### Fixed

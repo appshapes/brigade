@@ -107,6 +107,9 @@ reference — nothing about the repository — so the **same `.brigade.json`, co
 them one team**: sessions in any of them share one roster and message each other directly. To add a repository,
 copy the file from one already on the team into the new repository's top level, commit it, and run
 `brigade team join` once in a checkout of it (no secret on a machine that already holds the team's credential).
+`brigade sessions` shows which repository each session is in as `repo=<name>` — the repository's name from its
+`origin` remote, else its directory's — with nothing configured (`share_workspace_label` off withholds it,
+`workspace_label` replaces it).
 
 That means there is nothing to configure per session and no profile to name: `cd` into a project and its sessions
 join that project's team. The administrator writes the file once with `team create`; each member runs one command,

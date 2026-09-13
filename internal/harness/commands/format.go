@@ -67,6 +67,10 @@ func labelLine(s string) string {
 	return label + UnverifiedSuffix
 }
 
+// workspaceLine sanitises a registered workspace label for the human
+// form with the label rules; "" stays "" so the caller omits the column.
+func workspaceLine(s string) string { return oneLine(protocol.SanitizeLabel(s)) }
+
 // attrLine sanitises a short free-text value (an adapter name or version,
 // a harness name) with the attribute rules: 64 code points, no breakers.
 func attrLine(s string) string { return oneLine(protocol.SanitizeAttribute(s)) }

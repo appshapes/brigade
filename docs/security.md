@@ -61,8 +61,7 @@ their own machine. None of them is ever a repository variable and none of them s
 [`docs/setup.md`](setup.md) has the administrator's procedure.
 
 **What is deliberately never sent.** Brigade does not send your Claude Code session id, your working directory,
-your hostname, your username, your transcript or the path to it. It sends a workspace label only if you turn
-`share_workspace_label` on, and that is a label you choose, never a path.
+your hostname, your username, your transcript or the path to it.
 
 **Two facts Brigade now reads from your transcript — on this machine.** So that `brigade sessions` can tell your team
 which model a session is running and how full its context is, Brigade reports two values with each session: the

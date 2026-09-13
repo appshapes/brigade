@@ -93,7 +93,7 @@ func TestReopensASessionClosedUnderItOnTheRPCPath(t *testing.T) {
 		Watch:    &fakeadapter.WatchScript{Lines: []fakeadapter.WatchLine{readyLine(t)}},
 		DumpFile: dump,
 	})
-	fx.writeMapWith(func(m *sessionmap.ByPID) { m.BrigadeSessionID = reopenSessionID })
+	fx.writeMapWith(func(m *sessionmap.ByPID) { m.BrigadeSessionID = reopenSessionID; m.WorkspaceLabel = "payments-api" })
 	rr := &registerRecorder{}
 	deps := fx.deps()
 	deps.HeartbeatInterval = 150 * time.Millisecond
@@ -111,6 +111,10 @@ func TestReopensASessionClosedUnderItOnTheRPCPath(t *testing.T) {
 	}
 	if regs[0].Harness != "claude-code" || regs[0].SessionName == "" || regs[0].Activity == "" || regs[0].Inbound == "" {
 		t.Fatalf("the re-open registration is incomplete: %+v", regs[0])
+	}
+	// A resume that omits the label clears it at the backend (P11-5).
+	if regs[0].WorkspaceLabel == nil || *regs[0].WorkspaceLabel != "payments-api" {
+		t.Fatalf("the re-open dropped the workspace label: %+v", regs[0].WorkspaceLabel)
 	}
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)

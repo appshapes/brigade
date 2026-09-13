@@ -25,6 +25,9 @@ type shared struct {
 	name     string
 	activity string
 	inbound  string
+	// workspaceLabel is the map's workspace_label, carried on a re-open
+	// (P11-5); "" when the session registered none.
+	workspaceLabel string
 	// transcriptPath is the map's transcript_path, "" when it carries
 	// none: the file the command writer reads for the heartbeat's model
 	// and context facts. It is local state and never logged.
@@ -32,12 +35,13 @@ type shared struct {
 	flip           bool // an activity change the next tick must heartbeat at once
 }
 
-func newShared(target socketpost.Target, name, inbound, transcriptPath string) *shared {
+func newShared(target socketpost.Target, name, inbound, workspaceLabel, transcriptPath string) *shared {
 	return &shared{
 		target:         target,
 		name:           name,
 		activity:       protocol.ActivityIdle,
 		inbound:        inbound,
+		workspaceLabel: workspaceLabel,
 		transcriptPath: transcriptPath,
 	}
 }
@@ -48,13 +52,15 @@ type sharedSnapshot struct {
 	name           string
 	activity       string
 	inbound        string
+	workspaceLabel string
 	transcriptPath string
 }
 
 func (s *shared) snapshot() sharedSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return sharedSnapshot{target: s.target, name: s.name, activity: s.activity, inbound: s.inbound, transcriptPath: s.transcriptPath}
+	return sharedSnapshot{target: s.target, name: s.name, activity: s.activity, inbound: s.inbound,
+		workspaceLabel: s.workspaceLabel, transcriptPath: s.transcriptPath}
 }
 
 // takeFlip reports and clears a pending activity flip.
@@ -138,6 +144,8 @@ func (w *watcher) refreshMap() string {
 	if w.state.name == "" && m.SessionName != "" {
 		w.state.name = m.SessionName
 	}
+	// The label is the hook's to set, so the map always wins here.
+	w.state.workspaceLabel = m.WorkspaceLabel
 	// /clear gives the session a new native transcript and the hook
 	// rewrites the map with its path; the next heartbeat's facts come
 	// from the new file. Logged without the path (T10).
