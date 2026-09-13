@@ -359,9 +359,9 @@ checksums-check: cross ## Fail if plugin/bin/{VERSION,checksums.txt} disagree wi
 	scripts/ci/checksums-check.sh $(dist_cross)/checksums.txt
 
 .PHONY: release
-release: ## Pin the plugin to $(version), commit through the push chain, tag v$(version) and push the tag (usage: make release version=0.1.0 [branch=<throwaway>] — branch only for the P2-12 rehearsal)
-	@test -n "$(version)" || { echo "usage: make release version=X.Y.Z [branch=<name>]"; exit 1; }
-	scripts/release-prep.sh $(version) $(branch)
+release: ## Pin the plugin to $(version), commit through the push chain as `$(card): Release $(version)`, tag v$(version) and push the tag (usage: make release version=0.1.0 card=<n> [branch=<throwaway>] — branch only for the P2-12 rehearsal)
+	@test -n "$(version)" && test -n "$(card)" || { echo "usage: make release version=X.Y.Z card=<n> [branch=<name>]"; exit 1; }
+	card=$(card) scripts/release-prep.sh $(version) $(branch)
 
 .PHONY: release-dry-run
 release-dry-run: ## goreleaser check + a local release without publishing (needs a clean tree and a tag on HEAD)

@@ -149,7 +149,7 @@ a hosted project with the daily keep-alive and the conformance suite green again
 `hold` inbox ship, retention is verified live, the two-hour soak has run, the frame's instruction text ships as
 levels, and the user documentation is written.
 
-**0.4.1 is the current release.** `make release version=<v>` pins `plugin/bin/VERSION` and the plugin manifest to
+**0.4.1 is the current release.** `make release version=<v> card=<n>` pins `plugin/bin/VERSION` and the plugin manifest to
 that version, writes the sha256 of each published binary into `plugin/bin/checksums.txt`, and pushes the matching
 tag; the release workflow builds the four binaries from that tag and publishes them beside their `checksums.txt`. A
 tree in which that command has not run carries the pre-release `0.0.0` and an empty checksums file, and its plugin

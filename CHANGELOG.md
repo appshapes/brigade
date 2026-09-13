@@ -11,15 +11,26 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Added
 
-- **`brigade sessions` tells you which repository each session is in.** A session now registers its
-  repository's name as its `workspace_label` with nothing configured — the name from the checkout's `origin`
-  remote, else the checkout directory's name, never a path — and the roster shows it as a `repo=` column beside
-  the session's name; `whoami` prints it as `repo:`. It is what tells a session in one of a team's repositories
-  from a session in the next now that one team can span several (the P11-1 study), and unlike the session name
-  it survives a `/rename`. `share_workspace_label` now defaults to on and withholds the name when off;
-  `workspace_label` sends a label of your own instead. The watcher carries the label when it re-opens a session,
-  so a re-open no longer clears it at the backend. Nothing on the wire changed: `workspace_label` has been a
-  BAP/1 member since 0.1.0.
+- **`brigade sessions` tells you which repository each session is in.** One team has always been able to span
+  several repositories — the same `.brigade.json` committed in each makes them one team, joined once per
+  checkout with no secret on a machine that already holds the credential, and a different `.brigade.json` is a
+  different team; the P11-1 study measured that rather than changed it, and 0.6.0 documents it in `docs/setup.md`
+  and the `/brigade:setup` skill. What 0.6.0 adds is the label that tells such sessions apart: a session now
+  registers its repository's name as its `workspace_label` with nothing configured — the name from the
+  checkout's `origin` remote, else the checkout directory's name, never a path — and the roster shows it as a
+  `repo=` column beside the session's name; `whoami` prints it as `repo:`. Unlike the session name it survives a
+  `/rename`. `share_workspace_label` now defaults to on and withholds the name when off; `workspace_label` sends
+  a label of your own instead. The watcher carries the label when it re-opens a session, so a re-open no longer
+  clears it at the backend. Nothing on the wire changed: `workspace_label` has been a BAP/1 member since 0.1.0.
+
+### Changed
+
+- **The watcher keeps at most one heartbeat outstanding on the stdin-commands path.** A heartbeat that comes
+  due while the adapter child has not answered the last one is held until the answer arrives, or until the
+  unanswered one is older than the lease less one and a half heartbeat intervals — with the 90 s lease and
+  30 s interval the 30 s tick defers and the 60 s tick sends, still inside the lease — so a slow-to-answer
+  adapter no longer accumulates heartbeats in its stdin pipe. Acks and the close are never held. Landed with
+  the intermittent-test fixes (`103ad8d`); `docs/adapter-authors.md` carries the note for adapter authors.
 
 ## [0.5.2] — 2026-09-11
 

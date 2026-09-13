@@ -1,6 +1,6 @@
 #!/bin/sh
-# usage: scripts/release-prep.sh <version> [branch]     (run by `make release version=0.1.0 [branch=<name>]`)
-#        DRY_RUN=1 scripts/release-prep.sh <version> [branch]   -- steps 1-3 for real, then stop and PRINT 4-5
+# usage: card=<n> scripts/release-prep.sh <version> [branch]   (run by `make release version=0.1.0 card=<n> [branch=<name>]`)
+#        DRY_RUN=1 card=<n> scripts/release-prep.sh <version> [branch]   -- steps 1-3 for real, then stop and PRINT 4-5
 #
 # The release sequence of plan 7.7. plugin/bin/checksums.txt must already be in the commit the tag points at (a
 # plugin installed from that commit verifies the downloaded binary against it), but the release workflow builds
@@ -14,7 +14,7 @@
 #   2  reproducible build   make cross version=<v>  ->  dist-cross/{brigade_<v>_<os>_<arch>,checksums.txt}
 #   3  cross-check          goreleaser's own build of the same four targets; the two checksums.txt must be
 #                           identical, which is what stops .goreleaser.yaml and the Makefile drifting apart
-#   4  commit               cp dist/checksums.txt plugin/bin/checksums.txt; make push message="15: Release <v>"
+#   4  commit               cp dist/checksums.txt plugin/bin/checksums.txt; make push message="<card>: Release <v>"
 #   5  tag                  git tag -a v<v> && git push origin v<v>  ->  release.yml builds, verifies, publishes
 #
 # POSIX sh, no process substitution, `shellcheck -s sh` clean (plugin-check.sh check 7 enforces it). Never
@@ -45,6 +45,10 @@ version_file=plugin/bin/VERSION
 committed=plugin/bin/checksums.txt
 
 v=${1:-}
+# The commit message's card: `<card>: Release <v>` is the house rule, the number being the AppShapes Trello card
+# the release belongs to. `make release card=<n>` passes it in the environment, like DRY_RUN, because the second
+# positional is already the optional branch. Nothing is pinned here: no card, no release.
+card=${card:-}
 # `make release` passes $(branch), which is EMPTY when the caller did not set it, so an empty second argument
 # has to mean the default too -- ${2:-master} alone would leave want_branch empty and no branch would match.
 want_branch=${2:-}
@@ -68,6 +72,10 @@ case $v in
   *[!0-9A-Za-z.+-]*)    die "not a version token: '$v'" ;;
   [0-9]*.[0-9]*.[0-9]*) ;;
   *)                    die "not a MAJOR.MINOR.PATCH version: '$v'" ;;
+esac
+case $card in
+  '')        die "usage: make release version=X.Y.Z card=<n> [branch=<name>]: card is the AppShapes Trello card the release belongs to (the commit reads '<card>: Release X.Y.Z')" ;;
+  *[!0-9]*)  die "card must be a Trello card number (got '$card')" ;;
 esac
 
 if [ ! -f go.mod ] || [ ! -f "$version_file" ]; then
@@ -140,14 +148,14 @@ say "3. goreleaser reproduces dist-cross/checksums.txt byte for byte"
 if [ "$dry_run" = 1 ]; then
   say "DRY_RUN=1: stopping before the commit. A real run would now:"
   say "  4. cp dist/checksums.txt $committed"
-  say "  4. make push message=\"15: Release $v\""
+  say "  4. make push message=\"$card: Release $v\""
   say "  5. git tag -a v$v -m v$v && git push origin v$v"
   exit 0
 fi
 
 # ---- 4. commit the checksums goreleaser produced -----------------------------------------------------------------
 cp dist/checksums.txt "$committed"
-make push message="15: Release $v"        # typecheck -> pull -> build -> test -> add -> commit -> push
+make push message="$card: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push
 say "4. committed $committed"
 
 # ---- 5. tag the commit that now carries VERSION + checksums --------------------------------------------------------
