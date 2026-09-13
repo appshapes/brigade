@@ -27,8 +27,8 @@ Invoked via `/command`:
 - `/trello-create <title> [--board] [--list] [--from file.md]` - Create a Trello card (defaults: board AppShapes, list Wanting)
 - `/trello-read <number | title | id>` - Read a Trello card: description, comments, checklists, attachments
 
-The Brigade plugin's own skills — `/brigade:setup`, `/brigade:join`, `/brigade:update` and the
-team-messaging skill that handles incoming frames — are documented in
+The Brigade plugin's own skills — `/brigade:setup`, `/brigade:join`, `/brigade:update`,
+`/brigade:sessions` and the team-messaging skill that handles incoming frames — are documented in
 [`plugin/README.md`](../plugin/README.md); they are the product, not the tooling for working on it.
 
 ## Daily Workflow
