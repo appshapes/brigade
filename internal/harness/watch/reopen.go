@@ -94,6 +94,12 @@ func (w *watcher) reopen(s *session) {
 		ContextUsedTokens: tokens,
 		Resume:            &protocol.ResumeRef{SessionID: w.sessionID},
 	}
+	// A resume that omits the label clears it at the backend, so the
+	// re-open carries the map's (P11-5).
+	if snap.workspaceLabel != "" {
+		label := snap.workspaceLabel
+		reg.WorkspaceLabel = &label
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), adapterclient.RegisterTimeout)
 	res, err := w.client.Register(ctx, reg)
 	cancel()

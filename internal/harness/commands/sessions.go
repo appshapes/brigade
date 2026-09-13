@@ -93,14 +93,21 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	now := inv.Deps.now()
 	lines := make([]string, 0, len(records)+2)
 	for _, r := range records {
-		fields := []string{
-			idLine(r.SessionID),
-			nameLine(r.SessionName),
-			labelLine(r.HumanLabel),
-			enumLine(r.State),
-			"inbound=" + enumLine(r.Inbound),
-			"principal=" + idLine(r.PrincipalRef),
+		fields := []string{idLine(r.SessionID), nameLine(r.SessionName), labelLine(r.HumanLabel)}
+		// The repository column appears only for sessions that registered
+		// a workspace label (P11-5: the harness sends the repository name
+		// by default), so an older harness's line keeps its shape. It sits
+		// by the name because that is what a sender scans for.
+		if r.WorkspaceLabel != nil {
+			if repo := workspaceLine(*r.WorkspaceLabel); repo != "" {
+				fields = append(fields, "repo="+repo)
+			}
 		}
+		fields = append(fields,
+			enumLine(r.State),
+			"inbound="+enumLine(r.Inbound),
+			"principal="+idLine(r.PrincipalRef),
+		)
 		// model and context_used_tokens are optional on the wire (4.4.3):
 		// a harness that reports neither, and an adapter without the two
 		// capabilities, leave the line exactly the shape it has always

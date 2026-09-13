@@ -102,6 +102,15 @@ A Brigade team belongs to a **project**: one file, `.brigade.json`, committed at
 the team every session in that checkout talks to. The file carries only public values — the backend URL, the
 publishable key, the team's reference and name — so it is safe in version control. The join secret is never in it.
 
+A team is not tied to one repository. Its identity is derived from the adapter, the backend URL and the team
+reference — nothing about the repository — so the **same `.brigade.json`, committed in several repositories, makes
+them one team**: sessions in any of them share one roster and message each other directly. To add a repository,
+copy the file from one already on the team into the new repository's top level, commit it, and run
+`brigade team join` once in a checkout of it (no secret on a machine that already holds the team's credential).
+`brigade sessions` shows which repository each session is in as `repo=<name>` — the repository's name from its
+`origin` remote, else its directory's — with nothing configured (`share_workspace_label` off withholds it,
+`workspace_label` replaces it).
+
 That means there is nothing to configure per session and no profile to name: `cd` into a project and its sessions
 join that project's team. The administrator writes the file once with `team create`; each member runs one command,
 `team join`, in their checkout.
@@ -181,8 +190,9 @@ it. Either way the secret never reaches your scrollback, your shell history or a
   names (in a terminal, you confirm) and you are joined. If a pull changes `.brigade.json` to point at a different
   team, your next session prints one line saying so and attaches to nothing until you run `team join` and review
   the change — a change of team needs `--secret-file` again.
-- Working across **several projects** is nothing special: each has its own `.brigade.json`, you join each once, and
-  `cd` between them. Nothing is shared and nothing is switched.
+- Working across **several repositories** is nothing special: repositories carrying the same `.brigade.json` are
+  one team, repositories with different files are different teams; either way you join each checkout once and `cd`
+  between them. Nothing is shared and nothing is switched.
 - A backend other than the bundled Supabase adapter is named in the project file's `adapter` field; the name
   resolves to a command through your own `adapters.json`. [docs/adapter-authors.md](adapter-authors.md) explains it.
 
@@ -351,6 +361,11 @@ Two commands end the credential:
 Both revoke the credential family at the backend, not just locally, and both refresh the credential first so
 that "revoked" is true even if the local copy had gone stale. After a `team reset`, rejoining mints a **new**
 principal, which teammates see as a new person.
+
+The credential is per team per machine, not per checkout, so these two commands and `team leave` act for **every**
+checkout on this machine joined to the team — a second clone or another repository carrying the same `.brigade.json`
+alike. No command detaches one checkout: to stop using the team from one, stop opening sessions there (its pin in
+`projects.json` stays and is never consulted) or remove that entry from `projects.json` in the config directory.
 
 **One accepted limit.** Any program running as you can read this file. Brigade does not defend against that, and
 [docs/security.md](security.md), "Where your credentials live", says so plainly.

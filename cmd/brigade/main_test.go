@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"flag"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,6 +90,21 @@ func TestScript(t *testing.T) {
 		RequireUniqueNames:  true,
 		UpdateScripts:       *updateScripts,
 		Setup: func(env *testscript.Env) error {
+			// Every shell script testscript extracted is rewritten as a NEW
+			// inode under syscall.ForkLock (testutil.WriteExecutable has the
+			// mechanism and the numbers). testscript wrote it with an
+			// unguarded os.OpenFile before this hook ran, every script runs
+			// in parallel, and each `exec` is a fork, so a sibling script's
+			// child can be holding the write fd of THIS script's fake.sh
+			// when `exec $WORK/fake.sh` runs — ETXTBSY on Linux (run
+			// 34232764450 at inbox.txtar:19; 364 of 18,000 in the measuring
+			// harness with the extract-chmod-exec shape, 0 of 54,000 once
+			// rewritten). The scripts' `chmod 755` lines stay: they say what
+			// the fixture is, and are harmless on a file already 0700.
+			if err := rematerialiseScripts(env.WorkDir); err != nil {
+				return err
+			}
+
 			// Every directory Brigade or Claude Code would otherwise take
 			// from the developer's account is redirected under $WORK. HOME
 			// is left at testscript's own /no-home so that a stray ~ fails
@@ -136,6 +152,25 @@ func TestScript(t *testing.T) {
 			}
 			return nil
 		},
+	})
+}
+
+// rematerialiseScripts rewrites every regular file under dir that begins
+// with "#!" through testutil.WriteExecutableFile. When Setup runs, dir
+// holds only the txtar's extracted files and testscript's empty .tmp.
+func rematerialiseScripts(dir string) error {
+	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		body, err := os.ReadFile(p) //nolint:gosec // G122: walking the script's own $WORK, which testscript just created
+		if err != nil {
+			return err
+		}
+		if !bytes.HasPrefix(body, []byte("#!")) {
+			return nil
+		}
+		return testutil.WriteExecutableFile(p, body)
 	})
 }
 

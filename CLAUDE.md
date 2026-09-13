@@ -12,7 +12,9 @@
   Validate), docs/protocol-v1.schema.json (`make schema`), the conformance suite and both adapters in one commit.
 - Never write to stdout from a command, the watcher or an adapter except protocol JSON/NDJSON or the documented human
   output of harness/commands (forbidigo enforces it); diagnostics go to stderr through the redacting logger; never
-  `slog.Any`. Never spawn with a shell; always argument arrays with an allow-listed environment.
+  `slog.Any`. Never spawn with a shell in shipped code; always argument arrays with an allow-listed environment.
+  A test fixture that is a shell script is launched as `/bin/sh <script>` (an argv array, never `sh -c`) so the
+  fresh file is read, not exec'd: exec'ing it is what macOS's first-exec assessment and Linux's ETXTBSY need.
 - Never put secrets on argv, in logs, in `describe` output, or in files under the project directory. The join secret is
   read from stdin, a no-echo prompt, or a `--secret-file` outside the repository (whose mode and owner Brigade never
   checks — owner ruling 4, 2026-09-08) — never argv, never the chat.
@@ -58,12 +60,17 @@
   plus `AI_AGENT`, keeping only `CLAUDE_CONFIG_DIR`. The enumerated eight-name list in plan 9.6/7.4 is short by at
   least three — `CLAUDE_CODE_BRIDGE_SESSION_ID`, `CLAUDE_EFFORT` and `AI_AGENT` (that last one is not even
   `CLAUDE_`-prefixed), measured in E0-4 and E0-7 — and the next Claude Code release can add more.
-- Commit messages: `15: <Imperative summary>`; `make push message="15: ..."`; merges only, never rebase.
+- Commit messages: `<card>: <Imperative summary>`, the number being the AppShapes Trello card the work belongs
+  to; `make push message="<card>: ..."`; merges only, never rebase. Skills: `/commit <card>`
+  (`.claude/skills/commit/SKILL.md`), `/playwright-cli`,
+  `/trello-create <title> [--board] [--list] [--from file.md]` (defaults: board AppShapes, list Wanting; plain
+  titles, Trello assigns the number; `.claude/skills/trello-create/SKILL.md`) and `/trello-read <number | title
+  | id>` (`.claude/skills/trello-read/SKILL.md`); `docs/claude-code-usage.md` is the usage guide.
 - Repository automation: an issue labelled `claude` is a work order for the agentic loop
   (`.github/workflows/claude.yml`). An agent working on a PR branch follows `.claude/agents/developer.md`; the
   PR reviewer follows `.claude/agents/reviewer.md`. Agents commit with plain `git` on their branch and never run
   `make commit`, `make push` or `make release`. A PR labelled `maintenance` is exempt from the execution-log-row
-  rule (owner ruling, 2026-09-09); its squash-merge title, `15: <Imperative summary>`, satisfies the
+  rule (owner ruling, 2026-09-09); its squash-merge title, `<card>: <Imperative summary>`, satisfies the
   commit-message rule. Agent memory lives under `.context/plans/agent-memory/`, never under `.claude/`.
   `anthropics/claude-code-action` is pinned by **full commit SHA** — the only action in this repository that is,
   because it is the only one that runs a model with repository write access; every other action stays on its

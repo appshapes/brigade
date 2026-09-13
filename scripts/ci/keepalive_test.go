@@ -200,10 +200,7 @@ func keepaliveShim(t *testing.T, root string) (dir, record string) {
 		"  done\n" +
 		"} >> \"" + record + "\"\n" +
 		"exec \"" + realCurl + "\" \"$@\"\n"
-	//nolint:gosec // G306: a PATH entry has to be executable; this is a 0700 file under this test's t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "curl"), []byte(shim), 0o700); err != nil {
-		t.Fatalf("writing the curl shim: %v", err)
-	}
+	testutil.WriteExecutable(t, filepath.Join(dir, "curl"), []byte(shim))
 	return dir, record
 }
 

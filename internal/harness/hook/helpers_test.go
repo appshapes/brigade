@@ -517,9 +517,7 @@ func newFixture(t *testing.T) *fixture {
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(binDir, "brigade"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil { //nolint:gosec // G306: an executable fixture
-		t.Fatal(err)
-	}
+	testutil.WriteExecutable(t, filepath.Join(binDir, "brigade"), []byte("#!/bin/sh\nexit 0\n"))
 	if err := os.WriteFile(filepath.Join(binDir, "VERSION"), []byte("0.0.0\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

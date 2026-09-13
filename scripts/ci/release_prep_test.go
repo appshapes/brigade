@@ -91,8 +91,15 @@ func (r *repo) write(rel, body string, mode os.FileMode) {
 func (r *repo) writeAbs(p, body string, mode os.FileMode) {
 	r.t.Helper()
 	r.mkdir(filepath.Dir(p))
-	//nolint:gosec // G306: the mode is this test's own choice (0o700 only for the stubs it must execute) and
-	// every path is joined onto this test's t.TempDir().
+	if mode&0o100 != 0 {
+		// The go, make and goreleaser stubs the script under test execs:
+		// always 0700, written under syscall.ForkLock
+		// (testutil.WriteExecutable has the mechanism and the numbers).
+		testutil.WriteExecutable(r.t, p, []byte(body))
+		return
+	}
+	//nolint:gosec // G306: the mode is this test's own choice for a data file (0600 or 0644) and every path is
+	// joined onto this test's t.TempDir().
 	if err := os.WriteFile(p, []byte(body), mode); err != nil {
 		r.t.Fatalf("writing %s: %v", p, err)
 	}

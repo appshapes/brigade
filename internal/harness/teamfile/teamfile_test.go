@@ -138,7 +138,7 @@ func TestParseRefusesNonRegularFiles(t *testing.T) {
 		select {
 		case err := <-done:
 			wantReason(t, err, teamfile.ReasonNotRegularFile)
-		case <-time.After(5 * time.Second):
+		case <-time.After(30 * time.Second):
 			t.Fatal("Parse blocked on a FIFO: the open is not refusing non-regular files")
 		}
 	})
@@ -453,7 +453,7 @@ func TestDiscoverNoRepoMeansNoDiscoveryAndNoOpens(t *testing.T) {
 		if ok {
 			t.Fatal("a cwd inside no repository discovered a team file")
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Discover blocked: it opened a file it must not even consult")
 	}
 }

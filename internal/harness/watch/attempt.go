@@ -19,6 +19,25 @@ import (
 // once Wait closed the pipe; this is only a hang catcher).
 const writerStopWait = 10 * time.Second
 
+// heartbeatAnswerWait is how long a stdin heartbeat may stay unanswered
+// before the writer sends the next one anyway, so an adapter that never
+// answers (4.4.9 says it must, with heartbeat_ok or an error event) still
+// heartbeats inside its lease and stays online. It is the lease the
+// heartbeat asks for less one and a half intervals, which puts the
+// deadline mid-way between two ticks: with the production 30 s interval
+// and 90 s lease the 30 s tick defers (30 < 45) and the 60 s tick sends,
+// 30 s inside the lease. Measured against the lease itself the deadline
+// would sit ON a tick — time.Since(sentAt) at the 90 s tick is marginally
+// under 90 s, since sentAt is stamped after the write — and the next
+// heartbeat would go out at 120 s, past the lease.
+func (w *watcher) heartbeatAnswerWait(s *session) time.Duration {
+	lease := DefaultLeaseSeconds
+	if s.lease != nil {
+		lease = *s.lease
+	}
+	return time.Duration(lease)*time.Second - w.deps.HeartbeatInterval*3/2
+}
+
 // A session is one running watch child with the facts the loop needs.
 // Commands to the child — acks, heartbeats, the close — are written by
 // ONE writer goroutine (commandLoop) so the event loop never blocks on a
@@ -31,9 +50,10 @@ type session struct {
 	stdinCommands bool
 	lease         *int
 
-	hbReq    chan struct{} // a heartbeat is due (capacity 1)
-	closeReq chan struct{} // the exit path asked for the close (capacity 1)
-	done     chan struct{} // closed when the writer returns
+	hbReq      chan struct{} // a heartbeat is due (capacity 1)
+	hbAnswered chan struct{} // the child answered a stdin heartbeat (capacity 1)
+	closeReq   chan struct{} // the exit path asked for the close (capacity 1)
+	done       chan struct{} // closed when the writer returns
 	// heartbeatsStopped is set by the exit path BEFORE the close is
 	// requested (U-21): a heartbeat already queued is dropped, not sent.
 	heartbeatsStopped atomic.Bool
@@ -42,7 +62,17 @@ type session struct {
 func newSession(wt *adapterclient.Watch, cancel context.CancelFunc, stdinCommands bool, lease *int) *session {
 	return &session{
 		watch: wt, cancel: cancel, stdinCommands: stdinCommands, lease: lease,
-		hbReq: make(chan struct{}, 1), closeReq: make(chan struct{}, 1), done: make(chan struct{}),
+		hbReq: make(chan struct{}, 1), hbAnswered: make(chan struct{}, 1),
+		closeReq: make(chan struct{}, 1), done: make(chan struct{}),
+	}
+}
+
+// heartbeatAnswered tells the writer the child answered its outstanding
+// stdin heartbeat (heartbeat_ok, or an error event) without blocking.
+func (s *session) heartbeatAnswered() {
+	select {
+	case s.hbAnswered <- struct{}{}:
+	default:
 	}
 }
 
@@ -202,7 +232,9 @@ func (w *watcher) handleEvent(s *session, r *attemptResult, ev adapterclient.Eve
 		w.log.Debug("acked", slog.Int("acked", len(ev.Acked.MessageIDs)), slog.Int("unknown", len(ev.Acked.Unknown)))
 	case adapterclient.KindHeartbeatOK:
 		w.log.Debug("heartbeat_ok", slog.String("state", ev.HeartbeatOK.State))
+		s.heartbeatAnswered()
 	case adapterclient.KindError:
+		s.heartbeatAnswered() // a refused heartbeat comes back as an error event (4.4.9)
 		r.lastErrorCode = ev.Error.Code
 		retryable := backoff.Retryable(ev.Error.Code)
 		w.log.Warn("watch error event",
@@ -243,8 +275,38 @@ func (w *watcher) offer(m protocol.MessageEnvelope) {
 
 // commandLoop is the session's command writer: acks as they become
 // pending, heartbeats when requested, then the close, in one goroutine.
+//
+// On the stdin path ONE heartbeat is outstanding at a time: a heartbeat
+// that comes due while the child has not answered the last one is held
+// and written the moment the answer arrives (or, once the unanswered one
+// is older than heartbeatAnswerWait, when the next one comes due), so a
+// child that persists heartbeats
+// slower than they are requested never accumulates stale ones in its
+// stdin pipe. Measured 2026-09-11 on macOS under a whole-tree `go test
+// -race` (an F_FULLFSYNC storm; the fs adapter's heartbeat is two of them
+// under the store lock, 0.15-5 s each): 25-52 heartbeats written against
+// 1-23 answered, the exit path's `close` queued behind the backlog past
+// its 1 s budget (closed_at never written; TestRefuseNeverPostsOrAcks
+// five times), and the child's gapless re-lock behind the backlog
+// starving a concurrent `message send` past the 10 s lock timeout. Acks
+// and the close are never held: they go out as before.
 func (w *watcher) commandLoop(ctx context.Context, s *session) {
 	defer close(s.done)
+	var (
+		outstanding bool      // a stdin heartbeat awaits its answer
+		sentAt      time.Time // when it was written
+		wanted      bool      // a heartbeat came due meanwhile
+		answerWait  = w.heartbeatAnswerWait(s)
+	)
+	send := func() {
+		if s.heartbeatsStopped.Load() {
+			return
+		}
+		w.heartbeat(s)
+		if s.stdinCommands {
+			outstanding, sentAt = true, time.Now()
+		}
+	}
 	for {
 		// The close wins over anything else that is ready.
 		select {
@@ -261,10 +323,22 @@ func (w *watcher) commandLoop(ctx context.Context, s *session) {
 			return
 		case <-w.injector.ackReady:
 			w.sendAcks(s)
-		case <-s.hbReq:
-			if !s.heartbeatsStopped.Load() {
-				w.heartbeat(s)
+		case <-s.hbAnswered:
+			outstanding = false
+			if wanted {
+				wanted = false
+				send()
 			}
+		case <-s.hbReq:
+			if outstanding && time.Since(sentAt) < answerWait {
+				w.log.Debug("heartbeat deferred; the last one is unanswered")
+				wanted = true
+				continue
+			}
+			if outstanding {
+				w.log.Debug("heartbeat unanswered within the lease; the next one goes out")
+			}
+			send()
 		}
 	}
 }

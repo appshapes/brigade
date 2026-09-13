@@ -315,7 +315,7 @@ a cap an adapter chooses (4.4.2).
 | `activity` | yes | `busy` or `idle` |
 | `inbound` | yes | `accept`, `hold` or `refuse` — the harness's inbound policy, so senders can see it; adapters without `session.inbound` ignore it (C-42) |
 | `lease_seconds` | optional, nullable | within `lease.min_seconds..lease.max_seconds`, else `invalid_input`; absent means `lease.default_seconds` |
-| `workspace_label` | optional, nullable | ≤ `max_workspace_label_chars`; opt-in and user-typed; capability `session.workspace_label` |
+| `workspace_label` | optional, nullable | ≤ `max_workspace_label_chars`; capability `session.workspace_label` |
 | `model` | optional, nullable | ≤ `max_model_chars`, else `invalid_input` naming `model` (C-44); the harness-reported model identity, **unverified** text (4.5.11); capability `session.model` — an adapter without it accepts the member and ignores it |
 | `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1` (the range JSON carries exactly), else `invalid_input` naming `context_used_tokens` (C-44); the harness's own count of the tokens its context holds; capability `session.context_used_tokens` — an adapter without it accepts the member and ignores it |
 | `resume.session_id` | optional | capability `session.resume`; see below |

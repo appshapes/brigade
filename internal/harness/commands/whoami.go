@@ -14,6 +14,7 @@ import (
 type whoamiResult struct {
 	SessionID      string   `json:"session_id"`
 	SessionName    string   `json:"session_name"`
+	WorkspaceLabel string   `json:"workspace_label,omitzero"`
 	TeamRef        string   `json:"team_ref"`
 	TeamName       string   `json:"team_name"`
 	Inbound        string   `json:"inbound"`
@@ -61,6 +62,7 @@ func Whoami(inv Invocation) error {
 		return writeJSON(inv.Out, whoamiResult{
 			SessionID:      sanitizeID(m.BrigadeSessionID),
 			SessionName:    protocol.SanitizeName(m.SessionName),
+			WorkspaceLabel: protocol.SanitizeLabel(m.WorkspaceLabel),
 			TeamRef:        sanitizeID(m.TeamRef),
 			TeamName:       protocol.SanitizeName(m.TeamName),
 			Inbound:        protocol.SanitizeAttribute(m.Inbound),
@@ -78,6 +80,9 @@ func Whoami(inv Invocation) error {
 		" in team \"" + nameLine(m.TeamName) + "\"" +
 		" (adapter " + attrLine(t.describe.Adapter.Name) + " " + attrLine(t.describe.Adapter.Version) + ")" +
 		"; inbound: " + enumLine(m.Inbound)}
+	if repo := workspaceLine(m.WorkspaceLabel); repo != "" {
+		out = append(out, "repo: "+repo)
+	}
 	if p := pathLine(m.PluginBin); p != "" {
 		out = append(out, "terminal: "+p)
 	}

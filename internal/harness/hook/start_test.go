@@ -123,8 +123,10 @@ func assertWatcherEnv(t *testing.T, env []string, f *fixture) {
 
 // TestRegistrationCarriesNoLocalFacts is U-22 and I-33's harness half:
 // the SessionRegistration document has exactly the 4.4.2 members — no cwd,
-// hostname, username, native id or transcript path — and the workspace
-// label only when share_workspace_label is on.
+// hostname, username, native id or transcript path. The workspace label
+// is the repository's NAME by default (P11-5: the fixture's checkout
+// directory, which has no remote), the user's own when set, and absent
+// only when share_workspace_label is off; it is never the path.
 func TestRegistrationCarriesNoLocalFacts(t *testing.T) {
 	t.Parallel()
 	hostname, _ := os.Hostname()
@@ -134,9 +136,10 @@ func TestRegistrationCarriesNoLocalFacts(t *testing.T) {
 		wantLabel string
 		wantKey   bool
 	}{
-		{"default: no label", nil, "", false},
-		{"label without opt-in is not sent", []string{config.OptionWorkspaceLabel + "=repo brigade"}, "", false},
-		{"label with opt-in is sent", []string{config.OptionShareWorkspaceLabel + "=true", config.OptionWorkspaceLabel + "=repo brigade"}, "repo brigade", true},
+		{"default: the repository name", nil, "checkout", true},
+		{"the user's label replaces the name", []string{config.OptionWorkspaceLabel + "=repo brigade"}, "repo brigade", true},
+		{"share on is the default spelled out", []string{config.OptionShareWorkspaceLabel + "=true", config.OptionWorkspaceLabel + "=repo brigade"}, "repo brigade", true},
+		{"share off sends no label", []string{config.OptionShareWorkspaceLabel + "=false", config.OptionWorkspaceLabel + "=repo brigade"}, "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -676,9 +679,7 @@ func TestShadowingWarning(t *testing.T) {
 			decoy := filepath.Join(dir, "brigade")
 			switch tc.kind {
 			case "shadow":
-				if err := os.WriteFile(decoy, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil { //nolint:gosec // G306: an executable fixture
-					t.Fatal(err)
-				}
+				testutil.WriteExecutable(t, decoy, []byte("#!/bin/sh\nexit 0\n"))
 			case "symlink":
 				if err := os.Symlink(f.pluginBin, decoy); err != nil {
 					t.Fatal(err)
@@ -688,9 +689,7 @@ func TestShadowingWarning(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "noplugin":
-				if err := os.WriteFile(decoy, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil { //nolint:gosec // G306: an executable fixture
-					t.Fatal(err)
-				}
+				testutil.WriteExecutable(t, decoy, []byte("#!/bin/sh\nexit 0\n"))
 			}
 			env := []string{"PATH=" + dir + string(os.PathListSeparator) + f.emptyPath()}
 			if tc.kind == "noplugin" {

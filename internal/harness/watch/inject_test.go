@@ -21,8 +21,19 @@ import (
 )
 
 // TestSameIDThreeTimesInjectsOnce is U-13's first half: the fake adapter
-// replays one message id three times; the frame is posted once, the two
-// repeats are duplicates and are acknowledged without a second post.
+// replays one message id three times; the frame is posted once and
+// acknowledged once, and neither repeat is injected. A repeat is judged at
+// arrival: `duplicate` (acked) once the first copy's Done has moved the id
+// into the seen set, `pending` (ignored, not acked) while the first copy
+// is still being posted — Done runs after the socket post and the seen
+// file's two fsyncs, measured 7–85 ms on an 18-CPU host at load average
+// 17 (2026-09-11) against the script's 100 ms replay gap, which the macOS
+// CI job lost twice that day by requiring two `duplicate` lines. Either
+// verdict is correct and neither injects, so the test accepts both and
+// pins what holds in every interleaving; the post-ack duplicate+ack path
+// stays pinned deterministically by TestRestartBeforeAckInjectsOnceAndAcks
+// (seen file loaded before any offer) and by the pipeline's own
+// TestSameIDThreeTimesInjectsOnceAcksEachTime.
 func TestSameIDThreeTimesInjectsOnce(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{})
@@ -34,7 +45,8 @@ func TestSameIDThreeTimesInjectsOnce(t *testing.T) {
 	r := fx.start(fx.deps())
 	fx.sock.WaitFrames(1, waitShort)
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return fx.logCount("message offered", map[string]any{"message_id": "m1", "outcome": "duplicate", "ack": true}) == 2
+		return fx.logCount("message offered", map[string]any{"message_id": "m1"}) >= 3 &&
+			fx.logCount("injection reported", map[string]any{"message_id": "m1", "outcome": "injected", "ack": true}) == 1
 	})
 	fx.waitLog("ack sent", nil)
 	if code := r.stopAndWait(); code != 0 {
@@ -43,9 +55,43 @@ func TestSameIDThreeTimesInjectsOnce(t *testing.T) {
 	if n := len(fx.sock.Frames()); n != 1 {
 		t.Fatalf("frames = %d, want 1", n)
 	}
-	if n := fx.logCount("message offered", map[string]any{"message_id": "m1", "outcome": "queued"}); n != 1 {
-		t.Errorf("queued once? %d", n)
+	queued, repeats := 0, 0
+	for _, l := range offersOf(fx, "m1") {
+		switch l.outcome {
+		case "queued":
+			queued++
+		case "pending", "duplicate":
+			repeats++
+		default:
+			t.Errorf("offer outcome %q", l.outcome)
+		}
+		if l.ack != (l.outcome == "duplicate") {
+			t.Errorf("offer %q acked=%v: a duplicate is acked, nothing else is", l.outcome, l.ack)
+		}
 	}
+	if queued != 1 || repeats != 2 {
+		t.Errorf("offers of m1: %d queued, %d repeats, want 1 and 2", queued, repeats)
+	}
+}
+
+// An offer is one `message offered` log line's verdict.
+type offer struct {
+	outcome string
+	ack     bool
+}
+
+// offersOf lists the offers of id in log order.
+func offersOf(fx *fixture, id string) []offer {
+	var out []offer
+	for _, l := range fx.logLines() {
+		if l["msg"] != "message offered" || l["message_id"] != id {
+			continue
+		}
+		outcome, _ := l["outcome"].(string)
+		ack, _ := l["ack"].(bool)
+		out = append(out, offer{outcome: outcome, ack: ack})
+	}
+	return out
 }
 
 // TestRestartBeforeAckInjectsOnceAndAcks is U-13's second half: a seen
@@ -229,7 +275,15 @@ func TestPerSenderRateLimit(t *testing.T) {
 // TestIdenticalBodyDeferredThenInjected (6.8 item 6): the same body from
 // the same sender within 60 s is neither injected nor acknowledged; once
 // the injected clock passes the window the redelivery is injected once,
-// and later redeliveries are duplicates (acked, not injected).
+// and no later redelivery is injected — each is `pending` (not acked)
+// while that injection is in flight or `duplicate` (acked) after it, the
+// same arrival-time verdict TestSameIDThreeTimesInjectsOnce explains, so
+// the count of either is not asserted. Nor is the number of deferrals
+// before the clock moves: the sender's rate window is checked first and
+// each deferred redelivery spends one of its 10 accepts, so a test
+// goroutine stalled ~1.4 s before the bump would see the tenth
+// redelivery `rate_limited` (not acked) and a rate notice frame — both
+// allowed, and the message frames are counted apart from notices.
 func TestIdenticalBodyDeferredThenInjected(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{})
@@ -247,27 +301,63 @@ func TestIdenticalBodyDeferredThenInjected(t *testing.T) {
 	r := fx.start(deps)
 	fx.sock.WaitFrames(1, waitShort)
 	fx.waitLog("message offered", map[string]any{"message_id": "m2", "outcome": "deferred"})
-	if n := len(fx.sock.Frames()); n != 1 {
-		t.Fatalf("frames before the window passed = %d, want 1", n)
+	if n := len(messageFrames(fx.sock.Frames())); n != 1 {
+		t.Fatalf("message frames before the window passed = %d, want 1", n)
 	}
 	if fx.logHas("injection reported", map[string]any{"message_id": "m2"}) {
 		t.Fatalf("m2 was injected inside the window")
 	}
 	offset.Store(int64(inbound.DeferralWindow + time.Second))
-	frames := fx.sock.WaitFrames(2, waitShort)
-	if len(frames) != 2 || !strings.Contains(frames[1], "same body") {
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return len(messageFrames(fx.sock.Frames())) == 2 })
+	if frames := messageFrames(fx.sock.Frames()); !strings.Contains(frames[1], "same body") {
 		t.Fatalf("frames = %q", frames)
 	}
-	// Later redeliveries are duplicates: acked, never a third frame.
+	// Let the replay run out (m2 once, then its 40 redeliveries) before
+	// judging it, so every redelivery is on record.
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return fx.logCount("message offered", map[string]any{"message_id": "m2", "outcome": "duplicate", "ack": true}) >= 2
+		return fx.logCount("message offered", map[string]any{"message_id": "m2"}) >= 41
 	})
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if n := len(fx.sock.Frames()); n != 2 {
-		t.Fatalf("frames at the end = %d, want 2", n)
+	if n := len(messageFrames(fx.sock.Frames())); n != 2 {
+		t.Fatalf("message frames at the end = %d, want 2", n)
 	}
+	if n := fx.logCount("injection reported", map[string]any{"message_id": "m2"}); n != 1 {
+		t.Errorf("injections of m2 = %d, want 1", n)
+	}
+	// In log order: deferred (or rate-limited) while the window held, the
+	// one queued once the clock passed it, then only pending or duplicate —
+	// acked exactly when duplicate.
+	queued := false
+	for i, l := range offersOf(fx, "m2") {
+		switch {
+		case (l.outcome == "deferred" || l.outcome == "rate_limited") && !queued:
+		case l.outcome == "queued" && !queued:
+			queued = true
+		case (l.outcome == "pending" || l.outcome == "duplicate") && queued:
+		default:
+			t.Errorf("offer %d of m2: %q (queued yet: %v)", i, l.outcome, queued)
+		}
+		if l.ack != (l.outcome == "duplicate") {
+			t.Errorf("offer %d of m2 %q acked=%v", i, l.outcome, l.ack)
+		}
+	}
+	if !queued {
+		t.Errorf("m2 was never queued: %v", offersOf(fx, "m2"))
+	}
+}
+
+// messageFrames keeps the frames that carry a message (a notice has no
+// open tag).
+func messageFrames(frames []string) []string {
+	var out []string
+	for _, f := range frames {
+		if strings.Contains(f, frame.OpenTag) {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // TestBurstStaysBoundedWithOneNotice is U-15's watch half: 10,000

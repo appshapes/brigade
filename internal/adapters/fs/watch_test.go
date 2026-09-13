@@ -12,6 +12,17 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
+// hangCatcher bounds every positive wait in this package's watch tests:
+// an event, an exit, the next `ready`. It is a "did this ever happen"
+// bound and never a performance one — the poll interval is 200 ms and
+// each wait is on something that must happen within a tick or two, so
+// under load a wait can only be slow, never wrong. The cadence itself is
+// pinned by the negative windows (quiet, n × pollInterval), which cannot
+// fail falsely under load. The 2 s waits it replaces in the revocation
+// test, and the 5 s ones on the built binary's `ready` and SIGTERM exit,
+// were bounds on scheduling and process spawn under load.
+const hangCatcher = 30 * time.Second
+
 // syncBuffer is a stderr a test goroutine may read while the adapter
 // goroutine is still writing to it.
 type syncBuffer struct {
@@ -86,8 +97,8 @@ func (w *watcher) next() map[string]any {
 			w.t.Fatalf("a watch line is not JSON: %v (%q)", err, line)
 		}
 		return event
-	case <-time.After(10 * time.Second):
-		w.t.Fatal("no watch event within 10 s")
+	case <-time.After(hangCatcher):
+		w.t.Fatalf("no watch event within %s", hangCatcher)
 		return nil
 	}
 }
@@ -116,11 +127,17 @@ func (w *watcher) send(line string) {
 func (w *watcher) exit() int {
 	w.t.Helper()
 	_ = w.stdin.Close()
+	return w.wait()
+}
+
+// wait returns the process's exit status once the watch ends.
+func (w *watcher) wait() int {
+	w.t.Helper()
 	select {
 	case code := <-w.done:
 		return code
-	case <-time.After(10 * time.Second):
-		w.t.Fatal("the watch did not exit within 10 s of stdin EOF")
+	case <-time.After(hangCatcher):
+		w.t.Fatalf("the watch did not exit within %s", hangCatcher)
 		return -1
 	}
 }
@@ -229,13 +246,8 @@ func TestWatchStdinCommands(t *testing.T) {
 	}
 
 	w.send(`{"type":"close"}`)
-	select {
-	case code := <-w.done:
-		if code != 0 {
-			t.Fatalf("exit %d after close, want 0", code)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("the watch did not exit within 10 s of a close command")
+	if code := w.wait(); code != 0 {
+		t.Fatalf("exit %d after close, want 0", code)
 	}
 	if !strings.Contains(w.stderr.String(), "unknown_type") ||
 		!strings.Contains(w.stderr.String(), "line_too_long") {
@@ -310,13 +322,8 @@ func TestWatchRefusalEmitsOneErrorEvent(t *testing.T) {
 	if object["retryable"] != false {
 		t.Fatalf("retryable = %v, want false on a fatal error", object["retryable"])
 	}
-	select {
-	case code := <-w.done:
-		if code != protocol.CodeNotFound.Exit() {
-			t.Fatalf("exit %d, want %d", code, protocol.CodeNotFound.Exit())
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("the refused watch did not exit")
+	if code := w.wait(); code != protocol.CodeNotFound.Exit() {
+		t.Fatalf("exit %d, want %d", code, protocol.CodeNotFound.Exit())
 	}
 }
 
@@ -427,18 +434,7 @@ func TestWatchStopsWhenMembershipIsRevoked(t *testing.T) {
 
 	r.ok("", "--profile", "bob", "team", "leave")
 
-	var event map[string]any
-	select {
-	case line, ok := <-revoked.lines:
-		if !ok {
-			t.Fatal("the watch closed stdout without an error event")
-		}
-		if err := json.Unmarshal(line, &event); err != nil {
-			t.Fatalf("a watch line is not JSON: %v (%q)", err, line)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("no unauthorized event within 2 s of the revocation")
-	}
+	event := revoked.next()
 	object, _ := event["error"].(map[string]any)
 	if event["event"] != protocol.EventError || object["code"] != string(protocol.CodeUnauthorized) {
 		t.Fatalf("event = %v, want an unauthorized error", event)
@@ -449,13 +445,8 @@ func TestWatchStopsWhenMembershipIsRevoked(t *testing.T) {
 	if object["retryable"] != false {
 		t.Fatalf("retryable = %v, want false on a fatal error", object["retryable"])
 	}
-	select {
-	case code := <-revoked.done:
-		if code != protocol.CodeUnauthorized.Exit() {
-			t.Fatalf("exit %d, want %d", code, protocol.CodeUnauthorized.Exit())
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("the revoked watch did not exit within 2 s")
+	if code := revoked.wait(); code != protocol.CodeUnauthorized.Exit() {
+		t.Fatalf("exit %d, want %d", code, protocol.CodeUnauthorized.Exit())
 	}
 
 	// The positive control: A is still a member, so its watch polled

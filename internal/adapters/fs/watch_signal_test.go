@@ -49,9 +49,9 @@ func TestWatchExitsZeroWhenSignalledOnReady(t *testing.T) {
 			if !strings.Contains(line, `"event":"ready"`) {
 				t.Fatalf("round %d: first line %q is not ready", round, line)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangCatcher):
 			_ = cmd.Process.Kill()
-			t.Fatalf("round %d: no ready within 5 s (stderr %s)", round, stderr.String())
+			t.Fatalf("round %d: no ready within %s (stderr %s)", round, hangCatcher, stderr.String())
 		}
 		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			t.Fatalf("round %d: SIGTERM: %v", round, err)
@@ -60,9 +60,9 @@ func TestWatchExitsZeroWhenSignalledOnReady(t *testing.T) {
 		go func() { done <- cmd.Wait() }()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangCatcher):
 			_ = cmd.Process.Kill()
-			t.Fatalf("round %d: did not exit within 5 s of SIGTERM", round)
+			t.Fatalf("round %d: did not exit within %s of SIGTERM", round, hangCatcher)
 		}
 		_ = stdin.Close()
 		if code := cmd.ProcessState.ExitCode(); code != 0 {

@@ -190,7 +190,7 @@ func TestPrecheckAcceptsTheRealSocket(t *testing.T) {
 	if err := Post(t.Context(), Target{Path: srv.Path(), Token: "tok"}, "hello", Options{}); err != nil {
 		t.Fatalf("post: %v", err)
 	}
-	srv.WaitFrames(1, 10*time.Second)
+	srv.WaitFrames(1, hangCatcher)
 	if n := srv.Accepted(); n != 1 {
 		t.Errorf("accepted %d, want 1", n)
 	}

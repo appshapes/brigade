@@ -124,11 +124,13 @@ type Options struct {
 	// and the hook must print it.
 	TeamInbound        Inbound
 	TeamInboundWarning string
-	// ShareWorkspaceLabel gates WorkspaceLabel.
+	// ShareWorkspaceLabel is on unless the option says false (P11-5): the
+	// hook then registers WorkspaceLabel, or when that is empty the
+	// repository name it derives from the checkout (teamfile.RepoName).
 	ShareWorkspaceLabel bool
-	// WorkspaceLabel is the sanitised label to register, "" unless
-	// ShareWorkspaceLabel is on and the label is non-empty. Never the
-	// working directory (T10).
+	// WorkspaceLabel is the user's own sanitised label, "" when none was
+	// given or sharing is off — the hook derives one in that case. Never
+	// the working directory (T10).
 	WorkspaceLabel string
 	// PollOnPrompt enables the prompt-hook poll (6.3).
 	PollOnPrompt bool
@@ -182,12 +184,15 @@ func ParseOptions(environ []string) (Options, error) {
 	}
 	o.TeamInbound, o.TeamInboundWarning = ParseInbound(inbound)
 
-	share, err := ParseBool(opt(OptionShareWorkspaceLabel))
-	if err != nil {
-		return Options{}, optionErr("share_workspace_label", ReasonInvalidBoolean, errInvalidBool.Message)
+	o.ShareWorkspaceLabel = true
+	if raw := opt(OptionShareWorkspaceLabel); raw != "" {
+		share, err := ParseBool(raw)
+		if err != nil {
+			return Options{}, optionErr("share_workspace_label", ReasonInvalidBoolean, errInvalidBool.Message)
+		}
+		o.ShareWorkspaceLabel = share
 	}
-	o.ShareWorkspaceLabel = share
-	if share {
+	if o.ShareWorkspaceLabel {
 		o.WorkspaceLabel = protocol.SanitizeLabel(opt(OptionWorkspaceLabel))
 	}
 

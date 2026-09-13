@@ -296,7 +296,7 @@ func TestNoInputCommandsNeverReadStdin(t *testing.T) {
 		}()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangCatcher):
 			t.Fatalf("%v read stdin (B-1)", args)
 		}
 	}

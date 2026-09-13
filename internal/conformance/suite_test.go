@@ -35,18 +35,6 @@ const (
 	wholeRunSkip = 1
 )
 
-// wholeRunCeiling bounds the whole non-slow fs run. Measured unloaded from
-// the binary: 20.3 s, of which 8 s are the quiet windows the brief
-// mandates (C-36's 5 s ExpectNone, C-41's 2 s restart window, C-33's 1 s)
-// and the rest ~500 adapter spawns; the brief's 20 s figure sits below
-// that floor, and a -race build of the suite adds to it. The ceiling is
-// deliberately loose: at 30 s it tripped once on this machine at 30.75 s
-// while another gate ran alongside, and CI runners are slower still. The
-// wall time is LOGGED on every run (that is the measurement the execution
-// log records); the ceiling only catches a hang or an order-of-magnitude
-// regression, never load.
-const wholeRunCeiling = 120 * time.Second
-
 // runSuite runs the suite in-process against adapter with the given
 // selection and returns the exit code and the parsed report. The test
 // process's own environment is handed to Run only so that PATH and TMPDIR
@@ -90,11 +78,19 @@ func TestConformanceFS(t *testing.T) {
 }
 
 // TestConformanceFSWholeRun is the shape `make test` uses: every non-slow
-// case in one run directory, exit 0, and the wall time logged. The 5 s
-// target of plan 9.2 is measured and recorded by the driver, not asserted
-// under -race; wholeRunCeiling is the ceiling asserted here. The test is
-// deliberately NOT parallel: Go runs the sequential tests of a package
-// before resuming the parallel ones, so this run is measured on an
+// case in one run directory, exit 0, and the wall time LOGGED, never
+// asserted. Measured unloaded from the binary: 20.3 s, of which 8 s are
+// the quiet windows the brief mandates (C-36's 5 s ExpectNone, C-41's 2 s
+// restart window, C-33's 1 s) and the rest ~500 adapter spawns; a -race
+// build adds to it, and the machine is the rest of the input — the same
+// 45 passing cases took 1m44 at load average 20 and 4m14 beside two
+// concurrent per-case loops (2026-09-11), which is where a 120 s ceiling
+// failed with every case green, after a 30 s one had tripped at 30.75 s.
+// So there is no ceiling: a hang is caught by the package's -timeout, a
+// regression by the driver reading the logged number (the execution log
+// records it) and by `make test`'s separate brigade-conformance run. The
+// test is deliberately NOT parallel: Go runs the sequential tests of a
+// package before resuming the parallel ones, so this run is measured on an
 // otherwise idle process rather than alongside forty-six per-case runs
 // and four mutant builds, which doubled its wall time when it was parallel.
 //
@@ -128,8 +124,5 @@ func TestConformanceFSWholeRun(t *testing.T) {
 	}
 	if rep.Summary.Pass+rep.Summary.Skip != len(cases.All()) {
 		t.Fatalf("summary does not add up: %+v of %d cases", rep.Summary, len(cases.All()))
-	}
-	if wall > wholeRunCeiling {
-		t.Fatalf("whole fs run took %s, over the %s ceiling", wall, wholeRunCeiling)
 	}
 }

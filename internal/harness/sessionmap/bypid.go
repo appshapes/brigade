@@ -74,6 +74,11 @@ type ByPID struct {
 	TeamName string `json:"team_name"`
 	// SessionName is the display name registered (6.5).
 	SessionName string `json:"session_name"`
+	// WorkspaceLabel is the label registered with the session (P11-5):
+	// the repository name the hook derived, or the user's own; "" when
+	// sharing is off. The watcher carries it on a re-open, because a
+	// resume that omits it clears it at the backend.
+	WorkspaceLabel string `json:"workspace_label,omitempty"`
 	// PermissionMode is recorded for diagnostics only; the inbound policy
 	// never depends on it (D18).
 	PermissionMode string `json:"permission_mode"`

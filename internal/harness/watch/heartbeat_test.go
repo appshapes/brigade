@@ -327,6 +327,46 @@ func TestHeartbeatOmitsAContextCountTheWireCannotCarry(t *testing.T) {
 	fx.assertLogNamesNoPath(tr)
 }
 
+// TestOneStdinHeartbeatOutstanding: on the stdin path the writer holds a
+// heartbeat that comes due while the child has not answered the last one
+// and sends it on the answer, so a slow child never accumulates stale
+// heartbeats in its stdin pipe (behind which the exit path's close would
+// queue past its budget, and behind which the fs child re-locked its
+// store without a gap; attempt.go's commandLoop has the numbers). The
+// helper adapter here records its stdin and never answers a heartbeat:
+// with a 20 ms interval the heartbeats that come due are each logged as
+// deferred, the record holds exactly one, and the close is honoured at
+// once behind it. Before the rule the record held one heartbeat per tick.
+// The answer releasing the next one is what every record-mode test above
+// relies on (several heartbeats with changing facts); the error-event
+// release is TestReopensASessionClosedUnderItOnTheStdinPath's shape.
+func TestOneStdinHeartbeatOutstanding(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	record := filepath.Join(t.TempDir(), "commands.ndjson")
+	fx.useHelper("mute=" + record)
+	fx.writeMap()
+	deps := fx.deps()
+	deps.HeartbeatInterval = 20 * time.Millisecond
+	r := fx.start(deps, fx.args()...)
+	fx.waitLog("watch ready", nil)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		return fx.logCount("heartbeat deferred; the last one is unanswered", nil) >= 3
+	})
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if n := len(recordedHeartbeats(t, record)); n != 1 {
+		t.Errorf("heartbeats on the child's stdin = %d, want exactly 1 while none is answered", n)
+	}
+	if n := fx.logCount("heartbeat", nil); n != 1 {
+		t.Errorf("heartbeat lines = %d, want 1", n)
+	}
+	if !fx.logHas("watch child ended after close", nil) {
+		t.Errorf("the close waited behind something: %v", fx.logLines())
+	}
+}
+
 // writeRegistry writes an A.3-shaped entry for the fixture's Claude pid
 // into the fixture's CLAUDE_CONFIG_DIR/sessions (the real reader opens it
 // through registry.Dir).

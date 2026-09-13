@@ -109,7 +109,7 @@ func TestReleaseNotesLintRefusals(t *testing.T) {
 
 // absentSkill returns a /brigade:<name> this checkout does not have, so the
 // test cannot go red because someone added a skill by that name. It did once:
-// the name written here was `sessions`, and P11-4 shipped that skill, turning
+// the name written here was `sessions`, and P11-6 shipped that skill, turning
 // the refusal below into a pass. A literal is the trap; deriving the name from
 // the tree removes the class rather than relocating it to the next plausible
 // alias (`roster`, which this repository's own prose already uses for the

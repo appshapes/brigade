@@ -671,9 +671,7 @@ func (r *rig) assertTokenNowhere(token string) {
 
 func writeExecutable(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o700); err != nil { //nolint:gosec // G306: an executable fixture
-		t.Fatal(err)
-	}
+	testutil.WriteExecutable(t, path, []byte(content))
 }
 
 // shellQuote single-quotes s for a POSIX shell.

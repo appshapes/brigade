@@ -2048,7 +2048,10 @@ own — is absent by construction, because the list above is an allow-list and n
 token exists in exactly one process's environment, the watcher's, and reaches no adapter child.
 
 **Two extra facts ride on the heartbeat.** The Claude Code harness's watcher heartbeats its session about every
-30 s and on every activity flip, and on that path it may report `model` and `context_used_tokens` (4.4.2, 4.4.4 and
+30 s and on every activity flip (on the stdin path at most one heartbeat is outstanding: a flip that comes due while
+the last heartbeat is unanswered is sent when the answer arrives, or with the next request once the unanswered one is
+older than the lease less one and a half intervals), and on that path it may report `model` and
+`context_used_tokens` (4.4.2, 4.4.4 and
 the watch `heartbeat` command of 4.4.9): the model identity the session is running, and how many tokens its context
 currently holds. It derives both **locally**, from that session's own transcript file on the user's machine, just
 before it sends; the transcript, its path, the native session id, the cwd, the hostname and the username all stay

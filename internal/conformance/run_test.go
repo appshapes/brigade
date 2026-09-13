@@ -36,21 +36,21 @@ func TestRunExitCodes(t *testing.T) {
 		cases []Case
 		want  int
 	}{
-		"pass and skip":     {Options{Adapter: adapter, Only: []string{"C-01", "C-03", "C-14"}}, runCases(), ExitPass},
-		"failure":           {Options{Adapter: adapter, Only: []string{"C-01", "C-02"}}, runCases(), ExitFail},
-		"panic":             {Options{Adapter: adapter, Only: []string{"C-04"}}, runCases(), ExitFail},
-		"unknown id":        {Options{Adapter: adapter, Only: []string{"C-99"}}, runCases(), ExitUsage},
-		"unknown skip":      {Options{Adapter: adapter, Skip: []string{"nope"}}, runCases(), ExitUsage},
+		"pass and skip":     {viaShell(adapter, Options{Only: []string{"C-01", "C-03", "C-14"}}), runCases(), ExitPass},
+		"failure":           {viaShell(adapter, Options{Only: []string{"C-01", "C-02"}}), runCases(), ExitFail},
+		"panic":             {viaShell(adapter, Options{Only: []string{"C-04"}}), runCases(), ExitFail},
+		"unknown id":        {viaShell(adapter, Options{Only: []string{"C-99"}}), runCases(), ExitUsage},
+		"unknown skip":      {viaShell(adapter, Options{Skip: []string{"nope"}}), runCases(), ExitUsage},
 		"no adapter":        {Options{}, runCases(), ExitUsage},
-		"duplicate case id": {Options{Adapter: adapter}, append(runCases(), Case{ID: "c-01", Run: func(*T) {}}), ExitUsage},
+		"duplicate case id": {viaShell(adapter, Options{}), append(runCases(), Case{ID: "c-01", Run: func(*T) {}}), ExitUsage},
 		"adapter not found": {Options{Adapter: "/nonexistent/adapter-" + newRunID()}, runCases(), ExitLauncher},
 		"bare name not on PATH": {
 			Options{Adapter: "brigade-adapter-does-not-exist-" + newRunID()}, runCases(), ExitLauncher,
 		},
 		"setup exits 1": {
-			Options{Adapter: adapter, Only: []string{"C-05"}, Setup: writeScript(t, "setup", "exit 1")}, runCases(), ExitLauncher,
+			viaShell(adapter, Options{Only: []string{"C-05"}, Setup: shellCommand(t, writeScript(t, "setup", "exit 1"))}), runCases(), ExitLauncher,
 		},
-		"no caps and no setup": {Options{Adapter: adapter, Only: []string{"C-05"}}, runCases(), ExitLauncher},
+		"no caps and no setup": {viaShell(adapter, Options{Only: []string{"C-05"}}), runCases(), ExitLauncher},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -70,7 +70,7 @@ func TestRunDescribeFailuresAreLauncherErrors(t *testing.T) {
 	for name, adapter := range map[string]string{"describe not ok": notOK, "describe unparseable": garbage, "wrong major": wrongMajor} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			code, stdout, stderr := run(t, Options{Adapter: adapter, JSON: true}, runCases())
+			code, stdout, stderr := run(t, viaShell(adapter, Options{JSON: true}), runCases())
 			if code != ExitLauncher || !strings.Contains(stderr, "brigade-conformance: describe:") || stdout != "" {
 				t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
 			}
@@ -81,7 +81,7 @@ func TestRunDescribeFailuresAreLauncherErrors(t *testing.T) {
 func TestRunReportsOnBothStreams(t *testing.T) {
 	t.Parallel()
 	adapter := fakeAdapter(t, "team.create")
-	code, stdout, stderr := run(t, Options{Adapter: adapter, JSON: true, Only: []string{"C-01", "C-02", "C-03", "C-14"}}, runCases())
+	code, stdout, stderr := run(t, viaShell(adapter, Options{JSON: true, Only: []string{"C-01", "C-02", "C-03", "C-14"}}), runCases())
 	if code != ExitFail {
 		t.Fatalf("exit %d", code)
 	}
@@ -89,7 +89,7 @@ func TestRunReportsOnBothStreams(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
 		t.Fatalf("stdout is not the JSON report: %v\n%s", err, stdout)
 	}
-	if rep.Adapter.Name != "fake-adapter" || rep.Adapter.Version != "9.9.9" || rep.Adapter.Command != adapter ||
+	if rep.Adapter.Name != "fake-adapter" || rep.Adapter.Version != "9.9.9" || rep.Adapter.Command != "/bin/sh "+adapter ||
 		rep.ProtocolVersion != "1" || len(rep.Capabilities) != 1 || rep.Capabilities[0] != "team.create" {
 		t.Fatalf("report header: %+v", rep)
 	}
@@ -105,7 +105,7 @@ func TestRunReportsOnBothStreams(t *testing.T) {
 		}
 	}
 	// Without --json, stdout stays empty.
-	_, stdout, _ = run(t, Options{Adapter: adapter, Only: []string{"C-01"}}, runCases())
+	_, stdout, _ = run(t, viaShell(adapter, Options{Only: []string{"C-01"}}), runCases())
 	if stdout != "" {
 		t.Fatalf("stdout without --json: %q", stdout)
 	}
@@ -116,13 +116,13 @@ func TestRunDirectoryIsRemovedOrKept(t *testing.T) {
 	adapter := fakeAdapter(t)
 	var dir string
 	capture := []Case{{ID: "C-01", Tags: []string{TagCore}, Run: func(t *T) { dir = t.RunDir() }}}
-	if code, _, _ := run(t, Options{Adapter: adapter}, capture); code != ExitPass || dir == "" {
+	if code, _, _ := run(t, viaShell(adapter, Options{}), capture); code != ExitPass || dir == "" {
 		t.Fatal("run failed")
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("run directory %s survived: %v", dir, err)
 	}
-	code, _, stderr := run(t, Options{Adapter: adapter, KeepTemp: true}, capture)
+	code, _, stderr := run(t, viaShell(adapter, Options{KeepTemp: true}), capture)
 	if code != ExitPass || !strings.Contains(stderr, "run directory kept: "+dir) {
 		t.Fatalf("keep-temp: exit %d stderr %q", code, stderr)
 	}
@@ -143,7 +143,7 @@ func TestRunDirectoryScanFailsC05(t *testing.T) {
 			t.Fatalf("%v", err)
 		}
 	}}}
-	code, stdout, _ := run(t, Options{Adapter: adapter, JSON: true}, plant)
+	code, stdout, _ := run(t, viaShell(adapter, Options{JSON: true}), plant)
 	var rep Report
 	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
 		t.Fatal(err)
@@ -190,7 +190,7 @@ esac
 			t.Errorf("fixture session of a: %q", t.Session(a))
 		}
 	}}}
-	code, _, stderr := run(t, Options{Adapter: adapter, Setup: setup}, cases)
+	code, _, stderr := run(t, viaShell(adapter, Options{Setup: shellCommand(t, setup)}), cases)
 	if code != ExitPass {
 		t.Fatalf("exit %d\n%s", code, stderr)
 	}
@@ -213,14 +213,14 @@ esac
 `)
 	var touched []string
 	capture := []Case{{ID: "C-01", Tags: []string{TagCore}, Run: func(t *T) { touched = t.DescribeTouched() }}}
-	if code, _, stderr := run(t, Options{Adapter: touching, SharedEnv: "BRIGADE_FS_ROOT"}, capture); code != ExitPass {
+	if code, _, stderr := run(t, viaShell(touching, Options{SharedEnv: "BRIGADE_FS_ROOT"}), capture); code != ExitPass {
 		t.Fatalf("exit %d\n%s", code, stderr)
 	}
 	if len(touched) != 2 || !strings.Contains(touched[0], "config directory") || touched[1] != "created the shared directory" {
 		t.Fatalf("DescribeTouched: %v", touched)
 	}
 	touched = nil
-	if code, _, stderr := run(t, Options{Adapter: fakeAdapter(t), SharedEnv: "BRIGADE_FS_ROOT"}, capture); code != ExitPass {
+	if code, _, stderr := run(t, viaShell(fakeAdapter(t), Options{SharedEnv: "BRIGADE_FS_ROOT"}), capture); code != ExitPass {
 		t.Fatalf("clean describe: exit %d\n%s", code, stderr)
 	}
 	if len(touched) != 0 {
@@ -273,7 +273,7 @@ func TestRunEmptySelectionIsUsage(t *testing.T) {
 // and exits 0 with that skip counted.
 func TestRunSkipOnlySelectionPasses(t *testing.T) {
 	t.Parallel()
-	code, stdout, stderr := run(t, Options{Adapter: fakeAdapter(t), JSON: true, Tags: []string{"slow"}}, runCases())
+	code, stdout, stderr := run(t, viaShell(fakeAdapter(t), Options{JSON: true, Tags: []string{"slow"}}), runCases())
 	if code != ExitPass {
 		t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 	}
@@ -307,7 +307,7 @@ func TestRunShuffleIsDeterministic(t *testing.T) {
 	adapter := fakeAdapter(t)
 	runOrder := func(seed int64) ([]string, Report, string) {
 		var order []string
-		code, stdout, stderr := run(t, Options{Adapter: adapter, JSON: true, Shuffle: seed}, orderCases(10, &order))
+		code, stdout, stderr := run(t, viaShell(adapter, Options{JSON: true, Shuffle: seed}), orderCases(10, &order))
 		if code != ExitPass {
 			t.Fatalf("seed %d: exit %d\n%s", seed, code, stderr)
 		}
@@ -350,8 +350,9 @@ func TestRunShuffleIsDeterministic(t *testing.T) {
 	if strings.Join(reported, " ") != strings.Join(first, " ") {
 		t.Fatalf("results order %v, ran %v", reported, first)
 	}
-	// A different seed is a different permutation (10! makes a collision a
-	// one-in-3.6-million accident, not a flake).
+	// A different seed is a different permutation. Both orders are fixed by
+	// their seeds, so a collision would be a permanent property of seeds 42
+	// and 43, never a chance event at run time.
 	other, _, _ := runOrder(43)
 	if strings.Join(other, " ") == strings.Join(first, " ") {
 		t.Fatalf("seeds 42 and 43 name the same order: %v", other)

@@ -88,6 +88,10 @@ type resolved struct {
 	instruction frame.Instruction
 	client      *adapterclient.Client
 	store       sessionmap.Store
+	// workspaceLabel is the label the session registers (P11-5): the
+	// user's own, else the repository name derived from the checkout;
+	// "" sends nothing.
+	workspaceLabel string
 }
 
 // connect registers (or re-attaches to) the Brigade session and prints
@@ -99,6 +103,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	if !ok {
 		return
 	}
+	res.workspaceLabel = workspaceLabel(res.opts, in.Cwd)
 	existing := r.existingMap(res.store, f.pid)
 	verdict := r.checkPidfile(f)
 	now := r.deps.Now()
@@ -151,8 +156,8 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		Inbound:        res.dec.Policy.String(),
 		Resume:         r.resumeHint(f, in, res.store, existing),
 	}
-	if res.opts.ShareWorkspaceLabel && res.opts.WorkspaceLabel != "" {
-		label := res.opts.WorkspaceLabel
+	if res.workspaceLabel != "" {
+		label := res.workspaceLabel
 		reg.WorkspaceLabel = &label
 	}
 	result, err := r.register(ctx, res.client, reg)
@@ -274,6 +279,26 @@ func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
 	if err != nil {
 		r.log.Warn("session-start: start facts not written", log.Err(err))
 	}
+}
+
+// workspaceLabel is the label a session registers (P11-5): the user's
+// own when the option names one, else the repository name derived from
+// the checkout — the value that tells a session in one of a team's
+// repositories from a session in the next, and that survives a /rename
+// where the session name does not. "" when share_workspace_label is off
+// or the cwd is in no repository: then nothing is sent.
+func workspaceLabel(opts config.Options, cwd string) string {
+	if !opts.ShareWorkspaceLabel {
+		return ""
+	}
+	if opts.WorkspaceLabel != "" {
+		return opts.WorkspaceLabel
+	}
+	top, ok := teamfile.Toplevel(cwd)
+	if !ok {
+		return ""
+	}
+	return teamfile.RepoName(top)
 }
 
 // resolveTeam runs steps 1-3: discovery, the pin gate, the binding gate.
@@ -519,6 +544,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		TeamRef:          teamRef,
 		TeamName:         teamName,
 		SessionName:      res.id.name,
+		WorkspaceLabel:   res.workspaceLabel,
 		PermissionMode:   in.PermissionMode,
 		NonInteractive:   res.id.nonInteractive,
 		Inbound:          res.dec.Policy.String(),

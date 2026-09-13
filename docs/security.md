@@ -61,8 +61,7 @@ their own machine. None of them is ever a repository variable and none of them s
 [`docs/setup.md`](setup.md) has the administrator's procedure.
 
 **What is deliberately never sent.** Brigade does not send your Claude Code session id, your working directory,
-your hostname, your username, your transcript or the path to it. It sends a workspace label only if you turn
-`share_workspace_label` on, and that is a label you choose, never a path.
+your hostname, your username, your transcript or the path to it.
 
 **Two facts Brigade now reads from your transcript — on this machine.** So that `brigade sessions` can tell your team
 which model a session is running and how full its context is, Brigade reports two values with each session: the
@@ -157,8 +156,11 @@ run inside a session since P7-11, because on every path the secret now travels i
 (`--secret-file`) and never on a stream the chat sees (section 8); the refusal had nothing left to protect. What that concedes, stated plainly: a session can now pin a second checkout to a team this machine
 already holds a credential for — including a `.brigade.json` the session wrote itself — and accept a
 publishable-key-only change to `.brigade.json`, without a person at a prompt; a change of team still needs the
-secret file. So a pin's `consented_at` records that whoever held the file ran the command, not that a person
-answered y at a terminal. The start facts a session's hooks leave for those commands (the store to write, the
+secret file. The credential is per team per machine, shared by every checkout pinned to the team — a second clone,
+or another repository carrying the same `.brigade.json` — so `team reset`, `team revoke-credentials` and
+`team leave` act for all of them at once; no `team` verb detaches one checkout. So a pin's `consented_at` records
+that whoever held the file ran the command, not that a person answered y at a terminal.
+The start facts a session's hooks leave for those commands (the store to write, the
 plugin's path) are read under the same owner-only rule as the session map and only say *where* an in-session join
 writes, never which team a session is. And the team-messaging skill's `allowed-tools: Bash(brigade:*)` grant,
 plus any `permissions.allow: Bash(brigade:*)` rule of your own, now covers those three verbs too (section 5). If
