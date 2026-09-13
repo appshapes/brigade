@@ -198,7 +198,7 @@ inbox ships; and a two-hour soak of two sessions on one team renewed the shared 
 lockout. The frame's instruction text ships as levels, `open` by default.
 
 **0.4.1 is the current release.** `bin/VERSION` names the version a session downloads, and `bin/checksums.txt`
-carries the sha256 of each published binary; `make release version=<v>` writes both, and the release workflow
+carries the sha256 of each published binary; `make release version=<v> card=<n>` writes both, and the release workflow
 builds the four binaries from the tag and publishes them beside their `checksums.txt`. A tree in which that command
 has not run carries the pre-release `0.0.0` with an empty `bin/checksums.txt`, and there is nothing to download.
 **Developers** point the bootstrap at a local build instead, with the dev-binary pointer `make plugin-dev`

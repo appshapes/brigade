@@ -156,7 +156,8 @@ The release sequence of plan 7.7, in five steps: pin `plugin/bin/VERSION` and `p
 to the version, rebuild and re-checksum the cross-compiled binaries, commit through the push chain, then tag
 `v<version>` and push the tag — which is what fires `release.yml`.
 
-Invoked by `make release version=X.Y.Z [branch=<name>]`. It refuses to run on a dirty tree, refuses any branch
+Invoked by `make release version=X.Y.Z card=<n> [branch=<name>]`, the card naming the release commit
+(`<card>: Release X.Y.Z`). It refuses to run without one, on a dirty tree, refuses any branch
 but `master` unless `branch=` is passed, and refuses to rewrite a published tag, because `plugin/bin/checksums.txt`
 is a compatibility surface for every plugin installed from that commit.
 
