@@ -97,7 +97,7 @@ func stopNotice(code protocol.Code) string {
 		return prefix + "the adapter speaks a different protocol version than this plugin; update one of them"
 	}
 	if code == protocol.CodeConfig {
-		return prefix + "run `brigade profile status` in a terminal"
+		return prefix + "run `brigade whoami`"
 	}
 	return prefix + "it will be restarted at your next prompt"
 }

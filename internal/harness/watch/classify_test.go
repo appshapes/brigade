@@ -79,7 +79,7 @@ func TestStopNoticeWording(t *testing.T) {
 		protocol.CodeUnauthenticated:  "Brigade: watcher stopped: unauthenticated; run `brigade team join` again",
 		protocol.CodeUnauthorized:     "Brigade: watcher stopped: unauthorized; run `brigade team join` again",
 		protocol.CodeProtocolMismatch: "Brigade: watcher stopped: protocol_mismatch; the adapter speaks a different protocol version than this plugin; update one of them",
-		protocol.CodeConfig:           "Brigade: watcher stopped: config; run `brigade profile status` in a terminal",
+		protocol.CodeConfig:           "Brigade: watcher stopped: config; run `brigade whoami`",
 		protocol.CodeInternal:         "Brigade: watcher stopped: internal; it will be restarted at your next prompt",
 	} {
 		if got := stopNotice(code); got != want {

@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [Unreleased]
+
+### Fixed
+
+- **`/brigade:update` now updates the install a session actually loads.** It ran `claude plugin update --scope
+  project` first, which succeeds in any folder whose committed `.claude/settings.json` enables the plugin — and
+  changes nothing a session loads while a user-scope install exists, because a user-scope record decides the
+  version in every folder, even over a newer project-scope one (measured on Claude Code 2.1.270,
+  `docs/experiments/E8-plugin-scope.md`). The skill now updates user scope first, falls back to project scope
+  only when there is no user-scope install, and says which folders follow. `docs/setup.md` recommends answering
+  the install's scope question with *user* for the same reason, and no longer describes a collaborator-side
+  install offer nobody has observed: a committed `enabledPlugins` installs nothing by itself.
+- The watcher's `config` stop notice told you to run `brigade profile status`, a command gone since 0.4.0; it
+  now points at `brigade whoami`.
+
 ## [0.6.1] — 2026-09-13
 
 ### Added

@@ -46,9 +46,13 @@ take in your settings. To move to a newer release later, run `/brigade:update`, 
 ```
 
 The first command clones this public repository; it tries SSH first and falls back to HTTPS, so you do not need a
-GitHub key. Answer the install's scope question with the project, and Claude Code writes `enabledPlugins` into
-`.claude/settings.json`. **It writes the marketplace only when it was not already known** — and you just made it
-known — so add it by hand, commit the file, and every collaborator after you has the one-command path above:
+GitHub key. Answer the install's scope question with **user**: a user-scope install is the one every folder you
+open under this Claude Code account follows — every repository and every clone — and one `/brigade:update` moves
+them all. Measured on Claude Code 2.1.270 ([E8](experiments/E8-plugin-scope.md)): when a user-scope install
+exists it decides the version a session loads in every folder, even over a newer project-scope one; without it
+each folder carries its own version and needs its own update. Then commit the marketplace in
+`.claude/settings.json`, so every collaborator after you installs with the one command `/plugin install
+brigade@brigade`:
 
 ```json
 {
@@ -57,9 +61,11 @@ known — so add it by hand, commit the file, and every collaborator after you h
 }
 ```
 
-(Measured on Claude Code 2.1.263: the project-scope install of an already-known marketplace wrote `enabledPlugins`
-alone; the collaborator half — the marketplace added on trust, the install command shown — is Claude Code's
-documented behaviour, not yet measured by a collaborator here.)
+`enabledPlugins` there enables the plugin for the project once an account has it installed; it installs nothing
+and asks nothing on its own (E8), and under a user-scope install its one visible effect is an extra, inert
+per-folder row in `claude plugin list`. Whether Claude Code adds a committed marketplace on trust before the
+first `/plugin install` has not been measured here: if that command answers that the marketplace is unknown,
+run the two lines above.
 
 **The developer way: a checkout.** From a clone of this repository:
 
