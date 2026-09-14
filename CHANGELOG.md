@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [Unreleased]
+
+### Changed
+
+- The Install procedure in `docs/setup.md` begins with `/plugin marketplace add appshapes/brigade`, which is
+  harmless when the marketplace is already known, so a first-time reader never depends on the committed
+  marketplace being picked up on trust.
+
 ## [0.6.3] — 2026-09-14
 
 ### Changed
