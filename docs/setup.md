@@ -29,13 +29,15 @@ the checkout (trust the folder when asked):
 /plugin install brigade@brigade
 ```
 
+When it asks for a scope, choose **user** (why, below). If it asks nothing and goes straight to the plugin's options, this account already has Brigade installed: run `/brigade:update` instead.
+
 The project's committed `.claude/settings.json` names the `brigade` marketplace, so Claude Code adds it when you
 trust the folder and tells you that this one command remains. The command copies the plugin into
 `<configuration directory>/plugins/cache/brigade/brigade/<version>/` — that copy is the plugin, and the version is
 part of its path — and ends with either `Plugin is now active.` or `Run /reload-plugins to activate.`; do what it
 says. It asks you to confirm nothing: an install's confirmation is for a plugin whose marketplace declares a
 command to run, and Brigade declares none. The plugin's id is `brigade@brigade`, which is also the key its options
-take in your settings. To move to a newer release later, run `/brigade:update`, then `/reload-plugins`.
+take in your settings. To move to a newer release later, run `/brigade:update` once under this account, then `/reload-plugins` in each session you still have open: every repository and every clone you open under the account follows at its next session start.
 
 **The first machine of a project** — an administrator about to create its team, or any checkout whose
 `.claude/settings.json` does not yet name the marketplace — adds the marketplace first:
@@ -101,6 +103,25 @@ plugin's, and the Bash tool runs that one instead of the version the plugin pins
 Brigade, and the symlink in "Terminal use" below gives you the same binary in your own terminal. A packaged
 install would put a second, separately versioned `brigade` on your `PATH`, which is the shadowing case above. A
 tap and a Linux package are being considered for a later release.
+
+**The two procedures, in full.** For one Claude Code account with any number of repositories and clones:
+
+*Install* — once per account, then once per clone:
+
+1. In any session under the account: `/plugin install brigade@brigade` → choose **user**. If no scope question
+   appears, the account already has it: run `/brigade:update` instead.
+2. `/reload-plugins`.
+3. In the first clone of each team: `/brigade:join <path-to-secret-file>`.
+4. In every other clone — the same repository again, or another repository on that team: `/brigade:join`.
+
+*Update* — once per account:
+
+1. In any session under the account: `/brigade:update`.
+2. `/reload-plugins` in each session that is still open; new sessions load the new version on start.
+
+A second Claude Code account on the same machine (`CLAUDE_CONFIG_DIR`) is a second install and a second update;
+the clones' joins are shared, because the team credential and the pins live in Brigade's own configuration
+directory, not Claude Code's.
 
 ## The project owns the team
 

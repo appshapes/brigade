@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [Unreleased]
+
+### Changed
+
+- **The setup documentation describes installing and updating as two short procedures.** Install: once per
+  Claude Code account (`/plugin install brigade@brigade`, scope *user*, `/reload-plugins`), then once per clone
+  (`/brigade:join <secret-file>` in the first clone of a team, `/brigade:join` in every other). Update: one
+  `/brigade:update` per account and `/reload-plugins` in the sessions still open — every repository and every
+  clone under that account follows at its next session start (`docs/experiments/E8-plugin-scope.md`). No
+  change to the plugin or the CLI.
+
 ## [0.6.2] — 2026-09-14
 
 ### Fixed
