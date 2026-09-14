@@ -37,7 +37,7 @@ trust the folder and tells you that this one command remains. The command copies
 part of its path — and ends with either `Plugin is now active.` or `Run /reload-plugins to activate.`; do what it
 says. It asks you to confirm nothing: an install's confirmation is for a plugin whose marketplace declares a
 command to run, and Brigade declares none. The plugin's id is `brigade@brigade`, which is also the key its options
-take in your settings. To move to a newer release later, run `/brigade:update` once under this account, then `/reload-plugins` in each session you still have open: every repository and every clone you open under the account follows at its next session start.
+take in your settings. Updates are automatic: the committed marketplace entry carries `"autoUpdate": true`, so Claude Code refreshes the marketplace and updates the plugin in the background after a session starts (up to ten minutes later) and then asks you to run `/reload-plugins`. To update right now instead, run `/brigade:update`.
 
 **The first machine of a project** — an administrator about to create its team, or any checkout whose
 `.claude/settings.json` does not yet name the marketplace — adds the marketplace first:
@@ -48,24 +48,28 @@ take in your settings. To move to a newer release later, run `/brigade:update` o
 ```
 
 The first command clones this public repository; it tries SSH first and falls back to HTTPS, so you do not need a
-GitHub key. Answer the install's scope question with **user**: a user-scope install is the one every folder you
-open under this Claude Code account follows — every repository and every clone — and one `/brigade:update` moves
-them all. Measured on Claude Code 2.1.270 ([E8](experiments/E8-plugin-scope.md)): when a user-scope install
-exists it decides the version a session loads in every folder, even over a newer project-scope one; without it
-each folder carries its own version and needs its own update. Then commit the marketplace in
-`.claude/settings.json`, so every collaborator after you installs with the one command `/plugin install
-brigade@brigade`:
+GitHub key. Answer the install's scope question with **user**. User scope is one install for every folder you open
+under this Claude Code account — every repository and every clone — and one update moves them all. Do **not**
+choose project scope, and do not commit `enabledPlugins` for Brigade: project scope *is* the committed
+`.claude/settings.json` entry ("install for all collaborators on this repository, which adds the plugin to
+`.claude/settings.json`" — Claude Code's own definition), it takes precedence over a user-scope install in that
+folder (settings precedence: project over user), and it gives every checkout its own version that only an update
+run in that checkout moves. Then commit the marketplace in `.claude/settings.json`, with auto-update on, so every
+collaborator after you installs with the one command `/plugin install brigade@brigade` and never updates by hand:
 
 ```json
 {
-  "enabledPlugins": { "brigade@brigade": true },
-  "extraKnownMarketplaces": { "brigade": { "source": { "source": "github", "repo": "appshapes/brigade" } } }
+  "extraKnownMarketplaces": {
+    "brigade": { "source": { "source": "github", "repo": "appshapes/brigade" }, "autoUpdate": true }
+  }
 }
 ```
 
-`enabledPlugins` there enables the plugin for the project once an account has it installed; it installs nothing
-and asks nothing on its own (E8), and under a user-scope install its one visible effect is an extra, inert
-per-folder row in `claude plugin list`. Claude Code does add a committed marketplace when the folder is trusted: on a machine that had never seen Brigade, `/plugin install brigade@brigade` alone installed it (measured by Rjae, 2026-09-14).
+Measured on Claude Code 2.1.270 ([E9](experiments/E9-plugin-install-update.md)): opening a trusted folder of a
+repository that commits this entry adds the marketplace, with `autoUpdate` carried over, and installs nothing;
+the one command then installs at user scope; every clone loads that one version; one `claude plugin update
+--scope user` moves them all. Auto-update itself is Claude Code's documented behaviour for marketplaces with the
+flag on — background, interactive sessions only, followed by a `/reload-plugins` prompt.
 
 **The developer way: a checkout.** From a clone of this repository:
 
@@ -112,10 +116,11 @@ tap and a Linux package are being considered for a later release.
 3. In the first clone of each team: `/brigade:join <path-to-secret-file>`.
 4. In every other clone — the same repository again, or another repository on that team: `/brigade:join`.
 
-*Update* — once per account:
+*Update* — nothing to schedule:
 
-1. In any session under the account: `/brigade:update`.
-2. `/reload-plugins` in each session that is still open; new sessions load the new version on start.
+1. Claude Code updates Brigade in the background after a session starts and tells you to run `/reload-plugins`;
+   do that, and every folder under the account is on the new version.
+2. To update right now instead: `/brigade:update` in any session under the account, then `/reload-plugins`.
 
 A second Claude Code account on the same machine (`CLAUDE_CONFIG_DIR`) is a second install and a second update;
 the clones' joins are shared, because the team credential and the pins live in Brigade's own configuration

@@ -1,13 +1,8 @@
 {
-  "enabledPlugins": {
-    "brigade@brigade": true
-  },
   "extraKnownMarketplaces": {
     "brigade": {
-      "source": {
-        "source": "github",
-        "repo": "appshapes/brigade"
-      }
+      "source": { "source": "github", "repo": "appshapes/brigade" },
+      "autoUpdate": true
     }
   }
 }

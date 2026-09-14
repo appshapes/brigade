@@ -119,7 +119,7 @@ That runs `brigade team join --secret-file ~/brigade-<team>.secret` for you and 
 the session's PATH, so there is no path to find. `team join` reads the project's `.brigade.json`, prints the team
 and backend host it is joining (invoking it is the consent), reads the secret from the file and joins; its output
 never carries the secret. The file's mode and owner are never checked — only that it is outside the repository.
-Later, one `/brigade:update` per Claude Code account moves to a newer release — every repository and every clone you open under that account follows at its next session start (the install is user-scoped; `docs/experiments/E8-plugin-scope.md`) — then `/reload-plugins` in each session you still have open. In your own terminal, `brigade team join` alone asks you to confirm
+Later, updates arrive on their own: the committed marketplace entry carries `"autoUpdate": true`, so Claude Code updates the plugin in the background after a session starts and asks you to run `/reload-plugins` — every repository and every clone under that account follows, because the install is user-scoped. `/brigade:update` updates right now.
 and reads the secret without echo. Either way the secret never reaches your scrollback, your shell history or a
 chat. There is no `--profile`, no `--url` and no `--key`: the project file supplies all of that.
 

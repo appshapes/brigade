@@ -11,6 +11,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **Installing and updating are one command and no command.** Measured against Claude Code's documented plugin
+  scopes, precedence and marketplace auto-update (`docs/experiments/E9-plugin-install-update.md`): a repository
+  commits `extraKnownMarketplaces.brigade` with `"autoUpdate": true` and **no** `enabledPlugins` — a committed
+  `enabledPlugins` is a project-scope install for every collaborator, takes precedence over a user-scope one in
+  that folder, and leaves each checkout on its own version. A member trusts the folder, runs
+  `/plugin install brigade@brigade` at **user** scope once per Claude Code account, `/reload-plugins`, and
+  `/brigade:join` once per clone; every clone loads the one version. Updates then arrive in the background and
+  end with a `/reload-plugins` prompt; `/brigade:update` updates right now and now updates both the user-scope
+  install and any project-scope one, treating "not installed at scope" as information rather than failure. This
+  repository's own `.claude/settings.json` is changed to that shape; `docs/setup.md` and `plugin/README.md`
+  describe it; E8's precedence conclusion is marked superseded (headless and interactive sessions resolve scope
+  differently).
 - `docs/setup.md` states as measured, not assumed, that a committed marketplace is added when the folder is
   trusted, so the Install procedure stays at one command: `/plugin install brigade@brigade`.
 

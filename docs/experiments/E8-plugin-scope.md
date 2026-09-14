@@ -52,6 +52,15 @@ Record behaviour, observed from the registry file rather than the probe (these h
 - Records never re-seed from each other: a project record aged to 0.4.1 stayed 0.4.1 across later opens with a
   0.6.1 user record present.
 
+## Superseded in part by E9
+
+E9 (2026-09-14, later the same day) found that `claude -p` sessions and interactive sessions resolve scope
+differently: in a trusted folder with a project-scope record at 0.6.1 and a user-scope record at 0.6.3, a `-p`
+session loaded 0.6.3 while a real interactive session in an equivalent state (`~/.claude`, `appshapes/brigade`,
+session `df064357`) loaded the project record. Conclusions 2 and 4 below therefore describe headless sessions
+only; for interactive sessions Claude Code's documented settings precedence — project over user — is what was
+observed. The record-creation findings (1 and 3) stand. E9 carries the corrected procedures.
+
 ## What it settled
 
 1. **The install records decide the loaded version; the cache directories do not.** Aging every record to 0.4.1

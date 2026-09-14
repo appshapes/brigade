@@ -53,7 +53,7 @@ marketplace, adds the marketplace first:
 
 Either way the command ends with `Plugin is now active.` or `Run /reload-plugins to activate.` — do what it says.
 On a cold cache the first session downloads the release binary before the hooks can run, so the line naming your
-team appears on a **later** prompt, once the download finishes. **0.4.1 is the current release**; there is no
+team appears on a **later** prompt, once the download finishes. **The current release is the one `plugin/bin/VERSION` pins**; there is no
 Homebrew tap and no `.deb` or `.rpm` yet.
 
 Installing the plugin only puts the `brigade` command on a session's PATH — it does not join a team. The full
@@ -149,7 +149,7 @@ a hosted project with the daily keep-alive and the conformance suite green again
 `hold` inbox ship, retention is verified live, the two-hour soak has run, the frame's instruction text ships as
 levels, and the user documentation is written.
 
-**0.4.1 is the current release.** `make release version=<v> card=<n>` pins `plugin/bin/VERSION` and the plugin manifest to
+**The current release is the one `plugin/bin/VERSION` pins.** `make release version=<v> card=<n>` pins `plugin/bin/VERSION` and the plugin manifest to
 that version, writes the sha256 of each published binary into `plugin/bin/checksums.txt`, and pushes the matching
 tag; the release workflow builds the four binaries from that tag and publishes them beside their `checksums.txt`. A
 tree in which that command has not run carries the pre-release `0.0.0` and an empty checksums file, and its plugin
