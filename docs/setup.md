@@ -65,9 +65,7 @@ brigade@brigade`:
 
 `enabledPlugins` there enables the plugin for the project once an account has it installed; it installs nothing
 and asks nothing on its own (E8), and under a user-scope install its one visible effect is an extra, inert
-per-folder row in `claude plugin list`. Whether Claude Code adds a committed marketplace on trust before the
-first `/plugin install` has not been measured here: if that command answers that the marketplace is unknown,
-run the two lines above.
+per-folder row in `claude plugin list`. Claude Code does add a committed marketplace when the folder is trusted: on a machine that had never seen Brigade, `/plugin install brigade@brigade` alone installed it (measured by Rjae, 2026-09-14).
 
 **The developer way: a checkout.** From a clone of this repository:
 
@@ -108,13 +106,11 @@ tap and a Linux package are being considered for a later release.
 
 *Install* — once per account, then once per clone:
 
-1. In any session under the account: `/plugin marketplace add appshapes/brigade`. Harmless when the marketplace is
-   already known — it answers `Marketplace 'brigade' already on disk` (measured on Claude Code 2.1.270).
-2. `/plugin install brigade@brigade` → choose **user**. If no scope question appears, the account already has it:
-   run `/brigade:update` instead.
-3. `/reload-plugins`.
-4. In the first clone of each team: `/brigade:join <path-to-secret-file>`.
-5. In every other clone — the same repository again, or another repository on that team: `/brigade:join`.
+1. In any session under the account: `/plugin install brigade@brigade` → choose **user**. If no scope question
+   appears, the account already has it: run `/brigade:update` instead.
+2. `/reload-plugins`.
+3. In the first clone of each team: `/brigade:join <path-to-secret-file>`.
+4. In every other clone — the same repository again, or another repository on that team: `/brigade:join`.
 
 *Update* — once per account:
 

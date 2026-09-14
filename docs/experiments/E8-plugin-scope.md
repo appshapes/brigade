@@ -68,9 +68,10 @@ Record behaviour, observed from the registry file rather than the probe (these h
 
 ## What it does not prove
 
-- The interactive first-open path. `claude -p` cannot show a prompt, so whether Claude Code offers to install a
-  plugin named by a committed `enabledPlugins`, or adds a committed marketplace on trust, remains unmeasured;
-  Rjae has never seen either.
+- The interactive first-open path, only in part. `claude -p` cannot show a prompt, so whether Claude Code offers
+  to install a plugin named by a committed `enabledPlugins` remains unmeasured — Rjae has never seen it. Whether it
+  adds a committed marketplace on trust was measured the same day by Rjae on a machine that had never seen
+  Brigade: it does, and `/plugin install brigade@brigade` alone installed the plugin.
 - Whether `plugins/.last_inuse_sweep` can remove a cached version no record references. Every `install`/`update`
   writes a record for the version it fetches, so in ordinary use the loaded version is always referenced.
 - Anything about a running session: it keeps the version it started with until `/reload-plugins` or a restart,

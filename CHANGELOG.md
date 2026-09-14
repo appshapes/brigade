@@ -11,9 +11,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
-- The Install procedure in `docs/setup.md` begins with `/plugin marketplace add appshapes/brigade`, which is
-  harmless when the marketplace is already known, so a first-time reader never depends on the committed
-  marketplace being picked up on trust.
+- `docs/setup.md` states as measured, not assumed, that a committed marketplace is added when the folder is
+  trusted, so the Install procedure stays at one command: `/plugin install brigade@brigade`.
 
 ## [0.6.3] — 2026-09-14
 
