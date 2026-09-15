@@ -35,12 +35,11 @@ repository, and the secret file you send each member —
 Commit the team's `.brigade.json` at the top of the other repository, together with the `.claude/settings.json`
 marketplace entry, and join it once — [docs/setup.md › The project owns the team](docs/setup.md#the-project-owns-the-team).
 
-## Create an adapter repository
+## Create a database
 
-Brigade talks to its backend through an adapter, a separate program that speaks the Brigade Adapter Protocol
-(BAP/1). The bundled adapter targets Supabase. To write one for another backend, start with
-[docs/adapter-authors.md](docs/adapter-authors.md), then [docs/protocol-v1.md](docs/protocol-v1.md); the
-conformance suite decides when it is done.
+Once per organization, by an administrator: a Supabase account and a project that stores your teams and their
+messages — the project settings, `make backend-install`, and the daily keep-alive that stops a free project pausing —
+[docs/setup.md › Hosted project: the administrator's responsibilities](docs/setup.md#hosted-project-the-administrators-responsibilities).
 
 ## More
 
@@ -48,6 +47,8 @@ conformance suite decides when it is done.
   administration, the hosted backend
 - [docs/security.md](docs/security.md) — what Brigade protects, what it does not, and what was measured
 - [plugin/README.md](plugin/README.md) — the plugin's commands and options
+- [docs/adapter-authors.md](docs/adapter-authors.md) — writing an adapter for another backend; the protocol is
+  [docs/protocol-v1.md](docs/protocol-v1.md)
 - [docs/development.md](docs/development.md) — working on Brigade: gates, releases, layout, notes for adapter
   contributors
 - [CHANGELOG.md](CHANGELOG.md) — what changed in each release

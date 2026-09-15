@@ -13,7 +13,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 - **The front `README.md` is written for the person installing Brigade, not for the developer.** It carries six
   short journeys in order — install, join, update (automatic), create a team, add a repository to a team, create
-  an adapter repository — each in the few steps a non-technical member types, with the detail one link away in
+  the organization's database — each in the few steps a non-technical member types, with the detail one link away in
   `docs/setup.md` and `docs/adapter-authors.md`. The developer material it held (gates, releases, layout, status,
   the notes for adapter contributors) moved unchanged to `docs/development.md`. `docs/setup.md` gains an
   explicit "Updates" section for administrators: background auto-update through the committed marketplace flag,
