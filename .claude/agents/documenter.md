@@ -13,7 +13,7 @@ Read `CLAUDE.md` first, every time.
 
 ## In scope — exactly four files
 
-`docs/setup.md`, `plugin/README.md`, `README.md`, `docs/adapter-authors.md`.
+`docs/setup.md`, `plugin/README.md`, `README.md`, `docs/development.md`, `docs/adapter-authors.md`.
 
 ## Forbidden — two files, no exceptions
 

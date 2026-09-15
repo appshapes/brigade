@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [Unreleased]
+
+### Changed
+
+- **The front `README.md` is written for the person installing Brigade, not for the developer.** It carries six
+  short journeys in order — install, join, update (automatic), create a team, add a repository to a team, create
+  an adapter repository — each in the few steps a non-technical member types, with the detail one link away in
+  `docs/setup.md` and `docs/adapter-authors.md`. The developer material it held (gates, releases, layout, status,
+  the notes for adapter contributors) moved unchanged to `docs/development.md`. `docs/setup.md` gains an
+  explicit "Updates" section for administrators: background auto-update through the committed marketplace flag,
+  `/brigade:update` for right now, and the one-account-per-install rule.
+
 ## [0.6.4] — 2026-09-14
 
 ### Changed

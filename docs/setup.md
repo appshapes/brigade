@@ -122,9 +122,24 @@ tap and a Linux package are being considered for a later release.
    do that, and every folder under the account is on the new version.
 2. To update right now instead: `/brigade:update` in any session under the account, then `/reload-plugins`.
 
-A second Claude Code account on the same machine (`CLAUDE_CONFIG_DIR`) is a second install and a second update;
-the clones' joins are shared, because the team credential and the pins live in Brigade's own configuration
-directory, not Claude Code's.
+## Updates
+
+Updates are automatic when the repository's committed marketplace entry carries `"autoUpdate": true` — the
+`.claude/settings.json` shown under "Installing the plugin". Claude Code then refreshes the marketplace and
+updates the plugin in the background after a session starts, up to ten minutes later, and asks the member to run
+`/reload-plugins`; the new version also loads on the next launch. That is Claude Code's own mechanism — on by
+default for Anthropic's marketplaces, off for every other — and the committed flag turns it on for each member the
+moment they trust the folder (measured on Claude Code 2.1.270, [E9](experiments/E9-plugin-install-update.md)).
+Without the flag, members update by hand.
+
+`/brigade:update` updates right now: it refreshes the marketplace, updates the user-scope install and then any
+project-scope install the folder has, and ends by asking for `/reload-plugins`. A running session keeps the version
+it started with until then.
+
+One install per Claude Code account covers every repository and every clone opened under it, so an account updates
+once. A machine with several accounts (`CLAUDE_CONFIG_DIR`) installs and updates once per account; the clones' joins
+are shared across them, because the team credential and the pins live in Brigade's own configuration directory,
+not Claude Code's.
 
 ## The project owns the team
 
