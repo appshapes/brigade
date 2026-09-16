@@ -70,15 +70,18 @@ jobs:
         (github.event_name == 'pull_request' && contains(join(github.event.pull_request.labels.*.name, ','), 'claude'))
       )
     runs-on: blacksmith-4vcpu-ubuntu-2404       # the same label ci.yml's `fast` job uses: docker, jq, gh, shellcheck 0.9.0
-    # NOT a measured p90 — no run of this workflow exists. `make build test` alone is ~5 min on this label
-    # (ci.yml's `fast` job), an agent turn budget of --max-turns 60 can add many of those, and a hung agent must
-    # not burn six hours of the concurrency group. Re-pin from ten real runs (P9-3).
-    timeout-minutes: 45
+    # MEASURED 2026-09-16 over the seven agent runs to date (the P9-3 re-pin; the P14-5 row): the five fixer
+    # runs took 100–525 s; the two developer runs 440 s (run 34484257940, 59 turns) and 1245 s (run
+    # 35153548072, 61 turns — the ceiling). Rule (ci.yml's): at least twice the longest projected job — 120
+    # turns at the slowest observed pace (~20 s/turn on 35153548072) is ~40 min plus setup, so 90. A hung agent
+    # must still not burn six hours of the concurrency group. Re-measure when a job passes 45 min.
+    timeout-minutes: 90
     # Published so the `open-pr` job below can act on it. A job output is the ONLY channel between the two jobs,
     # and that is exactly the point: `open-pr` holds the PAT and this job must not, so nothing crosses the
     # boundary but a branch name (§1.1.1 (iii)).
     outputs:
       branch_name: ${{ steps.claude.outputs.branch_name }}
+      agent_outcome: ${{ steps.claude.outcome }}   # 'success' | 'failure' (continue-on-error below): open-pr's tie-breaker when no branch was pushed
     # NOTE what is NOT in this job: `secrets.GH_ACTIONS_TOKEN`. The agent's Bash children inherit this step's
     # environment (no `allowed_non_write_users`, so the action's conditional secret scrub and bubblewrap
     # isolation are both off — §1.1.1), and Rjae's classic PAT reaches EVERY repository their account can reach,
@@ -179,6 +182,13 @@ jobs:
       - name: Code
         id: claude
         if: github.event_name != 'pull_request_review' || !startsWith(github.event.review.user.login, 'claude') || steps.fix_gate.outputs.proceed == 'true'
+        # Since 2026-09-16 this step's failure is not the job's verdict (the d684bca / P14-1 shape): the action
+        # fails a step whose agent hit --max-turns even after it pushed its branch (run 35153548072 died at 61
+        # turns with the fix written and unpushed; `open-pr` was skipped because this job had failed). The
+        # verdicts live downstream — `open-pr` for an issue (a pushed branch becomes a PR; none, and
+        # `agent_outcome` decides between "nothing to change" and "died: leave the issue open"), "Verify the fix
+        # was pushed" for the fixer, and "Fail on an undecided agent failure" for every other path.
+        continue-on-error: true
         # THE ONE ACTION PINNED BY SHA, not by major tag — deliberately breaking the house style the other three
         # brigade workflows keep (§4's conventions; open question 7.7, adopted 2026-09-10). It is the only action
         # in this repository that runs a MODEL with repository write access, so a mutable tag moving under it
@@ -203,11 +213,15 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Opus for every workflow agent (the log's tier policy: CI/scaffolding/docs are Opus-tier). Fable never
           # runs in CI — its budget is hard and is reserved for the security path and adversarial passes.
-          # --max-turns is a hard stop on a wandering session. 60 is PROVISIONAL by decision, not by omission
-          # (7.3): re-pin it from the first ten real runs on the P9-3 row. The other half of the money question
-          # is already answered and needs nothing here — the OAuth token is on Rjae's Max plan and THAT PLAN'S
-          # LIMITS ARE THE CEILING (§1.1.1 (i), §4.10 credentials (ii)); there is no second ceiling to set.
-          claude_args: "--model claude-opus-5 --max-turns 60"
+          # --max-turns is a hard stop on a wandering session. 120 is MEASURED 2026-09-16 (the P9-3 re-pin; the
+          # P14-5 row) over the seven runs: fixer 13, 13, 15, 20, 30; developer 59 (run 34484257940, the first
+          # ever, one short of the 60 ceiling) and 61 (run 35153548072, `error_max_turns` on issue #15, after
+          # the fix and its witness were done but before the gates and the push). Both developer samples sit AT
+          # the ceiling, so the measurement is censored: twice the ceiling, and re-measure when a session passes
+          # 80. The other half of the money question is already answered and needs nothing here — the OAuth
+          # token is on Rjae's Max plan and THAT PLAN'S LIMITS ARE THE CEILING (§1.1.1 (i), §4.10 credentials
+          # (ii)); there is no second ceiling to set.
+          claude_args: "--model claude-opus-5 --max-turns 120"
           # Public repository: run logs are world-readable. Keep the full agent output out of them.
           show_full_output: false
           # Lets the agent read its own workflow run logs when a gate fails in CI rather than locally.
@@ -292,6 +306,15 @@ jobs:
             exit 1
           fi
 
+      # ---------------------------------------------------------------- fail-loud verifier 2
+      # For the paths no verifier decides — a human's `@claude` comment or review — the agent step's own outcome
+      # is the verdict; `continue-on-error` must not turn its death into a green job.
+      - name: Fail on an undecided agent failure
+        if: ${{ !cancelled() && steps.claude.outcome == 'failure' && github.event_name != 'issues' && !(github.event_name == 'pull_request_review' && startsWith(github.event.review.user.login, 'claude')) }}
+        run: |
+          echo "::error::The agent step failed (its log says why) and no downstream verifier decides this event"
+          exit 1
+
   # ------------------------------------------------------------------ brake 3: the token IS the switch
   # A SEPARATE JOB, and the separation is a security boundary rather than tidiness (§1.1.1 (iii)). The PR must
   # raise `pull_request: opened` so the reviewer runs, and GITHUB_TOKEN's writes raise no workflow events — so
@@ -333,9 +356,16 @@ jobs:
           # no-changes — a transient API failure must fail loudly, or the close step below would wrongly close
           # the issue over a live branch.
           if [ -z "$BRANCH" ]; then
-            echo "No branch name — the agent made no changes, skipping PR creation."
-            echo "pr_created=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            # An agent that died at its ceiling may have pushed before the action published its output (the
+            # action names its branch `claude/issue-<n>-<stamp>` up front), so look for such a branch before
+            # concluding that nothing changed; the newest stamp wins if earlier attempts left one behind.
+            BRANCH=$(gh api "repos/${GITHUB_REPOSITORY}/branches?per_page=100" --jq "[.[] | select(.name | startswith(\"claude/issue-${ISSUE_NUMBER}-\")) | .name] | sort | last // empty")
+            if [ -z "$BRANCH" ]; then
+              echo "No branch name and no claude/issue-${ISSUE_NUMBER}-* branch — the agent pushed nothing, skipping PR creation."
+              echo "pr_created=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Recovered branch $BRANCH from the repository: the action published no branch name."
           fi
           if resp=$(gh api "repos/${GITHUB_REPOSITORY}/branches/$BRANCH" 2>&1); then
             :
@@ -383,8 +413,23 @@ jobs:
       # rather than on the wording of its comment. A FAILED agent job skips this whole job (`needs: agent`, no
       # `always()`), leaving the issue open for a retry. GITHUB_TOKEN on purpose: closing an issue must chain to
       # nothing — and it is this job's own token, not the PAT, so the close raises no event even by accident.
+      # An agent that DIED (max turns, an API error) without pushing is not an agent that had nothing to change:
+      # the old shape closed the issue as "nothing to change" either way. `agent_outcome` tells them apart.
+      - name: Leave the issue open when the agent died without a push
+        if: steps.create_pr.outputs.pr_created == 'false' && needs.agent.outputs.agent_outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}      # a job-token comment raises no workflow event, and it carries no @claude
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh issue comment "$ISSUE_NUMBER" --body "The agent run ended in failure without pushing a branch ($RUN_URL). Leaving this issue open: re-apply the \`claude\` label to run it again."
+          echo "::error::The agent step failed and pushed nothing — issue #$ISSUE_NUMBER left open for a retry"
+          exit 1
+
       - name: Close issue when the agent had nothing to change
-        if: steps.create_pr.outputs.pr_created == 'false'
+        if: steps.create_pr.outputs.pr_created == 'false' && needs.agent.outputs.agent_outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
