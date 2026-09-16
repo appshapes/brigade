@@ -568,9 +568,16 @@ type running struct {
 	once   sync.Once
 	stdout *bytes.Buffer
 	stderr *bytes.Buffer
-	mu     sync.Mutex
-	code   int
-	done   bool
+	// writers is the watcher's live state-directory writer count and
+	// liveAtExit is what it read the instant Run returned — the witness of
+	// P14-6, asserted by wait at every stop site. The read is on the
+	// goroutine that called Run, before the exit code is published, so it
+	// is the count AT the return and not a later sample.
+	writers    *watch.WriterCount
+	liveAtExit int64
+	mu         sync.Mutex
+	code       int
+	done       bool
 }
 
 // start runs watch.Run in a goroutine with deps.Stop wired to the handle;
@@ -579,9 +586,15 @@ func (fx *fixture) start(deps watch.Deps, args ...string) *running {
 	fx.t.Helper()
 	r := &running{t: fx.t, exit: make(chan int, 1), stop: make(chan struct{}), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
 	deps.Stop = r.stop
+	if deps.Writers == nil {
+		deps.Writers = &watch.WriterCount{}
+	}
+	r.writers = deps.Writers
 	environ := fx.environ()
 	go func() {
-		r.exit <- watch.Run(args, cli.Streams{In: strings.NewReader(""), Out: r.stdout, Err: r.stderr}, environ, deps)
+		code := watch.Run(args, cli.Streams{In: strings.NewReader(""), Out: r.stdout, Err: r.stderr}, environ, deps)
+		r.liveAtExit = r.writers.Live()
+		r.exit <- code
 	}()
 	fx.t.Cleanup(func() {
 		r.requestStop()
@@ -610,6 +623,7 @@ func (r *running) wait() int {
 		r.mu.Lock()
 		r.code, r.done = code, true
 		r.mu.Unlock()
+		r.assertNoLiveWriters()
 		return code
 	case <-time.After(waitLong):
 		r.t.Fatalf("the watcher did not exit within %s", waitLong)
@@ -627,11 +641,27 @@ func (r *running) exited() bool {
 	select {
 	case code := <-r.exit:
 		r.code, r.done = code, true
+		r.assertNoLiveWriters()
 		return true
 	default:
 		return false
 	}
 }
+
+// assertNoLiveWriters is the P14-6 witness: watch.Run must not return
+// while a goroutine of its own can still write under the state directory
+// — the shutdown-ordering bug that let a test's own t.TempDir cleanup
+// fail with `directory not empty` after the watcher had exited 0. It runs
+// at every stop site, adds no wait of its own, and reads the count Run's
+// goroutine took AT the return.
+func (r *running) assertNoLiveWriters() {
+	if n := r.liveAtExit; n != 0 {
+		r.t.Errorf("watch.Run returned with %d state-directory writer(s) still live", n)
+	}
+}
+
+// writersAtExit is the same count, for a test that asserts on it itself.
+func (r *running) writersAtExit() int64 { return r.liveAtExit }
 
 // stopAndWait ends the watcher and returns its exit status.
 func (r *running) stopAndWait() int {

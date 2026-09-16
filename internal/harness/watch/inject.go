@@ -42,7 +42,6 @@ type injector struct {
 
 	kick     chan struct{} // wake the drain loop (capacity 1)
 	ackReady chan struct{} // tell the command writer acks are pending (capacity 1)
-	done     chan struct{} // closed when loop returns
 
 	mu    sync.Mutex
 	acks  []string
@@ -50,7 +49,7 @@ type injector struct {
 }
 
 func newInjector(w *watcher) *injector {
-	return &injector{w: w, kick: make(chan struct{}, 1), ackReady: make(chan struct{}, 1), done: make(chan struct{})}
+	return &injector{w: w, kick: make(chan struct{}, 1), ackReady: make(chan struct{}, 1)}
 }
 
 // kickNow wakes the drain loop without blocking.
@@ -137,9 +136,10 @@ func (in *injector) isQuiet() bool {
 var errQuiet = errors.New("watch: exit path running; not injected")
 
 // loop is the injector goroutine: wait for a kick, drain, back off on a
-// failure, repeat until ctx ends.
+// failure, repeat until ctx ends. It is a state-directory writer (the sink
+// file, and the seen and pending files through the pipeline), so it starts
+// through goWriter and the exit joins it (writers.go).
 func (in *injector) loop(ctx context.Context) {
-	defer close(in.done)
 	sched := in.w.deps.InjectSchedule()
 	for {
 		select {
