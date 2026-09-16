@@ -9,6 +9,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The watcher's exit waits for its own writers.** `brigade watch` used to return while a goroutine of its own
+  was still writing under the state directory — a re-open registration in flight (the adapter log, the adapter
+  child, the session record) outlived the exit, so the pidfile could be removed and the process reported gone
+  while work was still landing. The exit now joins every such goroutine first, and only then releases the
+  pidfile: a session that is stopped or replaced has finished what it started before the next watcher takes over.
+
 ### Changed
 
 - **The front `README.md` is written for the person installing Brigade, not for the developer.** It carries six

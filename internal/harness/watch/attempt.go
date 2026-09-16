@@ -124,7 +124,7 @@ func (w *watcher) attempt() attemptResult {
 	w.log.Info("watch child started", slog.Bool("stdin_commands", s.stdinCommands))
 
 	cctx, ccancel := context.WithCancel(context.Background())
-	go w.commandLoop(cctx, s)
+	w.goWriter("command writer", func() { w.commandLoop(cctx, s) })
 	w.injector.signalPendingAcks()
 
 	w.eventLoop(s, &r)
@@ -247,7 +247,7 @@ func (w *watcher) handleEvent(s *session, r *attemptResult, ev adapterclient.Eve
 		// heartbeat follows the re-open.
 		if sessionGone(ev.Error.Code, ev.Error.Details) {
 			w.log.Info("the session was closed under the watcher; re-opening", slog.String("code", string(ev.Error.Code)))
-			go w.reopen(s)
+			w.goWriter("re-open", func() { w.reopen(s) })
 		}
 		// The wire flag says whether the CHILD will exit (4.4.9); the
 		// grace timer only bounds an adapter that then does not. The

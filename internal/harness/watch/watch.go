@@ -118,11 +118,6 @@ const (
 	ExitGaveUp = 3
 )
 
-// injectorStopWait bounds the wait for a post in flight on the exit path
-// (a post is bounded by its own dial and write deadlines; this is only a
-// hang catcher).
-const injectorStopWait = 15 * time.Second
-
 // PostFunc has socketpost.Post's shape.
 type PostFunc func(ctx context.Context, target socketpost.Target, content string, opts socketpost.Options) error
 
@@ -152,6 +147,10 @@ type Deps struct {
 	Signals []os.Signal
 	// Stop ends the watcher exactly as a signal would; nil in production.
 	Stop <-chan struct{}
+	// Writers counts the live state-directory writers (writers.go), for a
+	// test that asserts the exit ordering: it is zero the instant Run
+	// returns. nil in production, which counts nothing.
+	Writers *WriterCount
 
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
@@ -461,6 +460,13 @@ type watcher struct {
 	state    *shared
 	injector *injector
 
+	// writers counts the goroutines that can write under the state
+	// directory, and writersLive is the same count for the log line the
+	// join writes when it waits (writers.go); run joins them all before
+	// its exit line and before the pidfile is released.
+	writers     sync.WaitGroup
+	writersLive atomic.Int64
+
 	// transcript is the incremental reader of the session's native
 	// transcript (internal/harness/transcript), refreshed right before
 	// each heartbeat for the model and context facts it carries; nil
@@ -620,15 +626,14 @@ func (w *watcher) run() int {
 	w.injector = newInjector(w)
 	ictx, icancel := context.WithCancel(base)
 	defer icancel()
-	go w.injector.loop(ictx)
+	w.goWriter("injector", func() { w.injector.loop(ictx) })
 
 	code = w.supervise()
 	icancel()
-	select {
-	case <-w.injector.done:
-	case <-time.After(injectorStopWait):
-		w.log.Warn("injector did not stop in time")
-	}
+	// Nothing may still be writing under the state directory when Run
+	// returns: the join comes before the exit line and before the deferred
+	// pidfile release (P14-6, writers.go).
+	w.joinWriters()
 	attrs := append([]slog.Attr{slog.Int("exit", code), slog.String("reason", w.reasonOfStop())}, w.stateForLog()...)
 	w.log.LogAttrs(base, slog.LevelInfo, "watcher exiting", attrs...)
 	return code

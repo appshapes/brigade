@@ -68,7 +68,11 @@ func errorParts(err error) (protocol.Code, map[string]string) {
 // reopen re-registers the session with a resume hint (see the file
 // comment). It runs on the command writer (the RPC path) or on its own
 // goroutine (an error event); reopening keeps two triggers from racing,
-// and nothing is done once the exit path has begun.
+// and nothing is done once the exit path has begun. Either way it is a
+// state-directory writer — the register opens the adapter log and spawns
+// a child — so it runs under goWriter and the watcher's exit joins it
+// (writers.go): the stopping() check above is a fast path, never the
+// ordering guarantee.
 func (w *watcher) reopen(s *session) {
 	if !w.reopening.CompareAndSwap(false, true) {
 		return
