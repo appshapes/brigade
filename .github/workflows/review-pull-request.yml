@@ -30,8 +30,13 @@ jobs:
     # commented out. A dependency PR now arrives like any other agent PR and is reviewed like one.
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # NOT a measured p90 (no runs exist): a read-only review session with --max-turns 30 over a repository of
-    # this size. Re-pin from ten real runs (P9-3).
+    # MEASURED 2026-09-16 — the P9-3 re-pin that §7.3 deferred to "the first ten real runs"; there were fifteen
+    # that reached the agent (PRs #3, #7 and #8, 2026-09-10 to 2026-09-13): the longest job was 5m41s (run
+    # 34778172505, 40 turns) and every one of the fifteen finished inside six minutes. The rule is ci.yml's — at
+    # least twice the longest observed — so 30 stays: it is more than five times the longest job and better than
+    # twice the rule's 11m22s, and it still clears, twice over, a session that spends the whole 70-turn budget
+    # below at the slowest observed pace (~8.5 s a turn, that same run: ~10 min). The measurement is on the
+    # P14-1 row of the execution log.
     timeout-minutes: 30
     permissions:
       contents: read           # the reviewer must not be able to push. This is the boundary; the allowlist is the belt.
@@ -105,6 +110,14 @@ jobs:
           } > "$RUNNER_TEMP/pr-guard-comment.md"
           gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/pr-guard-comment.md"
       - name: Review
+        id: review                # the verify step below reads this step's outcome into its error line
+        # The verify step at the end of this job is what decides it, not this step's exit status — the shape
+        # release-notes.yml took in d684bca ("the files decide, not the step"). claude-code-action fails a step
+        # whose agent exceeded --max-turns even after it has SUBMITTED its review: four times on this workflow
+        # under the provisional 30 (runs 34614440349, 34618438152, 34776879430, 34778172505 — 33, 42, 32 and 40
+        # turns), each one a real verdict on the PR under a red job, and each stale CHANGES_REQUESTED dismissed
+        # by hand. With this line a submitted review counts; a missing one still fails loud, below.
+        continue-on-error: true
         # THE ONE ACTION PINNED BY SHA, not by major tag — deliberately breaking the house style the other three
         # brigade workflows keep (§4's conventions; open question 7.7, adopted 2026-09-10). It is the only action
         # in this repository that runs a MODEL with repository write access, so a mutable tag moving under it
@@ -123,7 +136,17 @@ jobs:
           # list, two entries, never '*'.
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-5 --max-turns 30"
+          # --max-turns is a hard stop on a wandering session. 70 is MEASURED 2026-09-16 — the P9-3 re-pin —
+          # from the fourteen reviewer sessions that reported a turn count (PRs #3, #7 and #8, runs 34485085258
+          # through 34778172505): 16, 18, 19, 24, 24, 25, 28, 30, 31, 31, 32, 33, 40 and 42 turns. The largest
+          # was 42 (run 34618438152, `492e947` on PR #8), and every session past the provisional 30 was a real
+          # review that ran out of room, not a wandering one: four submitted a verdict and were then failed by
+          # the action (see `continue-on-error` above), two stopped at 31 with `error_max_turns` and no verdict
+          # (runs 34613414340, 34623412660). The rule: at least 1.5 × the largest observed turn count, rounded
+          # up to the next ten — 1.5 × 42 = 63, so 70. Neither of the repository's other budgets (50 in
+          # release-notes.yml, 60 in claude.yml) clears 63, which is why this one matches neither. Re-measure
+          # when a session reaches 47 turns (70 / 1.5) or the action's pin moves.
+          claude_args: "--model claude-opus-5 --max-turns 70"
           show_full_output: false
           prompt: |
             You are the reviewer agent. Read `.claude/agents/reviewer.md` for your
@@ -196,12 +219,20 @@ jobs:
       # A reviewer session can end "successfully" without ever submitting the review (observed 2026-08-01 in the
       # reference's sibling repos: green check, zero reviews, auto-merge never armed). Fail loudly so a silent
       # no-op can never read as success.
+      #
+      # Since 2026-09-16 the Review step carries `continue-on-error`, so THIS step is the job's verdict. It runs
+      # whether that step passed or failed — a continued failure leaves the job's status green, so the default
+      # `success()` condition holds and no `if: always()` is needed — and it is the only step that can turn the
+      # job red: a claude review at HEAD_SHA passes, none fails, whatever the action reported. The Review step's
+      # outcome goes into the error line so a red job says which way it went (the agent step failed, or it ran
+      # clean and never submitted) without a trip to its log.
       - name: Verify a review was submitted
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
         run: |
           set -euo pipefail
           # One line per claude review AT HEAD: "STATE<TAB>has-trailer". Paginated so a long-lived PR (>100
@@ -209,7 +240,7 @@ jobs:
           reviews=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
             --jq ".[] | select((.user.login // \"\" | startswith(\"claude\")) and .commit_id == \"$HEAD_SHA\") | [.state, (.body // \"\" | contains(\"@claude\") | tostring)] | @tsv")
           if [ -z "$reviews" ]; then
-            echo "::error::Reviewer session ended without submitting a formal review at head $HEAD_SHA"
+            echo "::error::Reviewer session ended without submitting a formal review at head $HEAD_SHA (the Review step's outcome was '$REVIEW_OUTCOME'; its log says why)"
             exit 1
           fi
           last=$(printf '%s\n' "$reviews" | tail -n 1)
