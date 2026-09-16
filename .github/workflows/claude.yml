@@ -348,13 +348,15 @@ jobs:
             exit 1
           fi
           # The commit-message rule, enforced where the title is MINTED rather than hoped for at merge time.
-          # CLAUDE.md: `15: <Imperative summary>`; the squash merge takes its subject from this title because
-          # squash_merge_commit_title=PR_TITLE is set on the repository (see the brief's §4.10). Issue titles
-          # written by _create-claude-issue.yml are already imperative and unprefixed; a human's issue may
-          # already carry the prefix, so do not double it.
+          # CLAUDE.md: `<card>: <Imperative summary>`, the card being the Trello card the work belongs to; the
+          # squash merge takes its subject from this title because squash_merge_commit_title=PR_TITLE is set on
+          # the repository (see the brief's §4.10). Issue titles written by _create-claude-issue.yml are
+          # imperative and unprefixed and belong to the umbrella card, 15. A human's issue names its own card
+          # in its title (`22: …`), so keep it: until 2026-09-16 only a literal `15: ` was kept and every other
+          # card's PR was minted `15: <title>` and retitled by hand (PR #8, `15:` → `19:`, the P11-6 row).
           case "$TITLE" in
-            "15: "*) PR_TITLE="$TITLE" ;;
-            *)       PR_TITLE="15: $TITLE" ;;
+            [0-9]*": "*) PR_TITLE="$TITLE" ;;        # the issue names its card: keep it
+            *)           PR_TITLE="15: $TITLE" ;;    # unprefixed: the scheduled callers' maintenance work orders
           esac
           # Labels are copied from the ISSUE, which is where the policy decision was made:
           #   auto-merge  — set by the scheduled caller (documentation: yes; repository review: NO)

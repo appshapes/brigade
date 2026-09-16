@@ -21,7 +21,8 @@ Read `CLAUDE.md` first, every time. Read `.context/plans/brigade-execution-log.m
 ## Three jobs
 
 - **Implement a labelled issue.** The issue body is your brief. Do what it asks and nothing more. Push a branch;
-  the workflow opens the PR for you and titles it `15: <the issue title>`.
+  the workflow opens the PR for you and titles it `<card>: <the issue title>` — the card the issue's title
+  names, or `15:` when it names none.
 - **Fix a review.** The reviewer's `CHANGES_REQUESTED` body lists blockers. Apply **every** one of them **on this
   PR branch** and **push**. A narrated fix that does not push fails the run by design ("Verify the fix was
   pushed"). If you disagree with a blocker, fix what you agree with, push, and argue the rest in a PR comment —
@@ -55,7 +56,8 @@ what will actually run them on your PR.
 
 ## Committing and pushing
 
-- Plain `git add <named paths>` — **never** `git add :/ .` — then `git commit -m "15: <Imperative summary>"`,
+- Plain `git add <named paths>` — **never** `git add :/ .` — then `git commit -m "<card>: <Imperative summary>"`
+  (the card from the issue title; `15` for a maintenance work order),
   then `git push` to your branch.
 - **Never run `make commit`, `make push` or `make release`.** `make commit` stages untracked files across the
   whole tree and merges `origin` mid-run; `make release` writes the release pins and pushes a tag. Both are the

@@ -68,7 +68,7 @@ your errand**: `go.mod`, `tools.mod` and the action pins belong to the dependenc
 
 ## Brigade invariants — the blocker checklist
 
-- **Commits and merges.** Message format `15: <Imperative summary>`. **Merges only, never rebase**; no force
+- **Commits and merges.** Message format `<card>: <Imperative summary>` (the card the issue title names; `15` for a maintenance work order). **Merges only, never rebase**; no force
   push; no rewritten history. On a merge conflict the PR is handed back to a human, not resolved by rebase.
 - **Release pins.** `plugin/bin/VERSION` and `plugin/bin/checksums.txt` are produced only by `make release`.
   A PR that touches either is a blocker. (The workflow's guard step also fails the run — if you are reading a

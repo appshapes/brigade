@@ -41,10 +41,11 @@ jobs:
     # `contents: write` on this job is vestigial and misleading.
     permissions: {}
     steps:
-      # --squash: the merge commit's subject must read `15: <Imperative summary>` (CLAUDE.md). That subject comes
+      # --squash: the merge commit's subject must read `<card>: <Imperative summary>` (CLAUDE.md). That subject comes
       # from the PR TITLE because the repository is configured with squash_merge_commit_title=PR_TITLE (§4.10);
       # GitHub's default, COMMIT_OR_PR_TITLE, would use the single commit's own subject on a one-commit PR and
-      # the rule would hold only by luck. The title itself is minted with the `15: ` prefix by claude.yml.
+      # the rule would hold only by luck. The title itself is minted with the card prefix by claude.yml: the
+      # issue's own when its title carries one, `15: ` (the umbrella card) when it does not.
       #
       # The `||` fallback is not defensive noise, it is the COMMON path. `--auto` calls GitHub's
       # enablePullRequestAutoMerge mutation, which ERRORS with "Pull request is in clean status" when the PR is
