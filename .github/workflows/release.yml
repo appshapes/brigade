@@ -15,12 +15,34 @@
 # What every script in this repository is, who invokes it, and which repository variables and secrets the
 # workflows read: scripts/ci/README.md.
 #
-# The only run of this workflow to date is the D1 release rehearsal, run 33698279695 (2026-09-03, green,
-# v0.0.1-rc1); its findings are the two comments below, which were written from measurements and are still true.
+# Sixteen runs of this workflow to date on fifteen tags, from the D1 release rehearsal (run 33698279695,
+# 2026-09-03, v0.0.1-rc1) to v0.6.4 (2026-09-14); the two comments below that were written from the rehearsal's
+# measurements are still true. Fifteen tags, sixteen runs: v0.6.1 got TWO runs from ONE push. scripts/release-prep.sh
+# ran its single `git push origin v0.6.1` (no push.followTags) and GitHub started runs 34779853757 (created
+# 2026-09-13T20:08:49Z) and 34779854172 (20:08:50Z) -- both `push`, same commit 37941b8, actor Rjae, different
+# check suites -- while the branch push of the same commit started exactly one ci run. GitHub delivers an event
+# at least once, not exactly once (claude.yml's staleness guard already rests on that sentence), and the push that
+# starts this workflow is no exception. Each run ran every step: each goreleaser created its own draft (388019994
+# and 388019992, five assets each); `gh release edit v0.6.1 --draft=false` in the run that got there first
+# published the draft it found by tag (388019992), and the other run's edit then resolved the tag to that
+# now-published release and re-edited it; each run dispatched release-notes.yml once, so two notes runs opened
+# two announcement issues (#10, #11); and draft 388019994 outlived both runs, unpublished, until it was deleted
+# by hand three days later (P14-3). Three changes make the second delivery a green no-op: the `concurrency`
+# group queues it behind the first run; the "Is this tag already published?" step then finds the first run's
+# release and every later step is skipped; and "Discard the draft" deletes drafts by id, never a release by tag.
 name: release
 on:
   push:
     tags: ["v*"]
+# One run per tag at a time, queued, never cancelled. A duplicate delivery of the tag push (v0.6.1, the header:
+# runs 34779853757 and 34779854172, one second apart) waits for the first run and then finds the tag published.
+# Not `cancel-in-progress`: cancelling the run in flight would strand its draft and end it red -- "Discard the
+# draft" is `if: failure()`, which does not fire on cancellation -- and cancelling the queued one would leave a
+# red run on a tag that released fine. GitHub keeps one running and one pending run per group, so a third
+# delivery would cancel the pending one, which has done nothing.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 # The release notes are NOT a called job of this workflow. They were, once (P9-5): `notes: uses:
 # ./.github/workflows/release-notes.yml`, which runs claude-code-action under THIS workflow's event — a tag
 # `push` — and the action refuses it: the first live run, 34537045037 on v0.5.0 (2026-09-10), died in the
@@ -45,14 +67,37 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: {fetch-depth: 0}                      # goreleaser needs the tag history for the changelog
+      - name: Is this tag already published?
+        id: published
+        # The tag endpoint answers for PUBLISHED releases only (a draft is not reachable by tag: 404), so a 200
+        # means an earlier run on this same tag has already published -- a duplicate delivery of the push (the
+        # header). Every later step is gated on this answer: when it is yes the job ends green having done
+        # nothing else. Not `gh release view <tag>`: when no published release matches, gh falls back to a draft
+        # of that name, and a draft is exactly what a queued duplicate must not mistake for published. A 404 (or
+        # any API error) means "not published" and the run proceeds as a first run; if it was in fact a duplicate,
+        # goreleaser v2.18.0 finds the published release, gets 422 already_exists on every asset upload
+        # (replace_existing_artifacts is unset) and fails the step -- red, but the published release is untouched,
+        # because the discard step below deletes drafts only. That is why the duplicate is stopped here, before
+        # goreleaser, and not merely serialised.
+        run: |
+          if draft=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq '.draft') && [ "$draft" = "false" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "${GITHUB_REF_NAME} is already published: this run is a duplicate delivery of the tag push and does nothing else"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env: {GH_TOKEN: "${{ github.token }}"}
       - uses: actions/setup-go@v7
+        if: steps.published.outputs.exists != 'true'
         with: {go-version-file: go.mod}             # the same toolchain the developer used for plugin/bin/checksums.txt
       - name: Guard that the plugin pins this tag and that the source reproduces the committed checksums
+        if: steps.published.outputs.exists != 'true'
         run: |
           test "v$(cat plugin/bin/VERSION)" = "${GITHUB_REF_NAME}"
           test "$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' plugin/.claude-plugin/plugin.json)" = "$(cat plugin/bin/VERSION)"
           make cross && diff dist-cross/checksums.txt plugin/bin/checksums.txt
       - uses: goreleaser/goreleaser-action@v7
+        if: steps.published.outputs.exists != 'true'
         # Pinned to the exact version `make setup-goreleaser` installs and `make release` rehearses with
         # (goreleaser_version in the Makefile). "~> v2" would resolve to whatever the latest 2.x is at run
         # time, so the tag's release could be built by a goreleaser the developer never rehearsed against --
@@ -60,9 +105,10 @@ jobs:
         with: {distribution: goreleaser, version: "v2.18.0", args: release --clean}   # builds, checksums, creates a DRAFT release
         env: {GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"}
       - name: Verify goreleaser's build matches the committed checksums
+        if: steps.published.outputs.exists != 'true'
         run: scripts/ci/release-verify.sh dist/checksums.txt plugin/bin/checksums.txt   # sorted hash columns must be identical (P1-8)
       - name: Publish
-        if: success()
+        if: success() && steps.published.outputs.exists != 'true'
         # GitHub's REST API: "Drafts and prereleases cannot be set as latest" (make_latest), and goreleaser's
         # `prerelease: auto` marks a tag with a pre-release suffix (v0.0.1-rc1) as a prerelease -- so `--latest`
         # is passed only for a final version. Found while preparing the P2-12 rehearsal: with `--latest`
@@ -74,12 +120,23 @@ jobs:
           esac
         env: {GH_TOKEN: "${{ github.token }}"}
       - name: Dispatch the release notes
-        if: success()
+        if: success() && steps.published.outputs.exists != 'true'
         # A workflow_dispatch run is the one path from a tag push to claude-code-action (the header explains);
         # the job token may raise it, and release-notes.yml takes the tag as its input.
         run: gh workflow run release-notes.yml -f tag="${GITHUB_REF_NAME}"
         env: {GH_TOKEN: "${{ github.token }}"}
       - name: Discard the draft
-        if: failure()
-        run: gh release delete "${GITHUB_REF_NAME}" --yes || true
-        env: {GH_TOKEN: "${{ github.token }}"}
+        # Drafts only, by id -- never `gh release delete <tag>`, which resolves to the PUBLISHED release when one
+        # exists: a failure after the Publish step (the dispatch, say) would have deleted the release just
+        # published, assets included. The listing takes every draft carrying this tag, not only this run's --
+        # v0.6.1's duplicate run left draft 388019994 on the repository for three days, the measured case of a
+        # draft outliving its run (the header) -- and `|| true` throughout: cleanup never masks the failure that
+        # brought us here. Not on a duplicate delivery: with the tag published nothing here is this run's.
+        if: failure() && steps.published.outputs.exists != 'true'
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[] | select(.draft == true and .tag_name == env.TAG) | .id' \
+            | while read -r id; do
+                echo "deleting draft release ${id} of ${TAG}"
+                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${id}" || true
+              done || true
+        env: {GH_TOKEN: "${{ github.token }}", TAG: "${{ github.ref_name }}"}

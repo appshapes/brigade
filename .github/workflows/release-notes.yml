@@ -5,9 +5,16 @@
 # that is placeholder, "Unreleased" or secret-shaped; a reviewer agent reads the draft against CHANGELOG.md, the
 # tag's log and the plugin tree and answers APPROVED or CHANGES_REQUESTED with findings; the writer gets exactly
 # one fix cycle; and only an APPROVED, lint-clean draft is published. The publish and the announcement issue are
-# shell steps, not the agent: the two writes are deterministic and idempotent (a re-dispatch rewrites the same
-# notes and opens no second issue). Why: the v0.5.0 notes, written by one agent straight onto the release page,
-# named a `/brigade:sessions` skill that did not exist (P9-8, 2026-09-10; it was written later, and does now).
+# shell steps, not the agent: the two writes are deterministic and idempotent UNDER SERIALISATION -- a re-dispatch
+# minutes later rewrites the same notes and opens no second issue. Two SIMULTANEOUS runs were another matter:
+# release.yml's duplicated tag push for v0.6.1 (its header) dispatched this workflow twice in one second, runs
+# 34779894653 and 34779894742, both reached "Announce, once" a second apart, and both opened the issue (#10 and
+# #11, byte-identical; #11 closed by hand) because the guard of the day, `gh issue list --search "… in:title"`,
+# is backed by the search index, which had not seen an issue created one second earlier. Now the `concurrency`
+# group below serialises the runs of one tag and the guard lists the bot's issues through the issues endpoint,
+# never the search index. Why the shell and not the agent: the v0.5.0 notes, written by one agent straight onto
+# the release page, named a `/brigade:sessions` skill that did not exist (P9-8, 2026-09-10; it was written later,
+# and does now).
 #
 # How it is reached. release.yml's last step dispatches this workflow after the publish (`workflow_dispatch`,
 # actor `github-actions` — one of the two events the job token may raise, and the one event path from a tag push
@@ -28,6 +35,15 @@ on:
         description: The tag to write notes for, e.g. v0.5.1
         required: true
         type: string
+
+# One run per tag at a time, queued, never cancelled. Two dispatches for v0.6.1 arrived in the same second (runs
+# 34779894653 and 34779894742) and reached "Announce, once" one second apart -- no guard, search-backed or not,
+# can see an issue the other run is creating at that moment; only serialisation can. Queued rather than
+# cancelled because the gate's writes are idempotent -- the second run rewrites the same notes and finds the
+# issue -- while a cancelled run would strand nothing but would leave a red run on the tag.
+concurrency:
+  group: release-notes-${{ inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
   notes:
@@ -357,17 +373,29 @@ jobs:
             /tmp/brigade-notes/*-execution.json
           if-no-files-found: ignore
 
-      # ---- the two writes, by the shell, idempotent -------------------------------------------------------------
+      # ---- the two writes, by the shell, idempotent under the concurrency group (v0.6.1's two simultaneous runs
+      # ---- each opened an issue; the header) ------------------------------------------------------------------
       - name: Publish the notes
         run: gh release edit "$RELEASE_TAG" --notes-file "$NOTES_DIR/notes.md"   # never --draft or --latest: release.yml owns the publish state
         env: {GH_TOKEN: "${{ github.token }}"}
       - name: Announce, once
+        # The guard lists the bot's own issues through the issues endpoint (newest first, so the issue of the tag
+        # being announced is on the first page) and compares titles exactly; the endpoint lists pull requests
+        # too, hence `.pull_request == null`. It replaced `gh issue list --search "… in:title"`, which is backed
+        # by the search index: for v0.6.1 the index had not caught up with the issue the other run had created one
+        # second earlier, and both runs opened one (#10, #11). A listing is consistent with the write, and the
+        # `concurrency` group keeps a second run behind the first. An existing issue skips the announcement, not
+        # the gate: the notes above were rewritten anyway, because a re-dispatch that rewrites the same notes is
+        # a legitimate path (the header) and P9-8's fix cycle relies on it. An API error here fails the step
+        # loud rather than opening a second issue: the notes are published either way, and a re-dispatch retries.
         run: |
           version=${RELEASE_TAG#v}
           title="$version is out — run /brigade:update"
-          if gh issue list --state all --search "\"$title\" in:title" --json title --jq '.[].title' | grep -q -F "$title"; then
-            echo "announcement exists; not opening a second one"; exit 0
+          existing=$(TITLE="$title" gh api "repos/${GITHUB_REPOSITORY}/issues?state=all&creator=github-actions%5Bbot%5D&per_page=100" --jq '[.[] | select(.pull_request == null) | select(.title == env.TITLE)] | length')
+          if [ "$existing" -gt 0 ]; then
+            echo "announcement exists ($existing issue(s) titled \"$title\"); not opening a second one"; exit 0
           fi
+          # shellcheck disable=SC2016  # the backticks in the single-quoted format are Markdown, meant literally
           gh issue create --title "$title" --body "$(printf 'Brigade %s is published. To get it, run:\n\n```\n/brigade:update\n```\n\nthen `/reload-plugins`.\n\nRelease notes: https://github.com/%s/releases/tag/%s\n' "$version" "$GITHUB_REPOSITORY" "$RELEASE_TAG")"
         env: {GH_TOKEN: "${{ github.token }}"}
         # No `claude` label: it is an announcement, not a work order, and the label would start an agent on it.
