@@ -50,7 +50,9 @@ Your typical cycle for working on a card:
 
 Steps 1 and 3 are slash commands; step 2 is normal conversation with Claude Code. Larger or riskier
 work goes through the agentic loop instead: label an issue `claude`, and the developer, reviewer
-and auto-merge workflows carry it from branch to squash merge.
+and auto-merge workflows carry it from branch to squash merge. The fixer's pushes start their own CI and
+review runs without a human only because the repository's fork-pull-request approval policy gates accounts
+new to GitHub alone; `scripts/ci/README.md` (Required GitHub configuration) records that setting.
 
 ## Trello CLI
 

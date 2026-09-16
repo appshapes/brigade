@@ -63,6 +63,11 @@ measurement note to the argv list") and "Verify the fix was pushed" passed. PASS
    (`POST …/actions/runs/{id}/approve`) and the policy was set to **`first_time_contributors`** — GitHub's default
    for public repositories, which still gates every first-time outside human. Whether the bot is exempt under it
    is answered by the next fixer push; if not, `first_time_contributors_new_to_github` is the remaining step.
+   **Answered 2026-09-16: not exempt.** The fixer pushes `029cd34` (PR #7, 2026-09-11), `fac1ec2` (PR #8,
+   2026-09-11) and `3f333fb` (PR #8, 2026-09-13) were all held: the policy gates the *actor* of the pull request
+   event, and the bot never earns a merged commit under its own login because every merge is a squash authored
+   by the owner. The policy is now `first_time_contributors_new_to_github` at the repository and the organization
+   (card 22, item 2; execution-log row P14-2); the next fixer push measures it.
 2. **`allowed_bots` on the reviewer.** The approved re-review run 34485452913 (actor `github-actions[bot]`) was
    refused by the action's own trigger check — every inner step `skipped`, the step failed, no review at head
    `b82edd7`. Fix: `review-pull-request.yml` `allowed_bots: "claude,github-actions"` (the hub and release-notes
