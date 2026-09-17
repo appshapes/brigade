@@ -35,10 +35,11 @@ type sessionsResult struct {
 	Note          string                   `json:"note"`
 }
 
-// Sessions implements `brigade sessions [--all] [--json]` (6.4): one line
-// per session, active first, the session's own id marked, offline sessions
-// hidden unless --all with a count of what was hidden, and `truncated`
-// noted when the adapter capped the list.
+// Sessions implements `brigade sessions [--all] [--json]` (6.4): a Markdown
+// pipe table, one row per session, active first, the session's own id
+// marked in its SEEN cell, offline sessions hidden unless --all with a
+// count of what was hidden, and `truncated` noted when the adapter capped
+// the list.
 //
 // The adapter is always asked with --include-offline and the offline
 // records are hidden HERE: that is the one spawn from which the documented
@@ -91,59 +92,117 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	}
 
 	now := inv.Deps.now()
-	lines := make([]string, 0, len(records)+2)
-	for _, r := range records {
-		// The member column (card 24): a labelled session shows its label
-		// once, where the opaque principal used to be, with the first
-		// characters of that principal beside it; an unlabelled one keeps
-		// the label column after the name and the full `principal=<ref>`,
-		// so its line is byte for byte the line it has always had.
-		member := memberLine(r.HumanLabel, r.PrincipalRef)
-		fields := []string{idLine(r.SessionID), nameLine(r.SessionName)}
-		if member == "" {
-			fields = append(fields, labelLine(r.HumanLabel))
+
+	// member is card 24's column: a labelled session's identity renders
+	// once, as its label with a short principal beside it; an unlabelled
+	// one has none, and keeps its identity in LABEL and PRINCIPAL instead
+	// so it is never silently blank everywhere. The three flags below are
+	// TABLE-wide (a row's absent fact is a blank cell, never a missing
+	// column), computed the same way the optional REPO/MODEL/CONTEXT
+	// columns already are.
+	members := make([]string, len(records))
+	hasLabel, hasMember, hasRepo, hasModel, hasContext := false, false, false, false, false
+	for i, r := range records {
+		members[i] = memberLine(r.HumanLabel, r.PrincipalRef)
+		if members[i] == "" {
+			hasLabel = true
+		} else {
+			hasMember = true
 		}
-		// The repository column appears only for sessions that registered
-		// a workspace label (P11-5: the harness sends the repository name
-		// by default), so an older harness's line keeps its shape. It sits
-		// by the name because that is what a sender scans for.
-		if r.WorkspaceLabel != nil {
-			if repo := workspaceLine(*r.WorkspaceLabel); repo != "" {
-				fields = append(fields, "repo="+repo)
-			}
+		if r.WorkspaceLabel != nil && workspaceLine(*r.WorkspaceLabel) != "" {
+			hasRepo = true
 		}
-		fields = append(fields, enumLine(r.State), "inbound="+enumLine(r.Inbound))
-		if member != "" {
-			fields = append(fields, member)
-		}
-		// The full ref: always for an unlabelled session, and under --all
-		// for every session, because --all is the form a reader reaches for
-		// when the short principal is not enough to tell two people apart.
-		if member == "" || opts.All {
-			fields = append(fields, "principal="+idLine(r.PrincipalRef))
-		}
-		// model and context_used_tokens are optional on the wire (4.4.3):
-		// a harness that reports neither, and an adapter without the two
-		// capabilities, leave the line exactly the shape it has always
-		// had, so the columns appear only for the sessions that have the
-		// facts. model is unverified text like session_name, capped and
-		// stripped of the attribute breakers by modelLine (4.5.11).
 		if r.Model != nil {
-			fields = append(fields, "model="+modelLine(*r.Model))
+			hasModel = true
 		}
 		if r.ContextUsedTokens != nil {
-			fields = append(fields, "context="+tokensLine(*r.ContextUsedTokens))
+			hasContext = true
 		}
-		fields = append(fields, seenAgo(r.LastSeenAt, list.ServerTime, now))
-		line := columns(fields...)
+	}
+	// The full ref: always for an unlabelled session, and under --all for
+	// every session, because --all is the form a reader reaches for when
+	// the short principal beside a label is not enough to tell two people
+	// apart.
+	hasPrincipal := hasLabel || opts.All
+
+	header := []string{"SESSION", "NAME"}
+	if hasLabel {
+		header = append(header, "LABEL")
+	}
+	if hasRepo {
+		header = append(header, "REPO")
+	}
+	header = append(header, "STATE", "INBOUND")
+	if hasMember {
+		header = append(header, "MEMBER")
+	}
+	if hasPrincipal {
+		header = append(header, "PRINCIPAL")
+	}
+	if hasModel {
+		header = append(header, "MODEL")
+	}
+	if hasContext {
+		header = append(header, "CONTEXT")
+	}
+	header = append(header, "SEEN")
+
+	lines := make([]string, 0, len(records)+3)
+	lines = append(lines, tableRow(header...), tableDivider(len(header)))
+	for i, r := range records {
+		member := members[i]
+		cells := []string{idLine(r.SessionID), nameLine(r.SessionName)}
+		if hasLabel {
+			label := ""
+			if member == "" {
+				label = labelLine(r.HumanLabel)
+			}
+			cells = append(cells, label)
+		}
+		if hasRepo {
+			repo := ""
+			if r.WorkspaceLabel != nil {
+				repo = workspaceLine(*r.WorkspaceLabel)
+			}
+			cells = append(cells, repo)
+		}
+		cells = append(cells, enumLine(r.State), enumLine(r.Inbound))
+		if hasMember {
+			cells = append(cells, member)
+		}
+		if hasPrincipal {
+			principal := ""
+			if member == "" || opts.All {
+				principal = idLine(r.PrincipalRef)
+			}
+			cells = append(cells, principal)
+		}
+		// model is unverified text like session_name, capped and stripped
+		// of the attribute breakers by modelLine (4.5.11).
+		if hasModel {
+			model := ""
+			if r.Model != nil {
+				model = modelLine(*r.Model)
+			}
+			cells = append(cells, model)
+		}
+		if hasContext {
+			ctx := ""
+			if r.ContextUsedTokens != nil {
+				ctx = tokensLine(*r.ContextUsedTokens)
+			}
+			cells = append(cells, ctx)
+		}
+		seen := seenAgoCell(r.LastSeenAt, list.ServerTime, now)
 		// The marker is keyed on the map's own id, not on the adapter's
 		// is_self: is_self is true for every session of this PROFILE (a
 		// second Claude window on the same profile included), while "this
 		// session" is the one this process runs in.
 		if self != "" && r.SessionID == self {
-			line += " (this session)"
+			seen += " (this session)"
 		}
-		lines = append(lines, line)
+		cells = append(cells, seen)
+		lines = append(lines, tableRow(cells...))
 	}
 	if hidden > 0 {
 		lines = append(lines, "("+strconv.Itoa(hidden)+" offline sessions hidden; --all shows them)")

@@ -38,7 +38,7 @@ what the secret is. Everything else is the human's, run with the `!` prefix in t
 terminal.
 
 ```bash
-brigade sessions                 # teammates' sessions: session_id, name, repo=, state, inbound, member
+brigade sessions                 # teammates' sessions as a table: session_id, name, repo, state, inbound, member
 brigade sessions --all           # include offline sessions, and print every principal_ref in full
 brigade send <session_id> <<'EOF' ... EOF                       # plain-text body on stdin (quoted heredoc)
 brigade send <session_id> --summary "<one line>" <<'EOF' ... EOF

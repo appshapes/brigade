@@ -152,7 +152,7 @@ reference — nothing about the repository — so the **same `.brigade.json`, co
 them one team**: sessions in any of them share one roster and message each other directly. To add a repository,
 copy the file from one already on the team into the new repository's top level, commit it, and run
 `brigade team join` once in a checkout of it (no secret on a machine that already holds the team's credential).
-`brigade sessions` shows which repository each session is in as `repo=<name>` — the repository's name from its
+`brigade sessions` shows which repository each session is in in its REPO column — the repository's name from its
 `origin` remote, else its directory's — with nothing configured (`share_workspace_label` off withholds it,
 `workspace_label` replaces it).
 
@@ -687,8 +687,8 @@ only ever *appends* RPC parameters with defaults, so an older adapter works unch
 and a newer adapter works on a project you have not migrated yet — it names a new parameter only when it has
 a value for it, and when the project refuses one (`PGRST202`) it sends the call again without it, drops that
 value rather than the call, says so once on stderr naming the migration, and checks again every ten
-minutes. What you lose until you migrate is only what the migration adds (for `20260910193200`, the `model=`
-and `context=` columns of `brigade sessions` stay blank for your team); nothing else changes. That is per
+minutes. What you lose until you migrate is only what the migration adds (for `20260910193200`, the MODEL
+and CONTEXT columns of `brigade sessions` stay blank for your team); nothing else changes. That is per
 migration, not all-or-nothing: a project that has `20260910193200` but not `20260917170000` keeps storing
 `model` and `context` and loses only the label the registration offers, and `describe` keeps announcing the
 capabilities it does honour. Migrate at your convenience, then, and `migration list` tells you where each

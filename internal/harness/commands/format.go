@@ -192,3 +192,30 @@ func itoa(n int) string { return strconv.Itoa(n) }
 func columns(fields ...string) string {
 	return strings.Join(fields, "  ")
 }
+
+// tableRow renders one Markdown pipe-table row from already-sanitised
+// cells, escaping any literal "|" so a cell can never split a column
+// (session names, labels and models are unverified remote text and may
+// carry one).
+func tableRow(cells ...string) string {
+	escaped := make([]string, len(cells))
+	for i, c := range cells {
+		escaped[i] = strings.ReplaceAll(c, "|", "\\|")
+	}
+	return "| " + strings.Join(escaped, " | ") + " |"
+}
+
+// tableDivider renders the Markdown header/body divider row for n columns.
+func tableDivider(n int) string {
+	cells := make([]string, n)
+	for i := range cells {
+		cells[i] = "---"
+	}
+	return "| " + strings.Join(cells, " | ") + " |"
+}
+
+// seenAgoCell is seenAgo without its "seen " word, for a column that is
+// already labelled by its own table header.
+func seenAgoCell(at, server, now time.Time) string {
+	return strings.TrimPrefix(seenAgo(at, server, now), "seen ")
+}
