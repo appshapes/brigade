@@ -93,8 +93,8 @@ Omit it without penalty.
 ## Run the conformance suite
 
 The suite is the definition of "works with Brigade". It runs your adapter as three principals in two teams, using
-protocol commands only, and checks every rule of the protocol document that a black-box test can see: 46 cases,
-`C-01`..`C-44` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
+protocol commands only, and checks every rule of the protocol document that a black-box test can see: 47 cases,
+`C-01`..`C-45` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
 
 ```text
 $ bin/brigade-conformance -h
@@ -279,9 +279,11 @@ session per principal (`fixture-a`, `fixture-b`, `fixture-c`) with a `SessionReg
 shape is in *The commands the fixture needs* below and whose `lease_seconds` is your advertised `lease.max_seconds`,
 for the reason under *Timing*.
 
-**Carry `human_label` through.** The label arrives exactly once, on `team create` / `team join` (or from whatever
-`--setup` does), and every session record the suite later lists must carry one (C-12). Store it on the profile when
-you bind, and stamp it onto every session you record; nothing later in the protocol supplies it again.
+**Carry `human_label` through.** The label arrives on `team create` / `team join` (or from whatever `--setup` does),
+and every session record the suite later lists must carry one (C-12). Store it on the profile when you bind, and
+stamp it onto every session you record. A `session register` MAY carry one too — but only as a default for a
+membership that has none, never as a rename; that rule, and C-45 which checks it, are under *`session register`*
+below.
 
 **Never persist the join secret.** The launcher walks the entire run directory at the end of the run — every
 principal's config and state directory and the `--shared-env` directory included — and a file containing a secret the
@@ -328,8 +330,10 @@ case-insensitively.
 - A case whose `cap:` tag names a capability your `describe` does not advertise is reported **SKIP** with the reason
   *"capability not advertised"*. That is not a pass and not a failure: it is a statement that you told the suite you
   do not implement that, so it did not look.
-- A case may carry **more than one** `cap:` tag, and skips when **either** capability is missing: C-44 carries
-  `cap:session.model` and `cap:session.context_used_tokens`, so advertising one of the two still skips it.
+- A case may carry **more than one** `cap:` tag, and skips when **any** of them is missing: C-44 carries
+  `cap:session.model` and `cap:session.context_used_tokens`, so advertising one of the two still skips it, and
+  C-45 carries `cap:session.human_label` **and** `cap:team.roster` — it reads the adopted label back out of
+  `team members`, so an adapter that adopts labels without a roster skips it too.
 - A `slow` case without `--slow` is reported **SKIP** too. `--tags slow` selects it and still skips it; only `--slow`
   runs it.
 - A case can also skip **at run time**, from inside its own body, when the fixture cannot give it what it needs — and
@@ -341,7 +345,7 @@ case-insensitively.
   C-07,C-28,C-40` reports "1 passed, 0 failed, 2 skipped". C-04, C-07 and C-08 have their own fallbacks and keep
   running as long as `team.create` is advertised. Count all of it before you pick a provisioning route: `--setup`
   with neither team capability costs you C-03, C-03b, C-04 and C-08 to the `cap:` tags **and** C-28 and C-40 to
-  this rule — six of the 46, on a run that still exits 0.
+  this rule — six of the 47, on a run that still exits 0.
 - A selection matching **no** case is a usage error (exit 2), never a pass. `--tags cap:nosuch` printing
   "0 passed, 0 failed, 0 skipped" with exit 0 would read exactly like a clean run, so the suite refuses before it
   launches anything. An unknown id in `--only`/`--skip` is a usage error for the same reason.
@@ -377,8 +381,8 @@ C-43   PASS   0.05s  4.2 team members
 ```
 
 (The `…` lines are elided here; the run prints one line per case. That transcript is a **45**-case run, measured
-before C-44 — 4.4.2 `model` and `context_used_tokens` — joined the suite; a run today selects 46 and prints `C-44`
-after `C-43`.) The human table always goes to **stderr**, in
+before C-44 — 4.4.2 `model` and `context_used_tokens` — and C-45 — 4.4.2 `human_label` — joined the suite; a run
+today selects 47 and prints `C-44` and `C-45` after `C-43`.) The human table always goes to **stderr**, in
 every mode. With `--json` the machine-readable report goes to **stdout** and nothing else does, so
 `brigade-conformance --json … > report.json` gives you a clean document — with one caveat worth knowing before
 you wire this into CI: a launcher error raised *before* the first case (adapter not found, `describe` not ok
@@ -405,7 +409,8 @@ $ bin/brigade-conformance --shared-env BRIGADE_FS_ROOT --adapter bin/brigade-ada
     "session.workspace_label",
     "session.inbound",
     "session.model",
-    "session.context_used_tokens"
+    "session.context_used_tokens",
+    "session.human_label"
   ],
   "results": [
     {
@@ -472,8 +477,9 @@ make conformance adapter=/abs/path/to/your-adapter args="--shared-env BRIGADE_FS
 ### Timing
 
 The whole fs run measured **20.4 s** wall clock on a developer laptop, and **26.5 s** with `--slow` (45 cases, none
-skipped — the numbers are that run's, taken before C-44 made the suite 46; C-44 is a register/list/heartbeat round
-trip and costs milliseconds); `--slow` runs the one `slow` case, C-14, and C-19b's lease-expiry arm, both of which
+skipped — the numbers are that run's, taken before C-44 and C-45 made the suite 47; C-44 is a
+register/list/heartbeat round trip and C-45 three registrations with a `team members` read after each, and both
+cost milliseconds); `--slow` runs the one `slow` case, C-14, and C-19b's lease-expiry arm, both of which
 sleep out a real lease. Most of the fs run is the handful of cases that sleep on purpose — redelivery, the rate-limit windows, the
 watch's stdin commands, the paged catch-up and the two hop chains, in that order of cost (measured at 5.3 s, 3.3 s,
 2.4 s, 2.0 s, 1.4 s and 1.3 s of a 20.5 s run). A network adapter is slower — every command is a round trip — so
@@ -851,7 +857,7 @@ profile, reformatted for reading only (on the wire it is one line inside the env
   "capabilities": ["team.create", "team.join", "team.roster", "message.receive",
                    "message.watch.stdin_commands", "session.description", "session.resume",
                    "session.workspace_label", "session.inbound", "session.model",
-                   "session.context_used_tokens"],
+                   "session.context_used_tokens", "session.human_label"],
   "limits": {"max_body_bytes": 16384, "max_summary_chars": 200, "max_session_name_codepoints": 64,
              "max_team_name_codepoints": 64, "max_description_chars": 256, "max_human_label_chars": 128,
              "max_workspace_label_chars": 128, "max_model_chars": 128, "max_idempotency_key_chars": 128,
@@ -931,6 +937,7 @@ first-class answer, not a failure.
 | `session.inbound` | `inbound` is stored and reported (without it you accept the member and ignore it) |
 | `session.model` | `model` is stored and reported (without it you accept the member and ignore it). Harness-reported, unverified display text (C-44) |
 | `session.context_used_tokens` | `context_used_tokens` is stored and reported (without it you accept the member and ignore it). Harness-reported, unverified (C-44) |
+| `session.human_label` | the registration's `human_label` is adopted as the membership's label **when the membership has none** — an existing label is never overwritten (without it you accept the member and ignore it). Harness-reported, unverified display text (C-45) |
 | `delivery.processed` | reserved; not implemented by any v1 consumer |
 
 `message watch` itself is **not** optional — every adapter implements the NDJSON stream. What is optional is the
@@ -1036,7 +1043,7 @@ rather than `null`:
 | `session_name` | yes | non-empty, ≤ `max_session_name_codepoints`; **unverified** display text |
 | `session_description` | optional, nullable | ≤ `max_description_chars`; omit it when there is none |
 | `principal_ref` | yes | the owning principal, opaque, non-empty |
-| `human_label` | optional in the shape, in practice always present | ≤ `max_human_label_chars`; unverified display text. Optional because a profile may have been bound without a label — but the fixture gives every principal one at `team create` / `team join` time, so C-12 requires one on every session it lists. Copy the label from the profile onto every session record you write and the question never arises |
+| `human_label` | optional in the shape, in practice always present | ≤ `max_human_label_chars`; unverified display text. Optional because a profile may have been bound without a label — but the fixture gives every principal one at `team create` / `team join` time, so C-12 requires one on every session it lists. Copy the label from the profile onto every session record you write and the question never arises. With `session.human_label` a label-less membership also takes the registration's own `human_label` the first time one arrives, and the record carries it from there (C-45) |
 | `state` | yes | `active`, `idle` or `offline` — see below |
 | `activity` | yes | `busy` or `idle`, as last reported by the session |
 | `inbound` | yes | `accept`, `hold` or `refuse`, as last reported |
@@ -1155,6 +1162,7 @@ shown):
   "harness": "claude-code", "harness_version": "2.1.251",
   "session_name": "payments-api", "session_description": null,
   "activity": "busy", "inbound": "accept", "lease_seconds": 90, "workspace_label": null,
+  "human_label": "alice@example.com",
   "model": "claude-opus-5[1m]", "context_used_tokens": 189681,
   "resume": {"session_id": "a session_id previously returned to this principal"}
 }
@@ -1169,6 +1177,7 @@ shown):
 | `session_description` | optional, nullable | capability `session.description` |
 | `lease_seconds` | optional, nullable | within **your** advertised `lease.min_seconds..lease.max_seconds`, else `invalid_input`; absent means `lease.default_seconds` |
 | `workspace_label` | optional, nullable | capability `session.workspace_label` |
+| `human_label` | optional, nullable | ≤ `max_human_label_chars`, else `invalid_input` naming `human_label`; capability `session.human_label`. The harness's **default** label for its principal — adopt it only into a membership that has none (see below) |
 | `model` | optional, nullable | ≤ `max_model_chars`, else `invalid_input` naming `model`; capability `session.model` |
 | `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1`, else `invalid_input` naming `context_used_tokens`; capability `session.context_used_tokens` |
 | `resume.session_id` | optional | capability `session.resume` |
@@ -1190,6 +1199,18 @@ under, and never ask for the source they came from. Both are optional in the sha
 `session.model` / `session.context_used_tokens` you accept each member and ignore it, exactly as with `inbound`
 (4.7). C-44 checks both halves — the round trip when you advertise them, and the caps either way.
 
+**`human_label` is a default, and adopting it is a one-way door.** The registration's label is the one the harness
+would use for its principal if the membership had none; it is not an instruction to rename anybody. The whole rule
+is one sentence: **fill an empty membership label from it, never overwrite one**. Whatever a later registration
+carries, the label that was adopted first stands — that is what makes it safe to send on every registration, and it
+is why a member who chose a label at `team join` never sees it change under them. Capability `session.human_label`:
+advertise it and adopt, or advertise it not and accept-and-ignore the member, exactly as with `inbound` (4.7). Cap
+the value at `max_human_label_chars` either way, and treat it as unverified display text (4.5.11) — it is the same
+label C-12 reads back, and adopting it is what fills the memberships that predate the member. C-45 is the case: a
+label-less membership is filled, a second registration offering a different label changes nothing, and a third
+carrying no label changes nothing. It carries `cap:team.roster` too, because it reads the adopted label back out of
+`team members`.
+
 **`lease_seconds`, in full.** It is optional *and* nullable (JSON convention 4), and both forms mean the same
 thing: absent or `null` grants `lease.default_seconds`, measured 90 on the fs adapter. A value outside your own
 advertised `lease.min_seconds..lease.max_seconds` is `invalid_input` (exit 3) — measured, `0` answers
@@ -1198,11 +1219,13 @@ and `max` — and a value of the wrong JSON type (`"ninety"`) is a decode failur
 the check is the one you advertise in `describe`, not the protocol's example (section 6): the two must agree, because
 the harness and the suite read yours and stay inside it.
 
-**`human_label` is not in this document, and you still have to emit it.** The registration carries no label; the
-label reached you once, at `team create` / `team join` (or through `--setup`), and nothing in the protocol supplies
-it again. Store it on the profile when you bind and stamp it onto every session record you write — the record's
-`human_label` is optional in the shape (4.4.3) but C-12 requires one on every session it lists, so treat "copy it
-from the profile at register time" as the rule rather than as advice.
+**The record's `human_label` is the membership's, not the registration's.** The label normally reaches you once, at
+`team create` / `team join` (or through `--setup`): store it on the profile when you bind and stamp it onto every
+session record you write — the record's `human_label` is optional in the shape (4.4.3) but C-12 requires one on
+every session it lists, so treat "copy it from the membership at register time" as the rule rather than as advice.
+The registration's own `human_label` is the one other source, and only for a membership that has none (above): adopt
+it there and the record carries it from that registration on; never let it change the label you stamp for a
+membership that already has one.
 
 **Output**: the `SessionRecord` of the previous section with three more members — `resumed` (boolean),
 `lease_seconds` (integer, the lease actually granted) and `server_time` (timestamp). One flat object, not a
@@ -1321,7 +1344,7 @@ Three decisions in that territory are genuinely yours, and inventing an answer i
 
 One thing in that territory is *not* optional: `message watch` is core (4.2). Every adapter writes the NDJSON stream,
 starting with one `ready` event whose `mode` is `polling` unless you advertise `message.watch.push` (4.4.9, 4.7), and
-nine of the 46 cases (C-33..C-41) are about it.
+nine of the 47 cases (C-33..C-41) are about it.
 
 ## The environment your adapter runs in
 

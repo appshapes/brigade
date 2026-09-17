@@ -12,7 +12,7 @@ is a new major version, not an edit to this one.
 
 - **Normative words.** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as RFC 2119 defines them. Everything else
   is description.
-- **Every MUST cites a conformance case.** The suite (plan section 9.2) has 46 cases: `C-01`..`C-44` plus `C-03b`,
+- **Every MUST cites a conformance case.** The suite (plan section 9.2) has 47 cases: `C-01`..`C-45` plus `C-03b`,
   `C-19b` and `C-29b` (the numbering skips 09). A MUST that no case checks yet is marked `[no case: B-n]` and listed in
   Appendix B, which is an input to the suite's implementation (P1-6). No citation here names a case that does not
   exist; Appendix A is the index.
@@ -880,7 +880,7 @@ The logical plan's ten freeze items and where this document freezes each; nothin
 
 ## Appendix A. Conformance case index
 
-Every case of plan 9.2 and the sections of this document that cite it. Every one of the 46 ids appears at least
+Every case of plan 9.2 and the sections of this document that cite it. Every one of the 47 ids appears at least
 once.
 
 | Case | Rule (9.2) | Cited in |
