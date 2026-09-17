@@ -440,7 +440,7 @@ the order in "Leaving and uninstalling" below matters.
 ### Revoking a member
 
 ```sh
-brigade team members                                    # copy the principal_ref of the member to remove
+brigade team members --json                             # copy .members[].principal_ref of the member to remove
 printf '{"principal_ref":"<ref>"}' | brigade team revoke-member
 # or, without stdin:
 brigade team revoke-member --principal <ref>
@@ -451,10 +451,13 @@ A **revoke** closes that member's open sessions at once (a running watcher of th
 with the same `unauthorized` a `team leave` produces), removes them from the roster, and ends their access to
 their own inboxes immediately — and they may rejoin with the current secret, as the same principal. A **ban**
 does all of that and makes the member's rejoin answer *exactly* what a wrong secret answers, so a banned member
-cannot tell it was banned. **Write the `principal_ref` down before you ban**: a banned member is no longer listed
-by `brigade team members`, and un-banning — `brigade team revoke-member --principal <ref>` without `--ban` —
-needs the ref. If the ref is lost, the recovery is a secret rotation (below) plus a fresh principal on the
-member's side (`brigade team reset`, then `brigade team join`). You cannot revoke or ban yourself; leaving is
+cannot tell it was banned. **Write the `principal_ref` down before you ban**, and read it from
+`brigade team members --json` (`.members[].principal_ref`): the human roster prints only the first characters of
+the reference, in brackets beside the label, while `--principal` is passed to the adapter verbatim and so needs
+the ref in full. A banned member is no longer listed by `brigade team members` at all, and un-banning —
+`brigade team revoke-member --principal <ref>` without `--ban` — needs the ref. If the ref is lost, the recovery
+is a secret rotation (below) plus a fresh principal on the member's side (`brigade team reset`, then
+`brigade team join`). You cannot revoke or ban yourself; leaving is
 `brigade team leave`, and it is reversible by a rejoin.
 
 ### The leaked-secret playbook
@@ -481,7 +484,7 @@ again. Members that were never revoked keep working through a rotation without n
 ### Transferring the team
 
 ```sh
-brigade team members                       # the new creator must be an active member
+brigade team members --json                # copy .members[].principal_ref; the new creator must be an active member
 brigade team transfer --principal <ref>
 ```
 

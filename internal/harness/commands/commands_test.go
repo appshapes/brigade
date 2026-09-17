@@ -293,7 +293,10 @@ func listResult() string {
 	rec := func(id, name, label, state, activity, inbound string, seenAgo time.Duration, self bool) map[string]any {
 		return map[string]any{
 			"session_id": id, "session_name": name, "human_label": label,
-			"principal_ref": "principal-" + id[:4], "state": state, "activity": activity, "inbound": inbound,
+			// The refs differ in their FIRST characters, not their last: the
+			// roster prints only the first eight beside a label, and a
+			// fixture whose refs share a prefix would prove nothing.
+			"principal_ref": id[:8] + "-principal", "state": state, "activity": activity, "inbound": inbound,
 			"last_seen_at": fixtureNow.Add(-seenAgo), "lease_until": fixtureNow.Add(60 * time.Second),
 			"created_at": fixtureNow.Add(-time.Hour), "is_self": self,
 		}
@@ -332,9 +335,9 @@ func membersResultJSON() string {
 	b, err := json.Marshal(map[string]any{
 		"team_ref": fixtureTeamRef, "team_name": fixtureTeamName, "server_time": fixtureNow,
 		"members": []any{
-			map[string]any{"principal_ref": "principal-self", "human_label": "alice@example.com", "status": "active",
+			map[string]any{"principal_ref": "a11ce000-principal", "human_label": "alice@example.com", "status": "active",
 				"joined_at": time.Date(2026, 8, 30, 9, 0, 0, 0, time.UTC), "last_seen_at": seen, "session_count": 2},
-			map[string]any{"principal_ref": "principal-mallory\n", "human_label": injectionName, "status": "active",
+			map[string]any{"principal_ref": "ma110r11-principal\n", "human_label": injectionName, "status": "active",
 				"joined_at": time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC), "last_seen_at": nil, "session_count": 0},
 		},
 	})
