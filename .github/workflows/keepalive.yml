@@ -73,3 +73,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: scripts/ci/keepalive.sh
+
+  keepalive-aafp-board-review-team:
+    # The AAFP Board Review team's project (sqaadyyhqwjsagxglyzn), deployed 2026-09-16. Its team spans two
+    # other repositories; the keep-alive rides here for the same reason keepalive-thinktech does.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    env:
+      BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL }}"
+      BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY }}"
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/ci/keepalive.sh
