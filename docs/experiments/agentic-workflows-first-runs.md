@@ -67,7 +67,10 @@ measurement note to the argv list") and "Verify the fix was pushed" passed. PASS
    2026-09-11) and `3f333fb` (PR #8, 2026-09-13) were all held: the policy gates the *actor* of the pull request
    event, and the bot never earns a merged commit under its own login because every merge is a squash authored
    by the owner. The policy is now `first_time_contributors_new_to_github` at the repository and the organization
-   (card 22, item 2; execution-log row P14-2); the next fixer push measures it.
+   (card 22, item 2; execution-log row P14-2); the next fixer push measures it. **Measured 2026-09-17, PR #22:**
+   the fixer push `e849247` (login `github-actions[bot]`, name `claude[bot]`) was held again — `ci` 35233246307
+   and `review pr` 35233246560 at `action_required` — so no value of this policy exempts the bot; the lever is
+   elsewhere (P14-2).
 2. **`allowed_bots` on the reviewer.** The approved re-review run 34485452913 (actor `github-actions[bot]`) was
    refused by the action's own trigger check — every inner step `skipped`, the step failed, no review at head
    `b82edd7`. Fix: `review-pull-request.yml` `allowed_bots: "claude,github-actions"` (the hub and release-notes
