@@ -688,17 +688,22 @@ and a newer adapter works on a project you have not migrated yet — it names a 
 a value for it, and when the project refuses one (`PGRST202`) it sends the call again without it, drops that
 value rather than the call, says so once on stderr naming the migration, and checks again every ten
 minutes. What you lose until you migrate is only what the migration adds (for `20260910193200`, the `model=`
-and `context=` columns of `brigade sessions` stay blank for your team); nothing else changes. Migrate at your
-convenience, then, and `migration list` tells you where each project stands.
+and `context=` columns of `brigade sessions` stay blank for your team); nothing else changes. That is per
+migration, not all-or-nothing: a project that has `20260910193200` but not `20260917170000` keeps storing
+`model` and `context` and loses only the label the registration offers, and `describe` keeps announcing the
+capabilities it does honour. Migrate at your convenience, then, and `migration list` tells you where each
+project stands.
 
 **Nobody rejoins to get a label.** Every membership created before labels existed has an empty `human_label`, and
 `20260917170000_session_human_label.sql` fills it without anyone rejoining: from that plugin version on, each
 session start offers the member's default label and the migrated backend adopts it **only when the membership has
-none** — a label a member chose is never overwritten. Both halves are needed and **either order works**. Members
-who update the plugin before you run `brigade adapter supabase backend upgrade` register against an un-migrated
-project, which answers `PGRST202`; the adapter drops the label and registers anyway, and the fill happens at the
-next session start after you migrate. Migrate first and nothing happens until each member updates. Nobody has to
-be told to do anything in particular, and a member who wants no label sets the plugin option `label` to `none`.
+none** — a label a member chose is never overwritten. Both halves are needed and **either order works**. Your half
+is the ordinary one, `make backend-install project=<ref>` from a checkout of this repository (section 1 above),
+with `migration list` as the check. Members who update the plugin before you apply it register against a project
+that answers `PGRST202`; the adapter drops the label — and only the label, by the paragraph above — registers
+anyway, and the fill happens at the next session start after you migrate. Migrate first and nothing happens until
+each member updates. Nobody has to be told to do anything in particular, and a member who wants no label sets the
+plugin option `label` to `none`.
 
 **Order matters, and it is not a preference.** Apply the migrations *before* exposing the `brigade` schema on the
 Data API. A project that exposes a schema which does not exist yet leaves PostgREST looping on

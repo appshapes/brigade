@@ -15,8 +15,9 @@ const adapterName = progName
 // included (C-44; 20260910193200_session_model_context.sql stores and
 // returns them) and the registration's human_label too (C-45;
 // 20260917170000_session_human_label.sql adopts it into an unlabelled
-// membership). All three are withheld while the backend is known legacy —
-// sessionAppendedCapabilities, compat.go.
+// membership). Each is withheld while the backend is known to lack the
+// migration that implements it, and only then — sessionAppendedMigrations
+// and advertisedCapabilities, compat.go.
 func capabilities() []string {
 	return []string{
 		"team.create",

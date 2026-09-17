@@ -9,8 +9,9 @@
 --
 -- The rule, and it is the whole rule: the label is adopted ONLY when the membership has none. The membership lookup
 -- that already reads human_label into v_label is unchanged; when that v_label is empty and p_human_label is not
--- null, the adoption writes that one membership row and sets v_label, so the record this call returns already
--- carries the adopted label. It sits after the validations (a registration this call is about to refuse writes
+-- null, the adoption writes that one membership row and takes v_label from the row it wrote, so the record this
+-- call returns already carries the adopted label — and never a label the membership does not hold, not even when
+-- a concurrent registration wins the fill. It sits after the validations (a registration this call is about to refuse writes
 -- nothing) and before the branch that builds the row. A membership that HAS a label is never written — no
 -- registration, of any harness, at any time, can overwrite a label a member chose; `label: none` in the plugin
 -- simply sends no p_human_label at all. `coalesce(…, '') = ''` rather than `is null` so a membership row carrying
@@ -60,11 +61,16 @@ begin
   -- C-45: fill an EMPTY membership label, never replace one. It runs after every validation, so a registration this
   -- call is about to refuse writes nothing, and before the record is built, so the returned record already carries
   -- the adopted label. The update repeats `human_label is null` in its predicate as well as in the branch, so two
-  -- concurrent registrations cannot both write it.
+  -- concurrent registrations cannot both write it; v_label comes from `returning`, and when the predicate matched
+  -- no row — the losing half of that race, under READ COMMITTED — the label the winner wrote is re-read, so this
+  -- call can never return a label the membership does not hold.
   if coalesce(v_label, '') = '' and p_human_label is not null then
     update brigade.memberships set human_label = p_human_label
-     where team_id = p_team_id and user_id = v_uid and status = 'active' and coalesce(human_label, '') = '';
-    v_label := p_human_label;
+     where team_id = p_team_id and user_id = v_uid and status = 'active' and coalesce(human_label, '') = ''
+    returning human_label into v_label;
+    if not found then
+      select human_label into v_label from brigade.memberships where team_id = p_team_id and user_id = v_uid and status = 'active';
+    end if;
   end if;
 
   if p_resume_session_id is not null then

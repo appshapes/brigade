@@ -120,7 +120,7 @@ func (c *command) sessionRegister() (any, error) {
 	// C-45: the registration's human_label is the harness's DEFAULT for
 	// its principal. It fills an empty membership label and never
 	// replaces one that is already there.
-	if _, err := c.st.adoptHumanLabel(teamRef, principal, req.HumanLabel); err != nil {
+	if err := c.st.adoptHumanLabel(teamRef, principal, req.HumanLabel); err != nil {
 		return nil, err
 	}
 	record, err := c.st.record(teamRef, f, false)
