@@ -743,6 +743,20 @@ func TestKeepaliveWorkflowAndDocsAgree(t *testing.T) {
 	for _, name := range []string{"BRIGADE_THINKTECH_SUPABASE_URL", "BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY"} {
 		keepaliveMentions(t, keepaliveDocRel, doc, "gh variable set "+name)
 	}
+	// The third project (the AAFP Board Review team's, added 2026-09-17), pinned for the same reason and by the
+	// same join: rung 0 reads BOTH variables unset as a notice and exit 0, so a pair set under a name the
+	// workflow does not read is a job that is green forever and never touches the project.
+	keepaliveMentions(t, keepaliveWorkflowRel, workflow,
+		"keepalive-aafp-board-review-team:",
+		`BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL }}"`,
+		`BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY }}"`,
+	)
+	for _, name := range []string{
+		"BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL",
+		"BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY",
+	} {
+		keepaliveMentions(t, keepaliveDocRel, doc, "gh variable set "+name)
+	}
 	// Each project's job must run the script exactly once, so a second project cannot silently go unchecked.
 	if got := strings.Count(workflow, "run: "+keepaliveScriptRel); got != strings.Count(workflow, "runs-on:") {
 		t.Errorf("%s has %d `run: %s` steps but %d jobs: every keep-alive job must climb the rungs",

@@ -25,7 +25,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | push to `master`, and every pull request | Five jobs: `fast` (lint, typecheck, unit + conformance(fs) tests, vuln, dependency and schema guards, `make checksums-check`, `make plugin-check`), `macos` (`go test` on the primary user platform plus `make cross`), `reproducibility` (the ubuntu and macOS cross-builds must be byte-identical), `supabase` (the local stack: pgTAP, advisor lints, the integration suite, conformance(supabase) and `make e2e`), and `deploy-staging` (skipped until `BRIGADE_STAGING` is set). |
 | `.github/workflows/release.yml` | a pushed `v*` tag | Guards that `plugin/bin/VERSION` and `plugin/.claude-plugin/plugin.json` pin the tag and that `make cross` reproduces `plugin/bin/checksums.txt`, runs goreleaser into a draft release, verifies the built binaries against the committed checksums with `release-verify.sh`, then publishes the draft or discards it, and on a publish dispatches `release-notes.yml` — a `workflow_dispatch` run, the one event `claude-code-action` accepts from a tag push (measured on v0.5.0, run 34537045037). |
-| `.github/workflows/keepalive.yml` | daily cron (`37 10 * * *` UTC) and `workflow_dispatch` | Runs `keepalive.sh` **once per hosted project** — one job per project, each with its own variable pair — so every Free-plan project answers a few database requests a day and none is ever paused. Jobs: `keepalive` (appshapes-brigade), `keepalive-thinktech` (thinktech-brigade). |
+| `.github/workflows/keepalive.yml` | daily cron (`37 10 * * *` UTC) and `workflow_dispatch` | Runs `keepalive.sh` **once per hosted project** — one job per project, each with its own variable pair — so every Free-plan project answers a few database requests a day and none is ever paused. Jobs: `keepalive` (appshapes-brigade), `keepalive-thinktech` (thinktech-brigade), `keepalive-aafp-board-review-team` (the AAFP Board Review team's project). |
 | `.github/workflows/claude.yml` | `issues` (labeled/assigned), `pull_request` (opened/labeled), `pull_request_review`, comment events, `workflow_dispatch` | The agentic hub: implements a `claude`-labelled issue on a branch and opens its PR, or applies a reviewer's blockers on a PR branch. Bounded by a derived fix cap (`MAX_ATTEMPTS 3`), actor filters, the PAT/`GITHUB_TOKEN` switch and per-PR concurrency. Two jobs: `agent`, then `open-pr` (`needs:`), which is the only one that holds `GH_ACTIONS_TOKEN`. |
 | `.github/workflows/review-pull-request.yml` | `pull_request` (opened/synchronize/reopened), same-repo only | Deterministic guard (release pins, the `go` line, the protocol join) then the read-only reviewer agent; fails loudly if no review lands at head, and comments on the PR when the guard trips. |
 | `.github/workflows/auto-merge.yml` | `pull_request_review` (submitted) | Arms `gh pr merge --squash --auto` with `GH_ACTIONS_TOKEN` when the reviewer approved the current head of an `auto-merge`-labelled PR. The `master` ruleset makes the four CI checks required, which is what `--auto` waits for. |
@@ -76,6 +76,8 @@ Names only. No value of any of these appears in this repository, and none may be
 | Var | `BRIGADE_SUPABASE_PUBLISHABLE_KEY` | The hosted project's publishable key, read by `keepalive.yml`. Public by design, for the same reason. |
 | Var | `BRIGADE_THINKTECH_SUPABASE_URL` | The `thinktech-brigade` project's url, read by `keepalive.yml`'s `keepalive-thinktech` job. Public by design, for the same reason. |
 | Var | `BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY` | The `thinktech-brigade` project's publishable key, read by the same job. Public by design, for the same reason. |
+| Var | `BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL` | The AAFP Board Review team's project url, read by `keepalive.yml`'s `keepalive-aafp-board-review-team` job. Public by design, for the same reason. |
+| Var | `BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY` | The AAFP Board Review team's project publishable key, read by the same job. Public by design, for the same reason. |
 | Var | `BRIGADE_STAGING` | Read by `ci.yml`. The `deploy-staging` job runs only when it is `true` on a push to `master`; otherwise the job is skipped. |
 | Secret | `SUPABASE_ACCESS_TOKEN` | `ci.yml`'s `deploy-staging` job: the Supabase CLI's personal access token. |
 | Secret | `SUPABASE_DB_PASSWORD` | `ci.yml`'s `deploy-staging` job: the staging project's database password. |
@@ -296,6 +298,11 @@ scripts/ci/keepalive.sh
 # the second project: same script, the other pair
 BRIGADE_SUPABASE_URL="$(gh variable get BRIGADE_THINKTECH_SUPABASE_URL)" \
 BRIGADE_SUPABASE_PUBLISHABLE_KEY="$(gh variable get BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY)" \
+scripts/ci/keepalive.sh
+
+# the third project: same script again, the AAFP Board Review team's pair
+BRIGADE_SUPABASE_URL="$(gh variable get BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL)" \
+BRIGADE_SUPABASE_PUBLISHABLE_KEY="$(gh variable get BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY)" \
 scripts/ci/keepalive.sh
 ```
 
