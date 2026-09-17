@@ -258,8 +258,10 @@ Set the plugin option **`label`** if you want something else:
 
 A label proves nothing either way: anyone can pick any of them, so every place one is shown says `(unverified)`,
 and the principal reference beside it is the identity. `--label` on `brigade team join` or `brigade team create`
-overrides the option for that one command, and a terminal `brigade team join` shows the default in the prompt
-before it sends anything. In your own terminal, outside a session, `BRIGADE_LABEL` stands in for the option the
+overrides the option for that one command, and a terminal `brigade team create` — the one command that asks for a
+label — shows the default in its prompt before it sends anything. A `team join` never prompts for a label: it
+confirms the team, the ref and the host, and sends whatever the option resolves to, so decide the option **before**
+you join. In your own terminal, outside a session, `BRIGADE_LABEL` stands in for the option the
 way `BRIGADE_CONFIG_DIR` stands in for `config_dir`; inside a session Brigade ignores it, as it ignores every
 `BRIGADE_*` variable a repository could set.
 

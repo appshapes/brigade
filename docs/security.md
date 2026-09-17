@@ -54,8 +54,10 @@ step reads it from `--json`, never from the brackets.
 **Where the default label comes from.** A member who gives no `--label` is labelled with the email address of the
 Claude account their install is signed in to. Brigade reads that address from Claude Code's own configuration file
 (`oauthAccount.emailAddress` in `.claude.json`, under `CLAUDE_CONFIG_DIR` when it is set and in the home directory
-otherwise), read-only and best effort: a missing, unreadable or malformed file simply leaves the label empty, and
-nothing about the failure — or the address — is logged. Brigade never writes that file, never touches anything
+otherwise), read-only and best effort: a missing, unreadable or malformed file simply leaves the label empty. A failed read
+leaves one debug line on stderr saying that the account email was unavailable, and that line is fixed text — the
+address is never in it, and neither is the path, which would carry your home directory and your
+`CLAUDE_CONFIG_DIR`. Brigade never writes that file, never touches anything
 else under Claude Code's configuration directory, and never stores the address itself: the label is sent once,
 with the join, and what is kept locally is the *option*, not the value. So joining a team shares your account
 email with the members of that team, and with whoever runs its backend (section 2). To opt out, set the plugin

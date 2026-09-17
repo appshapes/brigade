@@ -167,15 +167,31 @@ func TestEmailIsEmptyWhenThereIsNothingToRead(t *testing.T) {
 
 // A missing file is the ordinary case on a machine that has never signed
 // in, and it is reported as such so a caller can tell it from a corrupt
-// file in a debug line.
+// file in a debug line — as ErrNoFile, never as the *fs.PathError
+// os.Open returns, whose text carries the member's home directory.
 func TestEmailMissingFile(t *testing.T) {
-	dirs(t)
+	cfg, home := dirs(t)
 	got, err := account.Email(os.Environ())
 	if got != "" {
 		t.Fatalf("Email = %q, want \"\"", got)
 	}
-	if !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("err = %v, want fs.ErrNotExist", err)
+	if !errors.Is(err, account.ErrNoFile) {
+		t.Fatalf("err = %v, want ErrNoFile", err)
+	}
+	noPathIn(t, err, cfg, home)
+}
+
+// noPathIn asserts that a diagnostic names none of the member's
+// directories. The caller writes it to a debug line as it stands, and the
+// redacting logger redacts registered tokens and the secret key list, not
+// paths — so fixed text is the only thing that keeps a home directory out
+// of a log.
+func noPathIn(t *testing.T, err error, dirs ...string) {
+	t.Helper()
+	for _, dir := range dirs {
+		if strings.Contains(err.Error(), dir) {
+			t.Fatalf("err = %q leaks the path %q", err, dir)
+		}
 	}
 }
 
@@ -186,7 +202,7 @@ func TestEmailUnreadableFile(t *testing.T) {
 		if os.Geteuid() == 0 {
 			t.Skip("root reads a 0000 file regardless of its mode")
 		}
-		cfg, _ := dirs(t)
+		cfg, home := dirs(t)
 		path := writeConfig(t, cfg, withAccount("alice@example.com"))
 		if err := os.Chmod(path, 0o000); err != nil {
 			t.Fatal(err)
@@ -195,9 +211,13 @@ func TestEmailUnreadableFile(t *testing.T) {
 		if got != "" || err == nil {
 			t.Fatalf("Email = %q, %v; want \"\" and a diagnostic", got, err)
 		}
+		if !errors.Is(err, account.ErrUnreadable) {
+			t.Fatalf("err = %v, want ErrUnreadable", err)
+		}
+		noPathIn(t, err, cfg, home)
 	})
 	t.Run("a directory in its place", func(t *testing.T) {
-		cfg, _ := dirs(t)
+		cfg, home := dirs(t)
 		if err := os.Mkdir(filepath.Join(cfg, account.FileName), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -205,6 +225,7 @@ func TestEmailUnreadableFile(t *testing.T) {
 		if got != "" || err == nil {
 			t.Fatalf("Email = %q, %v; want \"\" and a diagnostic", got, err)
 		}
+		noPathIn(t, err, cfg, home)
 	})
 }
 

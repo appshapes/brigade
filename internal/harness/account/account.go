@@ -32,6 +32,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -53,12 +54,20 @@ const FileName = ".claude.json"
 // only the `oauthAccount` subtree is retained.
 const MaxFileBytes = 64 << 20
 
-// The diagnostic errors. Each is fixed text: neither the path (it carries
-// the member's home directory) nor the value is ever part of one.
+// The diagnostic errors. Each is fixed text, and every failure answers
+// one of them: neither the path (it carries the member's home directory
+// and their CLAUDE_CONFIG_DIR) nor the value is ever part of one, so the
+// caller's debug line is safe to write as it stands.
 var (
 	// ErrNoConfigDir: neither CLAUDE_CONFIG_DIR nor HOME gives an absolute
 	// directory, so there is no file to look in.
 	ErrNoConfigDir = errors.New("account: no Claude Code config directory to read")
+	// ErrNoFile: the file is not there — the ordinary case on a machine
+	// that has never signed in.
+	ErrNoFile = errors.New("account: no Claude Code config file to read")
+	// ErrUnreadable: the file is there and could not be opened, for any
+	// other reason (a mode, a directory in its place).
+	ErrUnreadable = errors.New("account: the Claude Code config file cannot be opened")
 	// ErrMalformed: the file could not be read to the end, or is not a
 	// JSON object.
 	ErrMalformed = errors.New("account: the Claude Code config file is not readable as a JSON object")
@@ -117,7 +126,16 @@ func Email(environ []string) (string, error) {
 func emailFrom(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", err
+		// The open error is NOT returned as it came: it carries the path,
+		// and the path carries the member's home directory and their
+		// CLAUDE_CONFIG_DIR, neither of which the redacting logger knows
+		// to redact. It becomes one of the two fixed-text sentinels, so
+		// the debug line the caller writes says what happened and names
+		// nothing of the member's.
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", ErrNoFile
+		}
+		return "", ErrUnreadable
 	}
 	defer func() { _ = f.Close() }()
 	var doc struct {
