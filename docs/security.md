@@ -42,12 +42,14 @@ Brigade is designed against seven kinds of attacker. Six of them are held off. T
 **What is not a boundary.** Display names and labels are free text. Any member can pick any of them, copy
 someone else's, and two members can have the same one. Brigade never treats a name as proof of anything. Every
 place a display label is shown, it is marked `(unverified)`. The only identity the server stamps is the
-`from-principal` value in each message, and the team roster shows that same reference for every active member, so
-you can recognise the same person across all of their sessions. The roster prints the label with the first
-characters of that reference beside it, in brackets — the principal, never the label, is the identity, the
-bracketed characters are what tells two members who chose the same label apart, and a reference that sanitises
-away to nothing prints as `[?]`, so a labelled line always carries the bracket. `brigade sessions --all` and
-either command's `--json` form print the reference in full.
+`from-principal` value in each message, and the team roster is keyed on that same reference for every active
+member: it prints the label with the leading characters of the reference beside it, in brackets, and those
+characters are the same on every line that member appears on, so you can recognise the same person across all of
+their sessions. The principal, never the label, is the identity; the bracketed characters are what tells two
+members who chose the same label apart; and a reference that sanitises away to nothing prints as `[?]`, so a
+labelled line always carries the bracket. `brigade sessions --all` and either command's `--json` form print the
+reference in full — and the full reference is what `revoke-member` and `transfer` take, so an administrative
+step reads it from `--json`, never from the brackets.
 
 **One thing that is a boundary.** A caller who is not an active member of a team gets the same refusal for a team
 that exists and for a team id made up out of thin air. The two answers are byte for byte identical, so nobody can
@@ -450,9 +452,10 @@ it. [`docs/setup.md`](setup.md), "Leaving and uninstalling", has the order.
   safe to run first. Evicting people is the separate revoke-by-version step, and it never evicts you.
 - **The new secret is written to the file you name and nowhere else.** It is never printed. If the file cannot
   be written, the secret is gone and the only fix is to rotate again.
-- **Write the member's `principal_ref` down before you ban them.** A banned member is no longer listed by
-  `brigade team members`, and un-banning needs that reference. If it is lost, the recovery is a secret rotation
-  plus a fresh principal on the member's side.
+- **Write the member's `principal_ref` down before you ban them**, taking it from `brigade team members --json`
+  (`.members[].principal_ref`): the human roster prints only its leading characters, and `--principal` takes the
+  reference in full. A banned member is no longer listed by `brigade team members` at all, and un-banning needs
+  that reference. If it is lost, the recovery is a secret rotation plus a fresh principal on the member's side.
 - **`revoke-member` and `transfer` refuse to run inside a Claude Code session** (section 4); `rotate-secret` runs
   anywhere, its new secret to `--secret-file`.
 
