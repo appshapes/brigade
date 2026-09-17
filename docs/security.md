@@ -57,9 +57,12 @@ Claude account their install is signed in to. Brigade reads that address from Cl
 otherwise), read-only and best effort: a missing, unreadable or malformed file simply leaves the label empty. A failed read
 leaves one debug line on stderr saying that the account email was unavailable, and that line is fixed text — the
 address is never in it, and neither is the path, which would carry your home directory and your
-`CLAUDE_CONFIG_DIR`. Brigade never writes that file, never touches anything
-else under Claude Code's configuration directory, and never stores the address itself: the label is sent once,
-with the join, and what is kept locally is the *option*, not the value. So joining a team shares your account
+`CLAUDE_CONFIG_DIR`. Brigade never **writes** anything under Claude Code's configuration directory, and the only
+things it ever **reads** there are this `.claude.json`, your `settings.json` (the session-start policy scan of
+section 6) and the registry entry for the session's own pid (`sessions/<pid>.json`) — never the 0600
+`sessions/*.key` peer keys that live in that same `sessions/` directory. Nor does Brigade store the address
+itself: the label is sent once, with the `team join` (or the `team create`) that sends it, and what is kept
+locally is the *option*, not the value. So joining a team shares your account
 email with the members of that team, and with whoever runs its backend (section 2). To opt out, set the plugin
 option `label` to `none` before you join, or to any text you would rather be known by; `--label` on the join
 command does the same for that one command. Changing the option later changes what the next **first** join on this

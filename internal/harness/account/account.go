@@ -66,7 +66,9 @@ var (
 	// that has never signed in.
 	ErrNoFile = errors.New("account: no Claude Code config file to read")
 	// ErrUnreadable: the file is there and could not be opened, for any
-	// other reason (a mode, a directory in its place).
+	// other reason — a mode that denies us, most of all. Not a directory
+	// in its place: on Linux os.Open succeeds on a directory and the read
+	// fails, so that case answers ErrMalformed.
 	ErrUnreadable = errors.New("account: the Claude Code config file cannot be opened")
 	// ErrMalformed: the file could not be read to the end, or is not a
 	// JSON object.
