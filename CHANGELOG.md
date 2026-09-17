@@ -9,7 +9,26 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A member is labelled from their Claude account, and a `label` option opts out.** `brigade team create` and
+  `brigade team join`, given no `--label`, now default the member's display label to the email address of the
+  Claude account the install is signed in to — read from Claude Code's own `.claude.json`
+  (`oauthAccount.emailAddress`, under `CLAUDE_CONFIG_DIR` when set, else the home directory), read-only and best
+  effort: a missing, unreadable or malformed file simply leaves the label empty, as it was before. The new plugin
+  option `label` decides what is sent: `account` (the default) the address, `none` nothing at all, any other text
+  that text. An explicit `--label` still wins over the option, and a terminal `team create` shows the default in
+  its prompt before sending it. Outside a session `BRIGADE_LABEL` stands in for the option, exactly as
+  `BRIGADE_CONFIG_DIR` stands in for `config_dir`; inside one it is ignored like every inherited `BRIGADE_*`.
+
 ### Changed
+
+- **Joining a team now shares your Claude account email with that team, by default.** From this version,
+  `/brigade:join` labels a new member with the email address of their Claude account, so the roster shows it to
+  every other member — and to whoever runs the team's backend. Set the plugin option `label` to `none` (or to any
+  text you would rather be known by) before you join to opt out, or pass `--label` on the join itself. The address
+  is never written by Brigade and never logged; it is unverified text like every other label, and the principal
+  reference beside it remains the identity.
 
 - **The roster reads as people, not UUIDs.** `brigade sessions` and `brigade team members` print a member's
   `human_label` where the opaque `principal_ref` used to stand — `alice@example.com (unverified) [9f3c1a20]`,

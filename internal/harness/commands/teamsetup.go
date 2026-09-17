@@ -18,6 +18,8 @@ import (
 	json "encoding/json/v2"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	adapterlog "github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/harness/account"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
@@ -141,8 +143,16 @@ func isUnder(dir, top string) bool {
 }
 
 // createRequest builds the stdin document from flags or the terminal.
+// An omitted --label falls back to defaultLabel (card 24, part B); at the
+// terminal that default is offered in the prompt's brackets, so the
+// person typing sees the value before it is sent and can type another —
+// this is the consent point for sharing an account email with the team.
 func (inv Invocation) createRequest(opts *createOptions) (*protocol.TeamCreateRequest, error) {
 	name, label := opts.name, opts.label
+	var byDefault string
+	if label == "" {
+		byDefault = inv.defaultLabel()
+	}
 	if name == "" {
 		if !inv.Deps.isTerminal(inv.In) {
 			return nil, usage("team create needs --name when stdin is not a terminal")
@@ -152,10 +162,17 @@ func (inv Invocation) createRequest(opts *createOptions) (*protocol.TeamCreateRe
 			return nil, err
 		}
 		if label == "" {
-			if label, err = inv.promptLine("your display label (optional): "); err != nil {
+			prompt := "your display label (optional): "
+			if byDefault != "" {
+				prompt = "your display label [" + byDefault + "]: "
+			}
+			if label, err = inv.promptLine(prompt); err != nil {
 				return nil, err
 			}
 		}
+	}
+	if label == "" {
+		label = byDefault
 	}
 	req := &protocol.TeamCreateRequest{TeamName: name, HumanLabel: label}
 	if err := req.Validate(); err != nil {
@@ -293,7 +310,61 @@ func (inv Invocation) teamJoin(args []string) error {
 	if err != nil {
 		return err
 	}
+	if label == "" {
+		// The default is resolved here, on the one path that can actually
+		// join, and never inside firstJoin: reconsent calls that with an
+		// explicit "" for a re-point, and a re-consent must keep sending
+		// what it always sent.
+		label = inv.defaultLabel()
+	}
 	return inv.joinWithFile(path, f, label, secretFile)
+}
+
+// defaultLabel is the label a create or join sends when --label named
+// none (card 24, part B). The `label` option decides: `none` sends
+// nothing, a literal is that text, and `account` — the default when the
+// option is absent — is the member's Claude account email, read from
+// Claude Code's own config, read-only and best effort. A failure to read
+// it is a debug line and an empty label, never a refusal: a member whose
+// account cannot be read joins unlabelled, exactly as every member did
+// before this version.
+func (inv Invocation) defaultLabel() string {
+	return config.LabelFor(inv.labelOption(), func() string {
+		email, err := account.Email(inv.Environ)
+		if err != nil {
+			// Diagnostic only, and deliberately without the value: whether
+			// an email was found is a fact about the configuration; the
+			// email itself is the member's and belongs in no log line.
+			inv.logger().Debug("claude account email unavailable", adapterlog.Err(err))
+		}
+		return email
+	})
+}
+
+// labelOption resolves the `label` option exactly the way this file
+// resolves the config_dir option: inside a session from the start facts
+// SessionStart wrote — plugin options never reach the Bash tool, so the
+// facts are the only place an in-session command can read one (P7-11) —
+// and at a terminal from the environment, where BRIGADE_LABEL stands in
+// for the option as BRIGADE_CONFIG_DIR stands in for config_dir. A
+// session whose facts are missing or unreadable falls back to the
+// option's own default; every command that joins refuses on those facts
+// a moment later anyway (dialectTarget).
+func (inv Invocation) labelOption() string {
+	if !inv.inSession() {
+		return config.LabelOption(inv.Environ)
+	}
+	stateDir, err := config.BrigadeStateDir(inv.Environ)
+	if err != nil {
+		return config.LabelAccount
+	}
+	facts, err := inv.startFacts(stateDir)
+	if err != nil {
+		return config.LabelAccount
+	}
+	// Re-normalised on the way out: the facts file is the hook's, but a
+	// label reaches the wire from here and is sanitised on every path.
+	return config.ParseLabelOption(facts.LabelOption)
 }
 
 // parseJoinFlags: the two optional flags are --label and, since P7-11,

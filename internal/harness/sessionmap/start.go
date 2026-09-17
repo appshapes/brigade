@@ -33,6 +33,15 @@ type StartFacts struct {
 	// PluginBin is the bootstrap's resolved realpath when the hook knows
 	// it, else "".
 	PluginBin string `json:"plugin_bin"`
+	// LabelOption is the `label` option as the hook resolved it (card 24,
+	// part B): "account", "none", or the member's own sanitised text.
+	// Plugin options never reach the Bash tool, so this is the only way an
+	// in-session `team create` or `team join` can learn it — exactly the
+	// reason ConfigDir is here. It is the OPTION, not a label: the account
+	// email is read from Claude Code's own config at the point of use, so
+	// no member's email is ever written to this file. Omitted when the
+	// option is absent, so a map written before it existed still reads.
+	LabelOption string `json:"label_option,omitzero"`
 	// WrittenAt is the hook's clock at the write.
 	WrittenAt time.Time `json:"written_at"`
 }

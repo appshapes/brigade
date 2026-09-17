@@ -17,7 +17,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOptions: %v", err)
 	}
-	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, Frame: frame.DefaultLevel}
+	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, Frame: frame.DefaultLevel, Label: config.LabelAccount}
 	if got != want {
 		t.Fatalf("defaults =\n %+v\nwant\n %+v", got, want)
 	}
@@ -38,6 +38,7 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		config.OptionPollOnPrompt+"=yes",
 		config.OptionFrame+"=guarded",
 		config.OptionFrameFile+"=/opt/brigade/frame.txt/",
+		config.OptionLabel+"=Alice of Ops",
 	)
 	got, err := config.ParseOptions(env)
 	if err != nil {
@@ -53,6 +54,7 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		Frame:               frame.LevelGuarded,
 		FrameFile:           "/opt/brigade/frame.txt",
 		FrameWarning:        config.WarnFrameBothSet,
+		Label:               "Alice of Ops",
 	}
 	if got != want {
 		t.Fatalf("options =\n %+v\nwant\n %+v", got, want)

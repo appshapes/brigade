@@ -93,6 +93,41 @@ func TestHookStartFactsCarryTheConfigDirOption(t *testing.T) {
 	}
 }
 
+// TestHookStartFactsCarryTheLabelOption is the same acceptance for card
+// 24's `label` option: it never reaches the Bash tool either, so the start
+// facts are where an in-session `team join` reads it. The OPTION is what
+// is written — no member's account email is ever put in this file — and an
+// absent option records the account default.
+func TestHookStartFactsCarryTheLabelOption(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ name, set, want string }{
+		{"absent: the account default", "", config.LabelAccount},
+		{"opted out", "none", config.LabelNone},
+		{"a literal", "Alice of Ops", "Alice of Ops"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.useSeam(nil)
+			var extra []string
+			if c.set != "" {
+				extra = append(extra, config.OptionLabel+"="+c.set)
+			}
+			if exit, _, _ := f.run(SubSessionStart, f.startDoc("startup"), extra...); exit != 0 {
+				t.Fatal(exit)
+			}
+			facts, err := f.store().ReadStart(f.pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if facts.LabelOption != c.want {
+				t.Fatalf("start facts label_option = %q, want %q", facts.LabelOption, c.want)
+			}
+		})
+	}
+}
+
 // TestHookSwapDriftAttachesToNeither is the team-swap defense end to end:
 // the checkout is pinned to team A, a PR re-points the file to team B —
 // which this user ALSO holds a credential for — and the session attaches

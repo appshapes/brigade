@@ -19,6 +19,12 @@
       "description": "Where Brigade's credential store lives; leave empty for the platform default (~/.config/brigade), and note that the plugin ignores BRIGADE_CONFIG_DIR from the environment on purpose.",
       "default": ""
     },
+    "label": {
+      "type": "string",
+      "title": "Your label in the team roster",
+      "description": "How teammates see you. account (the default) uses the email address of the Claude account this install is signed in to, read from Claude Code's own configuration and never written; none sends no label at all, and your sessions are listed by their principal reference alone; any other text is used as your label. A label is unverified free text either way — the principal reference beside it is the identity.",
+      "default": "account"
+    },
     "adapter_command": {
       "type": "string",
       "title": "Adapter command override (advanced)",

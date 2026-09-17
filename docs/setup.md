@@ -241,6 +241,32 @@ it. Either way the secret never reaches your scrollback, your shell history or a
 - A backend other than the bundled Supabase adapter is named in the project file's `adapter` field; the name
   resolves to a command through your own `adapters.json`. [docs/adapter-authors.md](adapter-authors.md) explains it.
 
+**How teammates see you.** Your sessions carry a display label, and by default it is **the email address of the
+Claude account this install is signed in to** — Brigade reads it from Claude Code's own configuration
+(`.claude.json`, under `CLAUDE_CONFIG_DIR` when you set that, else in your home directory), never writes it, and
+sends it once, with the `team join` that makes you a member. So from this version on, the `/brigade:join` above
+labels you with your account email, and joining a team shares that address with everyone on it. The roster shows
+it beside the first characters of your principal reference: `alice@example.com (unverified) [9f3c1a20]`.
+
+Set the plugin option **`label`** if you want something else:
+
+| `label` | what your teammates see |
+| --- | --- |
+| `account` (the default) | your Claude account email |
+| `none` | no label at all — your sessions are listed by their principal reference alone |
+| any other text | that text |
+
+A label proves nothing either way: anyone can pick any of them, so every place one is shown says `(unverified)`,
+and the principal reference beside it is the identity. `--label` on `brigade team join` or `brigade team create`
+overrides the option for that one command, and a terminal `brigade team join` shows the default in the prompt
+before it sends anything. In your own terminal, outside a session, `BRIGADE_LABEL` stands in for the option the
+way `BRIGADE_CONFIG_DIR` stands in for `config_dir`; inside a session Brigade ignores it, as it ignores every
+`BRIGADE_*` variable a repository could set.
+
+Changing the option later changes what your next **first** join on this machine sends; it does not rewrite the
+label a team already holds for you, and joining a second checkout of a team you are already on sends no label at
+all.
+
 You know it worked when the session starts with a line like this one:
 
 ```
@@ -384,7 +410,9 @@ Joining a team mints an anonymous account on the backend for you, and Brigade st
 The file has mode 0600 and sits in a directory with mode 0700. Brigade writes it atomically, so a crash never
 leaves half a file, and it **refuses to use it** if it is readable by anyone else. There is no second place: no
 keychain, no environment variable, no copy in the project directory (nothing except the one team file `.brigade.json`, written once by the
-administrator). Pass `config_dir` if you want the credential store somewhere other than `~/.config/brigade`.
+administrator). Pass `config_dir` if you want the credential store somewhere other than `~/.config/brigade`, and
+`label` (beside it in the same settings) if you want your display label to be something other than your Claude
+account email — see "How teammates see you" under "Member: join a team".
 
 To see the state of the team you joined here without seeing any token, run this in the checkout:
 

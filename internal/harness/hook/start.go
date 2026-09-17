@@ -265,8 +265,12 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 // writeStartFacts records what the hook knows before the team gates —
 // the resolved config dir above all — so an in-session `team create` or
 // `team join` in a not-yet-attached session writes to the same store the
-// hooks read (P7-11). Through sessionmap (the state directory), never the
-// team store: the hook still cannot join.
+// hooks read (P7-11). The `label` option rides along for the same reason
+// and no other: plugin options never reach the Bash tool, so this is
+// where an in-session join reads it (card 24, part B). The OPTION is
+// written, never a label — the account email is read at the point of use,
+// so this file never carries a member's email. Through sessionmap (the
+// state directory), never the team store: the hook still cannot join.
 func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
 	store := sessionmap.Store{StateDir: f.stateDir}
 	err := store.WriteStart(&sessionmap.StartFacts{
@@ -274,6 +278,7 @@ func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
 		ClaudeSessionID: in.SessionID,
 		ConfigDir:       opts.ConfigDir,
 		PluginBin:       f.pluginBin,
+		LabelOption:     opts.Label,
 		WrittenAt:       r.deps.Now(),
 	})
 	if err != nil {
