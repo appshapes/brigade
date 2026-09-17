@@ -21,16 +21,36 @@ const (
 	OptionPollOnPrompt        = "CLAUDE_PLUGIN_OPTION_POLL_ON_PROMPT"
 	OptionFrame               = "CLAUDE_PLUGIN_OPTION_FRAME"
 	OptionFrameFile           = "CLAUDE_PLUGIN_OPTION_FRAME_FILE"
+	OptionLabel               = "CLAUDE_PLUGIN_OPTION_LABEL"
 )
 
-// The BRIGADE_* variables that stand in for two options OUTSIDE a session
-// (a human's terminal, 4.1). Inside a session they are stripped. The frame
-// options deliberately have no such fallback (P5-12): nothing outside a
-// session ever builds a frame, and a variable would be a second,
-// non-user-settings source for the one security text Brigade controls.
+// The BRIGADE_* variables that stand in for three options OUTSIDE a
+// session (a human's terminal, 4.1). Inside a session they are stripped.
+// The frame options deliberately have no such fallback (P5-12): nothing
+// outside a session ever builds a frame, and a variable would be a
+// second, non-user-settings source for the one security text Brigade
+// controls.
 const (
 	envAdapterCommand = "BRIGADE_ADAPTER_COMMAND"
 	envTeamInbound    = "BRIGADE_TEAM_INBOUND"
+	// envLabel stands in for the `label` option at a terminal, exactly as
+	// BRIGADE_CONFIG_DIR stands in for config_dir there (card 24, part B):
+	// a terminal `brigade team join` is not a plugin invocation and sees no
+	// CLAUDE_PLUGIN_OPTION_* at all.
+	envLabel = "BRIGADE_LABEL"
+)
+
+// The two keywords the `label` option takes besides a literal text (card
+// 24, part B). The option decides what a `team create` or `team join`
+// sends as the member's display label when no --label was given.
+const (
+	// LabelAccount — the default when the option is absent — sends the
+	// member's Claude account email, read best effort at the point of use
+	// (internal/harness/account). It is never resolved here: this package
+	// reads the environment and nothing else.
+	LabelAccount = "account"
+	// LabelNone sends no label at all.
+	LabelNone = "none"
 )
 
 // The details.reason values for option failures.
@@ -84,6 +104,61 @@ func ParseInbound(raw string) (Inbound, string) {
 		return InboundRefuse, ""
 	default:
 		return InboundRefuse, WarnInboundInvalid
+	}
+}
+
+// ParseLabelOption normalises a `label` value to one of the three things
+// the option can mean: "" (absent) or "account" → LabelAccount; "none" →
+// LabelNone; anything else → that literal text, sanitised with
+// protocol.SanitizeLabel. Matching is exact after trimming, as ParseInbound's
+// is. A literal that sanitises away to nothing becomes LabelNone rather
+// than falling back to the account email: an unusable value must never
+// widen what is shared.
+func ParseLabelOption(raw string) string {
+	switch v := strings.TrimSpace(raw); v {
+	case "", LabelAccount:
+		return LabelAccount
+	case LabelNone:
+		return LabelNone
+	default:
+		if label := protocol.SanitizeLabel(v); label != "" {
+			return label
+		}
+		return LabelNone
+	}
+}
+
+// LabelOption resolves the `label` option from environ: the plugin option
+// when a hook set one, else BRIGADE_LABEL through Trusted — honoured at a
+// terminal, stripped inside a session like every other BRIGADE_* (U-27).
+// ParseOptions uses it, and so does a terminal `brigade team join`, so the
+// hook and the terminal read the same option the same way.
+func LabelOption(environ []string) string {
+	v := strings.TrimSpace(adapterkit.Getenv(environ, OptionLabel))
+	if v == "" {
+		v = adapterkit.Getenv(Trusted(environ), envLabel)
+	}
+	return ParseLabelOption(v)
+}
+
+// LabelFor turns a resolved option value into the label actually sent:
+// LabelNone sends nothing; LabelAccount asks account, the caller's
+// best-effort reader of the Claude account email; anything else is the
+// member's own literal text, already sanitised by ParseLabelOption. A nil
+// account, or one that answers "", sends nothing too — reading the email
+// is best effort, and a member whose account cannot be read joins
+// unlabelled rather than failing.
+func LabelFor(option string, account func() string) string {
+	switch option {
+	case LabelNone:
+		return ""
+	case LabelAccount:
+		if account == nil {
+			return ""
+		}
+		return account()
+	default:
+		return option
 	}
 }
 
@@ -143,6 +218,12 @@ type Options struct {
 	Frame        frame.Level
 	FrameFile    string
 	FrameWarning string
+	// Label is the `label` option after ParseLabelOption: LabelAccount
+	// (the default when the option is absent), LabelNone, or the member's
+	// own sanitised text. It is the OPTION and never the label itself —
+	// the account email is read at the point of use, so nothing here, and
+	// nothing the hook writes, carries a member's email (card 24, part B).
+	Label string
 }
 
 // ParseOptions resolves Options from environ. Only CLAUDE_PLUGIN_OPTION_*
@@ -217,6 +298,7 @@ func ParseOptions(environ []string) (Options, error) {
 			o.FrameWarning = WarnFrameBothSet
 		}
 	}
+	o.Label = LabelOption(environ)
 	return o, nil
 }
 

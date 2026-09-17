@@ -343,6 +343,7 @@ func TestTeamCreateInSession(t *testing.T) {
 	top := mkCheckout(t, f.dirs.Root)
 	persona := filepath.Join(f.dirs.Root, "persona-config")
 	writeStartFacts(t, f, persona)
+	writeAccountFile(t, f.dirs.Home)
 	secretFile := filepath.Join(f.dirs.Root, "team.secret")
 	f.rec.on("profile init", answer{result: `{"profile":"x","initialized":true}`})
 	f.rec.on("team create", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_1"}`})
@@ -367,11 +368,17 @@ func TestTeamCreateInSession(t *testing.T) {
 	if storeHash(t, xdgStore(f)) != xdgBefore {
 		t.Fatal("the XDG default store was written")
 	}
-	// The four lines, and no absolute path of the checkout on the
-	// model's stdout (F1): line 2 names the file, not where it is.
+	// The five lines, and no absolute path of the checkout on the
+	// model's stdout (F1): line 3 names the file, not where it is. An
+	// in-session create cannot prompt — --name is mandatory without a
+	// terminal — so line 2, the label it sent, is the whole of the
+	// disclosure on this path, and it names the account email.
 	lines := strings.Split(strings.TrimSuffix(f.out.String(), "\n"), "\n")
-	if len(lines) != 4 || lines[1] != "wrote "+teamfile.FileName+" at the repository toplevel" {
+	if len(lines) != 5 || lines[2] != "wrote "+teamfile.FileName+" at the repository toplevel" {
 		t.Fatalf("stdout = %q", f.out.String())
+	}
+	if !strings.HasPrefix(lines[1], "sent your display label: "+accountEmail+" (unverified) [") {
+		t.Fatalf("line 2 = %q, want the label this create sent", lines[1])
 	}
 	if strings.Contains(f.out.String(), top) {
 		t.Fatalf("stdout %q carries the checkout's absolute path", f.out.String())
@@ -462,5 +469,75 @@ func TestTeamRotateSecretInSessionBeforeTheFirstPrompt(t *testing.T) {
 	invs := readDump(t, dump)
 	if len(invs) != 1 || invs[0].Verb != "rotate-secret" || invs[0].Env["BRIGADE_PROFILE"] != key {
 		t.Fatalf("dump = %+v, want one rotate-secret under the pinned team key %q", invs, key)
+	}
+}
+
+// --- the `label` option inside a session (card 24, part B) ----------------
+
+// writeStartFactsWithLabel is writeStartFacts plus the `label` option the
+// hook resolved — the only way an in-session command can learn it, since
+// plugin options never reach the Bash tool.
+func writeStartFactsWithLabel(t *testing.T, f *fixture, configDir, labelOption string) {
+	t.Helper()
+	if err := (sessionmap.Store{StateDir: f.stateDir}).WriteStart(&sessionmap.StartFacts{
+		ClaudePID: fixturePID, ClaudeSessionID: "native-1", ConfigDir: configDir,
+		LabelOption: labelOption, WrittenAt: fixtureNow,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An in-session join reads the option from the start facts and the email
+// from Claude Code's own config directory, which CLAUDE_CONFIG_DIR names
+// inside a session. A planted BRIGADE_LABEL is ignored there (U-27), so
+// the hostile value below must not reach the wire under any of the arms.
+func TestTeamJoinInSessionResolvesTheLabelFromTheStartFacts(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ name, option, want string }{
+		{"absent: the account default", "", accountEmail},
+		{"opted out", config.LabelNone, ""},
+		{"a literal", "Alice of Ops", "Alice of Ops"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			f, top := joinFixture(t)
+			unattach(t, f)
+			persona := filepath.Join(f.dirs.Root, "persona-config")
+			writeStartFactsWithLabel(t, f, persona, c.option)
+			writeAccountFile(t, f.dirs.ClaudeConfig)
+			secretFile := filepath.Join(f.dirs.Root, "join.secret")
+			writeSecretFile(t, secretFile, setupSecret)
+
+			iv := sessionInv(t, f, top, "join", "--secret-file", secretFile)
+			iv.Environ = f.sessionEnv("BRIGADE_LABEL=planted-by-the-repository")
+			if err := Team(iv); err != nil {
+				t.Fatal(err)
+			}
+			if got := sentLabel(t, f, "team join"); got != c.want {
+				t.Fatalf("team join sent human_label %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// --label still wins inside a session, over the option and over the
+// account alike.
+func TestTeamJoinInSessionLabelFlagWins(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	unattach(t, f)
+	persona := filepath.Join(f.dirs.Root, "persona-config")
+	writeStartFactsWithLabel(t, f, persona, config.LabelAccount)
+	writeAccountFile(t, f.dirs.ClaudeConfig)
+	secretFile := filepath.Join(f.dirs.Root, "join.secret")
+	writeSecretFile(t, secretFile, setupSecret)
+
+	iv := sessionInv(t, f, top, "join", "--label", "Alice of Ops", "--secret-file", secretFile)
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentLabel(t, f, "team join"); got != "Alice of Ops" {
+		t.Fatalf("team join sent human_label %q, want the flag's value", got)
 	}
 }

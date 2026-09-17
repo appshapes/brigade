@@ -32,6 +32,7 @@ mkdir repo/.git
 cd repo
 exec brigade team create --adapter fs --url http://127.0.0.1:1 --key placeholder --name ops --label alice@example.com --secret-file $WORK/team.secret
 stdout 'created team "ops"'
+stdout 'sent your display label: alice@example\.com \(unverified\) \['
 stdout 'wrote .*\.brigade\.json'
 stdout 'git add \.brigade\.json'
 ! stdout brg1
