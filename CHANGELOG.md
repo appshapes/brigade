@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.6.5] — 2026-09-17
+
 ### Fixed
 
 - **The watcher's exit waits for its own writers.** `brigade watch` used to return while a goroutine of its own
