@@ -67,6 +67,41 @@ func labelLine(s string) string {
 	return label + UnverifiedSuffix
 }
 
+// shortPrincipalChars is how much of a principal ref the roster prints
+// beside a label (card 24): eight characters tell two principals apart at
+// a glance without crowding a line that already carries six columns.
+const shortPrincipalChars = 8
+
+// shortPrincipal renders the leading characters of a sanitised principal
+// ref for the human form. A ref shorter than the cap is taken whole, and
+// an empty one stays empty so the caller can drop the column.
+func shortPrincipal(s string) string {
+	id := idLine(s)
+	if r := []rune(id); len(r) > shortPrincipalChars {
+		return string(r[:shortPrincipalChars])
+	}
+	return id
+}
+
+// memberLine renders the roster's member column: the label with the
+// unverified suffix (B-3) and a short principal beside it, so a reader
+// sees who a session belongs to and still has the stable anchor — the
+// label is never an identity, and two members may pick the same one.
+// An empty label renders as "", and the caller keeps the
+// `principal=<ref>` column it has always printed, so an unlabelled
+// member's line does not change shape.
+func memberLine(label, principalRef string) string {
+	l := oneLine(protocol.SanitizeLabel(label))
+	if l == "" {
+		return ""
+	}
+	short := shortPrincipal(principalRef)
+	if short == "" {
+		return l + UnverifiedSuffix
+	}
+	return l + UnverifiedSuffix + " [" + short + "]"
+}
+
 // workspaceLine sanitises a registered workspace label for the human
 // form with the label rules; "" stays "" so the caller omits the column.
 func workspaceLine(s string) string { return oneLine(protocol.SanitizeLabel(s)) }

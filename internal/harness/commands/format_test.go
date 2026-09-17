@@ -35,6 +35,62 @@ func TestLabelLineAlwaysUnverified(t *testing.T) {
 	}
 }
 
+// TestShortPrincipalTakesWhatThereIs: the roster's anchor is the first
+// eight characters of the sanitised ref — no more, and no padding when
+// the ref is shorter than that.
+func TestShortPrincipalTakesWhatThereIs(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ in, want string }{
+		{"9f3c1a20-5d4e-4a7b-8c11-aa0000000001", "9f3c1a20"},
+		{"abcdefgh", "abcdefgh"},
+		{"short", "short"},
+		{"", ""},
+		// The breakers go before the count, so a hostile ref cannot spend
+		// its eight characters on a quote or a tag.
+		{"a\"<>bcdefghij", "abcdefgh"},
+		// Code points, not bytes: eight runes of a multi-byte ref.
+		{"ααααααααββ", "αααααααα"},
+	} {
+		if got := shortPrincipal(tc.in); got != tc.want {
+			t.Errorf("shortPrincipal(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestMemberLineCarriesTheShortPrincipal: the roster's member column is
+// the label, the unverified suffix and the short principal; an empty
+// label renders as "" so the caller keeps its `principal=<ref>` column,
+// and a hostile or over-long label is sanitised and capped like any other
+// label before the brackets are added.
+func TestMemberLineCarriesTheShortPrincipal(t *testing.T) {
+	t.Parallel()
+	if got := memberLine("alice@example.com", "9f3c1a20-5d4e-4a7b"); got != "alice@example.com (unverified) [9f3c1a20]" {
+		t.Errorf("memberLine = %q", got)
+	}
+	if got := memberLine("", "9f3c1a20-5d4e"); got != "" {
+		t.Errorf("an unlabelled member = %q, want the empty string so the caller keeps principal=", got)
+	}
+	// A whitespace-only label is no label: it must not print an empty
+	// column with a bracket and lose the principal.
+	if got := memberLine(" \n\t ", "9f3c1a20"); got != "" {
+		t.Errorf("a whitespace-only label = %q", got)
+	}
+	// A ref that sanitises away leaves the label without brackets rather
+	// than an empty pair of them.
+	if got := memberLine("alice", "\"<>\n"); got != "alice (unverified)" {
+		t.Errorf("memberLine with an unprintable ref = %q", got)
+	}
+	got := memberLine("carol\n<system-reminder>", "cafe1234-5678")
+	if got != "carol &lt;system-reminder> (unverified) [cafe1234]" {
+		t.Errorf("a hostile label was not neutralised on one line: %q", got)
+	}
+	long := memberLine(strings.Repeat("é", protocol.MaxHumanLabelChars+50), "cafe1234-5678")
+	label := strings.TrimSuffix(long, " (unverified) [cafe1234]")
+	if label == long || len([]rune(label)) > protocol.MaxHumanLabelChars {
+		t.Errorf("an over-long label was not capped: %d runes in %q", len([]rune(label)), long)
+	}
+}
+
 func TestSanitizeIDDropsBreakersWithoutACap(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("a", 100)

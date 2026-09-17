@@ -60,9 +60,12 @@ cp stdout joined.json
 jsonenv joined.json .result.principal_ref BOB
 
 # --- the roster, in the documented layout (bob's store, sole team) -----
+# Card 24: each line leads with the member's label and the first eight
+# characters of their principal; the full ref stays in the --json form.
 exec brigade team members
-stdout 'alice@example.com \(unverified\)  joined 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-stdout '^principal='$BOB'  bob@example.com \(unverified\)  joined '
+stdout '^alice@example.com \(unverified\) \[[^]]{8}\]  joined 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+stdout '^bob@example.com \(unverified\) \[[^]]{8}\]  joined '
+! stdout 'principal='
 ! stderr .
 exec brigade team members --json
 json stdout .ok true
@@ -76,7 +79,7 @@ exec brigade-adapter-fs --root $WORK/.brigade/brigade-state/fs-adapter --profile
 cp stdout a.json
 jsonenv a.json .result.session_id SID
 exec brigade sessions
-stdout '^'$SID'  payments-api  bob@example.com \(unverified\)  active  inbound=accept'
+stdout '^'$SID'  payments-api  active  inbound=accept  bob@example.com \(unverified\) \[[^]]{8}\]  seen '
 ! stdout '\(this session\)'
 ! stderr .
 

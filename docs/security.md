@@ -43,7 +43,10 @@ Brigade is designed against seven kinds of attacker. Six of them are held off. T
 someone else's, and two members can have the same one. Brigade never treats a name as proof of anything. Every
 place a display label is shown, it is marked `(unverified)`. The only identity the server stamps is the
 `from-principal` value in each message, and the team roster shows that same reference for every active member, so
-you can recognise the same person across all of their sessions.
+you can recognise the same person across all of their sessions. The roster prints the label with the first
+characters of that reference beside it, in brackets — the principal, never the label, is the identity, and the
+bracketed characters are what tells two members who chose the same label apart. `brigade sessions --all` and
+either command's `--json` form print the reference in full.
 
 **One thing that is a boundary.** A caller who is not an active member of a team gets the same refusal for a team
 that exists and for a team id made up out of thin air. The two answers are byte for byte identical, so nobody can

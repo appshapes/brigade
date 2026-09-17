@@ -13,7 +13,7 @@ func listWithLabels(label string) string {
 	rec := func(id, name string, label *string) map[string]any {
 		m := map[string]any{
 			"session_id": id, "session_name": name, "human_label": name + "@example.com",
-			"principal_ref": "principal-" + id[:4], "state": "active", "activity": "busy", "inbound": "accept",
+			"principal_ref": id[:8] + "-principal", "state": "active", "activity": "busy", "inbound": "accept",
 			"last_seen_at": fixtureNow.Add(-5 * time.Second), "lease_until": fixtureNow.Add(60 * time.Second),
 			"created_at": fixtureNow.Add(-time.Hour), "is_self": id == selfSessionID,
 		}
@@ -37,7 +37,8 @@ func listWithLabels(label string) string {
 }
 
 // TestSessionsShowsTheRepository (P11-5): a session that registered a
-// workspace label gets a `repo=` column right after its human label; one
+// workspace label gets a `repo=` column right after its name (card 24
+// moved the label to the member column at the far side of the line); one
 // that did not keeps the line shape it always had; a hostile label is
 // sanitised like every other remote string.
 func TestSessionsShowsTheRepository(t *testing.T) {
@@ -49,8 +50,8 @@ func TestSessionsShowsTheRepository(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(f.out.String(), "\n"), "\n")
 	want := []string{
-		selfSessionID + "  payments-api  payments-api@example.com (unverified)  repo=thinktech-api  active  inbound=accept  principal=principal-aaaa  seen 5s ago (this session)",
-		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  billing  billing@example.com (unverified)  active  inbound=accept  principal=principal-bbbb  seen 5s ago",
+		selfSessionID + "  payments-api  repo=thinktech-api  active  inbound=accept  payments-api@example.com (unverified) [aaaaaaaa]  seen 5s ago (this session)",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  billing  active  inbound=accept  billing@example.com (unverified) [bbbbbbbb]  seen 5s ago",
 	}
 	if len(lines) != len(want) {
 		t.Fatalf("got %d lines, want %d:\n%s", len(lines), len(want), f.out.String())

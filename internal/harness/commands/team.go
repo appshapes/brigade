@@ -129,8 +129,11 @@ func (inv Invocation) checkForwardedSecretFile(rest []string) error {
 }
 
 // members implements `brigade team members [--json]`: one line per member,
-// `principal=<ref>  <human_label> (unverified)  joined <date>  <n>
-// sessions, seen <ago>`. The capability (team.roster) is not pre-checked:
+// `<human_label> (unverified) [<short principal>]  joined <date>  <n>
+// sessions, seen <ago>` (card 24), falling back to the original
+// `principal=<ref>  (unverified)  …` for a member without a label. The
+// label is never the identity; the principal beside it is the anchor, and
+// MembersNote says so in the --json form. The capability (team.roster) is not pre-checked:
 // an adapter without it answers with its own error, which is reported as
 // it is.
 func members(inv Invocation, teamFlag string) error {
@@ -170,12 +173,16 @@ func members(inv Invocation, teamFlag string) error {
 		if !m.JoinedAt.IsZero() {
 			joined = "joined " + m.JoinedAt.UTC().Format("2006-01-02")
 		}
-		lines = append(lines, columns(
-			"principal="+idLine(m.PrincipalRef),
-			labelLine(m.HumanLabel),
+		fields := []string{}
+		if member := memberLine(m.HumanLabel, m.PrincipalRef); member != "" {
+			fields = append(fields, member)
+		} else {
+			fields = append(fields, "principal="+idLine(m.PrincipalRef), labelLine(m.HumanLabel))
+		}
+		lines = append(lines, columns(append(fields,
 			joined,
 			strconv.Itoa(m.SessionCount)+" sessions, "+seen,
-		))
+		)...))
 	}
 	return writeLines(inv.Out, lines...)
 }

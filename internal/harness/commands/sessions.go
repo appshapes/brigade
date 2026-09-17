@@ -93,7 +93,16 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	now := inv.Deps.now()
 	lines := make([]string, 0, len(records)+2)
 	for _, r := range records {
-		fields := []string{idLine(r.SessionID), nameLine(r.SessionName), labelLine(r.HumanLabel)}
+		// The member column (card 24): a labelled session shows its label
+		// once, where the opaque principal used to be, with the first
+		// characters of that principal beside it; an unlabelled one keeps
+		// the label column after the name and the full `principal=<ref>`,
+		// so its line is byte for byte the line it has always had.
+		member := memberLine(r.HumanLabel, r.PrincipalRef)
+		fields := []string{idLine(r.SessionID), nameLine(r.SessionName)}
+		if member == "" {
+			fields = append(fields, labelLine(r.HumanLabel))
+		}
 		// The repository column appears only for sessions that registered
 		// a workspace label (P11-5: the harness sends the repository name
 		// by default), so an older harness's line keeps its shape. It sits
@@ -103,11 +112,16 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 				fields = append(fields, "repo="+repo)
 			}
 		}
-		fields = append(fields,
-			enumLine(r.State),
-			"inbound="+enumLine(r.Inbound),
-			"principal="+idLine(r.PrincipalRef),
-		)
+		fields = append(fields, enumLine(r.State), "inbound="+enumLine(r.Inbound))
+		if member != "" {
+			fields = append(fields, member)
+		}
+		// The full ref: always for an unlabelled session, and under --all
+		// for every session, because --all is the form a reader reaches for
+		// when the short principal is not enough to tell two people apart.
+		if member == "" || opts.All {
+			fields = append(fields, "principal="+idLine(r.PrincipalRef))
+		}
 		// model and context_used_tokens are optional on the wire (4.4.3):
 		// a harness that reports neither, and an adapter without the two
 		// capabilities, leave the line exactly the shape it has always

@@ -9,6 +9,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **The roster reads as people, not UUIDs.** `brigade sessions` and `brigade team members` print a member's
+  `human_label` where the opaque `principal_ref` used to stand — `alice@example.com (unverified) [9f3c1a20]`,
+  the label once and the first eight characters of the principal beside it, so two members who chose the same
+  label stay distinguishable. A member without a label keeps the line they had, `principal=<ref>` and all. The
+  principal is still the only identity: `brigade sessions --all` prints the full reference after the short one,
+  both `--json` forms are unchanged, and both notes still say that a label proves nothing.
+
 ## [0.6.5] — 2026-09-17
 
 ### Fixed
