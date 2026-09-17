@@ -55,15 +55,21 @@ import (
 // backend for one TTL, which is the price of needing no version RPC — a
 // version RPC would itself be absent on the one backend that matters.
 
-// sessionAppendedParams are the parameters migration
-// 20260910193200_session_model_context appended to register_session and
-// session_heartbeat (the `model` and `context_used_tokens` members of
-// 4.4.2 and 4.4.4). A backend without it exposes the older signatures.
-var sessionAppendedParams = []string{"p_model", "p_context_used_tokens"}
+// sessionAppendedParams are the parameters the migrations after the base
+// schema appended to register_session and session_heartbeat:
+// 20260910193200_session_model_context added `p_model` and
+// `p_context_used_tokens` (the members of 4.4.2 and 4.4.4) and
+// 20260917170000_session_human_label added `p_human_label` (4.4.2, C-45;
+// register_session only — a heartbeat never carries a label). A backend
+// without them exposes the older signatures. They are ONE set on purpose:
+// a backend behind on any of these migrations is a backend the adapter
+// calls without all of them, so the fallback stays a single probe and a
+// single marker rather than one per migration.
+var sessionAppendedParams = []string{"p_model", "p_context_used_tokens", "p_human_label"}
 
 // sessionAppendedCapabilities are the 4.7 capabilities those parameters
 // implement, withheld from `describe` while the backend is known legacy.
-var sessionAppendedCapabilities = []string{"session.model", "session.context_used_tokens"}
+var sessionAppendedCapabilities = []string{"session.model", "session.context_used_tokens", "session.human_label"}
 
 const (
 	// legacyMarkerName is the profile-directory file that records a
@@ -73,8 +79,10 @@ const (
 	// trust before the appended parameters are tried again, and so the
 	// longest an applied migration goes unnoticed by a running adapter.
 	legacyMarkerTTL = 10 * time.Minute
-	// legacyMigration names the migration the stderr line asks for.
-	legacyMigration = "20260910193200_session_model_context.sql"
+	// legacyMigration names the migration the stderr line asks for: the
+	// LAST of the appending migrations, because they apply in order and a
+	// backend missing any earlier one needs this one too.
+	legacyMigration = "20260917170000_session_human_label.sql"
 )
 
 // legacyMarker is the marker file's content.
@@ -106,7 +114,7 @@ func (c *command) rpcAppended(ctx context.Context, fn string, args rpcArgs, appe
 	if !isMigrationDrift(err) {
 		return err
 	}
-	c.log.Warn("the backend predates a migration this adapter knows; model and context_used_tokens are not stored until an administrator applies it",
+	c.log.Warn("the backend predates a migration this adapter knows; model, context_used_tokens and the registration's human_label are not stored until an administrator applies it",
 		slog.String("fn", fn), slog.String("migration", legacyMigration))
 	c.rememberLegacy()
 	return c.rpc(ctx, fn, withoutKeys(args, appended), out)

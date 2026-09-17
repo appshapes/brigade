@@ -115,6 +115,7 @@ func TestValidationArms(t *testing.T) {
 			return &r
 		}},
 		{"registration workspace_label overlong", "workspace_label", func() Validator { r := validRegistration(); r.WorkspaceLabel = strptr(long); return &r }},
+		{"registration human_label overlong", "human_label", func() Validator { r := validRegistration(); r.HumanLabel = strptr(long); return &r }},
 		{"registration model overlong", "model", func() Validator { r := validRegistration(); r.Model = strptr(longModel); return &r }},
 		{"registration context_used_tokens negative", "context_used_tokens", func() Validator {
 			r := validRegistration()

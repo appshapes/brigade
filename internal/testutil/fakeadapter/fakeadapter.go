@@ -179,6 +179,7 @@ func defaultCapabilities() []string {
 		"session.description", "session.resume",
 		"session.workspace_label", "session.inbound",
 		"session.model", "session.context_used_tokens",
+		"session.human_label",
 	}
 }
 

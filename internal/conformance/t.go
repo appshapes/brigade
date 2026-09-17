@@ -107,6 +107,14 @@ func (t *T) Scratch(name string) *Principal {
 // secret, labelled <name>@example.com. It needs team.join and a known
 // secret; without them the case is skipped. No session is registered.
 func (t *T) JoinPrincipal(name string) *Principal {
+	return t.JoinPrincipalLabelled(name, name+"@example.com")
+}
+
+// JoinPrincipalLabelled is JoinPrincipal with the membership label
+// chosen by the caller. An empty label joins with none at all — the state
+// every member of a team created before the label existed is in, and what
+// C-45 needs to watch a registration fill.
+func (t *T) JoinPrincipalLabelled(name, label string) *Principal {
 	f := t.run.fixture.ensure(t)
 	if !t.HasCap("team.join") || f.secret == "" {
 		t.Skip("needs team.join to provision an extra principal")
@@ -115,7 +123,7 @@ func (t *T) JoinPrincipal(name string) *Principal {
 	if err != nil {
 		t.Fatalf("principal %s: %v", name, err)
 	}
-	req := protocol.TeamJoinRequest{JoinSecret: f.secret, HumanLabel: name + "@example.com"}
+	req := protocol.TeamJoinRequest{JoinSecret: f.secret, HumanLabel: label}
 	var res protocol.TeamJoinResult
 	t.OK(t.Exec(p, t.mustJSON(&req), "team", "join"), &res)
 	p.PrincipalRef, p.TeamRef, p.TeamName = res.PrincipalRef, res.TeamRef, res.TeamName

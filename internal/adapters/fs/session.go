@@ -59,7 +59,7 @@ func (c *command) requireSessionFlag(id string) (string, error) {
 }
 
 // sessionRegister implements 4.4.2 (C-10, C-11, C-16, C-17, C-19, C-19b,
-// C-42). The lease is checked against THIS adapter's advertised range,
+// C-42, C-45). The lease is checked against THIS adapter's advertised range,
 // which is not the protocol's example range (4.4.1), and an absent
 // lease_seconds means lease.default_seconds.
 func (c *command) sessionRegister() (any, error) {
@@ -115,6 +115,12 @@ func (c *command) sessionRegister() (any, error) {
 	f.LastSeenAt = now
 	f.LeaseUntil = now.Add(time.Duration(seconds) * time.Second)
 	if err := c.st.saveSession(teamRef, f); err != nil {
+		return nil, err
+	}
+	// C-45: the registration's human_label is the harness's DEFAULT for
+	// its principal. It fills an empty membership label and never
+	// replaces one that is already there.
+	if _, err := c.st.adoptHumanLabel(teamRef, principal, req.HumanLabel); err != nil {
 		return nil, err
 	}
 	record, err := c.st.record(teamRef, f, false)

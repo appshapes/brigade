@@ -234,7 +234,7 @@ Answered from local state only.
   "delivery": {"guarantee": "at_least_once", "ordering": "none", "ack_state": "injected"},
   "capabilities": ["team.create", "team.join", "team.roster", "message.receive", "message.watch.push", "message.watch.stdin_commands",
                    "session.description", "session.resume", "session.workspace_label", "session.inbound",
-                   "session.model", "session.context_used_tokens"],
+                   "session.model", "session.context_used_tokens", "session.human_label"],
   "limits": {"max_body_bytes": 16384, "max_summary_chars": 200, "max_session_name_codepoints": 64,
              "max_team_name_codepoints": 64, "max_description_chars": 256, "max_human_label_chars": 128,
              "max_workspace_label_chars": 128, "max_model_chars": 128, "max_idempotency_key_chars": 128,
@@ -302,6 +302,7 @@ a cap an adapter chooses (4.4.2).
   "harness": "claude-code", "harness_version": "2.1.251",
   "session_name": "payments-api", "session_description": null,
   "activity": "busy", "inbound": "accept", "lease_seconds": 90, "workspace_label": null,
+  "human_label": "alice@example.com",
   "model": "claude-opus-5[1m]", "context_used_tokens": 189681,
   "resume": {"session_id": "a Brigade session_id previously returned to this principal"}
 }
@@ -316,6 +317,7 @@ a cap an adapter chooses (4.4.2).
 | `inbound` | yes | `accept`, `hold` or `refuse` — the harness's inbound policy, so senders can see it; adapters without `session.inbound` ignore it (C-42) |
 | `lease_seconds` | optional, nullable | within `lease.min_seconds..lease.max_seconds`, else `invalid_input`; absent means `lease.default_seconds` |
 | `workspace_label` | optional, nullable | ≤ `max_workspace_label_chars`; capability `session.workspace_label` |
+| `human_label` | optional, nullable | ≤ `max_human_label_chars`, else `invalid_input` naming `human_label` (C-45); the harness's **default** label for its principal, **unverified** text (4.5.11). An adapter announcing `session.human_label` adopts it as the membership's `human_label` **only when the membership has none**; an existing label is **never** overwritten, by this member or any later registration. An adapter without the capability accepts the member and ignores it |
 | `model` | optional, nullable | ≤ `max_model_chars`, else `invalid_input` naming `model` (C-44); the harness-reported model identity, **unverified** text (4.5.11); capability `session.model` — an adapter without it accepts the member and ignores it |
 | `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1` (the range JSON carries exactly), else `invalid_input` naming `context_used_tokens` (C-44); the harness's own count of the tokens its context holds; capability `session.context_used_tokens` — an adapter without it accepts the member and ignores it |
 | `resume.session_id` | optional | capability `session.resume`; see below |
@@ -323,7 +325,10 @@ a cap an adapter chooses (4.4.2).
 The registration has no member for a native session id, a working directory, a hostname, a username or a transcript
 path (threat model T10, unit test U-22); adding one is a protocol change, not a convenience. The harness MAY report
 `model` and `context_used_tokens`, two facts it derives locally from the session's own transcript; the transcript and
-its path never travel, and neither fact names a machine, a user or a file (C-44).
+its path never travel, and neither fact names a machine, a user or a file (C-44). It MAY also report `human_label`,
+its default label for the principal: an adapter announcing `session.human_label` adopts it as the membership's label
+only when that membership has none, so a member whose label is empty is filled at the next registration and a member
+who chose a label keeps it forever (C-45).
 
 **Resume.** An adapter MUST NOT let a caller re-open a session it does not own — the answer is the uniform `not_found`
 (C-19) — and MUST NOT re-open a session that is open with a valid lease (`conflict`, `details.reason =
@@ -826,6 +831,7 @@ failure → 9; GoTrue `refresh_token_already_used` (after one re-read-and-retry)
 | `session.inbound` | `inbound` is stored and reported (4.4.2, 4.4.3, C-42) | an adapter without it accepts the member and ignores it |
 | `session.model` | `model` is stored and reported (4.4.2, 4.4.3, 4.4.4, the watch `heartbeat` command of 4.4.9; C-44) | an adapter without it accepts the member and ignores it; the value is harness-reported and unverified (4.5.11) |
 | `session.context_used_tokens` | `context_used_tokens` is stored and reported (4.4.2, 4.4.3, 4.4.4, the watch `heartbeat` command of 4.4.9; C-44) | an adapter without it accepts the member and ignores it |
+| `session.human_label` | the registration's `human_label` (4.4.2) is adopted as the membership's `human_label` when the membership has none (C-45) | an existing label is never overwritten; an adapter without it accepts the member and ignores it; the value is harness-reported and unverified (4.5.11) |
 | `delivery.processed` | — | reserved; `delivery.ack_state = "processed"` is not implemented by any v1 consumer |
 
 ## 4.8 What the protocol deliberately does not say
@@ -925,6 +931,7 @@ once.
 | C-42 | 4.4.2 (cap `session.inbound`) | 4.4.2 `inbound`; 4.4.3 `inbound`; 4.4.4; 4.7 |
 | C-43 | 4.2 (cap `team.roster`) | 4.2 `team members`; 4.4.10 `team members`; 4.5.7 |
 | C-44 | 4.4.2 model and context_used_tokens (caps `session.model`, `session.context_used_tokens`) | 4.4.2 `model`, `context_used_tokens`, registration paragraph; 4.4.3 `model`, `context_used_tokens`; 4.4.4; 4.4.9 commands; 4.5.11; 4.7 |
+| C-45 | 4.4.2 human_label (cap `session.human_label`) | 4.4.2 `human_label`, registration paragraph; 4.5.11; 4.7 |
 
 ## Appendix B. Normative statements without a conformance case when the suite was specified (input to P1-6)
 

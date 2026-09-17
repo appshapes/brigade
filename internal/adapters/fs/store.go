@@ -298,6 +298,28 @@ func (s *store) loadMember(team, principal string) (*memberFile, bool, error) {
 	return &m, true, nil
 }
 
+// adoptHumanLabel fills an EMPTY membership label from the label a
+// registration carried (4.4.2, capability session.human_label, C-45) and
+// reports the label that stands afterwards. A membership that already has
+// a label keeps it — this never overwrites one, whatever a later
+// registration says — and an absent or empty offer changes nothing. The
+// member file is rewritten only when the label actually changes, so a
+// re-registration of an already-labelled member touches no file.
+func (s *store) adoptHumanLabel(team, principal string, offered *string) (string, error) {
+	m, ok, err := s.loadMember(team, principal)
+	if err != nil || !ok {
+		return "", err
+	}
+	if m.HumanLabel != "" || offered == nil || *offered == "" {
+		return m.HumanLabel, nil
+	}
+	m.HumanLabel = *offered
+	if err := writeJSON(s.memberPath(team, principal), m); err != nil {
+		return "", err
+	}
+	return m.HumanLabel, nil
+}
+
 // memberActiveIn reports whether the principal is an active member.
 func (s *store) memberActiveIn(team, principal string) (bool, error) {
 	m, ok, err := s.loadMember(team, principal)

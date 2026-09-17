@@ -5,12 +5,14 @@
 -- online-before-offline when cut, revoked members hidden, no is_self), workspace_label and inbound round-trips,
 -- model and context_used_tokens round-trips (C-44; 20260910193200_session_model_context.sql: returned by
 -- register_session and list_sessions, updated and kept by session_heartbeat, cleared by a resume that omits them,
--- capped at 128 code points and at zero), the registration rate limit, input caps, and byte-identical
+-- capped at 128 code points and at zero), the registration's human_label adoption (C-45;
+-- 20260917170000_session_human_label.sql: adopted into an EMPTY membership label, never over one already set,
+-- nothing written when the parameter is absent, capped at 128), the registration rate limit, input caps, and byte-identical
 -- brigade:unauthorized for register_session, list_sessions and list_members against another team's id and a
 -- random uuid (timing recorded).
 begin;
 \ir helpers/auth.sql
-select plan(133);
+select plan(145);
 
 create function pg_temp.err(q text) returns text language plpgsql as $$
 begin
@@ -279,6 +281,47 @@ end $$;
 select is(pg_temp.register_n(:'rr'::uuid, :'team_a'::uuid, 120), 120, 'R registers 120 sessions within the hour');
 select pg_temp.login(:'rr', true, 'Rae');
 select throws_ok($$select brigade.register_session('$$ || :'team_a' || $$', 'one too many')$$, 'P0001', 'brigade:rate_limited:register_session:3600', 'the 121st registration in an hour is rate_limited:register_session:3600');
+select pg_temp.logout();
+
+-- 8. register_session adopts p_human_label into an EMPTY membership label and never over an existing one
+--    (C-45; 20260917170000_session_human_label.sql). U joins team A with no label at all — the state every
+--    membership created before the label existed is in — and L joins with one.
+select pg_temp.new_user() as uu \gset
+select pg_temp.new_user() as ll \gset
+select pg_temp.login(:'uu', true, 'Unlabelled');
+select is((brigade.join_team(:'secret_a', null))->>'status', 'joined', 'fixture: U joins team A with NO human_label');
+select pg_temp.logout();
+select pg_temp.login(:'ll', true, 'Lettie');
+select is((brigade.join_team(:'secret_a', 'Lettie'))->>'status', 'joined', 'fixture: L joins team A with a chosen label');
+select pg_temp.logout();
+
+-- Adopt when the membership has none: the row is filled AND the record this very call returns carries it.
+select pg_temp.login(:'uu', true, 'Unlabelled');
+select brigade.register_session(p_team_id => :'team_a'::uuid, p_name => 'u-fill', p_human_label => 'u@example.com') as reg_u \gset
+select is((:'reg_u'::jsonb)->>'human_label', 'u@example.com', 'register_session: an empty membership label is adopted from p_human_label and returned on the record (C-45)');
+select is((select human_label from brigade.memberships where team_id = :'team_a'::uuid and user_id = :'uu'::uuid), 'u@example.com', 'register_session: the membership row now carries the adopted label (C-45)');
+
+-- Keep when it is set: a later registration offering a DIFFERENT label changes nothing.
+select brigade.register_session(p_team_id => :'team_a'::uuid, p_name => 'u-keep', p_human_label => 'other@example.com') as reg_u2 \gset
+select is((:'reg_u2'::jsonb)->>'human_label', 'u@example.com', 'register_session: a second p_human_label does not replace the adopted one (C-45)');
+select is((select human_label from brigade.memberships where team_id = :'team_a'::uuid and user_id = :'uu'::uuid), 'u@example.com', 'register_session: the membership row keeps the first label (C-45)');
+select pg_temp.logout();
+
+-- A member who CHOSE a label keeps it, whatever a registration offers.
+select pg_temp.login(:'ll', true, 'Lettie');
+select brigade.register_session(p_team_id => :'team_a'::uuid, p_name => 'l-keep', p_human_label => 'stolen@example.com') as reg_l \gset
+select is((:'reg_l'::jsonb)->>'human_label', 'Lettie', 'register_session: a chosen membership label is never overwritten by p_human_label (C-45)');
+select is((select human_label from brigade.memberships where team_id = :'team_a'::uuid and user_id = :'ll'::uuid), 'Lettie', 'register_session: the chosen label stands in the membership row (C-45)');
+select pg_temp.logout();
+
+-- Nothing when absent: a registration carrying no p_human_label leaves an unlabelled membership unlabelled.
+select pg_temp.new_user() as nn \gset
+select pg_temp.login(:'nn', true, 'Noone');
+select is((brigade.join_team(:'secret_a', null))->>'status', 'joined', 'fixture: N joins team A with NO human_label');
+select brigade.register_session(p_team_id => :'team_a'::uuid, p_name => 'n-none') as reg_n \gset
+select is((:'reg_n'::jsonb)->>'human_label', null::text, 'register_session: no p_human_label leaves the record''s human_label null (C-45)');
+select is((select human_label from brigade.memberships where team_id = :'team_a'::uuid and user_id = :'nn'::uuid), null::text, 'register_session: no p_human_label writes nothing to the membership row (C-45)');
+select throws_ok($$select brigade.register_session(p_team_id => '$$ || :'team_a' || $$', p_name => 'n-cap', p_human_label => '$$ || repeat('x', 129) || $$')$$, '22023', 'brigade:invalid_input:human_label', 'register_session: a human_label over 128 characters is invalid_input naming human_label (C-45)');
 select pg_temp.logout();
 
 select * from finish();

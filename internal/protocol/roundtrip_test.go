@@ -205,6 +205,14 @@ func TestNullableMembersRoundTripWithValues(t *testing.T) {
 			fresh: func() Validator { return &SessionRegistration{} },
 		},
 		{
+			// C-45: the harness's default label for its principal rides
+			// the registration and survives the round trip unchanged.
+			name: "registration with a human label",
+			doc: `{"harness":"claude-code","harness_version":"2.1.251","session_name":"payments-api",` +
+				`"activity":"busy","inbound":"accept","human_label":"alice@example.com"}`,
+			fresh: func() Validator { return &SessionRegistration{} },
+		},
+		{
 			name: "record with description and workspace label",
 			doc: `{"session_id":"s1","session_name":"payments-api","session_description":"d",` +
 				`"principal_ref":"p1","human_label":"alice@example.com","state":"active","activity":"busy",` +

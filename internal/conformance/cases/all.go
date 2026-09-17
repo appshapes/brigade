@@ -55,5 +55,6 @@ func All() []conformance.Case {
 		c42Inbound(),
 		c43Roster(),
 		c44ModelContext(),
+		c45HumanLabel(),
 	}
 }

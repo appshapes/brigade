@@ -112,6 +112,52 @@ func TestDecision1WorkspaceLabelCapIs128Chars(t *testing.T) {
 	}
 }
 
+// TestRegistrationHumanLabelIsOptionalAndCapped pins C-45's new
+// registration member: optional, nullable, capped at
+// MaxHumanLabelChars like every other human label, and advertised by the
+// describe example under exactly "session.human_label". The member is
+// the harness's DEFAULT for its principal — the adoption rule (fill only
+// an empty membership label, never overwrite) lives in the adapters and
+// in the conformance case, not here.
+func TestRegistrationHumanLabelIsOptionalAndCapped(t *testing.T) {
+	t.Parallel()
+	euro := "€"
+	r := validRegistration()
+	if r.HumanLabel != nil {
+		t.Fatalf("the valid registration carries a human_label; the member is optional")
+	}
+	if err := r.Validate(); err != nil {
+		t.Fatalf("a registration without a human_label was rejected: %v", err)
+	}
+	r.HumanLabel = strptr(strings.Repeat(euro, MaxHumanLabelChars))
+	if err := r.Validate(); err != nil {
+		t.Fatalf("a %d-code-point human label was rejected: %v", MaxHumanLabelChars, err)
+	}
+	r.HumanLabel = strptr(strings.Repeat(euro, MaxHumanLabelChars+1))
+	err := r.Validate()
+	requireInvalidInput(t, err, "human_label")
+	d := detailsOf(t, err)
+	if d["limit"] != "128" || d["unit"] != "codepoints" || d["actual"] != "129" {
+		t.Fatalf("details = %v, want limit 128 codepoints, actual 129", d)
+	}
+
+	var example struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal(readExample(t, "describe_result.json"), &example); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range example.Capabilities {
+		if c == "session.human_label" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("describe_result.json capabilities %v lack %q", example.Capabilities, "session.human_label")
+	}
+}
+
 // TestDecision1LimitsPublishBothCaps: the two caps are wire members of
 // `limits` under exactly these names, carry exactly these numbers, are
 // advertised by the describe example, and are validated like every other
@@ -592,6 +638,7 @@ func TestDecision3EveryValidateFieldIsAWireMemberPath(t *testing.T) {
 		&Envelope{}, &ErrorObject{},
 		&TeamCreateRequest{TeamName: long},
 		&SessionRegistration{Harness: "h", HarnessVersion: "v", SessionName: "n", Activity: ActivityBusy, Inbound: InboundAccept, WorkspaceLabel: strptr(long)},
+		&SessionRegistration{Harness: "h", HarnessVersion: "v", SessionName: "n", Activity: ActivityBusy, Inbound: InboundAccept, HumanLabel: strptr(long)},
 		&SessionRegistration{Harness: "h", HarnessVersion: "v", SessionName: "n", Activity: ActivityBusy, Inbound: InboundAccept, Model: strptr(long)},
 		&HeartbeatRequest{ContextUsedTokens: intptr(-1)},
 		&WatchCommand{Type: CommandHeartbeat, Model: strptr(long)},
