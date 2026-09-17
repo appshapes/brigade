@@ -89,7 +89,9 @@ func shortPrincipal(s string) string {
 // label is never an identity, and two members may pick the same one.
 // An empty label renders as "", and the caller keeps the
 // `principal=<ref>` column it has always printed, so an unlabelled
-// member's line does not change shape.
+// member's line does not change shape. A ref that sanitises away renders
+// as "[?]": a labelled line always carries the bracket, so a missing
+// anchor is visible rather than silently absent.
 func memberLine(label, principalRef string) string {
 	l := oneLine(protocol.SanitizeLabel(label))
 	if l == "" {
@@ -97,7 +99,7 @@ func memberLine(label, principalRef string) string {
 	}
 	short := shortPrincipal(principalRef)
 	if short == "" {
-		return l + UnverifiedSuffix
+		short = "?"
 	}
 	return l + UnverifiedSuffix + " [" + short + "]"
 }

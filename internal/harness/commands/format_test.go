@@ -75,9 +75,10 @@ func TestMemberLineCarriesTheShortPrincipal(t *testing.T) {
 	if got := memberLine(" \n\t ", "9f3c1a20"); got != "" {
 		t.Errorf("a whitespace-only label = %q", got)
 	}
-	// A ref that sanitises away leaves the label without brackets rather
-	// than an empty pair of them.
-	if got := memberLine("alice", "\"<>\n"); got != "alice (unverified)" {
+	// A ref that sanitises away still carries the bracket, with "?" inside
+	// it: a labelled line never drops the column, so a reader can tell
+	// that this member's line has no anchor.
+	if got := memberLine("alice", "\"<>\n"); got != "alice (unverified) [?]" {
 		t.Errorf("memberLine with an unprintable ref = %q", got)
 	}
 	got := memberLine("carol\n<system-reminder>", "cafe1234-5678")
