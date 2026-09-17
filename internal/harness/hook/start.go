@@ -14,6 +14,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/buildinfo"
+	"github.com/appshapes/brigade/internal/harness/account"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
@@ -160,6 +161,13 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		label := res.workspaceLabel
 		reg.WorkspaceLabel = &label
 	}
+	// Card 24, part C: the member's default label, for an adapter that
+	// announces session.human_label to adopt into a membership that has
+	// none. Absent when the `label` option is `none` or the account email
+	// cannot be read — the fill is best effort and never a refusal.
+	if label := r.humanLabel(res.opts); label != "" {
+		reg.HumanLabel = &label
+	}
 	result, err := r.register(ctx, res.client, reg)
 	if err != nil {
 		r.fail("session-start: register", err, notConnectedFor(err))
@@ -284,6 +292,25 @@ func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
 	if err != nil {
 		r.log.Warn("session-start: start facts not written", log.Err(err))
 	}
+}
+
+// humanLabel is the member's DEFAULT display label, sent on every
+// registration for an adapter that announces session.human_label to adopt
+// into a membership that has none (card 24, part C). The `label` option
+// decides, exactly as it does for a `team create` or `team join`: `none`
+// sends nothing, a literal is that text, `account` — the default — is the
+// Claude account email. Reading that email is best effort: a failure is a
+// debug line without the value and an empty label, never a refusal, so a
+// session whose account cannot be read registers as every session did
+// before this version.
+func (r *run) humanLabel(opts config.Options) string {
+	return config.LabelFor(opts.Label, func() string {
+		email, err := account.Email(r.environ)
+		if err != nil {
+			r.log.Debug("claude account email unavailable", log.Err(err))
+		}
+		return email
+	})
 }
 
 // workspaceLabel is the label a session registers (P11-5): the user's
@@ -550,6 +577,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		TeamName:         teamName,
 		SessionName:      res.id.name,
 		WorkspaceLabel:   res.workspaceLabel,
+		LabelOption:      res.opts.Label,
 		PermissionMode:   in.PermissionMode,
 		NonInteractive:   res.id.nonInteractive,
 		Inbound:          res.dec.Policy.String(),

@@ -38,6 +38,12 @@ type ResumeRef struct {
 // that transcript — harness-reported, unverified, optional and nullable;
 // capabilities session.model and session.context_used_tokens (C-44) —
 // and the transcript itself and its path never travel.
+//
+// HumanLabel is the harness's default label for its principal
+// (capability session.human_label, C-45): an adapter that announces the
+// capability adopts it as the membership's human_label ONLY when the
+// membership has none, never overwriting a label the member chose, and
+// an adapter without the capability ignores the member.
 type SessionRegistration struct {
 	Harness            string     `json:"harness"`
 	HarnessVersion     string     `json:"harness_version"`
@@ -47,6 +53,7 @@ type SessionRegistration struct {
 	Inbound            string     `json:"inbound"`
 	LeaseSeconds       *int       `json:"lease_seconds,omitzero"`
 	WorkspaceLabel     *string    `json:"workspace_label,omitzero"`
+	HumanLabel         *string    `json:"human_label,omitzero"`
 	Model              *string    `json:"model,omitzero"`
 	ContextUsedTokens  *int       `json:"context_used_tokens,omitzero"`
 	Resume             *ResumeRef `json:"resume,omitzero"`
@@ -82,6 +89,11 @@ func (r *SessionRegistration) Validate() error {
 	}
 	if r.WorkspaceLabel != nil {
 		if err := optionalText("workspace_label", *r.WorkspaceLabel, MaxWorkspaceLabelChars); err != nil {
+			return err
+		}
+	}
+	if r.HumanLabel != nil {
+		if err := optionalText("human_label", *r.HumanLabel, MaxHumanLabelChars); err != nil {
 			return err
 		}
 	}

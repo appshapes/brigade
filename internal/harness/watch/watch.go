@@ -574,7 +574,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		pidPath:     pidfile.Path(rc.env.StateDir, rc.env.ClaudePID),
 		releasePath: inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
-			m.SessionName, m.Inbound, m.WorkspaceLabel, m.TranscriptPath),
+			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.TranscriptPath),
 	}
 	return w, 0, nil
 }

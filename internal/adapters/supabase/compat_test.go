@@ -14,20 +14,29 @@ import (
 )
 
 // Schema compatibility (P10-5): the adapter against a backend that lacks
-// migration 20260910193200 — the case nobody controls, because members
+// an appending migration — the case nobody controls, because members
 // update the plugin and administrators apply migrations on their own
 // clocks. The fake backend below answers exactly as PostgREST does on
-// such a project: an RPC that names an appended parameter is 404
-// PGRST202, one that omits them matches the old signature and succeeds.
+// such a project: an RPC that names a parameter a migration the project
+// does not have appended is 404 PGRST202, one that omits them matches the
+// older signature and succeeds. Its `level` is the number of leading
+// sessionAppendedMigrations the project has, so 0 is a project behind on
+// all of them, len() one that is fully migrated, and 1 the project every
+// deployed one becomes when this release lands: 20260910193200 applied,
+// 20260917170000 not yet.
 
 // heartbeatOK is session_heartbeat's answer.
 const heartbeatOK = `{"session_id":"` + testSessionID + `","state":"idle",` +
 	`"lease_until":"2026-09-02T12:01:30+00:00","server_time":"2026-09-02T12:00:00+00:00"}`
 
-// legacyBackend records every RPC and answers the session RPCs as a
-// backend without the migration while *migrated is false, and as a
-// migrated one afterwards.
-func legacyBackend(r *rig, migrated *bool) *[]map[string]any {
+// migratedLevel is the fake backend level of a project with every
+// appending migration applied.
+var migratedLevel = len(sessionAppendedMigrations)
+
+// backendAt records every RPC and answers the session RPCs as a project
+// holding the first *level appending migrations; *level is read on every
+// call, so a test can migrate the project between two of them.
+func backendAt(r *rig, level *int) *[]map[string]any {
 	seen := &[]map[string]any{}
 	r.be.onRPC = func(w http.ResponseWriter, _ *http.Request, fn, _ string, args map[string]any) {
 		r.be.mu.Lock()
@@ -38,7 +47,7 @@ func legacyBackend(r *rig, migrated *bool) *[]map[string]any {
 		copied["__fn"] = fn
 		*seen = append(*seen, copied)
 		r.be.mu.Unlock()
-		if !*migrated && (fn == "register_session" || fn == "session_heartbeat") && namesAny(rpcArgs(args), sessionAppendedParams) {
+		if (fn == "register_session" || fn == "session_heartbeat") && namesAny(rpcArgs(args), appendedParamsFrom(*level)) {
 			// The message is PostgREST's shape with a fixed function name:
 			// the adapter keys on the code, and echoing the request's own
 			// path back would only teach gosec's taint analysis to object.
@@ -58,13 +67,20 @@ func legacyBackend(r *rig, migrated *bool) *[]map[string]any {
 // names reports whether a recorded call carried any appended parameter.
 func names(args map[string]any) bool { return namesAny(rpcArgs(args), sessionAppendedParams) }
 
+// namesParam reports whether a recorded call carried one named parameter.
+func namesParam(args map[string]any, name string) bool {
+	_, present := args[name]
+	return present
+}
+
 // markerPath is the rig profile's backend-legacy.json.
 func markerPath(r *rig) string { return filepath.Join(r.profileDir(), legacyMarkerName) }
 
-// writeMarker plants a marker stamped at.
-func writeMarker(t *testing.T, r *rig, at time.Time) {
+// writeMarker plants a marker stamped at, naming the first migration the
+// backend lacks.
+func writeMarker(t *testing.T, r *rig, at time.Time, migration string) {
 	t.Helper()
-	data, err := json.Marshal(legacyMarker{CheckedAt: at, Migration: legacyMigration})
+	data, err := json.Marshal(legacyMarker{CheckedAt: at, Migration: migration})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,8 +122,8 @@ func TestLegacyBackendDropsTheFactsAndKeepsTheHeartbeat(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
-	migrated := false
-	seen := legacyBackend(r, &migrated)
+	level := 0
+	seen := backendAt(r, &level)
 	first := r.exec(`{"model":"claude-opus-5[1m]","context_used_tokens":189681}`, "session", "heartbeat", "--session", testSessionID)
 	if first.code != 0 {
 		t.Fatalf("exit %d: %s", first.code, first.stdout)
@@ -123,7 +139,8 @@ func TestLegacyBackendDropsTheFactsAndKeepsTheHeartbeat(t *testing.T) {
 	if len(*seen) != 2 || !names((*seen)[0]) || names((*seen)[1]) {
 		t.Fatalf("calls = %v, want one probe naming the parameters then one without", *seen)
 	}
-	if !strings.Contains(first.stderr, "predates a migration") || !strings.Contains(first.stderr, legacyMigration) {
+	missing := sessionAppendedMigrations[0].File
+	if !strings.Contains(first.stderr, "predates a migration") || !strings.Contains(first.stderr, missing) {
 		t.Errorf("stderr does not name the missing migration:\n%s", first.stderr)
 	}
 	data, err := adapterkit.ReadStrict(markerPath(r))
@@ -131,8 +148,8 @@ func TestLegacyBackendDropsTheFactsAndKeepsTheHeartbeat(t *testing.T) {
 		t.Fatalf("marker not written: %v", err)
 	}
 	var m legacyMarker
-	if err := json.Unmarshal(data, &m); err != nil || !m.CheckedAt.Equal(r.now) || m.Migration != legacyMigration {
-		t.Fatalf("marker = %s (%v), want checked_at %s and migration %s", data, err, r.now.Format(time.RFC3339), legacyMigration)
+	if err := json.Unmarshal(data, &m); err != nil || !m.CheckedAt.Equal(r.now) || m.Migration != missing {
+		t.Fatalf("marker = %s (%v), want checked_at %s and migration %s", data, err, r.now.Format(time.RFC3339), missing)
 	}
 
 	second := r.exec(`{"model":"claude-opus-5[1m]","context_used_tokens":190000}`, "session", "heartbeat", "--session", testSessionID)
@@ -153,8 +170,8 @@ func TestRegistrationWithFactsFallsBackToo(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
-	migrated := false
-	seen := legacyBackend(r, &migrated)
+	level := 0
+	seen := backendAt(r, &level)
 	doc := `{"harness":"other","harness_version":"1","session_name":"main","activity":"busy","inbound":"accept","model":"claude-opus-5[1m]","context_used_tokens":1}`
 	if got := r.exec(doc, "session", "register"); got.code != 0 {
 		t.Fatalf("exit %d: %s", got.code, got.stdout)
@@ -185,9 +202,9 @@ func TestLegacyMarkerExpiresAndAMigratedBackendClearsIt(t *testing.T) {
 			if tc.name == "future" {
 				at = r.now.Add(time.Hour)
 			}
-			writeMarker(t, r, at)
-			migrated := true
-			seen := legacyBackend(r, &migrated)
+			writeMarker(t, r, at, sessionAppendedMigrations[0].File)
+			level := migratedLevel
+			seen := backendAt(r, &level)
 			if got := r.exec(`{"model":"claude-opus-5[1m]","context_used_tokens":5}`, "session", "heartbeat", "--session", testSessionID); got.code != 0 {
 				t.Fatalf("exit %d: %s", got.code, got.stdout)
 			}
@@ -206,9 +223,9 @@ func TestFreshMarkerSkipsTheProbe(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
-	writeMarker(t, r, r.now.Add(-legacyMarkerTTL/2))
-	migrated := false
-	seen := legacyBackend(r, &migrated)
+	writeMarker(t, r, r.now.Add(-legacyMarkerTTL/2), sessionAppendedMigrations[0].File)
+	level := 0
+	seen := backendAt(r, &level)
 	if got := r.exec(`{"model":"claude-opus-5[1m]","context_used_tokens":5}`, "session", "heartbeat", "--session", testSessionID); got.code != 0 {
 		t.Fatalf("exit %d: %s", got.code, got.stdout)
 	}
@@ -220,11 +237,12 @@ func TestFreshMarkerSkipsTheProbe(t *testing.T) {
 	}
 }
 
-// TestDescribeWithholdsTheTwoCapabilitiesWhileLegacy: `describe` drops
-// session.model and session.context_used_tokens while the marker is
-// fresh and advertises them again once it is stale — from local files
-// only, creating and removing nothing (C-01).
-func TestDescribeWithholdsTheTwoCapabilitiesWhileLegacy(t *testing.T) {
+// TestDescribeWithholdsTheAppendedCapabilitiesWhileLegacy: `describe`
+// drops every appended capability while a fresh marker names the first
+// appending migration, drops only the ones the named migration adds when
+// it names a later one, and advertises them all again once the marker is
+// stale — from local files only, creating and removing nothing (C-01).
+func TestDescribeWithholdsTheAppendedCapabilitiesWhileLegacy(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
@@ -252,7 +270,7 @@ func TestDescribeWithholdsTheTwoCapabilitiesWhileLegacy(t *testing.T) {
 		}
 		return false
 	}
-	writeMarker(t, r, r.now)
+	writeMarker(t, r, r.now, sessionAppendedMigrations[0].File)
 	fresh := caps()
 	for _, capability := range sessionAppendedCapabilities {
 		if has(fresh, capability) {
@@ -260,15 +278,95 @@ func TestDescribeWithholdsTheTwoCapabilitiesWhileLegacy(t *testing.T) {
 		}
 	}
 	if !has(fresh, "session.inbound") || len(fresh) != len(capabilities())-len(sessionAppendedCapabilities) {
-		t.Errorf("describe dropped more than the two capabilities: %v", fresh)
+		t.Errorf("describe dropped more than the appended capabilities: %v", fresh)
 	}
 	if _, err := os.Stat(markerPath(r)); err != nil {
 		t.Fatalf("describe removed the marker: %v", err)
 	}
-	writeMarker(t, r, r.now.Add(-legacyMarkerTTL))
+
+	// A backend behind on the LAST migration only keeps every earlier
+	// migration's capabilities, because it honours them.
+	last := len(sessionAppendedMigrations) - 1
+	writeMarker(t, r, r.now, sessionAppendedMigrations[last].File)
+	behindOne := caps()
+	for _, capability := range appendedCapsFrom(last) {
+		if has(behindOne, capability) {
+			t.Errorf("describe advertises %s on a backend that lacks the migration adding it", capability)
+		}
+	}
+	for i := 0; i < last; i++ {
+		for _, capability := range sessionAppendedMigrations[i].Caps {
+			if !has(behindOne, capability) {
+				t.Errorf("describe withholds %s from a backend that has %s", capability, sessionAppendedMigrations[i].File)
+			}
+		}
+	}
+
+	writeMarker(t, r, r.now.Add(-legacyMarkerTTL), sessionAppendedMigrations[0].File)
 	for _, capability := range sessionAppendedCapabilities {
 		if !has(caps(), capability) {
 			t.Errorf("describe withholds %s on a stale marker", capability)
 		}
+	}
+}
+
+// TestBackendBehindOnlyTheLabelMigrationKeepsModelAndContext is the
+// upgrade every deployed project makes when this release lands: it has
+// 20260910193200 and not 20260917170000. The registration's label is
+// dropped, the registration is not, and `model` and `context_used_tokens`
+// keep being stored — on that registration and on the heartbeats after
+// it, which take no probe at all because the marker names the migration
+// they do not depend on.
+func TestBackendBehindOnlyTheLabelMigrationKeepsModelAndContext(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.joined()
+	behind := len(sessionAppendedMigrations) - 1 // 20260910193200 applied, 20260917170000 not
+	seen := backendAt(r, &behind)
+	doc := `{"harness":"other","harness_version":"1","session_name":"main","activity":"busy","inbound":"accept",` +
+		`"model":"claude-opus-5[1m]","context_used_tokens":1,"human_label":"alice@example.com"}`
+	got := r.exec(doc, "session", "register")
+	if got.code != 0 {
+		t.Fatalf("exit %d: %s", got.code, got.stdout)
+	}
+	if len(*seen) != 2 {
+		t.Fatalf("calls = %v, want one probe then one without the label", *seen)
+	}
+	if !namesParam((*seen)[0], "p_human_label") {
+		t.Errorf("the probe did not name p_human_label: %v", (*seen)[0])
+	}
+	retry := (*seen)[1]
+	if namesParam(retry, "p_human_label") {
+		t.Errorf("the retry still named p_human_label: %v", retry)
+	}
+	if !namesParam(retry, "p_model") || !namesParam(retry, "p_context_used_tokens") {
+		t.Errorf("the retry dropped the values 20260910193200 added, which this backend stores: %v", retry)
+	}
+	var m legacyMarker
+	data, err := adapterkit.ReadStrict(markerPath(r))
+	if err != nil {
+		t.Fatalf("marker not written: %v", err)
+	}
+	if err := json.Unmarshal(data, &m); err != nil || m.Migration != sessionAppendedMigrations[behind].File {
+		t.Fatalf("marker = %s (%v), want migration %s", data, err, sessionAppendedMigrations[behind].File)
+	}
+	if !strings.Contains(got.stderr, sessionAppendedMigrations[behind].File) {
+		t.Errorf("stderr does not name the missing migration:\n%s", got.stderr)
+	}
+
+	// The heartbeat that follows carries no label, so the marker costs it
+	// no probe and it still stores both facts.
+	hb := r.exec(`{"model":"claude-opus-5[1m]","context_used_tokens":2}`, "session", "heartbeat", "--session", testSessionID)
+	if hb.code != 0 {
+		t.Fatalf("heartbeat: exit %d: %s", hb.code, hb.stdout)
+	}
+	if len(*seen) != 3 {
+		t.Fatalf("calls = %v, want exactly one heartbeat RPC", *seen)
+	}
+	if !namesParam((*seen)[2], "p_model") || !namesParam((*seen)[2], "p_context_used_tokens") {
+		t.Errorf("the heartbeat dropped the two facts on a backend that stores them: %v", (*seen)[2])
+	}
+	if strings.Contains(hb.stderr, "predates a migration") {
+		t.Errorf("the heartbeat warned about a migration it does not need:\n%s", hb.stderr)
 	}
 }

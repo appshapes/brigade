@@ -70,6 +70,16 @@ machine sends; it does not rewrite the label the team already holds, and a re-co
 checkout of a team you are already on) sends no label at all. The address is unverified text like every other
 label, and is marked so wherever it is shown.
 
+**Existing members, whose label is empty.** A member who joined before this version has no label at all, and
+rejoining to get one is not something Brigade asks of anybody. From this version the registration every session
+start sends carries the same default label, and a backend that has the matching migration adopts it **only when
+the membership has none**. So an empty label is filled from your Claude account email at the next session start
+after the update, and a label you chose is never touched — not by this, not by a later session, not by a
+teammate's. The opt-out is the same one and it works before the fill as it works before a join: set the plugin
+option `label` to `none`, or to any text you would rather be known by, and the next session start sends that
+instead. The consent point moves with the mechanism: for existing members it is the first session start after this
+version, not a join.
+
 **One thing that is a boundary.** A caller who is not an active member of a team gets the same refusal for a team
 that exists and for a team id made up out of thin air. The two answers are byte for byte identical, so nobody can
 use Brigade to find out whether a team exists. Database tests assert this.

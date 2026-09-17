@@ -6,9 +6,29 @@ import (
 	"log/slog"
 
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/harness/account"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/protocol"
 )
+
+// humanLabel resolves the member's default display label from the `label`
+// option the by-pid map carries (card 24, part C). The option decides:
+// `none` sends nothing, a literal is that text, and `account` — the
+// default — is the Claude account email, read here at the point of use
+// rather than carried in the map, so no file under the state directory
+// ever holds a member's email. Best effort without exception: an
+// unreadable account is a debug line WITHOUT the value and an empty
+// label, never a failed registration.
+func (w *watcher) humanLabel(option string) string {
+	return config.LabelFor(config.ParseLabelOption(option), func() string {
+		email, err := account.Email(w.environ)
+		if err != nil {
+			w.log.Debug("claude account email unavailable", adlog.Err(err))
+		}
+		return email
+	})
+}
 
 // A watcher whose Brigade session is closed under it re-opens it (P10-7).
 //
@@ -103,6 +123,16 @@ func (w *watcher) reopen(s *session) {
 	if snap.workspaceLabel != "" {
 		label := snap.workspaceLabel
 		reg.WorkspaceLabel = &label
+	}
+	// The member's default label rides every re-registration too (card 24,
+	// part C), so a membership with an empty label is filled by whichever
+	// registration reaches an adapter that announces session.human_label
+	// first — the session start, or this re-open after a plugin version
+	// change replaced the watcher. Adopting it is the adapter's decision
+	// and it never overwrites a label that is already there, so sending it
+	// again costs nothing.
+	if label := w.humanLabel(snap.labelOption); label != "" {
+		reg.HumanLabel = &label
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), adapterclient.RegisterTimeout)
 	res, err := w.client.Register(ctx, reg)

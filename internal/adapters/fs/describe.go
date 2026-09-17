@@ -34,6 +34,7 @@ func capabilities() []string {
 		"session.inbound",
 		"session.model",
 		"session.context_used_tokens",
+		"session.human_label",
 	}
 }
 

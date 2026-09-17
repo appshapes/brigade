@@ -212,6 +212,7 @@ func patchDefinitions(defs jsonschema.Definitions) error {
 		{"SessionRegistration", "session_name", protocol.MaxSessionNameCodepoints},
 		{"SessionRegistration", "session_description", protocol.MaxDescriptionChars},
 		{"SessionRegistration", "workspace_label", protocol.MaxWorkspaceLabelChars},
+		{"SessionRegistration", "human_label", protocol.MaxHumanLabelChars},
 		{"SessionRegistration", "model", protocol.MaxModelChars},
 		{"SessionRecord", "session_name", protocol.MaxSessionNameCodepoints},
 		{"SessionRecord", "session_description", protocol.MaxDescriptionChars},
