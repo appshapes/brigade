@@ -645,6 +645,54 @@ func TestTeamCreatePromptOffersTheAccountEmail(t *testing.T) {
 	}
 }
 
+// The prompt above fires on one path only — a terminal create that also
+// omitted --name. The documented invocation passes --name (and an
+// in-session one must), so the report is what tells the administrator
+// which address went to the backend. It is the roster's own member
+// column, so it reads as their teammates will see them.
+func TestTeamCreateReportsTheLabelItSent(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	writeAccountFile(t, f.dirs.Home)
+
+	iv := createInv(t, f, top)
+	iv.Deps.PromptLine = func(string) (string, error) {
+		t.Fatal("team create --name prompted for something")
+		return "", nil
+	}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	want := "sent your display label: " + accountEmail + " (unverified) [p_1]"
+	if out := f.out.String(); !strings.Contains(out, want) {
+		t.Fatalf("output %q lacks %q", out, want)
+	}
+}
+
+// Opted out, the line still appears and says what was sent — nothing. A
+// silently absent line would read as "no disclosure", which is the one
+// thing this report must never be.
+func TestTeamCreateReportsThatItSentNoLabel(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	writeAccountFile(t, f.dirs.Home)
+
+	iv := createInv(t, f, top)
+	iv.Environ = f.terminalEnv("BRIGADE_LABEL=none")
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	out := f.out.String()
+	if !strings.Contains(out, "sent no display label") {
+		t.Fatalf("output %q lacks the no-label line", out)
+	}
+	if strings.Contains(out, accountEmail) {
+		t.Fatalf("output %q names the account email of a member who opted out", out)
+	}
+}
+
 func TestTeamJoinDefaultsTheLabelToTheAccountEmail(t *testing.T) {
 	t.Parallel()
 	f, top := joinFixture(t)

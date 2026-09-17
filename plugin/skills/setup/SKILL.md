@@ -51,8 +51,10 @@ not email. The secret is a bearer capability: anyone holding it can join and pic
 By default a member's label is **the email address of the Claude account their install is signed in to**, so the
 roster you and every other member see will hold those addresses — and so will the backend you run. A member who
 would rather not can set the `label` plugin option to `none` or to any text before joining; tell them so when you
-send the secret if that matters to your team. A label is unverified free text either way: the principal reference
-beside it is the identity.
+send the secret if that matters to your team. The same default applies to you: `team create` sends your account
+email as your own label and names it in its output (`sent your display label: …`, the line after `created team …`),
+so you can see what it published. A label is unverified free text either way: the principal reference beside it is
+the identity.
 
 Your credential directory (`~/.config/brigade/teams/<key>`, or under the `config_dir` plugin option) is the
 team's only administrative credential. Keep a 0700 backup of it somewhere you control; without it nobody can

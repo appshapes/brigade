@@ -80,7 +80,7 @@ func (inv Invocation) teamCreate(raw rawArgs) error {
 	if err != nil {
 		return err
 	}
-	return inv.finishCreate(opts, top, filePath, answer, tmpKey, t)
+	return inv.finishCreate(opts, top, filePath, req, answer, tmpKey, t)
 }
 
 // parseCreateFlags parses `team create`'s flags; --secret-file is
@@ -143,10 +143,13 @@ func isUnder(dir, top string) bool {
 }
 
 // createRequest builds the stdin document from flags or the terminal.
-// An omitted --label falls back to defaultLabel (card 24, part B); at the
-// terminal that default is offered in the prompt's brackets, so the
-// person typing sees the value before it is sent and can type another —
-// this is the consent point for sharing an account email with the team.
+// An omitted --label falls back to defaultLabel (card 24, part B). The
+// prompt's brackets offer that default — `your display label
+// [alice@example.com]: ` — but ONLY on the one path that prompts: a
+// terminal create that also omitted --name. The documented invocation
+// passes --name, and an in-session one must, so most creates send the
+// default without asking; finishCreate names the label it sent in the
+// report, which is the disclosure on those paths.
 func (inv Invocation) createRequest(opts *createOptions) (*protocol.TeamCreateRequest, error) {
 	name, label := opts.name, opts.label
 	var byDefault string
@@ -216,6 +219,19 @@ func (inv Invocation) driveCreate(opts *createOptions, req *protocol.TeamCreateR
 	return &answer, tmpKey, t, nil
 }
 
+// labelSent renders create's disclosure line: what the command published
+// about the person who ran it. It reuses the roster's own member column,
+// so the line reads exactly as the teammates' `brigade team members` will
+// — an empty label (the `none` option, or an account that could not be
+// read) says so plainly rather than being silently absent.
+func labelSent(label, principalRef string) string {
+	member := memberLine(label, principalRef)
+	if member == "" {
+		return "sent no display label; teammates see your sessions by their principal reference alone"
+	}
+	return "sent your display label: " + member + " — every member of this team, and whoever runs its backend, can see it"
+}
+
 // teamCreateAnswer is the captured `team create --secret-file` result:
 // the secret went to the file and is not here.
 type teamCreateAnswer struct {
@@ -226,8 +242,12 @@ type teamCreateAnswer struct {
 
 // finishCreate promotes the temp key, patches the binding's backend
 // members (the harness owns adapter/url/publishable_key — correction 6),
-// pins this checkout, and writes the 0644 team file at the toplevel.
-func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, answer *teamCreateAnswer, tmpKey string, t *target) error {
+// pins this checkout, and writes the 0644 team file at the toplevel. Its
+// report names the label the request carried (card 24, part B): the
+// prompt fires on one create path only, so this line is where every
+// other one — the documented `--name` invocation, and every in-session
+// create — says what was published about the person who ran it.
+func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, req *protocol.TeamCreateRequest, answer *teamCreateAnswer, tmpKey string, t *target) error {
 	key := teamstore.Key(opts.adapter, opts.url, answer.TeamRef)
 	if err := write.EnsureBinding(t.configDir, tmpKey, opts.adapter, opts.url, opts.key,
 		answer.TeamRef, answer.TeamName, answer.PrincipalRef); err != nil {
@@ -259,6 +279,7 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, an
 	}
 	return writeLines(inv.Out,
 		"created team \""+protocol.SanitizeName(answer.TeamName)+"\" ("+sanitizeID(answer.TeamRef)+")",
+		labelSent(req.HumanLabel, answer.PrincipalRef),
 		"wrote "+teamfile.FileName+" at the repository toplevel",
 		"the join secret is in "+opts.secretFile+" (0600); share it over a password-grade channel only",
 		"next: git add "+teamfile.FileName+" && git commit && git push — the file carries only public values",

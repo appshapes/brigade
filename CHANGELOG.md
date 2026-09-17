@@ -17,9 +17,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   (`oauthAccount.emailAddress`, under `CLAUDE_CONFIG_DIR` when set, else the home directory), read-only and best
   effort: a missing, unreadable or malformed file simply leaves the label empty, as it was before. The new plugin
   option `label` decides what is sent: `account` (the default) the address, `none` nothing at all, any other text
-  that text. An explicit `--label` still wins over the option, and a terminal `team create` shows the default in
-  its prompt before sending it. Outside a session `BRIGADE_LABEL` stands in for the option, exactly as
-  `BRIGADE_CONFIG_DIR` stands in for `config_dir`; inside one it is ignored like every inherited `BRIGADE_*`.
+  that text. An explicit `--label` still wins over the option. `team create` run at a terminal **without `--name`**
+  — the one form that prompts at all — offers the default in the prompt's brackets; every other create, including
+  every in-session one, sends it without asking. Outside a session `BRIGADE_LABEL` stands in for the option, exactly
+  as `BRIGADE_CONFIG_DIR` stands in for `config_dir`; inside one it is ignored like every inherited `BRIGADE_*`.
+
+- **`brigade team create` reports the display label it sent.** A new line after `created team …` names it as the
+  roster will — `sent your display label: alice@example.com (unverified) [9f3c1a20] — every member of this team,
+  and whoever runs its backend, can see it` — or says `sent no display label` when the option or a missing account
+  left it empty. It is printed on every create path, so the invocation this project's setup guide documents (and
+  every in-session one, where nothing can prompt) still says what it published about the person who ran it.
 
 ### Changed
 

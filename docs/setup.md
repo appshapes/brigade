@@ -193,7 +193,7 @@ then `git add .brigade.json && git commit && git push`. In a terminal, drop the 
 credential locally so your sessions attach at once. `--secret-file` (**required**, and it must be an absolute path
 outside the repository) writes the join secret to a file with mode 0600, so it never reaches your terminal
 scrollback, the conversation, or the repository. Inside a session the command's output lands in the chat — it names
-the team and the file, never the secret.
+the team, the file, and the display label it sent for you (see "How teammates see you" below), never the secret.
 
 **Then commit `.brigade.json` and send each member the secret file** `team create` wrote. `.brigade.json` already
 carries the URL and the publishable key, so a member who has the repository needs nothing else public. Send the
@@ -258,10 +258,21 @@ Set the plugin option **`label`** if you want something else:
 
 A label proves nothing either way: anyone can pick any of them, so every place one is shown says `(unverified)`,
 and the principal reference beside it is the identity. `--label` on `brigade team join` or `brigade team create`
-overrides the option for that one command, and a terminal `brigade team create` — the one command that asks for a
-label — shows the default in its prompt before it sends anything. A `team join` never prompts for a label: it
-confirms the team, the ref and the host, and sends whatever the option resolves to, so decide the option **before**
-you join. In your own terminal, outside a session, `BRIGADE_LABEL` stands in for the option the
+overrides the option for that one command.
+
+**Nothing prompts you for a label on the paths above.** A `team join` confirms the team, the ref and the host, and
+then sends whatever the option resolves to. The `team create` above passes `--name`, and an in-session one must, so
+it sends the default without asking as well — the label prompt (`your display label [alice@example.com]: `) appears
+only in the one form this guide never shows: `brigade team create` run **at a terminal with no `--name`**, which is
+also the only form that asks for the team name. What `team create` does do on every path is **report the label it
+sent**, on the line after `created team …`:
+
+```
+sent your display label: alice@example.com (unverified) [9f3c1a20] — every member of this team, and whoever runs its backend, can see it
+```
+
+A `team join` prints no such line. So decide the option **before** you join. In your own terminal, outside a
+session, `BRIGADE_LABEL` stands in for the option the
 way `BRIGADE_CONFIG_DIR` stands in for `config_dir`; inside a session Brigade ignores it, as it ignores every
 `BRIGADE_*` variable a repository could set.
 
