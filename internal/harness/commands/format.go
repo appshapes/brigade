@@ -197,9 +197,17 @@ func columns(fields ...string) string {
 // cells, escaping any literal "|" so a cell can never split a column
 // (session names, labels and models are unverified remote text and may
 // carry one).
+//
+// The backslash is escaped FIRST, and that order is the whole of the
+// guarantee: the 6.7 sanitiser keeps backslashes, so escaping the pipe
+// alone would turn a cell's own `\|` into `\\|` — an escaped backslash
+// followed by a LIVE delimiter — and a session named `x\|idle\|accept`
+// would shift every cell to its right and forge the columns a reader
+// uses to decide who they are messaging.
 func tableRow(cells ...string) string {
 	escaped := make([]string, len(cells))
 	for i, c := range cells {
+		c = strings.ReplaceAll(c, "\\", "\\\\")
 		escaped[i] = strings.ReplaceAll(c, "|", "\\|")
 	}
 	return "| " + strings.Join(escaped, " | ") + " |"

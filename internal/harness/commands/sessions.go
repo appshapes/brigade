@@ -204,11 +204,15 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		cells = append(cells, seen)
 		lines = append(lines, tableRow(cells...))
 	}
+	// Each trailing note gets a blank line of its own before it: a GFM
+	// renderer ends a table only at a blank line, so a note appended
+	// straight after the last row parses as one more row and shows up
+	// under SESSION. The blank lines are the only ones the layout emits.
 	if hidden > 0 {
-		lines = append(lines, "("+strconv.Itoa(hidden)+" offline sessions hidden; --all shows them)")
+		lines = append(lines, "", "("+strconv.Itoa(hidden)+" offline sessions hidden; --all shows them)")
 	}
 	if list.Truncated {
-		lines = append(lines, "(truncated: the adapter capped the list at its limit; some sessions are not shown)")
+		lines = append(lines, "", "(truncated: the adapter capped the list at its limit; some sessions are not shown)")
 	}
 	return writeLines(inv.Out, lines...)
 }

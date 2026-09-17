@@ -206,3 +206,95 @@ func TestColumns(t *testing.T) {
 		t.Errorf("columns = %q", got)
 	}
 }
+
+// TestTableRowEscapesTheDelimiter is the negative test of the table
+// layout: session_name, human_label and model are attacker-chosen remote
+// text, and the 6.7 sanitiser keeps both the pipe and the backslash, so a
+// cell that could split a column would let a teammate forge the columns a
+// reader uses to decide who they are messaging. The backslash arm is the
+// one that matters: escape the pipe alone and `\|` becomes `\\|`, an
+// escaped backslash followed by a live delimiter.
+func TestTableRowEscapesTheDelimiter(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		cells []string
+		want  string
+	}{
+		{"plain", []string{"a", "b"}, "| a | b |"},
+		{"a pipe", []string{"x|y", "b"}, `| x\|y | b |`},
+		{"an escaped pipe", []string{`x\|idle\|accept`, "b"}, `| x\\\|idle\\\|accept | b |`},
+		{"a trailing backslash", []string{`x\`, "b"}, `| x\\ | b |`},
+		{"a lone backslash", []string{`a\b`}, `| a\\b |`},
+		{"an empty cell", []string{"a", "", "c"}, "| a |  | c |"},
+		{"no cells", nil, "|  |"},
+	} {
+		if got := tableRow(tc.cells...); got != tc.want {
+			t.Errorf("%s: tableRow(%q) = %q, want %q", tc.name, tc.cells, got, tc.want)
+		}
+	}
+	// The positive control: after escaping, every row of a table built
+	// from hostile cells carries exactly the delimiters its columns need —
+	// counting the unescaped pipes is how a renderer splits it.
+	for _, cells := range [][]string{
+		{"a", "b", "c"},
+		{"a|b", `c\|d`, `e\`},
+	} {
+		if got := unescapedPipes(tableRow(cells...)); got != len(cells)+1 {
+			t.Errorf("row from %q has %d live delimiters, want %d", cells, got, len(cells)+1)
+		}
+	}
+}
+
+// unescapedPipes counts the "|" characters a Markdown renderer treats as
+// column delimiters: one not preceded by an odd number of backslashes.
+func unescapedPipes(row string) int {
+	n, slashes := 0, 0
+	for _, r := range row {
+		switch r {
+		case '\\':
+			slashes++
+		case '|':
+			if slashes%2 == 0 {
+				n++
+			}
+			slashes = 0
+		default:
+			slashes = 0
+		}
+	}
+	return n
+}
+
+func TestTableDivider(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		n    int
+		want string
+	}{
+		{1, "| --- |"},
+		{3, "| --- | --- | --- |"},
+	} {
+		if got := tableDivider(tc.n); got != tc.want {
+			t.Errorf("tableDivider(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+	// The divider must carry the same number of columns as the header row
+	// it follows, or the table does not render at all.
+	header := []string{"SESSION", "NAME", "SEEN"}
+	if unescapedPipes(tableDivider(len(header))) != unescapedPipes(tableRow(header...)) {
+		t.Errorf("divider and header disagree on their column count:\n%s\n%s",
+			tableRow(header...), tableDivider(len(header)))
+	}
+}
+
+func TestSeenAgoCellDropsTheWord(t *testing.T) {
+	t.Parallel()
+	server := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	if got := seenAgoCell(server.Add(-12*time.Second), server, server); got != "12s ago" {
+		t.Errorf("seenAgoCell = %q, want the SEEN column's own text", got)
+	}
+	if got := seenAgoCell(time.Time{}, server, server); got != "never" {
+		t.Errorf("seenAgoCell(zero) = %q", got)
+	}
+}
