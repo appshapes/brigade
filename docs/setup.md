@@ -691,6 +691,15 @@ minutes. What you lose until you migrate is only what the migration adds (for `2
 and `context=` columns of `brigade sessions` stay blank for your team); nothing else changes. Migrate at your
 convenience, then, and `migration list` tells you where each project stands.
 
+**Nobody rejoins to get a label.** Every membership created before labels existed has an empty `human_label`, and
+`20260917170000_session_human_label.sql` fills it without anyone rejoining: from that plugin version on, each
+session start offers the member's default label and the migrated backend adopts it **only when the membership has
+none** — a label a member chose is never overwritten. Both halves are needed and **either order works**. Members
+who update the plugin before you run `brigade adapter supabase backend upgrade` register against an un-migrated
+project, which answers `PGRST202`; the adapter drops the label and registers anyway, and the fill happens at the
+next session start after you migrate. Migrate first and nothing happens until each member updates. Nobody has to
+be told to do anything in particular, and a member who wants no label sets the plugin option `label` to `none`.
+
 **Order matters, and it is not a preference.** Apply the migrations *before* exposing the `brigade` schema on the
 Data API. A project that exposes a schema which does not exist yet leaves PostgREST looping on
 `3F000 schema "brigade" does not exist`; it never becomes healthy, and the error it reports names PostgREST

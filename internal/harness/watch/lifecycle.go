@@ -28,6 +28,10 @@ type shared struct {
 	// workspaceLabel is the map's workspace_label, carried on a re-open
 	// (P11-5); "" when the session registered none.
 	workspaceLabel string
+	// labelOption is the map's label_option (card 24, part C): the
+	// OPTION, not a label — the account email is read at the point of
+	// use, so neither this state nor the map ever holds it.
+	labelOption string
 	// transcriptPath is the map's transcript_path, "" when it carries
 	// none: the file the command writer reads for the heartbeat's model
 	// and context facts. It is local state and never logged.
@@ -35,13 +39,14 @@ type shared struct {
 	flip           bool // an activity change the next tick must heartbeat at once
 }
 
-func newShared(target socketpost.Target, name, inbound, workspaceLabel, transcriptPath string) *shared {
+func newShared(target socketpost.Target, name, inbound, workspaceLabel, labelOption, transcriptPath string) *shared {
 	return &shared{
 		target:         target,
 		name:           name,
 		activity:       protocol.ActivityIdle,
 		inbound:        inbound,
 		workspaceLabel: workspaceLabel,
+		labelOption:    labelOption,
 		transcriptPath: transcriptPath,
 	}
 }
@@ -53,6 +58,7 @@ type sharedSnapshot struct {
 	activity       string
 	inbound        string
 	workspaceLabel string
+	labelOption    string
 	transcriptPath string
 }
 
@@ -60,7 +66,7 @@ func (s *shared) snapshot() sharedSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return sharedSnapshot{target: s.target, name: s.name, activity: s.activity, inbound: s.inbound,
-		workspaceLabel: s.workspaceLabel, transcriptPath: s.transcriptPath}
+		workspaceLabel: s.workspaceLabel, labelOption: s.labelOption, transcriptPath: s.transcriptPath}
 }
 
 // takeFlip reports and clears a pending activity flip.
@@ -146,6 +152,9 @@ func (w *watcher) refreshMap() string {
 	}
 	// The label is the hook's to set, so the map always wins here.
 	w.state.workspaceLabel = m.WorkspaceLabel
+	// The same rule for the label option: a SessionStart that changed it
+	// wins, and the next re-registration carries the new resolution.
+	w.state.labelOption = m.LabelOption
 	// /clear gives the session a new native transcript and the hook
 	// rewrites the map with its path; the next heartbeat's facts come
 	// from the new file. Logged without the path (T10).

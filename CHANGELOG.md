@@ -30,6 +30,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **Every existing member's empty label is filled from their Claude account email, without a rejoin.** Members who
+  joined before labels existed have none, and from this version the registration each session start sends carries
+  the member's default label; a backend with the new migration
+  (`supabase/migrations/20260917170000_session_human_label.sql`) adopts it **only when the membership has none**.
+  So the consent point for an existing member is the **first session start after updating the plugin**, not a
+  join: from then on, that team and whoever runs its backend can see the address. A label a member already chose
+  is never overwritten — not by this, not by any later registration — and the opt-out is the same as for a join:
+  set the plugin option `label` to `none`, or to any text you would rather be known by, before the next session
+  starts. The administrator's half is `brigade adapter supabase backend upgrade`, and either order works: until
+  the migration is applied the backend answers `PGRST202`, the adapter drops the label rather than the
+  registration, and the fill happens at the next session start afterwards. Protocol: `human_label` is a new
+  optional member of `SessionRegistration` and `session.human_label` a new capability (additive, still BAP/1;
+  conformance C-45).
+
 - **Joining a team now shares your Claude account email with that team, by default.** From this version,
   `/brigade:join` labels a new member with the email address of their Claude account, so the roster shows it to
   every other member — and to whoever runs the team's backend. Set the plugin option `label` to `none` (or to any

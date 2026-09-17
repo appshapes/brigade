@@ -79,6 +79,15 @@ type ByPID struct {
 	// sharing is off. The watcher carries it on a re-open, because a
 	// resume that omits it clears it at the backend.
 	WorkspaceLabel string `json:"workspace_label,omitempty"`
+	// LabelOption is the `label` option as the hook resolved it (card 24,
+	// part C): config.LabelAccount, config.LabelNone, or a literal the
+	// member gave. The OPTION rides here, never a label — the account
+	// email is read at the point of use by the watcher, exactly as
+	// StartFacts does it, so this file never carries a member's email.
+	// The watcher sends the resolved label on every registration, so a
+	// membership whose label is empty is filled at the next session start
+	// and at every watcher replacement.
+	LabelOption string `json:"label_option,omitzero"`
 	// PermissionMode is recorded for diagnostics only; the inbound policy
 	// never depends on it (D18).
 	PermissionMode string `json:"permission_mode"`
