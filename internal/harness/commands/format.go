@@ -87,11 +87,13 @@ func shortPrincipal(s string) string {
 // unverified suffix (B-3) and a short principal beside it, so a reader
 // sees who a session belongs to and still has the stable anchor — the
 // label is never an identity, and two members may pick the same one.
-// An empty label renders as "", and the caller keeps the
-// `principal=<ref>` column it has always printed, so an unlabelled
-// member's line does not change shape. A ref that sanitises away renders
-// as "[?]": a labelled line always carries the bracket, so a missing
-// anchor is visible rather than silently absent.
+// An empty label renders as "", and the caller falls back to the
+// identity it printed before this column existed, so an unlabelled
+// member is never silently blank: `brigade sessions` fills that row's
+// LABEL and PRINCIPAL cells instead, and `team members` — still one
+// line per member — its `principal=<ref>` field. A ref that sanitises
+// away renders as "[?]": a labelled line always carries the bracket, so
+// a missing anchor is visible rather than silently absent.
 func memberLine(label, principalRef string) string {
 	l := oneLine(protocol.SanitizeLabel(label))
 	if l == "" {
@@ -191,4 +193,39 @@ func itoa(n int) string { return strconv.Itoa(n) }
 // separator of the documented layouts.
 func columns(fields ...string) string {
 	return strings.Join(fields, "  ")
+}
+
+// tableRow renders one Markdown pipe-table row from already-sanitised
+// cells, escaping any literal "|" so a cell can never split a column
+// (session names, labels and models are unverified remote text and may
+// carry one).
+//
+// The backslash is escaped FIRST, and that order is the whole of the
+// guarantee: the 6.7 sanitiser keeps backslashes, so escaping the pipe
+// alone would turn a cell's own `\|` into `\\|` — an escaped backslash
+// followed by a LIVE delimiter — and a session named `x\|idle\|accept`
+// would shift every cell to its right and forge the columns a reader
+// uses to decide who they are messaging.
+func tableRow(cells ...string) string {
+	escaped := make([]string, len(cells))
+	for i, c := range cells {
+		c = strings.ReplaceAll(c, "\\", "\\\\")
+		escaped[i] = strings.ReplaceAll(c, "|", "\\|")
+	}
+	return "| " + strings.Join(escaped, " | ") + " |"
+}
+
+// tableDivider renders the Markdown header/body divider row for n columns.
+func tableDivider(n int) string {
+	cells := make([]string, n)
+	for i := range cells {
+		cells[i] = "---"
+	}
+	return "| " + strings.Join(cells, " | ") + " |"
+}
+
+// seenAgoCell is seenAgo without its "seen " word, for a column that is
+// already labelled by its own table header.
+func seenAgoCell(at, server, now time.Time) string {
+	return strings.TrimPrefix(seenAgo(at, server, now), "seen ")
 }

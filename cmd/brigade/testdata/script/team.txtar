@@ -79,8 +79,13 @@ stdin register-a.json
 exec brigade-adapter-fs --root $WORK/.brigade/brigade-state/fs-adapter --profile default session register
 cp stdout a.json
 jsonenv a.json .result.session_id SID
+# The roster is a Markdown pipe table: a header row, a divider row, then
+# one row per session. bob is labelled, so his identity is in the MEMBER
+# column and there is no LABEL or PRINCIPAL column to carry.
 exec brigade sessions
-stdout '^'$SID'  payments-api  active  inbound=accept  bob@example.com \(unverified\) \[[^]]{8}\]  seen '
+stdout '^\| SESSION \| NAME \| STATE \| INBOUND \| MEMBER \| SEEN \|$'
+stdout '^\| --- \| --- \| --- \| --- \| --- \| --- \|$'
+stdout '^\| '$SID' \| payments-api \| active \| accept \| bob@example.com \(unverified\) \[[^]]{8}\] \| [0-9]+s ago \|$'
 ! stdout '\(this session\)'
 ! stderr .
 

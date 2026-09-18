@@ -30,6 +30,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **`brigade sessions` prints a Markdown table instead of one self-labelled line per session.** The roster is now
+  a header row, a divider row and one row per session, so a reader compares two sessions down a column rather
+  than reading the same field prefixes over and over. The columns are `SESSION`, `NAME`, `STATE`, `INBOUND` and
+  `SEEN` always, and `LABEL`, `REPO`, `MEMBER`, `PRINCIPAL`, `MODEL` and `CONTEXT` whenever at least one session
+  in the result carries that fact — a column is table-wide, so a session that lacks the fact gets a **blank
+  cell**, never a missing column. The old `repo=`, `principal=`, `model=`, `context=` and `inbound=` prefixes are
+  gone; the value is now under its own header. The `(<n> offline sessions hidden; --all shows them)` and
+  `(truncated: …)` notes follow the table after a blank line, so a renderer reads them as notes rather than as
+  another row. Session names, labels and models are unverified remote text, so every cell has its backslashes
+  and then its pipes escaped: no name can split a column or forge the one beside it. `--json` is unchanged.
+
 - **Every existing member's empty label is filled from their Claude account email, without a rejoin.** Members who
   joined before labels existed have none, and from this version the registration each session start sends carries
   the member's default label; a backend with the new migration
