@@ -20,7 +20,23 @@ cover_flags        := $(if $(BRIGADE_COVER),-cover,)
 dist_cross         := dist-cross
 env_test           := .env.test
 go_flags           := -trimpath -buildvcs=false
-go_test_flags      := -race -shuffle=on -count=1 -timeout 15m
+# -p 2 is a pin, not a tuning knob. `go test` defaults -p to GOMAXPROCS, so on a 16-core machine sixteen
+# packages run at once, each under -race (TSan) and each spawning adapter children; the aggregate load pushes
+# adapter calls past the harness's 3 s describe budget (adapterclient.DescribeTimeout) and the suite fails with
+# "adapter did not finish within its deadline" in whichever packages lost the race that run — a different set
+# each time, which is what made it read as unrelated flakes for so long.
+#
+# Measured 2026-09-18 on a 16-core macOS machine, whole tree:
+#   -p 16 (the default)  6-7 failures across cmd/brigade, watch and e2e, varying per run
+#   -p 4                 2 failures under `make test`; green twice as a bare `go test` — not reliable
+#   -p 2                 green three runs for three, 206 s / 203 s / 203 s
+# CI's runner is 4 vCPU, so CI has always effectively run -p 4 and has stayed green; the budget is met there
+# because a 4 vCPU Linux box never reaches this machine's sixteen-way concurrency. The pin keeps local runs in
+# a regime the 3 s budget can actually meet instead of letting them scale with core count into one it cannot.
+#
+# The budgets themselves (the 4.1 set in adapterclient) are deliberately frozen and are NOT the thing to widen
+# for a local test artefact; if this pin ever stops being enough, that is an owner decision, not a knob here.
+go_test_flags      := -p 2 -race -shuffle=on -count=1 -timeout 15m
 go_toolchain       := go$(shell sed -n 's/^go //p' go.mod)
 # Reproducible-build environment for `build` and `cross`. -trimpath, -buildvcs=false and a pinned
 # GOTOOLCHAIN are NOT sufficient on their own: GOAMD64, GOARM64 and GOFLAGS are read from whatever the

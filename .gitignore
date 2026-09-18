@@ -227,3 +227,7 @@ __pycache__/
 # left on disk since Claude Code and the Serena MCP server both still use them locally.
 .claude/.claude-md-seen-mtimes
 .serena/
+
+# The codex-bridge MCP server's local review database (tables `reviews`, `sessions`), written into the repository
+# root by its review tools. Same hazard as the two rules above: `git add --verbose :/ .` would commit it.
+reviews.db

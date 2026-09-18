@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -74,6 +75,12 @@ type rig struct {
 
 	mu       sync.Mutex
 	watchers []int // every watcher pid seen, for cleanup
+	// lastHook is the most recent hook result per session pid. The
+	// SessionStart hook returns 0 whether or not it connected (start.go's
+	// unconditional `return 0`), and only the connected path writes the
+	// by-pid map — so when mustMap finds no map the hook's own stderr is
+	// the only account of why, and it is otherwise discarded.
+	lastHook map[int]result
 }
 
 // newRig builds the binaries, lays out the directories and writes the
@@ -98,6 +105,7 @@ func newRig(t *testing.T) *rig {
 		emptyPath: filepath.Join(dirs.Root, "path-empty"),
 		argvLog:   filepath.Join(dirs.Root, "adapter-argv.log"),
 		envLog:    filepath.Join(dirs.Root, "adapter-env.log"),
+		lastHook:  map[int]result{},
 	}
 	r.checkout = filepath.Join(dirs.Root, "checkout")
 	r.configDirB = filepath.Join(dirs.Root, "config-bob")
@@ -125,8 +133,46 @@ func newRig(t *testing.T) *rig {
 		"export -p >> "+shellQuote(r.envLog)+"\nexec "+shellQuote(r.fsAdapter)+" \"$@\"\n")
 	r.adapterCmd = []string{r.wrapper, "--root", r.root}
 	r.secretFile = filepath.Join(dirs.Root, "join.secret")
+	r.warmExecutables()
 	t.Cleanup(r.reapWatchers)
 	return r
+}
+
+// warmExecutables runs each freshly created executable once, with no
+// deadline, before any test does.
+//
+// On macOS the FIRST exec of a freshly created executable is suspended
+// while the system assesses it — measured 2026-09-03 (env-isolation.txtar):
+// 0.2-0.5 s idle and 3-6 s while a whole-tree `go test` creates every
+// package's binaries at once; the second exec costs ~10 ms. The harness's
+// describe budget is 3 s (adapterclient.DescribeTimeout), so inside a
+// whole-tree run that first exec can lose the race and the adapter call
+// fails with "adapter did not finish within its deadline". The SessionStart
+// hook returns 0 either way (start.go's unconditional `return 0`) and only
+// the connected path writes the by-pid map, so the symptom surfaced far
+// from its cause, as a missing map in mustMap.
+//
+// The txtar fixtures warm their executables for the same reason; the rig
+// did not, which is why e2e failed intermittently under `make test` alone.
+// Best effort throughout: a warm-up that cannot run leaves the rig exactly
+// as it was, and the recorders are truncated afterwards so a warmed
+// wrapper leaves no argv or environment behind for the assertions.
+func (r *rig) warmExecutables() {
+	r.t.Helper()
+	warm := func(name string, args ...string) {
+		cmd := exec.Command(name, args...)
+		cmd.Env = r.baseEnv()
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+		_ = cmd.Run()
+	}
+	warm(r.brigade, "version")
+	warm(r.fsAdapter, "describe")
+	warm(r.adapterCmd[0], append(append([]string{}, r.adapterCmd[1:]...), "describe")...)
+	for _, p := range []string{r.argvLog, r.envLog} {
+		if err := os.Truncate(p, 0); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			r.t.Fatalf("truncate %s after warming: %v", p, err)
+		}
+	}
 }
 
 // adapterJSON is the adapter command in the D36 array form: the value of
@@ -284,6 +330,9 @@ func (r *rig) mustRun(env []string, stdin string, args ...string) result {
 func (r *rig) hook(s session, sub, doc string) result {
 	r.t.Helper()
 	res := r.run(r.env(s), doc, "hook", sub)
+	r.mu.Lock()
+	r.lastHook[s.pid] = res
+	r.mu.Unlock()
 	if res.exit != 0 {
 		r.t.Fatalf("hook %s: exit %d\nstdout: %s\nstderr: %s", sub, res.exit, res.stdout, res.stderr)
 	}
@@ -429,9 +478,32 @@ func (r *rig) mustMap(s session) *sessionmap.ByPID {
 	r.t.Helper()
 	m, err := r.store().ReadByPID(s.pid)
 	if err != nil {
-		r.t.Fatalf("by-pid map of %d: %v", s.pid, err)
+		r.t.Fatalf("by-pid map of %d: %v\n%s", s.pid, err, r.whyNoMap(s))
 	}
 	return m
+}
+
+// whyNoMap is mustMap's diagnosis: the last hook's streams for this
+// session, what the by-pid directory actually holds, and the session's
+// watcher log. Without it a missing map says only that it is missing —
+// the hook exits 0 on a failed connect, so the reason lives in its stderr.
+func (r *rig) whyNoMap(s session) string {
+	r.mu.Lock()
+	last := r.lastHook[s.pid]
+	r.mu.Unlock()
+	var b strings.Builder
+	fmt.Fprintf(&b, "--- last hook for pid %d: exit=%d\nstdout: %q\nstderr: %q\n", s.pid, last.exit, last.stdout, last.stderr)
+	dir := filepath.Join(r.stateDir, "sessions", "by-pid")
+	entries, derr := os.ReadDir(dir)
+	fmt.Fprintf(&b, "--- %s (err=%v):\n", dir, derr)
+	for _, e := range entries {
+		fmt.Fprintf(&b, "    %s\n", e.Name())
+	}
+	logPath := filepath.Join(r.stateDir, "logs", "watcher-"+strconv.Itoa(s.pid)+".log")
+	data, lerr := os.ReadFile(logPath)
+	fmt.Fprintf(&b, "--- %s (err=%v):\n%s\n", logPath, lerr, data)
+	fmt.Fprintf(&b, "--- process %d alive: %v\n", s.pid, alive(s.pid))
+	return b.String()
 }
 
 // mapExists reports whether s's by-pid map file exists.
