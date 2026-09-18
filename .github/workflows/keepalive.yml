@@ -45,8 +45,8 @@ permissions: {contents: read}            # the job reads the checkout and nothin
 # ONE JOB PER PROJECT, each with its own variable pair. A matrix over `vars[matrix.…]` would be shorter and
 # worse: a dynamic variable lookup hides which project a red run belongs to, and the pairs are the thing a
 # reader has to see. `fail-fast` does not enter into it -- separate jobs already fail independently, so a
-# paused thinktech project cannot mask a healthy appshapes one or the other way round. A project whose pair is
-# unset is a green no-op that says so, which is what a fork sees for both.
+# paused project cannot mask a healthy one, in any direction, no matter how many projects join the list. A
+# project whose pair is unset is a green no-op that says so, which is what a fork sees for all three.
 jobs:
   keepalive:
     # curl and jq are the script's only two dependencies. On the Blacksmith image curl is VERIFIED (run
@@ -70,6 +70,18 @@ jobs:
     env:
       BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_THINKTECH_SUPABASE_URL }}"
       BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY }}"
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/ci/keepalive.sh
+
+  keepalive-aafp-board-review-team:
+    # The AAFP Board Review team's project (sqaadyyhqwjsagxglyzn), deployed 2026-09-16. Its team spans two
+    # other repositories; the keep-alive rides here for the same reason keepalive-thinktech does.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    env:
+      BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL }}"
+      BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY }}"
     steps:
       - uses: actions/checkout@v7
       - run: scripts/ci/keepalive.sh

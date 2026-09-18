@@ -757,6 +757,20 @@ gh variable set BRIGADE_THINKTECH_SUPABASE_URL --body https://<ref>.supabase.co
 gh variable set BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
 ```
 
+A third project is a third job and a third pair — the AAFP Board Review team's, whose own team spans two other
+repositories:
+
+```sh
+gh variable set BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL --body https://<ref>.supabase.co
+gh variable set BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
+```
+
+**Set both names of a pair, and spell them exactly as the workflow does.** Rung 0 treats *both* variables unset
+as a `::notice::` and exit 0 — only exactly one set is an error — so a pair typed under a name the workflow does
+not read leaves the job green forever while the project quietly pauses on day seven.
+`scripts/ci/keepalive_test.go` pins every job name and every `vars.` expression against the `gh variable set`
+lines above, which is what keeps this list and the workflow from drifting apart.
+
 The script itself stays single-project: each job maps its own pair onto the two names `keepalive.sh` reads, so
 a red run names the job, and therefore the project, on the run page.
 
