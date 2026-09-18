@@ -81,11 +81,14 @@ cp stdout a.json
 jsonenv a.json .result.session_id SID
 # The roster is a Markdown pipe table: a header row, a divider row, then
 # one row per session. bob is labelled, so his identity is in the MEMBER
-# column and there is no LABEL or PRINCIPAL column to carry.
+# column and there is no LABEL or PRINCIPAL column to carry. Every column
+# is padded to its widest cell (the fs adapter's real session_id decides
+# SESSION's width here, not a fixture), so the three checks below use \s*
+# around every delimiter instead of the exact padding.
 exec brigade sessions
-stdout '^\| SESSION \| NAME \| STATE \| INBOUND \| MEMBER \| SEEN \|$'
-stdout '^\| --- \| --- \| --- \| --- \| --- \| --- \|$'
-stdout '^\| '$SID' \| payments-api \| active \| accept \| bob@example.com \(unverified\) \[[^]]{8}\] \| [0-9]+s ago \|$'
+stdout '^\|\s*SESSION\s*\|\s*NAME\s*\|\s*STATE\s*\|\s*INBOUND\s*\|\s*MEMBER\s*\|\s*SEEN\s*\|$'
+stdout '^\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|$'
+stdout '^\|\s*'$SID'\s*\|\s*payments-api\s*\|\s*active\s*\|\s*accept\s*\|\s*bob@example\.com \(unverified\) \[[^]]{8}\]\s*\|\s*[0-9]+s ago\s*\|$'
 ! stdout '\(this session\)'
 ! stderr .
 

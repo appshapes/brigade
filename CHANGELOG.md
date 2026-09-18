@@ -41,6 +41,11 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   another row. Session names, labels and models are unverified remote text, so every cell has its backslashes
   and then its pipes escaped: no name can split a column or forge the one beside it. `--json` is unchanged.
 
+- **The sessions table pads every column to its widest cell.** `/brigade:sessions` prints the roster inside a
+  fenced code block, where nothing renders a Markdown table's pipes as a table, so each column is now padded with
+  trailing spaces to its widest cell — the table stays readable there and in a terminal, and a Markdown renderer
+  ignores the extra spaces everywhere else. `--json` is unchanged.
+
 - **Every existing member's empty label is filled from their Claude account email, without a rejoin.** Members who
   joined before labels existed have none, and from this version the registration each session start sends carries
   the member's default label; a backend with the new migration
