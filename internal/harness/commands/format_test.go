@@ -233,13 +233,6 @@ func TestColumns(t *testing.T) {
 	}
 }
 
-// TestEscapeCellEscapesTheDelimiter is the negative test of the table
-// layout: session_name, human_label and model are attacker-chosen remote
-// text, and the 6.7 sanitiser keeps both the pipe and the backslash, so a
-// cell that could split a column would let a teammate forge the columns a
-// reader uses to decide who they are messaging. The backslash arm is the
-// one that matters: escape the pipe alone and `\|` becomes `\\|`, an
-// escaped backslash followed by a live delimiter.
 // TestNeutralizeCellReplacesTheBorderBar is the negative test of the box
 // table: session_name, human_label and model are attacker-chosen remote
 // text, and nothing sanitises away a box-drawing "│" — there is no escape

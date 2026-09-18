@@ -136,7 +136,7 @@ preview names the sender's `from-name`, which is free text any member can copy. 
 
 | Code | What to do |
 | --- | --- |
-| `not_found` | no such session in your team; run `brigade sessions` again |
+| `not_found` | no such session in your team; run `brigade sessions --json` again for the full session id |
 | `rate_limited`, `loop_detected` | stop and tell your user; do not resend |
 | `unauthenticated` | the human must join again: `/brigade:join <path>` here, or `brigade team join` in a terminal — point them at the `brigade:setup` skill |
 | `unavailable` | the backend is unreachable; retry once, then tell your user |
