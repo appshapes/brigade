@@ -59,16 +59,18 @@ func TestShortPrincipalTakesWhatThereIs(t *testing.T) {
 
 // TestMemberLineCarriesTheShortPrincipal: the roster's member column is
 // the label, the unverified suffix and the short principal; an empty
-// label renders as "" so the caller keeps its `principal=<ref>` column,
-// and a hostile or over-long label is sanitised and capped like any other
-// label before the brackets are added.
+// label renders as "" so the caller falls back to the identity it showed
+// before — the row's LABEL and PRINCIPAL cells in `brigade sessions`,
+// the `principal=<ref>` field in `team members` — and a hostile or
+// over-long label is sanitised and capped like any other label before
+// the brackets are added.
 func TestMemberLineCarriesTheShortPrincipal(t *testing.T) {
 	t.Parallel()
 	if got := memberLine("alice@example.com", "9f3c1a20-5d4e-4a7b"); got != "alice@example.com (unverified) [9f3c1a20]" {
 		t.Errorf("memberLine = %q", got)
 	}
 	if got := memberLine("", "9f3c1a20-5d4e"); got != "" {
-		t.Errorf("an unlabelled member = %q, want the empty string so the caller keeps principal=", got)
+		t.Errorf("an unlabelled member = %q, want the empty string so the caller falls back to the principal", got)
 	}
 	// A whitespace-only label is no label: it must not print an empty
 	// column with a bracket and lose the principal.

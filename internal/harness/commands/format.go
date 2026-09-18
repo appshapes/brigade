@@ -87,11 +87,13 @@ func shortPrincipal(s string) string {
 // unverified suffix (B-3) and a short principal beside it, so a reader
 // sees who a session belongs to and still has the stable anchor — the
 // label is never an identity, and two members may pick the same one.
-// An empty label renders as "", and the caller keeps the
-// `principal=<ref>` column it has always printed, so an unlabelled
-// member's line does not change shape. A ref that sanitises away renders
-// as "[?]": a labelled line always carries the bracket, so a missing
-// anchor is visible rather than silently absent.
+// An empty label renders as "", and the caller falls back to the
+// identity it printed before this column existed, so an unlabelled
+// member is never silently blank: `brigade sessions` fills that row's
+// LABEL and PRINCIPAL cells instead, and `team members` — still one
+// line per member — its `principal=<ref>` field. A ref that sanitises
+// away renders as "[?]": a labelled line always carries the bracket, so
+// a missing anchor is visible rather than silently absent.
 func memberLine(label, principalRef string) string {
 	l := oneLine(protocol.SanitizeLabel(label))
 	if l == "" {

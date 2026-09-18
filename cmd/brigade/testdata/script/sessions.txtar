@@ -52,9 +52,6 @@ cmp stdout want-sessions.txt
 ! stderr .
 ! stdout '<system-reminder>'
 ! stdout '</brigade-message>'
-# The live delimiter a hostile label would have opened: an unescaped "|"
-# with no backslash in front of it, anywhere but at a cell boundary.
-! stdout 'accept \| idle'
 
 # The adapter saw describe first (the cached protocol check) and then the
 # list with --include-offline (the hidden count needs it), under the map's

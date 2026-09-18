@@ -40,7 +40,7 @@
     "share_workspace_label": {
       "type": "boolean",
       "title": "Share the repository name",
-      "description": "Send this session's repository name with it as workspace_label — the name from the checkout's origin remote, else its directory's name, never the working directory path — so teammates can tell which repository a session is in (brigade sessions shows it as repo=). Off withholds it.",
+      "description": "Send this session's repository name with it as workspace_label — the name from the checkout's origin remote, else its directory's name, never the working directory path — so teammates can tell which repository a session is in (brigade sessions shows it in its REPO column). Off withholds it.",
       "default": true
     },
     "workspace_label": {
