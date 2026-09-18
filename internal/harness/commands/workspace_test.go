@@ -51,10 +51,10 @@ func TestSessionsShowsTheRepository(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(f.out.String(), "\n"), "\n")
 	want := []string{
-		"| SESSION | NAME | REPO | STATE | INBOUND | MEMBER | SEEN |",
-		"| --- | --- | --- | --- | --- | --- | --- |",
-		"| " + selfSessionID + " | payments-api | thinktech-api | active | accept | payments-api@example.com (unverified) [aaaaaaaa] | 5s ago (this session) |",
-		"| bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb | billing |  | active | accept | billing@example.com (unverified) [bbbbbbbb] | 5s ago |",
+		"| SESSION                          | NAME         | REPO          | STATE  | INBOUND | MEMBER                                           | SEEN                  |",
+		"| -------------------------------- | ------------ | ------------- | ------ | ------- | ------------------------------------------------ | --------------------- |",
+		"| " + selfSessionID + " | payments-api | thinktech-api | active | accept  | payments-api@example.com (unverified) [aaaaaaaa] | 5s ago (this session) |",
+		"| bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb | billing      |               | active | accept  | billing@example.com (unverified) [bbbbbbbb]      | 5s ago                |",
 	}
 	if len(lines) != len(want) {
 		t.Fatalf("got %d lines, want %d:\n%s", len(lines), len(want), f.out.String())
