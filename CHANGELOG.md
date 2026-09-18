@@ -40,6 +40,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `(truncated: …)` notes follow the table after a blank line, so a renderer reads them as notes rather than as
   another row. Session names, labels and models are unverified remote text, so every cell has its backslashes
   and then its pipes escaped: no name can split a column or forge the one beside it. `--json` is unchanged.
+
+- **Every existing member's empty label is filled from their Claude account email, without a rejoin.** Members who
   joined before labels existed have none, and from this version the registration each session start sends carries
   the member's default label; a backend with the new migration
   (`supabase/migrations/20260917170000_session_human_label.sql`) adopts it **only when the membership has none**.
