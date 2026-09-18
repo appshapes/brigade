@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -209,14 +210,48 @@ func TestColumns(t *testing.T) {
 	}
 }
 
-// TestTableRowEscapesTheDelimiter is the negative test of the table
+// TestEscapeCellEscapesTheDelimiter is the negative test of the table
 // layout: session_name, human_label and model are attacker-chosen remote
 // text, and the 6.7 sanitiser keeps both the pipe and the backslash, so a
 // cell that could split a column would let a teammate forge the columns a
 // reader uses to decide who they are messaging. The backslash arm is the
 // one that matters: escape the pipe alone and `\|` becomes `\\|`, an
 // escaped backslash followed by a live delimiter.
-func TestTableRowEscapesTheDelimiter(t *testing.T) {
+func TestEscapeCellEscapesTheDelimiter(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, in, want string }{
+		{"plain", "a", "a"},
+		{"a pipe", "x|y", `x\|y`},
+		{"an escaped pipe", `x\|idle\|accept`, `x\\\|idle\\\|accept`},
+		{"a trailing backslash", `x\`, `x\\`},
+		{"a lone backslash", `a\b`, `a\\b`},
+		{"empty", "", ""},
+	} {
+		if got := escapeCell(tc.in); got != tc.want {
+			t.Errorf("%s: escapeCell(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
+		}
+	}
+	// The positive control: after escaping, a row built from hostile cells
+	// carries exactly the delimiters its columns need — counting the
+	// unescaped pipes is how a renderer splits it.
+	for _, cells := range [][]string{
+		{"a", "b", "c"},
+		{"a|b", `c\|d`, `e\`},
+	} {
+		escaped := make([]string, len(cells))
+		for i, c := range cells {
+			escaped[i] = escapeCell(c)
+		}
+		if got := unescapedPipes(tableRow(escaped...)); got != len(cells)+1 {
+			t.Errorf("row from %q has %d live delimiters, want %d", cells, got, len(cells)+1)
+		}
+	}
+}
+
+// TestTableRowJoinsCells: tableRow itself only joins already-escaped,
+// already-padded cells — the escaping is padTable's job now, so it can
+// run once per table instead of once per row.
+func TestTableRowJoinsCells(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name  string
@@ -224,10 +259,6 @@ func TestTableRowEscapesTheDelimiter(t *testing.T) {
 		want  string
 	}{
 		{"plain", []string{"a", "b"}, "| a | b |"},
-		{"a pipe", []string{"x|y", "b"}, `| x\|y | b |`},
-		{"an escaped pipe", []string{`x\|idle\|accept`, "b"}, `| x\\\|idle\\\|accept | b |`},
-		{"a trailing backslash", []string{`x\`, "b"}, `| x\\ | b |`},
-		{"a lone backslash", []string{`a\b`}, `| a\\b |`},
 		{"an empty cell", []string{"a", "", "c"}, "| a |  | c |"},
 		{"no cells", nil, "|  |"},
 	} {
@@ -235,15 +266,32 @@ func TestTableRowEscapesTheDelimiter(t *testing.T) {
 			t.Errorf("%s: tableRow(%q) = %q, want %q", tc.name, tc.cells, got, tc.want)
 		}
 	}
-	// The positive control: after escaping, every row of a table built
-	// from hostile cells carries exactly the delimiters its columns need —
-	// counting the unescaped pipes is how a renderer splits it.
-	for _, cells := range [][]string{
-		{"a", "b", "c"},
-		{"a|b", `c\|d`, `e\`},
-	} {
-		if got := unescapedPipes(tableRow(cells...)); got != len(cells)+1 {
-			t.Errorf("row from %q has %d live delimiters, want %d", cells, got, len(cells)+1)
+}
+
+// TestPadTablePadsToTheWidestCell pins the plain-text half of the layout
+// the reviewer asked for: every cell is escaped, then padded with
+// trailing spaces to its column's widest cell (in runes, measured AFTER
+// escaping), so the table stays aligned where nothing renders the pipes —
+// inside the fenced block `/brigade:sessions` prints it in, or a
+// terminal. A GFM renderer does not care about the extra spaces.
+func TestPadTablePadsToTheWidestCell(t *testing.T) {
+	t.Parallel()
+	got := padTable([][]string{
+		{"SESSION", "NAME"},
+		{"a", "bb"},
+		{"ccc", "d|e"},
+	})
+	want := [][]string{
+		{"SESSION", "NAME"},
+		{"a      ", "bb  "},
+		{"ccc    ", `d\|e`},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d rows, want %d: %#v", len(got), len(want), got)
+	}
+	for r := range want {
+		if !slices.Equal(got[r], want[r]) {
+			t.Errorf("row %d = %#v, want %#v", r, got[r], want[r])
 		}
 	}
 }
@@ -268,25 +316,31 @@ func unescapedPipes(row string) int {
 	return n
 }
 
+// TestTableDivider pins the divider's width to the padded header cell it
+// follows — GFM needs only three dashes, but a shorter divider than its
+// column reads as narrower than the data it separates.
 func TestTableDivider(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		n    int
-		want string
+		header []string
+		want   string
 	}{
-		{1, "| --- |"},
-		{3, "| --- | --- | --- |"},
+		{[]string{"a"}, "| --- |"},
+		{[]string{"a", "bb", "c"}, "| --- | --- | --- |"},
+		// A header cell padTable widened past three characters gets a
+		// divider at least as wide, not clipped back to the three-dash floor.
+		{[]string{"SESSION "}, "| -------- |"},
 	} {
-		if got := tableDivider(tc.n); got != tc.want {
-			t.Errorf("tableDivider(%d) = %q, want %q", tc.n, got, tc.want)
+		if got := tableDivider(tc.header); got != tc.want {
+			t.Errorf("tableDivider(%q) = %q, want %q", tc.header, got, tc.want)
 		}
 	}
 	// The divider must carry the same number of columns as the header row
 	// it follows, or the table does not render at all.
 	header := []string{"SESSION", "NAME", "SEEN"}
-	if unescapedPipes(tableDivider(len(header))) != unescapedPipes(tableRow(header...)) {
+	if unescapedPipes(tableDivider(header)) != unescapedPipes(tableRow(header...)) {
 		t.Errorf("divider and header disagree on their column count:\n%s\n%s",
-			tableRow(header...), tableDivider(len(header)))
+			tableRow(header...), tableDivider(header))
 	}
 }
 

@@ -147,8 +147,8 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	}
 	header = append(header, "SEEN")
 
-	lines := make([]string, 0, len(records)+3)
-	lines = append(lines, tableRow(header...), tableDivider(len(header)))
+	rows := make([][]string, 0, len(records)+1)
+	rows = append(rows, header)
 	for i, r := range records {
 		member := members[i]
 		cells := []string{idLine(r.SessionID), nameLine(r.SessionName)}
@@ -202,7 +202,18 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 			seen += " (this session)"
 		}
 		cells = append(cells, seen)
-		lines = append(lines, tableRow(cells...))
+		rows = append(rows, cells)
+	}
+
+	// Every cell is escaped and padded to its column's widest cell here,
+	// in one pass over the whole table: the table stays aligned as plain
+	// text too, which is how `/brigade:sessions` shows it (inside a fenced
+	// code block, where nothing else lines up the pipes for a reader).
+	padded := padTable(rows)
+	lines := make([]string, 0, len(records)+3)
+	lines = append(lines, tableRow(padded[0]...), tableDivider(padded[0]))
+	for _, row := range padded[1:] {
+		lines = append(lines, tableRow(row...))
 	}
 	// Each trailing note gets a blank line of its own before it: a GFM
 	// renderer ends a table only at a blank line, so a note appended
