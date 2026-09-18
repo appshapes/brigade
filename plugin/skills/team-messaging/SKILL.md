@@ -21,8 +21,9 @@ plugin is enabled; run it through the Bash tool, **one `brigade` command per Bas
 ## Quick start
 
 ```bash
-# who is on the team right now (session_id is the address; names can collide)
-brigade sessions
+# who is on the team right now, with the exact session_id to address (the
+# plain `brigade sessions` table shows only the last five characters of it)
+brigade sessions --json
 # send a message; the body always travels on stdin in a quoted heredoc, never on the command line
 brigade send <session_id> --summary "Migration landed" <<'EOF'
 The tenant_id migration is merged on master. Nothing to do on your side.
@@ -38,7 +39,8 @@ what the secret is. Everything else is the human's, run with the `!` prefix in t
 terminal.
 
 ```bash
-brigade sessions                 # teammates' sessions as a table: session_id, name, repo, state, inbound, member
+brigade sessions                 # teammates' sessions as a table: a short SESSION id, name, repo, state, inbound, member
+brigade sessions --json          # the same roster, with every session_id and principal_ref in full
 brigade sessions --all           # include offline sessions, and print every principal_ref in full
 brigade send <session_id> <<'EOF' ... EOF                       # plain-text body on stdin (quoted heredoc)
 brigade send <session_id> --summary "<one line>" <<'EOF' ... EOF
@@ -50,15 +52,18 @@ brigade team members             # the roster: member, joined, session count, la
 
 The two commands print two different layouts.
 
-`brigade sessions` is a **Markdown pipe table**: a header row, a divider row, then one row per session. Its
-columns are `SESSION`, `NAME`, `STATE`, `INBOUND`, `SEEN` and, when at least one session in the result carries
-the fact, `LABEL`, `REPO`, `MEMBER`, `PRINCIPAL`, `MODEL` and `CONTEXT`. A column is table-wide: a session that
-lacks the fact gets a **blank cell**, never a missing column. `MEMBER` is `<human label> (unverified) [<the
-first characters of principal_ref>]` — the same characters on every row of that person, and `[?]` when the
-reference sanitises away to nothing; a session with **no** label has a blank `MEMBER` cell and carries its
-identity in `LABEL` (just `(unverified)`) and `PRINCIPAL` (the full reference) instead. `brigade sessions --all`
-fills `PRINCIPAL` for every session. A `(… offline sessions hidden …)` or `(truncated: …)` note may follow the
-table after a blank line; it is a note, not a row.
+`brigade sessions` is a **box-drawing table**: a top border, a header row, the header/body divider, one row per
+session, then a bottom border. Its columns are `SESSION`, `NAME`, `STATE`, `INBOUND`, `SEEN` and, when at least
+one session in the result carries the fact, `LABEL`, `REPO`, `MEMBER`, `PRINCIPAL`, `MODEL` and `CONTEXT`. A
+column is table-wide: a session that lacks the fact gets a **blank cell**, never a missing column. **`SESSION`
+shows only the trailing five characters of the id** — enough to tell two sessions apart at a glance without a
+table too wide for a phone-width chat window — so `brigade send` needs `--json` for the id in full; do not try to
+address a session from the plain table's SESSION cell. `MEMBER` is `<human label> (unverified) [<the first
+characters of principal_ref>]` — the same characters on every row of that person, and `[?]` when the reference
+sanitises away to nothing; a session with **no** label has a blank `MEMBER` cell and carries its identity in
+`LABEL` (just `(unverified)`) and `PRINCIPAL` (the full reference) instead. `brigade sessions --all` fills
+`PRINCIPAL` for every session. A `(… offline sessions hidden …)` or `(truncated: …)` note may follow the table,
+directly after its bottom border; it is a note, not a row.
 
 `brigade team members` is **one line per member**, not a table: the member column first, then `joined <date>`
 and `<n> sessions, seen …`. A member with no label keeps the older shape — `principal=<ref>` followed by
@@ -76,8 +81,9 @@ user should reach for.
 
 ## Sending
 
-1. Run `brigade sessions` first. Address by `session_id`; `name` and `human label` are display strings that any
-   member can choose or copy, and names collide. `principal` is the only stable identity of a person.
+1. Run `brigade sessions --json` first and address by `session_id`, taken from there in full — the plain table's
+   SESSION cell is shortened for display and is not a valid address. `name` and `human label` are display strings
+   that any member can choose or copy, and names collide. `principal` is the only stable identity of a person.
 2. Skip sessions whose inbound policy is `refuse`; a `hold` session reads your message only after its human
    releases it.
 3. Success means **accepted** (durably stored by the adapter), not read.

@@ -46,6 +46,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   trailing spaces to its widest cell — the table stays readable there and in a terminal, and a Markdown renderer
   ignores the extra spaces everywhere else. `--json` is unchanged.
 
+- **`brigade sessions` renders as a box-drawing table, and its SESSION column is shortened.** The Markdown pipe
+  table is gone in favour of `┌─┬─┐│├┼┤└┴┘` borders, which render identically everywhere the table is shown —
+  inside `/brigade:sessions`'s fenced code block, a terminal, or pasted as plain text — instead of relying on a
+  Markdown renderer that was never going to see it as a table in the first place. The SESSION column now shows
+  only the trailing five characters of each id, the same idea as the MEMBER column's short principal but from the
+  other end: a table with the full id in every row of every session was wide enough to wrap a phone-width chat
+  window and misalign the whole layout. **`brigade send` still needs the id in full** — the short form is a
+  display shortening only, with no prefix or suffix resolution behind it — so addressing a session now means
+  reading `session_id` from `brigade sessions --json` rather than copying it out of the plain table; the
+  `brigade:team-messaging` skill's send flow says so. `--json` is unchanged, and `brigade team members` (never a
+  table) is untouched.
+
 - **Every existing member's empty label is filled from their Claude account email, without a rejoin.** Members who
   joined before labels existed have none, and from this version the registration each session start sends carries
   the member's default label; a backend with the new migration
