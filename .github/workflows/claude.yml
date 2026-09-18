@@ -70,12 +70,13 @@ jobs:
         (github.event_name == 'pull_request' && contains(join(github.event.pull_request.labels.*.name, ','), 'claude'))
       )
     runs-on: blacksmith-4vcpu-ubuntu-2404       # the same label ci.yml's `fast` job uses: docker, jq, gh, shellcheck 0.9.0
-    # MEASURED 2026-09-16 over the seven agent runs to date (the P9-3 re-pin; the P14-5 row): the five fixer
-    # runs took 100–525 s; the two developer runs 440 s (run 34484257940, 59 turns) and 1245 s (run
-    # 35153548072, 61 turns — the ceiling). Rule (ci.yml's): at least twice the longest projected job — 120
-    # turns at the slowest observed pace (~20 s/turn on 35153548072) is ~40 min plus setup, so 90. A hung agent
-    # must still not burn six hours of the concurrency group. Re-measure when a job passes 45 min.
-    timeout-minutes: 90
+    # MEASURED 2026-09-17 over the seventeen agent runs to date (the P9-3 re-pin; the P14-5 row): fixer runs
+    # 100–525 s and 13–58 turns; developer runs 440 s (59 turns), 1245 s (61, the old ceiling), ~14 min at 90
+    # and 124 turns (parts A and B of card 24) and 14 min at the 120 ceiling twice (part C). Rule (ci.yml's):
+    # at least twice the longest projected job — 200 turns at the slowest observed pace (~20 s/turn on
+    # 35153548072) is ~67 min plus setup, so 150. A hung agent must still not burn six hours of the
+    # concurrency group. Re-measure when a job passes 75 min.
+    timeout-minutes: 150
     # Published so the `open-pr` job below can act on it. A job output is the ONLY channel between the two jobs,
     # and that is exactly the point: `open-pr` holds the PAT and this job must not, so nothing crosses the
     # boundary but a branch name (§1.1.1 (iii)).
@@ -213,15 +214,16 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Opus for every workflow agent (the log's tier policy: CI/scaffolding/docs are Opus-tier). Fable never
           # runs in CI — its budget is hard and is reserved for the security path and adversarial passes.
-          # --max-turns is a hard stop on a wandering session. 120 is MEASURED 2026-09-16 (the P9-3 re-pin; the
-          # P14-5 row) over the seven runs: fixer 13, 13, 15, 20, 30; developer 59 (run 34484257940, the first
-          # ever, one short of the 60 ceiling) and 61 (run 35153548072, `error_max_turns` on issue #15, after
-          # the fix and its witness were done but before the gates and the push). Both developer samples sit AT
-          # the ceiling, so the measurement is censored: twice the ceiling, and re-measure when a session passes
-          # 80. The other half of the money question is already answered and needs nothing here — the OAuth
-          # token is on Rjae's Max plan and THAT PLAN'S LIMITS ARE THE CEILING (§1.1.1 (i), §4.10 credentials
-          # (ii)); there is no second ceiling to set.
-          claude_args: "--model claude-opus-5 --max-turns 120"
+          # --max-turns is a hard stop on a wandering session. 200 is MEASURED 2026-09-17 (the P9-3 re-pin; the
+          # P14-5 row) over the seventeen runs to date: fixer 13, 13, 15, 16, 20, 25, 30, 33, 34, 37, 58;
+          # developer 59 (run 34484257940), 61 (35153548072, the 60 ceiling), 73 (35156099663, issue #15), 90
+          # (35231317403, card 24 part A), 124 (35237622142, part B, green), and 121 twice at the 120 ceiling
+          # (35229062415 and 35245775186, part C — the largest work order, censored both times, nothing pushed).
+          # Rule (P14-1's): at least 1.5 × the largest observed count, rounded up — 1.5 × 124 = 186, so 200;
+          # re-measure when a session passes 150. The other half of the money question is already answered and
+          # needs nothing here — the OAuth token is on Rjae's Max plan and THAT PLAN'S LIMITS ARE THE CEILING
+          # (§1.1.1 (i), §4.10 credentials (ii)); there is no second ceiling to set.
+          claude_args: "--model claude-opus-5 --max-turns 200"
           # Public repository: run logs are world-readable. Keep the full agent output out of them.
           show_full_output: false
           # Lets the agent read its own workflow run logs when a gate fails in CI rather than locally.

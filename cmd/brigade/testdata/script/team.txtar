@@ -32,6 +32,7 @@ mkdir repo/.git
 cd repo
 exec brigade team create --adapter fs --url http://127.0.0.1:1 --key placeholder --name ops --label alice@example.com --secret-file $WORK/team.secret
 stdout 'created team "ops"'
+stdout 'sent your display label: alice@example\.com \(unverified\) \['
 stdout 'wrote .*\.brigade\.json'
 stdout 'git add \.brigade\.json'
 ! stdout brg1
@@ -60,9 +61,12 @@ cp stdout joined.json
 jsonenv joined.json .result.principal_ref BOB
 
 # --- the roster, in the documented layout (bob's store, sole team) -----
+# Card 24: each line leads with the member's label and the first eight
+# characters of their principal; the full ref stays in the --json form.
 exec brigade team members
-stdout 'alice@example.com \(unverified\)  joined 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-stdout '^principal='$BOB'  bob@example.com \(unverified\)  joined '
+stdout '^alice@example.com \(unverified\) \[[^]]{8}\]  joined 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+stdout '^bob@example.com \(unverified\) \[[^]]{8}\]  joined '
+! stdout 'principal='
 ! stderr .
 exec brigade team members --json
 json stdout .ok true
@@ -75,8 +79,16 @@ stdin register-a.json
 exec brigade-adapter-fs --root $WORK/.brigade/brigade-state/fs-adapter --profile default session register
 cp stdout a.json
 jsonenv a.json .result.session_id SID
+# The roster is a Markdown pipe table: a header row, a divider row, then
+# one row per session. bob is labelled, so his identity is in the MEMBER
+# column and there is no LABEL or PRINCIPAL column to carry. Every column
+# is padded to its widest cell (the fs adapter's real session_id decides
+# SESSION's width here, not a fixture), so the three checks below use \s*
+# around every delimiter instead of the exact padding.
 exec brigade sessions
-stdout '^'$SID'  payments-api  bob@example.com \(unverified\)  active  inbound=accept'
+stdout '^\|\s*SESSION\s*\|\s*NAME\s*\|\s*STATE\s*\|\s*INBOUND\s*\|\s*MEMBER\s*\|\s*SEEN\s*\|$'
+stdout '^\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|$'
+stdout '^\|\s*'$SID'\s*\|\s*payments-api\s*\|\s*active\s*\|\s*accept\s*\|\s*bob@example\.com \(unverified\) \[[^]]{8}\]\s*\|\s*[0-9]+s ago\s*\|$'
 ! stdout '\(this session\)'
 ! stderr .
 

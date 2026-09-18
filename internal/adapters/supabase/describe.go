@@ -13,7 +13,11 @@ const adapterName = progName
 // and transfer, creator only), the push watch with stdin commands, and
 // every session member (brief section 2) — model and context_used_tokens
 // included (C-44; 20260910193200_session_model_context.sql stores and
-// returns them).
+// returns them) and the registration's human_label too (C-45;
+// 20260917170000_session_human_label.sql adopts it into an unlabelled
+// membership). Each is withheld while the backend is known to lack the
+// migration that implements it, and only then — sessionAppendedMigrations
+// and advertisedCapabilities, compat.go.
 func capabilities() []string {
 	return []string{
 		"team.create",
@@ -29,6 +33,7 @@ func capabilities() []string {
 		"session.inbound",
 		"session.model",
 		"session.context_used_tokens",
+		"session.human_label",
 	}
 }
 

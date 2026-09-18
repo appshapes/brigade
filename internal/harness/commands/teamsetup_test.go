@@ -8,11 +8,15 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	json "encoding/json/v2"
+
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/account"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/teamstore/write"
@@ -498,5 +502,253 @@ func TestTeamListRendersTheStore(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("team list output %q lacks %q", out, want)
 		}
+	}
+}
+
+// --- the default label (card 24, part B) ---------------------------------
+
+// accountEmail is the address the fixtures default to.
+const accountEmail = "alice@example.com"
+
+// writeAccountFile puts a Claude Code config naming accountEmail in dir,
+// as a signed-in install has one.
+func writeAccountFile(t *testing.T, dir string) {
+	t.Helper()
+	doc := `{"numStartups":7,"oauthAccount":{"accountUuid":"u-1","emailAddress":"` + accountEmail + `"}}`
+	if err := os.WriteFile(filepath.Join(dir, account.FileName), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// sentLabel reads the human_label off the request the named verb carried.
+// The verb is looked up rather than indexed: how many spawns precede it
+// (describe, profile init) is not what these tests are about.
+func sentLabel(t *testing.T, f *fixture, verb string) string {
+	t.Helper()
+	verbs := f.rec.verbs()
+	i := slices.Index(verbs, verb)
+	if i < 0 {
+		t.Fatalf("%q was never spawned (verbs %q)", verb, verbs)
+	}
+	var req struct {
+		HumanLabel string `json:"human_label"`
+	}
+	if err := json.Unmarshal(f.rec.spec(t, i).Stdin, &req); err != nil {
+		t.Fatalf("%s request: %v", verb, err)
+	}
+	return req.HumanLabel
+}
+
+// createInv is a non-interactive `team create` at a terminal: --name is
+// given, so nothing prompts.
+func createInv(t *testing.T, f *fixture, top string, extra ...string) Invocation {
+	t.Helper()
+	args := append([]string{"create", "--url", "https://abc.supabase.co", "--key", "sb_publishable_x",
+		"--name", "devs", "--secret-file", filepath.Join(f.dirs.Root, "team.secret")}, extra...)
+	f.rec.on("profile init", answer{result: `{"profile":"x","initialized":true}`})
+	f.rec.on("team create", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_1"}`})
+	iv := f.inv(f.terminalEnv(), "", args...)
+	iv.Deps.Getwd = func() (string, error) { return top, nil }
+	return iv
+}
+
+func TestTeamCreateDefaultsTheLabelToTheAccountEmail(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	writeAccountFile(t, f.dirs.Home)
+
+	if err := Team(createInv(t, f, top)); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentLabel(t, f, "team create"); got != accountEmail {
+		t.Fatalf("team create sent human_label %q, want %q", got, accountEmail)
+	}
+}
+
+func TestTeamCreateLabelFlagBeatsTheDefault(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	writeAccountFile(t, f.dirs.Home)
+
+	if err := Team(createInv(t, f, top, "--label", "Alice of Ops")); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentLabel(t, f, "team create"); got != "Alice of Ops" {
+		t.Fatalf("team create sent human_label %q, want the flag's value", got)
+	}
+}
+
+func TestTeamCreateSendsNoLabelWhenOptedOut(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	writeAccountFile(t, f.dirs.Home)
+
+	iv := createInv(t, f, top)
+	iv.Environ = f.terminalEnv("BRIGADE_LABEL=none")
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentLabel(t, f, "team create"); got != "" {
+		t.Fatalf("team create sent human_label %q for a member who opted out", got)
+	}
+}
+
+// With no account to read the request carries no label — the shape every
+// member had before this version.
+func TestTeamCreateSendsNoLabelWithoutAnAccount(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+
+	if err := Team(createInv(t, f, top)); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentLabel(t, f, "team create"); got != "" {
+		t.Fatalf("team create sent human_label %q with no account file to read", got)
+	}
+}
+
+// At the terminal the default is shown in the prompt's brackets before it
+// is sent: that is where the member consents to sharing their address, and
+// typing a label there still overrides it.
+func TestTeamCreatePromptOffersTheAccountEmail(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	writeAccountFile(t, f.dirs.Home)
+	f.rec.on("profile init", answer{result: `{"profile":"x","initialized":true}`})
+	f.rec.on("team create", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_1"}`})
+
+	var prompts []string
+	answers := []string{"devs", ""}
+	iv := f.inv(f.terminalEnv(), "", "create", "--url", "https://abc.supabase.co",
+		"--key", "sb_publishable_x", "--secret-file", filepath.Join(f.dirs.Root, "team.secret"))
+	iv.Deps.Getwd = func() (string, error) { return top, nil }
+	iv.Deps.IsTerminal = func(io.Reader) bool { return true }
+	iv.Deps.PromptLine = func(p string) (string, error) {
+		prompts = append(prompts, p)
+		out := answers[0]
+		answers = answers[1:]
+		return out, nil
+	}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if len(prompts) != 2 || !strings.Contains(prompts[1], "["+accountEmail+"]") {
+		t.Fatalf("prompts = %q, want the second to offer %q", prompts, accountEmail)
+	}
+	if got := sentLabel(t, f, "team create"); got != accountEmail {
+		t.Fatalf("an empty answer sent %q, want the offered default", got)
+	}
+}
+
+// The prompt above fires on one path only — a terminal create that also
+// omitted --name. The documented invocation passes --name (and an
+// in-session one must), so the report is what tells the administrator
+// which address went to the backend. It is the roster's own member
+// column, so it reads as their teammates will see them.
+func TestTeamCreateReportsTheLabelItSent(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	writeAccountFile(t, f.dirs.Home)
+
+	iv := createInv(t, f, top)
+	iv.Deps.PromptLine = func(string) (string, error) {
+		t.Fatal("team create --name prompted for something")
+		return "", nil
+	}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	want := "sent your display label: " + accountEmail + " (unverified) [p_1]"
+	if out := f.out.String(); !strings.Contains(out, want) {
+		t.Fatalf("output %q lacks %q", out, want)
+	}
+}
+
+// Opted out, the line still appears and says what was sent — nothing. A
+// silently absent line would read as "no disclosure", which is the one
+// thing this report must never be.
+func TestTeamCreateReportsThatItSentNoLabel(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	writeAccountFile(t, f.dirs.Home)
+
+	iv := createInv(t, f, top)
+	iv.Environ = f.terminalEnv("BRIGADE_LABEL=none")
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	out := f.out.String()
+	if !strings.Contains(out, "sent no display label") {
+		t.Fatalf("output %q lacks the no-label line", out)
+	}
+	if strings.Contains(out, accountEmail) {
+		t.Fatalf("output %q names the account email of a member who opted out", out)
+	}
+}
+
+func TestTeamJoinDefaultsTheLabelToTheAccountEmail(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	writeAccountFile(t, f.dirs.Home)
+
+	if err := Team(joinInv(f, top, setupSecret, true, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentLabel(t, f, "team join"); got != accountEmail {
+		t.Fatalf("team join sent human_label %q, want %q", got, accountEmail)
+	}
+}
+
+func TestTeamJoinLabelFlagBeatsTheDefault(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	writeAccountFile(t, f.dirs.Home)
+
+	iv := joinInv(f, top, setupSecret, true, nil)
+	iv.Args = []string{"join", "--label", "Alice of Ops"}
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentLabel(t, f, "team join"); got != "Alice of Ops" {
+		t.Fatalf("team join sent human_label %q, want the flag's value", got)
+	}
+}
+
+func TestTeamJoinSendsNoLabelWhenOptedOut(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	writeAccountFile(t, f.dirs.Home)
+
+	iv := joinInv(f, top, setupSecret, true, nil)
+	iv.Environ = f.terminalEnv("BRIGADE_LABEL=none")
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentLabel(t, f, "team join"); got != "" {
+		t.Fatalf("team join sent human_label %q for a member who opted out", got)
+	}
+}
+
+// A literal option is the label, and it is sanitised: the option comes
+// from the user's own settings, but nothing reaches the wire unsanitised.
+func TestTeamJoinLiteralLabelOption(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	writeAccountFile(t, f.dirs.Home)
+
+	iv := joinInv(f, top, setupSecret, true, nil)
+	iv.Environ = f.terminalEnv("BRIGADE_LABEL=Alice of Ops")
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentLabel(t, f, "team join"); got != "Alice of Ops" {
+		t.Fatalf("team join sent human_label %q, want the option's literal", got)
 	}
 }

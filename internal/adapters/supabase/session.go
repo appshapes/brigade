@@ -83,7 +83,11 @@ func (c *command) sessionCommand() (any, error) {
 // p_context_used_tokens, null when absent: the registration is the
 // session's whole state, and readInput's Validate has already applied the
 // protocol's caps (max_model_chars, 0..MaxContextUsedTokens), so the RPC's
-// own checks are the belt beneath.
+// own checks are the belt beneath. human_label (C-45) goes the same way as
+// p_human_label: the harness's DEFAULT label for its principal, which the
+// RPC adopts into the membership only when that membership has none. The
+// adapter neither reads the stored label first nor compares the two — the
+// "never overwrite" rule lives in one place, the RPC, where it is atomic.
 func (c *command) sessionRegister() (any, error) {
 	if err := c.parse(newFlags()); err != nil {
 		return nil, err
@@ -115,6 +119,7 @@ func (c *command) sessionRegister() (any, error) {
 		"p_lease_seconds":       seconds,
 		"p_model":               req.Model,
 		"p_context_used_tokens": req.ContextUsedTokens,
+		"p_human_label":         req.HumanLabel,
 	}
 	if req.Resume != nil {
 		if !validUUID(req.Resume.SessionID) {

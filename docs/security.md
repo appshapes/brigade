@@ -42,8 +42,43 @@ Brigade is designed against seven kinds of attacker. Six of them are held off. T
 **What is not a boundary.** Display names and labels are free text. Any member can pick any of them, copy
 someone else's, and two members can have the same one. Brigade never treats a name as proof of anything. Every
 place a display label is shown, it is marked `(unverified)`. The only identity the server stamps is the
-`from-principal` value in each message, and the team roster shows that same reference for every active member, so
-you can recognise the same person across all of their sessions.
+`from-principal` value in each message, and the team roster is keyed on that same reference for every active
+member: it prints the label with the leading characters of the reference beside it, in brackets, and those
+characters are the same on every line that member appears on, so you can recognise the same person across all of
+their sessions. The principal, never the label, is the identity; the bracketed characters are what tells two
+members who chose the same label apart; and a reference that sanitises away to nothing prints as `[?]`, so a
+labelled line always carries the bracket. `brigade sessions --all` and either command's `--json` form print the
+reference in full — and the full reference is what `revoke-member` and `transfer` take, so an administrative
+step reads it from `--json`, never from the brackets.
+
+**Where the default label comes from.** A member who gives no `--label` is labelled with the email address of the
+Claude account their install is signed in to. Brigade reads that address from Claude Code's own configuration file
+(`oauthAccount.emailAddress` in `.claude.json`, under `CLAUDE_CONFIG_DIR` when it is set and in the home directory
+otherwise), read-only and best effort: a missing, unreadable or malformed file simply leaves the label empty. A failed read
+leaves one debug line on stderr saying that the account email was unavailable, and that line is fixed text — the
+address is never in it, and neither is the path, which would carry your home directory and your
+`CLAUDE_CONFIG_DIR`. Brigade never **writes** anything under Claude Code's configuration directory, and the only
+things it ever **reads** there are this `.claude.json`, your `settings.json` (the session-start policy scan of
+section 6) and the registry entry for the session's own pid (`sessions/<pid>.json`) — never the 0600
+`sessions/*.key` peer keys that live in that same `sessions/` directory. Nor does Brigade store the address
+itself: the label is sent once, with the `team join` (or the `team create`) that sends it, and what is kept
+locally is the *option*, not the value. So joining a team shares your account
+email with the members of that team, and with whoever runs its backend (section 2). To opt out, set the plugin
+option `label` to `none` before you join, or to any text you would rather be known by; `--label` on the join
+command does the same for that one command. Changing the option later changes what the next **first** join on this
+machine sends; it does not rewrite the label the team already holds, and a re-consent (`team join` in a second
+checkout of a team you are already on) sends no label at all. The address is unverified text like every other
+label, and is marked so wherever it is shown.
+
+**Existing members, whose label is empty.** A member who joined before this version has no label at all, and
+rejoining to get one is not something Brigade asks of anybody. From this version the registration every session
+start sends carries the same default label, and a backend that has the matching migration adopts it **only when
+the membership has none**. So an empty label is filled from your Claude account email at the next session start
+after the update, and a label you chose is never touched — not by this, not by a later session, not by a
+teammate's. The opt-out is the same one and it works before the fill as it works before a join: set the plugin
+option `label` to `none`, or to any text you would rather be known by, and the next session start sends that
+instead. The consent point moves with the mechanism: for existing members it is the first session start after this
+version, not a join.
 
 **One thing that is a boundary.** A caller who is not an active member of a team gets the same refusal for a team
 that exists and for a team id made up out of thin air. The two answers are byte for byte identical, so nobody can
@@ -446,9 +481,10 @@ it. [`docs/setup.md`](setup.md), "Leaving and uninstalling", has the order.
   safe to run first. Evicting people is the separate revoke-by-version step, and it never evicts you.
 - **The new secret is written to the file you name and nowhere else.** It is never printed. If the file cannot
   be written, the secret is gone and the only fix is to rotate again.
-- **Write the member's `principal_ref` down before you ban them.** A banned member is no longer listed by
-  `brigade team members`, and un-banning needs that reference. If it is lost, the recovery is a secret rotation
-  plus a fresh principal on the member's side.
+- **Write the member's `principal_ref` down before you ban them**, taking it from `brigade team members --json`
+  (`.members[].principal_ref`): the human roster prints only its leading characters, and `--principal` takes the
+  reference in full. A banned member is no longer listed by `brigade team members` at all, and un-banning needs
+  that reference. If it is lost, the recovery is a secret rotation plus a fresh principal on the member's side.
 - **`revoke-member` and `transfer` refuse to run inside a Claude Code session** (section 4); `rotate-secret` runs
   anywhere, its new secret to `--secret-file`.
 

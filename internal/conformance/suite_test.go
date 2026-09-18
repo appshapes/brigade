@@ -27,10 +27,11 @@ var conformanceSeed = flag.Int64("conformance-seed", 0,
 // wholeRunPass, wholeRunFail and wholeRunSkip are the counts the fs
 // adapter must produce for the whole non-slow run: every case but C-14
 // passes (C-44 included: the fs adapter advertises session.model and
-// session.context_used_tokens), C-14 is the one skip (it is tagged slow),
+// session.context_used_tokens; C-45 included: it advertises
+// session.human_label), C-14 is the one skip (it is tagged slow),
 // nothing fails.
 const (
-	wholeRunPass = 45
+	wholeRunPass = 46
 	wholeRunFail = 0
 	wholeRunSkip = 1
 )

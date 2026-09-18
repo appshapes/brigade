@@ -48,6 +48,14 @@ or the conversation.
 Then send each member the join secret **over a password-grade channel** — a password manager share, not chat and
 not email. The secret is a bearer capability: anyone holding it can join and pick any label.
 
+By default a member's label is **the email address of the Claude account their install is signed in to**, so the
+roster you and every other member see will hold those addresses — and so will the backend you run. A member who
+would rather not can set the `label` plugin option to `none` or to any text before joining; tell them so when you
+send the secret if that matters to your team. The same default applies to you: `team create` sends your account
+email as your own label and names it in its output (`sent your display label: …`, the line after `created team …`),
+so you can see what it published. A label is unverified free text either way: the principal reference beside it is
+the identity.
+
 Your credential directory (`~/.config/brigade/teams/<key>`, or under the `config_dir` plugin option) is the
 team's only administrative credential. Keep a 0700 backup of it somewhere you control; without it nobody can
 rotate the secret or administer the team. Rotating the join secret runs in a session or a terminal
@@ -68,7 +76,16 @@ That runs `brigade team join --secret-file ~/brigade-<team>.secret` and relays t
 project's `.brigade.json`, prints the team and backend host it is joining (invoking it is the consent), reads the
 secret from the file and joins; its output never carries the secret, and this session attaches at your next prompt
 (one already attached to another team stays there until `/reload-plugins`). Delete the file once every machine
-that needs it has joined. In your own terminal,
+that needs it has joined.
+
+**The join sends your Claude account email as your display label**, unless you say otherwise. Brigade reads the
+address from Claude Code's own configuration, read-only, and sends it once — with this join — so every member of
+the team, and whoever runs its backend, will see it beside your sessions. To opt out, set the `label` plugin
+option **before you join**: `none` sends no label at all (your sessions are listed by their principal reference
+alone), and any other text is used as your label instead. `--label <text>` on the command overrides the option for
+that one join. It is not prompted for, so choose it first.
+
+In your own terminal,
 `brigade team join` alone shows what the file names, asks you to confirm, then reads the secret without echo.
 Either way the secret never reaches your scrollback, your shell history or a chat. There is no `--profile`, no
 `--url` and no `--key`: the project file supplies all of that.

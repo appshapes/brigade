@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -65,6 +66,45 @@ func labelLine(s string) string {
 		return strings.TrimSpace(UnverifiedSuffix)
 	}
 	return label + UnverifiedSuffix
+}
+
+// shortPrincipalChars is how much of a principal ref the roster prints
+// beside a label (card 24): eight characters tell two principals apart at
+// a glance without crowding a line that already carries six columns.
+const shortPrincipalChars = 8
+
+// shortPrincipal renders the leading characters of a sanitised principal
+// ref for the human form. A ref shorter than the cap is taken whole, and
+// an empty one stays empty so the caller can drop the column.
+func shortPrincipal(s string) string {
+	id := idLine(s)
+	if r := []rune(id); len(r) > shortPrincipalChars {
+		return string(r[:shortPrincipalChars])
+	}
+	return id
+}
+
+// memberLine renders the roster's member column: the label with the
+// unverified suffix (B-3) and a short principal beside it, so a reader
+// sees who a session belongs to and still has the stable anchor — the
+// label is never an identity, and two members may pick the same one.
+// An empty label renders as "", and the caller falls back to the
+// identity it printed before this column existed, so an unlabelled
+// member is never silently blank: `brigade sessions` fills that row's
+// LABEL and PRINCIPAL cells instead, and `team members` — still one
+// line per member — its `principal=<ref>` field. A ref that sanitises
+// away renders as "[?]": a labelled line always carries the bracket, so
+// a missing anchor is visible rather than silently absent.
+func memberLine(label, principalRef string) string {
+	l := oneLine(protocol.SanitizeLabel(label))
+	if l == "" {
+		return ""
+	}
+	short := shortPrincipal(principalRef)
+	if short == "" {
+		short = "?"
+	}
+	return l + UnverifiedSuffix + " [" + short + "]"
 }
 
 // workspaceLine sanitises a registered workspace label for the human
@@ -154,4 +194,77 @@ func itoa(n int) string { return strconv.Itoa(n) }
 // separator of the documented layouts.
 func columns(fields ...string) string {
 	return strings.Join(fields, "  ")
+}
+
+// escapeCell escapes the two characters that could let an unverified
+// remote string — a session_name, human_label or model — split or forge a
+// Markdown pipe-table column: session names, labels and models are
+// attacker-chosen text, and the 6.7 sanitiser keeps both a literal "|"
+// and a literal "\".
+//
+// The backslash is escaped FIRST, and that order is the whole of the
+// guarantee: escaping the pipe alone would turn a cell's own `\|` into
+// `\\|` — an escaped backslash followed by a LIVE delimiter — and a
+// session named `x\|idle\|accept` would shift every cell to its right
+// and forge the columns a reader uses to decide who they are messaging.
+func escapeCell(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	return strings.ReplaceAll(s, "|", "\\|")
+}
+
+// padTable escapes every cell of a Markdown pipe table and pads each one
+// with trailing spaces to its column's widest cell (in runes), so the
+// table stays aligned as plain text too — inside the fenced code block
+// `/brigade:sessions` prints it in, or a terminal, where nothing lines up
+// the pipes for a reader the way a Markdown renderer would. rows[0] is
+// the header; every row must carry the same number of cells.
+func padTable(rows [][]string) [][]string {
+	widths := make([]int, len(rows[0]))
+	escaped := make([][]string, len(rows))
+	for r, row := range rows {
+		escaped[r] = make([]string, len(row))
+		for c, cell := range row {
+			e := escapeCell(cell)
+			escaped[r][c] = e
+			if n := utf8.RuneCountInString(e); n > widths[c] {
+				widths[c] = n
+			}
+		}
+	}
+	for _, row := range escaped {
+		for c, cell := range row {
+			if pad := widths[c] - utf8.RuneCountInString(cell); pad > 0 {
+				row[c] = cell + strings.Repeat(" ", pad)
+			}
+		}
+	}
+	return escaped
+}
+
+// tableRow renders one Markdown pipe-table row from cells padTable has
+// already escaped and padded.
+func tableRow(cells ...string) string {
+	return "| " + strings.Join(cells, " | ") + " |"
+}
+
+// tableDivider renders the header/body divider row: each cell's dashes
+// match the padded header cell's width (GFM needs only three), so the
+// divider stays as wide as the columns it separates instead of the
+// shortest line a Markdown renderer would still accept.
+func tableDivider(paddedHeader []string) string {
+	cells := make([]string, len(paddedHeader))
+	for i, h := range paddedHeader {
+		w := utf8.RuneCountInString(h)
+		if w < 3 {
+			w = 3
+		}
+		cells[i] = strings.Repeat("-", w)
+	}
+	return "| " + strings.Join(cells, " | ") + " |"
+}
+
+// seenAgoCell is seenAgo without its "seen " word, for a column that is
+// already labelled by its own table header.
+func seenAgoCell(at, server, now time.Time) string {
+	return strings.TrimPrefix(seenAgo(at, server, now), "seen ")
 }

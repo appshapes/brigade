@@ -9,6 +9,81 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A member is labelled from their Claude account, and a `label` option opts out.** `brigade team create` and
+  `brigade team join`, given no `--label`, now default the member's display label to the email address of the
+  Claude account the install is signed in to — read from Claude Code's own `.claude.json`
+  (`oauthAccount.emailAddress`, under `CLAUDE_CONFIG_DIR` when set, else the home directory), read-only and best
+  effort: a missing, unreadable or malformed file simply leaves the label empty, as it was before. The new plugin
+  option `label` decides what is sent: `account` (the default) the address, `none` nothing at all, any other text
+  that text. An explicit `--label` still wins over the option. `team create` run at a terminal **without `--name`**
+  — the one form that prompts at all — offers the default in the prompt's brackets; every other create, including
+  every in-session one, sends it without asking. Outside a session `BRIGADE_LABEL` stands in for the option, exactly
+  as `BRIGADE_CONFIG_DIR` stands in for `config_dir`; inside one it is ignored like every inherited `BRIGADE_*`.
+
+- **`brigade team create` reports the display label it sent.** A new line after `created team …` names it as the
+  roster will — `sent your display label: alice@example.com (unverified) [9f3c1a20] — every member of this team,
+  and whoever runs its backend, can see it` — or says `sent no display label` when the option or a missing account
+  left it empty. It is printed on every create path, so the invocation this project's setup guide documents (and
+  every in-session one, where nothing can prompt) still says what it published about the person who ran it.
+
+### Changed
+
+- **`brigade sessions` prints a Markdown table instead of one self-labelled line per session.** The roster is now
+  a header row, a divider row and one row per session, so a reader compares two sessions down a column rather
+  than reading the same field prefixes over and over. The columns are `SESSION`, `NAME`, `STATE`, `INBOUND` and
+  `SEEN` always, and `LABEL`, `REPO`, `MEMBER`, `PRINCIPAL`, `MODEL` and `CONTEXT` whenever at least one session
+  in the result carries that fact — a column is table-wide, so a session that lacks the fact gets a **blank
+  cell**, never a missing column. The old `repo=`, `principal=`, `model=`, `context=` and `inbound=` prefixes are
+  gone; the value is now under its own header. The `(<n> offline sessions hidden; --all shows them)` and
+  `(truncated: …)` notes follow the table after a blank line, so a renderer reads them as notes rather than as
+  another row. Session names, labels and models are unverified remote text, so every cell has its backslashes
+  and then its pipes escaped: no name can split a column or forge the one beside it. `--json` is unchanged.
+
+- **The sessions table pads every column to its widest cell.** `/brigade:sessions` prints the roster inside a
+  fenced code block, where nothing renders a Markdown table's pipes as a table, so each column is now padded with
+  trailing spaces to its widest cell — the table stays readable there and in a terminal, and a Markdown renderer
+  ignores the extra spaces everywhere else. `--json` is unchanged.
+
+- **Every existing member's empty label is filled from their Claude account email, without a rejoin.** Members who
+  joined before labels existed have none, and from this version the registration each session start sends carries
+  the member's default label; a backend with the new migration
+  (`supabase/migrations/20260917170000_session_human_label.sql`) adopts it **only when the membership has none**.
+  So the consent point for an existing member is the **first session start after updating the plugin**, not a
+  join: from then on, that team and whoever runs its backend can see the address. A label a member already chose
+  is never overwritten — not by this, not by any later registration — and the opt-out is the same as for a join:
+  set the plugin option `label` to `none`, or to any text you would rather be known by, before the next session
+  starts. The administrator's half is applying that migration (`make backend-install project=<ref>`, as for every
+  migration before it), and either order works: until it is applied the backend answers `PGRST202`, the adapter
+  drops the label rather than the registration, and the fill happens at the next session start afterwards.
+  Protocol: `human_label` is a new optional member of `SessionRegistration` and `session.human_label` a new
+  capability (additive, still BAP/1; conformance C-45).
+
+- **A backend behind on one migration now loses only that migration's values.** The Supabase adapter's
+  `PGRST202` fallback used to treat every appending migration as one set, so a project that had
+  `20260910193200` but not the new `20260917170000` would have stopped storing `model` and
+  `context_used_tokens` — and stopped announcing `session.model` and `session.context_used_tokens` — until an
+  administrator migrated. It now steps back one migration at a time, keeping the values and the capabilities of
+  every migration the project does have, which is what `docs/setup.md` has always promised ("what you lose until
+  you migrate is only what the migration adds").
+
+- **Joining a team now shares your Claude account email with that team, by default.** From this version,
+  `/brigade:join` labels a new member with the email address of their Claude account, so the roster shows it to
+  every other member — and to whoever runs the team's backend. Set the plugin option `label` to `none` (or to any
+  text you would rather be known by) before you join to opt out, or pass `--label` on the join itself. The address
+  is never written by Brigade and never logged; it is unverified text like every other label, and the principal
+  reference beside it remains the identity.
+
+- **The roster reads as people, not UUIDs.** `brigade sessions` and `brigade team members` print a member's
+  `human_label` where the opaque `principal_ref` used to stand — `alice@example.com (unverified) [9f3c1a20]`,
+  the label once and the first eight characters of the principal beside it, so two members who chose the same
+  label stay distinguishable. A member without a label keeps the line they had, `principal=<ref>` and all. The
+  principal is still the only identity: `brigade sessions --all` prints the full reference after the short one,
+  both `--json` forms are unchanged, and both notes still say that a label proves nothing.
+
+## [0.6.5] — 2026-09-17
+
 ### Fixed
 
 - **The watcher's exit waits for its own writers.** `brigade watch` used to return while a goroutine of its own

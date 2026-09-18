@@ -152,7 +152,7 @@ reference — nothing about the repository — so the **same `.brigade.json`, co
 them one team**: sessions in any of them share one roster and message each other directly. To add a repository,
 copy the file from one already on the team into the new repository's top level, commit it, and run
 `brigade team join` once in a checkout of it (no secret on a machine that already holds the team's credential).
-`brigade sessions` shows which repository each session is in as `repo=<name>` — the repository's name from its
+`brigade sessions` shows which repository each session is in in its REPO column — the repository's name from its
 `origin` remote, else its directory's — with nothing configured (`share_workspace_label` off withholds it,
 `workspace_label` replaces it).
 
@@ -193,7 +193,7 @@ then `git add .brigade.json && git commit && git push`. In a terminal, drop the 
 credential locally so your sessions attach at once. `--secret-file` (**required**, and it must be an absolute path
 outside the repository) writes the join secret to a file with mode 0600, so it never reaches your terminal
 scrollback, the conversation, or the repository. Inside a session the command's output lands in the chat — it names
-the team and the file, never the secret.
+the team, the file, and the display label it sent for you (see "How teammates see you" below), never the secret.
 
 **Then commit `.brigade.json` and send each member the secret file** `team create` wrote. `.brigade.json` already
 carries the URL and the publishable key, so a member who has the repository needs nothing else public. Send the
@@ -241,6 +241,45 @@ it. Either way the secret never reaches your scrollback, your shell history or a
 - A backend other than the bundled Supabase adapter is named in the project file's `adapter` field; the name
   resolves to a command through your own `adapters.json`. [docs/adapter-authors.md](adapter-authors.md) explains it.
 
+**How teammates see you.** Your sessions carry a display label, and by default it is **the email address of the
+Claude account this install is signed in to** — Brigade reads it from Claude Code's own configuration
+(`.claude.json`, under `CLAUDE_CONFIG_DIR` when you set that, else in your home directory), never writes it, and
+sends it once, with the `team join` that makes you a member. So from this version on, the `/brigade:join` above
+labels you with your account email, and joining a team shares that address with everyone on it. The roster shows
+it beside the first characters of your principal reference: `alice@example.com (unverified) [9f3c1a20]`.
+
+Set the plugin option **`label`** if you want something else:
+
+| `label` | what your teammates see |
+| --- | --- |
+| `account` (the default) | your Claude account email |
+| `none` | no label at all — your sessions are listed by their principal reference alone |
+| any other text | that text |
+
+A label proves nothing either way: anyone can pick any of them, so every place one is shown says `(unverified)`,
+and the principal reference beside it is the identity. `--label` on `brigade team join` or `brigade team create`
+overrides the option for that one command.
+
+**Nothing prompts you for a label on the paths above.** A `team join` confirms the team, the ref and the host, and
+then sends whatever the option resolves to. The `team create` above passes `--name`, and an in-session one must, so
+it sends the default without asking as well — the label prompt (`your display label [alice@example.com]: `) appears
+only in the one form this guide never shows: `brigade team create` run **at a terminal with no `--name`**, which is
+also the only form that asks for the team name. What `team create` does do on every path is **report the label it
+sent**, on the line after `created team …`:
+
+```
+sent your display label: alice@example.com (unverified) [9f3c1a20] — every member of this team, and whoever runs its backend, can see it
+```
+
+A `team join` prints no such line. So decide the option **before** you join. In your own terminal, outside a
+session, `BRIGADE_LABEL` stands in for the option the
+way `BRIGADE_CONFIG_DIR` stands in for `config_dir`; inside a session Brigade ignores it, as it ignores every
+`BRIGADE_*` variable a repository could set.
+
+Changing the option later changes what your next **first** join on this machine sends; it does not rewrite the
+label a team already holds for you, and joining a second checkout of a team you are already on sends no label at
+all.
+
 You know it worked when the session starts with a line like this one:
 
 ```
@@ -248,8 +287,9 @@ Brigade: this session is "payments-api" (09365acd…) in team "ops"; inbound: ac
 ```
 
 `/brigade:sessions` prints that roster whenever you want it, and `/brigade:sessions --all` includes the sessions
-that are offline. It prints what the command prints and nothing else — no table of its own, no summary, no
-comparison with the last time you asked — so two runs of it, in one session or in different ones, differ only
+that are offline. The command's own output is a Markdown table, one row per session; the slash command prints
+that and nothing else — no layout of its own, no summary, no comparison with the last time you asked — so two
+runs of it, in one session or in different ones, differ only
 where the team differs. Asking for the roster in words runs the same command, and `brigade:team-messaging` tells
 the session to print what it printed there too — but that is one rule inside a skill the session loads for other
 reasons and may not have in play at all. The slash command is the one bound to the passthrough, which is what
@@ -384,7 +424,9 @@ Joining a team mints an anonymous account on the backend for you, and Brigade st
 The file has mode 0600 and sits in a directory with mode 0700. Brigade writes it atomically, so a crash never
 leaves half a file, and it **refuses to use it** if it is readable by anyone else. There is no second place: no
 keychain, no environment variable, no copy in the project directory (nothing except the one team file `.brigade.json`, written once by the
-administrator). Pass `config_dir` if you want the credential store somewhere other than `~/.config/brigade`.
+administrator). Pass `config_dir` if you want the credential store somewhere other than `~/.config/brigade`, and
+`label` (beside it in the same settings) if you want your display label to be something other than your Claude
+account email — see "How teammates see you" under "Member: join a team".
 
 To see the state of the team you joined here without seeing any token, run this in the checkout:
 
@@ -440,7 +482,7 @@ the order in "Leaving and uninstalling" below matters.
 ### Revoking a member
 
 ```sh
-brigade team members                                    # copy the principal_ref of the member to remove
+brigade team members --json                             # copy .members[].principal_ref of the member to remove
 printf '{"principal_ref":"<ref>"}' | brigade team revoke-member
 # or, without stdin:
 brigade team revoke-member --principal <ref>
@@ -451,10 +493,13 @@ A **revoke** closes that member's open sessions at once (a running watcher of th
 with the same `unauthorized` a `team leave` produces), removes them from the roster, and ends their access to
 their own inboxes immediately — and they may rejoin with the current secret, as the same principal. A **ban**
 does all of that and makes the member's rejoin answer *exactly* what a wrong secret answers, so a banned member
-cannot tell it was banned. **Write the `principal_ref` down before you ban**: a banned member is no longer listed
-by `brigade team members`, and un-banning — `brigade team revoke-member --principal <ref>` without `--ban` —
-needs the ref. If the ref is lost, the recovery is a secret rotation (below) plus a fresh principal on the
-member's side (`brigade team reset`, then `brigade team join`). You cannot revoke or ban yourself; leaving is
+cannot tell it was banned. **Write the `principal_ref` down before you ban**, and read it from
+`brigade team members --json` (`.members[].principal_ref`): the human roster prints only the first characters of
+the reference, in brackets beside the label, while `--principal` is passed to the adapter verbatim and so needs
+the ref in full. A banned member is no longer listed by `brigade team members` at all, and un-banning —
+`brigade team revoke-member --principal <ref>` without `--ban` — needs the ref. If the ref is lost, the recovery
+is a secret rotation (below) plus a fresh principal on the member's side (`brigade team reset`, then
+`brigade team join`). You cannot revoke or ban yourself; leaving is
 `brigade team leave`, and it is reversible by a rejoin.
 
 ### The leaked-secret playbook
@@ -481,7 +526,7 @@ again. Members that were never revoked keep working through a rotation without n
 ### Transferring the team
 
 ```sh
-brigade team members                       # the new creator must be an active member
+brigade team members --json                # copy .members[].principal_ref; the new creator must be an active member
 brigade team transfer --principal <ref>
 ```
 
@@ -643,9 +688,23 @@ only ever *appends* RPC parameters with defaults, so an older adapter works unch
 and a newer adapter works on a project you have not migrated yet — it names a new parameter only when it has
 a value for it, and when the project refuses one (`PGRST202`) it sends the call again without it, drops that
 value rather than the call, says so once on stderr naming the migration, and checks again every ten
-minutes. What you lose until you migrate is only what the migration adds (for `20260910193200`, the `model=`
-and `context=` columns of `brigade sessions` stay blank for your team); nothing else changes. Migrate at your
-convenience, then, and `migration list` tells you where each project stands.
+minutes. What you lose until you migrate is only what the migration adds (for `20260910193200`, the MODEL
+and CONTEXT columns of `brigade sessions` stay blank for your team); nothing else changes. That is per
+migration, not all-or-nothing: a project that has `20260910193200` but not `20260917170000` keeps storing
+`model` and `context` and loses only the label the registration offers, and `describe` keeps announcing the
+capabilities it does honour. Migrate at your convenience, then, and `migration list` tells you where each
+project stands.
+
+**Nobody rejoins to get a label.** Every membership created before labels existed has an empty `human_label`, and
+`20260917170000_session_human_label.sql` fills it without anyone rejoining: from that plugin version on, each
+session start offers the member's default label and the migrated backend adopts it **only when the membership has
+none** — a label a member chose is never overwritten. Both halves are needed and **either order works**. Your half
+is the ordinary one, `make backend-install project=<ref>` from a checkout of this repository (section 1 above),
+with `migration list` as the check. Members who update the plugin before you apply it register against a project
+that answers `PGRST202`; the adapter drops the label — and only the label, by the paragraph above — registers
+anyway, and the fill happens at the next session start after you migrate. Migrate first and nothing happens until
+each member updates. Nobody has to be told to do anything in particular, and a member who wants no label sets the
+plugin option `label` to `none`.
 
 **Order matters, and it is not a preference.** Apply the migrations *before* exposing the `brigade` schema on the
 Data API. A project that exposes a schema which does not exist yet leaves PostgREST looping on
