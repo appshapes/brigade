@@ -79,16 +79,17 @@ stdin register-a.json
 exec brigade-adapter-fs --root $WORK/.brigade/brigade-state/fs-adapter --profile default session register
 cp stdout a.json
 jsonenv a.json .result.session_id SID
-# The roster is a Markdown pipe table: a header row, a divider row, then
-# one row per session. bob is labelled, so his identity is in the MEMBER
-# column and there is no LABEL or PRINCIPAL column to carry. Every column
-# is padded to its widest cell (the fs adapter's real session_id decides
-# SESSION's width here, not a fixture), so the three checks below use \s*
-# around every delimiter instead of the exact padding.
+# The roster is a box-drawing table: a top border, a header row, the
+# header/body divider, one row per session, then a bottom border. bob is
+# labelled, so his identity is in the MEMBER column and there is no LABEL
+# or PRINCIPAL column to carry. Every column is padded to its widest cell,
+# so the two checks below use \s* around every delimiter instead of the
+# exact padding; SESSION shows only the trailing five characters of the fs
+# adapter's own generated id, not $SID in full, so the row is matched
+# without naming the id at all.
 exec brigade sessions
-stdout '^\|\s*SESSION\s*\|\s*NAME\s*\|\s*STATE\s*\|\s*INBOUND\s*\|\s*MEMBER\s*\|\s*SEEN\s*\|$'
-stdout '^\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|$'
-stdout '^\|\s*'$SID'\s*\|\s*payments-api\s*\|\s*active\s*\|\s*accept\s*\|\s*bob@example\.com \(unverified\) \[[^]]{8}\]\s*\|\s*[0-9]+s ago\s*\|$'
+stdout '^│\s*SESSION\s*│\s*NAME\s*│\s*STATE\s*│\s*INBOUND\s*│\s*MEMBER\s*│\s*SEEN\s*│$'
+stdout '│\s*\S+\s*│\s*payments-api\s*│\s*active\s*│\s*accept\s*│\s*bob@example\.com \(unverified\) \[[^]]{8}\]\s*│\s*[0-9]+s ago\s*│'
 ! stdout '\(this session\)'
 ! stderr .
 

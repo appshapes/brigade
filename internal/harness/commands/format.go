@@ -84,6 +84,24 @@ func shortPrincipal(s string) string {
 	return id
 }
 
+// shortSessionChars is how much of a session id the SESSION column shows:
+// enough to tell two sessions in the same table apart at a glance, without
+// the full id — a UUID-length column — widening the whole table past a
+// terminal or a chat window. `brigade send` still needs the id byte for
+// byte, so this is a display shortening only; a reader who has to address
+// a session reaches for `--json`, which always carries it in full.
+const shortSessionChars = 5
+
+// shortSession renders the trailing characters of a sanitised session id
+// for the human form. An id shorter than the cap is taken whole.
+func shortSession(s string) string {
+	id := idLine(s)
+	if r := []rune(id); len(r) > shortSessionChars {
+		return string(r[len(r)-shortSessionChars:])
+	}
+	return id
+}
+
 // memberLine renders the roster's member column: the label with the
 // unverified suffix (B-3) and a short principal beside it, so a reader
 // sees who a session belongs to and still has the stable anchor — the
@@ -196,71 +214,67 @@ func columns(fields ...string) string {
 	return strings.Join(fields, "  ")
 }
 
-// escapeCell escapes the two characters that could let an unverified
-// remote string — a session_name, human_label or model — split or forge a
-// Markdown pipe-table column: session names, labels and models are
-// attacker-chosen text, and the 6.7 sanitiser keeps both a literal "|"
-// and a literal "\".
-//
-// The backslash is escaped FIRST, and that order is the whole of the
-// guarantee: escaping the pipe alone would turn a cell's own `\|` into
-// `\\|` — an escaped backslash followed by a LIVE delimiter — and a
-// session named `x\|idle\|accept` would shift every cell to its right
-// and forge the columns a reader uses to decide who they are messaging.
-func escapeCell(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	return strings.ReplaceAll(s, "|", "\\|")
+// borderBar is the box-drawing vertical bar the table renders between
+// columns. It is not Markdown syntax and no renderer treats it specially,
+// but that is exactly why a hostile cell containing a literal one could
+// still forge what looks like an extra column boundary in the rendered
+// text — there is no escape convention for plain text the way `\|` is
+// one for a Markdown pipe table, so neutralizeCell replaces it outright.
+const borderBar = "│"
+
+// neutralizeCell replaces a literal box-drawing vertical bar in an
+// unverified remote string — a session_name, human_label or model — with
+// an ordinary ASCII "|", so it reads as visibly not the table's own
+// border rather than silently splitting or forging a column.
+func neutralizeCell(s string) string {
+	return strings.ReplaceAll(s, borderBar, "|")
 }
 
-// padTable escapes every cell of a Markdown pipe table and pads each one
-// with trailing spaces to its column's widest cell (in runes), so the
-// table stays aligned as plain text too — inside the fenced code block
-// `/brigade:sessions` prints it in, or a terminal, where nothing lines up
-// the pipes for a reader the way a Markdown renderer would. rows[0] is
-// the header; every row must carry the same number of cells.
+// padTable neutralises every cell of a table and pads each one with
+// trailing spaces to its column's widest cell (in runes), so the table
+// stays aligned as plain text — which is how `/brigade:sessions` shows
+// it, inside a fenced code block, and how any terminal shows it. rows[0]
+// is the header; every row must carry the same number of cells.
 func padTable(rows [][]string) [][]string {
 	widths := make([]int, len(rows[0]))
-	escaped := make([][]string, len(rows))
+	padded := make([][]string, len(rows))
 	for r, row := range rows {
-		escaped[r] = make([]string, len(row))
+		padded[r] = make([]string, len(row))
 		for c, cell := range row {
-			e := escapeCell(cell)
-			escaped[r][c] = e
-			if n := utf8.RuneCountInString(e); n > widths[c] {
-				widths[c] = n
+			n := neutralizeCell(cell)
+			padded[r][c] = n
+			if w := utf8.RuneCountInString(n); w > widths[c] {
+				widths[c] = w
 			}
 		}
 	}
-	for _, row := range escaped {
+	for _, row := range padded {
 		for c, cell := range row {
 			if pad := widths[c] - utf8.RuneCountInString(cell); pad > 0 {
 				row[c] = cell + strings.Repeat(" ", pad)
 			}
 		}
 	}
-	return escaped
+	return padded
 }
 
-// tableRow renders one Markdown pipe-table row from cells padTable has
-// already escaped and padded.
-func tableRow(cells ...string) string {
-	return "| " + strings.Join(cells, " | ") + " |"
+// dataRow renders one box-drawing table row from cells padTable has
+// already neutralised and padded.
+func dataRow(cells []string) string {
+	return borderBar + " " + strings.Join(cells, " "+borderBar+" ") + " " + borderBar
 }
 
-// tableDivider renders the header/body divider row: each cell's dashes
-// match the padded header cell's width (GFM needs only three), so the
-// divider stays as wide as the columns it separates instead of the
-// shortest line a Markdown renderer would still accept.
-func tableDivider(paddedHeader []string) string {
-	cells := make([]string, len(paddedHeader))
-	for i, h := range paddedHeader {
-		w := utf8.RuneCountInString(h)
-		if w < 3 {
-			w = 3
-		}
-		cells[i] = strings.Repeat("-", w)
+// borderRule renders a horizontal border rule for a padded row — the top
+// (left="┌", mid="┬", right="┐"), the header/body divider (left="├",
+// mid="┼", right="┤") or the bottom (left="└", mid="┴", right="┘") —
+// each segment two runes wider than its column to cover the data rows'
+// own leading and trailing space.
+func borderRule(paddedRow []string, left, mid, right string) string {
+	segs := make([]string, len(paddedRow))
+	for i, cell := range paddedRow {
+		segs[i] = strings.Repeat("─", utf8.RuneCountInString(cell)+2)
 	}
-	return "| " + strings.Join(cells, " | ") + " |"
+	return left + strings.Join(segs, mid) + right
 }
 
 // seenAgoCell is seenAgo without its "seen " word, for a column that is

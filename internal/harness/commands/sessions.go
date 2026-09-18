@@ -35,11 +35,12 @@ type sessionsResult struct {
 	Note          string                   `json:"note"`
 }
 
-// Sessions implements `brigade sessions [--all] [--json]` (6.4): a Markdown
-// pipe table, one row per session, active first, the session's own id
-// marked in its SEEN cell, offline sessions hidden unless --all with a
+// Sessions implements `brigade sessions [--all] [--json]` (6.4): a
+// box-drawing table, one row per session, active first, the session's own
+// id marked in its SEEN cell, offline sessions hidden unless --all with a
 // count of what was hidden, and `truncated` noted when the adapter capped
-// the list.
+// the list. The SESSION column is a short display id (shortSession);
+// `--json` always carries the full id `brigade send` needs.
 //
 // The adapter is always asked with --include-offline and the offline
 // records are hidden HERE: that is the one spawn from which the documented
@@ -151,7 +152,7 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	rows = append(rows, header)
 	for i, r := range records {
 		member := members[i]
-		cells := []string{idLine(r.SessionID), nameLine(r.SessionName)}
+		cells := []string{shortSession(r.SessionID), nameLine(r.SessionName)}
 		if hasLabel {
 			label := ""
 			if member == "" {
@@ -205,25 +206,26 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		rows = append(rows, cells)
 	}
 
-	// Every cell is escaped and padded to its column's widest cell here,
-	// in one pass over the whole table: the table stays aligned as plain
-	// text too, which is how `/brigade:sessions` shows it (inside a fenced
-	// code block, where nothing else lines up the pipes for a reader).
+	// Every cell is neutralised and padded to its column's widest cell
+	// here, in one pass over the whole table: the table stays aligned as
+	// plain text, which is how `/brigade:sessions` shows it (inside a
+	// fenced code block) and how a terminal shows it either way.
 	padded := padTable(rows)
-	lines := make([]string, 0, len(records)+3)
-	lines = append(lines, tableRow(padded[0]...), tableDivider(padded[0]))
+	lines := make([]string, 0, len(records)+4)
+	lines = append(lines,
+		borderRule(padded[0], "┌", "┬", "┐"),
+		dataRow(padded[0]),
+		borderRule(padded[0], "├", "┼", "┤"),
+	)
 	for _, row := range padded[1:] {
-		lines = append(lines, tableRow(row...))
+		lines = append(lines, dataRow(row))
 	}
-	// Each trailing note gets a blank line of its own before it: a GFM
-	// renderer ends a table only at a blank line, so a note appended
-	// straight after the last row parses as one more row and shows up
-	// under SESSION. The blank lines are the only ones the layout emits.
+	lines = append(lines, borderRule(padded[0], "└", "┴", "┘"))
 	if hidden > 0 {
-		lines = append(lines, "", "("+strconv.Itoa(hidden)+" offline sessions hidden; --all shows them)")
+		lines = append(lines, "("+strconv.Itoa(hidden)+" offline sessions hidden; --all shows them)")
 	}
 	if list.Truncated {
-		lines = append(lines, "", "(truncated: the adapter capped the list at its limit; some sessions are not shown)")
+		lines = append(lines, "(truncated: the adapter capped the list at its limit; some sessions are not shown)")
 	}
 	return writeLines(inv.Out, lines...)
 }
