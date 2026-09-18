@@ -62,8 +62,9 @@ address a session from the plain table's SESSION cell. `MEMBER` is `<human label
 characters of principal_ref>]` — the same characters on every row of that person, and `[?]` when the reference
 sanitises away to nothing; a session with **no** label has a blank `MEMBER` cell and carries its identity in
 `LABEL` (just `(unverified)`) and `PRINCIPAL` (the full reference) instead. `brigade sessions --all` fills
-`PRINCIPAL` for every session. A `(… offline sessions hidden …)` or `(truncated: …)` note may follow the table,
-directly after its bottom border; it is a note, not a row.
+`PRINCIPAL` for every session. Up to three notes may follow the table, directly after its bottom border — they are
+notes, not rows: `(SESSION is shortened; …)` whenever a `SESSION` cell lost characters, then
+`(… offline sessions hidden …)` and `(truncated: …)`.
 
 `brigade team members` is **one line per member**, not a table: the member column first, then `joined <date>`
 and `<n> sessions, seen …`. A member with no label keeps the older shape — `principal=<ref>` followed by

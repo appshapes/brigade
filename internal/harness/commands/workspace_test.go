@@ -57,6 +57,7 @@ func TestSessionsShowsTheRepository(t *testing.T) {
 		"│ " + shortSession(selfSessionID) + "   │ payments-api │ thinktech-api │ active │ accept  │ payments-api@example.com (unverified) [aaaaaaaa] │ 5s ago (this session) │",
 		"│ bbbbb   │ billing      │               │ active │ accept  │ billing@example.com (unverified) [bbbbbbbb]      │ 5s ago                │",
 		"└─────────┴──────────────┴───────────────┴────────┴─────────┴──────────────────────────────────────────────────┴───────────────────────┘",
+		"(SESSION is shortened; brigade sessions --json carries the full session_id that brigade send needs)",
 	}
 	if len(lines) != len(want) {
 		t.Fatalf("got %d lines, want %d:\n%s", len(lines), len(want), f.out.String())

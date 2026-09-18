@@ -86,10 +86,17 @@ jsonenv a.json .result.session_id SID
 # so the two checks below use \s* around every delimiter instead of the
 # exact padding; SESSION shows only the trailing five characters of the fs
 # adapter's own generated id, not $SID in full, so the row is matched
-# without naming the id at all.
+# without naming the id at all. The border rules are not pinned here — the
+# three of them are in `sessions.txtar`'s golden, byte for byte, and
+# repeating them against a padding this file does not control would only
+# have to be re-typed. What this file adds is the real fs adapter: its id
+# is longer than five characters, so the shortening note must follow the
+# table here too, which is the only recovery a session with no skill
+# loaded ever sees.
 exec brigade sessions
 stdout '^│\s*SESSION\s*│\s*NAME\s*│\s*STATE\s*│\s*INBOUND\s*│\s*MEMBER\s*│\s*SEEN\s*│$'
 stdout '│\s*\S+\s*│\s*payments-api\s*│\s*active\s*│\s*accept\s*│\s*bob@example\.com \(unverified\) \[[^]]{8}\]\s*│\s*[0-9]+s ago\s*│'
+stdout '^\(SESSION is shortened; brigade sessions --json carries the full session_id that brigade send needs\)$'
 ! stdout '\(this session\)'
 ! stderr .
 

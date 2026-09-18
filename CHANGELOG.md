@@ -54,9 +54,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   other end: a table with the full id in every row of every session was wide enough to wrap a phone-width chat
   window and misalign the whole layout. **`brigade send` still needs the id in full** — the short form is a
   display shortening only, with no prefix or suffix resolution behind it — so addressing a session now means
-  reading `session_id` from `brigade sessions --json` rather than copying it out of the plain table; the
-  `brigade:team-messaging` skill's send flow says so. `--json` is unchanged, and `brigade team members` (never a
-  table) is untouched.
+  reading `session_id` from `brigade sessions --json` rather than copying it out of the plain table. **The table
+  says so itself**, in a note directly under its bottom border — `(SESSION is shortened; brigade sessions --json
+  carries the full session_id that brigade send needs)` — printed whenever a cell actually lost characters: a bare
+  five-character value under a header reading `SESSION` gives a reader no sign that it is partial, and the
+  `brigade:team-messaging` skill that says so in words is not loaded in every session. `--json` is unchanged, and
+  `brigade team members` (never a table) is untouched.
 
 - **Every existing member's empty label is filled from their Claude account email, without a rejoin.** Members who
   joined before labels existed have none, and from this version the registration each session start sends carries

@@ -89,7 +89,9 @@ func shortPrincipal(s string) string {
 // the full id — a UUID-length column — widening the whole table past a
 // terminal or a chat window. `brigade send` still needs the id byte for
 // byte, so this is a display shortening only; a reader who has to address
-// a session reaches for `--json`, which always carries it in full.
+// a session reaches for `--json`, which always carries it in full — and
+// the table says so in a trailing note whenever a cell was shortened,
+// because the SESSION header alone gives no sign the value is partial.
 const shortSessionChars = 5
 
 // shortSession renders the trailing characters of a sanitised session id

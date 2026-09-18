@@ -23,7 +23,9 @@ import (
 // by default). SESSION shows only the trailing five characters of each
 // id (the owner's fix for a table too wide for a phone-width chat window
 // once card 24 widened it): `brigade send` still needs the full id, which
-// only `--json` carries.
+// only `--json` carries, and the table says so in the trailing note the
+// golden below pins — the one surface that reaches a session with no
+// skill loaded.
 func TestSessionsHumanLayout(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -46,6 +48,7 @@ func TestSessionsHumanLayout(t *testing.T) {
 		"│ " + shortSession(selfSessionID) + "   │ payments-api                                                     │ active │ accept  │ alice@example.com (unverified) [aaaaaaaa]                                      │ 12s ago (this session) │",
 		"│ bbbbb   │ billing                                                          │ idle   │ accept  │ bob@example.com (unverified) [bbbbbbbb]                                        │ 45s ago                │",
 		"└─────────┴──────────────────────────────────────────────────────────────────┴────────┴─────────┴────────────────────────────────────────────────────────────────────────────────┴────────────────────────┘",
+		"(SESSION is shortened; brigade sessions --json carries the full session_id that brigade send needs)",
 		"(1 offline sessions hidden; --all shows them)",
 	}
 	if len(lines) != len(want) {
@@ -81,6 +84,58 @@ func TestSessionsHumanLayout(t *testing.T) {
 	}
 }
 
+// TestSessionsNotesTheShortenedSessionColumn is the recovery path for the
+// SESSION column, and it lives in the command's own output rather than in
+// a skill: `plugin/skills/team-messaging/SKILL.md` is loaded only when
+// that skill is in play (E4-interactive records it was never loaded in any
+// of the 77 corpus runs), while the 6.3 context line every session gets
+// says "run `brigade sessions`". A five-character opaque cell under a
+// header reading SESSION carries no sign that it is partial, so without
+// this note the shipped default path is `brigade send ccccc` -> not_found
+// -> "the teammate has left the team", a wrong answer handed to the user.
+//
+// The second arm is what makes the first one mean something: the note is
+// keyed on a cell having ACTUALLY lost characters, so a team whose ids are
+// already short gets no line telling it to go and find a longer one.
+func TestSessionsNotesTheShortenedSessionColumn(t *testing.T) {
+	t.Parallel()
+	const note = "(SESSION is shortened; brigade sessions --json carries the full session_id that brigade send needs)"
+
+	f := newFixture(t)
+	f.rec.on("session list", okAnswer(listResult()))
+	if err := Sessions(f.inv(f.sessionEnv(), ""), SessionsOptions{}); err != nil {
+		t.Fatalf("sessions: %v", err)
+	}
+	out := f.out.String()
+	if !strings.Contains(out, "\n"+note+"\n") {
+		t.Errorf("the shortened SESSION column has no recovery note in the output itself:\n%s", out)
+	}
+	// It is a note under the table, not a row inside it: a reader (or a
+	// model) that stops at the bottom border must still have met it.
+	if i, j := strings.Index(out, "└"), strings.Index(out, note); i < 0 || j < i {
+		t.Errorf("the note is not below the table's bottom border:\n%s", out)
+	}
+
+	// The same fixture with every session id already five characters long:
+	// nothing is shortened, so the cells carry the whole id and there is
+	// nothing to warn about.
+	g := newFixture(t)
+	list := listResult()
+	for _, id := range []string{selfSessionID, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccccccccccccccc"} {
+		list = strings.ReplaceAll(list, `"session_id":"`+id+`"`, `"session_id":"`+id[:shortSessionChars]+`"`)
+	}
+	if list == listResult() {
+		t.Fatal("the canned result no longer carries the ids this test shortens")
+	}
+	g.rec.on("session list", okAnswer(list))
+	if err := Sessions(g.inv(g.sessionEnv(), ""), SessionsOptions{}); err != nil {
+		t.Fatalf("sessions with short ids: %v", err)
+	}
+	if out := g.out.String(); strings.Contains(out, "SESSION is shortened") {
+		t.Errorf("a table that shortened nothing still claims it did:\n%s", out)
+	}
+}
+
 // TestSessionsHumanLineCarriesTheHarnessFacts pins the two optional
 // MODEL and CONTEXT columns of 6.4, both only for the records that carry
 // them: a record from an adapter without the two capabilities gets blank
@@ -107,8 +162,8 @@ func TestSessionsHumanLineCarriesTheHarnessFacts(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(f.out.String(), "\n"), "\n")
 	// top border, header, divider, three rows, bottom border, the
-	// hidden-count note.
-	if len(lines) != 8 {
+	// shortened-SESSION note and the hidden-count note.
+	if len(lines) != 9 {
 		t.Fatalf("got %d lines:\n%s", len(lines), f.out.String())
 	}
 	// row 0 is the top border, row 1 the header, row 2 the divider; carol

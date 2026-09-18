@@ -40,7 +40,9 @@ type sessionsResult struct {
 // id marked in its SEEN cell, offline sessions hidden unless --all with a
 // count of what was hidden, and `truncated` noted when the adapter capped
 // the list. The SESSION column is a short display id (shortSession);
-// `--json` always carries the full id `brigade send` needs.
+// `--json` always carries the full id `brigade send` needs, and a trailing
+// note says so whenever a cell was actually shortened — the output is the
+// only surface every session sees, skill or no skill.
 //
 // The adapter is always asked with --include-offline and the offline
 // records are hidden HERE: that is the one spawn from which the documented
@@ -150,9 +152,17 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 
 	rows := make([][]string, 0, len(records)+1)
 	rows = append(rows, header)
+	// shortened records whether any SESSION cell actually lost characters,
+	// so the trailing note below is printed when — and only when — the
+	// column is a partial id.
+	shortened := false
 	for i, r := range records {
 		member := members[i]
-		cells := []string{shortSession(r.SessionID), nameLine(r.SessionName)}
+		short := shortSession(r.SessionID)
+		if short != idLine(r.SessionID) {
+			shortened = true
+		}
+		cells := []string{short, nameLine(r.SessionName)}
 		if hasLabel {
 			label := ""
 			if member == "" {
@@ -211,7 +221,7 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	// plain text, which is how `/brigade:sessions` shows it (inside a
 	// fenced code block) and how a terminal shows it either way.
 	padded := padTable(rows)
-	lines := make([]string, 0, len(records)+4)
+	lines := make([]string, 0, len(records)+5)
 	lines = append(lines,
 		borderRule(padded[0], "┌", "┬", "┐"),
 		dataRow(padded[0]),
@@ -221,6 +231,15 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		lines = append(lines, dataRow(row))
 	}
 	lines = append(lines, borderRule(padded[0], "└", "┴", "┘"))
+	// The recovery for the shortened SESSION column, printed where the
+	// reader is — not only in a skill that may never be loaded. A bare
+	// five-character cell under a header reading SESSION reads as a whole
+	// short id, so without this line the documented path is `brigade send
+	// ccccc`, a not_found whose message ("no such session in your team")
+	// invites the wrong conclusion that the teammate has left.
+	if shortened {
+		lines = append(lines, "(SESSION is shortened; brigade sessions --json carries the full session_id that brigade send needs)")
+	}
 	if hidden > 0 {
 		lines = append(lines, "("+strconv.Itoa(hidden)+" offline sessions hidden; --all shows them)")
 	}

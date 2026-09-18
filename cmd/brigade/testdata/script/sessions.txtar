@@ -48,7 +48,9 @@ exec $WORK/fake.sh --script warm.json describe
 # still has exactly the cells its header names. SESSION shows only the
 # trailing five characters of each id (the owner's fix for a table too
 # wide for a phone-width chat window): `brigade send` still needs the id
-# in full, which only `--json` carries.
+# in full, which only `--json` carries — and the table says so itself, in
+# the trailing note the golden pins directly under the bottom border, so
+# the recovery does not depend on the team-messaging skill being loaded.
 exec brigade sessions
 cmp stdout want-sessions.txt
 ! stderr .
@@ -146,6 +148,7 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 │ aaaaa   │ payments-api                                                     │ active │ accept  │ alice@example.com (unverified) [9f3c1a20]                 │ claude-opus-5[1m]                                                       │ 190k    │ 12s ago (this session) │
 │ bbbbb   │ billing                                                          │ idle   │ accept  │ bob@example.com (unverified) [2b7d4e61]                   │                                                                         │         │ 45s ago                │
 └─────────┴──────────────────────────────────────────────────────────────────┴────────┴─────────┴───────────────────────────────────────────────────────────┴─────────────────────────────────────────────────────────────────────────┴─────────┴────────────────────────┘
+(SESSION is shortened; brigade sessions --json carries the full session_id that brigade send needs)
 (1 offline sessions hidden; --all shows them)
 -- warm.json --
 {}
