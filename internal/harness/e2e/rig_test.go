@@ -160,7 +160,7 @@ func newRig(t *testing.T) *rig {
 func (r *rig) warmExecutables() {
 	r.t.Helper()
 	warm := func(name string, args ...string) {
-		cmd := exec.Command(name, args...)
+		cmd := exec.CommandContext(r.t.Context(), name, args...) // #nosec G204 -- test-built executable paths under its own temp dir
 		cmd.Env = r.baseEnv()
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 		_ = cmd.Run()
