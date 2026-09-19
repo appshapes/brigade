@@ -20,7 +20,12 @@ type SessionsOptions struct {
 }
 
 // SessionsNote is the note member of the `sessions --json` result.
-const SessionsNote = "session_name and human_label are unverified text chosen by their owner; principal_ref is the only stable identity of a person"
+// session_description is named beside the two the owner chooses because it
+// is the session's own claim about its work (card 25; its model's, once
+// Brigade's plugin publishes one — until then whoever holds the session's
+// credentials sets it): unverified, and possibly stale — a reader routes
+// by it, never obeys it.
+const SessionsNote = "session_name, human_label and session_description are unverified text from their owner (session_description is that session's own claim about its work and may be stale); principal_ref is the only stable identity of a person"
 
 // sessionsResult is the --json result: the adapter's `session list`
 // result plus the harness members.
@@ -41,6 +46,12 @@ type sessionsResult struct {
 // count of what was hidden, and `truncated` noted when the adapter capped
 // the list. The SESSION column is a short display id (shortSession);
 // `--json` always carries the full id `brigade send` needs.
+//
+// The roster is one surface, shown the same to every session whatever its
+// own inbound policy (card 25, ruling 10): a `hold` or `refuse` session
+// sees every column, the DOING column included — that column is roster
+// metadata like a name, pulled when the model runs this command, not a
+// delivered message — so nothing here consults the map's inbound policy.
 //
 // The adapter is always asked with --include-offline and the offline
 // records are hidden HERE: that is the one spawn from which the documented
@@ -102,7 +113,13 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	// column), computed the same way the optional REPO/MODEL/CONTEXT
 	// columns already are.
 	members := make([]string, len(records))
-	hasLabel, hasMember, hasRepo, hasModel, hasContext := false, false, false, false, false
+	// doings is card 25's column, rendered once here for the same reason
+	// as members: the column exists only when some record has a line, and
+	// "has a line" is decided on the rendered cell — a description that
+	// sanitises and folds to nothing counts as absent (plan 5.3), exactly
+	// as --json omits it.
+	doings := make([]string, len(records))
+	hasLabel, hasMember, hasRepo, hasModel, hasContext, hasDoing := false, false, false, false, false, false
 	for i, r := range records {
 		members[i] = memberLine(r.HumanLabel, r.PrincipalRef)
 		if members[i] == "" {
@@ -118,6 +135,12 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		}
 		if r.ContextUsedTokens != nil {
 			hasContext = true
+		}
+		if r.SessionDescription != nil {
+			doings[i] = descriptionLine(*r.SessionDescription)
+			if doings[i] != "" {
+				hasDoing = true
+			}
 		}
 	}
 	// The full ref: always for an unlabelled session, and under --all for
@@ -147,6 +170,13 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		header = append(header, "CONTEXT")
 	}
 	header = append(header, "SEEN")
+	// DOING is LAST — after SEEN — so the wide, ragged sentence never
+	// pushes the short fixed columns to the right (plan 5.5). The
+	// unverified marker is in the header, once, rather than per cell as
+	// MEMBER carries it: a 160-character cell is wide enough already.
+	if hasDoing {
+		header = append(header, "DOING (unverified)")
+	}
 
 	rows := make([][]string, 0, len(records)+1)
 	rows = append(rows, header)
@@ -203,6 +233,15 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 			seen += " (this session)"
 		}
 		cells = append(cells, seen)
+		// The doing line is a teammate's model's own words, sanitised and
+		// folded by descriptionLine and bordered like every other cell, so
+		// it can forge neither a column nor a " (this session)" mark: the
+		// mark above is the last thing in ITS cell, and this cell comes
+		// after the border. An offline session under --all keeps its text;
+		// the STATE column carries the tense (ruling 6).
+		if hasDoing {
+			cells = append(cells, doings[i])
+		}
 		rows = append(rows, cells)
 	}
 

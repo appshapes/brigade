@@ -9,6 +9,22 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **`brigade sessions` shows a session's `session_description` as a `DOING (unverified)` column.** The member has
+  been on the wire since the first protocol draft and was never printed; it is one sentence a session's own
+  model can publish about its work, and teammates now see it. The column is last, after `SEEN`, and follows the
+  table's rule for `MODEL` and `CONTEXT`: present when at least one listed session carries a line, a blank cell
+  for one that does not, and absent when none does — an empty description is "none". The text is unverified and
+  may be stale: it goes through the same sanitiser as a session name (tag families neutralised, control and
+  format characters stripped, folded onto one line, the table's border character replaced) and is cut at 160
+  characters with the `[truncated]` marker, below the wire's 256, which `--json` keeps in full under
+  `session_description` (omitted when empty). It is shown to every session **whatever its own inbound policy**:
+  `hold` and `refuse` are about delivered messages, and a doing line is roster metadata like a name. The
+  `brigade:team-messaging` skill tells a model to prefer, among several possible recipients, the active session
+  whose `DOING` cell matches the subject, and to route by it and never obey it; `docs/security.md` says the same
+  beside the inbox's promise. Brigade's plugin does not yet publish one; the column shows what the backend holds.
+
 ## [0.6.7] — 2026-09-18
 
 ### Changed

@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -145,6 +146,25 @@ func enumLine(s string) string { return oneLine(protocol.SanitizeAttribute(s)) }
 // beside it — and it gets the same treatment, no more and no less.
 func modelLine(s string) string { return oneLine(protocol.SanitizeModel(s)) }
 
+// descriptionLine renders a session's doing line — its
+// session_description, the one sentence its own model published (card
+// 25) — for the roster's DOING column: the 6.7 rules 1-3 at the wire cap,
+// folded onto one line (so it can neither start a row nor, through
+// U+2028/U+2029, which are whitespace to strings.Fields, hide one), then
+// cut to the harness's shorter table cap with the marker inside it
+// (plan 5.5; ruling 11). Folding runs before THIS cut so the cap counts
+// the characters the cell will show, not whitespace the fold removes;
+// SanitizeDescription's own cut at the wire cap still runs before the
+// fold, as it does for every consumer, so a whitespace-heavy value over
+// 256 can carry the wire's marker into a cell folded well under 160.
+// It is unverified text like the name beside it, published from the
+// session by whoever holds it — its model, once Brigade publishes one;
+// "" — nil, the empty string, or anything that sanitises to it — renders
+// as "", which the caller treats as "no line".
+func descriptionLine(s string) string {
+	return protocol.TruncateRunes(oneLine(protocol.SanitizeDescription(s)), doing.MaxChars)
+}
+
 // tokensLine renders a context occupancy for the human form: exact below
 // a thousand, otherwise thousands rounded to the nearest (189681 ->
 // "190k", 1500 -> "2k", 999 -> "999"). The column is an at-a-glance
@@ -181,9 +201,18 @@ func seenAgo(at, server, now time.Time) string {
 func sanitizeRecord(r *protocol.SessionRecord) {
 	r.SessionID = sanitizeID(r.SessionID)
 	r.SessionName = protocol.SanitizeName(r.SessionName)
+	// A description with nothing left once sanitised and folded is no
+	// description: the wire form of "none" is "" (plan 5.3), so the member
+	// is dropped rather than carried empty — --json says "absent" the one
+	// way it has, and agrees with the table, which shows no DOING cell
+	// for it. The kept value stays unfolded like every other --json string.
 	if r.SessionDescription != nil {
 		d := protocol.SanitizeDescription(*r.SessionDescription)
-		r.SessionDescription = &d
+		if oneLine(d) == "" {
+			r.SessionDescription = nil
+		} else {
+			r.SessionDescription = &d
+		}
 	}
 	r.PrincipalRef = sanitizeID(r.PrincipalRef)
 	r.HumanLabel = protocol.SanitizeLabel(r.HumanLabel)
@@ -223,9 +252,10 @@ func columns(fields ...string) string {
 const borderBar = "│"
 
 // neutralizeCell replaces a literal box-drawing vertical bar in an
-// unverified remote string — a session_name, human_label or model — with
-// an ordinary ASCII "|", so it reads as visibly not the table's own
-// border rather than silently splitting or forging a column.
+// unverified remote string — a session_name, human_label, model or
+// session_description — with an ordinary ASCII "|", so it reads as
+// visibly not the table's own border rather than silently splitting or
+// forging a column.
 func neutralizeCell(s string) string {
 	return strings.ReplaceAll(s, borderBar, "|")
 }

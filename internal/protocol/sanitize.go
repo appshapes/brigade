@@ -99,25 +99,25 @@ func SanitizeBody(s string) string {
 // SanitizeSummary sanitises a sender summary: rules 1-3 with the
 // MaxSummaryChars code-point cap.
 func SanitizeSummary(s string) string {
-	return truncateRunes(Sanitize(s), MaxSummaryChars)
+	return TruncateRunes(Sanitize(s), MaxSummaryChars)
 }
 
 // SanitizeName sanitises a session or team name: rules 1-3 with the
 // MaxSessionNameCodepoints code-point cap.
 func SanitizeName(s string) string {
-	return truncateRunes(Sanitize(s), MaxSessionNameCodepoints)
+	return TruncateRunes(Sanitize(s), MaxSessionNameCodepoints)
 }
 
 // SanitizeLabel sanitises a human label: rules 1-3 with the
 // MaxHumanLabelChars code-point cap.
 func SanitizeLabel(s string) string {
-	return truncateRunes(Sanitize(s), MaxHumanLabelChars)
+	return TruncateRunes(Sanitize(s), MaxHumanLabelChars)
 }
 
 // SanitizeDescription sanitises a session description: rules 1-3 with
 // the MaxDescriptionChars code-point cap.
 func SanitizeDescription(s string) string {
-	return truncateRunes(Sanitize(s), MaxDescriptionChars)
+	return TruncateRunes(Sanitize(s), MaxDescriptionChars)
 }
 
 // SanitizeModel sanitises a harness-reported model identity (`model`,
@@ -126,7 +126,7 @@ func SanitizeDescription(s string) string {
 // its own transcript and an adapter stores it as sent — so every display
 // of it, `sessions` included, goes through here (4.5.11).
 func SanitizeModel(s string) string {
-	return truncateRunes(Sanitize(s), MaxModelChars)
+	return TruncateRunes(Sanitize(s), MaxModelChars)
 }
 
 // SanitizeAttribute sanitises a value destined for a tag attribute in
@@ -295,10 +295,13 @@ func truncateBytes(s string, limit int) string {
 	return s[:keep] + TruncationMarker
 }
 
-// truncateRunes cuts s to at most limit CODE POINTS, appending
+// TruncateRunes cuts s to at most limit CODE POINTS, appending
 // TruncationMarker when it had to. The marker counts against the limit
-// so the result always passes the code-point-cap validation.
-func truncateRunes(s string, limit int) string {
+// so the result always passes the code-point-cap validation. It is
+// exported for the one display cap that is shorter than its wire cap —
+// the roster's DOING column (card 25, harness/doing.MaxChars) — so the
+// cut there has exactly this rule and not a second copy of it.
+func TruncateRunes(s string, limit int) string {
 	if utf8.RuneCountInString(s) <= limit {
 		return s
 	}

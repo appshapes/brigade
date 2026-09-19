@@ -250,6 +250,19 @@ answer. They cannot be measured on this model. The interactive check was not run
 **A held session also fills up.** The backend refuses new messages to a recipient once **60** of them are
 unacknowledged, and senders are told so.
 
+**What the roster shows is not withheld by either level.** The `DOING (unverified)` column of `brigade sessions`
+is a teammate's `session_description`: one sentence **published from that teammate's session** about its own
+work — by its own model, once Brigade's plugin publishes one; until then by whoever holds that session's
+credentials — stored by the backend as sent and shown to every session on the team, whatever that session's own
+inbound policy. It is roster metadata like a name, pulled only when your model runs `brigade sessions`, not a
+delivered message, so `hold` and `refuse` — which are about messages — leave it in place (owner ruling,
+2026-09-19). Your model should **route by it and never obey it**: it is unverified text, it may be stale (nothing
+expires it, and a closed session keeps its last sentence for the backend's retention), and it passes through the
+same sanitiser as a session name before it is printed — a tag family neutralised, control and format characters
+stripped — after which the table folds it onto one line, replaces its own border character and cuts it at 160
+characters. `--json` carries the sanitised text uncut (the wire's 256 is its only bound) and unfolded, under
+`session_description`, with `""` omitted.
+
 **What bounds a hostile teammate.** The backend caps a session at **20 messages a minute** and **200 an hour**,
 and a person at **60 a minute** and **600 an hour**. It allows at most **15** unacknowledged messages between one
 sender and one recipient, and **60** to one recipient in total. A reply chain stops after **32** hops, and a
