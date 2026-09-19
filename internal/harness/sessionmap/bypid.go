@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -88,6 +89,19 @@ type ByPID struct {
 	// membership whose label is empty is filled at the next session start
 	// and at every watcher replacement.
 	LabelOption string `json:"label_option,omitzero"`
+	// DoingMode is the RESOLVED doing mode of card 25 (plan 5.2): one of
+	// doing.ModeUnsupported, ModeOff, ModeUnasked, ModeAllowed and
+	// ModeQuiet, frozen here by the SessionStart hook from the adapter's
+	// capabilities, the `share_doing` option and the permission rules in
+	// the settings it can read. `brigade doing` reads it to decide whether
+	// to publish (the Bash-tool verb never sees CLAUDE_PLUGIN_OPTION_*);
+	// the prompt hook reads it to decide whether a line may be printed. It
+	// is safe on disk because it is one of five fixed words — never a
+	// sentence, never a rule, never a byte of a settings file. Absent
+	// (omitzero) in a map written before the mode existed; a reader treats
+	// absent as "publish, print nothing" until the prompt hook resolves it
+	// once.
+	DoingMode string `json:"doing_mode,omitzero"`
 	// PermissionMode is recorded for diagnostics only; the inbound policy
 	// never depends on it (D18).
 	PermissionMode string `json:"permission_mode"`
@@ -143,7 +157,9 @@ type ByPID struct {
 // implements (accept, hold or refuse), a well-formed adapter argv, an
 // absolute or empty socket path, an absolute or empty transcript path (the
 // watcher opens it; a relative one would name a file relative to whatever
-// its cwd is), and the frame members of P5-12 (a level
+// its cwd is), an absent or valid doing mode (one of the five words of
+// package doing; absent is a map from before the mode existed), and the
+// frame members of P5-12 (a level
 // among the four; a text only under custom, and then a non-empty one
 // within frame.MaxCustomBytes that passes frame.CheckClause). The failure
 // is `config` with details.field naming the member; the value is never
@@ -166,6 +182,8 @@ func (m *ByPID) Validate() error {
 		return errInvalid("socket_path")
 	case m.TranscriptPath != "" && !filepath.IsAbs(m.TranscriptPath):
 		return errInvalid("transcript_path")
+	case m.DoingMode != "" && !doing.ValidMode(m.DoingMode):
+		return errInvalid("doing_mode")
 	case !frame.Level(m.FrameLevel).Valid():
 		return errInvalid("frame_level")
 	case m.FrameLevel != string(frame.LevelCustom) && m.FrameText != "":

@@ -17,7 +17,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOptions: %v", err)
 	}
-	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, Frame: frame.DefaultLevel, Label: config.LabelAccount}
+	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, Frame: frame.DefaultLevel, Label: config.LabelAccount}
 	if got != want {
 		t.Fatalf("defaults =\n %+v\nwant\n %+v", got, want)
 	}
@@ -35,6 +35,9 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		config.OptionTeamInbound+"=refuse",
 		config.OptionShareWorkspaceLabel+"=true",
 		config.OptionWorkspaceLabel+"=laptop",
+		// `no` rather than `true`: the value the option named must be
+		// distinguishable from the default, or the row proves nothing.
+		config.OptionShareDoing+"=no",
 		config.OptionPollOnPrompt+"=yes",
 		config.OptionFrame+"=guarded",
 		config.OptionFrameFile+"=/opt/brigade/frame.txt/",
@@ -50,6 +53,7 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		TeamInbound:         config.InboundRefuse,
 		ShareWorkspaceLabel: true,
 		WorkspaceLabel:      "laptop",
+		ShareDoing:          false,
 		PollOnPrompt:        true,
 		Frame:               frame.LevelGuarded,
 		FrameFile:           "/opt/brigade/frame.txt",
@@ -156,6 +160,7 @@ func TestParseOptionsInvalidValues(t *testing.T) {
 		{"relative config_dir", []string{config.OptionConfigDir + "=rel/" + evilMarker}, "config_dir", config.ReasonRelativePath},
 		{"dot-relative config_dir", []string{config.OptionConfigDir + "=./" + evilMarker}, "config_dir", config.ReasonRelativePath},
 		{"share_workspace_label junk", []string{config.OptionShareWorkspaceLabel + "=maybe" + evilMarker}, "share_workspace_label", config.ReasonInvalidBoolean},
+		{"share_doing junk", []string{config.OptionShareDoing + "=maybe" + evilMarker}, "share_doing", config.ReasonInvalidBoolean},
 		{"poll_on_prompt junk", []string{config.OptionPollOnPrompt + "=2"}, "poll_on_prompt", config.ReasonInvalidBoolean},
 		{"frame mixed case", []string{config.OptionFrame + "=Open"}, "frame", config.ReasonInvalidFrameLevel},
 		{"frame is a policy word", []string{config.OptionFrame + "=hold"}, "frame", config.ReasonInvalidFrameLevel},

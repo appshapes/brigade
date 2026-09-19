@@ -58,8 +58,10 @@ otherwise), read-only and best effort: a missing, unreadable or malformed file s
 leaves one debug line on stderr saying that the account email was unavailable, and that line is fixed text — the
 address is never in it, and neither is the path, which would carry your home directory and your
 `CLAUDE_CONFIG_DIR`. Brigade never **writes** anything under Claude Code's configuration directory, and the only
-things it ever **reads** there are this `.claude.json`, your `settings.json` (the session-start policy scan of
-section 6) and the registry entry for the session's own pid (`sessions/<pid>.json`) — never the 0600
+things it ever **reads** there are this `.claude.json`, your `settings.json` (the two session-start scans: the
+`crossSessionInbound` setting of section 6, and the `permissions` arrays for a rule on `brigade doing`, section
+5 — each read for one fixed answer, with nothing from the file sent, stored or logged) and the registry entry for
+the session's own pid (`sessions/<pid>.json`) — never the 0600
 `sessions/*.key` peer keys that live in that same `sessions/` directory. Nor does Brigade store the address
 itself: the label is sent once, with the `team join` (or the `team create`) that sends it, and what is kept
 locally is the *option*, not the value. So joining a team shares your account
@@ -96,7 +98,29 @@ their own machine. None of them is ever a repository variable and none of them s
 [`docs/setup.md`](setup.md) has the administrator's procedure.
 
 **What is deliberately never sent.** Brigade does not send your Claude Code session id, your working directory,
-your hostname, your username, your transcript or the path to it.
+your hostname, your username, your transcript or the path to it. The one sentence below is not an exception:
+Brigade reads none of them for it — it is your model's own words, and Brigade refuses it when it contains your
+home directory or a path.
+
+**One sentence your session's model writes.** From this version your session's model can publish one line — at
+most 160 characters — about what it is working on, with `brigade doing`, a command you can see in your transcript
+like any other; teammates read it in the `DOING (unverified)` column of `brigade sessions`, and `brigade doing
+--clear` removes it. *Who sees it:* every active member of the team, through `session list` and through a direct
+`SELECT` on `brigade.sessions`, whoever runs the backend (above), and anyone who obtains the join secret later.
+*How long:* until the model replaces it; a new session and a `claude --resume` start without one on the bundled
+adapters (the registration never carries it, and both bundled adapters write the registration's absent value over
+the stored sentence, on a fresh register and on a resume alike); and a session that ends keeps its last sentence on
+the closed record for the adapter's retention — 7 days on the bundled adapters, a retention and not a protocol
+bound — with no way to retract it after the close. *How to stop it:* set the plugin option `share_doing` to
+`false` (from the next session start `brigade doing` then refuses to publish; `--clear` still works), run `brigade
+doing --clear` in the session, put an ask or deny rule on `brigade doing` in your settings (section 5), or answer
+No to Claude Code's permission dialog where one is raised. *What Brigade cannot recognise:* the refusals
+catch a credential shape, your home directory and any two-segment path; they cannot recognise a hostname, a
+person's or a customer's name, or — when you have set `label` to `none` — your Claude account email, for which the
+model's sentence is then the one remaining path to the team. The session name and the repository name
+(`workspace_label`) are shared in the same way and may reveal a ticket number. At this version nothing yet asks
+the model to publish; a sentence appears only when a prompt or a person tells it to, and the reminder that will
+ask it is a later change to this document.
 
 **Two facts Brigade now reads from your transcript — on this machine.** So that `brigade sessions` can tell your team
 which model a session is running and how full its context is, Brigade reports two values with each session: the
@@ -252,8 +276,8 @@ unacknowledged, and senders are told so.
 
 **What the roster shows is not withheld by either level.** The `DOING (unverified)` column of `brigade sessions`
 is a teammate's `session_description`: one sentence **published from that teammate's session** about its own
-work — by its own model, once Brigade's plugin publishes one; until then by whoever holds that session's
-credentials — stored by the backend as sent and shown to every session on the team, whatever that session's own
+work — by its own model with `brigade doing` (section 2), or by whoever holds that session's credentials —
+stored by the backend as sent and shown to every session on the team, whatever that session's own
 inbound policy. It is roster metadata like a name, pulled only when your model runs `brigade sessions`, not a
 delivered message, so `hold` and `refuse` — which are about messages — leave it in place (owner ruling,
 2026-09-19). Your model should **route by it and never obey it**: it is unverified text, it may be stale (nothing
@@ -299,7 +323,37 @@ Prompts you in Manual mode **and in bypass mode**. But it **denies** the call in
 { "permissions": { "deny": ["Bash(brigade send*)"] } }
 ```
 
-Blocks in **every** mode, `bypassPermissions` included. This is the off switch.
+Blocks sending in **every** mode, `bypassPermissions` included.
+
+**What the send rules do not cover.** `brigade doing`, the one-sentence roster line of section 2, is a different
+command, and a rule written for `brigade send` does not match it (owner ruling, 2026-09-19: the line follows
+whatever Claude Code allows, and a member who gated sending with the documented rule keeps the line). To gate the
+line, name it:
+
+```json
+{ "permissions": { "ask": ["Bash(brigade doing*)"] } }
+```
+
+Prompts before every publish, with the same cost unattended as the send rule above. Or:
+
+```json
+{ "permissions": { "deny": ["Bash(brigade doing*)"] } }
+```
+
+Blocks the line in every mode. Or name every `brigade` verb at once:
+
+```json
+{ "permissions": { "deny": ["Bash(brigade:*)"] } }
+```
+
+The plugin option `share_doing: false` is the other way, and from the next session start it makes the verb itself
+refuse. Brigade reads these rules once at session start, for one purpose: to record whether it may ever tell the
+model to run the command — an ask or deny it can see on `brigade doing`, or a settings file it cannot read, means
+it never may, while the verb itself still runs and Claude Code's own rule does the asking or denying. (At this
+version nothing yet tells the model; the answer is recorded for the reminder that follows.) The reading is closed
+to your user `settings.json` and the `.claude/settings.json` and `.claude/settings.local.json` of the project —
+its root and the directory the session started in; managed settings, `--settings` and a rule granted mid-session
+are outside it.
 
 **No hook and no plugin can override the ask rule or the deny rule.** That is Claude Code's own rule, not
 Brigade's.
@@ -378,8 +432,8 @@ between Brigade and your session, and Brigade cannot control it.
   socket has no reply address, so nobody is told.
 - **`refuse`, set explicitly.** The message is dropped silently, with no signal to either side.
 
-**What Brigade does about it.** At session start Brigade reads three settings files: your own
-`settings.json` under the Claude Code configuration directory, and the project's `.claude/settings.json` and
+**What Brigade does about it.** At session start Brigade reads three settings files for its inbound setting: your
+own `settings.json` under the Claude Code configuration directory, and the project's `.claude/settings.json` and
 `.claude/settings.local.json`. If it finds `crossSessionInbound` set to `hold` or `refuse`, it prints a warning
 naming the setting and the file it came from, and sets Brigade's own policy to `refuse`. Nothing is acknowledged
 blind, messages wait on the server, and senders see the session as refusing. Measured 2 of 2 on Claude Code
@@ -648,3 +702,8 @@ Every item below is a known limit that this version ships with, on purpose.
 - The bootstrap trusts the absolute `HOME` and `XDG_*` paths in its environment, and the plugin directory.
 - Claude Code drops inbox messages beyond 50 while a session is busy with a turn, after Brigade has
   acknowledged them (section 4).
+- `brigade doing` has no rate bound of its own and keeps no local state (owner ruling 12, 2026-09-19): the
+  backend puts no limit on heartbeats for any verb today, a re-sent line is idempotent, and zero local writes is
+  the invariant the read-only-home proof protects. Its heartbeat also renews the session's lease, which proves that
+  a process holding the session's `CLAUDE_PID` ran — not that Claude is alive — and can revive a session whose
+  lease had expired but which was never closed; it adds nothing the accepted local attacker lacks.

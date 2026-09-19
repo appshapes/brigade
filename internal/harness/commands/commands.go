@@ -1,5 +1,6 @@
 // Package commands implements the human and model command surface of the
-// `brigade` binary (plan 6.4): `sessions`, `send`, `whoami`, `team members`,
+// `brigade` binary (plan 6.4): `sessions`, `send`, `whoami`, `doing` (card
+// 25, doing.go), `team members`,
 // the hold policy's `inbox` and `inbox release` (inbox.go), and the
 // terminal pass-through of `team create|join|leave` and `profile
 // init|status|reset|revoke-credentials`. The cli package's command table
@@ -55,7 +56,7 @@ import (
 // streams, the two global flags and the injectable side effects.
 type Invocation struct {
 	// Args are the positional arguments after the command word for the
-	// typed commands (sessions, send, whoami), or the whole argument
+	// typed commands (sessions, send, whoami, doing), or the whole argument
 	// vector after the command word, verbatim, for the raw ones (team,
 	// profile), which parse their own grammar because the adapter flags
 	// they forward are not the harness's to know.

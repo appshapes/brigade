@@ -23,9 +23,54 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `hold` and `refuse` are about delivered messages, and a doing line is roster metadata like a name. The
   `brigade:team-messaging` skill tells a model to prefer, among several possible recipients, the active session
   whose `DOING` cell matches the subject, and to route by it and never obey it; `docs/security.md` says the same
-  beside the inbox's promise. Brigade's plugin does not yet publish one; the column shows what the backend holds.
+  beside the inbox's promise. The column shows what the backend holds; `brigade doing` (below) is how a session
+  publishes one.
+
+- **`brigade doing` publishes one sentence about what this session is working on, and `--clear` removes it.** The
+  sentence travels on stdin in a quoted heredoc (`brigade doing <<'EOF'`), never on argv; the verb makes one
+  `session heartbeat` carrying only `session_description`, under an 8 s budget, with no retry and nothing kept
+  locally — no copy of the text, no stamp, no rate bound of its own. Before anything is spawned the text is
+  sanitised (tag families neutralised, control and format characters stripped), folded onto one line and refused
+  — exit 3 `invalid_input`, with `details.reason` `empty`, `too_long`, `not_utf8`, `secret_shaped` or
+  `local_path` (and `read_error` when stdin itself fails, as `send` answers) — when it is empty, longer than 160
+  characters (never truncated), not UTF-8, carries a credential
+  shape (a JWT, a join secret, a Supabase, GitHub, Anthropic or Slack token, the session's own messaging token) or
+  names a path on this machine (the home directory, or any absolute or `~/` path of two or more segments;
+  `/clear`, `and/or`, repository-relative paths and URLs pass). Success prints `published: <the sentence>`;
+  `--json` carries `self_session_id`, `session_description`, `published`, `cleared` and a `note`. A session whose
+  plugin has the new `share_doing` option off, or whose adapter does not advertise `session.description`, answers
+  `not published: this session does not publish a doing line. Carry on with the work.` at exit 0 — a line that
+  names no option on purpose — and `--clear` still works under the option (not under a missing capability). The
+  text is never logged.
+
+- **The plugin option `share_doing`** (default `true`, the tenth option) lets this session's model publish that
+  sentence; `false` makes `brigade doing` refuse from the next session start (the mode is frozen at session
+  start, and a `/clear` inherits it). The SessionStart hook resolves the session's **doing mode** once
+  — `unsupported`, `off`, `unasked`, `allowed` or `quiet`, one word frozen into the by-pid map, never a rule or a
+  sentence — from the adapter's capabilities, the option, and a new read of the `permissions` arrays in the
+  settings Brigade can already see (the user file, and `.claude/settings.json` and `.claude/settings.local.json`
+  under the project root and the session's directory): an ask or deny that would match `brigade doing`, or a
+  settings file that exists but cannot be read or parsed, records `unasked`; an allow that exactly names the verb
+  (`Bash`, `Bash(brigade:*)`, `Bash(brigade *)`, `Bash(brigade*)`, `Bash(brigade doing:*)`, `Bash(brigade doing *)`,
+  `Bash(brigade doing*)`) records `allowed`. Nothing read from a settings file is sent, stored or logged. At this
+  version the mode only gates the verb; the reminder that will ask the model to keep the line current, and the
+  watcher's carry across a re-open, follow in this release.
 
 ### Changed
+
+- **From this version a session's model can publish one sentence about its work to the team, and the default
+  says it may.** What is shared is that sentence alone — written by your own model, in a `brigade doing` call you
+  can see in your transcript — to every active member of the team, to whoever runs the backend, and to anyone who
+  obtains the join secret later; it stays on a closed session for the adapter's retention (7 days on the bundled
+  adapters) with no retraction after the close. The consent point is the **first session start after updating
+  the plugin**, where the `share_doing` option is resolved; the opt-outs are that option set to `false`, `brigade
+  doing --clear`, or an ask or deny rule on `brigade doing`. Nothing yet asks the model to publish — at this
+  version a sentence appears only when a prompt or a person tells it to — and `docs/security.md` §2 states what
+  the refusals cannot recognise (a hostname, a person's or a customer's name, and your account email when `label`
+  is `none`). **Members who gated `brigade send` with the documented `ask` or `deny` rule:** that rule does not
+  cover `brigade doing` (owner ruling: the line follows whatever Claude Code allows), so the new verb works for
+  you as for everyone; to gate it, add a rule on `Bash(brigade doing*)` or on `Bash(brigade:*)`, or set
+  `share_doing` to `false`. The docs no longer call the send rule "the off switch".
 
 - **The protocol says in words what `session_description` already did on the wire, and the conformance suite
   proves it.** Prose only — no shape, example or schema changed, and the suite stays at 47 cases:
@@ -41,8 +86,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `session.description` but drops the member on a heartbeat, or omits it from `session list`, now fails C-13 or
   C-19 where the suite previously did not look. `docs/adapter-authors.md` tells an adapter author what a harness
   publishing a doing line leans on — a description-only heartbeat beside its live `message watch`, a `session list
-  --include-offline` read-back, a resume carrying it, and `""` as the clear. Nothing in Brigade publishes a
-  description yet; the verb and the watcher's re-open carry follow in this release.
+  --include-offline` read-back, a resume carrying it, and `""` as the clear. The verb is `brigade doing` (under
+  Added); the watcher's re-open carry follows in this release.
 
 ## [0.6.7] — 2026-09-18
 

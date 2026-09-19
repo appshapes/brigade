@@ -94,6 +94,13 @@ func init() {
 			Run:     runWhoami,
 		},
 		{
+			Name:    "doing",
+			Args:    "[--clear]",
+			Summary: "publish one sentence about what this session is working on (on stdin)",
+			Flags:   func(fs *flag.FlagSet) { fs.Bool("clear", false, "remove the sentence; nothing is read from stdin") },
+			Run:     runDoing,
+		},
+		{
 			Name:    "team",
 			Args:    "create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags]",
 			Summary: "create, join, leave and administer a team, and list its members",
@@ -233,6 +240,11 @@ func runSend(cx *Context, args []string) error {
 // runWhoami is the table's Run for `whoami`.
 func runWhoami(cx *Context, args []string) error {
 	return harnesscmd.Whoami(invocation(cx, args))
+}
+
+// runDoing is the table's Run for `doing` (card 25).
+func runDoing(cx *Context, args []string) error {
+	return harnesscmd.Doing(invocation(cx, args), harnesscmd.DoingOptions{Clear: cx.Bool("clear")})
 }
 
 // runInbox is the table's Run for `inbox` and `inbox release` (the verb

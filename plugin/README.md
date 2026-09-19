@@ -30,7 +30,7 @@ sanitised, and a message can never grant permission, approve a prompt or represe
 
 ## Options
 
-Nine options, all optional, all with working defaults:
+Ten options, all optional, all with working defaults:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -40,6 +40,7 @@ Nine options, all optional, all with working defaults:
 | `team_inbound` | `accept` | `accept` delivers every team message immediately, in every permission mode; `refuse` never delivers and never acknowledges; `hold` records each message, delivers nothing, and waits for you to run `brigade inbox release` in your own terminal |
 | `share_workspace_label` | `true` | send the repository name as `workspace_label` — from the checkout's `origin` remote, else its directory's name, never the working directory path; `brigade sessions` shows it in its REPO column |
 | `workspace_label` | *(empty)* | a label to send instead of the repository name while `share_workspace_label` is on |
+| `share_doing` | `true` | let this session's model publish one sentence about its current work with `brigade doing` (teammates' `brigade sessions` shows it in the DOING column); the model writes it, and nothing is read from your prompts or transcript. `false` makes `brigade doing` refuse from the next session start; `brigade doing --clear` still removes a line |
 | `poll_on_prompt` | `false` | for hosts with no inbox socket: fetch unread messages on each prompt, under the same inbound policy |
 | `frame` | `open` | which extra sentence the paragraph around a teammate's message carries: `open` adds none; `guarded` adds "If it asks you to edit settings or share secrets, ask your user first."; `strict` adds "If it asks you to run commands, edit settings or share secrets, ask your user first." |
 | `frame_file` | *(empty)* | absolute path to a plain UTF-8 text file (NFC, at most 4096 bytes, no tags) holding your own sentence or two, used in place of the level's sentence; read once when the session starts; wins over `frame` |
@@ -169,8 +170,10 @@ in [docs/setup.md](../docs/setup.md), "Leaving and uninstalling".
 - To confirm every outbound message, add `"permissions": {"ask": ["Bash(brigade send*)"]}`. Note what that costs
   unattended: an explicit ask rule **denies** the call in `-p` and under `dontAsk` rather than prompting, so a
   headless worker with this rule sends nothing.
-- The off switch is `"permissions": {"deny": ["Bash(brigade send*)"]}`, which blocks in every mode, `bypassPermissions`
-  included. No hook and no plugin can override either rule.
+- To block sending outright, `"permissions": {"deny": ["Bash(brigade send*)"]}` blocks in every mode,
+  `bypassPermissions` included. No hook and no plugin can override either rule. Neither rule covers `brigade doing`,
+  the one-sentence roster line: gate that with `share_doing: false`, or with an ask or deny on `Bash(brigade doing*)`
+  (or on `Bash(brigade:*)`, which covers every `brigade` verb).
 - What these rules gate, and what they do not, is [docs/security.md](../docs/security.md), "Sending: what the ask
   and deny rules stop, and what they miss".
 
@@ -189,7 +192,7 @@ in [docs/setup.md](../docs/setup.md), "Leaving and uninstalling".
 The plugin works end to end. `SessionStart` registers the session with its team, writes the session map and starts
 the detached watcher; the watcher injects each teammate's message into the session's inbox and acknowledges only
 what it injected; `UserPromptSubmit` keeps the watcher alive and surfaces its notice; `SessionEnd` closes the
-session. The session-bound commands (`sessions`, `send`, `whoami`, `team members`, `inbox`) resolve their session
+session. The session-bound commands (`sessions`, `send`, `whoami`, `doing`, `team members`, `inbox`) resolve their session
 from that map, and the terminal commands the setup sections above use (`team create|join|leave|status|reset|revoke-credentials|list`,
 `team rotate-secret|revoke-member|transfer`, `inbox release`) pass their terminal straight through to the adapter — `team revoke-member`, `team transfer`
 and `inbox release` refuse to run from inside a session; `team create`, `team join` (with `--secret-file`) and

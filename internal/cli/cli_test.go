@@ -498,7 +498,7 @@ func TestCommandTableIsWellFormed(t *testing.T) {
 			t.Errorf("%s: multi-call entrypoints are hidden from `help`", c.Name)
 		}
 	}
-	for _, want := range []string{"version", "help", "sessions", "send", "whoami", "team", "inbox", "hook", "watch", "adapter"} {
+	for _, want := range []string{"version", "help", "sessions", "send", "whoami", "doing", "team", "inbox", "hook", "watch", "adapter"} {
 		if !seen[want] {
 			t.Errorf("the 6.4 command %q is missing from the table", want)
 		}
@@ -516,7 +516,7 @@ func TestCommandTableIsWellFormed(t *testing.T) {
 func TestLookupIsExactNotAPrefix(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"version", "help", "sessions", "send", "team", "hook", "watch", "adapter"} {
+	for _, name := range []string{"version", "help", "sessions", "send", "doing", "team", "hook", "watch", "adapter"} {
 		cmd, ok := Lookup(name)
 		if !ok {
 			t.Errorf("Lookup(%q) = false, want the table entry", name)
@@ -531,7 +531,7 @@ func TestLookupIsExactNotAPrefix(t *testing.T) {
 	// commands.
 	for _, name := range []string{
 		"v", "ver", "versio", "versions", "version ", " version",
-		"s", "se", "sess", "t", "te", "h", "ho", "a", "w",
+		"s", "se", "sess", "t", "te", "h", "ho", "a", "w", "d", "do", "doin", "doings",
 		"Version", "VERSION", "Help", "",
 	} {
 		if cmd, ok := Lookup(name); ok {
@@ -740,7 +740,7 @@ func TestJSONHelpEmitsAnEnvelope(t *testing.T) {
 
 // TestFilledCommandsAreNoLongerPlaceholders pins the table after P5-9:
 // every 6.4 human command has a Run — `inbox` was the last placeholder —
-// no entry carries a Task, and `help` lists the six under "Commands" with
+// no entry carries a Task, and `help` lists the seven under "Commands" with
 // no "Not implemented yet" block at all.
 func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
 	t.Parallel()
@@ -754,7 +754,7 @@ func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
 			t.Errorf("%s: not Raw; the adapter flags it forwards would be usage errors", raw)
 		}
 	}
-	for _, typed := range []string{"sessions", "send", "whoami", "inbox"} {
+	for _, typed := range []string{"sessions", "send", "whoami", "doing", "inbox"} {
 		if cmd, _ := Lookup(typed); cmd.Raw {
 			t.Errorf("%s: Raw; its flags are the table's", typed)
 		}
@@ -764,7 +764,7 @@ func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
 		t.Errorf("help still carries a placeholder block:\n%s", got.stdout)
 	}
 	commandsBlock := got.stdout[strings.Index(got.stdout, "Commands:"):strings.Index(got.stdout, "Global flags:")]
-	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer", "inbox [release]"} {
+	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "doing [--clear]", "team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer", "inbox [release]"} {
 		if !strings.Contains(commandsBlock, want) {
 			t.Errorf("help's Commands block lacks %q:\n%s", want, commandsBlock)
 		}
@@ -872,12 +872,12 @@ func TestExitStatusIsForwardedSilentlySerial(t *testing.T) {
 }
 
 // TestSessionBoundCommandsOutsideASessionFailCleanly: with an empty
-// environment the five commands report a classified failure — never a
+// environment the six commands report a classified failure — never a
 // panic, never exit 0, and never a raw Go error as `internal`.
 func TestSessionBoundCommandsOutsideASessionFailCleanly(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{
-		{"sessions"}, {"send", "x"}, {"whoami"}, {"team", "members"}, {"team", "status"},
+		{"sessions"}, {"send", "x"}, {"whoami"}, {"doing", "--clear"}, {"team", "members"}, {"team", "status"},
 	} {
 		got := dispatch(t, args...)
 		if got.exit == ExitOK || got.exit == CodeInternal.Exit() {

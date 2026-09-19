@@ -75,6 +75,45 @@ var prefixPatterns = []struct {
 	{"sb_secret_", regexp.MustCompile(`^sb_secret_\S+`)},
 }
 
+// forEachPrefixMatch is the one scan over prefixPatterns — every literal
+// occurrence tried, the anchored pattern applied there — calling fn with
+// each match's span on s until fn answers false. Redact collects the
+// spans and SecretShaped stops at the first; sharing the walk keeps the
+// two from drifting apart.
+func forEachPrefixMatch(s string, fn func(start, end int) bool) {
+	for _, p := range prefixPatterns {
+		for from := 0; ; {
+			i := strings.Index(s[from:], p.literal)
+			if i < 0 {
+				break
+			}
+			at := from + i
+			if m := p.re.FindStringIndex(s[at:]); m != nil && !fn(at+m[0], at+m[1]) {
+				return
+			}
+			from = at + 1
+		}
+	}
+}
+
+// SecretShaped reports whether s contains a credential in one of the
+// prefix-literal formats the redactor knows — a JWT, a join secret, a
+// Supabase secret key — matched exactly as Redact matches them (every
+// literal occurrence, the anchored pattern applied there). It exists so a
+// caller that must REFUSE such text rather than mask it (the doing line of
+// card 25, plan 5.1) shares this one pattern list instead of keeping a
+// second. It deliberately does not include the bearer rule: over-redaction
+// is safe in a log, but a refusal that fires on "fixing bearer token
+// parsing" silently costs a feature.
+func SecretShaped(s string) bool {
+	found := false
+	forEachPrefixMatch(s, func(int, int) bool {
+		found = true
+		return false
+	})
+	return found
+}
+
 // bearerPattern redacts the credential of an RFC 6750 Authorization
 // header, opaque tokens included. The token span is \S+ rather than the
 // b64token alphabet so a nonconforming token cannot half-survive. The
@@ -123,19 +162,10 @@ func (r *Redactor) Redact(s string) string {
 		return s
 	}
 	var spans [][2]int
-	for _, p := range prefixPatterns {
-		for from := 0; ; {
-			i := strings.Index(s[from:], p.literal)
-			if i < 0 {
-				break
-			}
-			at := from + i
-			if m := p.re.FindStringIndex(s[at:]); m != nil {
-				spans = append(spans, [2]int{at + m[0], at + m[1]})
-			}
-			from = at + 1
-		}
-	}
+	forEachPrefixMatch(s, func(start, end int) bool {
+		spans = append(spans, [2]int{start, end})
+		return true
+	})
 	for _, m := range bearerPattern.FindAllStringIndex(s, -1) {
 		spans = append(spans, [2]int{m[0], m[1]})
 	}

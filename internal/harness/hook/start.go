@@ -7,16 +7,19 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/harness/account"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
@@ -93,6 +96,13 @@ type resolved struct {
 	// user's own, else the repository name derived from the checkout;
 	// "" sends nothing.
 	workspaceLabel string
+	// doingRules is what the permission rules Brigade can read say about
+	// `brigade doing` (card 25, plan 5.2), scanned in resolve beside the
+	// native scan; doingMode is the mode the map carries, set by connect —
+	// from the adapter's capabilities, the option and doingRules on the
+	// register path, inherited from the existing map on the continue path.
+	doingRules policy.Verdict
+	doingMode  string
 }
 
 // connect registers (or re-attaches to) the Brigade session and prints
@@ -113,6 +123,10 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// D9): a live watcher for this pid that serves the session the map
 	// names means the session continues.
 	if existing != nil && verdict.Found && verdict.Alive && verdict.Entry.BrigadeSessionID == existing.BrigadeSessionID {
+		// The continue path has no describe, so the doing mode is the
+		// one the existing map carries — absent stays absent, until the
+		// prompt hook's one-time resolution of P16-5 (plan 5.2).
+		res.doingMode = existing.DoingMode
 		if reason := respawnReason(verdict.Entry, f); reason != "" {
 			r.log.Info("watcher "+reason+"; respawning", slog.Int("watcher_pid", verdict.Entry.PID),
 				slog.String("watcher_version", verdict.Entry.Version))
@@ -149,6 +163,10 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		r.fail("session-start: describe", err, notConnectedFor(err))
 		return
 	}
+	// The doing mode is resolved from THIS describe (plan 5.2): no extra
+	// spawn, because the register path also runs under the prompt hook's
+	// 4.5 s retry budget (the P5-18 trap).
+	res.doingMode = doingMode(res.opts, desc.Capabilities, res.doingRules)
 	reg := &protocol.SessionRegistration{
 		Harness:        harnessName,
 		HarnessVersion: res.id.harnessVersion,
@@ -243,6 +261,7 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 	}
 	id := r.identity(f, in)
 	scan := policy.ScanNative(f.claudeConfigDir, in.Cwd, r.deps.ReadFile)
+	doingRules := policy.ScanDoingRules(f.claudeConfigDir, doingScanDirs(r.environ, in), r.deps.ReadFile)
 	dec := policy.Decide(policy.Inputs{
 		Option:         opts.TeamInbound,
 		OptionWarning:  opts.TeamInboundWarning,
@@ -267,8 +286,50 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		instruction: instruction,
 		client:      r.client(adapter, key, opts.ConfigDir, f.stateDir),
 		store:       sessionmap.Store{StateDir: f.stateDir},
+		doingRules:  doingRules,
 	}, true
 }
+
+// doingScanDirs names the directories whose project settings the doing
+// scan reads (plan 5.2): CLAUDE_PROJECT_DIR from the hook's environment
+// when it is absolute — the project root Claude Code itself reads its
+// project settings from — and the document's cwd. The scan adds the
+// repository toplevel of each.
+func doingScanDirs(environ []string, in input) []string {
+	var dirs []string
+	if p := adapterkit.Getenv(environ, envProjectDir); filepath.IsAbs(p) {
+		dirs = append(dirs, p)
+	}
+	return append(dirs, in.Cwd)
+}
+
+// doingMode resolves the by-pid map's `doing_mode` (plan 5.2, first
+// match wins): unsupported when the adapter does not advertise
+// `session.description`; off when the `share_doing` option is false;
+// unasked when an ask or deny in the settings Brigade can read matches
+// the verb, or a candidate file could not be read or parsed, or the
+// Claude config directory is unresolved (Blocked); allowed when an allow
+// entry exactly covers it; quiet otherwise. The verb publishes in every
+// mode but the first two; the words decide only which lines the prompt
+// hook may print (P16-5).
+func doingMode(opts config.Options, capabilities []string, rules policy.Verdict) string {
+	switch {
+	case !slices.Contains(capabilities, doingCapability):
+		return doing.ModeUnsupported
+	case !opts.ShareDoing:
+		return doing.ModeOff
+	case rules == policy.VerdictBlocked:
+		return doing.ModeUnasked
+	case rules == policy.VerdictAllowed:
+		return doing.ModeAllowed
+	default:
+		return doing.ModeQuiet
+	}
+}
+
+// doingCapability is the 4.7 capability an adapter advertises when it
+// stores and lists `session_description` (C-13, C-19).
+const doingCapability = "session.description"
 
 // writeStartFacts records what the hook knows before the team gates —
 // the resolved config dir above all — so an in-session `team create` or
@@ -562,9 +623,10 @@ func (r *run) otherLiveWatcher(f facts, sessionID string) (int, bool) {
 }
 
 // buildMap assembles the by-pid map from the resolved values (3.2). It
-// carries the RESOLVED profile, config dir, adapter command and frame
-// instruction (the level, and the folded text only under custom), never a
-// raw option, never the frame_file path, and never the token. The
+// carries the RESOLVED profile, config dir, adapter command, frame
+// instruction (the level, and the folded text only under custom) and
+// doing mode (one of five words, card 25), never a raw option, never the
+// frame_file path, never a settings rule, and never the token. The
 // transcript path is the document's own (absolute, else none): /clear
 // re-fires SessionStart with a new native session and a new transcript,
 // and this rewrite is how the watcher learns of it.
@@ -578,6 +640,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		SessionName:      res.id.name,
 		WorkspaceLabel:   res.workspaceLabel,
 		LabelOption:      res.opts.Label,
+		DoingMode:        res.doingMode,
 		PermissionMode:   in.PermissionMode,
 		NonInteractive:   res.id.nonInteractive,
 		Inbound:          res.dec.Policy.String(),

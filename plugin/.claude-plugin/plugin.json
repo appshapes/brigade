@@ -49,6 +49,12 @@
       "description": "A label to send instead of the repository name while share_workspace_label is on.",
       "default": ""
     },
+    "share_doing": {
+      "type": "boolean",
+      "title": "Share what the session is working on",
+      "description": "Lets this session's model publish one short sentence about its current work to the team roster (brigade sessions shows it as DOING). The model writes it; nothing is read from your prompts or transcript. Off makes brigade doing refuse from the next session start.",
+      "default": true
+    },
     "poll_on_prompt": {
       "type": "boolean",
       "title": "Poll for messages on each prompt",

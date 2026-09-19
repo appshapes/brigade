@@ -168,9 +168,10 @@ type Deps struct {
 	// Registry is the fs.FS the session registry is read from; nil means
 	// registry.Dir(config.ClaudeConfigDir(environ)) per run.
 	Registry fs.FS
-	// ReadFile reads the three settings files of the native scan (6.10)
-	// and, at SessionStart, the frame_file option's file (P5-12); nil
-	// means os.ReadFile.
+	// ReadFile reads the three settings files of the native scan (6.10),
+	// the candidate settings files of the doing-rules scan (card 25, plan
+	// 5.2) and, at SessionStart, the frame_file option's file (P5-12);
+	// nil means os.ReadFile.
 	ReadFile func(string) ([]byte, error)
 	// Spawn is the adapter request/response seam (adapterclient.Client.
 	// Spawn); nil means adapterkit.Spawn, a real child.
@@ -317,6 +318,9 @@ const (
 	envPluginRoot      = "CLAUDE_PLUGIN_ROOT"
 	envEntrypoint      = "CLAUDE_CODE_ENTRYPOINT"
 	entrypointSDK      = "sdk-cli"
+	// envProjectDir is the project root Claude Code reads its project
+	// settings from; the doing scan reads the same files (card 25).
+	envProjectDir = "CLAUDE_PROJECT_DIR"
 )
 
 // facts are the session facts every subcommand resolves from the

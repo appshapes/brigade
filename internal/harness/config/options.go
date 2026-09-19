@@ -17,6 +17,7 @@ const (
 	OptionAdapterCommand      = "CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND"
 	OptionTeamInbound         = "CLAUDE_PLUGIN_OPTION_TEAM_INBOUND"
 	OptionShareWorkspaceLabel = "CLAUDE_PLUGIN_OPTION_SHARE_WORKSPACE_LABEL"
+	OptionShareDoing          = "CLAUDE_PLUGIN_OPTION_SHARE_DOING"
 	OptionWorkspaceLabel      = "CLAUDE_PLUGIN_OPTION_WORKSPACE_LABEL"
 	OptionPollOnPrompt        = "CLAUDE_PLUGIN_OPTION_POLL_ON_PROMPT"
 	OptionFrame               = "CLAUDE_PLUGIN_OPTION_FRAME"
@@ -207,6 +208,14 @@ type Options struct {
 	// given or sharing is off — the hook derives one in that case. Never
 	// the working directory (T10).
 	WorkspaceLabel string
+	// ShareDoing is on unless the option says false (card 25, plan 5.2;
+	// ruling 2: default on, the option is the opt-out): the session's own
+	// model may publish one sentence about its work with `brigade doing`,
+	// and the hook freezes the resolved mode into the by-pid map, because
+	// the Bash-tool verb never sees CLAUDE_PLUGIN_OPTION_*. Off resolves
+	// the mode to `off`: the verb refuses to publish and `--clear` still
+	// works.
+	ShareDoing bool
 	// PollOnPrompt enables the prompt-hook poll (6.3).
 	PollOnPrompt bool
 	// Frame is the instruction level the frame option names (P5-12):
@@ -275,6 +284,15 @@ func ParseOptions(environ []string) (Options, error) {
 	}
 	if o.ShareWorkspaceLabel {
 		o.WorkspaceLabel = protocol.SanitizeLabel(opt(OptionWorkspaceLabel))
+	}
+
+	o.ShareDoing = true
+	if raw := opt(OptionShareDoing); raw != "" {
+		share, err := ParseBool(raw)
+		if err != nil {
+			return Options{}, optionErr("share_doing", ReasonInvalidBoolean, errInvalidBool.Message)
+		}
+		o.ShareDoing = share
 	}
 
 	poll, err := ParseBool(opt(OptionPollOnPrompt))
