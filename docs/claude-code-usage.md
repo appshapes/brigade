@@ -50,10 +50,10 @@ Your typical cycle for working on a card:
 
 Steps 1 and 3 are slash commands; step 2 is normal conversation with Claude Code. Larger or riskier
 work goes through the agentic loop instead: label an issue `claude`, and the developer, reviewer
-and auto-merge workflows carry it from branch to squash merge, with one human step left: after the fixer
-pushes, GitHub holds that head's `ci` and `review pr` runs at `action_required` whatever the approval policy
-(measured 2026-09-17, PR #22), so approve them from the run page or with
-`gh api -X POST repos/appshapes/brigade/actions/runs/<id>/approve` until the hub approves its own fixer's runs.
+and auto-merge workflows carry it from branch to squash merge with no human step. GitHub holds the `ci` and
+`review pr` runs a fixer push raises at `action_required` whatever the approval policy (measured 2026-09-17,
+PR #22), and the hub's `approve-fixer-runs` job approves them with the owner's token the moment the fixer's
+job ends (since 2026-09-19); the only time a person steps in is the fix cap handing a PR back.
 
 ## Trello CLI
 

@@ -7,9 +7,10 @@
 #   * `Bash(docker:*)` is allowed for exactly one reason: the pinned shellcheck 0.9.0 container CLAUDE.md
 #     requires before any shell file is pushed;
 #   * writes to plugin/bin/**, .claude/** and .github/workflows/** are DENIED, not merely discouraged;
-#   * GH_ACTIONS_TOKEN — Rjae's classic PAT — lives in a SECOND JOB (`open-pr`), never in the job that runs the
-#     agent. The agent's Bash children inherit its environment, and a classic PAT cannot be scoped to one
-#     repository, so the credential is kept out of the JOB rather than merely out of a step (§1.1.1 (iii)).
+#   * GH_ACTIONS_TOKEN — Rjae's classic PAT — lives in OTHER JOBS (`open-pr`, `approve-fixer-runs`), never in
+#     the job that runs the agent. The agent's Bash children inherit its environment, and a classic PAT cannot
+#     be scoped to one repository, so the credential is kept out of the JOB rather than merely out of a step
+#     (§1.1.1 (iii)).
 #
 # Tag mode, deliberately: no `prompt:` input. In tag mode the action takes the issue/comment/review body as the
 # prompt, which is what makes the scheduled workflows' agent-role prose (`Read .claude/agents/developer.md ...`)
@@ -326,7 +327,7 @@ jobs:
   # all, in any step, and no future `if:` edit can quietly make it reachable. That distinction MATTERS MORE with
   # a PAT than it did with the App token this file used to mint: a classic PAT cannot be scoped to one
   # repository and does not expire in an hour, so its blast radius is every repository Rjae's account can reach.
-  # DO NOT collapse these two jobs back into one.
+  # DO NOT collapse these jobs back into the agent's.
   #
   # `needs: agent` also gives the sequencing for free: a FAILED or SKIPPED agent job skips this one, which is the
   # behaviour the close-the-issue step below depends on (a failed run must leave the issue open for a retry).
@@ -448,3 +449,58 @@ jobs:
           gh issue close "$ISSUE_NUMBER" \
             --reason completed \
             --comment "The agent finished this run without changes, so there is no PR to close this issue. Closing automatically — its comment above records what was reviewed. Reopen if the run looks wrong."
+
+  # ------------------------------------------------------------------ brake 3b: the loop approves its own fixer
+  # GitHub holds every run a fixer push raises: `ci` and `review pr` on the new head sit at `action_required`
+  # whatever the fork-PR approval policy says (MEASURED 2026-09-17, PR #22, push e849247 — the push is attributed
+  # to github-actions[bot], which no policy value exempts; the P14-2 row). Until 2026-09-19 a human approved
+  # them by hand, seven times on card 24 alone, and no fix round could close without one. This job makes the
+  # call the human made — `POST …/actions/runs/<id>/approve` — from the PAT-holding side of the boundary above:
+  # no agent runs here, nothing here reads model output, and GH_ACTIONS_TOKEN stays out of the agent's job
+  # exactly as it does for `open-pr`. It runs after the agent job on every PR-bound event (a review, a review
+  # comment, an issue comment on a PR, a PR labelled `claude`) and is a no-op when the head raised no held run —
+  # a human's own push, an agent that pushed nothing, or the fix cap holding the fixer back. The head it approves
+  # is the PR's CURRENT head, read from the API after the agent job ended, so it approves what the fixer pushed
+  # and nothing older. `needs: agent` skips it when the agent job failed — the fixer path's "Verify the fix was
+  # pushed" failing means there is no new head to approve.
+  approve-fixer-runs:
+    needs: agent
+    if: |
+      github.event_name == 'pull_request_review' ||
+      github.event_name == 'pull_request_review_comment' ||
+      github.event_name == 'issue_comment' ||
+      github.event_name == 'pull_request'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5          # a two-minute poll at most; not a p90, a floor
+    permissions: {}             # the job token does nothing here: the approval authenticates with GH_ACTIONS_TOKEN
+    steps:
+      - name: Approve the runs GitHub held on the fixer's push
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACTIONS_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          if ! head=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha' 2>/dev/null); then
+            echo "#${PR_NUMBER} is not a pull request; nothing to approve"
+            exit 0
+          fi
+          # The held runs appear within seconds of the push, which happened before this job started; poll for
+          # up to two minutes, approve whatever is held, and stop after one quiet poll once runs exist — the
+          # second workflow's run can land a beat after the first, so one confirming poll is the whole margin.
+          approved=0; seen=0; quiet=0; deadline=$((SECONDS + 120))
+          while :; do
+            runs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${head}&per_page=50" --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion // "")"')
+            held=$(printf '%s\n' "$runs" | awk '$3 == "action_required" {print $1}')
+            for id in $held; do
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/approve" >/dev/null
+              echo "approved run ${id} on ${head}"
+              approved=$((approved + 1))
+            done
+            [ -n "$runs" ] && seen=1
+            if [ -n "$held" ]; then quiet=0; elif [ "$seen" = 1 ]; then quiet=$((quiet + 1)); fi
+            [ "$quiet" -ge 2 ] && break
+            [ "$SECONDS" -ge "$deadline" ] && break
+            sleep 10
+          done
+          echo "runs on ${head}: $(printf '%s\n' "$runs" | grep -c . || true); approved ${approved}"
