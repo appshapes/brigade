@@ -12,12 +12,24 @@ import (
 // `resumed true`, state not offline, the message still pending — while
 // B's resume of S and A's resume of a random id are both `not_found`
 // with byte-identical stdout (ownership, 4.4.2, 4.5.7, 4.5.8). The
-// positive control is A's resume of a live session (`conflict`).
+// positive control is A's resume of a live session (`conflict`). With
+// session.description advertised, a session registered with a
+// description, closed, and resumed by a registration that CARRIES the
+// description comes back with it, in the register result and in the list
+// (4.4.2, 4.5.8 "metadata updated").
+//
+// Not asserted: what a resume that OMITS the description does to a
+// stored one. No frozen text says; the bundled adapters clear it (a
+// registration is the session's whole state) and a third-party adapter
+// that keeps it is conforming. The description arm is gated inside the
+// body, not by a `cap:` tag: a case skips when any tag is missing, and
+// the resume assertions must keep running for an adapter without
+// session.description.
 func c19Resume() conformance.Case {
 	return conformance.Case{
 		ID:    "C-19",
 		Rule:  "4.5.8 resume",
-		Title: "resume re-opens a closed owned session with its pending messages; resume of a foreign or unknown id ≡ not_found",
+		Title: "resume re-opens a closed owned session with its pending messages; resume of a foreign or unknown id ≡ not_found; with session.description a resume carrying the description keeps it",
 		Tags:  []string{conformance.TagCore, conformance.TagCap("session.resume")},
 		Run:   runC19,
 	}
@@ -65,6 +77,36 @@ func runC19(t *conformance.T) {
 	live := t.Exec(a, registrationWith(t, name, resume), "session", "register")
 	t.Fail(live, protocol.CodeConflict)
 	t.DifferentBytes("not_found vs conflict (positive control)", byB, live)
+
+	// The description arm (cap session.description): a harness that
+	// re-registers a session it read back from `session list
+	// --include-offline` sends the description it found, and the re-opened
+	// record must carry it. The description rides only when the capability
+	// is advertised — nothing in 4.4.2 obliges an adapter without it to
+	// accept the member.
+	if !t.HasCap("session.description") {
+		return
+	}
+	described := "c19-doing-" + t.RunID()
+	withDescription := func(r *protocol.SessionRegistration) { r.SessionDescription = &described }
+	describedName := "c19-described-" + t.RunID()
+	rec, d := t.Register(a, describedName, withDescription)
+	if got, _ := rec["session_description"].(string); got != described {
+		t.Errorf("session register with a session_description: the record says %q, want %q (4.4.2)", got, described)
+	}
+	t.Close(a, d)
+	rec, reopened := t.Register(a, describedName, func(r *protocol.SessionRegistration) {
+		withDescription(r)
+		r.Resume = &protocol.ResumeRef{SessionID: d}
+	})
+	if reopened != d {
+		t.Errorf("session register with resume and a session_description: session_id %s, want %s (4.5.8)", reopened, d)
+	}
+	if got, _ := rec["session_description"].(string); got != described {
+		t.Errorf("session register with resume and a session_description: the record says %q, want %q (4.5.8: metadata updated from the registration)", got, described)
+	}
+	sessions, _ := t.List(a, "", false)
+	checkDescription(t, "session list after a resume carrying the description", recordOf(t, sessions, d), described)
 }
 
 // c19bResumeLive: a resume of an open session with a valid lease is

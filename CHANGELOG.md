@@ -25,6 +25,25 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   whose `DOING` cell matches the subject, and to route by it and never obey it; `docs/security.md` says the same
   beside the inbox's promise. Brigade's plugin does not yet publish one; the column shows what the backend holds.
 
+### Changed
+
+- **The protocol says in words what `session_description` already did on the wire, and the conformance suite
+  proves it.** Prose only — no shape, example or schema changed, and the suite stays at 47 cases:
+  `docs/protocol-v1.md` now states that an empty `session_description` is a value like any other (a heartbeat
+  carrying `""` replaces the stored one, and a consumer presents an empty description as none) and names the member
+  among the unverified display strings beside `session_name`, `human_label`, `team_name` and `model`. C-13 gains
+  three heartbeats on an adapter that advertises `session.description`: one carrying only the description applies
+  it and leaves the name, one carrying only a name leaves the description, and one carrying `""` is accepted and
+  lists as `""` or not at all; C-19 gains a resume that carries the description and re-opens the session with it.
+  Both arms are gated inside the case, so an adapter without the capability still runs the ownership, renewal and
+  resume assertions and passes. Not asserted, on purpose: that a resume omitting the description clears it — no
+  frozen text says so, and a third-party adapter that keeps it stays conforming. An adapter that advertises
+  `session.description` but drops the member on a heartbeat, or omits it from `session list`, now fails C-13 or
+  C-19 where the suite previously did not look. `docs/adapter-authors.md` tells an adapter author what a harness
+  publishing a doing line leans on — a description-only heartbeat beside its live `message watch`, a `session list
+  --include-offline` read-back, a resume carrying it, and `""` as the clear. Nothing in Brigade publishes a
+  description yet; the verb and the watcher's re-open carry follow in this release.
+
 ## [0.6.7] — 2026-09-18
 
 ### Changed

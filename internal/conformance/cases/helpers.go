@@ -103,3 +103,16 @@ func registrationWith(t *conformance.T, name string, edit func(*protocol.Session
 func nameFor(t *conformance.T, caseID, purpose string) string {
 	return caseID + "-" + purpose + "-" + t.RunID()
 }
+
+// checkDescription asserts one listed record carries exactly this
+// session_description (C-13's heartbeat arm, C-19's resume arm); an
+// absent member (nil pointer) is reported as such rather than as "",
+// because absent and "" differ on the wire.
+func checkDescription(t *conformance.T, what string, rec *protocol.SessionRecord, want string) {
+	switch {
+	case rec.SessionDescription == nil:
+		t.Errorf("%s: session_description absent, want %q (4.4.3)", what, want)
+	case *rec.SessionDescription != want:
+		t.Errorf("%s: session_description %q, want %q (4.4.3)", what, *rec.SessionDescription, want)
+	}
+}

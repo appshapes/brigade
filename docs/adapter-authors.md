@@ -334,6 +334,12 @@ case-insensitively.
   `cap:session.model` and `cap:session.context_used_tokens`, so advertising one of the two still skips it, and
   C-45 carries `cap:session.human_label` **and** `cap:team.roster` — it reads the adopted label back out of
   `team members`, so an adapter that adopts labels without a roster skips it too.
+- The reverse exists too: a case can hold an **arm** that runs only when you advertise a capability its tags do not
+  name, because the rest of the case must keep running without it. C-13 (`core` only) and C-19 (`core`,
+  `cap:session.resume`) run their `session_description` assertions only when `describe` lists
+  `session.description`, and C-31 (`core` only) resumes its closed recipient only under `session.resume`. Without
+  the capability the arm is simply not run and the case is reported PASS, not SKIP — so a C-13 failure that names
+  `session_description` means you advertised `session.description` and did not honour it.
 - A `slow` case without `--slow` is reported **SKIP** too. `--tags slow` selects it and still skips it; only `--slow`
   runs it.
 - A case can also skip **at run time**, from inside its own body, when the fixture cannot give it what it needs — and
@@ -931,7 +937,7 @@ first-class answer, not a failure.
 | **`message.receive`** | `message receive` — **required in v1 and still advertised** (C-18) |
 | `message.watch.push` | events arrive without polling: `ready.mode` is `push` and a message is expected within 5 s. Omit it and you **must** send `ready.mode = "polling"`. 4.4.9 relaxes live delivery to "within two poll intervals" for a polling adapter, but `describe` carries no poll-interval member, so **the suite applies the same 5 s deadline either way** (C-35; C-40's catch-up deadline is 10 s). Poll fast enough to clear both |
 | `message.watch.stdin_commands` | NDJSON commands on `message watch` stdin |
-| `session.description` | the `session_description` member |
+| `session.description` | `session_description` is stored and reported: applied by `session register` and `session heartbeat`, returned by `session list` (C-13, C-19). An empty value is one like any other — it replaces the stored one, and a consumer presents `""` and an absent member alike as none. Harness-reported, unverified display text. **What leans on it:** a harness that publishes a session's doing line sets it through a `session heartbeat` carrying only that member, beside its live `message watch`; reads it back with `session list --include-offline`; re-sends it on a re-open registration; and clears it with `""`. Nothing in Brigade publishes a description at this version — Brigade's own harness takes that path from the release that adds `brigade doing`. So an adapter announcing the capability must apply it on a heartbeat (C-13) and return it from `session list` (C-13, C-19); such a harness also relies on the value surviving a close for the seconds between the read-back and the re-open — inside any `retention.closed_session_seconds` you advertise (4.5.9), and checked by no case |
 | `session.resume` | the `resume` member of `session register` |
 | `session.workspace_label` | the `workspace_label` member |
 | `session.inbound` | `inbound` is stored and reported (without it you accept the member and ignore it) |
@@ -1041,7 +1047,7 @@ rather than `null`:
 | --- | --- | --- |
 | `session_id` | yes | adapter-assigned, opaque, non-empty; no structure a consumer may rely on, and no shape the protocol fixes (4.8) — the fs adapter uses 16 random bytes as lowercase hex, a UUID or a database key is equally fine. If yours becomes a path component or a query fragment, validate it on the way back in (the fs adapter accepts `[A-Za-z0-9_-]{1,64}` and answers the uniform `not_found` for anything else) |
 | `session_name` | yes | non-empty, ≤ `max_session_name_codepoints`; **unverified** display text |
-| `session_description` | optional, nullable | ≤ `max_description_chars`; omit it when there is none |
+| `session_description` | optional, nullable | ≤ `max_description_chars`; omit it when there is none. `""` is none too: after a heartbeat that sent `""`, list `""` or omit the member — both pass C-13. The session's own claim about its work, as last registered or heartbeated; **unverified** display text. A harness that publishes one reads its own back with `session list --include-offline` before a re-open, so a closed record that keeps it until your retention deletes it serves that read-back (checked by no case; Brigade's harness takes that path from the release that adds `brigade doing`, and publishes nothing at this version) |
 | `principal_ref` | yes | the owning principal, opaque, non-empty |
 | `human_label` | optional in the shape, in practice always present | ≤ `max_human_label_chars`; unverified display text. Optional because a profile may have been bound without a label — but the fixture gives every principal one at `team create` / `team join` time, so C-12 requires one on every session it lists. Copy the label from the profile onto every session record you write and the question never arises. With `session.human_label` a label-less membership also takes the registration's own `human_label` the first time one arrives, and the record carries it from there (C-45) |
 | `state` | yes | `active`, `idle` or `offline` — see below |
@@ -1174,7 +1180,7 @@ shown):
 | `session_name` | yes | non-empty, ≤ `max_session_name_codepoints` |
 | `activity` | yes | `busy` or `idle` |
 | `inbound` | yes | `accept`, `hold` or `refuse`; ignore it if you do not advertise `session.inbound`, but still store and echo *something* valid |
-| `session_description` | optional, nullable | capability `session.description` |
+| `session_description` | optional, nullable | capability `session.description`; ≤ `max_description_chars`, else `invalid_input` naming it (C-16, whether or not you advertise the capability). Store what arrives, on a resume too: C-19 checks that a resume carrying one re-opens the session with it, which is how a harness that publishes a doing line carries the description it read back from `session list --include-offline` across a re-open registration. Between registrations such a harness sets it through a `session heartbeat` carrying only that member, beside its live `message watch` (C-13), and clears it with `""` — an empty value replaces the stored one and is presented as none. (Brigade's own harness does none of this at this version; it takes the path from the release that adds `brigade doing`) |
 | `lease_seconds` | optional, nullable | within **your** advertised `lease.min_seconds..lease.max_seconds`, else `invalid_input`; absent means `lease.default_seconds` |
 | `workspace_label` | optional, nullable | capability `session.workspace_label` |
 | `human_label` | optional, nullable | ≤ `max_human_label_chars`, else `invalid_input` naming `human_label`; capability `session.human_label`. The harness's **default** label for its principal — adopt it only into a membership that has none (see below) |

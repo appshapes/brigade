@@ -68,8 +68,8 @@ object, every NDJSON event and command.
    are checked member by member. `TestSpecExamplesAreTheTestdataFiles` in `internal/protocol/schema` pins both
    directions, so neither this document nor a file can change alone.
 8. **Identifiers are opaque.** `principal_ref`, `session_id`, `team_ref` and `message_id` are non-empty strings with no
-   structure a consumer may rely on (4.8). `session_name`, `human_label`, `team_name` and `model` are unverified
-   display strings and are untrusted input at every layer (4.5.11).
+   structure a consumer may rely on (4.8). `session_name`, `session_description`, `human_label`, `team_name` and
+   `model` are unverified display strings and are untrusted input at every layer (4.5.11).
 
 ## 4.1 Invocation model
 
@@ -312,7 +312,7 @@ a cap an adapter chooses (4.4.2).
 | --- | --- | --- |
 | `harness`, `harness_version` | yes | identify the registering harness |
 | `session_name` | yes | ≤ `max_session_name_codepoints` (C-16) |
-| `session_description` | optional, nullable | ≤ `max_description_chars` (C-16); capability `session.description` |
+| `session_description` | optional, nullable | ≤ `max_description_chars` (C-16); capability `session.description`; the session's own claim about its work, **unverified** text (4.5.11). A resume that carries it re-opens the session with it (C-19) |
 | `activity` | yes | `busy` or `idle` |
 | `inbound` | yes | `accept`, `hold` or `refuse` — the harness's inbound policy, so senders can see it; adapters without `session.inbound` ignore it (C-42) |
 | `lease_seconds` | optional, nullable | within `lease.min_seconds..lease.max_seconds`, else `invalid_input`; absent means `lease.default_seconds` |
@@ -369,7 +369,7 @@ when `resume.session_id` was honoured, C-10, C-19), `lease_seconds` (integer, th
 | --- | --- | --- |
 | `session_id` | yes | adapter-assigned, opaque (C-10) |
 | `session_name` | yes | ≤ `max_session_name_codepoints`; unverified |
-| `session_description` | optional, nullable | ≤ `max_description_chars` |
+| `session_description` | optional, nullable | ≤ `max_description_chars`; the session's own claim about its work, as last registered or heartbeated (4.4.2, 4.4.4); **unverified** text, untrusted at every layer (4.5.11). An empty value is none: after a heartbeat that sent `""` the list shows `""` or omits the member (C-13), and a consumer presents both alike |
 | `principal_ref` | yes | the owning principal, opaque |
 | `human_label` | optional | ≤ `max_human_label_chars`; **unverified** — every consumer MUST present it as such `[no case: B-3]` |
 | `state` | yes | `active`, `idle` or `offline`, computed by the adapter from `lease_until`, its closed flag and `activity` with the adapter's own clock (4.5.8); the harness never computes it |
@@ -418,9 +418,11 @@ Every member is optional and absent means unchanged (JSON convention 4); the ses
 present: `activity` is `busy` or `idle`; `session_name` is non-empty and ≤ `max_session_name_codepoints`;
 `session_description` ≤ `max_description_chars`; `inbound` is `accept`, `hold` or `refuse`; `lease_seconds` within
 `lease.min_seconds..lease.max_seconds`; `model` ≤ `max_model_chars`; `context_used_tokens` within `0..2^53 − 1`. A
-heartbeat renews `lease_until` and applies the new values (C-13, C-42, C-44). `model` and `context_used_tokens` are
-never cleared by a heartbeat: the harness omits them and the stored values stand (C-44); an adapter without
-`session.model` or `session.context_used_tokens` accepts the member and ignores it (4.7).
+heartbeat renews `lease_until` and applies the new values (C-13, C-42, C-44). An empty `session_description` is a
+value like any other: it replaces the stored one, and a consumer presents an empty description as none (C-13).
+`model` and `context_used_tokens` are never cleared by a heartbeat: the harness omits them and the stored values
+stand (C-44); an adapter without `session.model` or `session.context_used_tokens` accepts the member and ignores it
+(4.7).
 
 ```json
 {"session_id": "…", "state": "idle", "lease_until": "2026-08-30T12:03:00Z", "server_time": "2026-08-30T12:01:00Z"}
@@ -825,7 +827,7 @@ failure → 9; GoTrue `refresh_token_already_used` (after one re-read-and-retry)
 | `message.receive` | `message receive` | required in v1 and still advertised (C-18) |
 | `message.watch.push` | — | events arrive without polling: the `ready` event's `mode` is `push` and the harness expects a message within 5 s; an adapter that omits it MUST send `mode: polling` (C-33) and the harness expects two poll intervals of latency (C-35) |
 | `message.watch.stdin_commands` | NDJSON commands on `message watch` stdin (4.4.9) | without it the adapter ignores stdin's content and exits on its EOF |
-| `session.description` | `session_description` (4.4.2, 4.4.4) | |
+| `session.description` | `session_description` is stored and reported (4.4.2, 4.4.3, 4.4.4; C-13, C-19) | the value is harness-reported and unverified (4.5.11); an empty value is none (C-13) |
 | `session.resume` | `resume` (4.4.2) | |
 | `session.workspace_label` | `workspace_label` (4.4.2) | |
 | `session.inbound` | `inbound` is stored and reported (4.4.2, 4.4.3, C-42) | an adapter without it accepts the member and ignores it |
@@ -897,13 +899,13 @@ once.
 | C-10 | 4.2 | 4.4.2 result; 4.4.3 `session_id`; 4.5.8 |
 | C-11 | 4.5.8 | 4.5.8 |
 | C-12 | 4.4 | 4.2 `session list`; 4.4.3 `is_self` and list result; 4.5.6 |
-| C-13 | 4.5.7 | 4.2 `session heartbeat`; 4.4.4; 4.5.7 |
+| C-13 | 4.5.7 | 4.2 `session heartbeat`; 4.4.3 `session_description`; 4.4.4; 4.5.7; 4.7 |
 | C-14 | 4.5.8 (slow) | 4.4.3 list result; 4.5.8 |
 | C-15 | 4.5.8 | 4.2 `session close`; 4.4.3 close result; 4.5.8 |
 | C-16 | 4.5.11 | 4.3.1; 4.4.1 `limits`; 4.4.2; 4.5.11 |
 | C-17 | 4.5.13 | JSON convention 2; 4.5.13 |
 | C-18 | 4.5.13 | JSON convention 3; 4.4.1 `capabilities`, `limits`; 4.5.13; 4.7 |
-| C-19 | 4.5.8 (cap `session.resume`) | 4.4.2 resume and result; 4.5.7; 4.5.8 |
+| C-19 | 4.5.8 (cap `session.resume`) | 4.4.2 `session_description`, resume and result; 4.5.7; 4.5.8; 4.7 |
 | C-19b | 4.5.8 (cap `session.resume`) | 4.2 `session register`; 4.4.2 resume; 4.5.8 |
 | C-20 | 4.5.1 | 4.2 `message send`, `message receive`; 4.4.5 `sender`; 4.5.1; 4.5.5 |
 | C-21 | 4.5.4 | 4.4.7; 4.5.4 |
