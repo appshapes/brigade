@@ -32,6 +32,12 @@ type shared struct {
 	// OPTION, not a label — the account email is read at the point of
 	// use, so neither this state nor the map ever holds it.
 	labelOption string
+	// doingMode is the map's doing_mode (card 25, plan 5.2): the RESOLVED
+	// mode the hook froze, one of five words or "" for a map written
+	// before the mode existed. The re-open reads it to decide whether to
+	// carry the session's doing line forward (plan 5.3): off and
+	// unsupported carry nothing.
+	doingMode string
 	// transcriptPath is the map's transcript_path, "" when it carries
 	// none: the file the command writer reads for the heartbeat's model
 	// and context facts. It is local state and never logged.
@@ -39,7 +45,7 @@ type shared struct {
 	flip           bool // an activity change the next tick must heartbeat at once
 }
 
-func newShared(target socketpost.Target, name, inbound, workspaceLabel, labelOption, transcriptPath string) *shared {
+func newShared(target socketpost.Target, name, inbound, workspaceLabel, labelOption, doingMode, transcriptPath string) *shared {
 	return &shared{
 		target:         target,
 		name:           name,
@@ -47,6 +53,7 @@ func newShared(target socketpost.Target, name, inbound, workspaceLabel, labelOpt
 		inbound:        inbound,
 		workspaceLabel: workspaceLabel,
 		labelOption:    labelOption,
+		doingMode:      doingMode,
 		transcriptPath: transcriptPath,
 	}
 }
@@ -59,6 +66,7 @@ type sharedSnapshot struct {
 	inbound        string
 	workspaceLabel string
 	labelOption    string
+	doingMode      string
 	transcriptPath string
 }
 
@@ -66,7 +74,7 @@ func (s *shared) snapshot() sharedSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return sharedSnapshot{target: s.target, name: s.name, activity: s.activity, inbound: s.inbound,
-		workspaceLabel: s.workspaceLabel, labelOption: s.labelOption, transcriptPath: s.transcriptPath}
+		workspaceLabel: s.workspaceLabel, labelOption: s.labelOption, doingMode: s.doingMode, transcriptPath: s.transcriptPath}
 }
 
 // takeFlip reports and clears a pending activity flip.
@@ -155,6 +163,14 @@ func (w *watcher) refreshMap() string {
 	// The same rule for the label option: a SessionStart that changed it
 	// wins, and the next re-registration carries the new resolution.
 	w.state.labelOption = m.LabelOption
+	// And for the doing mode: the hook re-resolves it at every SessionStart
+	// but compact, so an opt-out lands here within a tick and the next
+	// re-open carries no line (card 25, plan 5.3). One of five words, or
+	// none, so the change is logged by value.
+	if m.DoingMode != w.state.doingMode {
+		w.log.Info("doing mode changed", slog.String("doing_mode", m.DoingMode))
+		w.state.doingMode = m.DoingMode
+	}
 	// /clear gives the session a new native transcript and the hook
 	// rewrites the map with its path; the next heartbeat's facts come
 	// from the new file. Logged without the path (T10).

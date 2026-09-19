@@ -100,7 +100,8 @@ type resolved struct {
 	// `brigade doing` (card 25, plan 5.2), scanned in resolve beside the
 	// native scan; doingMode is the mode the map carries, set by connect —
 	// from the adapter's capabilities, the option and doingRules on the
-	// register path, inherited from the existing map on the continue path.
+	// register path; on the continue path from the existing map's
+	// capability verdict with the option and doingRules resolved again.
 	doingRules policy.Verdict
 	doingMode  string
 }
@@ -123,10 +124,16 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// D9): a live watcher for this pid that serves the session the map
 	// names means the session continues.
 	if existing != nil && verdict.Found && verdict.Alive && verdict.Entry.BrigadeSessionID == existing.BrigadeSessionID {
-		// The continue path has no describe, so the doing mode is the
-		// one the existing map carries — absent stays absent, until the
-		// prompt hook's one-time resolution of P16-5 (plan 5.2).
-		res.doingMode = existing.DoingMode
+		// The continue path has no describe, so the capability half of
+		// the doing mode is the existing map's — unsupported stays
+		// unsupported, absent stays absent until the prompt hook's
+		// one-time resolution of P16-5 — and the option and the rules are
+		// resolved again (plan 5.3): an opt-out takes effect at this
+		// SessionStart, not the next session. Whether the heartbeat blanks
+		// the doing line is decided HERE, where the document and the
+		// existing map are both in view, and handed to heartbeat.
+		res.doingMode = continuedDoingMode(existing.DoingMode, res.opts, res.doingRules)
+		blank := blankDoingLine(in, existing, res.doingMode)
 		if reason := respawnReason(verdict.Entry, f); reason != "" {
 			r.log.Info("watcher "+reason+"; respawning", slog.Int("watcher_pid", verdict.Entry.PID),
 				slog.String("watcher_version", verdict.Entry.Version))
@@ -134,7 +141,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 			m := r.buildMap(f, in, res, existing.BrigadeSessionID, existing.TeamRef, existing.TeamName, existing.RegisteredAt, now)
 			r.spawnWatcher(ctx, f, m, pidfileWait)
 		}
-		hbErr := r.heartbeat(ctx, res, existing.BrigadeSessionID)
+		hbErr := r.heartbeat(ctx, res, existing.BrigadeSessionID, blank)
 		if hbErr == nil || !isCode(hbErr, protocol.CodeConflict, protocol.CodeNotFound) {
 			if hbErr != nil {
 				r.log.Warn("heartbeat failed; the watcher keeps trying", log.Err(hbErr))
@@ -313,9 +320,16 @@ func doingScanDirs(environ []string, in input) []string {
 // mode but the first two; the words decide only which lines the prompt
 // hook may print (P16-5).
 func doingMode(opts config.Options, capabilities []string, rules policy.Verdict) string {
-	switch {
-	case !slices.Contains(capabilities, doingCapability):
+	if !slices.Contains(capabilities, doingCapability) {
 		return doing.ModeUnsupported
+	}
+	return doingModeWithin(opts, rules)
+}
+
+// doingModeWithin is the option-and-rules half of doingMode, for an
+// adapter known to announce the capability.
+func doingModeWithin(opts config.Options, rules policy.Verdict) string {
+	switch {
 	case !opts.ShareDoing:
 		return doing.ModeOff
 	case rules == policy.VerdictBlocked:
@@ -325,6 +339,44 @@ func doingMode(opts config.Options, capabilities []string, rules policy.Verdict)
 	default:
 		return doing.ModeQuiet
 	}
+}
+
+// continuedDoingMode re-resolves the map's doing_mode on the continue
+// path, where no describe runs (plan 5.3): the capability verdict is the
+// existing map's — unsupported stays unsupported, and an absent member (a
+// map written before the mode existed) stays absent for the prompt hook's
+// one-time resolution — while the option and the rules go through the
+// same arms as a fresh resolution, so `share_doing` turned off, or a rule
+// added since, lands at the next SessionStart of any kind but compact
+// rather than at the next session. Without this the verb would keep
+// publishing after the opt-out until the session ended.
+func continuedDoingMode(existing string, opts config.Options, rules policy.Verdict) string {
+	switch existing {
+	case "", doing.ModeUnsupported:
+		return existing
+	}
+	return doingModeWithin(opts, rules)
+}
+
+// blankDoingLine decides whether the continue path's heartbeat carries
+// session_description "" — the wire form of "none" (plan 5.3). It does
+// when the native session id changed, a real conversation switch (/clear,
+// or an in-process /resume; a same-id re-fire such as /reload-plugins is
+// not one), whatever the option says: a doing line lives inside one
+// conversation (ruling 5). And it does, on a same-id re-fire too, when the
+// existing map's mode published and the new resolution is off: opting out
+// retracts at the next SessionStart of any kind but compact. Only when the
+// mode is known and not unsupported: an adapter without the capability
+// would refuse the member, and a map without the mode has not been
+// resolved yet.
+func blankDoingLine(in input, existing *sessionmap.ByPID, mode string) bool {
+	if mode == "" || mode == doing.ModeUnsupported {
+		return false
+	}
+	if in.SessionID != existing.ClaudeSessionID {
+		return true
+	}
+	return mode == doing.ModeOff && existing.DoingMode != doing.ModeOff
 }
 
 // doingCapability is the 4.7 capability an adapter advertises when it
@@ -545,16 +597,31 @@ func (r *run) checkPidfile(f facts) pidfile.Verdict {
 }
 
 // heartbeat sends the current name, activity and inbound policy for a
-// session that continues (WatchRequestTimeout).
-func (r *run) heartbeat(ctx context.Context, res resolved, sessionID string) error {
+// session that continues (WatchRequestTimeout). With blankDoing it also
+// carries session_description "" — how a conversation switch and an
+// opt-out retract the doing line (card 25, plan 5.3). The verdict is
+// connect's (blankDoingLine): this function sees neither the document nor
+// the existing map, and the member is otherwise absent, never "".
+func (r *run) heartbeat(ctx context.Context, res resolved, sessionID string, blankDoing bool) error {
 	hctx, cancel := context.WithTimeout(ctx, adapterclient.WatchRequestTimeout)
 	defer cancel()
 	name, activity, inbound := res.id.name, res.id.activity, res.dec.Policy.String()
-	_, err := res.client.Heartbeat(hctx, sessionID, &protocol.HeartbeatRequest{
+	hb := &protocol.HeartbeatRequest{
 		Activity:    &activity,
 		SessionName: &name,
 		Inbound:     &inbound,
-	})
+	}
+	if blankDoing {
+		none := ""
+		hb.SessionDescription = &none
+	}
+	_, err := res.client.Heartbeat(hctx, sessionID, hb)
+	// Logged after the answer, so the line reports a blank that landed,
+	// not one that was asked for: a failed heartbeat leaves the old
+	// sentence standing (plan 8), and nothing retries it.
+	if err == nil && blankDoing {
+		r.log.Debug("doing line blanked at session start")
+	}
 	return err
 }
 

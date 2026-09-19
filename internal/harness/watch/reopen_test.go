@@ -124,6 +124,9 @@ func TestReopensASessionClosedUnderItOnTheRPCPath(t *testing.T) {
 // TestReopensASessionClosedUnderItOnTheStdinPath: the closure arrives as
 // an `error` event on the watch stream (the adapter refused a stdin
 // heartbeat); the re-open runs off the event loop and the child stays.
+// This is the one re-open test on the fake's default describe, which
+// announces session.description, so the re-open reads the doing line back
+// first (doing_test.go) and the `session list` is scripted: none held.
 func TestReopensASessionClosedUnderItOnTheStdinPath(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{sink: true})
@@ -131,6 +134,7 @@ func TestReopensASessionClosedUnderItOnTheStdinPath(t *testing.T) {
 	closed := &protocol.WatchError{Event: protocol.EventError, Error: *closedConflict()}
 	fx.useFake(fakeadapter.Script{
 		Responses: map[string][]fakeadapter.Response{
+			"session list":     {{Result: listWithOwn(t, now, nil)}},
 			"session register": {{Result: resumedRegister(now)}},
 		},
 		Watch: &fakeadapter.WatchScript{Lines: []fakeadapter.WatchLine{
@@ -145,9 +149,9 @@ func TestReopensASessionClosedUnderItOnTheStdinPath(t *testing.T) {
 	r := fx.start(deps, fx.args()...)
 	fx.waitLog("watch child started", map[string]any{"stdin_commands": true})
 	fx.waitLog("the session was closed under the watcher; re-opening", map[string]any{"code": "conflict"})
-	fx.waitLog("session re-opened", map[string]any{"session_id": reopenSessionID})
-	if regs := rr.registrations(); len(regs) != 1 || regs[0].Resume == nil || regs[0].Resume.SessionID != reopenSessionID {
-		t.Fatalf("registrations %+v, want exactly one with resume.session_id %s", regs, reopenSessionID)
+	fx.waitLog("session re-opened", map[string]any{"session_id": reopenSessionID, "described": false})
+	if regs := rr.registrations(); len(regs) != 1 || regs[0].Resume == nil || regs[0].Resume.SessionID != reopenSessionID || regs[0].SessionDescription != nil {
+		t.Fatalf("registrations %+v, want exactly one with resume.session_id %s and no description", regs, reopenSessionID)
 	}
 	if r.exited() {
 		t.Fatal("the watcher exited on a re-openable closure")

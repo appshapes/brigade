@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/procutil"
+	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakesock"
 )
@@ -320,6 +322,127 @@ func TestWatchSinkThroughTheRealBinary(t *testing.T) {
 	// No token in this variant; the recorder is still asserted live and
 	// the CLAUDE_CODE_MESSAGING_* names absent from every adapter child.
 	r.assertTokenNowhere("no-token-in-sink-mode-" + strconv.Itoa(carol.pid))
+}
+
+// rosterResult is the --json result of `brigade sessions`, the members
+// this file reads.
+type rosterResult struct {
+	Sessions      []protocol.SessionRecord `json:"sessions"`
+	SelfSessionID string                   `json:"self_session_id"`
+}
+
+// TestDoingSurvivesAReopen is card 25's lifecycle through the real
+// binaries (plan 5.3): a doing line lives inside one conversation, so it
+// survives a watcher re-open — invisible to the model — and is blanked at
+// a conversation switch.
+//
+//  1. alice's session starts and the real watcher runs; `brigade doing`
+//     from her session publishes a line and `sessions --json` shows it.
+//  2. The watcher is SIGTERMed: its exit path closes the session (the
+//     production 1 s budget, which the rig cannot raise; when closed_at is
+//     still unset afterwards the session is closed through the adapter —
+//     a conditional close, taken only then — so the re-open below is real
+//     either way).
+//  3. The next `hook prompt` respawns a watcher, whose first heartbeat is
+//     answered conflict:session_closed; it reads the line back, re-opens
+//     the session with it, and the roster still shows it.
+//  4. A SessionStart with source clear and a new native id is the continue
+//     path: its heartbeat carries `""`, and the roster shows none.
+//
+// Every wait is a hang catcher (waitLong); nothing here bounds a duration.
+func TestDoingSurvivesAReopen(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.createTeam()
+	sock := fakesock.New(t)
+	token := "cc-messaging-secret-MUST-NOT-LEAK-" + testutil.RunID()
+	alice := r.newSession("alice", "", aliceName, sock.Path(), token)
+	const line = "migrating the ledger to tenant ids"
+
+	roster := func() rosterResult {
+		t.Helper()
+		return jsonResult[rosterResult](t, r.mustRun(r.env(alice), "", "sessions", "--json").stdout)
+	}
+	ownDescription := func(id string) (string, bool) {
+		t.Helper()
+		for _, s := range roster().Sessions {
+			if s.SessionID == id {
+				if s.SessionDescription == nil {
+					return "", false
+				}
+				return *s.SessionDescription, true
+			}
+		}
+		t.Fatalf("the roster does not list %s", id)
+		return "", false
+	}
+
+	// --- 1. start, publish, see it on the roster ----------------------------
+	r.hook(alice, "session-start", alice.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	m := r.mustMap(alice)
+	if m.DoingMode != "quiet" {
+		t.Fatalf("alice's doing_mode = %q, want quiet against the fs adapter with no rules", m.DoingMode)
+	}
+	first := r.liveWatcher(alice).PID
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return r.logHas(alice, "watch ready") })
+	res := r.mustRun(r.env(alice), line+"\n", "doing")
+	if res.stdout != "published: "+line+"\n" {
+		t.Fatalf("doing stdout = %q", res.stdout)
+	}
+	if got, ok := ownDescription(m.BrigadeSessionID); !ok || got != line {
+		t.Fatalf("after publishing, the roster shows %q (%v), want %q", got, ok, line)
+	}
+
+	// --- 2. the watcher exits; the session is closed ------------------------
+	if err := syscall.Kill(first, syscall.SIGTERM); err != nil {
+		t.Fatalf("SIGTERM %d: %v", first, err)
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return !alive(first) })
+	if s := r.sessionFile(m.BrigadeSessionID); s.ClosedAt == nil {
+		t.Logf("the watcher's close did not land within its budget; closing through the adapter")
+		cr := r.runAdapter(r.baseEnv(), "", "--profile", r.teamKey, "session", "close", "--session", m.BrigadeSessionID)
+		if cr.exit != 0 {
+			t.Fatalf("adapter session close: exit %d\nstdout: %s\nstderr: %s", cr.exit, cr.stdout, cr.stderr)
+		}
+	}
+	if s := r.sessionFile(m.BrigadeSessionID); s.ClosedAt == nil {
+		t.Fatal("the session is still open; the re-open below would be vacuous")
+	}
+
+	// --- 3. the prompt respawns; the re-open carries the line ---------------
+	res = r.hook(alice, "prompt", alice.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "acceptEdits", "prompt": "never read"}))
+	if res.stdout != "" || !strings.Contains(res.stderr, "respawning") {
+		t.Fatalf("prompt after the watcher exited: stdout %q stderr %q", res.stdout, res.stderr)
+	}
+	second := r.liveWatcher(alice)
+	if second.PID == first || second.BrigadeSessionID != m.BrigadeSessionID {
+		t.Fatalf("respawned pidfile: %+v (first %d)", second, first)
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return r.logHas(alice, "session re-opened") })
+	if s := r.sessionFile(m.BrigadeSessionID); s.ClosedAt != nil {
+		t.Fatalf("the session was not re-opened in the store: %+v", s)
+	}
+	if got, ok := ownDescription(m.BrigadeSessionID); !ok || got != line {
+		t.Fatalf("after the re-open, the roster shows %q (%v), want %q", got, ok, line)
+	}
+
+	// --- 4. a conversation switch blanks it ---------------------------------
+	cleared := alice
+	cleared.nativeID = alice.nativeID + "-cleared"
+	r.hook(cleared, "session-start", cleared.hookDoc("SessionStart", map[string]any{"source": "clear"}))
+	if m2 := r.mustMap(alice); m2.BrigadeSessionID != m.BrigadeSessionID || m2.ClaudeSessionID != cleared.nativeID {
+		t.Fatalf("the map after /clear: %+v", m2)
+	}
+	if v, err := pidfile.Check(r.pidfilePath(alice), procutil.Lookup); err != nil || v.Entry.PID != second.PID {
+		t.Fatalf("/clear replaced the live watcher: %+v %v", v, err)
+	}
+	if got, ok := ownDescription(m.BrigadeSessionID); ok {
+		t.Fatalf("after /clear the roster still shows %q, want none", got)
+	}
+
+	r.hook(cleared, "session-end", cleared.hookDoc("SessionEnd", map[string]any{"reason": "other"}))
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return !alive(second.PID) })
+	r.assertTokenNowhere(token)
 }
 
 // sinkRecord is one line of the --sink file (6.6).

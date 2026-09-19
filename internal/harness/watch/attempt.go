@@ -49,6 +49,11 @@ type session struct {
 	cancel        context.CancelFunc
 	stdinCommands bool
 	lease         *int
+	// descriptionCapable is whether the attempt's describe advertised
+	// session.description: no frozen text obliges an adapter without it to
+	// ignore the member, so a re-open sends the doing line only when it is
+	// announced (card 25, plan 5.3).
+	descriptionCapable bool
 
 	hbReq      chan struct{} // a heartbeat is due (capacity 1)
 	hbAnswered chan struct{} // the child answered a stdin heartbeat (capacity 1)
@@ -59,9 +64,9 @@ type session struct {
 	heartbeatsStopped atomic.Bool
 }
 
-func newSession(wt *adapterclient.Watch, cancel context.CancelFunc, stdinCommands bool, lease *int) *session {
+func newSession(wt *adapterclient.Watch, cancel context.CancelFunc, stdinCommands, descriptionCapable bool, lease *int) *session {
 	return &session{
-		watch: wt, cancel: cancel, stdinCommands: stdinCommands, lease: lease,
+		watch: wt, cancel: cancel, stdinCommands: stdinCommands, descriptionCapable: descriptionCapable, lease: lease,
 		hbReq: make(chan struct{}, 1), hbAnswered: make(chan struct{}, 1),
 		closeReq: make(chan struct{}, 1), done: make(chan struct{}),
 	}
@@ -120,7 +125,8 @@ func (w *watcher) attempt() attemptResult {
 		w.logAttemptEnd(r)
 		return r
 	}
-	s := newSession(wt, wcancel, slices.Contains(desc.Capabilities, StdinCommandsCapability), chooseLease(desc.Lease))
+	s := newSession(wt, wcancel, slices.Contains(desc.Capabilities, StdinCommandsCapability),
+		slices.Contains(desc.Capabilities, DescriptionCapability), chooseLease(desc.Lease))
 	w.log.Info("watch child started", slog.Bool("stdin_commands", s.stdinCommands))
 
 	cctx, ccancel := context.WithCancel(context.Background())

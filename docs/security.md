@@ -107,20 +107,27 @@ most 160 characters — about what it is working on, with `brigade doing`, a com
 like any other; teammates read it in the `DOING (unverified)` column of `brigade sessions`, and `brigade doing
 --clear` removes it. *Who sees it:* every active member of the team, through `session list` and through a direct
 `SELECT` on `brigade.sessions`, whoever runs the backend (above), and anyone who obtains the join secret later.
-*How long:* until the model replaces it; a new session and a `claude --resume` start without one on the bundled
-adapters (the registration never carries it, and both bundled adapters write the registration's absent value over
-the stored sentence, on a fresh register and on a resume alike); and a session that ends keeps its last sentence on
-the closed record for the adapter's retention — 7 days on the bundled adapters, a retention and not a protocol
-bound — with no way to retract it after the close. *How to stop it:* set the plugin option `share_doing` to
-`false` (from the next session start `brigade doing` then refuses to publish; `--clear` still works), run `brigade
-doing --clear` in the session, put an ask or deny rule on `brigade doing` in your settings (section 5), or answer
-No to Claude Code's permission dialog where one is raised. *What Brigade cannot recognise:* the refusals
-catch a credential shape, your home directory and any two-segment path; they cannot recognise a hostname, a
-person's or a customer's name, or — when you have set `label` to `none` — your Claude account email, for which the
-model's sentence is then the one remaining path to the team. The session name and the repository name
-(`workspace_label`) are shared in the same way and may reveal a ticket number. At this version nothing yet asks
-the model to publish; a sentence appears only when a prompt or a person tells it to, and the reminder that will
-ask it is a later change to this document.
+*How long:* until the model replaces it, and inside one conversation: it is blanked at `/clear` and at an
+in-process `/resume` (the session start those re-fire sends an empty value — except in a session that was
+already running when the plugin updated, whose `share_doing` setting has not been resolved: there a `/clear`
+leaves the line standing until the process ends), a new session and a `claude --resume` start without one on
+the bundled adapters (the registration never carries it, and both bundled adapters write the registration's
+absent value over the stored sentence, on a fresh register and on a resume alike), while a `/compact` and a
+watcher restart — a plugin update, a lost lease; both invisible to the model — keep it: the restarted watcher
+reads the sentence back from the backend, cleans it as `brigade doing` would, and re-registers with it (where it
+cannot — the read fails, the record is missing, the sentence no longer passes the refusals — the restart
+re-registers without it and the line is blank); and a session that ends keeps its last sentence on the closed
+record for the adapter's retention — 7 days on the bundled adapters, a retention and not a protocol bound — with
+no way to retract it after the close. *How to stop it:* set the plugin option `share_doing` to `false` (at the
+next session start of any kind but `/compact` — a `/clear` included — the line is blanked and `brigade doing`
+then refuses to publish; `--clear` still works), run `brigade doing --clear` in the session, put an ask or deny
+rule on `brigade doing` in your settings (section 5), or answer No to Claude Code's permission dialog where one
+is raised. *What Brigade cannot recognise:* the refusals catch a credential shape, your home directory and any
+two-segment path; they cannot recognise a hostname, a person's or a customer's name, or — when you have set
+`label` to `none` — your Claude account email, for which the model's sentence is then the one remaining path to
+the team. The session name and the repository name (`workspace_label`) are shared in the same way and may reveal
+a ticket number. At this version nothing yet asks the model to publish; a sentence appears only when a prompt or
+a person tells it to, and the reminder that will ask it is a later change to this document.
 
 **Two facts Brigade now reads from your transcript — on this machine.** So that `brigade sessions` can tell your team
 which model a session is running and how full its context is, Brigade reports two values with each session: the
@@ -346,14 +353,14 @@ Blocks the line in every mode. Or name every `brigade` verb at once:
 { "permissions": { "deny": ["Bash(brigade:*)"] } }
 ```
 
-The plugin option `share_doing: false` is the other way, and from the next session start it makes the verb itself
-refuse. Brigade reads these rules once at session start, for one purpose: to record whether it may ever tell the
-model to run the command — an ask or deny it can see on `brigade doing`, or a settings file it cannot read, means
-it never may, while the verb itself still runs and Claude Code's own rule does the asking or denying. (At this
-version nothing yet tells the model; the answer is recorded for the reminder that follows.) The reading is closed
-to your user `settings.json` and the `.claude/settings.json` and `.claude/settings.local.json` of the project —
-its root and the directory the session started in; managed settings, `--settings` and a rule granted mid-session
-are outside it.
+The plugin option `share_doing: false` is the other way: from the next session start of any kind but `/compact`
+it blanks the line the session had and makes the verb itself refuse. Brigade reads these rules at every such
+session start, for one purpose: to record whether it may ever tell the model to run the command — an ask or deny
+it can see on `brigade doing`, or a settings file it cannot read, means it never may, while the verb itself still
+runs and Claude Code's own rule does the asking or denying. (At this version nothing yet tells the model; the
+answer is recorded for the reminder that follows.) The reading is closed to your user `settings.json` and the
+`.claude/settings.json` and `.claude/settings.local.json` of the project — its root and the directory the
+session started in; managed settings, `--settings` and a rule granted mid-session are outside it.
 
 **No hook and no plugin can override the ask rule or the deny rule.** That is Claude Code's own rule, not
 Brigade's.

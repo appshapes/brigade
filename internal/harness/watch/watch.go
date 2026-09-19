@@ -83,6 +83,10 @@ const (
 	// StdinCommandsCapability is the describe capability that selects the
 	// stdin command path over the one-shot calls (4.7).
 	StdinCommandsCapability = "message.watch.stdin_commands"
+	// DescriptionCapability is the describe capability an adapter that
+	// stores and lists session_description advertises (4.7, C-13, C-19);
+	// the re-open carries the doing line only when it is announced.
+	DescriptionCapability = "session.description"
 )
 
 // The production values of the [Deps] knobs (6.6, 6.8).
@@ -574,7 +578,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		pidPath:     pidfile.Path(rc.env.StateDir, rc.env.ClaudePID),
 		releasePath: inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
-			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.TranscriptPath),
+			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath),
 	}
 	return w, 0, nil
 }

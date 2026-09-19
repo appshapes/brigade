@@ -44,17 +44,41 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   text is never logged.
 
 - **The plugin option `share_doing`** (default `true`, the tenth option) lets this session's model publish that
-  sentence; `false` makes `brigade doing` refuse from the next session start (the mode is frozen at session
-  start, and a `/clear` inherits it). The SessionStart hook resolves the session's **doing mode** once
-  — `unsupported`, `off`, `unasked`, `allowed` or `quiet`, one word frozen into the by-pid map, never a rule or a
-  sentence — from the adapter's capabilities, the option, and a new read of the `permissions` arrays in the
-  settings Brigade can already see (the user file, and `.claude/settings.json` and `.claude/settings.local.json`
-  under the project root and the session's directory): an ask or deny that would match `brigade doing`, or a
-  settings file that exists but cannot be read or parsed, records `unasked`; an allow that exactly names the verb
-  (`Bash`, `Bash(brigade:*)`, `Bash(brigade *)`, `Bash(brigade*)`, `Bash(brigade doing:*)`, `Bash(brigade doing *)`,
-  `Bash(brigade doing*)`) records `allowed`. Nothing read from a settings file is sent, stored or logged. At this
-  version the mode only gates the verb; the reminder that will ask the model to keep the line current, and the
-  watcher's carry across a re-open, follow in this release.
+  sentence; `false` makes `brigade doing` refuse from the next session start of any kind but `/compact` (the
+  option and the rules are re-resolved at every such session start, a `/clear` included; the next bullet says
+  how). The SessionStart hook resolves the session's **doing mode** — `unsupported`, `off`, `unasked`, `allowed`
+  or `quiet`, one word frozen into the by-pid map, never a rule or a sentence — from the adapter's capabilities,
+  the option, and a new read of the `permissions` arrays in the settings Brigade can already see (the user file,
+  and `.claude/settings.json` and `.claude/settings.local.json` under the project root and the session's
+  directory): an ask or deny that would match `brigade doing`, or a settings file that exists but cannot be read
+  or parsed, records `unasked`; an allow that exactly names the verb (`Bash`, `Bash(brigade:*)`,
+  `Bash(brigade *)`, `Bash(brigade*)`, `Bash(brigade doing:*)`, `Bash(brigade doing *)`, `Bash(brigade doing*)`)
+  records `allowed`. Nothing read from a settings file is sent, stored or logged. At this version the mode gates
+  the verb and the watcher's carry across a re-open (below); the reminder that will ask the model to keep the
+  line current follows in this release.
+
+- **A doing line lives inside one conversation: it survives a watcher restart, is blank after `/clear`, and
+  opting out retracts it at the next session start.** A watcher whose session is closed under it — a plugin
+  update replacing the watcher, a lost lease; both invisible to the model — now reads the session's own line back
+  from the backend (`session list --include-offline`, under the watcher's 3 s request budget) right before it
+  re-registers, cleans it exactly as `brigade doing` would (the same sanitiser, cap, credential and path rules;
+  the watcher's `HOME`, no working directory), and carries it on the resume registration beside the member label.
+  The carry is gated: only when the adapter announces `session.description` and the session's doing mode is
+  neither `off` nor `unsupported`. Any miss — the list refused or timing out, the session's record missing from
+  a truncated list, a value that no longer passes the refusals — re-opens the session with the member absent,
+  never `""`, logs one fixed line without the text, and removes the prompt hook's doing-nudge stamp
+  (`${stateDir}/state/<pid>.doing-nudge`) so the reminder that follows in this release tells the model its line
+  is blank; the one miss that keeps the stamp is a listed record holding nothing, where nothing was lost. The
+  watcher's `session re-opened` log line gains `described`. On the continue path — a SessionStart that finds its
+  own live watcher — the hook's heartbeat now carries `session_description: ""` when the native session id
+  changed (`/clear`, an in-process `/resume`; a same-id re-fire such as `/reload-plugins` keeps the line),
+  whatever `share_doing` says, and on a same-id re-fire too when the session had been publishing and the option
+  is now off; an adapter without the capability, or a map whose mode was never resolved, is sent no member. To
+  make that opt-out land, the continue path now re-resolves the option and the permission rules (the capability
+  verdict is inherited: no second describe), so `share_doing: false` takes effect at the next session start of
+  any kind but `/compact` rather than at the next session. The registration literal is unchanged and still never
+  carries the member: a new session, a `claude --resume` in a new process and a fork start with a blank line on
+  the bundled adapters. `docs/security.md` §2 now states the whole lifetime.
 
 ### Changed
 
@@ -86,8 +110,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `session.description` but drops the member on a heartbeat, or omits it from `session list`, now fails C-13 or
   C-19 where the suite previously did not look. `docs/adapter-authors.md` tells an adapter author what a harness
   publishing a doing line leans on — a description-only heartbeat beside its live `message watch`, a `session list
-  --include-offline` read-back, a resume carrying it, and `""` as the clear. The verb is `brigade doing` (under
-  Added); the watcher's re-open carry follows in this release.
+  --include-offline` read-back, a resume carrying it, and `""` as the clear. The verb is `brigade doing` and the
+  watcher's re-open carry is the bullet after it (both under Added).
 
 ## [0.6.7] — 2026-09-18
 

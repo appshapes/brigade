@@ -132,6 +132,34 @@ func (c *Client) ListSessions(ctx context.Context, includeOffline bool) (*ListRe
 	return &out, nil
 }
 
+// OwnDescription reads back the session_description the backend holds
+// for sessionID (card 25, plan 5.3): one `session list --include-offline`
+// — offline included, because the watcher asks right after its session
+// was closed under it — and the raw value of the record whose session_id
+// matches, or "" when that record carries none or an empty one. listed
+// says whether the record was in the list at all: a truncated list (a
+// team past the adapter's cap, plan 8) can lack an old closed record, and
+// the caller must tell "nothing held" from "nothing seen", because a
+// resume that omits the member writes that absence over whatever the
+// backend holds. Only the list call's own failure is an error. The value
+// is returned as the backend gave it; the caller cleans it (doing.Clean)
+// before it travels anywhere.
+func (c *Client) OwnDescription(ctx context.Context, sessionID string) (text string, listed bool, err error) {
+	list, err := c.ListSessions(ctx, true)
+	if err != nil {
+		return "", false, err
+	}
+	for i := range list.Sessions {
+		if s := &list.Sessions[i]; s.SessionID == sessionID {
+			if s.SessionDescription != nil {
+				return *s.SessionDescription, true, nil
+			}
+			return "", true, nil
+		}
+	}
+	return "", false, nil
+}
+
 // Send runs `message send` (the sender is a member of the request).
 func (c *Client) Send(ctx context.Context, req *protocol.SendRequest) (*protocol.SendResponse, error) {
 	env, err := c.Call(ctx, "message", "send", nil, req)
