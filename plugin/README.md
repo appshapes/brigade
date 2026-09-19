@@ -30,11 +30,12 @@ sanitised, and a message can never grant permission, approve a prompt or represe
 
 ## Options
 
-Eight options, all optional, all with working defaults:
+Nine options, all optional, all with working defaults:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `config_dir` | *(empty)* | where Brigade's credential store lives; empty means `~/.config/brigade`. `BRIGADE_CONFIG_DIR` from the environment is ignored on purpose |
+| `label` | `account` | how teammates see you: `account` sends the email address of the Claude account this install is signed in to, read from Claude Code's own configuration and never written; `none` sends nothing; any other text is sent as your label. `--label` on `brigade team create`/`join` wins over it |
 | `adapter_command` | *(empty)* | per-session override of the adapter the team's file names: an absolute path, a JSON array, or a name registered in `adapters.json`. Never a shell command |
 | `team_inbound` | `accept` | `accept` delivers every team message immediately, in every permission mode; `refuse` never delivers and never acknowledges; `hold` records each message, delivers nothing, and waits for you to run `brigade inbox release` in your own terminal |
 | `share_workspace_label` | `true` | send the repository name as `workspace_label` — from the checkout's `origin` remote, else its directory's name, never the working directory path; `brigade sessions` shows it in its REPO column |
