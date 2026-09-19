@@ -1,0 +1,24 @@
+#!/usr/bin/expect -f
+# E10 driver (card 25, plan row P16-0): types ONE prompt into a real interactive Claude Code session under a
+# pseudo-terminal and leaves the session alone long enough for the wake-up turns to arrive, then exits it.
+# Arguments: <tty log path> <seconds to wait after the prompt> then the claude command line.
+# The prompt asks the model to start a background task whose completion produces a task-notification turn,
+# and to answer that turn with one word. Everything the hook records is what this experiment measures.
+set ttylog [lindex $argv 0]
+set waitsecs [lindex $argv 1]
+set cmd [lrange $argv 2 end]
+log_file -noappend $ttylog
+set timeout 60
+spawn -noecho {*}$cmd
+# Let the TUI draw. A bare Enter on an empty prompt is harmless and dismisses a release-notes or trust screen.
+sleep 20
+send "\r"
+sleep 8
+send "Start the shell command sleep 25 as a background Bash task (use run_in_background), then end your turn at once without waiting for it. When the task notification arrives, answer with exactly one word: DONE.\r"
+sleep $waitsecs
+send "/exit\r"
+set timeout 30
+expect {
+    eof {}
+    timeout { send "\r"; expect { eof {} timeout {} } }
+}
