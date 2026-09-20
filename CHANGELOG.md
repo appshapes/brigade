@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-09-20
+
 ### Changed
 
 - **`brigade sessions` fits a standard terminal.** On a six-session roster the box-drawing table reached ~253
