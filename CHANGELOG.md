@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-09-20
+
 ### Fixed
 
 - **The `sessions` and `join` skills no longer tell a model its own arguments are empty.** 0.9.0 made both
