@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-09-20
+
 ### Changed
 
 - **A value Brigade had to cut ends in `...`, not `[truncated]`.** The marker is spent out of the value's own
