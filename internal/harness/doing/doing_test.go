@@ -80,7 +80,7 @@ func TestCleanTable(t *testing.T) {
 
 // TestCleanNeverTruncates is the reason the pipeline uses protocol.Sanitize
 // and not SanitizeDescription: an over-long input is REFUSED, and no
-// [truncated] marker is ever produced — an indented, multi-line input of
+// truncation marker is ever produced — an indented, multi-line input of
 // 305 code points included, whose folded form (280 x's and 4 spaces) is
 // still far over the cap.
 func TestCleanNeverTruncates(t *testing.T) {

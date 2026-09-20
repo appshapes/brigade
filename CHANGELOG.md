@@ -9,6 +9,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **A value Brigade had to cut ends in `...`, not `[truncated]`.** The marker is spent out of the value's own
+  budget — every character of it is a character of the name, label or sentence a reader does not get — and in
+  the 50-code-point `NAME` column of 0.8.0 the eleven characters of `[truncated]` were a fifth of the cell.
+  Eight of them come back as text. The change is in the sanitiser, so it is the same marker everywhere a marker
+  is written at all: both output forms of every command, the roster's `NAME` column and doing line, a message
+  body, the held-message notice. `SanitizeAttribute` is unaffected and still appends nothing — a frame's
+  `from-name`, `from-label` and `team` are cut silently at 64 code points, as they always were, and its doc
+  comment now says why rather than citing the old marker's length. Nothing downstream parses it — it has always been
+  text for a human or a model to read, never a flag — and the protocol fixes no marker string, so nothing on the
+  wire or in the conformance suite depends on the spelling. One cost: `...` is ordinary prose, so a value that
+  genuinely ends in an ellipsis now reads as cut when it is not, and `--json` cannot tell you otherwise, because
+  a sanitised value is all either form has.
+
 ## [0.8.0] — 2026-09-20
 
 ### Changed

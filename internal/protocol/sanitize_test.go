@@ -396,7 +396,7 @@ func TestTruncateRunesIsTheOneCut(t *testing.T) {
 	if n := utf8.RuneCountInString(got); n != 16 {
 		t.Errorf("TruncateRunes runes = %d, want 16", n)
 	}
-	if want := strings.Repeat("é", 5) + TruncationMarker; got != want {
+	if want := strings.Repeat("é", 16-utf8.RuneCountInString(TruncationMarker)) + TruncationMarker; got != want {
 		t.Errorf("TruncateRunes = %q, want %q", got, want)
 	}
 	if !utf8.ValidString(got) {

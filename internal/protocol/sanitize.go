@@ -60,7 +60,22 @@ import (
 // its protocol cap. The truncated value INCLUDING the marker stays
 // within the cap, so a sanitised value always passes the corresponding
 // wire validation.
-const TruncationMarker = "[truncated]"
+//
+// It is an ellipsis, not a word: the marker is spent out of the value's
+// own budget — every one of these characters is a character of the name,
+// label or sentence a reader does not get — and at a 50-code-point NAME
+// column the eleven of "[truncated]" were a fifth of the cell. The
+// protocol fixes no marker string (nothing in docs/protocol-v1.md, the
+// schema or the conformance suite names one), so this is Brigade's
+// choice alone, in both output forms and everywhere a sanitised value
+// goes.
+//
+// The cost is that "..." is ordinary prose: a name or doing line that
+// genuinely ends in an ellipsis now reads as cut when it is not. Nothing
+// downstream parses the marker — it is text for a human or a model to
+// read, never a flag — so the ambiguity is cosmetic, and `--json` cannot
+// resolve it either, because a sanitised value is all either form has.
+const TruncationMarker = "..."
 
 // attributeMaxCodepoints is rule 4's cap on a tag attribute value,
 // mirroring the harness's own from-name normalisation (6.7).
@@ -132,8 +147,15 @@ func SanitizeModel(s string) string {
 // SanitizeAttribute sanitises a value destined for a tag attribute in
 // the injected frame (rule 4): rules 1-2, then '"', '<', '>' and
 // newlines are dropped so the value can neither escape its quotes nor
-// close the tag line, then a 64-code-point cap with no marker (a marker
-// would spend 11 of the 64).
+// close the tag line, then a 64-code-point cap with NO marker.
+//
+// It is the one sanitiser that cuts silently, and deliberately: an
+// attribute is a short display value a reader has no original to compare
+// against, so a marker would say nothing it could act on while spending
+// characters of the name itself. A cut `from-name`, `from-label` or
+// `team` is therefore simply short, with nothing to say so — which is
+// why nothing should read the absence of a marker as proof a value is
+// whole. TestSanitizeAttributeCapsAt64CodePoints pins it.
 func SanitizeAttribute(s string) string {
 	s = Sanitize(s)
 	s = strings.Map(func(r rune) rune {

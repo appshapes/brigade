@@ -65,8 +65,12 @@ like `NAME`, possibly stale, shown to every session whatever its inbound policy 
 **`SESSION` shows only the trailing five characters of the id** — enough to tell two sessions apart at a glance
 without a table too wide for a terminal — so `brigade send` needs `--json` for the id in full; do not try to
 address a session from the plain table's SESSION cell. A `?` there is an id that sanitised away to nothing:
-every row carries something in that cell, so a line that begins with whitespace is never a row. **`NAME` is cut to 50 characters** with a `[truncated]`
-marker, for the same reason; `--json` carries it whole. `MEMBER` is the session owner's **human label alone** —
+every row carries something in that cell, so a line that begins with whitespace is never a row. **`NAME` is cut to 50 characters** with a trailing
+`...`, for the same reason; `--json` carries it whole. A `...` is how a Brigade **command** says it cut a value
+— a name, a label, a model, a doing line — but it is also ordinary prose, so a value that simply ends that way
+is not evidence of anything. And the absence of one proves less still: a message frame's `from-name`,
+`from-label` and `team` attributes are capped at 64 characters **with no marker at all**, so a short one may or
+may not have been cut. When the exact text matters, read `--json`. `MEMBER` is the session owner's **human label alone** —
 unverified, chosen by them, and not an identity — or, for a session with no label, the first characters of its
 `principal_ref` in brackets (`[9f3c1a20]`, or `[?]` when the reference sanitises away to nothing), which is the
 same on every row of that person. **A member can choose a label that looks exactly like that bracketed form**,
