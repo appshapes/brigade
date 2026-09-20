@@ -48,8 +48,9 @@
   re-pin this sentence and `scripts/ci/README.md`'s copy whenever the inventory step prints a different version.
 - Every Brigade skill is reachable by the model: never add `disable-model-invocation` to a skill under
   `plugin/skills/` (card 28, owner ruling 2026-09-20 — Brigade's security model is open and team-based, and a
-  skill the model cannot reach cannot help unasked). This is a convention, not a CI check: CI does not police
-  what a skill declares (ruling 2026-09-08, which stands without carve-outs).
+  skill the model cannot reach cannot help unasked). `make plugin-check` check 10 enforces it, and that check is
+  wanted: it is the ONE deliberate carve-out from the 2026-09-08 ruling that CI does not police what a skill
+  declares — never remove it on the strength of that ruling.
 - Local dev: `make plugin-dev` writes the dev-binary pointer and starts Claude Code with the local plugin; `make
   plugin-dev-off` removes it. Two personas on one machine: pass
   `--settings '{"pluginConfigs":{"brigade@inline":{"options":{"config_dir":"<dir>"}}}}'` (P7-7: the profile
