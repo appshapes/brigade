@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-09-20
+
 ### Added
 
 - **`brigade sessions` shows the Brigade version each session is running, in a `VERSION` column.** Nothing on the
