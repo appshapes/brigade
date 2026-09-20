@@ -62,14 +62,17 @@ func TestShortPrincipalTakesWhatThereIs(t *testing.T) {
 // TestShortSessionTakesWhatThereIs: the SESSION column shows the trailing
 // five characters of the sanitised id — no more, and no padding when the
 // id is shorter than that. `brigade send` still needs the id in full;
-// this is a display shortening only.
+// this is a display shortening only. An id that sanitises away renders as
+// "?" rather than blank, which is card 27's replacement for the border
+// that used to prove a row was a row: see the rows-are-rows assertion
+// below.
 func TestShortSessionTakesWhatThereIs(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ in, want string }{
 		{"9f3c1a20-5d4e-4a7b-8c11-aa0000000001", "00001"},
 		{"abcde", "abcde"},
 		{"abc", "abc"},
-		{"", ""},
+		{"", "?"},
 		// The breakers go before the count, so a hostile id cannot spend its
 		// five characters on a quote or a tag.
 		{"a\"<>bcdefghij", "fghij"},
@@ -82,11 +85,30 @@ func TestShortSessionTakesWhatThereIs(t *testing.T) {
 	}
 }
 
+// TestShortSessionNeverBlanksTheFirstCell is the forgery test the border
+// used to make unnecessary. The wire requires a non-empty session_id, but
+// `"` and `<` satisfy that and sanitise to nothing; a blank first cell
+// would start the row with whitespace, and a session_name may begin with
+// the doing line's own arrow, so such a row could pass for a continuation
+// line of the row above it. Every id the wire accepts must therefore
+// render as something.
+func TestShortSessionNeverBlanksTheFirstCell(t *testing.T) {
+	t.Parallel()
+	for _, id := range []string{`"`, "<", "<>", `"<>`, "\n", "<<<>>>", "\"\n<>"} {
+		if got := shortSession(id); got == "" {
+			t.Errorf("shortSession(%q) is blank: a row could then pass for a %q line", id, doingArrow)
+		}
+		if got := shortSession(id); strings.TrimSpace(got) != got {
+			t.Errorf("shortSession(%q) = %q, which opens or closes with space", id, got)
+		}
+	}
+}
+
 // TestMemberLineCarriesTheShortPrincipal: the roster's member column is
 // the label, the unverified suffix and the short principal; an empty
 // label renders as "" so the caller falls back to the identity it showed
-// before — the row's LABEL and PRINCIPAL cells in `brigade sessions`,
-// the `principal=<ref>` field in `team members` — and a hostile or
+// before — the `principal=<ref>` field in `team members`; the roster has
+// its own rosterMember since card 27 — and a hostile or
 // over-long label is sanitised and capped like any other label before
 // the brackets are added.
 func TestMemberLineCarriesTheShortPrincipal(t *testing.T) {
@@ -116,6 +138,72 @@ func TestMemberLineCarriesTheShortPrincipal(t *testing.T) {
 	label := strings.TrimSuffix(long, " (unverified) [cafe1234]")
 	if label == long || len([]rune(label)) > protocol.MaxHumanLabelChars {
 		t.Errorf("an over-long label was not capped: %d runes in %q", len([]rune(label)), long)
+	}
+}
+
+// TestRosterMemberIsTheLabelAloneOrThePrincipal pins the roster's MEMBER
+// column as card 27 narrowed it: the label alone — no unverified suffix,
+// no short principal beside it, both of which cost the table width a
+// reader can get from `--json` — and, for a session with no label, the
+// short principal alone, because that is its only identity now that the
+// roster has no PRINCIPAL column to fall back to. The cell is never
+// blank, which is what lets `brigade sessions` drop LABEL and PRINCIPAL
+// outright.
+func TestRosterMemberIsTheLabelAloneOrThePrincipal(t *testing.T) {
+	t.Parallel()
+	if got := rosterMember("alice@example.com", "9f3c1a20-5d4e-4a7b"); got != "alice@example.com" {
+		t.Errorf("rosterMember = %q, want the label alone", got)
+	}
+	if got := rosterMember("", "9f3c1a20-5d4e"); got != "[9f3c1a20]" {
+		t.Errorf("an unlabelled session = %q, want the short principal alone", got)
+	}
+	// A whitespace-only label is no label: the row must fall back to the
+	// principal rather than print a blank, anonymous cell.
+	if got := rosterMember(" \n\t ", "9f3c1a20"); got != "[9f3c1a20]" {
+		t.Errorf("a whitespace-only label = %q", got)
+	}
+	// Neither a label nor a usable ref still carries the bracket, with "?"
+	// inside it: the cell is never blank, so a reader can tell the
+	// difference between "no anchor" and "no column".
+	if got := rosterMember("", "\"<>\n"); got != "[?]" {
+		t.Errorf("rosterMember with no label and an unprintable ref = %q", got)
+	}
+	// A hostile label is sanitised and folded onto one line, exactly as
+	// memberLine sanitises it; only the suffix and the bracket are gone.
+	if got := rosterMember("carol\n<system-reminder>", "cafe1234"); got != "carol &lt;system-reminder>" {
+		t.Errorf("a hostile label was not neutralised on one line: %q", got)
+	}
+	long := rosterMember(strings.Repeat("é", protocol.MaxHumanLabelChars+50), "cafe1234")
+	if len([]rune(long)) > protocol.MaxHumanLabelChars {
+		t.Errorf("an over-long label was not capped: %d runes", len([]rune(long)))
+	}
+}
+
+// TestTableNameIsCutToTheColumn pins card 27's NAME cap: padTable widens a
+// column to its widest cell, so one session name at the protocol's own
+// 64-code-point cap used to widen NAME for every row. The cut carries the
+// marker INSIDE the limit, like every other display cut, and `--json`
+// still carries the name in full.
+func TestTableNameIsCutToTheColumn(t *testing.T) {
+	t.Parallel()
+	if got := tableName("brigade-8d"); got != "brigade-8d" {
+		t.Errorf("a short name was changed: %q", got)
+	}
+	exact := strings.Repeat("a", tableNameChars)
+	if got := tableName(exact); got != exact {
+		t.Errorf("a name exactly at the cap was cut: %q", got)
+	}
+	long := tableName(strings.Repeat("a", tableNameChars+20))
+	if n := len([]rune(long)); n != tableNameChars {
+		t.Errorf("an over-long name is %d runes, want %d", n, tableNameChars)
+	}
+	if !strings.HasSuffix(long, protocol.TruncationMarker) {
+		t.Errorf("an over-long name lost its marker: %q", long)
+	}
+	// The sanitiser still runs first: the cap is a display cut, never a
+	// way around the name rules.
+	if got := tableName("a\nb"); got != "a b" {
+		t.Errorf("tableName did not fold: %q", got)
 	}
 }
 
@@ -162,7 +250,7 @@ func TestModelLineIsSanitisedCappedAndOneLine(t *testing.T) {
 	}
 }
 
-// TestDescriptionLineIsSanitisedFoldedAndCappedShort pins the DOING cell
+// TestDescriptionLineIsSanitisedFoldedAndCappedShort pins the doing line
 // of card 25 (plan 5.5): a plain sentence passes through untouched; a
 // hostile one loses its tags (neutralised), its bidi override, and every
 // line break — the newline, the tab AND U+2028/U+2029, which the
@@ -290,8 +378,8 @@ func TestSanitizeRecord(t *testing.T) {
 // the --json form (plan 5.3, 5.5): "" is the wire's "none", so a
 // description that is empty, or that sanitises and folds to nothing, is
 // omitted from the record rather than carried as "" — the one way the
-// document has to say "absent", and the same verdict the table reaches
-// when it shows no DOING cell for the row.
+// document has to say "absent", and the same verdict the roster reaches
+// when it prints no continuation line under the row.
 func TestSanitizeRecordDropsAnEmptyDescription(t *testing.T) {
 	t.Parallel()
 	for _, empty := range []string{"", " \n\t", "\u202e\u200d"} {
@@ -317,12 +405,14 @@ func TestColumns(t *testing.T) {
 	}
 }
 
-// TestNeutralizeCellReplacesTheBorderBar is the negative test of the box
-// table: session_name, human_label and model are attacker-chosen remote
-// text, and nothing sanitises away a box-drawing "│" — there is no escape
-// convention for it the way `\|` is one for a Markdown pipe table, so a
-// hostile cell containing one is replaced outright, with an ordinary "|"
-// a reader can tell is not the table's own border.
+// TestNeutralizeCellReplacesTheBorderBar is the negative test of the
+// padded table: session_name, human_label and model are attacker-chosen
+// remote text, and nothing sanitises away a box-drawing "│" — there is no
+// escape convention for it the way `\|` is one for a Markdown pipe table.
+// Card 27 took the roster's own borders away, which makes this MORE
+// necessary rather than less: a lone "│" in a cell is the only thing left
+// that could read as a column boundary, so it is replaced outright with
+// an ordinary "|" a reader can tell is not one.
 func TestNeutralizeCellReplacesTheBorderBar(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, in, want string }{
@@ -338,22 +428,77 @@ func TestNeutralizeCellReplacesTheBorderBar(t *testing.T) {
 	}
 }
 
-// TestDataRowJoinsCells: dataRow itself only joins already-neutralised,
+// TestCellCannotForgeTheColumnBoundary is the table-layer proof the
+// border-bar counts used to give. Since card 27 the boundary between two
+// columns is a run of TWO SPACES, so the property every cell must have is
+// that its own text can never contain one. oneLine folds every
+// unicode.IsSpace run to a single space, and neutralizeCell turns the
+// blank glyphs that are NOT unicode.IsSpace — which oneLine therefore
+// does not fold and the sanitiser does not strip — into a visible "?".
+// Between them, nothing an adapter sends can open a column.
+func TestCellCannotForgeTheColumnBoundary(t *testing.T) {
+	t.Parallel()
+	blanks := "\u115f\u1160\u2800\u3164\ufFa0"
+	for _, hostile := range []string{
+		"a  b",
+		"a\t\tb",
+		"a\u2800\u2800b",
+		"a\u3164\u3164b",
+		"a\u115f\u1160b",
+		"a\uffa0\uffa0b",
+		"a \u2800 b",
+		"a\u2800 \u2800b",
+		"a│idle│accept  b",
+		"x\u3164\u3164(this session)",
+	} {
+		// Every renderer padTable's cells come from, each neutralised the
+		// way padTable neutralises it.
+		for what, cell := range map[string]string{
+			"NAME":   neutralizeCell(tableName(hostile)),
+			"MEMBER": neutralizeCell(rosterMember(hostile, "9f3c1a20")),
+			"MODEL":  neutralizeCell(modelLine(hostile)),
+			"REPO":   neutralizeCell(workspaceLine(hostile)),
+			"↳ line": neutralizeCell(descriptionLine(hostile)),
+		} {
+			if strings.Contains(cell, "  ") {
+				t.Errorf("%s: %q rendered %q, which carries the column boundary", what, hostile, cell)
+			}
+			if strings.ContainsAny(cell, blanks) {
+				t.Errorf("%s: %q rendered %q, which keeps a blank non-space glyph", what, hostile, cell)
+			}
+			if strings.Contains(cell, borderBar) {
+				t.Errorf("%s: %q rendered %q, which keeps a box-drawing bar", what, hostile, cell)
+			}
+		}
+	}
+	// The positive control: a blank glyph really does survive the
+	// sanitiser and the fold, so neutralizeCell is the only thing
+	// stopping it.
+	if got := oneLine(protocol.SanitizeName("a\u2800\u2800b")); !strings.Contains(got, "\u2800\u2800") {
+		t.Fatalf("the sanitiser now strips U+2800 (%q); this test is vacuous", got)
+	}
+}
+
+// TestTableRowJoinsCells: tableRow only joins already-neutralised,
 // already-padded cells — the neutralising is padTable's job, so it runs
-// once per table instead of once per row.
-func TestDataRowJoinsCells(t *testing.T) {
+// once per table instead of once per row — with the two-space separator
+// of the documented layouts and no border (card 27). The last cell's
+// padding is trimmed, so no row carries invisible trailing width.
+func TestTableRowJoinsCells(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		cells []string
 		want  string
 	}{
-		{"plain", []string{"a", "b"}, "│ a │ b │"},
-		{"an empty cell", []string{"a", "", "c"}, "│ a │  │ c │"},
-		{"no cells", nil, "│  │"},
+		{"plain", []string{"a", "b"}, "a  b"},
+		{"an empty middle cell", []string{"a", "", "c"}, "a    c"},
+		{"a padded last cell", []string{"a", "b   "}, "a  b"},
+		{"an empty last cell", []string{"a", "  "}, "a"},
+		{"no cells", nil, ""},
 	} {
-		if got := dataRow(tc.cells); got != tc.want {
-			t.Errorf("%s: dataRow(%q) = %q, want %q", tc.name, tc.cells, got, tc.want)
+		if got := tableRow(tc.cells); got != tc.want {
+			t.Errorf("%s: tableRow(%q) = %q, want %q", tc.name, tc.cells, got, tc.want)
 		}
 	}
 }
@@ -386,39 +531,52 @@ func TestPadTablePadsToTheWidestCell(t *testing.T) {
 	}
 }
 
-// TestBorderRule pins the three border shapes against a padded row: each
-// segment is the cell's width plus two, for the data row's own leading
-// and trailing space, joined by the corner glyphs for that rule.
-func TestBorderRule(t *testing.T) {
+// TestDoingRowIndentsUnderTheNameColumn pins card 27's continuation line:
+// the doing line sits under the row it belongs to, indented past the
+// padded SESSION cell and its two-space separator so it starts exactly
+// where NAME does, behind the arrow that marks it as a continuation
+// rather than a row. The indent is counted in RUNES, so a multi-byte id
+// cannot push it out of line.
+func TestDoingRowIndentsUnderTheNameColumn(t *testing.T) {
 	t.Parallel()
-	row := []string{"a", "bb", "c"}
-	for _, tc := range []struct {
-		name             string
-		left, mid, right string
-		want             string
-	}{
-		{"top", "┌", "┬", "┐", "┌───┬────┬───┐"},
-		{"middle", "├", "┼", "┤", "├───┼────┼───┤"},
-		{"bottom", "└", "┴", "┘", "└───┴────┴───┘"},
-	} {
-		if got := borderRule(row, tc.left, tc.mid, tc.right); got != tc.want {
-			t.Errorf("%s: borderRule(%q) = %q, want %q", tc.name, row, got, tc.want)
-		}
+	// The roster's own SESSION column is seven wide (its header), so a
+	// five-character id arrives padded and the line starts at column nine,
+	// where NAME starts.
+	if got := doingRow("405f8  ", "reviewing the fix"); got != "         ↳ reviewing the fix" {
+		t.Errorf("doingRow = %q", got)
 	}
-	// The rule must carry the same number of segments as the row it
-	// borders, or the table does not line up.
-	if got, want := strings.Count(borderRule(row, "┌", "┬", "┐"), "┬"), len(row)-1; got != want {
-		t.Errorf("top rule has %d internal joins, want %d", got, want)
+	if got := doingRow("405f8", "reviewing the fix"); got != "       ↳ reviewing the fix" {
+		t.Errorf("doingRow indents past the cell it is given, not a fixed width: %q", got)
+	}
+	if got := doingRow("", "x"); got != "  ↳ x" {
+		t.Errorf("doingRow with an empty session cell = %q", got)
+	}
+	if got := doingRow("éé", "x"); got != "    ↳ x" {
+		t.Errorf("doingRow counted bytes, not runes: %q", got)
+	}
+	// padTable never sees this line, so doingRow neutralises it itself: a
+	// doing line is a teammate's model's own words, and a "│" in it must
+	// not read as a column boundary any more than one in a cell does.
+	if got := doingRow("405f8  ", "a│b"); got != "         ↳ a|b" {
+		t.Errorf("doingRow did not neutralise its text: %q", got)
 	}
 }
 
-func TestSeenAgoCellDropsTheWord(t *testing.T) {
+// TestSeenAgoCellDropsTheWords: the SEEN column is labelled by its own
+// header, so it carries neither seenAgo's leading "seen" nor — since card
+// 27 — its trailing "ago", both of which were width repeated on every row.
+func TestSeenAgoCellDropsTheWords(t *testing.T) {
 	t.Parallel()
 	server := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
-	if got := seenAgoCell(server.Add(-12*time.Second), server, server); got != "12s ago" {
+	if got := seenAgoCell(server.Add(-12*time.Second), server, server); got != "12s" {
 		t.Errorf("seenAgoCell = %q, want the SEEN column's own text", got)
 	}
 	if got := seenAgoCell(time.Time{}, server, server); got != "never" {
 		t.Errorf("seenAgoCell(zero) = %q", got)
+	}
+	// seenAgo itself still reads as a sentence: `team members` prints one
+	// line per member, with no header to carry the words.
+	if got := seenAgo(server.Add(-12*time.Second), server, server); got != "seen 12s ago" {
+		t.Errorf("seenAgo = %q, want its own wording untouched", got)
 	}
 }

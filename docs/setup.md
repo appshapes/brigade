@@ -251,8 +251,9 @@ it. Either way the secret never reaches your scrollback, your shell history or a
 Claude account this install is signed in to** — Brigade reads it from Claude Code's own configuration
 (`.claude.json`, under `CLAUDE_CONFIG_DIR` when you set that, else in your home directory), never writes it, and
 sends it once, with the `team join` that makes you a member. So from this version on, the `/brigade:join` above
-labels you with your account email, and joining a team shares that address with everyone on it. The roster shows
-it beside the first characters of your principal reference: `alice@example.com (unverified) [9f3c1a20]`.
+labels you with your account email, and joining a team shares that address with everyone on it. The roster's
+`MEMBER` column shows it on its own — `alice@example.com` — and `brigade team members` shows it with your
+principal reference beside it: `alice@example.com (unverified) [9f3c1a20]`.
 
 Set the plugin option **`label`** if you want something else:
 
@@ -262,9 +263,11 @@ Set the plugin option **`label`** if you want something else:
 | `none` | no label at all — your sessions are listed by their principal reference alone |
 | any other text | that text |
 
-A label proves nothing either way: anyone can pick any of them, so every place one is shown says `(unverified)`,
-and the principal reference beside it is the identity. `--label` on `brigade team join` or `brigade team create`
-overrides the option for that one command.
+A label proves nothing either way: anyone can pick any of them, and the principal reference is the identity.
+`brigade team members`, and the line `team create` prints below, mark a label `(unverified)` and carry that
+reference beside it; the roster's `MEMBER` column is the label alone, for width, and `brigade sessions --json`
+carries every reference in full. `--label` on `brigade team join` or `brigade team create` overrides the option
+for that one command.
 
 **Nothing prompts you for a label on the paths above.** A `team join` confirms the team, the ref and the host, and
 then sends whatever the option resolves to. The `team create` above passes `--name`, and an in-session one must, so
@@ -293,7 +296,8 @@ Brigade: this session is "payments-api" (09365acd…) in team "ops"; inbound: ac
 ```
 
 `/brigade:sessions` prints that roster whenever you want it, and `/brigade:sessions --all` includes the sessions
-that are offline. The command's own output is a box-drawing table, one row per session; the slash command prints
+that are offline. The command's own output is a plain-text table, one row per session, with a note under it
+saying that the names, labels and work sentences in it are their owners' own words; the slash command prints
 that and nothing else — no layout of its own, no summary, no comparison with the last time you asked — so two
 runs of it, in one session or in different ones, differ only
 where the team differs. Asking for the roster in words runs the same command, and `brigade:team-messaging` tells
@@ -301,9 +305,9 @@ the session to print what it printed there too — but that is one rule inside a
 reasons and may not have in play at all. The slash command is the one bound to the passthrough, which is what
 makes it identical every time.
 
-**What teammates see about your session's work.** That roster has one more column, `DOING (unverified)`, last,
-present whenever at least one listed session has published a line: one sentence about what the session is
-working on, such as `migrating the ledger to tenant ids`. Your session's **own model** writes it, with
+**What teammates see about your session's work.** Under the row of any session that has published a line, that
+roster prints one more line, indented and starting `↳ `: one sentence about what the session is working on, such
+as `↳ migrating the ledger to tenant ids`. Your session's **own model** writes it, with
 `brigade doing` — one sentence of at most 160 characters on stdin, refused when it is empty, not UTF-8, longer
 than that, shaped like a credential or naming a path on your machine — and `brigade doing --clear` removes it.
 Brigade reads nothing about your work for it: not your prompts, not your transcript. What keeps the model at it is
@@ -314,7 +318,7 @@ hook`, never the text, while the session's transcript file records it as a `hook
 carrying the whole line (measured, `docs/experiments/E10-doing-triggers.md` Part 2). So from the
 version that adds it, what you see after updating — in a session whose permission settings let Brigade ask,
 below — is a `brigade doing` call in your transcript, like any other command the model runs, and the sentence it
-published in the roster's `DOING` column; nothing else changes. The line lives inside one conversation: blank
+published on the roster's `↳ ` line under your row; nothing else changes. The line lives inside one conversation: blank
 after a new session, `claude --resume` and `/clear`, kept across `/compact` and a plugin update (where the
 restarted watcher can read it back; otherwise blank, and the next reminder says so), and kept on the closed
 record for the backend's retention (7 days on the bundled adapters) once the session ends, where `--all` shows

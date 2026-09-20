@@ -38,8 +38,9 @@ type doingResult struct {
 // word.
 const (
 	// DoingNote is the note of a --json result that published, and the
-	// sentence a human line does not need: the roster column is unverified
-	// text, and the model is the one who keeps it current. DoingClearedNote
+	// sentence a human line does not need: the roster shows the line as
+	// unverified text, and the model is the one who keeps it current.
+	// DoingClearedNote
 	// is the note of a --json result that cleared.
 	DoingNote        = "published to the team roster as unverified text; replace it with brigade doing when the work changes, remove it with brigade doing --clear"
 	DoingClearedNote = "cleared from the team roster; publish a new line with brigade doing when there is work to name"

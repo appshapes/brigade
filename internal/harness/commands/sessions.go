@@ -40,18 +40,26 @@ type sessionsResult struct {
 	Note          string                   `json:"note"`
 }
 
-// Sessions implements `brigade sessions [--all] [--json]` (6.4): a
-// box-drawing table, one row per session, active first, the session's own
+// Sessions implements `brigade sessions [--all] [--json]` (6.4): a padded
+// plain-text table, one row per session, active first, the session's own
 // id marked in its SEEN cell, offline sessions hidden unless --all with a
 // count of what was hidden, and `truncated` noted when the adapter capped
-// the list. The SESSION column is a short display id (shortSession);
-// `--json` always carries the full id `brigade send` needs.
+// the list. The SESSION column is a short display id (shortSession) and
+// the NAME column is cut to tableNameChars; `--json` always carries the
+// full id `brigade send` needs and the full name.
+//
+// Card 27 narrowed it from ~253 columns to ~144, which is the whole reason
+// for the shapes below: no borders, no PRINCIPAL column (rosterMember
+// folds an unlabelled session's identity into MEMBER, which retires the
+// LABEL fallback with it), no INBOUND column, no unverified suffix in any
+// cell, a capped NAME, "2s" rather than "2s ago", and the doing line on a
+// continuation line of its own instead of a 160-character trailing cell.
 //
 // The roster is one surface, shown the same to every session whatever its
 // own inbound policy (card 25, ruling 10): a `hold` or `refuse` session
-// sees every column, the DOING column included — that column is roster
-// metadata like a name, pulled when the model runs this command, not a
-// delivered message — so nothing here consults the map's inbound policy.
+// sees every column and every doing line — those are roster metadata like
+// a name, pulled when the model runs this command, not a delivered
+// message — so nothing here consults the map's inbound policy.
 //
 // The adapter is always asked with --include-offline and the offline
 // records are hidden HERE: that is the one spawn from which the documented
@@ -105,28 +113,23 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 
 	now := inv.Deps.now()
 
-	// member is card 24's column: a labelled session's identity renders
-	// once, as its label with a short principal beside it; an unlabelled
-	// one has none, and keeps its identity in LABEL and PRINCIPAL instead
-	// so it is never silently blank everywhere. The three flags below are
-	// TABLE-wide (a row's absent fact is a blank cell, never a missing
-	// column), computed the same way the optional REPO/MODEL/CONTEXT
-	// columns already are.
+	// member is card 24's column as card 27 narrowed it: a labelled session
+	// renders as its label alone, an unlabelled one as the short principal
+	// that is its only identity. rosterMember never returns "", so MEMBER is
+	// unconditional and the LABEL and PRINCIPAL columns that used to carry
+	// an unlabelled session's identity are gone — the full ref is `--json`'s
+	// now, for a reader who has to tell two principals apart. The three
+	// flags below stay TABLE-wide (a row's absent fact is a blank cell,
+	// never a missing column).
 	members := make([]string, len(records))
-	// doings is card 25's column, rendered once here for the same reason
-	// as members: the column exists only when some record has a line, and
-	// "has a line" is decided on the rendered cell — a description that
-	// sanitises and folds to nothing counts as absent (plan 5.3), exactly
-	// as --json omits it.
+	// doings is card 25's line, rendered once here for the same reason as
+	// members: a description that sanitises and folds to nothing counts as
+	// absent (plan 5.3), exactly as --json omits it, and a session with no
+	// line gets no continuation line under its row.
 	doings := make([]string, len(records))
-	hasLabel, hasMember, hasRepo, hasModel, hasContext, hasDoing := false, false, false, false, false, false
+	hasRepo, hasModel, hasContext := false, false, false
 	for i, r := range records {
-		members[i] = memberLine(r.HumanLabel, r.PrincipalRef)
-		if members[i] == "" {
-			hasLabel = true
-		} else {
-			hasMember = true
-		}
+		members[i] = rosterMember(r.HumanLabel, r.PrincipalRef)
 		if r.WorkspaceLabel != nil && workspaceLine(*r.WorkspaceLabel) != "" {
 			hasRepo = true
 		}
@@ -138,31 +141,14 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		}
 		if r.SessionDescription != nil {
 			doings[i] = descriptionLine(*r.SessionDescription)
-			if doings[i] != "" {
-				hasDoing = true
-			}
 		}
 	}
-	// The full ref: always for an unlabelled session, and under --all for
-	// every session, because --all is the form a reader reaches for when
-	// the short principal beside a label is not enough to tell two people
-	// apart.
-	hasPrincipal := hasLabel || opts.All
 
 	header := []string{"SESSION", "NAME"}
-	if hasLabel {
-		header = append(header, "LABEL")
-	}
 	if hasRepo {
 		header = append(header, "REPO")
 	}
-	header = append(header, "STATE", "INBOUND")
-	if hasMember {
-		header = append(header, "MEMBER")
-	}
-	if hasPrincipal {
-		header = append(header, "PRINCIPAL")
-	}
+	header = append(header, "STATE", "MEMBER")
 	if hasModel {
 		header = append(header, "MODEL")
 	}
@@ -170,26 +156,11 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		header = append(header, "CONTEXT")
 	}
 	header = append(header, "SEEN")
-	// DOING is LAST — after SEEN — so the wide, ragged sentence never
-	// pushes the short fixed columns to the right (plan 5.5). The
-	// unverified marker is in the header, once, rather than per cell as
-	// MEMBER carries it: a 160-character cell is wide enough already.
-	if hasDoing {
-		header = append(header, "DOING (unverified)")
-	}
 
 	rows := make([][]string, 0, len(records)+1)
 	rows = append(rows, header)
 	for i, r := range records {
-		member := members[i]
-		cells := []string{shortSession(r.SessionID), nameLine(r.SessionName)}
-		if hasLabel {
-			label := ""
-			if member == "" {
-				label = labelLine(r.HumanLabel)
-			}
-			cells = append(cells, label)
-		}
+		cells := []string{shortSession(r.SessionID), tableName(r.SessionName)}
 		if hasRepo {
 			repo := ""
 			if r.WorkspaceLabel != nil {
@@ -197,17 +168,7 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 			}
 			cells = append(cells, repo)
 		}
-		cells = append(cells, enumLine(r.State), enumLine(r.Inbound))
-		if hasMember {
-			cells = append(cells, member)
-		}
-		if hasPrincipal {
-			principal := ""
-			if member == "" || opts.All {
-				principal = idLine(r.PrincipalRef)
-			}
-			cells = append(cells, principal)
-		}
+		cells = append(cells, enumLine(r.State), members[i])
 		// model is unverified text like session_name, capped and stripped
 		// of the attribute breakers by modelLine (4.5.11).
 		if hasModel {
@@ -233,33 +194,37 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 			seen += " (this session)"
 		}
 		cells = append(cells, seen)
-		// The doing line is a teammate's model's own words, sanitised and
-		// folded by descriptionLine and bordered like every other cell, so
-		// it can forge neither a column nor a " (this session)" mark: the
-		// mark above is the last thing in ITS cell, and this cell comes
-		// after the border. An offline session under --all keeps its text;
-		// the STATE column carries the tense (ruling 6).
-		if hasDoing {
-			cells = append(cells, doings[i])
-		}
 		rows = append(rows, cells)
 	}
 
 	// Every cell is neutralised and padded to its column's widest cell
-	// here, in one pass over the whole table: the table stays aligned as
-	// plain text, which is how `/brigade:sessions` shows it (inside a
-	// fenced code block) and how a terminal shows it either way.
+	// here, in one pass over the whole table: with the borders gone (card
+	// 27) that padding is the only thing holding a column together, and it
+	// aligns the same way in a terminal and inside the fenced code block
+	// `/brigade:sessions` shows.
 	padded := padTable(rows)
-	lines := make([]string, 0, len(records)+4)
-	lines = append(lines,
-		borderRule(padded[0], "┌", "┬", "┐"),
-		dataRow(padded[0]),
-		borderRule(padded[0], "├", "┼", "┤"),
-	)
-	for _, row := range padded[1:] {
-		lines = append(lines, dataRow(row))
+	lines := make([]string, 0, 2*len(records)+4)
+	lines = append(lines, tableRow(padded[0]))
+	for i, row := range padded[1:] {
+		lines = append(lines, tableRow(row))
+		// The doing line is a teammate's model's own words, on a line of
+		// its own under the row it belongs to. descriptionLine has folded
+		// it onto one line and cut it, and doingRow neutralises it, so it
+		// can forge neither a row nor the roster's own " (this session)"
+		// mark — that mark is the last thing in the SEEN cell of the row
+		// ABOVE this line. An offline session under --all keeps its text;
+		// the STATE column carries the tense (ruling 6).
+		if doings[i] != "" {
+			lines = append(lines, doingRow(row[0], doings[i]))
+		}
 	}
-	lines = append(lines, borderRule(padded[0], "└", "┴", "┘"))
+	// B-3's "once per output" form. A LINE layout marks every label where
+	// it stands (UnverifiedSuffix); a table would repeat that on every
+	// row, and card 27 took the width back precisely there — so the marker
+	// is here, once, under the table it describes, and it names the two
+	// other strings in the same position: the session name and the doing
+	// line, neither of which was ever marked in a cell either.
+	lines = append(lines, RosterUnverifiedNote)
 	if hidden > 0 {
 		lines = append(lines, "("+strconv.Itoa(hidden)+" offline sessions hidden; --all shows them)")
 	}

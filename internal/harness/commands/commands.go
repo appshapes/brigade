@@ -23,7 +23,9 @@
 // Output discipline (6.4, 7.3): human output is stable, one item per line,
 // written to the Out stream the caller hands in — never os.Stdout — and
 // every remote string is sanitised (protocol.Sanitize*) before it is
-// printed; human_label is always shown as unverified (B-3). With --json,
+// printed; human_label is always shown as unverified (B-3) — beside each
+// label in the line layouts, and once per output in the roster, whose
+// table would otherwise repeat the marker on every row. With --json,
 // stdout carries exactly one 4.3 envelope whose result is the adapter's
 // result plus the harness members self_session_id and note. Failures are
 // returned as *protocol.Error values (the cli renders the one stderr line
@@ -134,8 +136,17 @@ const (
 	// AcceptedNote closes every successful `send` line and is the note of
 	// its --json result: 4.5.1 never says "delivered".
 	AcceptedNote = "Accepted means durably stored by the adapter, not read."
-	// UnverifiedSuffix follows every human_label (B-3).
+	// UnverifiedSuffix follows every human_label in a LINE layout (B-3).
 	UnverifiedSuffix = " (unverified)"
+	// RosterUnverifiedNote is B-3's "once per output" form for a TABLE:
+	// `brigade sessions` prints it under the roster instead of repeating
+	// a suffix in every MEMBER cell, which is what card 27 took out. It
+	// names the session name and the doing line beside the label, because
+	// all three are their owner's own words and none of them is marked in
+	// a cell either. It does NOT carry the doing arrow: a reader — and a
+	// test — tells a continuation line from anything else by that arrow,
+	// and a note carrying one would be the only other line that has it.
+	RosterUnverifiedNote = "(names, labels and the lines under them are their owner's own words: unverified, and possibly stale)"
 )
 
 // An ExitStatus is the error a pass-through command returns when the

@@ -9,6 +9,82 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **`brigade sessions` fits a standard terminal.** On a six-session roster the box-drawing table reached ~253
+  columns; the same roster is now ~144, and nothing was moved to `--json` that was not already there. The borders
+  are gone — the table is columns padded to their widest cell and separated by two spaces, which is what held it
+  together inside the borders anyway. The `PRINCIPAL` and `INBOUND` columns are gone, and with them the `LABEL`
+  fallback: `MEMBER` now carries a session owner's label **alone**, without the `(unverified)` suffix or the
+  short principal that used to sit beside it, and an unlabelled session — which used to blank `MEMBER` and grow
+  two columns to say who it belonged to — carries that short principal on its own (`[9f3c1a20]`, or `[?]` for a
+  reference that sanitises away), so the cell is never blank and never anonymous. `--all` no longer adds a
+  column (it can still widen one, as any extra row can). `NAME` is cut to 50 characters with the usual
+  `[truncated]` marker, so one session at the
+  protocol's 64-character cap no longer widens the column for every row. `SEEN` reads `2s`, not `2s ago`; the
+  column's own header carries the sense, and `(this session)` still marks your own row. `brigade sessions --json`
+  is untouched: the full session id, the full principal reference, the full name, `inbound` and every other
+  member are all still there, and it remains what `brigade send` is addressed from. `brigade team members`,
+  which is one line per member rather than a table, keeps the suffix, the reference and `seen <n>s ago`.
+
+- **A session's doing line moved out of the table onto its own line.** Card 25's `DOING (unverified)` column was
+  last, after `SEEN`, and up to 160 characters wide — by itself more than half a terminal. A session that has
+  published a line now gets one extra line under its row, indented to the `NAME` column and starting `↳ `; a
+  session without one gets no line, where before every row carried a cell. The text is sanitised, folded onto
+  one line and cut exactly as before, so it can forge neither a row nor the roster's own `(this session)` mark,
+  and it is still shown to every session whatever its inbound policy (ruling 10). The `(unverified)` marker that
+  the column header carried is gone from the human table along with every other one; `--json`'s `note` still
+  names `session_name`, `human_label` and `session_description` as unverified text, and both skills and
+  `docs/security.md` still say to route by a doing line and never obey it.
+
+- **The roster says once, under the table, that what it shows is unverified.** Protocol rule B-3 requires every
+  consumer to present `human_label` as unverified, and the line layouts (`team members`, `team join`, `inbox`)
+  still put `(unverified)` beside each label. Repeating that in every `MEMBER` cell was the single widest thing
+  this release removed, so `brigade sessions` prints one note instead — `(names, labels and the lines under them
+  are their owner's own words: unverified, and possibly stale)` — which also covers the session name and the
+  doing line, neither of which a cell ever marked. B-3 in [`docs/protocol-v1.md`](docs/protocol-v1.md) is
+  amended to allow exactly this, "once per output where a per-item marker would repeat"; the frame's
+  `from-label`, which is per-message and not a table, is unaffected and still carries the suffix on every
+  message.
+
+### Security
+
+- **A cell can no longer forge a column boundary with a blank glyph.** With the borders gone the boundary
+  between two columns is a run of two spaces, and five code points render blank without being
+  `unicode.IsSpace` — the Hangul fillers `U+115F`, `U+1160`, `U+3164`, `U+FFA0` and the braille blank `U+2800` —
+  so neither the fold onto one line (which splits on `unicode.IsSpace`) nor the sanitiser's stripping (`Cc` and
+  `Cf` only) touched them. Two of them in a row were indistinguishable from the separator, which was enough for
+  an adapter-supplied `session_name`, `human_label`, `model`, `workspace_label` or `session_description` to
+  forge a cell boundary — and to land a forged `(this session)` under the `SEEN` header of a row that is not
+  this session. Each now renders as a visible `?` in a roster cell and on a doing line, for the same reason a
+  box-drawing bar renders as `|`. Card 25 deliberately let the braille blanks through as visible-blank glyphs;
+  under a bordered table they could forge nothing, and under this one they can, so that decision is reversed.
+  `--json` is unchanged and still carries the code points as sent.
+
+- **A bracketed `MEMBER` cell is not proof of a principal.** Now that a labelled session's cell is its label
+  alone, a member can choose a label that reads exactly like the bracketed principal prefix an *unlabelled*
+  session gets, and the table cannot tell the two apart. It never could tell a label from the truth — that is
+  what `(unverified)` said — but the bracket used to be the server's. `docs/security.md` and the
+  `brigade:team-messaging` skill now say so outright: `principal_ref` in `--json` is the only identity, and it
+  is what `revoke-member` and `transfer` take.
+
+### Fixed
+
+- **A session id that sanitises away renders as `?` in the `SESSION` column, never as a blank cell.** The wire
+  requires a non-empty `session_id`, but `"` or `<` satisfies that and sanitises to nothing. With the borders
+  gone such a row would begin with whitespace, and a `session_name` may begin with `↳ ` — so the row could pass
+  for the doing line of the row above it. A non-blank first cell is what keeps every row a row now that there is
+  no border to say so; `?` is the convention the `MEMBER` cell already uses for a principal reference that
+  sanitises away.
+
+### Known limitations
+
+- The roster pads its columns by **code points, not terminal display width**. A cell carrying East Asian wide
+  characters, or a combining sequence, therefore renders wider or narrower than the padding assumes, and the
+  cells to its right on that row sit off their headers. This was true of the bordered table too, where the
+  borders made the drift visible and recoverable; without them a drifted row is simply misaligned. Nothing in
+  the shipped dependency set measures display width, and `--json` is unaffected.
+
 ## [0.7.0] — 2026-09-20
 
 ### Added

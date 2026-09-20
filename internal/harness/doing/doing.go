@@ -18,7 +18,7 @@ import (
 
 // MaxChars is the harness's cap on a doing line, in code points: the cap
 // the writer refuses over (never truncates) and the cap the roster's
-// `DOING (unverified)` column cuts to with the truncation marker. It is
+// continuation line cuts to with the truncation marker. It is
 // deliberately below the wire cap, protocol.MaxDescriptionChars (256),
 // which stays as it is — conformance requires at-cap values to pass, and
 // a value Brigade's own writer sent can never exceed this one — so the

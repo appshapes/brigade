@@ -11,11 +11,15 @@ import (
 )
 
 // This file is the human-output layer of 6.4: every remote string is
-// sanitised with the 6.7 sanitiser before it is printed, folded onto ONE
-// line (the layouts are one item per line, and a name carrying a newline
-// must not become two items), and human_label always carries the
-// unverified suffix (B-3). The --json forms carry the sanitised strings
-// unfolded: a JSON string escapes its newlines itself.
+// sanitised with the 6.7 sanitiser before it is printed and folded onto
+// ONE line (the layouts are one item per line, and a name carrying a
+// newline must not become two items). In the LINE layouts — `team
+// members`, `team join`, `inbox` — a human_label always carries the
+// unverified suffix (B-3); card 27 took it out of the roster's table,
+// where it cost every row width and said the same thing every time, and
+// `sessions --json`'s own `note` carries the warning instead. The --json
+// forms carry the sanitised strings unfolded: a JSON string escapes its
+// newlines itself.
 
 // oneLine folds every run of whitespace — newlines and tabs included,
 // which the sanitiser deliberately keeps — onto one space and trims the
@@ -69,9 +73,10 @@ func labelLine(s string) string {
 	return label + UnverifiedSuffix
 }
 
-// shortPrincipalChars is how much of a principal ref the roster prints
-// beside a label (card 24): eight characters tell two principals apart at
-// a glance without crowding a line that already carries six columns.
+// shortPrincipalChars is how much of a principal ref a member line prints
+// beside a label (card 24), and how much the roster prints for a session
+// that has NO label (card 27): eight characters tell two principals apart
+// at a glance without crowding a line that already carries six columns.
 const shortPrincipalChars = 8
 
 // shortPrincipal renders the leading characters of a sanitised principal
@@ -94,26 +99,59 @@ func shortPrincipal(s string) string {
 const shortSessionChars = 5
 
 // shortSession renders the trailing characters of a sanitised session id
-// for the human form. An id shorter than the cap is taken whole.
+// for the human form. An id shorter than the cap is taken whole, and one
+// that sanitises away to nothing renders as "?" — the convention
+// rosterMember uses for a principal ref that does the same.
+//
+// The "?" is not cosmetic. The wire requires a non-empty session_id, but
+// an id of `"` or `<` satisfies that and still sanitises to "" (rules 1-2
+// plus the attribute breakers), and with card 27's borders gone a row
+// whose first cell were blank would begin with whitespace — exactly like
+// the doing line doingRow indents under it. A session_name is free to
+// start with the arrow, so that row could then pass for a continuation
+// line of the row above it. A non-blank first cell is what keeps every
+// row a row: the border used to do this work.
 func shortSession(s string) string {
 	id := idLine(s)
+	if id == "" {
+		return "?"
+	}
 	if r := []rune(id); len(r) > shortSessionChars {
 		return string(r[len(r)-shortSessionChars:])
 	}
 	return id
 }
 
-// memberLine renders the roster's member column: the label with the
-// unverified suffix (B-3) and a short principal beside it, so a reader
-// sees who a session belongs to and still has the stable anchor — the
-// label is never an identity, and two members may pick the same one.
-// An empty label renders as "", and the caller falls back to the
-// identity it printed before this column existed, so an unlabelled
-// member is never silently blank: `brigade sessions` fills that row's
-// LABEL and PRINCIPAL cells instead, and `team members` — still one
-// line per member — its `principal=<ref>` field. A ref that sanitises
-// away renders as "[?]": a labelled line always carries the bracket, so
-// a missing anchor is visible rather than silently absent.
+// tableNameChars is how much of a session name the roster's NAME column
+// shows (card 27). padTable pads a column to its widest cell, so a single
+// session carrying a name at the protocol's 64-code-point cap widened the
+// column for every row — one of the two things that pushed the table past
+// a terminal. `--json` always carries the name in full.
+const tableNameChars = 50
+
+// tableName renders a session name for the roster's NAME column: the
+// human form nameLine produces, cut to the column's cap with the marker
+// inside it, exactly as descriptionLine cuts a doing line to the
+// harness's shorter cap. Folding runs first (inside nameLine), so the cap
+// counts the characters the cell will show.
+func tableName(s string) string {
+	return protocol.TruncateRunes(nameLine(s), tableNameChars)
+}
+
+// memberLine renders a member line: the label with the unverified suffix
+// (B-3) and a short principal beside it, so a reader sees who a session
+// belongs to and still has the stable anchor — the label is never an
+// identity, and two members may pick the same one. An empty label renders
+// as "", and the caller falls back to the identity it printed before this
+// existed: `team members` — one line per member — its `principal=<ref>`
+// field. A ref that sanitises away renders as "[?]": a labelled line
+// always carries the bracket, so a missing anchor is visible rather than
+// silently absent.
+//
+// The roster no longer calls this; card 27 gave it rosterMember below,
+// which drops the suffix and the anchor a TABLE has no width for. The
+// callers left are `team members` and `team join`, whose one-line-per-
+// member layout has room for both.
 func memberLine(label, principalRef string) string {
 	l := oneLine(protocol.SanitizeLabel(label))
 	if l == "" {
@@ -124,6 +162,31 @@ func memberLine(label, principalRef string) string {
 		short = "?"
 	}
 	return l + UnverifiedSuffix + " [" + short + "]"
+}
+
+// rosterMember renders the roster's MEMBER column (card 27): memberLine's
+// shape without the two things a reader of a TABLE does not need beside a
+// label — the unverified suffix, which the roster no longer carries in any
+// cell, and the short principal, which `--json` carries in full for a
+// reader who has to tell two principals apart.
+//
+// A session with no label has no other identity, so it keeps the short
+// principal alone — "[b49eac08]", or "[?]" for a ref that sanitises away.
+// The cell is therefore never blank, which is what retires the roster's
+// LABEL and PRINCIPAL fallback columns: the identity of an unlabelled
+// session used to live in those, and now lives here.
+//
+// `team members` and `team join` keep memberLine: their layout is one line
+// per member, not a table, and it has room for the suffix and the anchor.
+func rosterMember(label, principalRef string) string {
+	if l := oneLine(protocol.SanitizeLabel(label)); l != "" {
+		return l
+	}
+	short := shortPrincipal(principalRef)
+	if short == "" {
+		short = "?"
+	}
+	return "[" + short + "]"
 }
 
 // workspaceLine sanitises a registered workspace label for the human
@@ -148,7 +211,8 @@ func modelLine(s string) string { return oneLine(protocol.SanitizeModel(s)) }
 
 // descriptionLine renders a session's doing line — its
 // session_description, the one sentence its own model published (card
-// 25) — for the roster's DOING column: the 6.7 rules 1-3 at the wire cap,
+// 25) — for the continuation line doingRow prints under that session's
+// row (card 27; it was a DOING column until then): rules 1-3 at the wire cap,
 // folded onto one line (so it can neither start a row nor, through
 // U+2028/U+2029, which are whitespace to strings.Fields, hide one), then
 // cut to the harness's shorter table cap with the marker inside it
@@ -204,8 +268,8 @@ func sanitizeRecord(r *protocol.SessionRecord) {
 	// A description with nothing left once sanitised and folded is no
 	// description: the wire form of "none" is "" (plan 5.3), so the member
 	// is dropped rather than carried empty — --json says "absent" the one
-	// way it has, and agrees with the table, which shows no DOING cell
-	// for it. The kept value stays unfolded like every other --json string.
+	// way it has, and agrees with the roster, which prints no continuation
+	// line for it. The kept value stays unfolded like every other --json string.
 	if r.SessionDescription != nil {
 		d := protocol.SanitizeDescription(*r.SessionDescription)
 		if oneLine(d) == "" {
@@ -243,28 +307,52 @@ func columns(fields ...string) string {
 	return strings.Join(fields, "  ")
 }
 
-// borderBar is the box-drawing vertical bar the table renders between
-// columns. It is not Markdown syntax and no renderer treats it specially,
-// but that is exactly why a hostile cell containing a literal one could
-// still forge what looks like an extra column boundary in the rendered
-// text — there is no escape convention for plain text the way `\|` is
+// borderBar is the box-drawing vertical bar. The roster stopped drawing
+// its borders with it in card 27, but a cell carrying a literal one would
+// still forge what looks like a column boundary in a padded plain-text
+// table — there is no escape convention for plain text the way `\|` is
 // one for a Markdown pipe table, so neutralizeCell replaces it outright.
 const borderBar = "│"
 
-// neutralizeCell replaces a literal box-drawing vertical bar in an
-// unverified remote string — a session_name, human_label, model or
-// session_description — with an ordinary ASCII "|", so it reads as
-// visibly not the table's own border rather than silently splitting or
-// forging a column.
+// cellNeutraliser is what an unverified remote string — a session_name,
+// human_label, model, workspace_label or session_description — may not
+// carry into a cell.
+//
+// The box-drawing bar is there for the reason borderBar gives. The five
+// after it are the code points that RENDER blank but are not
+// unicode.IsSpace, so neither oneLine's fold (strings.Fields splits on
+// unicode.IsSpace) nor the sanitiser's stripping (Cc and Cf only) touches
+// them. Under the bordered table they were odd spacing inside a cell the
+// border still closed, and card 25 deliberately let them through. Card 27
+// made the column boundary a RUN OF TWO SPACES, and two blank glyphs in a
+// row are indistinguishable from it: that is enough to forge a cell
+// boundary, and enough to land a forged " (this session)" under the SEEN
+// header of a row that is not this session. Each becomes a visible "?"
+// for the same reason the bar becomes "|" — a reader has to be able to
+// see that it is not the table's own spacing.
+var cellNeutraliser = strings.NewReplacer(
+	borderBar, "|",
+	"\u115f", "?", // HANGUL CHOSEONG FILLER
+	"\u1160", "?", // HANGUL JUNGSEONG FILLER
+	"\u2800", "?", // BRAILLE PATTERN BLANK
+	"\u3164", "?", // HANGUL FILLER
+	"\uffa0", "?", // HALFWIDTH HANGUL FILLER
+)
+
+// neutralizeCell applies cellNeutraliser to one cell. It runs once per
+// cell in padTable, and once more in doingRow for the continuation line
+// padTable never sees.
 func neutralizeCell(s string) string {
-	return strings.ReplaceAll(s, borderBar, "|")
+	return cellNeutraliser.Replace(s)
 }
 
 // padTable neutralises every cell of a table and pads each one with
 // trailing spaces to its column's widest cell (in runes), so the table
 // stays aligned as plain text — which is how `/brigade:sessions` shows
 // it, inside a fenced code block, and how any terminal shows it. rows[0]
-// is the header; every row must carry the same number of cells.
+// is the header; every row must carry the same number of cells. It is the
+// alignment alone: since card 27 the roster draws no borders, so the
+// padding is all that holds a column together.
 func padTable(rows [][]string) [][]string {
 	widths := make([]int, len(rows[0]))
 	padded := make([][]string, len(rows))
@@ -288,27 +376,33 @@ func padTable(rows [][]string) [][]string {
 	return padded
 }
 
-// dataRow renders one box-drawing table row from cells padTable has
-// already neutralised and padded.
-func dataRow(cells []string) string {
-	return borderBar + " " + strings.Join(cells, " "+borderBar+" ") + " " + borderBar
+// tableRow renders one row of the roster from cells padTable has already
+// neutralised and padded: the two-space separator of the documented
+// layouts (card 27 dropped the borders it used to draw instead), with the
+// last cell's padding trimmed so no row carries invisible trailing width.
+func tableRow(cells []string) string {
+	return strings.TrimRight(columns(cells...), " ")
 }
 
-// borderRule renders a horizontal border rule for a padded row — the top
-// (left="┌", mid="┬", right="┐"), the header/body divider (left="├",
-// mid="┼", right="┤") or the bottom (left="└", mid="┴", right="┘") —
-// each segment two runes wider than its column to cover the data rows'
-// own leading and trailing space.
-func borderRule(paddedRow []string, left, mid, right string) string {
-	segs := make([]string, len(paddedRow))
-	for i, cell := range paddedRow {
-		segs[i] = strings.Repeat("─", utf8.RuneCountInString(cell)+2)
-	}
-	return left + strings.Join(segs, mid) + right
+// doingArrow marks the roster's doing line as a continuation of the row
+// above it rather than a row of its own (card 27).
+const doingArrow = "↳ "
+
+// doingRow renders a session's doing line under its row: indented to the
+// NAME column — the caller passes that row's padded SESSION cell, whose
+// width plus the two-space separator IS that offset — marked with the
+// arrow, and neutralised like every other cell, because this one never
+// went through padTable. descriptionLine has already folded it onto one
+// line and cut it to the harness's cap, so it can open no second line and
+// forge no row. The parameter is `text`, not `doing`: the package of that
+// name is imported here.
+func doingRow(sessionCell, text string) string {
+	return strings.Repeat(" ", utf8.RuneCountInString(sessionCell)+2) + doingArrow + neutralizeCell(text)
 }
 
-// seenAgoCell is seenAgo without its "seen " word, for a column that is
-// already labelled by its own table header.
+// seenAgoCell is seenAgo without its "seen " word or its trailing "ago",
+// for a column that is already labelled by its own table header: "2s",
+// not "seen 2s ago"; "never", not "seen never".
 func seenAgoCell(at, server, now time.Time) string {
-	return strings.TrimPrefix(seenAgo(at, server, now), "seen ")
+	return strings.TrimSuffix(strings.TrimPrefix(seenAgo(at, server, now), "seen "), " ago")
 }

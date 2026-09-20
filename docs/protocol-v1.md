@@ -371,7 +371,7 @@ when `resume.session_id` was honoured, C-10, C-19), `lease_seconds` (integer, th
 | `session_name` | yes | ≤ `max_session_name_codepoints`; unverified |
 | `session_description` | optional, nullable | ≤ `max_description_chars`; the session's own claim about its work, as last registered or heartbeated (4.4.2, 4.4.4); **unverified** text, untrusted at every layer (4.5.11). An empty value is none: after a heartbeat that sent `""` the list shows `""` or omits the member (C-13), and a consumer presents both alike |
 | `principal_ref` | yes | the owning principal, opaque |
-| `human_label` | optional | ≤ `max_human_label_chars`; **unverified** — every consumer MUST present it as such `[no case: B-3]` |
+| `human_label` | optional | ≤ `max_human_label_chars`; **unverified** — every consumer MUST present it as such, once per output where a per-item marker would repeat `[no case: B-3]` |
 | `state` | yes | `active`, `idle` or `offline`, computed by the adapter from `lease_until`, its closed flag and `activity` with the adapter's own clock (4.5.8); the harness never computes it |
 | `activity` | yes | `busy` or `idle`, as last reported |
 | `inbound` | yes | `accept`, `hold` or `refuse`, as last reported (C-42) |
@@ -945,7 +945,7 @@ and are checked by a unit test instead; where a case now discharges a row the bo
 | --- | --- | --- | --- |
 | B-1 | A command that takes no input MUST NOT read stdin | 4.1 stdin | C-01 (`internal/conformance/cases/c01_describe.go:55-63`: `describe` with stdin a pipe held open answers within the timeout) and C-12 (`c12_list.go:88-89`, the same for `session list`) |
 | B-2 | An adapter MUST send `retryable` on every failing envelope and watch `error` event | 4.3 | the envelope half in C-02 through `T.Fail` (`internal/conformance/t.go:296-300` asserts the member is present) and in C-06 (`c06_unbound.go:80-85`); the `error` event half in C-37 (`c37_watch_foreign.go:86-89`) and C-08 (`c08_leave.go:82`) |
-| B-3 | Every consumer MUST present `human_label` as unverified | 4.4.3 | `internal/harness/frame` `TestLabelIsAlwaysUnverified` (U-03: the frame's `from-label` carries the suffix whatever the sender sent) |
+| B-3 | Every consumer MUST present `human_label` as unverified, once per output where a per-item marker would repeat | 4.4.3 | `internal/harness/frame` `TestLabelIsAlwaysUnverified` (U-03: the frame's `from-label` carries the suffix whatever the sender sent); `internal/harness/commands` `TestSessionsCarriesTheUnverifiedMarkerOnce` (the roster is a table, so its marker is the one note under it) |
 | B-4 | A receiver MUST ignore an unknown `status.state` | 4.4.9 | `internal/harness/adapterclient` `TestWatchReplayAndCommands` (a `status` with an unknown state is skipped, never fatal) |
 | B-5 | Unknown event kinds and unknown command types MUST be ignored by their receiver | 4.4.9 rules | commands: C-41 (`internal/conformance/cases/c41_stdin_commands.go:43-60`, an unknown `type` before a valid `ack`, and `:123-125`, which fails on any event an ignored line produces); events: `internal/harness/adapterclient` `TestWatchReplayAndCommands` (an unknown kind is skipped, never fatal), no case |
 | B-6 | A line longer than 1 MiB is dropped and reading continues | 4.4.9 rules | `internal/protocol` `TestLineReaderContentCapBoundary` covers the reader; C-41 (`internal/conformance/cases/c41_stdin_commands.go:62-79`: an over-long stdin line before a `heartbeat`, whose answer proves the line was dropped and reading continued) covers the adapter side |

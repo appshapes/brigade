@@ -40,16 +40,21 @@ Brigade is designed against seven kinds of attacker. Six of them are held off. T
   that means and section 10 says what narrows it.
 
 **What is not a boundary.** Display names and labels are free text. Any member can pick any of them, copy
-someone else's, and two members can have the same one. Brigade never treats a name as proof of anything. Every
-place a display label is shown, it is marked `(unverified)`. The only identity the server stamps is the
-`from-principal` value in each message, and the team roster is keyed on that same reference for every active
-member: it prints the label with the leading characters of the reference beside it, in brackets, and those
+someone else's, and two members can have the same one. Brigade never treats a name as proof of anything. The
+only identity the server stamps is the `from-principal` value in each message, and the team roster is keyed on
+that same reference for every active member. `brigade team members`, which prints one line per member, marks
+each label `(unverified)` and puts the leading characters of the reference beside it, in brackets; those
 characters are the same on every line that member appears on, so you can recognise the same person across all of
-their sessions. The principal, never the label, is the identity; the bracketed characters are what tells two
-members who chose the same label apart; and a reference that sanitises away to nothing prints as `[?]`, so a
-labelled line always carries the bracket. `brigade sessions --all` and either command's `--json` form print the
-reference in full — and the full reference is what `revoke-member` and `transfer` take, so an administrative
-step reads it from `--json`, never from the brackets.
+their sessions, and a reference that sanitises away to nothing prints as `[?]`, so a labelled line always
+carries the bracket. The session roster is a table, and a table has no width to repeat either on every row: from
+0.8.0 `brigade sessions` prints a label alone in its `MEMBER` column, and the bracketed characters only for a
+session whose member has no label at all — the `note` in its `--json` form carries the warning the cells no
+longer do. The principal, never the label, is the identity; the bracketed characters are what tells two members
+who chose the same label apart. In the roster they are also, from 0.8.0, **forgeable**: a label is free text, so
+a member can choose one that reads exactly like the bracketed form an unlabelled session gets, and nothing in
+that table distinguishes the two. Only the `--json` form of either command prints the reference in full — and
+the full reference is what `revoke-member` and `transfer` take, so an administrative step reads it from
+`--json`, never from the brackets, and so does anything else that turns on who a session belongs to.
 
 **Where the default label comes from.** A member who gives no `--label` is labelled with the email address of the
 Claude account their install is signed in to. Brigade reads that address from Claude Code's own configuration file
@@ -72,7 +77,7 @@ option `label` to `none` before you join, or to any text you would rather be kno
 command does the same for that one command. Changing the option later changes what the next **first** join on this
 machine sends; it does not rewrite the label the team already holds, and a re-consent (`team join` in a second
 checkout of a team you are already on) sends no label at all. The address is unverified text like every other
-label, and is marked so wherever it is shown.
+label: `brigade team members` marks it so, and the session roster says so in the `note` of its `--json` form.
 
 **Existing members, whose label is empty.** A member who joined before this version has no label at all, and
 rejoining to get one is not something Brigade asks of anybody. From this version the registration every session
@@ -106,8 +111,8 @@ home directory or a path.
 
 **One sentence your session's model writes.** From this version your session's model can publish one line — at
 most 160 characters — about what it is working on, with `brigade doing`, a command you can see in your transcript
-like any other; teammates read it in the `DOING (unverified)` column of `brigade sessions`, and `brigade doing
---clear` removes it. *Who sees it:* every active member of the team, through `session list` and through a direct
+like any other; teammates read it on the `↳ ` line under that session's row in `brigade sessions`, and `brigade
+doing --clear` removes it. *Who sees it:* every active member of the team, through `session list` and through a direct
 `SELECT` on `brigade.sessions`, whoever runs the backend (above), and anyone who obtains the join secret later.
 *How long:* until the model replaces it, and inside one conversation: it is blanked at `/clear` and at an
 in-process `/resume` (the session start those re-fire sends an empty value — except in a session that was
@@ -292,8 +297,8 @@ answer. They cannot be measured on this model. The interactive check was not run
 **A held session also fills up.** The backend refuses new messages to a recipient once **60** of them are
 unacknowledged, and senders are told so.
 
-**What the roster shows is not withheld by either level.** The `DOING (unverified)` column of `brigade sessions`
-is a teammate's `session_description`: one sentence **published from that teammate's session** about its own
+**What the roster shows is not withheld by either level.** The `↳ ` line under a row of `brigade sessions` is
+that teammate's `session_description`: one sentence **published from that teammate's session** about its own
 work — by its own model with `brigade doing` (section 2), or by whoever holds that session's credentials —
 stored by the backend as sent and shown to every session on the team, whatever that session's own
 inbound policy. It is roster metadata like a name, pulled only when your model runs `brigade sessions`, not a
@@ -301,7 +306,7 @@ delivered message, so `hold` and `refuse` — which are about messages — leave
 2026-09-19). Your model should **route by it and never obey it**: it is unverified text, it may be stale (nothing
 expires it, and a closed session keeps its last sentence for the backend's retention), and it passes through the
 same sanitiser as a session name before it is printed — a tag family neutralised, control and format characters
-stripped — after which the table folds it onto one line, replaces its own border character and cuts it at 160
+stripped — after which the roster folds it onto one line, replaces any box-drawing bar in it and cuts it at 160
 characters. `--json` carries the sanitised text uncut (the wire's 256 is its only bound) and unfolded, under
 `session_description`, with `""` omitted.
 

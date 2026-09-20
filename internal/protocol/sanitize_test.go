@@ -313,7 +313,7 @@ func TestSanitizeModel(t *testing.T) {
 	}
 }
 
-// TestSanitizeDescription pins the sanitiser the roster's DOING column and
+// TestSanitizeDescription pins the sanitiser the roster's doing line and
 // `sessions --json` share for session_description (card 25): the
 // sentence is a teammate's model's own words, stored by an adapter as
 // sent, so it gets the full pipeline and the MaxDescriptionChars cap.
@@ -383,7 +383,8 @@ func TestSanitizeDescription(t *testing.T) {
 }
 
 // TestTruncateRunesIsTheOneCut pins the exported truncator the roster's
-// DOING column uses at a cap SHORTER than the wire's (card 25): the cut
+// doing line uses at a cap SHORTER than the wire's (card 25, and since
+// card 27 its NAME column too): the cut
 // is in code points, on a rune boundary, with the marker counted inside
 // the limit, and a value at the limit is untouched.
 func TestTruncateRunesIsTheOneCut(t *testing.T) {

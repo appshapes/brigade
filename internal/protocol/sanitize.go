@@ -298,9 +298,10 @@ func truncateBytes(s string, limit int) string {
 // TruncateRunes cuts s to at most limit CODE POINTS, appending
 // TruncationMarker when it had to. The marker counts against the limit
 // so the result always passes the code-point-cap validation. It is
-// exported for the one display cap that is shorter than its wire cap —
-// the roster's DOING column (card 25, harness/doing.MaxChars) — so the
-// cut there has exactly this rule and not a second copy of it.
+// exported for the display caps that are shorter than their wire cap —
+// the roster's doing line (card 25, harness/doing.MaxChars) and, since
+// card 27, its NAME column — so each cut has exactly this rule and not a
+// second copy of it.
 func TruncateRunes(s string, limit int) string {
 	if utf8.RuneCountInString(s) <= limit {
 		return s

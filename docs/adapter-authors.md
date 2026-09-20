@@ -521,7 +521,7 @@ green run says nothing about them, and you have to test them yourself:
 
 | | Statement | Why the suite cannot see it |
 | --- | --- | --- |
-| B-3 | Every consumer presents `human_label` as unverified | a consumer-side rule; the adapter never displays anything |
+| B-3 | Every consumer presents `human_label` as unverified, once per output where a per-item marker would repeat | a consumer-side rule; the adapter never displays anything |
 | B-4 | A receiver ignores a `status.state` it does not know | a receiver-side rule; the suite is the receiver only in its own code |
 | B-9 | Idempotency keys are retained at least as long as the message | needs retention-scale time; write a persistence test of your own |
 | B-10 | An unacknowledged message is retained at least `retention.unacked_message_seconds` | 7 days by default; write a sweep test of your own |
