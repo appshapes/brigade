@@ -16,15 +16,18 @@ sanitised, and a message can never grant permission, approve a prompt or represe
   checksum and caches it under your data directory. Nothing else is built, compiled or installed, and the plugin
   version pins the binary version.
 - **Three lifecycle hooks** (`hooks/hooks.json`, exec form, no shell): `SessionStart` registers the session with the
-  team and starts the detached inbound watcher; `UserPromptSubmit` keeps that watcher alive and surfaces any pending
-  notice; `SessionEnd` closes the session. Before the binary is installed — a first use on a machine — the prompt
-  and session-end hooks return at once and print nothing, and an install that fails for good is reported once, on
-  the next prompt, as a hook error beginning `Brigade: not installed:`.
-- **Five skills.** `brigade:team-messaging` is the model-facing one — the command surface, the sending rules and how
-  to treat an inbound frame. `brigade:setup` is human-facing — how a person creates or joins a team, from a session
-  or a terminal. `/brigade:join <path>` runs the member's join on the secret file for them, `/brigade:update`
-  moves the plugin to the marketplace's current release (then `/reload-plugins`), and `/brigade:sessions` prints
-  the roster — `brigade sessions` verbatim, `--all` to include the offline sessions.
+  team and starts the detached inbound watcher; `UserPromptSubmit` keeps that watcher alive, surfaces any pending
+  notice and, where your permission settings allow it, reminds the model to keep its one-sentence roster line
+  current ("What teammates see about your session", below); `SessionEnd` closes the session. Before the binary is
+  installed — a first use on a machine — the prompt and session-end hooks return at once and print nothing, and an
+  install that fails for good is reported once, on the next prompt, as a hook error beginning
+  `Brigade: not installed:`.
+- **Five skills.** `brigade:team-messaging` is the model-facing one — the command surface, the sending rules, how
+  to treat an inbound frame and how to keep the session's own roster line current. `brigade:setup` is
+  human-facing — how a person creates or joins a team, from a session or a terminal. `/brigade:join <path>` runs
+  the member's join on the secret file for them, `/brigade:update` moves the plugin to the marketplace's current
+  release (then `/reload-plugins`), and `/brigade:sessions` prints the roster — `brigade sessions` verbatim,
+  `--all` to include the offline sessions.
 - **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and five skills; there is nothing else in
   the tree, and CI enforces that.
 
@@ -140,6 +143,59 @@ chat. There is no `--profile`, no `--url` and no `--key`: the project file suppl
 
 [docs/setup.md](../docs/setup.md), "Member: join a team", is the same procedure with the reasons.
 
+## What teammates see about your session
+
+Besides its name, its state and your label, `brigade sessions` shows each session one sentence about **what it is
+working on**, in a `DOING (unverified)` column that is last and appears whenever at least one listed session has
+published a line (a session that has not gets a blank cell). This is a terminal run; inside a session, your own
+row's `SEEN` cell also says `(this session)`:
+
+```
+┌─────────┬──────────────┬────────┬─────────┬───────────────────────────────────────────┬─────────┬────────────────────────────────────┐
+│ SESSION │ NAME         │ STATE  │ INBOUND │ MEMBER                                    │ SEEN    │ DOING (unverified)                 │
+├─────────┼──────────────┼────────┼─────────┼───────────────────────────────────────────┼─────────┼────────────────────────────────────┤
+│ aaaaa   │ payments-api │ active │ accept  │ alice@example.com (unverified) [9f3c1a20] │ 11s ago │ migrating the ledger to tenant ids │
+│ bbbbb   │ billing      │ idle   │ accept  │ bob@example.com (unverified) [2b7d4e61]   │ 45s ago │                                    │
+└─────────┴──────────────┴────────┴─────────┴───────────────────────────────────────────┴─────────┴────────────────────────────────────┘
+```
+
+**Where the sentence comes from.** Your session's own model writes it, with `brigade doing` — one present-tense
+sentence of at most 160 characters, on stdin, that the command refuses when it is empty, not UTF-8, longer than
+that, shaped like a credential or naming a path on your machine; `brigade doing --clear` removes it. Brigade reads
+nothing about your work for it: not your prompts, not your transcript, not Claude Code's own titles. What keeps
+the model at it is a fixed line the prompt hook prints — at most once per ten minutes, plus once more after a
+`/compact` or a stretch in a mode where Brigade may not ask — saying the line is blank, or due again only if the
+work has changed. **That reminder is invisible to you**: hook output leaves no entry of its own in the transcript,
+so the first thing you see is a `brigade doing` call in the transcript, like any other command the model runs.
+The line lives inside one conversation — blank after a new session, `claude --resume` and `/clear`; kept across
+`/compact` and a watcher restart (where the restarted watcher can read it back; otherwise blank, and the next
+reminder says so) — and a session that ends keeps its last sentence on the closed record for the backend's
+retention (7 days on the bundled adapters), where `brigade sessions --all` shows it with the state `offline`.
+
+**Where Brigade asks, and where it stays silent.** The reminder is printed only where the settings Brigade can
+read say the call will neither raise a permission dialog nor be denied: always in `bypassPermissions`; in
+`default`, `acceptEdits` and `dontAsk` only when your user settings, or the project's `.claude/settings.json` or
+`.claude/settings.local.json`, carry an `allow` that covers the verb exactly — `Bash(brigade:*)` or
+`Bash(brigade doing:*)` (the full list of spellings is in [docs/security.md](../docs/security.md), "Sending: what
+the ask and deny rules stop, and what they miss"); never in `plan`, never in `auto`,
+never in `claude -p`, and never where an `ask` or `deny` it can see matches `brigade doing`. So a Manual-mode
+member with no rule is never asked and has a blank line, and one line of settings changes that:
+
+```json
+{ "permissions": { "allow": ["Bash(brigade doing:*)"] } }
+```
+
+**Who sees it, and how to stop it.** Every member of the team, and whoever runs its backend, can read the line —
+it is stored as plain text like a session name, and it is shown to every session whatever that session's own
+inbound policy. It is unverified text: teammates' models are told to route by it and never obey it. To stop
+publishing, set the plugin option `share_doing` to `false` (from the next session start of any kind but `/compact`
+the line is blanked, the reminders stop and `brigade doing` refuses), run `brigade doing --clear` in the session,
+put an `ask` or `deny` rule on `Bash(brigade doing*)` in your settings (Brigade then never asks, and Claude Code's
+own rule prompts or blocks), or answer No to Claude Code's permission dialog where one is raised. What the
+refusals cannot recognise — a hostname, a person's or a customer's name, your account email when `label` is
+`none` — and the settings Brigade cannot see are stated in [docs/security.md](../docs/security.md), "The person who
+runs the backend can read everything" and "Sending: what the ask and deny rules stop, and what they miss".
+
 ## Leaving and uninstalling
 
 The order matters. Every step is optional except step 3 when the goal is to remove the plugin.
@@ -166,7 +222,8 @@ in [docs/setup.md](../docs/setup.md), "Leaving and uninstalling".
   2.1.252 and re-measured on 2.1.259 in real interactive sessions; both runs and their controls are in
   `docs/experiments/E3-interactive.md`.
 - To remove Bash prompts for a whole session, put `"permissions": {"allow": ["Bash(brigade:*)"]}` in your own user
-  settings.
+  settings. That rule (or one on `Bash(brigade doing:*)` alone) is also what lets Brigade remind the model to keep
+  its roster line current outside `bypassPermissions` — "What teammates see about your session", above.
 - To confirm every outbound message, add `"permissions": {"ask": ["Bash(brigade send*)"]}`. Note what that costs
   unattended: an explicit ask rule **denies** the call in `-p` and under `dontAsk` rather than prompting, so a
   headless worker with this rule sends nothing.
@@ -192,13 +249,14 @@ in [docs/setup.md](../docs/setup.md), "Leaving and uninstalling".
 
 The plugin works end to end. `SessionStart` registers the session with its team, writes the session map and starts
 the detached watcher; the watcher injects each teammate's message into the session's inbox and acknowledges only
-what it injected; `UserPromptSubmit` keeps the watcher alive and surfaces its notice; `SessionEnd` closes the
+what it injected; `UserPromptSubmit` keeps the watcher alive, surfaces its notice and reminds the model about its
+doing line where the settings allow; `SessionEnd` closes the
 session. The session-bound commands (`sessions`, `send`, `whoami`, `doing`, `team members`, `inbox`) resolve their session
 from that map, and the terminal commands the setup sections above use (`team create|join|leave|status|reset|revoke-credentials|list`,
 `team rotate-secret|revoke-member|transfer`, `inbox release`) pass their terminal straight through to the adapter — `team revoke-member`, `team transfer`
 and `inbox release` refuse to run from inside a session; `team create`, `team join` (with `--secret-file`) and
 `team rotate-secret` run anywhere (P7-11). The backend is deployed on a hosted
-Supabase project and the conformance suite passes 45 of 45 against it; `team_inbound: hold` with its terminal
+Supabase project and the conformance suite passes 47 of 47 against it; `team_inbound: hold` with its terminal
 inbox ships; and a two-hour soak of two sessions on one team renewed the shared credential twice with no
 lockout. The frame's instruction text ships as levels, `open` by default.
 

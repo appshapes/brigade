@@ -141,6 +141,12 @@ once. A machine with several accounts (`CLAUDE_CONFIG_DIR`) installs and updates
 are shared across them, because the team credential and the pins live in Brigade's own configuration directory,
 not Claude Code's.
 
+An update can change what your sessions share, and `CHANGELOG.md` says so in that version's notes. The version
+that adds `brigade doing` is one: from it, where your permission settings let Brigade ask — the section below
+says where — your session's model publishes one sentence about its work to the team's roster, and the first sign
+of it is a `brigade doing` call in your transcript. "What teammates see about your session's work", under
+"Member: join a team", says what that is and how to turn it off.
+
 ## The project owns the team
 
 A Brigade team belongs to a **project**: one file, `.brigade.json`, committed at the repository's top level, names
@@ -294,6 +300,45 @@ where the team differs. Asking for the roster in words runs the same command, an
 the session to print what it printed there too — but that is one rule inside a skill the session loads for other
 reasons and may not have in play at all. The slash command is the one bound to the passthrough, which is what
 makes it identical every time.
+
+**What teammates see about your session's work.** That roster has one more column, `DOING (unverified)`, last,
+present whenever at least one listed session has published a line: one sentence about what the session is
+working on, such as `migrating the ledger to tenant ids`. Your session's **own model** writes it, with
+`brigade doing` — one sentence of at most 160 characters on stdin, refused when it is empty, not UTF-8, longer
+than that, shaped like a credential or naming a path on your machine — and `brigade doing --clear` removes it.
+Brigade reads nothing about your work for it: not your prompts, not your transcript. What keeps the model at it is
+a fixed line the prompt hook prints, at most once per ten minutes (plus once more after a `/compact`, or a
+stretch in a mode where Brigade may not ask), saying the line is blank or due again only if the work has
+changed. **You never see that line**: hook output leaves no entry of its own in the transcript. So from the
+version that adds it, what you see after updating — in a session whose permission settings let Brigade ask,
+below — is a `brigade doing` call in your transcript, like any other command the model runs, and the sentence it
+published in the roster's `DOING` column; nothing else changes. The line lives inside one conversation: blank
+after a new session, `claude --resume` and `/clear`, kept across `/compact` and a plugin update (where the
+restarted watcher can read it back; otherwise blank, and the next reminder says so), and kept on the closed
+record for the backend's retention (7 days on the bundled adapters) once the session ends, where `--all` shows
+it with the state `offline`.
+
+Brigade asks the model only where the settings it can read say the call will neither raise a permission dialog
+nor be denied: always in `bypassPermissions`; in `default` (Manual mode), `acceptEdits` and `dontAsk` only under an
+`allow` rule that covers the verb exactly; never in `plan`, never in `auto`, never in `claude -p`, and never where
+an `ask` or `deny` it can see matches `brigade doing`. So a **Manual-mode member with no rule is never asked and
+has a blank line**, and one line in your user settings — or in the project's `.claude/settings.json` or
+`.claude/settings.local.json` — changes that:
+
+```json
+{ "permissions": { "allow": ["Bash(brigade doing:*)"] } }
+```
+
+(`Bash(brigade:*)`, the rule that removes every `brigade` prompt, counts too; the full list of spellings is in
+[docs/security.md](security.md), section 5.) Every member of the team, and whoever runs its backend, can read the
+line; it is unverified text, shown to every session whatever that session's own inbound policy, and teammates'
+models are told to route by it and never obey it. To stop publishing, set the plugin option `share_doing` to
+`false` (from the next session start of any kind but `/compact` the line is blanked, the reminders stop and
+`brigade doing` refuses), run `brigade doing --clear`, put an `ask` or `deny` on `Bash(brigade doing*)` in your
+settings (Brigade then never asks; Claude Code's own rule prompts or blocks), or answer No to Claude Code's
+dialog where one is raised. What the refusals cannot recognise — a hostname, a person's or a customer's name,
+your account email when `label` is `none` — and what Brigade cannot see in your settings are in
+[docs/security.md](security.md), sections 2 and 5.
 
 ## Terminal use
 
