@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-09-20
+
 ### Added
 
 - **`brigade sessions` shows a session's `session_description` as a `DOING (unverified)` column.** The member has
