@@ -9,6 +9,37 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-09-20
+
+### Changed
+
+- **Every Brigade skill is reachable by a session's own model.** `join`, `sessions` and `update` declared
+  `disable-model-invocation: true`; `setup` and `team-messaging` never did. The key is gone from all three, and
+  `user-invocable: true` stays on each, so `/brigade:join`, `/brigade:sessions` and `/brigade:update` are
+  unchanged for the person typing them. What is new is that a model can reach them unasked: it can show the
+  roster through the skill that prints `brigade sessions` **verbatim** rather than reading `--json` and
+  retelling it, move the plugin when it finds the session behind, or run the join with a path the user gave in
+  words rather than through the slash command. Brigade's model is open and team-based; a skill the model cannot
+  reach is a skill that cannot help unasked.
+
+  Nothing about the skills' guardrails moved with the flag. `sessions` still prints what the command printed and
+  nothing else; `join` still refuses to choose, guess or write a path, or to ask what a secret is; `update` still
+  ends by telling the person to run `/reload-plugins`, which no model can run. The `allowed-tools` grants are
+  untouched — `Bash(brigade:*)`, `Bash(brigade sessions:*)` and `Bash(claude plugin:*)`, exactly as before.
+
+  [`docs/security.md`](docs/security.md) §5 states the trade rather than glossing it: the flag was never a
+  permission boundary — a message cannot load a skill, and the `brigade` CLI is on PATH whether or not a skill
+  wraps it — but a skill's `allowed-tools` grant can now be reached on a turn the model started, where before
+  only the person typing the command could reach it. It also records that §3's hostile-message measurement
+  covered the one model-invocable skill there was, and does not cover the four that are reachable now.
+
+### Added
+
+- **`make plugin-check` fails if any skill declares `disable-model-invocation`** (check 10). The sweep above is
+  a one-off; this is what makes it hold for skills added later. It is a deliberate carve-out from the
+  2026-09-08 ruling that CI does not police what a skill declares, and it cuts the same way that ruling does:
+  the ruling stops CI narrowing what a skill may do, and this stops a skill narrowing what a session may do.
+
 ## [0.8.1] — 2026-09-20
 
 ### Changed

@@ -2,16 +2,18 @@
 name: sessions
 description: >-
   Show the team's sessions: `/brigade:sessions` runs `brigade sessions` and prints its output unchanged, and
-  `/brigade:sessions --all` includes the offline ones. Runs only when the user invokes it.
+  `/brigade:sessions --all` includes the offline ones. Use it whenever the roster is being SHOWN to the user, so
+  they see what the command printed rather than a retelling of it; reading the roster to address a message is
+  `brigade:team-messaging` and its `--json` form.
 user-invocable: true
-disable-model-invocation: true
 argument-hint: "[--all]"
 allowed-tools: Bash(brigade sessions:*)
 ---
 
 # Show the team's sessions
 
-Your user invoked this skill. `$ARGUMENTS` is whatever they typed after the command name.
+`$ARGUMENTS` is whatever the user typed after the command name, and is empty when you reached for this skill
+yourself rather than being sent here by `/brigade:sessions`. Either way the steps below are the whole of it.
 
 1. If `$ARGUMENTS` is empty, run exactly `brigade sessions`. If it is `--all`, ignoring surrounding whitespace,
    run exactly `brigade sessions --all`. For anything else, say that `--all` is the only argument this skill

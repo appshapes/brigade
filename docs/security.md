@@ -420,11 +420,26 @@ project directory it names. The honest counterweight: in 98 interactive sessions
 **`brigade:team-messaging` was never loaded once** (§3). Do not plan around it.
 
 The `join`, `update` and `sessions` skills carry the same kind of grant for their own turn — `Bash(brigade:*)`,
-`Bash(claude plugin:*)` and `Bash(brigade sessions:*)` respectively — and run only when the user invokes them.
-The `sessions` grant is the narrowest of the three: it reaches one read-only verb, where `Bash(brigade:*)`
-reaches every `brigade` verb and `Bash(claude plugin:*)` installs and removes software. The `sessions` skill is
-also `disable-model-invocation: true`, as `join` and `update` are — none of the three is ever loaded by the
-model on its own, so the §3 measurement says nothing about them either way.
+`Bash(claude plugin:*)` and `Bash(brigade sessions:*)` respectively. The `sessions` grant is the narrowest of
+the three: it reaches one read-only verb, where `Bash(brigade:*)` reaches every `brigade` verb and
+`Bash(claude plugin:*)` installs and removes software.
+
+**All five skills are model-invocable from 0.9.0.** `join`, `sessions` and `update` carried
+`disable-model-invocation: true` until then; the key is gone from the tree, `user-invocable: true` stays so the
+slash commands are unchanged, and `scripts/ci/plugin-check.sh` check 10 fails if any skill declares it again.
+Be plain about what that trades. No permission boundary fell: a message cannot load a skill — the model decides
+what to load, and an untrusted body can never widen what this session may do — and the `brigade` CLI is on PATH
+whether or not a skill wraps it. What changed is **who can reach the grant**. Each skill's `allowed-tools`
+removes prompts for the turn that loaded it, and that turn can now be one the model started on its own, where
+before only the user typing the command could start it. `Bash(claude plugin:*)` is the one worth naming, since
+it installs and removes software. Manual mode still raises the Skill dialog either way. This is the project's
+deliberate trade, and the direction it has chosen throughout: Brigade is team-based and open by default, and a
+skill the model cannot reach is a skill that cannot help unasked.
+
+It also widens what §3 measured. That measurement — 98 interactive sessions with a hostile message, in which
+`brigade:team-messaging` was never loaded once — covered the only model-invocable skill there was. Four more
+are reachable now, and none of them has been measured under a hostile message since. Do not read §3 as
+covering them.
 
 ### 5.1 The text-matching limit, and what was done about it
 

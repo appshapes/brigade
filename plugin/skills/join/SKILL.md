@@ -3,16 +3,18 @@ name: join
 description: >-
   Join this project's Brigade team from inside the session: `/brigade:join <path>` runs
   `brigade team join --secret-file <path>` on the secret file the administrator sent, and `/brigade:join` alone
-  re-consents a second checkout of a team this machine already holds. Runs only when the user invokes it.
+  re-consents a second checkout of a team this machine already holds. Use when the user asks to join and names
+  the path of the secret file they saved — never with a path you chose or a file you wrote.
 user-invocable: true
-disable-model-invocation: true
 argument-hint: <path-to-secret-file>
 allowed-tools: Bash(brigade:*)
 ---
 
 # Join the team
 
-Your user invoked this skill. `$ARGUMENTS` is the path of the secret file they saved, or empty.
+`$ARGUMENTS` is the path of the secret file the user saved, or empty. If you reached for this skill yourself,
+or they asked in words rather than through `/brigade:join`, the path must still be **theirs**: take it from what
+they wrote, and if they named none, treat `$ARGUMENTS` as empty and follow step 1 — never supply one.
 
 1. If `$ARGUMENTS` is non-empty, run exactly `brigade team join --secret-file "<that path>"` — the path quoted, one
    Bash call. If it is empty, run exactly `brigade team join`. Nothing else: never read the file, never print or ask

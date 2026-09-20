@@ -2,9 +2,9 @@
 name: update
 description: >-
   Move the Brigade plugin to the marketplace's current release from inside this session, then have the user run
-  /reload-plugins. Runs only when the user invokes it.
+  /reload-plugins. Use when the user asks to update Brigade, or when you find this session's plugin is behind
+  the marketplace's release and moving it is the next useful step.
 user-invocable: true
-disable-model-invocation: true
 allowed-tools: Bash(claude plugin:*)
 ---
 
