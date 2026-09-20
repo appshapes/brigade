@@ -165,8 +165,10 @@ that, shaped like a credential or naming a path on your machine; `brigade doing 
 nothing about your work for it: not your prompts, not your transcript, not Claude Code's own titles. What keeps
 the model at it is a fixed line the prompt hook prints — at most once per ten minutes, plus once more after a
 `/compact` or a stretch in a mode where Brigade may not ask — saying the line is blank, or due again only if the
-work has changed. **That reminder is invisible to you**: hook output leaves no entry of its own in the transcript,
-so the first thing you see is a `brigade doing` call in the transcript, like any other command the model runs.
+work has changed. **That reminder is not shown to you as it happens**: on the screen the run appears only as
+`UserPromptSubmit hook`, never the text, while the session's transcript file records it as a `hook_success`
+hook attachment carrying the whole line (measured, `docs/experiments/E10-doing-triggers.md` Part 2) — so the
+first thing you see is a `brigade doing` call, like any other command the model runs.
 The line lives inside one conversation — blank after a new session, `claude --resume` and `/clear`; kept across
 `/compact` and a watcher restart (where the restarted watcher can read it back; otherwise blank, and the next
 reminder says so) — and a session that ends keeps its last sentence on the closed record for the backend's

@@ -623,8 +623,11 @@ func shadowLine(path string) string {
 // declarative as the hooks page advises, naming only the bare `brigade`
 // (the F1 rule of startLine), and every one says a refusal is final for the
 // conversation, because an ask or deny Brigade cannot see fails open (plan
-// 5.2). Byte for byte what is printed; P16-7 tunes them, at the cost of
-// three constants.
+// 5.2). Byte for byte what is printed. Measured on a real interactive
+// session (docs/experiments/E10-doing-triggers.md part 2, 2026-09-20):
+// BLANK was acted on 22 s after a neutral task prompt and SHORT 4 s after a
+// pivot; a prompt that scoped the model's "whole task" was not. Changing
+// them costs three constants.
 const (
 	doingLineBlank = "Brigade doing: this session's line is blank (a new, resumed or cleared conversation starts without one); teammates route by it. It is set with `brigade doing <<'EOF'`, one short sentence, `EOF`, once the work is clear, and again when the work changes (new task, or new phase, e.g. implementing to testing). No secrets, local paths or customer names. Subagents leave it alone. If refused, it is not run another way; the work carries on."
 	doingLineFull  = "Brigade doing: teammates route by one line per session saying what it is working on. This session's is set with `brigade doing <<'EOF'`, one short sentence, `EOF`, when none is set or the work has changed (new task, or new phase, e.g. implementing to testing); if it still fits, nothing is needed. No secrets, local paths or customer names. Subagents leave it alone. If refused, it is not run another way; the work carries on."

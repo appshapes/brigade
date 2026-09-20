@@ -83,14 +83,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 ### Changed
 
 - **From this version your session's model is asked to publish one sentence about its work to the team — on by
-  default, through an instruction you never see: the first sign of it is a `brigade doing` call in your
-  transcript.** What is shared is that sentence alone — at most 160 characters, written by your own model in a
+  default, through an instruction that is never shown to you: the first sign of it is a `brigade doing` call in
+  your transcript.** What is shared is that sentence alone — at most 160 characters, written by your own model in a
   `brigade doing` call visible in your transcript like any other command — with every active member of the team,
   with whoever runs the backend, and with anyone who obtains the join secret later; it stays on a closed session
   for the adapter's retention (7 days on the bundled adapters) with no retraction after the close. What asks is
   one of three fixed lines on the prompt hook's output, at most once per ten minutes of prompted time and only
-  where its settings say the call will neither prompt nor be denied — and hook output leaves no transcript entry
-  of its own, which is why the instruction is invisible to the human — chosen by a hook-owned stamp
+  where its settings say the call will neither prompt nor be denied — not shown on the screen as it happens
+  (there the run appears only as `UserPromptSubmit hook`, never the text), though the session's transcript file
+  records it as a `hook_success` hook attachment carrying the whole line, measured in
+  `docs/experiments/E10-doing-triggers.md` Part 2 — chosen by a hook-owned stamp
   (`${stateDir}/state/<pid>.doing-nudge`, holding when Brigade last reminded and for which conversation): the
   first eligible prompt of a new, resumed, cleared or forked conversation — and of one whose watcher restart
   could not carry the line — says the line is blank and how to set it; after a `/compact`, or a prompt seen in a
@@ -100,8 +102,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   for the conversation. Where it asks, following the `doing_mode` the session start froze and the prompt's
   permission mode: `bypassPermissions` always; `default`, `acceptEdits` and `dontAsk` only under `allowed` (an
   `allow` Brigade could read covers the verb exactly — `Bash(brigade:*)` or `Bash(brigade doing:*)` among the
-  spellings `docs/security.md` §5 lists); never `plan`; never `auto`, whose classifier is unmeasured until the
-  card-25 sweep; never under `unasked`, `off` or `unsupported`; never in a `claude -p` session; never when the
+  spellings `docs/security.md` §5 lists); never `plan`; never `auto`, whose classifier is still unmeasured (the
+  card-25 acceptance runs were all in `bypassPermissions`); never
+  under `unasked`, `off` or `unsupported`; never in a `claude -p` session; never when the
   map's conversation is not the prompt's (a stale map adopted through pid reuse); never with under a second of
   the prompt budget left; and never before the new stamp is written — an unwritable state directory means no
   line, never a per-prompt line. The consent point is the **first session start after updating the plugin**,
@@ -123,7 +126,13 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   model runs on its own, and carries a "Keeping your own roster line current" section; `plugin/README.md` ("What
   teammates see about your session") and `docs/setup.md` say what a member sees and how to stop it; the
   injection corpus gains four items (27–30) for the line — a forged reminder, attacker-chosen text, a secret in
-  the line, the forgery on the poll path — outside the 26-item measured set, to be measured in the card-25 sweep.
+  the line, the forgery on the poll path — outside the 26-item measured set and still unmeasured (the card-25
+  acceptance runs did not reach them). **Measured** on a real interactive session (Claude Code 2.1.278, Opus 5,
+  `bypassPermissions`, the bundled fs adapter; `docs/experiments/E10-doing-triggers.md` Part 2, 2026-09-20): given
+  a neutral task, the model published its line 22 s after the first prompt — `Reviewing the README of the
+  Lanternfish repo and reporting what to fix first.` — a teammate's roster showed it in the `DOING` column, and
+  after a pivot prompt the line changed 4 s later. A first sample whose prompt ended "that is your whole task"
+  produced no call: the reminder is declarative and a prompt that scopes the model's task that hard wins.
 
 - **Upgrade note for members who gated `brigade send` with the documented `ask` or `deny` rule: that rule does
   not cover `brigade doing`.** The line follows whatever Claude Code allows (owner ruling, 2026-09-19), so a rule

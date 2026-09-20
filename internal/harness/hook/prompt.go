@@ -198,10 +198,10 @@ func doingModePrints(mode string) bool {
 // (nothing prompts there anyway); default, acceptEdits and dontAsk only
 // under allowed — an allow entry Brigade could read covers the verb, so
 // the call neither prompts nor is denied; plan, an empty mode and any
-// unknown word never. `auto` is NOT eligible in this row: whether its
-// classifier passes the heredoc is unmeasured until P16-7 runs the real
-// verb, and a line where the call is then refused is the one outcome the
-// gate exists to prevent.
+// unknown word never. `auto` is NOT eligible: whether its classifier
+// passes the heredoc is still unmeasured (the card-25 acceptance runs of
+// 2026-09-20 were all in bypassPermissions), and a line where the call is
+// then refused is the one outcome the gate exists to prevent.
 func doingLineEligible(mode, permissionMode string) bool {
 	switch permissionMode {
 	case "bypassPermissions":

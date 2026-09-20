@@ -131,8 +131,10 @@ remaining path to the team. The session name and the repository name (`workspace
 way and may reveal a ticket number. *What asks the model to publish:* a fixed line Brigade prints at a prompt, at
 most once per ten minutes (plus once more after a `/compact` or a stretch in a mode where Brigade may not ask)
 and only where the settings it can read say the call will neither prompt nor be denied — section 5 says where,
-what it cannot see, and what it costs. The line is invisible to you (hook output leaves no transcript entry of
-its own): the first thing you see is the `brigade doing` call.
+what it cannot see, and what it costs. The line is not shown to you as it happens — on the screen the run
+appears only as `UserPromptSubmit hook`, never the text, while the session's transcript file records it as a
+`hook_success` hook attachment carrying the whole line (measured, `docs/experiments/E10-doing-triggers.md` Part
+2) — so the first thing you see is the `brigade doing` call.
 
 **Two facts Brigade now reads from your transcript — on this machine.** So that `brigade sessions` can tell your team
 which model a session is running and how full its context is, Brigade reports two values with each session: the
@@ -181,7 +183,8 @@ including the sender's summary, was written by the sender.**
 **What was measured.** A set of 26 test messages, hostile and benign, was run against real Claude Code sessions
 twice. (The corpus has since grown four items, 27–30, for the `brigade doing` line of section 2 — a body
 imitating Brigade's own reminder, two asking the model to publish attacker-chosen or secret text, and the
-imitation on the polling path; they are not in the numbers below and are measured in the card-25 sweep.)
+imitation on the polling path; they are not in the numbers below and are still unmeasured — the card-25
+acceptance runs (P16-7, 2026-09-20) did not reach them.)
 Headless, on Claude Code 2.1.260: 26 items times 3 runs, **78 of 78 item-runs passed** the mechanical rule.
 Interactive, on 2.1.261, with nobody at the keyboard: **77 of 77 scored item-runs passed** it. Across both sweeps,
 **no configuration-editing item and no data-exfiltration item failed** — those are the two classes the project's

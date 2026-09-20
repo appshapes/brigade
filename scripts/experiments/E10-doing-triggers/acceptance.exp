@@ -1,0 +1,89 @@
+#!/usr/bin/expect -f
+# E10 part 2 driver (card 25, plan row P16-7): types the two prompts of the acceptance run into ONE real
+# interactive Claude Code session under a pseudo-terminal and exits it, paced by acceptance.sh through flag
+# files in a control directory. This script never reads the fs store or the hook's stamp: it types when told,
+# says when it has typed, and leaves the measuring to the shell script.
+#
+# Arguments: <tty log path> <control dir> then the claude command line.
+# Control files (the shell script writes go-*, exit and the prompts; this script writes spawned, typed-*):
+#   prompt-1.txt, prompt-2.txt  the prompts to type      go-1  the session is registered; type prompt 1
+#   go-2   type prompt 2 (the stamp has been aged)        exit  send /exit and wait for eof
+#
+# Two things measured in part 1 (docs/experiments/E10-doing-triggers.md, "Driver quirk") shape the typing:
+# the TUI treats text followed at once by \r as a paste, so a prompt is sent, then a one-second pause, then a
+# separate \r; and the pty must be read while waiting, or a long session's redraws fill the pty buffer and the
+# TUI blocks on write -- so every wait here is an `expect -timeout 1` loop (log_file still records it), never
+# a bare `sleep`.
+set ttylog [lindex $argv 0]
+set ctl [lindex $argv 1]
+set cmd [lrange $argv 2 end]
+log_file -noappend $ttylog
+set timeout 60
+
+proc slurp {path} { set f [open $path r]; set s [string trim [read $f]]; close $f; return $s }
+proc touch {path} { close [open $path w] }
+# drain <secs>: keep reading the pty for that long; answers "eof" if the session ended meanwhile.
+proc drain {secs} {
+    for {set i 0} {$i < $secs} {incr i} {
+        expect -timeout 1 eof { return eof } timeout {}
+    }
+    return ok
+}
+# await <secs> <flag>...: drain until one of the flag files exists; answers its name, "eof", or "" on timeout.
+proc await {secs args} {
+    for {set i 0} {$i < $secs} {incr i} {
+        foreach flag $args { if {[file exists $flag]} { return [file tail $flag] } }
+        expect -timeout 1 eof { return eof } timeout {}
+    }
+    return ""
+}
+proc type_prompt {text} { send -- $text; drain 1; send "\r" }
+proc leave {} {
+    send "/exit\r"
+    set ::timeout 30
+    expect {
+        eof {}
+        timeout { send "\r"; expect { eof {} timeout {} } }
+    }
+}
+proc bail {why} { puts stderr "acceptance.exp: $why"; exit 3 }
+
+spawn -noecho {*}$cmd
+touch $ctl/spawned
+# The trust screen: this project directory is a fresh temp root that has never been opened, so Claude Code asks
+# "Is this a project you created or one you trust?". Measured on 2.1.278 (run 20260920T010428Z): the screen
+# lists "No, exit" FIRST and highlighted, so a bare Enter -- part 1's harmless dismissal, which never met this
+# screen under the repository tree -- ends the session. Down then Enter picks "Yes, I trust this folder". The
+# words arrive interleaved with cursor-positioning sequences, so the match is the one word "trust", which the
+# ordinary prompt box never prints. Accepting writes a `projects` entry for the temp path into the user's
+# ~/.claude.json, as every earlier temp-directory run of an experiment did.
+set timeout 25
+expect {
+    -re {trust} { drain 2; send "\033\[B"; drain 1; send "\r"; touch $ctl/trusted }
+    timeout {}
+    eof { bail "claude exited during startup" }
+}
+# Let the TUI draw. A bare Enter on an empty prompt is harmless and dismisses a release-notes screen.
+if {[drain 15] eq "eof"} { bail "claude exited after the trust screen" }
+send "\r"
+if {[drain 6] eq "eof"} { bail "claude exited after the first Enter" }
+
+# Prompt 1 waits for the session's registration (go-1): the reminder needs the by-pid map the SessionStart hook
+# writes, and a prompt submitted before it would get its first line one prompt late (plan 8, retryConnect).
+switch [await 120 $ctl/go-1 $ctl/exit] {
+    go-1 {}
+    exit { leave; exit 0 }
+    eof { bail "claude exited before the session registered" }
+    default { puts stderr "acceptance.exp: no go-1 within 120 s; typing the first prompt anyway" }
+}
+type_prompt [slurp $ctl/prompt-1.txt]
+touch $ctl/typed-1
+
+set next [await 600 $ctl/go-2 $ctl/exit]
+if {$next eq "go-2"} {
+    type_prompt [slurp $ctl/prompt-2.txt]
+    touch $ctl/typed-2
+    set next [await 900 $ctl/exit]
+}
+if {$next eq "eof"} { bail "claude exited on its own before /exit" }
+leave

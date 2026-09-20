@@ -309,7 +309,9 @@ than that, shaped like a credential or naming a path on your machine — and `br
 Brigade reads nothing about your work for it: not your prompts, not your transcript. What keeps the model at it is
 a fixed line the prompt hook prints, at most once per ten minutes (plus once more after a `/compact`, or a
 stretch in a mode where Brigade may not ask), saying the line is blank or due again only if the work has
-changed. **You never see that line**: hook output leaves no entry of its own in the transcript. So from the
+changed. **You never see that line as it happens**: on the screen the run appears only as `UserPromptSubmit
+hook`, never the text, while the session's transcript file records it as a `hook_success` hook attachment
+carrying the whole line (measured, `docs/experiments/E10-doing-triggers.md` Part 2). So from the
 version that adds it, what you see after updating — in a session whose permission settings let Brigade ask,
 below — is a `brigade doing` call in your transcript, like any other command the model runs, and the sentence it
 published in the roster's `DOING` column; nothing else changes. The line lives inside one conversation: blank
