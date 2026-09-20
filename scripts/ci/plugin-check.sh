@@ -11,14 +11,9 @@
 # 3  VERSION is one token and equals plugin.json      7  (retired 2026-09-08: README wording is not CI's business)
 # 4  no mcpServers, no channels anywhere under plugin/ 8  sh -n / bash -n / zsh -n on the bootstrap
 #    (a .mcp.json file is check 1's job)              9  shellcheck -s sh on the bootstrap and the CI scripts
-#                                                    10  no skill declares disable-model-invocation
 #
 # What CI does NOT police (Rjae's ruling 2026-09-08, open by default): which skills exist and what they declare,
 # what sits beside a skill's SKILL.md, the modes of anything but the bootstrap, and the README's wording.
-# Check 10 is the one carve-out (Rjae, 2026-09-20, card 28), and it cuts the same way that ruling does: it
-# forbids a skill from declaring itself UNREACHABLE to the model. The ruling keeps CI from narrowing what a
-# skill may do; this keeps a skill from narrowing what a session may do. Brigade's model is open and
-# team-based, so a skill the model cannot reach on its own is a skill that cannot help unasked.
 #
 # The JSON checks are textual on purpose: hooks.json and plugin.json are small hand-written manifests, jq is not
 # on every host that runs `make plugin-check`, and the schema half is covered by `make plugin-validate`
@@ -193,21 +188,6 @@ elif [ -n "${CI:-}" ]; then
 else
   printf 'plugin-check: WARNING: shellcheck is not installed; skipping (CI enforces it)\n' >&2
   ok "shellcheck skipped with a warning (not CI)"
-fi
-
-# ---- 10. no skill disables model invocation (card 28) --------------------------------------------------------
-if [ -d plugin/skills ]; then
-  disabled=""
-  for f in plugin/skills/*/SKILL.md; do
-    [ -f "$f" ] || continue
-    if grep -qE '^[[:space:]]*disable-model-invocation[[:space:]]*:' "$f"; then
-      disabled="$disabled $f"
-    fi
-  done
-  [ -z "$disabled" ] || die "disable-model-invocation is declared in:$disabled -- Brigade's skills are reachable by the model (card 28). user-invocable keeps the slash command; this flag only takes autonomy away."
-  ok "no skill declares disable-model-invocation"
-else
-  skip "no skill declares disable-model-invocation"
 fi
 
 printf 'plugin-check: all checks passed\n'

@@ -12,9 +12,9 @@ allowed-tools: Bash(brigade:*)
 
 # Join the team
 
-`$ARGUMENTS` is the path of the secret file the user saved, or empty. If you reached for this skill yourself,
-or they asked in words rather than through `/brigade:join`, the path must still be **theirs**: take it from what
-they wrote, and if they named none, treat `$ARGUMENTS` as empty and follow step 1 — never supply one.
+`$ARGUMENTS` is the path of the secret file the user saved, or empty: typed by them through `/brigade:join`, or
+passed by you when they asked in words and you loaded this skill — the path exactly as they wrote it, or nothing
+if they named none. The path is always **theirs**: never one you chose, guessed or wrote.
 
 1. If `$ARGUMENTS` is non-empty, run exactly `brigade team join --secret-file "<that path>"` — the path quoted, one
    Bash call. If it is empty, run exactly `brigade team join`. Nothing else: never read the file, never print or ask

@@ -9,6 +9,26 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Removed
+
+- **`make plugin-check` no longer fails on a skill that declares `disable-model-invocation`.** 0.9.0 added that
+  as check 10, a carve-out from the 2026-09-08 ruling that CI does not police what a skill declares. The ruling
+  stands without carve-outs: the check is gone, `scripts/ci/plugin-check.sh` is byte for byte what it was before
+  0.9.0, and "no Brigade skill disables model invocation" is a convention recorded in `CLAUDE.md` instead.
+
+### Fixed
+
+- **The `sessions` and `join` skills no longer tell a model its own arguments are empty.** 0.9.0 made both
+  model-invocable and reworded their openings, but wrongly: a model that loads a skill PASSES its arguments, so
+  "`$ARGUMENTS` is empty when you reached for this skill yourself" was false, and `sessions`' "never a flag they
+  did not type" would have had a model refuse the `--all` it had just passed on the user's behalf. Both now say
+  who supplies the argument on each route — typed by the user through the slash command, or passed by the model
+  when the user asked in words — and `sessions` forbids a flag the user did not **ask for**. The guardrails are
+  unchanged: `join`'s path is always the user's, never chosen, guessed or written by the model.
+- **`docs/security.md` §5 miscounted.** It said four skills became reachable in 0.9.0; three did (`join`,
+  `sessions`, `update`) — `setup` never carried the flag. The 0.9.0 entry below repeats the miscount and is
+  left as shipped; the security document is corrected.
+
 ## [0.9.0] — 2026-09-20
 
 ### Changed

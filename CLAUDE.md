@@ -46,6 +46,10 @@
   the same function): before pushing a shell file run
   `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.9.0 -s sh <file>` as well as the local one, and
   re-pin this sentence and `scripts/ci/README.md`'s copy whenever the inventory step prints a different version.
+- Every Brigade skill is reachable by the model: never add `disable-model-invocation` to a skill under
+  `plugin/skills/` (card 28, owner ruling 2026-09-20 — Brigade's security model is open and team-based, and a
+  skill the model cannot reach cannot help unasked). This is a convention, not a CI check: CI does not police
+  what a skill declares (ruling 2026-09-08, which stands without carve-outs).
 - Local dev: `make plugin-dev` writes the dev-binary pointer and starts Claude Code with the local plugin; `make
   plugin-dev-off` removes it. Two personas on one machine: pass
   `--settings '{"pluginConfigs":{"brigade@inline":{"options":{"config_dir":"<dir>"}}}}'` (P7-7: the profile

@@ -425,8 +425,8 @@ the three: it reaches one read-only verb, where `Bash(brigade:*)` reaches every 
 `Bash(claude plugin:*)` installs and removes software.
 
 **All five skills are model-invocable from 0.9.0.** `join`, `sessions` and `update` carried
-`disable-model-invocation: true` until then; the key is gone from the tree, `user-invocable: true` stays so the
-slash commands are unchanged, and `scripts/ci/plugin-check.sh` check 10 fails if any skill declares it again.
+`disable-model-invocation: true` until then; the key is gone from the tree, and `user-invocable: true` stays so
+the slash commands are unchanged. It is a convention, not a CI check: CI does not police what a skill declares.
 Be plain about what that trades. No permission boundary fell: a message cannot load a skill — the model decides
 what to load, and an untrusted body can never widen what this session may do — and the `brigade` CLI is on PATH
 whether or not a skill wraps it. What changed is **who can reach the grant**. Each skill's `allowed-tools`
@@ -436,9 +436,9 @@ it installs and removes software. Manual mode still raises the Skill dialog eith
 deliberate trade, and the direction it has chosen throughout: Brigade is team-based and open by default, and a
 skill the model cannot reach is a skill that cannot help unasked.
 
-It also widens what §3 measured. That measurement — 98 interactive sessions with a hostile message, in which
-`brigade:team-messaging` was never loaded once — covered the only model-invocable skill there was. Four more
-are reachable now, and none of them has been measured under a hostile message since. Do not read §3 as
+It also bounds what §3 measured. That measurement — 98 interactive sessions with a hostile message, in which
+`brigade:team-messaging` was never loaded once — was about that one skill. `join`, `sessions` and `update`
+became reachable after it, and none of them has been measured under a hostile message. Do not read §3 as
 covering them.
 
 ### 5.1 The text-matching limit, and what was done about it
