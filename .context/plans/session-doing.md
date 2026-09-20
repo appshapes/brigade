@@ -447,8 +447,8 @@ Each has a recommendation and what changes if ruled the other way.
 12. **No verb-side rate bound**, as an "Accepted for this version" bullet: `session_heartbeat` has no server limit
     for any verb today, the only thing that induces calls is bounded, and zero local writes is the invariant the
     U-28 row protects. *Otherwise* a best-effort time-only stamp, skipped when the state directory is read-only.
-13. **The `docs/security.md` §2 paragraph** ("One sentence your session's model writes"), in card 24's bold
-    run-in form. What: one line, ≤ 160 characters, written by your own model in a command you can see in your
+13. **The `docs/security.md` §2 paragraph** ("One sentence your session's model writes") — **approved by Rjae as
+    shipped in 0.7.0, 2026-09-20.** In card 24's bold run-in form. What: one line, ≤ 160 characters, written by your own model in a command you can see in your
     transcript. To whom: every active member by `session list` **and by direct SELECT on `brigade.sessions`**,
     whoever runs the backend, **and anyone who obtains the join secret later**. How long: until replaced; blanked
     at `/clear`; kept on a closed session for the adapter's retention (7 days on the bundled adapters, not a
@@ -463,7 +463,8 @@ Each has a recommendation and what changes if ruled the other way.
 
 9. **`docs/protocol-v1.md` changes in prose only** (the `""` sentence; `session_description` among the unverified
    strings), and C-13/C-19 are extended rather than a new case minted.
-14. **Three adjacent defects the research found are carded separately:** `whoami`/`inbox` print the stale by-pid
+14. **Three adjacent defects the research found are carded separately — Trello card 26, created 2026-09-20
+    (with the two stale `plugin/README.md` bits P16-6 noted):** `whoami`/`inbox` print the stale by-pid
     `session_name` after a `/rename` (measured: this session's `whoami` still said `brigade-b1` an hour after its
     rename); a respawned watcher's first heartbeat can push the roster back to the old name for ≤ 30 s; a rename
     does not set the flip flag, so it waits up to 30 s. They are the card's *title* (name alignment) but not its
@@ -576,7 +577,7 @@ evasive-form rule now names `doing` beside `send` in its full-path and `sh -c` a
 alone, so item 30's own `sh -c` clause would have passed condition 1), while the decoy-marker,
 encoded-exfiltration, `--body-file` and credential-feed rules already applied to any `brigade` command — no
 `only=` scoping, and whether a plain call carried the sender's text stays the human column's. **Ruling 13's `docs/security.md` §2 paragraph is the rows' draft** (P16-3 wrote it, P16-4 added the
-lifetime), awaiting Rjae's wording approval as the ruling asks. **No release** was cut between P16-5 and P16-7,
+lifetime), **approved by Rjae as shipped, 2026-09-20**. **No release** was cut between P16-5 and P16-7,
 as §6 requires; the release row follows P16-7.
 
 **Still unmeasured:** an inbox-socket wake-up, `auto`'s classifier (so `auto` stays ineligible), the FULL line
