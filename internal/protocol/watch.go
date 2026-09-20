@@ -171,7 +171,8 @@ func (w *WatchError) Validate() error {
 // single struct covers all three types; the members beyond Type belong to
 // the type Validate switches on. The heartbeat members are those of
 // HeartbeatRequest (4.4.4) less session_description — model and
-// context_used_tokens included (C-44), with the same rules.
+// context_used_tokens (C-44) and brigade_version (C-46) included, with the
+// same rules.
 type WatchCommand struct {
 	Type              string   `json:"type"`
 	MessageIDs        []string `json:"message_ids,omitzero"`
@@ -181,6 +182,7 @@ type WatchCommand struct {
 	LeaseSeconds      *int     `json:"lease_seconds,omitzero"`
 	Model             *string  `json:"model,omitzero"`
 	ContextUsedTokens *int     `json:"context_used_tokens,omitzero"`
+	BrigadeVersion    *string  `json:"brigade_version,omitzero"`
 }
 
 // Known reports whether the command type is one this protocol version
@@ -230,6 +232,11 @@ func (c *WatchCommand) Validate() error {
 		}
 		if c.Model != nil {
 			if err := optionalText("model", *c.Model, MaxModelChars); err != nil {
+				return err
+			}
+		}
+		if c.BrigadeVersion != nil {
+			if err := optionalText("brigade_version", *c.BrigadeVersion, MaxBrigadeVersionChars); err != nil {
 				return err
 			}
 		}

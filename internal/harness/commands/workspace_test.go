@@ -53,7 +53,7 @@ func TestSessionsShowsTheRepository(t *testing.T) {
 	lines := strings.Split(strings.TrimRight(f.out.String(), "\n"), "\n")
 	want := []string{
 		"SESSION  NAME          REPO           STATE   MEMBER                    SEEN",
-		shortSession(selfSessionID) + "    payments-api  thinktech-api  active  payments-api@example.com  5s (this session)",
+		shortSession(selfSessionID) + "    payments-api  thinktech-api  active  payments-api@example.com  5s",
 		"bbbbb    billing                      active  billing@example.com       5s",
 		RosterUnverifiedNote,
 	}

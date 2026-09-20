@@ -757,6 +757,16 @@ anyway, and the fill happens at the next session start after you migrate. Migrat
 each member updates. Nobody has to be told to do anything in particular, and a member who wants no label sets the
 plugin option `label` to `none`.
 
+**The VERSION column needs `20260920180000`.** From plugin 0.10.0 every session reports the Brigade version it is
+running, and `brigade sessions` shows it in a `VERSION` column — which is how a team sees who is behind a release.
+`20260920180000_session_brigade_version.sql` is what stores it, and it is the same ordinary step:
+`make backend-install project=<ref>`, with `migration list` as the check. Unlike a label, the version rides
+**every** registration and heartbeat, so on a project you have not migrated each session finds out on its first
+call, drops the version — and only the version: the model, the context and the label are all still stored — says
+so once on stderr, and drops it without asking again for ten minutes at a time. Until you migrate, the column is
+simply absent for your team; afterwards a blank cell means that session's plugin is older than 0.10.0. Either
+order works, and nobody has to be told to do anything in particular.
+
 **Order matters, and it is not a preference.** Apply the migrations *before* exposing the `brigade` schema on the
 Data API. A project that exposes a schema which does not exist yet leaves PostgREST looping on
 `3F000 schema "brigade" does not exist`; it never becomes healthy, and the error it reports names PostgREST

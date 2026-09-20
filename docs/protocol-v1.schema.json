@@ -250,6 +250,17 @@
               "type": "null"
             }
           ]
+        },
+        "brigade_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "type": "object"
@@ -684,6 +695,17 @@
             }
           ]
         },
+        "brigade_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "created_at": {
           "type": "string",
           "format": "date-time"
@@ -785,6 +807,17 @@
               "type": "integer",
               "maximum": 9007199254740991,
               "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "brigade_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
             },
             {
               "type": "null"
@@ -1008,6 +1041,17 @@
               "type": "integer",
               "maximum": 9007199254740991,
               "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "brigade_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
             },
             {
               "type": "null"

@@ -42,3 +42,23 @@ func resolve(stamped string, read func() (*debug.BuildInfo, bool)) string {
 	}
 	return Unknown
 }
+
+// Claimed is the version this binary reports about itself on the wire —
+// the `brigade_version` member of a registration and a heartbeat (4.4.2,
+// 4.4.4; C-46) — or nil when it has none to claim. A binary that was
+// neither stamped nor installed from a module version (a plain `go build`,
+// `go run`, a test binary) answers [Unknown] to a person who asks, but
+// says NOTHING to a roster: an absent member reads as a blank cell, which
+// is the honest rendering of "no version", where the word "unknown" in a
+// VERSION column would be a claim of its own.
+func Claimed() *string { return claimed(String()) }
+
+// claimed is the testable core of Claimed, as resolve is of String: the
+// package's tests run in parallel and read Version, so none of them may
+// write it.
+func claimed(v string) *string {
+	if v == "" || v == Unknown {
+		return nil
+	}
+	return &v
+}

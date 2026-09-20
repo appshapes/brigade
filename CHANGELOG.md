@@ -9,6 +9,47 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **`brigade sessions` shows the Brigade version each session is running, in a `VERSION` column.** Nothing on the
+  wire said which Brigade a teammate's session ran — a session record carried `harness_version`, which is the
+  host's (Claude Code's) — so nobody could tell from the roster who was behind a release. A session now reports
+  its own version in a new optional member, `brigade_version`, at registration and on **every heartbeat**: the
+  heartbeat is the mechanism, because `/reload-plugins` replaces a session's watcher with a newer one without any
+  registration, and the new watcher's first heartbeat is how the roster learns the session moved. The column is
+  optional and table-wide like `MODEL` — present, before `SEEN`, when at least one listed session carries the
+  fact — and a **blank cell is an answer too**: that session's plugin predates this release. The value is
+  harness-reported, unverified text: in the table it goes through the attribute rules (64 code points; quotes,
+  angle brackets and line breaks dropped), and `--json` carries it sanitised under `brigade_version`. A binary
+  with no version to claim — a plain `go build` — sends no member at all rather than the word `unknown`.
+
+- **Protocol: the optional member `brigade_version` and the capability `session.brigade_version`** (conformance
+  case C-46), on `SessionRegistration`, `SessionRecord`, `HeartbeatRequest` and the watch `heartbeat` command,
+  with `model`'s rules: nullable, absent means unchanged on a heartbeat, never cleared by one, and an adapter
+  without the capability accepts the member and ignores it. It is an **addition** — an existing conforming
+  adapter passes unchanged (JSON convention 2, C-17) — and for that reason its 64-code-point bound is a
+  wire-format one with **no `limits` member**, like `context_used_tokens`'s: every member of `limits` is required,
+  so a new one would have failed `describe` for every adapter written before it, which is a protocol major. Both
+  bundled adapters implement it. The suite is 48 cases.
+
+- **Backend migration `20260920180000_session_brigade_version.sql`** — append-only, like the two before it: a
+  nullable column on `brigade.sessions`, the member on `session_record`, and one defaulted parameter appended to
+  `register_session` and `session_heartbeat`. **Administrators: apply it with `make backend-install
+  project=<ref>`** ([`docs/setup.md`](docs/setup.md)); until then the `VERSION` column is absent for your team and
+  nothing else changes. Both directions of schema compatibility hold. An older adapter never names the parameter
+  and matches the new signature through its default. A newer adapter on a backend without the migration is
+  refused once (`PGRST202`), sends the call again without the version — dropping that value and **only** that
+  value: the model, the context and the label are still stored — says so once on stderr, and drops it without a
+  probe for ten minutes at a time, so a lease is never a round trip longer for a migration nobody applied.
+
+### Removed
+
+- **`(this session)` is gone from the roster's `SEEN` cell.** The operator knows their own session, and the mark
+  made their row the widest in every table — fifteen columns on exactly one row. `brigade sessions --json` still
+  carries `self_session_id` and `brigade whoami` still names the session, so a model loses nothing. It also
+  deletes a forgery target: the tests that proved a hostile doing line could not fake the mark now prove the
+  roster prints no such mark at all.
+
 ## [0.9.1] — 2026-09-20
 
 ### Fixed

@@ -649,6 +649,42 @@ func TestPolicyWarnings(t *testing.T) {
 	}
 }
 
+// TestRegistrationCarriesTheBrigadeVersion pins card 29's hook half
+// (brigade_version, C-46): the registration names the version of the
+// binary registering — Brigade's own, beside the host's, which
+// harness_version has always carried — and a binary with no version to
+// claim sends no member at all rather than the word "unknown". A test
+// binary IS such a binary, which is why the version is injected.
+func TestRegistrationCarriesTheBrigadeVersion(t *testing.T) {
+	t.Parallel()
+	for name, claimed := range map[string]*string{"a stamped binary": new("0.10.0"), "a binary with no version": nil} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.deps.BrigadeVersion = func() *string { return claimed }
+			seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+			if exit, _, _ := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
+				t.Fatal(exit)
+			}
+			raw := seam.callsFor("session register")[0].Stdin
+			var reg protocol.SessionRegistration
+			if err := json.Unmarshal(raw, &reg); err != nil {
+				t.Fatal(err)
+			}
+			switch {
+			case claimed == nil && strings.Contains(string(raw), "brigade_version"):
+				t.Errorf("the registration names brigade_version from a binary with no version: %s", raw)
+			case claimed != nil && (reg.BrigadeVersion == nil || *reg.BrigadeVersion != *claimed):
+				t.Errorf("registered brigade_version %v, want %q: %s", reg.BrigadeVersion, *claimed, raw)
+			}
+			// The host's version is a different fact and still travels.
+			if reg.HarnessVersion == "" {
+				t.Errorf("harness_version is empty: %s", raw)
+			}
+		})
+	}
+}
+
 // TestShadowingWarning is E0-8 (e): any `brigade` on the hook's PATH
 // other than the plugin's own bootstrap earns the warning; none, or a
 // symlink to the plugin's, does not.

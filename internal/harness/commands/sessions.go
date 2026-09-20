@@ -41,10 +41,12 @@ type sessionsResult struct {
 }
 
 // Sessions implements `brigade sessions [--all] [--json]` (6.4): a padded
-// plain-text table, one row per session, active first, the session's own
-// id marked in its SEEN cell, offline sessions hidden unless --all with a
-// count of what was hidden, and `truncated` noted when the adapter capped
-// the list. The SESSION column is a short display id (shortSession) and
+// plain-text table, one row per session, active first, offline sessions
+// hidden unless --all with a count of what was hidden, and `truncated`
+// noted when the adapter capped the list. No row is marked as the reader's
+// own (card 29): the operator knows their session, the mark made their row
+// the widest in every table, and `--json` still carries self_session_id
+// for a model that needs to know. The SESSION column is a short display id (shortSession) and
 // the NAME column is cut to tableNameChars; `--json` always carries the
 // full id `brigade send` needs and the full name.
 //
@@ -127,7 +129,7 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	// absent (plan 5.3), exactly as --json omits it, and a session with no
 	// line gets no continuation line under its row.
 	doings := make([]string, len(records))
-	hasRepo, hasModel, hasContext := false, false, false
+	hasRepo, hasModel, hasContext, hasVersion := false, false, false, false
 	for i, r := range records {
 		members[i] = rosterMember(r.HumanLabel, r.PrincipalRef)
 		if r.WorkspaceLabel != nil && workspaceLine(*r.WorkspaceLabel) != "" {
@@ -138,6 +140,11 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		}
 		if r.ContextUsedTokens != nil {
 			hasContext = true
+		}
+		// "Has a version" is decided on the rendered cell, as a doing line
+		// is: a value that sanitises to nothing is no value.
+		if r.BrigadeVersion != nil && attrLine(*r.BrigadeVersion) != "" {
+			hasVersion = true
 		}
 		if r.SessionDescription != nil {
 			doings[i] = descriptionLine(*r.SessionDescription)
@@ -154,6 +161,13 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	}
 	if hasContext {
 		header = append(header, "CONTEXT")
+	}
+	// VERSION is the Brigade each session runs (card 29; brigade_version,
+	// C-46), optional and table-wide like MODEL. A blank cell is itself an
+	// answer: that session's harness predates the member, or its backend
+	// predates the migration that stores it.
+	if hasVersion {
+		header = append(header, "VERSION")
 	}
 	header = append(header, "SEEN")
 
@@ -185,15 +199,16 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 			}
 			cells = append(cells, ctx)
 		}
-		seen := seenAgoCell(r.LastSeenAt, list.ServerTime, now)
-		// The marker is keyed on the map's own id, not on the adapter's
-		// is_self: is_self is true for every session of this PROFILE (a
-		// second Claude window on the same profile included), while "this
-		// session" is the one this process runs in.
-		if self != "" && r.SessionID == self {
-			seen += " (this session)"
+		// brigade_version is unverified text a remote harness reported, like
+		// model: the attribute rules (64 code points, no breakers), one cell.
+		if hasVersion {
+			version := ""
+			if r.BrigadeVersion != nil {
+				version = attrLine(*r.BrigadeVersion)
+			}
+			cells = append(cells, version)
 		}
-		cells = append(cells, seen)
+		cells = append(cells, seenAgoCell(r.LastSeenAt, list.ServerTime, now))
 		rows = append(rows, cells)
 	}
 
@@ -210,10 +225,9 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		// The doing line is a teammate's model's own words, on a line of
 		// its own under the row it belongs to. descriptionLine has folded
 		// it onto one line and cut it, and doingRow neutralises it, so it
-		// can forge neither a row nor the roster's own " (this session)"
-		// mark — that mark is the last thing in the SEEN cell of the row
-		// ABOVE this line. An offline session under --all keeps its text;
-		// the STATE column carries the tense (ruling 6).
+		// can forge no row — and there is no " (this session)" mark left
+		// for it to forge either (card 29). An offline session under --all
+		// keeps its text; the STATE column carries the tense (ruling 6).
 		if doings[i] != "" {
 			lines = append(lines, doingRow(row[0], doings[i]))
 		}

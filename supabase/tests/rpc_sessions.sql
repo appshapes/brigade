@@ -12,7 +12,7 @@
 -- random uuid (timing recorded).
 begin;
 \ir helpers/auth.sql
-select plan(145);
+select plan(158);
 
 create function pg_temp.err(q text) returns text language plpgsql as $$
 begin
@@ -322,6 +322,32 @@ select brigade.register_session(p_team_id => :'team_a'::uuid, p_name => 'n-none'
 select is((:'reg_n'::jsonb)->>'human_label', null::text, 'register_session: no p_human_label leaves the record''s human_label null (C-45)');
 select is((select human_label from brigade.memberships where team_id = :'team_a'::uuid and user_id = :'nn'::uuid), null::text, 'register_session: no p_human_label writes nothing to the membership row (C-45)');
 select throws_ok($$select brigade.register_session(p_team_id => '$$ || :'team_a' || $$', p_name => 'n-cap', p_human_label => '$$ || repeat('x', 129) || $$')$$, '22023', 'brigade:invalid_input:human_label', 'register_session: a human_label over 128 characters is invalid_input naming human_label (C-45)');
+select pg_temp.logout();
+
+-- brigade_version (C-46; 20260920180000_session_brigade_version.sql): the version of the Brigade harness a session
+-- runs, appended to both RPCs and to the record. Named arguments throughout, so this block does not care where the
+-- parameter sits. V joins team A and registers; the value comes back on the record, is stored, rides a heartbeat
+-- (a harness can be replaced by a newer one while its session lives), is never cleared by a bare one (4.4.4), is
+-- on every listed record, and is capped at 64 CODE POINTS (char_length), not bytes.
+select pg_temp.new_user() as vv \gset
+select pg_temp.login(:'vv', true, 'Vera');
+select is((brigade.join_team(:'secret_a', null))->>'status', 'joined', 'fixture: V joins team A');
+select brigade.register_session(p_team_id => :'team_a'::uuid, p_name => 'v-plain') as reg_v0 \gset
+select ok((:'reg_v0'::jsonb) ? 'brigade_version' and (:'reg_v0'::jsonb)->'brigade_version' = 'null'::jsonb, 'register (defaults): brigade_version is present and null when not given (C-46)');
+select brigade.register_session(p_team_id => :'team_a'::uuid, p_name => 'v-versioned', p_brigade_version => '0.10.0') as reg_v \gset
+select (:'reg_v'::jsonb)->>'session_id' as s_v \gset
+select is((:'reg_v'::jsonb)->>'brigade_version', '0.10.0', 'register: brigade_version returned exactly as given (C-46)');
+select is((select brigade_version from brigade.sessions where id = :'s_v'::uuid), '0.10.0', 'register: brigade_version stored as given');
+select lives_ok($$select brigade.session_heartbeat(p_session_id => '$$ || :'s_v' || $$', p_brigade_version => '0.10.1')$$, 'heartbeat: brigade_version accepted (C-46)');
+select is((select brigade_version from brigade.sessions where id = :'s_v'::uuid), '0.10.1', 'heartbeat: brigade_version applied — the harness was replaced by a newer one');
+select lives_ok($$select brigade.session_heartbeat(p_session_id => '$$ || :'s_v' || $$')$$, 'heartbeat: a bare renewal is accepted');
+select is((select brigade_version from brigade.sessions where id = :'s_v'::uuid), '0.10.1', 'heartbeat: a bare renewal keeps brigade_version (a heartbeat never clears it, 4.4.4)');
+select throws_ok($$select brigade.register_session(p_team_id => '$$ || :'team_a' || $$', p_name => 'v-over', p_brigade_version => '$$ || repeat('v', 65) || $$')$$, '22023', 'brigade:invalid_input:brigade_version', 'register: a 65-code-point brigade_version is invalid_input:brigade_version (C-46)');
+select lives_ok($$select brigade.register_session(p_team_id => '$$ || :'team_a' || $$', p_name => 'v-cap', p_brigade_version => '$$ || repeat('é', 64) || $$')$$, 'register: a 64-code-point brigade_version of 128 bytes is accepted (char_length)');
+select throws_ok($$select brigade.session_heartbeat(p_session_id => '$$ || :'s_v' || $$', p_brigade_version => '$$ || repeat('v', 65) || $$')$$, '22023', 'brigade:invalid_input:brigade_version', 'heartbeat: a 65-code-point brigade_version is invalid_input:brigade_version (C-46)');
+select brigade.list_sessions(:'team_a'::uuid, true) as ls_v \gset
+select is((select s->>'brigade_version' from jsonb_array_elements((:'ls_v'::jsonb)->'sessions') s where s->>'session_id' = :'s_v'), '0.10.1', 'list_sessions: the record carries brigade_version as last reported (C-46)');
+select is((select count(*) from jsonb_array_elements((:'ls_v'::jsonb)->'sessions') s where not (s ? 'brigade_version')), 0::bigint, 'list_sessions: every record carries the brigade_version member (null when never reported)');
 select pg_temp.logout();
 
 select * from finish();

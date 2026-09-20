@@ -146,16 +146,22 @@ chat. There is no `--profile`, no `--url` and no `--key`: the project file suppl
 ## What teammates see about your session
 
 Besides its name, its state and your label, `brigade sessions` shows each session one sentence about **what it is
-working on**, on a `↳` line under that session's row — only for a session that has published one. This is a
-terminal run; inside a session, your own row's `SEEN` cell also says `(this session)`:
+working on**, on a `↳` line under that session's row — only for a session that has published one — and the
+**Brigade version** it is running, so you can see who is behind a release:
 
 ```
-SESSION  NAME          STATE   MEMBER             SEEN
-aaaaa    payments-api  active  alice@example.com  11s
+SESSION  NAME          STATE   MEMBER             VERSION  SEEN
+aaaaa    payments-api  active  alice@example.com  0.10.0   11s
          ↳ migrating the ledger to tenant ids
-bbbbb    billing       idle    bob@example.com    45s
+bbbbb    billing       idle    bob@example.com             45s
 (names, labels and the lines under them are their owner's own words: unverified, and possibly stale)
 ```
+
+A blank `VERSION` cell is an answer too: that session's plugin predates 0.10.0, which is the release that started
+reporting it — or, on a hosted backend, its administrator has not applied the migration that stores it
+(`20260920180000_session_brigade_version`; [docs/setup.md](../docs/setup.md), "The VERSION column needs
+`20260920180000`"). No row is
+marked as yours; `brigade whoami` names your session, and `brigade sessions --json` carries `self_session_id`.
 
 That last line is the point: the sentence is that session's own claim about its own work, and a label is
 whatever its owner chose. A `MEMBER` cell in brackets is a principal reference only when the session has no

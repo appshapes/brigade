@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -938,5 +939,60 @@ func TestDecision6PlaceholdersOnlyInOpaqueStrings(t *testing.T) {
 	}
 	if placeholders == 0 {
 		t.Fatal("no example carries a placeholder at all; the instrument saw nothing")
+	}
+}
+
+// TestBrigadeVersionIsOptionalBoundedAndOnAllFourShapes pins C-46's member
+// at the wire: optional and nullable on the registration, the record, the
+// heartbeat and the watch heartbeat command; bounded at
+// MaxBrigadeVersionChars CODE POINTS on each; advertised by the describe
+// example under exactly "session.brigade_version" — and with NO `limits`
+// member, which is the part that keeps the addition compatible: every
+// member of `limits` is required (Limits.validate), so a new one would fail
+// `describe` for every adapter written before it.
+func TestBrigadeVersionIsOptionalBoundedAndOnAllFourShapes(t *testing.T) {
+	t.Parallel()
+	euro := "€"
+	atCap := strings.Repeat(euro, MaxBrigadeVersionChars)
+	over := strings.Repeat(euro, MaxBrigadeVersionChars+1)
+
+	reg := validRegistration()
+	if reg.BrigadeVersion != nil {
+		t.Fatal("the valid registration carries a brigade_version; the member is optional")
+	}
+	hbType := CommandHeartbeat
+	shapes := map[string]func(*string) error{
+		"SessionRegistration": func(v *string) error { r := validRegistration(); r.BrigadeVersion = v; return r.Validate() },
+		"HeartbeatRequest":    func(v *string) error { return (&HeartbeatRequest{BrigadeVersion: v}).Validate() },
+		"WatchCommand":        func(v *string) error { return (&WatchCommand{Type: hbType, BrigadeVersion: v}).Validate() },
+	}
+	for name, validate := range shapes {
+		if err := validate(nil); err != nil {
+			t.Errorf("%s without a brigade_version was rejected: %v", name, err)
+		}
+		if err := validate(&atCap); err != nil {
+			t.Errorf("%s: a %d-code-point brigade_version (%d bytes) was rejected: %v", name, MaxBrigadeVersionChars, len(atCap), err)
+		}
+		err := validate(&over)
+		requireInvalidInput(t, err, "brigade_version")
+		if d := detailsOf(t, err); d["limit"] != "64" || d["unit"] != "codepoints" || d["actual"] != "65" {
+			t.Errorf("%s: details = %v, want limit 64 codepoints, actual 65", name, d)
+		}
+	}
+
+	var example struct {
+		Capabilities []string       `json:"capabilities"`
+		Limits       map[string]any `json:"limits"`
+	}
+	if err := json.Unmarshal(readExample(t, "describe_result.json"), &example); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(example.Capabilities, "session.brigade_version") {
+		t.Errorf("describe_result.json capabilities %v lack %q", example.Capabilities, "session.brigade_version")
+	}
+	for member := range example.Limits {
+		if strings.Contains(member, "brigade_version") {
+			t.Errorf("`limits` carries %q: a required limits member fails describe for every older adapter", member)
+		}
 	}
 }

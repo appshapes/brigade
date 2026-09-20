@@ -64,6 +64,20 @@ const (
 // so unlike MaxModelChars it has no `limits` member (4.4.1).
 const MaxContextUsedTokens = 1<<53 - 1
 
+// MaxBrigadeVersionChars bounds `brigade_version` (4.4.2, 4.4.3, 4.4.4 and
+// the watch heartbeat command of 4.4.9; capability session.brigade_version,
+// C-46), in code points: the version of the Brigade harness a session is
+// running, as that harness reports it. Like MaxContextUsedTokens it is a
+// wire-format bound and NOT a member of `limits` (4.4.1), and for a reason
+// that outranks P1-4 decision 1: Limits.validate requires every member it
+// knows to be positive, so a new one would fail `describe` for every
+// adapter written before it — a protocol change an existing conforming
+// adapter fails is a new protocol major, and this member is an addition.
+// 64 is the frame's attribute cap (6.7 rule 4), which is how a consumer
+// displays a short identifying string like this one; a release version is
+// a fraction of it.
+const MaxBrigadeVersionChars = 64
+
 // The protocol v1 lease bounds of plan 4.4.1, in seconds.
 const (
 	// LeaseDefaultSeconds is the lease granted when the caller names none.

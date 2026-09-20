@@ -296,6 +296,17 @@ func sanitizeRecord(r *protocol.SessionRecord) {
 		m := protocol.SanitizeModel(*r.Model)
 		r.Model = &m
 	}
+	// brigade_version is harness-reported text too (C-46): the attribute
+	// rules, as harness_version above. One that sanitises to nothing is
+	// dropped, so --json agrees with the table's blank cell.
+	if r.BrigadeVersion != nil {
+		v := protocol.SanitizeAttribute(*r.BrigadeVersion)
+		if oneLine(v) == "" {
+			r.BrigadeVersion = nil
+		} else {
+			r.BrigadeVersion = &v
+		}
+	}
 }
 
 // itoa is strconv.Itoa under a shorter name for the message builders.
@@ -326,8 +337,8 @@ const borderBar = "│"
 // border still closed, and card 25 deliberately let them through. Card 27
 // made the column boundary a RUN OF TWO SPACES, and two blank glyphs in a
 // row are indistinguishable from it: that is enough to forge a cell
-// boundary, and enough to land a forged " (this session)" under the SEEN
-// header of a row that is not this session. Each becomes a visible "?"
+// boundary, and so a cell's worth of text under any header the forger
+// likes. Each becomes a visible "?"
 // for the same reason the bar becomes "|" — a reader has to be able to
 // see that it is not the table's own spacing.
 var cellNeutraliser = strings.NewReplacer(

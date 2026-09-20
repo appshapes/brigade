@@ -54,6 +54,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/backoff"
@@ -155,6 +156,11 @@ type Deps struct {
 	// test that asserts the exit ordering: it is zero the instant Run
 	// returns. nil in production, which counts nothing.
 	Writers *WriterCount
+	// BrigadeVersion is this binary's own version as a heartbeat and a
+	// re-open report it (brigade_version, C-46); nil means
+	// buildinfo.Claimed, which is nil itself for a binary with no version
+	// to claim. A test injects one: a test binary has none.
+	BrigadeVersion func() *string
 
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
@@ -217,6 +223,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.Post == nil {
 		d.Post = prod.Post
+	}
+	if d.BrigadeVersion == nil {
+		d.BrigadeVersion = buildinfo.Claimed
 	}
 	if d.HeartbeatInterval <= 0 {
 		d.HeartbeatInterval = prod.HeartbeatInterval
@@ -489,6 +498,12 @@ type watcher struct {
 	// the RPC path's error and an error event — from racing.
 	harnessVersion string
 	reopening      atomic.Bool
+	// brigadeVersion is THIS binary's own version as it reports it on the
+	// wire (brigade_version, C-46), or nil when it has none to claim
+	// (buildinfo.Claimed). It rides every heartbeat and every re-open, which
+	// is how the roster learns that `/reload-plugins` replaced the watcher
+	// with a newer one. A field rather than a call so a test can set it.
+	brigadeVersion *string
 
 	// ctx ends with a signal, the Stop channel or a liveness verdict;
 	// cancel is what every exit path calls first.
@@ -575,8 +590,9 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 			}
 			return "unknown"
 		}(),
-		pidPath:     pidfile.Path(rc.env.StateDir, rc.env.ClaudePID),
-		releasePath: inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
+		brigadeVersion: d.BrigadeVersion(),
+		pidPath:        pidfile.Path(rc.env.StateDir, rc.env.ClaudePID),
+		releasePath:    inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
 			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath),
 	}

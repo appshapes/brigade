@@ -49,6 +49,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
@@ -197,6 +198,10 @@ type Deps struct {
 	// LookPath searches a PATH value for an executable name (the
 	// shadowing check of 6.2); nil means the package's own search.
 	LookPath func(pathVar, name string) (string, bool)
+	// BrigadeVersion is this binary's own version as a registration
+	// reports it (brigade_version, C-46); nil means buildinfo.Claimed,
+	// which is nil itself for a binary with no version to claim.
+	BrigadeVersion func() *string
 	// Sink, when set, is passed to the watcher as `--sink <file>` (6.6).
 	// Only a test harness sets it; production never does.
 	Sink string
@@ -225,6 +230,9 @@ func RealDeps() Deps {
 // withDefaults fills every nil member with its production value.
 func (d Deps) withDefaults() Deps {
 	prod := RealDeps()
+	if d.BrigadeVersion == nil {
+		d.BrigadeVersion = buildinfo.Claimed
+	}
 	if d.Now == nil {
 		d.Now = prod.Now
 	}

@@ -174,6 +174,10 @@ func TestRequiredPinsDecisions2And5(t *testing.T) {
 		{"SessionRecord", "context_used_tokens"},
 		{"HeartbeatRequest", "model"},
 		{"WatchCommand", "context_used_tokens"},
+		{"SessionRegistration", "brigade_version"}, // C-46: optional and nullable on all four shapes
+		{"SessionRecord", "brigade_version"},
+		{"HeartbeatRequest", "brigade_version"},
+		{"WatchCommand", "brigade_version"},
 		{"WatchStatus", "detail"},
 		{"ErrorObject", "details"},
 		{"ErrorObject", "retry_after_ms"},

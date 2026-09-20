@@ -193,6 +193,7 @@ func (w *watcher) reopen(s *session) {
 		LeaseSeconds:      s.lease,
 		Model:             model,
 		ContextUsedTokens: tokens,
+		BrigadeVersion:    w.brigadeVersion,
 		Resume:            &protocol.ResumeRef{SessionID: w.sessionID},
 	}
 	// A resume that omits the label clears it at the backend, so the

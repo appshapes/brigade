@@ -151,6 +151,14 @@ path is never sent** either — it is held only in Brigade's own 0600 state dire
 finds it. The model string is handled like every other display string on the wire — capped, sanitised, and never taken
 as fact — because it is a harness's word about itself, not something the backend can check.
 
+**One fact about Brigade itself.** From 0.10.0 each session also reports the **version of the Brigade plugin it
+is running** (`0.10.0`), at registration and with every heartbeat, so that `brigade sessions` can show your team
+who is behind a release. It is the binary's own build stamp — nothing is read from your machine, your project or
+your transcript to produce it — and a binary with no stamp sends nothing. *Who sees it:* every active member of
+the team, through `session list`, and whoever runs the backend. It tells them which release you have installed,
+and therefore which of Brigade's published fixes you do not have yet; that is the whole of what it says. Like the
+model string, it is a harness's word about itself: capped, sanitised, never taken as fact, and never compared.
+
 **How long the backend keeps a message.** An unacknowledged message is kept for at least **7 days**. An
 acknowledged one may be deleted **24 hours** after the acknowledgement. A closed or expired session is removed
 after **7 days**, with its messages. This was measured against a live project: a session that had been offline

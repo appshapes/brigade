@@ -46,7 +46,7 @@ object, every NDJSON event and command.
 4. **Optional members, null and absence.** An OPTIONAL member is omitted when it has no value. Where a document needs
    to distinguish "no value" from "unchanged" (the members of `HeartbeatRequest` and of the watch `heartbeat`
    command), absence means unchanged. The members that may carry an explicit JSON `null` are the nullable ones in the
-   schema: `session_description`, `workspace_label`, `model`, `context_used_tokens`, `lease_seconds`, `resume`,
+   schema: `session_description`, `workspace_label`, `model`, `context_used_tokens`, `brigade_version`, `lease_seconds`, `resume`,
    `reply_to` in a `MessageEnvelope` (not in a `SendRequest`), and the optional members of `HeartbeatRequest` and
    `WatchCommand`. `retryable` is never `null` (4.3).
 5. **Two kinds of cap.** A cap named `*_bytes` is measured in bytes of UTF-8 (`len`); a cap named `*_chars` or
@@ -68,8 +68,8 @@ object, every NDJSON event and command.
    are checked member by member. `TestSpecExamplesAreTheTestdataFiles` in `internal/protocol/schema` pins both
    directions, so neither this document nor a file can change alone.
 8. **Identifiers are opaque.** `principal_ref`, `session_id`, `team_ref` and `message_id` are non-empty strings with no
-   structure a consumer may rely on (4.8). `session_name`, `session_description`, `human_label`, `team_name` and
-   `model` are unverified display strings and are untrusted input at every layer (4.5.11).
+   structure a consumer may rely on (4.8). `session_name`, `session_description`, `human_label`, `team_name`,
+   `model` and `brigade_version` are unverified display strings and are untrusted input at every layer (4.5.11).
 
 ## 4.1 Invocation model
 
@@ -234,7 +234,7 @@ Answered from local state only.
   "delivery": {"guarantee": "at_least_once", "ordering": "none", "ack_state": "injected"},
   "capabilities": ["team.create", "team.join", "team.roster", "message.receive", "message.watch.push", "message.watch.stdin_commands",
                    "session.description", "session.resume", "session.workspace_label", "session.inbound",
-                   "session.model", "session.context_used_tokens", "session.human_label"],
+                   "session.model", "session.context_used_tokens", "session.human_label", "session.brigade_version"],
   "limits": {"max_body_bytes": 16384, "max_summary_chars": 200, "max_session_name_codepoints": 64,
              "max_team_name_codepoints": 64, "max_description_chars": 256, "max_human_label_chars": 128,
              "max_workspace_label_chars": 128, "max_model_chars": 128, "max_idempotency_key_chars": 128,
@@ -303,7 +303,7 @@ a cap an adapter chooses (4.4.2).
   "session_name": "payments-api", "session_description": null,
   "activity": "busy", "inbound": "accept", "lease_seconds": 90, "workspace_label": null,
   "human_label": "alice@example.com",
-  "model": "claude-opus-5[1m]", "context_used_tokens": 189681,
+  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0",
   "resume": {"session_id": "a Brigade session_id previously returned to this principal"}
 }
 ```
@@ -320,6 +320,7 @@ a cap an adapter chooses (4.4.2).
 | `human_label` | optional, nullable | ≤ `max_human_label_chars`, else `invalid_input` naming `human_label` (C-45); the harness's **default** label for its principal, **unverified** text (4.5.11). An adapter announcing `session.human_label` adopts it as the membership's `human_label` **only when the membership has none**; an existing label is **never** overwritten, by this member or any later registration. An adapter without the capability accepts the member and ignores it |
 | `model` | optional, nullable | ≤ `max_model_chars`, else `invalid_input` naming `model` (C-44); the harness-reported model identity, **unverified** text (4.5.11); capability `session.model` — an adapter without it accepts the member and ignores it |
 | `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1` (the range JSON carries exactly), else `invalid_input` naming `context_used_tokens` (C-44); the harness's own count of the tokens its context holds; capability `session.context_used_tokens` — an adapter without it accepts the member and ignores it |
+| `brigade_version` | optional, nullable | ≤ 64 code points, else `invalid_input` naming `brigade_version` (C-46); the version of the registering Brigade harness itself — not its host's, which is `harness_version` — as that harness reports it, **unverified** text (4.5.11); capability `session.brigade_version` — an adapter without it accepts the member and ignores it. The bound is a wire-format one like `context_used_tokens`'s and has no `limits` member: `limits` members are required, so a new one would fail `describe` for every adapter written before it |
 | `resume.session_id` | optional | capability `session.resume`; see below |
 
 The registration has no member for a native session id, a working directory, a hostname, a username or a transcript
@@ -345,7 +346,7 @@ when `resume.session_id` was honoured, C-10, C-19), `lease_seconds` (integer, th
   "state": "active", "activity": "busy", "inbound": "accept",
   "last_seen_at": "2026-08-30T12:00:00Z", "lease_until": "2026-08-30T12:01:30Z",
   "harness": "claude-code", "harness_version": "2.1.251", "workspace_label": null,
-  "model": "claude-opus-5[1m]", "context_used_tokens": 189681,
+  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0",
   "created_at": "2026-08-30T11:55:00Z", "is_self": false,
   "resumed": false, "lease_seconds": 90, "server_time": "2026-08-30T12:00:00Z"
 }
@@ -360,7 +361,7 @@ when `resume.session_id` was honoured, C-10, C-19), `lease_seconds` (integer, th
   "state": "active", "activity": "busy", "inbound": "accept",
   "last_seen_at": "2026-08-30T12:00:00Z", "lease_until": "2026-08-30T12:01:30Z",
   "harness": "claude-code", "harness_version": "2.1.251", "workspace_label": null,
-  "model": "claude-opus-5[1m]", "context_used_tokens": 189681,
+  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0",
   "created_at": "2026-08-30T11:55:00Z", "is_self": false
 }
 ```
@@ -380,6 +381,7 @@ when `resume.session_id` was honoured, C-10, C-19), `lease_seconds` (integer, th
 | `workspace_label` | optional, nullable | ≤ `max_workspace_label_chars` |
 | `model` | optional, nullable | ≤ `max_model_chars`; the model identity as the owning harness last reported it (4.4.2, 4.4.4); **unverified** text, untrusted at every layer (4.5.11); absent when the harness never reported one or the adapter lacks `session.model` (C-44) |
 | `context_used_tokens` | optional, nullable | `0..2^53 − 1`, as the owning harness last reported it; absent when the harness never reported one or the adapter lacks `session.context_used_tokens` (C-44) |
+| `brigade_version` | optional, nullable | ≤ 64 code points; the Brigade version as the owning harness last reported it (4.4.2, 4.4.4); **unverified** text, untrusted at every layer (4.5.11); absent when the harness never reported one — a harness older than the member — or the adapter lacks `session.brigade_version` (C-46) |
 | `is_self` | yes | `true` only in a `session list --session <id>` result for the named session (C-12); `false` elsewhere |
 
 **Result** of `session list`: `{"team_ref", "team_name", "server_time", "sessions": SessionRecord[], "truncated"}`.
@@ -397,7 +399,7 @@ cut the list short.
       "state": "active", "activity": "busy", "inbound": "accept",
       "last_seen_at": "2026-08-30T12:00:00Z", "lease_until": "2026-08-30T12:01:30Z",
       "harness": "claude-code", "harness_version": "2.1.251", "workspace_label": null,
-      "model": "claude-opus-5[1m]", "context_used_tokens": 189681,
+      "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0",
       "created_at": "2026-08-30T11:55:00Z", "is_self": true
     }
   ],
@@ -411,17 +413,20 @@ C-15).
 ### 4.4.4 `HeartbeatRequest` and `HeartbeatResult`
 
 ```json
-{"activity": "idle", "session_name": "payments-api", "session_description": "tenant_id migration runner", "inbound": "hold", "lease_seconds": 120, "model": "claude-opus-5[1m]", "context_used_tokens": 189681}
+{"activity": "idle", "session_name": "payments-api", "session_description": "tenant_id migration runner", "inbound": "hold", "lease_seconds": 120, "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0"}
 ```
 
 Every member is optional and absent means unchanged (JSON convention 4); the session comes from `--session`. When
 present: `activity` is `busy` or `idle`; `session_name` is non-empty and ≤ `max_session_name_codepoints`;
 `session_description` ≤ `max_description_chars`; `inbound` is `accept`, `hold` or `refuse`; `lease_seconds` within
-`lease.min_seconds..lease.max_seconds`; `model` ≤ `max_model_chars`; `context_used_tokens` within `0..2^53 − 1`. A
+`lease.min_seconds..lease.max_seconds`; `model` ≤ `max_model_chars`; `context_used_tokens` within `0..2^53 − 1`;
+`brigade_version` ≤ 64 code points. A
 heartbeat renews `lease_until` and applies the new values (C-13, C-42, C-44). An empty `session_description` is a
 value like any other: it replaces the stored one, and a consumer presents an empty description as none (C-13).
-`model` and `context_used_tokens` are never cleared by a heartbeat: the harness omits them and the stored values
-stand (C-44); an adapter without `session.model` or `session.context_used_tokens` accepts the member and ignores it
+`model`, `context_used_tokens` and `brigade_version` are never cleared by a heartbeat: the harness omits them and
+the stored values stand (C-44, C-46) — `brigade_version` rides the heartbeat because a harness can be replaced by a
+newer one while its session lives, and the roster should name the one that is running; an adapter without
+`session.model`, `session.context_used_tokens` or `session.brigade_version` accepts the member and ignores it
 (4.7).
 
 ```json
@@ -576,7 +581,7 @@ discriminator):
 ```
 
 ```json
-{"type": "heartbeat", "activity": "busy", "session_name": "payments-api", "inbound": "accept", "lease_seconds": 90, "model": "claude-opus-5[1m]", "context_used_tokens": 189681}
+{"type": "heartbeat", "activity": "busy", "session_name": "payments-api", "inbound": "accept", "lease_seconds": 90, "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0"}
 ```
 
 ```json
@@ -584,7 +589,7 @@ discriminator):
 ```
 
 `ack` (`message_ids` required, non-empty) → an `acked` event; `heartbeat` (`activity`, `session_name`, `inbound`,
-`lease_seconds`, `model`, `context_used_tokens`, each optional with the 4.4.4 rules — absent means unchanged; there is
+`lease_seconds`, `model`, `context_used_tokens`, `brigade_version`, each optional with the 4.4.4 rules — absent means unchanged; there is
 no `session_description` on this command) → a `heartbeat_ok` event (C-41, C-44); `close` → the session is closed as
 by `session close`, then the process exits 0 (C-41).
 
@@ -738,7 +743,8 @@ registered a session) and `session_count`.
 11. **Content.** `kind` is `text` only; `body` is non-empty UTF-8 of at most `max_body_bytes` bytes; `summary` at most
     `max_summary_chars`; names, labels, descriptions and the model identity are capped by the `limits` member that
     governs each of them (the table in 4.4.1). All text is untrusted input at every layer, including the strings
-    returned by `session list` and `team members` and a session's `model`, which is whatever its harness said.
+    returned by `session list` and `team members` and a session's `model` and `brigade_version`, which are
+    whatever its harness said.
     Adapters MUST reject oversize input with `invalid_input` before persisting (C-16, C-27, C-44).
 12. **Rate limits and loops.** Adapters MUST enforce a per-sender-session limit no looser than `limits.send_rate` and a
     per-principal limit, summed over every session of the principal, no looser than `limits.principal_send_rate`
@@ -833,6 +839,7 @@ failure → 9; GoTrue `refresh_token_already_used` (after one re-read-and-retry)
 | `session.inbound` | `inbound` is stored and reported (4.4.2, 4.4.3, C-42) | an adapter without it accepts the member and ignores it |
 | `session.model` | `model` is stored and reported (4.4.2, 4.4.3, 4.4.4, the watch `heartbeat` command of 4.4.9; C-44) | an adapter without it accepts the member and ignores it; the value is harness-reported and unverified (4.5.11) |
 | `session.context_used_tokens` | `context_used_tokens` is stored and reported (4.4.2, 4.4.3, 4.4.4, the watch `heartbeat` command of 4.4.9; C-44) | an adapter without it accepts the member and ignores it |
+| `session.brigade_version` | `brigade_version` is stored and reported (4.4.2, 4.4.3, 4.4.4, the watch `heartbeat` command of 4.4.9; C-46) | an adapter without it accepts the member and ignores it; the value is harness-reported and unverified (4.5.11) |
 | `session.human_label` | the registration's `human_label` (4.4.2) is adopted as the membership's `human_label` when the membership has none (C-45) | an existing label is never overwritten; an adapter without it accepts the member and ignores it; the value is harness-reported and unverified (4.5.11) |
 | `delivery.processed` | — | reserved; `delivery.ack_state = "processed"` is not implemented by any v1 consumer |
 
@@ -934,6 +941,7 @@ once.
 | C-43 | 4.2 (cap `team.roster`) | 4.2 `team members`; 4.4.10 `team members`; 4.5.7 |
 | C-44 | 4.4.2 model and context_used_tokens (caps `session.model`, `session.context_used_tokens`) | 4.4.2 `model`, `context_used_tokens`, registration paragraph; 4.4.3 `model`, `context_used_tokens`; 4.4.4; 4.4.9 commands; 4.5.11; 4.7 |
 | C-45 | 4.4.2 human_label (cap `session.human_label`) | 4.4.2 `human_label`, registration paragraph; 4.5.11; 4.7 |
+| C-46 | 4.4.2 brigade_version (cap `session.brigade_version`) | 4.4.2 `brigade_version`; 4.4.3 `brigade_version`; 4.4.4; 4.4.9 commands; 4.5.11; 4.7 |
 
 ## Appendix B. Normative statements without a conformance case when the suite was specified (input to P1-6)
 

@@ -11,9 +11,12 @@ import (
 )
 
 // heartbeat renews the lease with the current activity, name, inbound
-// policy and — when the map names a transcript — the model and context
-// facts read from it (4.4.4; capabilities session.model and
-// session.context_used_tokens, which an adapter without simply ignores):
+// policy, this binary's own version (capability session.brigade_version,
+// C-46: `/reload-plugins` replaces the watcher with a newer one while the
+// session lives, and its first heartbeat is how the roster learns) and —
+// when the map names a transcript — the model and context facts read from
+// it (4.4.4; capabilities session.model and session.context_used_tokens,
+// which an adapter without simply ignores):
 // a `heartbeat` command on the child's stdin when the adapter advertises
 // message.watch.stdin_commands, else one `session heartbeat` call with
 // the 3 s budget. The answer arrives as a heartbeat_ok event (or the
@@ -41,7 +44,7 @@ func (w *watcher) heartbeat(s *session) {
 	if s.stdinCommands {
 		err := s.watch.Heartbeat(protocol.WatchCommand{
 			Activity: &activity, SessionName: name, Inbound: &inbound, LeaseSeconds: s.lease,
-			Model: model, ContextUsedTokens: tokens,
+			Model: model, ContextUsedTokens: tokens, BrigadeVersion: w.brigadeVersion,
 		})
 		if err != nil {
 			w.log.Warn("heartbeat command not written", adlog.Err(err))
@@ -52,7 +55,7 @@ func (w *watcher) heartbeat(s *session) {
 	defer cancel()
 	res, err := w.client.Heartbeat(ctx, w.sessionID, &protocol.HeartbeatRequest{
 		Activity: &activity, SessionName: name, Inbound: &inbound, LeaseSeconds: s.lease,
-		Model: model, ContextUsedTokens: tokens,
+		Model: model, ContextUsedTokens: tokens, BrigadeVersion: w.brigadeVersion,
 	})
 	if err != nil {
 		if code, details := errorParts(err); sessionGone(code, details) {

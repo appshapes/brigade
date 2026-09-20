@@ -182,3 +182,29 @@ func versionOf(t *testing.T, binary string) string {
 	}
 	return strings.TrimSuffix(out, "\n")
 }
+
+// TestClaimedSaysNothingForABinaryWithNoVersion pins what a harness
+// reports about itself on the wire (brigade_version, C-46): its version
+// when it has one, and NOTHING — a nil member, which a roster renders as a
+// blank cell — when it has none. "unknown" is the right answer to a person
+// who asks `brigade version`; in a VERSION column it would be a claim.
+func TestClaimedSaysNothingForABinaryWithNoVersion(t *testing.T) {
+	t.Parallel()
+	for _, none := range []string{Unknown, ""} {
+		if got := claimed(none); got != nil {
+			t.Errorf("claimed(%q) = %q, want nil", none, *got)
+		}
+	}
+	for _, v := range []string{"0.10.0", "0.10.0-dev", "v0.10.0"} {
+		got := claimed(v)
+		if got == nil || *got != v {
+			t.Errorf("claimed(%q) = %v, want the version itself", v, got)
+		}
+	}
+	// This test binary is neither stamped nor installed from a module
+	// version, so the real thing is nil here — which is also why the
+	// harness tests inject a version rather than read this one.
+	if String() == Unknown && Claimed() != nil {
+		t.Errorf("Claimed() = %q in a binary whose String() is %q", *Claimed(), Unknown)
+	}
+}

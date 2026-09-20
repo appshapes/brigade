@@ -105,6 +105,7 @@ type sessionFile struct {
 	WorkspaceLabel     *string    `json:"workspace_label,omitzero"`
 	Model              *string    `json:"model,omitzero"`
 	ContextUsedTokens  *int       `json:"context_used_tokens,omitzero"`
+	BrigadeVersion     *string    `json:"brigade_version,omitzero"`
 	CreatedAt          time.Time  `json:"created_at"`
 	ClosedAt           *time.Time `json:"closed_at,omitzero"`
 }
@@ -582,6 +583,7 @@ func (s *store) record(team string, f *sessionFile, isSelf bool) (protocol.Sessi
 		WorkspaceLabel:     f.WorkspaceLabel,
 		Model:              f.Model,
 		ContextUsedTokens:  f.ContextUsedTokens,
+		BrigadeVersion:     f.BrigadeVersion,
 		CreatedAt:          f.CreatedAt,
 		IsSelf:             isSelf,
 	}, nil

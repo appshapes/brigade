@@ -295,6 +295,44 @@ func TestHeartbeatWithoutTranscriptPathCarriesNeither(t *testing.T) {
 	fx.assertLogNamesNoPath(missing)
 }
 
+// TestHeartbeatCarriesTheBrigadeVersion pins card 29's harness half
+// (brigade_version, C-46): every heartbeat names the version of the binary
+// that is sending it. That is the mechanism, not a nicety — `/reload-plugins`
+// replaces the watcher with a newer one while the session lives, no
+// registration happens, and the first heartbeat of the new watcher is the
+// only way a roster learns the session moved. A binary with no version to
+// claim (every test binary, which is why this one is injected) sends no
+// member at all, which the negative half below proves.
+func TestHeartbeatCarriesTheBrigadeVersion(t *testing.T) {
+	t.Parallel()
+	for name, claimed := range map[string]*string{"a stamped binary": new("0.10.0"), "a binary with no version": nil} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fx := newFixture(t, fixtureOptions{sink: true})
+			record := filepath.Join(t.TempDir(), "commands.ndjson")
+			fx.useHelper("record=" + record)
+			fx.writeMap()
+			deps := fx.deps()
+			deps.HeartbeatInterval = 150 * time.Millisecond
+			deps.BrigadeVersion = func() *string { return claimed }
+			r := fx.start(deps, fx.args()...)
+			fx.waitLog("watch ready", nil)
+			testutil.Eventually(t, waitShort, pollEvery, func() bool { return len(recordedHeartbeats(t, record)) >= 3 })
+			if code := r.stopAndWait(); code != 0 {
+				t.Fatalf("exit %d", code)
+			}
+			for i, hb := range recordedHeartbeats(t, record) {
+				switch {
+				case claimed == nil && hb.BrigadeVersion != nil:
+					t.Errorf("heartbeat %d claims %q from a binary with no version", i, *hb.BrigadeVersion)
+				case claimed != nil && (hb.BrigadeVersion == nil || *hb.BrigadeVersion != *claimed):
+					t.Errorf("heartbeat %d carries brigade_version %v, want %q", i, hb.BrigadeVersion, *claimed)
+				}
+			}
+		})
+	}
+}
+
 // TestHeartbeatOmitsAContextCountTheWireCannotCarry: a transcript whose
 // latest usage sums past 2^53 - 1 (only a corrupt file does) yields no
 // context_used_tokens member — absent means unchanged (4.4.4) — instead of

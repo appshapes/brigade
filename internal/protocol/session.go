@@ -44,6 +44,12 @@ type ResumeRef struct {
 // capability adopts it as the membership's human_label ONLY when the
 // membership has none, never overwriting a label the member chose, and
 // an adapter without the capability ignores the member.
+//
+// BrigadeVersion is the version of the Brigade harness itself (capability
+// session.brigade_version, C-46) — not the host's, which HarnessVersion
+// already carries — so a roster can show which teammates are behind a
+// release. Harness-reported, unverified, optional and nullable, like
+// Model; an adapter without the capability accepts and ignores it.
 type SessionRegistration struct {
 	Harness            string     `json:"harness"`
 	HarnessVersion     string     `json:"harness_version"`
@@ -56,6 +62,7 @@ type SessionRegistration struct {
 	HumanLabel         *string    `json:"human_label,omitzero"`
 	Model              *string    `json:"model,omitzero"`
 	ContextUsedTokens  *int       `json:"context_used_tokens,omitzero"`
+	BrigadeVersion     *string    `json:"brigade_version,omitzero"`
 	Resume             *ResumeRef `json:"resume,omitzero"`
 }
 
@@ -105,6 +112,11 @@ func (r *SessionRegistration) Validate() error {
 	if err := contextUsedTokensInRange(r.ContextUsedTokens); err != nil {
 		return err
 	}
+	if r.BrigadeVersion != nil {
+		if err := optionalText("brigade_version", *r.BrigadeVersion, MaxBrigadeVersionChars); err != nil {
+			return err
+		}
+	}
 	if r.Resume != nil {
 		if err := requireString("resume.session_id", r.Resume.SessionID); err != nil {
 			return err
@@ -137,6 +149,7 @@ type SessionRecord struct {
 	WorkspaceLabel     *string   `json:"workspace_label,omitzero"`
 	Model              *string   `json:"model,omitzero"`
 	ContextUsedTokens  *int      `json:"context_used_tokens,omitzero"`
+	BrigadeVersion     *string   `json:"brigade_version,omitzero"`
 	CreatedAt          time.Time `json:"created_at"`
 	IsSelf             bool      `json:"is_self"`
 }
@@ -191,6 +204,11 @@ func (s *SessionRecord) Validate() error {
 	if err := contextUsedTokensInRange(s.ContextUsedTokens); err != nil {
 		return err
 	}
+	if s.BrigadeVersion != nil {
+		if err := optionalText("brigade_version", *s.BrigadeVersion, MaxBrigadeVersionChars); err != nil {
+			return err
+		}
+	}
 	return requireTime("created_at", s.CreatedAt)
 }
 
@@ -209,6 +227,7 @@ type HeartbeatRequest struct {
 	LeaseSeconds       *int    `json:"lease_seconds,omitzero"`
 	Model              *string `json:"model,omitzero"`
 	ContextUsedTokens  *int    `json:"context_used_tokens,omitzero"`
+	BrigadeVersion     *string `json:"brigade_version,omitzero"`
 }
 
 // Validate implements Validator.
@@ -241,6 +260,11 @@ func (h *HeartbeatRequest) Validate() error {
 	}
 	if h.Model != nil {
 		if err := optionalText("model", *h.Model, MaxModelChars); err != nil {
+			return err
+		}
+	}
+	if h.BrigadeVersion != nil {
+		if err := optionalText("brigade_version", *h.BrigadeVersion, MaxBrigadeVersionChars); err != nil {
 			return err
 		}
 	}

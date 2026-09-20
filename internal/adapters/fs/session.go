@@ -110,6 +110,7 @@ func (c *command) sessionRegister() (any, error) {
 	f.SessionName, f.Activity, f.Inbound = req.SessionName, req.Activity, req.Inbound
 	f.SessionDescription, f.WorkspaceLabel = req.SessionDescription, req.WorkspaceLabel
 	f.Model, f.ContextUsedTokens = req.Model, req.ContextUsedTokens
+	f.BrigadeVersion = req.BrigadeVersion
 	f.Harness, f.HarnessVersion = req.Harness, req.HarnessVersion
 	f.LeaseSeconds = seconds
 	f.LastSeenAt = now
@@ -201,6 +202,11 @@ func (s *store) heartbeat(team, principal, id string, req *protocol.HeartbeatReq
 	}
 	if req.ContextUsedTokens != nil {
 		f.ContextUsedTokens = req.ContextUsedTokens
+	}
+	// brigade_version follows the same rule (C-46): absent means unchanged,
+	// and a harness replaced mid-session by a newer one says so here.
+	if req.BrigadeVersion != nil {
+		f.BrigadeVersion = req.BrigadeVersion
 	}
 	now := s.now().UTC()
 	f.LastSeenAt = now

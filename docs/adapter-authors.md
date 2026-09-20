@@ -94,7 +94,7 @@ Omit it without penalty.
 
 The suite is the definition of "works with Brigade". It runs your adapter as three principals in two teams, using
 protocol commands only, and checks every rule of the protocol document that a black-box test can see: 47 cases,
-`C-01`..`C-45` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
+`C-01`..`C-46` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
 
 ```text
 $ bin/brigade-conformance -h
@@ -387,8 +387,8 @@ C-43   PASS   0.05s  4.2 team members
 ```
 
 (The `…` lines are elided here; the run prints one line per case. That transcript is a **45**-case run, measured
-before C-44 — 4.4.2 `model` and `context_used_tokens` — and C-45 — 4.4.2 `human_label` — joined the suite; a run
-today selects 47 and prints `C-44` and `C-45` after `C-43`.) The human table always goes to **stderr**, in
+before C-44 — 4.4.2 `model` and `context_used_tokens` — C-45 — 4.4.2 `human_label` — and C-46 — 4.4.2
+`brigade_version` — joined the suite; a run today selects 48 and prints `C-44`, `C-45` and `C-46` after `C-43`.) The human table always goes to **stderr**, in
 every mode. With `--json` the machine-readable report goes to **stdout** and nothing else does, so
 `brigade-conformance --json … > report.json` gives you a clean document — with one caveat worth knowing before
 you wire this into CI: a launcher error raised *before* the first case (adapter not found, `describe` not ok
@@ -416,7 +416,8 @@ $ bin/brigade-conformance --shared-env BRIGADE_FS_ROOT --adapter bin/brigade-ada
     "session.inbound",
     "session.model",
     "session.context_used_tokens",
-    "session.human_label"
+    "session.human_label",
+    "session.brigade_version"
   ],
   "results": [
     {
@@ -863,7 +864,7 @@ profile, reformatted for reading only (on the wire it is one line inside the env
   "capabilities": ["team.create", "team.join", "team.roster", "message.receive",
                    "message.watch.stdin_commands", "session.description", "session.resume",
                    "session.workspace_label", "session.inbound", "session.model",
-                   "session.context_used_tokens", "session.human_label"],
+                   "session.context_used_tokens", "session.human_label", "session.brigade_version"],
   "limits": {"max_body_bytes": 16384, "max_summary_chars": 200, "max_session_name_codepoints": 64,
              "max_team_name_codepoints": 64, "max_description_chars": 256, "max_human_label_chars": 128,
              "max_workspace_label_chars": 128, "max_model_chars": 128, "max_idempotency_key_chars": 128,
@@ -943,6 +944,7 @@ first-class answer, not a failure.
 | `session.inbound` | `inbound` is stored and reported (without it you accept the member and ignore it) |
 | `session.model` | `model` is stored and reported (without it you accept the member and ignore it). Harness-reported, unverified display text (C-44) |
 | `session.context_used_tokens` | `context_used_tokens` is stored and reported (without it you accept the member and ignore it). Harness-reported, unverified (C-44) |
+| `session.brigade_version` | `brigade_version` — the version of the Brigade harness a session runs, not its host's, which is `harness_version` — is stored at registration, updated by a heartbeat that carries it and reported on the record (without it you accept the member and ignore it). Harness-reported, unverified display text; bounded at 64 code points by the wire format, with **no `limits` member** (C-46) |
 | `session.human_label` | the registration's `human_label` is adopted as the membership's label **when the membership has none** — an existing label is never overwritten (without it you accept the member and ignore it). Harness-reported, unverified display text (C-45) |
 | `delivery.processed` | reserved; not implemented by any v1 consumer |
 
@@ -1058,6 +1060,7 @@ rather than `null`:
 | `workspace_label` | optional, nullable | ≤ `max_workspace_label_chars` |
 | `model` | optional, nullable | ≤ `max_model_chars`; the model identity the owning harness last reported at registration or on a heartbeat; **harness-reported, unverified** display text — store and echo it, never parse it. Absent when the harness never reported one, and absent from every record if you do not advertise `session.model` |
 | `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1`, the owning harness's own count of the tokens its context holds, as last reported. **Harness-reported and unverified**; absent when never reported, and absent from every record without `session.context_used_tokens` |
+| `brigade_version` | optional, nullable | ≤ 64 code points; the version of the Brigade harness the session runs, as that harness last reported it at registration or on a heartbeat — **not** the host's version, which is `harness_version`. **Harness-reported, unverified** display text — store and echo it, never parse or compare it. Absent when the harness never reported one (a harness older than the member), and absent from every record without `session.brigade_version` |
 | `is_self` | yes | see below; `false` on every record unless `--session` named it |
 
 **`state` is computed at read time, never stored** (4.5.8):
@@ -1186,6 +1189,7 @@ shown):
 | `human_label` | optional, nullable | ≤ `max_human_label_chars`, else `invalid_input` naming `human_label`; capability `session.human_label`. The harness's **default** label for its principal — adopt it only into a membership that has none (see below) |
 | `model` | optional, nullable | ≤ `max_model_chars`, else `invalid_input` naming `model`; capability `session.model` |
 | `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1`, else `invalid_input` naming `context_used_tokens`; capability `session.context_used_tokens` |
+| `brigade_version` | optional, nullable | ≤ 64 code points — count code points, not bytes — else `invalid_input` naming `brigade_version`; capability `session.brigade_version`. The bound is the wire format's and is **not** in `limits`: every `limits` member is required, so adding one would have failed `describe` for every adapter written before it. A heartbeat may carry it too, with the absent-means-unchanged rule (C-46) |
 | `resume.session_id` | optional | capability `session.resume` |
 
 **A missing required member is `invalid_input`, never a default.** "Required" in that table is the protocol's word

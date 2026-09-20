@@ -120,6 +120,7 @@ func (c *command) sessionRegister() (any, error) {
 		"p_model":               req.Model,
 		"p_context_used_tokens": req.ContextUsedTokens,
 		"p_human_label":         req.HumanLabel,
+		"p_brigade_version":     req.BrigadeVersion,
 	}
 	if req.Resume != nil {
 		if !validUUID(req.Resume.SessionID) {
@@ -172,6 +173,7 @@ func (c *command) sessionHeartbeat() (any, error) {
 		"p_lease_seconds":       req.LeaseSeconds,
 		"p_model":               req.Model,
 		"p_context_used_tokens": req.ContextUsedTokens,
+		"p_brigade_version":     req.BrigadeVersion,
 	}, sessionAppendedParams, out)
 	if err != nil {
 		return nil, err

@@ -321,7 +321,7 @@ func TestBackendBehindOnlyTheLabelMigrationKeepsModelAndContext(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
-	behind := len(sessionAppendedMigrations) - 1 // 20260910193200 applied, 20260917170000 not
+	behind := 1 // 20260910193200 applied, 20260917170000 (and so everything after it) not
 	seen := backendAt(r, &behind)
 	doc := `{"harness":"other","harness_version":"1","session_name":"main","activity":"busy","inbound":"accept",` +
 		`"model":"claude-opus-5[1m]","context_used_tokens":1,"human_label":"alice@example.com"}`
@@ -368,5 +368,65 @@ func TestBackendBehindOnlyTheLabelMigrationKeepsModelAndContext(t *testing.T) {
 	}
 	if strings.Contains(hb.stderr, "predates a migration") {
 		t.Errorf("the heartbeat warned about a migration it does not need:\n%s", hb.stderr)
+	}
+}
+
+// TestBackendBehindOnlyTheVersionMigrationKeepsEverythingElse is the
+// upgrade every deployed project makes when the release that adds
+// `brigade_version` lands (C-46): it has 20260910193200 and 20260917170000
+// and not 20260920180000. Unlike a label, the version rides EVERY
+// registration and heartbeat, so this is the path every session on such a
+// backend takes: the version is dropped, the call is not, the model, the
+// context and the label are all still stored — and once the marker names
+// the migration, the heartbeats after it drop the version without a probe,
+// so a lease is never a round trip longer for a migration nobody applied.
+func TestBackendBehindOnlyTheVersionMigrationKeepsEverythingElse(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.joined()
+	behind := len(sessionAppendedMigrations) - 1 // every migration but the newest
+	if sessionAppendedMigrations[behind].File != "20260920180000_session_brigade_version.sql" {
+		t.Fatalf("the newest appended migration is %s; this test is about brigade_version's", sessionAppendedMigrations[behind].File)
+	}
+	seen := backendAt(r, &behind)
+	doc := `{"harness":"other","harness_version":"1","session_name":"main","activity":"busy","inbound":"accept",` +
+		`"model":"claude-opus-5[1m]","context_used_tokens":1,"human_label":"alice@example.com","brigade_version":"0.10.0"}`
+	got := r.exec(doc, "session", "register")
+	if got.code != 0 {
+		t.Fatalf("exit %d: %s", got.code, got.stdout)
+	}
+	if len(*seen) != 2 {
+		t.Fatalf("calls = %v, want one probe then one without the version", *seen)
+	}
+	if !namesParam((*seen)[0], "p_brigade_version") {
+		t.Errorf("the probe did not name p_brigade_version: %v", (*seen)[0])
+	}
+	retry := (*seen)[1]
+	if namesParam(retry, "p_brigade_version") {
+		t.Errorf("the retry still named p_brigade_version: %v", retry)
+	}
+	for _, kept := range []string{"p_model", "p_context_used_tokens", "p_human_label"} {
+		if !namesParam(retry, kept) {
+			t.Errorf("the retry dropped %s, which this backend stores: %v", kept, retry)
+		}
+	}
+	if !strings.Contains(got.stderr, sessionAppendedMigrations[behind].File) {
+		t.Errorf("stderr does not name the missing migration:\n%s", got.stderr)
+	}
+
+	// The heartbeat that follows carries the version too, as every one
+	// does. The marker is fresh, so it is dropped WITHOUT a probe.
+	hb := r.exec(`{"model":"claude-opus-5[1m]","context_used_tokens":2,"brigade_version":"0.10.0"}`, "session", "heartbeat", "--session", testSessionID)
+	if hb.code != 0 {
+		t.Fatalf("heartbeat: exit %d: %s", hb.code, hb.stdout)
+	}
+	if len(*seen) != 3 {
+		t.Fatalf("calls = %v, want exactly one heartbeat RPC (no probe while the marker is fresh)", *seen)
+	}
+	if namesParam((*seen)[2], "p_brigade_version") {
+		t.Errorf("the heartbeat named a parameter the marker says this backend lacks: %v", (*seen)[2])
+	}
+	if !namesParam((*seen)[2], "p_model") || !namesParam((*seen)[2], "p_context_used_tokens") {
+		t.Errorf("the heartbeat dropped the two facts on a backend that stores them: %v", (*seen)[2])
 	}
 }

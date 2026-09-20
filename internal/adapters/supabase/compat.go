@@ -100,6 +100,16 @@ var sessionAppendedMigrations = []sessionAppendedMigration{
 		Params: []string{"p_human_label"},
 		Caps:   []string{"session.human_label"},
 	},
+	{
+		// `p_brigade_version`, the member of 4.4.2 and 4.4.4 (C-46), on both
+		// RPCs. Unlike a label it rides EVERY registration and heartbeat, so
+		// a backend without this migration is found out on the first call
+		// and remembered for the marker's TTL: the value is dropped, never
+		// the registration or the lease.
+		File:   "20260920180000_session_brigade_version.sql",
+		Params: []string{"p_brigade_version"},
+		Caps:   []string{"session.brigade_version"},
+	},
 }
 
 // sessionAppendedParams are every appended parameter, which is what the

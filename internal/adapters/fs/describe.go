@@ -35,6 +35,7 @@ func capabilities() []string {
 		"session.model",
 		"session.context_used_tokens",
 		"session.human_label",
+		"session.brigade_version",
 	}
 }
 
