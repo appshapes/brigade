@@ -52,7 +52,7 @@
     "share_doing": {
       "type": "boolean",
       "title": "Share what the session is working on",
-      "description": "Lets this session's model publish one short sentence about its current work to the team roster (brigade sessions shows it as DOING). The model writes it; nothing is read from your prompts or transcript. Off blanks the line and makes brigade doing refuse from the next session start (a /clear counts, a /compact does not).",
+      "description": "Lets this session's model publish one short sentence about its current work to the team roster (brigade sessions shows it as DOING) and reminds it to keep that sentence current, at most once per ten minutes (plus once more after a /compact or a stretch in a mode where Brigade may not ask) and only where your permission settings say the call will neither prompt nor be denied. The model writes it; nothing is read from your prompts or transcript. Off stops the reminders and makes brigade doing refuse from the next session start (a /clear counts, a /compact does not), blanking the line the session had.",
       "default": true
     },
     "poll_on_prompt": {

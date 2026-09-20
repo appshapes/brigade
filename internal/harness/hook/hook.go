@@ -92,6 +92,21 @@ const (
 	// registerRetryInterval bounds how often a prompt hook retries a
 	// registration the SessionStart hook could not complete.
 	registerRetryInterval = time.Minute
+	// doingNudgeInterval is the floor between two doing-line reminders in
+	// one conversation (card 25, plan 5.4): a fixed ten minutes of prompted
+	// time, no backoff — "unanswered" is the right outcome when the work
+	// has not changed, and a doubling cooldown would skip the pivot the
+	// line exists to catch.
+	doingNudgeInterval = 10 * time.Minute
+	// doingNudgeMinBudget is what must remain of promptBudget before a
+	// reminder is stamped and printed: a hook killed between the stamp
+	// write and its exit would burn ten silent minutes (the P5-18 shape).
+	doingNudgeMinBudget = time.Second
+	// doingDescribeTimeout caps the one local describe the prompt hook
+	// spends resolving a doing mode a pre-feature map lacks (plan 5.2),
+	// well under adapterclient.DescribeTimeout so the reminder and the
+	// poll keep their share of promptBudget.
+	doingDescribeTimeout = time.Second
 	// OutputCap is the 10,000-character hook-output cap of 6.3: frames
 	// are printed until it would be exceeded, and only printed frames are
 	// acknowledged.
@@ -188,17 +203,22 @@ type Deps struct {
 	// PidfileWait bounds the wait for a spawned watcher's pidfile; zero
 	// means DefaultPidfileWait.
 	PidfileWait time.Duration
+	// PromptBudget bounds the whole prompt-hook run; zero means
+	// promptBudget. Only a test lowers it, to reach the doing reminder's
+	// budget guard (plan 5.4) without a real 3.5 s stall.
+	PromptBudget time.Duration
 }
 
 // RealDeps returns the production dependencies.
 func RealDeps() Deps {
 	return Deps{
-		Now:         time.Now,
-		Spawner:     RealSpawner{},
-		ReadFile:    os.ReadFile,
-		Lookup:      procutil.Lookup,
-		LookPath:    lookPath,
-		PidfileWait: DefaultPidfileWait,
+		Now:          time.Now,
+		Spawner:      RealSpawner{},
+		ReadFile:     os.ReadFile,
+		Lookup:       procutil.Lookup,
+		LookPath:     lookPath,
+		PidfileWait:  DefaultPidfileWait,
+		PromptBudget: promptBudget,
 	}
 }
 
@@ -222,6 +242,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.PidfileWait <= 0 {
 		d.PidfileWait = prod.PidfileWait
+	}
+	if d.PromptBudget <= 0 {
+		d.PromptBudget = prod.PromptBudget
 	}
 	return d
 }
@@ -589,6 +612,25 @@ func shadowLine(path string) string {
 	return "Brigade: another `brigade` at " + oneLine(path, 512) + " shadows the plugin's; remove it or the wrong version runs"
 }
 
+// The three doing-line reminders (card 25, plan 5.4), printed by the prompt
+// hook's doingNudge on the stamp's say-so: BLANK when the stamp is missing
+// or names another conversation (a new, resumed, cleared or forked
+// conversation, or a failed carry — Brigade itself just blanked the value),
+// FULL when the stamp is zeroed (a /compact, or a prompt seen in an
+// ineligible permission mode: the value may still stand), SHORT when the
+// stamp is doingNudgeInterval old (the full text is still in context). They
+// are CONSTANTS — no session text, no teammate text, nothing to sanitise —
+// declarative as the hooks page advises, naming only the bare `brigade`
+// (the F1 rule of startLine), and every one says a refusal is final for the
+// conversation, because an ask or deny Brigade cannot see fails open (plan
+// 5.2). Byte for byte what is printed; P16-7 tunes them, at the cost of
+// three constants.
+const (
+	doingLineBlank = "Brigade doing: this session's line is blank (a new, resumed or cleared conversation starts without one); teammates route by it. It is set with `brigade doing <<'EOF'`, one short sentence, `EOF`, once the work is clear, and again when the work changes (new task, or new phase, e.g. implementing to testing). No secrets, local paths or customer names. Subagents leave it alone. If refused, it is not run another way; the work carries on."
+	doingLineFull  = "Brigade doing: teammates route by one line per session saying what it is working on. This session's is set with `brigade doing <<'EOF'`, one short sentence, `EOF`, when none is set or the work has changed (new task, or new phase, e.g. implementing to testing); if it still fits, nothing is needed. No secrets, local paths or customer names. Subagents leave it alone. If refused, it is not run another way; the work carries on."
+	doingLineShort = "Brigade doing: this session's line is due again only if the work has changed since it was set (new task or new phase): `brigade doing <<'EOF'`, one short sentence, `EOF`. If it still fits, or it was refused earlier in this conversation, nothing is needed."
+)
+
 // attr sanitises a remote string for the context line: the attribute
 // rules of 6.7 step 4 (quotes, angle brackets and newlines dropped) and the
 // 64-code-point cap.
@@ -734,4 +776,10 @@ func noticePath(stateDir string, pid int) string { return stateFile(stateDir, pi
 // retryStampPath records the last registration retry of the prompt hook.
 func retryStampPath(stateDir string, pid int) string {
 	return config.RegisterRetryStamp(stateDir, pid)
+}
+
+// doingStampPath is the prompt hook's doing-line reminder stamp (card 25,
+// plan 5.4), the path config shares with the watcher.
+func doingStampPath(stateDir string, pid int) string {
+	return config.DoingNudgeStamp(stateDir, pid)
 }

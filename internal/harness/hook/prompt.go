@@ -14,6 +14,7 @@ import (
 	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
@@ -24,11 +25,11 @@ import (
 
 // prompt is `brigade hook prompt` (6.3): refresh permission_mode and the
 // transcript path in the map, keep the watcher alive, print the watcher's
-// notice once, run the opt-in poll
-// through the shared inbound pipeline, and print the held notice while
-// anything is held under the `hold` policy (P5-9). It prints nothing on
-// the common path and exits 0 whatever happens (exit 2 would erase the
-// user's prompt).
+// notice once, remind the model of its doing line where Brigade may (card
+// 25, plan 5.4), run the opt-in poll through the shared inbound pipeline,
+// and print the held notice while anything is held under the `hold`
+// policy (P5-9). It prints nothing on the common path and exits 0
+// whatever happens (exit 2 would erase the user's prompt).
 func (r *run) prompt() int {
 	in, err := r.readInput()
 	if err != nil {
@@ -40,7 +41,7 @@ func (r *run) prompt() int {
 		r.log.Warn("prompt: session facts", log.Err(err))
 		return 0
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), promptBudget)
+	ctx, cancel := context.WithTimeout(context.Background(), r.deps.PromptBudget)
 	defer cancel()
 
 	store := sessionmap.Store{StateDir: f.stateDir}
@@ -70,11 +71,205 @@ func (r *run) prompt() int {
 			r.log.Warn("prompt: session map not updated", log.Err(werr))
 		}
 	}
-	r.ensureWatcher(ctx, f, m)
+	spawned := r.ensureWatcher(ctx, f, m)
 	r.printNotice(f)
+	// Before the poll, not last: the poll can take receiveTimeout of the
+	// budget, and the line must not land after untrusted poll frames.
+	r.doingNudge(ctx, f, in, m)
+	// A map from before the doing mode existed is resolved once, here, for
+	// the NEXT prompt (this one printed nothing, as every prompt of an
+	// unresolved map does) — never on the prompt that also respawned the
+	// watcher, which has already spent the stop wait and the pidfile wait
+	// of this budget.
+	if m.DoingMode == "" && !spawned {
+		r.resolveDoingMode(ctx, f, in, store, m)
+	}
 	r.poll(ctx, f, m)
 	r.heldNotice(f, m)
 	return 0
+}
+
+// resolveDoingMode is the prompt hook's one-time resolution of a by-pid
+// map without `doing_mode` (card 25, plan 5.2): a session that was already
+// running when the plugin updated — the card's own motivating session —
+// has a map SessionStart wrote before the member existed, and the
+// continue path inherits an absent member rather than describing again.
+// So one local describe, capped at doingDescribeTimeout, plus the same
+// option and rules scan SessionStart runs, and the word is written back
+// for the next prompt's doingNudge; from then on the common path pays
+// nothing. A failed describe leaves the member absent, and the next
+// prompt tries again — with no floor and no attempt count, so an adapter
+// that keeps timing out costs up to doingDescribeTimeout on every later
+// prompt of the session (accepted: the pre-feature map is a one-release
+// transition, and a floor would need a second stamp); until then the verb
+// publishes and no line is printed. Nothing read from a settings file is
+// sent, stored or logged — the map carries one of five words.
+func (r *run) resolveDoingMode(ctx context.Context, f facts, in input, store sessionmap.Store, m *sessionmap.ByPID) {
+	opts, err := config.ParseOptions(r.environ)
+	if err != nil {
+		r.log.Warn("prompt: options unreadable; the doing mode stays unresolved", log.Err(err))
+		return
+	}
+	adapter, err := config.AdapterFromArgv(m.AdapterCommand)
+	if err != nil {
+		r.log.Warn("prompt: the map's adapter command is unusable; the doing mode stays unresolved", log.Err(err))
+		return
+	}
+	dctx, dcancel := context.WithTimeout(ctx, doingDescribeTimeout)
+	desc, err := r.client(adapter, m.TeamKey, m.ConfigDir, f.stateDir).Describe(dctx)
+	dcancel()
+	if err != nil {
+		r.log.Debug("prompt: describe failed; the doing mode stays unresolved", log.Err(err))
+		return
+	}
+	rules := policy.ScanDoingRules(f.claudeConfigDir, doingScanDirs(r.environ, in), r.deps.ReadFile)
+	m.DoingMode = doingMode(opts, desc.Capabilities, rules)
+	m.UpdatedAt = r.deps.Now()
+	if werr := store.WriteByPID(m); werr != nil {
+		r.log.Warn("prompt: session map not updated with the doing mode", log.Err(werr))
+		return
+	}
+	r.log.Info("prompt: doing mode resolved", slog.String("doing_mode", m.DoingMode))
+}
+
+// doingNudge prints one of the three doing-line reminders, or nothing
+// (card 25, plan 5.4). Everything must hold, in this order: the map's mode
+// may print at all (quiet or allowed; unasked, off, unsupported and absent
+// never do), the session is interactive and the document names a
+// conversation (a map without one would pass the next check and stamp
+// `<time> ` — which reads as missing, so BLANK on every prompt); the
+// map's conversation is the prompt's (a stale map adopted through pid
+// reuse must never induce a publish to an old team); the permission mode
+// makes the session eligible;
+// the stamp's state picks a line; at least doingNudgeMinBudget of the
+// budget remains; the line fits; and the NEW stamp was written first — an
+// unwritable state directory means no line, never a per-prompt line. On a
+// prompt in an ineligible permission mode with a non-zero same-conversation
+// stamp, the stamp is zeroed once instead, so a pivot delivered through
+// plan mode is served at the next eligible prompt. No settings file is read
+// here (the scan is frozen in doing_mode), the prompt is never read, and
+// nothing touches the network.
+func (r *run) doingNudge(ctx context.Context, f facts, in input, m *sessionmap.ByPID) {
+	if !doingModePrints(m.DoingMode) || m.NonInteractive || f.entrypoint == entrypointSDK || in.SessionID == "" {
+		return
+	}
+	if m.ClaudeSessionID != in.SessionID {
+		r.log.Debug("prompt: the map names another conversation; no doing line")
+		return
+	}
+	path := doingStampPath(f.stateDir, f.pid)
+	stamp := readDoingStamp(path, in.SessionID)
+	// prompt() has already refreshed the map's permission_mode from the
+	// document, so the map's word is the prompt's, else the last seen.
+	if !doingLineEligible(m.DoingMode, m.PermissionMode) {
+		if stamp.ours && !stamp.at.IsZero() {
+			r.writeDoingStamp(path, time.Time{}, in.SessionID)
+		}
+		return
+	}
+	// One reading of the clock: the stamp records the instant the line was
+	// chosen by.
+	now := r.deps.Now()
+	line := doingLineFor(stamp, now)
+	if line == "" {
+		return
+	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < doingNudgeMinBudget {
+		r.log.Debug("prompt: too little budget left for the doing line")
+		return
+	}
+	if !r.fits(line) {
+		return
+	}
+	if !r.writeDoingStamp(path, now, in.SessionID) {
+		return
+	}
+	r.say(line)
+}
+
+// doingModePrints reports whether a map's doing_mode admits any reminder
+// (plan 5.2): quiet and allowed do; unasked (a rule or an unreadable
+// settings file), off, unsupported and an absent member never do.
+func doingModePrints(mode string) bool {
+	return mode == doing.ModeQuiet || mode == doing.ModeAllowed
+}
+
+// doingLineEligible is plan 5.2's line column: bypassPermissions always
+// (nothing prompts there anyway); default, acceptEdits and dontAsk only
+// under allowed — an allow entry Brigade could read covers the verb, so
+// the call neither prompts nor is denied; plan, an empty mode and any
+// unknown word never. `auto` is NOT eligible in this row: whether its
+// classifier passes the heredoc is unmeasured until P16-7 runs the real
+// verb, and a line where the call is then refused is the one outcome the
+// gate exists to prevent.
+func doingLineEligible(mode, permissionMode string) bool {
+	switch permissionMode {
+	case "bypassPermissions":
+		return true
+	case "default", "acceptEdits", "dontAsk":
+		return mode == doing.ModeAllowed
+	}
+	return false
+}
+
+// A doingStamp is the parsed reminder stamp: ours when it names the
+// prompt's conversation (a missing, unreadable or malformed stamp, or one
+// carrying another conversation's id, is treated as missing — the id in
+// the stamp, not a removal by a background SessionStart, is what makes a
+// conversation's first prompt reliable, plan 5.4), and at is when Brigade
+// last reminded — zero after a /compact or an ineligible-mode zeroing.
+type doingStamp struct {
+	ours bool
+	at   time.Time
+}
+
+// readDoingStamp reads `<RFC3339Nano> <claude_session_id>` under the
+// strict private-file rules; every failure is the missing state.
+func readDoingStamp(path, sessionID string) doingStamp {
+	data, err := adapterkit.ReadStrict(path)
+	if err != nil {
+		return doingStamp{}
+	}
+	when, id, ok := strings.Cut(strings.TrimSpace(string(data)), " ")
+	if !ok || id != sessionID {
+		return doingStamp{}
+	}
+	at, err := time.Parse(time.RFC3339Nano, when)
+	if err != nil {
+		return doingStamp{}
+	}
+	return doingStamp{ours: true, at: at}
+}
+
+// doingLineFor is plan 5.4's stamp table: missing or another
+// conversation's → BLANK; ours and zeroed → FULL; ours and
+// doingNudgeInterval old → SHORT; younger → nothing.
+func doingLineFor(stamp doingStamp, now time.Time) string {
+	switch {
+	case !stamp.ours:
+		return doingLineBlank
+	case stamp.at.IsZero():
+		return doingLineFull
+	case now.Sub(stamp.at) >= doingNudgeInterval:
+		return doingLineShort
+	}
+	return ""
+}
+
+// writeDoingStamp writes the stamp for conversation sessionID at `at`
+// (the zero time zeroes it), the retry stamp's way: MkdirPrivate on the
+// state directory, then WriteAtomic. False, with one debug line, when it
+// cannot be written — the caller then prints nothing.
+func (r *run) writeDoingStamp(path string, at time.Time, sessionID string) bool {
+	if err := adapterkit.MkdirPrivate(filepath.Dir(path)); err != nil {
+		r.log.Debug("prompt: state directory not created; no doing line", log.Err(err))
+		return false
+	}
+	if err := adapterkit.WriteAtomic(path, []byte(at.Format(time.RFC3339Nano)+" "+sessionID+"\n")); err != nil {
+		r.log.Debug("prompt: doing stamp not written; no doing line", log.Err(err))
+		return false
+	}
+	return true
 }
 
 // heldNotice prints inbound.HeldNotice for the messages held under the
@@ -132,20 +327,20 @@ func (r *run) retryConnect(ctx context.Context, f facts, in input) {
 }
 
 // ensureWatcher respawns the watcher when its pidfile is missing or dead
-// (6.6). A pidfile with a foreign start_token is dead here and replaced by
-// the watcher itself. Without a socket (and no sink) there is nothing to
-// inject into and nothing is spawned.
-func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID) {
+// (6.6) and reports whether it did. A pidfile with a foreign start_token
+// is dead here and replaced by the watcher itself. Without a socket (and
+// no sink) there is nothing to inject into and nothing is spawned.
+func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID) bool {
 	if f.socket == "" && r.deps.Sink == "" {
 		r.log.Debug("prompt: no inbox socket; the watcher is not needed")
-		return
+		return false
 	}
 	v, err := pidfile.Check(pidfile.Path(f.stateDir, f.pid), r.deps.Lookup)
 	switch {
 	case err != nil:
 		r.log.Warn("prompt: watcher pidfile unreadable; spawning anyway", log.Err(err))
 	case v.Found && v.Alive && v.Entry.Version == buildinfo.String():
-		return
+		return false
 	case v.Found && v.Alive:
 		// A live watcher of another Brigade version — the plugin was
 		// updated under a running session. Replace it here, at the next
@@ -157,10 +352,11 @@ func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID) {
 			slog.String("watcher_version", v.Entry.Version))
 		r.stopWatcher(v.Entry, f)
 		r.spawnWatcher(ctx, f, m, min(r.deps.PidfileWait, promptPidfileWait))
-		return
+		return true
 	}
 	r.log.Info("prompt: watcher not alive; respawning")
 	r.spawnWatcher(ctx, f, m, min(r.deps.PidfileWait, promptPidfileWait))
+	return true
 }
 
 // printNotice prints the watcher's one-line notice once and removes it

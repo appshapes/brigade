@@ -53,9 +53,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   directory): an ask or deny that would match `brigade doing`, or a settings file that exists but cannot be read
   or parsed, records `unasked`; an allow that exactly names the verb (`Bash`, `Bash(brigade:*)`,
   `Bash(brigade *)`, `Bash(brigade*)`, `Bash(brigade doing:*)`, `Bash(brigade doing *)`, `Bash(brigade doing*)`)
-  records `allowed`. Nothing read from a settings file is sent, stored or logged. At this version the mode gates
-  the verb and the watcher's carry across a re-open (below); the reminder that will ask the model to keep the
-  line current follows in this release.
+  records `allowed`. Nothing read from a settings file is sent, stored or logged. The mode gates the verb, the
+  watcher's carry across a re-open (below) and the reminder that asks the model to keep the line current (under
+  `Changed`).
 
 - **A doing line lives inside one conversation: it survives a watcher restart, is blank after `/clear`, and
   opting out retracts it at the next session start.** A watcher whose session is closed under it — a plugin
@@ -67,10 +67,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   neither `off` nor `unsupported`. Any miss — the list refused or timing out, the session's record missing from
   a truncated list, a value that no longer passes the refusals — re-opens the session with the member absent,
   never `""`, logs one fixed line without the text, and removes the prompt hook's doing-nudge stamp
-  (`${stateDir}/state/<pid>.doing-nudge`) so the reminder that follows in this release tells the model its line
-  is blank; the one miss that keeps the stamp is a listed record holding nothing, where nothing was lost. The
-  watcher's `session re-opened` log line gains `described`. On the continue path — a SessionStart that finds its
-  own live watcher — the hook's heartbeat now carries `session_description: ""` when the native session id
+  (`${stateDir}/state/<pid>.doing-nudge`) so the reminder (under `Changed`) tells the model its line is blank;
+  the one miss that keeps the stamp is a listed record holding nothing, where nothing was lost. The watcher's
+  `session re-opened` log line gains `described`. On the continue path — a SessionStart that finds its own live
+  watcher — the hook's heartbeat now carries `session_description: ""` when the native session id
   changed (`/clear`, an in-process `/resume`; a same-id re-fire such as `/reload-plugins` keeps the line),
   whatever `share_doing` says, and on a same-id re-fire too when the session had been publishing and the option
   is now off; an adapter without the capability, or a map whose mode was never resolved, is sent no member. To
@@ -88,13 +88,44 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   obtains the join secret later; it stays on a closed session for the adapter's retention (7 days on the bundled
   adapters) with no retraction after the close. The consent point is the **first session start after updating
   the plugin**, where the `share_doing` option is resolved; the opt-outs are that option set to `false`, `brigade
-  doing --clear`, or an ask or deny rule on `brigade doing`. Nothing yet asks the model to publish — at this
-  version a sentence appears only when a prompt or a person tells it to — and `docs/security.md` §2 states what
-  the refusals cannot recognise (a hostname, a person's or a customer's name, and your account email when `label`
-  is `none`). **Members who gated `brigade send` with the documented `ask` or `deny` rule:** that rule does not
-  cover `brigade doing` (owner ruling: the line follows whatever Claude Code allows), so the new verb works for
-  you as for everyone; to gate it, add a rule on `Bash(brigade doing*)` or on `Bash(brigade:*)`, or set
-  `share_doing` to `false`. The docs no longer call the send rule "the off switch".
+  doing --clear`, or an ask or deny rule on `brigade doing`. What asks the model to publish is the reminder of
+  the next bullet, and `docs/security.md` §2 states what the refusals cannot recognise (a hostname, a person's
+  or a customer's name, and your account email when `label` is `none`). **Members who gated `brigade send`
+  with the documented `ask` or `deny` rule:** that rule does not cover `brigade doing` (owner ruling: the line
+  follows whatever Claude Code allows), so the new verb works for you as for everyone; to gate it, add a rule on
+  `Bash(brigade doing*)` or on `Bash(brigade:*)`, or set `share_doing` to `false`. The docs no longer call the
+  send rule "the off switch".
+
+- **From this version Brigade asks the session's model, at most once per ten minutes and only where its
+  settings say the call will neither prompt nor be denied, to keep its doing line current — and the
+  instruction is invisible to the human: the first thing a user sees is a `brigade doing` call.** The ask is one
+  of three fixed lines on the prompt hook's output (hook output leaves no transcript entry of its own), chosen
+  by a hook-owned stamp (`${stateDir}/state/<pid>.doing-nudge`, holding when Brigade last reminded and for
+  which conversation): the first eligible prompt of a new, resumed, cleared or forked conversation — and of one
+  whose watcher restart could not carry the line — says the line is blank and how to set it; after a
+  `/compact`, or a prompt seen in a mode where Brigade may not ask, the full text is issued once more; ten
+  minutes of prompted time after any line, a short one says it is due again only if the work has changed. The
+  three strings are constants: no session text, no teammate text, nothing from the prompt or the transcript, and
+  each says a refusal is final for the conversation. Where it asks, following the `doing_mode` the session start
+  froze and the prompt's permission mode: `bypassPermissions` always; `default`, `acceptEdits` and `dontAsk`
+  only under `allowed` (an `allow` Brigade could read covers the verb exactly); never `plan`; never `auto`, whose
+  classifier is unmeasured until the card-25 sweep; never under `unasked`, `off` or `unsupported`; never in a
+  `claude -p` session; never when the map's conversation is not the prompt's (a stale map adopted through pid
+  reuse); never with under a second of the prompt budget left; and never before the new stamp is written — an
+  unwritable state directory means no line, never a per-prompt line. A map from before the mode existed — a
+  session already running when the plugin updated — is resolved by the prompt hook (one local describe capped
+  at 1 s plus the same option and rules read, at the first prompt after the update that does not respawn the
+  watcher, retried at every prompt until the adapter answers) for the prompt after; a session start on
+  `compact` zeroes the stamp, and session end removes it. The blind spots are accepted and stated in
+  `docs/security.md` §5: managed settings, `--settings`, `--disallowedTools`, a PreToolUse hook,
+  `allowManagedPermissionRulesOnly`, the sandbox's network allow-list, a rule granted mid-session until the next
+  session start, and a line already in context outliving a later mode change. The cost: seven lines in a real
+  44-hour session if the hook fires on typed prompts only, twenty-four if on every turn. The
+  `brigade:team-messaging` skill now also loads when a `Brigade doing:` line asks (its frontmatter says so, and
+  that subagents never do), lists `brigade doing` among the commands the model runs on its own, and carries a
+  "Keeping your own roster line current" section; the injection corpus gains four items (27–30) for the line —
+  a forged reminder, attacker-chosen text, a secret in the line, the forgery on the poll path — outside the
+  26-item measured set; `share_doing: false` now also stops the reminders.
 
 - **The protocol says in words what `session_description` already did on the wire, and the conformance suite
   proves it.** Prose only — no shape, example or schema changed, and the suite stays at 47 cases:

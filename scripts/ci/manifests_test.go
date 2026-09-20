@@ -410,6 +410,35 @@ func frontmatterValue(lines []string, key string) (string, bool) {
 	return "", false
 }
 
+// frontmatterFolded returns a `key: >-` block's text as YAML folds it: the indented continuation lines
+// joined by single spaces, so a sentence that wraps across lines in the file can still be pinned byte for
+// byte against the text Claude Code reads. It handles ONLY the folded form: whatever follows `key:` on the
+// key's own line is dropped (the `>-` indicator), so a skill that wrote a one-line `description: ...` would
+// fold to "" here and fail the pin rather than pass it by accident.
+func frontmatterFolded(lines []string, key string) (string, bool) {
+	var parts []string
+	in := false
+	for _, line := range lines {
+		if in {
+			if !strings.HasPrefix(line, " ") {
+				break
+			}
+			parts = append(parts, strings.TrimSpace(line))
+			continue
+		}
+		if _, found := strings.CutPrefix(line, key+":"); found {
+			in = true
+		}
+	}
+	return strings.Join(parts, " "), in
+}
+
+// doingSentence is the one card-25 text present in every permission mode and every subagent -- the
+// team-messaging skill's frontmatter is loaded whatever the hook prints -- so it is conditional on purpose
+// (an unconditional "publish your doing line" here would be a second, ungated trigger) and pinned byte for
+// byte (plan .context/plans/session-doing.md, row P16-5).
+const doingSentence = "Also use it when a `Brigade doing:` line asks this session to say what it is working on; subagents never do."
+
 func checkSkills(r reporter, root string) {
 	r.Helper()
 	entries, err := os.ReadDir(filepath.Join(root, skillsDirRel))
@@ -456,6 +485,9 @@ func checkSkills(r reporter, root string) {
 		if name == "team-messaging" {
 			if got, present := frontmatterValue(lines, "allowed-tools"); !present || got != "Bash(brigade:*)" {
 				r.Errorf("%s: allowed-tools is %q (present=%v), want %q", rel, got, present, "Bash(brigade:*)")
+			}
+			if folded, _ := frontmatterFolded(lines, "description"); !strings.Contains(folded, doingSentence) {
+				r.Errorf("%s: the description no longer carries the doing sentence byte for byte: %q", rel, doingSentence)
 			}
 		}
 	}
@@ -816,6 +848,11 @@ var manifestMutations = []struct {
 		"g_team_messaging_loses_allowed_tools", checkSkills,
 		dropFrontmatterLine("plugin/skills/team-messaging/SKILL.md", "allowed-tools"),
 		"without the declaration D20's grant does not exist and every reply prompts",
+	},
+	{
+		"g_team_messaging_loses_the_doing_sentence", checkSkills,
+		replaceInFile("plugin/skills/team-messaging/SKILL.md", "subagents never do.", "subagents may too."),
+		"the frontmatter is the one card-25 text every mode and every subagent sees; its wording is pinned",
 	},
 	{
 		"g_skill_name_stops_matching_its_directory", checkSkills,

@@ -2,7 +2,10 @@ package hook
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log/slog"
+	"os"
 	"syscall"
 
 	"github.com/appshapes/brigade/internal/adapterkit/log"
@@ -67,6 +70,11 @@ func (r *run) sessionEnd() int {
 	}
 	if derr := store.DeleteStart(f.pid); derr != nil {
 		r.log.Debug("session-end: start facts not removed", log.Err(derr))
+	}
+	// The doing reminder stamp goes with the map (card 25, plan 5.3); the
+	// sentence itself stays on the closed record (ruling 6).
+	if rerr := os.Remove(doingStampPath(f.stateDir, f.pid)); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+		r.log.Debug("session-end: doing stamp not removed", log.Err(rerr))
 	}
 	if m == nil {
 		return 0

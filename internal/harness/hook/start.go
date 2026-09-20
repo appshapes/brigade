@@ -46,6 +46,7 @@ func (r *run) sessionStart() int {
 		// /compact re-fires SessionStart in the same process with the
 		// same native id: refresh the map, no network.
 		r.refreshMap(f, in)
+		r.zeroDoingStamp(f)
 		return 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), startBudget)
@@ -78,6 +79,32 @@ func (r *run) refreshMap(f facts, in input) {
 	if err := store.WriteByPID(m); err != nil {
 		r.log.Warn("compact: session map not refreshed", log.Err(err))
 	}
+}
+
+// zeroDoingStamp is the `source = compact` half of the doing reminder
+// (card 25, plan 5.3): the summary may have dropped the full text, so a
+// reminder stamp this pid holds is zeroed — its time, never its
+// conversation id — and the next eligible prompt re-issues FULL. Every
+// other SessionStart source leaves the stamp alone: the conversation id
+// inside it is what makes a new conversation's first prompt say BLANK,
+// and a SessionStart runs in the background, so removing the file here
+// could race that first prompt (plan 5.4). A stamp that is not there, or
+// not readable as one, stays as it is: the prompt hook reads either as
+// missing.
+func (r *run) zeroDoingStamp(f facts) {
+	path := doingStampPath(f.stateDir, f.pid)
+	data, err := adapterkit.ReadStrict(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			r.log.Debug("compact: doing stamp unreadable; left as it is", log.Err(err))
+		}
+		return
+	}
+	_, id, ok := strings.Cut(strings.TrimSpace(string(data)), " ")
+	if !ok || id == "" {
+		return
+	}
+	r.writeDoingStamp(path, time.Time{}, id)
 }
 
 // resolved is everything the register/heartbeat paths share.
