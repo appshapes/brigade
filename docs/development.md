@@ -1,8 +1,43 @@
 # Working on Brigade
 
-The developer's page: how the repository is laid out, what gates a change, how a release is cut, and what we ask
-of an adapter author. Users and administrators want [`docs/setup.md`](setup.md) instead; the front
-[`README.md`](../README.md) has the six journeys in short form.
+The developer's page: how a clone is set up, how the repository is laid out, what gates a change, how a release is
+cut, and what we ask of an adapter author. Users and administrators want [`docs/setup.md`](setup.md) instead; the
+front [`README.md`](../README.md) has the six journeys in short form.
+
+## If you want to
+
+| If you want to | Go to |
+| --- | --- |
+| set up a fresh clone | [Setup](#setup) |
+| see every target | `make help` |
+| run the tests | `make test` |
+| run the live Supabase suites | `make supabase-start supabase-env`, then `make test-all` |
+| run the whole gate | [Gates](#gates) |
+| format, fix lint | `make fmt`, `make lint-fix` |
+| try the plugin against your build | `make plugin-dev`, `make plugin-dev-off` — [`plugin/README.md` › Status](../plugin/README.md#status) |
+| add a migration | `make migration-new name=<add_x>` |
+| regenerate the protocol schema | `make schema` |
+| commit and push | `make push message="<card>: …"`, or `/commit <card>` |
+| read or create a Trello card | [`docs/claude-code-usage.md` › Trello CLI](claude-code-usage.md#trello-cli) |
+| hand work to the agentic loop | [`docs/claude-code-usage.md` › Daily Workflow](claude-code-usage.md#daily-workflow) |
+| cut a release | [Releases](#releases) |
+| write an adapter | [For adapter contributors](#for-adapter-contributors) |
+| see what a CI script does, run shellcheck as CI does | [`scripts/ci/README.md`](../scripts/ci/README.md) |
+
+## Setup
+
+Go 1.27.0, `make`, `git` and `curl`, then `make setup`: module downloads, the pinned golangci-lint and goreleaser
+into `./bin`, shellcheck (Homebrew on macOS), `.env` from `.env.example`, `push.autoSetupRemote`. It stops if `gh`
+is missing or logged out, or if Docker is not running.
+
+| For | You also need |
+| --- | --- |
+| `make test`, the gate, `make push` | nothing more |
+| the live Supabase suites, `make e2e` | Docker, Node (`npx` runs the pinned Supabase CLI), `jq` |
+| `make plugin-dev`, `make harness-smoke`, `make proof` | a logged-in `claude`, `jq` |
+| `make release`, `make release-dry-run`, `make checksums-check` | `gh`, logged in |
+| `make plugin-check` | shellcheck; Docker for CI's 0.9.0 — [`scripts/ci/README.md`](../scripts/ci/README.md) |
+| the Trello skills | [trello-cli](claude-code-usage.md#trello-cli) |
 
 ## Gates
 

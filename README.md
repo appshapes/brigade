@@ -49,6 +49,8 @@ messages — the project settings, `make backend-install`, and the daily keep-al
 - [plugin/README.md](plugin/README.md) — the plugin's commands and options
 - [docs/adapter-authors.md](docs/adapter-authors.md) — writing an adapter for another backend; the protocol is
   [docs/protocol-v1.md](docs/protocol-v1.md)
-- [docs/development.md](docs/development.md) — working on Brigade: gates, releases, layout, notes for adapter
-  contributors
+- [docs/development.md](docs/development.md) — working on Brigade: setup, an if-you-want-to table, gates, releases,
+  layout, notes for adapter contributors
+- [docs/claude-code-usage.md](docs/claude-code-usage.md) — working on Brigade with Claude Code: agents, skills, the
+  Trello CLI
 - [CHANGELOG.md](CHANGELOG.md) — what changed in each release
