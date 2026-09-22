@@ -1,5 +1,7 @@
 # Brigade
 
+[![release](https://img.shields.io/github/v/release/appshapes/brigade)](https://github.com/appshapes/brigade/releases/latest)
+
 Team messaging between the Claude Code sessions of different people and machines. Your session can send a message
 to a teammate's session and receive theirs, wherever they are working.
 
