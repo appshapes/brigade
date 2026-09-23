@@ -56,6 +56,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/registry"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/transcript"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -129,11 +130,13 @@ const (
 // documented common hook member naming the session's own NDJSON
 // transcript — IS read: the hook keeps it, when absolute, in the 0600
 // by-pid map (transcriptPath), where the detached watcher finds it and
-// reads the file locally for the two facts a heartbeat carries, the model
-// and the context occupancy (internal/harness/transcript). The path itself
-// is never sent, never logged and never printed, and the hook never opens
-// the file (T10); `prompt` stays absent from the type — never read,
-// stored or sent.
+// reads the file locally for two of the three facts a heartbeat carries,
+// the model and the context occupancy (internal/harness/transcript). The
+// SessionStart hook opens the file once more itself, for the third — the
+// conversation's own title (customTitle), which becomes the session name.
+// What T10 still holds to unchanged: the path is never sent, never logged
+// and never printed, nothing else in the file is read, and `prompt` stays
+// absent from the type — never read, stored or sent.
 type input struct {
 	SessionID      string `json:"session_id"`
 	Cwd            string `json:"cwd"`
@@ -762,8 +765,9 @@ type identity struct {
 	nonInteractive bool
 }
 
-// identity resolves the display name (registry → session_title →
-// basename(cwd)), the activity (registry status → idle), the harness
+// identity resolves the display name (registry.ResolveName over the
+// registry entry, the transcript's custom title, session_title and
+// basename(cwd); harnessName when none survives), the activity (registry status → idle), the harness
 // version (registry version → unknown) and the entrypoint (environment →
 // registry; `kind` is ignored).
 func (r *run) identity(f facts, in input) identity {
@@ -780,16 +784,35 @@ func (r *run) identity(f facts, in input) identity {
 		id.entrypoint = entry.Entrypoint
 	}
 	id.nonInteractive = id.entrypoint == entrypointSDK
-	for _, candidate := range []string{entry.Name, in.SessionTitle, cwdName(in.Cwd)} {
-		if name := registeredName(candidate); name != "" {
-			id.name = name
-			break
-		}
-	}
+	id.name, _ = registry.ResolveName(registeredName, entry, r.customTitle(in), in.SessionTitle, cwdName(in.Cwd))
 	if id.name == "" {
 		id.name = harnessName
 	}
 	return id
+}
+
+// customTitle reads the transcript's latest custom-title, the VS Code
+// extension's rename, so a resume or /compact registers it rather than the
+// derived registry name the watcher would replace up to a heartbeat later.
+// It is one full scan of the file (about 15 ms for 13 MB, measured
+// 2026-09-23); a fresh session has no transcript yet, and a missing or
+// unreadable one yields "" (debug only, never the path).
+//
+// identity calls it eagerly, before ResolveName can discard the result at
+// step 1 for a session the user has already renamed in the chat. That is
+// the choice, not an oversight: the scan is once per session start and
+// once per /compact, never per prompt, and the eager form keeps one
+// reading of the precedence rather than two.
+func (r *run) customTitle(in input) string {
+	p := transcriptPath(in)
+	if p == "" {
+		return ""
+	}
+	facts, err := transcript.NewReader(p).Refresh()
+	if err != nil && !errors.Is(err, transcript.ErrMissing) {
+		r.log.Debug("transcript title unavailable", log.Err(err))
+	}
+	return facts.CustomTitle
 }
 
 // cwdName is basename(cwd), or "" when cwd names no directory.

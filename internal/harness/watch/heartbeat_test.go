@@ -447,11 +447,17 @@ func TestOneStdinHeartbeatOutstanding(t *testing.T) {
 // through registry.Dir).
 func (fx *fixture) writeRegistry(name, status, socket string) {
 	fx.t.Helper()
+	fx.writeRegistrySource(name, "user", status, socket)
+}
+
+// writeRegistrySource is writeRegistry with the entry's nameSource.
+func (fx *fixture) writeRegistrySource(name, nameSource, status, socket string) {
+	fx.t.Helper()
 	dir := filepath.Join(fx.dirs.ClaudeConfig, "sessions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		fx.t.Fatal(err)
 	}
-	entry := fakeregistry.Observed(fx.claudePID, name, status, socket)
+	entry := fakeregistry.ObservedWithSource(fx.claudePID, name, nameSource, status, socket)
 	if err := os.WriteFile(filepath.Join(dir, registry.FileName(fx.claudePID)), []byte(entry), 0o600); err != nil {
 		fx.t.Fatal(err)
 	}
@@ -582,5 +588,68 @@ func TestOneShotCommandsWithoutStdinCommands(t *testing.T) {
 	data, _ := os.ReadFile(dump)
 	if strings.Contains(string(data), "CLAUDE_CODE_MESSAGING") {
 		t.Errorf("an adapter child received a messaging variable")
+	}
+}
+
+// customTitle is the record the VS Code extension's pencil-icon rename
+// writes (and /rename, beside an agent-name record); the rename leaves the
+// registry name derived.
+func customTitle(title string) string {
+	b, _ := json.Marshal(map[string]any{"type": "custom-title", "customTitle": title, "sessionId": "native-1"})
+	return string(b)
+}
+
+// TestTranscriptTitleOutranksADerivedName reproduces the VS Code rename: a
+// derived registry name plus a transcript holding only custom-title
+// records. The title reaches the store at a heartbeat and the 2 s registry
+// re-read never overwrites it; a later title replaces it; an empty title
+// falls back to the derived name; a /rename (nameSource user) wins over
+// the title; the registry reverting to derived (a resume or reload, new
+// pid, new suffix) gives the title back; and /clear's new transcript,
+// which has no title, falls back to the derived name.
+func TestTranscriptTitleOutranksADerivedName(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{})
+	fx.useFS()
+	first := filepath.Join(t.TempDir(), "first.jsonl")
+	writeTranscript(t, first, modelAttachment("claude-opus-5"))
+	fx.writeMapWith(func(m *sessionmap.ByPID) { m.TranscriptPath = first })
+	fx.writeRegistrySource("project-3f", "derived", "idle", fx.sock.Path())
+	deps := fx.deps()
+	deps.HeartbeatInterval = 200 * time.Millisecond
+	r := fx.start(deps)
+	fx.waitLog("watch ready", nil)
+	name := func() string { return fx.session().SessionName }
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return name() == "project-3f" })
+
+	appendTranscript(t, first, customTitle("vs code title"))
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return name() == "vs code title" })
+	fx.waitLog("session name updated", map[string]any{"session_name": "vs code title", "source": "transcript title"})
+	// Several registry re-reads (every 2 s in production, every poll here)
+	// and heartbeats later, the derived name has not come back.
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.logCount("heartbeat", nil) >= 4 })
+	if got := name(); got != "vs code title" {
+		t.Fatalf("the registry re-read overwrote the title: %q", got)
+	}
+
+	appendTranscript(t, first, customTitle("second title"))
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return name() == "second title" })
+	appendTranscript(t, first, customTitle(""))
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return name() == "project-3f" })
+	appendTranscript(t, first, customTitle("second title"))
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return name() == "second title" })
+
+	fx.writeRegistrySource("typed rename", "user", "idle", fx.sock.Path())
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return name() == "typed rename" })
+	fx.writeRegistrySource("project-a7", "derived", "idle", fx.sock.Path())
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return name() == "second title" })
+
+	second := filepath.Join(t.TempDir(), "second.jsonl")
+	writeTranscript(t, second, modelAttachment("claude-opus-5"))
+	fx.writeMapWith(func(m *sessionmap.ByPID) { m.TranscriptPath = second })
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return name() == "project-a7" })
+	fx.assertLogNamesNoPath(first, second)
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
 	}
 }

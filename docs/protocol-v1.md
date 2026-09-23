@@ -329,10 +329,13 @@ a cap an adapter chooses (4.4.2).
 The registration has no member for a native session id, a working directory, a hostname, a username or a transcript
 path (threat model T10, unit test U-22); adding one is a protocol change, not a convenience. The harness MAY report
 `model` and `context_used_tokens`, two facts it derives locally from the session's own transcript; the transcript and
-its path never travel, and neither fact names a machine, a user or a file (C-44). It MAY also report `human_label`,
-its default label for the principal: an adapter announcing `session.human_label` adopts it as the membership's label
-only when that membership has none, so a member whose label is empty is filled at the next registration and a member
-who chose a label keeps it forever (C-45).
+its path never travel, and neither fact names a machine, a user or a file (C-44). A harness MAY derive `session_name`
+from the transcript too — the Claude Code harness takes the conversation's own title from it, where the user set one
+— and that changes nothing here: it is a display string of 4.5.11 like any other name, derived locally, bounded by
+`max_session_name_codepoints` as always, and the transcript itself still never travels. It MAY also report
+`human_label`, its default label for the principal: an adapter announcing `session.human_label` adopts it as the
+membership's label only when that membership has none, so a member whose label is empty is filled at the next
+registration and a member who chose a label keeps it forever (C-45).
 
 **Resume.** An adapter MUST NOT let a caller re-open a session it does not own — the answer is the uniform `not_found`
 (C-19) — and MUST NOT re-open a session that is open with a valid lease (`conflict`, `details.reason =
