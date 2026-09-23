@@ -4,8 +4,10 @@
 the `sync` member) and **33** (the sync-adapter model, the `sync_peer` wire member, the Syncthing adapter, the
 docs, the release). Anchors are file:line at **9b2c0d7**. Execution-log rows **P17-1..P17-2** (32) and
 **P18-1..P18-7** (33). **One additive wire member and one append-only Supabase migration; no new Go dependency;
-Brigade never carries a file byte.** Built through P18-4 (2026-09-22): §4.1 and §4.4 below are updated to the
-code as merged; P18-5 (the smoke) is in progress, P18-6 and P18-7 are to do.
+Brigade never carries a file byte.** Built through P18-6 (2026-09-23): §4.1 and §4.4 below are updated to the
+code as merged through P18-4; P18-5 (the smoke) and P18-6 (the reviews and their fixes — among them a dropped
+folder is paused, never deleted, and every member's plugin must be 0.11.0 before a project commits a `sync`
+member) are done; P18-7 (the release) is to do.
 
 Why this shape: the first design for this feature built its own transport over Brigade messages (base64 chunks,
 a replication rule). Six adversarial review rounds found the replication rule unsound four times running —
@@ -160,7 +162,8 @@ always add controls later as needed." So: **no deny-lists, no hardening beyond w
   `folder_not_clean` (empty, `a/`, `./a`, `a//b`, `a/./b`) and `folder_root` (`.`) — `teamfile.SyncReasons()`;
   P17-1's first cut had seven more (`folder_empty`, `folder_bad_char`, `folder_dotdot`, `folder_git`,
   `folder_team_file`, `folder_duplicate`, `folder_nested`) and P17-1b cut them to
-  what names a folder under the checkout: relative, `path.Clean`-unchanged, not `.`, at most 32 × 128 bytes.
+  a relative, `path.Clean`-unchanged path other than `.`, at most 32 × 128 bytes — `..` included on purpose, so a
+  folder can sit beside or above the checkout (the pre-release review corrected "under the checkout" in the docs).
   No `folders` member, or an empty array, is a usable member that syncs nothing.
 - `team create --force` **always replaces** the file, as before card 32, and carries `sync` across through
   `teamfile.CarriedSync`: a usable member comes over unchanged; an unusable one, a refused file that declares one,

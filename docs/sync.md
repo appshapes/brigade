@@ -26,8 +26,15 @@ What a teammate's machine can do in a listed folder on yours, and what the netwo
   On a backend without it every session still connects, but no peer is stored, so no checkout is ever introduced
   to another and nothing syncs.
 - **A `sync` member in `.brigade.json`**, committed by the project.
+- **Every member's plugin at 0.11.0 or later**, before that commit (below).
 
 Nothing else: no port to open, no account, no setting on the member's side.
+
+**Every member's plugin must be 0.11.0 or later before the project commits a `sync` member.** A plugin of 0.10.0
+or earlier reads `.brigade.json` against a closed schema and refuses the whole file — `team_file_unknown_field`
+for the `sync` member, `team_file_too_large` for a file over 4096 bytes — so its sessions say `Brigade: not
+connected (config: team_file_unknown_field): fix .brigade.json.` and connect to nothing, chat included, until that
+member runs `/brigade:update`. The `VERSION` column of `brigade sessions` shows who is behind.
 
 ## The `sync` member
 
@@ -38,8 +45,9 @@ Nothing else: no port to open, no account, no setting on the member's side.
 - **`folders`** — at most 32 entries, each at most 128 bytes. An entry is a path relative to the repository's top
   level, written exactly as Go's `path.Clean` writes it: `docs/shared` and `.context/plans` are folders;
   `/srv/shared` (absolute), `./docs`, `docs/`, `docs//shared`, the empty string and `.` (the whole checkout) are
-  not. Nothing else is asked of an entry. A listed folder that does not exist yet is created (mode 0755) the
-  first time the session syncs.
+  not. `..` is allowed, so a folder can sit beside or above the checkout: `../shared` is beside it, `..` is its
+  parent ([docs/security.md](security.md), section 12, says what that exposes). Nothing else is asked of an
+  entry. A listed folder that does not exist yet is created (mode 0755) the first time the session syncs.
 - **`adapter`** — optional; `syncthing`, the bundled adapter, when absent. Any other name runs
   `brigade-sync-<name>` from each member's `PATH` ("Other adapters", below).
 - Any other member inside `sync` is ignored and named in the session-start line about ignored members.
@@ -55,13 +63,35 @@ Brigade: .brigade.json's sync member is not usable (folder_not_relative); file s
 `folder_too_long`, `folder_not_relative`, `folder_not_clean` and `folder_root`, checked in that order.
 
 The project owns the list: whoever can commit `.brigade.json` decides what every checkout syncs, and a member can
-only switch it off. A changed list takes effect in each session at its next session start. `brigade team create
---force` carries the member into the file it writes; when it cannot — the old member was not usable, or the old
-file was refused — it writes the new file without it and says so in one line:
+only switch it off. A changed list reaches a session at its next session start (`/clear` counts: the session's
+watcher is replaced), and then:
+
+- **A folder added** is shared at that session's first apply, a moment after the start.
+- **A folder removed** is paused at that apply, on each machine whose checkout had shared it: Syncthing stops
+  syncing it, and its files stay where they are — Brigade never deletes a folder, or a file in one. The bundled
+  adapter pauses only a folder it can prove was this checkout's — its label still ends in the folder's name and
+  its path is where this checkout puts it — so another repository's folder, a second clone's, or one whose label
+  was edited in the web GUI is left alone. `brigade sync
+  status` shows it as `no longer listed (paused)` and the notice line ends in `; 1 folder no longer listed is
+  paused`. Listed again, it syncs again. To be rid of it, remove it in the instance's web GUI (on 127.0.0.1, at
+  the port in `~/.local/state/brigade/sync/syncthing/port`); the files stay on disk either way.
+- **Every folder removed, or the `sync` member removed,** stops the session syncing and pauses nothing: the folders
+  stay configured, and keep syncing while another session on the machine keeps the instance running. Remove them
+  in the web GUI.
+
+`brigade team create --force` carries the member into the file it writes; when it cannot — the old member was not
+usable, or the old file was refused — it writes the new file without it and says so in one line:
 
 ```
 the previous .brigade.json's sync member was not carried into the new file (<reason>); add it again if this project syncs folders
 ```
+
+`team create` makes a new team, with a new `team_ref`, and a folder's id is derived from the `team_ref`
+("Folder ids" in [docs/sync-adapters.md](sync-adapters.md)): every folder gets a new id. The folders under the
+old ids stay configured — they are another team's as far as the instance can tell, so nothing pauses them — and
+they still hold their paths, so each folder under its new id shows `conflict_path` until the old one is gone.
+Remove the old folders (their ids begin with the old `team_ref`'s first eight characters) in the instance's web GUI;
+the next apply shares the new ones.
 
 ## What you see
 
@@ -77,9 +107,13 @@ or why it does not:
 Brigade: file sync off (the sync option is off).
 Brigade: file sync off (no folders listed).
 Brigade: file sync off (the checkout's toplevel could not be resolved).
+Brigade: file sync off (no watcher runs without an inbox socket).
+Brigade: file sync off (the watcher has not started yet).
 ```
 
-A project with no `sync` member gets no line.
+File sync runs in the session's watcher, so the last two say there is none: a host that gives the session no
+inbox socket runs no watcher at all, and a watcher that failed to start is started again at the next prompt —
+whose notice line then says what syncs. A project with no `sync` member gets no line.
 
 **At a prompt**, the session's watcher reports through its one notice line, printed once at the next prompt and
 again whenever it changes:
@@ -95,10 +129,22 @@ one. When another checkout on this machine holds one of the folders ("Limits"), 
 Brigade sync: 2 folders, 1 of 3 peers connected; 1 folder is held by another checkout
 ```
 
+and when a folder this checkout shared has been dropped from the list and paused (above), in one more:
+
+```
+Brigade sync: 2 folders, 1 of 3 peers connected; 1 folder no longer listed is paused
+```
+
 A machine without Syncthing sees this instead, and that session carries on without file sync until its next start:
 
 ```
 Brigade sync: the syncthing sync adapter is not usable (unavailable: syncthing is not on PATH; install it to sync folders); file sync is off for this session
+```
+
+and a plugin whose own `brigade` binary cannot be run — the bundled adapter is that binary — sees:
+
+```
+Brigade sync: the plugin's brigade binary could not be run; file sync is off for this session
 ```
 
 **`brigade sync status`**, inside a session, shows the engine, this project's folders and the peers:
@@ -114,9 +160,11 @@ bob@example.com  yes
 ```
 
 A folder is labelled `<repository>/<folder>`. Its state is Syncthing's own word (`idle`, `scanning`, `syncing`,
-`error`, …), or `not shared yet` before the watcher's first round, `rejected` when Syncthing refused the folder,
-and `conflict_path` when another checkout on this machine holds it — the instance has the folder at that
-checkout's path — or another folder id already holds this path. A peer is
+`error`, …), or `not shared yet` before the watcher's first round, `rejected` when Syncthing refused the folder
+or its directory could not be created, and `conflict_path` when another checkout on this machine holds it — the
+instance has the folder at that checkout's path — or another folder id already holds this path. A folder of this
+checkout's that the project no longer lists, still held by the instance, follows the listed ones as `no longer
+listed (<state>)` — `no longer listed (paused)` once an apply has paused it. A peer is
 labelled with its session's label from the roster, or the first seven characters of its device id in brackets
 when the roster names none; the list is every device the instance knows, which can include peers of another
 project on the same machine. `--json` carries the same, plus every folder the instance holds and the ids in full.

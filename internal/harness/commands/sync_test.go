@@ -2,6 +2,7 @@ package commands
 
 import (
 	"encoding/json/v2"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -136,6 +137,45 @@ func TestSyncStatusHumanShowsAFolderHeldByAnotherCheckout(t *testing.T) {
 		"FOLDER                  STATE\n" +
 		"brigade/docs            conflict_path\n" +
 		"brigade/.context/plans  syncing\n"
+	if got := f.out.String(); got != want {
+		t.Fatalf("stdout =\n%s\nwant\n%s", got, want)
+	}
+}
+
+// TestSyncStatusHumanShowsAFolderNoLongerListed: a folder this checkout
+// shared that the project dropped — the engine still holds it, paused —
+// is a row of its own, ".." folders included; another repository's
+// folder of the same team, whose path is no folder of this checkout's
+// under its id, is not.
+func TestSyncStatusHumanShowsAFolderNoLongerListed(t *testing.T) {
+	t.Parallel()
+	f, root := syncFixture(t)
+	b, err := json.Marshal(foldersync.StatusResult{
+		Running: true, Peer: fakesync.SelfPeer,
+		Folders: []foldersync.FolderState{
+			{ID: foldersync.FolderID(fixtureTeamRef, "docs"), Path: root + "/docs", State: "idle"},
+			{ID: foldersync.FolderID(fixtureTeamRef, "notes"), Path: root + "/notes", State: "paused"},
+			{ID: foldersync.FolderID(fixtureTeamRef, "../beside"), Path: filepath.Dir(root) + "/beside", State: "paused"},
+			{ID: foldersync.FolderID(fixtureTeamRef, "other"), Path: "/elsewhere/other", State: "idle"},
+		},
+		Peers: []foldersync.PeerState{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{Status: string(b)})
+	f.rec.on("session list", okAnswer(syncListResult(t)))
+	inv := f.inv(f.sessionEnv(), "", "status")
+	inv.Deps.SyncCommand = fake.Argv
+	if err := Sync(inv); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	want := "sync: syncthing, engine running, this machine's peer SELF-DEVICE-1\n" +
+		"FOLDER                  STATE\n" +
+		"brigade/docs            idle\n" +
+		"brigade/.context/plans  not shared yet\n" +
+		"brigade/notes           no longer listed (paused)\n" +
+		"brigade/../beside       no longer listed (paused)\n"
 	if got := f.out.String(); got != want {
 		t.Fatalf("stdout =\n%s\nwant\n%s", got, want)
 	}

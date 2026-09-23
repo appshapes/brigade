@@ -316,3 +316,37 @@ func TestSpawnSpecIsArgvAndAllowListedEnvironment(t *testing.T) {
 		t.Fatalf("sync log: %v", err)
 	}
 }
+
+// TestTheSyncLogRotatesAtTheWatcherCap: a sync log already at the cap is
+// renamed to <log>.1 before the next call writes, and the call's stderr
+// lands in a fresh file — one kept generation, as the watcher's log.
+func TestTheSyncLogRotatesAtTheWatcherCap(t *testing.T) {
+	t.Parallel()
+	state := t.TempDir()
+	logPath := filepath.Join(state, "logs", "sync-syncthing.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(logPath, foldersync.LogRotateBytes); err != nil {
+		t.Fatal(err)
+	}
+	c := &foldersync.Client{
+		Adapter: "syncthing", PluginBin: "/opt/p/brigade", StateDir: state, Environ: []string{"PATH=/bin"},
+		Spawn: func(_ context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+			_, _ = spec.Stderr.Write([]byte("fresh\n"))
+			return &adapterkit.SpawnResult{Envelope: &protocol.Envelope{OK: true, ProtocolVersion: "1", Result: []byte(`{"running":false,"peer":"","folders":[],"peers":[]}`)}}, nil
+		},
+	}
+	if _, err := c.Status(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(logPath + ".1"); err != nil || fi.Size() != foldersync.LogRotateBytes {
+		t.Fatalf("the full log was not kept as .1: %v", err)
+	}
+	if raw, err := os.ReadFile(logPath); err != nil || string(raw) != "fresh\n" {
+		t.Fatalf("the fresh log = %q (%v), want the call's stderr alone", raw, err)
+	}
+}

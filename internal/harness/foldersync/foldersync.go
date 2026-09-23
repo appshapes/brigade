@@ -121,6 +121,12 @@ type FolderState struct {
 // engine holds at another path, and the watcher's notice line counts it.
 const StateConflictPath = "conflict_path"
 
+// StatePaused is the folder state the bundled adapter's `apply` reports
+// for a folder this checkout shared and its project no longer lists: it
+// paused the folder, whose files stay. The watcher's notice line counts
+// it apart from the listed folders.
+const StatePaused = "paused"
+
 // PeerState is one peer in `apply`'s and `status`'s results.
 type PeerState struct {
 	Peer      string `json:"peer"`

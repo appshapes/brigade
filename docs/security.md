@@ -768,9 +768,12 @@ option `sync: off` is the one switch, and it acts from the next session start.
   deleted that way is kept 14 days in the folder's `.stversions` — Syncthing's trash can, not a control. The join
   secret is the boundary, as it is for messages: anyone who holds it can join, start a session, and be introduced.
 - **The project decides the folders.** Whoever can commit `.brigade.json` sets the list for every checkout. A
-  folder only has to name a path under the checkout, so a folder that a tool reads as configuration — `.claude`,
-  `.git`, `.vscode` — can be listed, and a teammate's writes into it then change that configuration on your
-  machine, Claude Code's and git's hooks included.
+  folder is a relative path that `path.Clean` leaves unchanged, other than `.` — `..` included, so it can sit
+  beside or above the checkout. A folder that a tool reads as configuration — `.claude`, `.git`, `.vscode` — can
+  be listed, and a teammate's writes into it then change that configuration on your machine, Claude Code's and
+  git's hooks included. And a folder with `..` reaches out of the checkout: `..` is the checkout's parent, with
+  every sibling repository in it, and `../..` can be your home directory, so a teammate's machine can then write,
+  overwrite and delete there.
 - **The repository match is not a boundary.** A session is introduced to the sessions whose repository name — the
   `REPO` column of `brigade sessions`, sent as `workspace_label` — matches its own. That name is self-reported text
   that a member can set to anything with the `workspace_label` option. It keeps a team's repositories apart; it
@@ -784,7 +787,8 @@ option `sync: off` is the one switch, and it acts from the next session start.
   peers over TCP and QUIC on every interface — on a port Brigade picks and keeps for the instance, instead of
   22000, so it never shares a port with a Syncthing you run yourself.
 - **Brigade only adds.** A device, or a folder's device, that you add to Brigade's instance by hand — an always-on
-  server — stays; Brigade never removes one. A device you add can write into that folder like any teammate's.
+  server — stays; Brigade never removes one. A device you add can write into that folder like any teammate's. A
+  folder the project stops listing is paused, not deleted: its files stay, and it stops syncing.
 - **Your machine.** The instance's files are under `~/.local/state/brigade/sync/syncthing`, 0700; its REST API
   listens on 127.0.0.1 only, and its key never leaves its `config.xml` (section 10). Syncthing is started as an
   argument array with the allow-listed environment, never through a shell — the one long-running program Brigade

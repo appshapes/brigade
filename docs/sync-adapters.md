@@ -111,8 +111,11 @@ least every 60 seconds while the session lives.
 Report each folder's state in your engine's own words (`idle`, `syncing`, `error`, …) and whether each peer is
 connected right now. A peer or folder that is no longer listed may stay configured; removing it is not required.
 `conflict_path` says this checkout cannot hold the folder because another checkout on the machine does — the same
-folder id of a second clone of the repository. The bundled adapter only ever adds: a device, or a folder's device,
-that someone configured by hand stays.
+folder id of a second clone of the repository. The bundled adapter only ever adds devices: a device, or a
+folder's device, that someone configured by hand stays. A folder it can prove is this checkout's and no longer
+listed — the team part of its id matches, its label ends in a folder name that hashes to its id, and its path is
+where this checkout puts that name — it pauses, never deletes, and reports as an extra entry with the state
+`paused`; a listed folder is always posted un-paused.
 
 ```
 $ brigade-sync-rsyncish apply <<'EOF'
@@ -125,7 +128,8 @@ EOF
 
 Brigade tells the user `Brigade sync: <f> folders, <c> of <p> peers connected` whenever that summary changes,
 followed by `; 1 folder is held by another checkout` (or `; <n> folders are held by another checkout`) when a folder
-is `conflict_path`.
+is `conflict_path`, and by `; 1 folder no longer listed is paused` (or `; <n> folders no longer listed are paused`)
+for each entry whose state is `paused` and whose id Brigade did not list; such an entry is not counted in `<f>`.
 
 ### `status`
 

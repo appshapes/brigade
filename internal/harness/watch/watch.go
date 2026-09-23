@@ -61,6 +61,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/backoff"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
@@ -116,8 +117,9 @@ const (
 	// before its end counts as a fresh failure sequence rather than one
 	// more consecutive failure.
 	DefaultHealthyAfter = time.Minute
-	// DefaultLogRotateBytes is the log rotation threshold (6.6: 5 MB).
-	DefaultLogRotateBytes = 5 * 1000 * 1000
+	// DefaultLogRotateBytes is the log rotation threshold (6.6: 5 MB), the
+	// sync adapters' log shares it.
+	DefaultLogRotateBytes = foldersync.LogRotateBytes
 	// DefaultLeaseSeconds is the lease the heartbeat asks for when the
 	// adapter's advertised range allows it (6.6: 90 s = three missed beats).
 	DefaultLeaseSeconds = protocol.LeaseDefaultSeconds

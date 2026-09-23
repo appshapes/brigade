@@ -36,10 +36,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   changes. [`docs/sync.md`](docs/sync.md) is the whole feature, limits included (two checkouts on one machine
   cannot both sync one folder). [`docs/security.md`](docs/security.md) section 12 says what it opens, and states
   it as accepted: a teammate's machine can write, overwrite and delete anything in a listed folder, no permission
-  rule gates file sync, and the join secret is the boundary, as it is for messages.
+  rule gates file sync, and the join secret is the boundary, as it is for messages. A folder the project stops
+  listing is paused at each checkout's next apply — never deleted; its files stay — and syncs again if it is listed
+  again.
+
+- **Every member's plugin must be 0.11.0 or later before the project commits a `sync` member.** A plugin of 0.10.0
+  or earlier reads `.brigade.json` against a closed schema and refuses the whole file — `team_file_unknown_field`
+  for the `sync` member, `team_file_too_large` for a file over 4096 bytes — so its sessions say `Brigade: not
+  connected (config: team_file_unknown_field): fix .brigade.json.` and connect to nothing, chat included, until
+  that member runs `/brigade:update`. The `VERSION` column of `brigade sessions` shows who is behind.
 
 - **`brigade sync status`**: inside a session, the sync engine's state, this machine's peer, the project's folders
-  with their state, and the peers with whether each is connected, labelled from the roster; `--json` carries
+  with their state (and, as `no longer listed`, a folder of this checkout's the project dropped), and the peers with whether each is connected, labelled from the roster; `--json` carries
   every folder and peer the engine knows, and the folders as this session configured them. Outside a session it
   refuses, as `brigade doing` does.
 
@@ -48,9 +56,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   project's: the option can switch sync off, never add a folder.
 
 - **The `sync` member of `.brigade.json`** (card 32): `"sync": {"adapter": "<name>", "folders": […]}`, `adapter`
-  optional and `syncthing` when absent, `folders` at most 32 entries of at most 128 bytes. A folder only has to
-  name a path under the checkout — relative, unchanged by `path.Clean`, and not `.` — and nothing more is asked
-  of it. A member that breaks a rule never refuses the file: the session connects without file sync, and one line
+  optional and `syncthing` when absent, `folders` at most 32 entries of at most 128 bytes. A folder is a relative
+  path that `path.Clean` leaves unchanged, other than `.` — `..` included, so it can sit beside or above the
+  checkout — and nothing more is asked of it. A member that breaks a rule never refuses the file: the session connects without file sync, and one line
   names the first rule broken (`Brigade: .brigade.json's sync member is not usable (<reason>); file sync is off
   for this session.`). Whoever commits the file decides what every checkout syncs; a member can only switch it
   off.

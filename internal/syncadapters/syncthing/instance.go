@@ -95,7 +95,14 @@ func (in *instance) attach(sessionID string, holder int) (*attachResult, error) 
 		return nil, err
 	}
 	in.setListen(listen)
-	in.a.log.Info("attached", slog.String("session_id", sessionID), slog.Bool("started", !running), slog.Int("daemon_pid", pid))
+	// A repeat attach — the watcher runs one before every apply — is
+	// routine: debug, so the sync log does not grow a line every round.
+	level := slog.LevelDebug
+	if !running {
+		level = slog.LevelInfo
+	}
+	in.a.log.Log(context.Background(), level, "attached",
+		slog.String("session_id", sessionID), slog.Bool("started", !running), slog.Int("daemon_pid", pid))
 	return &attachResult{Peer: id}, nil
 }
 
@@ -413,7 +420,12 @@ func (in *instance) waitReady(pid int) (string, error) {
 
 // stop asks the daemon to shut down over the API (measured: it is gone
 // within 2 s, plan 3.2), and signals it only when that fails or it
-// lingers: SIGTERM, then SIGKILL after stopWait.
+// lingers: SIGTERM, then SIGKILL after stopWait. The signals go to the
+// daemon's process GROUP: `syncthing serve` is a monitor process running
+// the real Syncthing as its child, start's Setsid makes the monitor the
+// group's leader (the group id is its pid), and it is the child that
+// holds the sockets — signalling the monitor alone could leave the child
+// listening.
 func (in *instance) stop(pid int) {
 	if api, err := in.api(); err == nil {
 		if err := api.shutdown(); err == nil && in.waitGone(pid) {
@@ -422,19 +434,52 @@ func (in *instance) stop(pid int) {
 			in.a.log.Warn("syncthing shutdown over the API failed; signalling", adapterlog.Err(err))
 		}
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := signalDaemon(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 		in.a.log.Warn("SIGTERM to syncthing", adapterlog.Err(err), slog.Int("daemon_pid", pid))
 	}
-	if !in.waitGone(pid) {
+	if !in.waitGroupGone(pid) {
 		in.kill(pid)
 	}
 }
 
-// kill SIGKILLs pid when it is still this user's live process.
-func (in *instance) kill(pid int) {
+// signalDaemon sends sig to the daemon's process group and to the daemon
+// itself (a daemon that is not a group leader — one a test planted — has
+// no group of its id). It answers nil when either reached a process.
+func signalDaemon(pid int, sig syscall.Signal) error {
+	gerr := syscall.Kill(-pid, sig)
+	var perr error = syscall.ESRCH
 	if alive(pid, "") {
-		_ = syscall.Kill(pid, syscall.SIGKILL)
+		perr = syscall.Kill(pid, sig)
 	}
+	if gerr == nil || perr == nil {
+		return nil
+	}
+	return perr
+}
+
+// groupAlive reports whether a process group of id pid still has a member
+// this user can signal: the daemon's children outlive it for a moment.
+func groupAlive(pid int) bool {
+	return syscall.Kill(-pid, 0) == nil
+}
+
+// kill SIGKILLs the daemon's process group, and pid itself when it is
+// still this user's live process.
+func (in *instance) kill(pid int) {
+	_ = signalDaemon(pid, syscall.SIGKILL)
+}
+
+// waitGroupGone polls for pid and its process group to be gone for up to
+// stopWait.
+func (in *instance) waitGroupGone(pid int) bool {
+	deadline := time.Now().Add(in.a.d.stopWait)
+	for alive(pid, "") || groupAlive(pid) {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(pollEvery)
+	}
+	return true
 }
 
 // waitGone polls for pid to die for up to stopWait.

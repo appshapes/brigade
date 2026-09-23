@@ -277,8 +277,10 @@ func TestSyncAppliesWhenThePeersChange(t *testing.T) {
 }
 
 // TestSyncAdapterUnavailableIsOneNotice: an adapter that cannot be
-// spawned, or answers describe with an error, earns one notice line; the
-// goroutine ends there — no attach, no detach — and the session goes on.
+// spawned, or answers describe or attach with an error, earns one notice
+// line; the goroutine ends there — after a failed describe with no attach
+// and no detach, after a failed attach with its detach — and the session
+// goes on.
 func TestSyncAdapterUnavailableIsOneNotice(t *testing.T) {
 	t.Parallel()
 	t.Run("an external adapter not on PATH", func(t *testing.T) {
@@ -317,6 +319,68 @@ func TestSyncAdapterUnavailableIsOneNotice(t *testing.T) {
 			t.Fatal("a session whose adapter failed published a sync peer")
 		}
 	})
+	t.Run("the bundled adapter's binary cannot be run", func(t *testing.T) {
+		t.Parallel()
+		fx := newFixture(t, fixtureOptions{sink: true})
+		fx.useFS()
+		fx.writeMapWith(func(m *sessionmap.ByPID) {
+			m.WorkspaceLabel = syncRepo
+			m.SyncAdapter = "syncthing"
+			m.SyncFolders = []string{"docs"}
+			m.SyncRoot = t.TempDir()
+			m.PluginBin = filepath.Join(t.TempDir(), "gone", "brigade")
+		})
+		r := fx.start(fx.deps(), fx.args()...)
+		testutil.Eventually(t, waitShort, pollEvery, func() bool {
+			return fx.readNotice() == "Brigade sync: the plugin's brigade binary could not be run; file sync is off for this session"
+		})
+		if code := r.stopAndWait(); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	})
+	t.Run("attach answers an error", func(t *testing.T) {
+		t.Parallel()
+		fx := newFixture(t, fixtureOptions{sink: true})
+		fx.useFS()
+		fx.syncMap("syncthing", t.TempDir(), "docs")
+		fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{ErrorOn: []string{"attach"}, ErrorMessage: "syncthing exited during start"})
+		deps := fx.deps()
+		deps.SyncCommand = fake.Argv
+		r := fx.start(deps, fx.args()...)
+		testutil.Eventually(t, waitShort, pollEvery, func() bool {
+			return fx.readNotice() == "Brigade sync: the syncthing sync adapter is not usable (unavailable: syncthing exited during start); file sync is off for this session"
+		})
+		// The detach is registered before the attach: a failed attach
+		// that counted the session in leaves no reference behind.
+		testutil.Eventually(t, waitShort, pollEvery, func() bool {
+			return slices.Equal(fake.Verbs(t), []string{"describe", "attach", "detach"})
+		})
+		if code := r.stopAndWait(); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	})
+}
+
+// TestSyncNoticeCountsAPausedFolderApart: a folder the adapter paused
+// because the project no longer lists it is not one of the session's
+// folders; the notice names it in its own clause.
+func TestSyncNoticeCountsAPausedFolderApart(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	fx.useFS()
+	fx.syncMap("syncthing", t.TempDir(), "docs")
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{
+		Apply: `{"folders":[{"id":"a","state":"idle"},{"id":"gone","state":"paused"},{"id":"old","state":"paused"}],"peers":[]}`,
+	})
+	deps := fx.deps()
+	deps.SyncCommand = fake.Argv
+	r := fx.start(deps, fx.args()...)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		return fx.readNotice() == "Brigade sync: 1 folders, 0 of 0 peers connected; 2 folders no longer listed are paused"
+	})
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
 }
 
 // TestNoSyncWithoutTheMapMembers: a map without sync members runs no

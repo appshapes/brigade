@@ -224,6 +224,12 @@ delete anything in a listed folder; no permission rule gates it, and the option 
 member's rules, what is written where and the limits are in [docs/sync.md](../docs/sync.md); what it opens is
 [docs/security.md](../docs/security.md), "File sync".
 
+**Every member's plugin must be 0.11.0 or later before the project commits a `sync` member.** A plugin of 0.10.0
+or earlier reads `.brigade.json` against a closed schema and refuses the whole file — `team_file_unknown_field`
+for the `sync` member, `team_file_too_large` for a file over 4096 bytes — so its sessions say `Brigade: not
+connected (config: team_file_unknown_field): fix .brigade.json.` and connect to nothing, chat included, until that
+member runs `/brigade:update`. The `VERSION` column of `brigade sessions` shows who is behind.
+
 ## Leaving and uninstalling
 
 The order matters. Every step is optional except step 3 when the goal is to remove the plugin.

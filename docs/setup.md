@@ -179,6 +179,12 @@ peer to peer through Syncthing, while the session is active. Add the member by h
 prints and the limits. The file is open to members this version does not define: each is ignored, and the session
 start names it in one line.
 
+**Every member's plugin must be 0.11.0 or later before the project commits a `sync` member.** A plugin of 0.10.0
+or earlier reads `.brigade.json` against a closed schema and refuses the whole file — `team_file_unknown_field`
+for the `sync` member, `team_file_too_large` for a file over 4096 bytes — so its sessions say `Brigade: not
+connected (config: team_file_unknown_field): fix .brigade.json.` and connect to nothing, chat included, until that
+member runs `/brigade:update`. The `VERSION` column of `brigade sessions` shows who is behind.
+
 ## Administrator: create a team
 
 **The whole path, in order** — the sections below are not in this order, so this is the list to follow:

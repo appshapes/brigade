@@ -3,6 +3,8 @@ package syncthing
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/xml"
 	"errors"
@@ -14,7 +16,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
+	adapterlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -171,10 +175,14 @@ func (c *api) connections() (map[string]bool, error) {
 
 // configuredFolder is the part of a /rest/config/folders entry this
 // adapter reads: its devices too, because apply keeps every device a
-// folder already has (a server a person added by hand stays).
+// folder already has (a server a person added by hand stays); its label
+// and whether it is paused, because apply pauses a folder this checkout
+// shared and its project no longer lists (formerFolders).
 type configuredFolder struct {
 	ID      string      `json:"id"`
+	Label   string      `json:"label"`
 	Path    string      `json:"path"`
+	Paused  bool        `json:"paused"`
 	Devices []deviceRef `json:"devices"`
 }
 
@@ -278,6 +286,16 @@ type folderConfig struct {
 	Versioning       versioningConfig `json:"versioning"`
 	FSWatcherEnabled bool             `json:"fsWatcherEnabled"`
 	RescanIntervalS  int              `json:"rescanIntervalS"`
+	// Paused is always sent, false: a folder the project lists again
+	// after apply paused it (formerFolders) syncs again.
+	Paused bool `json:"paused"`
+}
+
+// pausePatch is the one member apply PATCHes on a folder the project no
+// longer lists (PATCH /rest/config/folders/<id>, which leaves every
+// other member as it is).
+type pausePatch struct {
+	Paused bool `json:"paused"`
 }
 
 // running is the daemon's API when daemon.pid names a live process, else
@@ -295,9 +313,14 @@ func (in *instance) running() (*api, error) {
 // is left exactly as it is (a person may have added it by hand, with its
 // own name and addresses); a folder's device list becomes the devices it
 // already has plus the peers, never fewer, so an always-on Syncthing added
-// to a folder by hand stays; devices and folders no longer listed are left
-// alone. A folder id the instance holds at another path belongs to another
-// checkout on this machine and is left alone too (conflict_path).
+// to a folder by hand stays; devices no longer listed are left alone. A
+// folder id the instance holds at another path belongs to another
+// checkout on this machine and is left alone too (conflict_path). A
+// folder THIS checkout shared and its project no longer lists is paused,
+// never deleted — its files stay — and reported as `paused`; it syncs
+// again when the project lists it again, because every folder apply
+// posts carries paused: false. A folder whose directory cannot be
+// created is reported `rejected`, and the rest are applied.
 func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult, error) {
 	for _, f := range folders {
 		if f.ID == "" || !filepath.IsAbs(f.Path) {
@@ -364,7 +387,9 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 		// The folder is the project's (a path it lists), so it is created
 		// with an ordinary directory mode, not the state tree's 0700.
 		if err := os.MkdirAll(path, 0o755); err != nil { //nolint:gosec // G301: a project folder, readable like its siblings
-			return nil, err
+			in.a.log.Warn("a folder could not be created; rejected", slog.String("folder_id", f.ID), adapterlog.Err(err))
+			result.Folders = append(result.Folders, folderState{ID: f.ID, State: stateRejected})
+			continue
 		}
 		err := c.do(http.MethodPost, "/rest/config/folders", nil, folderConfig{
 			ID: f.ID, Label: f.Label, Path: path, Type: "sendreceive",
@@ -376,12 +401,24 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 		if err != nil {
 			if s := httpStatus(err); s >= 400 && s < 500 {
 				in.a.log.Warn("syncthing refused a folder", slog.String("folder_id", f.ID), slog.Int("status", s))
-				result.Folders = append(result.Folders, folderState{ID: f.ID, State: "rejected"})
+				result.Folders = append(result.Folders, folderState{ID: f.ID, State: stateRejected})
 				continue
 			}
 			return nil, err
 		}
 		result.Folders = append(result.Folders, folderState{ID: f.ID, State: c.folderState(f.ID)})
+	}
+	for _, e := range formerFolders(existing, folders) {
+		if !e.Paused {
+			// A failed pause is logged and tried again next round; it
+			// never costs the listed folders their apply.
+			if err := c.do(http.MethodPatch, "/rest/config/folders/"+url.PathEscape(e.ID), nil, pausePatch{Paused: true}, nil); err != nil {
+				in.a.log.Warn("a folder the project no longer lists could not be paused", slog.String("folder_id", e.ID), adapterlog.Err(err))
+				continue
+			}
+			in.a.log.Info("paused a folder the project no longer lists", slog.String("folder_id", e.ID))
+		}
+		result.Folders = append(result.Folders, folderState{ID: e.ID, State: statePaused})
 	}
 
 	conns, err := c.connections()
@@ -399,6 +436,152 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 // second clone of the repository on this machine — or its path is held by
 // another folder id.
 const stateConflictPath = "conflict_path"
+
+// stateRejected is the folder state for a folder Syncthing refused, or
+// whose directory could not be created.
+const stateRejected = "rejected"
+
+// statePaused is the folder state for a folder this checkout shared and
+// its project no longer lists: apply paused it (formerFolders).
+const statePaused = "paused"
+
+// formerFolders is the folders of existing that THIS checkout shared and
+// its project no longer lists: apply pauses them. A folder qualifies only
+// when all of this holds, so another checkout's folder — another
+// repository of the same team, a second clone on another branch, a
+// folder a person configured by hand — is never touched:
+//
+//   - its id carries this team's prefix, "brigade-<ref8>-", which every
+//     requested id shares (a request whose ids do not share one pauses
+//     nothing, and so does an empty one);
+//   - it is not requested;
+//   - its label ends in a folder name whose hash is its id — Brigade
+//     labels a folder "<repository>/<folder>" and derives the id from the
+//     folder (docs/sync-adapters.md, "Folder ids") — so the name is
+//     proven, not guessed;
+//   - its path is where this checkout puts that name: the checkout's
+//     root (or the ancestor a ".." folder climbs to) is recovered the same
+//     way from a requested folder's proven name and path.
+func formerFolders(existing []configuredFolder, folders []folderSpec) []configuredFolder {
+	if len(folders) == 0 {
+		return nil
+	}
+	prefix, ok := teamPrefix(folders[0].ID)
+	if !ok {
+		return nil
+	}
+	// An anchor is an ancestor of the checkout's root: base is the root
+	// with up levels climbed.
+	type anchor struct {
+		up   int
+		base string
+	}
+	requested := make(map[string]bool, len(folders))
+	var anchors []anchor
+	for _, f := range folders {
+		if p, ok := teamPrefix(f.ID); !ok || p != prefix {
+			return nil
+		}
+		requested[f.ID] = true
+		name, ok := folderName(prefix, f.ID, f.Label)
+		if !ok {
+			continue
+		}
+		up, rest := climb(name)
+		if base, ok := trimFolder(filepath.Clean(f.Path), rest); ok {
+			anchors = append(anchors, anchor{up: up, base: base})
+		}
+	}
+	var out []configuredFolder
+	for _, e := range existing {
+		if requested[e.ID] || !strings.HasPrefix(e.ID, prefix) {
+			continue
+		}
+		name, ok := folderName(prefix, e.ID, e.Label)
+		if !ok {
+			continue
+		}
+		up, rest := climb(name)
+		for _, a := range anchors {
+			if up < a.up {
+				continue
+			}
+			base := a.base
+			for range up - a.up {
+				base = filepath.Dir(base)
+			}
+			if samePath(e.Path, filepath.Join(base, rest)) {
+				out = append(out, e)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// teamPrefix is a Brigade folder id's team part, "brigade-<ref8>-", or
+// false for an id of another shape.
+func teamPrefix(id string) (string, bool) {
+	parts := strings.Split(id, "-")
+	if len(parts) != 3 || parts[0] != "brigade" || parts[1] == "" || parts[2] == "" {
+		return "", false
+	}
+	return parts[0] + "-" + parts[1] + "-", true
+}
+
+// folderName finds the folder name a Brigade label ends in whose id,
+// under prefix, is id: the whole label (a session with no workspace
+// label) or the text after any "/" of it ("<repository>/<folder>", the
+// folder itself possibly nested).
+func folderName(prefix, id, label string) (string, bool) {
+	for i := -1; i < len(label); i++ {
+		if i >= 0 && label[i] != '/' {
+			continue
+		}
+		name := label[i+1:]
+		if name == "" || name == "." || strings.HasPrefix(name, "/") || filepath.ToSlash(filepath.Clean(filepath.FromSlash(name))) != name {
+			continue
+		}
+		sum := sha256.Sum256([]byte(name))
+		if prefix+hex.EncodeToString(sum[:])[:12] == id {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// climb splits a clean relative folder name into the ".." levels it
+// climbs (path.Clean puts them all first) and the rest.
+func climb(name string) (int, string) {
+	up := 0
+	for {
+		switch {
+		case name == "..":
+			return up + 1, ""
+		case strings.HasPrefix(name, "../"):
+			up++
+			name = name[len("../"):]
+		default:
+			return up, name
+		}
+	}
+}
+
+// trimFolder is p with the folder part rest removed from its end — the
+// directory rest was joined to — or false when p does not end in rest.
+func trimFolder(p, rest string) (string, bool) {
+	if rest == "" {
+		return p, true
+	}
+	base, ok := strings.CutSuffix(p, string(filepath.Separator)+filepath.FromSlash(rest))
+	if !ok {
+		return "", false
+	}
+	if base == "" {
+		base = string(filepath.Separator)
+	}
+	return base, true
+}
 
 // place finds folder id in the instance's configuration: the entry when
 // it is configured at path (nil when it is not configured yet), and

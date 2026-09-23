@@ -2,8 +2,11 @@ package syncthing
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -38,6 +41,7 @@ type fakeAPI struct {
 	devicePosts int
 	folders     []folderConfig
 	folderPosts int
+	pauses      int                // PATCHes that paused a folder
 	extra       []configuredFolder // folders "another project" holds
 	connected   map[string]bool
 	listen      []string // options.listenAddresses
@@ -105,7 +109,7 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	case "GET /rest/config/folders":
 		out := slices.Clone(f.extra)
 		for _, c := range f.folders {
-			out = append(out, configuredFolder{ID: c.ID, Path: c.Path, Devices: c.Devices})
+			out = append(out, configuredFolder{ID: c.ID, Label: c.Label, Path: c.Path, Paused: c.Paused, Devices: c.Devices})
 		}
 		reply(out)
 	case "POST /rest/config/folders":
@@ -144,7 +148,24 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "no such folder", http.StatusNotFound)
 	default:
-		http.Error(w, "not found", http.StatusNotFound)
+		id, ok := strings.CutPrefix(r.URL.Path, "/rest/config/folders/")
+		if r.Method != http.MethodPatch || !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var patch map[string]any
+		if err := json.UnmarshalRead(r.Body, &patch); err != nil || len(patch) != 1 || patch["paused"] != true {
+			http.Error(w, "the patch must set paused alone", http.StatusBadRequest)
+			return
+		}
+		for i := range f.folders {
+			if f.folders[i].ID == id {
+				f.folders[i].Paused = true
+				f.pauses++
+				return
+			}
+		}
+		http.Error(w, "no such folder", http.StatusNotFound)
 	}
 }
 
@@ -440,6 +461,122 @@ func TestApplyLeavesAFolderHeldAtAnotherPath(t *testing.T) {
 	}
 }
 
+// testFolderID is foldersync.FolderID, the id every checkout derives
+// (docs/sync-adapters.md, "Folder ids").
+func testFolderID(ref, folder string) string {
+	sum := sha256.Sum256([]byte(folder))
+	return "brigade-" + ref + "-" + hex.EncodeToString(sum[:])[:12]
+}
+
+// TestApplyPausesAFolderTheProjectNoLongerLists: a folder this checkout
+// shared and its project then drops is paused — PATCHed once, reported
+// `paused` every round, never deleted — ".." folders included; listing
+// it again un-pauses it through the ordinary post. Another repository's
+// folder of the same team, a folder under this team's prefix whose label
+// proves no name, and another team's folder are never touched.
+func TestApplyPausesAFolderTheProjectNoLongerLists(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	d := testDeps(srv, "")
+	stateDir, _ := runningHome(t)
+	work := t.TempDir()
+	root := filepath.Join(work, "repo")
+	folder := func(name string) map[string]string {
+		return map[string]string{"id": testFolderID("6f0f2b41", name), "path": filepath.Join(root, name), "label": "repo/" + name}
+	}
+	untouched := []folderConfig{
+		// Another repository of the same team, beside this one.
+		{ID: testFolderID("6f0f2b41", "notes"), Label: "other/notes", Path: filepath.Join(work, "other", "notes")},
+		// Under this team's prefix, but its label proves no folder name.
+		{ID: testFolderID("6f0f2b41", "kept"), Label: "the server's copy", Path: filepath.Join(root, "kept")},
+		// Another team's folder at a path this checkout would use.
+		{ID: testFolderID("0a0b0c0d", "gone"), Label: "repo/gone", Path: filepath.Join(root, "gone")},
+	}
+	fake.folders = slices.Clone(untouched)
+	all := []map[string]string{folder("docs"), folder("shared/deep"), folder("../beside")}
+	req := map[string]any{"state_dir": stateDir, "folders": all, "peers": []map[string]string{}}
+	states := func(res map[string]any) map[string]string {
+		out := map[string]string{}
+		for _, f := range res["folders"].([]any) {
+			m := f.(map[string]any)
+			out[m["id"].(string)] = m["state"].(string)
+		}
+		return out
+	}
+	mustOK(t, invoke(t, d, "apply", req), "apply")
+
+	req["folders"] = []map[string]string{folder("docs")}
+	for round := range 2 {
+		got := states(mustOK(t, invoke(t, d, "apply", req), "apply"))
+		want := map[string]string{all[0]["id"]: "idle", all[1]["id"]: "paused", all[2]["id"]: "paused"}
+		if !maps.Equal(got, want) {
+			t.Fatalf("round %d: apply folders = %v, want %v", round, got, want)
+		}
+	}
+	fake.mu.Lock()
+	if fake.pauses != 2 {
+		t.Errorf("%d pauses, want 2: each dropped folder is paused once", fake.pauses)
+	}
+	for _, c := range fake.folders {
+		if slices.ContainsFunc(untouched, func(u folderConfig) bool { return u.ID == c.ID }) && c.Paused {
+			t.Errorf("folder %s (%s) is not this checkout's and was paused", c.ID, c.Label)
+		}
+	}
+	if len(fake.folders) != len(untouched)+3 {
+		t.Errorf("folders = %+v: a dropped folder was deleted", fake.folders)
+	}
+	fake.mu.Unlock()
+	for _, p := range []string{filepath.Join(root, "shared", "deep"), filepath.Join(work, "beside")} {
+		if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
+			t.Errorf("a paused folder's directory is gone: %v", err)
+		}
+	}
+
+	req["folders"] = all
+	got := states(mustOK(t, invoke(t, d, "apply", req), "apply"))
+	for _, f := range all {
+		if got[f["id"]] != "idle" {
+			t.Errorf("listed again: %s = %q, want idle", f["label"], got[f["id"]])
+		}
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	for _, c := range fake.folders {
+		if c.Paused {
+			t.Errorf("folder %s is still paused after the project listed it again", c.Label)
+		}
+	}
+}
+
+// TestApplyRejectsAFolderItCannotCreate: a folder whose directory cannot
+// be made is `rejected`, and the rest of the apply goes on.
+func TestApplyRejectsAFolderItCannotCreate(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	d := testDeps(srv, "")
+	stateDir, _ := runningHome(t)
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "a-file"), "not a directory")
+	req := map[string]any{
+		"state_dir": stateDir,
+		"folders": []map[string]string{
+			{"id": "brigade-aaaa-1111", "path": filepath.Join(root, "a-file", "sub"), "label": "repo/a-file/sub"},
+			{"id": "brigade-aaaa-2222", "path": filepath.Join(root, "docs"), "label": "repo/docs"},
+		},
+		"peers": []map[string]string{},
+	}
+	res := mustOK(t, invoke(t, d, "apply", req), "apply")
+	fs := res["folders"].([]any)
+	if len(fs) != 2 || fs[0].(map[string]any)["state"] != "rejected" || fs[1].(map[string]any)["state"] != "idle" {
+		t.Errorf("apply folders = %v, want rejected then idle", fs)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.folders) != 1 || fake.folders[0].ID != "brigade-aaaa-2222" {
+		t.Errorf("folders = %+v, want the creatable one alone", fake.folders)
+	}
+}
+
 // TestAttachRecordsItsHolderAndPrunesDeadRefs: attach keeps the request's
 // pid (with its start token) in refs/<session_id>; every attach and
 // detach prunes a ref whose holder is gone or is another incarnation of
@@ -621,7 +758,9 @@ func TestDetachStopsOnlyWithTheLastSession(t *testing.T) {
 // writes a line to its output, writes config.xml after a delay (so the
 // adapter's wait is exercised), then becomes a long sleep (exec keeps the
 // pid and its start token, as the pidfile expects). mode "noconfig" never
-// writes config.xml; "exit" dies at once.
+// writes config.xml; "exit" dies at once; "child" also runs a background
+// child in its process group, as `syncthing serve`'s monitor does, and
+// records its pid in <home>/child.pid.
 func fakeSyncthing(t *testing.T, mode string) string {
 	t.Helper()
 	script := `home=""; gui=""
@@ -636,6 +775,10 @@ echo start >> "$home/starts"
 printf '%s\n' "$gui" > "$home/gui-address"
 echo "fake syncthing starting"
 [ "` + mode + `" = exit ] && exit 3
+if [ "` + mode + `" = child ]; then
+  sleep 300 &
+  echo $! > "$home/child.pid"
+fi
 sleep 0.3
 if [ "` + mode + `" != noconfig ]; then
   printf '<configuration version="37"><gui enabled="true"><address>%s</address><apikey>%s</apikey></gui></configuration>\n' "$gui" "` + testKey + `" > "$home/config.xml.tmp"
@@ -729,6 +872,36 @@ func TestAttachStartsOneDaemonAndTheLastDetachStopsIt(t *testing.T) {
 	if daemonPID(t, home) == first {
 		t.Error("no new daemon after the restart")
 	}
+}
+
+// TestAFailedShutdownSignalsTheDaemonsProcessGroup: when the REST
+// shutdown fails, the last detach signals the daemon's whole process
+// group, so a child holding the sockets stops with the monitor.
+func TestAFailedShutdownSignalsTheDaemonsProcessGroup(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	fake.failStop = true
+	stateDir := t.TempDir()
+	home := filepath.Join(stateDir, "sync", "syncthing")
+	killDaemon(t, home)
+	d := testDeps(srv, fakeSyncthing(t, "child"))
+	mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
+	daemon := daemonPID(t, home)
+	child, err := strconv.Atoi(strings.TrimSpace(readFile(t, filepath.Join(home, "child.pid"))))
+	if err != nil || !alive(child, "") {
+		t.Fatalf("the fake's child is not running (%v)", err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
+	// The daemon was started by this process: reap it when it dies, as
+	// init does for a real one, so its group empties.
+	go func() {
+		var ws syscall.WaitStatus
+		_, _ = syscall.Wait4(daemon, &ws, 0, nil)
+	}()
+	if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "detach"); res["stopped"] != true {
+		t.Errorf("last detach: %v", res)
+	}
+	testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !alive(daemon, "") && !alive(child, "") })
 }
 
 func TestAttachReplacesAStalePidfile(t *testing.T) {

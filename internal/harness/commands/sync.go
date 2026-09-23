@@ -36,7 +36,46 @@ const (
 	// folder the engine holds at another checkout's path shows
 	// foldersync.StateConflictPath instead of that checkout's state.
 	syncAbsent = "not shared yet"
+	// syncUnlisted leads the state of a folder this checkout shared that
+	// the project no longer lists: the engine still holds it (the bundled
+	// adapter pauses it), and the engine's own state follows.
+	syncUnlisted = "no longer listed"
 )
+
+// A formerFolder is a folder the engine holds that this checkout shared
+// and the project no longer lists: its folder name and the engine's state.
+type formerFolder struct {
+	name  string
+	state string
+}
+
+// formerFolders finds, among the engine's folders, those that are this
+// checkout's and not configured: the path relative to the checkout's root
+// is a folder name whose id, for this team, is the folder's id — so
+// another repository's folder, or one a person configured by hand, never
+// shows here.
+func formerFolders(engine []foldersync.FolderState, configured []foldersync.Folder, teamRef, root string) []formerFolder {
+	listed := make(map[string]bool, len(configured))
+	for _, f := range configured {
+		listed[f.ID] = true
+	}
+	var out []formerFolder
+	for _, e := range engine {
+		if listed[e.ID] || e.Path == "" || root == "" {
+			continue
+		}
+		rel, err := filepath.Rel(root, e.Path)
+		if err != nil {
+			continue
+		}
+		name := filepath.ToSlash(rel)
+		if name == "." || foldersync.FolderID(teamRef, name) != e.ID {
+			continue
+		}
+		out = append(out, formerFolder{name: name, state: e.State})
+	}
+	return out
+}
 
 // shortPeerChars is how much of a peer descriptor labels a peer the
 // roster does not name: seven characters, Syncthing's own short device id.
@@ -150,6 +189,13 @@ func Sync(inv Invocation) error {
 			}
 		}
 		folderRows = append(folderRows, []string{workspaceLine(f.Label), state})
+	}
+	for _, e := range formerFolders(st.Folders, configured, m.TeamRef, m.SyncRoot) {
+		label := e.name
+		if m.WorkspaceLabel != "" {
+			label = m.WorkspaceLabel + "/" + e.name
+		}
+		folderRows = append(folderRows, []string{workspaceLine(label), syncUnlisted + " (" + enumLine(e.state) + ")"})
 	}
 	for _, row := range padTable(folderRows) {
 		out = append(out, tableRow(row))

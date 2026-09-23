@@ -250,9 +250,16 @@ func (c *Client) call(ctx context.Context, verb string, req, out any) error {
 	return nil
 }
 
+// LogRotateBytes is the size at which a sync adapter's log is rotated:
+// the watcher log's cap too (watch.DefaultLogRotateBytes is this value,
+// plan 6.6), so a machine's sync log is bounded the same way.
+const LogRotateBytes = 5 * 1000 * 1000
+
 // adapterLog opens the append-mode 0600 log for the child's stderr, or
 // nil when it cannot be opened: the stderr is then discarded, never sent
-// to a session-bound command's own stderr.
+// to a session-bound command's own stderr. A log already past
+// LogRotateBytes is rotated first, as the watcher's is: renamed to
+// <path>.1, replacing any earlier generation, and a fresh one opened.
 func (c *Client) adapterLog() io.WriteCloser {
 	if !filepath.IsAbs(c.StateDir) || !adapterName.MatchString(c.Adapter) {
 		return nil
@@ -261,7 +268,11 @@ func (c *Client) adapterLog() io.WriteCloser {
 	if err := adapterkit.MkdirPrivate(dir); err != nil {
 		return nil
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "sync-"+c.Adapter+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // 0600, path from BRIGADE_STATE_DIR by design
+	path := filepath.Join(dir, "sync-"+c.Adapter+".log")
+	if fi, err := os.Stat(path); err == nil && fi.Size() >= LogRotateBytes {
+		_ = os.Rename(path, path+".1")
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // 0600, path from BRIGADE_STATE_DIR by design
 	if err != nil {
 		return nil
 	}

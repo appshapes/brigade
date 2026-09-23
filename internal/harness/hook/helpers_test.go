@@ -223,6 +223,9 @@ func fdIsType(fd int, want uint32) bool {
 type spawnRecorder struct {
 	mu    sync.Mutex
 	specs []SpawnSpec
+	// maps is the by-pid map as each spawn found it on disk — what the
+	// watcher reads once, at its start — nil where none could be read.
+	maps []*sessionmap.ByPID
 	// watcherPID is the pid the pidfile names; 0 writes no pidfile
 	// (a watcher that never came up).
 	watcherPID int
@@ -230,8 +233,13 @@ type spawnRecorder struct {
 }
 
 func (s *spawnRecorder) Spawn(_ context.Context, spec SpawnSpec) (int, error) {
+	var seen *sessionmap.ByPID
+	if w, err := config.FromWatcherEnv(spec.Env); err == nil {
+		seen, _ = sessionmap.Store{StateDir: w.StateDir}.ReadByPID(w.ClaudePID)
+	}
 	s.mu.Lock()
 	s.specs = append(s.specs, spec)
+	s.maps = append(s.maps, seen)
 	s.mu.Unlock()
 	if s.err != nil {
 		return 0, s.err
@@ -268,6 +276,17 @@ func (s *spawnRecorder) Spawn(_ context.Context, spec SpawnSpec) (int, error) {
 		}
 	}
 	return s.watcherPID, nil
+}
+
+// lastMap is the by-pid map the last spawn found on disk.
+func (s *spawnRecorder) lastMap(t *testing.T) *sessionmap.ByPID {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.maps) == 0 || s.maps[len(s.maps)-1] == nil {
+		t.Fatal("no spawn found a by-pid map to read")
+	}
+	return s.maps[len(s.maps)-1]
 }
 
 func (s *spawnRecorder) count() int {
