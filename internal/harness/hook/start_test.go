@@ -685,6 +685,56 @@ func TestRegistrationCarriesTheBrigadeVersion(t *testing.T) {
 	}
 }
 
+// TestRegistrationAndStartHeartbeatCarryTheSyncPeer pins card 33's hook
+// half (sync_peer, C-47; plan folder-sync.md 4.2): when the hook knows a
+// sync peer the registration and the continue path's heartbeat both name
+// it, and when it knows none — production at this commit, since the
+// watcher's sync adapter attaches after the registration — neither call
+// carries the member at all, which is what leaves a stored peer standing.
+func TestRegistrationAndStartHeartbeatCarryTheSyncPeer(t *testing.T) {
+	t.Parallel()
+	known := "syncthing:AAAAAAA-BBBBBBB"
+	for name, peer := range map[string]*string{"a known peer": &known, "no peer": nil} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.spawner.watcherPID = testutil.NewSleeper(t)
+			if peer != nil {
+				f.deps.SyncPeer = func() *string { return peer }
+			}
+			seam := f.useSeam(map[string][]fakeadapter.Response{
+				"session register":  {okResp(registerDoc("brigade-sess-1", "payments-api", false))},
+				"session heartbeat": {okResp(heartbeatDoc())},
+			})
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			// /clear keeps the session: the continue path heartbeats.
+			f.nativeID = "d2c72366-0000-4000-8000-000000000002"
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("clear")); exit != 0 {
+				t.Fatalf("clear: exit %d: %s", exit, errOut)
+			}
+			for _, verb := range []string{"session register", "session heartbeat"} {
+				calls := seam.callsFor(verb)
+				if len(calls) != 1 {
+					t.Fatalf("%d %q calls, want one", len(calls), verb)
+				}
+				var members map[string]any
+				if err := json.Unmarshal(calls[0].Stdin, &members); err != nil {
+					t.Fatal(err)
+				}
+				got, present := members["sync_peer"]
+				switch {
+				case peer == nil && present:
+					t.Errorf("%s names sync_peer %v from a hook that knows none: %s", verb, got, calls[0].Stdin)
+				case peer != nil && got != *peer:
+					t.Errorf("%s sync_peer %v, want %q: %s", verb, got, *peer, calls[0].Stdin)
+				}
+			}
+		})
+	}
+}
+
 // TestShadowingWarning is E0-8 (e): any `brigade` on the hook's PATH
 // other than the plugin's own bootstrap earns the warning; none, or a
 // symlink to the plugin's, does not.

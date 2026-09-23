@@ -161,6 +161,13 @@ type Deps struct {
 	// buildinfo.Claimed, which is nil itself for a binary with no version
 	// to claim. A test injects one: a test binary has none.
 	BrigadeVersion func() *string
+	// SyncPeer seeds the folder-sync peer descriptor every heartbeat and
+	// every re-open report (sync_peer, C-47); nil, or a nil answer, means
+	// none yet and the member is absent — which never clears a stored one
+	// (4.4.4). Production knows none at start: the watcher's sync goroutine
+	// (plan folder-sync.md 4.3) stores the descriptor `attach` returns into
+	// watcher.syncPeer. A test injects one.
+	SyncPeer func() *string
 
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
@@ -504,6 +511,13 @@ type watcher struct {
 	// is how the roster learns that `/reload-plugins` replaced the watcher
 	// with a newer one. A field rather than a call so a test can set it.
 	brigadeVersion *string
+	// syncPeer is this session's folder-sync peer descriptor as the wire
+	// carries it (sync_peer, C-47), or nil while no sync adapter has
+	// attached. It rides every heartbeat and every re-open — a resume that
+	// omits it clears it at the backend, as it does the label. An atomic
+	// because the goroutine that learns it (the sync adapter's `attach`,
+	// plan folder-sync.md 4.3) is not the one that heartbeats.
+	syncPeer atomic.Pointer[string]
 
 	// ctx ends with a signal, the Stop channel or a liveness verdict;
 	// cancel is what every exit path calls first.
@@ -595,6 +609,9 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		releasePath:    inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
 			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath),
+	}
+	if d.SyncPeer != nil {
+		w.syncPeer.Store(d.SyncPeer())
 	}
 	return w, 0, nil
 }

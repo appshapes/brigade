@@ -93,8 +93,8 @@ Omit it without penalty.
 ## Run the conformance suite
 
 The suite is the definition of "works with Brigade". It runs your adapter as three principals in two teams, using
-protocol commands only, and checks every rule of the protocol document that a black-box test can see: 47 cases,
-`C-01`..`C-46` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
+protocol commands only, and checks every rule of the protocol document that a black-box test can see: 49 cases,
+`C-01`..`C-47` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
 
 ```text
 $ bin/brigade-conformance -h
@@ -387,8 +387,9 @@ C-43   PASS   0.05s  4.2 team members
 ```
 
 (The `…` lines are elided here; the run prints one line per case. That transcript is a **45**-case run, measured
-before C-44 — 4.4.2 `model` and `context_used_tokens` — C-45 — 4.4.2 `human_label` — and C-46 — 4.4.2
-`brigade_version` — joined the suite; a run today selects 48 and prints `C-44`, `C-45` and `C-46` after `C-43`.) The human table always goes to **stderr**, in
+before C-44 — 4.4.2 `model` and `context_used_tokens` — C-45 — 4.4.2 `human_label` — C-46 — 4.4.2
+`brigade_version` — and C-47 — 4.4.2 `sync_peer` — joined the suite; a run today selects 49 and prints `C-44`
+through `C-47` after `C-43`.) The human table always goes to **stderr**, in
 every mode. With `--json` the machine-readable report goes to **stdout** and nothing else does, so
 `brigade-conformance --json … > report.json` gives you a clean document — with one caveat worth knowing before
 you wire this into CI: a launcher error raised *before* the first case (adapter not found, `describe` not ok
@@ -417,7 +418,8 @@ $ bin/brigade-conformance --shared-env BRIGADE_FS_ROOT --adapter bin/brigade-ada
     "session.model",
     "session.context_used_tokens",
     "session.human_label",
-    "session.brigade_version"
+    "session.brigade_version",
+    "session.sync_peer"
   ],
   "results": [
     {
@@ -864,7 +866,8 @@ profile, reformatted for reading only (on the wire it is one line inside the env
   "capabilities": ["team.create", "team.join", "team.roster", "message.receive",
                    "message.watch.stdin_commands", "session.description", "session.resume",
                    "session.workspace_label", "session.inbound", "session.model",
-                   "session.context_used_tokens", "session.human_label", "session.brigade_version"],
+                   "session.context_used_tokens", "session.human_label", "session.brigade_version",
+                   "session.sync_peer"],
   "limits": {"max_body_bytes": 16384, "max_summary_chars": 200, "max_session_name_codepoints": 64,
              "max_team_name_codepoints": 64, "max_description_chars": 256, "max_human_label_chars": 128,
              "max_workspace_label_chars": 128, "max_model_chars": 128, "max_idempotency_key_chars": 128,
@@ -945,6 +948,7 @@ first-class answer, not a failure.
 | `session.model` | `model` is stored and reported (without it you accept the member and ignore it). Harness-reported, unverified display text (C-44) |
 | `session.context_used_tokens` | `context_used_tokens` is stored and reported (without it you accept the member and ignore it). Harness-reported, unverified (C-44) |
 | `session.brigade_version` | `brigade_version` — the version of the Brigade harness a session runs, not its host's, which is `harness_version` — is stored at registration, updated by a heartbeat that carries it and reported on the record (without it you accept the member and ignore it). Harness-reported, unverified display text; bounded at 64 code points by the wire format, with **no `limits` member** (C-46) |
+| `session.sync_peer` | `sync_peer` — the opaque `<adapter>:<descriptor>` a session's folder-sync adapter publishes so a teammate's adapter can introduce it — is stored at registration, updated by a heartbeat that carries it and reported on the record (without it you accept the member and ignore it). Harness-reported, unverified; bounded at 256 code points by the wire format, with **no `limits` member** (C-47). Without the capability, folder sync has no peer to introduce for your sessions |
 | `session.human_label` | the registration's `human_label` is adopted as the membership's label **when the membership has none** — an existing label is never overwritten (without it you accept the member and ignore it). Harness-reported, unverified display text (C-45) |
 | `delivery.processed` | reserved; not implemented by any v1 consumer |
 
@@ -1061,6 +1065,7 @@ rather than `null`:
 | `model` | optional, nullable | ≤ `max_model_chars`; the model identity the owning harness last reported at registration or on a heartbeat; **harness-reported, unverified** display text — store and echo it, never parse it. Absent when the harness never reported one, and absent from every record if you do not advertise `session.model` |
 | `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1`, the owning harness's own count of the tokens its context holds, as last reported. **Harness-reported and unverified**; absent when never reported, and absent from every record without `session.context_used_tokens` |
 | `brigade_version` | optional, nullable | ≤ 64 code points; the version of the Brigade harness the session runs, as that harness last reported it at registration or on a heartbeat — **not** the host's version, which is `harness_version`. **Harness-reported, unverified** display text — store and echo it, never parse or compare it. Absent when the harness never reported one (a harness older than the member), and absent from every record without `session.brigade_version` |
+| `sync_peer` | optional, nullable | ≤ 256 code points; the session's folder-sync peer descriptor, as the owning harness last reported it at registration or on a heartbeat. **Harness-reported, unverified** and opaque — store and echo it, never parse it. Absent when the harness never reported one (no sync adapter attached, or a harness older than the member), and absent from every record without `session.sync_peer` |
 | `is_self` | yes | see below; `false` on every record unless `--session` named it |
 
 **`state` is computed at read time, never stored** (4.5.8):
@@ -1190,6 +1195,7 @@ shown):
 | `model` | optional, nullable | ≤ `max_model_chars`, else `invalid_input` naming `model`; capability `session.model` |
 | `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1`, else `invalid_input` naming `context_used_tokens`; capability `session.context_used_tokens` |
 | `brigade_version` | optional, nullable | ≤ 64 code points — count code points, not bytes — else `invalid_input` naming `brigade_version`; capability `session.brigade_version`. The bound is the wire format's and is **not** in `limits`: every `limits` member is required, so adding one would have failed `describe` for every adapter written before it. A heartbeat may carry it too, with the absent-means-unchanged rule (C-46) |
+| `sync_peer` | optional, nullable | ≤ 256 code points — code points, not bytes — else `invalid_input` naming `sync_peer`; capability `session.sync_peer`. A wire-format bound with no `limits` member, as `brigade_version`'s. A heartbeat usually carries it first — the harness's sync adapter attaches after the registration — with the absent-means-unchanged rule (C-47) |
 | `resume.session_id` | optional | capability `session.resume` |
 
 **A missing required member is `invalid_input`, never a default.** "Required" in that table is the protocol's word

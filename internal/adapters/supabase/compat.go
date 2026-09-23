@@ -110,6 +110,16 @@ var sessionAppendedMigrations = []sessionAppendedMigration{
 		Params: []string{"p_brigade_version"},
 		Caps:   []string{"session.brigade_version"},
 	},
+	{
+		// `p_sync_peer`, the member of 4.4.2 and 4.4.4 (C-47), on both RPCs
+		// (plan folder-sync.md 4.2). It rides every heartbeat once a sync
+		// adapter has attached, so a backend without this migration drops
+		// the peer — folder sync then has no one to introduce this session
+		// to — and keeps the registration, the lease and every earlier fact.
+		File:   "20260923022323_session_sync_peer.sql",
+		Params: []string{"p_sync_peer"},
+		Caps:   []string{"session.sync_peer"},
+	},
 }
 
 // sessionAppendedParams are every appended parameter, which is what the

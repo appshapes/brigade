@@ -1,4 +1,4 @@
-// Command brigade-conformance runs the BAP/1 conformance suite (C-01..C-46,
+// Command brigade-conformance runs the BAP/1 conformance suite (C-01..C-47,
 // plan 9.2) against any adapter. It is a development binary: `make build`
 // produces it and `make test` runs it against the fs adapter, but it is
 // never shipped. The suite is internal/conformance; the cases are

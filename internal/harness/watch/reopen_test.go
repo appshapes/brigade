@@ -98,6 +98,8 @@ func TestReopensASessionClosedUnderItOnTheRPCPath(t *testing.T) {
 	deps := fx.deps()
 	deps.HeartbeatInterval = 150 * time.Millisecond
 	deps.Spawn = rr.spawn
+	peer := "syncthing:AAAAAAA-BBBBBBB"
+	deps.SyncPeer = func() *string { return &peer }
 	r := fx.start(deps, fx.args()...)
 	fx.waitLog("watch child started", map[string]any{"stdin_commands": false})
 	fx.waitLog("the session was closed under the watcher; re-opening", map[string]any{"code": "conflict"})
@@ -115,6 +117,10 @@ func TestReopensASessionClosedUnderItOnTheRPCPath(t *testing.T) {
 	// A resume that omits the label clears it at the backend (P11-5).
 	if regs[0].WorkspaceLabel == nil || *regs[0].WorkspaceLabel != "payments-api" {
 		t.Fatalf("the re-open dropped the workspace label: %+v", regs[0].WorkspaceLabel)
+	}
+	// So does one that omits the sync peer (C-47).
+	if regs[0].SyncPeer == nil || *regs[0].SyncPeer != peer {
+		t.Fatalf("the re-open dropped the sync peer: %v", regs[0].SyncPeer)
 	}
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)

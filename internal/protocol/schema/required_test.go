@@ -178,6 +178,10 @@ func TestRequiredPinsDecisions2And5(t *testing.T) {
 		{"SessionRecord", "brigade_version"},
 		{"HeartbeatRequest", "brigade_version"},
 		{"WatchCommand", "brigade_version"},
+		{"SessionRegistration", "sync_peer"}, // C-47: optional and nullable on all four shapes
+		{"SessionRecord", "sync_peer"},
+		{"HeartbeatRequest", "sync_peer"},
+		{"WatchCommand", "sync_peer"},
 		{"WatchStatus", "detail"},
 		{"ErrorObject", "details"},
 		{"ErrorObject", "retry_after_ms"},

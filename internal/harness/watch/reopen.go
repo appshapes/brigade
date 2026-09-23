@@ -194,6 +194,7 @@ func (w *watcher) reopen(s *session) {
 		Model:             model,
 		ContextUsedTokens: tokens,
 		BrigadeVersion:    w.brigadeVersion,
+		SyncPeer:          w.syncPeer.Load(), // a resume without it clears it (C-47)
 		Resume:            &protocol.ResumeRef{SessionID: w.sessionID},
 	}
 	// A resume that omits the label clears it at the backend, so the

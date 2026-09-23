@@ -16,7 +16,9 @@ import (
 // session lives, and its first heartbeat is how the roster learns) and —
 // when the map names a transcript — the model and context facts read from
 // it (4.4.4; capabilities session.model and session.context_used_tokens,
-// which an adapter without simply ignores):
+// which an adapter without simply ignores) and, once a sync adapter has
+// attached, the session's sync peer (session.sync_peer, C-47 — the
+// watcher's first heartbeat after `attach` is how teammates learn it):
 // a `heartbeat` command on the child's stdin when the adapter advertises
 // message.watch.stdin_commands, else one `session heartbeat` call with
 // the 3 s budget. The answer arrives as a heartbeat_ok event (or the
@@ -37,14 +39,16 @@ func (w *watcher) heartbeat(s *session) {
 		name = &n
 	}
 	model, tokens := w.transcriptFacts(snap.transcriptPath)
+	peer := w.syncPeer.Load()
 	w.log.Debug("heartbeat",
 		slog.String("activity", activity), slog.String("inbound", inbound),
 		slog.Bool("named", name != nil), slog.Bool("model", model != nil), slog.Bool("context", tokens != nil),
-		slog.Bool("stdin", s.stdinCommands))
+		slog.Bool("sync_peer", peer != nil), slog.Bool("stdin", s.stdinCommands))
 	if s.stdinCommands {
 		err := s.watch.Heartbeat(protocol.WatchCommand{
 			Activity: &activity, SessionName: name, Inbound: &inbound, LeaseSeconds: s.lease,
 			Model: model, ContextUsedTokens: tokens, BrigadeVersion: w.brigadeVersion,
+			SyncPeer: peer,
 		})
 		if err != nil {
 			w.log.Warn("heartbeat command not written", adlog.Err(err))
@@ -56,6 +60,7 @@ func (w *watcher) heartbeat(s *session) {
 	res, err := w.client.Heartbeat(ctx, w.sessionID, &protocol.HeartbeatRequest{
 		Activity: &activity, SessionName: name, Inbound: &inbound, LeaseSeconds: s.lease,
 		Model: model, ContextUsedTokens: tokens, BrigadeVersion: w.brigadeVersion,
+		SyncPeer: peer,
 	})
 	if err != nil {
 		if code, details := errorParts(err); sessionGone(code, details) {

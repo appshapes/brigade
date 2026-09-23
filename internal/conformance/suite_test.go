@@ -29,10 +29,11 @@ var conformanceSeed = flag.Int64("conformance-seed", 0,
 // passes (C-44 included: the fs adapter advertises session.model and
 // session.context_used_tokens; C-45 included: it advertises
 // session.human_label; C-46 included: it advertises
-// session.brigade_version), C-14 is the one skip (it is tagged slow),
-// nothing fails.
+// session.brigade_version; C-47 included: it advertises
+// session.sync_peer), C-14 is the one skip (it is tagged slow), nothing
+// fails.
 const (
-	wholeRunPass = 47
+	wholeRunPass = 48
 	wholeRunFail = 0
 	wholeRunSkip = 1
 )

@@ -180,6 +180,7 @@ func defaultCapabilities() []string {
 		"session.workspace_label", "session.inbound",
 		"session.model", "session.context_used_tokens",
 		"session.human_label", "session.brigade_version",
+		"session.sync_peer",
 	}
 }
 

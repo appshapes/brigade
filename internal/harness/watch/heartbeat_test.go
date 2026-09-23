@@ -333,6 +333,43 @@ func TestHeartbeatCarriesTheBrigadeVersion(t *testing.T) {
 	}
 }
 
+// TestHeartbeatCarriesTheSyncPeer pins card 33's watcher half (sync_peer,
+// C-47; plan folder-sync.md 4.2): once the watcher knows its session's
+// sync peer every heartbeat names it — the sync adapter attaches after the
+// registration, so a heartbeat is how teammates first learn it — and
+// while it knows none no heartbeat carries the member at all, which leaves
+// a stored peer standing (4.4.4) rather than clearing it.
+func TestHeartbeatCarriesTheSyncPeer(t *testing.T) {
+	t.Parallel()
+	known := "syncthing:AAAAAAA-BBBBBBB"
+	for name, peer := range map[string]*string{"a known peer": &known, "no peer": nil} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fx := newFixture(t, fixtureOptions{sink: true})
+			record := filepath.Join(t.TempDir(), "commands.ndjson")
+			fx.useHelper("record=" + record)
+			fx.writeMap()
+			deps := fx.deps()
+			deps.HeartbeatInterval = 150 * time.Millisecond
+			deps.SyncPeer = func() *string { return peer }
+			r := fx.start(deps, fx.args()...)
+			fx.waitLog("watch ready", nil)
+			testutil.Eventually(t, waitShort, pollEvery, func() bool { return len(recordedHeartbeats(t, record)) >= 3 })
+			if code := r.stopAndWait(); code != 0 {
+				t.Fatalf("exit %d", code)
+			}
+			for i, hb := range recordedHeartbeats(t, record) {
+				switch {
+				case peer == nil && hb.SyncPeer != nil:
+					t.Errorf("heartbeat %d names sync peer %q from a watcher that knows none", i, *hb.SyncPeer)
+				case peer != nil && (hb.SyncPeer == nil || *hb.SyncPeer != *peer):
+					t.Errorf("heartbeat %d carries sync_peer %v, want %q", i, hb.SyncPeer, *peer)
+				}
+			}
+		})
+	}
+}
+
 // TestHeartbeatOmitsAContextCountTheWireCannotCarry: a transcript whose
 // latest usage sums past 2^53 - 1 (only a corrupt file does) yields no
 // context_used_tokens member — absent means unchanged (4.4.4) — instead of

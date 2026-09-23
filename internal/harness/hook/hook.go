@@ -202,6 +202,13 @@ type Deps struct {
 	// reports it (brigade_version, C-46); nil means buildinfo.Claimed,
 	// which is nil itself for a binary with no version to claim.
 	BrigadeVersion func() *string
+	// SyncPeer is the folder-sync peer descriptor a registration and the
+	// start heartbeat report when the hook knows one (sync_peer, C-47);
+	// nil means it knows none, and the member is then absent — never
+	// cleared. At SessionStart it usually knows none: the watcher's sync
+	// adapter attaches after the registration and the watcher's first
+	// heartbeat after that carries the peer (plan folder-sync.md 4.2).
+	SyncPeer func() *string
 	// Sink, when set, is passed to the watcher as `--sink <file>` (6.6).
 	// Only a test harness sets it; production never does.
 	Sink string
@@ -233,6 +240,9 @@ func (d Deps) withDefaults() Deps {
 	if d.BrigadeVersion == nil {
 		d.BrigadeVersion = buildinfo.Claimed
 	}
+	if d.SyncPeer == nil {
+		d.SyncPeer = noSyncPeer
+	}
 	if d.Now == nil {
 		d.Now = prod.Now
 	}
@@ -256,6 +266,11 @@ func (d Deps) withDefaults() Deps {
 	}
 	return d
 }
+
+// noSyncPeer is Deps.SyncPeer's production value: the hook knows no
+// sync peer, so neither the registration nor the start heartbeat names
+// one and a stored peer stands (plan folder-sync.md 4.2).
+func noSyncPeer() *string { return nil }
 
 // Run executes one `brigade hook <subcommand>` invocation and returns the
 // process exit status. args excludes the words `brigade hook`; the only

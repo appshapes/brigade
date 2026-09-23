@@ -3,6 +3,6 @@
   "session_name": "payments-api", "session_description": null,
   "activity": "busy", "inbound": "accept", "lease_seconds": 90, "workspace_label": null,
   "human_label": "alice@example.com",
-  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0",
+  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0", "sync_peer": "syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD",
   "resume": {"session_id": "a Brigade session_id previously returned to this principal"}
 }
