@@ -1,0 +1,597 @@
+package syncthing
+
+import (
+	"bytes"
+	"encoding/json/v2"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/appshapes/brigade/internal/procutil"
+	"github.com/appshapes/brigade/internal/testutil"
+)
+
+// testKey is the API key the fixtures write into config.xml. Every test
+// that runs a verb asserts it never reaches stdout or stderr.
+const testKey = "fixture-api-key-7f3a"
+
+// testID is the device id the fake REST API answers as myID.
+const testID = "SELFSEL-FSELFSE-LFSELFS-ELFSELF-SELFSEL-FSELFSE-LFSELFS-ELFSELF"
+
+// fakeAPI is an httptest stand-in for Syncthing's REST API: the endpoints
+// the adapter calls, keyed by X-API-Key, keeping what apply posts.
+type fakeAPI struct {
+	t *testing.T
+
+	mu         sync.Mutex
+	devices    []deviceConfig
+	folders    []folderConfig
+	extra      []configuredFolder // folders "another project" holds
+	connected  map[string]bool
+	shutdowns  int
+	failStop   bool
+	onShutdown func()
+	badKey     int
+}
+
+func newFakeAPI(t *testing.T) (*fakeAPI, *httptest.Server) {
+	t.Helper()
+	f := &fakeAPI{t: t, connected: map[string]bool{}}
+	srv := httptest.NewServer(http.HandlerFunc(f.serve))
+	t.Cleanup(srv.Close)
+	return f, srv
+}
+
+func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r.Header.Get("X-API-Key") != testKey {
+		f.badKey++
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	reply := func(v any) {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			f.t.Errorf("fake API: marshal: %v", err)
+		}
+		_, _ = w.Write(raw)
+	}
+	switch r.Method + " " + r.URL.Path {
+	case "GET /rest/system/status":
+		reply(map[string]string{"myID": testID})
+	case "POST /rest/system/shutdown":
+		f.shutdowns++
+		if f.failStop {
+			http.Error(w, "nope", http.StatusInternalServerError)
+			return
+		}
+		if f.onShutdown != nil {
+			f.onShutdown()
+		}
+		reply(map[string]string{"ok": "shutting down"})
+	case "GET /rest/system/connections":
+		conns := map[string]map[string]bool{}
+		for _, d := range f.devices {
+			conns[d.DeviceID] = map[string]bool{"connected": f.connected[d.DeviceID]}
+		}
+		reply(map[string]any{"connections": conns})
+	case "GET /rest/config/devices":
+		out := []deviceConfig{{DeviceID: testID, Name: "self"}}
+		reply(append(out, f.devices...))
+	case "POST /rest/config/devices":
+		var d deviceConfig
+		if err := json.UnmarshalRead(r.Body, &d); err != nil || strings.HasPrefix(d.DeviceID, "BAD") {
+			http.Error(w, "invalid device", http.StatusBadRequest)
+			return
+		}
+		f.devices = slices.DeleteFunc(f.devices, func(e deviceConfig) bool { return e.DeviceID == d.DeviceID })
+		f.devices = append(f.devices, d)
+	case "GET /rest/config/folders":
+		out := slices.Clone(f.extra)
+		for _, c := range f.folders {
+			out = append(out, configuredFolder{ID: c.ID, Path: c.Path})
+		}
+		reply(out)
+	case "POST /rest/config/folders":
+		var c folderConfig
+		if err := json.UnmarshalRead(r.Body, &c); err != nil {
+			http.Error(w, "invalid folder", http.StatusBadRequest)
+			return
+		}
+		f.folders = slices.DeleteFunc(f.folders, func(e folderConfig) bool { return e.ID == c.ID })
+		f.folders = append(f.folders, c)
+	case "GET /rest/db/status":
+		id := r.URL.Query().Get("folder")
+		for _, c := range f.folders {
+			if c.ID == id {
+				reply(map[string]string{"state": "idle"})
+				return
+			}
+		}
+		http.Error(w, "no such folder", http.StatusNotFound)
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+	}
+}
+
+// testDeps points the adapter at srv and at the fake syncthing script (run
+// as /bin/sh <script>, the repository's fixture rule), with short waits.
+func testDeps(srv *httptest.Server, script string) deps {
+	return deps{
+		syncthing: func() ([]string, error) {
+			if script == "" {
+				return nil, exec.ErrNotFound
+			}
+			return []string{"/bin/sh", script}, nil
+		},
+		baseURL:   func(int) string { return srv.URL },
+		startWait: 5 * time.Second,
+		stopWait:  2 * time.Second,
+	}
+}
+
+type outcome struct {
+	exit   int
+	stdout string
+	stderr string
+	env    struct {
+		OK     bool           `json:"ok"`
+		Result map[string]any `json:"result"`
+		Error  struct {
+			Code    string            `json:"code"`
+			Details map[string]string `json:"details"`
+		} `json:"error"`
+	}
+}
+
+// invoke runs one verb in-process with req on stdin.
+func invoke(t *testing.T, d deps, verb string, req any) outcome {
+	t.Helper()
+	return invokeEnv(t, d, []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}, verb, req)
+}
+
+func invokeEnv(t *testing.T, d deps, environ []string, verb string, req any) outcome {
+	t.Helper()
+	raw, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	var o outcome
+	o.exit = run([]string{verb}, bytes.NewReader(raw), &out, &errb, environ, d)
+	o.stdout, o.stderr = out.String(), errb.String()
+	if strings.Count(o.stdout, "\n") != 1 {
+		t.Fatalf("%s: stdout is not exactly one envelope line: %q", verb, o.stdout)
+	}
+	if err := json.Unmarshal([]byte(o.stdout), &o.env); err != nil {
+		t.Fatalf("%s: stdout is not an envelope: %v (%q)", verb, err, o.stdout)
+	}
+	if strings.Contains(o.stdout+o.stderr, testKey) {
+		t.Errorf("%s: the API key reached stdout or stderr", verb)
+	}
+	return o
+}
+
+func mustOK(t *testing.T, o outcome, verb string) map[string]any {
+	t.Helper()
+	if o.exit != 0 || !o.env.OK {
+		t.Fatalf("%s: exit %d, stdout %q, stderr %q", verb, o.exit, o.stdout, o.stderr)
+	}
+	return o.env.Result
+}
+
+// runningHome prepares a home whose daemon is "running": config.xml with
+// the test key, a kept port, and daemon.pid naming a live sleeper (with
+// its real start token). It returns the state dir and the sleeper's pid.
+func runningHome(t *testing.T) (string, int) {
+	t.Helper()
+	stateDir := t.TempDir()
+	home := filepath.Join(stateDir, "sync", "syncthing")
+	if err := os.MkdirAll(filepath.Join(home, "refs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(home, "config.xml"), `<configuration version="37"><gui enabled="true"><address>127.0.0.1:1</address><apikey>`+testKey+`</apikey></gui></configuration>`)
+	writeFile(t, filepath.Join(home, "port"), "1\n")
+	pid := testutil.NewSleeper(t)
+	info, err := procutil.Lookup(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(home, "daemon.pid"), strconv.Itoa(pid)+" "+info.StartToken+"\n")
+	return stateDir, pid
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDescribe(t *testing.T) {
+	t.Parallel()
+	_, srv := newFakeAPI(t)
+	res := mustOK(t, invoke(t, testDeps(srv, ""), "describe", map[string]any{}), "describe")
+	if res["name"] != "syncthing" || res["protocol_version"] != "sync/1" || res["version"] == "" {
+		t.Errorf("describe = %v", res)
+	}
+}
+
+func TestUsageAndInputRefusals(t *testing.T) {
+	t.Parallel()
+	_, srv := newFakeAPI(t)
+	d := testDeps(srv, "")
+	for _, args := range [][]string{nil, {"bogus"}, {"attach", "extra"}} {
+		var out, errb bytes.Buffer
+		if exit := run(args, strings.NewReader("{}"), &out, &errb, nil, d); exit != 2 || !strings.Contains(out.String(), `"code":"usage"`) {
+			t.Errorf("%v: exit %d, stdout %q", args, exit, out.String())
+		}
+	}
+	for _, id := range []string{"", "..", "a/b"} {
+		o := invoke(t, d, "attach", map[string]any{"state_dir": t.TempDir(), "session_id": id})
+		if o.exit != 3 || o.env.Error.Code != "invalid_input" {
+			t.Errorf("session_id %q: exit %d, stdout %q", id, o.exit, o.stdout)
+		}
+	}
+	o := invoke(t, d, "status", map[string]any{"state_dir": "relative/dir"})
+	if o.exit != 3 {
+		t.Errorf("relative state_dir: exit %d, stdout %q", o.exit, o.stdout)
+	}
+}
+
+func TestStatusWithNoDaemon(t *testing.T) {
+	t.Parallel()
+	_, srv := newFakeAPI(t)
+	res := mustOK(t, invoke(t, testDeps(srv, ""), "status", map[string]any{"state_dir": t.TempDir()}), "status")
+	if res["running"] != false || res["peer"] != "" || len(res["folders"].([]any)) != 0 || len(res["peers"].([]any)) != 0 {
+		t.Errorf("status = %v, want not running with empty lists", res)
+	}
+}
+
+func TestApplyIntroducesPeersAndSharesFolders(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	d := testDeps(srv, "")
+	stateDir, _ := runningHome(t)
+	project := t.TempDir()
+	taken := filepath.Join(project, "taken")
+	fake.extra = []configuredFolder{{ID: "someone-else", Path: taken}}
+	fake.connected["PEERONE"] = true
+	req := map[string]any{
+		"state_dir":  stateDir,
+		"session_id": "s1",
+		"folders": []map[string]string{
+			{"id": "brigade-aaaa-1111", "path": filepath.Join(project, "docs", "shared"), "label": "repo/docs/shared"},
+			{"id": "brigade-aaaa-2222", "path": taken, "label": "repo/taken"},
+		},
+		"peers": []map[string]string{
+			{"peer": "PEERONE", "label": "alice"},
+			{"peer": "BADPEER", "label": "broken"},
+			{"peer": "PEERTWO", "label": "bob"},
+		},
+	}
+	for range 2 { // apply is idempotent: the second run changes nothing
+		res := mustOK(t, invoke(t, d, "apply", req), "apply")
+		folders := res["folders"].([]any)
+		if len(folders) != 2 ||
+			folders[0].(map[string]any)["state"] != "idle" ||
+			folders[1].(map[string]any)["state"] != "conflict_path" {
+			t.Errorf("apply folders = %v", folders)
+		}
+		peers := res["peers"].([]any)
+		if len(peers) != 3 || peers[0].(map[string]any)["connected"] != true || peers[2].(map[string]any)["connected"] != false {
+			t.Errorf("apply peers = %v", peers)
+		}
+	}
+	if fi, err := os.Stat(filepath.Join(project, "docs", "shared")); err != nil || !fi.IsDir() {
+		t.Errorf("the folder was not created: %v", err)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.devices) != 2 || fake.devices[0].Name != "alice" || fake.devices[0].Addresses[0] != "dynamic" {
+		t.Errorf("devices = %+v", fake.devices)
+	}
+	if len(fake.folders) != 1 {
+		t.Fatalf("folders = %+v, want only the unconflicted one", fake.folders)
+	}
+	f := fake.folders[0]
+	want := []deviceRef{{DeviceID: "PEERONE"}, {DeviceID: "PEERTWO"}}
+	if f.ID != "brigade-aaaa-1111" || f.Label != "repo/docs/shared" || f.Type != "sendreceive" ||
+		!slices.Equal(f.Devices, want) || f.Versioning.Type != "trashcan" || f.Versioning.Params["cleanoutDays"] != "14" ||
+		!f.FSWatcherEnabled || f.RescanIntervalS != 60 {
+		t.Errorf("folder object = %+v", f)
+	}
+	if fake.badKey != 0 {
+		t.Errorf("%d calls carried the wrong API key", fake.badKey)
+	}
+}
+
+func TestApplyAndStatusNeedARunningDaemon(t *testing.T) {
+	t.Parallel()
+	_, srv := newFakeAPI(t)
+	o := invoke(t, testDeps(srv, ""), "apply", map[string]any{"state_dir": t.TempDir(), "folders": []any{}, "peers": []any{}})
+	if o.exit != 9 || o.env.Error.Details["reason"] != "not_running" {
+		t.Errorf("apply with no daemon: exit %d, stdout %q", o.exit, o.stdout)
+	}
+}
+
+func TestStatusReportsFoldersAndPeers(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	stateDir, _ := runningHome(t)
+	fake.devices = []deviceConfig{{DeviceID: "PEERONE"}}
+	fake.connected["PEERONE"] = true
+	fake.folders = []folderConfig{{ID: "brigade-x", Path: "/somewhere"}}
+	res := mustOK(t, invoke(t, testDeps(srv, ""), "status", map[string]any{"state_dir": stateDir}), "status")
+	if res["running"] != true || res["peer"] != testID {
+		t.Errorf("status = %v", res)
+	}
+	folders, peers := res["folders"].([]any), res["peers"].([]any)
+	if len(folders) != 1 || folders[0].(map[string]any)["path"] != "/somewhere" || folders[0].(map[string]any)["state"] != "idle" {
+		t.Errorf("status folders = %v", folders)
+	}
+	if len(peers) != 1 || peers[0].(map[string]any)["peer"] != "PEERONE" || peers[0].(map[string]any)["connected"] != true {
+		t.Errorf("status peers = %v (the instance's own device must not be listed)", peers)
+	}
+}
+
+func TestDetachStopsOnlyWithTheLastSession(t *testing.T) {
+	t.Parallel()
+	for _, failStop := range []bool{false, true} {
+		fake, srv := newFakeAPI(t)
+		stateDir, pid := runningHome(t)
+		home := filepath.Join(stateDir, "sync", "syncthing")
+		writeFile(t, filepath.Join(home, "refs", "s1"), "")
+		writeFile(t, filepath.Join(home, "refs", "s2"), "")
+		fake.failStop = failStop
+		fake.onShutdown = func() { _ = syscall.Kill(pid, syscall.SIGTERM) }
+		d := testDeps(srv, "")
+		if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "detach"); res["stopped"] != false {
+			t.Errorf("detach with a session left: %v", res)
+		}
+		if !alive(pid, "") {
+			t.Fatal("the daemon died while a session still referenced it")
+		}
+		if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s2"}), "detach"); res["stopped"] != true {
+			t.Errorf("last detach: %v", res)
+		}
+		testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !alive(pid, "") })
+		if _, err := os.Stat(filepath.Join(home, "daemon.pid")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("daemon.pid survived the last detach: %v", err)
+		}
+		fake.mu.Lock()
+		if fake.shutdowns != 1 {
+			t.Errorf("failStop=%v: %d shutdown calls, want 1", failStop, fake.shutdowns)
+		}
+		fake.mu.Unlock()
+		// Detaching again is harmless (idempotent).
+		if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s2"}), "detach"); res["stopped"] != true {
+			t.Errorf("repeat detach: %v", res)
+		}
+	}
+}
+
+// fakeSyncthing is the fixture standing in for the real binary: it parses
+// --home and --gui-address as `syncthing serve` would, counts its starts,
+// writes a line to its output, writes config.xml after a delay (so the
+// adapter's wait is exercised), then becomes a long sleep (exec keeps the
+// pid and its start token, as the pidfile expects). mode "noconfig" never
+// writes config.xml; "exit" dies at once.
+func fakeSyncthing(t *testing.T, mode string) string {
+	t.Helper()
+	script := `home=""; gui=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --home) home=$2; shift ;;
+    --gui-address) gui=$2; shift ;;
+  esac
+  shift
+done
+echo start >> "$home/starts"
+printf '%s\n' "$gui" > "$home/gui-address"
+echo "fake syncthing starting"
+[ "` + mode + `" = exit ] && exit 3
+sleep 0.3
+if [ "` + mode + `" != noconfig ]; then
+  printf '<configuration version="37"><gui enabled="true"><address>%s</address><apikey>%s</apikey></gui></configuration>\n' "$gui" "` + testKey + `" > "$home/config.xml.tmp"
+  mv "$home/config.xml.tmp" "$home/config.xml"
+fi
+exec sleep 300
+`
+	path := filepath.Join(t.TempDir(), "fake-syncthing.sh")
+	writeFile(t, path, script)
+	return path
+}
+
+// killDaemon is a cleanup: whatever daemon.pid names dies with the test.
+func killDaemon(t *testing.T, home string) {
+	t.Helper()
+	t.Cleanup(func() {
+		raw, err := os.ReadFile(filepath.Join(home, "daemon.pid"))
+		if err != nil {
+			return
+		}
+		pidText, _, _ := strings.Cut(strings.TrimSpace(string(raw)), " ")
+		if pid, err := strconv.Atoi(pidText); err == nil && pid > 0 {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+}
+
+func daemonPID(t *testing.T, home string) int {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(home, "daemon.pid"))
+	if err != nil {
+		t.Fatalf("daemon.pid: %v", err)
+	}
+	pidText, _, _ := strings.Cut(strings.TrimSpace(string(raw)), " ")
+	pid, err := strconv.Atoi(pidText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pid
+}
+
+func TestAttachStartsOneDaemonAndTheLastDetachStopsIt(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	stateDir := t.TempDir()
+	home := filepath.Join(stateDir, "sync", "syncthing")
+	killDaemon(t, home)
+	fake.onShutdown = func() { _ = syscall.Kill(daemonPID(t, home), syscall.SIGTERM) }
+	d := testDeps(srv, fakeSyncthing(t, ""))
+
+	res := mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
+	if res["peer"] != testID {
+		t.Errorf("attach peer = %v, want the fake myID", res["peer"])
+	}
+	first := daemonPID(t, home)
+	if !alive(first, "") {
+		t.Fatal("the daemon is not running after attach")
+	}
+	fi, err := os.Stat(home)
+	if err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("home mode = %v (%v), want 0700", fi.Mode().Perm(), err)
+	}
+	port := strings.TrimSpace(readFile(t, filepath.Join(home, "port")))
+	if got := strings.TrimSpace(readFile(t, filepath.Join(home, "gui-address"))); got != "127.0.0.1:"+port {
+		t.Errorf("--gui-address = %q, want 127.0.0.1:%s (the kept port, loopback only)", got, port)
+	}
+	if !strings.Contains(readFile(t, filepath.Join(home, "syncthing.log")), "fake syncthing starting") {
+		t.Error("the daemon's output did not reach syncthing.log")
+	}
+
+	// A second session joins the running daemon; nothing new starts.
+	mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s2"}), "attach")
+	if daemonPID(t, home) != first || strings.Count(readFile(t, filepath.Join(home, "starts")), "start") != 1 {
+		t.Error("a second attach started a second daemon")
+	}
+	if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "detach"); res["stopped"] != false || !alive(first, "") {
+		t.Errorf("first detach: %v, daemon alive %v", res, alive(first, ""))
+	}
+	if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s2"}), "detach"); res["stopped"] != true {
+		t.Errorf("last detach: %v", res)
+	}
+	if alive(first, "") {
+		t.Error("the daemon survived the last detach")
+	}
+
+	// The next attach starts a fresh daemon on the SAME kept port.
+	mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s3"}), "attach")
+	if got := strings.TrimSpace(readFile(t, filepath.Join(home, "port"))); got != port {
+		t.Errorf("port = %s after a restart, want the kept %s", got, port)
+	}
+	if daemonPID(t, home) == first {
+		t.Error("no new daemon after the restart")
+	}
+}
+
+func TestAttachReplacesAStalePidfile(t *testing.T) {
+	t.Parallel()
+	for name, content := range map[string]func(t *testing.T) string{
+		// No such process.
+		"dead": func(t *testing.T) string {
+			t.Helper()
+			cmd := exec.CommandContext(t.Context(), "/usr/bin/true")
+			if err := cmd.Run(); err != nil {
+				t.Fatal(err)
+			}
+			return strconv.Itoa(cmd.Process.Pid) + " 1.000000\n"
+		},
+		// A live process, but not the incarnation that was recorded: the
+		// kernel reused the pid.
+		"reused": func(t *testing.T) string {
+			t.Helper()
+			return strconv.Itoa(testutil.NewSleeper(t)) + " 1.000000\n"
+		},
+		"garbage": func(*testing.T) string { return "not a pid\n" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, srv := newFakeAPI(t)
+			stateDir := t.TempDir()
+			home := filepath.Join(stateDir, "sync", "syncthing")
+			if err := os.MkdirAll(home, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(home, "daemon.pid"), content(t))
+			killDaemon(t, home)
+			mustOK(t, invoke(t, testDeps(srv, fakeSyncthing(t, "")), "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
+			if !alive(daemonPID(t, home), "") || strings.Count(readFile(t, filepath.Join(home, "starts")), "start") != 1 {
+				t.Error("a stale pidfile did not lead to exactly one fresh start")
+			}
+		})
+	}
+}
+
+func TestAttachFailures(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		mode, reason string
+	}{
+		{"missing", "syncthing_not_found"},
+		{"exit", "syncthing_exited"},
+		{"noconfig", "start_timeout"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			t.Parallel()
+			_, srv := newFakeAPI(t)
+			stateDir := t.TempDir()
+			home := filepath.Join(stateDir, "sync", "syncthing")
+			killDaemon(t, home)
+			script := ""
+			if tc.mode != "missing" {
+				script = fakeSyncthing(t, tc.mode)
+			}
+			d := testDeps(srv, script)
+			d.startWait = time.Second
+			o := invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"})
+			if o.exit != 9 || o.env.Error.Code != "unavailable" || o.env.Error.Details["reason"] != tc.reason {
+				t.Fatalf("exit %d, stdout %q, want unavailable/%s", o.exit, o.stdout, tc.reason)
+			}
+			if _, err := os.Stat(filepath.Join(home, "refs", "s1")); !errors.Is(err, os.ErrNotExist) {
+				t.Error("a failed attach left its ref behind")
+			}
+			if tc.mode == "noconfig" {
+				pid := daemonPID(t, home)
+				testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !alive(pid, "") })
+			}
+		})
+	}
+}
+
+func TestAStartTruncatesAnOversizedLog(t *testing.T) {
+	t.Parallel()
+	_, srv := newFakeAPI(t)
+	stateDir := t.TempDir()
+	home := filepath.Join(stateDir, "sync", "syncthing")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(home, "syncthing.log"), strings.Repeat("x", maxLogBytes+1))
+	killDaemon(t, home)
+	mustOK(t, invoke(t, testDeps(srv, fakeSyncthing(t, "")), "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
+	if got := readFile(t, filepath.Join(home, "syncthing.log")); len(got) > 1024 || !strings.Contains(got, "fake syncthing starting") {
+		t.Errorf("syncthing.log is %d bytes after the start, want only the new output", len(got))
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}

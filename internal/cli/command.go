@@ -2,8 +2,10 @@ package cli
 
 import (
 	"flag"
+	"io"
 
 	harnesscmd "github.com/appshapes/brigade/internal/harness/commands"
+	"github.com/appshapes/brigade/internal/syncadapters/syncthing"
 )
 
 // A Command is one entry of the `brigade` command table (6.4).
@@ -141,7 +143,42 @@ func init() {
 			MultiCall: true,
 			Run:       runAdapterEntry,
 		},
+		{
+			Name:    "sync-adapter",
+			Args:    "<name> <verb>",
+			Summary: "run a bundled sync adapter (one JSON request on stdin, one envelope on stdout)",
+			Hidden:  true,
+			Raw:     true,
+			Run:     runSyncAdapter,
+		},
 	}
+}
+
+// syncAdapters are the bundled sync adapters of `brigade sync-adapter
+// <name> <verb>` (plan folder-sync 4.3), keyed by the name .brigade.json's
+// sync.adapter gives; any other name is an external `brigade-sync-<name>`
+// the harness finds on PATH, never this table.
+var syncAdapters = map[string]func(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []string) int{
+	syncthing.Name: syncthing.Run,
+}
+
+// runSyncAdapter is the table's Run for `sync-adapter` (raw: the verb is
+// the adapter's). The adapter writes its own 4.3 envelope on stdout, so
+// its exit status is forwarded as an ExitStatus and nothing more is
+// printed; the streams are the process's own, stdin included, for
+// adapterkit.ReadInput's terminal refusal.
+func runSyncAdapter(cx *Context, args []string) error {
+	if len(args) == 0 {
+		return usagef("sync-adapter", "sync-adapter needs a name; the bundled sync adapter is `syncthing`")
+	}
+	run, ok := syncAdapters[args[0]]
+	if !ok {
+		return usagef("sync-adapter", "unknown sync adapter name; the bundled sync adapter is `syncthing`")
+	}
+	if exit := run(args[1:], cx.In, cx.Out, cx.Err, cx.Environ); exit != ExitOK {
+		return harnesscmd.ExitStatus(exit)
+	}
+	return nil
 }
 
 // Lookup returns the table entry for name.
