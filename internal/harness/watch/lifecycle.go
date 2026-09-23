@@ -71,10 +71,11 @@ func newShared(target socketpost.Target, name, inbound, workspaceLabel, labelOpt
 	}
 }
 
-// snapshot copies the shared state under the lock.
+// snapshot copies the shared state under the lock. It carries no name:
+// the heartbeat and the re-open both take theirs from setTitle, which
+// re-resolves it against the transcript title they have just read.
 type sharedSnapshot struct {
 	target         socketpost.Target
-	name           string
 	activity       string
 	inbound        string
 	workspaceLabel string
@@ -86,7 +87,7 @@ type sharedSnapshot struct {
 func (s *shared) snapshot() sharedSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return sharedSnapshot{target: s.target, name: s.name, activity: s.activity, inbound: s.inbound,
+	return sharedSnapshot{target: s.target, activity: s.activity, inbound: s.inbound,
 		workspaceLabel: s.workspaceLabel, labelOption: s.labelOption, doingMode: s.doingMode, transcriptPath: s.transcriptPath}
 }
 

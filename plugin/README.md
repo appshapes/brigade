@@ -170,10 +170,23 @@ label, and a member is free to *choose* a label that looks like one. `brigade se
 `session_id` — which is what `brigade send` addresses — and every `principal_ref`, the one identity the server
 stamps, in full.
 
+**Where the NAME comes from.** Claude Code's, not Brigade's. Rename the conversation — the pencil icon in the VS
+Code extension, or `/rename` in the chat — and that name is what your teammates see, at the next heartbeat and
+after a resume or a window reload. Until you rename one, the NAME is the one Claude Code derives from your
+project folder, `<folder>-<hex>`, which is why a session you have never renamed shows a folder name and a suffix
+that changes with each resume. A `/rename` outranks a later pencil rename: rename in the chat again to change it,
+and `/clear` starts a conversation with no title at all, so the name falls back to the derived one. Brigade reads
+the title from your session's own transcript file, on your machine, and sends only the resulting name — sanitised
+and capped at 64 code points like every other display string; nothing else from the transcript travels, and
+neither does its path ([docs/security.md](../docs/security.md), "Three facts Brigade now reads from your
+transcript"). Your team and whoever runs the backend read that name, so it is worth giving a conversation a title
+you would not mind them seeing.
+
 **Where the sentence comes from.** Your session's own model writes it, with `brigade doing` — one present-tense
 sentence of at most 160 characters, on stdin, that the command refuses when it is empty, not UTF-8, longer than
 that, shaped like a credential or naming a path on your machine; `brigade doing --clear` removes it. Brigade reads
-nothing about your work for it: not your prompts, not your transcript, not Claude Code's own titles. What keeps
+nothing about your work for it: not your prompts, not your transcript, not the conversation's title — that one is
+read, but only ever as the NAME above. What keeps
 the model at it is a fixed line the prompt hook prints — at most once per ten minutes, plus once more after a
 `/compact` or a stretch in a mode where Brigade may not ask — saying the line is blank, or due again only if the
 work has changed. **That reminder is not shown to you as it happens**: on the screen the run appears only as

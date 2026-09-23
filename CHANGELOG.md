@@ -16,7 +16,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   NAME is now: a name set with `/rename` or `--name`, then the transcript's latest title, then the derived name,
   then the session title and the folder name as before. A title reaches the roster at the next heartbeat and
   survives a resume and a reload; `/clear` starts a conversation with no title, so the name falls back to the
-  derived one.
+  derived one. A name set with `/rename` still wins over a later rename in the extension — the chat's name is the
+  one you asked Brigade for — so rename in the chat again to change a session you have already renamed there.
 
 ## [0.11.0] — 2026-09-23
 ### Added
