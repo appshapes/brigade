@@ -8,6 +8,11 @@
 // socket, and the token appearing in no file and on no argv afterwards
 // (U-25's whole-tree grep).
 //
+// One test is opt-in: with BRIGADE_TEST_SYNCTHING=1, sync_test.go runs the
+// folder-sync smoke (plan folder-sync §5.2) against the `syncthing` on
+// PATH — two personas, two state dirs, two real Syncthing instances.
+// Without it the test skips, so `make test` starts no daemon.
+//
 // The package has no non-test code: nothing here is linked into the
 // shipped binary, and every process a test starts is SIGTERMed and reaped
 // in its Cleanup, the detached watcher from its pidfile.
