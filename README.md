@@ -37,6 +37,13 @@ repository, and the secret file you send each member —
 Commit the team's `.brigade.json` at the top of the other repository, together with the `.claude/settings.json`
 marketplace entry, and join it once — [docs/setup.md › The project owns the team](docs/setup.md#the-project-owns-the-team).
 
+## Sync folders
+
+List folders in the project's `.brigade.json` — `"sync": { "folders": ["docs/shared"] }` — and commit it. Every
+teammate's checkout of the repository keeps them in step, peer to peer through Syncthing, while a session is
+active; each machine needs `syncthing` on its `PATH`. `brigade sync status` shows what is syncing, and the plugin
+option `sync: off` switches it off — [docs/sync.md](docs/sync.md).
+
 ## Create a database
 
 Once per organization, by an administrator: a Supabase account and a project that stores your teams and their
@@ -49,8 +56,10 @@ messages — the project settings, `make backend-install`, and the daily keep-al
   administration, the hosted backend
 - [docs/security.md](docs/security.md) — what Brigade protects, what it does not, and what was measured
 - [plugin/README.md](plugin/README.md) — the plugin's commands and options
+- [docs/sync.md](docs/sync.md) — syncing a project's folders between teammates' checkouts
 - [docs/adapter-authors.md](docs/adapter-authors.md) — writing an adapter for another backend; the protocol is
-  [docs/protocol-v1.md](docs/protocol-v1.md)
+  [docs/protocol-v1.md](docs/protocol-v1.md); [docs/sync-adapters.md](docs/sync-adapters.md) is the same for a
+  sync engine other than Syncthing
 - [docs/development.md](docs/development.md) — working on Brigade: setup, an if-you-want-to table, gates, releases,
   layout, notes for adapter contributors
 - [docs/claude-code-usage.md](docs/claude-code-usage.md) — working on Brigade with Claude Code: agents, skills, the

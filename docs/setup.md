@@ -86,7 +86,7 @@ your team then appears on a **later** prompt, once the binary is in place. It ne
 185 kB/s or better; a download attempt gives up after 45 s. If it cannot finish, your next prompt shows one line
 beginning `Brigade: not installed:` and nothing else changes; `/clear` or a new session tries again. The
 download is one file, checked against a checksum that ships inside the plugin, and it happens once per version on
-each machine. Installing the plugin also prints `10 userConfig options not yet set` — that is informational, not a
+each machine. Installing the plugin also prints `11 userConfig options not yet set` — that is informational, not a
 to-do: every option has a working default (see [plugin/README.md](../plugin/README.md), "Options").
 
 **The command line on its own.** `go install` builds the same command-line tool from source — no plugin, no hooks
@@ -165,6 +165,19 @@ copy the file from one already on the team into the new repository's top level, 
 That means there is nothing to configure per session and no profile to name: `cd` into a project and its sessions
 join that project's team. The administrator writes the file once with `team create`; each member runs one command,
 `team join`, in their checkout.
+
+**The project also decides which folders its checkouts sync.** A `sync` member in the same file lists them —
+
+```json
+"sync": { "folders": [".context/plans", "docs/shared"] }
+```
+
+— and every session in a checkout of that repository keeps them in step with the teammates' checkouts of it,
+peer to peer through Syncthing, while the session is active. Add the member by hand and commit it; `team create
+--force` carries it into the file it rewrites. A member who wants none of it sets the plugin option `sync` to
+`off`. [docs/sync.md](sync.md) is the whole feature: the member's rules, what is written where, the lines a session
+prints and the limits. The file is open to members this version does not define: each is ignored, and the session
+start names it in one line.
 
 ## Administrator: create a team
 
@@ -246,6 +259,10 @@ it. Either way the secret never reaches your scrollback, your shell history or a
   between them. Nothing is shared and nothing is switched.
 - A backend other than the bundled Supabase adapter is named in the project file's `adapter` field; the name
   resolves to a command through your own `adapters.json`. [docs/adapter-authors.md](adapter-authors.md) explains it.
+- **A project that syncs folders** — its `.brigade.json` carries a `sync` member — needs Syncthing on your `PATH`:
+  `brew install syncthing` on macOS, `sudo apt install syncthing` on Debian or Ubuntu. Without it the session
+  connects all the same and a prompt soon after says file sync is off. Two checkouts of such a repository on one
+  machine cannot both sync its folders: [docs/sync.md](sync.md), "Limits".
 
 **How teammates see you.** Your sessions carry a display label, and by default it is **the email address of the
 Claude account this install is signed in to** — Brigade reads it from Claude Code's own configuration
@@ -766,6 +783,17 @@ call, drops the version — and only the version: the model, the context and the
 so once on stderr, and drops it without asking again for ten minutes at a time. Until you migrate, the column is
 simply absent for your team; afterwards a blank cell means that session's plugin is older than 0.10.0. Either
 order works, and nobody has to be told to do anything in particular.
+
+**File sync needs `20260923022323`.** A session in a project that syncs folders ([docs/sync.md](sync.md)) reports
+its machine's Syncthing device id as `sync_peer`, and teammates' sessions read it from the roster to know whom to
+sync with. `20260923022323_session_sync_peer.sql` is what stores it, and it is the same ordinary step:
+`make backend-install project=<ref>`, with `migration list` as the check. The peer rides every heartbeat once the
+session's sync adapter has attached, so on a project you have not migrated each such session finds out on the
+first call that carries it, drops the peer — and only the peer: the version, the model, the context and the label
+are all still stored — says so once on stderr, and drops it without asking again for ten minutes at a time. With
+no peer stored, no checkout is introduced to another, so until you migrate a project's listed folders sync
+nowhere; a team whose repositories list no folders loses nothing. Either order works, and nobody has to be told to
+do anything in particular.
 
 **Order matters, and it is not a preference.** Apply the migrations *before* exposing the `brigade` schema on the
 Data API. A project that exposes a schema which does not exist yet leaves PostgREST looping on

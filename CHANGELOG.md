@@ -11,25 +11,83 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Added
 
+- **File sync: the folders a project lists, kept in step between its checkouts** (card 33). A project lists
+  folders in the `sync` member of its `.brigade.json`, and every session in a checkout of that repository keeps
+  them in step with the teammates' checkouts of it — peer to peer, through [Syncthing](https://syncthing.net),
+  while a session is active. Brigade carries no file byte. Each session publishes its machine's Syncthing device
+  id to the roster as its `sync_peer`, and every 60 seconds its watcher shares the listed folders with the device
+  of every other session of the team in the same repository (the same `REPO`), online or not; a teammate who
+  starts a session is connected within about a minute. The bundled Syncthing adapter, built into the plugin's
+  binary, runs a dedicated Syncthing per machine — never the user's own — under Brigade's state directory
+  (`sync/syncthing/`, 0700), started by the machine's first session and stopped by its last, with its REST API on
+  127.0.0.1 only and its key left in Syncthing's own `config.xml`. Syncthing's defaults stay as they are:
+  device-to-device TLS, global discovery, relays and NAT traversal. Folders sync both ways with 14-day trash-can
+  versioning in each folder's `.stversions`, **deletions propagate**, and a conflict leaves a
+  `<name>.sync-conflict-<date>-<time>-<device>.<ext>` copy beside the file. Each machine needs `syncthing` on its
+  `PATH` (`brew install syncthing`, `sudo apt install syncthing`); a machine without it connects as before, and
+  a prompt soon after says file sync is off. Any other `sync.adapter` name runs `brigade-sync-<name>` from `PATH`,
+  over the five-verb protocol of [`docs/sync-adapters.md`](docs/sync-adapters.md). The session start says what
+  is syncing in one line — `Brigade: file sync on: 2 folder(s) through syncthing.`, or `Brigade: file sync off
+  (<why>).` — and the watcher's notice says `Brigade sync: <f> folders, <c> of <p> peers connected` whenever that
+  changes. [`docs/sync.md`](docs/sync.md) is the whole feature, limits included (two checkouts on one machine
+  cannot both sync one folder). [`docs/security.md`](docs/security.md) section 12 says what it opens, and states
+  it as accepted: a teammate's machine can write, overwrite and delete anything in a listed folder, no permission
+  rule gates file sync, and the join secret is the boundary, as it is for messages.
+
+- **`brigade sync status`**: inside a session, the sync engine's state, this machine's peer, the project's folders
+  with their state, and the peers with whether each is connected, labelled from the roster; `--json` carries
+  every folder and peer the engine knows, and the folders as this session configured them. Outside a session it
+  refuses, as `brigade doing` does.
+
+- **The plugin option `sync`** — `on` (the default) or `off`. `off` syncs nothing and starts no sync engine,
+  from the next session start; any other value is `off`, with one line saying so. The folder list stays the
+  project's: the option can switch sync off, never add a folder.
+
+- **The `sync` member of `.brigade.json`** (card 32): `"sync": {"adapter": "<name>", "folders": […]}`, `adapter`
+  optional and `syncthing` when absent, `folders` at most 32 entries of at most 128 bytes. A folder only has to
+  name a path under the checkout — relative, unchanged by `path.Clean`, and not `.` — and nothing more is asked
+  of it. A member that breaks a rule never refuses the file: the session connects without file sync, and one line
+  names the first rule broken (`Brigade: .brigade.json's sync member is not usable (<reason>); file sync is off
+  for this session.`). Whoever commits the file decides what every checkout syncs; a member can only switch it
+  off.
+
 - **Protocol: the optional member `sync_peer` and the capability `session.sync_peer`** (conformance case C-47),
   on `SessionRegistration`, `SessionRecord`, `HeartbeatRequest` and the watch `heartbeat` command, with
   `brigade_version`'s rules: nullable, absent means unchanged on a heartbeat, never cleared by one, and an adapter
-  without the capability accepts the member and ignores it. The value is an opaque `<adapter>:<descriptor>` — for
-  Syncthing, its device id — that a session's folder-sync adapter publishes so a teammate's adapter can introduce
-  it; it is the first piece of folder sync, and nothing sends one yet, so this release changes no session's
-  behaviour. It is an **addition** — an existing conforming adapter passes unchanged — and its 256-code-point bound
-  is a wire-format one with **no `limits` member**, for `brigade_version`'s reason. It is harness-reported,
-  unverified text: `brigade sessions --json` carries it sanitised under `sync_peer`, and the table has no column
-  for it. Both bundled adapters implement it. The suite is 49 cases.
+  without the capability accepts the member and ignores it. The value is an opaque `<adapter>:<descriptor>` —
+  `syncthing:` and the device id, for the bundled adapter — that a session publishes once its sync adapter has
+  attached, so that teammates' sessions can introduce it; no consumer but the sync adapter its prefix names
+  interprets it. It is an **addition** — an existing conforming adapter passes unchanged — and its
+  256-code-point bound is a wire-format one with **no `limits` member**, for `brigade_version`'s reason. It is
+  harness-reported, unverified text: `brigade sessions --json` carries it sanitised under `sync_peer`, and the
+  table has no column for it. Both bundled adapters implement it. The suite is 49 cases.
 
 - **Backend migration `20260923022323_session_sync_peer.sql`** — append-only, like the three before it: a
   nullable column on `brigade.sessions` (checked at 256 characters), the member on `session_record`, and one
   defaulted parameter appended to `register_session` and `session_heartbeat`. **Administrators: apply it with
-  `make backend-install project=<ref>`** ([`docs/setup.md`](docs/setup.md)). Both directions of schema
+  `make backend-install project=<ref>`** ([`docs/setup.md`](docs/setup.md)); until then no session's peer is
+  stored, so a project's listed folders sync nowhere, and nothing else changes. Both directions of schema
   compatibility hold, as they did for `20260920180000`: an older adapter never names the parameter, and a newer one
   on a backend without the migration is refused once (`PGRST202`), sends the call again without the peer —
   dropping that value and **only** that value — says so once on stderr, and drops it without a probe for ten
   minutes at a time.
+
+### Changed
+
+- **`.brigade.json` is open: a member this version does not define is ignored, not refused** (card 32). Until
+  now any member outside the closed list refused the whole file, and the session connected to nothing
+  (`team_file_unknown_field`). Now it is ignored, the way JSON convention 2 has the protocol ignore one, and the
+  session start names it in one line — `Brigade: .brigade.json carries members this version does not define
+  (<names>); ignored.`, with at most eight names and a count of the rest — so from this version on, a file that
+  carries a member added later still connects. A member that once carried behaviour — `adapter_command`, `profile`,
+  `config_dir`, `team_inbound`, `frame` — still has none: nothing reads one. A secret-shaped name or value
+  anywhere in the file still refuses it. The file's size cap rises from 4,096 to 32,768 bytes, room for the
+  largest legal `sync` member.
+
+- **`brigade team create --force` carries the project's `sync` member into the file it writes.** It still always
+  replaces the file. When the old file's `sync` member is usable it comes across unchanged; when it is not, or the
+  old file was refused, the new file is written without it and one line says so: `the previous .brigade.json's
+  sync member was not carried into the new file (<reason>); add it again if this project syncs folders`.
 
 ## [0.10.0] — 2026-09-20
 

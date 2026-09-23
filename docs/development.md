@@ -2,7 +2,7 @@
 
 The developer's page: how a clone is set up, how the repository is laid out, what gates a change, how a release is
 cut, and what we ask of an adapter author. Users and administrators want [`docs/setup.md`](setup.md) instead; the
-front [`README.md`](../README.md) has the six journeys in short form.
+front [`README.md`](../README.md) has the seven journeys in short form.
 
 ## If you want to
 
@@ -12,6 +12,7 @@ front [`README.md`](../README.md) has the six journeys in short form.
 | see every target | `make help` |
 | run the tests | `make test` |
 | run the live Supabase suites | `make supabase-start supabase-env`, then `make test-all` |
+| run the real-Syncthing test | `BRIGADE_TEST_SYNCTHING=1 go test -run TestRealSyncthingIntegration ./internal/syncadapters/syncthing` |
 | run the whole gate | [Gates](#gates) |
 | format, fix lint | `make fmt`, `make lint-fix` |
 | try the plugin against your build | `make plugin-dev`, `make plugin-dev-off` — [`plugin/README.md` › Status](../plugin/README.md#status) |
@@ -22,6 +23,7 @@ front [`README.md`](../README.md) has the six journeys in short form.
 | hand work to the agentic loop | [`docs/claude-code-usage.md` › Daily Workflow](claude-code-usage.md#daily-workflow) |
 | cut a release | [Releases](#releases) |
 | write an adapter | [For adapter contributors](#for-adapter-contributors) |
+| write a sync adapter | [`docs/sync-adapters.md`](sync-adapters.md) |
 | see what a CI script does, run shellcheck as CI does | [`scripts/ci/README.md`](../scripts/ci/README.md) |
 
 ## Setup
@@ -37,6 +39,7 @@ is missing or logged out, or if Docker is not running.
 | `make plugin-dev`, `make harness-smoke`, `make proof` | a logged-in `claude`, `jq` |
 | `make release`, `make release-dry-run`, `make checksums-check` | `gh`, logged in |
 | `make plugin-check` | shellcheck; Docker for CI's 0.9.0 — [`scripts/ci/README.md`](../scripts/ci/README.md) |
+| the real-Syncthing test | `syncthing` on `PATH` (`brew install syncthing`); measured with 2.1.5 |
 | the Trello skills | [trello-cli](claude-code-usage.md#trello-cli) |
 
 ## Gates
@@ -45,6 +48,16 @@ The acceptance gate is `make typecheck lint build test vuln deps-check schema-ch
 Docker-free and stack-free; the suites that need the local Supabase stack are `make supabase-start supabase-env`
 followed by `make test-all`. `make help` lists every target, and a trailing ` (CI)` marks the ones a workflow step
 invokes — [`scripts/ci/README.md`](../scripts/ci/README.md) says what each CI script does and what calls it.
+
+`make lint`'s forbidigo rule forbids `exec.Command` everywhere but the spawn helpers, `procutil`, `testutil` and
+the conformance suite, plus one file: `internal/syncadapters/syncthing/instance.go`, which starts `syncthing serve`
+detached in its own session to outlive the adapter process — the one long-running daemon Brigade starts, so it
+cannot go through `adapterkit.Spawn`, which runs a child to completion. Its carve-out in `.golangci.yml` lifts only
+the spawn half of the rule (and gosec's G204 for that file); the spawn is still an argument array with
+`adapterkit.ChildEnv`, never a shell. The package's tests use a fake REST server and a fake `syncthing` script
+launched as `/bin/sh <script>`; the one test that runs the real `syncthing` on `PATH`,
+`TestRealSyncthingIntegration`, is skipped unless `BRIGADE_TEST_SYNCTHING=1`, so `make test` starts no daemon and
+opens no port.
 
 Go 1.27.0 is pinned in `go.mod` with no `toolchain` line, and [`docs/allowed-deps.txt`](allowed-deps.txt) binds
 only the shipped `brigade` binary, not your adapter. `master` only, merges only, never rebase; commit messages
@@ -78,13 +91,15 @@ source of truth for where the work stands is `.context/plans/brigade-execution-l
 | `docs/adapter-authors.md` | how to write and prove an adapter |
 | [`docs/setup.md`](setup.md) | how to set up Brigade for a team |
 | [`docs/security.md`](security.md) | what Brigade protects, what it does not, and what was measured |
+| [`docs/sync.md`](sync.md), [`docs/sync-adapters.md`](sync-adapters.md) | file sync for a team, and the protocol a sync adapter speaks |
 | [`docs/claude-code-usage.md`](claude-code-usage.md) | how the repository is worked on with Claude Code: agents, skills, the daily workflow, the Trello CLI |
 | [`docs/experiments/`](experiments/README.md) | the dated experiment writeups: what was measured, and what each run does *not* prove |
 | [`docs/research/`](research/README.md) | the research digests the plan was written from, and the security threat model that defines the test ids |
 | `internal/protocol`, `internal/adapterkit` | the wire types with `Validate()`, and the shared adapter plumbing |
 | `internal/adapters/fs`, `cmd/brigade-adapter-fs` | the reference adapter (dev and test only) |
 | `internal/conformance`, `cmd/brigade-conformance` | the conformance suite (dev and test only) |
-| `cmd/brigade` | the one shipped binary: the plugin harness and the bundled Supabase adapter |
+| `cmd/brigade` | the one shipped binary: the plugin harness, the bundled Supabase adapter and the bundled Syncthing sync adapter |
+| `internal/harness/foldersync`, `internal/syncadapters/syncthing` | the harness side of the sync-adapter protocol, and the Syncthing adapter (`brigade sync-adapter syncthing`) |
 | `plugin/` | what the Claude Code plugin ships: the manifest, the lifecycle hooks, the five skills, the sh bootstrap and the release pins |
 | `supabase/` | the Supabase backend: migrations, pgTAP tests, local stack config |
 | `scripts/` | the proof scripts behind `make e2e` and `make proof`, the headless smoke test and the release sequence |
@@ -121,7 +136,7 @@ service), everything you need is in this repository, in this order:
    walks through and the dry run for an object-store adapter.
 4. **`brigade-conformance`** — the arbiter. `make build`, then
    `bin/brigade-conformance --adapter /abs/path/to/your-adapter` (with `--shared-env <VAR>` if your backend is a
-   directory every test principal must share, and `--setup <cmd>` if principals are provisioned out of band). 45
+   directory every test principal must share, and `--setup <cmd>` if principals are provisioned out of band). 49
    cases, three principals in two teams, an environment built from scratch. An adapter is correct when the suite
    is green; the suite's own positive control is four deliberately broken builds of the reference adapter, each of
    which must fail exactly its own cases.
