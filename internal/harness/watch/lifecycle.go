@@ -17,14 +17,26 @@ import (
 
 // shared is the state the event loop, the liveness tick and the injector
 // read and write: the socket target (the registry may move it), the
-// session name and activity (the registry: /rename, busy/idle), the
+// session name and its inputs, the activity (the registry: busy/idle), the
 // inbound policy and the transcript path (the by-pid map).
 type shared struct {
-	mu       sync.Mutex
-	target   socketpost.Target
-	name     string
-	activity string
-	inbound  string
+	mu     sync.Mutex
+	target socketpost.Target
+	// name is the resolved display name (registry.ResolveName over the
+	// inputs below), recomputed whenever one of them changes; "" until one
+	// yields a name.
+	name string
+	// The name's inputs: the registry entry's name and nameSource (the
+	// last found entry; a vanished one keeps them), the transcript's
+	// latest custom-title and the by-pid map's session_name, which is the
+	// hook's own resolution.
+	regFound  bool
+	regName   string
+	regSource string
+	title     string
+	mapName   string
+	activity  string
+	inbound   string
 	// workspaceLabel is the map's workspace_label, carried on a re-open
 	// (P11-5); "" when the session registered none.
 	workspaceLabel string
@@ -49,6 +61,7 @@ func newShared(target socketpost.Target, name, inbound, workspaceLabel, labelOpt
 	return &shared{
 		target:         target,
 		name:           name,
+		mapName:        name,
 		activity:       protocol.ActivityIdle,
 		inbound:        inbound,
 		workspaceLabel: workspaceLabel,
@@ -165,8 +178,9 @@ func (w *watcher) refreshMap() string {
 	}
 	w.state.mu.Lock()
 	w.state.inbound = pol.String()
-	if w.state.name == "" && m.SessionName != "" {
-		w.state.name = m.SessionName
+	if m.SessionName != w.state.mapName {
+		w.state.mapName = m.SessionName
+		w.resolveNameLocked()
 	}
 	// The label is the hook's to set, so the map always wins here.
 	w.state.workspaceLabel = m.WorkspaceLabel
@@ -193,7 +207,8 @@ func (w *watcher) refreshMap() string {
 }
 
 // refreshRegistry re-reads Claude Code's registry entry, best effort: the
-// display name (sanitised, folded to one line), the busy/idle activity (a
+// display name and its nameSource (inputs to the name resolution, so a
+// derived name never overwrites a transcript title), the busy/idle activity (a
 // flip is heartbeated at once) and the inbox socket path (a new absolute
 // path replaces the target; the token stays the one the watcher was
 // spawned with). The socket variable is the default when the entry has
@@ -209,9 +224,9 @@ func (w *watcher) refreshRegistry() {
 	}
 	w.state.mu.Lock()
 	defer w.state.mu.Unlock()
-	if name := oneLineName(e.Name); name != "" && name != w.state.name {
-		w.log.Info("session name updated from the registry", slog.String("session_name", name))
-		w.state.name = name
+	if !w.state.regFound || e.Name != w.state.regName || e.NameSource != w.state.regSource {
+		w.state.regFound, w.state.regName, w.state.regSource = true, e.Name, e.NameSource
+		w.resolveNameLocked()
 	}
 	if act := e.Activity(); act != w.state.activity {
 		w.log.Info("activity changed", slog.String("activity", act))
@@ -225,6 +240,31 @@ func (w *watcher) refreshRegistry() {
 		w.log.Info("socket path updated from the registry", slog.String("socket_path", p))
 		w.state.target.Path = p
 	}
+}
+
+// resolveNameLocked recomputes the display name from its inputs (the
+// caller holds w.state.mu) and logs a change once, with its source. A
+// resolution that yields nothing keeps the last name.
+func (w *watcher) resolveNameLocked() {
+	e := registry.Entry{Found: w.state.regFound, Name: w.state.regName, NameSource: w.state.regSource}
+	name, source := registry.ResolveName(oneLineName, e, w.state.title, w.state.mapName)
+	if name == "" || name == w.state.name {
+		return
+	}
+	w.log.Info("session name updated", slog.String("session_name", name), slog.String("source", source))
+	w.state.name = name
+}
+
+// setTitle stores the transcript's latest custom-title, re-resolves the
+// name and returns it.
+func (w *watcher) setTitle(title string) string {
+	w.state.mu.Lock()
+	defer w.state.mu.Unlock()
+	if title != w.state.title {
+		w.state.title = title
+		w.resolveNameLocked()
+	}
+	return w.state.name
 }
 
 // oneLineName sanitises a registry name for the heartbeat: the protocol

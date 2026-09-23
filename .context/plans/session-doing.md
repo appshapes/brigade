@@ -62,7 +62,7 @@ present-tense claim is the defect the card exists to remove.
 
 | Fact | Evidence |
 | --- | --- |
-| Claude Code owns the name. The hook takes registry `name` → stdin `session_title` → `basename(cwd)`; the watcher overwrites its copy from the registry every 2 s. A Brigade-side name would have to beat `refreshRegistry`. | `hook/hook.go:652-676`; `watch/lifecycle.go:186-194` |
+| Claude Code owns the name. The hook and the watcher take a user-set registry `name` → the transcript's `custom-title` (the VS Code rename) → the derived registry `name` → stdin `session_title` → `basename(cwd)` (`registry.ResolveName`, 2026-09-23); the watcher re-resolves it at every heartbeat. A Brigade-side name would have to beat that rule. | `hook/hook.go:652-676`; `watch/lifecycle.go:186-194` |
 | The name is how people address sessions (Rjae pointed this session at `22-workflow-fixes` by name), it is the frame's `from-name`, and P11-5 already ruled that identification must not rest on it. | `.ignored/card-25/research/prior-decisions.md` |
 | It is capped at 64 code points (`protocol/limits.go:13`); this card's own session shows as `25-use-ai-to-keep-a-session-name-aligned-with-the-act[truncated]`. | `brigade sessions`, measured |
 | The documented write path (`hookSpecificOutput.sessionTitle`, SessionStart and UserPromptSubmit) has "the same effect as /rename": it would overwrite the operator's handle, and is ignored on clear and compact. | Claude Code hooks page (copy: `research/hooks-doc-verify.md:1191, :1380`) |

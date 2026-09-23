@@ -56,6 +56,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/registry"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/transcript"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -762,8 +763,9 @@ type identity struct {
 	nonInteractive bool
 }
 
-// identity resolves the display name (registry → session_title →
-// basename(cwd)), the activity (registry status → idle), the harness
+// identity resolves the display name (registry.ResolveName over the
+// registry entry, the transcript's custom title, session_title and
+// basename(cwd); harnessName when none survives), the activity (registry status → idle), the harness
 // version (registry version → unknown) and the entrypoint (environment →
 // registry; `kind` is ignored).
 func (r *run) identity(f facts, in input) identity {
@@ -780,16 +782,29 @@ func (r *run) identity(f facts, in input) identity {
 		id.entrypoint = entry.Entrypoint
 	}
 	id.nonInteractive = id.entrypoint == entrypointSDK
-	for _, candidate := range []string{entry.Name, in.SessionTitle, cwdName(in.Cwd)} {
-		if name := registeredName(candidate); name != "" {
-			id.name = name
-			break
-		}
-	}
+	id.name, _ = registry.ResolveName(registeredName, entry, r.customTitle(in), in.SessionTitle, cwdName(in.Cwd))
 	if id.name == "" {
 		id.name = harnessName
 	}
 	return id
+}
+
+// customTitle reads the transcript's latest custom-title, the VS Code
+// extension's rename, so a resume or /compact registers it rather than the
+// derived registry name the watcher would replace up to a heartbeat later.
+// It is one full scan of the file (about 15 ms for 13 MB, measured
+// 2026-09-23); a fresh session has no transcript yet, and a missing or
+// unreadable one yields "" (debug only, never the path).
+func (r *run) customTitle(in input) string {
+	p := transcriptPath(in)
+	if p == "" {
+		return ""
+	}
+	facts, err := transcript.NewReader(p).Refresh()
+	if err != nil && !errors.Is(err, transcript.ErrMissing) {
+		r.log.Debug("transcript title unavailable", log.Err(err))
+	}
+	return facts.CustomTitle
 }
 
 // cwdName is basename(cwd), or "" when cwd names no directory.

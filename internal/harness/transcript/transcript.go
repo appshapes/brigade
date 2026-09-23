@@ -1,12 +1,14 @@
 // Package transcript reads Claude Code's own session transcript — the
 // append-only NDJSON file whose path the hooks receive as `transcript_path`
-// — for the two facts `brigade sessions` shows beside a session's name and
-// activity: the model it runs and how much of its context window is in
-// use. It is read LOCALLY by the detached watcher (never by a hook, whose
-// budget is seconds; never by an adapter) and only the two derived facts
-// ever leave the machine, as the `model` and `context_used_tokens`
-// heartbeat members (4.4.4); the transcript's contents, its path and the
-// native session id stay where they are (T10, U-22).
+// — for three facts `brigade sessions` shows: the model the session runs,
+// how much of its context window is in use, and the title the user gave
+// the conversation. It is read LOCALLY: by the detached watcher before
+// each heartbeat, and once by the SessionStart hook for the title alone (a
+// full scan, about 15 ms for 13 MB); never by an adapter. Only the derived
+// facts ever leave the machine, as the `model` and `context_used_tokens`
+// heartbeat members and, through registry.ResolveName, `session_name`
+// (4.4.4); the transcript's contents, its path and the native session id
+// stay where they are (T10, U-22).
 //
 // The shape is Claude Code's to change (measured on 2.1.267): records of
 // type `attachment` with attachment.type "model" carry the FULL model id
@@ -14,7 +16,10 @@
 // start and on every /model switch; records of type `assistant` carry the
 // BARE id in message.model ("claude-opus-5") and the response's usage in
 // message.usage — input_tokens, cache_creation_input_tokens and
-// cache_read_input_tokens, whose sum is the context occupancy. Every
+// cache_read_input_tokens, whose sum is the context occupancy; records of
+// type `custom-title` carry the user's title for the conversation in
+// customTitle, written by the VS Code extension's rename and by /rename,
+// and repeated on later turns and resumes. Every
 // record has isSidechain; a sidechain (a subagent's turn) says nothing
 // about this session's context, and neither does the `<synthetic>`
 // assistant record Claude Code writes for a turn the API refused (its
@@ -67,6 +72,7 @@ const readBufferBytes = 64 << 10
 const (
 	typeAttachment  = "attachment"
 	typeAssistant   = "assistant"
+	typeCustomTitle = "custom-title"
 	attachmentModel = "model"
 	// syntheticModel is the message.model Claude Code writes on an
 	// assistant record the API never answered — a 529, a usage limit, "not
@@ -97,7 +103,7 @@ var (
 	ErrUnreadable = errors.New("transcript cannot be read")
 )
 
-// Facts are the two facts the transcript yields.
+// Facts are the facts the transcript yields.
 type Facts struct {
 	// Model is the model identity as Claude Code wrote it — the full id
 	// from the latest model attachment ("claude-opus-5[1m]") unless an
@@ -115,6 +121,13 @@ type Facts struct {
 	ContextUsedTokens int
 	// HasContext reports whether any usage was seen.
 	HasContext bool
+	// CustomTitle is the customTitle of the latest custom-title record,
+	// "" when none was seen. The latest record wins even when its value
+	// is empty: an empty title means the conversation has none (owner
+	// ruling, 2026-09-23). ai-title records (Claude Code's own summary of
+	// the first prompt) and agent-name records are not read. It is RAW,
+	// user-chosen text: the caller sanitises (protocol.SanitizeName).
+	CustomTitle string
 }
 
 // A record is the minimal shape the reader decodes from one line: every
@@ -124,6 +137,7 @@ type Facts struct {
 type record struct {
 	Type        string `json:"type"`
 	IsSidechain bool   `json:"isSidechain"`
+	CustomTitle string `json:"customTitle"`
 	Message     *struct {
 		Model string `json:"model"`
 		Usage *struct {
@@ -161,6 +175,8 @@ type Reader struct {
 	// The context facts: the latest usage sum and whether one was seen.
 	tokens     int
 	hasContext bool
+	// customTitle is the latest custom-title record's value.
+	customTitle string
 }
 
 // NewReader returns a reader positioned at the start of path. Nothing is
@@ -279,7 +295,8 @@ func (r *Reader) consume(br *bufio.Reader) error {
 
 // apply folds one complete line into the facts. A line that is not JSON
 // of the expected shape is skipped; a sidechain record and a synthetic
-// assistant record are ignored; a
+// assistant record are ignored; a custom-title record replaces the title,
+// empty or not; a
 // model attachment resets the "assistant after attachment" flag; an
 // assistant record naming a model sets it, and one carrying a usage
 // whose three counts are non-negative replaces the context sum (a
@@ -297,6 +314,8 @@ func (r *Reader) apply(line []byte) {
 		return
 	}
 	switch rec.Type {
+	case typeCustomTitle:
+		r.customTitle = rec.CustomTitle
 	case typeAttachment:
 		if rec.Attachment != nil && rec.Attachment.Type == attachmentModel && rec.Attachment.Identity.ModelID != "" {
 			r.attModel = rec.Attachment.Identity.ModelID
@@ -334,7 +353,7 @@ func addSaturating(a, b int) int {
 // (a switch the attachment missed); else the attachment's full id, "[1m]"
 // suffix and all.
 func (r *Reader) facts() Facts {
-	f := Facts{ContextUsedTokens: r.tokens, HasContext: r.hasContext}
+	f := Facts{ContextUsedTokens: r.tokens, HasContext: r.hasContext, CustomTitle: r.customTitle}
 	switch {
 	case r.attModel == "":
 		f.Model = r.asstModel

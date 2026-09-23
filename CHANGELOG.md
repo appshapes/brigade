@@ -8,6 +8,15 @@ and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protoco
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
+### Fixed
+
+- **A session renamed in the VS Code extension shows its new name.** The extension's rename writes the title
+  only into the conversation's transcript and leaves Claude Code's own name at the derived `<folder>-<hex>`, so
+  `brigade sessions` kept showing the derived name, and a new suffix after every resume or window reload. The
+  NAME is now: a name set with `/rename` or `--name`, then the transcript's latest title, then the derived name,
+  then the session title and the folder name as before. A title reaches the roster at the next heartbeat and
+  survives a resume and a reload; `/clear` starts a conversation with no title, so the name falls back to the
+  derived one.
 
 ## [0.11.0] — 2026-09-23
 ### Added
