@@ -50,6 +50,12 @@ type ResumeRef struct {
 // already carries — so a roster can show which teammates are behind a
 // release. Harness-reported, unverified, optional and nullable, like
 // Model; an adapter without the capability accepts and ignores it.
+//
+// SyncPeer is the opaque `<adapter>:<descriptor>` this session's
+// folder-sync adapter publishes (capability session.sync_peer, C-47; for
+// Syncthing, its device id) so a teammate's adapter can introduce it
+// (plan folder-sync.md 2). Harness-reported, unverified, optional and
+// nullable like BrigadeVersion; every consumer sanitises it before use.
 type SessionRegistration struct {
 	Harness            string     `json:"harness"`
 	HarnessVersion     string     `json:"harness_version"`
@@ -63,6 +69,7 @@ type SessionRegistration struct {
 	Model              *string    `json:"model,omitzero"`
 	ContextUsedTokens  *int       `json:"context_used_tokens,omitzero"`
 	BrigadeVersion     *string    `json:"brigade_version,omitzero"`
+	SyncPeer           *string    `json:"sync_peer,omitzero"`
 	Resume             *ResumeRef `json:"resume,omitzero"`
 }
 
@@ -117,6 +124,11 @@ func (r *SessionRegistration) Validate() error {
 			return err
 		}
 	}
+	if r.SyncPeer != nil {
+		if err := optionalText("sync_peer", *r.SyncPeer, MaxSyncPeerChars); err != nil {
+			return err
+		}
+	}
 	if r.Resume != nil {
 		if err := requireString("resume.session_id", r.Resume.SessionID); err != nil {
 			return err
@@ -150,6 +162,7 @@ type SessionRecord struct {
 	Model              *string   `json:"model,omitzero"`
 	ContextUsedTokens  *int      `json:"context_used_tokens,omitzero"`
 	BrigadeVersion     *string   `json:"brigade_version,omitzero"`
+	SyncPeer           *string   `json:"sync_peer,omitzero"`
 	CreatedAt          time.Time `json:"created_at"`
 	IsSelf             bool      `json:"is_self"`
 }
@@ -209,6 +222,11 @@ func (s *SessionRecord) Validate() error {
 			return err
 		}
 	}
+	if s.SyncPeer != nil {
+		if err := optionalText("sync_peer", *s.SyncPeer, MaxSyncPeerChars); err != nil {
+			return err
+		}
+	}
 	return requireTime("created_at", s.CreatedAt)
 }
 
@@ -228,6 +246,7 @@ type HeartbeatRequest struct {
 	Model              *string `json:"model,omitzero"`
 	ContextUsedTokens  *int    `json:"context_used_tokens,omitzero"`
 	BrigadeVersion     *string `json:"brigade_version,omitzero"`
+	SyncPeer           *string `json:"sync_peer,omitzero"`
 }
 
 // Validate implements Validator.
@@ -265,6 +284,11 @@ func (h *HeartbeatRequest) Validate() error {
 	}
 	if h.BrigadeVersion != nil {
 		if err := optionalText("brigade_version", *h.BrigadeVersion, MaxBrigadeVersionChars); err != nil {
+			return err
+		}
+	}
+	if h.SyncPeer != nil {
+		if err := optionalText("sync_peer", *h.SyncPeer, MaxSyncPeerChars); err != nil {
 			return err
 		}
 	}

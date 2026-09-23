@@ -307,6 +307,19 @@ func sanitizeRecord(r *protocol.SessionRecord) {
 			r.BrigadeVersion = &v
 		}
 	}
+	// sync_peer is harness-reported too (C-47), but an opaque identifier
+	// rather than a display value: the identifier rules, as session_id's,
+	// with the wire's own cap instead of the attribute cap, so a whole
+	// descriptor survives. One that sanitises to nothing is dropped, as
+	// brigade_version is. The table never shows it (plan folder-sync.md 4.2).
+	if r.SyncPeer != nil {
+		p := protocol.TruncateRunes(sanitizeID(*r.SyncPeer), protocol.MaxSyncPeerChars)
+		if oneLine(p) == "" {
+			r.SyncPeer = nil
+		} else {
+			r.SyncPeer = &p
+		}
+	}
 }
 
 // itoa is strconv.Itoa under a shorter name for the message builders.

@@ -12,7 +12,7 @@ is a new major version, not an edit to this one.
 
 - **Normative words.** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as RFC 2119 defines them. Everything else
   is description.
-- **Every MUST cites a conformance case.** The suite (plan section 9.2) has 47 cases: `C-01`..`C-45` plus `C-03b`,
+- **Every MUST cites a conformance case.** The suite (plan section 9.2) has 49 cases: `C-01`..`C-47` plus `C-03b`,
   `C-19b` and `C-29b` (the numbering skips 09). A MUST that no case checks yet is marked `[no case: B-n]` and listed in
   Appendix B, which is an input to the suite's implementation (P1-6). No citation here names a case that does not
   exist; Appendix A is the index.
@@ -46,9 +46,9 @@ object, every NDJSON event and command.
 4. **Optional members, null and absence.** An OPTIONAL member is omitted when it has no value. Where a document needs
    to distinguish "no value" from "unchanged" (the members of `HeartbeatRequest` and of the watch `heartbeat`
    command), absence means unchanged. The members that may carry an explicit JSON `null` are the nullable ones in the
-   schema: `session_description`, `workspace_label`, `model`, `context_used_tokens`, `brigade_version`, `lease_seconds`, `resume`,
-   `reply_to` in a `MessageEnvelope` (not in a `SendRequest`), and the optional members of `HeartbeatRequest` and
-   `WatchCommand`. `retryable` is never `null` (4.3).
+   schema: `session_description`, `workspace_label`, `model`, `context_used_tokens`, `brigade_version`, `sync_peer`,
+   `lease_seconds`, `resume`, `reply_to` in a `MessageEnvelope` (not in a `SendRequest`), and the optional members of
+   `HeartbeatRequest` and `WatchCommand`. `retryable` is never `null` (4.3).
 5. **Two kinds of cap.** A cap named `*_bytes` is measured in bytes of UTF-8 (`len`); a cap named `*_chars` or
    `*_codepoints` is measured in Unicode code points (`utf8.RuneCountInString`). A 16 KiB body is not 16,384
    characters. A validation failure names the unit in `details.unit` (4.3.1).
@@ -70,6 +70,7 @@ object, every NDJSON event and command.
 8. **Identifiers are opaque.** `principal_ref`, `session_id`, `team_ref` and `message_id` are non-empty strings with no
    structure a consumer may rely on (4.8). `session_name`, `session_description`, `human_label`, `team_name`,
    `model` and `brigade_version` are unverified display strings and are untrusted input at every layer (4.5.11).
+   `sync_peer` is unverified too, and opaque to every consumer but the sync adapter its prefix names (4.4.2).
 
 ## 4.1 Invocation model
 
@@ -234,7 +235,8 @@ Answered from local state only.
   "delivery": {"guarantee": "at_least_once", "ordering": "none", "ack_state": "injected"},
   "capabilities": ["team.create", "team.join", "team.roster", "message.receive", "message.watch.push", "message.watch.stdin_commands",
                    "session.description", "session.resume", "session.workspace_label", "session.inbound",
-                   "session.model", "session.context_used_tokens", "session.human_label", "session.brigade_version"],
+                   "session.model", "session.context_used_tokens", "session.human_label", "session.brigade_version",
+                   "session.sync_peer"],
   "limits": {"max_body_bytes": 16384, "max_summary_chars": 200, "max_session_name_codepoints": 64,
              "max_team_name_codepoints": 64, "max_description_chars": 256, "max_human_label_chars": 128,
              "max_workspace_label_chars": 128, "max_model_chars": 128, "max_idempotency_key_chars": 128,
@@ -303,7 +305,7 @@ a cap an adapter chooses (4.4.2).
   "session_name": "payments-api", "session_description": null,
   "activity": "busy", "inbound": "accept", "lease_seconds": 90, "workspace_label": null,
   "human_label": "alice@example.com",
-  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0",
+  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0", "sync_peer": "syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD",
   "resume": {"session_id": "a Brigade session_id previously returned to this principal"}
 }
 ```
@@ -321,6 +323,7 @@ a cap an adapter chooses (4.4.2).
 | `model` | optional, nullable | ≤ `max_model_chars`, else `invalid_input` naming `model` (C-44); the harness-reported model identity, **unverified** text (4.5.11); capability `session.model` — an adapter without it accepts the member and ignores it |
 | `context_used_tokens` | optional, nullable | an integer in `0..2^53 − 1` (the range JSON carries exactly), else `invalid_input` naming `context_used_tokens` (C-44); the harness's own count of the tokens its context holds; capability `session.context_used_tokens` — an adapter without it accepts the member and ignores it |
 | `brigade_version` | optional, nullable | ≤ 64 code points, else `invalid_input` naming `brigade_version` (C-46); the version of the registering Brigade harness itself — not its host's, which is `harness_version` — as that harness reports it, **unverified** text (4.5.11); capability `session.brigade_version` — an adapter without it accepts the member and ignores it. The bound is a wire-format one like `context_used_tokens`'s and has no `limits` member: `limits` members are required, so a new one would fail `describe` for every adapter written before it |
+| `sync_peer` | optional, nullable | ≤ 256 code points, else `invalid_input` naming `sync_peer` (C-47); the opaque `<adapter>:<descriptor>` the session's folder-sync adapter publishes so a teammate's adapter can introduce it (for Syncthing, `syncthing:` and the device id), as the harness reports it, **unverified** text (4.5.11) that no consumer but the sync adapter its prefix names interprets; capability `session.sync_peer` — an adapter without it accepts the member and ignores it. Like `brigade_version`'s, the bound is a wire-format one with no `limits` member |
 | `resume.session_id` | optional | capability `session.resume`; see below |
 
 The registration has no member for a native session id, a working directory, a hostname, a username or a transcript
@@ -346,7 +349,7 @@ when `resume.session_id` was honoured, C-10, C-19), `lease_seconds` (integer, th
   "state": "active", "activity": "busy", "inbound": "accept",
   "last_seen_at": "2026-08-30T12:00:00Z", "lease_until": "2026-08-30T12:01:30Z",
   "harness": "claude-code", "harness_version": "2.1.251", "workspace_label": null,
-  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0",
+  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0", "sync_peer": "syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD",
   "created_at": "2026-08-30T11:55:00Z", "is_self": false,
   "resumed": false, "lease_seconds": 90, "server_time": "2026-08-30T12:00:00Z"
 }
@@ -361,7 +364,7 @@ when `resume.session_id` was honoured, C-10, C-19), `lease_seconds` (integer, th
   "state": "active", "activity": "busy", "inbound": "accept",
   "last_seen_at": "2026-08-30T12:00:00Z", "lease_until": "2026-08-30T12:01:30Z",
   "harness": "claude-code", "harness_version": "2.1.251", "workspace_label": null,
-  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0",
+  "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0", "sync_peer": "syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD",
   "created_at": "2026-08-30T11:55:00Z", "is_self": false
 }
 ```
@@ -382,6 +385,7 @@ when `resume.session_id` was honoured, C-10, C-19), `lease_seconds` (integer, th
 | `model` | optional, nullable | ≤ `max_model_chars`; the model identity as the owning harness last reported it (4.4.2, 4.4.4); **unverified** text, untrusted at every layer (4.5.11); absent when the harness never reported one or the adapter lacks `session.model` (C-44) |
 | `context_used_tokens` | optional, nullable | `0..2^53 − 1`, as the owning harness last reported it; absent when the harness never reported one or the adapter lacks `session.context_used_tokens` (C-44) |
 | `brigade_version` | optional, nullable | ≤ 64 code points; the Brigade version as the owning harness last reported it (4.4.2, 4.4.4); **unverified** text, untrusted at every layer (4.5.11); absent when the harness never reported one — a harness older than the member — or the adapter lacks `session.brigade_version` (C-46) |
+| `sync_peer` | optional, nullable | ≤ 256 code points; the sync-peer descriptor as the owning harness last reported it (4.4.2, 4.4.4); **unverified** text, untrusted at every layer (4.5.11); absent when the harness never reported one — no sync adapter attached, or a harness older than the member — or the adapter lacks `session.sync_peer` (C-47) |
 | `is_self` | yes | `true` only in a `session list --session <id>` result for the named session (C-12); `false` elsewhere |
 
 **Result** of `session list`: `{"team_ref", "team_name", "server_time", "sessions": SessionRecord[], "truncated"}`.
@@ -399,7 +403,7 @@ cut the list short.
       "state": "active", "activity": "busy", "inbound": "accept",
       "last_seen_at": "2026-08-30T12:00:00Z", "lease_until": "2026-08-30T12:01:30Z",
       "harness": "claude-code", "harness_version": "2.1.251", "workspace_label": null,
-      "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0",
+      "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0", "sync_peer": "syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD",
       "created_at": "2026-08-30T11:55:00Z", "is_self": true
     }
   ],
@@ -413,21 +417,22 @@ C-15).
 ### 4.4.4 `HeartbeatRequest` and `HeartbeatResult`
 
 ```json
-{"activity": "idle", "session_name": "payments-api", "session_description": "tenant_id migration runner", "inbound": "hold", "lease_seconds": 120, "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0"}
+{"activity": "idle", "session_name": "payments-api", "session_description": "tenant_id migration runner", "inbound": "hold", "lease_seconds": 120, "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0", "sync_peer": "syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD"}
 ```
 
 Every member is optional and absent means unchanged (JSON convention 4); the session comes from `--session`. When
 present: `activity` is `busy` or `idle`; `session_name` is non-empty and ≤ `max_session_name_codepoints`;
 `session_description` ≤ `max_description_chars`; `inbound` is `accept`, `hold` or `refuse`; `lease_seconds` within
 `lease.min_seconds..lease.max_seconds`; `model` ≤ `max_model_chars`; `context_used_tokens` within `0..2^53 − 1`;
-`brigade_version` ≤ 64 code points. A
+`brigade_version` ≤ 64 code points; `sync_peer` ≤ 256 code points. A
 heartbeat renews `lease_until` and applies the new values (C-13, C-42, C-44). An empty `session_description` is a
 value like any other: it replaces the stored one, and a consumer presents an empty description as none (C-13).
-`model`, `context_used_tokens` and `brigade_version` are never cleared by a heartbeat: the harness omits them and
-the stored values stand (C-44, C-46) — `brigade_version` rides the heartbeat because a harness can be replaced by a
-newer one while its session lives, and the roster should name the one that is running; an adapter without
-`session.model`, `session.context_used_tokens` or `session.brigade_version` accepts the member and ignores it
-(4.7).
+`model`, `context_used_tokens`, `brigade_version` and `sync_peer` are never cleared by a heartbeat: the harness
+omits them and the stored values stand (C-44, C-46, C-47) — `brigade_version` rides the heartbeat because a harness
+can be replaced by a newer one while its session lives, and the roster should name the one that is running;
+`sync_peer` rides it because a session's sync adapter usually attaches after registration, so the first heartbeat
+after that is the first to know it; an adapter without `session.model`, `session.context_used_tokens`,
+`session.brigade_version` or `session.sync_peer` accepts the member and ignores it (4.7).
 
 ```json
 {"session_id": "…", "state": "idle", "lease_until": "2026-08-30T12:03:00Z", "server_time": "2026-08-30T12:01:00Z"}
@@ -581,7 +586,7 @@ discriminator):
 ```
 
 ```json
-{"type": "heartbeat", "activity": "busy", "session_name": "payments-api", "inbound": "accept", "lease_seconds": 90, "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0"}
+{"type": "heartbeat", "activity": "busy", "session_name": "payments-api", "inbound": "accept", "lease_seconds": 90, "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0", "sync_peer": "syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD"}
 ```
 
 ```json
@@ -589,7 +594,8 @@ discriminator):
 ```
 
 `ack` (`message_ids` required, non-empty) → an `acked` event; `heartbeat` (`activity`, `session_name`, `inbound`,
-`lease_seconds`, `model`, `context_used_tokens`, `brigade_version`, each optional with the 4.4.4 rules — absent means unchanged; there is
+`lease_seconds`, `model`, `context_used_tokens`, `brigade_version`, `sync_peer`, each optional with the 4.4.4 rules —
+absent means unchanged; there is
 no `session_description` on this command) → a `heartbeat_ok` event (C-41, C-44); `close` → the session is closed as
 by `session close`, then the process exits 0 (C-41).
 
@@ -743,8 +749,8 @@ registered a session) and `session_count`.
 11. **Content.** `kind` is `text` only; `body` is non-empty UTF-8 of at most `max_body_bytes` bytes; `summary` at most
     `max_summary_chars`; names, labels, descriptions and the model identity are capped by the `limits` member that
     governs each of them (the table in 4.4.1). All text is untrusted input at every layer, including the strings
-    returned by `session list` and `team members` and a session's `model` and `brigade_version`, which are
-    whatever its harness said.
+    returned by `session list` and `team members` and a session's `model`, `brigade_version` and `sync_peer`,
+    which are whatever its harness said.
     Adapters MUST reject oversize input with `invalid_input` before persisting (C-16, C-27, C-44).
 12. **Rate limits and loops.** Adapters MUST enforce a per-sender-session limit no looser than `limits.send_rate` and a
     per-principal limit, summed over every session of the principal, no looser than `limits.principal_send_rate`
@@ -840,6 +846,7 @@ failure → 9; GoTrue `refresh_token_already_used` (after one re-read-and-retry)
 | `session.model` | `model` is stored and reported (4.4.2, 4.4.3, 4.4.4, the watch `heartbeat` command of 4.4.9; C-44) | an adapter without it accepts the member and ignores it; the value is harness-reported and unverified (4.5.11) |
 | `session.context_used_tokens` | `context_used_tokens` is stored and reported (4.4.2, 4.4.3, 4.4.4, the watch `heartbeat` command of 4.4.9; C-44) | an adapter without it accepts the member and ignores it |
 | `session.brigade_version` | `brigade_version` is stored and reported (4.4.2, 4.4.3, 4.4.4, the watch `heartbeat` command of 4.4.9; C-46) | an adapter without it accepts the member and ignores it; the value is harness-reported and unverified (4.5.11) |
+| `session.sync_peer` | `sync_peer` is stored and reported (4.4.2, 4.4.3, 4.4.4, the watch `heartbeat` command of 4.4.9; C-47) | an adapter without it accepts the member and ignores it; the value is harness-reported and unverified (4.5.11) |
 | `session.human_label` | the registration's `human_label` (4.4.2) is adopted as the membership's `human_label` when the membership has none (C-45) | an existing label is never overwritten; an adapter without it accepts the member and ignores it; the value is harness-reported and unverified (4.5.11) |
 | `delivery.processed` | — | reserved; `delivery.ack_state = "processed"` is not implemented by any v1 consumer |
 
@@ -942,6 +949,7 @@ once.
 | C-44 | 4.4.2 model and context_used_tokens (caps `session.model`, `session.context_used_tokens`) | 4.4.2 `model`, `context_used_tokens`, registration paragraph; 4.4.3 `model`, `context_used_tokens`; 4.4.4; 4.4.9 commands; 4.5.11; 4.7 |
 | C-45 | 4.4.2 human_label (cap `session.human_label`) | 4.4.2 `human_label`, registration paragraph; 4.5.11; 4.7 |
 | C-46 | 4.4.2 brigade_version (cap `session.brigade_version`) | 4.4.2 `brigade_version`; 4.4.3 `brigade_version`; 4.4.4; 4.4.9 commands; 4.5.11; 4.7 |
+| C-47 | 4.4.2 sync_peer (cap `session.sync_peer`) | 4.4.2 `sync_peer`; 4.4.3 `sync_peer`; 4.4.4; 4.4.9 commands; 4.5.11; 4.7 |
 
 ## Appendix B. Normative statements without a conformance case when the suite was specified (input to P1-6)
 

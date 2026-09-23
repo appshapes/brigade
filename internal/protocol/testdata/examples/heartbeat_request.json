@@ -1,1 +1,1 @@
-{"activity": "idle", "session_name": "payments-api", "session_description": "tenant_id migration runner", "inbound": "hold", "lease_seconds": 120, "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0"}
+{"activity": "idle", "session_name": "payments-api", "session_description": "tenant_id migration runner", "inbound": "hold", "lease_seconds": 120, "model": "claude-opus-5[1m]", "context_used_tokens": 189681, "brigade_version": "0.10.0", "sync_peer": "syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD"}

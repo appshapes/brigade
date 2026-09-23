@@ -9,6 +9,28 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **Protocol: the optional member `sync_peer` and the capability `session.sync_peer`** (conformance case C-47),
+  on `SessionRegistration`, `SessionRecord`, `HeartbeatRequest` and the watch `heartbeat` command, with
+  `brigade_version`'s rules: nullable, absent means unchanged on a heartbeat, never cleared by one, and an adapter
+  without the capability accepts the member and ignores it. The value is an opaque `<adapter>:<descriptor>` — for
+  Syncthing, its device id — that a session's folder-sync adapter publishes so a teammate's adapter can introduce
+  it; it is the first piece of folder sync, and nothing sends one yet, so this release changes no session's
+  behaviour. It is an **addition** — an existing conforming adapter passes unchanged — and its 256-code-point bound
+  is a wire-format one with **no `limits` member**, for `brigade_version`'s reason. It is harness-reported,
+  unverified text: `brigade sessions --json` carries it sanitised under `sync_peer`, and the table has no column
+  for it. Both bundled adapters implement it. The suite is 49 cases.
+
+- **Backend migration `20260923022323_session_sync_peer.sql`** — append-only, like the three before it: a
+  nullable column on `brigade.sessions` (checked at 256 characters), the member on `session_record`, and one
+  defaulted parameter appended to `register_session` and `session_heartbeat`. **Administrators: apply it with
+  `make backend-install project=<ref>`** ([`docs/setup.md`](docs/setup.md)). Both directions of schema
+  compatibility hold, as they did for `20260920180000`: an older adapter never names the parameter, and a newer one
+  on a backend without the migration is refused once (`PGRST202`), sends the call again without the peer —
+  dropping that value and **only** that value — says so once on stderr, and drops it without a probe for ten
+  minutes at a time.
+
 ## [0.10.0] — 2026-09-20
 
 ### Added

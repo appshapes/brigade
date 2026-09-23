@@ -7,12 +7,13 @@
 -- register_session and list_sessions, updated and kept by session_heartbeat, cleared by a resume that omits them,
 -- capped at 128 code points and at zero), the registration's human_label adoption (C-45;
 -- 20260917170000_session_human_label.sql: adopted into an EMPTY membership label, never over one already set,
--- nothing written when the parameter is absent, capped at 128), the registration rate limit, input caps, and byte-identical
--- brigade:unauthorized for register_session, list_sessions and list_members against another team's id and a
--- random uuid (timing recorded).
+-- nothing written when the parameter is absent, capped at 128), brigade_version (C-46) and sync_peer (C-47;
+-- 20260923022323_session_sync_peer.sql: returned, stored, updated and kept by a heartbeat, capped in code points),
+-- the registration rate limit, input caps, and byte-identical brigade:unauthorized for register_session,
+-- list_sessions and list_members against another team's id and a random uuid (timing recorded).
 begin;
 \ir helpers/auth.sql
-select plan(158);
+select plan(171);
 
 create function pg_temp.err(q text) returns text language plpgsql as $$
 begin
@@ -348,6 +349,32 @@ select throws_ok($$select brigade.session_heartbeat(p_session_id => '$$ || :'s_v
 select brigade.list_sessions(:'team_a'::uuid, true) as ls_v \gset
 select is((select s->>'brigade_version' from jsonb_array_elements((:'ls_v'::jsonb)->'sessions') s where s->>'session_id' = :'s_v'), '0.10.1', 'list_sessions: the record carries brigade_version as last reported (C-46)');
 select is((select count(*) from jsonb_array_elements((:'ls_v'::jsonb)->'sessions') s where not (s ? 'brigade_version')), 0::bigint, 'list_sessions: every record carries the brigade_version member (null when never reported)');
+select pg_temp.logout();
+
+-- sync_peer (C-47; 20260923022323_session_sync_peer.sql): the opaque `<adapter>:<descriptor>` a session's folder-sync
+-- adapter publishes, appended to both RPCs and to the record. Named arguments throughout, as for brigade_version. P
+-- joins team A and registers; the value comes back on the record, is stored, rides a heartbeat (the sync adapter
+-- usually attaches after the registration), is never cleared by a bare one (4.4.4), is on every listed record, and is
+-- capped at 256 CODE POINTS (char_length), not bytes.
+select pg_temp.new_user() as pp \gset
+select pg_temp.login(:'pp', true, 'Pia');
+select is((brigade.join_team(:'secret_a', null))->>'status', 'joined', 'fixture: P joins team A');
+select brigade.register_session(p_team_id => :'team_a'::uuid, p_name => 'p-plain') as reg_p0 \gset
+select ok((:'reg_p0'::jsonb) ? 'sync_peer' and (:'reg_p0'::jsonb)->'sync_peer' = 'null'::jsonb, 'register (defaults): sync_peer is present and null when not given (C-47)');
+select brigade.register_session(p_team_id => :'team_a'::uuid, p_name => 'p-peered', p_sync_peer => 'syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD') as reg_p \gset
+select (:'reg_p'::jsonb)->>'session_id' as s_p \gset
+select is((:'reg_p'::jsonb)->>'sync_peer', 'syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD', 'register: sync_peer returned exactly as given (C-47)');
+select is((select sync_peer from brigade.sessions where id = :'s_p'::uuid), 'syncthing:MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD', 'register: sync_peer stored as given');
+select lives_ok($$select brigade.session_heartbeat(p_session_id => '$$ || :'s_p' || $$', p_sync_peer => 'syncthing:P56IOI7-MZJNU2Y-IQGDREY-DM2MGTI-MGL3BXN-PQ6W5BM-TBBZ4TJ-XZWICQ2')$$, 'heartbeat: sync_peer accepted (C-47)');
+select is((select sync_peer from brigade.sessions where id = :'s_p'::uuid), 'syncthing:P56IOI7-MZJNU2Y-IQGDREY-DM2MGTI-MGL3BXN-PQ6W5BM-TBBZ4TJ-XZWICQ2', 'heartbeat: sync_peer applied — the sync adapter attached after the registration');
+select lives_ok($$select brigade.session_heartbeat(p_session_id => '$$ || :'s_p' || $$')$$, 'heartbeat: a bare renewal is accepted');
+select is((select sync_peer from brigade.sessions where id = :'s_p'::uuid), 'syncthing:P56IOI7-MZJNU2Y-IQGDREY-DM2MGTI-MGL3BXN-PQ6W5BM-TBBZ4TJ-XZWICQ2', 'heartbeat: a bare renewal keeps sync_peer (a heartbeat never clears it, 4.4.4)');
+select throws_ok($$select brigade.register_session(p_team_id => '$$ || :'team_a' || $$', p_name => 'p-over', p_sync_peer => '$$ || repeat('p', 257) || $$')$$, '22023', 'brigade:invalid_input:sync_peer', 'register: a 257-code-point sync_peer is invalid_input:sync_peer (C-47)');
+select lives_ok($$select brigade.register_session(p_team_id => '$$ || :'team_a' || $$', p_name => 'p-cap', p_sync_peer => '$$ || repeat('é', 256) || $$')$$, 'register: a 256-code-point sync_peer of 512 bytes is accepted (char_length)');
+select throws_ok($$select brigade.session_heartbeat(p_session_id => '$$ || :'s_p' || $$', p_sync_peer => '$$ || repeat('p', 257) || $$')$$, '22023', 'brigade:invalid_input:sync_peer', 'heartbeat: a 257-code-point sync_peer is invalid_input:sync_peer (C-47)');
+select brigade.list_sessions(:'team_a'::uuid, true) as ls_p \gset
+select is((select s->>'sync_peer' from jsonb_array_elements((:'ls_p'::jsonb)->'sessions') s where s->>'session_id' = :'s_p'), 'syncthing:P56IOI7-MZJNU2Y-IQGDREY-DM2MGTI-MGL3BXN-PQ6W5BM-TBBZ4TJ-XZWICQ2', 'list_sessions: the record carries sync_peer as last reported (C-47)');
+select is((select count(*) from jsonb_array_elements((:'ls_p'::jsonb)->'sessions') s where not (s ? 'sync_peer')), 0::bigint, 'list_sessions: every record carries the sync_peer member (null when never reported)');
 select pg_temp.logout();
 
 select * from finish();

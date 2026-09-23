@@ -78,6 +78,18 @@ const MaxContextUsedTokens = 1<<53 - 1
 // a fraction of it.
 const MaxBrigadeVersionChars = 64
 
+// MaxSyncPeerChars bounds `sync_peer` (4.4.2, 4.4.3, 4.4.4 and the watch
+// heartbeat command of 4.4.9; capability session.sync_peer, C-47), in code
+// points: the opaque `<adapter>:<descriptor>` a session's folder-sync
+// adapter publishes so its teammates' adapters can introduce it (plan
+// folder-sync.md 2). It is a wire-format bound and NOT a member of
+// `limits` (4.4.1) for the reason MaxBrigadeVersionChars gives: every
+// `limits` member is required, so a new one would fail `describe` for
+// every adapter written before it. 256 leaves room for any adapter's
+// descriptor — a Syncthing device id is 63 characters — without letting a
+// session publish an essay; the Supabase column carries the same check.
+const MaxSyncPeerChars = 256
+
 // The protocol v1 lease bounds of plan 4.4.1, in seconds.
 const (
 	// LeaseDefaultSeconds is the lease granted when the caller names none.

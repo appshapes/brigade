@@ -230,7 +230,7 @@ func (c *command) handleCommand(
 			Activity: cmd.Activity, SessionName: cmd.SessionName,
 			Inbound: cmd.Inbound, LeaseSeconds: cmd.LeaseSeconds,
 			Model: cmd.Model, ContextUsedTokens: cmd.ContextUsedTokens,
-			BrigadeVersion: cmd.BrigadeVersion,
+			BrigadeVersion: cmd.BrigadeVersion, SyncPeer: cmd.SyncPeer,
 		}
 		if verr := req.Validate(); verr != nil {
 			return c.watchRetryable(events, verr), false

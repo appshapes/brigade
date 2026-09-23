@@ -384,9 +384,9 @@ func TestBackendBehindOnlyTheVersionMigrationKeepsEverythingElse(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
-	behind := len(sessionAppendedMigrations) - 1 // every migration but the newest
+	behind := 2 // 20260910193200 and 20260917170000 applied, 20260920180000 (and so everything after it) not
 	if sessionAppendedMigrations[behind].File != "20260920180000_session_brigade_version.sql" {
-		t.Fatalf("the newest appended migration is %s; this test is about brigade_version's", sessionAppendedMigrations[behind].File)
+		t.Fatalf("appended migration %d is %s; this test is about brigade_version's", behind, sessionAppendedMigrations[behind].File)
 	}
 	seen := backendAt(r, &behind)
 	doc := `{"harness":"other","harness_version":"1","session_name":"main","activity":"busy","inbound":"accept",` +
@@ -428,5 +428,66 @@ func TestBackendBehindOnlyTheVersionMigrationKeepsEverythingElse(t *testing.T) {
 	}
 	if !namesParam((*seen)[2], "p_model") || !namesParam((*seen)[2], "p_context_used_tokens") {
 		t.Errorf("the heartbeat dropped the two facts on a backend that stores them: %v", (*seen)[2])
+	}
+}
+
+// TestBackendBehindOnlyTheSyncPeerMigrationKeepsEverythingElse is the
+// upgrade every deployed project makes when the release that adds
+// `sync_peer` lands (C-47, plan folder-sync.md 4.2): it has every appended
+// migration up to 20260920180000 and not 20260923022323. The peer rides
+// every heartbeat once a sync adapter has attached, so this is the path
+// every syncing session on such a backend takes: the peer is dropped, the
+// call is not, the version, the model, the context and the label are all
+// still stored, and the heartbeats after it drop the peer without a probe.
+func TestBackendBehindOnlyTheSyncPeerMigrationKeepsEverythingElse(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.joined()
+	behind := len(sessionAppendedMigrations) - 1 // every migration but the newest
+	if sessionAppendedMigrations[behind].File != "20260923022323_session_sync_peer.sql" {
+		t.Fatalf("the newest appended migration is %s; this test is about sync_peer's", sessionAppendedMigrations[behind].File)
+	}
+	seen := backendAt(r, &behind)
+	doc := `{"harness":"other","harness_version":"1","session_name":"main","activity":"busy","inbound":"accept",` +
+		`"model":"claude-opus-5[1m]","context_used_tokens":1,"human_label":"alice@example.com","brigade_version":"0.11.0",` +
+		`"sync_peer":"syncthing:AAAAAAA"}`
+	got := r.exec(doc, "session", "register")
+	if got.code != 0 {
+		t.Fatalf("exit %d: %s", got.code, got.stdout)
+	}
+	if len(*seen) != 2 {
+		t.Fatalf("calls = %v, want one probe then one without the peer", *seen)
+	}
+	if !namesParam((*seen)[0], "p_sync_peer") {
+		t.Errorf("the probe did not name p_sync_peer: %v", (*seen)[0])
+	}
+	retry := (*seen)[1]
+	if namesParam(retry, "p_sync_peer") {
+		t.Errorf("the retry still named p_sync_peer: %v", retry)
+	}
+	for _, kept := range []string{"p_model", "p_context_used_tokens", "p_human_label", "p_brigade_version"} {
+		if !namesParam(retry, kept) {
+			t.Errorf("the retry dropped %s, which this backend stores: %v", kept, retry)
+		}
+	}
+	if !strings.Contains(got.stderr, sessionAppendedMigrations[behind].File) {
+		t.Errorf("stderr does not name the missing migration:\n%s", got.stderr)
+	}
+
+	// The heartbeat that follows carries the peer too, as every one does
+	// once a sync adapter has attached. The marker is fresh, so it is
+	// dropped WITHOUT a probe.
+	hb := r.exec(`{"brigade_version":"0.11.0","sync_peer":"syncthing:AAAAAAA"}`, "session", "heartbeat", "--session", testSessionID)
+	if hb.code != 0 {
+		t.Fatalf("heartbeat: exit %d: %s", hb.code, hb.stdout)
+	}
+	if len(*seen) != 3 {
+		t.Fatalf("calls = %v, want exactly one heartbeat RPC (no probe while the marker is fresh)", *seen)
+	}
+	if namesParam((*seen)[2], "p_sync_peer") {
+		t.Errorf("the heartbeat named a parameter the marker says this backend lacks: %v", (*seen)[2])
+	}
+	if !namesParam((*seen)[2], "p_brigade_version") {
+		t.Errorf("the heartbeat dropped brigade_version on a backend that stores it: %v", (*seen)[2])
 	}
 }

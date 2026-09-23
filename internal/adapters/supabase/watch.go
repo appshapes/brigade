@@ -679,7 +679,7 @@ func (w *watcher) heartbeat(cmd *protocol.WatchCommand) (int, bool) {
 		Activity: cmd.Activity, SessionName: cmd.SessionName,
 		Inbound: cmd.Inbound, LeaseSeconds: cmd.LeaseSeconds,
 		Model: cmd.Model, ContextUsedTokens: cmd.ContextUsedTokens,
-		BrigadeVersion: cmd.BrigadeVersion,
+		BrigadeVersion: cmd.BrigadeVersion, SyncPeer: cmd.SyncPeer,
 	}
 	if err := req.Validate(); err != nil {
 		return w.c.watchRetryable(w.events, err), false
@@ -698,6 +698,7 @@ func (w *watcher) heartbeat(cmd *protocol.WatchCommand) (int, bool) {
 		"p_model":               req.Model,
 		"p_context_used_tokens": req.ContextUsedTokens,
 		"p_brigade_version":     req.BrigadeVersion,
+		"p_sync_peer":           req.SyncPeer,
 	}, sessionAppendedParams, out)
 	if err != nil {
 		return w.commandFailed(err)

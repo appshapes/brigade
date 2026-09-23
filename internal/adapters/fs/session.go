@@ -110,7 +110,7 @@ func (c *command) sessionRegister() (any, error) {
 	f.SessionName, f.Activity, f.Inbound = req.SessionName, req.Activity, req.Inbound
 	f.SessionDescription, f.WorkspaceLabel = req.SessionDescription, req.WorkspaceLabel
 	f.Model, f.ContextUsedTokens = req.Model, req.ContextUsedTokens
-	f.BrigadeVersion = req.BrigadeVersion
+	f.BrigadeVersion, f.SyncPeer = req.BrigadeVersion, req.SyncPeer
 	f.Harness, f.HarnessVersion = req.Harness, req.HarnessVersion
 	f.LeaseSeconds = seconds
 	f.LastSeenAt = now
@@ -207,6 +207,11 @@ func (s *store) heartbeat(team, principal, id string, req *protocol.HeartbeatReq
 	// and a harness replaced mid-session by a newer one says so here.
 	if req.BrigadeVersion != nil {
 		f.BrigadeVersion = req.BrigadeVersion
+	}
+	// sync_peer too (C-47): the sync adapter usually attaches after the
+	// registration, so a heartbeat is where the peer first arrives.
+	if req.SyncPeer != nil {
+		f.SyncPeer = req.SyncPeer
 	}
 	now := s.now().UTC()
 	f.LastSeenAt = now

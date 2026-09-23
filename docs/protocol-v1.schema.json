@@ -261,6 +261,17 @@
               "type": "null"
             }
           ]
+        },
+        "sync_peer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "type": "object"
@@ -706,6 +717,17 @@
             }
           ]
         },
+        "sync_peer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "created_at": {
           "type": "string",
           "format": "date-time"
@@ -818,6 +840,17 @@
             {
               "type": "string",
               "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sync_peer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
             },
             {
               "type": "null"
@@ -1052,6 +1085,17 @@
             {
               "type": "string",
               "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sync_peer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
             },
             {
               "type": "null"

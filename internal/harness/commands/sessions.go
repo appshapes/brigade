@@ -48,7 +48,9 @@ type sessionsResult struct {
 // the widest in every table, and `--json` still carries self_session_id
 // for a model that needs to know. The SESSION column is a short display id (shortSession) and
 // the NAME column is cut to tableNameChars; `--json` always carries the
-// full id `brigade send` needs and the full name.
+// full id `brigade send` needs and the full name. A session's `sync_peer`
+// (C-47) is `--json`'s alone: an opaque folder-sync peer id is no column
+// (plan folder-sync.md 4.2).
 //
 // Card 27 narrowed it from ~253 columns to ~144, which is the whole reason
 // for the shapes below: no borders, no PRINCIPAL column (rosterMember

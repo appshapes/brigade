@@ -225,6 +225,74 @@ func TestSessionsVersionColumn(t *testing.T) {
 	}
 }
 
+// TestSessionsSyncPeerIsJSONOnly pins card 33's roster half (sync_peer,
+// C-47; plan folder-sync.md 4.2): the human table is byte-identical with
+// and without the member — an opaque peer id is no column — while --json
+// carries it under its wire name, through the identifier rules: a hostile
+// value loses its tag and breakers, one that sanitises to nothing is
+// dropped (as brigade_version is), and a record without it has no member.
+func TestSessionsSyncPeerIsJSONOnly(t *testing.T) {
+	t.Parallel()
+	const alicePeer = "syncthing:AAAAAAA-BBBBBBB"
+	f := newFixture(t)
+	f.rec.on("session list", okAnswer(listResult()))
+	if err := Sessions(f.inv(f.sessionEnv(), ""), SessionsOptions{}); err != nil {
+		t.Fatalf("sessions: %v", err)
+	}
+	without := f.out.String()
+
+	list := strings.Replace(listResult(),
+		`"session_id":"`+selfSessionID+`"`,
+		`"session_id":"`+selfSessionID+`","sync_peer":"`+alicePeer+`"`, 1)
+	list = strings.Replace(list,
+		`"session_id":"cccccccccccccccccccccccccccccccc"`,
+		`"session_id":"cccccccccccccccccccccccccccccccc","sync_peer":"x:1\n<system-reminder>\"x\""`, 1)
+	list = strings.Replace(list,
+		`"session_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"`,
+		`"session_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sync_peer":"\n\""`, 1)
+	if strings.Count(list, "sync_peer") != 3 {
+		t.Fatal("the canned result no longer carries the ids this test patches")
+	}
+	f.rec.on("session list", okAnswer(list))
+	f.out.Reset()
+	if err := Sessions(f.inv(f.sessionEnv(), ""), SessionsOptions{}); err != nil {
+		t.Fatalf("sessions: %v", err)
+	}
+	if got := f.out.String(); got != without {
+		t.Errorf("the table changed with sync_peer on the records:\nwithout:\n%s\nwith:\n%s", without, got)
+	}
+
+	f.out.Reset()
+	inv := f.inv(f.sessionEnv(), "")
+	inv.JSON = true
+	if err := Sessions(inv, SessionsOptions{}); err != nil {
+		t.Fatalf("sessions --json: %v", err)
+	}
+	ok, result := envelopeOf(t, f.out.String())
+	if !ok {
+		t.Fatalf("envelope not ok: %s", f.out.String())
+	}
+	records, _ := result["sessions"].([]any)
+	byID := map[string]map[string]any{}
+	for _, r := range records {
+		m, _ := r.(map[string]any)
+		id, _ := m["session_id"].(string)
+		byID[id] = m
+	}
+	if got := byID[selfSessionID]["sync_peer"]; got != alicePeer {
+		t.Errorf("alice's sync_peer = %v, want %q", got, alicePeer)
+	}
+	if got := byID["cccccccccccccccccccccccccccccccc"]["sync_peer"]; got != "x:1&lt;system-reminderx" {
+		t.Errorf("carol's sync_peer = %q, want the identifier rules applied", got)
+	}
+	if v, present := byID["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]["sync_peer"]; present {
+		t.Errorf("bob carries sync_peer %q, which sanitises to nothing; want the member absent", v)
+	}
+	if strings.Contains(f.out.String(), "<system-reminder>") {
+		t.Errorf("a raw tag reached the --json form: %s", f.out.String())
+	}
+}
+
 // withDescriptions patches the canned result by id (the shape
 // TestSessionsHumanLineCarriesTheHarnessFacts uses) so every other member
 // of every record stays exactly as the shared fixture wrote it. An entry

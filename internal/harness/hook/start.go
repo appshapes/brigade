@@ -208,6 +208,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		Activity:       res.id.activity,
 		Inbound:        res.dec.Policy.String(),
 		BrigadeVersion: r.deps.BrigadeVersion(),
+		SyncPeer:       r.deps.SyncPeer(),
 		Resume:         r.resumeHint(f, in, res.store, existing),
 	}
 	if res.workspaceLabel != "" {
@@ -638,11 +639,14 @@ func (r *run) heartbeat(ctx context.Context, res resolved, sessionID string, bla
 	// continues is exactly the case a plugin update produces — the hook is
 	// the first process of the new binary to reach the backend, before the
 	// replaced watcher's first heartbeat — so the roster learns here.
+	// sync_peer rides it when the hook knows one (C-47); absent, the stored
+	// peer stands (4.4.4).
 	hb := &protocol.HeartbeatRequest{
 		Activity:       &activity,
 		SessionName:    &name,
 		Inbound:        &inbound,
 		BrigadeVersion: r.deps.BrigadeVersion(),
+		SyncPeer:       r.deps.SyncPeer(),
 	}
 	if blankDoing {
 		none := ""
