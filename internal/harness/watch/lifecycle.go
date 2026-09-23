@@ -246,6 +246,14 @@ func (w *watcher) refreshRegistry() {
 // resolveNameLocked recomputes the display name from its inputs (the
 // caller holds w.state.mu) and logs a change once, with its source. A
 // resolution that yields nothing keeps the last name.
+//
+// One startup window is expected: newShared seeds name and mapName from
+// the by-pid map, which already holds the hook's title-aware answer, and
+// the first refreshRegistry then flips regFound and re-resolves to the
+// derived registry name, because state.title stays "" until a heartbeat
+// reads the transcript. Nothing worse than the hook's answer reaches the
+// wire — both senders call transcriptFacts and setTitle before they build
+// a payload — so the window is in memory only.
 func (w *watcher) resolveNameLocked() {
 	e := registry.Entry{Found: w.state.regFound, Name: w.state.regName, NameSource: w.state.regSource}
 	name, source := registry.ResolveName(oneLineName, e, w.state.title, w.state.mapName)

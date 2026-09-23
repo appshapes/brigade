@@ -190,9 +190,9 @@ func TestRegistrationCarriesNoLocalFacts(t *testing.T) {
 // TestTranscriptPathIsKeptForTheWatcherOnly (T10): the document's
 // transcript_path lands in the by-pid map when absolute and is dropped
 // when relative or absent; the registration carries no trace of it (the
-// two facts derived from the file are the watcher's to report); a
-// /compact or /clear document naming another absolute path refreshes it,
-// a relative one on /compact leaves it alone.
+// three facts derived from the file travel as their own members, never as
+// the path); a /compact or /clear document naming another absolute path
+// refreshes it, a relative one on /compact leaves it alone.
 func TestTranscriptPathIsKeptForTheWatcherOnly(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

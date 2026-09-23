@@ -130,11 +130,13 @@ const (
 // documented common hook member naming the session's own NDJSON
 // transcript — IS read: the hook keeps it, when absolute, in the 0600
 // by-pid map (transcriptPath), where the detached watcher finds it and
-// reads the file locally for the two facts a heartbeat carries, the model
-// and the context occupancy (internal/harness/transcript). The path itself
-// is never sent, never logged and never printed, and the hook never opens
-// the file (T10); `prompt` stays absent from the type — never read,
-// stored or sent.
+// reads the file locally for two of the three facts a heartbeat carries,
+// the model and the context occupancy (internal/harness/transcript). The
+// SessionStart hook opens the file once more itself, for the third — the
+// conversation's own title (customTitle), which becomes the session name.
+// What T10 still holds to unchanged: the path is never sent, never logged
+// and never printed, nothing else in the file is read, and `prompt` stays
+// absent from the type — never read, stored or sent.
 type input struct {
 	SessionID      string `json:"session_id"`
 	Cwd            string `json:"cwd"`
@@ -795,6 +797,12 @@ func (r *run) identity(f facts, in input) identity {
 // It is one full scan of the file (about 15 ms for 13 MB, measured
 // 2026-09-23); a fresh session has no transcript yet, and a missing or
 // unreadable one yields "" (debug only, never the path).
+//
+// identity calls it eagerly, before ResolveName can discard the result at
+// step 1 for a session the user has already renamed in the chat. That is
+// the choice, not an oversight: the scan is once per session start and
+// once per /compact, never per prompt, and the eager form keeps one
+// reading of the precedence rather than two.
 func (r *run) customTitle(in input) string {
 	p := transcriptPath(in)
 	if p == "" {
