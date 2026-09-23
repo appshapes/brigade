@@ -77,6 +77,16 @@ func (s *shared) snapshot() sharedSnapshot {
 		workspaceLabel: s.workspaceLabel, labelOption: s.labelOption, doingMode: s.doingMode, transcriptPath: s.transcriptPath}
 }
 
+// heartbeatSoon asks the next liveness tick for a heartbeat, through the
+// same flag an activity flip raises: the sync goroutine calls it when
+// `attach` gives the session a new sync_peer (folder-sync plan §4.3), so
+// the roster carries the peer within one tick instead of one interval.
+func (s *shared) heartbeatSoon() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.flip = true
+}
+
 // takeFlip reports and clears a pending activity flip.
 func (s *shared) takeFlip() bool {
 	s.mu.Lock()

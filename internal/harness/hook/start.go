@@ -131,6 +131,12 @@ type resolved struct {
 	// capability verdict with the option and doingRules resolved again.
 	doingRules policy.Verdict
 	doingMode  string
+	// sync is file sync as this SessionStart resolved it and the map
+	// freezes it (folder-sync plan §4.3), zero when the session syncs
+	// nothing; syncLine is the one line that says so after the context
+	// line, "" when there is nothing to say.
+	sync     frozenSync
+	syncLine string
 }
 
 // connect registers (or re-attaches to) the Brigade session and prints
@@ -161,7 +167,14 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		// existing map are both in view, and handed to heartbeat.
 		res.doingMode = continuedDoingMode(existing.DoingMode, res.opts, res.doingRules)
 		blank := blankDoingLine(in, existing, res.doingMode)
-		if reason := respawnReason(verdict.Entry, f); reason != "" {
+		reason := respawnReason(verdict.Entry, f)
+		if reason == "" && !res.sync.frozenIn(existing) {
+			// The watcher reads the sync members once, when it starts its
+			// sync adapter (folder-sync plan §4.3): an edited `sync` member or
+			// a flipped `sync` option takes effect through a new watcher.
+			reason = "sync changed"
+		}
+		if reason != "" {
 			r.log.Info("watcher "+reason+"; respawning", slog.Int("watcher_pid", verdict.Entry.PID),
 				slog.String("watcher_version", verdict.Entry.Version))
 			r.stopWatcher(verdict.Entry, f)
@@ -311,7 +324,10 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		r.fail("session-start: frame text", err, frameLine(err))
 		return resolved{}, false
 	}
+	sync, syncLine := r.resolveSync(opts, tf, in.Cwd)
 	return resolved{
+		sync:        sync,
+		syncLine:    syncLine,
 		opts:        opts,
 		teamKey:     key,
 		teamFile:    tf,
@@ -473,6 +489,87 @@ func workspaceLabel(opts config.Options, cwd string) string {
 		return ""
 	}
 	return teamfile.RepoName(top)
+}
+
+// frozenSync is file sync as SessionStart freezes it into the by-pid map
+// (folder-sync plan §4.3): the adapter NAME, the folders exactly as the
+// team file lists them, and the canonical repository toplevel they are
+// relative to. The zero value syncs nothing.
+type frozenSync struct {
+	adapter string
+	folders []string
+	root    string
+}
+
+// frozenIn reports whether m already carries exactly this configuration:
+// on the continue path a difference is a respawn reason, because the
+// watcher reads these members once, when it starts its sync goroutine.
+func (s frozenSync) frozenIn(m *sessionmap.ByPID) bool {
+	return m.SyncAdapter == s.adapter && m.SyncRoot == s.root && slices.Equal(m.SyncFolders, s.folders)
+}
+
+// The reasons the SessionStart sync line gives for a session that syncs
+// nothing although its team file declares a usable `sync` member.
+const (
+	syncOffOption     = "the sync option is off"
+	syncOffNoFolders  = "no folders listed"
+	syncOffUnresolved = "the checkout's toplevel could not be resolved"
+)
+
+// resolveSync decides what file sync this session runs (folder-sync plan
+// §4.3) and the one line that says so after the context line. A team file
+// without a `sync` member says nothing — a project that syncs nothing
+// must not be told so at every start — and one whose member is unusable
+// has already earned card 32's line (syncUnusableLine), so it gets no
+// second. Otherwise: the option off, or no folders, is a `file sync off`
+// line naming why; a usable member with folders and the option on freezes
+// the adapter's name, the folders and the canonical toplevel (the folders
+// are relative to it, teamfile.SyncConfig) and says `file sync on`. Nothing
+// here looks for the adapter on PATH: the watcher discovers it, and says
+// so through its notice when it cannot (watch/sync.go).
+func (r *run) resolveSync(opts config.Options, tf *teamfile.File, cwd string) (frozenSync, string) {
+	switch {
+	case tf == nil || tf.Sync == nil:
+		return frozenSync{}, ""
+	case !opts.Sync:
+		return frozenSync{}, syncOffLine(syncOffOption)
+	case len(tf.Sync.Folders) == 0:
+		return frozenSync{}, syncOffLine(syncOffNoFolders)
+	}
+	root, ok := syncRoot(cwd)
+	if !ok {
+		r.log.Warn("session-start: sync root unresolved; file sync is off")
+		return frozenSync{}, syncOffLine(syncOffUnresolved)
+	}
+	return frozenSync{adapter: tf.Sync.Adapter, folders: slices.Clone(tf.Sync.Folders), root: root},
+		syncOnLine(len(tf.Sync.Folders), tf.Sync.Adapter)
+}
+
+// syncRoot is the canonical (symlink-free, clean, absolute) toplevel of
+// the repository cwd is in — the root the team file's folders are
+// relative to — or false. The map refuses anything else, and a refused
+// map would cost the whole session its connection, not just its sync.
+func syncRoot(cwd string) (string, bool) {
+	top, ok := teamfile.Toplevel(cwd)
+	if !ok {
+		return "", false
+	}
+	root, err := teamfile.Canonicalize(top)
+	if err != nil || !filepath.IsAbs(root) || filepath.Clean(root) != root {
+		return "", false
+	}
+	return root, true
+}
+
+// syncOnLine and syncOffLine are the one SessionStart sync line (§4.3).
+// The adapter is a validated name and why is one of this file's fixed
+// reasons; neither carries a folder, a path or a value from the option.
+func syncOnLine(folders int, adapter string) string {
+	return "Brigade: file sync on: " + strconv.Itoa(folders) + " folder(s) through " + attr(adapter) + "."
+}
+
+func syncOffLine(why string) string {
+	return "Brigade: file sync off (" + why + ")."
 }
 
 // resolveTeam runs steps 1-3: discovery, the pin gate, the binding gate.
@@ -756,6 +853,9 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		ConfigDir:        res.opts.ConfigDir,
 		AdapterCommand:   res.argv,
 		PluginBin:        f.pluginBin,
+		SyncAdapter:      res.sync.adapter,
+		SyncFolders:      res.sync.folders,
+		SyncRoot:         res.sync.root,
 		HarnessVersion:   res.id.harnessVersion,
 		RegisteredAt:     registeredAt,
 		UpdatedAt:        now,
@@ -784,6 +884,12 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	warnings = append(warnings, teamFileNotes(res.teamFile)...)
 	r.pruneCache(f, now)
 	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
+	if res.syncLine != "" {
+		r.say(res.syncLine)
+	}
+	if res.opts.SyncWarning != "" {
+		warnings = append(warnings, res.opts.SyncWarning)
+	}
 	for _, w := range warnings {
 		r.say(w)
 	}

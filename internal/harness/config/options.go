@@ -23,6 +23,7 @@ const (
 	OptionFrame               = "CLAUDE_PLUGIN_OPTION_FRAME"
 	OptionFrameFile           = "CLAUDE_PLUGIN_OPTION_FRAME_FILE"
 	OptionLabel               = "CLAUDE_PLUGIN_OPTION_LABEL"
+	OptionSync                = "CLAUDE_PLUGIN_OPTION_SYNC"
 )
 
 // The BRIGADE_* variables that stand in for three options OUTSIDE a
@@ -88,7 +89,35 @@ const (
 	// specific value wins, as adapter_command beats the profile's default
 	// adapter (D36), and the hook says so once (P5-12).
 	WarnFrameBothSet = "Brigade: both `frame` and `frame_file` are set; the file's text is used and the `frame` level is ignored."
+	// WarnSyncInvalid: the sync option is neither on nor off (folder-sync
+	// plan §4.3). The value is deliberately not echoed, and an unexpected
+	// spelling switches sync off rather than being guessed at, as
+	// ParseInbound's does for the inbound policy.
+	WarnSyncInvalid = `Brigade: sync must be "on" or "off"; the value set is neither, so file sync is off for this session.`
 )
+
+// The two words the sync option takes (folder-sync plan §4.3).
+const (
+	SyncOn  = "on"
+	SyncOff = "off"
+)
+
+// ParseSync maps a sync value to whether the session syncs the folders
+// the project's team file lists: "" (unset — the default is on) or "on"
+// → true; "off" → false; anything else → false with WarnSyncInvalid.
+// Matching is exact after trimming, as ParseInbound's is. There is no
+// BRIGADE_* fallback: the watcher that runs the sync adapter is a
+// session's, so a terminal has nothing for the option to steer.
+func ParseSync(raw string) (bool, string) {
+	switch strings.TrimSpace(raw) {
+	case "", SyncOn:
+		return true, ""
+	case SyncOff:
+		return false, ""
+	default:
+		return false, WarnSyncInvalid
+	}
+}
 
 // ParseInbound maps a team_inbound value to the policy the option asks
 // for: "" or "accept" → accept; "hold" → hold; "refuse" → refuse; anything
@@ -233,6 +262,13 @@ type Options struct {
 	// the account email is read at the point of use, so nothing here, and
 	// nothing the hook writes, carries a member's email (card 24, part B).
 	Label string
+	// Sync is on unless the option says off (folder-sync plan §4.3): the
+	// hook then freezes the team file's usable `sync` member into the
+	// by-pid map and the watcher drives the sync adapter it names.
+	// SyncWarning carries WarnSyncInvalid when the option was neither
+	// word, and the hook prints it.
+	Sync        bool
+	SyncWarning string
 }
 
 // ParseOptions resolves Options from environ. Only CLAUDE_PLUGIN_OPTION_*
@@ -317,6 +353,7 @@ func ParseOptions(environ []string) (Options, error) {
 		}
 	}
 	o.Label = LabelOption(environ)
+	o.Sync, o.SyncWarning = ParseSync(opt(OptionSync))
 	return o, nil
 }
 

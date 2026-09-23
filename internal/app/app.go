@@ -47,6 +47,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []str
 			switch cmd.Name {
 			case adapterEntry:
 				return runAdapter(cmd, args[1:], stdin, stdout, stderr, environ)
+			case syncAdapterEntry:
+				return runSyncAdapter(cmd, args[1:], stdin, stdout, stderr, environ)
 			case hookEntry:
 				return hook.Run(args[1:], streams, environ, hook.RealDeps())
 			case watchEntry:
@@ -70,6 +72,10 @@ const (
 	// watchEntry is `brigade watch [--sink <file>]`, the detached watcher
 	// the SessionStart and prompt hooks start (6.6).
 	watchEntry = "watch"
+	// syncAdapterEntry is `brigade sync-adapter <name> <verb>`, a bundled
+	// sync adapter the watcher and `brigade sync status` spawn (folder-sync
+	// plan §4.3, docs/sync-adapters.md).
+	syncAdapterEntry = "sync-adapter"
 )
 
 // bundledSupabase is the one bundled adapter name of v1.
@@ -92,4 +98,22 @@ func runAdapter(cmd cli.Command, rest []string, stdin io.Reader, stdout, stderr 
 		return cli.Usage(cmd, rest, streams, "adapter needs a name; the bundled adapter is `supabase`")
 	}
 	return cli.Usage(cmd, rest, streams, "unknown adapter name; the bundled adapter is `supabase`")
+}
+
+// runSyncAdapter hands `brigade sync-adapter <name> <verb>` to the bundled
+// sync adapter of that name (cli.LookupSyncAdapter) with the REAL process
+// streams, as runAdapter does for a backend adapter: from here on stdout
+// is the sync-adapter protocol's one envelope. A missing or unknown name
+// is `usage` through the table's own reporter.
+func runSyncAdapter(cmd cli.Command, rest []string, stdin io.Reader, stdout, stderr io.Writer, environ []string) int {
+	if len(rest) > 0 {
+		if run, ok := cli.LookupSyncAdapter(rest[0]); ok {
+			return run(rest[1:], stdin, stdout, stderr, environ)
+		}
+	}
+	streams := cli.Streams{In: stdin, Out: stdout, Err: stderr}
+	if len(rest) == 0 {
+		return cli.Usage(cmd, rest, streams, "sync-adapter needs a name; the bundled sync adapter is `syncthing`")
+	}
+	return cli.Usage(cmd, rest, streams, "unknown sync adapter name; the bundled sync adapter is `syncthing`")
 }

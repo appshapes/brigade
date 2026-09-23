@@ -1,0 +1,105 @@
+# `brigade sync status` through the real binary (card 33, folder-sync plan
+# §4.3): inside a session the sync adapter and folders come from the by-pid
+# map the SessionStart hook froze — here an EXTERNAL adapter, `fake`,
+# resolved as brigade-sync-fake on PATH, which records its one stdin
+# request and answers `status` — and a peer's label from the team roster
+# the backend adapter lists. A session that syncs nothing says so; outside
+# a session the command refuses, as `doing` does. `sync` is in the help;
+# the hidden `sync-adapter` group only under --all.
+
+# --- fixture: the by-pid map the SessionStart hook would have written ----
+env GORACE=atexit_sleep_ms=0
+env CLAUDE_PID=4242
+env HOME=$WORK/home
+mkdir $WORK/home
+mkdir $WORK/.brigade/xdg/state/brigade/sessions/by-pid
+expand map.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.json
+expand script.json.in script.json
+chmod 755 fake.sh
+chmod 755 $WORK/syncbin/brigade-sync-fake
+env PATH=$WORK/syncbin${:}$PATH
+# Warm both fresh executables once with no deadline (macOS's first-exec
+# assessment; see doing.txtar): the harness execs them under budgets.
+exec $WORK/fake.sh --script warm.json describe
+stdin warm-request.json
+exec brigade-sync-fake describe
+rm $WORK/sync-calls.txt
+
+# --- the human form -------------------------------------------------------
+exec brigade sync status
+cmp stdout want-status.txt
+! stderr .
+# One status call, for the session's state directory, with the state
+# directory in the adapter's environment as well.
+grep '^status '$WORK'/.brigade/xdg/state/brigade {"state_dir":"'$WORK'/.brigade/xdg/state/brigade"}$' $WORK/sync-calls.txt
+
+# --- --json: the status result, the peer's roster label, the folders as configured
+exec brigade sync status --json
+! stderr .
+json stdout .ok true
+json stdout .result.sync on
+json stdout .result.adapter fake
+json stdout .result.running true
+json stdout .result.peer SELF-DEVICE-1
+json stdout .result.peers.0.label bob@example.com
+json stdout .result.configured.0.label brigade/docs
+json stdout .result.configured.0.path $WORK/repo/docs
+
+# --- a session that syncs nothing -------------------------------------------
+expand map-off.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.json
+rm $WORK/sync-calls.txt
+exec brigade sync status
+stdout '^file sync is off for this session \(the Brigade line at session start says why\)$'
+! exists $WORK/sync-calls.txt
+
+# --- anything but `status` is usage ---------------------------------------------
+status 2 brigade sync start
+stderr 'brigade sync failed \(usage\): sync takes one verb: status'
+
+# --- outside a session: config, nothing spawned -------------------------------------
+env CLAUDE_PID=
+status 11 brigade sync status
+stderr 'brigade sync failed \(config\): brigade sync status needs a Brigade session'
+! exists $WORK/sync-calls.txt
+
+# --- help: `sync` is listed; the hidden sync-adapter group only with --all ---------
+exec brigade help
+stdout '^  sync status'
+! stdout sync-adapter
+exec brigade help --all
+stdout sync-adapter
+
+-- map.in --
+{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "workspace_label": "brigade", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "team_key": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "sync_adapter": "fake", "sync_folders": ["docs", ".context/plans"], "sync_root": "$WORK/repo", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
+-- map-off.in --
+{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "workspace_label": "brigade", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "team_key": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
+-- fake.sh --
+#!/bin/sh
+# The scripted fake backend adapter behind an absolute path (doing.txtar
+# says why, and why GORACE is set here).
+GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
+-- syncbin/brigade-sync-fake --
+#!/bin/sh
+# A fake external sync adapter, found on PATH as brigade-sync-<name> the
+# way a real one is (docs/sync-adapters.md): it appends its verb, its
+# BRIGADE_STATE_DIR and its one stdin request to $WORK/sync-calls.txt (the
+# directory above its own), and answers every verb with the same canned
+# status envelope. The harness execs it; it was warmed first, and the
+# testscript Setup rematerialised it like every extracted script.
+req=$(cat)
+printf '%s %s %s\n' "$1" "$BRIGADE_STATE_DIR" "$req" >> "$(dirname "$0")/../sync-calls.txt"
+printf '%s\n' '{"ok":true,"protocol_version":"1","result":{"running":true,"peer":"SELF-DEVICE-1","folders":[{"id":"brigade-team1-46b42b4229cd","path":"/repo/docs","state":"idle"}],"peers":[{"peer":"PEER-A","connected":true},{"peer":"XYZ1234567","connected":false}]}}'
+-- script.json.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"session list": [{"result": {"team_ref": "team-1", "team_name": "ops", "server_time": "2026-09-02T12:00:30Z", "truncated": false, "sessions": [{"session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "session_name": "billing", "human_label": "bob@example.com", "principal_ref": "2b7d4e61-0c95-4f3a-9d22-bb0000000002", "state": "offline", "activity": "idle", "inbound": "accept", "sync_peer": "fake:PEER-A", "last_seen_at": "2026-09-02T11:59:45Z", "lease_until": "2026-09-02T12:01:30Z", "created_at": "2026-09-02T11:00:00Z", "is_self": false}, {"session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "session_name": "payments-api", "human_label": "alice@example.com", "principal_ref": "9f3c1a20-5d4e-4a7b-8c11-aa0000000001", "state": "active", "activity": "busy", "inbound": "accept", "sync_peer": "fake:SELF-DEVICE-1", "last_seen_at": "2026-09-02T12:00:18Z", "lease_until": "2026-09-02T12:01:30Z", "created_at": "2026-09-02T11:00:00Z", "is_self": true}]}}]}}
+-- warm.json --
+{}
+-- warm-request.json --
+{}
+-- want-status.txt --
+sync: fake, engine running, this machine's peer SELF-DEVICE-1
+FOLDER                  STATE
+brigade/docs            idle
+brigade/.context/plans  not shared yet
+PEER             CONNECTED
+bob@example.com  yes
+[XYZ1234]        no

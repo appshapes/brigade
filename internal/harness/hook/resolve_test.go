@@ -336,15 +336,18 @@ func TestHookTeamFileNotes(t *testing.T) {
 	const marker = "SENTINEL-FILE-VALUE"
 	const ignored = "Brigade: .brigade.json carries members this version does not define (frame, profile, sync.mode); ignored."
 	const unusable = "Brigade: .brigade.json's sync member is not usable (folder_not_relative); file sync is off for this session."
+	const syncOn1 = "Brigade: file sync on: 1 folder(s) through syncthing."
 	cases := map[string]struct {
 		members string
 		want    []string
 	}{
-		"nothing to say":                    {``, nil},
-		"a usable sync member says nothing": {`,"sync":{"folders":["docs/shared"]}`, nil},
+		"nothing to say": {``, nil},
+		// Card 33 gives a usable member its own line, right after the
+		// context line and before the notes (TestSyncLines pins it).
+		"a usable sync member says only that it syncs": {`,"sync":{"folders":["docs/shared"]}`, []string{syncOn1}},
 		"ignored members at both levels": {
 			`,"profile":"` + marker + `","frame":{"x":"` + marker + `"},"sync":{"folders":["docs"],"mode":"` + marker + `"}`,
-			[]string{ignored},
+			[]string{syncOn1, ignored},
 		},
 		"an unusable sync member": {`,"sync":{"folders":["/` + marker + `"]}`, []string{unusable}},
 		"both, ignored first": {

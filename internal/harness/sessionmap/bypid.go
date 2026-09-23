@@ -26,7 +26,10 @@ package sessionmap
 
 import (
 	"errors"
+	"path"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -142,6 +145,19 @@ type ByPID struct {
 	// PluginBin is the bootstrap's resolved realpath when the hook knows
 	// it (the shadowing check of 6.2), else "".
 	PluginBin string `json:"plugin_bin"`
+	// SyncAdapter, SyncFolders and SyncRoot are file sync as the hook
+	// resolved it at SessionStart (folder-sync plan §4.3) and froze it for
+	// the watcher, which drives the adapter, and for `brigade sync
+	// status`: the NAME of the sync adapter the team file's `sync` member
+	// gives (never a path — foldersync resolves it), the folders it lists
+	// exactly as written (relative to the checkout), and the canonical
+	// repository toplevel they are relative to. All three are set together
+	// — a usable member with at least one folder and the `sync` option on —
+	// or none is, and then this session syncs nothing. Absent (omitzero)
+	// in a map from before file sync existed, which reads as "off".
+	SyncAdapter string   `json:"sync_adapter,omitzero"`
+	SyncFolders []string `json:"sync_folders,omitzero"`
+	SyncRoot    string   `json:"sync_root,omitzero"`
 	// HarnessVersion is the Claude Code version from the registry's
 	// `version` member when present, else "unknown".
 	HarnessVersion string `json:"harness_version"`
@@ -190,6 +206,35 @@ func (m *ByPID) Validate() error {
 		return errInvalid("frame_text")
 	case m.FrameLevel == string(frame.LevelCustom) && frame.CheckClause(m.FrameText) != nil:
 		return errInvalid("frame_text")
+	}
+	return m.validateSync()
+}
+
+// syncAdapterName is the team file's adapter-name rule (folder-sync plan
+// §4.1): a map member names an adapter, never a path or a command.
+var syncAdapterName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+
+// validateSync checks the three sync members as one: all absent, or an
+// adapter name, a clean absolute root and at least one folder, each a
+// clean relative path that stays under the root. Only what the watcher
+// needs to build a folder path it can hand an adapter: the team file's
+// parser applied its own rules before the hook froze these.
+func (m *ByPID) validateSync() error {
+	if m.SyncAdapter == "" && len(m.SyncFolders) == 0 && m.SyncRoot == "" {
+		return nil
+	}
+	switch {
+	case !syncAdapterName.MatchString(m.SyncAdapter):
+		return errInvalid("sync_adapter")
+	case !filepath.IsAbs(m.SyncRoot) || filepath.Clean(m.SyncRoot) != m.SyncRoot:
+		return errInvalid("sync_root")
+	case len(m.SyncFolders) == 0:
+		return errInvalid("sync_folders")
+	}
+	for _, f := range m.SyncFolders {
+		if f == "" || f == "." || f == ".." || strings.HasPrefix(f, "/") || strings.HasPrefix(f, "../") || path.Clean(f) != f {
+			return errInvalid("sync_folders")
+		}
 	}
 	return nil
 }

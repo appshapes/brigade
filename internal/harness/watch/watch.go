@@ -11,7 +11,9 @@
 // the pipeline records each message in the session's pending file, and the
 // watcher applies the release file `brigade inbox release` writes in a
 // terminal — on its 2 s liveness tick and once when the watch child is
-// ready — injecting exactly the released ids through the accept path.
+// ready — injecting exactly the released ids through the accept path. When
+// the map carries a file-sync configuration (folder-sync plan §4.3) it also
+// drives the project's sync adapter for the session's life (sync.go).
 //
 // Configuration comes ONLY from the environment the hook built
 // (config.FromWatcherEnv: BRIGADE_CLAUDE_PID, BRIGADE_PROFILE,
@@ -168,6 +170,14 @@ type Deps struct {
 	// (plan folder-sync.md 4.3) stores the descriptor `attach` returns into
 	// watcher.syncPeer. A test injects one.
 	SyncPeer func() *string
+	// SyncCommand, when set, is the sync adapter's argv prefix instead of
+	// the one foldersync resolves from the map's sync_adapter (the plugin
+	// binary, or brigade-sync-<name> on PATH). nil in production; a test
+	// points it at `/bin/sh <fixture script>`.
+	SyncCommand []string
+	// SyncInterval is how often the sync goroutine re-applies folders and
+	// peers (DefaultSyncInterval).
+	SyncInterval time.Duration
 
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
@@ -209,6 +219,7 @@ func RealDeps() Deps {
 		GiveUpWindow:      DefaultGiveUpWindow,
 		HealthyAfter:      DefaultHealthyAfter,
 		LogRotateBytes:    DefaultLogRotateBytes,
+		SyncInterval:      DefaultSyncInterval,
 	}
 }
 
@@ -272,6 +283,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.LogRotateBytes <= 0 {
 		d.LogRotateBytes = prod.LogRotateBytes
+	}
+	if d.SyncInterval <= 0 {
+		d.SyncInterval = prod.SyncInterval
 	}
 	return d
 }
@@ -518,6 +532,9 @@ type watcher struct {
 	// because the goroutine that learns it (the sync adapter's `attach`,
 	// plan folder-sync.md 4.3) is not the one that heartbeats.
 	syncPeer atomic.Pointer[string]
+	// sync is the file-sync configuration the map froze (sync.go); the
+	// zero value runs no sync goroutine.
+	sync syncSetup
 
 	// ctx ends with a signal, the Stop channel or a liveness verdict;
 	// cancel is what every exit path calls first.
@@ -609,6 +626,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		releasePath:    inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
 			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath),
+		sync: syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, pluginBin: m.PluginBin},
 	}
 	if d.SyncPeer != nil {
 		w.syncPeer.Store(d.SyncPeer())
@@ -664,9 +682,22 @@ func (w *watcher) run() int {
 	ictx, icancel := context.WithCancel(base)
 	defer icancel()
 	w.goWriter("injector", func() { w.injector.loop(ictx) })
+	// The sync goroutine (sync.go) runs beside the injector when the map
+	// froze a sync configuration. It writes under the state directory —
+	// its adapter's log, and the engine's own state there — so it is a
+	// writer the join below waits for; its context ends only after the
+	// session's exit path has run, so its `detach` follows the close.
+	scancel := func() {}
+	if w.sync.enabled() {
+		var sctx context.Context
+		sctx, scancel = context.WithCancel(base)
+		w.goWriter("sync", func() { w.runSync(sctx) })
+	}
+	defer scancel()
 
 	code = w.supervise()
 	icancel()
+	scancel()
 	// Nothing may still be writing under the state directory when Run
 	// returns: the join comes before the exit line and before the deferred
 	// pidfile release (P14-6, writers.go).

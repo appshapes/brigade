@@ -17,7 +17,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOptions: %v", err)
 	}
-	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, Frame: frame.DefaultLevel, Label: config.LabelAccount}
+	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true}
 	if got != want {
 		t.Fatalf("defaults =\n %+v\nwant\n %+v", got, want)
 	}
@@ -42,6 +42,8 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		config.OptionFrame+"=guarded",
 		config.OptionFrameFile+"=/opt/brigade/frame.txt/",
 		config.OptionLabel+"=Alice of Ops",
+		// `off` rather than `on`, for the same reason as share_doing.
+		config.OptionSync+"=off",
 	)
 	got, err := config.ParseOptions(env)
 	if err != nil {
@@ -59,6 +61,7 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		FrameFile:           "/opt/brigade/frame.txt",
 		FrameWarning:        config.WarnFrameBothSet,
 		Label:               "Alice of Ops",
+		Sync:                false,
 	}
 	if got != want {
 		t.Fatalf("options =\n %+v\nwant\n %+v", got, want)
@@ -393,5 +396,63 @@ func TestWorkspaceLabelCapIsTheProtocolCap(t *testing.T) {
 	// over-sending.
 	if protocol.MaxHumanLabelChars != protocol.MaxWorkspaceLabelChars {
 		t.Fatalf("MaxHumanLabelChars %d != MaxWorkspaceLabelChars %d: ParseOptions must cap the workspace label itself", protocol.MaxHumanLabelChars, protocol.MaxWorkspaceLabelChars)
+	}
+}
+
+// TestParseSync pins the sync option's grammar (folder-sync plan §4.3):
+// unset and "on" sync, "off" does not, and any other spelling does not
+// either — with the one fixed warning, which never echoes the value.
+func TestParseSync(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		raw  string
+		on   bool
+		warn string
+	}{
+		{"", true, ""},
+		{"on", true, ""},
+		{"  on\t", true, ""},
+		{"off", false, ""},
+		{" off ", false, ""},
+		{"ON", false, config.WarnSyncInvalid},
+		{"true", false, config.WarnSyncInvalid},
+		{"yes", false, config.WarnSyncInvalid},
+		{evilMarker, false, config.WarnSyncInvalid},
+	}
+	for _, c := range cases {
+		on, warn := config.ParseSync(c.raw)
+		if on != c.on || warn != c.warn {
+			t.Errorf("ParseSync(%q) = (%v, %q), want (%v, %q)", c.raw, on, warn, c.on, c.warn)
+		}
+		if strings.Contains(warn, evilMarker) {
+			t.Errorf("ParseSync(%q): the warning echoes the value", c.raw)
+		}
+	}
+}
+
+// TestParseOptionsSyncHasNoBrigadeFallback proves the option is read from
+// CLAUDE_PLUGIN_OPTION_SYNC alone: a BRIGADE_SYNC in the environment —
+// inside a session or at a terminal — changes nothing.
+func TestParseOptionsSyncHasNoBrigadeFallback(t *testing.T) {
+	t.Parallel()
+	d := newDirs(t)
+	for _, env := range [][]string{
+		d.environ("BRIGADE_SYNC=off"),
+		d.environ("CLAUDE_PID=4242", "BRIGADE_SYNC=off"),
+	} {
+		got, err := config.ParseOptions(env)
+		if err != nil {
+			t.Fatalf("ParseOptions: %v", err)
+		}
+		if !got.Sync || got.SyncWarning != "" {
+			t.Errorf("Sync = %v, warning %q; want on with no warning", got.Sync, got.SyncWarning)
+		}
+	}
+	got, err := config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionSync+"=maybe"))
+	if err != nil {
+		t.Fatalf("ParseOptions: %v", err)
+	}
+	if got.Sync || got.SyncWarning != config.WarnSyncInvalid {
+		t.Errorf("an invalid option: Sync = %v, warning %q; want off with WarnSyncInvalid", got.Sync, got.SyncWarning)
 	}
 }
