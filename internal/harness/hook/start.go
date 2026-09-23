@@ -760,7 +760,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 
 // finish writes the maps (the by-pid map is rewritten on every
 // SessionStart), runs the shadowing check and the weekly prune, and prints
-// the context line with the policy warnings.
+// the context line with the policy warnings and the team-file notes.
 func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now time.Time) {
 	if err := res.store.WriteByPID(m); err != nil {
 		r.fail("session-start: session map not written", err, notConnected(protocol.CodeConfig))
@@ -774,6 +774,10 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	if path, ok := r.shadowing(f); ok {
 		warnings = append(warnings, shadowLine(path))
 	}
+	// Card 32: what the opened team file ignored, and a sync member it
+	// could not use — both after consent only, and neither stops the
+	// session connecting.
+	warnings = append(warnings, teamFileNotes(res.teamFile)...)
 	r.pruneCache(f, now)
 	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
 	for _, w := range warnings {

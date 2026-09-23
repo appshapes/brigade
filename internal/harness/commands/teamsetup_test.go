@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -195,6 +196,97 @@ func TestTeamCreateConflictAndForce(t *testing.T) {
 	iv.Deps.Getwd = func() (string, error) { return top, nil }
 	if err := Team(iv); err != nil {
 		t.Fatalf("--force must replace the file: %v", err)
+	}
+}
+
+// TestTeamCreateForceCarriesSync is card 32's --force round trip
+// (folder-sync plan §4.1): the replacement names the new team, and the
+// project's `sync` declaration comes across unchanged in meaning; a file
+// without one gains none; and a member --force could not carry
+// faithfully refuses the create before any spawn, leaving the file as it
+// was, rather than vanish.
+func TestTeamCreateForceCarriesSync(t *testing.T) {
+	t.Parallel()
+	const oldFile = `{"version":1,"adapter":"supabase","url":"https://old.supabase.co","publishable_key":"sb_publishable_old","team_ref":"t_old","team_name":"old"`
+	args := func(f *fixture) []string {
+		return []string{"create", "--url", "https://abc.supabase.co", "--key", "sb_publishable_x",
+			"--name", "devs", "--secret-file", filepath.Join(f.dirs.Root, "s"), "--force"}
+	}
+	for name, tc := range map[string]struct {
+		members string
+		want    *teamfile.SyncConfig
+	}{
+		"a declared sync member":           {`,"sync":{"folders":["docs/shared",".context/plans"],"later":true},"future":1`, &teamfile.SyncConfig{Adapter: "syncthing", Folders: []string{"docs/shared", ".context/plans"}}},
+		"a named adapter":                  {`,"sync":{"adapter":"other","folders":[]}`, &teamfile.SyncConfig{Adapter: "other", Folders: []string{}}},
+		"no sync member stays without one": {``, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			top := mkCheckout(t, f.dirs.Root)
+			path := filepath.Join(top, teamfile.FileName)
+			//nolint:gosec // G306: a committed team file IS 0644
+			if err := os.WriteFile(path, []byte(oldFile+tc.members+"}"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			f.rec.on("profile init", answer{result: `{"ok":true}`})
+			f.rec.on("team create", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_1"}`})
+			iv := f.inv(f.terminalEnv(), "", args(f)...)
+			iv.Deps.Getwd = func() (string, error) { return top, nil }
+			if err := Team(iv); err != nil {
+				t.Fatal(err)
+			}
+			got, err := teamfile.Parse(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.TeamRef != setupTeamRef || got.URL != "https://abc.supabase.co" {
+				t.Fatalf("the replacement names %+v, want the new team", got)
+			}
+			if !reflect.DeepEqual(got.Sync, tc.want) || got.SyncUnusable != "" {
+				t.Fatalf("sync = %+v (%q), want %+v carried", got.Sync, got.SyncUnusable, tc.want)
+			}
+			// Only `sync` is carried: the replacement is what create writes.
+			if len(got.Ignored) != 0 {
+				t.Fatalf("the replacement carries unknown members %q", got.Ignored)
+			}
+		})
+	}
+	for name, tc := range map[string]struct {
+		doc, cause string
+	}{
+		"an unusable member": {oldFile + `,"sync":{"folders":["../elsewhere"]}}`, teamfile.SyncFolderDotDot},
+		// The file itself refuses (a plain-http url), so no session ever
+		// used its sync member — and a replacement still must not drop it.
+		"a refused file that declares sync": {
+			strings.Replace(oldFile, "https://old", "http://old", 1) + `,"sync":{"folders":["a"]}}`,
+			teamfile.ReasonURLNotHTTPS,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			top := mkCheckout(t, f.dirs.Root)
+			path := filepath.Join(top, teamfile.FileName)
+			doc := tc.doc
+			//nolint:gosec // G306: a committed team file IS 0644
+			if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			iv := f.inv(f.terminalEnv(), "", args(f)...)
+			iv.Deps.Getwd = func() (string, error) { return top, nil }
+			before := f.rec.count()
+			perr := wantCodeErr(t, Team(iv), protocol.CodeConfig, teamfile.ReasonSyncNotCarried)
+			if perr.Details["cause"] != tc.cause {
+				t.Fatalf("cause = %q, want %q", perr.Details["cause"], tc.cause)
+			}
+			if f.rec.count() != before {
+				t.Fatal("a sync member --force cannot carry must refuse before any spawn")
+			}
+			if after, err := os.ReadFile(path); err != nil || string(after) != doc { //nolint:gosec // G304: the test's own file
+				t.Fatalf("the refused create touched the file: %q, %v", after, err)
+			}
+		})
 	}
 }
 

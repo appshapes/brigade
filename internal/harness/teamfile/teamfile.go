@@ -1,21 +1,33 @@
 // Package teamfile reads the one file a project may commit to name its
 // Brigade team: `.brigade.json` at the repository toplevel (plan P7-2,
-// brief §1). The file is discovery, never authority — it carries only
-// public values, every reader shares this one parser, and nothing in it
-// can name a path, a command or an option. The schema is CLOSED: an
-// unknown member refuses loudly, naming the member and never its value,
-// which is how `adapter_command`, `profile`, `config_dir`, `team_inbound`,
-// `frame` and every future behavior-carrying field stays out for good.
+// brief §1). The file is discovery, never authority, AND the project's
+// declaration of which folders its checkouts sync (folder-sync plan
+// §4.1): it carries only public values, every reader shares this one
+// parser, and nothing in it can name a command, an executable, a path
+// outside the checkout, an option that changes how Brigade connects, or
+// a secret. `adapter` and `sync.adapter` are NAMES, resolved strictly
+// user-side; `sync.folders` are lexically confined to the checkout.
+//
+// The file OPENS (card 32; JSON convention 2, as the protocol): a member
+// this version does not define is ignored, and its reduced name is
+// returned in File.Ignored for the SessionStart hook's one line. A
+// behavior-carrying member — `adapter_command`, `profile`, `config_dir`,
+// `team_inbound`, `frame` — still has no effect for good, because no
+// reader ever looks for one. A secret-shaped member name or value, at
+// any depth, still refuses the whole file.
 //
 // Refusals are `config` errors whose details.reason comes from the closed
 // token list in Reasons; the SessionStart hook renders each token as its
 // own fixed line (team_file_<reason>), so the list may not grow silently.
-// File contents never appear in an error: the only file-sourced string
-// any caller may surface is TeamName, which leaves this package already
-// sanitized and capped.
+// An unusable `sync` member is never a refusal: File.Sync is nil and
+// File.SyncUnusable carries a token from the closed SyncReasons list.
+// File contents never appear in an error: the only file-sourced strings
+// any caller may surface are TeamName and the Ignored names, which leave
+// this package already reduced and capped.
 package teamfile
 
 import (
+	"bytes"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"errors"
@@ -25,6 +37,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"unicode/utf8"
@@ -35,21 +48,24 @@ import (
 // FileName is the committed team file's name at the repository toplevel.
 const FileName = ".brigade.json"
 
-// MaxBytes is the hard size cap: six short public fields need well under
-// 4 KiB, so anything larger is not a team file and is refused unread.
-const MaxBytes = 4096
+// MaxBytes is the hard size cap: six short public fields and a maximal
+// `sync` member (32 folders of 128 bytes, about 4.2 KiB compact) fit in
+// well under 16 KiB even hand-indented — TestParseLargestLegalFile builds
+// that file — so anything larger is not a team file and is refused
+// unread.
+const MaxBytes = 16384
 
 // The closed reason-token list (plan P7-2; the hook renders one fixed
 // line per token). Adding a token here without a hook line and a test is
-// caught by the enumeration test over Reasons.
+// caught by the enumeration test over Reasons. There is no unknown-member
+// token: the file opened in card 32 (folder-sync plan §4.1).
 const (
 	ReasonNotRegularFile     = "not_regular_file"    // symlink, directory, FIFO, socket or device at the path
 	ReasonWorldWritable      = "world_writable"      // mode grants write to other
 	ReasonTooLarge           = "too_large"           // larger than MaxBytes
-	ReasonSecretShaped       = "secret_shaped"       // the whole-file scan found a brg1. join-secret shape
+	ReasonSecretShaped       = "secret_shaped"       // a brg1. join-secret shape in the bytes, or in any decoded name or string
 	ReasonSecretKey          = "secret_key"          // publishable_key carries an sb_secret_ prefix
 	ReasonMalformed          = "malformed"           // not a JSON object, or a required member missing/mistyped
-	ReasonUnknownField       = "unknown_field"       // a member outside the closed schema
 	ReasonUnsupportedVersion = "unsupported_version" // version is not 1
 	ReasonURLNotHTTPS        = "url_not_https"       // url is not https and not loopback http
 	ReasonAdapterUnknown     = "adapter_unknown"     // adapter is not a well-formed adapter name
@@ -61,8 +77,7 @@ func Reasons() []string {
 	return []string{
 		ReasonNotRegularFile, ReasonWorldWritable, ReasonTooLarge,
 		ReasonSecretShaped, ReasonSecretKey, ReasonMalformed,
-		ReasonUnknownField, ReasonUnsupportedVersion, ReasonURLNotHTTPS,
-		ReasonAdapterUnknown,
+		ReasonUnsupportedVersion, ReasonURLNotHTTPS, ReasonAdapterUnknown,
 	}
 }
 
@@ -76,6 +91,16 @@ type File struct {
 	PublishableKey string
 	TeamRef        string
 	TeamName       string
+	// Sync is the project's `sync` member when present AND usable, nil
+	// otherwise. SyncUnusable is the SyncReasons token when a `sync`
+	// member is present but not usable, "" otherwise — never both set.
+	Sync         *SyncConfig
+	SyncUnusable string
+	// Ignored lists the member names this version does not define — top
+	// level as `name`, inside `sync` as `sync.name` — sorted, each reduced
+	// to a plain character set and capped (displayName) so the hook may
+	// echo it. Never a value.
+	Ignored []string
 }
 
 // TeamNameMaxRunes caps the one display string the repo may put in front
@@ -90,10 +115,12 @@ var adapterName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 // prefix is legitimate text; only the full three-part shape is a secret.
 var secretShape = regexp.MustCompile(`brg1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}`)
 
-// members is the closed schema. True means required.
+// members is the schema this version reads. True means required; any
+// other member is ignored (card 32) and named in File.Ignored.
 var members = map[string]bool{
 	"version": true, "adapter": true, "url": true,
 	"publishable_key": true, "team_ref": true, "team_name": false,
+	"sync": false,
 }
 
 // Parse reads and validates the team file at path. Every check runs on
@@ -105,9 +132,14 @@ func Parse(path string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseBytes(path, data)
+}
+
+// parseBytes is Parse after the read: the raw-byte secret scan, then the
+// document.
+func parseBytes(path string, data []byte) (*File, error) {
 	if secretShape.Match(data) {
-		return nil, refusal(path, ReasonSecretShaped,
-			"the team file contains what looks like a join secret; remove it and rotate the secret now")
+		return nil, secretRefusal(path)
 	}
 	return parseDocument(path, data)
 }
@@ -117,7 +149,7 @@ func Parse(path string) (*File, error) {
 // (`brg1.…` decodes to a usable secret the raw scan never saw), and
 // the shape regexp cannot cross a dotted team_ref that ParseJoinSecret
 // deliberately allows — so every decoded value and member name passes
-// through here too (verifier finding D1/D2).
+// through here too (verifier finding D1/D2), by carriesSecret's walk.
 func secretLike(s string) bool {
 	if secretShape.MatchString(s) {
 		return true
@@ -177,25 +209,24 @@ func errors0(err error, targets ...syscall.Errno) bool {
 	return false
 }
 
-// parseDocument decodes the closed six-member schema. The unknown-member
-// check runs over the member NAMES only, before any value is decoded, so
-// a refusal can never echo a value.
+// parseDocument decodes the document. Every decoded member name and
+// string value, at any depth — ignored members and `sync` included — is
+// checked for a secret shape before anything else is decided, so an
+// ignored member can never carry a committed secret past the refusal
+// (D1, which the closed schema used to cover by refusing the member),
+// and no refusal can echo a value because none is ever put in one.
 func parseDocument(path string, data []byte) (*File, error) {
 	var raw map[string]jsontext.Value
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := json.Unmarshal(data, &raw); err != nil || raw == nil {
 		return nil, refusal(path, ReasonMalformed, "the team file is not a JSON object")
 	}
+	if carriesSecret(data) {
+		return nil, secretRefusal(path)
+	}
+	var ignored []string
 	for name := range raw {
 		if _, ok := members[name]; !ok {
-			// A member NAME is decoded text too: an escaped secret smuggled
-			// as a name must refuse as a secret, never echo (D1).
-			if secretLike(name) {
-				return nil, refusal(path, ReasonSecretShaped,
-					"the team file contains what looks like a join secret; remove it and rotate the secret now")
-			}
-			e := refusal(path, ReasonUnknownField, "the team file's schema is closed; it carries a member this version does not define")
-			e.Details["field"] = capRunes(protocol.SanitizeAttribute(name), TeamNameMaxRunes)
-			return nil, e
+			ignored = append(ignored, displayName(name))
 		}
 	}
 	for name, required := range members {
@@ -203,10 +234,67 @@ func parseDocument(path string, data []byte) (*File, error) {
 			return nil, refusal(path, ReasonMalformed, "the team file is missing a required member: "+name)
 		}
 	}
-	return validate(path, raw)
+	f, err := validate(path, raw)
+	if err != nil {
+		return nil, err
+	}
+	if member, ok := raw["sync"]; ok {
+		var inner []string
+		f.Sync, inner, f.SyncUnusable = parseSync(member)
+		ignored = append(ignored, inner...)
+	}
+	slices.Sort(ignored)
+	f.Ignored = ignored
+	return f, nil
 }
 
-// validate types and checks each member of an already-closed document.
+// carriesSecret walks an already-valid document's token stream: every
+// member name and every string value, at any depth, decoded, through
+// secretLike. A token walk rather than a decode into `any`, so a number
+// no Go type holds (1e400) in an ignored member can never refuse a file
+// that would otherwise parse.
+func carriesSecret(data []byte) bool {
+	dec := jsontext.NewDecoder(bytes.NewReader(data))
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			// io.EOF ends the walk; any other error cannot happen on bytes
+			// the document decode already accepted.
+			return false
+		}
+		if tok.Kind() == '"' && secretLike(tok.String()) {
+			return true
+		}
+	}
+}
+
+// ignoredNameMaxRunes caps each ignored member name the hook may echo.
+const ignoredNameMaxRunes = 32
+
+// displayName reduces an ignored member NAME to what the hook may put in
+// front of the model: ASCII letters, digits, `_`, `-` and `.` survive,
+// every other rune becomes `?`, and the result is capped. Stricter than
+// the attribute sanitizer on purpose: the name is repository text on a
+// model-facing line, and no member name a later version defines needs
+// more. An empty name renders as `?`.
+func displayName(name string) string {
+	out := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-', r == '.':
+			return r
+		default:
+			return '?'
+		}
+	}, capRunes(name, ignoredNameMaxRunes))
+	if out == "" {
+		return "?"
+	}
+	return out
+}
+
+// validate types and checks each required member and team_name; `sync`
+// is parseSync's, which never refuses. The secret checks already ran
+// over every decoded string (carriesSecret).
 func validate(path string, raw map[string]jsontext.Value) (*File, error) {
 	var f File
 	if err := json.Unmarshal(raw["version"], &f.Version); err != nil || f.Version != 1 {
@@ -222,19 +310,11 @@ func validate(path string, raw map[string]jsontext.Value) (*File, error) {
 		if err := json.Unmarshal(raw[name], dst); err != nil || *dst == "" {
 			return nil, refusal(path, ReasonMalformed, "the team file's "+name+" member must be a non-empty string")
 		}
-		if secretLike(*dst) {
-			return nil, refusal(path, ReasonSecretShaped,
-				"the team file contains what looks like a join secret; remove it and rotate the secret now")
-		}
 	}
 	if name, ok := raw["team_name"]; ok {
 		var s string
 		if err := json.Unmarshal(name, &s); err != nil {
 			return nil, refusal(path, ReasonMalformed, "the team file's team_name member must be a string")
-		}
-		if secretLike(s) {
-			return nil, refusal(path, ReasonSecretShaped,
-				"the team file contains what looks like a join secret; remove it and rotate the secret now")
 		}
 		f.TeamName = capRunes(protocol.SanitizeAttribute(s), TeamNameMaxRunes)
 	}
@@ -296,6 +376,12 @@ func capRunes(s string, n int) string {
 		count++
 	}
 	return s
+}
+
+// secretRefusal is the one urgent refusal: a join secret in the file.
+func secretRefusal(path string) *protocol.Error {
+	return refusal(path, ReasonSecretShaped,
+		"the team file contains what looks like a join secret; remove it and rotate the secret now")
 }
 
 // refusal is the `config` failure of a team-file check: fixed text, a

@@ -526,10 +526,12 @@ func adapterLine(name string, err error) string {
 
 // notJoinedLine is the one line a valid team file earns before a human
 // has consented in this checkout (brief §4): the sanitized team name is
-// the ONLY repo-sourced string that ever reaches the model, and only
-// here. The remedy is runnable as printed — in this session `brigade` is
-// on PATH (P7-11) — and names no path of its own: the human supplies the
-// secret file's, and the model never invents one.
+// the ONLY repo-sourced value that ever reaches the model, and only
+// here (the other repo-sourced text, the reduced NAMES of ignored
+// members, is printed only once a session attaches: teamFileNotes). The
+// remedy is runnable as printed — in this session `brigade` is on PATH
+// (P7-11) — and names no path of its own: the human supplies the secret
+// file's, and the model never invents one.
 func notJoinedLine(teamName string) string {
 	return "Brigade: not joined: this project uses team \"" + attr(teamName) + "\" — run `brigade team join` here or in a terminal (a first join on this machine needs `--secret-file <path>`, the join secret saved to a file outside the repository)."
 }
@@ -557,6 +559,49 @@ func teamFileLine(err error) string {
 		reason = "unreadable"
 	}
 	return "Brigade: not connected (config: team_file_" + attr(reason) + "): fix .brigade.json."
+}
+
+// maxIgnoredNames caps how many ignored member names the line lists; the
+// rest are counted, so a file of a thousand members is still one line.
+const maxIgnoredNames = 8
+
+// ignoredMembersLine is the one line for members this version does not
+// define (card 32, folder-sync plan §4.1): the file opened, so they are
+// ignored rather than refused, and the line says which — names only,
+// already reduced to a plain character set and capped by the parser.
+func ignoredMembersLine(names []string) string {
+	shown, more := names, ""
+	if len(names) > maxIgnoredNames {
+		shown, more = names[:maxIgnoredNames], ", and "+strconv.Itoa(len(names)-maxIgnoredNames)+" more"
+	}
+	list := make([]string, len(shown))
+	for i, n := range shown {
+		list[i] = attr(n)
+	}
+	return "Brigade: .brigade.json carries members this version does not define (" + strings.Join(list, ", ") + more + "); ignored."
+}
+
+// syncUnusableLine is the one line for a `sync` member the parser could
+// not use: never a refusal — the session connects, without file sync —
+// and the reason is a token from teamfile.SyncReasons, never a value.
+func syncUnusableLine(reason string) string {
+	return "Brigade: .brigade.json's sync member is not usable (" + attr(reason) + "); file sync is off for this session."
+}
+
+// teamFileNotes are the lines an attached session's team file earns
+// beside the context line: the ignored members, then an unusable sync.
+func teamFileNotes(tf *teamfile.File) []string {
+	if tf == nil {
+		return nil
+	}
+	var notes []string
+	if len(tf.Ignored) > 0 {
+		notes = append(notes, ignoredMembersLine(tf.Ignored))
+	}
+	if tf.SyncUnusable != "" {
+		notes = append(notes, syncUnusableLine(tf.SyncUnusable))
+	}
+	return notes
 }
 
 // optionsLine is the context line for an option ParseOptions refused. A

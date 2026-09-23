@@ -10,6 +10,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
 
 // The P7-6 security roster (brief §4/§5): the hook is attach-only, ever.
@@ -234,11 +235,6 @@ func TestHookTeamFileLines(t *testing.T) {
 			mode:    0o646,
 			want:    "Brigade: not connected (config: team_file_world_writable): fix .brigade.json.",
 		},
-		teamfile.ReasonUnknownField: {
-			content: `{"version":1,"adapter":"supabase","url":"https://x.co","publishable_key":"p","team_ref":"t","frame":"noop"}`,
-			mode:    0o600,
-			want:    "Brigade: not connected (config: team_file_unknown_field): fix .brigade.json.",
-		},
 		teamfile.ReasonMalformed: {
 			content: "not json",
 			mode:    0o600,
@@ -273,7 +269,9 @@ func TestHookTeamFileLines(t *testing.T) {
 	// The closed list stays covered: every token has either a case here
 	// or an os-level fixture elsewhere (not_regular_file and too_large
 	// are teamfile package tests; their hook rendering shares the one
-	// generic line this table pins).
+	// generic line this table pins). unknown_field left the list in card
+	// 32: an unknown member is ignored, and TestHookTeamFileNotes pins its
+	// line on a session that connects.
 	for reason, tc := range cases {
 		t.Run(reason, func(t *testing.T) {
 			t.Parallel()
@@ -324,5 +322,70 @@ func TestHookNotJoinedLineSanitisesTeamName(t *testing.T) {
 	}
 	if !strings.Contains(out, "not joined") {
 		t.Fatalf("out = %q, want the not-joined line", out)
+	}
+}
+
+// TestHookTeamFileNotes pins card 32's two lines (folder-sync plan
+// §4.1): members this version does not define are ignored and named, and
+// an unusable sync member switches file sync off — and in every case the
+// session registers and connects exactly as it would without them. The
+// lines follow the context line; neither echoes a value from the file.
+func TestHookTeamFileNotes(t *testing.T) {
+	t.Parallel()
+	const base = `{"version":1,"adapter":"supabase","url":"https://abc.supabase.co","publishable_key":"sb_publishable_x","team_ref":"team-1","team_name":"ops"`
+	const marker = "SENTINEL-FILE-VALUE"
+	const ignored = "Brigade: .brigade.json carries members this version does not define (frame, profile, sync.mode); ignored."
+	const unusable = "Brigade: .brigade.json's sync member is not usable (folder_not_relative); file sync is off for this session."
+	cases := map[string]struct {
+		members string
+		want    []string
+	}{
+		"nothing to say":                    {``, nil},
+		"a usable sync member says nothing": {`,"sync":{"folders":["docs/shared"]}`, nil},
+		"ignored members at both levels": {
+			`,"profile":"` + marker + `","frame":{"x":"` + marker + `"},"sync":{"folders":["docs"],"mode":"` + marker + `"}`,
+			[]string{ignored},
+		},
+		"an unusable sync member": {`,"sync":{"folders":["/` + marker + `"]}`, []string{unusable}},
+		"both, ignored first": {
+			`,"profile":"` + marker + `","frame":1,"sync":{"folders":["/` + marker + `"],"mode":"` + marker + `"}`,
+			[]string{ignored, unusable},
+		},
+		"more names than the line lists": {
+			`,"m1":1,"m2":1,"m3":1,"m4":1,"m5":1,"m6":1,"m7":1,"m8":1,"m9":1,"m10":1`,
+			[]string{"Brigade: .brigade.json carries members this version does not define (m1, m10, m2, m3, m4, m5, m6, m7, and 2 more); ignored."},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "x", false))}})
+			if err := os.WriteFile(filepath.Join(f.cwd, teamfile.FileName), []byte(base+tc.members+"}"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			if got := strings.Join(seam.verbs(), ","); got != "describe,session register" {
+				t.Fatalf("calls %q: the session must register as it would without the notes", got)
+			}
+			if !f.mapExists() {
+				t.Fatal("no session map: the session did not connect")
+			}
+			got := lines(out)
+			if len(got) != 1+len(tc.want) || !strings.HasPrefix(got[0], "Brigade: this session is ") {
+				t.Fatalf("lines = %q\nwant the context line then %q", got, tc.want)
+			}
+			for i, w := range tc.want {
+				if got[1+i] != w {
+					t.Fatalf("line %d = %q\nwant      %q", 1+i, got[1+i], w)
+				}
+			}
+			if strings.Contains(out, marker) || strings.Contains(errOut, marker) {
+				t.Fatalf("a value from the file reached the session:\nstdout %q\nstderr %q", out, errOut)
+			}
+		})
 	}
 }
