@@ -231,3 +231,6 @@ __pycache__/
 # The codex-bridge MCP server's local review database (tables `reviews`, `sessions`), written into the repository
 # root by its review tools. Same hazard as the two rules above: `git add --verbose :/ .` would commit it.
 reviews.db
+
+# Claude Code subagent worktrees (never part of the tree)
+.claude/worktrees/
