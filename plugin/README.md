@@ -183,20 +183,19 @@ transcript"). Your team and whoever runs the backend read that name, so it is wo
 you would not mind them seeing.
 
 **Where the sentence comes from.** Your session's own model writes it, with `brigade doing` — one present-tense
-sentence of at most 160 characters, on stdin, that the command refuses when it is empty, not UTF-8, longer than
-that, shaped like a credential or naming a path on your machine; `brigade doing --clear` removes it. Brigade reads
-nothing about your work for it: not your prompts, not your transcript, not the conversation's title — that one is
-read, but only ever as the NAME above. What keeps
-the model at it is a fixed line the prompt hook prints — at most once per ten minutes, plus once more after a
-`/compact` or a stretch in a mode where Brigade may not ask — saying the line is blank, or due again only if the
-work has changed. **That reminder is not shown to you as it happens**: on the screen the run appears only as
-`UserPromptSubmit hook`, never the text, while the session's transcript file records it as a `hook_success`
-hook attachment carrying the whole line (measured, `docs/experiments/E10-doing-triggers.md` Part 2) — so the
-first thing you see is a `brigade doing` call, like any other command the model runs.
-The line lives inside one conversation — blank after a new session, `claude --resume` and `/clear`; kept across
-`/compact` and a watcher restart (where the restarted watcher can read it back; otherwise blank, and the next
-reminder says so) — and a session that ends keeps its last sentence on the closed record for the backend's
-retention (7 days on the bundled adapters), where `brigade sessions --all` shows it with the state `offline`.
+sentence of at most 160 characters, on stdin, that the command refuses when it is empty, not UTF-8, longer than that,
+shaped like a credential or naming a path on your machine; `brigade doing --clear` removes it. Brigade reads nothing
+about your work for it: not your prompts, not your transcript, not the conversation's title — that one is read, but
+only ever as the NAME above. What keeps the model at it is a fixed line the prompt hook prints — at most once per ten
+minutes, plus once more after a `/compact` or a stretch in a mode where Brigade may not ask — saying the line is
+blank, or due again only if the work has changed. **That reminder is not shown to you as it happens**: on the screen
+the run appears only as `UserPromptSubmit hook`, never the text, while the session's transcript file records it as a
+`hook_success` hook attachment carrying the whole line (measured, `docs/experiments/E10-doing-triggers.md` Part 2) —
+so the first thing you see is a `brigade doing` call, like any other command the model runs. The line lives inside
+one conversation — blank after a new session, `claude --resume` and `/clear`; kept across `/compact` and a watcher
+restart (where the restarted watcher can read it back; otherwise blank, and the next reminder says so) — and a
+session that ends keeps its last sentence on the closed record for the backend's retention (7 days on the bundled
+adapters), where `brigade sessions --all` shows it with the state `offline`.
 
 **Where Brigade asks, and where it stays silent.** The reminder is printed only where the settings Brigade can
 read say the call will neither raise a permission dialog nor be denied: always in `bypassPermissions`; in
