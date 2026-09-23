@@ -91,17 +91,21 @@ func (w *watcher) runSync(ctx context.Context) {
 	}
 	desc, err := client.Describe(ctx)
 	if err != nil {
-		w.syncUnavailable(err)
+		w.syncUnavailable(ctx, err)
 		return
 	}
 	w.log.Info("sync adapter described",
 		slog.String("sync_adapter", w.sync.adapter), slog.String("name", protocol.SanitizeAttribute(desc.Name)),
 		slog.String("version", protocol.SanitizeAttribute(desc.Version)), slog.Int("folders", len(w.sync.folders)))
+	// The detach is registered before the first attach: an attach that
+	// counted this session in and then failed (or was cut short by the
+	// session's end) must not leave the reference behind, and detach is
+	// idempotent.
+	defer w.syncDetach(client)
 	if err := w.syncAttach(ctx, client); err != nil {
-		w.syncUnavailable(err)
+		w.syncUnavailable(ctx, err)
 		return
 	}
-	defer w.syncDetach(client)
 	tick := time.NewTicker(w.deps.SyncListInterval)
 	defer tick.Stop()
 	var (
@@ -209,7 +213,7 @@ func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client, peer
 	for _, f := range res.Folders {
 		states = append(states, protocol.SanitizeAttribute(f.State))
 	}
-	summary, connected := syncSummary(res)
+	summary, connected := syncSummary(res, folders)
 	w.log.Info("sync applied",
 		slog.Int("folders", len(res.Folders)), slog.Int("peers_offered", len(peers)),
 		slog.Int("peers", len(res.Peers)), slog.Int("connected", connected),
@@ -218,29 +222,48 @@ func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client, peer
 }
 
 // syncSummary is an apply's notice line — `Brigade sync: <f> folders, <c>
-// of <p> peers connected`, followed by `; 1 folder is held by another
-// checkout` (or `; <n> folders are held …`) when the adapter reported
-// conflict_path for any — and the connected count.
-func syncSummary(res *foldersync.ApplyResult) (string, int) {
+// of <p> peers connected`, where f counts the folders the adapter
+// reported but a paused one the project no longer lists, followed by `;
+// 1 folder is held by another checkout` (or `; <n> folders are held …`)
+// when the adapter reported conflict_path for any, and by `; 1 folder no
+// longer listed is paused` (or `; <n> folders no longer listed are
+// paused`) for a folder it reported paused that the project no longer
+// lists — and the connected count.
+func syncSummary(res *foldersync.ApplyResult, listed []foldersync.Folder) (string, int) {
 	connected := 0
 	for _, p := range res.Peers {
 		if p.Connected {
 			connected++
 		}
 	}
-	held := 0
+	ids := make(map[string]bool, len(listed))
+	for _, f := range listed {
+		ids[f.ID] = true
+	}
+	shown, held, paused := 0, 0, 0
 	for _, f := range res.Folders {
+		if f.State == foldersync.StatePaused && !ids[f.ID] {
+			paused++
+			continue
+		}
+		shown++
 		if f.State == foldersync.StateConflictPath {
 			held++
 		}
 	}
-	line := "Brigade sync: " + strconv.Itoa(len(res.Folders)) + " folders, " +
+	line := "Brigade sync: " + strconv.Itoa(shown) + " folders, " +
 		strconv.Itoa(connected) + " of " + strconv.Itoa(len(res.Peers)) + " peers connected"
 	switch {
 	case held == 1:
 		line += "; 1 folder is held by another checkout"
 	case held > 1:
 		line += "; " + strconv.Itoa(held) + " folders are held by another checkout"
+	}
+	switch {
+	case paused == 1:
+		line += "; 1 folder no longer listed is paused"
+	case paused > 1:
+		line += "; " + strconv.Itoa(paused) + " folders no longer listed are paused"
 	}
 	return line, connected
 }
@@ -297,26 +320,33 @@ func (w *watcher) syncDetach(client *foldersync.Client) {
 
 // syncUnavailable is the one notice for an adapter the session cannot
 // use; the goroutine ends after it and the session runs without file
-// sync until its next start.
-func (w *watcher) syncUnavailable(err error) {
+// sync until its next start. A failure that is only the session ending
+// (ctx done: the call was cut short) earns no notice — there is no next
+// prompt to print it at, and the adapter was not shown unusable.
+func (w *watcher) syncUnavailable(ctx context.Context, err error) {
+	if ctx.Err() != nil {
+		w.log.Info("sync adapter call cut short by the session's end", slog.String("sync_adapter", w.sync.adapter))
+		return
+	}
 	w.log.Warn("sync adapter unavailable; file sync is off for this session",
 		slog.String("sync_adapter", w.sync.adapter), slog.String("code", string(codeOf(err))), adlog.Err(err))
 	w.writeNotice(syncUnavailableNotice(w.sync.adapter, err))
 }
 
 // syncUnavailableNotice renders that notice: an external adapter missing
-// from PATH is named as the executable the user would install; any other
-// failure carries its code and the adapter's own message, sanitised onto
-// one capped line (it is local text from the user's own adapter, and it
-// is the one place a "syncthing is not on PATH" can reach the human).
+// from PATH is named as the executable the user would install; the
+// bundled adapter's executable missing is the plugin's own binary, which
+// no PATH holds; any other failure carries its code and the adapter's own
+// message, sanitised onto one capped line (it is local text from the
+// user's own adapter, and it is the one place a "syncthing is not on
+// PATH" can reach the human).
 func syncUnavailableNotice(adapter string, err error) string {
 	name := protocol.SanitizeAttribute(adapter)
 	if foldersync.IsNotFound(err) {
-		exe := name
-		if adapter != foldersync.BundledAdapter {
-			exe = foldersync.ExternalPrefix + name
+		if adapter == foldersync.BundledAdapter {
+			return "Brigade sync: the plugin's brigade binary could not be run; file sync is off for this session"
 		}
-		return "Brigade sync: " + exe + " is not on PATH; file sync is off for this session"
+		return "Brigade sync: " + foldersync.ExternalPrefix + name + " is not on PATH; file sync is off for this session"
 	}
 	code, msg := codeOf(err), ""
 	var perr *protocol.Error

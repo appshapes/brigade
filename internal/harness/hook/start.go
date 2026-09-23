@@ -174,12 +174,21 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 			// a flipped `sync` option takes effect through a new watcher.
 			reason = "sync changed"
 		}
+		watcherRuns := true // the live watcher stays unless replaced
 		if reason != "" {
 			r.log.Info("watcher "+reason+"; respawning", slog.Int("watcher_pid", verdict.Entry.PID),
 				slog.String("watcher_version", verdict.Entry.Version))
 			r.stopWatcher(verdict.Entry, f)
 			m := r.buildMap(f, in, res, existing.BrigadeSessionID, existing.TeamRef, existing.TeamName, existing.RegisteredAt, now)
-			r.spawnWatcher(ctx, f, m, pidfileWait)
+			// The replacement reads the map once, when it starts: this
+			// SessionStart's map is written first, as the register path
+			// does, or a "sync changed" respawn would run the OLD sync
+			// members while the line below announces the new ones.
+			// finish() writes it again, harmlessly.
+			if err := res.store.WriteByPID(m); err != nil {
+				r.log.Warn("session map not written before the respawn", log.Err(err))
+			}
+			watcherRuns = r.spawnWatcher(ctx, f, m, pidfileWait)
 		}
 		hbErr := r.heartbeat(ctx, res, existing.BrigadeSessionID, blank)
 		if hbErr == nil || !isCode(hbErr, protocol.CodeConflict, protocol.CodeNotFound) {
@@ -187,7 +196,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 				r.log.Warn("heartbeat failed; the watcher keeps trying", log.Err(hbErr))
 			}
 			m := r.buildMap(f, in, res, existing.BrigadeSessionID, existing.TeamRef, existing.TeamName, existing.RegisteredAt, now)
-			r.finish(f, in, res, m, now)
+			r.finish(f, in, res, m, now, watcherRuns)
 			return
 		}
 		// The server no longer has the session (closed or expired and
@@ -248,8 +257,8 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		r.fail("session-start: session map not written", err, notConnected(protocol.CodeConfig))
 		return
 	}
-	r.spawnWatcher(ctx, f, m, pidfileWait)
-	r.finish(f, in, res, m, now)
+	spawned := r.spawnWatcher(ctx, f, m, pidfileWait)
+	r.finish(f, in, res, m, now, spawned)
 }
 
 // respawnReason says why a live watcher serving this session must be
@@ -514,6 +523,9 @@ const (
 	syncOffOption     = "the sync option is off"
 	syncOffNoFolders  = "no folders listed"
 	syncOffUnresolved = "the checkout's toplevel could not be resolved"
+	// File sync runs in the watcher: a session with none syncs nothing.
+	syncOffNoSocket  = "no watcher runs without an inbox socket"
+	syncOffNoWatcher = "the watcher has not started yet"
 )
 
 // resolveSync decides what file sync this session runs (folder-sync plan
@@ -865,7 +877,10 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 // finish writes the maps (the by-pid map is rewritten on every
 // SessionStart), runs the shadowing check and the weekly prune, and prints
 // the context line with the policy warnings and the team-file notes.
-func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now time.Time) {
+// watcherRuns says whether a watcher serves the session now — spawned by
+// this SessionStart, or live and kept — because file sync runs in the
+// watcher: without one the sync line says off, whatever was resolved.
+func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now time.Time, watcherRuns bool) {
 	if err := res.store.WriteByPID(m); err != nil {
 		r.fail("session-start: session map not written", err, notConnected(protocol.CodeConfig))
 		return
@@ -884,8 +899,14 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	warnings = append(warnings, teamFileNotes(res.teamFile)...)
 	r.pruneCache(f, now)
 	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
-	if res.syncLine != "" {
-		r.say(res.syncLine)
+	if line := res.syncLine; line != "" {
+		if res.sync.adapter != "" && !watcherRuns {
+			line = syncOffLine(syncOffNoWatcher)
+			if f.socket == "" && r.deps.Sink == "" {
+				line = syncOffLine(syncOffNoSocket)
+			}
+		}
+		r.say(line)
 	}
 	if res.opts.SyncWarning != "" {
 		warnings = append(warnings, res.opts.SyncWarning)

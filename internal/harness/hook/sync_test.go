@@ -1,6 +1,7 @@
 package hook
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -126,6 +127,43 @@ func TestSyncLines(t *testing.T) {
 	}
 }
 
+// TestSyncLineNeedsAWatcher: file sync runs in the watcher, so `file sync
+// on` is printed only when one was spawned: a host without an inbox
+// socket runs none and says so; a spawn that failed says the watcher has
+// not started. The session connects either way, and the map still
+// freezes what was resolved.
+func TestSyncLineNeedsAWatcher(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		noSocket bool
+		spawnErr error
+		want     string
+	}{
+		"no inbox socket":  {noSocket: true, want: "Brigade: file sync off (no watcher runs without an inbox socket)."},
+		"the spawn failed": {spawnErr: errors.New("fork failed"), want: "Brigade: file sync off (the watcher has not started yet)."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.noSocket = tc.noSocket
+			f.spawner.err = tc.spawnErr
+			f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "x", false))}})
+			f.writeTeamFile(`,"sync":{"folders":["docs"]}`)
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"))
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			got := lines(out)
+			if len(got) != 2 || !strings.HasPrefix(got[0], "Brigade: this session is ") || got[1] != tc.want {
+				t.Fatalf("lines = %q\nwant the context line then %q", got, tc.want)
+			}
+			if m := f.mustMap(); !slices.Equal(m.SyncFolders, []string{"docs"}) {
+				t.Fatalf("map sync_folders = %v", m.SyncFolders)
+			}
+		})
+	}
+}
+
 // TestSyncChangeRespawnsTheWatcher: the watcher reads the sync members
 // once, so on the continue path (/clear) a changed `sync` member or a
 // flipped option replaces it, exactly as a changed coordinate does; the
@@ -178,6 +216,11 @@ func TestSyncChangeRespawnsTheWatcher(t *testing.T) {
 				testutil.Eventually(t, pollTimeout, pollInterval, func() bool { return !alive(old) })
 				if f.spawner.count() != 2 || !strings.Contains(errOut, "sync changed; respawning") {
 					t.Fatalf("spawns %d, stderr %q: want a respawn for the sync change", f.spawner.count(), errOut)
+				}
+				// The replacement reads the map once, at its start: it must
+				// find the NEW sync members there, not the old ones.
+				if seen := f.spawner.lastMap(t); !slices.Equal(seen.SyncFolders, tc.folders) {
+					t.Fatalf("the respawned watcher read sync_folders %v, want %v", seen.SyncFolders, tc.folders)
 				}
 			}
 			if m := f.mustMap(); !slices.Equal(m.SyncFolders, tc.folders) {

@@ -113,16 +113,16 @@ func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLev
 // spawnWatcher starts the watcher for the session m describes and waits
 // up to pidfileWait for its pidfile (the watcher writes it, 6.6). A
 // watcher that does not appear is logged, not an error: the next prompt
-// hook respawns it.
-func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pidfileWait time.Duration) {
+// hook respawns it. It reports whether a watcher was spawned.
+func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pidfileWait time.Duration) bool {
 	if f.socket == "" && r.deps.Sink == "" {
 		r.log.Info("no inbox socket in this session; the watcher is not started (poll_on_prompt is the fallback)")
-		return
+		return false
 	}
 	adapter, err := config.AdapterFromArgv(m.AdapterCommand)
 	if err != nil {
 		r.log.Warn("watcher not started: adapter command", log.Err(err))
-		return
+		return false
 	}
 	env, err := watcherEnviron(r.environ, config.WatcherEnv{
 		ClaudePID:   f.pid,
@@ -134,7 +134,7 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 	}, f.socket, f.token, r.logLevel)
 	if err != nil {
 		r.log.Warn("watcher not started: environment", log.Err(err))
-		return
+		return false
 	}
 	args := []string{"watch"}
 	if r.deps.Sink != "" {
@@ -152,12 +152,13 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 	})
 	if err != nil {
 		r.log.Warn("watcher not started", log.Err(err))
-		return
+		return false
 	}
 	r.log.Info("watcher started", slog.Int("watcher_pid", pid))
 	if !r.awaitPidfile(f, pidfileWait) {
 		r.log.Warn("watcher pidfile did not appear; the next prompt respawns", slog.Int("watcher_pid", pid))
 	}
+	return true
 }
 
 // awaitPidfile polls for this pid's watcher pidfile until it exists or

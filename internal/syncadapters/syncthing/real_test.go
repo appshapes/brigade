@@ -160,6 +160,43 @@ func TestRealSyncthingIntegration(t *testing.T) {
 		t.Errorf("status peers = %v, want the peer and the hand-added server", res["peers"])
 	}
 
+	// A folder the project drops is paused — its directory stays — while
+	// the folder above, whose label proves no name for its id, is left
+	// alone; listing it again un-pauses it.
+	repo := filepath.Join(t.TempDir(), "repo")
+	docs := map[string]string{"id": testFolderID("test0000", "docs"), "path": filepath.Join(repo, "docs"), "label": "repo/docs"}
+	notes := map[string]string{"id": testFolderID("test0000", "../notes"), "path": filepath.Join(filepath.Dir(repo), "notes"), "label": "repo/../notes"}
+	paused := func(id string) bool {
+		t.Helper()
+		var fc configuredFolder
+		if err := c.do(http.MethodGet, "/rest/config/folders/"+id, nil, nil, &fc); err != nil {
+			t.Fatal(err)
+		}
+		return fc.Paused
+	}
+	applyReq["folders"] = []map[string]string{docs, notes}
+	call("apply", applyReq)
+	applyReq["folders"] = []map[string]string{docs}
+	res = call("apply", applyReq)
+	states := map[string]any{}
+	for _, f := range res["folders"].([]any) {
+		states[f.(map[string]any)["id"].(string)] = f.(map[string]any)["state"]
+	}
+	if states[notes["id"]] != "paused" || states[docs["id"]] == "rejected" || len(states) != 2 {
+		t.Errorf("apply with a folder dropped: folders = %v, want the dropped one paused", states)
+	}
+	if !paused(notes["id"]) || paused(docs["id"]) || paused(folderID) {
+		t.Errorf("paused: notes %v, docs %v, the unproven folder %v; want notes alone", paused(notes["id"]), paused(docs["id"]), paused(folderID))
+	}
+	if _, err := os.Stat(notes["path"]); err != nil {
+		t.Errorf("the paused folder's directory: %v", err)
+	}
+	applyReq["folders"] = []map[string]string{docs, notes}
+	call("apply", applyReq)
+	if paused(notes["id"]) {
+		t.Error("the folder listed again is still paused")
+	}
+
 	res = call("detach", map[string]any{"state_dir": stateDir, "session_id": "real-1"})
 	if res["stopped"] != true {
 		t.Errorf("detach = %v", res)
