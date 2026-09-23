@@ -17,6 +17,7 @@ import (
 	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -31,6 +32,10 @@ type Answers struct {
 	Apply    string
 	Status   string
 	Detach   string
+	// ApplySequence, when set, is apply's result call by call: the first
+	// apply answers the first entry, the second the second, and every
+	// later one the last. It takes the place of Apply.
+	ApplySequence []string
 	// ErrorOn lists the verbs that fail.
 	ErrorOn      []string
 	ErrorMessage string
@@ -93,7 +98,17 @@ func Write(tb testing.TB, dir string, a Answers) *Fake {
 	b.WriteString("case \"$verb\" in\n")
 	b.WriteString("describe)\n" + answer("describe", a.Describe, DefaultDescribe) + "  ;;\n")
 	b.WriteString("attach)\n" + answer("attach", a.Attach, DefaultAttach) + "  ;;\n")
-	b.WriteString("apply)\n" + answer("apply", a.Apply, DefaultApply) + "  ;;\n")
+	if len(a.ApplySequence) > 0 && !failing["apply"] {
+		// This call's own record line is already written, so the count
+		// of apply lines is this call's ordinal.
+		b.WriteString("apply)\n  n=$(grep -c '^apply\t' " + quote(record) + ")\n  case \"$n\" in\n")
+		for i, result := range a.ApplySequence[:len(a.ApplySequence)-1] {
+			b.WriteString("  " + strconv.Itoa(i+1) + ")\n  " + answer("apply", result, DefaultApply) + "  ;;\n")
+		}
+		b.WriteString("  *)\n  " + answer("apply", a.ApplySequence[len(a.ApplySequence)-1], DefaultApply) + "  ;;\n  esac\n  ;;\n")
+	} else {
+		b.WriteString("apply)\n" + answer("apply", a.Apply, DefaultApply) + "  ;;\n")
+	}
 	b.WriteString("status)\n" + answer("status", a.Status, DefaultStatus) + "  ;;\n")
 	b.WriteString("detach)\n" + answer("detach", a.Detach, DefaultDetach) + "  ;;\n")
 	b.WriteString("*)\n  printf '%s\\n' " + quote(`{"ok":false,"protocol_version":"1","error":{"code":"usage","message":"unknown verb","retryable":false}}`) + "\n  exit 2\n  ;;\nesac\n")

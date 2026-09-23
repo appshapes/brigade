@@ -15,13 +15,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   folders in the `sync` member of its `.brigade.json`, and every session in a checkout of that repository keeps
   them in step with the teammates' checkouts of it — peer to peer, through [Syncthing](https://syncthing.net),
   while a session is active. Brigade carries no file byte. Each session publishes its machine's Syncthing device
-  id to the roster as its `sync_peer`, and every 60 seconds its watcher shares the listed folders with the device
-  of every other session of the team in the same repository (the same `REPO`), online or not; a teammate who
-  starts a session is connected within about a minute. The bundled Syncthing adapter, built into the plugin's
+  id to the roster as its `sync_peer`; its watcher reads the roster every 15 seconds and, whenever the devices
+  changed and at least once a minute, shares the listed folders with the device of every other session of the
+  team in the same repository (the same `REPO`), online or not; a teammate who starts a session is introduced
+  within about 15 seconds. The bundled Syncthing adapter, built into the plugin's
   binary, runs a dedicated Syncthing per machine — never the user's own — under Brigade's state directory
-  (`sync/syncthing/`, 0700), started by the machine's first session and stopped by its last, with its REST API on
-  127.0.0.1 only and its key left in Syncthing's own `config.xml`. Syncthing's defaults stay as they are:
-  device-to-device TLS, global discovery, relays and NAT traversal. Folders sync both ways with 14-day trash-can
+  (`sync/syncthing/`, 0700), started by the machine's first session and stopped by its last (a session whose
+  watcher died without ending is dropped by the next session to start or end), with its REST API on
+  127.0.0.1 only and its key left in Syncthing's own `config.xml`. Syncthing's defaults stay as they are —
+  device-to-device TLS, global discovery, relays and NAT traversal — but one: the instance listens for peers on a
+  port of its own, never 22000. It only ever adds devices, so a server added to it by hand stays, and a second
+  checkout of the same folder on one machine shows `conflict_path` rather than taking the folder over. Folders sync both ways with 14-day trash-can
   versioning in each folder's `.stversions`, **deletions propagate**, and a conflict leaves a
   `<name>.sync-conflict-<date>-<time>-<device>.<ext>` copy beside the file. Each machine needs `syncthing` on its
   `PATH` (`brew install syncthing`, `sudo apt install syncthing`); a machine without it connects as before, and

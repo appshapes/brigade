@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -116,6 +117,7 @@ func TestSyncDrivesTheAdapter(t *testing.T) {
 	// the one the attach asked for, and exactly one apply runs.
 	deps.HeartbeatInterval = time.Hour
 	deps.SyncInterval = time.Hour
+	deps.SyncListInterval = time.Hour
 	r := fx.start(deps, fx.args()...)
 
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return slices.Contains(fake.Verbs(t), "apply") })
@@ -129,6 +131,15 @@ func TestSyncDrivesTheAdapter(t *testing.T) {
 	recs := fake.Records(t)
 	if got := fake.Verbs(t); !slices.Equal(got, []string{"describe", "attach", "apply"}) {
 		t.Fatalf("verbs before the stop = %v", got)
+	}
+	// attach carries the watcher's own pid (in process here: this test's),
+	// so the adapter can prune the reference of a watcher that died.
+	var attach foldersync.SessionRequest
+	if err := json.Unmarshal(recs[1].Request, &attach); err != nil {
+		t.Fatal(err)
+	}
+	if attach.SessionID != fx.sessionID || attach.PID != os.Getpid() {
+		t.Fatalf("attach request = %s, want this session and pid %d", recs[1].Request, os.Getpid())
 	}
 	var apply foldersync.ApplyRequest
 	if err := json.Unmarshal(recs[2].Request, &apply); err != nil {
@@ -156,8 +167,9 @@ func TestSyncDrivesTheAdapter(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	recs = fake.Records(t)
-	if last := recs[len(recs)-1]; last.Verb != "detach" || !strings.Contains(string(last.Request), `"session_id":"`+fx.sessionID+`"`) {
-		t.Fatalf("the last call is %s %s, want this session's detach", last.Verb, last.Request)
+	wantDetach := `{"state_dir":"` + fx.dirs.BrigadeState + `","session_id":"` + fx.sessionID + `","pid":` + strconv.Itoa(os.Getpid()) + `}`
+	if last := recs[len(recs)-1]; last.Verb != "detach" || string(last.Request) != wantDetach {
+		t.Fatalf("the last call is %s %s, want %s", last.Verb, last.Request, wantDetach)
 	}
 	// Scalars only: no request or result body reaches the watcher's log.
 	if data, err := os.ReadFile(fx.logPath()); err != nil || strings.Contains(string(data), "PEER-A") || strings.Contains(string(data), root) {
@@ -165,9 +177,10 @@ func TestSyncDrivesTheAdapter(t *testing.T) {
 	}
 }
 
-// TestSyncReattachesEveryRound: `attach` precedes every apply after the
-// first (it is idempotent), so a reference a replaced watcher's late
-// detach dropped comes back within one interval.
+// TestSyncReattachesEveryRound: with the peers unchanged, an apply still
+// runs once SyncInterval has passed, and `attach` precedes every apply
+// after the first (it is idempotent), so a reference a replaced watcher's
+// late detach dropped comes back within one interval.
 func TestSyncReattachesEveryRound(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{sink: true})
@@ -177,6 +190,7 @@ func TestSyncReattachesEveryRound(t *testing.T) {
 	deps := fx.deps()
 	deps.SyncCommand = fake.Argv
 	deps.SyncInterval = 50 * time.Millisecond
+	deps.SyncListInterval = 20 * time.Millisecond
 	r := fx.start(deps, fx.args()...)
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {
 		n := 0
@@ -193,6 +207,72 @@ func TestSyncReattachesEveryRound(t *testing.T) {
 	verbs := fake.Verbs(t)
 	if !slices.Equal(verbs[:5], []string{"describe", "attach", "apply", "attach", "apply"}) || verbs[len(verbs)-1] != "detach" {
 		t.Fatalf("verbs = %v", verbs)
+	}
+}
+
+// applies counts the apply calls recorded so far.
+func applies(t *testing.T, fake *fakesync.Fake) int {
+	t.Helper()
+	n := 0
+	for _, v := range fake.Verbs(t) {
+		if v == "apply" {
+			n++
+		}
+	}
+	return n
+}
+
+// TestSyncAppliesWhenThePeersChange: the roster is read every
+// SyncListInterval and an apply follows as soon as the teammates' peers
+// changed — long before SyncInterval — carrying the new peer; one more
+// apply follows at the next read (the peer just introduced has connected
+// by then), and the notice line is refreshed from that apply's result,
+// naming a folder another checkout holds (conflict_path) in its one fixed
+// sentence. While the peers stay the same, no further apply runs before
+// SyncInterval.
+func TestSyncAppliesWhenThePeersChange(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	fx.useFS()
+	fx.syncMap("syncthing", t.TempDir(), "docs", "notes")
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{ApplySequence: []string{
+		`{"folders":[{"id":"a","state":"idle"},{"id":"b","state":"idle"}],"peers":[]}`,
+		`{"folders":[{"id":"a","state":"idle"},{"id":"b","state":"conflict_path"}],"peers":[{"peer":"PEER-NEW","connected":false}]}`,
+		`{"folders":[{"id":"a","state":"idle"},{"id":"b","state":"conflict_path"}],"peers":[{"peer":"PEER-NEW","connected":true}]}`,
+	}})
+	deps := fx.deps()
+	deps.SyncCommand = fake.Argv
+	deps.SyncInterval = time.Hour
+	deps.SyncListInterval = 50 * time.Millisecond
+	r := fx.start(deps, fx.args()...)
+
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		return fx.readNotice() == "Brigade sync: 2 folders, 0 of 0 peers connected"
+	})
+	fx.registerPeer(ptr(syncRepo), ptr("syncthing:PEER-NEW"), false)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		return fx.readNotice() == "Brigade sync: 2 folders, 1 of 1 peers connected; 1 folder is held by another checkout"
+	})
+	recs := fake.Records(t)
+	if got := fake.Verbs(t); !slices.Equal(got, []string{"describe", "attach", "apply", "attach", "apply", "attach", "apply"}) {
+		t.Fatalf("verbs = %v", got)
+	}
+	for _, i := range []int{4, 6} {
+		var apply foldersync.ApplyRequest
+		if err := json.Unmarshal(recs[i].Request, &apply); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(apply.Peers, []foldersync.Peer{{Peer: "PEER-NEW", Label: "peer@example.com"}}) {
+			t.Fatalf("call %d: apply peers = %+v", i, apply.Peers)
+		}
+	}
+	// Unchanged peers: several roster reads later, still three applies.
+	time.Sleep(10 * deps.SyncListInterval)
+	if n := applies(t, fake); n != 3 {
+		t.Fatalf("%d applies with the peers unchanged and SyncInterval an hour away, want 3", n)
+	}
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
 	}
 }
 

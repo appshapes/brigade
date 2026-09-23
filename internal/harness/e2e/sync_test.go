@@ -28,10 +28,11 @@ import (
 const syncthingVar = "BRIGADE_TEST_SYNCTHING"
 
 // Hang catchers for the smoke, never performance bounds (plan 7.3):
-// waitSync covers the watcher's apply interval (60 s — a peer published
-// after a session's last apply is introduced at its next one) plus
-// Syncthing's discovery; waitFile covers a transfer, which Syncthing
-// starts after its filesystem watcher's 10 s delay.
+// waitSync covers the watcher's roster read (every 15 s — a peer
+// published after a session's last apply is introduced at the next read,
+// and at the latest by the 60 s re-apply) plus Syncthing's discovery;
+// waitFile covers a transfer, which Syncthing starts after its filesystem
+// watcher's 10 s delay.
 const (
 	waitSync  = 180 * time.Second
 	waitFile  = 120 * time.Second
@@ -243,9 +244,50 @@ func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
 	})
 	t.Logf("each instance listed the other's device %s after the first SessionStart; both reported it connected at %s (%s after both were introduced)",
 		introduced.Round(time.Millisecond), connected.Round(time.Millisecond), (connected - introduced).Round(time.Millisecond))
-	// How they connected, in Syncthing's own words: both instances keep
-	// its default listen addresses (tcp and quic on port 22000), so on one
-	// machine the listeners and the connection are worth recording.
+	// Each instance listens on a port of its own (listen-port), never
+	// Syncthing's default 22000, so neither shares a port with the other
+	// or with a Syncthing the person runs; how they connected, in
+	// Syncthing's own words, is worth recording.
+	listen := map[string]string{}
+	for name, home := range homes {
+		raw, err := os.ReadFile(filepath.Join(home, "listen-port")) //nolint:gosec // G304: the instance's own file under the test's tree
+		if err != nil {
+			t.Fatalf("%s's instance has no listen-port: %v", name, err)
+		}
+		listen[name] = strings.TrimSpace(string(raw))
+		if listen[name] == "22000" || listen[name] == "" {
+			t.Fatalf("%s's instance listens on %q, want a port of its own", name, listen[name])
+		}
+	}
+	if listen["alice"] == listen["bob"] {
+		t.Fatalf("both instances kept listen port %s", listen["alice"])
+	}
+	t.Logf("listen ports: alice %s, bob %s", listen["alice"], listen["bob"])
+	// A fresh instance starts on Syncthing's default (22000) before attach
+	// patches its listen addresses; once patched it must hold no 22000
+	// listener. Measured with lsof where the machine has it, by process
+	// group: daemon.pid names Syncthing's monitor process (v2.1.5 runs one
+	// even with --no-restart), and its child — in the group the Setsid
+	// start made — holds the sockets.
+	if lsof, err := exec.LookPath("lsof"); err == nil {
+		for name, home := range homes {
+			pid := strconv.Itoa(daemonPID(t, home))
+			var ports string
+			for deadline := time.Now().Add(waitLong); ; time.Sleep(pollSync) {
+				out, _ := exec.CommandContext(t.Context(), lsof, "-nP", "-a", "-g", pid, "-iTCP", "-sTCP:LISTEN").Output() //nolint:gosec // G204: lsof found on PATH, an argv array, and a pid this test read
+				ports = string(out)
+				if strings.Contains(ports, ":"+listen[name]+" ") && !strings.Contains(ports, ":22000 ") {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("%s's instance (pid %s) TCP listeners after %s, want %s and not 22000:\n%s", name, pid, waitLong, listen[name], ports)
+				}
+			}
+			t.Logf("%s's instance listens (TCP) on its own port %s and not on 22000", name, listen[name])
+		}
+	} else {
+		t.Log("no lsof on this machine: the instances' listeners were not inspected")
+	}
 	for _, name := range []string{"alice", "bob"} {
 		for _, line := range engineLog(t, homes[name], "listener starting", "Failed to listen", "Established secure connection") {
 			t.Logf("%s's syncthing.log: %s", name, line)
@@ -256,8 +298,18 @@ func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
 			t.Fatalf("%s's instance has no daemon.pid: %v", name, err)
 		}
 	}
-	res := r.hook(alice, "prompt", alice.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "default", "prompt": "never read"}))
-	t.Logf("alice's next prompt printed: %q", res.stdout)
+	// The notice follows each apply; the apply after the one that
+	// introduced the other device (at the next roster read) reports it
+	// connected. A prompt prints the notice only when it changed.
+	var notices []string
+	testutil.Eventually(t, waitSync, pollSync, func() bool {
+		res := r.hook(alice, "prompt", alice.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "default", "prompt": "never read"}))
+		if out := strings.TrimSpace(res.stdout); out != "" {
+			notices = append(notices, out)
+		}
+		return strings.Contains(res.stdout, "Brigade sync: 1 folders, 1 of 1 peers connected")
+	})
+	t.Logf("alice's prompts printed %q; the last %s after the first SessionStart", notices, time.Since(start).Round(time.Millisecond))
 
 	// --- 5 (while running). U-25: no API key on any argv ------------------------
 	keys := map[string]string{"alice": apiKey(t, homes["alice"]), "bob": apiKey(t, homes["bob"])}

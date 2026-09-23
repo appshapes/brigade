@@ -303,6 +303,21 @@ truth:**
   documented. (c) The always-on node of §7 cannot be a Syncthing that Brigade did not start, because (per the
   `apply` bullet) each round replaces a folder's device list with the roster's peers; `docs/sync.md` says a
   machine keeping a session open is the always-on node instead.
+- **Fixed (P18-6), superseding (a)–(c) and the "no listenAddresses patch" line above:** `apply` only adds — a
+  device the instance already holds is never re-posted, and a folder's `devices` is its existing list plus the
+  accepted peers, so a hand-added server stays; a folder id held at a **different** path is `conflict_path` and left
+  alone (the harness counts it in the notice, `; 1 folder is held by another checkout`, and `brigade sync status`
+  shows it for an engine path that is not this checkout's); `attach` and `detach` take an optional `pid` (the
+  watcher's `os.Getpid()`), kept as `<pid> <start token>` in `refs/<session_id>`, and both prune refs whose holder
+  is dead (a ref with no pid only by its own detach); the watcher reads the roster every 15 s
+  (`DefaultSyncListInterval`) and applies when the peer set changed, once more at the next read after such an
+  apply (the introduced peer has connected by then, so the notice's count is fresh), after 60 s, or after a
+  failed apply; the instance gets its own sync listen port (`<home>/listen-port`, free for TCP and UDP) set by
+  `PATCH /rest/config/options` `listenAddresses` = tcp/quic on it plus the dynamic relay pool, only when it
+  differs. Measured with Syncthing 2.1.5: introduction 16.2 s after the first SessionStart (was 60.8 s), the
+  notice `1 of 1 peers connected` at 30.8 s, both instances listening on their own ports and on no 22000.
+  Syncthing v2.1.5 runs a monitor process even with `--no-restart`: `daemon.pid` names the monitor, and its child
+  (same process group) holds the sockets.
 
 ### 4.5 Documentation — Brigade's plain manner
 

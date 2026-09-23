@@ -6,13 +6,17 @@
 // It drives a DEDICATED Syncthing instance per machine, never the user's
 // own: its home is <state_dir>/sync/syncthing (0700), holding Syncthing's
 // config.xml, certificate and index beside Brigade's book-keeping —
-// daemon.pid, port, lock, syncthing.log and one refs/<session_id> file per
-// attached session. The first attach starts `syncthing serve` detached in
-// its own session; the last detach shuts it down, so sync runs only while
-// a session is active (plan section 1). Everything else — discovery,
-// relays, transfer, conflicts, deletions, the trash can — is Syncthing's,
-// with its defaults as they are (the owner's ruling of 2026-09-22: no
-// options added).
+// daemon.pid, port, listen-port, lock, syncthing.log and one
+// refs/<session_id> file per attached session (holding the pid of the
+// session's watcher, so a reference whose process died is pruned). The
+// first attach starts `syncthing serve` detached in its own session; the
+// last detach shuts it down, so sync runs only while a session is active
+// (plan section 1). Everything else — discovery, relays, transfer,
+// conflicts, deletions, the trash can — is Syncthing's, with its defaults
+// as they are (the owner's ruling of 2026-09-22: no options added) but
+// one: the instance listens for peers on a port of its own (listen-port)
+// instead of 22000, so it never shares a port with a Syncthing the person
+// runs themselves.
 //
 // This package is the ONE place Brigade starts a long-running daemon, which
 // is why it has its own exec carve-out in .golangci.yml. The daemon is

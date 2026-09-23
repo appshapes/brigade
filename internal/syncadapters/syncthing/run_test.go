@@ -33,15 +33,19 @@ const testID = "SELFSEL-FSELFSE-LFSELFS-ELFSELF-SELFSEL-FSELFSE-LFSELFS-ELFSELF"
 type fakeAPI struct {
 	t *testing.T
 
-	mu         sync.Mutex
-	devices    []deviceConfig
-	folders    []folderConfig
-	extra      []configuredFolder // folders "another project" holds
-	connected  map[string]bool
-	shutdowns  int
-	failStop   bool
-	onShutdown func()
-	badKey     int
+	mu          sync.Mutex
+	devices     []deviceConfig
+	devicePosts int
+	folders     []folderConfig
+	folderPosts int
+	extra       []configuredFolder // folders "another project" holds
+	connected   map[string]bool
+	listen      []string // options.listenAddresses
+	listenSets  int
+	shutdowns   int
+	failStop    bool
+	onShutdown  func()
+	badKey      int
 }
 
 func newFakeAPI(t *testing.T) (*fakeAPI, *httptest.Server) {
@@ -95,12 +99,13 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid device", http.StatusBadRequest)
 			return
 		}
+		f.devicePosts++
 		f.devices = slices.DeleteFunc(f.devices, func(e deviceConfig) bool { return e.DeviceID == d.DeviceID })
 		f.devices = append(f.devices, d)
 	case "GET /rest/config/folders":
 		out := slices.Clone(f.extra)
 		for _, c := range f.folders {
-			out = append(out, configuredFolder{ID: c.ID, Path: c.Path})
+			out = append(out, configuredFolder{ID: c.ID, Path: c.Path, Devices: c.Devices})
 		}
 		reply(out)
 	case "POST /rest/config/folders":
@@ -109,8 +114,26 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid folder", http.StatusBadRequest)
 			return
 		}
+		f.folderPosts++
 		f.folders = slices.DeleteFunc(f.folders, func(e folderConfig) bool { return e.ID == c.ID })
 		f.folders = append(f.folders, c)
+	case "GET /rest/config/options":
+		// Syncthing's whole options object; the adapter reads one member.
+		reply(map[string]any{"listenAddresses": f.listen, "globalAnnounceEnabled": true, "relaysEnabled": true})
+	case "PATCH /rest/config/options":
+		var o map[string]any
+		if err := json.UnmarshalRead(r.Body, &o); err != nil || len(o) != 1 {
+			http.Error(w, "the patch must name listenAddresses alone", http.StatusBadRequest)
+			return
+		}
+		var lo listenOptions
+		raw, _ := json.Marshal(o)
+		if err := json.Unmarshal(raw, &lo); err != nil || lo.ListenAddresses == nil {
+			http.Error(w, "invalid options", http.StatusBadRequest)
+			return
+		}
+		f.listen = lo.ListenAddresses
+		f.listenSets++
 	case "GET /rest/db/status":
 		id := r.URL.Query().Get("folder")
 		for _, c := range f.folders {
@@ -315,6 +338,217 @@ func TestApplyIntroducesPeersAndSharesFolders(t *testing.T) {
 	if fake.badKey != 0 {
 		t.Errorf("%d calls carried the wrong API key", fake.badKey)
 	}
+}
+
+// TestApplyKeepsWhatItDidNotAdd: a device a person added to the instance
+// by hand — an always-on server sharing the same folder id — stays in the
+// instance exactly as it was added, and stays in the folder's device list
+// (with Syncthing's own members of its entry), round after round; a
+// roster peer the instance already knows is not re-posted.
+func TestApplyKeepsWhatItDidNotAdd(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	d := testDeps(srv, "")
+	stateDir, _ := runningHome(t)
+	path := filepath.Join(t.TempDir(), "shared")
+	server := deviceConfig{DeviceID: "SERVER", Name: "the server", Addresses: []string{"tcp://server.example:22000"}}
+	fake.devices = []deviceConfig{server, {DeviceID: "PEERTWO", Name: "bob by hand", Addresses: []string{"tcp://bob.example:22000"}}}
+	fake.folders = []folderConfig{{
+		ID: "brigade-aaaa-1111", Path: path,
+		Devices: []deviceRef{{DeviceID: testID}, {DeviceID: "SERVER", EncryptionPassword: "server-folder-password"}},
+	}}
+	req := map[string]any{
+		"state_dir": stateDir,
+		"folders":   []map[string]string{{"id": "brigade-aaaa-1111", "path": path, "label": "repo/shared"}},
+		"peers":     []map[string]string{{"peer": "PEERONE", "label": "alice"}, {"peer": "PEERTWO", "label": "bob"}},
+	}
+	for round := range 2 {
+		res := mustOK(t, invoke(t, d, "apply", req), "apply")
+		if fs := res["folders"].([]any); len(fs) != 1 || fs[0].(map[string]any)["state"] != "idle" {
+			t.Fatalf("round %d: apply folders = %v", round, fs)
+		}
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	want := []deviceRef{{DeviceID: testID}, {DeviceID: "SERVER", EncryptionPassword: "server-folder-password"}, {DeviceID: "PEERONE"}, {DeviceID: "PEERTWO"}}
+	if len(fake.folders) != 1 || !slices.Equal(fake.folders[0].Devices, want) {
+		t.Fatalf("folder devices = %+v, want %+v (the hand-added server kept, the peers added)", fake.folders, want)
+	}
+	if fake.devicePosts != 1 {
+		t.Errorf("%d device posts, want 1: only PEERONE was unknown, and only in the first round", fake.devicePosts)
+	}
+	byID := map[string]deviceConfig{}
+	for _, dc := range fake.devices {
+		byID[dc.DeviceID] = dc
+	}
+	if got := byID["SERVER"]; got.Name != server.Name || !slices.Equal(got.Addresses, server.Addresses) {
+		t.Errorf("the hand-added server device changed: %+v", got)
+	}
+	if got := byID["PEERTWO"]; got.Name != "bob by hand" || got.Addresses[0] != "tcp://bob.example:22000" {
+		t.Errorf("a device the instance already knew was re-posted: %+v", got)
+	}
+	if got := byID["PEERONE"]; got.Name != "alice" || !slices.Equal(got.Addresses, []string{"dynamic"}) {
+		t.Errorf("the new peer = %+v", got)
+	}
+}
+
+// TestApplyLeavesAFolderHeldAtAnotherPath: the folder id is already held
+// at another path — the same folder of a second clone of the repository
+// on this machine — so this checkout's apply reports conflict_path and
+// leaves it exactly where it is, round after round, and creates nothing.
+// The same path spelled through a symlink is not a conflict.
+func TestApplyLeavesAFolderHeldAtAnotherPath(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	d := testDeps(srv, "")
+	stateDir, _ := runningHome(t)
+	first := filepath.Join(t.TempDir(), "clone-1", "shared")
+	second := filepath.Join(t.TempDir(), "clone-2", "shared")
+	fake.folders = []folderConfig{{ID: "brigade-aaaa-1111", Path: first, Devices: []deviceRef{{DeviceID: testID}}}}
+	req := map[string]any{
+		"state_dir": stateDir,
+		"folders":   []map[string]string{{"id": "brigade-aaaa-1111", "path": second, "label": "repo/shared"}},
+		"peers":     []map[string]string{{"peer": "PEERONE", "label": "alice"}},
+	}
+	for range 2 {
+		res := mustOK(t, invoke(t, d, "apply", req), "apply")
+		if fs := res["folders"].([]any); len(fs) != 1 || fs[0].(map[string]any)["state"] != "conflict_path" {
+			t.Fatalf("apply folders = %v, want conflict_path", fs)
+		}
+	}
+	fake.mu.Lock()
+	if fake.folderPosts != 0 || fake.folders[0].Path != first {
+		t.Errorf("the held folder was re-posted (%d posts) or moved to %s", fake.folderPosts, fake.folders[0].Path)
+	}
+	fake.mu.Unlock()
+	if _, err := os.Stat(second); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the conflicting checkout's folder was created: %v", err)
+	}
+
+	// The held path, reached through a symlink, is the same folder.
+	if err := os.MkdirAll(first, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(filepath.Dir(first), link); err != nil {
+		t.Fatal(err)
+	}
+	req["folders"] = []map[string]string{{"id": "brigade-aaaa-1111", "path": filepath.Join(link, "shared"), "label": "repo/shared"}}
+	res := mustOK(t, invoke(t, d, "apply", req), "apply")
+	if fs := res["folders"].([]any); fs[0].(map[string]any)["state"] != "idle" {
+		t.Errorf("the same path through a symlink: folders = %v, want idle", fs)
+	}
+}
+
+// TestAttachRecordsItsHolderAndPrunesDeadRefs: attach keeps the request's
+// pid (with its start token) in refs/<session_id>; every attach and
+// detach prunes a ref whose holder is gone or is another incarnation of
+// its pid, and keeps a ref with no pid, an unreadable one, and a live
+// holder's. The last live ref's detach then stops the instance.
+func TestAttachRecordsItsHolderAndPrunesDeadRefs(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	stateDir, daemon := runningHome(t)
+	fake.onShutdown = func() { _ = syscall.Kill(daemon, syscall.SIGTERM) }
+	refs := filepath.Join(stateDir, "sync", "syncthing", "refs")
+	dead := exec.CommandContext(t.Context(), "/usr/bin/true")
+	if err := dead.Run(); err != nil {
+		t.Fatal(err)
+	}
+	live := testutil.NewSleeper(t)
+	liveInfo, err := procutil.Lookup(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(refs, "dead"), strconv.Itoa(dead.Process.Pid)+"\n")
+	writeFile(t, filepath.Join(refs, "reused"), strconv.Itoa(testutil.NewSleeper(t))+" 1.000000\n")
+	writeFile(t, filepath.Join(refs, "live"), strconv.Itoa(live)+" "+liveInfo.StartToken+"\n")
+	writeFile(t, filepath.Join(refs, "nopid"), "")
+	writeFile(t, filepath.Join(refs, "garbage"), "not a pid\n")
+	d := testDeps(srv, "")
+
+	o := invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1", "pid": -4})
+	if o.exit != 3 || o.env.Error.Details["field"] != "pid" {
+		t.Fatalf("a negative pid: exit %d, stdout %q", o.exit, o.stdout)
+	}
+	mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1", "pid": os.Getpid()}), "attach")
+	self, err := procutil.Lookup(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(refs, "s1")); got != strconv.Itoa(os.Getpid())+" "+self.StartToken+"\n" {
+		t.Errorf("refs/s1 = %q, want the holder's pid and start token", got)
+	}
+	names := func() []string {
+		t.Helper()
+		entries, err := os.ReadDir(refs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range entries {
+			out = append(out, e.Name())
+		}
+		return out
+	}
+	if got := names(); !slices.Equal(got, []string{"garbage", "live", "nopid", "s1"}) {
+		t.Fatalf("refs after attach = %v, want the dead and reused holders pruned", got)
+	}
+
+	// The live holder dies without detaching; s1's detach prunes it.
+	if err := syscall.Kill(live, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !alive(live, "") })
+	if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s1", "pid": os.Getpid()}), "detach"); res["stopped"] != false {
+		t.Fatalf("detach with pid-less refs left: %v", res)
+	}
+	if got := names(); !slices.Equal(got, []string{"garbage", "nopid"}) {
+		t.Fatalf("refs after detach = %v, want only the refs no pid can prune", got)
+	}
+	mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "garbage"}), "detach")
+	if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "nopid"}), "detach"); res["stopped"] != true {
+		t.Fatalf("the last detach: %v", res)
+	}
+}
+
+// TestAttachGivesTheInstanceItsOwnListenPort: attach picks a free port,
+// keeps it in listen-port, and sets options.listenAddresses to TCP and
+// QUIC on it plus the dynamic relay pool — through one PATCH, and none
+// when they already match; a kept port survives the next attach.
+func TestAttachGivesTheInstanceItsOwnListenPort(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	stateDir, _ := runningHome(t)
+	fake.listen = []string{"default"}
+	d := testDeps(srv, "")
+	mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
+	kept := strings.TrimSpace(readFile(t, filepath.Join(stateDir, "sync", "syncthing", "listen-port")))
+	port, err := strconv.Atoi(kept)
+	if err != nil || port <= 0 || port >= 65536 || port == 22000 {
+		t.Fatalf("listen-port = %q, want a port of the instance's own", kept)
+	}
+	want := []string{"tcp://0.0.0.0:" + kept, "quic://0.0.0.0:" + kept, "dynamic+https://relays.syncthing.net/endpoint"}
+	check := func(sets int) {
+		t.Helper()
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		if !slices.Equal(fake.listen, want) || fake.listenSets != sets {
+			t.Fatalf("listenAddresses = %v after %d PATCHes, want %v after %d", fake.listen, fake.listenSets, want, sets)
+		}
+	}
+	check(1)
+	mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s2"}), "attach")
+	check(1)
+	if got := strings.TrimSpace(readFile(t, filepath.Join(stateDir, "sync", "syncthing", "listen-port"))); got != kept {
+		t.Errorf("listen-port moved from %s to %s while the instance ran", kept, got)
+	}
+	// Someone changed it by hand: the next attach sets it back.
+	fake.mu.Lock()
+	fake.listen = []string{"default"}
+	fake.mu.Unlock()
+	mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
+	check(2)
 }
 
 func TestApplyAndStatusNeedARunningDaemon(t *testing.T) {
