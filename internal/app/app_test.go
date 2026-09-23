@@ -213,3 +213,27 @@ func TestRunDispatchesTheSyncAdapterGroup(t *testing.T) {
 		}
 	}
 }
+
+// TestRunDispatchesTheBundledSyncAdapter pins the `brigade sync-adapter
+// <name> <verb>` entry (plan folder-sync 4.3): `syncthing describe` reaches
+// the bundled Syncthing adapter, which answers one 4.3 envelope on stdout
+// carrying protocol_version sync/1, and an unknown or missing adapter name
+// is `usage` (exit 2) with nothing on stdout.
+func TestRunDispatchesTheBundledSyncAdapter(t *testing.T) {
+	t.Parallel()
+	var out, errb bytes.Buffer
+	exit := Run([]string{"sync-adapter", "syncthing", "describe"}, strings.NewReader("{}"), &out, &errb, nil)
+	if exit != 0 {
+		t.Fatalf("sync-adapter syncthing describe: exit = %d (stdout %q, stderr %q)", exit, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), `"ok":true`) || !strings.Contains(out.String(), `"protocol_version":"sync/1"`) ||
+		strings.Count(out.String(), "\n") != 1 {
+		t.Errorf("sync-adapter syncthing describe: stdout = %q, want one ok envelope with protocol_version sync/1", out.String())
+	}
+	for _, args := range [][]string{{"sync-adapter"}, {"sync-adapter", "nosuch", "describe"}} {
+		exit, stdout, stderr := run(t, nil, args...)
+		if exit != 2 || stdout != "" || !strings.Contains(stderr, "usage") {
+			t.Errorf("%v: exit %d, stdout %q, stderr %q; want usage on stderr only", args, exit, stdout, stderr)
+		}
+	}
+}

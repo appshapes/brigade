@@ -4,9 +4,8 @@ import (
 	"flag"
 	"io"
 
-	"github.com/appshapes/brigade/internal/adapterkit"
 	harnesscmd "github.com/appshapes/brigade/internal/harness/commands"
-	"github.com/appshapes/brigade/internal/protocol"
+	"github.com/appshapes/brigade/internal/syncadapters/syncthing"
 )
 
 // A Command is one entry of the `brigade` command table (6.4).
@@ -171,25 +170,13 @@ type SyncAdapterFunc func(args []string, stdin io.Reader, stdout, stderr io.Writ
 // `sync` member gives (folder-sync plan §4.3). internal/app dispatches
 // `brigade sync-adapter <name> <verb>` through it.
 var syncAdapters = map[string]SyncAdapterFunc{
-	"syncthing": syncAdapterNotBuilt,
+	syncthing.Name: syncthing.Run,
 }
 
 // LookupSyncAdapter returns the bundled sync adapter named name.
 func LookupSyncAdapter(name string) (SyncAdapterFunc, bool) {
 	f, ok := syncAdapters[name]
 	return f, ok
-}
-
-// syncAdapterNotBuilt stands in for a bundled sync adapter this binary
-// does not carry yet: every verb is one `unavailable` envelope on stdout
-// (4.3), so the harness reports it as an adapter that cannot be used and
-// the session goes on without file sync.
-func syncAdapterNotBuilt(_ []string, _ io.Reader, stdout, _ io.Writer, _ []string) int {
-	return adapterkit.WriteError(stdout, &protocol.Error{
-		Code:    protocol.CodeUnavailable,
-		Message: "this sync adapter is not built into this binary",
-		Details: map[string]string{"reason": "not_built"},
-	})
 }
 
 // runSyncAdapterEntry is the table's Run for the `sync-adapter` entry,

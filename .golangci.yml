@@ -105,6 +105,16 @@ linters:
       - path: ^internal/conformance/
         linters: [forbidigo]
         text: "exec.Command"
+      # The Syncthing sync adapter (plan folder-sync 4.4) is the ONE place Brigade starts a long-running daemon:
+      # `syncthing serve`, detached in its own session, outliving the adapter process by design, so it cannot go
+      # through adapterkit.Spawn (which runs a child to completion). Argv array, adapterkit.ChildEnv, no shell;
+      # only the spawn half of the rule is lifted -- os.Getenv stays forbidden here.
+      - path: ^internal/syncadapters/syncthing/instance\.go$
+        linters: [forbidigo]
+        text: "exec.Command"
+      - path: ^internal/syncadapters/syncthing/instance\.go$
+        linters: [gosec]
+        text: "G204"           # the syncthing path comes from exec.LookPath; argv is fixed apart from the home and port
       - path: ^internal/harness/adapterclient/spawn\.go$|^internal/harness/hook/spawn\.go$|^internal/adapterkit/spawn\.go$|^internal/procutil/|^internal/testutil/|^internal/conformance/
         linters: [gosec]
         text: "G204"           # subprocess with variable argv is the design (4.1); no shell is ever involved; hook/spawn.go is the ONE watcher spawn of 6.6
