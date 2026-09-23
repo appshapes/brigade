@@ -3,10 +3,11 @@
 // brief §1). The file is discovery, never authority, AND the project's
 // declaration of which folders its checkouts sync (folder-sync plan
 // §4.1): it carries only public values, every reader shares this one
-// parser, and nothing in it can name a command, an executable, a path
-// outside the checkout, an option that changes how Brigade connects, or
-// a secret. `adapter` and `sync.adapter` are NAMES, resolved strictly
-// user-side; `sync.folders` are lexically confined to the checkout.
+// parser, and nothing in it can name a command, an executable, an
+// absolute path, an option that changes how Brigade connects, or a
+// secret. `adapter` and `sync.adapter` are NAMES, resolved strictly
+// user-side; `sync.folders` are clean relative paths from the toplevel,
+// and nothing more is asked of them (open by default, §4.1).
 //
 // The file OPENS (card 32; JSON convention 2, as the protocol): a member
 // this version does not define is ignored, and its reduced name is
@@ -49,11 +50,12 @@ import (
 const FileName = ".brigade.json"
 
 // MaxBytes is the hard size cap: six short public fields and a maximal
-// `sync` member (32 folders of 128 bytes, about 4.2 KiB compact) fit in
-// well under 16 KiB even hand-indented — TestParseLargestLegalFile builds
-// that file — so anything larger is not a team file and is refused
-// unread.
-const MaxBytes = 16384
+// `sync` member fit in well under 32 KiB even hand-indented — 32 folders
+// of 128 bytes, each byte a control character JSON must spell in six
+// (about 25 KiB), now that §4.1 asks nothing of a folder's characters;
+// TestParseLargestLegalFile builds that file — so anything larger is not
+// a team file and is refused unread.
+const MaxBytes = 32768
 
 // The closed reason-token list (plan P7-2; the hook renders one fixed
 // line per token). Adding a token here without a hook line and a test is

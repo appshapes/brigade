@@ -49,10 +49,15 @@ func TestSyncRules(t *testing.T) {
 		{"an empty folders array", `{"folders":[]}`, "", "syncthing", []string{}},
 		{"exactly the folder cap", `{"folders":[` + strings.Join(many, ",") + `]}`, "", "syncthing", nil},
 		{"exactly the folder byte cap", `{"folders":["` + long + `"]}`, "", "syncthing", []string{long}},
-		{"a dot-directory that is not .git", `{"folders":[".github/x",".gitignored","a.git","git"]}`, "", "syncthing", []string{".github/x", ".gitignored", "a.git", "git"}},
-		{"siblings sharing a prefix are not nested", `{"folders":["doc","docs","doc-x"]}`, "", "syncthing", []string{"doc", "docs", "doc-x"}},
+		// Open by default (§4.1): everything below names a clean relative
+		// path, so the parser takes it; whether the engine can use it is
+		// the engine's to report.
+		{"dot-directories, .git included", `{"folders":[".github/x",".git","a/.git/hooks"]}`, "", "syncthing", []string{".github/x", ".git", "a/.git/hooks"}},
+		{"the team file itself", `{"folders":[".brigade.json"]}`, "", "syncthing", []string{".brigade.json"}},
+		{"a path above the checkout", `{"folders":["..","../elsewhere","../../b"]}`, "", "syncthing", []string{"..", "../elsewhere", "../../b"}},
+		{"duplicates and nesting", `{"folders":["docs","docs","Docs","docs/shared"]}`, "", "syncthing", []string{"docs", "docs", "Docs", "docs/shared"}},
 		{"unicode letters are fine", `{"folders":["notas/café"]}`, "", "syncthing", []string{"notas/café"}},
-		{"a file named like the team file below the root", `{"folders":["x/.brigade.json"]}`, "", "syncthing", []string{"x/.brigade.json"}},
+		{"backslash, quote, control and format characters", `{"folders":["a\\b","a\"b","a\nb","a\u202eb"]}`, "", "syncthing", []string{"a\\b", "a\"b", "a\nb", "a\u202eb"}},
 		// Unusable, one per token.
 		{"sync is an array", `["docs"]`, teamfile.SyncNotObject, "", nil},
 		{"sync is a string", `"docs"`, teamfile.SyncNotObject, "", nil},
@@ -68,35 +73,15 @@ func TestSyncRules(t *testing.T) {
 		{"folders holds a number", `{"folders":["a",1]}`, teamfile.SyncFoldersInvalid, "", nil},
 		{"folders is null", `{"folders":null}`, teamfile.SyncFoldersInvalid, "", nil},
 		{"one folder over the cap", `{"folders":[` + strings.Join(many, ",") + `,"one-more"]}`, teamfile.SyncTooManyFolders, "", nil},
-		{"an empty folder", `{"folders":[""]}`, teamfile.SyncFolderEmpty, "", nil},
 		{"one byte over the byte cap", `{"folders":["` + long + `b"]}`, teamfile.SyncFolderTooLong, "", nil},
-		{"a backslash", `{"folders":["a\\b"]}`, teamfile.SyncFolderBadChar, "", nil},
-		{"a double quote", `{"folders":["a\"b"]}`, teamfile.SyncFolderBadChar, "", nil},
-		{"a newline", `{"folders":["a\nb"]}`, teamfile.SyncFolderBadChar, "", nil},
-		{"a NUL", `{"folders":["a\u0000b"]}`, teamfile.SyncFolderBadChar, "", nil},
-		{"a DEL", `{"folders":["a\u007fb"]}`, teamfile.SyncFolderBadChar, "", nil},
-		{"a C1 control", `{"folders":["a\u0085b"]}`, teamfile.SyncFolderBadChar, "", nil},
-		{"a bidi override", `{"folders":["a\u202eb"]}`, teamfile.SyncFolderBadChar, "", nil},
 		{"absolute", `{"folders":["/etc"]}`, teamfile.SyncFolderNotRelative, "", nil},
-		{"a leading ..", `{"folders":["../elsewhere"]}`, teamfile.SyncFolderDotDot, "", nil},
-		{"a bare ..", `{"folders":[".."]}`, teamfile.SyncFolderDotDot, "", nil},
-		{"an inner ..", `{"folders":["a/../../b"]}`, teamfile.SyncFolderDotDot, "", nil},
+		{"an empty folder", `{"folders":[""]}`, teamfile.SyncFolderNotClean, "", nil},
 		{"a trailing slash", `{"folders":["docs/"]}`, teamfile.SyncFolderNotClean, "", nil},
 		{"a leading ./", `{"folders":["./docs"]}`, teamfile.SyncFolderNotClean, "", nil},
 		{"a double slash", `{"folders":["a//b"]}`, teamfile.SyncFolderNotClean, "", nil},
 		{"an inner .", `{"folders":["a/./b"]}`, teamfile.SyncFolderNotClean, "", nil},
+		{"a .. that cleans away", `{"folders":["a/../b"]}`, teamfile.SyncFolderNotClean, "", nil},
 		{"the whole checkout", `{"folders":["."]}`, teamfile.SyncFolderRoot, "", nil},
-		{".git itself", `{"folders":[".git"]}`, teamfile.SyncFolderGit, "", nil},
-		{".git inside", `{"folders":[".git/hooks"]}`, teamfile.SyncFolderGit, "", nil},
-		{"a nested .git", `{"folders":["vendor/lib/.git"]}`, teamfile.SyncFolderGit, "", nil},
-		{".GIT on a case-folding filesystem", `{"folders":["a/.GiT/x"]}`, teamfile.SyncFolderGit, "", nil},
-		{"the team file", `{"folders":[".brigade.json"]}`, teamfile.SyncFolderTeamFile, "", nil},
-		{"the team file, case-folded", `{"folders":[".Brigade.JSON"]}`, teamfile.SyncFolderTeamFile, "", nil},
-		{"a duplicate", `{"folders":["docs","notes","docs"]}`, teamfile.SyncFolderDuplicate, "", nil},
-		{"a duplicate, case-folded", `{"folders":["Docs","docs"]}`, teamfile.SyncFolderDuplicate, "", nil},
-		{"nested, parent first", `{"folders":["docs","docs/shared"]}`, teamfile.SyncFolderNested, "", nil},
-		{"nested, child first", `{"folders":["a/b/c","a"]}`, teamfile.SyncFolderNested, "", nil},
-		{"nested, case-folded", `{"folders":["Docs","docs/x"]}`, teamfile.SyncFolderNested, "", nil},
 		{"one bad entry spoils the member", `{"folders":["good","/bad"]}`, teamfile.SyncFolderNotRelative, "", nil},
 	}
 	covered := map[string]bool{}
@@ -153,9 +138,7 @@ func TestSyncReasonsListIsClosed(t *testing.T) {
 	t.Parallel()
 	want := []string{
 		"not_object", "adapter_invalid", "folders_invalid", "too_many_folders",
-		"folder_empty", "folder_too_long", "folder_bad_char", "folder_not_relative",
-		"folder_dotdot", "folder_not_clean", "folder_root", "folder_git",
-		"folder_team_file", "folder_duplicate", "folder_nested",
+		"folder_too_long", "folder_not_relative", "folder_not_clean", "folder_root",
 	}
 	if got := teamfile.SyncReasons(); !slices.Equal(got, want) {
 		t.Fatalf("SyncReasons() = %q\nwant %q: the list is closed and every change needs a test", got, want)
@@ -170,9 +153,11 @@ func TestParseLargestLegalFile(t *testing.T) {
 	t.Parallel()
 	folders := make([]string, teamfile.MaxSyncFolders)
 	for i := range folders {
-		// Distinct, un-nested, each exactly at the byte cap.
+		// Each exactly at the byte cap, of the character with the longest
+		// JSON spelling a folder may now hold: a control character, which
+		// JSON must escape as six bytes (\u0001).
 		prefix := fmt.Sprintf("f%02d/", i)
-		folders[i] = prefix + strings.Repeat("x", teamfile.MaxSyncFolderBytes-len(prefix))
+		folders[i] = prefix + strings.Repeat("\x01", teamfile.MaxSyncFolderBytes-len(prefix))
 	}
 	doc := map[string]any{
 		"version":         1,
@@ -243,68 +228,47 @@ func TestParse010FilesUnchanged(t *testing.T) {
 }
 
 // TestCarriedSync is what `team create --force` carries from the file it
-// replaces: a usable member as parsed; nothing when there is none; and a
-// refusal, never a silent drop, when a member may be there but cannot be
-// carried faithfully.
+// replaces: a usable member as parsed; nothing and no cause when there is
+// none; and nothing plus a fixed cause token — never an error, since the
+// replacement always goes ahead — when a member may be there but cannot
+// be carried.
 func TestCarriedSync(t *testing.T) {
 	t.Parallel()
-	t.Run("no file", func(t *testing.T) {
-		t.Parallel()
-		got, err := teamfile.CarriedSync(filepath.Join(t.TempDir(), teamfile.FileName))
-		if got != nil || err != nil {
-			t.Fatalf("= %+v, %v; want nothing", got, err)
-		}
-	})
-	t.Run("a file without sync", func(t *testing.T) {
-		t.Parallel()
-		got, err := teamfile.CarriedSync(write(t, validDoc))
-		if got != nil || err != nil {
-			t.Fatalf("= %+v, %v; want nothing", got, err)
-		}
-	})
-	t.Run("a usable member", func(t *testing.T) {
-		t.Parallel()
-		got, err := teamfile.CarriedSync(write(t, withSync(`{"folders":["b","a"],"future":true}`)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := &teamfile.SyncConfig{Adapter: "syncthing", Folders: []string{"b", "a"}}
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("= %+v, want %+v", got, want)
-		}
-	})
-	t.Run("a refused file with no sync is replaced as before", func(t *testing.T) {
-		t.Parallel()
-		got, err := teamfile.CarriedSync(write(t, "not json"))
-		if got != nil || err != nil {
-			t.Fatalf("= %+v, %v; want nothing", got, err)
-		}
-	})
-	notCarried := map[string]struct {
-		doc           string
+	cases := map[string]struct {
+		doc           string // "" means no file at all
 		worldWritable bool
+		want          *teamfile.SyncConfig
 		cause         string
 	}{
-		"an unusable member": {withSync(`{"folders":["../x"]}`), false, teamfile.SyncFolderDotDot},
-		"a refused file that declares sync": {
-			strings.Replace(withSync(`{"folders":["a"]}`), `"version":1`, `"version":2`, 1), false, teamfile.ReasonUnsupportedVersion,
+		"no file":             {"", false, nil, ""},
+		"a file without sync": {validDoc, false, nil, ""},
+		"a usable member": {
+			withSync(`{"folders":["b","a"],"future":true}`), false,
+			&teamfile.SyncConfig{Adapter: "syncthing", Folders: []string{"b", "a"}}, "",
 		},
-		"a file read refuses unread": {withSync(`{"folders":["a"]}`), true, teamfile.ReasonWorldWritable},
+		"a refused file with no sync": {"not json", false, nil, ""},
+		"an unusable member":          {withSync(`{"folders":["/x"]}`), false, nil, teamfile.SyncFolderNotRelative},
+		"a refused file that declares sync": {
+			strings.Replace(withSync(`{"folders":["a"]}`), `"version":1`, `"version":2`, 1), false, nil, teamfile.ReasonUnsupportedVersion,
+		},
+		"a file read refuses unread": {withSync(`{"folders":["a"]}`), true, nil, teamfile.ReasonWorldWritable},
 	}
-	for name, c := range notCarried {
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			p := write(t, c.doc)
+			p := filepath.Join(t.TempDir(), teamfile.FileName)
+			if c.doc != "" {
+				p = write(t, c.doc)
+			}
 			if c.worldWritable {
 				//nolint:gosec // G302: the world-writable mode is the precondition under test
 				if err := os.Chmod(p, 0o646); err != nil {
 					t.Fatal(err)
 				}
 			}
-			_, err := teamfile.CarriedSync(p)
-			pe := reasonOf(t, err, teamfile.ReasonSyncNotCarried)
-			if pe.Details["cause"] != c.cause {
-				t.Fatalf("cause = %q, want %q", pe.Details["cause"], c.cause)
+			got, cause := teamfile.CarriedSync(p)
+			if !reflect.DeepEqual(got, c.want) || cause != c.cause {
+				t.Fatalf("= %+v, %q; want %+v, %q", got, cause, c.want, c.cause)
 			}
 		})
 	}
@@ -312,8 +276,8 @@ func TestCarriedSync(t *testing.T) {
 
 // assertSyncInvariants is what every parse must hold, fuzzed or not:
 // never both a member and a reason; a usable member within every bound
-// and lexically inside the checkout; every reason from the closed list;
-// every ignored name plain.
+// and every §4.1 folder rule; every reason from the closed list; every
+// ignored name plain.
 func assertSyncInvariants(t *testing.T, f *teamfile.File) {
 	t.Helper()
 	if f.Sync != nil && f.SyncUnusable != "" {
@@ -337,14 +301,8 @@ func assertSyncInvariants(t *testing.T, f *teamfile.File) {
 	}
 	for _, folder := range f.Sync.Folders {
 		if folder == "" || len(folder) > teamfile.MaxSyncFolderBytes || path.IsAbs(folder) ||
-			path.Clean(folder) != folder || folder == "." ||
-			strings.ContainsAny(folder, "\\\"") {
+			path.Clean(folder) != folder || folder == "." {
 			t.Fatalf("an accepted folder %q breaks a rule", folder)
-		}
-		for _, seg := range strings.Split(folder, "/") {
-			if strings.EqualFold(seg, ".git") || seg == ".." {
-				t.Fatalf("an accepted folder %q reaches .git", folder)
-			}
 		}
 	}
 }

@@ -200,25 +200,45 @@ func TestTeamCreateConflictAndForce(t *testing.T) {
 }
 
 // TestTeamCreateForceCarriesSync is card 32's --force round trip
-// (folder-sync plan §4.1): the replacement names the new team, and the
-// project's `sync` declaration comes across unchanged in meaning; a file
-// without one gains none; and a member --force could not carry
-// faithfully refuses the create before any spawn, leaving the file as it
-// was, rather than vanish.
+// (folder-sync plan §4.1): --force ALWAYS replaces the file, as it did
+// before card 32. The replacement names the new team; a usable `sync`
+// member in a file that parses comes across unchanged in meaning; a file
+// without one gains none; and a member that cannot be carried is dropped
+// with one fixed human line naming a token, never the member's content.
 func TestTeamCreateForceCarriesSync(t *testing.T) {
 	t.Parallel()
 	const oldFile = `{"version":1,"adapter":"supabase","url":"https://old.supabase.co","publishable_key":"sb_publishable_old","team_ref":"t_old","team_name":"old"`
+	const marker = "SENTINEL-OLD-FOLDER"
 	args := func(f *fixture) []string {
 		return []string{"create", "--url", "https://abc.supabase.co", "--key", "sb_publishable_x",
 			"--name", "devs", "--secret-file", filepath.Join(f.dirs.Root, "s"), "--force"}
 	}
 	for name, tc := range map[string]struct {
-		members string
-		want    *teamfile.SyncConfig
+		doc           string
+		worldWritable bool
+		want          *teamfile.SyncConfig
+		cause         string // the token the not-carried line names; "" means no line
 	}{
-		"a declared sync member":           {`,"sync":{"folders":["docs/shared",".context/plans"],"later":true},"future":1`, &teamfile.SyncConfig{Adapter: "syncthing", Folders: []string{"docs/shared", ".context/plans"}}},
-		"a named adapter":                  {`,"sync":{"adapter":"other","folders":[]}`, &teamfile.SyncConfig{Adapter: "other", Folders: []string{}}},
-		"no sync member stays without one": {``, nil},
+		"a declared sync member": {
+			oldFile + `,"sync":{"folders":["docs/shared",".context/plans"],"later":true},"future":1}`, false,
+			&teamfile.SyncConfig{Adapter: "syncthing", Folders: []string{"docs/shared", ".context/plans"}}, "",
+		},
+		"a named adapter": {
+			oldFile + `,"sync":{"adapter":"other","folders":[]}}`, false,
+			&teamfile.SyncConfig{Adapter: "other", Folders: []string{}}, "",
+		},
+		"no sync member stays without one": {oldFile + `}`, false, nil, ""},
+		"an unusable member is not carried": {
+			oldFile + `,"sync":{"folders":["/` + marker + `"]}}`, false, nil, teamfile.SyncFolderNotRelative,
+		},
+		// The file itself refuses (a plain-http url): it is replaced all
+		// the same, and its member is named as not carried.
+		"a refused file that declares sync": {
+			strings.Replace(oldFile, "https://old", "http://old", 1) + `,"sync":{"folders":["` + marker + `"]}}`, false,
+			nil, teamfile.ReasonURLNotHTTPS,
+		},
+		// Refused unread, so whether it declared `sync` is unknowable.
+		"a file refused unread": {oldFile + `,"sync":{"folders":["` + marker + `"]}}`, true, nil, teamfile.ReasonWorldWritable},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -226,15 +246,21 @@ func TestTeamCreateForceCarriesSync(t *testing.T) {
 			top := mkCheckout(t, f.dirs.Root)
 			path := filepath.Join(top, teamfile.FileName)
 			//nolint:gosec // G306: a committed team file IS 0644
-			if err := os.WriteFile(path, []byte(oldFile+tc.members+"}"), 0o644); err != nil {
+			if err := os.WriteFile(path, []byte(tc.doc), 0o644); err != nil {
 				t.Fatal(err)
+			}
+			if tc.worldWritable {
+				//nolint:gosec // G302: the world-writable mode is the precondition under test
+				if err := os.Chmod(path, 0o646); err != nil {
+					t.Fatal(err)
+				}
 			}
 			f.rec.on("profile init", answer{result: `{"ok":true}`})
 			f.rec.on("team create", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_1"}`})
 			iv := f.inv(f.terminalEnv(), "", args(f)...)
 			iv.Deps.Getwd = func() (string, error) { return top, nil }
 			if err := Team(iv); err != nil {
-				t.Fatal(err)
+				t.Fatalf("--force must always replace the file: %v", err)
 			}
 			got, err := teamfile.Parse(path)
 			if err != nil {
@@ -244,47 +270,23 @@ func TestTeamCreateForceCarriesSync(t *testing.T) {
 				t.Fatalf("the replacement names %+v, want the new team", got)
 			}
 			if !reflect.DeepEqual(got.Sync, tc.want) || got.SyncUnusable != "" {
-				t.Fatalf("sync = %+v (%q), want %+v carried", got.Sync, got.SyncUnusable, tc.want)
+				t.Fatalf("sync = %+v (%q), want %+v", got.Sync, got.SyncUnusable, tc.want)
 			}
 			// Only `sync` is carried: the replacement is what create writes.
 			if len(got.Ignored) != 0 {
 				t.Fatalf("the replacement carries unknown members %q", got.Ignored)
 			}
-		})
-	}
-	for name, tc := range map[string]struct {
-		doc, cause string
-	}{
-		"an unusable member": {oldFile + `,"sync":{"folders":["../elsewhere"]}}`, teamfile.SyncFolderDotDot},
-		// The file itself refuses (a plain-http url), so no session ever
-		// used its sync member — and a replacement still must not drop it.
-		"a refused file that declares sync": {
-			strings.Replace(oldFile, "https://old", "http://old", 1) + `,"sync":{"folders":["a"]}}`,
-			teamfile.ReasonURLNotHTTPS,
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			f := newFixture(t)
-			top := mkCheckout(t, f.dirs.Root)
-			path := filepath.Join(top, teamfile.FileName)
-			doc := tc.doc
-			//nolint:gosec // G306: a committed team file IS 0644
-			if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
-				t.Fatal(err)
+			out := f.out.String()
+			line := "the previous " + teamfile.FileName + "'s sync member was not carried into the new file (" +
+				tc.cause + "); add it again if this project syncs folders\n"
+			if tc.cause != "" && !strings.Contains(out, line) {
+				t.Fatalf("output lacks the not-carried line %q:\n%s", line, out)
 			}
-			iv := f.inv(f.terminalEnv(), "", args(f)...)
-			iv.Deps.Getwd = func() (string, error) { return top, nil }
-			before := f.rec.count()
-			perr := wantCodeErr(t, Team(iv), protocol.CodeConfig, teamfile.ReasonSyncNotCarried)
-			if perr.Details["cause"] != tc.cause {
-				t.Fatalf("cause = %q, want %q", perr.Details["cause"], tc.cause)
+			if tc.cause == "" && strings.Contains(out, "not carried") {
+				t.Fatalf("a not-carried line with nothing dropped:\n%s", out)
 			}
-			if f.rec.count() != before {
-				t.Fatal("a sync member --force cannot carry must refuse before any spawn")
-			}
-			if after, err := os.ReadFile(path); err != nil || string(after) != doc { //nolint:gosec // G304: the test's own file
-				t.Fatalf("the refused create touched the file: %q, %v", after, err)
+			if strings.Contains(out, marker) {
+				t.Fatalf("the output echoes the old file's content:\n%s", out)
 			}
 		})
 	}

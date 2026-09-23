@@ -43,11 +43,14 @@ const orphanMaxAge = time.Hour
 
 // createOptions is `team create`'s parsed flag set, plus the one thing
 // --force carries from the file it replaces: the project's `sync`
-// member (card 32), nil when there is none.
+// member (card 32), nil when there is none; syncNotCarried is the fixed
+// token saying why a member that was, or may have been, there did not
+// come across ("" when nothing was dropped).
 type createOptions struct {
 	url, key, name, label, adapter, secretFile string
 	force                                      bool
 	carriedSync                                *teamfile.SyncConfig
+	syncNotCarried                             string
 }
 
 // teamCreate implements the rebuilt `brigade team create` (brief §2):
@@ -76,13 +79,11 @@ func (inv Invocation) teamCreate(raw rawArgs) error {
 				Details: map[string]string{"reason": "team_file_exists"},
 			}
 		}
-		// --force replaces the team's backend, never the project's `sync`
-		// declaration (folder-sync plan §4.1): the existing file is read
-		// with the one parser, BEFORE any spawn, and a member that cannot
-		// be carried faithfully refuses the create rather than vanish.
-		if opts.carriedSync, err = teamfile.CarriedSync(filePath); err != nil {
-			return err
-		}
+		// --force always replaces the file, as it did before card 32; it
+		// carries the project's `sync` declaration across when the old file
+		// parses and the member is usable (folder-sync plan §4.1), and
+		// otherwise says so in one human line of finishCreate's report.
+		opts.carriedSync, opts.syncNotCarried = teamfile.CarriedSync(filePath)
 	}
 	req, err := inv.createRequest(opts)
 	if err != nil {
@@ -293,13 +294,22 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 	if err := adapterkit.WriteAtomicMode(filePath, append(doc, '\n'), 0o644); err != nil {
 		return err
 	}
-	return writeLines(inv.Out,
-		"created team \""+protocol.SanitizeName(answer.TeamName)+"\" ("+sanitizeID(answer.TeamRef)+")",
+	lines := []string{
+		"created team \"" + protocol.SanitizeName(answer.TeamName) + "\" (" + sanitizeID(answer.TeamRef) + ")",
 		labelSent(req.HumanLabel, answer.PrincipalRef),
-		"wrote "+teamfile.FileName+" at the repository toplevel",
+		"wrote " + teamfile.FileName + " at the repository toplevel",
+	}
+	if opts.syncNotCarried != "" {
+		// A fixed sentence and a token from the closed lists, never file
+		// content: the old member is gone from the new file, and the
+		// person who ran --force is the one who can put it back.
+		lines = append(lines, "the previous "+teamfile.FileName+"'s sync member was not carried into the new file ("+
+			opts.syncNotCarried+"); add it again if this project syncs folders")
+	}
+	return writeLines(inv.Out, append(lines,
 		"the join secret is in "+opts.secretFile+" (0600); share it over a password-grade channel only",
 		"next: git add "+teamfile.FileName+" && git commit && git push — the file carries only public values",
-	)
+	)...)
 }
 
 // teamJoin implements the rebuilt parameterless `brigade team join`
