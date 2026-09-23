@@ -29,7 +29,9 @@ Invoked via `/command`:
 
 The Brigade plugin's own skills — `/brigade:setup`, `/brigade:join`, `/brigade:update`,
 `/brigade:sessions` and the team-messaging skill that handles incoming frames — are documented in
-[`plugin/README.md`](../plugin/README.md); they are the product, not the tooling for working on it.
+[`plugin/README.md`](../plugin/README.md); they are the product, not the tooling for working on it. So are the
+`brigade` commands a session runs, among them `brigade sync status`, which shows the folders a project syncs
+between teammates' checkouts ([`docs/sync.md`](sync.md)).
 
 ## Daily Workflow
 

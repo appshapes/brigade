@@ -32,7 +32,8 @@ Brigade is designed against seven kinds of attacker. Six of them are held off. T
 - Someone signed in to the backend who is not a member of your team. Same answer.
 - A member of a different team on the same backend.
 - **A teammate whose session has gone hostile, or has been talked into something by text it read.** This is the
-  biggest real risk and section 3 is about it.
+  biggest real risk and section 3 is about it. Where the project syncs folders, their machine also writes into
+  yours (section 12).
 - Someone who got hold of the join secret. They become a member.
 - The supply chain: whoever could tamper with the binary you download. Section 10 covers it.
 - **Any program running as you, on your own machine.** This one is **accepted**, not defended against. A program
@@ -189,9 +190,11 @@ including the sender's summary, was written by the sender.**
   shape of an attack, not the intent of the words.
 - **The size caps.** A body is at most **16,384 bytes**. A summary is at most **200 characters**. The limit: a
   short message can still be a bad instruction.
-- **The watcher does nothing on its own.** The background process that delivers messages injects and
-  acknowledges. It runs no command and edits no file, ever. The limit: it hands the text to a model that can do
-  both.
+- **The watcher does nothing a message asks.** The background process that delivers messages injects and
+  acknowledges, and no message makes it run a command or edit a file. It does start one program of its own when
+  the project lists folders to sync: the sync adapter, which starts Syncthing, and Syncthing writes into the
+  listed folders what teammates' machines send (section 12). Nothing in a message steers either. The limit: it
+  hands the text to a model that can run commands and edit files.
 
 **What was measured.** A set of 26 test messages, hostile and benign, was run against real Claude Code sessions
 twice. (The corpus has since grown four items, 27–30, for the `brigade doing` line of section 2 — a body
@@ -412,6 +415,11 @@ Brigade may not ask, such as `plan`) re-issues the full text once, and every lat
 Replayed over a real 44-hour session that costs seven lines if the hook fires on typed prompts only and
 twenty-four if it fires on every turn; a session prompted every ten minutes for eight hours pays about three
 thousand tokens. It never reads the prompt, never opens the transcript and never touches the network.
+
+**File sync is outside these rules.** The watcher drives the sync adapter itself, not through the Bash tool, so no
+permission rule — allow, ask or deny, in any mode — sees it: the folders the project lists sync whenever a session
+is active, with no prompt for any file. The plugin option `sync: off` is the one switch (section 12).
+`brigade sync status` is an ordinary `brigade` verb, and the rules above match it like any other.
 
 **No hook and no plugin can override the ask rule or the deny rule.** That is Claude Code's own rule, not
 Brigade's.
@@ -643,7 +651,12 @@ team out of its own recovery and onboarding.
 `~/.local/state/brigade`, mode 0600 inside 0700. Cached binaries live under `~/.local/share/brigade`. Profiles
 and credentials live under `~/.config/brigade`. **Nothing is written into your project directory except the
 one team file `.brigade.json`, written once by the administrator's `team create`, which carries only public
-values** (the backend URL, the publishable key, the team's reference and name — never the join secret).
+values** (the backend URL, the publishable key, the team's reference and name, and the folders the project syncs
+— never the join secret), **and, when that file lists folders to sync and the `sync` option is on, those
+folders**: whatever teammates' machines send into them, with Syncthing's `.stfolder` marker, its `.stversions`
+trash can and its conflict copies inside them (section 12). The Syncthing instance Brigade runs keeps its own
+files under `~/.local/state/brigade/sync/syncthing`, 0700, and serves its REST API and web GUI on 127.0.0.1 only;
+its API key stays in its `config.xml` there, never on a command line and never in a log.
 
 **The shadowing warning.** The plugin adds its own `bin/` to the end of the Bash tool's PATH, so another
 `brigade` earlier on your PATH would run instead — and since P7-11 that includes an in-session `team create`,
@@ -670,8 +683,10 @@ version**. The adapter honours `NO_PROXY`, and a loopback entry in `allowedDomai
 refusal.
 
 **What a crash leaves behind.** If a session is killed with `SIGKILL`, its session map entry, its record of
-seen messages, its socket and — if the watcher died too — the watcher's pidfile stay behind for good. Nothing
-prunes them today. No correctness problem was measured, and resuming works with the residue present. To clear it
+seen messages, its socket and — if the watcher died too — the watcher's pidfile and, in a project that syncs
+folders, its reference under `sync/syncthing/refs/` stay behind for good. Nothing prunes them today. That last one
+keeps the Syncthing instance running after the machine's last session ends ([docs/sync.md](sync.md), "Limits").
+No correctness problem was measured, and resuming works with the residue present. To clear it
 by hand, use the two paths from "Leaving and uninstalling":
 
 ```sh
@@ -740,7 +755,38 @@ than is there.
 The full record is [`.context/plans/brigade-proof-results.md`](../.context/plans/brigade-proof-results.md), and
 the dated write-ups of each run are in [`docs/experiments/`](experiments/README.md).
 
-## 12. Reporting a problem
+## 12. File sync
+
+A project can list folders in `.brigade.json` for its checkouts to keep in step ([docs/sync.md](sync.md)). Each
+member's machine then runs Syncthing, and Brigade introduces it, from the roster, to the machine of every
+teammate's session in the same repository. This section says what that opens. It adds no control: the plugin
+option `sync: off` is the one switch, and it acts from the next session start.
+
+- **A teammate's machine can do anything in a listed folder on yours.** It can write a file, overwrite one and
+  delete one, and Syncthing applies each change as it arrives, with no prompt and no review. A file replaced or
+  deleted that way is kept 14 days in the folder's `.stversions` — Syncthing's trash can, not a control. The join
+  secret is the boundary, as it is for messages: anyone who holds it can join, start a session, and be introduced.
+- **The project decides the folders.** Whoever can commit `.brigade.json` sets the list for every checkout. A
+  folder only has to name a path under the checkout, so a folder that a tool reads as configuration — `.claude`,
+  `.git`, `.vscode` — can be listed, and a teammate's writes into it then change that configuration on your
+  machine, Claude Code's and git's hooks included.
+- **The repository match is not a boundary.** A session is introduced to the sessions whose repository name — the
+  `REPO` column of `brigade sessions`, sent as `workspace_label` — matches its own. That name is self-reported text
+  that a member can set to anything with the `workspace_label` option. It keeps a team's repositories apart; it
+  keeps no member out.
+- **What the backend sees.** One string per session, `sync_peer`: `syncthing:` and the machine's device id. No
+  file, no file name and no folder name. The person who runs the backend (section 2) learns which sessions sync and
+  from which device.
+- **What the network sees.** Syncthing's defaults, of which Brigade changes none: device-to-device TLS, each device
+  identified by its certificate; global discovery, so Syncthing's public discovery servers learn each device's id
+  and addresses; relays when no direct connection is possible, which forward the encrypted stream; listening for
+  peers on port 22000.
+- **Your machine.** The instance's files are under `~/.local/state/brigade/sync/syncthing`, 0700; its REST API
+  listens on 127.0.0.1 only, and its key never leaves its `config.xml` (section 10). Syncthing is started as an
+  argument array with the allow-listed environment, never through a shell — the one long-running program Brigade
+  starts besides its own watcher.
+
+## 13. Reporting a problem
 
 Open an issue: <https://github.com/appshapes/brigade/issues>. Say what you did, what happened, and what you
 expected instead. The Claude Code version (`claude --version`), the Brigade version (`brigade version`) and your
@@ -770,6 +816,9 @@ Every item below is a known limit that this version ships with, on purpose.
   in each teammate's inbox. The response is to revoke them.
 - **Every session receives team messages as delivered, untrusted text by default** — bypass sessions, auto-mode
   sessions and `claude -p` workers included. The join secret is the boundary.
+- **Every teammate's machine can write, overwrite and delete anything in the folders a project lists for sync**,
+  with no prompt, whenever both machines have a session of that repository running (section 12). The join secret
+  is the boundary. No permission rule sees file sync; the `sync` option is the one switch.
 - The outbound ask and deny rules gate the ordinary command form only.
 - A native `hold` or `refuse` that Brigade's settings scan cannot see makes `injected` a lie that the plugin can
   only warn about.

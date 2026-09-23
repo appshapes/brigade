@@ -4,7 +4,8 @@
 the `sync` member) and **33** (the sync-adapter model, the `sync_peer` wire member, the Syncthing adapter, the
 docs, the release). Anchors are file:line at **9b2c0d7**. Execution-log rows **P17-1..P17-2** (32) and
 **P18-1..P18-7** (33). **One additive wire member and one append-only Supabase migration; no new Go dependency;
-Brigade never carries a file byte.**
+Brigade never carries a file byte.** Built through P18-4 (2026-09-22): §4.1 and §4.4 below are updated to the
+code as merged; P18-5 (the smoke) is in progress, P18-6 and P18-7 are to do.
 
 Why this shape: the first design for this feature built its own transport over Brigade messages (base64 chunks,
 a replication rule). Six adversarial review rounds found the replication rule unsound four times running —
@@ -142,16 +143,32 @@ always add controls later as needed." So: **no deny-lists, no hardening beyond w
   returns the ignored names (sanitised as attributes, capped) and the SessionStart hook prints one fixed line:
   `Brigade: .brigade.json carries members this version does not define (<names>); ignored.` The secret-shaped-name
   refusal stays. `ReasonUnknownField` leaves `Reasons()`; `TestReasonsListIsClosed` and `resolve_test.go:237-240`
-  follow. `MaxBytes` → 16,384; a test builds the largest legal file.
+  follow. `MaxBytes` → **32,768** (as built, P17-1b: 32 folders of 128 bytes, each byte a control character JSON
+  spells in six, is about 25 KiB once the folder rules stopped asking anything of a folder's characters);
+  `TestParseLargestLegalFile` builds that file. The ignored-members line lists at most eight names and counts the
+  rest (`…, and <n> more`).
 - `sync` member, `teamfile.File.Sync *SyncConfig{Adapter string; Folders []string}`: `adapter` optional, default
   `syncthing`, matching `^[a-z0-9][a-z0-9_-]{0,31}$` (the backend-adapter name rule: a *name*, resolved user-side);
   `folders` ≤ 32 entries, each ≤ 128 bytes, a **relative path that `path.Clean`s to itself** (so `docs/shared`,
   `.context/plans`; not `/abs`, not `a//b`, not empty) — nothing more (no `.git`, `.brigade.json`, nesting or
   character denies: open by default; Syncthing reports a folder it cannot use through `status`); unknown inner
-  members ignored. **An unusable `sync` is never a refusal**: `Sync == nil` plus a reason token, one hook line
+  members ignored (named `sync.<name>` in the ignored-members line). **An unusable `sync` is never a refusal**:
+  `Sync == nil` plus a reason token, one hook line
   (`Brigade: .brigade.json's sync member is not usable (<token>); file sync is off for this session.`), and the
-  session connects.
-- `team create --force` reads the existing file with the same parser and carries `sync` into the new document.
+  session connects. **As built (P17-1b)** the closed token list, in check order, is `not_object`,
+  `adapter_invalid`, `folders_invalid`, `too_many_folders`, `folder_too_long`, `folder_not_relative`,
+  `folder_not_clean` (empty, `a/`, `./a`, `a//b`, `a/./b`) and `folder_root` (`.`) — `teamfile.SyncReasons()`;
+  P17-1's first cut had seven more (`folder_empty`, `folder_bad_char`, `folder_dotdot`, `folder_git`,
+  `folder_team_file`, `folder_duplicate`, `folder_nested`) and P17-1b cut them to
+  what names a folder under the checkout: relative, `path.Clean`-unchanged, not `.`, at most 32 × 128 bytes.
+  No `folders` member, or an empty array, is a usable member that syncs nothing.
+- `team create --force` **always replaces** the file, as before card 32, and carries `sync` across through
+  `teamfile.CarriedSync`: a usable member comes over unchanged; an unusable one, a refused file that declares one,
+  or a file refused unread (a symlink, a special, world-writable or oversized file) carries nothing, and the
+  command prints one line with the fixed token (from `Reasons`, `SyncReasons` or `unreadable`):
+  `the previous .brigade.json's sync member was not carried into the new file (<token>); add it again if this
+  project syncs folders`. (P17-1 first refused the replacement in that case, `sync_not_carried`; P17-1b made it
+  always go ahead.)
 - The package doc is rewritten: the file is discovery **and** the project's declaration of what it syncs; it still
   never names a command, an option that changes how Brigade connects, or a secret.
 - Tests: ignored members at both levels; every `sync` rule both ways; the maximal file; `--force` round trip; a
@@ -219,6 +236,15 @@ peer to an adapter of the same name. The descriptor's meaning is the adapter's (
 - Plugin: `userConfig.sync` (`on`/`off`); `plugin/skills/team-messaging/SKILL.md` gains three lines (synced
   folders hold teammates' files; `brigade sync status`).
 
+**As built (P18-2, de50ccc; merged fb49428):** the watcher re-reads the roster and applies every 60 s only (no
+extra round on a session-list change) and repeats `attach` before each round; peers match on the same
+`workspace_label` (no label, no peers). The SessionStart lines are `Brigade: file sync on: <n> folder(s) through
+<adapter>.` and `Brigade: file sync off (<the sync option is off | no folders listed | the checkout's toplevel
+could not be resolved>).`; a team file with no `sync` member prints neither. The notice lines are `Brigade sync:
+<f> folders, <c> of <p> peers connected`, `Brigade sync: brigade-sync-<name> is not on PATH; file sync is off for
+this session` and `Brigade sync: the <name> sync adapter is not usable (<code>: <message>); file sync is off for
+this session`. The option's warning is `config.WarnSyncInvalid`. `brigade sync status` refuses outside a session.
+
 ### 4.4 Card 33 — the Syncthing adapter (`internal/syncadapters/syncthing`, `brigade sync-adapter syncthing`)
 
 - **Home:** `<state_dir>/sync/syncthing/` (0700): `config.xml`, `cert.pem`, `key.pem`, `index-*`, plus Brigade's
@@ -245,6 +271,38 @@ peer to an adapter of the same name. The descriptor's meaning is the adapter's (
   by the smoke test of §5.
 - forbidigo: this package joins the exec carve-out in `.golangci.yml` with a comment naming it as the one daemon
   Brigade starts.
+
+**As built (P18-3, 9b2c5fc; merged f66762a) — where the code differs from the bullets above, the code is the
+truth:**
+
+- **No `generate`.** v2 has no `--no-default-folder` (§3.2), so the first `attach` runs `syncthing serve --home
+  <home> --no-browser --no-restart --no-upgrade --no-port-probing --gui-address 127.0.0.1:<port>` on the fresh home
+  and waits (`startWait` 15 s) for `config.xml` to carry `<apikey>` and `GET /rest/system/status` to answer with
+  `myID`. The GUI port is a free loopback port picked once and kept in `<home>/port`, re-picked when another
+  program holds it. The API key is read from `config.xml` on every call and lives in no other file.
+- **The carve-out is one file**, `internal/syncadapters/syncthing/instance.go` (forbidigo `exec.Command` and gosec
+  G204), which carries `//go:build darwin || linux` (`Setsid`, `procutil`). The spawn uses a background context
+  that is never cancelled, `adapterkit.ChildEnv`, stdin from the null device and both streams appended to
+  `syncthing.log`, truncated at start when over 4 MiB.
+- **`daemon.pid` is `<pid> <start token>`** (`procutil`), so a reused pid reads as stopped. `attach` and `detach`
+  decide under `adapterkit.LockFile(<home>/lock)` (`lockWait` 16 s). The last `detach` asks the daemon to stop
+  with `POST /rest/system/shutdown`, then SIGTERM, then SIGKILL, `stopWait` (5 s) apart.
+- **`apply`** creates a missing folder directory (0755), posts every peer (a peer Syncthing answers 4xx is skipped
+  and left out of every folder's `devices`), and posts each folder with **exactly** the accepted peers as its
+  `devices` — a replace, so a device added to the instance by hand is dropped from the folder on the next round. A
+  folder Syncthing answers 4xx is `rejected`; `conflict_path` is only for a path held by a **different** folder id.
+  No `listenAddresses` patch: the instance listens where Syncthing does by default.
+- **`status`** on a stopped instance is `running: false` with empty lists, not an error, and lists every folder and
+  every device the instance holds (the harness filters folders to the project's in the human form).
+- **Found writing the docs (P18-4), for P18-6:** (a) two checkouts on one machine that list the same folder for
+  the same team — a second clone, or another repository of the team listing the same path — derive the same
+  folder id (the id carries no repository), and `heldByOther` ignores a same-id entry, so each checkout's `apply`
+  re-points the folder at its own path every round; `docs/sync.md` states this as a limit, and whether Syncthing
+  treats the re-pointed folder's missing files as deletions was not measured. (b) A watcher killed without its
+  exit path leaves `refs/<session_id>` behind and nothing prunes it, so the instance outlives the last session;
+  documented. (c) The always-on node of §7 cannot be a Syncthing that Brigade did not start, because (per the
+  `apply` bullet) each round replaces a folder's device list with the roster's peers; `docs/sync.md` says a
+  machine keeping a session open is the always-on node instead.
 
 ### 4.5 Documentation — Brigade's plain manner
 
@@ -297,6 +355,8 @@ peer to an adapter of the same name. The descriptor's meaning is the adapter's (
 
 ## 7. Out of scope, on purpose
 
-An always-on node (a team that wants sync while nobody has a session running installs Syncthing on a server and
-shares the same folder ids — the docs say how); per-folder receive-only modes; a Brigade-bundled Syncthing binary;
+An always-on node (as planned: a team installs Syncthing on a server and shares the same folder ids. As built,
+each `apply` replaces a folder's device list with the roster's peers, so a Syncthing Brigade did not start is
+dropped within a round; `docs/sync.md` names the working form — a machine that keeps a session open in a checkout
+— and the plan's form is P18-6's to rule on, §4.4 "Found writing the docs"); per-folder receive-only modes; a Brigade-bundled Syncthing binary;
 typed message bodies; anything the earlier transport design specified.

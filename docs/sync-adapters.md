@@ -6,6 +6,7 @@ tells the adapter which folders this checkout shares and which teammates' peers 
 team roster — and asks how it is going. Everything else is the engine's: discovery, transfer, conflicts, deletions.
 
 This page is the whole contract. It is short because the protocol is: five verbs, one JSON document in, one out.
+What file sync does for a team, with the bundled adapter, is [docs/sync.md](sync.md).
 
 ## Which adapter runs
 
@@ -118,7 +119,9 @@ Brigade tells the user `Brigade sync: <f> folders, <c> of <p> peers connected` w
 
 What `brigade sync status` shows: whether the engine runs, this machine's descriptor, and every folder and peer the
 engine knows — the engine is shared by every session and project on the machine, so this may include other
-projects' folders; Brigade shows only the project's own. Must not start the engine.
+projects' folders; the human form shows only the project's own, and `--json` carries them all. Must not start the
+engine. The bundled adapter answers a stopped engine with `{"running":false,"peer":"","folders":[],"peers":[]}`
+rather than an error, and `brigade sync status` then prints `engine stopped`.
 
 ```
 $ echo '{"state_dir":"/home/u/.local/state/brigade"}' | brigade-sync-rsyncish status
