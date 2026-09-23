@@ -1,6 +1,6 @@
 # Folder sync: a sync-adapter model with Syncthing as the default
 
-**Status.** Plan, 2026-09-22, owner Rjae; **building toward release 0.11.0**. Trello **32** (the team file opens:
+**Status.** **Shipped as 0.11.0 on 2026-09-23** (tag v0.11.0; migration applied to both hosted projects); plan of 2026-09-22, owner Rjae. Trello **32** (the team file opens:
 the `sync` member) and **33** (the sync-adapter model, the `sync_peer` wire member, the Syncthing adapter, the
 docs, the release). Anchors are file:line at **9b2c0d7**. Execution-log rows **P17-1..P17-2** (32) and
 **P18-1..P18-7** (33). **One additive wire member and one append-only Supabase migration; no new Go dependency;
