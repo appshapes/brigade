@@ -231,8 +231,15 @@ func (m *ByPID) validateSync() error {
 	case len(m.SyncFolders) == 0:
 		return errInvalid("sync_folders")
 	}
+	// The folder rule is the team file's (internal/harness/teamfile/sync.go
+	// checkFolder) and nothing more: relative, path.Clean-unchanged, not ".".
+	// A folder above the root ("../shared") is allowed on purpose — open by
+	// default (owner ruling 2026-09-22) — and the two checks MUST agree: a
+	// folder the parser calls usable that the map refused would fail
+	// WriteByPID and cost every teammate of that project the session's
+	// connection (Fable pre-release review, 2026-09-23).
 	for _, f := range m.SyncFolders {
-		if f == "" || f == "." || f == ".." || strings.HasPrefix(f, "/") || strings.HasPrefix(f, "../") || path.Clean(f) != f {
+		if f == "" || f == "." || strings.HasPrefix(f, "/") || path.Clean(f) != f {
 			return errInvalid("sync_folders")
 		}
 	}

@@ -172,10 +172,6 @@ func TestByPIDValidate(t *testing.T) {
 			withSync(m)
 			m.SyncFolders = []string{"/" + evilMarker}
 		}, wantField: "sync_folders"},
-		{name: "sync folder escaping the root", mutate: func(m *sessionmap.ByPID) {
-			withSync(m)
-			m.SyncFolders = []string{"../" + evilMarker}
-		}, wantField: "sync_folders"},
 		{name: "sync folder that is the root", mutate: func(m *sessionmap.ByPID) {
 			withSync(m)
 			m.SyncFolders = []string{"."}
