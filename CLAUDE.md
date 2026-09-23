@@ -76,7 +76,8 @@
   PR reviewer follows `.claude/agents/reviewer.md`. Agents commit with plain `git` on their branch and never run
   `make commit`, `make push` or `make release`. A PR labelled `maintenance` is exempt from the execution-log-row
   rule (owner ruling, 2026-09-09); its squash-merge title, `<card>: <Imperative summary>`, satisfies the
-  commit-message rule. Agent memory lives under `.context/plans/agent-memory/`, never under `.claude/`.
+  commit-message rule. A PR labelled `maintenance` may also merge without a Trello card; its squash-merge
+  title is then `<Imperative summary>`, with no number (owner ruling, 2026-09-23). Agent memory lives under `.context/plans/agent-memory/`, never under `.claude/`.
   `anthropics/claude-code-action` is pinned by **full commit SHA** — the only action in this repository that is,
   because it is the only one that runs a model with repository write access; every other action stays on its
   major tag.
