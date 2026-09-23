@@ -14,6 +14,14 @@ func run(t *testing.T, environ []string, args ...string) (exit int, stdout, stde
 	return exit, out.String(), errb.String()
 }
 
+// runIn is run with stdin.
+func runIn(t *testing.T, environ []string, stdin string, args ...string) (exit int, stdout, stderr string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	exit = Run(args, strings.NewReader(stdin), &out, &errb, environ)
+	return exit, out.String(), errb.String()
+}
+
 func TestRunDispatchesToTheCommandTable(t *testing.T) {
 	t.Parallel()
 	exit, stdout, stderr := run(t, nil, "version")
@@ -85,6 +93,8 @@ func TestRunNeverPanics(t *testing.T) {
 		{"version", "--json", "--json"},
 		{"hook"},
 		{"adapter"},
+		{"sync-adapter"},
+		{"sync-adapter", "syncthing"},
 		{"watch", "--"},
 		{"help", "--all", "--json"},
 		{"send", "--reply-to"},
@@ -180,5 +190,26 @@ func TestRunDispatchesTheBundledAdapter(t *testing.T) {
 	}
 	if strings.Contains(stdout+stderr, "NOTREAL") {
 		t.Errorf("poison flag: the argv value was echoed")
+	}
+}
+
+// TestRunDispatchesTheSyncAdapterGroup pins the card-33 seam (folder-sync
+// plan §4.3): `brigade sync-adapter syncthing <verb>` reaches the bundled
+// sync adapter's table entry, which answers with exactly one protocol
+// envelope on stdout — whatever it says — and a missing or unknown name
+// is `usage` (exit 2) through the table's reporter, nothing on stdout.
+func TestRunDispatchesTheSyncAdapterGroup(t *testing.T) {
+	t.Parallel()
+	state := t.TempDir()
+	env := []string{"HOME=" + t.TempDir(), "BRIGADE_STATE_DIR=" + state, "PATH=" + t.TempDir()}
+	_, stdout, _ := runIn(t, env, `{"state_dir":"`+state+`"}`, "sync-adapter", "syncthing", "status")
+	if !strings.HasPrefix(stdout, `{"ok":`) || strings.Count(stdout, "\n") != 1 {
+		t.Errorf("sync-adapter syncthing status: stdout = %q, want one protocol envelope", stdout)
+	}
+	for _, args := range [][]string{{"sync-adapter"}, {"sync-adapter", "nosuch", "status"}} {
+		exit, stdout, stderr := run(t, env, args...)
+		if exit != 2 || stdout != "" || !strings.Contains(stderr, "usage") {
+			t.Errorf("%v: exit %d stdout %q stderr %q, want a usage refusal on stderr", args, exit, stdout, stderr)
+		}
 	}
 }

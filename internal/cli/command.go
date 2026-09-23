@@ -2,8 +2,11 @@ package cli
 
 import (
 	"flag"
+	"io"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	harnesscmd "github.com/appshapes/brigade/internal/harness/commands"
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 // A Command is one entry of the `brigade` command table (6.4).
@@ -101,6 +104,12 @@ func init() {
 			Run:     runDoing,
 		},
 		{
+			Name:    "sync",
+			Args:    "status",
+			Summary: "show the folders this project syncs, the sync engine and the teammates' peers",
+			Run:     runSync,
+		},
+		{
 			Name:    "team",
 			Args:    "create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags]",
 			Summary: "create, join, leave and administer a team, and list its members",
@@ -141,7 +150,52 @@ func init() {
 			MultiCall: true,
 			Run:       runAdapterEntry,
 		},
+		{
+			Name:      "sync-adapter",
+			Args:      "<name> describe|attach|apply|status|detach",
+			Summary:   "run a bundled sync adapter over the sync-adapter protocol on stdio",
+			Hidden:    true,
+			MultiCall: true,
+			Run:       runSyncAdapterEntry,
+		},
 	}
+}
+
+// A SyncAdapterFunc runs one bundled sync adapter (docs/sync-adapters.md):
+// args are the words after its name — the verb — and it speaks the
+// sync-adapter protocol on the real process streams, returning the exit
+// status.
+type SyncAdapterFunc func(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []string) int
+
+// syncAdapters is the bundled sync adapters, by the name a team file's
+// `sync` member gives (folder-sync plan §4.3). internal/app dispatches
+// `brigade sync-adapter <name> <verb>` through it.
+var syncAdapters = map[string]SyncAdapterFunc{
+	"syncthing": syncAdapterNotBuilt,
+}
+
+// LookupSyncAdapter returns the bundled sync adapter named name.
+func LookupSyncAdapter(name string) (SyncAdapterFunc, bool) {
+	f, ok := syncAdapters[name]
+	return f, ok
+}
+
+// syncAdapterNotBuilt stands in for a bundled sync adapter this binary
+// does not carry yet: every verb is one `unavailable` envelope on stdout
+// (4.3), so the harness reports it as an adapter that cannot be used and
+// the session goes on without file sync.
+func syncAdapterNotBuilt(_ []string, _ io.Reader, stdout, _ io.Writer, _ []string) int {
+	return adapterkit.WriteError(stdout, &protocol.Error{
+		Code:    protocol.CodeUnavailable,
+		Message: "this sync adapter is not built into this binary",
+		Details: map[string]string{"reason": "not_built"},
+	})
+}
+
+// runSyncAdapterEntry is the table's Run for the `sync-adapter` entry,
+// which internal/app intercepts before the table, exactly as `adapter`.
+func runSyncAdapterEntry(*Context, []string) error {
+	return usagef("sync-adapter", "the sync adapter entrypoint is dispatched by the multi-call seam; run `"+Program+" sync-adapter syncthing <verb>`")
 }
 
 // Lookup returns the table entry for name.
@@ -255,6 +309,12 @@ func runInbox(cx *Context, args []string) error {
 		Session: stringFlag(cx, "session"),
 		All:     cx.Bool("all"),
 	})
+}
+
+// runSync is the table's Run for `sync status` (card 33; the verb is the
+// one positional argument).
+func runSync(cx *Context, args []string) error {
+	return harnesscmd.Sync(invocation(cx, args))
 }
 
 // runTeam is the table's Run for `team` (raw: the verb and the adapter

@@ -1,6 +1,6 @@
 // Package commands implements the human and model command surface of the
 // `brigade` binary (plan 6.4): `sessions`, `send`, `whoami`, `doing` (card
-// 25, doing.go), `team members`,
+// 25, doing.go), `sync status` (card 33, sync.go), `team members`,
 // the hold policy's `inbox` and `inbox release` (inbox.go), and the
 // terminal pass-through of `team create|join|leave` and `profile
 // init|status|reset|revoke-credentials`. The cli package's command table
@@ -112,6 +112,10 @@ type Deps struct {
 	// PromptLine asks one echoed line (team create's name and label);
 	// nil prints to Err and reads a line from In.
 	PromptLine func(prompt string) (string, error)
+	// SyncCommand, when set, is the sync adapter's argv prefix for `sync
+	// status` instead of the one foldersync resolves from the map; a test
+	// points it at `/bin/sh <fixture script>`.
+	SyncCommand []string
 }
 
 // RetryPause is the pause before the single retry of `message send` on

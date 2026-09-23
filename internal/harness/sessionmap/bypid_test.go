@@ -136,6 +136,58 @@ func TestByPIDValidate(t *testing.T) {
 		}, wantField: "frame_text"},
 		{name: "custom with an embedded newline (not folded)", mutate: func(m *sessionmap.ByPID) { m.FrameLevel, m.FrameText = "custom", "a\nb " }, wantField: "frame_text"},
 		{name: "custom without the trailing space (not folded)", mutate: func(m *sessionmap.ByPID) { m.FrameLevel, m.FrameText = "custom", "no space" }, wantField: "frame_text"},
+		// Folder sync (folder-sync plan §4.3): the three members together or
+		// not at all, a NAME, a clean absolute root, clean relative folders.
+		{name: "sync frozen is valid", mutate: withSync},
+		{name: "sync with a nested folder is valid", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncFolders = []string{".context/plans", "docs/shared/deep"}
+		}},
+		{name: "sync adapter without the rest", mutate: func(m *sessionmap.ByPID) { m.SyncAdapter = "syncthing" }, wantField: "sync_root"},
+		{name: "sync folders without an adapter", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncAdapter = ""
+		}, wantField: "sync_adapter"},
+		{name: "sync adapter that is a path", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncAdapter = "/usr/bin/" + evilMarker
+		}, wantField: "sync_adapter"},
+		{name: "sync adapter in capitals", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncAdapter = "Syncthing"
+		}, wantField: "sync_adapter"},
+		{name: "sync root relative", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncRoot = "work/" + evilMarker
+		}, wantField: "sync_root"},
+		{name: "sync root not clean", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncRoot = "/home/u/work/repo/"
+		}, wantField: "sync_root"},
+		{name: "sync with no folders", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncFolders = nil
+		}, wantField: "sync_folders"},
+		{name: "sync folder absolute", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncFolders = []string{"/" + evilMarker}
+		}, wantField: "sync_folders"},
+		{name: "sync folder escaping the root", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncFolders = []string{"../" + evilMarker}
+		}, wantField: "sync_folders"},
+		{name: "sync folder that is the root", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncFolders = []string{"."}
+		}, wantField: "sync_folders"},
+		{name: "sync folder not clean", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncFolders = []string{"docs//" + evilMarker}
+		}, wantField: "sync_folders"},
+		{name: "sync folder empty", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncFolders = []string{"docs", ""}
+		}, wantField: "sync_folders"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -164,6 +216,45 @@ var byPIDMembers = []string{
 	"claude_pid", "claude_session_id", "brigade_session_id", "team_ref", "team_name", "session_name",
 	"permission_mode", "non_interactive", "inbound", "frame_level", "frame_text", "socket_path", "transcript_path", "team_key", "config_dir", "adapter_command",
 	"plugin_bin", "harness_version", "registered_at", "updated_at",
+}
+
+// withSync freezes a usable file-sync configuration into m.
+func withSync(m *sessionmap.ByPID) {
+	m.SyncAdapter = "syncthing"
+	m.SyncFolders = []string{".context/plans", "docs/shared"}
+	m.SyncRoot = "/home/u/work/repo"
+}
+
+// TestSyncMembersRoundTripAndAreOmittedWhenOff: the three sync members
+// survive JSON as the hook froze them, and a session that syncs nothing
+// writes none of them — so a map from before file sync existed and one
+// whose session has it off look the same, and both read.
+func TestSyncMembersRoundTripAndAreOmittedWhenOff(t *testing.T) {
+	t.Parallel()
+	m := validByPID()
+	withSync(&m)
+	data, err := json.Marshal(&m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back sessionmap.ByPID
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.SyncAdapter != m.SyncAdapter || back.SyncRoot != m.SyncRoot || !slices.Equal(back.SyncFolders, m.SyncFolders) {
+		t.Fatalf("sync members did not round-trip: %q %q %v", back.SyncAdapter, back.SyncRoot, back.SyncFolders)
+	}
+	if err := back.Validate(); err != nil {
+		t.Fatalf("Validate after the round trip: %v", err)
+	}
+	off := validByPID()
+	data, err = json.Marshal(&off)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "sync_") {
+		t.Fatalf("a map without sync writes a sync member: %s", data)
+	}
 }
 
 // TestTranscriptPathIsOmittedWhenEmpty: a map without a transcript path
