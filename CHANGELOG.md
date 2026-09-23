@@ -9,6 +9,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-09-23
 ### Added
 
 - **File sync: the folders a project lists, kept in step between its checkouts** (card 33). A project lists
