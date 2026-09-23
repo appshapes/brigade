@@ -41,10 +41,13 @@ import (
 // swept, short enough that a crashed one does not linger for weeks.
 const orphanMaxAge = time.Hour
 
-// createOptions is `team create`'s parsed flag set.
+// createOptions is `team create`'s parsed flag set, plus the one thing
+// --force carries from the file it replaces: the project's `sync`
+// member (card 32), nil when there is none.
 type createOptions struct {
 	url, key, name, label, adapter, secretFile string
 	force                                      bool
+	carriedSync                                *teamfile.SyncConfig
 }
 
 // teamCreate implements the rebuilt `brigade team create` (brief §2):
@@ -65,11 +68,20 @@ func (inv Invocation) teamCreate(raw rawArgs) error {
 		return err
 	}
 	filePath := filepath.Join(top, teamfile.FileName)
-	if _, statErr := inv.lstat(filePath); statErr == nil && !opts.force {
-		return &protocol.Error{
-			Code:    protocol.CodeConflict,
-			Message: "this project already has a " + teamfile.FileName + "; pass --force to replace it",
-			Details: map[string]string{"reason": "team_file_exists"},
+	if _, statErr := inv.lstat(filePath); statErr == nil {
+		if !opts.force {
+			return &protocol.Error{
+				Code:    protocol.CodeConflict,
+				Message: "this project already has a " + teamfile.FileName + "; pass --force to replace it",
+				Details: map[string]string{"reason": "team_file_exists"},
+			}
+		}
+		// --force replaces the team's backend, never the project's `sync`
+		// declaration (folder-sync plan §4.1): the existing file is read
+		// with the one parser, BEFORE any spawn, and a member that cannot
+		// be carried faithfully refuses the create rather than vanish.
+		if opts.carriedSync, err = teamfile.CarriedSync(filePath); err != nil {
+			return err
 		}
 	}
 	req, err := inv.createRequest(opts)
@@ -266,11 +278,15 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 	}); err != nil {
 		return err
 	}
-	doc, err := json.Marshal(map[string]any{
+	members := map[string]any{
 		"version": 1, "adapter": opts.adapter, "url": opts.url,
 		"publishable_key": opts.key, "team_ref": answer.TeamRef,
 		"team_name": protocol.SanitizeName(answer.TeamName),
-	})
+	}
+	if opts.carriedSync != nil {
+		members["sync"] = opts.carriedSync
+	}
+	doc, err := json.Marshal(members)
 	if err != nil {
 		return fmt.Errorf("commands: marshal team file: %w", err)
 	}

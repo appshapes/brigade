@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -68,32 +70,80 @@ func TestParseValid(t *testing.T) {
 func TestParseFsAdapterPlaceholders(t *testing.T) {
 	t.Parallel()
 	// Correction 6: the fs-adapter dev shape carries a loopback
-	// placeholder pair; the closed schema must accept it unchanged.
+	// placeholder pair; the schema must accept it unchanged.
 	doc := `{"version":1,"adapter":"fs","url":"http://127.0.0.1:1","publishable_key":"placeholder","team_ref":"t_dev","team_name":"dev"}`
 	if _, err := teamfile.Parse(write(t, doc)); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestParseRefusesPoisonFields(t *testing.T) {
+func TestParseIgnoresPoisonFields(t *testing.T) {
 	t.Parallel()
-	// One case per known poison member: each refuses naming the member,
-	// and neither the error nor its details carries the VALUE.
+	// The file opened in card 32: each once-refused poison member is now
+	// ignored — named in Ignored, its VALUE nowhere in the parse — and the
+	// team it names is exactly the one the file without it names.
+	want, err := teamfile.Parse(write(t, validDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, field := range []string{"adapter_command", "profile", "config_dir", "team_inbound", "frame", "frame_file"} {
 		t.Run(field, func(t *testing.T) {
 			t.Parallel()
 			value := "SENTINEL-VALUE-MUST-NEVER-APPEAR"
 			doc := strings.TrimSuffix(validDoc, "}") + fmt.Sprintf(`,%q:%q}`, field, value)
-			_, err := teamfile.Parse(write(t, doc))
-			pe := reasonOf(t, err, teamfile.ReasonUnknownField)
-			if pe.Details["field"] != field {
-				t.Fatalf("field = %q, want %q", pe.Details["field"], field)
+			got, err := teamfile.Parse(write(t, doc))
+			if err != nil {
+				t.Fatal(err)
 			}
-			all := fmt.Sprintf("%v %v", pe, pe.Details)
-			if strings.Contains(all, value) {
-				t.Fatalf("the refusal echoed the member's value: %s", all)
+			if !slices.Equal(got.Ignored, []string{field}) {
+				t.Fatalf("Ignored = %q, want [%q]", got.Ignored, field)
+			}
+			if strings.Contains(fmt.Sprintf("%+v", got), value) {
+				t.Fatalf("the parse carries the ignored member's value: %+v", got)
+			}
+			got.Ignored = nil
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("parse with %s = %+v, want %+v", field, got, want)
 			}
 		})
+	}
+}
+
+// TestParseIgnoredMembersAtBothLevels: unknown members at the top level
+// and inside `sync` are ignored, sorted, and named `name` / `sync.name`;
+// the sync member stays usable around its unknown inner member, and the
+// names are reduced to a plain character set and capped.
+func TestParseIgnoredMembersAtBothLevels(t *testing.T) {
+	t.Parallel()
+	// JSON escapes: the decoded name carries a bidi override, a quote,
+	// angle brackets and a newline, then 200 x; 32 runes survive the cap.
+	hostile := `evil\u202e\"<name>\n` + strings.Repeat("x", 200)
+	doc := strings.TrimSuffix(validDoc, "}") +
+		`,"zeta":{"deep":[1,2,{"x":null}]},"alpha":1e400,"` + hostile + `":true,` +
+		`"sync":{"folders":["docs/shared"],"mode":"push","adapter":"syncthing"}}`
+	f, err := teamfile.Parse(write(t, doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Sync == nil || !slices.Equal(f.Sync.Folders, []string{"docs/shared"}) || f.SyncUnusable != "" {
+		t.Fatalf("sync = %+v (%q), want the usable member", f.Sync, f.SyncUnusable)
+	}
+	if len(f.Ignored) != 4 {
+		t.Fatalf("Ignored = %q, want four names", f.Ignored)
+	}
+	reduced := "evil???name??" + strings.Repeat("x", 19)
+	if !slices.Equal(f.Ignored, []string{"alpha", reduced, "sync.mode", "zeta"}) {
+		t.Fatalf("Ignored = %q, want alpha, <hostile>, sync.mode, zeta in order", f.Ignored)
+	}
+	for _, name := range f.Ignored {
+		if utf8.RuneCountInString(name) > 32+len("sync.") {
+			t.Fatalf("ignored name %q escaped the cap", name)
+		}
+		for _, r := range name {
+			if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && !strings.ContainsRune("_-.?", r) {
+				t.Fatalf("ignored name %q carries %q", name, r)
+			}
+		}
 	}
 }
 
@@ -214,6 +264,21 @@ func TestParseRefusesSecretShapes(t *testing.T) {
 		t.Parallel()
 		doc := strings.Replace(validDoc, `"team_name":"ops"`,
 			`"team_name":"\u0062rg1.t-x.stolenjoin12345"`, 1)
+		_, err := teamfile.Parse(write(t, doc))
+		wantReason(t, err, teamfile.ReasonSecretShaped)
+	})
+	t.Run("a JSON-escaped secret in an ignored member's nested value refuses (D1)", func(t *testing.T) {
+		t.Parallel()
+		// The file opened: an ignored member is never read, so the walk
+		// over every decoded string is what keeps a committed secret from
+		// riding in one.
+		doc := strings.TrimSuffix(validDoc, "}") + `,"notes":{"a":["x","\u0062rg1.t-x.stolenjoin12345"]}}`
+		_, err := teamfile.Parse(write(t, doc))
+		wantReason(t, err, teamfile.ReasonSecretShaped)
+	})
+	t.Run("a JSON-escaped secret in a sync folder refuses the file, not just sync (D1)", func(t *testing.T) {
+		t.Parallel()
+		doc := strings.TrimSuffix(validDoc, "}") + `,"sync":{"folders":["\u0062rg1.t-x.stolenjoin12345"]}}`
 		_, err := teamfile.Parse(write(t, doc))
 		wantReason(t, err, teamfile.ReasonSecretShaped)
 	})
@@ -341,11 +406,12 @@ func TestTeamNameSanitized(t *testing.T) {
 
 func TestReasonsListIsClosed(t *testing.T) {
 	t.Parallel()
+	// unknown_field left the list in card 32: the file opened, and an
+	// unknown member is ignored with a line, never refused.
 	want := []string{
 		teamfile.ReasonNotRegularFile, teamfile.ReasonWorldWritable, teamfile.ReasonTooLarge,
 		teamfile.ReasonSecretShaped, teamfile.ReasonSecretKey, teamfile.ReasonMalformed,
-		teamfile.ReasonUnknownField, teamfile.ReasonUnsupportedVersion, teamfile.ReasonURLNotHTTPS,
-		teamfile.ReasonAdapterUnknown,
+		teamfile.ReasonUnsupportedVersion, teamfile.ReasonURLNotHTTPS, teamfile.ReasonAdapterUnknown,
 	}
 	got := teamfile.Reasons()
 	if len(got) != len(want) {
@@ -513,6 +579,10 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte(`{"version":1,"adapter":"supabase","url":"https://x.co","publishable_key":"brg1.t-x.forged-join-secret","team_ref":"t"}`))
 	f.Add([]byte("not json"))
 	f.Add([]byte(`{"version":2}`))
+	// Card 32: the opened file and its sync member, usable and not.
+	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"sync":{"adapter":"syncthing","folders":[".context/plans","docs/shared"]}}`))
+	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"sync":{"folders":["a/.git/x","../up","/abs","a","a/b"],"extra":1}}`))
+	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"sync":["not","an","object"],"future":{"x":[1e400]}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > teamfile.MaxBytes {
 			data = data[:teamfile.MaxBytes]
@@ -538,5 +608,6 @@ func FuzzParse(f *testing.F) {
 		if file.Adapter == "" || file.URL == "" || file.PublishableKey == "" || file.TeamRef == "" {
 			t.Fatalf("an accepted file has an empty required member: %+v", file)
 		}
+		assertSyncInvariants(t, file)
 	})
 }
