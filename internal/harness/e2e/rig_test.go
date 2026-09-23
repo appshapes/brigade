@@ -75,6 +75,9 @@ type rig struct {
 
 	mu       sync.Mutex
 	watchers []int // every watcher pid seen, for cleanup
+	// stateDirs are the sessions' own state dirs (session.stateHome)
+	// beside stateDir, whose watcher pidfiles the cleanup reaps too.
+	stateDirs []string
 	// lastHook is the most recent hook result per session pid. The
 	// SessionStart hook returns 0 whether or not it connected (start.go's
 	// unconditional `return 0`), and only the connected path writes the
@@ -209,15 +212,20 @@ func (r *rig) baseEnv() []string {
 
 // A session is one Claude Code process as the hooks see it: a reaped
 // sleeper as CLAUDE_PID, a native session id, the profile, and the inbox
-// socket and token when the host has one.
+// socket and token when the host has one. stateHome, when set, is the
+// session's own XDG_STATE_HOME (a second machine's state dir, set with
+// ownStateHome), and extraEnv is appended to its hook environment, where
+// it overrides the base entries (the last duplicate wins in os/exec).
 type session struct {
-	pid      int
-	nativeID string
-	profile  string
-	title    string
-	socket   string
-	token    string
-	cwd      string
+	pid       int
+	nativeID  string
+	profile   string
+	title     string
+	socket    string
+	token     string
+	cwd       string
+	stateHome string
+	extraEnv  []string
 }
 
 // newSession starts a sleeper and returns the session facts. A registry
@@ -257,7 +265,34 @@ func (r *rig) env(s session) []string {
 	if s.socket != "" {
 		env = append(env, "CLAUDE_CODE_MESSAGING_SOCKET="+s.socket, "CLAUDE_CODE_MESSAGING_TOKEN="+s.token)
 	}
-	return env
+	if s.stateHome != "" {
+		env = append(env, "XDG_STATE_HOME="+s.stateHome)
+	}
+	return append(env, s.extraEnv...)
+}
+
+// ownStateHome gives s a state dir of its own under name: the by-pid map,
+// the pidfile, the watcher log and everything the watcher's children keep
+// under the state dir (a sync engine's home) live there instead of in the
+// rig's, as they would on a second machine.
+func (r *rig) ownStateHome(s *session, name string) {
+	r.t.Helper()
+	s.stateHome = filepath.Join(r.dirs.Root, name)
+	if err := os.MkdirAll(s.stateHome, 0o700); err != nil {
+		r.t.Fatal(err)
+	}
+	r.mu.Lock()
+	r.stateDirs = append(r.stateDirs, r.stateDirOf(*s))
+	r.mu.Unlock()
+}
+
+// stateDirOf is the in-session state dir of s: its own when it has one,
+// else the rig's.
+func (r *rig) stateDirOf(s session) string {
+	if s.stateHome != "" {
+		return filepath.Join(s.stateHome, "brigade")
+	}
+	return r.stateDir
 }
 
 // hookDoc is a hook stdin document (the 2.1.251 shape). transcript_path
@@ -473,10 +508,15 @@ func (r *rig) runAdapter(env []string, stdin string, args ...string) result {
 // store is the by-pid map store the hooks write to.
 func (r *rig) store() sessionmap.Store { return sessionmap.Store{StateDir: r.stateDir} }
 
+// storeOf is the by-pid map store of s's own state dir.
+func (r *rig) storeOf(s session) sessionmap.Store {
+	return sessionmap.Store{StateDir: r.stateDirOf(s)}
+}
+
 // mustMap reads s's by-pid map.
 func (r *rig) mustMap(s session) *sessionmap.ByPID {
 	r.t.Helper()
-	m, err := r.store().ReadByPID(s.pid)
+	m, err := r.storeOf(s).ReadByPID(s.pid)
 	if err != nil {
 		r.t.Fatalf("by-pid map of %d: %v\n%s", s.pid, err, r.whyNoMap(s))
 	}
@@ -493,13 +533,13 @@ func (r *rig) whyNoMap(s session) string {
 	r.mu.Unlock()
 	var b strings.Builder
 	fmt.Fprintf(&b, "--- last hook for pid %d: exit=%d\nstdout: %q\nstderr: %q\n", s.pid, last.exit, last.stdout, last.stderr)
-	dir := filepath.Join(r.stateDir, "sessions", "by-pid")
+	dir := filepath.Join(r.stateDirOf(s), "sessions", "by-pid")
 	entries, derr := os.ReadDir(dir)
 	fmt.Fprintf(&b, "--- %s (err=%v):\n", dir, derr)
 	for _, e := range entries {
 		fmt.Fprintf(&b, "    %s\n", e.Name())
 	}
-	logPath := filepath.Join(r.stateDir, "logs", "watcher-"+strconv.Itoa(s.pid)+".log")
+	logPath := filepath.Join(r.stateDirOf(s), "logs", "watcher-"+strconv.Itoa(s.pid)+".log")
 	data, lerr := os.ReadFile(logPath)
 	fmt.Fprintf(&b, "--- %s (err=%v):\n%s\n", logPath, lerr, data)
 	fmt.Fprintf(&b, "--- process %d alive: %v\n", s.pid, alive(s.pid))
@@ -508,13 +548,13 @@ func (r *rig) whyNoMap(s session) string {
 
 // mapExists reports whether s's by-pid map file exists.
 func (r *rig) mapExists(s session) bool {
-	p, _ := r.store().ByPIDPath(s.pid)
+	p, _ := r.storeOf(s).ByPIDPath(s.pid)
 	_, err := os.Lstat(p)
 	return err == nil
 }
 
 // pidfilePath is s's watcher pidfile.
-func (r *rig) pidfilePath(s session) string { return pidfile.Path(r.stateDir, s.pid) }
+func (r *rig) pidfilePath(s session) string { return pidfile.Path(r.stateDirOf(s), s.pid) }
 
 // liveWatcher waits for s's pidfile to name a live watcher and returns
 // the entry; the pid is remembered for cleanup.
@@ -568,11 +608,14 @@ func (r *rig) reapWatchers() {
 	for _, pid := range r.watchers {
 		pids[pid] = true
 	}
+	stateDirs := append([]string{r.stateDir}, r.stateDirs...)
 	r.mu.Unlock()
-	entries, _ := os.ReadDir(filepath.Join(r.stateDir, "watchers"))
-	for _, e := range entries {
-		if v, err := pidfile.Check(filepath.Join(r.stateDir, "watchers", e.Name()), procutil.Lookup); err == nil && v.Found {
-			pids[v.Entry.PID] = true
+	for _, dir := range stateDirs {
+		entries, _ := os.ReadDir(filepath.Join(dir, "watchers"))
+		for _, e := range entries {
+			if v, err := pidfile.Check(filepath.Join(dir, "watchers", e.Name()), procutil.Lookup); err == nil && v.Found {
+				pids[v.Entry.PID] = true
+			}
 		}
 	}
 	for pid := range pids {
@@ -662,7 +705,7 @@ func (r *rig) logHas(s session, msg string) bool { return r.logCount(s, msg) > 0
 // logCount counts the lines with msg in s's watcher log (every watcher of
 // the session appends to the same file, so a respawn adds its own lines).
 func (r *rig) logCount(s session, msg string) int {
-	data, err := os.ReadFile(filepath.Join(r.stateDir, "logs", "watcher-"+strconv.Itoa(s.pid)+".log"))
+	data, err := os.ReadFile(filepath.Join(r.stateDirOf(s), "logs", "watcher-"+strconv.Itoa(s.pid)+".log"))
 	if err != nil {
 		return 0
 	}
