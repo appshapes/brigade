@@ -411,7 +411,8 @@ func titleLine(title string) string {
 
 // TestCustomTitleLatestWins: the latest custom-title record is the title,
 // including one appended after an earlier Refresh; an empty value clears
-// it (owner ruling, 2026-09-23); ai-title and agent-name records are never
+// it (owner ruling, 2026-09-23) and a record without the member does not;
+// ai-title and agent-name records are never
 // read, and the other facts are untouched.
 func TestCustomTitleLatestWins(t *testing.T) {
 	t.Parallel()
@@ -433,6 +434,10 @@ func TestCustomTitleLatestWins(t *testing.T) {
 	appendLines(t, path, `{"type":"ai-title","aiTitle":"later ai title"}`, `{"type":"agent-name","agentName":"later agent"}`)
 	if got := refresh(t, r).CustomTitle; got != "second" {
 		t.Fatalf("title after ai-title/agent-name = %q, want second", got)
+	}
+	appendLines(t, path, `{"type":"custom-title","sessionId":"s"}`, `{"type":"custom-title","customTitle":null}`)
+	if got := refresh(t, r).CustomTitle; got != "second" {
+		t.Fatalf("title after records with no customTitle = %q, want second", got)
 	}
 	appendLines(t, path, titleLine(""))
 	if got := refresh(t, r).CustomTitle; got != "" {

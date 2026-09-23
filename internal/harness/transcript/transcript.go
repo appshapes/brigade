@@ -124,7 +124,8 @@ type Facts struct {
 	// CustomTitle is the customTitle of the latest custom-title record,
 	// "" when none was seen. The latest record wins even when its value
 	// is empty: an empty title means the conversation has none (owner
-	// ruling, 2026-09-23). ai-title records (Claude Code's own summary of
+	// ruling, 2026-09-23). A record without a customTitle member (or with
+	// a null one) is skipped: it carries no value to win with. ai-title records (Claude Code's own summary of
 	// the first prompt) and agent-name records are not read. It is RAW,
 	// user-chosen text: the caller sanitises (protocol.SanitizeName).
 	CustomTitle string
@@ -135,9 +136,9 @@ type Facts struct {
 // message and attachment are pointers so their absence is distinguishable
 // from an empty object, and usage likewise.
 type record struct {
-	Type        string `json:"type"`
-	IsSidechain bool   `json:"isSidechain"`
-	CustomTitle string `json:"customTitle"`
+	Type        string  `json:"type"`
+	IsSidechain bool    `json:"isSidechain"`
+	CustomTitle *string `json:"customTitle"`
 	Message     *struct {
 		Model string `json:"model"`
 		Usage *struct {
@@ -295,8 +296,8 @@ func (r *Reader) consume(br *bufio.Reader) error {
 
 // apply folds one complete line into the facts. A line that is not JSON
 // of the expected shape is skipped; a sidechain record and a synthetic
-// assistant record are ignored; a custom-title record replaces the title,
-// empty or not; a
+// assistant record are ignored; a custom-title record that carries a
+// customTitle string replaces the title, empty or not; a
 // model attachment resets the "assistant after attachment" flag; an
 // assistant record naming a model sets it, and one carrying a usage
 // whose three counts are non-negative replaces the context sum (a
@@ -315,7 +316,9 @@ func (r *Reader) apply(line []byte) {
 	}
 	switch rec.Type {
 	case typeCustomTitle:
-		r.customTitle = rec.CustomTitle
+		if rec.CustomTitle != nil {
+			r.customTitle = *rec.CustomTitle
+		}
 	case typeAttachment:
 		if rec.Attachment != nil && rec.Attachment.Type == attachmentModel && rec.Attachment.Identity.ModelID != "" {
 			r.attModel = rec.Attachment.Identity.ModelID
