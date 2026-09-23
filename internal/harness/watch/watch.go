@@ -175,9 +175,12 @@ type Deps struct {
 	// binary, or brigade-sync-<name> on PATH). nil in production; a test
 	// points it at `/bin/sh <fixture script>`.
 	SyncCommand []string
-	// SyncInterval is how often the sync goroutine re-applies folders and
-	// peers (DefaultSyncInterval).
-	SyncInterval time.Duration
+	// SyncInterval is the longest the sync goroutine goes without
+	// re-applying folders and peers (DefaultSyncInterval);
+	// SyncListInterval is how often it reads the roster, applying at once
+	// when the teammates' peers changed (DefaultSyncListInterval).
+	SyncInterval     time.Duration
+	SyncListInterval time.Duration
 
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
@@ -220,6 +223,7 @@ func RealDeps() Deps {
 		HealthyAfter:      DefaultHealthyAfter,
 		LogRotateBytes:    DefaultLogRotateBytes,
 		SyncInterval:      DefaultSyncInterval,
+		SyncListInterval:  DefaultSyncListInterval,
 	}
 }
 
@@ -286,6 +290,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.SyncInterval <= 0 {
 		d.SyncInterval = prod.SyncInterval
+	}
+	if d.SyncListInterval <= 0 {
+		d.SyncListInterval = prod.SyncListInterval
 	}
 	return d
 }

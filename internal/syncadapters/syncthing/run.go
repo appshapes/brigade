@@ -181,20 +181,32 @@ func (a *adapter) execute(verb string, req *request) (any, error) {
 	inst := newInstance(stateDir, a)
 	switch verb {
 	case verbAttach:
-		if err := checkSessionID(req.SessionID); err != nil {
+		if err := checkSession(req); err != nil {
 			return nil, err
 		}
-		return inst.attach(req.SessionID)
+		return inst.attach(req.SessionID, req.PID)
 	case verbApply:
 		return inst.apply(req.Folders, req.Peers)
 	case verbStatus:
 		return inst.status()
 	default: // verbDetach; parseVerb admits nothing else
-		if err := checkSessionID(req.SessionID); err != nil {
+		if err := checkSession(req); err != nil {
 			return nil, err
 		}
 		return inst.detach(req.SessionID)
 	}
+}
+
+// checkSession checks what attach and detach read: the session id, and
+// the optional pid, which is absent (0) or a positive process id.
+func checkSession(req *request) error {
+	if err := checkSessionID(req.SessionID); err != nil {
+		return err
+	}
+	if req.PID < 0 {
+		return errInput("pid", "pid must be a positive process id when it is given")
+	}
+	return nil
 }
 
 // stateDir is the request's state_dir, else the environment's
@@ -235,10 +247,14 @@ func (a *adapter) fail(err error) int {
 }
 
 // The request of every verb (plan 4.3). One shape serves all five: the
-// loose parse ignores what a verb does not read.
+// loose parse ignores what a verb does not read. PID is attach's and
+// detach's optional "pid": the process that holds the session's
+// reference (the harness sends its watcher's), kept in refs/<session_id>
+// so a reference whose process died without detaching is pruned.
 type request struct {
 	StateDir  string       `json:"state_dir"`
 	SessionID string       `json:"session_id"`
+	PID       int          `json:"pid"`
 	Folders   []folderSpec `json:"folders"`
 	Peers     []peerSpec   `json:"peers"`
 }
@@ -289,8 +305,9 @@ type detachResult struct {
 // status's ({id, path, state}). State is Syncthing's own folder state
 // ("idle", "scanning", "syncing", …), or one of this adapter's: "unknown"
 // (Syncthing did not answer for it), "rejected" (Syncthing refused the
-// folder object), "conflict_path" (another folder id already holds the
-// path — the second clone of a repo on one machine, plan 3.2).
+// folder object), "conflict_path" (the folder id is held at another path
+// — the second clone of a repo on one machine — or another folder id
+// holds the path, plan 3.2).
 type folderState struct {
 	ID    string `json:"id"`
 	Path  string `json:"path,omitzero"`

@@ -13,6 +13,7 @@ front [`README.md`](../README.md) has the seven journeys in short form.
 | run the tests | `make test` |
 | run the live Supabase suites | `make supabase-start supabase-env`, then `make test-all` |
 | run the real-Syncthing test | `BRIGADE_TEST_SYNCTHING=1 go test -run TestRealSyncthingIntegration ./internal/syncadapters/syncthing` |
+| run the two-session real-Syncthing smoke | `BRIGADE_TEST_SYNCTHING=1 go test -count=1 -timeout 15m -run TestTwoSessionsSyncAFolderThroughSyncthing ./internal/harness/e2e/ -v` |
 | run the whole gate | [Gates](#gates) |
 | format, fix lint | `make fmt`, `make lint-fix` |
 | try the plugin against your build | `make plugin-dev`, `make plugin-dev-off` — [`plugin/README.md` › Status](../plugin/README.md#status) |
@@ -55,9 +56,15 @@ detached in its own session to outlive the adapter process — the one long-runn
 cannot go through `adapterkit.Spawn`, which runs a child to completion. Its carve-out in `.golangci.yml` lifts only
 the spawn half of the rule (and gosec's G204 for that file); the spawn is still an argument array with
 `adapterkit.ChildEnv`, never a shell. The package's tests use a fake REST server and a fake `syncthing` script
-launched as `/bin/sh <script>`; the one test that runs the real `syncthing` on `PATH`,
-`TestRealSyncthingIntegration`, is skipped unless `BRIGADE_TEST_SYNCTHING=1`, so `make test` starts no daemon and
-opens no port.
+launched as `/bin/sh <script>`; the two tests that run the real `syncthing` on `PATH` — the adapter's
+`TestRealSyncthingIntegration` and the two-session smoke `TestTwoSessionsSyncAFolderThroughSyncthing` in
+`internal/harness/e2e` (two personas, two instances, a file each way, a conflict, the stop with the last
+session; a few minutes) — are skipped unless `BRIGADE_TEST_SYNCTHING=1`, so `make test` starts no daemon and
+opens no port:
+
+```sh
+BRIGADE_TEST_SYNCTHING=1 go test -count=1 -timeout 15m -run TestTwoSessionsSyncAFolderThroughSyncthing ./internal/harness/e2e/ -v
+```
 
 Go 1.27.0 is pinned in `go.mod` with no `toolchain` line, and [`docs/allowed-deps.txt`](allowed-deps.txt) binds
 only the shipped `brigade` binary, not your adapter. `master` only, merges only, never rebase; commit messages

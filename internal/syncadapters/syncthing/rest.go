@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 
 	"github.com/appshapes/brigade/internal/protocol"
@@ -169,10 +170,12 @@ func (c *api) connections() (map[string]bool, error) {
 }
 
 // configuredFolder is the part of a /rest/config/folders entry this
-// adapter reads.
+// adapter reads: its devices too, because apply keeps every device a
+// folder already has (a server a person added by hand stays).
 type configuredFolder struct {
-	ID   string `json:"id"`
-	Path string `json:"path"`
+	ID      string      `json:"id"`
+	Path    string      `json:"path"`
+	Devices []deviceRef `json:"devices"`
 }
 
 func (c *api) folders() ([]configuredFolder, error) {
@@ -218,8 +221,47 @@ type deviceConfig struct {
 	Addresses []string `json:"addresses"`
 }
 
+// A deviceRef is one entry of a folder's device list. The members beyond
+// the id are Syncthing's, carried back unchanged for a device apply keeps
+// (an untrusted device's encryption password among them) and never logged.
 type deviceRef struct {
-	DeviceID string `json:"deviceID"`
+	DeviceID           string `json:"deviceID"`
+	IntroducedBy       string `json:"introducedBy,omitzero"`
+	EncryptionPassword string `json:"encryptionPassword,omitzero"`
+}
+
+// listenOptions is the one member of /rest/config/options apply's
+// instance sets (plan folder-sync 4.4, P18-6): the sync listen
+// addresses, on the instance's own port.
+type listenOptions struct {
+	ListenAddresses []string `json:"listenAddresses"`
+}
+
+// listenAddresses is the instance's listen address list on port: TCP and
+// QUIC on every interface, and Syncthing's dynamic relay pool — the
+// default list with the instance's own port in place of 22000, so a
+// Syncthing a person already runs keeps 22000 to itself.
+func listenAddresses(port int) []string {
+	p := strconv.Itoa(port)
+	return []string{"tcp://0.0.0.0:" + p, "quic://0.0.0.0:" + p, "dynamic+https://relays.syncthing.net/endpoint"}
+}
+
+// ensureListen sets options.listenAddresses to listenAddresses(port) when
+// they differ (PATCH /rest/config/options, which leaves every other
+// option as it is), and reports whether it changed them.
+func (c *api) ensureListen(port int) (bool, error) {
+	var cur listenOptions
+	if err := c.do(http.MethodGet, "/rest/config/options", nil, nil, &cur); err != nil {
+		return false, err
+	}
+	want := listenAddresses(port)
+	if slices.Equal(cur.ListenAddresses, want) {
+		return false, nil
+	}
+	if err := c.do(http.MethodPatch, "/rest/config/options", nil, listenOptions{ListenAddresses: want}, nil); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 type versioningConfig struct {
@@ -249,9 +291,13 @@ func (in *instance) running() (*api, error) {
 }
 
 // apply introduces the peers and shares the folders with every one of them
-// (plan 4.3, 4.4). Devices and folders no longer listed are left alone:
-// removing a device would churn its connections, and a folder another
-// project on this machine shares is not this call's to drop.
+// (plan 4.3, 4.4). It only ever adds: a device the instance already holds
+// is left exactly as it is (a person may have added it by hand, with its
+// own name and addresses); a folder's device list becomes the devices it
+// already has plus the peers, never fewer, so an always-on Syncthing added
+// to a folder by hand stays; devices and folders no longer listed are left
+// alone. A folder id the instance holds at another path belongs to another
+// checkout on this machine and is left alone too (conflict_path).
 func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult, error) {
 	for _, f := range folders {
 		if f.ID == "" || !filepath.IsAbs(f.Path) {
@@ -271,9 +317,22 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 	// One teammate's unusable descriptor (Syncthing answers 4xx) must not
 	// stop the rest of the team syncing: it is skipped, logged by status
 	// code only, and left out of the folders' device lists (a folder
-	// naming an unknown device would be refused whole).
+	// naming an unknown device would be refused whole). A device already
+	// configured is accepted as it stands, never re-posted.
+	known, err := c.devices()
+	if err != nil {
+		return nil, err
+	}
+	have := make(map[string]bool, len(known))
+	for _, d := range known {
+		have[d.DeviceID] = true
+	}
 	devs := make([]deviceRef, 0, len(peers))
 	for _, p := range peers {
+		if have[p.Peer] {
+			devs = append(devs, deviceRef{DeviceID: p.Peer})
+			continue
+		}
 		err := c.do(http.MethodPost, "/rest/config/devices", nil,
 			deviceConfig{DeviceID: p.Peer, Name: p.Label, Addresses: []string{"dynamic"}}, nil)
 		if err != nil {
@@ -293,9 +352,14 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 	result := &applyResult{Folders: make([]folderState, 0, len(folders)), Peers: make([]peerState, 0, len(peers))}
 	for _, f := range folders {
 		path := filepath.Clean(f.Path)
-		if heldByOther(existing, f.ID, path) {
-			result.Folders = append(result.Folders, folderState{ID: f.ID, State: "conflict_path"})
+		current, conflict := place(existing, f.ID, path)
+		if conflict {
+			result.Folders = append(result.Folders, folderState{ID: f.ID, State: stateConflictPath})
 			continue
+		}
+		var had []deviceRef
+		if current != nil {
+			had = current.Devices
 		}
 		// The folder is the project's (a path it lists), so it is created
 		// with an ordinary directory mode, not the state tree's 0700.
@@ -304,7 +368,7 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 		}
 		err := c.do(http.MethodPost, "/rest/config/folders", nil, folderConfig{
 			ID: f.ID, Label: f.Label, Path: path, Type: "sendreceive",
-			Devices:          devs,
+			Devices:          unionDevices(had, devs),
 			Versioning:       versioningConfig{Type: "trashcan", Params: map[string]string{"cleanoutDays": "14"}},
 			FSWatcherEnabled: true,
 			RescanIntervalS:  60,
@@ -330,16 +394,69 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 	return result, nil
 }
 
-// heldByOther reports whether another folder id already syncs path: one
-// Syncthing instance cannot hold one path under two ids (plan 3.2), which
-// is the second clone of a repository on one machine.
-func heldByOther(existing []configuredFolder, id, path string) bool {
-	for _, e := range existing {
-		if e.ID != id && filepath.Clean(e.Path) == path {
-			return true
+// stateConflictPath is the folder state for a folder this checkout cannot
+// hold (plan 4.4): its id is held at another path — the same folder of a
+// second clone of the repository on this machine — or its path is held by
+// another folder id.
+const stateConflictPath = "conflict_path"
+
+// place finds folder id in the instance's configuration: the entry when
+// it is configured at path (nil when it is not configured yet), and
+// conflict when this checkout must leave it alone — the id is configured
+// at a different path (another checkout on this machine got there first;
+// re-pointing it would move the folder between the two every round), or
+// another id already syncs path (one instance cannot hold one path under
+// two ids, plan 3.2).
+func place(existing []configuredFolder, id, path string) (*configuredFolder, bool) {
+	var current *configuredFolder
+	for i := range existing {
+		e := &existing[i]
+		same := samePath(e.Path, path)
+		switch {
+		case e.ID == id && !same:
+			return nil, true
+		case e.ID == id:
+			current = e
+		case same:
+			return nil, true
 		}
 	}
-	return false
+	return current, false
+}
+
+// samePath reports whether a and b name one directory: equal once
+// cleaned, or equal once symlinks are resolved (macOS's /var is
+// /private/var, and a path posted by an earlier round may be either
+// spelling).
+func samePath(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
+}
+
+// unionDevices is had followed by every device of add it does not name
+// yet: a folder's device list only ever grows here, and an entry it
+// already has is kept exactly as Syncthing reported it.
+func unionDevices(had, add []deviceRef) []deviceRef {
+	out := make([]deviceRef, 0, len(had)+len(add))
+	seen := make(map[string]bool, len(had)+len(add))
+	for _, d := range had {
+		if d.DeviceID == "" || seen[d.DeviceID] {
+			continue
+		}
+		seen[d.DeviceID] = true
+		out = append(out, d)
+	}
+	for _, d := range add {
+		if !seen[d.DeviceID] {
+			seen[d.DeviceID] = true
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // status reports the engine as it is: every folder and every other device

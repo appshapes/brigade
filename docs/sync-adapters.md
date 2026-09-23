@@ -57,12 +57,18 @@ Every verb is **idempotent**: Brigade repeats them freely.
 | Verb | Request | Result |
 | --- | --- | --- |
 | `describe` | `{}` | `{"name","version","protocol_version":"sync/1"}` |
-| `attach` | `{"state_dir","session_id"}` | `{"peer":"<descriptor>"}` |
+| `attach` | `{"state_dir","session_id","pid"}` | `{"peer":"<descriptor>"}` |
 | `apply` | `{"state_dir","session_id","folders":[{"id","path","label"}],"peers":[{"peer","label"}]}` | `{"folders":[{"id","state"}],"peers":[{"peer","connected"}]}` |
 | `status` | `{"state_dir"}` | `{"running","peer","folders":[{"id","path","state"}],"peers":[{"peer","connected"}]}` |
-| `detach` | `{"state_dir","session_id"}` | `{"stopped"}` |
+| `detach` | `{"state_dir","session_id","pid"}` | `{"stopped"}` |
 
 `state_dir` is the same directory as `BRIGADE_STATE_DIR`. `session_id` is the Brigade session the call is for.
+`pid`, in `attach` and `detach`, is **optional**: a positive process id, the process that holds the session's
+reference (Brigade sends its watcher's), or absent. An adapter may ignore it. The bundled adapter records it with
+the session's reference and, on every `attach` and `detach`, drops the references whose process has died without
+a `detach` (a watcher killed with `SIGKILL`), so the engine does not outlive the last session; a reference with no
+`pid` is dropped only by its own `detach`. An adapter written before `pid` existed ignores the member and stays
+conforming.
 
 ### `describe`
 
@@ -86,14 +92,15 @@ Brigade calls `attach` when the session's watcher starts and again before every 
 along the way comes back.
 
 ```
-$ echo '{"state_dir":"/home/u/.local/state/brigade","session_id":"6f0f2b41"}' | brigade-sync-rsyncish attach
+$ echo '{"state_dir":"/home/u/.local/state/brigade","session_id":"6f0f2b41","pid":48213}' | brigade-sync-rsyncish attach
 {"ok":true,"protocol_version":"1","result":{"peer":"laptop-7.example.net:8022"}}
 ```
 
 ### `apply`
 
-The whole desired set, every time: share these folders with these peers. Called right after the first `attach` and
-then every 60 seconds while the session lives.
+The whole desired set, every time: share these folders with these peers. Called right after the first `attach`;
+then Brigade reads the roster every 15 seconds and calls `apply` again as soon as the teammates' peers change, and at
+least every 60 seconds while the session lives.
 
 - `folders`: the project's folders. `id` is the same on every checkout of the team (see *Folder ids* below), `path`
   is the absolute local path, `label` is for humans (`<repository>/<folder>`).
@@ -103,6 +110,9 @@ then every 60 seconds while the session lives.
 
 Report each folder's state in your engine's own words (`idle`, `syncing`, `error`, …) and whether each peer is
 connected right now. A peer or folder that is no longer listed may stay configured; removing it is not required.
+`conflict_path` says this checkout cannot hold the folder because another checkout on the machine does — the same
+folder id of a second clone of the repository. The bundled adapter only ever adds: a device, or a folder's device,
+that someone configured by hand stays.
 
 ```
 $ brigade-sync-rsyncish apply <<'EOF'
@@ -113,7 +123,9 @@ EOF
 {"ok":true,"protocol_version":"1","result":{"folders":[{"id":"brigade-6f0f2b41-46b42b4229cd","state":"idle"}],"peers":[{"peer":"desk-2.example.net:8022","connected":true}]}}
 ```
 
-Brigade tells the user `Brigade sync: <f> folders, <c> of <p> peers connected` whenever that summary changes.
+Brigade tells the user `Brigade sync: <f> folders, <c> of <p> peers connected` whenever that summary changes,
+followed by `; 1 folder is held by another checkout` (or `; <n> folders are held by another checkout`) when a folder
+is `conflict_path`.
 
 ### `status`
 
@@ -134,7 +146,7 @@ The session has ended. Stop counting it; stop the engine when no session is left
 active). `stopped` says whether this call stopped it. Detaching a session that was never attached is not an error.
 
 ```
-$ echo '{"state_dir":"/home/u/.local/state/brigade","session_id":"6f0f2b41"}' | brigade-sync-rsyncish detach
+$ echo '{"state_dir":"/home/u/.local/state/brigade","session_id":"6f0f2b41","pid":48213}' | brigade-sync-rsyncish detach
 {"ok":true,"protocol_version":"1","result":{"stopped":true}}
 ```
 

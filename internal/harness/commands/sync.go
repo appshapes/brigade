@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 
 	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
@@ -31,7 +32,9 @@ const (
 	syncConnected   = "yes"
 	syncUnconnected = "no"
 	// syncAbsent is the state of a configured folder the engine does not
-	// report: the watcher has not applied it yet, or its apply failed.
+	// report: the watcher has not applied it yet, or its apply failed. A
+	// folder the engine holds at another checkout's path shows
+	// foldersync.StateConflictPath instead of that checkout's state.
 	syncAbsent = "not shared yet"
 )
 
@@ -130,15 +133,21 @@ func Sync(inv Invocation) error {
 		head += ", this machine's peer " + peer
 	}
 	out := []string{head}
-	states := make(map[string]string, len(st.Folders))
+	reported := make(map[string]foldersync.FolderState, len(st.Folders))
 	for _, f := range st.Folders {
-		states[f.ID] = f.State
+		reported[f.ID] = f
 	}
 	folderRows := [][]string{{"FOLDER", "STATE"}}
 	for _, f := range configured {
 		state := syncAbsent
-		if s, ok := states[f.ID]; ok {
-			state = enumLine(s)
+		if e, ok := reported[f.ID]; ok {
+			state = enumLine(e.State)
+			// The engine holds this folder id at another checkout's path
+			// (a second clone of the repository on this machine): its
+			// state is that checkout's, and this one is not shared.
+			if e.Path != "" && !samePath(e.Path, f.Path) {
+				state = foldersync.StateConflictPath
+			}
 		}
 		folderRows = append(folderRows, []string{workspaceLine(f.Label), state})
 	}
@@ -207,4 +216,15 @@ func shortPeer(descriptor string) string {
 		return string(r[:shortPeerChars])
 	}
 	return id
+}
+
+// samePath reports whether two paths name one directory: equal once
+// cleaned, or once symlinks are resolved (macOS's /var is /private/var).
+func samePath(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
 }

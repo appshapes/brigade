@@ -683,9 +683,10 @@ version**. The adapter honours `NO_PROXY`, and a loopback entry in `allowedDomai
 refusal.
 
 **What a crash leaves behind.** If a session is killed with `SIGKILL`, its session map entry, its record of
-seen messages, its socket and — if the watcher died too — the watcher's pidfile and, in a project that syncs
-folders, its reference under `sync/syncthing/refs/` stay behind for good. Nothing prunes them today. That last one
-keeps the Syncthing instance running after the machine's last session ends ([docs/sync.md](sync.md), "Limits").
+seen messages, its socket and — if the watcher died too — the watcher's pidfile stay behind for good; nothing
+prunes them today. In a project that syncs folders, the session's reference under `sync/syncthing/refs/` stays
+too, but it names the watcher's process, so the next session to start or end on the machine drops it and the
+Syncthing instance stops with the last live session ([docs/sync.md](sync.md), "Limits").
 No correctness problem was measured, and resuming works with the residue present. To clear it
 by hand, use the two paths from "Leaving and uninstalling":
 
@@ -777,10 +778,13 @@ option `sync: off` is the one switch, and it acts from the next session start.
 - **What the backend sees.** One string per session, `sync_peer`: `syncthing:` and the machine's device id. No
   file, no file name and no folder name. The person who runs the backend (section 2) learns which sessions sync and
   from which device.
-- **What the network sees.** Syncthing's defaults, of which Brigade changes none: device-to-device TLS, each device
+- **What the network sees.** Syncthing's defaults, of which Brigade changes one: device-to-device TLS, each device
   identified by its certificate; global discovery, so Syncthing's public discovery servers learn each device's id
   and addresses; relays when no direct connection is possible, which forward the encrypted stream; listening for
-  peers on port 22000.
+  peers over TCP and QUIC on every interface — on a port Brigade picks and keeps for the instance, instead of
+  22000, so it never shares a port with a Syncthing you run yourself.
+- **Brigade only adds.** A device, or a folder's device, that you add to Brigade's instance by hand — an always-on
+  server — stays; Brigade never removes one. A device you add can write into that folder like any teammate's.
 - **Your machine.** The instance's files are under `~/.local/state/brigade/sync/syncthing`, 0700; its REST API
   listens on 127.0.0.1 only, and its key never leaves its `config.xml` (section 10). Syncthing is started as an
   argument array with the allow-listed environment, never through a shell — the one long-running program Brigade

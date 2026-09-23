@@ -56,6 +56,10 @@ type Client struct {
 	// Environ is the parent environment adapterkit.ChildEnv filters, and
 	// the PATH an external adapter is searched on.
 	Environ []string
+	// PID, when positive, is sent as attach's and detach's optional "pid":
+	// the process holding the session's reference. The watcher sets its
+	// own; 0 sends none.
+	PID int
 	// Logger receives scalar diagnostics; nil discards them.
 	Logger *slog.Logger
 	// Command, when set, replaces the resolved argv prefix. Production
@@ -156,7 +160,7 @@ func (c *Client) Describe(ctx context.Context) (*DescribeResult, error) {
 // and short enough that <adapter>:<descriptor> fits sync_peer's wire cap.
 func (c *Client) Attach(ctx context.Context, sessionID string) (*AttachResult, error) {
 	var out AttachResult
-	if err := c.call(ctx, VerbAttach, SessionRequest{StateDir: c.StateDir, SessionID: sessionID}, &out); err != nil {
+	if err := c.call(ctx, VerbAttach, SessionRequest{StateDir: c.StateDir, SessionID: sessionID, PID: c.PID}, &out); err != nil {
 		return nil, err
 	}
 	wire := WirePeer(c.Adapter, out.Peer)
@@ -194,7 +198,7 @@ func (c *Client) Status(ctx context.Context) (*StatusResult, error) {
 // Detach runs `detach` for sessionID.
 func (c *Client) Detach(ctx context.Context, sessionID string) (*DetachResult, error) {
 	var out DetachResult
-	if err := c.call(ctx, VerbDetach, SessionRequest{StateDir: c.StateDir, SessionID: sessionID}, &out); err != nil {
+	if err := c.call(ctx, VerbDetach, SessionRequest{StateDir: c.StateDir, SessionID: sessionID, PID: c.PID}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

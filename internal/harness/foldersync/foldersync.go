@@ -65,10 +65,14 @@ type DescribeResult struct {
 // state directory the adapter keeps its engine under, and the Brigade
 // session whose reference it adds or drops. The engine runs while at
 // least one session holds a reference — sync only while a session is
-// active (§1).
+// active (§1). PID, optional, is the process that holds the reference
+// (the watcher's own): an adapter may prune a reference whose process is
+// gone without a detach. Absent (0), the reference is the detach's alone
+// to drop.
 type SessionRequest struct {
 	StateDir  string `json:"state_dir"`
 	SessionID string `json:"session_id"`
+	PID       int    `json:"pid,omitzero"`
 }
 
 // AttachResult is `attach`'s result: this machine's peer descriptor, the
@@ -109,6 +113,13 @@ type FolderState struct {
 	Path  string `json:"path,omitzero"`
 	State string `json:"state"`
 }
+
+// StateConflictPath is the folder state for a folder this checkout
+// cannot hold because another checkout on the machine holds it — the same
+// folder of a second clone of the repository (§4.4). The bundled adapter
+// reports it from `apply`; `brigade sync status` shows it for a folder the
+// engine holds at another path, and the watcher's notice line counts it.
+const StateConflictPath = "conflict_path"
 
 // PeerState is one peer in `apply`'s and `status`'s results.
 type PeerState struct {

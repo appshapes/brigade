@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -14,11 +16,18 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// DefaultSyncInterval is how often the sync goroutine reads the roster
-// and re-applies the folders and peers (folder-sync plan §4.3): a
-// teammate who starts a session is introduced within a minute, and
-// `apply` is idempotent, so a quiet minute costs one list and one apply.
+// DefaultSyncInterval is the longest the sync goroutine goes without an
+// `apply` (folder-sync plan §4.3): `apply` is idempotent, so a quiet
+// minute costs one apply, which also refreshes the notice line's
+// connected count.
 const DefaultSyncInterval = 60 * time.Second
+
+// DefaultSyncListInterval is how often the sync goroutine reads the
+// roster (P18-6): an `apply` follows at once when the teammates' peers
+// changed, so a teammate who starts a session is introduced within about
+// 15 s rather than a minute (60.8 s was measured with the roster read
+// only on the 60 s round).
+const DefaultSyncListInterval = 15 * time.Second
 
 // syncNoticeMessageChars caps how much of an adapter's own error message
 // the one notice line carries: enough for "syncthing is not on PATH",
@@ -51,21 +60,31 @@ func (s syncSetup) enabled() bool { return s.adapter != "" }
 //   - attach: the engine runs on this machine with this session counted,
 //     and its descriptor becomes this session's sync_peer, heartbeated at
 //     the next liveness tick so the roster carries it at once;
-//   - apply, immediately and then every syncInterval: the project's
-//     folders and every teammate's peer the roster lists for the same
-//     repository, whatever its state — an offline peer is still worth
-//     introducing, the engine connects when it can. `attach` is repeated
-//     before each apply (it is idempotent) so a reference a replaced
+//   - apply, immediately after the attach: the project's folders and
+//     every teammate's peer the roster lists for the same repository,
+//     whatever its state — an offline peer is still worth introducing,
+//     the engine connects when it can;
+//   - then the roster every SyncListInterval, and apply again when the
+//     teammates' peers changed, once more at the read after an apply that
+//     changed them (a peer just introduced connects a moment after that
+//     apply reported it, and this one refreshes the notice's count), when
+//     SyncInterval has passed since the last apply, or when the last one
+//     failed. `attach` is repeated before
+//     each of these applies (it is idempotent) so a reference a replaced
 //     watcher's late `detach` dropped is restored within one interval;
 //   - detach, on the way out: the engine stops with the last session.
 //
+// attach and detach carry the watcher's own pid, so the adapter can prune
+// this session's reference if the watcher dies without its exit path.
 // The adapter's results are logged as scalars only — counts and states,
-// never a body — and a changed summary is one notice line.
+// never a body — and each apply's summary is the notice line when it
+// changed.
 func (w *watcher) runSync(ctx context.Context) {
 	client := &foldersync.Client{
 		Adapter:   w.sync.adapter,
 		PluginBin: w.sync.pluginBin,
 		StateDir:  w.rc.env.StateDir,
+		PID:       os.Getpid(),
 		Environ:   w.environ,
 		Logger:    w.log,
 		Command:   w.deps.SyncCommand,
@@ -83,23 +102,76 @@ func (w *watcher) runSync(ctx context.Context) {
 		return
 	}
 	defer w.syncDetach(client)
-	tick := time.NewTicker(w.deps.SyncInterval)
+	tick := time.NewTicker(w.deps.SyncListInterval)
 	defer tick.Stop()
-	lastSummary := ""
+	var (
+		lastSummary string
+		applied     string    // the peer set of the last apply that completed
+		appliedAt   time.Time // when it completed; zero: an apply is due
+		followUp    bool      // the last apply introduced a change: apply once more
+		attached    = true    // the attach above stands for the first apply
+	)
 	for {
-		if summary := w.syncApply(ctx, client); summary != "" && summary != lastSummary {
-			lastSummary = summary
-			w.writeNotice(summary)
+		if peers, ok := w.syncRoster(ctx); ok {
+			set := peerSet(peers)
+			now := w.deps.Clock()
+			if appliedAt.IsZero() || set != applied || followUp || now.Sub(appliedAt) >= w.deps.SyncInterval {
+				if !attached {
+					if err := w.syncAttach(ctx, client); err != nil && ctx.Err() == nil {
+						w.log.Warn("sync attach failed; the last peer stands", slog.String("code", string(codeOf(err))), adlog.Err(err))
+					}
+				}
+				attached = false
+				appliedAt = time.Time{}
+				if summary := w.syncApply(ctx, client, peers); summary != "" {
+					// A peer that apply has just introduced connects a moment
+					// later, after this apply reported it unconnected: one
+					// more apply at the next roster read refreshes the
+					// notice's count rather than a minute on.
+					followUp = set != applied
+					applied, appliedAt = set, now
+					if summary != lastSummary {
+						lastSummary = summary
+						w.writeNotice(summary)
+					}
+				}
+			}
 		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
 		}
-		if err := w.syncAttach(ctx, client); err != nil && ctx.Err() == nil {
-			w.log.Warn("sync attach failed; the last peer stands", slog.String("code", string(codeOf(err))), adlog.Err(err))
-		}
 	}
+}
+
+// peerSet is a canonical form of a round's peers — the descriptors,
+// sorted — so a round can tell whether the teammates changed.
+func peerSet(peers []foldersync.Peer) string {
+	ds := make([]string, 0, len(peers))
+	for _, p := range peers {
+		ds = append(ds, p.Peer)
+	}
+	slices.Sort(ds)
+	return strings.Join(ds, "\n")
+}
+
+// syncRoster reads the teammates' peers for this round; false (logged)
+// when the roster could not be read, and the round applies nothing.
+func (w *watcher) syncRoster(ctx context.Context) ([]foldersync.Peer, bool) {
+	own := ""
+	if p := w.syncPeer.Load(); p != nil {
+		own, _ = foldersync.PeerFor(w.sync.adapter, *p)
+	}
+	peers, err := w.syncPeers(ctx, own)
+	if err != nil {
+		if ctx.Err() == nil {
+			w.log.Warn("sync: the roster could not be read; apply skipped this round",
+				slog.String("code", string(codeOf(err))), adlog.Err(err))
+		}
+		return nil, false
+	}
+	return peers, true
 }
 
 // syncAttach runs `attach` and publishes the descriptor: stored into
@@ -120,22 +192,10 @@ func (w *watcher) syncAttach(ctx context.Context, client *foldersync.Client) err
 	return nil
 }
 
-// syncApply is one round: the roster, then `apply` with the folders and
-// the teammates' peers. It returns the summary line for the notice, or ""
-// when the round did not complete (logged; the next round tries again).
-func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client) string {
-	own := ""
-	if p := w.syncPeer.Load(); p != nil {
-		own, _ = foldersync.PeerFor(w.sync.adapter, *p)
-	}
-	peers, err := w.syncPeers(ctx, own)
-	if err != nil {
-		if ctx.Err() == nil {
-			w.log.Warn("sync: the roster could not be read; apply skipped this round",
-				slog.String("code", string(codeOf(err))), adlog.Err(err))
-		}
-		return ""
-	}
+// syncApply is one `apply` with the folders and the round's teammates'
+// peers. It returns the summary line for the notice, or "" when the apply
+// did not complete (logged; the next round tries again).
+func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client, peers []foldersync.Peer) string {
 	label := w.state.snapshot().workspaceLabel
 	folders := foldersync.Folders(w.teamRef, w.sync.root, label, w.sync.folders)
 	res, err := client.Apply(ctx, w.sessionID, folders, peers)
@@ -145,22 +205,44 @@ func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client) stri
 		}
 		return ""
 	}
+	states := make([]string, 0, len(res.Folders))
+	for _, f := range res.Folders {
+		states = append(states, protocol.SanitizeAttribute(f.State))
+	}
+	summary, connected := syncSummary(res)
+	w.log.Info("sync applied",
+		slog.Int("folders", len(res.Folders)), slog.Int("peers_offered", len(peers)),
+		slog.Int("peers", len(res.Peers)), slog.Int("connected", connected),
+		slog.String("folder_states", strings.Join(states, ",")))
+	return summary
+}
+
+// syncSummary is an apply's notice line — `Brigade sync: <f> folders, <c>
+// of <p> peers connected`, followed by `; 1 folder is held by another
+// checkout` (or `; <n> folders are held …`) when the adapter reported
+// conflict_path for any — and the connected count.
+func syncSummary(res *foldersync.ApplyResult) (string, int) {
 	connected := 0
 	for _, p := range res.Peers {
 		if p.Connected {
 			connected++
 		}
 	}
-	states := make([]string, 0, len(res.Folders))
+	held := 0
 	for _, f := range res.Folders {
-		states = append(states, protocol.SanitizeAttribute(f.State))
+		if f.State == foldersync.StateConflictPath {
+			held++
+		}
 	}
-	w.log.Info("sync applied",
-		slog.Int("folders", len(res.Folders)), slog.Int("peers_offered", len(peers)),
-		slog.Int("peers", len(res.Peers)), slog.Int("connected", connected),
-		slog.String("folder_states", strings.Join(states, ",")))
-	return "Brigade sync: " + strconv.Itoa(len(res.Folders)) + " folders, " +
+	line := "Brigade sync: " + strconv.Itoa(len(res.Folders)) + " folders, " +
 		strconv.Itoa(connected) + " of " + strconv.Itoa(len(res.Peers)) + " peers connected"
+	switch {
+	case held == 1:
+		line += "; 1 folder is held by another checkout"
+	case held > 1:
+		line += "; " + strconv.Itoa(held) + " folders are held by another checkout"
+	}
+	return line, connected
 }
 
 // syncPeers reads the roster through the watcher's own backend client

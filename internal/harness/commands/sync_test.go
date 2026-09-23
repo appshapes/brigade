@@ -107,6 +107,40 @@ func TestSyncStatusHuman(t *testing.T) {
 	}
 }
 
+// TestSyncStatusHumanShowsAFolderHeldByAnotherCheckout: the engine holds
+// this project's folder id at another checkout's path (a second clone of
+// the repository on this machine got there first), so this checkout's
+// row says conflict_path, not that checkout's state.
+func TestSyncStatusHumanShowsAFolderHeldByAnotherCheckout(t *testing.T) {
+	t.Parallel()
+	f, root := syncFixture(t)
+	b, err := json.Marshal(foldersync.StatusResult{
+		Running: true, Peer: fakesync.SelfPeer,
+		Folders: []foldersync.FolderState{
+			{ID: foldersync.FolderID(fixtureTeamRef, "docs"), Path: "/elsewhere/clone-1/docs", State: "idle"},
+			{ID: foldersync.FolderID(fixtureTeamRef, ".context/plans"), Path: root + "/.context/plans", State: "syncing"},
+		},
+		Peers: []foldersync.PeerState{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{Status: string(b)})
+	f.rec.on("session list", okAnswer(syncListResult(t)))
+	inv := f.inv(f.sessionEnv(), "", "status")
+	inv.Deps.SyncCommand = fake.Argv
+	if err := Sync(inv); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	want := "sync: syncthing, engine running, this machine's peer SELF-DEVICE-1\n" +
+		"FOLDER                  STATE\n" +
+		"brigade/docs            conflict_path\n" +
+		"brigade/.context/plans  syncing\n"
+	if got := f.out.String(); got != want {
+		t.Fatalf("stdout =\n%s\nwant\n%s", got, want)
+	}
+}
+
 // TestSyncStatusJSON: the adapter's status plus the adapter name, the
 // folders as configured, and each peer's roster label.
 func TestSyncStatusJSON(t *testing.T) {

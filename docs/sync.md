@@ -88,6 +88,13 @@ again whenever it changes:
 Brigade sync: 2 folders, 1 of 3 peers connected
 ```
 
+The line follows each round the watcher applies (below), so a teammate who has just connected shows at the next
+one. When another checkout on this machine holds one of the folders ("Limits"), it ends in one more clause:
+
+```
+Brigade sync: 2 folders, 1 of 3 peers connected; 1 folder is held by another checkout
+```
+
 A machine without Syncthing sees this instead, and that session carries on without file sync until its next start:
 
 ```
@@ -108,7 +115,8 @@ bob@example.com  yes
 
 A folder is labelled `<repository>/<folder>`. Its state is Syncthing's own word (`idle`, `scanning`, `syncing`,
 `error`, …), or `not shared yet` before the watcher's first round, `rejected` when Syncthing refused the folder,
-and `conflict_path` when another folder id on this machine's instance already holds that path. A peer is
+and `conflict_path` when another checkout on this machine holds it — the instance has the folder at that
+checkout's path — or another folder id already holds this path. A peer is
 labelled with its session's label from the roster, or the first seven characters of its device id in brackets
 when the roster names none; the list is every device the instance knows, which can include peers of another
 project on the same machine. `--json` carries the same, plus every folder the instance holds and the ids in full.
@@ -118,15 +126,20 @@ says why)`; outside a session it refuses, because it reads the session's map.
 ## How it works
 
 - **Who syncs with whom.** Each session publishes its machine's Syncthing device id in the roster, as its
-  `sync_peer` (`syncthing:<device id>`). Every 60 seconds the watcher reads the roster and shares the listed
-  folders with the device of every other session of the team **in the same repository** — the same `REPO` name
-  in `brigade sessions` — online or offline; Syncthing connects to each whenever both are up. A teammate who
-  starts a session is connected within about a minute. A session that sends no repository name
+  `sync_peer` (`syncthing:<device id>`). Every 15 seconds the watcher reads the roster, and whenever the devices it
+  finds have changed — and at least once a minute regardless — it shares the listed folders with the device of
+  every other session of the team **in the same repository** — the same `REPO` name in `brigade sessions` —
+  online or offline; Syncthing connects to each whenever both are up. A teammate who starts a session is
+  introduced within about 15 seconds. A session that sends no repository name
   (`share_workspace_label` off) introduces nobody, and nobody introduces it.
 - **What travels how.** Files go directly between two machines' Syncthing instances, over Syncthing's own TLS,
   each device authenticated by its certificate. Syncthing's defaults are kept as they are: global discovery
   (Syncthing's public discovery servers learn each device's id and addresses), local discovery on the network,
-  NAT traversal, and relays when no direct connection is possible (a relay forwards the encrypted stream). The
+  NAT traversal, and relays when no direct connection is possible (a relay forwards the encrypted stream). One
+  default is changed: the instance listens for peers, over TCP and QUIC on every interface, on a port of its own
+  that Brigade picks when it first starts and keeps in `listen-port`, instead of Syncthing's 22000 — so it never
+  shares a port with a Syncthing you run yourself. Discovery announces that port, so nothing needs to be opened
+  by hand; where a firewall stops it, relays carry the connection. The
   backend stores only the `sync_peer` string. No file, file name or folder name passes through Brigade's backend.
 - **The folder id.** Every checkout derives the same Syncthing folder id for a folder without exchanging it:
   `brigade-`, the first 8 characters of the team reference with its dashes removed, `-`, and the first 12 hex
@@ -136,19 +149,22 @@ says why)`; outside a session it refuses, because it reads the session's map.
 - **The instance.** Brigade runs a Syncthing of its own, never yours: its home is
   `~/.local/state/brigade/sync/syncthing/` (under `XDG_STATE_HOME` when that is set; mode 0700), holding
   Syncthing's certificate — the device id —, `config.xml`, database and `syncthing.log`, and Brigade's
-  `daemon.pid`, `port` and `refs/`. The first session on the machine starts it, each session holds a reference in
-  `refs/`, and the last session to end stops it. One instance serves every session and every team on the
+  `daemon.pid`, `port`, `listen-port` and `refs/`. The first session on the machine starts it, each session holds
+  a reference in `refs/` naming its watcher's process, and the last session to end stops it; a reference whose
+  watcher died without ending its session is dropped the next time any session on the machine starts or ends.
+  One instance serves every session and every team on the
   machine. Its REST API and web GUI listen on 127.0.0.1 only, on a port Brigade picks and keeps in `port`; the
   API key stays in `config.xml`. The adapter's own diagnostics go to `~/.local/state/brigade/logs/sync-syncthing.log`.
 - **When it runs.** Only while a session on the machine is active. Two machines exchange changes while both have
   a session running; a change made while the other is away arrives the next time both are.
 
-**Always on is not built in.** A team that wants a copy that is always there keeps a session open on a machine
-that stays up — Claude Code left running in a checkout of the repository on a server: that session is on the
-roster like any other, so every teammate's session introduces it, and it holds the folders while everyone else
-is away. A Syncthing that Brigade did not start cannot take that place: each round sets a folder's device list to
-exactly the peers the roster names, so a device added to Brigade's instance by hand is dropped from the folder
-within a minute.
+**Always on is not built in, and two ways give it.** A team that wants a copy that is always there can keep a
+session open on a machine that stays up — Claude Code left running in a checkout of the repository on a server:
+that session is on the roster like any other, so every teammate's session introduces it, and it holds the
+folders while everyone else is away. Or it can run a plain Syncthing on a server, sharing a folder under the same
+folder id (`brigade sync status --json` shows it), and add that server as a device to each member's Brigade
+instance and folder by hand, in the instance's web GUI (on 127.0.0.1, at the port in `port`). Brigade only ever
+adds devices: a device added by hand, to the instance or to a folder, stays as it was added, round after round.
 
 ## What is written in your checkout
 
@@ -201,14 +217,19 @@ The protocol an adapter speaks — five verbs, one JSON document in and one out 
 
 - **One checkout per folder id on a machine.** One Syncthing instance holds a folder id at one path. Two checkouts
   on one machine that list the same folder for the same team — a second clone of the repository, or another
-  repository of the team that lists the same path — derive the same id, and every round of each session points
-  the folder at its own checkout, so while both run the folder moves between them. Sync from one of them: start
-  the other checkout's sessions with the `sync` option `off`.
-- **A crash leaves the instance running.** A session whose watcher is killed without its exit path (`SIGKILL`, a
-  power loss) leaves its reference in `refs/`, so the instance keeps running after the last session ends. With no
-  session running, delete the files in `~/.local/state/brigade/sync/syncthing/refs/`; the next session's end then
-  stops it.
+  repository of the team that lists the same path — derive the same id. The checkout whose session shared the
+  folder first keeps it; the other leaves it where it is, shows `conflict_path` for it in `brigade sync status`,
+  and its notice line says `1 folder is held by another checkout`. That checkout's folder does not sync. To move
+  the folder to it, remove the folder from the instance in its web GUI; the next round of whichever session gets
+  there first shares it from that session's checkout. A checkout that was deleted keeps holding the folder the
+  same way until it is removed.
+- **A crash is cleaned up by the next session.** A session whose watcher is killed without its exit path
+  (`SIGKILL`) leaves its reference in `refs/`. The reference names the watcher's process, so the next session to
+  start or end on the machine drops it, and the instance stops with the last live session. Until then — or after a
+  power loss, when no session ever starts again — the instance keeps running; delete the files in
+  `~/.local/state/brigade/sync/syncthing/refs/` with no session running, and the next session's end stops it. A
+  reference written by a Brigade before this change names no process and is dropped only by its own session's end.
 - **Your own Syncthing is a separate instance.** A Syncthing you already run has its own configuration and device
-  id; Brigade never reads or changes it. Both listen for peers on Syncthing's default port, 22000, and only one of
-  them can hold it.
+  id; Brigade never reads or changes it. Brigade's instance listens for peers on its own port (`listen-port`), not
+  on Syncthing's default 22000, so the two never share a port.
 - **Brigade limits no file size and no file count.** What Syncthing handles, syncs.

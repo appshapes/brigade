@@ -58,18 +58,26 @@ func (in *instance) prepare() (*adapterkit.FileLock, error) {
 
 // attach counts the session in and makes sure the daemon runs, then
 // answers its device id (plan 4.3: the engine is running afterwards, with
-// this session counted).
-func (in *instance) attach(sessionID string) (*attachResult, error) {
+// this session counted). holder is the request's pid, the process that
+// holds the reference (0: none given); the ref records it, and every
+// attach and detach prunes the refs whose holder is dead.
+func (in *instance) attach(sessionID string, holder int) (*attachResult, error) {
 	lock, err := in.prepare()
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = lock.Unlock() }()
 	ref := filepath.Join(in.refsDir(), sessionID)
-	if err := os.WriteFile(ref, nil, 0o600); err != nil {
+	if err := os.WriteFile(ref, refContent(holder), 0o600); err != nil {
 		return nil, err
 	}
+	in.pruneDeadRefs(sessionID)
 	pid, running := in.daemon()
+	listen, err := in.listenPort(!running)
+	if err != nil {
+		_ = os.Remove(ref)
+		return nil, err
+	}
 	if !running {
 		if pid, err = in.start(); err != nil {
 			// The session is not attached after all: the ref must not
@@ -86,8 +94,142 @@ func (in *instance) attach(sessionID string) (*attachResult, error) {
 		_ = os.Remove(ref)
 		return nil, err
 	}
+	in.setListen(listen)
 	in.a.log.Info("attached", slog.String("session_id", sessionID), slog.Bool("started", !running), slog.Int("daemon_pid", pid))
 	return &attachResult{Peer: id}, nil
+}
+
+// refContent is a ref file's body: "<pid> <start token>" for a holder
+// that is alive now (the token tells a reused pid from it later), "<pid>"
+// for one whose token cannot be read, and empty for no holder — a ref
+// only detach removes, as before the pid member existed.
+func refContent(holder int) []byte {
+	if holder <= 0 {
+		return nil
+	}
+	line := strconv.Itoa(holder)
+	if info, err := procutil.Lookup(holder); err == nil && info.StartToken != "" {
+		line += " " + info.StartToken
+	}
+	return []byte(line + "\n")
+}
+
+// pruneDeadRefs removes every ref but keep whose holder process is dead:
+// gone, a zombie, another user's, or another incarnation of the pid. A
+// ref with no pid, or one that cannot be read or looked up, stays — only
+// its own detach removes it. Called under the lock.
+func (in *instance) pruneDeadRefs(keep string) {
+	entries, err := os.ReadDir(in.refsDir())
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.Name() == keep || e.IsDir() {
+			continue
+		}
+		path := filepath.Join(in.refsDir(), e.Name())
+		raw, err := os.ReadFile(path) //nolint:gosec // G304: a ref file under the instance's own refs/
+		if err != nil {
+			continue
+		}
+		pidText, token, _ := strings.Cut(strings.TrimSpace(string(raw)), " ")
+		pid, err := strconv.Atoi(pidText)
+		if err != nil || pid <= 0 {
+			continue
+		}
+		info, err := procutil.Lookup(pid)
+		if err != nil {
+			continue
+		}
+		if info.Exists && !info.Zombie && !info.Foreign && (token == "" || info.StartToken == token) {
+			continue
+		}
+		if err := os.Remove(path); err == nil {
+			in.a.log.Info("pruned the reference of a session whose process is gone",
+				slog.String("session_id", e.Name()), slog.Int("holder_pid", pid))
+		}
+	}
+}
+
+// listenPort is the instance's own sync listen port (TCP and QUIC), kept
+// in <home>/listen-port beside the GUI port: picked once, free on every
+// interface for both protocols, so the instance never shares Syncthing's
+// default 22000 with a Syncthing the person runs themselves (on macOS
+// both would bind TCP 22000 through SO_REUSEPORT and an incoming
+// connection could reach the wrong one). fresh is true when the daemon is
+// about to start: a kept port another program holds is then replaced.
+// While the daemon runs it holds the port itself, so the kept one is
+// taken as it is.
+func (in *instance) listenPort(fresh bool) (int, error) {
+	if raw, err := os.ReadFile(in.path("listen-port")); err == nil {
+		if p, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && p > 0 && p < 65536 && (!fresh || listenFree(p)) {
+			return p, nil
+		}
+	}
+	for range 16 {
+		p, err := pickListenPort()
+		if err != nil {
+			return 0, err
+		}
+		if p == 0 {
+			continue
+		}
+		if err := adapterkit.WriteAtomic(in.path("listen-port"), []byte(strconv.Itoa(p)+"\n")); err != nil {
+			return 0, err
+		}
+		return p, nil
+	}
+	return 0, errUnavailable("no_listen_port", "no port was free for both TCP and UDP to give the syncthing instance its own listen port")
+}
+
+// pickListenPort asks the kernel for a free TCP port on every interface
+// and answers it when UDP is free on it too (QUIC), else 0.
+func pickListenPort() (int, error) {
+	var lc net.ListenConfig
+	l, err := lc.Listen(context.Background(), "tcp", "0.0.0.0:0")
+	if err != nil {
+		return 0, err
+	}
+	p := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	if !listenFree(p) {
+		return 0, nil // UDP (or, by now, TCP) is taken on it: the caller picks again
+	}
+	return p, nil
+}
+
+// listenFree reports whether p is free on every interface for TCP and UDP.
+func listenFree(p int) bool {
+	var lc net.ListenConfig
+	l, err := lc.Listen(context.Background(), "tcp", "0.0.0.0:"+strconv.Itoa(p))
+	if err != nil {
+		return false
+	}
+	defer func() { _ = l.Close() }()
+	u, err := lc.ListenPacket(context.Background(), "udp", "0.0.0.0:"+strconv.Itoa(p))
+	if err != nil {
+		return false
+	}
+	_ = u.Close()
+	return true
+}
+
+// setListen points the running instance's listen addresses at its own
+// port (only when they differ). A failure is logged and not fatal: the
+// instance still syncs on whatever it listens on, and the next attach
+// tries again.
+func (in *instance) setListen(port int) {
+	c, err := in.api()
+	if err == nil {
+		var changed bool
+		if changed, err = c.ensureListen(port); err == nil {
+			if changed {
+				in.a.log.Info("syncthing listens on its own port", slog.Int("listen_port", port))
+			}
+			return
+		}
+	}
+	in.a.log.Warn("syncthing's listen addresses could not be set; the next attach tries again", adapterlog.Err(err))
 }
 
 // detach counts the session out and, when it was the last, stops the
@@ -101,6 +243,7 @@ func (in *instance) detach(sessionID string) (*detachResult, error) {
 	if err := os.Remove(filepath.Join(in.refsDir(), sessionID)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
+	in.pruneDeadRefs("")
 	refs, err := os.ReadDir(in.refsDir())
 	if err != nil {
 		return nil, err

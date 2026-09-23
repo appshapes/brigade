@@ -214,6 +214,37 @@ func TestVerbsOverTheWire(t *testing.T) {
 	}
 }
 
+// TestAttachAndDetachCarryThePID: a Client with a PID sends it as
+// attach's and detach's optional "pid" member (and only theirs); without
+// one the member is absent, as TestVerbsOverTheWire pins.
+func TestAttachAndDetachCarryThePID(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	state := filepath.Join(dir, "state")
+	fake := fakesync.Write(t, dir, fakesync.Answers{})
+	c := &foldersync.Client{Adapter: "syncthing", StateDir: state, PID: 4242, Environ: []string{"PATH=/usr/bin:/bin"}, Command: fake.Argv}
+	ctx := t.Context()
+	if _, err := c.Attach(ctx, "sess-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Status(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Detach(ctx, "sess-1"); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"attach": `{"state_dir":"` + state + `","session_id":"sess-1","pid":4242}`,
+		"status": `{"state_dir":"` + state + `"}`,
+		"detach": `{"state_dir":"` + state + `","session_id":"sess-1","pid":4242}`,
+	}
+	for _, r := range fake.Records(t) {
+		if string(r.Request) != want[r.Verb] {
+			t.Errorf("%s request = %s, want %s", r.Verb, r.Request, want[r.Verb])
+		}
+	}
+}
+
 // TestFailuresAreProtocolErrors: an adapter's failing envelope comes back
 // with its code; a describe of another sync protocol is protocol_mismatch;
 // an attach without a descriptor is an invalid result — none of them
