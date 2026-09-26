@@ -158,6 +158,13 @@ type ByPID struct {
 	SyncAdapter string   `json:"sync_adapter,omitzero"`
 	SyncFolders []string `json:"sync_folders,omitzero"`
 	SyncRoot    string   `json:"sync_root,omitzero"`
+	// MessageSound is the `message_sound` option as the hook resolved it
+	// (card 35): true when this session's watcher plays one quiet sound
+	// as a message arrives. The watcher re-reads it on every liveness
+	// tick, so a SessionStart that flips the option takes effect without
+	// a respawn. Absent (omitzero) when off, so a map from before the
+	// option existed reads as off.
+	MessageSound bool `json:"message_sound,omitzero"`
 	// HarnessVersion is the Claude Code version from the registry's
 	// `version` member when present, else "unknown".
 	HarnessVersion string `json:"harness_version"`

@@ -24,6 +24,7 @@ const (
 	OptionFrameFile           = "CLAUDE_PLUGIN_OPTION_FRAME_FILE"
 	OptionLabel               = "CLAUDE_PLUGIN_OPTION_LABEL"
 	OptionSync                = "CLAUDE_PLUGIN_OPTION_SYNC"
+	OptionMessageSound        = "CLAUDE_PLUGIN_OPTION_MESSAGE_SOUND"
 )
 
 // The BRIGADE_* variables that stand in for three options OUTSIDE a
@@ -94,6 +95,9 @@ const (
 	// spelling switches sync off rather than being guessed at, as
 	// ParseInbound's does for the inbound policy.
 	WarnSyncInvalid = `Brigade: sync must be "on" or "off"; the value set is neither, so file sync is off for this session.`
+	// WarnMessageSoundInvalid: the message_sound option is neither on nor
+	// off (card 35); the session plays nothing and says so once.
+	WarnMessageSoundInvalid = `Brigade: message_sound must be "on" or "off"; the value set is neither, so no sound is played for this session.`
 )
 
 // The two words the sync option takes (folder-sync plan §4.3).
@@ -116,6 +120,28 @@ func ParseSync(raw string) (bool, string) {
 		return false, ""
 	default:
 		return false, WarnSyncInvalid
+	}
+}
+
+// The message_sound option's two words (card 35).
+const (
+	MessageSoundOn  = "on"
+	MessageSoundOff = "off"
+)
+
+// ParseMessageSound maps a message_sound value to whether the session's
+// watcher plays a sound as a message arrives (card 35): "" (unset — the
+// default is off) or "off" → false; "on" → true; anything else → false
+// with WarnMessageSoundInvalid. Matching is exact after trimming, as
+// ParseSync's is, and there is no BRIGADE_* fallback for the same reason.
+func ParseMessageSound(raw string) (bool, string) {
+	switch strings.TrimSpace(raw) {
+	case "", MessageSoundOff:
+		return false, ""
+	case MessageSoundOn:
+		return true, ""
+	default:
+		return false, WarnMessageSoundInvalid
 	}
 }
 
@@ -269,6 +295,12 @@ type Options struct {
 	// word, and the hook prints it.
 	Sync        bool
 	SyncWarning string
+	// MessageSound is on when the option says so (card 35): the hook
+	// freezes it into the by-pid map and the watcher plays one quiet
+	// sound as a message arrives. MessageSoundWarning carries
+	// WarnMessageSoundInvalid when the option was neither word.
+	MessageSound        bool
+	MessageSoundWarning string
 }
 
 // ParseOptions resolves Options from environ. Only CLAUDE_PLUGIN_OPTION_*
@@ -354,6 +386,7 @@ func ParseOptions(environ []string) (Options, error) {
 	}
 	o.Label = LabelOption(environ)
 	o.Sync, o.SyncWarning = ParseSync(opt(OptionSync))
+	o.MessageSound, o.MessageSoundWarning = ParseMessageSound(opt(OptionMessageSound))
 	return o, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/sound"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -137,6 +139,11 @@ type resolved struct {
 	// line, "" when there is nothing to say.
 	sync     frozenSync
 	syncLine string
+	// messageSound is the `message_sound` option as the map carries it
+	// (card 35): on, and a player this machine has. soundLine is the one
+	// line SessionStart prints when the option is on and no player is.
+	messageSound bool
+	soundLine    string
 }
 
 // connect registers (or re-attaches to) the Brigade session and prints
@@ -334,20 +341,23 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		return resolved{}, false
 	}
 	sync, syncLine := r.resolveSync(opts, tf, in.Cwd)
+	messageSound, soundLine := r.resolveSound(opts)
 	return resolved{
-		sync:        sync,
-		syncLine:    syncLine,
-		opts:        opts,
-		teamKey:     key,
-		teamFile:    tf,
-		adapter:     adapter,
-		argv:        argv,
-		id:          id,
-		dec:         dec,
-		instruction: instruction,
-		client:      r.client(adapter, key, opts.ConfigDir, f.stateDir),
-		store:       sessionmap.Store{StateDir: f.stateDir},
-		doingRules:  doingRules,
+		sync:         sync,
+		syncLine:     syncLine,
+		messageSound: messageSound,
+		soundLine:    soundLine,
+		opts:         opts,
+		teamKey:      key,
+		teamFile:     tf,
+		adapter:      adapter,
+		argv:         argv,
+		id:           id,
+		dec:          dec,
+		instruction:  instruction,
+		client:       r.client(adapter, key, opts.ConfigDir, f.stateDir),
+		store:        sessionmap.Store{StateDir: f.stateDir},
+		doingRules:   doingRules,
 	}, true
 }
 
@@ -582,6 +592,46 @@ func syncOnLine(folders int, adapter string) string {
 
 func syncOffLine(why string) string {
 	return "Brigade: file sync off (" + why + ")."
+}
+
+// resolveSound decides whether this session's watcher plays a sound as a
+// message arrives (card 35): the option on, and a player this machine
+// has. Off says nothing — the default must not be announced at every
+// start — and on with a player says nothing either: the sound speaks for
+// itself. On without a player is one line naming why, so a member who
+// set the option and hears nothing knows what to install. Nothing here
+// runs a program; the reason is one of sound's fixed texts, never a path.
+func (r *run) resolveSound(opts config.Options) (bool, string) {
+	if !opts.MessageSound {
+		return false, ""
+	}
+	if _, why := r.deps.SoundPlayer(pathValue(r.environ)); why != "" {
+		return false, soundOffLine(why)
+	}
+	return true, ""
+}
+
+// soundOffLine is the one SessionStart line for a session whose
+// `message_sound` option is on and whose machine cannot play (card 35).
+func soundOffLine(why string) string {
+	return "Brigade: message sound off (" + why + ")."
+}
+
+// soundPlayer is the production SoundPlayer: sound.Resolve over sound's
+// own PATH search — the watcher's, which skips a relative entry — so the
+// hook, probing from the project directory, answers as the watcher will.
+func soundPlayer(pathVar string) ([]string, string) {
+	return sound.Resolve(runtime.GOOS, func(name string) (string, bool) { return sound.LookPath(pathVar, name) }, sound.Exists)
+}
+
+// pathValue is the PATH value of environ, last occurrence winning.
+func pathValue(environ []string) string {
+	for i := len(environ) - 1; i >= 0; i-- {
+		if v, ok := strings.CutPrefix(environ[i], "PATH="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // resolveTeam runs steps 1-3: discovery, the pin gate, the binding gate.
@@ -868,6 +918,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		SyncAdapter:      res.sync.adapter,
 		SyncFolders:      res.sync.folders,
 		SyncRoot:         res.sync.root,
+		MessageSound:     res.messageSound,
 		HarnessVersion:   res.id.harnessVersion,
 		RegisteredAt:     registeredAt,
 		UpdatedAt:        now,
@@ -908,8 +959,21 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 		}
 		r.say(line)
 	}
+	// The sound plays in the watcher, as file sync runs there: a session
+	// with none says so with the same reasons (card 35).
+	switch {
+	case res.messageSound && !watcherRuns && f.socket == "" && r.deps.Sink == "":
+		r.say(soundOffLine(syncOffNoSocket))
+	case res.messageSound && !watcherRuns:
+		r.say(soundOffLine(syncOffNoWatcher))
+	case res.soundLine != "":
+		r.say(res.soundLine)
+	}
 	if res.opts.SyncWarning != "" {
 		warnings = append(warnings, res.opts.SyncWarning)
+	}
+	if res.opts.MessageSoundWarning != "" {
+		warnings = append(warnings, res.opts.MessageSoundWarning)
 	}
 	for _, w := range warnings {
 		r.say(w)
@@ -938,14 +1002,7 @@ func (r *run) writeByNative(store sessionmap.Store, nativeID string, m *sessionm
 // plugin's bootstrap (E0-8 (e): the plugin's bin/ is appended LAST to the
 // Bash tool's PATH, so any other one wins there).
 func (r *run) shadowing(f facts) (string, bool) {
-	pathVar := ""
-	for i := len(r.environ) - 1; i >= 0; i-- {
-		if v, ok := strings.CutPrefix(r.environ[i], "PATH="); ok {
-			pathVar = v
-			break
-		}
-	}
-	found, ok := r.deps.LookPath(pathVar, "brigade")
+	found, ok := r.deps.LookPath(pathValue(r.environ), "brigade")
 	if !ok {
 		return "", false
 	}

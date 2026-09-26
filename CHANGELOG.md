@@ -9,6 +9,26 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-09-26
+### Added
+
+- **A quiet sound when a message arrives** (card 35): the plugin option `message_sound`, `off` by default. `on`
+  makes the session's watcher play one quiet system sound the moment a teammate's message reaches the session —
+  delivered into it, or held for release under `team_inbound: hold` — and then nothing more for 30 seconds, so a
+  burst is one sound; a refused message, a redelivered duplicate, a message the member releases and a notice
+  from Brigade play nothing. The player is a fixed program with a fixed argument list — `afplay` with macOS's
+  Glass sound at a quarter of its volume, `paplay` with the desktop's new-message sound on Linux — run by the
+  watcher through the spawn seam (`adapterkit.RunQuiet`, beside `Spawn` in the spawn seam file) with the
+  from-scratch child environment and nothing from the message; a machine with neither says
+  `Brigade: message sound off (<why>).` once at session start, as does a session that runs no watcher, and a
+  value that is neither `on` nor `off` says so and plays nothing. A message whose delivery failed and is
+  delivered again counts as arriving again, and a replaced watcher starts its 30 seconds afresh. A SessionStart that flips the option reaches the running watcher within a liveness tick,
+  with no respawn. Nothing in Claude Code fires on an arriving cross-session message — no hook event, no
+  `Notification` matcher, and `preferredNotifChannel` reacts only to a finished task or a waiting permission
+  prompt (checked against the docs 2026-09-26) — which is why Brigade plays it. The option is the member's: a
+  project's `.brigade.json` cannot set it. No wire change; the by-pid map gains the optional `message_sound`
+  member. `docs/security.md` section 3 names the player as the second program the watcher starts of its own.
+
 ## [0.11.0] — 2026-09-23
 ### Added
 

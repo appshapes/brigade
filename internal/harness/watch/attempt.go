@@ -273,10 +273,28 @@ func (w *watcher) offer(m protocol.MessageEnvelope) {
 		slog.Bool("ack", d.Ack),
 		slog.String("dropped", d.Dropped),
 		slog.String("sender_session_id", m.Sender.SessionID))
+	if arrivedNow(d) {
+		w.sound.arrived()
+	}
 	if d.Ack {
 		w.injector.queueAck(d.MessageID)
 	}
 	w.injector.kickNow()
+}
+
+// arrivedNow says whether an Offer decision is a message reaching this
+// session for the first time (card 35): queued for injection — but not a
+// released message a redelivery re-offers, which the pipeline marks
+// "released" and which was announced when it was held — or newly held
+// ("policy_hold"; a redelivery of a held id says "already_held"). A
+// duplicate, a pending re-offer, a refusal, a rate limit and a deferral
+// are not arrivals, and a release goes through pipeline.Release, never
+// here.
+func arrivedNow(d inbound.Decision) bool {
+	if d.Outcome == inbound.OutcomeQueued {
+		return d.Reason != "released"
+	}
+	return d.Outcome == inbound.OutcomeHeld && d.Reason == "policy_hold"
 }
 
 // commandLoop is the session's command writer: acks as they become

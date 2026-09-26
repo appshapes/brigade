@@ -390,3 +390,40 @@ func signalName(sig syscall.Signal) string {
 	}
 	return "signal " + strconv.Itoa(int(sig))
 }
+
+// A QuietSpec describes one child run for its side effect alone — the
+// message-arrival sound player (card 35) — with nothing given to it and
+// nothing read from it: no stdin (the null device), stdout and stderr
+// discarded. Argv and Env follow SpawnSpec's rules exactly: an argv array
+// executed directly, never a shell, and an environment the caller built
+// from scratch (ChildEnv) that the child never inherits.
+type QuietSpec struct {
+	Argv []string
+	Env  []string
+	// WaitDelay bounds how long the child may outlive its context cancel
+	// (SIGTERM) before SIGKILL; zero or negative means DefaultWaitDelay.
+	WaitDelay time.Duration
+}
+
+// RunQuiet runs one child to completion and reports whether it exited 0.
+// It is the spawn seam for a program that speaks no protocol, beside
+// Spawn for one that does: the same file, the same environment rule, the
+// same SIGTERM-then-SIGKILL cancel. The error is the raw one, for the
+// caller's redacting logger; nothing here parses, keeps or echoes output.
+func RunQuiet(ctx context.Context, spec QuietSpec) error {
+	if len(spec.Argv) == 0 {
+		return errors.New("adapterkit: RunQuiet called with an empty argv")
+	}
+	//nolint:forbidigo // adapterkit/spawn.go IS the spawn seam the 7.3 forbidigo rule points callers at.
+	cmd := exec.CommandContext(ctx, spec.Argv[0], spec.Argv[1:]...)
+	// Never nil: a nil cmd.Env would inherit this process's environment.
+	cmd.Env = append(make([]string, 0, len(spec.Env)), spec.Env...)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = spec.WaitDelay
+	if cmd.WaitDelay <= 0 {
+		cmd.WaitDelay = DefaultWaitDelay
+	}
+	return cmd.Run()
+}

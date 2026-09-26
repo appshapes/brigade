@@ -456,3 +456,48 @@ func TestParseOptionsSyncHasNoBrigadeFallback(t *testing.T) {
 		t.Errorf("an invalid option: Sync = %v, warning %q; want off with WarnSyncInvalid", got.Sync, got.SyncWarning)
 	}
 }
+
+// TestParseMessageSound pins the message_sound option's grammar (card 35):
+// unset and "off" play nothing, "on" plays, and any other spelling plays
+// nothing either — with the one fixed warning, which never echoes the
+// value. ParseOptions carries the pair.
+func TestParseMessageSound(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		raw  string
+		on   bool
+		warn string
+	}{
+		{"", false, ""},
+		{"off", false, ""},
+		{" off ", false, ""},
+		{"on", true, ""},
+		{"  on\t", true, ""},
+		{"ON", false, config.WarnMessageSoundInvalid},
+		{"true", false, config.WarnMessageSoundInvalid},
+		{"soft", false, config.WarnMessageSoundInvalid},
+		{evilMarker, false, config.WarnMessageSoundInvalid},
+	}
+	for _, c := range cases {
+		on, warn := config.ParseMessageSound(c.raw)
+		if on != c.on || warn != c.warn {
+			t.Errorf("ParseMessageSound(%q) = (%v, %q), want (%v, %q)", c.raw, on, warn, c.on, c.warn)
+		}
+		if strings.Contains(warn, evilMarker) {
+			t.Errorf("ParseMessageSound(%q): the warning echoes the value", c.raw)
+		}
+	}
+	d := newDirs(t)
+	got, err := config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionMessageSound+"=on"))
+	if err != nil || !got.MessageSound || got.MessageSoundWarning != "" {
+		t.Fatalf("ParseOptions with message_sound=on: %+v, %v", got, err)
+	}
+	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionMessageSound+"=loud"))
+	if err != nil || got.MessageSound || got.MessageSoundWarning != config.WarnMessageSoundInvalid {
+		t.Fatalf("ParseOptions with message_sound=loud: %+v, %v", got, err)
+	}
+	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242"))
+	if err != nil || got.MessageSound || got.MessageSoundWarning != "" {
+		t.Fatalf("ParseOptions with message_sound unset: %+v, %v", got, err)
+	}
+}

@@ -413,3 +413,36 @@ func TestValidateAcceptsEveryPolicy(t *testing.T) {
 		}
 	}
 }
+
+// TestMessageSoundRoundTripsAndIsOmittedWhenOff (card 35): the member
+// survives JSON when on, and a session that plays nothing writes none of
+// it — so a map from before the option existed and one whose session has
+// it off look the same, and both read.
+func TestMessageSoundRoundTripsAndIsOmittedWhenOff(t *testing.T) {
+	t.Parallel()
+	m := validByPID()
+	data, err := json.Marshal(&m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "message_sound") {
+		t.Fatalf("an off session writes the member: %s", data)
+	}
+	m.MessageSound = true
+	if data, err = json.Marshal(&m); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"message_sound":true`) {
+		t.Fatalf("an on session does not write the member: %s", data)
+	}
+	var back sessionmap.ByPID
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !back.MessageSound {
+		t.Fatal("message_sound did not round-trip")
+	}
+	if err := back.Validate(); err != nil {
+		t.Fatalf("Validate after the round trip: %v", err)
+	}
+}

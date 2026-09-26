@@ -183,6 +183,15 @@ type Deps struct {
 	// when the teammates' peers changed (DefaultSyncListInterval).
 	SyncInterval     time.Duration
 	SyncListInterval time.Duration
+	// Sound runs the message-arrival sound player to completion (card
+	// 35, sound.go): argv is the fixed list sound.Resolve gave, env the
+	// from-scratch child environment; nil means adapterkit.RunQuiet. A
+	// test injects a recorder.
+	Sound func(ctx context.Context, argv, env []string) error
+	// SoundCommand, when set, is the player's argv instead of the one
+	// sound.Resolve finds on PATH; nil in production, a test sets it so
+	// the machine's own players do not decide the test.
+	SoundCommand []string
 
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
@@ -210,6 +219,7 @@ func RealDeps() Deps {
 		Clock:             time.Now,
 		Registry:          registry.Dir,
 		Post:              socketpost.Post,
+		Sound:             runQuiet,
 		Signals:           []os.Signal{syscall.SIGTERM, syscall.SIGINT},
 		HeartbeatInterval: DefaultHeartbeatInterval,
 		PollInterval:      DefaultPollInterval,
@@ -247,6 +257,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.Post == nil {
 		d.Post = prod.Post
+	}
+	if d.Sound == nil {
+		d.Sound = prod.Sound
 	}
 	if d.BrigadeVersion == nil {
 		d.BrigadeVersion = buildinfo.Claimed
@@ -544,6 +557,8 @@ type watcher struct {
 	// sync is the file-sync configuration the map froze (sync.go); the
 	// zero value runs no sync goroutine.
 	sync syncSetup
+	// sound plays the message-arrival sound (sound.go, card 35).
+	sound *sounder
 
 	// ctx ends with a signal, the Stop channel or a liveness verdict;
 	// cancel is what every exit path calls first.
@@ -637,6 +652,8 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath),
 		sync: syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, pluginBin: m.PluginBin},
 	}
+	w.sound = newSounder(w)
+	w.sound.apply(m.MessageSound)
 	if d.SyncPeer != nil {
 		w.syncPeer.Store(d.SyncPeer())
 	}
@@ -703,10 +720,18 @@ func (w *watcher) run() int {
 		w.goWriter("sync", func() { w.runSync(sctx) })
 	}
 	defer scancel()
+	// The sound player runs under its own context so the exit can end a
+	// sound in progress and wait for the player (bounded by the seam's
+	// SIGTERM-then-SIGKILL) before the pidfile is released.
+	pctx, pcancel := context.WithCancel(base)
+	w.sound.bind(pctx)
+	defer pcancel()
 
 	code = w.supervise()
 	icancel()
 	scancel()
+	pcancel()
+	w.sound.join()
 	// Nothing may still be writing under the state directory when Run
 	// returns: the join comes before the exit line and before the deferred
 	// pidfile release (P14-6, writers.go).

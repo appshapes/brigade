@@ -191,10 +191,13 @@ including the sender's summary, was written by the sender.**
 - **The size caps.** A body is at most **16,384 bytes**. A summary is at most **200 characters**. The limit: a
   short message can still be a bad instruction.
 - **The watcher does nothing a message asks.** The background process that delivers messages injects and
-  acknowledges, and no message makes it run a command or edit a file. It does start one program of its own when
-  the project lists folders to sync: the sync adapter, which starts Syncthing, and Syncthing writes into the
-  listed folders what teammates' machines send (section 12). Nothing in a message steers either. The limit: it
-  hands the text to a model that can run commands and edit files.
+  acknowledges, and no message makes it run a command or edit a file. It does start two programs of its own: the
+  sync adapter, when the project lists folders to sync — it starts Syncthing, and Syncthing writes into the
+  listed folders what teammates' machines send (section 12) — and the system's sound player, when you set the
+  `message_sound` option, with a fixed argument list, at most once every 30 seconds, as a message arrives.
+  Nothing in a message steers any of them: the player is told the sound file's name and nothing else, and the
+  message decides only whether the sound plays at all. The limit: it hands the text to a model that can run
+  commands and edit files.
 
 **What was measured.** A set of 26 test messages, hostile and benign, was run against real Claude Code sessions
 twice. (The corpus has since grown four items, 27–30, for the `brigade doing` line of section 2 — a body

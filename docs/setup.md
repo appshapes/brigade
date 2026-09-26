@@ -86,7 +86,7 @@ your team then appears on a **later** prompt, once the binary is in place. It ne
 185 kB/s or better; a download attempt gives up after 45 s. If it cannot finish, your next prompt shows one line
 beginning `Brigade: not installed:` and nothing else changes; `/clear` or a new session tries again. The
 download is one file, checked against a checksum that ships inside the plugin, and it happens once per version on
-each machine. Installing the plugin also prints `11 userConfig options not yet set` — that is informational, not a
+each machine. Installing the plugin also prints `12 userConfig options not yet set` — that is informational, not a
 to-do: every option has a working default (see [plugin/README.md](../plugin/README.md), "Options").
 
 **The command line on its own.** `go install` builds the same command-line tool from source — no plugin, no hooks
