@@ -154,7 +154,22 @@ func goldenCases() []goldenCase {
 		{"preamble-custom", func() string {
 			return Build(e03Envelope(), "ops", Instruction{Level: LevelCustom, Custom: customClause})
 		}},
+		// Card 34: the same envelope as a REPLY, at the shipped default, so
+		// the only difference from preamble-open.golden is the attribute.
+		{"reply", func() string { return Build(replyEnvelope(), "ops", Instruction{Level: LevelOpen}) }},
 	}
+}
+
+// answeredID is the message replyEnvelope answers: an id its receiver
+// sent, as `brigade send` printed it.
+const answeredID = "0f0f0f0f-1111-4222-8333-444455556666"
+
+// replyEnvelope is e03Envelope as a reply: the adapter stamped reply_to.
+func replyEnvelope() protocol.MessageEnvelope {
+	m := e03Envelope()
+	id := answeredID
+	m.ReplyTo = &id
+	return m
 }
 
 // strict is the Instruction every pre-P5-12 golden renders at: those six

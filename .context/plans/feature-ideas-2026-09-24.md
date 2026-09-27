@@ -4,8 +4,8 @@ Trello card 34 ("Research feature enhancements"). Status: **research only — no
 34, nothing committed by the session that wrote this.** Owner: Rjae. Constraint from the ask: small or medium
 features that aid the three existing installations; no new adapter.
 
-**Since then:** item 1 was built on 2026-09-27 (§7; execution log P23-1), to ship in one release with the items
-that follow it.
+**Since then:** items 1, 2 and 3 were built on 2026-09-27 (§7; execution log P23-1..P23-3), to ship in one
+release with the items that follow them. **Owed before that release:** the frame re-measurement of §4.2.
 
 **Method.** One workflow of seven agents, sized to the ask (memory rule: Opus for fan-out, Fable for judgement):
 four Opus ideators, one lens each (in-session operator experience; coordination between sessions; folder-sync
@@ -209,3 +209,22 @@ the adapter knows.
 for item 2: the slot holds one line and the newest wins. The two lines above are about one fact, whether the
 session receives, so the later is the true one. A sync summary written between them replaces either, as it
 replaces a stop notice today. Item 9 is still the fix for that, and it matters more with every writer added.
+
+**Item 3, 2026-09-27** (card 34; Rjae: "Go ahead with Item 3"). As sketched in §2, with two choices the sketch
+left open:
+
+1. **The attribute is last on the tag line**, after `sent-at`. Every frame still begins with the eight
+   attributes in their order, so a reader that builds the tag line by position (`proof.sh:865`,
+   `proof-headless.sh:1202`, `proof-idle-wake.sh:1586`, `proof-crash-resume.sh:2033`) sees what it saw for every
+   frame that answers nothing.
+2. **An id that could be no message id is left out, and the message is delivered.** The pipeline's step 1 does
+   not bound `reply_to`, and the frame prints ids in full. So `in-reply-to` is capped at the 200 bytes the
+   pipeline puts on a `message_id` (a test holds the two equal). Rejecting the message instead would lose an
+   answer over a field the receiver can do without.
+
+**The re-measurement §4.2 asks for was not run.** `proof-headless` and the E5 default-level sweep need a
+logged-in `claude` outside this session, and the release is a bundle: one run before it covers item 3 and
+whatever else changes the frame (item 15). `docs/security.md` and the changelog say the attribute is unmeasured.
+What was checked without a model: a reply's frame is the plain frame plus the attribute and nothing else, at
+every level; the real fs adapter's reply reaches a socket with it; the Supabase backend's envelope carries
+`reply_to` (the schema's `message_envelope`, read, not run).

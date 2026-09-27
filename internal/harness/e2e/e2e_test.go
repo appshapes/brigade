@@ -152,6 +152,23 @@ func TestSessionLifecycleThroughTheRealBinary(t *testing.T) {
 		inbox[0].Sender.SessionID != m.BrigadeSessionID {
 		t.Errorf("bob's inbox: %+v", inbox)
 	}
+	// bob answers that reply, and the frame alice's session receives says
+	// which of her messages it answers (card 34): in-reply-to is the id
+	// `brigade send` printed to her, stamped by the real adapter.
+	res = r.mustRun(r.env(bob), "and done", "send", m.BrigadeSessionID, "--reply-to", reply.MessageID, "--json")
+	answer := jsonResult[sendResult](t, res.stdout)
+	answered, err := frame.Parse(sock.WaitFrames(2, waitLong)[1])
+	if err != nil {
+		t.Fatalf("the reply's frame does not parse: %v", err)
+	}
+	if answered.InReplyTo != reply.MessageID || answered.MessageID != answer.MessageID || answered.Hops != "2" ||
+		answered.ReplyToSessionID != bobMap.BrigadeSessionID {
+		t.Errorf("reply frame: in-reply-to %q (want %q), message-id %q, hops %q", answered.InReplyTo, reply.MessageID, answered.MessageID, answered.Hops)
+	}
+	// The first frame, which answered nothing, carries no such attribute.
+	if p.InReplyTo != "" || strings.Contains(frames[0], frame.InReplyToAttribute) {
+		t.Errorf("a frame that answers nothing carries in-reply-to: %q", p.InReplyTo)
+	}
 
 	// --- 4. prompt prints nothing; a dead watcher is respawned -----------
 	res = r.hook(alice, "prompt", alice.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "acceptEdits", "prompt": "never read"}))

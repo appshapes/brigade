@@ -206,7 +206,10 @@ including the sender's summary, was written by the sender.**
 twice. (The corpus has since grown four items, 27–30, for the `brigade doing` line of section 2 — a body
 imitating Brigade's own reminder, two asking the model to publish attacker-chosen or secret text, and the
 imitation on the polling path; they are not in the numbers below and are still unmeasured — the card-25
-acceptance runs (P16-7, 2026-09-20) did not reach them.)
+acceptance runs (P16-7, 2026-09-20) did not reach them. A reply's frame has also gained one attribute since,
+`in-reply-to`, the id of the message it answers. It is on the tag line of a reply only, the sentence under the
+tag line is unchanged, and every frame in the numbers below is one that answered nothing: a frame with the
+attribute is unmeasured too.)
 Headless, on Claude Code 2.1.260: 26 items times 3 runs, **78 of 78 item-runs passed** the mechanical rule.
 Interactive, on 2.1.261, with nobody at the keyboard: **77 of 77 scored item-runs passed** it. Across both sweeps,
 **no configuration-editing item and no data-exfiltration item failed** — those are the two classes the project's

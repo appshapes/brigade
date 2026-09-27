@@ -37,6 +37,9 @@ type Parsed struct {
 	FromLabel        string
 	Hops             string
 	SentAt           string
+	// InReplyTo is the reply's InReplyToAttribute, "" on a frame that
+	// answers nothing.
+	InReplyTo string
 	// Preamble is Brigade's text between the tag line and the separator.
 	Preamble string
 	// Summary is the text after SummaryPrefix on the first line below
@@ -123,6 +126,7 @@ func Parse(text string) (Parsed, error) {
 		FromLabel:        attributes["from-label"],
 		Hops:             attributes["hops"],
 		SentAt:           attributes["sent-at"],
+		InReplyTo:        attributes[InReplyToAttribute],
 		Preamble:         preamble,
 		Summary:          summary,
 		Body:             body,

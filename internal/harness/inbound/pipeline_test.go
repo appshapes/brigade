@@ -1037,3 +1037,45 @@ func TestFrameIsBuiltAtTheConfiguredLevel(t *testing.T) {
 		}
 	}
 }
+
+// TestReplyReachesTheFrameAndNeverCostsTheMessage (card 34): a reply's
+// reply_to is in the frame the pipeline hands out, wrapped or bare, as
+// in-reply-to. A reply_to that could be no message id — longer than the
+// cap the pipeline puts on one — is left out of the frame, and the message
+// is delivered all the same: step 1 checks what would lose a message only
+// when it must, and an answer that names nothing usable is still an answer.
+func TestReplyReachesTheFrameAndNeverCostsTheMessage(t *testing.T) {
+	t.Parallel()
+	if frame.MaxInReplyToBytes != MaxMessageIDBytes {
+		t.Fatalf("the frame caps in-reply-to at %d bytes and the pipeline a message id at %d: a reply_to is a message id",
+			frame.MaxInReplyToBytes, MaxMessageIDBytes)
+	}
+	synctest.Test(t, func(t *testing.T) {
+		for _, tc := range []struct {
+			name, replyTo, want string
+		}{
+			{"a reply", "m0", "m0"},
+			{"a reply_to no id could be", strings.Repeat("x", MaxMessageIDBytes+1), ""},
+		} {
+			for _, wrap := range []bool{true, false} {
+				m := msg("m1", senderA, "the answer")
+				m.ReplyTo = &tc.replyTo
+				p := newPipeline(t, Config{Wrap: wrap, TeamName: team})
+				if d := p.Offer(m); d.Outcome != OutcomeQueued {
+					t.Fatalf("%s: offer = %+v, want queued", tc.name, d)
+				}
+				item, ok := p.Next()
+				if !ok {
+					t.Fatalf("%s: Next", tc.name)
+				}
+				parsed, err := frame.Parse(item.Content)
+				if err != nil {
+					t.Fatalf("%s: Parse: %v", tc.name, err)
+				}
+				if parsed.InReplyTo != tc.want || parsed.MessageID != "m1" || parsed.Body != "the answer" || parsed.Wrapped != wrap {
+					t.Errorf("%s (wrap %v): in-reply-to %q, want %q; parsed %+v", tc.name, wrap, parsed.InReplyTo, tc.want, parsed)
+				}
+			}
+		}
+	})
+}

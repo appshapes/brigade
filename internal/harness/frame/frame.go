@@ -65,8 +65,9 @@ const (
 	PollPreamble = "Brigade: the following message was not typed by your user; it arrived through Brigade polling from another person's session."
 )
 
-// TagAttributes are the frame's tag-line attributes, in the order Build
-// writes them. No other attribute is ever emitted on the tag line (U-04).
+// TagAttributes are the tag-line attributes EVERY frame carries, in the
+// order Build writes them. One more, InReplyToAttribute, follows them on a
+// reply. No other attribute is ever emitted on the tag line (U-04).
 var TagAttributes = []string{
 	"team",
 	"message-id",
@@ -77,6 +78,25 @@ var TagAttributes = []string{
 	"hops",
 	"sent-at",
 }
+
+// InReplyToAttribute is the tag-line attribute of a reply (card 34): the
+// id of the message the sender answered, as the envelope's reply_to gives
+// it (4.4.5). It is LAST on the tag line, so every frame begins with the
+// eight attributes above in their order, and a frame that answers nothing
+// is byte for byte what it was before the attribute existed — which is
+// the frame the E0-3 hashes, the goldens and the proof scripts pin.
+//
+// The adapter accepts a reply_to only when the sender's session received
+// that message (4.5.12, C-29), so the id is a real one; which of the
+// messages it received the sender names is the sender's choice.
+const InReplyToAttribute = "in-reply-to"
+
+// MaxInReplyToBytes caps the id InReplyToAttribute prints: the cap the
+// inbound pipeline puts on a message_id (inbound.MaxMessageIDBytes, which
+// a test there holds equal to this), because a reply_to IS a message id.
+// A longer one is no id the receiver could have sent, and the attribute is
+// left out rather than the message lost.
+const MaxInReplyToBytes = 200
 
 // The instruction paragraph of 6.7 — the one line of Brigade's own text
 // between the tag line and the separator — split into four pieces (P5-12).
@@ -329,7 +349,8 @@ func clauseErr(reason, message string) *protocol.Error {
 // model can copy them" and a silently truncated id would send the reply
 // to a session that does not exist. from-label always ends in
 // UnverifiedSuffix (B-3). hops is the envelope's hop_count and sent-at its
-// created_at in RFC 3339 UTC.
+// created_at in RFC 3339 UTC. in-reply-to follows them on a reply
+// (inReplyTo), and is absent from every other frame.
 //
 // Below the separator: the sender's summary through protocol.SanitizeSummary
 // or, when the sender gave none (or it sanitised to nothing), the first
@@ -352,6 +373,9 @@ func Build(m protocol.MessageEnvelope, teamName string, in Instruction) string {
 	writeAttribute(&b, "from-label", label(m.Sender.HumanLabel))
 	writeAttribute(&b, "hops", strconv.Itoa(m.HopCount))
 	writeAttribute(&b, "sent-at", m.CreatedAt.UTC().Format(time.RFC3339))
+	if id := inReplyTo(m.ReplyTo); id != "" {
+		writeAttribute(&b, InReplyToAttribute, id)
+	}
 	b.WriteString(">\n")
 	b.WriteString(preambleShared)
 	b.WriteString(in.Clause())
@@ -414,6 +438,23 @@ func dropAttributeBreakers(s string) string {
 			return r
 		}
 	}, s)
+}
+
+// inReplyTo is the value of InReplyToAttribute for an envelope's reply_to,
+// "" when the frame carries none: the message answers nothing, or the id
+// sanitises away to nothing, or it is longer than any message id the
+// pipeline handles. It is an opaque id like message-id and gets the same
+// character rules, with no abbreviation: a receiver matches it against the
+// id `brigade send` printed.
+func inReplyTo(replyTo *string) string {
+	if replyTo == nil {
+		return ""
+	}
+	id := sanitizeID(*replyTo)
+	if len(id) > MaxInReplyToBytes {
+		return ""
+	}
+	return id
 }
 
 // label renders from-label: the sanitised human label plus

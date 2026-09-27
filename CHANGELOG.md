@@ -21,6 +21,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   a message was always `accepted`, and its sender was told nothing more. `--json` carries the same facts in a
   `recipient` member.
 
+- **A reply says which message it answers** (card 34, item 3). The frame a session receives for a reply carries
+  one more attribute, last on its tag line: `in-reply-to`, the id of the message the sender answered — the id
+  `brigade send` printed when that message was sent. The backend already stamped it on the envelope and the
+  frame dropped it. A message that answers nothing has the frame it always had, byte for byte, and the sentence
+  under the tag line is the same for both. An id that could be no message id is left out, and the message is
+  delivered all the same. No wire change. **Not measured yet:** the test-message sweeps of `docs/security.md`
+  ran on frames without the attribute.
+
 ### Changed
 
 - **A session no longer stops receiving after a network outage** (card 34, item 2). The watcher used to exit
