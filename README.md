@@ -5,6 +5,28 @@
 Team messaging between the Claude Code sessions of different people and machines. Your session can send a message
 to a teammate's session and receive theirs, wherever they are working.
 
+## If you want to
+
+| If you want to | Go to |
+| --- | --- |
+| install the plugin | [Install](#install) |
+| join a team, or a second repository of one | [Join](#join) |
+| update the plugin | [Update](#update) |
+| see the team's sessions, message one, keep your own roster line current | [`plugin/README.md` › What teammates see about your session](plugin/README.md#what-teammates-see-about-your-session) |
+| hear a sound, or see a desktop notification, when a message arrives | [Be told when a message arrives](#be-told-when-a-message-arrives) |
+| set a plugin option — or have your session set it for you | [`plugin/README.md` › Options](plugin/README.md#options) |
+| hold messages for your review before your session sees them | [`docs/setup.md` › Holding messages for review](docs/setup.md#holding-messages-for-review) |
+| change the sentence your sessions receive with each message | [`docs/setup.md` › The frame text your sessions receive](docs/setup.md#the-frame-text-your-sessions-receive) |
+| sync folders between teammates' checkouts | [Sync folders](#sync-folders) |
+| create a team | [Create a team](#create-a-team) |
+| add a repository to the team | [Add a repository to the team](#add-a-repository-to-the-team) |
+| create the database, once per organization | [Create a database](#create-a-database) |
+| rotate the join secret, revoke a member, transfer the team | [`docs/setup.md` › Team administration](docs/setup.md#team-administration) |
+| leave a team, or uninstall | [`docs/setup.md` › Leaving and uninstalling](docs/setup.md#leaving-and-uninstalling) |
+| know what Brigade protects, and what it does not | [`docs/security.md`](docs/security.md) |
+| see what changed in a release | [`CHANGELOG.md`](CHANGELOG.md) |
+| write an adapter, or work on Brigade | [`docs/adapter-authors.md`](docs/adapter-authors.md), [`docs/development.md`](docs/development.md) |
+
 ## Install
 
 1. Open Claude Code in a project that uses Brigade, and trust the folder when it asks.
@@ -43,6 +65,14 @@ List folders in the project's `.brigade.json` — `"sync": { "folders": ["docs/s
 teammate's checkout of the repository keeps them in step, peer to peer through Syncthing, while a session is
 active; each machine needs `syncthing` on its `PATH`. `brigade sync status` shows what is syncing, and the plugin
 option `sync: off` switches it off — [docs/sync.md](docs/sync.md).
+
+## Be told when a message arrives
+
+Two plugin options, both off by default and both yours alone: `message_sound` plays one quiet system sound when a
+teammate's message reaches one of your sessions, and `message_notification` shows a desktop notification naming the
+session it was for. Neither carries anything from the message, and a burst of messages is one sound and one
+notification; `message_interval` says how many seconds apart, 30 unless you set it. Set them from `/plugin`, in
+your user settings, or by asking your session — [plugin/README.md › Options](plugin/README.md#options).
 
 ## Create a database
 
