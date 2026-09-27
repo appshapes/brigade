@@ -53,7 +53,8 @@ func RetryableError(err error) bool {
 // anything else — a signal death (-1 from exec.ExitError.ExitCode(), or
 // 128+n from a shell), 126/127, or a status no code owns — is a crash and
 // restarts. The caller's give-up rule (10 consecutive failures inside 5
-// minutes) bounds every loop this can start.
+// minutes) bounds every fast loop this can start: past it the watcher
+// exits, or — for a code Retryable accepts — drops to WatchSlowRetry.
 func RetryableExit(exit int) bool {
 	if exit == protocol.ExitOK {
 		return false

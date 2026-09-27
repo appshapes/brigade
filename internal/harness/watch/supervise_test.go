@@ -101,24 +101,29 @@ func TestStopDuringRestartDelayClosesTheSession(t *testing.T) {
 	}
 }
 
-// TestGiveUpAfterTenFailures: an adapter whose watch exits 9 at once is
-// restarted with backoff and, after DefaultGiveUpFailures consecutive
-// failures inside the window, the watcher exits ExitGaveUp (3) with the
-// notice and its pidfile removed.
+// TestGiveUpAfterTenFailures: an adapter whose watch exits at once with a
+// status no code owns — a crash, which a restart may fix and a slow retry
+// does not take (slow_test.go has the failures it does) — is restarted
+// with backoff and, after DefaultGiveUpFailures consecutive failures
+// inside the window, the watcher exits ExitGaveUp (3) with the notice and
+// its pidfile removed.
 func TestGiveUpAfterTenFailures(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{sink: true})
-	fx.useHelper("exit=9")
+	fx.useHelper("exit=42")
 	fx.writeMap()
 	r := fx.start(fx.deps(), fx.args()...)
 	if code := r.wait(); code != 3 {
 		t.Fatalf("exit %d, want 3", code)
 	}
-	if n := fx.logCount("watch child failed; restarting", map[string]any{"code": "unavailable", "why": "child_exit", "exit": 9}); n != 9 {
+	if n := fx.logCount("watch child failed; restarting", map[string]any{"code": "internal", "why": "child_exit", "exit": 42, "slow": false}); n != 9 {
 		t.Errorf("restart lines = %d, want 9 (ten failures, nine restarts): %v", n, fx.logLines())
 	}
 	if !fx.logHas("watcher giving up", map[string]any{"failures": 10}) {
 		t.Errorf("no give-up line: %v", fx.logLines())
+	}
+	if fx.logHas("watcher retrying slowly", nil) {
+		t.Errorf("a crash was put on the slow schedule: %v", fx.logLines())
 	}
 	notice, err := os.ReadFile(fx.noticePath())
 	if err != nil {
@@ -135,13 +140,14 @@ func TestGiveUpAfterTenFailures(t *testing.T) {
 // TestHealthyRunResetsTheFailureCount: a child that was ready for at
 // least HealthyAfter before ending starts a fresh failure sequence, so the
 // give-up rule never trips on a watch that keeps recovering; the control
-// arm (HealthyAfter unreachable) gives up.
+// arm (HealthyAfter unreachable) gives up. The child exits with a status
+// no code owns, so the rule's verdict is the exit it always was.
 func TestHealthyRunResetsTheFailureCount(t *testing.T) {
 	t.Parallel()
 	run := func(t *testing.T, healthyAfter time.Duration) (*fixture, int, bool) {
 		t.Helper()
 		fx := newFixture(t, fixtureOptions{sink: true})
-		fx.useHelper("ready-exit=9")
+		fx.useHelper("ready-exit=42")
 		fx.writeMap()
 		deps := fx.deps()
 		deps.GiveUpFailures = 3

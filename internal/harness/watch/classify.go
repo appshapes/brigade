@@ -22,6 +22,10 @@ type verdict struct {
 // watcher. An `error` event's code is used when the child's exit status
 // says nothing (0 or a signal death) or when the child had to be stopped
 // after the event.
+//
+// Of the restarted ones only the status no code owns carries a code
+// backoff.Retryable refuses (`internal`), so it is the one failure that
+// still ends the watcher when the give-up rule trips (card 34).
 func classify(r attemptResult) verdict {
 	if r.startErr != nil {
 		code := codeOf(r.startErr)
@@ -100,6 +104,38 @@ func stopNotice(code protocol.Code) string {
 		return prefix + "run `brigade whoami`"
 	}
 	return prefix + "it will be restarted at your next prompt"
+}
+
+// slowRetryNotice is the line for a watcher that stays and retries slowly
+// (card 34). It names the code, how often the watcher tries and where the
+// messages are meanwhile; it promises no time.
+func slowRetryNotice(code protocol.Code, every time.Duration) string {
+	return "Brigade: this session is not receiving team messages (" + string(code) +
+		"). Brigade tries again at least every " + plainDuration(every) +
+		". Messages wait on the server until it reconnects."
+}
+
+// reconnectedNotice is the line for a watcher whose child has been ready
+// for HealthyAfter after a stretch on the slow schedule.
+func reconnectedNotice(away time.Duration) string {
+	return "Brigade: this session is receiving team messages again, after about " + plainDuration(away) + " without."
+}
+
+// plainDuration renders a duration as a reader says it: whole minutes
+// from a minute up, whole hours from two hours up, and the duration's own
+// form under a minute, which only a test's schedule reaches.
+func plainDuration(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return d.Truncate(time.Millisecond).String()
+	case d < 2*time.Hour:
+		if n := int(d.Round(time.Minute) / time.Minute); n > 1 {
+			return strconv.Itoa(n) + " minutes"
+		}
+		return "1 minute"
+	default:
+		return strconv.Itoa(int(d.Round(time.Hour)/time.Hour)) + " hours"
+	}
 }
 
 // giveUpNotice is the line for the give-up exit.

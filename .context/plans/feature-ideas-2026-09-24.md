@@ -186,3 +186,26 @@ sessions** (15, on its own, with 11 alongside as the other backend-facing notice
 
 An argument the roster does not resolve still goes to the adapter as given: a capped roster can lack a session
 the adapter knows.
+
+**Item 2, 2026-09-27** (card 34; Rjae: "Go ahead with Item 2"). As sketched in §2, with these differences:
+
+1. **Which failures go slow is decided by code, not by the sketch's three names.** The sketch listed
+   `unavailable`, `ready_timeout` and `start_failed`; the last two are reasons, and both carry the code
+   `unavailable` (or `rate_limited`, for a start). The rule is `backoff.Retryable(code)`: `unavailable` and
+   `rate_limited` go slow. The one restarted failure that still ends the watcher is a child that exits with a
+   status no code owns, a crash, whose code is `internal`.
+2. **A slow wait is cut short by the session's activity.** Not in the sketch. The watcher that exited was
+   started again by the next prompt, at once. The one that stays is alive, so the prompt hook leaves it alone,
+   and a person at the keyboard would wait out the rest of five minutes. The wait's tick reads the registry's
+   busy/idle, as the event loop does, and a change of it ends the wait once 30 s of it have passed.
+3. **A slow wait applies a release file.** Not in the sketch. The event loop does it on the same tick, and a
+   wait of minutes with no loop running would leave `brigade inbox release` unanswered for as long.
+4. **The notices are sentences.** `Brigade: this session is not receiving team messages (unavailable). Brigade
+   tries again at least every 5 minutes. Messages wait on the server until it reconnects.` and `Brigade: this
+   session is receiving team messages again, after about 17 minutes without.` The sketch's `Brigade:
+   reconnected` said too little to a reader who never saw the first line.
+
+**The notice slot (item 9) was not done first.** §4 asked for that, or for each item's ordering. The ordering
+for item 2: the slot holds one line and the newest wins. The two lines above are about one fact, whether the
+session receives, so the later is the true one. A sync summary written between them replaces either, as it
+replaces a stop notice today. Item 9 is still the fix for that, and it matters more with every writer added.

@@ -207,6 +207,11 @@ preview names the sender's `from-name`, which is free text any member can copy. 
 | `invalid_input` | the body is empty or over the size cap; `these characters end 2 session ids: …` means two sessions end with the characters you gave, so send to one of the full ids the message lists; for `brigade doing`, the sentence is empty, over 160 characters, not UTF-8, looks like a credential (`secret_shaped`) or names a local path (`local_path`) — reword it, or leave the line as it is |
 | `config` | this session is not registered; suggest `/reload-plugins` or a restart |
 
+A line that starts `Brigade: this session is not receiving team messages` can arrive on your user's turn. It
+means the backend could not be reached. Brigade keeps trying by itself, and messages sent to this session wait
+on the server: nothing is asked of you. `Brigade: this session is receiving team messages again` follows once
+it has reconnected.
+
 Do not retry more than once without new information. `brigade doing` has one answer that is not an error:
 `not published: this session does not publish a doing line. Carry on with the work.` at exit 0 means exactly
 that — carry on, and do not try another way or another form.

@@ -109,13 +109,24 @@ const (
 	// process died (6.6, 3.8).
 	DefaultCloseWaitClean = 1 * time.Second
 	DefaultCloseWaitDeath = 3 * time.Second
-	// DefaultGiveUpFailures inside DefaultGiveUpWindow ends the watcher with
-	// exit 3; the next prompt hook respawns it (6.6).
+	// DefaultGiveUpFailures inside DefaultGiveUpWindow ends the fast
+	// restarts (6.6). A failure a restart can fix — `unavailable`,
+	// `rate_limited` — then puts the watcher on the slow schedule, where it
+	// stays until a child has been ready for DefaultHealthyAfter (card 34);
+	// any other ends the watcher with exit 3, and the next prompt hook
+	// respawns it.
 	DefaultGiveUpFailures = 10
 	DefaultGiveUpWindow   = 5 * time.Minute
+	// DefaultActivityRetryGap is the least time a slow wait lasts before the
+	// session's own activity may cut it short (card 34): a prompt is the
+	// moment a person is waiting, so the watcher tries then rather than up
+	// to five minutes later — but not more often than the fast schedule's
+	// own cap, however busy the session is.
+	DefaultActivityRetryGap = backoff.WatchRestartMax
 	// DefaultHealthyAfter is how long a watch child must have been ready
 	// before its end counts as a fresh failure sequence rather than one
-	// more consecutive failure.
+	// more consecutive failure, and before a watcher on the slow schedule
+	// says it has reconnected.
 	DefaultHealthyAfter = time.Minute
 	// DefaultLogRotateBytes is the log rotation threshold (6.6: 5 MB), the
 	// sync adapters' log shares it.
@@ -123,7 +134,8 @@ const (
 	// DefaultLeaseSeconds is the lease the heartbeat asks for when the
 	// adapter's advertised range allows it (6.6: 90 s = three missed beats).
 	DefaultLeaseSeconds = protocol.LeaseDefaultSeconds
-	// ExitGaveUp is the exit status after DefaultGiveUpFailures.
+	// ExitGaveUp is the exit status after DefaultGiveUpFailures of a kind
+	// the slow schedule does not take.
 	ExitGaveUp = 3
 )
 
@@ -204,14 +216,18 @@ type Deps struct {
 	CloseWaitClean    time.Duration
 	CloseWaitDeath    time.Duration
 	// RestartSchedule builds the watch-child restart schedule
-	// (backoff.WatchRestart); InjectSchedule the socket failure schedule
-	// (backoff.AdapterError).
+	// (backoff.WatchRestart); SlowSchedule the one it falls back to when the
+	// give-up rule trips on a failure a restart can fix (backoff.WatchSlow);
+	// InjectSchedule the socket failure schedule (backoff.AdapterError).
 	RestartSchedule func() *backoff.Schedule
+	SlowSchedule    func() *backoff.Schedule
 	InjectSchedule  func() *backoff.Schedule
 	GiveUpFailures  int
 	GiveUpWindow    time.Duration
 	HealthyAfter    time.Duration
-	LogRotateBytes  int64
+	// ActivityRetryGap is DefaultActivityRetryGap.
+	ActivityRetryGap time.Duration
+	LogRotateBytes   int64
 }
 
 // RealDeps are the production dependencies.
@@ -232,10 +248,12 @@ func RealDeps() Deps {
 		CloseWaitClean:    DefaultCloseWaitClean,
 		CloseWaitDeath:    DefaultCloseWaitDeath,
 		RestartSchedule:   func() *backoff.Schedule { return backoff.WatchRestart(nil) },
+		SlowSchedule:      func() *backoff.Schedule { return backoff.WatchSlow(nil) },
 		InjectSchedule:    func() *backoff.Schedule { return backoff.AdapterError(nil) },
 		GiveUpFailures:    DefaultGiveUpFailures,
 		GiveUpWindow:      DefaultGiveUpWindow,
 		HealthyAfter:      DefaultHealthyAfter,
+		ActivityRetryGap:  DefaultActivityRetryGap,
 		LogRotateBytes:    DefaultLogRotateBytes,
 		SyncInterval:      DefaultSyncInterval,
 		SyncListInterval:  DefaultSyncListInterval,
@@ -291,6 +309,9 @@ func (d Deps) withDefaults() Deps {
 	if d.RestartSchedule == nil {
 		d.RestartSchedule = prod.RestartSchedule
 	}
+	if d.SlowSchedule == nil {
+		d.SlowSchedule = prod.SlowSchedule
+	}
 	if d.InjectSchedule == nil {
 		d.InjectSchedule = prod.InjectSchedule
 	}
@@ -302,6 +323,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.HealthyAfter <= 0 {
 		d.HealthyAfter = prod.HealthyAfter
+	}
+	if d.ActivityRetryGap <= 0 {
+		d.ActivityRetryGap = prod.ActivityRetryGap
 	}
 	if d.LogRotateBytes <= 0 {
 		d.LogRotateBytes = prod.LogRotateBytes
@@ -429,7 +453,8 @@ func loadConfig(a args, environ []string) (runConfig, error) {
 // the process exit status: 0 after a clean end (the session is over, or
 // another watcher already serves it), 2 for a usage refusal, 11 for a
 // configuration it cannot honour, the 4.6 status of a non-retryable watch
-// failure (4, 5, 10, 11, …) or ExitGaveUp after too many restarts. Nothing
+// failure (4, 5, 10, 11, …) or ExitGaveUp after too many restarts of a
+// child that fails for a reason the slow schedule does not take. Nothing
 // is ever written to streams.Out; early refusals go to streams.Err in the
 // one-line `brigade watch failed (<code>): <message>` form, everything
 // after that to the log file.
@@ -564,6 +589,12 @@ type watcher struct {
 	// notification (announce.go, cards 35 and 36).
 	sound  *announcer
 	banner *announcer
+
+	// degradedSince is when the give-up rule tripped on a failure a restart
+	// can fix and the supervisor went to the slow schedule (card 34); zero
+	// while it restarts at the fast pace. The supervisor's goroutine alone
+	// reads and writes it: supervise, and the event loop it calls.
+	degradedSince time.Time
 
 	// ctx ends with a signal, the Stop channel or a liveness verdict;
 	// cancel is what every exit path calls first.
@@ -836,6 +867,12 @@ func (w *watcher) releaseIssue(msg string, err error) {
 
 // writeNotice writes ONE line to ${stateDir}/state/<pid>.notice, overwriting
 // (3.2: the next prompt hook prints it once). Best effort, logged.
+//
+// The slot holds one line, so the newest notice is the one a prompt shows.
+// For the two lines of the slow schedule that is the right one: they are
+// about one fact, whether the session receives, and the later is the true
+// one. A sync summary written between them replaces either, as it replaces
+// a stop notice.
 func (w *watcher) writeNotice(line string) {
 	path := noticePath(w.rc.env.StateDir, w.rc.env.ClaudePID)
 	if err := adapterkit.MkdirPrivate(filepath.Dir(path)); err != nil {

@@ -23,6 +23,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **A session no longer stops receiving after a network outage** (card 34, item 2). The watcher used to exit
+  after ten failures inside five minutes, and only the next prompt started it again: a session left idle for a
+  hand-off went `offline` and stayed there until someone typed. It now stays. When those ten failures are ones
+  that trying again can fix — `unavailable`, `rate_limited` — it tries at least every 5 minutes for as long as
+  the session runs, and again when the session is next active (a prompt, the end of a turn; at most once every
+  30 seconds). It still ends within seconds of the Claude process, and a held message can still be released
+  meanwhile. The next prompt shows one line, `Brigade: this session is not receiving team messages
+  (unavailable). …`, and once a connection has held for a minute, `Brigade: this session is receiving team
+  messages again, after about 17 minutes without.` A failure that trying again cannot fix stops the watcher as
+  before, and so do ten crashes of the adapter. No wire change.
 - **`brigade send` reads the roster once before it sends**, offline sessions included, under a 5-second budget of
   its own. The read is an aid, never a gate: when it fails the message is sent as before and no `recipient:`
   line follows. A short id that then comes back `not_found` says the roster could not be read. No wire change.

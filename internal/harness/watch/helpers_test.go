@@ -133,6 +133,7 @@ func runHelper(mode string, rest []string) int {
 // leading `record=<file>` — says ready and then records every stdin
 // command line it receives in that file, answering each (recordWatch);
 // `mute=<file>` is record mode whose heartbeats are never answered;
+// `gate=<file>` is the backend that goes away and comes back (gateWatch);
 // every other verb is `describe`, answered with a valid document. The
 // harness appends `--profile <p> <group> [verb] [flags]` after the fixed
 // arguments.
@@ -168,6 +169,10 @@ func helperAdapter(argv []string) int {
 		if kind == "record" || kind == "mute" {
 			//nolint:forbidigo // a helper adapter reads the real stdin: it IS the child
 			return recordWatch(value, os.Stdin, out, kind == "record")
+		}
+		if kind == "gate" {
+			//nolint:forbidigo // a helper adapter reads the real stdin: it IS the child
+			return gateWatch(value, os.Stdin, out)
 		}
 		code, _ := strconv.Atoi(value)
 		if kind == "ready-exit" {
@@ -225,6 +230,87 @@ func recordWatch(path string, stdin io.Reader, out io.Writer, answerHeartbeats b
 		}
 	}
 	return 0
+}
+
+// gateWatch is the helper adapter's `message watch` behind a gate file: a
+// backend that goes away and comes back, which neither the fake adapter's
+// script nor a fixed exit status can express. While the file is missing
+// the child exits 9 (`unavailable`) at once. While it exists the child
+// says ready, emits the file's lines as events — a test writes there the
+// message events it wants delivered — answers stdin commands as record
+// mode does, and exits 9 the moment the file is removed.
+func gateWatch(path string, stdin io.Reader, out io.Writer) int {
+	events, err := os.ReadFile(path) //nolint:gosec // G703: the gate path is the test's own argument
+	if err != nil {
+		return protocol.CodeUnavailable.Exit()
+	}
+	emit := func(v any) {
+		if b, merr := json.Marshal(v); merr == nil {
+			_, _ = out.Write(append(b, '\n'))
+		}
+	}
+	emit(&protocol.WatchReady{Event: protocol.EventReady, ProtocolVersion: protocol.ProtocolVersion, SessionID: "s1", Mode: protocol.WatchModePush})
+	for line := range bytes.SplitSeq(events, []byte("\n")) {
+		if line = bytes.TrimSpace(line); len(line) > 0 {
+			_, _ = out.Write(append(append([]byte{}, line...), '\n'))
+		}
+	}
+	commands := make(chan protocol.WatchCommand)
+	go func() {
+		defer close(commands)
+		sc := bufio.NewScanner(stdin)
+		sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
+		for sc.Scan() {
+			var cmd protocol.WatchCommand
+			if json.Unmarshal(bytes.TrimSpace(sc.Bytes()), &cmd) == nil {
+				commands <- cmd
+			}
+		}
+	}()
+	gone := time.NewTicker(10 * time.Millisecond)
+	defer gone.Stop()
+	for {
+		select {
+		case cmd, ok := <-commands:
+			if !ok {
+				return 0
+			}
+			switch cmd.Type {
+			case protocol.CommandAck:
+				emit(&protocol.WatchAcked{Event: protocol.EventAcked, MessageIDs: append([]string{}, cmd.MessageIDs...), Unknown: []string{}})
+			case protocol.CommandHeartbeat:
+				now := time.Now().UTC()
+				emit(&protocol.WatchHeartbeatOK{Event: protocol.EventHeartbeatOK, SessionID: "s1", State: protocol.SessionStateActive, LeaseUntil: now.Add(90 * time.Second), ServerTime: now})
+			case protocol.CommandClose:
+				return 0
+			}
+		case <-gone.C:
+			if _, serr := os.Stat(path); serr != nil { //nolint:gosec // G703: the gate path is the test's own argument
+				return protocol.CodeUnavailable.Exit()
+			}
+		}
+	}
+}
+
+// openGate creates the gate file of a `gate=<file>` helper adapter with
+// the given event lines, in one rename so a child never reads half of it;
+// closeGate removes it.
+func openGate(t *testing.T, path string, events ...[]byte) {
+	t.Helper()
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(bytes.Join(events, []byte("\n")), '\n'), 0o600); err != nil {
+		t.Fatalf("write gate: %v", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatalf("open gate: %v", err)
+	}
+}
+
+func closeGate(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("close gate: %v", err)
+	}
 }
 
 // recordedHeartbeats parses the heartbeat commands a record-mode helper

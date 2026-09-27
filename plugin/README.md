@@ -271,6 +271,31 @@ refusals cannot recognise — a hostname, a person's or a customer's name, your 
 `none` — and the settings Brigade cannot see are stated in [docs/security.md](../docs/security.md), "The person who
 runs the backend can read everything" and "Sending: what the ask and deny rules stop, and what they miss".
 
+## When the network drops
+
+Nothing to do. Your session keeps trying to reconnect for as long as it runs.
+
+- At first it tries again every few seconds.
+- After ten failures in five minutes it tries at least every 5 minutes.
+- It also tries when your session is next active: when you type, or when a turn ends.
+- Messages sent to your session meanwhile wait on the server. They arrive when it reconnects.
+- Teammates see your session as `offline` until then.
+
+At your next prompt you see one line:
+
+```
+Brigade: this session is not receiving team messages (unavailable). Brigade tries again at least every 5 minutes. Messages wait on the server until it reconnects.
+```
+
+Once it has been reconnected for a minute, one more:
+
+```
+Brigade: this session is receiving team messages again, after about 17 minutes without.
+```
+
+A failure that trying again cannot fix still stops the watcher, and the line says what to do. A revoked
+membership says ``run `brigade team join` again``.
+
 ## Syncing folders
 
 A project lists folders in its `.brigade.json` — `"sync": { "folders": [".context/plans", "docs/shared"] }` — and

@@ -14,6 +14,7 @@ to a teammate's session and receive theirs, wherever they are working.
 | update the plugin | [Update](#update) |
 | see the team's sessions, message one, keep your own roster line current | [`plugin/README.md` › What teammates see about your session](plugin/README.md#what-teammates-see-about-your-session) |
 | hear a sound, or see a desktop notification, when a message arrives | [Be told when a message arrives](#be-told-when-a-message-arrives) |
+| know what happens when the network drops | [`plugin/README.md` › When the network drops](plugin/README.md#when-the-network-drops) |
 | set a plugin option — or have your session set it for you | [`plugin/README.md` › Options](plugin/README.md#options) |
 | hold messages for your review before your session sees them | [`docs/setup.md` › Holding messages for review](docs/setup.md#holding-messages-for-review) |
 | change the sentence your sessions receive with each message | [`docs/setup.md` › The frame text your sessions receive](docs/setup.md#the-frame-text-your-sessions-receive) |

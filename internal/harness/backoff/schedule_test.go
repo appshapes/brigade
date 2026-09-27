@@ -182,7 +182,35 @@ func TestPlanConstants(t *testing.T) {
 	if AdapterErrorMin != time.Second || AdapterErrorMax != 5*time.Minute {
 		t.Fatalf("adapter error bounds %v..%v", AdapterErrorMin, AdapterErrorMax)
 	}
+	if WatchSlowRetry != 5*time.Minute {
+		t.Fatalf("watch slow retry %v", WatchSlowRetry)
+	}
 	if Factor != 2 {
 		t.Fatalf("factor %d", Factor)
 	}
+}
+
+// TestWatchSlowNeverGrows: the slow retry has one base, so every delay is
+// between half of it and all of it however many were drawn — it neither
+// backs off further nor, after a Reset, starts shorter.
+func TestWatchSlowNeverGrows(t *testing.T) {
+	t.Parallel()
+	s := WatchSlow(seeded(21))
+	if s.Min() != WatchSlowRetry || s.Max() != WatchSlowRetry {
+		t.Fatalf("bounds %v..%v", s.Min(), s.Max())
+	}
+	draw := func() {
+		t.Helper()
+		for range 200 {
+			if s.Base() != WatchSlowRetry {
+				t.Fatalf("base %v after %d draws", s.Base(), s.Attempt())
+			}
+			if d := s.Next(); d < WatchSlowRetry/2 || d > WatchSlowRetry {
+				t.Fatalf("delay %v outside [%v, %v]", d, WatchSlowRetry/2, WatchSlowRetry)
+			}
+		}
+	}
+	draw()
+	s.Reset()
+	draw()
 }

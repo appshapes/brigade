@@ -6,6 +6,7 @@ import (
 	"time"
 
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/harness/backoff"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -35,10 +36,21 @@ type attemptResult struct {
 }
 
 // supervise runs watch attempts until the session is over, the child
-// fails for a reason no restart fixes, or the give-up rule trips. It
-// returns the exit status.
+// fails for a reason no restart fixes, or the give-up rule trips on a
+// failure the slow schedule does not take. It returns the exit status.
+//
+// The give-up rule used to end the watcher whatever the failure was, and
+// the only respawn is the next prompt (hook/prompt.go ensureWatcher): a
+// session left idle for a hand-off stopped receiving after one network
+// outage of a few minutes and stayed offline until a person typed. So a
+// failure a restart can fix — `unavailable`, `rate_limited`
+// (backoff.Retryable) — now moves the supervisor to the slow schedule
+// instead (card 34): one notice, an attempt at least every
+// backoff.WatchSlowRetry, and the fast schedule again once a child has
+// been ready for HealthyAfter (recovered, which the event loop calls).
 func (w *watcher) supervise() int {
 	restart := w.deps.RestartSchedule()
+	slow := w.deps.SlowSchedule()
 	var failures []time.Time
 	for {
 		if w.stopping() {
@@ -58,9 +70,12 @@ func (w *watcher) supervise() int {
 		v := classify(r)
 		if !r.ready.IsZero() && r.ended.Sub(r.ready) >= w.deps.HealthyAfter {
 			// A run that was up long enough is a fresh start for the
-			// give-up rule and the schedule.
+			// give-up rule and the schedule. The event loop has said so
+			// already when its own timer fired first; this is the run that
+			// ended on the very tick.
 			failures = failures[:0]
 			restart.Reset()
+			w.recovered()
 		}
 		if v.stop {
 			w.log.Error("watcher stopping",
@@ -70,23 +85,95 @@ func (w *watcher) supervise() int {
 		}
 		now := w.deps.Clock()
 		failures = pruneFailures(append(failures, now), now.Add(-w.deps.GiveUpWindow))
-		if len(failures) >= w.deps.GiveUpFailures {
-			w.log.Error("watcher giving up",
-				slog.Int("failures", len(failures)), slog.Duration("window", w.deps.GiveUpWindow))
-			w.writeNotice(giveUpNotice(len(failures), w.deps.GiveUpWindow))
-			return ExitGaveUp
+		if w.degradedSince.IsZero() && len(failures) >= w.deps.GiveUpFailures {
+			if !backoff.Retryable(v.code) {
+				w.log.Error("watcher giving up",
+					slog.Int("failures", len(failures)), slog.Duration("window", w.deps.GiveUpWindow))
+				w.writeNotice(giveUpNotice(len(failures), w.deps.GiveUpWindow))
+				return ExitGaveUp
+			}
+			w.degradedSince = now
+			w.log.Warn("watcher retrying slowly",
+				slog.String("code", string(v.code)), slog.String("why", v.why),
+				slog.Int("failures", len(failures)), slog.Duration("window", w.deps.GiveUpWindow),
+				slog.Duration("every", slow.Max()))
+			w.writeNotice(slowRetryNotice(v.code, slow.Max()))
 		}
 		delay := restart.Next()
+		if !w.degradedSince.IsZero() {
+			delay = slow.Next()
+		}
 		w.log.Warn("watch child failed; restarting",
 			slog.String("code", string(v.code)), slog.String("why", v.why), slog.Int("exit", r.exitCode),
-			slog.Duration("delay", delay), slog.Int("consecutive_failures", len(failures)))
-		select {
-		case <-w.ctx.Done():
+			slog.Duration("delay", delay), slog.Int("consecutive_failures", len(failures)),
+			slog.Bool("slow", !w.degradedSince.IsZero()))
+		if !w.waitRestart(delay) {
 			w.closeWithoutChild()
 			return protocol.ExitOK
-		case <-time.After(delay):
 		}
 	}
+}
+
+// waitRestart waits out the delay before the next attempt and reports
+// whether there is one: false means the watcher is stopping.
+//
+// A fast delay is at most the schedule's 30 s and is simply waited. A slow
+// one is minutes, and no child runs an event loop meanwhile, so the wait
+// keeps that loop's liveness tick itself: the watcher still ends within
+// one tick of the Claude process or the by-pid map going, and a release
+// file is still applied within one. The tick also reads the session's
+// activity, and a change of it — a prompt, the end of a turn — cuts the
+// wait short once ActivityRetryGap of it has passed: the watcher that used
+// to exit was respawned by the next prompt, and the one that stays must
+// not make a person at the keyboard wait out the rest of five minutes.
+func (w *watcher) waitRestart(delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	if w.degradedSince.IsZero() {
+		select {
+		case <-w.ctx.Done():
+			return false
+		case <-timer.C:
+			return true
+		}
+	}
+	tick := time.NewTicker(w.deps.PollInterval)
+	defer tick.Stop()
+	began, active := time.Now(), false
+	for {
+		select {
+		case <-w.ctx.Done():
+			return false
+		case <-timer.C:
+			return true
+		case <-tick.C:
+			if reason := w.checkLiveness(); reason != "" {
+				w.stop(reason)
+				return false
+			}
+			w.applyRelease()
+			if w.state.takeFlip() {
+				active = true
+			}
+			if active && time.Since(began) >= w.deps.ActivityRetryGap {
+				w.log.Info("the session is active; trying the watch child now")
+				return true
+			}
+		}
+	}
+}
+
+// recovered ends the slow schedule: a child has been ready for
+// HealthyAfter. It says so once, in the log and in the notice the next
+// prompt prints, and does nothing for a watcher that was never slow.
+func (w *watcher) recovered() {
+	if w.degradedSince.IsZero() {
+		return
+	}
+	away := w.deps.Clock().Sub(w.degradedSince)
+	w.degradedSince = time.Time{}
+	w.log.Info("watcher reconnected", slog.Duration("after", away.Truncate(time.Second)))
+	w.writeNotice(reconnectedNotice(away))
 }
 
 // closeWithoutChild is the exit path when no watch child is running to

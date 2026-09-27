@@ -1,7 +1,8 @@
 // Package backoff is the retry arithmetic of plan 6.6 and 6.8 item 7
 // (U-16): an exponential schedule with jitter for the watcher's restart of
-// its `message watch` child (1 s doubling to a 30 s cap) and for adapter
-// errors (1 s doubling to a 5 min cap), and the retryability predicate —
+// its `message watch` child (1 s doubling to a 30 s cap, and a fixed 5 min
+// once that pace has failed ten times — card 34) and for adapter errors
+// (1 s doubling to a 5 min cap), and the retryability predicate —
 // only `rate_limited` and `unavailable` (and a crash or signal, which
 // adapterkit.Spawn already maps to `unavailable`) are ever retried;
 // `invalid_input`, `unauthorized`, `loop_detected` and every other code are
@@ -18,13 +19,19 @@ import (
 	"time"
 )
 
-// The two schedules the plan names.
+// The schedules the plan names, and the slow retry of card 34.
 const (
 	// WatchRestartMin and WatchRestartMax bound the restart of the
 	// `message watch` child (6.6: "exponential backoff 1 s..30 s with
 	// jitter").
 	WatchRestartMin = time.Second
 	WatchRestartMax = 30 * time.Second
+	// WatchSlowRetry is the pace the watcher falls back to once the restarts
+	// above have failed often enough to trip its give-up rule on a failure a
+	// restart can fix (card 34): it tries again at least this often for as
+	// long as the session lives, instead of exiting. With the schedule's
+	// jitter a delay is between half of it and all of it.
+	WatchSlowRetry = 5 * time.Minute
 	// AdapterErrorMin and AdapterErrorMax bound retries of a failed
 	// adapter call (6.8 item 7: "exponential with jitter, capped at 5 min").
 	AdapterErrorMin = time.Second
@@ -70,6 +77,12 @@ func New(minDelay, maxDelay time.Duration, rng *rand.Rand) *Schedule {
 // WatchRestart is the 6.6 schedule for restarting the watch child.
 func WatchRestart(rng *rand.Rand) *Schedule {
 	return New(WatchRestartMin, WatchRestartMax, rng)
+}
+
+// WatchSlow is the slow retry of the watch child (card 34): a fixed base,
+// so only the jitter varies.
+func WatchSlow(rng *rand.Rand) *Schedule {
+	return New(WatchSlowRetry, WatchSlowRetry, rng)
 }
 
 // AdapterError is the 6.8 schedule for retrying a failed adapter call.

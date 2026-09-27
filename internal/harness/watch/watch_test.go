@@ -257,6 +257,13 @@ func TestRealDepsAreTheDocumentedDefaults(t *testing.T) {
 	if s.Min() != backoff.WatchRestartMin || s.Max() != backoff.WatchRestartMax {
 		t.Errorf("restart schedule %v..%v", s.Min(), s.Max())
 	}
+	// The slow schedule has one base, five minutes, and a wait on it may be
+	// cut short by the session's activity after the fast schedule's cap
+	// (card 34).
+	s = d.SlowSchedule()
+	if s.Min() != 5*time.Minute || s.Max() != 5*time.Minute || d.ActivityRetryGap != 30*time.Second || d.HealthyAfter != time.Minute {
+		t.Errorf("slow schedule %v..%v, activity gap %v, healthy after %v", s.Min(), s.Max(), d.ActivityRetryGap, d.HealthyAfter)
+	}
 	s = d.InjectSchedule()
 	if s.Min() != backoff.AdapterErrorMin || s.Max() != backoff.AdapterErrorMax {
 		t.Errorf("inject schedule %v..%v", s.Min(), s.Max())

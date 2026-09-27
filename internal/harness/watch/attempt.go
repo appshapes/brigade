@@ -168,6 +168,10 @@ func (w *watcher) eventLoop(s *session, r *attemptResult) {
 	hbTick := time.NewTicker(w.deps.HeartbeatInterval)
 	defer hbTick.Stop()
 	var fatal <-chan time.Time
+	// healthy fires HealthyAfter after the ready event of a watcher on the
+	// slow schedule (card 34): the child has stayed up, and the watcher
+	// says it has reconnected. nil — never ready — for every other attempt.
+	var healthy <-chan time.Time
 
 	for {
 		select {
@@ -178,6 +182,12 @@ func (w *watcher) eventLoop(s *session, r *attemptResult) {
 			if grace := w.handleEvent(s, r, ev); grace && fatal == nil {
 				fatal = time.After(w.deps.FatalExitGrace)
 			}
+			if ev.Kind == adapterclient.KindReady && healthy == nil && !w.degradedSince.IsZero() {
+				healthy = time.After(w.deps.HealthyAfter)
+			}
+		case <-healthy:
+			healthy = nil
+			w.recovered()
 		case <-readyTimer.C:
 			if r.ready.IsZero() {
 				w.log.Warn("no ready event in time", slog.Duration("timeout", w.deps.ReadyTimeout))

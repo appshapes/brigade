@@ -94,6 +94,43 @@ func TestStopNoticeWording(t *testing.T) {
 	}
 }
 
+// TestSlowScheduleNotices pins the two lines of the slow schedule (card
+// 34) word for word: each is one line, names no time it cannot know, and
+// says a duration the way a reader does.
+func TestSlowScheduleNotices(t *testing.T) {
+	t.Parallel()
+	if got, want := slowRetryNotice(protocol.CodeUnavailable, 5*time.Minute),
+		"Brigade: this session is not receiving team messages (unavailable). Brigade tries again at least every 5 minutes. Messages wait on the server until it reconnects."; got != want {
+		t.Errorf("slowRetryNotice:\n got %q\nwant %q", got, want)
+	}
+	if got, want := reconnectedNotice(17*time.Minute+20*time.Second),
+		"Brigade: this session is receiving team messages again, after about 17 minutes without."; got != want {
+		t.Errorf("reconnectedNotice:\n got %q\nwant %q", got, want)
+	}
+	for d, want := range map[time.Duration]string{
+		40 * time.Millisecond:            "40ms",
+		59 * time.Second:                 "59s",
+		time.Minute:                      "1 minute",
+		89 * time.Second:                 "1 minute",
+		90 * time.Second:                 "2 minutes",
+		5 * time.Minute:                  "5 minutes",
+		119*time.Minute + time.Second:    "119 minutes",
+		2 * time.Hour:                    "2 hours",
+		7*time.Hour + 40*time.Minute:     "8 hours",
+		49*time.Hour + 10*time.Minute:    "49 hours",
+		119*time.Minute + 45*time.Second: "120 minutes",
+	} {
+		if got := plainDuration(d); got != want {
+			t.Errorf("plainDuration(%v) = %q, want %q", d, got, want)
+		}
+	}
+	for _, line := range []string{slowRetryNotice(protocol.CodeRateLimited, time.Minute), reconnectedNotice(time.Hour)} {
+		if strings.ContainsAny(line, "\n\r") || !strings.HasPrefix(line, "Brigade: ") {
+			t.Errorf("notice %q is not one Brigade line", line)
+		}
+	}
+}
+
 func TestPruneFailuresKeepsTheWindow(t *testing.T) {
 	t.Parallel()
 	base := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
