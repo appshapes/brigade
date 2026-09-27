@@ -8,6 +8,8 @@ and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protoco
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
+
+## [0.15.0] — 2026-09-27
 ### Added
 
 - **`brigade send` takes the five characters `brigade sessions` shows** (card 34, item 1): `brigade send 3f9a2`
