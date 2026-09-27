@@ -82,7 +82,7 @@ func init() {
 		{
 			Name:    "send",
 			Args:    "<session_id> [--summary <text>] [--reply-to <message_id>] [--body-file <path>]",
-			Summary: "send a message to another session (body on stdin)",
+			Summary: "send a message to another session, by its id or its SESSION characters (body on stdin)",
 			Flags: func(fs *flag.FlagSet) {
 				fs.String("summary", "", "a one-line summary shown before the body (at most 200 characters)")
 				fs.String("reply-to", "", "the message id this message answers")

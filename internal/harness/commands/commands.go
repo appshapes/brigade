@@ -405,7 +405,12 @@ func (t *target) probe() (*target, error) {
 
 // call runs f under the 20 s request/response budget of 4.1.
 func call[T any](f func(context.Context) (T, error)) (T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), adapterclient.DefaultTimeout)
+	return callWithin(adapterclient.DefaultTimeout, f)
+}
+
+// callWithin runs f under a budget of the caller's choosing.
+func callWithin[T any](budget time.Duration, f func(context.Context) (T, error)) (T, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 	return f(ctx)
 }

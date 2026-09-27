@@ -93,9 +93,9 @@ func shortPrincipal(s string) string {
 // shortSessionChars is how much of a session id the SESSION column shows:
 // enough to tell two sessions in the same table apart at a glance, without
 // the full id — a UUID-length column — widening the whole table past a
-// terminal or a chat window. `brigade send` still needs the id byte for
-// byte, so this is a display shortening only; a reader who has to address
-// a session reaches for `--json`, which always carries it in full.
+// terminal or a chat window. It is also the shortest tail `brigade send`
+// resolves against the roster (card 34, resolveRecipient), so the cell is
+// an address as it stands; `--json` always carries the id in full.
 const shortSessionChars = 5
 
 // shortSession renders the trailing characters of a sanitised session id

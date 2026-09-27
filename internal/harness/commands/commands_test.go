@@ -83,6 +83,7 @@ var fixtureNow = time.Date(2026, 9, 2, 12, 0, 30, 0, time.UTC)
 type spawnRecorder struct {
 	mu      sync.Mutex
 	specs   []adapterkit.SpawnSpec
+	budgets []time.Duration
 	answers map[string][]answer
 	used    map[string]int
 }
@@ -110,10 +111,17 @@ func (r *spawnRecorder) on(key string, answers ...answer) *spawnRecorder {
 	return r
 }
 
-func (r *spawnRecorder) spawn(_ context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
+func (r *spawnRecorder) spawn(ctx context.Context, spec adapterkit.SpawnSpec) (*adapterkit.SpawnResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.specs = append(r.specs, spec)
+	// The budget the caller gave this child: what is left of its deadline,
+	// read before anything else runs, 0 for a context that carries none.
+	var budget time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		budget = time.Until(deadline)
+	}
+	r.budgets = append(r.budgets, budget)
 	key := verbKey(spec.Argv)
 	list := r.answers[key]
 	if len(list) == 0 {
@@ -167,6 +175,34 @@ func (r *spawnRecorder) spec(t *testing.T, i int) adapterkit.SpawnSpec {
 		t.Fatalf("spawn %d was never recorded (%d spawns)", i, len(r.specs))
 	}
 	return r.specs[i]
+}
+
+// specsOf returns the recorded children of one verb, in order. `send`
+// reads the roster before it sends (card 34), so a test about the send
+// itself reads and counts these rather than every spawn.
+func (r *spawnRecorder) specsOf(key string) []adapterkit.SpawnSpec {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []adapterkit.SpawnSpec
+	for _, s := range r.specs {
+		if verbKey(s.Argv) == key {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// budgetOf returns the budget the first recorded child of one verb ran
+// under, 0 when there was none.
+func (r *spawnRecorder) budgetOf(key string) time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, s := range r.specs {
+		if verbKey(s.Argv) == key {
+			return r.budgets[i]
+		}
+	}
+	return 0
 }
 
 // verbs lists the recorded verbs in order.
@@ -322,8 +358,13 @@ func listResult() string {
 
 // sendResultJSON is a canned SendResponse.
 func sendResultJSON(id string, duplicate bool) string {
+	return sendResultTo(id, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", duplicate)
+}
+
+// sendResultTo is a canned SendResponse naming its recipient.
+func sendResultTo(id, recipient string, duplicate bool) string {
 	b, err := json.Marshal(map[string]any{
-		"status": "accepted", "message_id": id, "recipient_session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"status": "accepted", "message_id": id, "recipient_session_id": recipient,
 		"created_at": fixtureNow, "duplicate": duplicate, "hop_count": 0,
 	})
 	if err != nil {

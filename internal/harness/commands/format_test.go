@@ -61,8 +61,8 @@ func TestShortPrincipalTakesWhatThereIs(t *testing.T) {
 
 // TestShortSessionTakesWhatThereIs: the SESSION column shows the trailing
 // five characters of the sanitised id — no more, and no padding when the
-// id is shorter than that. `brigade send` still needs the id in full;
-// this is a display shortening only. An id that sanitises away renders as
+// id is shorter than that. `brigade send` takes the cell as an address
+// (card 34, resolveRecipient). An id that sanitises away renders as
 // "?" rather than blank, which is card 27's replacement for the border
 // that used to prove a row was a row: see the rows-are-rows assertion
 // below.

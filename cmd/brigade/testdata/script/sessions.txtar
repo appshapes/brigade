@@ -47,9 +47,9 @@ exec $WORK/fake.sh --script warm.json describe
 # box-drawing bar twice, written the way a forger would, and it comes out
 # inert: neutralizeCell replaces each with an ordinary "|", and since the
 # table draws no bar of its own, none is left anywhere in the output.
-# SESSION shows only the trailing five characters of each id: `brigade
-# send` still needs the id in full, which only `--json` carries, as it
-# carries the full name. SEEN is "3s", not "seen 3s ago". Card 25's doing
+# SESSION shows only the trailing five characters of each id, which
+# `brigade send` takes as an address (card 34); only `--json` carries the
+# id in full, as it carries the full name. SEEN is "3s", not "seen 3s ago". Card 25's doing
 # line is no longer a column: alice and carol each carry a
 # session_description, so each row is followed by a continuation line
 # indented to NAME behind "↳ ". alice's benign sentence renders as

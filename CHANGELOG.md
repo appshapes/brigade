@@ -8,6 +8,24 @@ and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protoco
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
+### Added
+
+- **`brigade send` takes the five characters `brigade sessions` shows** (card 34, item 1): `brigade send 3f9a2`
+  reaches the session whose `SESSION` cell reads `3f9a2`. Any longer tail of the id works, and so does the id in
+  full, as before. Only an id is matched, never a name or a label. A tail that ends more than one id sends
+  nothing: the refusal (`invalid_input`, `details.reason` `ambiguous`) lists the matching ids in full with each
+  session's state. An argument the roster does not resolve goes to the adapter as it was given.
+- **The confirmation says who got the message, and when it cannot be read yet** (card 34, item 1). The first
+  line is unchanged. A `recipient:` line follows it — the short id, the state, the inbound policy, the session's
+  name — and a `waiting:` line for a recipient that was offline, holds its team messages or refuses them. Such
+  a message was always `accepted`, and its sender was told nothing more. `--json` carries the same facts in a
+  `recipient` member.
+
+### Changed
+
+- **`brigade send` reads the roster once before it sends**, offline sessions included, under a 5-second budget of
+  its own. The read is an aid, never a gate: when it fails the message is sent as before and no `recipient:`
+  line follows. A short id that then comes back `not_found` says the roster could not be read. No wire change.
 
 ## [0.14.0] — 2026-09-27
 ### Added

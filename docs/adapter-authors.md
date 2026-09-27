@@ -1391,7 +1391,8 @@ after the verb it is an unknown flag and therefore `usage`.
 
 **Timeouts the harness applies.** 20 s to a request/response command in general; 3 s to `describe`; 8 s to
 `session register` at `SessionStart`; 1 s to `session close` at `SessionEnd`; 3 s to commands issued by the
-watcher; 4 s to a `message receive` on the prompt-poll path. `message watch` runs until stdin EOF, a `close`
+watcher; 4 s to a `message receive` on the prompt-poll path; 5 s to the `session list` that `brigade send` makes
+before it sends. `message watch` runs until stdin EOF, a `close`
 command, SIGTERM or a fatal error — and must exit **0 within 5 s** of any of the first three. Do not install a
 handler that swallows SIGTERM, and do not let a drain loop delay the exit past five seconds. The full table, with
 the constant behind each number and where it is applied, is under *What the harness does when it runs you*.
@@ -2108,6 +2109,7 @@ what arrives; advertise neither and accept-and-ignore — both are conformant, a
 | `session close` | 1 s (`CloseTimeout`) | the `SessionEnd` hook, whose whole budget is about 1.5 s |
 | `session heartbeat`, `message ack`, and the watcher's own `session close` | 3 s (`WatchRequestTimeout`) | the detached watcher, and the `SessionStart` heartbeat that follows a `/clear` |
 | `message receive` on the `poll_on_prompt` path | 4 s, inside a 4.5 s `UserPromptSubmit` budget | the prompt hook |
+| `session list --include-offline` before a send | 5 s (`RosterTimeout`, in `internal/harness/commands`) | `brigade send`, once per send, before `message send`: it resolves a short session id and names the recipient. A failure here does not stop the send |
 | everything else, `message send` included | 20 s (`DefaultTimeout`) | the model-facing commands |
 | `message watch` | none | runs until stdin EOF, a `close` command, SIGTERM or a fatal error — and must exit **0 within 5 s** of any of the first three |
 

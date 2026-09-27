@@ -205,8 +205,32 @@ marked as yours; `brigade whoami` names your session, and `brigade sessions --js
 That last line is the point: the sentence is that session's own claim about its own work, and a label is
 whatever its owner chose. A `MEMBER` cell in brackets is a principal reference only when the session has no
 label, and a member is free to *choose* a label that looks like one. `brigade sessions --json` carries every
-`session_id` — which is what `brigade send` addresses — and every `principal_ref`, the one identity the server
-stamps, in full.
+`session_id` and every `principal_ref`, the one identity the server stamps, in full.
+
+**Message a session.** Ask your session, and name the teammate's session by its `SESSION` cell:
+
+```
+Tell bbbbb that the tenant_id migration has landed.
+```
+
+Your session runs `brigade send bbbbb` with your message. The answer says who got it:
+
+```
+accepted: message 3c1a… to 6f0f…bbbbb. Accepted means durably stored by the adapter, not read.
+recipient: bbbbb, idle, inbound accept, name "billing" (unverified)
+```
+
+A `waiting:` line follows when the recipient cannot read the message yet:
+
+```
+waiting: the recipient was offline when this was sent; the message waits until that session runs again
+waiting: the recipient holds team messages; this one waits until its human releases it
+waiting: the recipient refuses team messages; this one waits, unread, while it does
+```
+
+- The five characters are the end of the session's id. The id in full works too.
+- Only an id is an address. A name is not: anyone can copy a name.
+- When two sessions end with the same characters, nothing is sent. The answer lists both ids in full.
 
 **Where the sentence comes from.** Your session's own model writes it, with `brigade doing` — one present-tense
 sentence of at most 160 characters, on stdin, that the command refuses when it is empty, not UTF-8, longer than

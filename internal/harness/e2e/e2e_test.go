@@ -26,6 +26,12 @@ type sendResult struct {
 	RecipientSessionID string `json:"recipient_session_id"`
 	HopCount           int    `json:"hop_count"`
 	Duplicate          bool   `json:"duplicate"`
+	Recipient          *struct {
+		SessionName string   `json:"session_name"`
+		State       string   `json:"state"`
+		Inbound     string   `json:"inbound"`
+		Waiting     []string `json:"waiting"`
+	} `json:"recipient"`
 }
 
 // TestSessionLifecycleThroughTheRealBinary is E2E-01's fs precursor (plan
@@ -125,10 +131,21 @@ func TestSessionLifecycleThroughTheRealBinary(t *testing.T) {
 	}
 
 	// --- 3. the reply is hop 1 in the store -------------------------------
-	res = r.mustRun(r.env(alice), "on it", "send", bobMap.BrigadeSessionID, "--reply-to", sent.MessageID, "--json")
+	// It is addressed by the five characters `brigade sessions` shows for
+	// bob (card 34): the real adapter's roster turns them into his id in
+	// full, and the inbox checked below is the one that id names.
+	short := bobMap.BrigadeSessionID[len(bobMap.BrigadeSessionID)-5:]
+	res = r.mustRun(r.env(alice), "on it", "send", short, "--reply-to", sent.MessageID, "--json")
 	reply := jsonResult[sendResult](t, res.stdout)
 	if reply.HopCount != 1 {
 		t.Errorf("reply hop_count = %d, want 1", reply.HopCount)
+	}
+	if reply.RecipientSessionID != bobMap.BrigadeSessionID {
+		t.Errorf("reply recipient = %q, want bob's id in full", reply.RecipientSessionID)
+	}
+	if to := reply.Recipient; to == nil || to.SessionName != bobName || to.State == protocol.SessionStateOffline ||
+		to.Inbound != protocol.InboundAccept || len(to.Waiting) != 0 {
+		t.Errorf("reply recipient facts = %+v, want bob, online and accepting", to)
 	}
 	inbox := r.storeMessages("inbox", bobMap.BrigadeSessionID)
 	if len(inbox) != 1 || inbox[0].MessageID != reply.MessageID || inbox[0].HopCount != 1 || inbox[0].ReplyTo == nil || *inbox[0].ReplyTo != sent.MessageID ||

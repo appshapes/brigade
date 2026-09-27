@@ -5,6 +5,12 @@
 # appends to, does not exist afterwards. Then the body on stdin, the body
 # from a file, the confirmation line, the --json result, and the request
 # document the adapter received (sender from the map, the D11 key present).
+#
+# Card 34 last: the roster is read before the send, so the confirmation
+# names the recipient under its first line, the five characters `brigade
+# sessions` shows address a session, a tail that ends two ids is refused
+# with nothing sent, and a message to a session that is offline and holds
+# its messages says why it waits.
 
 # --- fixture: the by-pid map the SessionStart hook would have written ----
 # CLAUDE_PID is set, so every command resolves everything from the map
@@ -69,15 +75,18 @@ cmp stdout want-accepted.txt
 exists $WORK/dump.ndjson
 
 # The adapter received `message send` under the map's profile, with the
-# request document on its stdin (the describe before it took none).
+# request document on its stdin (the describe before it took none), and
+# before it ONE roster read that asked for the offline sessions too.
 grep '"verb":"send","args":\[\],"stdin_bytes":[1-9]' dump.ndjson
 grep '"group":"describe","verb":"","args":\[\],"stdin_bytes":0' dump.ndjson
 grep '"--profile","alpha"' dump.ndjson
+grep -count=1 '"group":"session","verb":"list","args":\["--include-offline"\],"stdin_bytes":0' dump.ndjson
 
 # --- the same body again is the adapter's duplicate ---------------------------
 stdin body.txt
 exec brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 stdout '^accepted: message msg-0001 to bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, duplicate of an earlier send\. Accepted means durably stored by the adapter, not read\.$'
+stdout '^recipient: bbbbb, idle, inbound accept, name "billing" \(unverified\)$'
 
 # --- --body-file, and the --json result ---------------------------------------
 exec brigade send bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --body-file body.txt --reply-to msg-0000 --json
@@ -88,6 +97,46 @@ json stdout .result.message_id msg-0001
 json stdout .result.recipient_session_id bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 json stdout .result.self_session_id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 json stdout .result.note 'Accepted means durably stored by the adapter, not read.'
+json stdout .result.recipient.session_name billing
+json stdout .result.recipient.state idle
+json stdout .result.recipient.inbound accept
+json stdout .result.recipient.note 'session_name is unverified text from its owner; state and inbound are what the roster showed when the message was sent'
+
+# --- the five characters `brigade sessions` shows are an address (card 34) -----
+# The first line carries the id in full, as it always did: the adapter
+# answered with it, and the proof scripts read the two ids off that line.
+stdin body.txt
+exec brigade send bbbbb
+stdout '^accepted: message msg-0001 to bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, duplicate of an earlier send\. Accepted means durably stored by the adapter, not read\.$'
+stdout '^recipient: bbbbb, idle, inbound accept, name "billing" \(unverified\)$'
+! stdout '^waiting: '
+! stderr .
+
+# --- a tail that ends two ids is refused, and nothing is sent -------------------
+# One of the two is offline: the row the default table hides.
+rm $WORK/dump.ndjson
+stdin body.txt
+status 3 brigade send 77777
+! stdout .
+stderr '^brigade send failed \(invalid_input\): these characters end 2 session ids: 11111111111111111111111111177777 \(idle\), 22222222222222222222222222277777 \(offline\); address one by its full session_id$'
+! stderr 'NAME-'
+grep '"verb":"list"' dump.ndjson
+! grep '"verb":"send"' dump.ndjson
+
+stdin body.txt
+status 3 brigade send 77777 --json
+! stderr .
+json stdout .ok false
+json stdout .error.code invalid_input
+json stdout .error.details.field session_id
+json stdout .error.details.reason ambiguous
+json stdout .error.details.matches 2
+
+# --- a recipient that cannot read it now: the confirmation says why it waits ---
+stdin body.txt
+exec brigade send ddddd
+cmp stdout want-waiting.txt
+! stderr .
 
 # --- outside a session there is no sender: config, nothing spawned -------------
 env CLAUDE_PID=
@@ -114,12 +163,18 @@ stderr 'brigade send failed \(config\)'
 # the script's environment.
 GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 -- script.json.in --
-{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"result": {"status": "accepted", "message_id": "msg-0001", "recipient_session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "created_at": "2026-09-02T12:00:31Z", "duplicate": false, "hop_count": 0}}, {"result": {"status": "accepted", "message_id": "msg-0001", "recipient_session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "created_at": "2026-09-02T12:00:31Z", "duplicate": true, "hop_count": 0}}]}}
+{"dump_file": "$WORK/dump.ndjson", "responses": {"message send": [{"result": {"status": "accepted", "message_id": "msg-0001", "recipient_session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "created_at": "2026-09-02T12:00:31Z", "duplicate": false, "hop_count": 0}}, {"result": {"status": "accepted", "message_id": "msg-0001", "recipient_session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "created_at": "2026-09-02T12:00:31Z", "duplicate": true, "hop_count": 0}}, {"result": {"status": "accepted", "message_id": "msg-0001", "recipient_session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "created_at": "2026-09-02T12:00:31Z", "duplicate": true, "hop_count": 0}}, {"result": {"status": "accepted", "message_id": "msg-0001", "recipient_session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "created_at": "2026-09-02T12:00:31Z", "duplicate": true, "hop_count": 0}}, {"result": {"status": "accepted", "message_id": "msg-0002", "recipient_session_id": "dddddddddddddddddddddddddddddddd", "created_at": "2026-09-02T12:00:32Z", "duplicate": false, "hop_count": 0}}], "session list": [{"result": {"team_ref": "team-1", "team_name": "ops", "server_time": "2026-09-02T12:00:30Z", "truncated": false, "sessions": [{"session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "session_name": "billing", "human_label": "bob@example.com", "principal_ref": "principal-bob", "state": "idle", "activity": "idle", "inbound": "accept", "last_seen_at": "2026-09-02T11:59:45Z", "lease_until": "2026-09-02T12:01:30Z", "created_at": "2026-09-02T11:00:00Z", "is_self": false}, {"session_id": "dddddddddddddddddddddddddddddddd", "session_name": "gone", "principal_ref": "principal-dave", "state": "offline", "activity": "idle", "inbound": "hold", "last_seen_at": "2026-09-02T11:00:30Z", "lease_until": "2026-09-02T11:02:00Z", "created_at": "2026-09-02T10:00:00Z", "is_self": false}, {"session_id": "11111111111111111111111111177777", "session_name": "NAME-ONE", "principal_ref": "principal-erin", "state": "idle", "activity": "idle", "inbound": "accept", "last_seen_at": "2026-09-02T11:59:45Z", "lease_until": "2026-09-02T12:01:30Z", "created_at": "2026-09-02T11:00:00Z", "is_self": false}, {"session_id": "22222222222222222222222222277777", "session_name": "NAME-TWO", "principal_ref": "principal-frank", "state": "offline", "activity": "idle", "inbound": "accept", "last_seen_at": "2026-09-02T11:00:30Z", "lease_until": "2026-09-02T11:02:00Z", "created_at": "2026-09-02T10:00:00Z", "is_self": false}]}}]}}
 -- body.txt --
 the tenant_id migration has landed
 -- empty.txt --
 -- want-accepted.txt --
 accepted: message msg-0001 to bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb. Accepted means durably stored by the adapter, not read.
+recipient: bbbbb, idle, inbound accept, name "billing" (unverified)
+-- want-waiting.txt --
+accepted: message msg-0002 to dddddddddddddddddddddddddddddddd. Accepted means durably stored by the adapter, not read.
+recipient: ddddd, offline, inbound hold, name "gone" (unverified)
+waiting: the recipient was offline when this was sent; the message waits until that session runs again
+waiting: the recipient holds team messages; this one waits until its human releases it
 -- big.txt --
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

@@ -23,8 +23,8 @@ import (
 // unlabelled record, is the offline session hidden by default, and under
 // --all he renders as his short principal in MEMBER rather than bringing
 // two columns back. SESSION shows only the trailing five characters of an
-// id and NAME is cut to tableNameChars; `brigade send` still needs the
-// full id, which only `--json` carries, as it carries the full name.
+// id, which `brigade send` takes as an address (card 34), and NAME is cut
+// to tableNameChars; only `--json` carries the full id and the full name.
 func TestSessionsHumanLayout(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)

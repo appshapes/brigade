@@ -311,6 +311,11 @@ answer. They cannot be measured on this model. The interactive check was not run
   from the model's ordinary context. It is not a sandbox against a model that deliberately goes looking for state
   files.
 
+**The sender can see either policy.** Your session's inbound policy is on the roster: `inbound` in
+`brigade sessions --json`. `brigade send` reads it there and tells a sender that its message waits: a
+`waiting:` line saying that the recipient holds its team messages, or refuses them, or was offline. It says
+nothing about what you do with the message afterwards.
+
 **A held session also fills up.** The backend refuses new messages to a recipient once **60** of them are
 unacknowledged, and senders are told so.
 

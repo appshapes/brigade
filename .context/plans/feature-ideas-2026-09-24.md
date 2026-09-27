@@ -4,6 +4,9 @@ Trello card 34 ("Research feature enhancements"). Status: **research only — no
 34, nothing committed by the session that wrote this.** Owner: Rjae. Constraint from the ask: small or medium
 features that aid the three existing installations; no new adapter.
 
+**Since then:** item 1 was built on 2026-09-27 (§7; execution log P23-1), to ship in one release with the items
+that follow it.
+
 **Method.** One workflow of seven agents, sized to the ask (memory rule: Opus for fan-out, Fable for judgement):
 four Opus ideators, one lens each (in-session operator experience; coordination between sessions; folder-sync
 follow-ups; reliability and administration) — 30 raw ideas, each with a novelty check against the tree; one
@@ -164,3 +167,22 @@ rules. Do this first, or state each item's ordering.
 Five cards would hold it: **routing ergonomics** (1, 3, 4, 5); **watcher resilience** (9, 2, 6); **folder-sync
 follow-ups** (7, 8, 12, 13, 16); **hand-off skill and the auto-mode measurement** (10, 14); **mail for ended
 sessions** (15, on its own, with 11 alongside as the other backend-facing notice). Or each item as its own card.
+
+## 7. Built
+
+**Item 1, 2026-09-27** (card 34; Rjae: "Go ahead with Item 1"). As sketched in §2, with four differences:
+
+1. **The first line of the confirmation is unchanged.** The sketch put the name inside it
+   (`accepted: message m-… to "frank-brigade-reviewer" (…3f9a2)`). `scripts/proof-headless.sh:862` reads the two
+   ids off that line, and the recorded streams under `scripts/ci/testdata/` carry it. So the recipient is a
+   second line, `recipient: 3f9a2, idle, inbound accept, name "frank-brigade-reviewer" (unverified)`, and each
+   reason the message waits is a `waiting:` line after it. The adapter's facts come first on the recipient line
+   and the name last, so a name written to look like a state has nothing after it.
+2. **The ambiguous refusal lists ids and states, no names.** A name in a list of candidates could forge one.
+3. **The roster read has its own 5-second budget** (`RosterTimeout`), not the 20 s of the send.
+4. **A short id whose roster read failed says so.** The sketch sent the argument as given and added nothing. A
+   short id then comes back `not_found` from the adapter, which reads as "no such session". The message now adds
+   that the roster could not be read. "Short" means shorter than the sender's own session id.
+
+An argument the roster does not resolve still goes to the adapter as given: a capped roster can lack a session
+the adapter knows.

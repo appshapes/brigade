@@ -46,9 +46,10 @@ type sessionsResult struct {
 // noted when the adapter capped the list. No row is marked as the reader's
 // own (card 29): the operator knows their session, the mark made their row
 // the widest in every table, and `--json` still carries self_session_id
-// for a model that needs to know. The SESSION column is a short display id (shortSession) and
-// the NAME column is cut to tableNameChars; `--json` always carries the
-// full id `brigade send` needs and the full name. A session's `sync_peer`
+// for a model that needs to know. The SESSION column is a short display id (shortSession),
+// which `brigade send` takes as an address (card 34), and the NAME column
+// is cut to tableNameChars; `--json` always carries the full id and the
+// full name. A session's `sync_peer`
 // (C-47) is `--json`'s alone: an opaque folder-sync peer id is no column
 // (plan folder-sync.md 4.2).
 //
