@@ -21,6 +21,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   a message was always `accepted`, and its sender was told nothing more. `--json` carries the same facts in a
   `recipient` member.
 
+- **`brigade sessions --here` and `--member <who>`** (card 34, item 4). One team spans several repositories and
+  each person runs several sessions, so the roster grew long. `--here` shows the sessions of this repository:
+  those whose `REPO` cell is this session's own, or in a terminal the repository the working directory is in.
+  `--member` shows one member's: their label as the `MEMBER` column shows it, the first 8 or more characters of
+  their principal reference, or a bracketed `MEMBER` cell such as `[9f3c1a20]`. A session's name is never
+  compared. They combine with each other and with `--all`. A note under the table counts what was left out —
+  `(3 sessions left out by --here; 1 of them share no repository name and may be here)` — and `--json` carries
+  `filtered_out`, `here` and `filter_note`. A `--here` that has nothing to compare shows the roster whole and
+  says so. `/brigade:sessions` takes the same flags. These narrow what is shown and address nothing.
 - **A reply says which message it answers** (card 34, item 3). The frame a session receives for a reply carries
   one more attribute, last on its tag line: `in-reply-to`, the id of the message the sender answered — the id
   `brigade send` printed when that message was sent. The backend already stamped it on the envelope and the

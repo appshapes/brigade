@@ -71,10 +71,12 @@ func init() {
 		},
 		{
 			Name:    "sessions",
-			Args:    "[--all] [--team <ref-or-name>]",
+			Args:    "[--all] [--here] [--member <who>] [--team <ref-or-name>]",
 			Summary: "list the team's sessions",
 			Flags: func(fs *flag.FlagSet) {
 				fs.Bool("all", false, "include offline sessions")
+				fs.Bool("here", false, "only the sessions of this repository")
+				fs.String("member", "", "only the sessions of one member: their label, or the first 8 or more characters of their principal reference")
 				fs.String("team", "", "the team to act on, by ref or name (terminal only; a session's team comes from its map)")
 			},
 			Run: runSessions,
@@ -264,8 +266,10 @@ func stringFlag(cx *Context, name string) string {
 // runSessions is the table's Run for `sessions`.
 func runSessions(cx *Context, args []string) error {
 	return harnesscmd.Sessions(invocation(cx, args), harnesscmd.SessionsOptions{
-		All:  cx.Bool("all"),
-		Team: stringFlag(cx, "team"),
+		All:    cx.Bool("all"),
+		Team:   stringFlag(cx, "team"),
+		Here:   cx.Bool("here"),
+		Member: stringFlag(cx, "member"),
 	})
 }
 

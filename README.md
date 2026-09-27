@@ -12,7 +12,7 @@ to a teammate's session and receive theirs, wherever they are working.
 | install the plugin | [Install](#install) |
 | join a team, or a second repository of one | [Join](#join) |
 | update the plugin | [Update](#update) |
-| see the team's sessions, message one, keep your own roster line current | [`plugin/README.md` › What teammates see about your session](plugin/README.md#what-teammates-see-about-your-session) |
+| see the team's sessions (all, this repository's, or one member's), message one, keep your own roster line current | [`plugin/README.md` › What teammates see about your session](plugin/README.md#what-teammates-see-about-your-session) |
 | hear a sound, or see a desktop notification, when a message arrives | [Be told when a message arrives](#be-told-when-a-message-arrives) |
 | know what happens when the network drops | [`plugin/README.md` › When the network drops](plugin/README.md#when-the-network-drops) |
 | set a plugin option — or have your session set it for you | [`plugin/README.md` › Options](plugin/README.md#options) |

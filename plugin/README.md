@@ -207,6 +207,29 @@ whatever its owner chose. A `MEMBER` cell in brackets is a principal reference o
 label, and a member is free to *choose* a label that looks like one. `brigade sessions --json` carries every
 `session_id` and every `principal_ref`, the one identity the server stamps, in full.
 
+**See only some of the team.** Type one of these:
+
+```
+/brigade:sessions --here
+/brigade:sessions --member frank@example.com
+/brigade:sessions --all
+```
+
+- `--here` shows the sessions of this repository.
+- `--member` shows one member's sessions. Give their label as the `MEMBER` column shows it, or a bracketed
+  cell such as `[9f3c1a20]`.
+- `--all` includes the offline sessions.
+- They combine: `/brigade:sessions --here --all`.
+
+A note under the table says how many sessions were left out:
+
+```
+(3 sessions left out by --here; 1 of them share no repository name and may be here)
+```
+
+A session that does not share its repository name is left out by `--here`, though it may be here. When your
+own session shares none, `--here` shows everyone and says so.
+
 **Message a session.** Ask your session, and name the teammate's session by its `SESSION` cell:
 
 ```

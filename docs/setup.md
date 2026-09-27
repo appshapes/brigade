@@ -319,7 +319,8 @@ Brigade: this session is "payments-api" (09365acd…) in team "ops"; inbound: ac
 ```
 
 `/brigade:sessions` prints that roster whenever you want it, and `/brigade:sessions --all` includes the sessions
-that are offline. The command's own output is a plain-text table, one row per session, with a note under it
+that are offline. `/brigade:sessions --here` shows only the sessions of this repository, and
+`/brigade:sessions --member frank@example.com` only that member's. The command's own output is a plain-text table, one row per session, with a note under it
 saying that the names, labels and work sentences in it are their owners' own words; the slash command prints
 that and nothing else — no layout of its own, no summary, no comparison with the last time you asked — so two
 runs of it, in one session or in different ones, differ only

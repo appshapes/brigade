@@ -4,7 +4,7 @@ Trello card 34 ("Research feature enhancements"). Status: **research only — no
 34, nothing committed by the session that wrote this.** Owner: Rjae. Constraint from the ask: small or medium
 features that aid the three existing installations; no new adapter.
 
-**Since then:** items 1, 2 and 3 were built on 2026-09-27 (§7; execution log P23-1..P23-3), to ship in one
+**Since then:** items 1, 2, 3 and 4 were built on 2026-09-27 (§7; execution log P23-1..P23-4), to ship in one
 release with the items that follow them. **Owed before that release:** the frame re-measurement of §4.2.
 
 **Method.** One workflow of seven agents, sized to the ask (memory rule: Opus for fan-out, Fable for judgement):
@@ -228,3 +228,19 @@ whatever else changes the frame (item 15). `docs/security.md` and the changelog 
 What was checked without a model: a reply's frame is the plain frame plus the attribute and nothing else, at
 every level; the real fs adapter's reply reaches a socket with it; the Supabase backend's envelope carries
 `reply_to` (the schema's `message_envelope`, read, not run).
+
+**Item 4, 2026-09-27** (card 34; Rjae: "Go ahead with Item 4"). As sketched in §2, with these choices the sketch
+left open:
+
+1. **In a terminal `--here` is the repository of the working directory**, named as the hook names a session's
+   default (`teamfile.RepoName`). The sketch spoke of a session only.
+2. **A `--here` that cannot filter shows the roster whole and says why**, in a note and in `--json`'s
+   `filter_note`. It is not an error: the reader still gets the roster, with its `REPO` column.
+3. **The note counts apart the sessions that share no repository name.** `--here` leaves them out, and they
+   may be here.
+4. **`--member` also takes the bracketed `MEMBER` cell** (`[9f3c1a20]`), which is what a reader copies for a
+   session with no label. A label and a principal are both tried, and a row matching either is shown.
+5. **The value of `--member` is never printed.** It came from argv.
+6. **`--json` gains `here` and `filter_note` beside `filtered_out`.**
+7. **The filters run before the offline sessions are hidden**, so `offline_hidden` counts sessions that
+   matched.

@@ -4,9 +4,12 @@ import (
 	"context"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -17,7 +20,23 @@ type SessionsOptions struct {
 	// Team is --team, honoured in a terminal only: a team ref or name
 	// resolved through the local store.
 	Team string
+	// Here is --here (card 34): only the sessions of this repository —
+	// those whose workspace_label is this session's own, or in a terminal
+	// the name of the repository the working directory is in.
+	Here bool
+	// Member is --member (card 34): only the sessions of one member, named
+	// by their label as the MEMBER column shows it or by the first
+	// shortPrincipalChars or more characters of their principal_ref.
+	Member string
 }
+
+// The notes of a --here that could not filter (card 34). The roster is
+// then shown whole: an empty table would say "nobody is here", which is
+// not what is known.
+const (
+	HereNoLabelNote      = "(--here did not filter: this session shares no repository name, so every session is shown)"
+	HereNoRepositoryNote = "(--here did not filter: this directory is in no repository, so every session is shown)"
+)
 
 // SessionsNote is the note member of the `sessions --json` result.
 // session_description is named beside the two the owner chooses because it
@@ -36,8 +55,14 @@ type sessionsResult struct {
 	Sessions      []protocol.SessionRecord `json:"sessions"`
 	Truncated     bool                     `json:"truncated"`
 	OfflineHidden int                      `json:"offline_hidden"`
-	SelfSessionID string                   `json:"self_session_id,omitzero"`
-	Note          string                   `json:"note"`
+	// FilteredOut is how many sessions --here and --member left out, offline
+	// ones included; Here is the repository name --here compared with; and
+	// FilterNote is the sentence of a --here that could not filter.
+	FilteredOut   int    `json:"filtered_out"`
+	Here          string `json:"here,omitzero"`
+	FilterNote    string `json:"filter_note,omitzero"`
+	SelfSessionID string `json:"self_session_id,omitzero"`
+	Note          string `json:"note"`
 }
 
 // Sessions implements `brigade sessions [--all] [--json]` (6.4): a padded
@@ -71,6 +96,14 @@ type sessionsResult struct {
 // "(<n> offline sessions hidden; --all shows them)" line can carry a true
 // count, and both adapters order online sessions first before their cap,
 // so hiding cannot cost an online session.
+//
+// --here and --member (card 34) are filters on what is SHOWN, applied
+// before the offline sessions are hidden, so the offline count is of the
+// sessions that matched. They address nothing and prove nothing: a label
+// is its owner's text, and a session that shares no repository name is
+// left out by --here although it may well be here — which is why the note
+// under the table counts those apart. The value of --member is never
+// printed: it came from argv (4.5.14).
 func Sessions(inv Invocation, opts SessionsOptions) error {
 	if len(inv.Args) > 0 {
 		return usage("sessions takes no arguments")
@@ -87,9 +120,13 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	}
 
 	self := t.selfSessionID()
+	filter := inv.rosterFilter(t, opts)
 	records := make([]protocol.SessionRecord, 0, len(list.Sessions))
 	hidden := 0
 	for _, r := range list.Sessions {
+		if !filter.keeps(r) {
+			continue
+		}
 		if r.State == protocol.SessionStateOffline && !opts.All {
 			hidden++
 			continue
@@ -111,6 +148,9 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 			Sessions:      records,
 			Truncated:     list.Truncated,
 			OfflineHidden: hidden,
+			FilteredOut:   filter.out,
+			Here:          filter.here,
+			FilterNote:    filter.unfiltered,
 			SelfSessionID: self,
 			Note:          SessionsNote,
 		})
@@ -242,6 +282,7 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	// other strings in the same position: the session name and the doing
 	// line, neither of which was ever marked in a cell either.
 	lines = append(lines, RosterUnverifiedNote)
+	lines = append(lines, filter.notes()...)
 	if hidden > 0 {
 		lines = append(lines, "("+strconv.Itoa(hidden)+" offline sessions hidden; --all shows them)")
 	}
@@ -249,6 +290,119 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		lines = append(lines, "(truncated: the adapter capped the list at its limit; some sessions are not shown)")
 	}
 	return writeLines(inv.Out, lines...)
+}
+
+// A rosterFilter is --here and --member resolved for one run, and the
+// count of what they left out.
+type rosterFilter struct {
+	// here is the repository name --here compares with, "" when the flag
+	// is absent or could not filter; unfiltered is then the note that says
+	// why.
+	here       string
+	unfiltered string
+	// member is --member folded onto one line, "" when absent; prefix is
+	// the part of it that may begin a principal_ref, "" when it is too
+	// short to.
+	member string
+	prefix string
+	// out counts the sessions left out; unlabelled counts those of them
+	// --here left out for sharing no repository name.
+	out        int
+	unlabelled int
+}
+
+// rosterFilter resolves the two flags. Inside a session "here" is the
+// workspace_label the session registered, which the by-pid map carries; in
+// a terminal it is the name of the repository the working directory is in,
+// derived as the hook derives a session's default.
+func (inv Invocation) rosterFilter(t *target, opts SessionsOptions) *rosterFilter {
+	f := &rosterFilter{member: oneLine(opts.Member)}
+	// The MEMBER cell of a session with no label is its short principal in
+	// brackets, and a reader copies the cell as it stands.
+	prefix := f.member
+	if inner, ok := strings.CutPrefix(prefix, "["); ok && strings.HasSuffix(inner, "]") {
+		prefix = strings.TrimSuffix(inner, "]")
+	}
+	if utf8.RuneCountInString(prefix) >= shortPrincipalChars {
+		f.prefix = prefix
+	}
+	if !opts.Here {
+		return f
+	}
+	if t.session != nil {
+		if f.here = workspaceLine(t.session.WorkspaceLabel); f.here == "" {
+			f.unfiltered = HereNoLabelNote
+		}
+		return f
+	}
+	if top, ok := teamfile.Toplevel(inv.mustGetwd()); ok {
+		f.here = workspaceLine(teamfile.RepoName(top))
+	}
+	if f.here == "" {
+		f.unfiltered = HereNoRepositoryNote
+	}
+	return f
+}
+
+// keeps reports whether the filters show r, and counts it when they do
+// not.
+func (f *rosterFilter) keeps(r protocol.SessionRecord) bool {
+	if f.here != "" {
+		label := ""
+		if r.WorkspaceLabel != nil {
+			label = workspaceLine(*r.WorkspaceLabel)
+		}
+		if label != f.here {
+			f.out++
+			if label == "" {
+				f.unlabelled++
+			}
+			return false
+		}
+	}
+	if f.member != "" && !f.isMember(r) {
+		f.out++
+		return false
+	}
+	return true
+}
+
+// isMember reports whether r belongs to the member --member names: its
+// label as the MEMBER column shows it, exactly, or its principal_ref
+// beginning with the characters given. A session NAME is never compared.
+func (f *rosterFilter) isMember(r protocol.SessionRecord) bool {
+	if label := oneLine(protocol.SanitizeLabel(r.HumanLabel)); label != "" && label == f.member {
+		return true
+	}
+	ref := idLine(r.PrincipalRef)
+	return f.prefix != "" && ref != "" && strings.HasPrefix(ref, f.prefix)
+}
+
+// notes are the filter's lines under the table: why --here did not
+// filter, or how many sessions were left out and by what.
+func (f *rosterFilter) notes() []string {
+	if f.unfiltered != "" && f.member == "" {
+		return []string{f.unfiltered}
+	}
+	var by []string
+	if f.here != "" {
+		by = append(by, "--here")
+	}
+	if f.member != "" {
+		by = append(by, "--member")
+	}
+	var out []string
+	if f.unfiltered != "" {
+		out = append(out, f.unfiltered)
+	}
+	if len(by) == 0 {
+		return out
+	}
+	line := "(" + strconv.Itoa(f.out) + " sessions left out by " + strings.Join(by, " and ")
+	if f.unlabelled > 0 {
+		line += "; " + strconv.Itoa(f.unlabelled) + " of them share no repository name and may be here"
+	}
+	return append(out, line+")")
 }
 
 // stateRank orders the states for the "active first" layout.

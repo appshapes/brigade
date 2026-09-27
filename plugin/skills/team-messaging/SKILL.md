@@ -43,6 +43,8 @@ terminal.
 brigade sessions                 # teammates' sessions as a table: a short SESSION id, name, repo, state, member
 brigade sessions --json          # the same roster, with every session_id and principal_ref in full
 brigade sessions --all           # include offline sessions
+brigade sessions --here          # only the sessions of this repository
+brigade sessions --member '<who>'  # only one member's: their label, or 8+ characters of their principal_ref
 # <session_id> is the SESSION cell of `brigade sessions`, or the id in full
 brigade send <session_id> <<'EOF' ... EOF                       # plain-text body on stdin (quoted heredoc)
 brigade send <session_id> --summary "<one line>" <<'EOF' ... EOF
@@ -84,6 +86,12 @@ nothing in the table carries it, with or without `--all` — and `principal_ref`
 doing lines are their owner's own words, and then `(… offline sessions hidden …)` or `(truncated: …)` when they
 apply. Each is a note, not a row.
 
+`--here` and `--member` narrow what is shown, and a note says how many sessions they left out:
+`(3 sessions left out by --here; 1 of them share no repository name and may be here)`. They are for reading a
+long roster, and they prove nothing: `--here` compares the `REPO` cell, which a session may not share, and
+`--member` compares a label, which anyone can copy. When `--here` cannot filter it shows every session and says
+so. A header with no rows means nobody matched.
+
 `brigade team members` is **one line per member**, not a table: the member column first, then `joined <date>`
 and `<n> sessions, seen …`. A member with no label keeps the older shape — `principal=<ref>` followed by
 `(unverified)`.
@@ -100,7 +108,8 @@ user should reach for.
 
 ## Sending
 
-1. Run `brigade sessions` first and address the session by its `SESSION` cell, or by its `session_id` in full
+1. Run `brigade sessions` first — `brigade sessions --here` when the recipient works in this repository — and
+   address the session by its `SESSION` cell, or by its `session_id` in full
    from `brigade sessions --json`. Only an id is an address, never a name: `name` and `human label` are display
    strings that any member can choose or copy, and names collide. `principal` is the only stable identity of a
    person. When several sessions could be the recipient, prefer the one whose `↳ ` line (`session_description`

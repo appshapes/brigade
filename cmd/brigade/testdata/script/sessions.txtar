@@ -155,6 +155,36 @@ exec brigade sessions --json --all
 json stdout .result.offline_hidden 0
 json stdout .result.sessions.3.state offline
 
+# --- --member and --here narrow what is shown (card 34) -----------------------
+# One member's sessions, by the label the MEMBER column shows; the note
+# counts what was left out, the offline session included.
+exec brigade sessions --member bob@example.com
+stdout '^bbbbb\s+billing\s+idle\s+bob@example\.com\s+45s$'
+! stdout '^ccccc'
+! stdout '^aaaaa'
+stdout '^\(3 sessions left out by --member\)$'
+! stdout 'offline sessions hidden'
+! stderr .
+
+# dave has no label: his MEMBER cell, brackets and all, names him.
+exec brigade sessions --all --member [4d8a2f77]
+stdout 'ddddd\s+gone\s+offline\s+\[4d8a2f77\]\s+3600s$'
+stdout '^\(3 sessions left out by --member\)$'
+
+exec brigade sessions --json --member bob@example.com
+json stdout .result.filtered_out 3
+json stdout .result.offline_hidden 0
+json stdout .result.sessions.0.session_id bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+# This session registered no repository name, so --here has nothing to
+# compare: the roster is shown whole, and says why.
+exec brigade sessions --here
+stdout '^\(--here did not filter: this session shares no repository name, so every session is shown\)$'
+stdout '^bbbbb'
+stdout '^ccccc'
+stdout '^aaaaa'
+! stderr .
+
 # --- arguments and flags are usage --------------------------------------------
 status 2 brigade sessions extra
 stderr 'brigade sessions failed \(usage\)'
