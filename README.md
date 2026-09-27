@@ -68,11 +68,20 @@ option `sync: off` switches it off — [docs/sync.md](docs/sync.md).
 
 ## Be told when a message arrives
 
-Two plugin options, both off by default and both yours alone: `message_sound` plays one quiet system sound when a
-teammate's message reaches one of your sessions, and `message_notification` shows a desktop notification naming the
-session it was for. Neither carries anything from the message, and a burst of messages is one sound and one
-notification; `message_interval` says how many seconds apart, 30 unless you set it. Set them from `/plugin`, in
-your user settings, or by asking your session — [plugin/README.md › Options](plugin/README.md#options).
+Ask your session:
+
+```
+Turn on message_sound and message_notification.
+```
+
+It edits your user settings. Start a new session for the change to take effect.
+
+- `message_sound`: a quiet sound when a teammate's message arrives. Off by default.
+- `message_notification`: a desktop notification naming the session the message was for. Off by default.
+- `message_interval`: the least seconds between two sounds, or two notifications. 30 by default; 5 to 3600.
+
+Nothing from the message reaches either program. A project cannot set these options. Details:
+[plugin/README.md › Options](plugin/README.md#options).
 
 ## Create a database
 

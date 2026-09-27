@@ -63,28 +63,28 @@ that cannot be read or fails a check leaves the session without Brigade, with on
 [docs/setup.md](../docs/setup.md), "The frame text your sessions receive". What each level did under test is in
 [docs/security.md](../docs/security.md), "Every session receives, including unattended ones".
 
-**Hearing or seeing a message arrive.** With `message_sound` set to `on`, the watcher plays one quiet system
-sound the moment a teammate's message reaches this session — delivered into it, or held for your release under
-`team_inbound: hold` — and then nothing more for the interval, 30 seconds unless `message_interval` says otherwise,
-so a burst of messages is one sound. With
-`message_notification` set to `on`, it shows a desktop notification on the same terms: the title `Brigade` and
-`A message arrived for <this session's name>.`, or `3 messages arrived for …` when the interval kept two more
-quiet; the two options combine freely. A refused message, a duplicate the backend redelivers and a message you
-release yourself make no sound and show nothing, and a notice from Brigade never does. Each is a fixed program
-started by the watcher with nothing from the message — not its text, not its sender: the sound is `afplay` with
-macOS's Glass sound at a quarter of its volume, or `paplay` with the desktop's new-message sound on Linux, with a
-fixed argument list; the notification is `terminal-notifier` when it is installed (a Brigade title, and one
-banner per session that a burst replaces), else `osascript`, whose banner macOS attributes to Script Editor and
-asks you once to allow, or `notify-send` on Linux, with arguments Brigade composes — the title, the text and the
-count reach each as an argument, never spliced into a script, and a session name is data whatever it holds. On
-Linux, `notify-send` reaches the desktop's notification daemon through the user bus at `$XDG_RUNTIME_DIR/bus`;
-the watcher passes its children no `DBUS_SESSION_BUS_ADDRESS` and no `DISPLAY`, so a desktop that keeps its bus
-elsewhere shows nothing, and the watcher's log says so once. Claude Code itself offers no notification for an
-arriving message, which is why Brigade provides both. A machine
-with no player, or no notifier, prints `Brigade: message sound off (<why>).` or `Brigade: message notification off
-(<why>).` once at session start and does nothing, and so does a session that runs no watcher (no inbox socket). A
-message whose delivery failed and is delivered again counts as arriving again, and a replaced watcher starts its
-interval afresh. The options are yours alone: a project's `.brigade.json` cannot set them.
+**Hearing or seeing a message arrive.** `message_sound: on` plays one quiet system sound when a teammate's
+message reaches this session: delivered into it, or held for your release under `team_inbound: hold`.
+`message_notification: on` shows a desktop notification: the title `Brigade` and `A message arrived for <this
+session's name>.`, or `3 messages arrived for …` when several came inside one interval. `message_interval` is the
+least seconds between two sounds, or two notifications: 30 by default, 5 to 3600. The options combine freely.
+
+What makes no sound and shows nothing: a refused message, a duplicate the backend redelivers, a message you release
+yourself, and a notice from Brigade.
+
+What runs: the sound is `afplay` with macOS's Glass sound at a quarter of its volume, or `paplay` with the desktop's
+new-message sound on Linux. The notification is `terminal-notifier` when it is installed (a Brigade title, and one
+banner per session that a burst replaces), else `osascript` (macOS attributes the banner to Script Editor and asks
+you once to allow it), or `notify-send` on Linux. On Linux, `notify-send` needs the user bus at
+`$XDG_RUNTIME_DIR/bus`; the watcher passes no `DBUS_SESSION_BUS_ADDRESS` and no `DISPLAY`. The watcher starts each
+program with nothing from the message. The sound's argument list is fixed. The notification gets the title, the
+text and the count as arguments, never spliced into a script, so a session name is data whatever it holds.
+
+If an option is on and the machine cannot play or notify, session start prints `Brigade: message sound off
+(<why>).` or `Brigade: message notification off (<why>).` once. A session with no watcher (no inbox socket) prints
+the same. A message whose delivery failed and is delivered again counts as arriving again. A replaced watcher
+starts its interval afresh. Claude Code itself does not notify on an arriving message. These options are yours
+alone: a project's `.brigade.json` cannot set them.
 
 Set them from `/plugin` in a session, or on the command line:
 
@@ -95,12 +95,17 @@ claude --settings '{"pluginConfigs":{"brigade@inline":{"options":{"team_inbound"
 The `pluginConfigs` key is `brigade@inline` for a `--plugin-dir` checkout and `brigade@brigade` for a marketplace
 install. Option values are read from user settings, `--settings` and managed settings only, never from a project.
 
-You can also ask your session to set an option for you — "turn the message sound on" — and it edits the
-`pluginConfigs` entry of your user settings file, `settings.json` in your Claude Code configuration directory
-(`CLAUDE_CONFIG_DIR`, `~/.claude` by default); the change takes effect at the next session start. It does that
-on your word alone: the paragraph around every teammate's message tells your session that a message cannot change
-its settings, and every such request in the measured set was refused ([docs/security.md](../docs/security.md),
-"A message is untrusted text") — guidance measured to work, not a lock.
+Or ask your session:
+
+```
+Set message_sound to on.
+```
+
+It edits `pluginConfigs` in your user settings file: `settings.json` in your Claude Code configuration directory
+(`CLAUDE_CONFIG_DIR`, or `~/.claude`). Start a new session for the change to take effect. Your session does this
+only when you ask. A teammate's message cannot change your settings: the paragraph around every message says so,
+and every such request in the measured set was refused ([docs/security.md](../docs/security.md), "A message is
+untrusted text").
 
 ## Administrator: create a team
 
