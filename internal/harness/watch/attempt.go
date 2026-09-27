@@ -11,6 +11,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/backoff"
 	"github.com/appshapes/brigade/internal/harness/inbound"
+	"github.com/appshapes/brigade/internal/harness/watchstate"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -230,6 +231,7 @@ func (w *watcher) handleEvent(s *session, r *attemptResult, ev adapterclient.Eve
 	switch ev.Kind {
 	case adapterclient.KindReady:
 		r.ready = w.deps.Clock()
+		w.setStatus(watchstate.Connected, r.ready)
 		w.log.Info("watch ready", slog.String("mode", ev.Ready.Mode), slog.String("session_id", ev.Ready.SessionID))
 		if ev.Ready.Mode == protocol.WatchModePolling {
 			w.log.Info("adapter polls; drain latency is two poll intervals")

@@ -8,6 +8,10 @@ import (
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
 
+// noWatcherLine is the delivery line of the plain fixture: a session with
+// no inbox socket, nothing delivered and nothing held.
+const noWatcherLine = "delivery: no watcher: this session has no inbox socket; no delivery recorded; 0 held"
+
 // TestWhoamiLine pins the 6.4 layout from the map and the cached describe:
 // exactly one spawn (the describe), no network.
 func TestWhoamiLine(t *testing.T) {
@@ -17,7 +21,7 @@ func TestWhoamiLine(t *testing.T) {
 		t.Fatalf("whoami: %v", err)
 	}
 	want := "session " + selfSessionID + " \"payments-api\" in team \"ops\" (adapter " +
-		fakeadapter.AdapterName + " " + fakeadapter.AdapterVersion + "); inbound: accept\nframe: open\n"
+		fakeadapter.AdapterName + " " + fakeadapter.AdapterVersion + "); inbound: accept\nframe: open\n" + noWatcherLine + "\n"
 	if f.out.String() != want {
 		t.Errorf("stdout:\n got %q\nwant %q", f.out.String(), want)
 	}
@@ -39,7 +43,7 @@ func TestWhoamiSanitisesTheMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := f.out.String()
-	if strings.Count(out, "\n") != 2 || strings.Contains(out, "<system-reminder>") || strings.Contains(out, "<cross-session-message>") {
+	if strings.Count(out, "\n") != 3 || strings.Contains(out, "<system-reminder>") || strings.Contains(out, "<cross-session-message>") {
 		t.Errorf("stdout = %q", out)
 	}
 }
@@ -59,7 +63,7 @@ func TestWhoamiTerminalLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Split(strings.TrimSuffix(f.out.String(), "\n"), "\n")
-	if len(got) != 3 || got[1] != "terminal: /opt/plugins/brigade/bin/brigade" || got[2] != "frame: open" {
+	if len(got) != 4 || got[1] != "terminal: /opt/plugins/brigade/bin/brigade" || got[2] != "frame: open" || got[3] != noWatcherLine {
 		t.Fatalf("stdout = %q", f.out.String())
 	}
 	f.out.Reset()
@@ -79,7 +83,7 @@ func TestWhoamiTerminalLine(t *testing.T) {
 	if err := Whoami(f.inv(f.sessionEnv(), "")); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.out.String(); strings.Contains(got, "terminal:") || strings.Count(got, "\n") != 2 {
+	if got := f.out.String(); strings.Contains(got, "terminal:") || strings.Count(got, "\n") != 3 {
 		t.Errorf("an empty plugin_bin still printed a terminal line: %q", got)
 	}
 }
@@ -110,7 +114,7 @@ func TestWhoamiFrameLine(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := strings.Split(strings.TrimSuffix(f.out.String(), "\n"), "\n")
-			if len(got) != 2 || got[1] != tc.want {
+			if len(got) != 3 || got[1] != tc.want || got[2] != noWatcherLine {
 				t.Fatalf("stdout = %q, want the second line %q", f.out.String(), tc.want)
 			}
 			if tc.text != "" && strings.Contains(f.out.String(), strings.TrimSpace(tc.text)) {

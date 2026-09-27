@@ -21,6 +21,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   a message was always `accepted`, and its sender was told nothing more. `--json` carries the same facts in a
   `recipient` member.
 
+- **`brigade whoami` says whether the session is receiving** (card 34, item 5). Its last line is now
+  `delivery: watcher running (0.15.0), connected for 12m; last delivery recorded 3m ago; 0 held`. It names the
+  watcher and its version; whether the watcher is connected, connecting, or not connected and retrying, and for
+  how long; when a message last reached the session; and how many messages are held for release. A session
+  whose watcher is not running says so, and one with no inbox socket says that. `--json` carries the same facts
+  in a `delivery` member, with times instead of ages and no path. Everything is read from files on the member's
+  own machine: the watcher's pidfile, the time the record of seen messages was last written, the pending file,
+  and one new file. **The new file:** the watcher now keeps `state/<claude pid>.watch.json` beside its notice —
+  mode 0600, a state word, a time and its own process id, nothing from any message — and removes it when it
+  exits. No wire change.
 - **`brigade sessions --here` and `--member <who>`** (card 34, item 4). One team spans several repositories and
   each person runs several sessions, so the roster grew long. `--here` shows the sessions of this repository:
   those whose `REPO` cell is this session's own, or in a terminal the repository the working directory is in.

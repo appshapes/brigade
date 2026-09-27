@@ -450,7 +450,8 @@ The file's path is never printed.
 The file is read once, when the session starts. An edit takes effect at your next session, or at `/clear` or
 `/reload-plugins` in the session you have, and not before.
 
-`brigade whoami`, run inside a session, shows the level on its own line: `frame: open`, or
+`brigade whoami`, run inside a session, shows the level on its own line (its last line, `delivery:`, says
+whether the session is receiving — [plugin/README.md](../plugin/README.md#is-my-session-receiving)): `frame: open`, or
 `frame: custom (58 characters)` when a file is in use. It never shows the file's text or its path.
 `brigade team status` cannot show the level: it belongs to a session, not to a team, and only a running
 session knows it.

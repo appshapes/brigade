@@ -319,6 +319,32 @@ Brigade: this session is receiving team messages again, after about 17 minutes w
 A failure that trying again cannot fix still stops the watcher, and the line says what to do. A revoked
 membership says ``run `brigade team join` again``.
 
+## Is my session receiving?
+
+Ask your session:
+
+```
+Is this session receiving team messages?
+```
+
+It runs `brigade whoami`. The last line is the answer:
+
+```
+delivery: watcher running (0.15.0), connected for 12m; last delivery recorded 3m ago; 0 held
+```
+
+| The line says | It means |
+| --- | --- |
+| `connected for 12m` | Your session is receiving. |
+| `connecting for 4s` | It is starting, or starting again. |
+| `not connected for 17m and retrying` | The backend cannot be reached. Messages wait on the server. |
+| `watcher not running` | Nothing arrives until your next prompt starts it again. |
+| `no watcher: this session has no inbox socket` | This host gives the session no inbox. Nothing is pushed to it. |
+| `last delivery recorded 3m ago` | When a message last reached this session. |
+| `2 held` | Two messages wait for you. Read and release them with `brigade inbox` in your own terminal. |
+
+The line is read from files on your machine. Nothing is asked of the backend.
+
 ## Syncing folders
 
 A project lists folders in its `.brigade.json` — `"sync": { "folders": [".context/plans", "docs/shared"] }` — and

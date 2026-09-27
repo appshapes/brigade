@@ -69,6 +69,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/socketpost"
 	"github.com/appshapes/brigade/internal/harness/transcript"
+	"github.com/appshapes/brigade/internal/harness/watchstate"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -767,6 +768,7 @@ func (w *watcher) run() int {
 	defer pcancel()
 
 	code = w.supervise()
+	w.clearStatus()
 	icancel()
 	scancel()
 	pcancel()
@@ -863,6 +865,24 @@ func (w *watcher) releaseIssue(msg string, err error) {
 	}
 	w.lastReleaseIssue = key
 	w.log.Warn(msg, adlog.Err(err))
+}
+
+// setStatus writes down the watcher's connection state for `brigade
+// whoami` (watchstate, card 34): a state word and the time it began. Best
+// effort, logged: nothing the watcher does depends on the file.
+func (w *watcher) setStatus(state string, since time.Time) {
+	path := watchstate.Path(w.rc.env.StateDir, w.rc.env.ClaudePID)
+	if err := watchstate.Write(path, os.Getpid(), state, since); err != nil {
+		w.log.Warn("watch state not written", adlog.Err(err))
+	}
+}
+
+// clearStatus removes the state file on the way out, when it is this
+// watcher's own.
+func (w *watcher) clearStatus() {
+	if err := watchstate.Remove(watchstate.Path(w.rc.env.StateDir, w.rc.env.ClaudePID), os.Getpid()); err != nil {
+		w.log.Warn("watch state not removed", adlog.Err(err))
+	}
 }
 
 // writeNotice writes ONE line to ${stateDir}/state/<pid>.notice, overwriting

@@ -129,6 +129,15 @@ func TestSessionLifecycleThroughTheRealBinary(t *testing.T) {
 	if got := r.storeIDs("acked", m.BrigadeSessionID); got[0] != sent.MessageID {
 		t.Errorf("acked ids = %v, want %s", got, sent.MessageID)
 	}
+	// `brigade whoami` says so, from the state file the real watcher keeps
+	// and the seen file the injection wrote (card 34).
+	res = r.mustRun(r.env(alice), "", "whoami")
+	lines := strings.Split(strings.TrimSuffix(res.stdout, "\n"), "\n")
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "delivery: watcher running (") ||
+		!strings.Contains(last, "), connected for ") || !strings.Contains(last, "; last delivery recorded ") ||
+		!strings.HasSuffix(last, " ago; 0 held") {
+		t.Errorf("whoami's delivery line = %q", last)
+	}
 
 	// --- 3. the reply is hop 1 in the store -------------------------------
 	// It is addressed by the five characters `brigade sessions` shows for

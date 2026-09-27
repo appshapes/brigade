@@ -10,8 +10,10 @@ import (
 
 	"github.com/appshapes/brigade/internal/harness/backoff"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/watchstate"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
+	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
 
 // The slow schedule of card 34: a watcher whose restarts trip the give-up
@@ -34,6 +36,22 @@ func (fx *fixture) notice() string {
 		return ""
 	}
 	return string(data)
+}
+
+// watchState is the state word of the watcher's state file, "" when there
+// is no file (or none that reads).
+func (fx *fixture) watchState() string {
+	s, err := watchstate.Read(watchstate.Path(fx.dirs.BrigadeState, fx.claudePID))
+	if err != nil {
+		return ""
+	}
+	return s.State
+}
+
+// waitState polls until the state file says state.
+func (fx *fixture) waitState(state string) {
+	fx.t.Helper()
+	testutil.Eventually(fx.t, waitShort, pollEvery, func() bool { return fx.watchState() == state })
 }
 
 // restarts counts the restart lines of one pace.
@@ -144,6 +162,7 @@ func TestSlowRetryReconnects(t *testing.T) {
 
 	fx.waitLog("watcher retrying slowly", map[string]any{"code": "unavailable", "failures": 3})
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return strings.HasPrefix(fx.notice(), slowNoticePrefix) })
+	fx.waitState(watchstate.Retrying)
 	if fx.logHas("watch ready", nil) || fx.logHas("watcher reconnected", nil) {
 		t.Fatalf("ready or reconnected before the backend was back: %v", fx.logLines())
 	}
@@ -151,6 +170,7 @@ func TestSlowRetryReconnects(t *testing.T) {
 
 	openGate(t, gate)
 	fx.waitLog("watch ready", nil)
+	fx.waitState(watchstate.Connected)
 	fx.waitLog("watcher reconnected", nil)
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return strings.HasPrefix(fx.notice(), backNoticePrefix) })
 	if got := fx.notice(); !strings.HasSuffix(got, " without.\n") || strings.Count(got, "\n") != 1 {
@@ -407,6 +427,68 @@ func TestHealthyRunThatEndedEndsTheSlowSchedule(t *testing.T) {
 	// The pace is the fast one again: the run that reconnected ended too,
 	// and its restart is a fast one.
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.restarts(false) > fastBefore })
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+// TestWatchStateFollowsTheConnection: the state file `brigade whoami`
+// reads says connecting until a watch child is ready, connected with the
+// time of the ready event while one is, connecting again when it ends, and
+// is gone once the watcher has exited. It names the watcher's own pid.
+func TestWatchStateFollowsTheConnection(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	gate := t.TempDir() + "/gate"
+	fx.useHelper("gate=" + gate)
+	fx.writeMap()
+	deps := fx.deps()
+	deps.GiveUpFailures = 1_000_000
+	before := time.Now()
+	r := fx.start(deps, fx.args()...)
+	fx.waitLog("watch child failed; restarting", nil)
+	fx.waitState(watchstate.Connecting)
+
+	openGate(t, gate)
+	fx.waitState(watchstate.Connected)
+	s, err := watchstate.Read(watchstate.Path(fx.dirs.BrigadeState, fx.claudePID))
+	if err != nil {
+		t.Fatalf("state file: %v", err)
+	}
+	if s.PID != os.Getpid() || s.Since.Before(before) || s.Since.After(time.Now()) {
+		t.Errorf("state = %+v, want this process and a time inside the test", s)
+	}
+
+	closeGate(t, gate)
+	fx.waitState(watchstate.Connecting)
+
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if _, err := os.Stat(watchstate.Path(fx.dirs.BrigadeState, fx.claudePID)); !os.IsNotExist(err) {
+		t.Errorf("the state file outlived the watcher: %v", err)
+	}
+}
+
+// TestWatchStateBeforeTheFirstChildIsReady: a watcher whose first watch
+// child has not said ready yet — and has not failed either — already says
+// connecting, so `brigade whoami` never finds a live watcher with nothing
+// to say.
+func TestWatchStateBeforeTheFirstChildIsReady(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	late := readyLine(t)
+	late.DelayMS = 600_000
+	fx.useFake(fakeadapter.Script{Watch: &fakeadapter.WatchScript{Lines: []fakeadapter.WatchLine{late}}})
+	fx.writeMap()
+	r := fx.start(fx.deps(), fx.args()...)
+	fx.waitLog("watch child started", nil)
+	if got := fx.watchState(); got != watchstate.Connecting {
+		t.Errorf("state = %q, want connecting", got)
+	}
+	if fx.logHas("watch child failed; restarting", nil) || fx.logHas("watch ready", nil) {
+		t.Errorf("the child failed or was ready: %v", fx.logLines())
+	}
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}

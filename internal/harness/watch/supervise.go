@@ -7,6 +7,7 @@ import (
 
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/backoff"
+	"github.com/appshapes/brigade/internal/harness/watchstate"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -52,6 +53,7 @@ func (w *watcher) supervise() int {
 	restart := w.deps.RestartSchedule()
 	slow := w.deps.SlowSchedule()
 	var failures []time.Time
+	w.setStatus(watchstate.Connecting, w.deps.Clock())
 	for {
 		if w.stopping() {
 			w.closeWithoutChild()
@@ -102,6 +104,9 @@ func (w *watcher) supervise() int {
 		delay := restart.Next()
 		if !w.degradedSince.IsZero() {
 			delay = slow.Next()
+			w.setStatus(watchstate.Retrying, w.degradedSince)
+		} else {
+			w.setStatus(watchstate.Connecting, now)
 		}
 		w.log.Warn("watch child failed; restarting",
 			slog.String("code", string(v.code)), slog.String("why", v.why), slog.Int("exit", r.exitCode),

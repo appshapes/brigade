@@ -4,7 +4,7 @@ Trello card 34 ("Research feature enhancements"). Status: **research only — no
 34, nothing committed by the session that wrote this.** Owner: Rjae. Constraint from the ask: small or medium
 features that aid the three existing installations; no new adapter.
 
-**Since then:** items 1, 2, 3 and 4 were built on 2026-09-27 (§7; execution log P23-1..P23-4), to ship in one
+**Since then:** items 1 to 5 were built on 2026-09-27 (§7; execution log P23-1..P23-5), to ship in one
 release with the items that follow them. **Owed before that release:** the frame re-measurement of §4.2.
 
 **Method.** One workflow of seven agents, sized to the ask (memory rule: Opus for fan-out, Fable for judgement):
@@ -244,3 +244,19 @@ left open:
 6. **`--json` gains `here` and `filter_note` beside `filtered_out`.**
 7. **The filters run before the offline sessions are hidden**, so `offline_hidden` counts sessions that
    matched.
+
+**Item 5, 2026-09-27** (card 34; Rjae: "Go ahead with Item 5"). The sketch's three facts, and one it could not
+have had:
+
+1. **The line says whether the watcher is connected.** The sketch said `watcher running`. Since item 2 a
+   watcher stays alive through an outage, so "running" alone would read as "receiving" in exactly the case the
+   line exists for. The pidfile cannot tell the two apart. So the watcher keeps one new file,
+   `state/<claude pid>.watch.json` (`internal/harness/watchstate`): a state word (`connecting`, `connected`,
+   `retrying`), the time it began, and the watcher's own pid. `whoami` trusts it only beside a live pidfile
+   naming the same pid, so a killed watcher's last word and a replaced watcher's are both ignored.
+2. **"Last delivery" is the time the seen file was last written.** That file is saved after every injection
+   and holds no times of its own.
+3. **A pending file that cannot be read leaves the count out** (`held count not readable`). Zero would be a
+   guess.
+4. **A session with no inbox socket says so**, instead of `watcher not running`: nothing will start one.
+5. **`--json` gets a `delivery` member** with times, not ages, and no path, id or file name.

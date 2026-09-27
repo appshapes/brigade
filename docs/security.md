@@ -697,7 +697,8 @@ version**. The adapter honours `NO_PROXY`, and a loopback entry in `allowedDomai
 refusal.
 
 **What a crash leaves behind.** If a session is killed with `SIGKILL`, its session map entry, its record of
-seen messages, its socket and — if the watcher died too — the watcher's pidfile stay behind for good; nothing
+seen messages, its socket and — if the watcher died too — the watcher's pidfile and its state file (a state
+word, a time and the watcher's process id, which `brigade whoami` reads) stay behind for good; nothing
 prunes them today. In a project that syncs folders, the session's reference under `sync/syncthing/refs/` stays
 too, but it names the watcher's process, so the next session to start or end on the machine drops it and the
 Syncthing instance stops with the last live session ([docs/sync.md](sync.md), "Limits").

@@ -50,7 +50,7 @@ brigade send <session_id> <<'EOF' ... EOF                       # plain-text bod
 brigade send <session_id> --summary "<one line>" <<'EOF' ... EOF
 brigade send <session_id> --reply-to <message_id> <<'EOF' ... EOF
 brigade send <session_id> --body-file <path>                    # body from a file instead of stdin
-brigade whoami                   # this session's Brigade session_id, name and team
+brigade whoami                   # this session's Brigade session_id, name and team, and whether it is receiving
 brigade team members             # the roster: member, joined, session count, last seen
 brigade doing <<'EOF' ... EOF   # one short sentence: what this session is working on
 brigade doing --clear            # remove this session's sentence from the roster
@@ -219,6 +219,20 @@ preview names the sender's `from-name`, which is free text any member can copy. 
 | `unavailable` | the backend is unreachable; retry once, then tell your user |
 | `invalid_input` | the body is empty or over the size cap; `these characters end 2 session ids: …` means two sessions end with the characters you gave, so send to one of the full ids the message lists; for `brigade doing`, the sentence is empty, over 160 characters, not UTF-8, looks like a credential (`secret_shaped`) or names a local path (`local_path`) — reword it, or leave the line as it is |
 | `config` | this session is not registered; suggest `/reload-plugins` or a restart |
+
+When a message you expected has not come, run `brigade whoami` and read its last line:
+
+```
+delivery: watcher running (0.15.0), connected for 12m; last delivery recorded 3m ago; 0 held
+```
+
+- `connected` means this session is receiving. A message that has not arrived was not sent to it, or waits
+  at its sender.
+- `not connected for 17m and retrying` means the backend cannot be reached. Messages wait on the server.
+  Nothing is asked of you.
+- `watcher not running` means nothing is delivered until the next prompt starts the watcher again.
+- `2 held` means two messages wait for your user to release them. Say so; you cannot release them.
+- The line is read from files on this machine. It says nothing about any other session.
 
 A line that starts `Brigade: this session is not receiving team messages` can arrive on your user's turn. It
 means the backend could not be reached. Brigade keeps trying by itself, and messages sent to this session wait
