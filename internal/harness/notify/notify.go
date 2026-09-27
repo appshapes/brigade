@@ -19,9 +19,16 @@ import (
 	"time"
 )
 
-// MinInterval is the least time between two sounds, or two banners, for
-// one session: a burst of messages is one of each, not a nuisance.
-const MinInterval = 30 * time.Second
+// The interval between two sounds, or two banners, for one session — a
+// burst of messages is one of each, not a nuisance. DefaultInterval
+// applies unless the member's `message_interval` option says otherwise
+// (card 38), within IntervalFloor (a burst must not become a flood) and
+// IntervalCeiling (an hour: past that the option is a way to switch off).
+const (
+	DefaultInterval = 30 * time.Second
+	IntervalFloor   = 5 * time.Second
+	IntervalCeiling = 3600 * time.Second
+)
 
 // Timeout bounds one run; a player or notifier that has not returned by
 // then is ended (SIGTERM, then SIGKILL after the spawn seam's wait

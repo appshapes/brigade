@@ -659,8 +659,8 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 	}
 	w.sound = newSoundAnnouncer(w)
 	w.banner = newBannerAnnouncer(w)
-	w.sound.apply(m.MessageSound)
-	w.banner.apply(m.MessageNotification)
+	w.sound.apply(m.MessageSound, m.Interval())
+	w.banner.apply(m.MessageNotification, m.Interval())
 	if d.SyncPeer != nil {
 		w.syncPeer.Store(d.SyncPeer())
 	}

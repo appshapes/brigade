@@ -2,10 +2,13 @@ package config
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/frame"
+	"github.com/appshapes/brigade/internal/harness/notify"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -26,6 +29,7 @@ const (
 	OptionSync                = "CLAUDE_PLUGIN_OPTION_SYNC"
 	OptionMessageSound        = "CLAUDE_PLUGIN_OPTION_MESSAGE_SOUND"
 	OptionMessageNotification = "CLAUDE_PLUGIN_OPTION_MESSAGE_NOTIFICATION"
+	OptionMessageInterval     = "CLAUDE_PLUGIN_OPTION_MESSAGE_INTERVAL"
 )
 
 // The BRIGADE_* variables that stand in for three options OUTSIDE a
@@ -102,6 +106,10 @@ const (
 	// WarnMessageNotificationInvalid: the same for message_notification
 	// (card 36).
 	WarnMessageNotificationInvalid = `Brigade: message_notification must be "on" or "off"; the value set is neither, so no notification is shown for this session.`
+	// WarnMessageIntervalInvalid: the message_interval option is not a whole
+	// number of seconds within notify's bounds (card 38); the default
+	// applies.
+	WarnMessageIntervalInvalid = "Brigade: message_interval must be a whole number of seconds from 5 to 3600; the value set is not, so the default of 30 seconds applies for this session."
 )
 
 // The two words the sync option takes (folder-sync plan §4.3).
@@ -148,6 +156,32 @@ func ParseMessageSound(raw string) (bool, string) {
 // message arrives, off unless the option says on.
 func ParseMessageNotification(raw string) (bool, string) {
 	return parseOffByDefault(raw, WarnMessageNotificationInvalid)
+}
+
+// ParseMessageInterval maps a message_interval value to the interval
+// between two message sounds, or two notifications (card 38): "" (unset)
+// → notify.DefaultInterval; a whole number of seconds from
+// notify.IntervalFloor to notify.IntervalCeiling → that many seconds;
+// anything else → the default with WarnMessageIntervalInvalid, which
+// never echoes the value. A sign, a fraction, a unit and surrounding
+// text all fail: the option is seconds, and nothing else.
+func ParseMessageInterval(raw string) (time.Duration, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return notify.DefaultInterval, ""
+	}
+	if len(raw) > 4 || strings.TrimLeft(raw, "0123456789") != "" {
+		return notify.DefaultInterval, WarnMessageIntervalInvalid
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return notify.DefaultInterval, WarnMessageIntervalInvalid
+	}
+	d := time.Duration(n) * time.Second
+	if d < notify.IntervalFloor || d > notify.IntervalCeiling {
+		return notify.DefaultInterval, WarnMessageIntervalInvalid
+	}
+	return d, ""
 }
 
 // parseOffByDefault is the on/off grammar of an option whose default is
@@ -324,6 +358,12 @@ type Options struct {
 	// 36), with its own warning.
 	MessageNotification        bool
 	MessageNotificationWarning string
+	// MessageInterval is the interval between two sounds, or two
+	// notifications (card 38): notify.DefaultInterval unless the option
+	// gives a whole number of seconds within notify's bounds, with
+	// WarnMessageIntervalInvalid when it gives something else.
+	MessageInterval        time.Duration
+	MessageIntervalWarning string
 }
 
 // ParseOptions resolves Options from environ. Only CLAUDE_PLUGIN_OPTION_*
@@ -411,6 +451,7 @@ func ParseOptions(environ []string) (Options, error) {
 	o.Sync, o.SyncWarning = ParseSync(opt(OptionSync))
 	o.MessageSound, o.MessageSoundWarning = ParseMessageSound(opt(OptionMessageSound))
 	o.MessageNotification, o.MessageNotificationWarning = ParseMessageNotification(opt(OptionMessageNotification))
+	o.MessageInterval, o.MessageIntervalWarning = ParseMessageInterval(opt(OptionMessageInterval))
 	return o, nil
 }
 

@@ -932,34 +932,35 @@ func (r *run) otherLiveWatcher(f facts, sessionID string) (int, bool) {
 // and this rewrite is how the watcher learns of it.
 func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, teamName string, registeredAt, now time.Time) *sessionmap.ByPID {
 	return &sessionmap.ByPID{
-		ClaudePID:           f.pid,
-		ClaudeSessionID:     in.SessionID,
-		BrigadeSessionID:    sessionID,
-		TeamRef:             teamRef,
-		TeamName:            teamName,
-		SessionName:         res.id.name,
-		WorkspaceLabel:      res.workspaceLabel,
-		LabelOption:         res.opts.Label,
-		DoingMode:           res.doingMode,
-		PermissionMode:      in.PermissionMode,
-		NonInteractive:      res.id.nonInteractive,
-		Inbound:             res.dec.Policy.String(),
-		FrameLevel:          string(res.instruction.Level),
-		FrameText:           res.instruction.Custom,
-		SocketPath:          f.socket,
-		TranscriptPath:      transcriptPath(in),
-		TeamKey:             res.teamKey,
-		ConfigDir:           res.opts.ConfigDir,
-		AdapterCommand:      res.argv,
-		PluginBin:           f.pluginBin,
-		SyncAdapter:         res.sync.adapter,
-		SyncFolders:         res.sync.folders,
-		SyncRoot:            res.sync.root,
-		MessageSound:        res.messageSound,
-		MessageNotification: res.messageNotification,
-		HarnessVersion:      res.id.harnessVersion,
-		RegisteredAt:        registeredAt,
-		UpdatedAt:           now,
+		ClaudePID:              f.pid,
+		ClaudeSessionID:        in.SessionID,
+		BrigadeSessionID:       sessionID,
+		TeamRef:                teamRef,
+		TeamName:               teamName,
+		SessionName:            res.id.name,
+		WorkspaceLabel:         res.workspaceLabel,
+		LabelOption:            res.opts.Label,
+		DoingMode:              res.doingMode,
+		PermissionMode:         in.PermissionMode,
+		NonInteractive:         res.id.nonInteractive,
+		Inbound:                res.dec.Policy.String(),
+		FrameLevel:             string(res.instruction.Level),
+		FrameText:              res.instruction.Custom,
+		SocketPath:             f.socket,
+		TranscriptPath:         transcriptPath(in),
+		TeamKey:                res.teamKey,
+		ConfigDir:              res.opts.ConfigDir,
+		AdapterCommand:         res.argv,
+		PluginBin:              f.pluginBin,
+		SyncAdapter:            res.sync.adapter,
+		SyncFolders:            res.sync.folders,
+		SyncRoot:               res.sync.root,
+		MessageSound:           res.messageSound,
+		MessageNotification:    res.messageNotification,
+		MessageIntervalSeconds: int(res.opts.MessageInterval / time.Second),
+		HarnessVersion:         res.id.harnessVersion,
+		RegisteredAt:           registeredAt,
+		UpdatedAt:              now,
 	}
 }
 
@@ -1010,6 +1011,9 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	}
 	if res.opts.MessageNotificationWarning != "" {
 		warnings = append(warnings, res.opts.MessageNotificationWarning)
+	}
+	if res.opts.MessageIntervalWarning != "" {
+		warnings = append(warnings, res.opts.MessageIntervalWarning)
 	}
 	for _, w := range warnings {
 		r.say(w)

@@ -9,6 +9,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-09-27
+### Added
+
+- **The interval between message sounds, or notifications, is the member's** (card 38): the plugin option
+  `message_interval`, a whole number of seconds, `30` by default, never under `5` — a burst of messages stays one
+  sound and one notification, not a flood — and never over `3600`. It governs both announcements of 0.12.0 and
+  0.13.0, is frozen into the by-pid map (`message_interval_seconds`, absent for the default) and reaches the
+  running watcher within a liveness tick, like the options it governs; a value that is not a whole number of
+  seconds in that range — a sign, a fraction, a unit — keeps the default and says so once at session start. No
+  wire change.
+
 ## [0.13.0] — 2026-09-27
 ### Added
 

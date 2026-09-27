@@ -193,8 +193,8 @@ including the sender's summary, was written by the sender.**
 - **The watcher does nothing a message asks.** The background process that delivers messages injects and
   acknowledges, and no message makes it run a command or edit a file. It does start three programs of its own:
   the sync adapter, when the project lists folders to sync — it starts Syncthing, and Syncthing writes into the
-  listed folders what teammates' machines send (section 12) — and, as a message arrives, at most once every 30
-  seconds each, the system's sound player when you set the `message_sound` option — a fixed argument list —
+  listed folders what teammates' machines send (section 12) — and, as a message arrives, at most once per
+  interval each (`message_interval`: 30 seconds unless you set it, never under 5), the system's sound player when you set the `message_sound` option — a fixed argument list —
   and the system's notifier when you set `message_notification`, with arguments Brigade composes. Nothing in a
   message steers any of them: the player is told the sound file's name and nothing else; the notifier is told
   Brigade's title, your own session's name and a count, each as an argument — osascript reads them from its run

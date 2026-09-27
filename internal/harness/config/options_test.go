@@ -3,10 +3,12 @@ package config_test
 import (
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
+	"github.com/appshapes/brigade/internal/harness/notify"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -17,7 +19,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOptions: %v", err)
 	}
-	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true}
+	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true, MessageInterval: notify.DefaultInterval}
 	if got != want {
 		t.Fatalf("defaults =\n %+v\nwant\n %+v", got, want)
 	}
@@ -44,6 +46,10 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		config.OptionLabel+"=Alice of Ops",
 		// `off` rather than `on`, for the same reason as share_doing.
 		config.OptionSync+"=off",
+		// `on` rather than `off`, and 120 rather than 30, for the same reason.
+		config.OptionMessageSound+"=on",
+		config.OptionMessageNotification+"=on",
+		config.OptionMessageInterval+"=120",
 	)
 	got, err := config.ParseOptions(env)
 	if err != nil {
@@ -62,6 +68,9 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		FrameWarning:        config.WarnFrameBothSet,
 		Label:               "Alice of Ops",
 		Sync:                false,
+		MessageSound:        true,
+		MessageNotification: true,
+		MessageInterval:     2 * time.Minute,
 	}
 	if got != want {
 		t.Fatalf("options =\n %+v\nwant\n %+v", got, want)
@@ -536,5 +545,53 @@ func TestParseMessageNotification(t *testing.T) {
 	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionMessageNotification+"=maybe", config.OptionMessageSound+"=on"))
 	if err != nil || got.MessageNotification || got.MessageNotificationWarning != config.WarnMessageNotificationInvalid || !got.MessageSound {
 		t.Fatalf("ParseOptions with message_notification=maybe beside message_sound=on: %+v, %v", got, err)
+	}
+}
+
+// TestParseMessageInterval pins the message_interval grammar (card 38):
+// unset is the default; a whole number of seconds within notify's bounds
+// is that interval; a sign, a fraction, a unit, a value outside the
+// bounds or any other text is the default with the one fixed warning,
+// which never echoes the value.
+func TestParseMessageInterval(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		raw  string
+		want time.Duration
+		warn string
+	}{
+		{"", notify.DefaultInterval, ""},
+		{"30", 30 * time.Second, ""},
+		{" 5 ", 5 * time.Second, ""},
+		{"3600", 3600 * time.Second, ""},
+		{"0900", 900 * time.Second, ""},
+		{"4", notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+		{"0", notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+		{"3601", notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+		{"99999", notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+		{"-30", notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+		{"+30", notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+		{"30s", notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+		{"1.5", notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+		{"1e2", notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+		{"٣٠", notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+		{evilMarker, notify.DefaultInterval, config.WarnMessageIntervalInvalid},
+	} {
+		got, warn := config.ParseMessageInterval(c.raw)
+		if got != c.want || warn != c.warn {
+			t.Errorf("ParseMessageInterval(%q) = (%v, %q), want (%v, %q)", c.raw, got, warn, c.want, c.warn)
+		}
+		if strings.Contains(warn, evilMarker) {
+			t.Errorf("ParseMessageInterval(%q): the warning echoes the value", c.raw)
+		}
+	}
+	d := newDirs(t)
+	got, err := config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionMessageInterval+"=120"))
+	if err != nil || got.MessageInterval != 2*time.Minute || got.MessageIntervalWarning != "" {
+		t.Fatalf("ParseOptions with message_interval=120: %+v, %v", got, err)
+	}
+	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242"))
+	if err != nil || got.MessageInterval != notify.DefaultInterval || got.MessageIntervalWarning != "" {
+		t.Fatalf("ParseOptions with message_interval unset: %+v, %v", got, err)
 	}
 }

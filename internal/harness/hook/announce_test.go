@@ -198,3 +198,51 @@ func TestAnnounceFlipOnTheContinuePath(t *testing.T) {
 		}
 	}
 }
+
+// TestMessageIntervalFreezesAndWarns (card 38): a good value is frozen
+// into the map in seconds with no line; unset freezes the default; a bad
+// value freezes the default with the one fixed warning, after any
+// announcement line, and the session connects.
+func TestMessageIntervalFreezesAndWarns(t *testing.T) {
+	t.Parallel()
+	found := func(string) ([]string, string) { return []string{"/opt/bin/program"}, "" }
+	for name, tc := range map[string]struct {
+		interval string
+		seconds  int
+		warn     bool
+	}{
+		"unset":       {"", 30, false},
+		"two minutes": {"120", 120, false},
+		"too short":   {"1", 30, true},
+		"not seconds": {"30s", 30, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.deps.SoundPlayer = found
+			f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "x", false))}})
+			extra := []string{config.OptionMessageSound + "=on"}
+			if tc.interval != "" {
+				extra = append(extra, config.OptionMessageInterval+"="+tc.interval)
+			}
+			exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"), extra...)
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			got := lines(out)
+			want := 1
+			if tc.warn {
+				want = 2
+			}
+			if len(got) != want || !strings.HasPrefix(got[0], "Brigade: this session is ") {
+				t.Fatalf("lines = %q, want %d", got, want)
+			}
+			if tc.warn && got[1] != config.WarnMessageIntervalInvalid {
+				t.Fatalf("line 1 = %q, want the interval warning", got[1])
+			}
+			if m := f.mustMap(); m.MessageIntervalSeconds != tc.seconds || !m.MessageSound {
+				t.Fatalf("map interval %d sound %v, want %d and on", m.MessageIntervalSeconds, m.MessageSound, tc.seconds)
+			}
+		})
+	}
+}

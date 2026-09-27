@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/appshapes/brigade/internal/harness/frame"
+	"github.com/appshapes/brigade/internal/harness/notify"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -475,5 +476,51 @@ func TestMessageNotificationRoundTripsAndIsOmittedWhenOff(t *testing.T) {
 	}
 	if err := back.Validate(); err != nil {
 		t.Fatalf("Validate after the round trip: %v", err)
+	}
+}
+
+// TestMessageIntervalMemberBoundsAndDefault (card 38): the member
+// round-trips within notify's bounds, is omitted at zero — a map from
+// before the option, read as the default — and is refused outside them.
+func TestMessageIntervalMemberBoundsAndDefault(t *testing.T) {
+	t.Parallel()
+	m := validByPID()
+	if m.Interval() != notify.DefaultInterval {
+		t.Fatalf("Interval with no member = %v, want the default", m.Interval())
+	}
+	data, err := json.Marshal(&m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "message_interval_seconds") {
+		t.Fatalf("a map with no interval writes the member: %s", data)
+	}
+	m.MessageIntervalSeconds = 120
+	if data, err = json.Marshal(&m); err != nil {
+		t.Fatal(err)
+	}
+	var back sessionmap.ByPID
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Interval() != 2*time.Minute {
+		t.Fatalf("Interval after the round trip = %v, want 2m", back.Interval())
+	}
+	if err := back.Validate(); err != nil {
+		t.Fatalf("Validate after the round trip: %v", err)
+	}
+	for _, bad := range []int{-1, 1, 4, 3601, 1 << 20} {
+		m := validByPID()
+		m.MessageIntervalSeconds = bad
+		if err := m.Validate(); err == nil {
+			t.Errorf("Validate accepted message_interval_seconds = %d", bad)
+		}
+	}
+	for _, good := range []int{5, 30, 3600} {
+		m := validByPID()
+		m.MessageIntervalSeconds = good
+		if err := m.Validate(); err != nil {
+			t.Errorf("Validate refused message_interval_seconds = %d: %v", good, err)
+		}
 	}
 }

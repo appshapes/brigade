@@ -90,6 +90,12 @@
       "title": "Show a desktop notification when a message arrives",
       "description": "on shows one desktop notification when a teammate's message reaches this session (delivered into it, or held for your release), at most once every 30 seconds, saying only that a message arrived for this session and how many did; off (the default) shows nothing. macOS shows it through terminal-notifier when installed, else osascript; Linux through notify-send; a machine with none says so once at session start.",
       "default": "off"
+    },
+    "message_interval": {
+      "type": "string",
+      "title": "Seconds between message sounds or notifications",
+      "description": "The least time between two message sounds, or two desktop notifications, for one session, as a whole number of seconds: 30 by default, never under 5 (a burst of messages is one sound and one notification, not a flood) and never over 3600. Anything else keeps the default and says so once at session start.",
+      "default": "30"
     }
   }
 }

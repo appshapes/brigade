@@ -16,7 +16,7 @@ import (
 )
 
 // The message-arrival sound (card 35) and desktop notification (card 36)
-// with the fs adapter and the fake socket: one play for a burst, another only after notify.MinInterval by
+// with the fs adapter and the fake socket: one play for a burst, another only after notify.DefaultInterval by
 // the watcher's clock; a held message plays and its release does not; off
 // by default, and on within a tick when the map flips; nothing for a
 // refused message. The player is a recorder — the machine's own players
@@ -108,7 +108,7 @@ func TestMessageSoundOncePerBurstThenAgainAfterTheInterval(t *testing.T) {
 	if n := rec.count(); n != 1 {
 		t.Fatalf("plays = %d after a burst of two, want 1", n)
 	}
-	clk.Advance(notify.MinInterval + time.Second)
+	clk.Advance(notify.DefaultInterval + time.Second)
 	third := fx.send("after the interval 7a3")
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return rec.count() == 2 })
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return slices.Contains(fx.ackedIDs(), third) })
@@ -141,7 +141,7 @@ func TestMessageSoundForAHeldMessageAndNotForItsRelease(t *testing.T) {
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return rec.count() == 1 })
 	// The release comes after the interval, so a second sound would not
 	// be hidden by it.
-	clk.Advance(notify.MinInterval + time.Second)
+	clk.Advance(notify.DefaultInterval + time.Second)
 	fx.writeRelease(fx.sessionID, id)
 	if frames := fx.sock.WaitFrames(1, waitShort); len(frames) != 1 || !strings.Contains(frames[0], body) {
 		t.Fatalf("frames = %q, want the released message", frames)

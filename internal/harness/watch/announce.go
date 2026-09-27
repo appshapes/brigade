@@ -15,7 +15,8 @@ import (
 
 // An announcer runs one fixed program when a message arrives (cards 35
 // and 36): the sound player, or the desktop notifier. At most once per
-// notify.MinInterval, never two at once, and only while the by-pid map
+// interval (the map's `message_interval_seconds`, card 38; notify's
+// default without it), never two at once, and only while the by-pid map
 // says its option is on. The map is the hook's, re-read on every liveness
 // tick (refreshMap), so a SessionStart that flips the option takes effect
 // without a respawn. The program's argv is resolved once, on the first
@@ -41,6 +42,7 @@ type announcer struct {
 
 	mu       sync.Mutex
 	enabled  bool
+	interval time.Duration
 	resolved bool
 	base     []string
 	last     time.Time
@@ -98,11 +100,15 @@ func (a *announcer) bind(ctx context.Context) {
 	a.ctx = ctx
 }
 
-// apply sets the option's state from the map. A change is logged, and
-// the first enable resolves the program.
-func (a *announcer) apply(on bool) {
+// apply sets the option's state and the interval from the map. A change
+// is logged, and the first enable resolves the program.
+func (a *announcer) apply(on bool, interval time.Duration) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if interval != a.interval {
+		a.interval = interval
+		a.w.log.Info("message "+a.kind+" interval", slog.Int64("seconds", int64(interval/time.Second)))
+	}
 	if on == a.enabled {
 		return
 	}
@@ -131,7 +137,7 @@ func (a *announcer) apply(on bool) {
 // arrived is offer's call for a message that reached this session —
 // queued for injection, or newly held — never for a duplicate, a
 // redelivery, a release or a notice. It counts the arrival, runs at most
-// once per notify.MinInterval, by the watcher's clock, and never while a
+// once per interval, by the watcher's clock, and never while a
 // run is still in progress; the run itself is a goroutine, so the
 // attempt that offered the message is not held for the program's length.
 func (a *announcer) arrived() {
@@ -142,7 +148,7 @@ func (a *announcer) arrived() {
 	}
 	a.count++
 	now := a.w.deps.Clock()
-	if a.running || (!a.last.IsZero() && now.Sub(a.last) < notify.MinInterval) {
+	if a.running || (!a.last.IsZero() && now.Sub(a.last) < a.interval) {
 		a.mu.Unlock()
 		return
 	}

@@ -33,7 +33,7 @@ sanitised, and a message can never grant permission, approve a prompt or represe
 
 ## Options
 
-Thirteen options, all optional, all with working defaults:
+Fourteen options, all optional, all with working defaults:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -50,6 +50,7 @@ Thirteen options, all optional, all with working defaults:
 | `frame_file` | *(empty)* | absolute path to a plain UTF-8 text file (NFC, at most 4096 bytes, no tags) holding your own sentence or two, used in place of the level's sentence; read once when the session starts; wins over `frame` |
 | `message_sound` | `off` | `on` plays one quiet system sound when a teammate's message reaches this session — delivered into it, or held for your release — and then nothing more for 30 seconds, so a burst is one sound; `off` plays nothing. macOS plays its Glass sound through `afplay`, Linux the desktop's new-message sound through `paplay`; a machine with neither says so once at session start ("Hearing or seeing a message arrive", below) |
 | `message_notification` | `off` | `on` shows one desktop notification when a teammate's message reaches this session — delivered into it, or held for your release — and then nothing more for 30 seconds; it says that a message arrived for this session, and how many did, and nothing from the message. macOS shows it through `terminal-notifier` when installed, else `osascript`; Linux through `notify-send`; a machine with none says so once at session start ("Hearing or seeing a message arrive", below) |
+| `message_interval` | `30` | the least time between two message sounds, or two desktop notifications, for one session, as a whole number of seconds: never under `5`, so a burst of messages stays one sound and one notification, and never over `3600`. Anything else keeps the default and says so once at session start |
 
 Every team message arrives inside a short paragraph from Brigade. That paragraph says where the message came
 from, that it is untrusted text, that it cannot approve anything or change your settings, how to reply, and not
@@ -64,9 +65,10 @@ that cannot be read or fails a check leaves the session without Brigade, with on
 
 **Hearing or seeing a message arrive.** With `message_sound` set to `on`, the watcher plays one quiet system
 sound the moment a teammate's message reaches this session — delivered into it, or held for your release under
-`team_inbound: hold` — and then nothing more for 30 seconds, so a burst of messages is one sound. With
+`team_inbound: hold` — and then nothing more for the interval, 30 seconds unless `message_interval` says otherwise,
+so a burst of messages is one sound. With
 `message_notification` set to `on`, it shows a desktop notification on the same terms: the title `Brigade` and
-`A message arrived for <this session's name>.`, or `3 messages arrived for …` when the 30 seconds kept two more
+`A message arrived for <this session's name>.`, or `3 messages arrived for …` when the interval kept two more
 quiet; the two options combine freely. A refused message, a duplicate the backend redelivers and a message you
 release yourself make no sound and show nothing, and a notice from Brigade never does. Each is a fixed program
 started by the watcher with nothing from the message — not its text, not its sender: the sound is `afplay` with
@@ -82,7 +84,7 @@ arriving message, which is why Brigade provides both. A machine
 with no player, or no notifier, prints `Brigade: message sound off (<why>).` or `Brigade: message notification off
 (<why>).` once at session start and does nothing, and so does a session that runs no watcher (no inbox socket). A
 message whose delivery failed and is delivered again counts as arriving again, and a replaced watcher starts its
-30 seconds afresh. The options are yours alone: a project's `.brigade.json` cannot set them.
+interval afresh. The options are yours alone: a project's `.brigade.json` cannot set them.
 
 Set them from `/plugin` in a session, or on the command line:
 

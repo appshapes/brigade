@@ -93,11 +93,11 @@ func (c *settableClock) Now() time.Time {
 	return c.now
 }
 
-// pastInterval moves the clock just past notify.MinInterval.
+// pastInterval moves the clock just past notify.DefaultInterval.
 func (c *settableClock) pastInterval() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.now = c.now.Add(notify.MinInterval + time.Second)
+	c.now = c.now.Add(notify.DefaultInterval + time.Second)
 }
 
 // testWatcher is the least watcher an announcer needs; its PATH holds no
@@ -124,7 +124,7 @@ func eventuallyRuns(t *testing.T, g *gatedProgram, n int) {
 }
 
 // TestAnnouncerCoalescesAndNeverOverlaps pins the two guards with the
-// clock in hand (card 35): a second arrival inside notify.MinInterval
+// clock in hand (card 35): a second arrival inside notify.DefaultInterval
 // runs nothing, an arrival while a run is still in progress runs nothing
 // however far the clock moved, and an arrival after both — the interval
 // passed, the run returned — runs again. Off, or on with no program on
@@ -143,7 +143,7 @@ func TestAnnouncerCoalescesAndNeverOverlaps(t *testing.T) {
 	if n := g.count(); n != 0 {
 		t.Fatalf("runs = %d before the option is on, want 0", n)
 	}
-	s.apply(true)
+	s.apply(true, notify.DefaultInterval)
 	s.arrived()
 	eventuallyRuns(t, g, 1)
 	s.arrived() // inside the interval, and the program is still running
@@ -161,7 +161,7 @@ func TestAnnouncerCoalescesAndNeverOverlaps(t *testing.T) {
 	if n := g.count(); n != 2 {
 		t.Fatalf("runs = %d inside the second interval, want 2", n)
 	}
-	s.apply(false)
+	s.apply(false, notify.DefaultInterval)
 	clk.pastInterval()
 	s.arrived()
 	if n := g.count(); n != 2 {
@@ -171,7 +171,7 @@ func TestAnnouncerCoalescesAndNeverOverlaps(t *testing.T) {
 	// No program on PATH: on resolves to nothing and runs nothing.
 	none := &gatedProgram{gate: make(chan struct{})}
 	quiet := newSoundAnnouncer(testWatcher(none, clk, nil, nil))
-	quiet.apply(true)
+	quiet.apply(true, notify.DefaultInterval)
 	quiet.arrived()
 	if n := none.count(); n != 0 || quiet.base != nil {
 		t.Fatalf("runs = %d, base = %q with no program on PATH; want none", n, quiet.base)
@@ -189,7 +189,7 @@ func TestBannerCarriesTheCountSinceTheLastOne(t *testing.T) {
 	clk := &settableClock{now: time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)}
 	w := testWatcher(g, clk, nil, []string{"/nonexistent/brigade-test-notifier"})
 	b := newBannerAnnouncer(w)
-	b.apply(true)
+	b.apply(true, notify.DefaultInterval)
 	b.arrived()
 	eventuallyRuns(t, g, 1)
 	b.join()
@@ -220,8 +220,8 @@ func TestBannerCarriesTheCountSinceTheLastOne(t *testing.T) {
 	// first banner after it comes back counts from one.
 	b.arrived()
 	b.arrived()
-	b.apply(false)
-	b.apply(true)
+	b.apply(false, notify.DefaultInterval)
+	b.apply(true, notify.DefaultInterval)
 	clk.pastInterval()
 	b.arrived()
 	eventuallyRuns(t, g, 4)
@@ -231,7 +231,7 @@ func TestBannerCarriesTheCountSinceTheLastOne(t *testing.T) {
 	}
 	// The sound's argv never changes.
 	s := newSoundAnnouncer(testWatcher(g, clk, []string{"/nonexistent/player", "-v", "0.25"}, nil))
-	s.apply(true)
+	s.apply(true, notify.DefaultInterval)
 	s.arrived()
 	s.arrived()
 	eventuallyRuns(t, g, 5)
@@ -252,7 +252,7 @@ func TestAnnouncerIsCancelledAndJoinedAtExit(t *testing.T) {
 	s := newSoundAnnouncer(testWatcher(g, clk, []string{"/nonexistent/player"}, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	s.bind(ctx)
-	s.apply(true)
+	s.apply(true, notify.DefaultInterval)
 	s.arrived()
 	eventuallyRuns(t, g, 1)
 	cancel()
@@ -266,4 +266,38 @@ func TestAnnouncerIsCancelledAndJoinedAtExit(t *testing.T) {
 	if err := g.ctxs[0].Err(); err == nil {
 		t.Fatal("the program's context did not end")
 	}
+}
+
+// TestAnnouncerHonoursTheConfiguredInterval (card 38): the interval is
+// the map's, per announcer — five seconds lets a second arrival through
+// six seconds later, an hour keeps it quiet — and a change through apply
+// takes effect at the next arrival without touching the option.
+func TestAnnouncerHonoursTheConfiguredInterval(t *testing.T) {
+	t.Parallel()
+	g := &gatedProgram{gate: make(chan struct{})}
+	close(g.gate)
+	clk := &settableClock{now: time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)}
+	s := newSoundAnnouncer(testWatcher(g, clk, []string{"/nonexistent/player"}, nil))
+	s.apply(true, notify.IntervalFloor)
+	s.arrived()
+	eventuallyRuns(t, g, 1)
+	s.join()
+	clk.mu.Lock()
+	clk.now = clk.now.Add(notify.IntervalFloor + time.Second)
+	clk.mu.Unlock()
+	s.arrived()
+	eventuallyRuns(t, g, 2)
+	s.join()
+	s.apply(true, notify.IntervalCeiling) // the option stays on; only the interval moves
+	clk.pastInterval()                    // past the default, well inside an hour
+	s.arrived()
+	if n := g.count(); n != 2 {
+		t.Fatalf("runs = %d inside an hour-long interval, want 2", n)
+	}
+	clk.mu.Lock()
+	clk.now = clk.now.Add(notify.IntervalCeiling)
+	clk.mu.Unlock()
+	s.arrived()
+	eventuallyRuns(t, g, 3)
+	s.join()
 }

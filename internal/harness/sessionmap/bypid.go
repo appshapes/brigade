@@ -35,6 +35,7 @@ import (
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/harness/frame"
+	"github.com/appshapes/brigade/internal/harness/notify"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -168,6 +169,11 @@ type ByPID struct {
 	// MessageNotification is the `message_notification` option the same
 	// way (card 36): a desktop notification as a message arrives.
 	MessageNotification bool `json:"message_notification,omitzero"`
+	// MessageIntervalSeconds is the `message_interval` option as the hook
+	// resolved it (card 38): the seconds between two sounds, or two
+	// notifications, within notify's bounds. Absent (omitzero) in a map
+	// from before the option existed, which Interval reads as the default.
+	MessageIntervalSeconds int `json:"message_interval_seconds,omitzero"`
 	// HarnessVersion is the Claude Code version from the registry's
 	// `version` member when present, else "unknown".
 	HarnessVersion string `json:"harness_version"`
@@ -216,8 +222,20 @@ func (m *ByPID) Validate() error {
 		return errInvalid("frame_text")
 	case m.FrameLevel == string(frame.LevelCustom) && frame.CheckClause(m.FrameText) != nil:
 		return errInvalid("frame_text")
+	case m.MessageIntervalSeconds != 0 && (m.MessageIntervalSeconds < int(notify.IntervalFloor/time.Second) || m.MessageIntervalSeconds > int(notify.IntervalCeiling/time.Second)):
+		return errInvalid("message_interval_seconds")
 	}
 	return m.validateSync()
+}
+
+// Interval is the interval between two message sounds, or two
+// notifications, this map asks for: the member's seconds, or
+// notify.DefaultInterval when the member is absent.
+func (m *ByPID) Interval() time.Duration {
+	if m.MessageIntervalSeconds == 0 {
+		return notify.DefaultInterval
+	}
+	return time.Duration(m.MessageIntervalSeconds) * time.Second
 }
 
 // syncAdapterName is the team file's adapter-name rule (folder-sync plan
