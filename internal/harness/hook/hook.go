@@ -53,6 +53,7 @@ import (
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/registry"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
@@ -852,13 +853,8 @@ func (r *run) client(adapter config.Adapter, profile, configDir, stateDir string
 	}
 }
 
-// stateFile is ${stateDir}/state/<pid><suffix>.
-func stateFile(stateDir string, pid int, suffix string) string {
-	return filepath.Join(stateDir, "state", strconv.Itoa(pid)+suffix)
-}
-
-// noticePath is the watcher's one-line notice (3.2).
-func noticePath(stateDir string, pid int) string { return stateFile(stateDir, pid, ".notice") }
+// noticePath is the watcher's notice file (3.2; the notice package).
+func noticePath(stateDir string, pid int) string { return notice.Path(stateDir, pid) }
 
 // retryStampPath records the last registration retry of the prompt hook.
 func retryStampPath(stateDir string, pid int) string {

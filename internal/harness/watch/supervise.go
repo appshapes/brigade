@@ -7,6 +7,7 @@ import (
 
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/backoff"
+	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/watchstate"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -82,7 +83,7 @@ func (w *watcher) supervise() int {
 		if v.stop {
 			w.log.Error("watcher stopping",
 				slog.String("code", string(v.code)), slog.String("why", v.why), slog.Int("exit", r.exitCode))
-			w.writeNotice(stopNotice(v.code))
+			w.writeNotice(notice.TopicWatcher, stopNotice(v.code))
 			return v.code.Exit()
 		}
 		now := w.deps.Clock()
@@ -91,7 +92,7 @@ func (w *watcher) supervise() int {
 			if !backoff.Retryable(v.code) {
 				w.log.Error("watcher giving up",
 					slog.Int("failures", len(failures)), slog.Duration("window", w.deps.GiveUpWindow))
-				w.writeNotice(giveUpNotice(len(failures), w.deps.GiveUpWindow))
+				w.writeNotice(notice.TopicWatcher, giveUpNotice(len(failures), w.deps.GiveUpWindow))
 				return ExitGaveUp
 			}
 			w.degradedSince = now
@@ -99,7 +100,7 @@ func (w *watcher) supervise() int {
 				slog.String("code", string(v.code)), slog.String("why", v.why),
 				slog.Int("failures", len(failures)), slog.Duration("window", w.deps.GiveUpWindow),
 				slog.Duration("every", slow.Max()))
-			w.writeNotice(slowRetryNotice(v.code, slow.Max()))
+			w.writeNotice(notice.TopicWatcher, slowRetryNotice(v.code, slow.Max()))
 		}
 		delay := restart.Next()
 		if !w.degradedSince.IsZero() {
@@ -178,7 +179,7 @@ func (w *watcher) recovered() {
 	away := w.deps.Clock().Sub(w.degradedSince)
 	w.degradedSince = time.Time{}
 	w.log.Info("watcher reconnected", slog.Duration("after", away.Truncate(time.Second)))
-	w.writeNotice(reconnectedNotice(away))
+	w.writeNotice(notice.TopicWatcher, reconnectedNotice(away))
 }
 
 // closeWithoutChild is the exit path when no watch child is running to

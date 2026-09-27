@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/inbound"
+	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
@@ -359,24 +359,22 @@ func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID) b
 	return true
 }
 
-// printNotice prints the watcher's one-line notice once and removes it
-// (3.2). A notice that is not a private file is removed unread.
+// printNotice prints the watcher's notices once and removes them (3.2):
+// one line per topic, oldest first (the notice package, card 34). The
+// file is taken before it is read, so a line the watcher writes meanwhile
+// waits for the next prompt instead of being removed unread. A notice file
+// that is not a private file is removed unread.
 func (r *run) printNotice(f facts) {
-	path := noticePath(f.stateDir, f.pid)
-	data, err := adapterkit.ReadStrict(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return
-	}
+	notices, err := notice.Take(noticePath(f.stateDir, f.pid))
 	if err != nil {
 		r.log.Warn("prompt: notice file refused and removed", log.Err(err))
-		_ = os.Remove(path)
 		return
 	}
-	first, _, _ := strings.Cut(string(data), "\n")
-	if line := oneLine(first, 512); line != "" && r.fits(line) {
-		r.say(line)
+	for _, n := range notices {
+		if line := oneLine(n.Text, 512); line != "" && r.fits(line) {
+			r.say(line)
+		}
 	}
-	_ = os.Remove(path)
 }
 
 // poll is the `poll_on_prompt` fallback (6.3): `message receive --limit

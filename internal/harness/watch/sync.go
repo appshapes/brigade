@@ -13,6 +13,7 @@ import (
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/foldersync"
+	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -136,7 +137,7 @@ func (w *watcher) runSync(ctx context.Context) {
 					applied, appliedAt = set, now
 					if summary != lastSummary {
 						lastSummary = summary
-						w.writeNotice(summary)
+						w.writeNotice(notice.TopicSync, summary)
 					}
 				}
 			}
@@ -330,7 +331,7 @@ func (w *watcher) syncUnavailable(ctx context.Context, err error) {
 	}
 	w.log.Warn("sync adapter unavailable; file sync is off for this session",
 		slog.String("sync_adapter", w.sync.adapter), slog.String("code", string(codeOf(err))), adlog.Err(err))
-	w.writeNotice(syncUnavailableNotice(w.sync.adapter, err))
+	w.writeNotice(notice.TopicSync, syncUnavailableNotice(w.sync.adapter, err))
 }
 
 // syncUnavailableNotice renders that notice: an external adapter missing

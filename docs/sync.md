@@ -115,8 +115,9 @@ File sync runs in the session's watcher, so the last two say there is none: a ho
 inbox socket runs no watcher at all, and a watcher that failed to start is started again at the next prompt —
 whose notice line then says what syncs. A project with no `sync` member gets no line.
 
-**At a prompt**, the session's watcher reports through its one notice line, printed once at the next prompt and
-again whenever it changes:
+**At a prompt**, the session's watcher reports through a notice line of its own, printed once at the next prompt
+and again whenever it changes. It stands beside the watcher's other notice, the one that says whether the
+session is receiving: neither replaces the other.
 
 ```
 Brigade sync: 2 folders, 1 of 3 peers connected

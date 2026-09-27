@@ -63,6 +63,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/inbound"
+	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/registry"
@@ -517,11 +518,6 @@ func logPath(stateDir string, claudePID int) string {
 	return filepath.Join(stateDir, "logs", fmt.Sprintf("watcher-%d.log", claudePID))
 }
 
-// noticePath is ${stateDir}/state/<claude_pid>.notice (3.2).
-func noticePath(stateDir string, claudePID int) string {
-	return filepath.Join(stateDir, "state", fmt.Sprintf("%d.notice", claudePID))
-}
-
 // A watcher is one running `brigade watch`.
 type watcher struct {
 	deps    Deps
@@ -885,23 +881,20 @@ func (w *watcher) clearStatus() {
 	}
 }
 
-// writeNotice writes ONE line to ${stateDir}/state/<pid>.notice, overwriting
-// (3.2: the next prompt hook prints it once). Best effort, logged.
+// writeNotice records line as the topic's notice in
+// ${stateDir}/state/<pid>.notice (3.2: the next prompt hook prints the
+// file's lines once). Best effort, logged.
 //
-// The slot holds one line, so the newest notice is the one a prompt shows.
-// For the two lines of the slow schedule that is the right one: they are
-// about one fact, whether the session receives, and the later is the true
-// one. A sync summary written between them replaces either, as it replaces
-// a stop notice.
-func (w *watcher) writeNotice(line string) {
-	path := noticePath(w.rc.env.StateDir, w.rc.env.ClaudePID)
-	if err := adapterkit.MkdirPrivate(filepath.Dir(path)); err != nil {
+// The file holds one line per topic (notice, card 34). A topic's newer line
+// replaces its older one: the two lines of the slow schedule are about one
+// fact, whether the session receives, and the later is the true one. A
+// line of another topic — a sync summary — stays beside it, where it used
+// to replace it.
+func (w *watcher) writeNotice(topic, line string) {
+	path := notice.Path(w.rc.env.StateDir, w.rc.env.ClaudePID)
+	if err := notice.Put(path, topic, line, w.deps.Clock()); err != nil {
 		w.log.Warn("notice not written", adlog.Err(err))
 		return
 	}
-	if err := adapterkit.WriteAtomic(path, []byte(line+"\n")); err != nil {
-		w.log.Warn("notice not written", adlog.Err(err))
-		return
-	}
-	w.log.Info("notice written", slog.String("notice", line))
+	w.log.Info("notice written", slog.String("topic", topic), slog.String("notice", line))
 }

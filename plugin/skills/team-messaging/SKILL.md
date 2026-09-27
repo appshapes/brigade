@@ -237,7 +237,8 @@ delivery: watcher running (0.15.0), connected for 12m; last delivery recorded 3m
 A line that starts `Brigade: this session is not receiving team messages` can arrive on your user's turn. It
 means the backend could not be reached. Brigade keeps trying by itself, and messages sent to this session wait
 on the server: nothing is asked of you. `Brigade: this session is receiving team messages again` follows once
-it has reconnected.
+it has reconnected. Several `Brigade` lines can arrive at one prompt, one for each subject: the newest about
+whether the session receives, the newest about folder sync.
 
 Do not retry more than once without new information. `brigade doing` has one answer that is not an error:
 `not published: this session does not publish a doing line. Carry on with the work.` at exit 0 means exactly

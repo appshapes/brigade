@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/appshapes/brigade/internal/harness/backoff"
+	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/watchstate"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -28,15 +29,6 @@ const (
 	slowNoticeSuffix = ". Messages wait on the server until it reconnects.\n"
 	backNoticePrefix = "Brigade: this session is receiving team messages again, after about "
 )
-
-// notice reads the fixture's notice file, "" when there is none.
-func (fx *fixture) notice() string {
-	data, err := os.ReadFile(fx.noticePath())
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
 
 // watchState is the state word of the watcher's state file, "" when there
 // is no file (or none that reads).
@@ -488,6 +480,46 @@ func TestWatchStateBeforeTheFirstChildIsReady(t *testing.T) {
 	}
 	if fx.logHas("watch child failed; restarting", nil) || fx.logHas("watch ready", nil) {
 		t.Errorf("the child failed or was ready: %v", fx.logLines())
+	}
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+// TestNoticesOfTwoTopicsStandSideBySide is card 34's notice file through
+// the watcher: a folder-sync line that was waiting is still there when the
+// watcher says the session is not receiving, and again when it says it has
+// reconnected. The file used to be one line, and each of the two erased the
+// other. Within its own topic the watcher's later line replaces its
+// earlier one.
+func TestNoticesOfTwoTopicsStandSideBySide(t *testing.T) {
+	t.Parallel()
+	const syncLine = "Brigade sync: 2 folders, 1 of 3 peers connected"
+	fx := newFixture(t, fixtureOptions{sink: true})
+	gate := t.TempDir() + "/gate"
+	fx.useHelper("gate=" + gate)
+	fx.writeMap()
+	if err := notice.Put(fx.noticePath(), notice.TopicSync, syncLine, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	deps := fx.deps()
+	deps.GiveUpFailures = 3
+	deps.HealthyAfter = 100 * time.Millisecond
+	deps.SlowSchedule = func() *backoff.Schedule { return backoff.New(60*time.Millisecond, 60*time.Millisecond, seeded(12)) }
+	r := fx.start(deps, fx.args()...)
+
+	fx.waitLog("watch child failed; restarting", map[string]any{"slow": true})
+	lines := strings.Split(strings.TrimSuffix(fx.notice(), "\n"), "\n")
+	if len(lines) != 2 || lines[0] != syncLine || !strings.HasPrefix(lines[1]+"\n", slowNoticePrefix) {
+		t.Fatalf("notices during the outage: %q", lines)
+	}
+
+	openGate(t, gate)
+	fx.waitLog("watcher reconnected", nil)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return strings.Contains(fx.notice(), backNoticePrefix) })
+	lines = strings.Split(strings.TrimSuffix(fx.notice(), "\n"), "\n")
+	if len(lines) != 2 || lines[0] != syncLine || !strings.HasPrefix(lines[1], backNoticePrefix) {
+		t.Fatalf("notices after the reconnect: %q", lines)
 	}
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)

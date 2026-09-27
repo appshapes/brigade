@@ -319,6 +319,9 @@ Brigade: this session is receiving team messages again, after about 17 minutes w
 A failure that trying again cannot fix still stops the watcher, and the line says what to do. A revoked
 membership says ``run `brigade team join` again``.
 
+Brigade has other lines for you at a prompt, such as the folder sync line. Each subject keeps one line, its
+newest. One subject's line never replaces another's, so you may see several `Brigade` lines at one prompt.
+
 ## Is my session receiving?
 
 Ask your session:

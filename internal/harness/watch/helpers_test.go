@@ -26,6 +26,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/inbound"
+	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -767,6 +768,22 @@ func (fx *fixture) pidfilePath() string {
 
 func (fx *fixture) noticePath() string {
 	return filepath.Join(fx.dirs.BrigadeState, "state", strconv.Itoa(fx.claudePID)+".notice")
+}
+
+// notice is the notice file as the next prompt would print it: one line
+// per notice, oldest first, each ended by a newline; "" when there is no
+// file. It reads and leaves the file where it is.
+func (fx *fixture) notice() string {
+	notices, err := notice.Read(fx.noticePath())
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, n := range notices {
+		b.WriteString(n.Text)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // seenPath is the seen file of the fixture's Brigade session (P5-14: keyed

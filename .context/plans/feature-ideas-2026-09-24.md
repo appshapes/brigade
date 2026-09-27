@@ -4,8 +4,11 @@ Trello card 34 ("Research feature enhancements"). Status: **research only — no
 34, nothing committed by the session that wrote this.** Owner: Rjae. Constraint from the ask: small or medium
 features that aid the three existing installations; no new adapter.
 
-**Since then:** items 1 to 5 were built on 2026-09-27 (§7; execution log P23-1..P23-5), to ship in one
-release with the items that follow them. **Owed before that release:** the frame re-measurement of §4.2.
+**Since then:** items 1 to 5 and 9 were built on 2026-09-27 (§7; execution log P23-1..P23-6), to ship in one
+release with the items that follow them. **The frame measurement of §4.2 is Trello card 40** (2026-09-27): Rjae
+agreed it is worth doing, chose the spot-check size, and has no time for it now. **The release does not wait
+for it** (her ruling, the same day). A plain re-run of the sweeps would measure nothing, because no model in
+them reads a reply frame; the card says what to change.
 
 **Method.** One workflow of seven agents, sized to the ask (memory rule: Opus for fan-out, Fable for judgement):
 four Opus ideators, one lens each (in-session operator experience; coordination between sessions; folder-sync
@@ -260,3 +263,22 @@ have had:
    guess.
 4. **A session with no inbox socket says so**, instead of `watcher not running`: nothing will start one.
 5. **`--json` gets a `delivery` member** with times, not ages, and no path, id or file name.
+
+**Item 9, 2026-09-27** (card 34; Rjae: "Go ahead with Item 9"). The sketch said "a bounded few lines (say five,
+oldest dropped)". Built as that, with one rule the sketch did not have:
+
+1. **One line per topic, not the last five lines.** The sync summary is rewritten whenever it changes, so five
+   plain slots would fill with sync summaries and push out the one line that says the session is not
+   receiving. Each writer names a topic (`watcher`, `sync`); a topic's newer line replaces its older one, and
+   topics stand side by side. Five is the bound on topics. Items 7, 8 and 11 each pick a topic: 7 belongs to
+   `sync`, 8 and 11 want their own.
+2. **The hook takes the file by renaming it, then reads it.** The old read-then-remove could remove a line the
+   watcher had just written. No lock is held across the two processes, so no lock file is left per session.
+   What remains possible is a line of another topic printed twice, when the watcher read the file a moment
+   before the hook took it.
+3. **The file is JSON with a version**, like the pending and release files. A file that does not parse is read
+   as the one plain line an older watcher wrote, so a watcher replaced at a prompt still gets its last word
+   printed.
+
+This settles the ordering note under item 2 above: the watcher's two lines and the sync line no longer share a
+slot.

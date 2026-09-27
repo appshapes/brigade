@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/appshapes/brigade/internal/harness/foldersync"
+	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
@@ -76,11 +77,16 @@ func (fx *fixture) syncMap(adapter string, root string, folders ...string) {
 
 // readNotice is the notice file's one line, "" when there is none.
 func (fx *fixture) readNotice() string {
-	b, err := os.ReadFile(fx.noticePath())
-	if err != nil {
-		return ""
+	fx.t.Helper()
+	// Every line a sync test reads is folder sync's own: written under
+	// another topic it would replace, and be replaced by, the watcher's.
+	notices, _ := notice.Read(fx.noticePath())
+	for _, n := range notices {
+		if n.Topic != notice.TopicSync {
+			fx.t.Errorf("a sync notice was written under the topic %q: %q", n.Topic, n.Text)
+		}
 	}
-	return strings.TrimSpace(string(b))
+	return strings.TrimSpace(fx.notice())
 }
 
 // TestSyncDrivesTheAdapter is the watcher half of folder-sync plan §4.3

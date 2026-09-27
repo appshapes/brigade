@@ -71,6 +71,20 @@ stdin prompt-plan.json
 exec brigade hook prompt
 ! stdout .
 
+# The file the watcher writes now holds one line per topic (card 34); the
+# one above is the single plain line an older watcher wrote. Both lines are
+# printed, oldest first, once.
+cp notices.json $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.notice
+chmod 600 $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.notice
+stdin prompt-plan.json
+exec brigade hook prompt
+cmp stdout want-notices.txt
+! exists $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.notice
+! exists $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.notice.taken
+stdin prompt-plan.json
+exec brigade hook prompt
+! stdout .
+
 # A notice that is not a private file is removed unread.
 expand notice.in $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.notice
 chmod 644 $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.notice
@@ -224,6 +238,11 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 {"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "UserPromptSubmit", "permission_mode": "bypassPermissions", "prompt": "never read", "prompt_id": "p2", "transcript_path": "/never/read.jsonl"}
 -- garbage.txt --
 not a JSON document
+-- notices.json --
+{"version":1,"notices":[{"topic":"sync","text":"Brigade sync: 2 folders, 1 of 3 peers connected","at":"2026-09-27T16:00:00Z"},{"topic":"watcher","text":"Brigade: this session is receiving team messages again, after about 17 minutes without.","at":"2026-09-27T16:05:00Z"}]}
+-- want-notices.txt --
+Brigade sync: 2 folders, 1 of 3 peers connected
+Brigade: this session is receiving team messages again, after about 17 minutes without.
 -- notice.in --
 Brigade: watcher stopped: unauthorized; run `brigade team join` again
 -- script.json.in --

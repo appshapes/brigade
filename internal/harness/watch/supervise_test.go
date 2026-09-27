@@ -125,11 +125,8 @@ func TestGiveUpAfterTenFailures(t *testing.T) {
 	if fx.logHas("watcher retrying slowly", nil) {
 		t.Errorf("a crash was put on the slow schedule: %v", fx.logLines())
 	}
-	notice, err := os.ReadFile(fx.noticePath())
-	if err != nil {
-		t.Fatalf("notice: %v", err)
-	}
-	if string(notice) != "Brigade: watcher gave up after 10 failures within 5m0s; it will be restarted at your next prompt\n" {
+	notice := fx.notice()
+	if notice != "Brigade: watcher gave up after 10 failures within 5m0s; it will be restarted at your next prompt\n" {
 		t.Errorf("notice = %q", notice)
 	}
 	if _, err := os.Stat(fx.pidfilePath()); !os.IsNotExist(err) {
@@ -202,11 +199,8 @@ func TestUnauthorizedStopsWithNotice(t *testing.T) {
 	if fx.logHas("watch child failed; restarting", nil) {
 		t.Errorf("a non-retryable exit was restarted")
 	}
-	notice, err := os.ReadFile(fx.noticePath())
-	if err != nil {
-		t.Fatalf("notice: %v", err)
-	}
-	if string(notice) != "Brigade: watcher stopped: unauthorized; run `brigade team join` again\n" {
+	notice := fx.notice()
+	if notice != "Brigade: watcher stopped: unauthorized; run `brigade team join` again\n" {
 		t.Errorf("notice = %q", notice)
 	}
 	if _, err := os.Stat(fx.pidfilePath()); !os.IsNotExist(err) {
@@ -230,8 +224,8 @@ func TestProtocolMismatchStops(t *testing.T) {
 	if dumpCount(t, dump, "message", "watch") != 0 {
 		t.Errorf("a watch child ran despite the protocol mismatch")
 	}
-	notice, _ := os.ReadFile(fx.noticePath())
-	if !strings.HasPrefix(string(notice), "Brigade: watcher stopped: protocol_mismatch; ") {
+	notice := fx.notice()
+	if !strings.HasPrefix(notice, "Brigade: watcher stopped: protocol_mismatch; ") {
 		t.Errorf("notice = %q", notice)
 	}
 }
@@ -289,8 +283,8 @@ func TestFatalErrorEventWithoutExitIsStopped(t *testing.T) {
 	if !fx.logHas("child did not exit after a fatal error event; stopping it", map[string]any{"code": "unauthenticated"}) {
 		t.Errorf("log: %v", fx.logLines())
 	}
-	notice, _ := os.ReadFile(fx.noticePath())
-	if string(notice) != "Brigade: watcher stopped: unauthenticated; run `brigade team join` again\n" {
+	notice := fx.notice()
+	if notice != "Brigade: watcher stopped: unauthenticated; run `brigade team join` again\n" {
 		t.Errorf("notice = %q", notice)
 	}
 }

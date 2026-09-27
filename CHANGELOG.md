@@ -50,6 +50,13 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **One notice no longer erases another** (card 34, item 9). The watcher's notice file held one line, and
+  whoever wrote last won: a folder sync summary erased `this session is not receiving team messages`, and the
+  other way round. The file now holds one line for each subject — whether the session receives, and folder
+  sync — and at most five. Within a subject the newer line replaces the older. The prompt prints them all,
+  oldest first, once. The prompt hook now takes the file before it reads it, so a line the watcher writes at
+  that moment waits for the next prompt instead of being removed unread. A file written by an older watcher,
+  one plain line, is still read. Same path, same mode 0600. No wire change.
 - **A session no longer stops receiving after a network outage** (card 34, item 2). The watcher used to exit
   after ten failures inside five minutes, and only the next prompt started it again: a session left idle for a
   hand-off went `offline` and stayed there until someone typed. It now stays. When those ten failures are ones
