@@ -9,6 +9,30 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-09-27
+### Added
+
+- **A desktop notification when a message arrives** (card 36): the plugin option `message_notification`, `off` by
+  default, beside 0.12.0's `message_sound` and on its terms — the same arrival rule (delivered, or newly held;
+  nothing for a refused message, a redelivered duplicate, a release or a notice), the same 30-second window, a
+  fixed program run by the watcher through the spawn seam with the from-scratch child environment.
+  The banner says `Brigade` and `A message arrived for <this session's name>.`, or `<n> messages arrived for …`
+  when the window kept some quiet, and nothing from the message: not its text, not its sender. macOS shows it
+  through `terminal-notifier` when installed (a Brigade title, one banner per session that a burst replaces),
+  else `osascript`, whose script is fixed `-e` statements that read the title and text from their arguments —
+  a session name full of quotes stays data; Linux through `notify-send` with the body's markup and backslashes
+  escaped, over the user bus at `$XDG_RUNTIME_DIR/bus` (the watcher passes no `DBUS_SESSION_BUS_ADDRESS`). A
+  machine with none says `Brigade: message notification off (<why>).` once at session start, as does a session
+  that runs no watcher. A flipped option reaches the running watcher within a liveness tick. The by-pid map
+  gains the optional `message_notification` member; no wire change.
+
+### Changed
+
+- **A member can ask their session to set a Brigade option.** [`plugin/README.md`](plugin/README.md) now says so
+  under "Options": on the member's word the session edits the `pluginConfigs` entry of their user settings file,
+  effective at the next session start — and never on a teammate's message: the frame says a message cannot
+  change settings, and every such request in the measured set was refused (guidance, not a lock).
+
 ## [0.12.0] — 2026-09-26
 ### Added
 

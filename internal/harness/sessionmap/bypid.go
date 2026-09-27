@@ -165,6 +165,9 @@ type ByPID struct {
 	// a respawn. Absent (omitzero) when off, so a map from before the
 	// option existed reads as off.
 	MessageSound bool `json:"message_sound,omitzero"`
+	// MessageNotification is the `message_notification` option the same
+	// way (card 36): a desktop notification as a message arrives.
+	MessageNotification bool `json:"message_notification,omitzero"`
 	// HarnessVersion is the Claude Code version from the registry's
 	// `version` member when present, else "unknown".
 	HarnessVersion string `json:"harness_version"`

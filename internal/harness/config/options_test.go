@@ -501,3 +501,40 @@ func TestParseMessageSound(t *testing.T) {
 		t.Fatalf("ParseOptions with message_sound unset: %+v, %v", got, err)
 	}
 }
+
+// TestParseMessageNotification: message_notification has message_sound's
+// grammar (card 36) with its own warning, and ParseOptions carries the
+// pair beside the sound's.
+func TestParseMessageNotification(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		raw  string
+		on   bool
+		warn string
+	}{
+		{"", false, ""},
+		{"off", false, ""},
+		{"on", true, ""},
+		{" on ", true, ""},
+		{"On", false, config.WarnMessageNotificationInvalid},
+		{"banner", false, config.WarnMessageNotificationInvalid},
+		{evilMarker, false, config.WarnMessageNotificationInvalid},
+	} {
+		on, warn := config.ParseMessageNotification(c.raw)
+		if on != c.on || warn != c.warn {
+			t.Errorf("ParseMessageNotification(%q) = (%v, %q), want (%v, %q)", c.raw, on, warn, c.on, c.warn)
+		}
+		if strings.Contains(warn, evilMarker) {
+			t.Errorf("ParseMessageNotification(%q): the warning echoes the value", c.raw)
+		}
+	}
+	d := newDirs(t)
+	got, err := config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionMessageNotification+"=on"))
+	if err != nil || !got.MessageNotification || got.MessageNotificationWarning != "" || got.MessageSound {
+		t.Fatalf("ParseOptions with message_notification=on: %+v, %v", got, err)
+	}
+	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionMessageNotification+"=maybe", config.OptionMessageSound+"=on"))
+	if err != nil || got.MessageNotification || got.MessageNotificationWarning != config.WarnMessageNotificationInvalid || !got.MessageSound {
+		t.Fatalf("ParseOptions with message_notification=maybe beside message_sound=on: %+v, %v", got, err)
+	}
+}

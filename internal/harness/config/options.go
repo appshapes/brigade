@@ -25,6 +25,7 @@ const (
 	OptionLabel               = "CLAUDE_PLUGIN_OPTION_LABEL"
 	OptionSync                = "CLAUDE_PLUGIN_OPTION_SYNC"
 	OptionMessageSound        = "CLAUDE_PLUGIN_OPTION_MESSAGE_SOUND"
+	OptionMessageNotification = "CLAUDE_PLUGIN_OPTION_MESSAGE_NOTIFICATION"
 )
 
 // The BRIGADE_* variables that stand in for three options OUTSIDE a
@@ -98,6 +99,9 @@ const (
 	// WarnMessageSoundInvalid: the message_sound option is neither on nor
 	// off (card 35); the session plays nothing and says so once.
 	WarnMessageSoundInvalid = `Brigade: message_sound must be "on" or "off"; the value set is neither, so no sound is played for this session.`
+	// WarnMessageNotificationInvalid: the same for message_notification
+	// (card 36).
+	WarnMessageNotificationInvalid = `Brigade: message_notification must be "on" or "off"; the value set is neither, so no notification is shown for this session.`
 )
 
 // The two words the sync option takes (folder-sync plan §4.3).
@@ -123,7 +127,8 @@ func ParseSync(raw string) (bool, string) {
 	}
 }
 
-// The message_sound option's two words (card 35).
+// The two words of the message_sound and message_notification options
+// (cards 35 and 36).
 const (
 	MessageSoundOn  = "on"
 	MessageSoundOff = "off"
@@ -135,13 +140,27 @@ const (
 // with WarnMessageSoundInvalid. Matching is exact after trimming, as
 // ParseSync's is, and there is no BRIGADE_* fallback for the same reason.
 func ParseMessageSound(raw string) (bool, string) {
+	return parseOffByDefault(raw, WarnMessageSoundInvalid)
+}
+
+// ParseMessageNotification is the same grammar for message_notification
+// (card 36): whether the watcher shows a desktop notification as a
+// message arrives, off unless the option says on.
+func ParseMessageNotification(raw string) (bool, string) {
+	return parseOffByDefault(raw, WarnMessageNotificationInvalid)
+}
+
+// parseOffByDefault is the on/off grammar of an option whose default is
+// off: "" or "off" → false; "on" → true; anything else → false with the
+// option's fixed warning, which never echoes the value.
+func parseOffByDefault(raw, warn string) (bool, string) {
 	switch strings.TrimSpace(raw) {
 	case "", MessageSoundOff:
 		return false, ""
 	case MessageSoundOn:
 		return true, ""
 	default:
-		return false, WarnMessageSoundInvalid
+		return false, warn
 	}
 }
 
@@ -301,6 +320,10 @@ type Options struct {
 	// WarnMessageSoundInvalid when the option was neither word.
 	MessageSound        bool
 	MessageSoundWarning string
+	// MessageNotification is the same for a desktop notification (card
+	// 36), with its own warning.
+	MessageNotification        bool
+	MessageNotificationWarning string
 }
 
 // ParseOptions resolves Options from environ. Only CLAUDE_PLUGIN_OPTION_*
@@ -387,6 +410,7 @@ func ParseOptions(environ []string) (Options, error) {
 	o.Label = LabelOption(environ)
 	o.Sync, o.SyncWarning = ParseSync(opt(OptionSync))
 	o.MessageSound, o.MessageSoundWarning = ParseMessageSound(opt(OptionMessageSound))
+	o.MessageNotification, o.MessageNotificationWarning = ParseMessageNotification(opt(OptionMessageNotification))
 	return o, nil
 }
 

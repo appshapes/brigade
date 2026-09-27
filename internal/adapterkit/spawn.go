@@ -392,7 +392,8 @@ func signalName(sig syscall.Signal) string {
 }
 
 // A QuietSpec describes one child run for its side effect alone — the
-// message-arrival sound player (card 35) — with nothing given to it and
+// message-arrival sound player or desktop notifier (cards 35 and 36) —
+// with nothing given to it and
 // nothing read from it: no stdin (the null device), stdout and stderr
 // discarded. Argv and Env follow SpawnSpec's rules exactly: an argv array
 // executed directly, never a shell, and an environment the caller built

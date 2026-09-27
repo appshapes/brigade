@@ -22,10 +22,10 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/harness/frame"
+	"github.com/appshapes/brigade/internal/harness/notify"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
-	"github.com/appshapes/brigade/internal/harness/sound"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -140,10 +140,14 @@ type resolved struct {
 	sync     frozenSync
 	syncLine string
 	// messageSound is the `message_sound` option as the map carries it
-	// (card 35): on, and a player this machine has. soundLine is the one
+	// (card 35): on, and a player this machine has; soundLine is the one
 	// line SessionStart prints when the option is on and no player is.
-	messageSound bool
-	soundLine    string
+	// messageNotification and notificationLine are the same for
+	// `message_notification` (card 36).
+	messageSound        bool
+	soundLine           string
+	messageNotification bool
+	notificationLine    string
 }
 
 // connect registers (or re-attaches to) the Brigade session and prints
@@ -341,23 +345,26 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		return resolved{}, false
 	}
 	sync, syncLine := r.resolveSync(opts, tf, in.Cwd)
-	messageSound, soundLine := r.resolveSound(opts)
+	messageSound, soundLine := r.resolveAnnounce(opts.MessageSound, r.deps.SoundPlayer, announceSound)
+	messageNotification, notificationLine := r.resolveAnnounce(opts.MessageNotification, r.deps.Notifier, announceNotification)
 	return resolved{
-		sync:         sync,
-		syncLine:     syncLine,
-		messageSound: messageSound,
-		soundLine:    soundLine,
-		opts:         opts,
-		teamKey:      key,
-		teamFile:     tf,
-		adapter:      adapter,
-		argv:         argv,
-		id:           id,
-		dec:          dec,
-		instruction:  instruction,
-		client:       r.client(adapter, key, opts.ConfigDir, f.stateDir),
-		store:        sessionmap.Store{StateDir: f.stateDir},
-		doingRules:   doingRules,
+		sync:                sync,
+		syncLine:            syncLine,
+		messageSound:        messageSound,
+		soundLine:           soundLine,
+		messageNotification: messageNotification,
+		notificationLine:    notificationLine,
+		opts:                opts,
+		teamKey:             key,
+		teamFile:            tf,
+		adapter:             adapter,
+		argv:                argv,
+		id:                  id,
+		dec:                 dec,
+		instruction:         instruction,
+		client:              r.client(adapter, key, opts.ConfigDir, f.stateDir),
+		store:               sessionmap.Store{StateDir: f.stateDir},
+		doingRules:          doingRules,
 	}, true
 }
 
@@ -594,34 +601,64 @@ func syncOffLine(why string) string {
 	return "Brigade: file sync off (" + why + ")."
 }
 
-// resolveSound decides whether this session's watcher plays a sound as a
-// message arrives (card 35): the option on, and a player this machine
-// has. Off says nothing — the default must not be announced at every
-// start — and on with a player says nothing either: the sound speaks for
-// itself. On without a player is one line naming why, so a member who
-// set the option and hears nothing knows what to install. Nothing here
-// runs a program; the reason is one of sound's fixed texts, never a path.
-func (r *run) resolveSound(opts config.Options) (bool, string) {
-	if !opts.MessageSound {
+// The two things a session can announce a message's arrival with, as
+// the session-start line names them: `message sound` (card 35) and
+// `message notification` (card 36).
+const (
+	announceSound        = "message sound"
+	announceNotification = "message notification"
+)
+
+// resolveAnnounce decides whether this session's watcher plays a sound,
+// or shows a notification, as a message arrives: the option on, and a
+// program this machine has (probe: the hook's SoundPlayer or Notifier
+// seam). Off says nothing — the default must not be announced at every
+// start — and on with a program says nothing either: the sound or the
+// banner speaks for itself. On without one is one line naming why, so a
+// member who set the option and gets nothing knows what to install.
+// Nothing here runs a program; the reason is one of notify's fixed
+// texts, never a path.
+func (r *run) resolveAnnounce(on bool, probe func(string) ([]string, string), what string) (bool, string) {
+	if !on {
 		return false, ""
 	}
-	if _, why := r.deps.SoundPlayer(pathValue(r.environ)); why != "" {
-		return false, soundOffLine(why)
+	if _, why := probe(pathValue(r.environ)); why != "" {
+		return false, announceOffLine(what, why)
 	}
 	return true, ""
 }
 
-// soundOffLine is the one SessionStart line for a session whose
-// `message_sound` option is on and whose machine cannot play (card 35).
-func soundOffLine(why string) string {
-	return "Brigade: message sound off (" + why + ")."
+// sayAnnounce prints the one line for a sound or a notification the
+// session cannot make: the resolver's (no program), or — since both run
+// in the watcher — file sync's reasons for a session that runs none.
+func (r *run) sayAnnounce(f facts, on bool, line, what string, watcherRuns bool) {
+	switch {
+	case on && !watcherRuns && f.socket == "" && r.deps.Sink == "":
+		r.say(announceOffLine(what, syncOffNoSocket))
+	case on && !watcherRuns:
+		r.say(announceOffLine(what, syncOffNoWatcher))
+	case line != "":
+		r.say(line)
+	}
 }
 
-// soundPlayer is the production SoundPlayer: sound.Resolve over sound's
-// own PATH search — the watcher's, which skips a relative entry — so the
-// hook, probing from the project directory, answers as the watcher will.
+// announceOffLine is the one SessionStart line for a session whose
+// `message_sound` or `message_notification` option is on and which
+// cannot honour it.
+func announceOffLine(what, why string) string {
+	return "Brigade: " + what + " off (" + why + ")."
+}
+
+// soundPlayer and notifier are the production SoundPlayer and Notifier:
+// notify's resolvers over notify's own PATH search — the watcher's, which
+// skips a relative entry — so the hook, probing from the project
+// directory, answers as the watcher will.
 func soundPlayer(pathVar string) ([]string, string) {
-	return sound.Resolve(runtime.GOOS, func(name string) (string, bool) { return sound.LookPath(pathVar, name) }, sound.Exists)
+	return notify.Sound(runtime.GOOS, func(name string) (string, bool) { return notify.LookPath(pathVar, name) }, notify.Exists)
+}
+
+func notifier(pathVar string) ([]string, string) {
+	return notify.Banner(runtime.GOOS, func(name string) (string, bool) { return notify.LookPath(pathVar, name) })
 }
 
 // pathValue is the PATH value of environ, last occurrence winning.
@@ -895,33 +932,34 @@ func (r *run) otherLiveWatcher(f facts, sessionID string) (int, bool) {
 // and this rewrite is how the watcher learns of it.
 func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, teamName string, registeredAt, now time.Time) *sessionmap.ByPID {
 	return &sessionmap.ByPID{
-		ClaudePID:        f.pid,
-		ClaudeSessionID:  in.SessionID,
-		BrigadeSessionID: sessionID,
-		TeamRef:          teamRef,
-		TeamName:         teamName,
-		SessionName:      res.id.name,
-		WorkspaceLabel:   res.workspaceLabel,
-		LabelOption:      res.opts.Label,
-		DoingMode:        res.doingMode,
-		PermissionMode:   in.PermissionMode,
-		NonInteractive:   res.id.nonInteractive,
-		Inbound:          res.dec.Policy.String(),
-		FrameLevel:       string(res.instruction.Level),
-		FrameText:        res.instruction.Custom,
-		SocketPath:       f.socket,
-		TranscriptPath:   transcriptPath(in),
-		TeamKey:          res.teamKey,
-		ConfigDir:        res.opts.ConfigDir,
-		AdapterCommand:   res.argv,
-		PluginBin:        f.pluginBin,
-		SyncAdapter:      res.sync.adapter,
-		SyncFolders:      res.sync.folders,
-		SyncRoot:         res.sync.root,
-		MessageSound:     res.messageSound,
-		HarnessVersion:   res.id.harnessVersion,
-		RegisteredAt:     registeredAt,
-		UpdatedAt:        now,
+		ClaudePID:           f.pid,
+		ClaudeSessionID:     in.SessionID,
+		BrigadeSessionID:    sessionID,
+		TeamRef:             teamRef,
+		TeamName:            teamName,
+		SessionName:         res.id.name,
+		WorkspaceLabel:      res.workspaceLabel,
+		LabelOption:         res.opts.Label,
+		DoingMode:           res.doingMode,
+		PermissionMode:      in.PermissionMode,
+		NonInteractive:      res.id.nonInteractive,
+		Inbound:             res.dec.Policy.String(),
+		FrameLevel:          string(res.instruction.Level),
+		FrameText:           res.instruction.Custom,
+		SocketPath:          f.socket,
+		TranscriptPath:      transcriptPath(in),
+		TeamKey:             res.teamKey,
+		ConfigDir:           res.opts.ConfigDir,
+		AdapterCommand:      res.argv,
+		PluginBin:           f.pluginBin,
+		SyncAdapter:         res.sync.adapter,
+		SyncFolders:         res.sync.folders,
+		SyncRoot:            res.sync.root,
+		MessageSound:        res.messageSound,
+		MessageNotification: res.messageNotification,
+		HarnessVersion:      res.id.harnessVersion,
+		RegisteredAt:        registeredAt,
+		UpdatedAt:           now,
 	}
 }
 
@@ -959,21 +997,19 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 		}
 		r.say(line)
 	}
-	// The sound plays in the watcher, as file sync runs there: a session
-	// with none says so with the same reasons (card 35).
-	switch {
-	case res.messageSound && !watcherRuns && f.socket == "" && r.deps.Sink == "":
-		r.say(soundOffLine(syncOffNoSocket))
-	case res.messageSound && !watcherRuns:
-		r.say(soundOffLine(syncOffNoWatcher))
-	case res.soundLine != "":
-		r.say(res.soundLine)
-	}
+	// The sound and the notification run in the watcher, as file sync
+	// does: a session with none says so with the same reasons (cards 35
+	// and 36).
+	r.sayAnnounce(f, res.messageSound, res.soundLine, announceSound, watcherRuns)
+	r.sayAnnounce(f, res.messageNotification, res.notificationLine, announceNotification, watcherRuns)
 	if res.opts.SyncWarning != "" {
 		warnings = append(warnings, res.opts.SyncWarning)
 	}
 	if res.opts.MessageSoundWarning != "" {
 		warnings = append(warnings, res.opts.MessageSoundWarning)
+	}
+	if res.opts.MessageNotificationWarning != "" {
+		warnings = append(warnings, res.opts.MessageNotificationWarning)
 	}
 	for _, w := range warnings {
 		r.say(w)

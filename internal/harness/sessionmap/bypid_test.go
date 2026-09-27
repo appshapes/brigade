@@ -446,3 +446,34 @@ func TestMessageSoundRoundTripsAndIsOmittedWhenOff(t *testing.T) {
 		t.Fatalf("Validate after the round trip: %v", err)
 	}
 }
+
+// TestMessageNotificationRoundTripsAndIsOmittedWhenOff (card 36): as the
+// sound member, and independent of it.
+func TestMessageNotificationRoundTripsAndIsOmittedWhenOff(t *testing.T) {
+	t.Parallel()
+	m := validByPID()
+	data, err := json.Marshal(&m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "message_notification") {
+		t.Fatalf("an off session writes the member: %s", data)
+	}
+	m.MessageNotification = true
+	if data, err = json.Marshal(&m); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"message_notification":true`) || strings.Contains(string(data), "message_sound") {
+		t.Fatalf("the notification member is not written alone: %s", data)
+	}
+	var back sessionmap.ByPID
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !back.MessageNotification || back.MessageSound {
+		t.Fatalf("round trip: notification %v, sound %v", back.MessageNotification, back.MessageSound)
+	}
+	if err := back.Validate(); err != nil {
+		t.Fatalf("Validate after the round trip: %v", err)
+	}
+}

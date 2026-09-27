@@ -275,6 +275,7 @@ func (w *watcher) offer(m protocol.MessageEnvelope) {
 		slog.String("sender_session_id", m.Sender.SessionID))
 	if arrivedNow(d) {
 		w.sound.arrived()
+		w.banner.arrived()
 	}
 	if d.Ack {
 		w.injector.queueAck(d.MessageID)
@@ -283,7 +284,7 @@ func (w *watcher) offer(m protocol.MessageEnvelope) {
 }
 
 // arrivedNow says whether an Offer decision is a message reaching this
-// session for the first time (card 35): queued for injection — but not a
+// session for the first time (cards 35 and 36): queued for injection — but not a
 // released message a redelivery re-offers, which the pipeline marks
 // "released" and which was announced when it was held — or newly held
 // ("policy_hold"; a redelivery of a held id says "already_held"). A

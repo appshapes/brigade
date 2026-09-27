@@ -163,9 +163,11 @@ func (w *watcher) refreshMap() string {
 		w.log.Info("frame instruction changed", slog.String("frame_level", string(in.Level)))
 		w.pipeline.SetInstruction(in)
 	}
-	// The sound option is the map's too (card 35): a SessionStart that
-	// flipped it lands here within a tick, with no respawn.
+	// The sound and notification options are the map's too (cards 35 and
+	// 36): a SessionStart that flipped one lands here within a tick, with
+	// no respawn.
 	w.sound.apply(m.MessageSound)
+	w.banner.apply(m.MessageNotification)
 	w.state.mu.Lock()
 	w.state.inbound = pol.String()
 	if w.state.name == "" && m.SessionName != "" {

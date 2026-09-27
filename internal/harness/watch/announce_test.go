@@ -8,22 +8,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/appshapes/brigade/internal/harness/notify"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
-	"github.com/appshapes/brigade/internal/harness/sound"
 	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
-// The message-arrival sound (card 35) with the fs adapter and the fake
-// socket: one play for a burst, another only after sound.MinInterval by
+// The message-arrival sound (card 35) and desktop notification (card 36)
+// with the fs adapter and the fake socket: one play for a burst, another only after notify.MinInterval by
 // the watcher's clock; a held message plays and its release does not; off
 // by default, and on within a tick when the map flips; nothing for a
 // refused message. The player is a recorder — the machine's own players
 // never decide a test — and every wait is a hang catcher.
 
-// soundRecorder is the injected Deps.Sound: it counts plays and keeps the
-// last argv and environment.
+// soundRecorder is the injected Deps.Announce: it counts runs and keeps
+// the last argv and environment.
 type soundRecorder struct {
 	mu    sync.Mutex
 	plays int
@@ -75,7 +75,7 @@ var testPlayer = []string{"/nonexistent/brigade-test-player", "--quiet"}
 
 func soundDeps(fx *fixture, rec *soundRecorder, clk *fakeClock) watch.Deps {
 	deps := fx.deps()
-	deps.Sound = rec.play
+	deps.Announce = rec.play
 	deps.SoundCommand = testPlayer
 	if clk != nil {
 		deps.Clock = clk.Now
@@ -108,7 +108,7 @@ func TestMessageSoundOncePerBurstThenAgainAfterTheInterval(t *testing.T) {
 	if n := rec.count(); n != 1 {
 		t.Fatalf("plays = %d after a burst of two, want 1", n)
 	}
-	clk.Advance(sound.MinInterval + time.Second)
+	clk.Advance(notify.MinInterval + time.Second)
 	third := fx.send("after the interval 7a3")
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return rec.count() == 2 })
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return slices.Contains(fx.ackedIDs(), third) })
@@ -141,7 +141,7 @@ func TestMessageSoundForAHeldMessageAndNotForItsRelease(t *testing.T) {
 	testutil.Eventually(t, waitShort, pollEvery, func() bool { return rec.count() == 1 })
 	// The release comes after the interval, so a second sound would not
 	// be hidden by it.
-	clk.Advance(sound.MinInterval + time.Second)
+	clk.Advance(notify.MinInterval + time.Second)
 	fx.writeRelease(fx.sessionID, id)
 	if frames := fx.sock.WaitFrames(1, waitShort); len(frames) != 1 || !strings.Contains(frames[0], body) {
 		t.Fatalf("frames = %q, want the released message", frames)
@@ -196,6 +196,51 @@ func TestMessageSoundNeverForARefusedMessage(t *testing.T) {
 	}
 	if n := rec.count(); n != 0 {
 		t.Fatalf("plays = %d for refused messages, want 0", n)
+	}
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+func bannerOn(m *sessionmap.ByPID) { m.MessageNotification = true }
+
+var testNotifier = []string{"/nonexistent/brigade-test-notifier"}
+
+// TestMessageNotificationNamesTheSessionAndNothingElse (card 36): with
+// the option on, an arriving message runs the notifier with Brigade's
+// title and the session's own name, and nothing from the message; the
+// sound stays off when its option is.
+func TestMessageNotificationNamesTheSessionAndNothingElse(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{})
+	fx.useFS()
+	fx.writeMapWith(bannerOn)
+	const body = "a body that must not reach the notifier 4e1"
+	fx.forbidBody(body)
+	id := fx.send(body)
+	rec := &soundRecorder{}
+	deps := soundDeps(fx, rec, nil)
+	deps.SoundCommand = nil
+	deps.BannerCommand = testNotifier
+	r := fx.start(deps)
+	fx.waitLog("message notification on", nil)
+	if fx.logHas("message sound on", nil) {
+		t.Fatal("the sound came on with only the notification option set")
+	}
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return rec.count() == 1 })
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return slices.Equal(fx.ackedIDs(), []string{id}) })
+	argv, _ := rec.last()
+	want := []string{testNotifier[0], "--app-name=Brigade", "Brigade", "A message arrived for " + fx.name + "."}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("notifier argv = %q, want %q", argv, want)
+	}
+	for _, a := range argv {
+		if strings.Contains(a, "4e1") || strings.Contains(a, fx.senderSessionID) {
+			t.Fatalf("the notifier's argv carries the message or its sender: %q", argv)
+		}
+	}
+	if n := rec.count(); n != 1 {
+		t.Fatalf("runs = %d, want 1 (no sound)", n)
 	}
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)

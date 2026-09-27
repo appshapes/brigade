@@ -200,10 +200,12 @@ type Deps struct {
 	LookPath func(pathVar, name string) (string, bool)
 	// SoundPlayer resolves the fixed argv of the sound player the
 	// `message_sound` option would run on this machine, or nil and why
-	// not (card 35, sound.Resolve); nil means the package's own probe over
-	// lookPath. The hook never runs it: SessionStart only says when it
-	// cannot be run.
+	// not (card 35, notify.Sound), and Notifier the same for the desktop
+	// notifier of `message_notification` (card 36, notify.Banner); nil
+	// means the package's own probe. The hook never runs either:
+	// SessionStart only says when one cannot be run.
 	SoundPlayer func(pathVar string) ([]string, string)
+	Notifier    func(pathVar string) ([]string, string)
 	// BrigadeVersion is this binary's own version as a registration
 	// reports it (brigade_version, C-46); nil means buildinfo.Claimed,
 	// which is nil itself for a binary with no version to claim.
@@ -236,6 +238,7 @@ func RealDeps() Deps {
 		Lookup:       procutil.Lookup,
 		LookPath:     lookPath,
 		SoundPlayer:  soundPlayer,
+		Notifier:     notifier,
 		PidfileWait:  DefaultPidfileWait,
 		PromptBudget: promptBudget,
 	}
@@ -267,6 +270,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.SoundPlayer == nil {
 		d.SoundPlayer = prod.SoundPlayer
+	}
+	if d.Notifier == nil {
+		d.Notifier = prod.Notifier
 	}
 	if d.PidfileWait <= 0 {
 		d.PidfileWait = prod.PidfileWait

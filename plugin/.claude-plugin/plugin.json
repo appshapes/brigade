@@ -84,6 +84,12 @@
       "title": "Play a sound when a message arrives",
       "description": "on plays one quiet system sound when a teammate's message reaches this session (delivered into it, or held for your release), at most once every 30 seconds; off (the default) plays nothing. macOS plays its Glass sound through afplay, Linux the desktop's new-message sound through paplay; a machine with neither says so once at session start.",
       "default": "off"
+    },
+    "message_notification": {
+      "type": "string",
+      "title": "Show a desktop notification when a message arrives",
+      "description": "on shows one desktop notification when a teammate's message reaches this session (delivered into it, or held for your release), at most once every 30 seconds, saying only that a message arrived for this session and how many did; off (the default) shows nothing. macOS shows it through terminal-notifier when installed, else osascript; Linux through notify-send; a machine with none says so once at session start.",
+      "default": "off"
     }
   }
 }
