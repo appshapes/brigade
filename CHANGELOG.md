@@ -9,6 +9,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-09-28
 ### Fixed
 
 - **Two repositories of one team that list the same folder both sync** (card 42). A folder's id named the team
