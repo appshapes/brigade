@@ -19,41 +19,89 @@ import (
 	"github.com/appshapes/brigade/internal/testutil/fakesync"
 )
 
-// TestFolderIDIsTheSpecifiedDerivation pins §4.3's formula independently
-// of the implementation: every checkout of a team must arrive at the same
-// id for the same folder without exchanging it.
+// TestFolderIDIsTheSpecifiedDerivation pins the formula (§4.3, card 42)
+// independently of the implementation: every checkout of a repository
+// must arrive at the same id for the same folder without exchanging it,
+// and two repositories of one team at two.
 func TestFolderIDIsTheSpecifiedDerivation(t *testing.T) {
 	t.Parallel()
-	sum := sha256.Sum256([]byte("docs/shared"))
+	const ref = "6f0f2b41-5a3c-49d7-b8e2-0c7a4f1e6d33"
+	sum := sha256.Sum256([]byte("brigade/docs/shared"))
 	want := "brigade-6f0f2b41-" + hex.EncodeToString(sum[:])[:12]
-	if got := foldersync.FolderID("6f0f2b41-5a3c-49d7-b8e2-0c7a4f1e6d33", "docs/shared"); got != want {
+	if got := foldersync.FolderID(ref, "brigade", "docs/shared"); got != want {
 		t.Fatalf("FolderID = %q, want %q", got, want)
 	}
+	// The id docs/sync.md and docs/sync-adapters.md print.
+	if got := foldersync.FolderID(ref, "brigade", "docs"); got != "brigade-6f0f2b41-6f18276503a7" {
+		t.Fatalf("FolderID(brigade, docs) = %q, want the documents' example", got)
+	}
 	// Dashes are removed BEFORE the eight are taken.
-	if got := foldersync.FolderID("6f0f-2b41-5a3c", "x"); !strings.HasPrefix(got, "brigade-6f0f2b41-") {
+	if got := foldersync.FolderID("6f0f-2b41-5a3c", "r", "x"); !strings.HasPrefix(got, "brigade-6f0f2b41-") {
 		t.Fatalf("FolderID with early dashes = %q", got)
 	}
 	// A short ref is taken whole; the folder is hashed exactly as written.
-	if got := foldersync.FolderID("t1", "Docs"); !strings.HasPrefix(got, "brigade-t1-") || got == foldersync.FolderID("t1", "docs") {
-		t.Fatalf("FolderID(t1, Docs) = %q", got)
+	if got := foldersync.FolderID("t1", "r", "Docs"); !strings.HasPrefix(got, "brigade-t1-") || got == foldersync.FolderID("t1", "r", "docs") {
+		t.Fatalf("FolderID(t1, r, Docs) = %q", got)
 	}
-	if foldersync.FolderID("team-a-1", "docs") == foldersync.FolderID("team-b-1", "docs") {
+	if foldersync.FolderID("team-a-1", "r", "docs") == foldersync.FolderID("team-b-1", "r", "docs") {
 		t.Fatal("two teams share a folder id")
+	}
+	// The whole of card 42: one team, one folder name, two repositories.
+	if foldersync.FolderID(ref, "web", ".brigade") == foldersync.FolderID(ref, "api", ".brigade") {
+		t.Fatal("two repositories of one team share a folder id")
 	}
 }
 
-func TestFoldersDerivesPathAndLabel(t *testing.T) {
+// TestLegacyFolderIDIsTheEarlierDerivation pins the derivation of 0.11.0
+// to 0.15.0, which the upgrade must name exactly: the hash of the folder
+// alone. A checkout with no repository name still derives it.
+func TestLegacyFolderIDIsTheEarlierDerivation(t *testing.T) {
+	t.Parallel()
+	const ref = "6f0f2b41-5a3c-49d7-b8e2-0c7a4f1e6d33"
+	// The id the documents printed from 0.11.0 to 0.15.0.
+	if got := foldersync.LegacyFolderID(ref, "docs"); got != "brigade-6f0f2b41-46b42b4229cd" {
+		t.Fatalf("LegacyFolderID = %q", got)
+	}
+	if got := foldersync.FolderID(ref, "", "docs"); got != foldersync.LegacyFolderID(ref, "docs") {
+		t.Fatalf("FolderID with no scope = %q, want the legacy id", got)
+	}
+	if foldersync.FolderID(ref, "brigade", "docs") == foldersync.LegacyFolderID(ref, "docs") {
+		t.Fatal("the scoped id is the legacy id")
+	}
+}
+
+func TestFoldersDerivesPathLabelAndReplaces(t *testing.T) {
 	t.Parallel()
 	got := foldersync.Folders("team-1", "/home/u/repo", "brigade", []string{".context/plans", "docs"})
 	want := []foldersync.Folder{
-		{ID: foldersync.FolderID("team-1", ".context/plans"), Path: "/home/u/repo/.context/plans", Label: "brigade/.context/plans"},
-		{ID: foldersync.FolderID("team-1", "docs"), Path: "/home/u/repo/docs", Label: "brigade/docs"},
+		{
+			ID: foldersync.FolderID("team-1", "brigade", ".context/plans"), Path: "/home/u/repo/.context/plans",
+			Label: "brigade/.context/plans", Replaces: foldersync.LegacyFolderID("team-1", ".context/plans"),
+		},
+		{
+			ID: foldersync.FolderID("team-1", "brigade", "docs"), Path: "/home/u/repo/docs",
+			Label: "brigade/docs", Replaces: foldersync.LegacyFolderID("team-1", "docs"),
+		},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("Folders = %+v\nwant %+v", got, want)
 	}
-	if got := foldersync.Folders("team-1", "/r", "", []string{"docs"}); got[0].Label != "docs" {
-		t.Fatalf("a session without a workspace label: label %q, want the folder alone", got[0].Label)
+	// The label is the very text the id hashes: the adapter proves a
+	// folder's name from it.
+	for _, f := range got {
+		sum := sha256.Sum256([]byte(f.Label))
+		if !strings.HasSuffix(f.ID, "-"+hex.EncodeToString(sum[:])[:12]) {
+			t.Fatalf("folder %q: id %q is not the hash of its label", f.Label, f.ID)
+		}
+	}
+	// No repository name: the legacy id, the folder alone, nothing to replace.
+	bare := foldersync.Folders("team-1", "/r", "", []string{"docs"})
+	if bare[0].Label != "docs" || bare[0].ID != foldersync.LegacyFolderID("team-1", "docs") || bare[0].Replaces != "" {
+		t.Fatalf("a checkout without a repository name: %+v", bare[0])
+	}
+	raw, err := json.Marshal(bare[0])
+	if err != nil || strings.Contains(string(raw), "replaces") {
+		t.Fatalf("an absent replaces is written: %s (%v)", raw, err)
 	}
 }
 

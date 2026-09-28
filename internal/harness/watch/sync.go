@@ -44,6 +44,7 @@ type syncSetup struct {
 	adapter   string
 	folders   []string
 	root      string
+	scope     string
 	pluginBin string
 }
 
@@ -198,11 +199,12 @@ func (w *watcher) syncAttach(ctx context.Context, client *foldersync.Client) err
 }
 
 // syncApply is one `apply` with the folders and the round's teammates'
-// peers. It returns the summary line for the notice, or "" when the apply
-// did not complete (logged; the next round tries again).
+// peers. The folders' ids and labels carry the repository's name the hook
+// froze (card 42), not the session's workspace label. It returns the
+// summary line for the notice, or "" when the apply did not complete
+// (logged; the next round tries again).
 func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client, peers []foldersync.Peer) string {
-	label := w.state.snapshot().workspaceLabel
-	folders := foldersync.Folders(w.teamRef, w.sync.root, label, w.sync.folders)
+	folders := foldersync.Folders(w.teamRef, w.sync.root, w.sync.scope, w.sync.folders)
 	res, err := client.Apply(ctx, w.sessionID, folders, peers)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -271,8 +273,10 @@ func syncSummary(res *foldersync.ApplyResult, listed []foldersync.Folder) (strin
 
 // syncPeers reads the roster through the watcher's own backend client
 // (offline sessions included) and keeps the teammates' peers this adapter
-// can use: not this session, the same workspace_label — the same
-// repository, so two repositories of one team never share a folder id —
+// can use: not this session, the same workspace_label — by default the
+// repository's name, so a session is introduced to the sessions of its
+// own repository; the folder ids are kept apart by the repository's name
+// itself (foldersync.FolderID), whatever label a member chose —
 // and a sync_peer carrying THIS adapter's prefix, which is stripped. A
 // descriptor is offered once, and never this machine's own (another
 // session here shares its engine). A session that shares no workspace

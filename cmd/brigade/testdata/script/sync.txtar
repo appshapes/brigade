@@ -4,7 +4,9 @@
 # resolved as brigade-sync-fake on PATH, which records its one stdin
 # request and answers `status` — and a peer's label from the team roster
 # the backend adapter lists. A session that syncs nothing says so; outside
-# a session the command refuses, as `doing` does. `sync` is in the help;
+# a session the command refuses, as `doing` does. The map's `sync_scope`
+# is the repository's name, which the folder ids carry (card 42), while its
+# `workspace_label` is the member's own word. `sync` is in the help;
 # the hidden `sync-adapter` group only under --all.
 
 # --- fixture: the by-pid map the SessionStart hook would have written ----
@@ -44,6 +46,10 @@ json stdout .result.peer SELF-DEVICE-1
 json stdout .result.peers.0.label bob@example.com
 json stdout .result.configured.0.label brigade/docs
 json stdout .result.configured.0.path $WORK/repo/docs
+# The id carries the repository's name (card 42), and names the id the
+# folder had before 0.16.0, which the sync adapter moves it from.
+json stdout .result.configured.0.id brigade-team1-6f18276503a7
+json stdout .result.configured.0.replaces brigade-team1-46b42b4229cd
 
 # --- a session that syncs nothing -------------------------------------------
 expand map-off.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.json
@@ -70,7 +76,7 @@ exec brigade help --all
 stdout sync-adapter
 
 -- map.in --
-{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "workspace_label": "brigade", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "team_key": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "sync_adapter": "fake", "sync_folders": ["docs", ".context/plans"], "sync_root": "$WORK/repo", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
+{"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "workspace_label": "a-label-of-my-own", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "team_key": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "sync_adapter": "fake", "sync_folders": ["docs", ".context/plans"], "sync_root": "$WORK/repo", "sync_scope": "brigade", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
 -- map-off.in --
 {"claude_pid": 4242, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "workspace_label": "brigade", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "team_key": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
 -- fake.sh --
@@ -90,7 +96,7 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 # script's own directory): a path of another checkout reads conflict_path.
 req=$(cat)
 printf '%s %s %s\n' "$1" "$BRIGADE_STATE_DIR" "$req" >> "$(dirname "$0")/../sync-calls.txt"
-printf '%s\n' '{"ok":true,"protocol_version":"1","result":{"running":true,"peer":"SELF-DEVICE-1","folders":[{"id":"brigade-team1-46b42b4229cd","path":"'"$(dirname "$0")"'/../repo/docs","state":"idle"}],"peers":[{"peer":"PEER-A","connected":true},{"peer":"XYZ1234567","connected":false}]}}'
+printf '%s\n' '{"ok":true,"protocol_version":"1","result":{"running":true,"peer":"SELF-DEVICE-1","folders":[{"id":"brigade-team1-6f18276503a7","path":"'"$(dirname "$0")"'/../repo/docs","state":"idle"}],"peers":[{"peer":"PEER-A","connected":true},{"peer":"XYZ1234567","connected":false}]}}'
 -- script.json.in --
 {"dump_file": "$WORK/dump.ndjson", "responses": {"session list": [{"result": {"team_ref": "team-1", "team_name": "ops", "server_time": "2026-09-02T12:00:30Z", "truncated": false, "sessions": [{"session_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "session_name": "billing", "human_label": "bob@example.com", "principal_ref": "2b7d4e61-0c95-4f3a-9d22-bb0000000002", "state": "offline", "activity": "idle", "inbound": "accept", "sync_peer": "fake:PEER-A", "last_seen_at": "2026-09-02T11:59:45Z", "lease_until": "2026-09-02T12:01:30Z", "created_at": "2026-09-02T11:00:00Z", "is_self": false}, {"session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "session_name": "payments-api", "human_label": "alice@example.com", "principal_ref": "9f3c1a20-5d4e-4a7b-8c11-aa0000000001", "state": "active", "activity": "busy", "inbound": "accept", "sync_peer": "fake:SELF-DEVICE-1", "last_seen_at": "2026-09-02T12:00:18Z", "lease_until": "2026-09-02T12:01:30Z", "created_at": "2026-09-02T11:00:00Z", "is_self": true}]}}]}}
 -- warm.json --

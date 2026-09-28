@@ -261,11 +261,14 @@ type request struct {
 
 // A folderSpec is one folder apply shares: the id the harness derived
 // ("brigade-<team>-<hash>"), the absolute path in this checkout, and a
-// label for Syncthing's own UI.
+// label for Syncthing's own UI. Replaces, optional, is the id the folder
+// had before 0.16.0: apply moves a folder the instance still holds under
+// it, at this path, to ID (card 42).
 type folderSpec struct {
-	ID    string `json:"id"`
-	Path  string `json:"path"`
-	Label string `json:"label"`
+	ID       string `json:"id"`
+	Path     string `json:"path"`
+	Label    string `json:"label"`
+	Replaces string `json:"replaces"`
 }
 
 // A peerSpec is one teammate's descriptor (a Syncthing device id, the
@@ -307,7 +310,8 @@ type detachResult struct {
 // (Syncthing did not answer for it), "rejected" (Syncthing refused the
 // folder object), "conflict_path" (the folder id is held at another path
 // — the second clone of a repo on one machine — or another folder id
-// holds the path, plan 3.2).
+// holds the path; Syncthing 2.1.5 would take two ids at one path, and
+// this adapter keeps a path to one, plan 3.2).
 type folderState struct {
 	ID    string `json:"id"`
 	Path  string `json:"path,omitzero"`

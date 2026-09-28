@@ -519,19 +519,22 @@ func workspaceLabel(opts config.Options, cwd string) string {
 
 // frozenSync is file sync as SessionStart freezes it into the by-pid map
 // (folder-sync plan §4.3): the adapter NAME, the folders exactly as the
-// team file lists them, and the canonical repository toplevel they are
-// relative to. The zero value syncs nothing.
+// team file lists them, the canonical repository toplevel they are
+// relative to, and the repository's name, which scopes their ids (card
+// 42). The zero value syncs nothing.
 type frozenSync struct {
 	adapter string
 	folders []string
 	root    string
+	scope   string
 }
 
 // frozenIn reports whether m already carries exactly this configuration:
 // on the continue path a difference is a respawn reason, because the
 // watcher reads these members once, when it starts its sync goroutine.
 func (s frozenSync) frozenIn(m *sessionmap.ByPID) bool {
-	return m.SyncAdapter == s.adapter && m.SyncRoot == s.root && slices.Equal(m.SyncFolders, s.folders)
+	return m.SyncAdapter == s.adapter && m.SyncRoot == s.root && m.SyncScope == s.scope &&
+		slices.Equal(m.SyncFolders, s.folders)
 }
 
 // The reasons the SessionStart sync line gives for a session that syncs
@@ -570,8 +573,26 @@ func (r *run) resolveSync(opts config.Options, tf *teamfile.File, cwd string) (f
 		r.log.Warn("session-start: sync root unresolved; file sync is off")
 		return frozenSync{}, syncOffLine(syncOffUnresolved)
 	}
-	return frozenSync{adapter: tf.Sync.Adapter, folders: slices.Clone(tf.Sync.Folders), root: root},
+	return frozenSync{adapter: tf.Sync.Adapter, folders: slices.Clone(tf.Sync.Folders), root: root, scope: syncScope(cwd)},
 		syncOnLine(len(tf.Sync.Folders), tf.Sync.Adapter)
+}
+
+// syncScope is the repository's name for the folder ids (card 42):
+// teamfile.RepoName of the toplevel cwd is in, the value the roster's
+// REPO column shows by default. It is derived, never the
+// `workspace_label` option and whatever `share_workspace_label` says:
+// the id must be the same on every teammate's checkout, and it is sent
+// to nobody but the sync engine. "" when the checkout has no name the
+// map would take; the folders then keep their earlier ids.
+func syncScope(cwd string) string {
+	top, ok := teamfile.Toplevel(cwd)
+	if !ok {
+		return ""
+	}
+	if name := teamfile.RepoName(top); sessionmap.ValidSyncScope(name) {
+		return name
+	}
+	return ""
 }
 
 // syncRoot is the canonical (symlink-free, clean, absolute) toplevel of
@@ -955,6 +976,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		SyncAdapter:            res.sync.adapter,
 		SyncFolders:            res.sync.folders,
 		SyncRoot:               res.sync.root,
+		SyncScope:              res.sync.scope,
 		MessageSound:           res.messageSound,
 		MessageNotification:    res.messageNotification,
 		MessageIntervalSeconds: int(res.opts.MessageInterval / time.Second),

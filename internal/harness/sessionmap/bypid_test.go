@@ -185,6 +185,28 @@ func TestByPIDValidate(t *testing.T) {
 			withSync(m)
 			m.SyncFolders = []string{"docs", ""}
 		}, wantField: "sync_folders"},
+		// The scope (card 42): absent, or a repository name.
+		{name: "sync without a scope is valid", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncScope = ""
+		}},
+		{name: "sync scope with a space and a dot is valid", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncScope = "my repo.v2"
+		}},
+		{name: "sync scope without the rest", mutate: func(m *sessionmap.ByPID) { m.SyncScope = "repo" }, wantField: "sync_adapter"},
+		{name: "sync scope with a slash", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncScope = "org/" + evilMarker
+		}, wantField: "sync_scope"},
+		{name: "sync scope that is a parent", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncScope = ".."
+		}, wantField: "sync_scope"},
+		{name: "sync scope with a control character", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncScope = "repo\x1b[31m" + evilMarker
+		}, wantField: "sync_scope"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -220,9 +242,10 @@ func withSync(m *sessionmap.ByPID) {
 	m.SyncAdapter = "syncthing"
 	m.SyncFolders = []string{".context/plans", "docs/shared"}
 	m.SyncRoot = "/home/u/work/repo"
+	m.SyncScope = "repo"
 }
 
-// TestSyncMembersRoundTripAndAreOmittedWhenOff: the three sync members
+// TestSyncMembersRoundTripAndAreOmittedWhenOff: the sync members
 // survive JSON as the hook froze them, and a session that syncs nothing
 // writes none of them — so a map from before file sync existed and one
 // whose session has it off look the same, and both read.
@@ -238,8 +261,8 @@ func TestSyncMembersRoundTripAndAreOmittedWhenOff(t *testing.T) {
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatal(err)
 	}
-	if back.SyncAdapter != m.SyncAdapter || back.SyncRoot != m.SyncRoot || !slices.Equal(back.SyncFolders, m.SyncFolders) {
-		t.Fatalf("sync members did not round-trip: %q %q %v", back.SyncAdapter, back.SyncRoot, back.SyncFolders)
+	if back.SyncAdapter != m.SyncAdapter || back.SyncRoot != m.SyncRoot || back.SyncScope != m.SyncScope || !slices.Equal(back.SyncFolders, m.SyncFolders) {
+		t.Fatalf("sync members did not round-trip: %q %q %q %v", back.SyncAdapter, back.SyncRoot, back.SyncScope, back.SyncFolders)
 	}
 	if err := back.Validate(); err != nil {
 		t.Fatalf("Validate after the round trip: %v", err)

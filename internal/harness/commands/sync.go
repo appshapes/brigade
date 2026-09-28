@@ -51,13 +51,19 @@ type formerFolder struct {
 
 // formerFolders finds, among the engine's folders, those that are this
 // checkout's and not configured: the path relative to the checkout's root
-// is a folder name whose id, for this team, is the folder's id — so
-// another repository's folder, or one a person configured by hand, never
-// shows here.
-func formerFolders(engine []foldersync.FolderState, configured []foldersync.Folder, teamRef, root string) []formerFolder {
-	listed := make(map[string]bool, len(configured))
+// is a folder name whose id, for this team and this repository, is the
+// folder's id — so another repository's folder, or one a person
+// configured by hand, never shows here. A folder shared before 0.16.0 is
+// known by its earlier id (foldersync.LegacyFolderID); a listed folder
+// the engine still holds under that id is on its way to its new one, not
+// dropped, and does not show either.
+func formerFolders(engine []foldersync.FolderState, configured []foldersync.Folder, teamRef, scope, root string) []formerFolder {
+	listed := make(map[string]bool, 2*len(configured))
 	for _, f := range configured {
 		listed[f.ID] = true
+		if f.Replaces != "" {
+			listed[f.Replaces] = true
+		}
 	}
 	var out []formerFolder
 	for _, e := range engine {
@@ -69,7 +75,7 @@ func formerFolders(engine []foldersync.FolderState, configured []foldersync.Fold
 			continue
 		}
 		name := filepath.ToSlash(rel)
-		if name == "." || foldersync.FolderID(teamRef, name) != e.ID {
+		if name == "." || (foldersync.FolderID(teamRef, scope, name) != e.ID && foldersync.LegacyFolderID(teamRef, name) != e.ID) {
 			continue
 		}
 		out = append(out, formerFolder{name: name, state: e.State})
@@ -83,8 +89,9 @@ const shortPeerChars = 7
 
 // syncStatusResult is the --json result of `brigade sync status`: the
 // adapter's status result, plus the adapter name and the folders as this
-// session configured them (id, path, label), so a reader can tell this
-// project's folders from another project's on the same engine.
+// session configured them (id, path, label, and the earlier id a folder
+// replaces), so a reader can tell this project's folders from another
+// project's on the same engine.
 type syncStatusResult struct {
 	Sync       string                   `json:"sync"`
 	Adapter    string                   `json:"adapter,omitzero"`
@@ -146,7 +153,7 @@ func Sync(inv Invocation) error {
 	if err != nil {
 		return err
 	}
-	configured := foldersync.Folders(m.TeamRef, m.SyncRoot, m.WorkspaceLabel, m.SyncFolders)
+	configured := foldersync.Folders(m.TeamRef, m.SyncRoot, m.SyncScope, m.SyncFolders)
 	labels := inv.peerLabels(m.SyncAdapter)
 
 	if inv.JSON {
@@ -190,12 +197,8 @@ func Sync(inv Invocation) error {
 		}
 		folderRows = append(folderRows, []string{workspaceLine(f.Label), state})
 	}
-	for _, e := range formerFolders(st.Folders, configured, m.TeamRef, m.SyncRoot) {
-		label := e.name
-		if m.WorkspaceLabel != "" {
-			label = m.WorkspaceLabel + "/" + e.name
-		}
-		folderRows = append(folderRows, []string{workspaceLine(label), syncUnlisted + " (" + enumLine(e.state) + ")"})
+	for _, e := range formerFolders(st.Folders, configured, m.TeamRef, m.SyncScope, m.SyncRoot) {
+		folderRows = append(folderRows, []string{workspaceLine(foldersync.Label(m.SyncScope, e.name)), syncUnlisted + " (" + enumLine(e.state) + ")"})
 	}
 	for _, row := range padTable(folderRows) {
 		out = append(out, tableRow(row))

@@ -22,12 +22,23 @@ func syncFixture(t *testing.T) (*fixture, string) {
 	f := newFixture(t)
 	root := t.TempDir()
 	m := f.byPID()
-	m.WorkspaceLabel = "brigade"
+	// The label is a member's own word and the scope the repository's
+	// name: the folders carry the scope, whatever the label says.
+	m.WorkspaceLabel = "a label of the member's own"
 	m.SyncAdapter = "syncthing"
 	m.SyncFolders = []string{"docs", ".context/plans"}
 	m.SyncRoot = root
+	m.SyncScope = syncScope
 	f.writeMap(t, m)
 	return f, root
+}
+
+// syncScope is the repository name the fixture's map freezes.
+const syncScope = "brigade"
+
+// scopedID is the id of one of the fixture repository's folders.
+func scopedID(folder string) string {
+	return foldersync.FolderID(fixtureTeamRef, syncScope, folder)
 }
 
 // syncListResult is a roster in which bob's session publishes the peer
@@ -66,7 +77,7 @@ func syncStatus(t *testing.T, root string) string {
 	b, err := json.Marshal(foldersync.StatusResult{
 		Running: true, Peer: fakesync.SelfPeer,
 		Folders: []foldersync.FolderState{
-			{ID: foldersync.FolderID(fixtureTeamRef, "docs"), Path: root + "/docs", State: "idle"},
+			{ID: scopedID("docs"), Path: root + "/docs", State: "idle"},
 			{ID: "brigade-other000-000000000000", Path: "/elsewhere", State: "syncing"},
 		},
 		Peers: []foldersync.PeerState{{Peer: "PEER-A", Connected: true}, {Peer: "XYZ1234567", Connected: false}},
@@ -118,8 +129,8 @@ func TestSyncStatusHumanShowsAFolderHeldByAnotherCheckout(t *testing.T) {
 	b, err := json.Marshal(foldersync.StatusResult{
 		Running: true, Peer: fakesync.SelfPeer,
 		Folders: []foldersync.FolderState{
-			{ID: foldersync.FolderID(fixtureTeamRef, "docs"), Path: "/elsewhere/clone-1/docs", State: "idle"},
-			{ID: foldersync.FolderID(fixtureTeamRef, ".context/plans"), Path: root + "/.context/plans", State: "syncing"},
+			{ID: scopedID("docs"), Path: "/elsewhere/clone-1/docs", State: "idle"},
+			{ID: scopedID(".context/plans"), Path: root + "/.context/plans", State: "syncing"},
 		},
 		Peers: []foldersync.PeerState{},
 	})
@@ -144,19 +155,25 @@ func TestSyncStatusHumanShowsAFolderHeldByAnotherCheckout(t *testing.T) {
 
 // TestSyncStatusHumanShowsAFolderNoLongerListed: a folder this checkout
 // shared that the project dropped — the engine still holds it, paused —
-// is a row of its own, ".." folders included; another repository's
-// folder of the same team, whose path is no folder of this checkout's
-// under its id, is not.
+// is a row of its own, ".." folders included, and so is one it shared
+// before 0.16.0, known by its earlier id. Not a row: another repository's
+// folder of the same team, which has an id of its own even for the same
+// folder name at a path under this checkout; a folder at a path this
+// checkout would not put it; and a LISTED folder the engine still holds
+// under its earlier id, which is on its way to its new one.
 func TestSyncStatusHumanShowsAFolderNoLongerListed(t *testing.T) {
 	t.Parallel()
 	f, root := syncFixture(t)
 	b, err := json.Marshal(foldersync.StatusResult{
 		Running: true, Peer: fakesync.SelfPeer,
 		Folders: []foldersync.FolderState{
-			{ID: foldersync.FolderID(fixtureTeamRef, "docs"), Path: root + "/docs", State: "idle"},
-			{ID: foldersync.FolderID(fixtureTeamRef, "notes"), Path: root + "/notes", State: "paused"},
-			{ID: foldersync.FolderID(fixtureTeamRef, "../beside"), Path: filepath.Dir(root) + "/beside", State: "paused"},
-			{ID: foldersync.FolderID(fixtureTeamRef, "other"), Path: "/elsewhere/other", State: "idle"},
+			{ID: scopedID("docs"), Path: root + "/docs", State: "idle"},
+			{ID: scopedID("notes"), Path: root + "/notes", State: "paused"},
+			{ID: scopedID("../beside"), Path: filepath.Dir(root) + "/beside", State: "paused"},
+			{ID: foldersync.LegacyFolderID(fixtureTeamRef, "old"), Path: root + "/old", State: "paused"},
+			{ID: foldersync.FolderID(fixtureTeamRef, "another-repo", "theirs"), Path: root + "/theirs", State: "idle"},
+			{ID: scopedID("other"), Path: "/elsewhere/other", State: "idle"},
+			{ID: foldersync.LegacyFolderID(fixtureTeamRef, ".context/plans"), Path: root + "/.context/plans", State: "idle"},
 		},
 		Peers: []foldersync.PeerState{},
 	})
@@ -175,7 +192,8 @@ func TestSyncStatusHumanShowsAFolderNoLongerListed(t *testing.T) {
 		"brigade/docs            idle\n" +
 		"brigade/.context/plans  not shared yet\n" +
 		"brigade/notes           no longer listed (paused)\n" +
-		"brigade/../beside       no longer listed (paused)\n"
+		"brigade/../beside       no longer listed (paused)\n" +
+		"brigade/old             no longer listed (paused)\n"
 	if got := f.out.String(); got != want {
 		t.Fatalf("stdout =\n%s\nwant\n%s", got, want)
 	}
@@ -208,7 +226,10 @@ func TestSyncStatusJSON(t *testing.T) {
 	if len(r.Folders) != 2 || len(r.Peers) != 2 || r.Peers[0].Label != "bob@example.com" || r.Peers[1].Label != "" {
 		t.Fatalf("folders/peers = %+v / %+v", r.Folders, r.Peers)
 	}
-	wantConfigured := foldersync.Folders(fixtureTeamRef, root, "brigade", []string{"docs", ".context/plans"})
+	wantConfigured := foldersync.Folders(fixtureTeamRef, root, syncScope, []string{"docs", ".context/plans"})
+	if wantConfigured[0].Replaces != foldersync.LegacyFolderID(fixtureTeamRef, "docs") {
+		t.Fatalf("configured[0] = %+v, want the earlier id it replaces", wantConfigured[0])
+	}
 	if !slices.Equal(r.Configured, wantConfigured) {
 		t.Fatalf("configured = %+v, want %+v", r.Configured, wantConfigured)
 	}

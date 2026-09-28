@@ -58,7 +58,7 @@ Every verb is **idempotent**: Brigade repeats them freely.
 | --- | --- | --- |
 | `describe` | `{}` | `{"name","version","protocol_version":"sync/1"}` |
 | `attach` | `{"state_dir","session_id","pid"}` | `{"peer":"<descriptor>"}` |
-| `apply` | `{"state_dir","session_id","folders":[{"id","path","label"}],"peers":[{"peer","label"}]}` | `{"folders":[{"id","state"}],"peers":[{"peer","connected"}]}` |
+| `apply` | `{"state_dir","session_id","folders":[{"id","path","label","replaces"}],"peers":[{"peer","label"}]}` | `{"folders":[{"id","state"}],"peers":[{"peer","connected"}]}` |
 | `status` | `{"state_dir"}` | `{"running","peer","folders":[{"id","path","state"}],"peers":[{"peer","connected"}]}` |
 | `detach` | `{"state_dir","session_id","pid"}` | `{"stopped"}` |
 
@@ -69,6 +69,9 @@ the session's reference and, on every `attach` and `detach`, drops the reference
 a `detach` (a watcher killed with `SIGKILL`), so the engine does not outlive the last session; a reference with no
 `pid` is dropped only by its own `detach`. An adapter written before `pid` existed ignores the member and stays
 conforming.
+
+**Ignore a member you do not know.** A request can gain an optional member in any Brigade release — `pid` in
+0.11.0, a folder's `replaces` in 0.16.0 — and the protocol stays `sync/1`.
 
 ### `describe`
 
@@ -102,28 +105,40 @@ The whole desired set, every time: share these folders with these peers. Called 
 then Brigade reads the roster every 15 seconds and calls `apply` again as soon as the teammates' peers change, and at
 least every 60 seconds while the session lives.
 
-- `folders`: the project's folders. `id` is the same on every checkout of the team (see *Folder ids* below), `path`
-  is the absolute local path, `label` is for humans (`<repository>/<folder>`).
+- `folders`: the project's folders. `id` is the same on every checkout of the repository (see *Folder ids* below),
+  `path` is the absolute local path, `label` is for humans (`<repository>/<folder>`). `replaces` is **optional**:
+  the id this folder had before 0.16.0, absent when it had no other. When your engine still holds the folder
+  under that id at `path`, move it to `id` and keep its files where they are. The same id at another path is
+  another checkout's folder.
 - `peers`: every teammate's peer the roster lists for the same repository and the same adapter, online or not —
   an offline peer is still worth introducing; the engine connects when it can. Never this machine's own. `label` is
   the teammate's roster label: unverified text, for display only.
 
 Report each folder's state in your engine's own words (`idle`, `syncing`, `error`, …) and whether each peer is
-connected right now. A peer or folder that is no longer listed may stay configured; removing it is not required.
-`conflict_path` says this checkout cannot hold the folder because another checkout on the machine does — the same
-folder id of a second clone of the repository. The bundled adapter only ever adds devices: a device, or a
-folder's device, that someone configured by hand stays. A folder it can prove is this checkout's and no longer
-listed — the team part of its id matches, its label ends in a folder name that hashes to its id, and its path is
-where this checkout puts that name — it pauses, never deletes, and reports as an extra entry with the state
-`paused`; a listed folder is always posted un-paused.
+connected right now. What `apply` changes in your engine to get there is yours to decide. A peer or folder that
+is no longer listed may stay configured; removing it is not required.
+
+What the bundled adapter does:
+
+- **It keeps what a person set up.** A device, or a folder's device, that someone configured by hand stays, with
+  its name and addresses: teams add an always-on server that way.
+- **It moves a folder to its new id.** A folder the instance holds under `replaces` at `path` has its entry
+  removed and is added again under `id`, with the devices the old entry had. Syncthing keeps the files.
+- **It pauses a folder the project dropped.** A folder it can prove is this checkout's and no longer listed —
+  the team part of its id matches, its label is a `<repository>/<folder>` that hashes to its id, and its path is
+  where this checkout puts that folder — is paused and reported as an extra entry with the state `paused`. A
+  listed folder is always posted un-paused.
+- **It reports `conflict_path`** for a folder this checkout cannot hold because another checkout on the machine
+  does — the same folder id of a second clone of the repository — or because another id holds its path.
 
 ```
 $ brigade-sync-rsyncish apply <<'EOF'
 {"state_dir":"/home/u/.local/state/brigade","session_id":"6f0f2b41",
- "folders":[{"id":"brigade-6f0f2b41-46b42b4229cd","path":"/home/u/work/brigade/docs","label":"brigade/docs"}],
+ "folders":[{"id":"brigade-6f0f2b41-6f18276503a7","path":"/home/u/work/brigade/docs","label":"brigade/docs",
+             "replaces":"brigade-6f0f2b41-46b42b4229cd"}],
  "peers":[{"peer":"desk-2.example.net:8022","label":"bob@example.com"}]}
 EOF
-{"ok":true,"protocol_version":"1","result":{"folders":[{"id":"brigade-6f0f2b41-46b42b4229cd","state":"idle"}],"peers":[{"peer":"desk-2.example.net:8022","connected":true}]}}
+{"ok":true,"protocol_version":"1","result":{"folders":[{"id":"brigade-6f0f2b41-6f18276503a7","state":"idle"}],"peers":[{"peer":"desk-2.example.net:8022","connected":true}]}}
 ```
 
 Brigade tells the user `Brigade sync: <f> folders, <c> of <p> peers connected` whenever that summary changes,
@@ -141,7 +156,7 @@ rather than an error, and `brigade sync status` then prints `engine stopped`.
 
 ```
 $ echo '{"state_dir":"/home/u/.local/state/brigade"}' | brigade-sync-rsyncish status
-{"ok":true,"protocol_version":"1","result":{"running":true,"peer":"laptop-7.example.net:8022","folders":[{"id":"brigade-6f0f2b41-46b42b4229cd","path":"/home/u/work/brigade/docs","state":"idle"}],"peers":[{"peer":"desk-2.example.net:8022","connected":false}]}}
+{"ok":true,"protocol_version":"1","result":{"running":true,"peer":"laptop-7.example.net:8022","folders":[{"id":"brigade-6f0f2b41-6f18276503a7","path":"/home/u/work/brigade/docs","state":"idle"}],"peers":[{"peer":"desk-2.example.net:8022","connected":false}]}}
 ```
 
 ### `detach`
@@ -156,15 +171,28 @@ $ echo '{"state_dir":"/home/u/.local/state/brigade","session_id":"6f0f2b41","pid
 
 ## Folder ids
 
-Every checkout derives the same id for the same folder, without exchanging it:
+Every checkout of a repository derives the same id for the same folder, without exchanging it:
 
 ```
 "brigade-" + first 8 characters of team_ref with its dashes removed
-           + "-" + first 12 hex digits of SHA-256(folder exactly as .brigade.json writes it)
+           + "-" + first 12 hex digits of SHA-256(repository + "/" + folder)
 ```
 
-Team `6f0f2b41-5a3c-…` and folder `docs` give `brigade-6f0f2b41-46b42b4229cd`. The team part keeps two teams apart
-on one engine. Use the id as your engine's folder id, or map it to one.
+`repository` is the repository's name: the last part of the checkout's `origin` URL without `.git`, or the
+directory's name when it has no remote. `folder` is the folder exactly as `.brigade.json` writes it. The hashed
+text is the folder's `label`. Team `6f0f2b41-5a3c-…`, repository `brigade` and folder `docs` give
+`brigade-6f0f2b41-6f18276503a7`:
+
+```
+$ printf 'brigade/docs' | shasum -a 256 | cut -c1-12
+6f18276503a7
+```
+
+The team part keeps two teams apart on one engine, and the repository keeps apart two repositories of one team
+that list the same folder. Use the id as your engine's folder id, or map it to one.
+
+From 0.11.0 to 0.15.0 the hash was of the folder alone — `brigade-6f0f2b41-46b42b4229cd` for the same folder.
+That id is what `replaces` carries. A checkout whose repository has no name keeps it, and sends no `replaces`.
 
 ## Failing
 

@@ -369,6 +369,12 @@ for the `sync` member, `team_file_too_large` for a file over 4096 bytes — so i
 connected (config: team_file_unknown_field): fix .brigade.json.` and connect to nothing, chat included, until that
 member runs `/brigade:update`. The `VERSION` column of `brigade sessions` shows who is behind.
 
+**Every member updates to 0.16.0 close together.** Say `/brigade:update`, then `/reload-plugins`. From 0.16.0
+each repository of a team has folder ids of its own, so a team with two repositories that list the same folder
+syncs both. Every folder's id changed with it, and Brigade moves your folders to their new ids by itself. Members
+on 0.16.0 and members on an earlier version do not exchange files until the last one has updated. What happens
+to a file changed or deleted in between is in [docs/sync.md](../docs/sync.md), "Updating to 0.16.0".
+
 ## Leaving and uninstalling
 
 The order matters. Every step is optional except step 3 when the goal is to remove the plugin.

@@ -322,6 +322,12 @@ truth:**
   Syncthing v2.1.5 runs a monitor process even with `--no-restart`: `daemon.pid` names the monitor, and its child
   (same process group) holds the sockets.
 
+- **Read "`apply` only adds" above as what P18-6 built, not as a rule (owner, 2026-09-28, card 42).** It kept a
+  hand-added server in place and stopped two checkouts moving one folder back and forth. It was never a limit on
+  what the adapter may change in its own instance: Brigade is open by default and restricted by configuration
+  alone, and the `sync` option is the one switch. From 0.16.0 the adapter removes a folder's entry to move the
+  folder to its new id (`.context/plans/folder-id-by-repository.md`), and the documents no longer say "only adds".
+
 ### 4.5 Documentation — Brigade's plain manner
 
 - `docs/sync.md` (new): what it does, what it needs (Syncthing on `PATH`, the migration), the `sync` member, what

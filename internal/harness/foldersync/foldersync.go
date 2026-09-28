@@ -82,11 +82,16 @@ type AttachResult struct {
 }
 
 // A Folder is one folder `apply` shares: the id both ends derive
-// (FolderID), the absolute local path and a human label.
+// (FolderID), the absolute local path and a human label. Replaces,
+// optional, is the id the same folder had under the derivation of 0.11.0
+// to 0.15.0 (LegacyFolderID): an adapter whose engine still holds the
+// folder under that id at Path carries it over to ID (card 42). Absent
+// when the two ids are one.
 type Folder struct {
-	ID    string `json:"id"`
-	Path  string `json:"path"`
-	Label string `json:"label"`
+	ID       string `json:"id"`
+	Path     string `json:"path"`
+	Label    string `json:"label"`
+	Replaces string `json:"replaces,omitzero"`
 }
 
 // A Peer is one teammate's peer `apply` introduces: the descriptor with
@@ -160,32 +165,64 @@ type DetachResult struct {
 }
 
 // FolderID is the folder id both ends of a team derive for one folder of
-// the team file (§4.3): "brigade-", the first 8 characters of team_ref
-// with its dashes removed, "-", and the first 12 hex digits of the
-// SHA-256 of the folder exactly as the team file writes it. Every
-// checkout of the repository reads the same file and belongs to the same
-// team, so every one arrives at the same id without exchanging it; the
-// team_ref part keeps two teams' folders apart on one engine.
-func FolderID(teamRef, folder string) string {
+// one repository's team file (§4.3, card 42): "brigade-", the first 8
+// characters of team_ref with its dashes removed, "-", and the first 12
+// hex digits of the SHA-256 of "<scope>/<folder>" — scope the
+// repository's name (teamfile.RepoName, the name in its `origin` URL) and
+// folder exactly as the team file writes it. Every checkout of the
+// repository reads the same file, has the same origin and belongs to the
+// same team, so every one arrives at the same id without exchanging it;
+// the team_ref part keeps two teams' folders apart on one engine, and the
+// scope keeps apart two repositories of one team that list the same
+// folder. An empty scope — a checkout with no name to derive — gives
+// LegacyFolderID.
+func FolderID(teamRef, scope, folder string) string {
+	if scope == "" {
+		return LegacyFolderID(teamRef, folder)
+	}
+	return folderID(teamRef, scope+"/"+folder)
+}
+
+// LegacyFolderID is the derivation of 0.11.0 to 0.15.0: the hash is of
+// the folder alone, so two repositories of one team that listed the same
+// folder derived one id, and one engine held it for one of them only.
+// Folders hands it to the adapter as Replaces, and `brigade sync status`
+// still knows a folder by it.
+func LegacyFolderID(teamRef, folder string) string {
+	return folderID(teamRef, folder)
+}
+
+// folderID is the id's shape, whatever was hashed.
+func folderID(teamRef, hashed string) string {
 	ref := strings.ReplaceAll(teamRef, "-", "")
 	if len(ref) > 8 {
 		ref = ref[:8]
 	}
-	sum := sha256.Sum256([]byte(folder))
+	sum := sha256.Sum256([]byte(hashed))
 	return "brigade-" + ref + "-" + hex.EncodeToString(sum[:])[:12]
 }
 
+// Label is a folder's human label, "<scope>/<folder>": the very text
+// FolderID hashes, which is how the bundled adapter proves a folder's
+// name from its label. The folder alone when scope is empty.
+func Label(scope, folder string) string {
+	if scope == "" {
+		return folder
+	}
+	return scope + "/" + folder
+}
+
 // Folders derives `apply`'s folder list from the by-pid map's frozen
-// members: path = <root>/<folder>, label = <workspace label>/<folder>, or
-// the folder alone when the session shares no workspace label.
-func Folders(teamRef, root, workspaceLabel string, folders []string) []Folder {
+// members: id = FolderID, path = <root>/<folder>, label = Label, and
+// replaces = the folder's LegacyFolderID when that is another id.
+func Folders(teamRef, root, scope string, folders []string) []Folder {
 	out := make([]Folder, 0, len(folders))
 	for _, f := range folders {
-		label := f
-		if workspaceLabel != "" {
-			label = workspaceLabel + "/" + f
+		folder := Folder{ID: FolderID(teamRef, scope, f), Path: filepath.Join(root, f), Label: Label(scope, f)}
+		if legacy := LegacyFolderID(teamRef, f); legacy != folder.ID {
+			folder.Replaces = legacy
 		}
-		out = append(out, Folder{ID: FolderID(teamRef, f), Path: filepath.Join(root, f), Label: label})
+		out = append(out, folder)
 	}
 	return out
 }

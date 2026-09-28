@@ -123,6 +123,63 @@ func TestSyncLines(t *testing.T) {
 			if m.SyncAdapter != tc.adapter || !slices.Equal(m.SyncFolders, tc.folders) || m.SyncRoot != realpath(t, top) {
 				t.Fatalf("frozen sync = %q %v %q, want %q %v %q", m.SyncAdapter, m.SyncFolders, m.SyncRoot, tc.adapter, tc.folders, realpath(t, top))
 			}
+			// The fixture's checkout has no remote: its directory's name.
+			if m.SyncScope != "checkout" {
+				t.Fatalf("frozen sync_scope = %q, want the checkout's own name", m.SyncScope)
+			}
+		})
+	}
+}
+
+// writeOrigin gives the fixture's checkout an `origin` remote.
+func (f *fixture) writeOrigin(url string) {
+	f.t.Helper()
+	config := "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = " + url + "\n"
+	if err := os.WriteFile(filepath.Join(f.cwd, ".git", "config"), []byte(config), 0o600); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// TestSyncScopeIsTheRepositoryName: the scope the map freezes for the
+// folder ids (card 42) is the repository's name — the one in its `origin`
+// URL, the same on every teammate's checkout — whatever the member's label
+// options say: a label of their own changes what the roster shows and
+// not the ids, and a member who shares no label still derives the ids
+// every teammate derives. The label registered is the option's, as ever.
+func TestSyncScopeIsTheRepositoryName(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		origin string
+		extra  []string
+		scope  string
+		label  string
+	}{
+		"the origin's name":               {origin: "git@github.com:example/payments-api.git", scope: "payments-api", label: "payments-api"},
+		"no remote: the directory's name": {scope: "checkout", label: "checkout"},
+		"a label of the member's own": {
+			origin: "https://github.com/example/payments-api", extra: []string{config.OptionWorkspaceLabel + "=my desk"},
+			scope: "payments-api", label: "my desk",
+		},
+		"no label shared": {
+			origin: "git@github.com:example/payments-api.git", extra: []string{config.OptionShareWorkspaceLabel + "=false"},
+			scope: "payments-api",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "x", false))}})
+			f.writeTeamFile(`,"sync":{"folders":[".brigade"]}`)
+			if tc.origin != "" {
+				f.writeOrigin(tc.origin)
+			}
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup"), tc.extra...); exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			m := f.mustMap()
+			if m.SyncScope != tc.scope || m.WorkspaceLabel != tc.label {
+				t.Fatalf("sync_scope %q, workspace_label %q; want %q, %q", m.SyncScope, m.WorkspaceLabel, tc.scope, tc.label)
+			}
 		})
 	}
 }
@@ -175,14 +232,18 @@ func TestSyncChangeRespawnsTheWatcher(t *testing.T) {
 		name    string
 		members string
 		option  string
+		origin  string // an `origin` remote the checkout gains before the /clear
 		respawn bool
 		folders []string
 	}{
-		{"unchanged", `,"sync":{"folders":["docs"]}`, "", false, []string{"docs"}},
-		{"a folder added", `,"sync":{"folders":["docs","shared"]}`, "", true, []string{"docs", "shared"}},
-		{"another adapter", `,"sync":{"adapter":"other","folders":["docs"]}`, "", true, []string{"docs"}},
-		{"the option turned off", `,"sync":{"folders":["docs"]}`, "off", true, nil},
-		{"the member removed", ``, "", true, nil},
+		{"unchanged", `,"sync":{"folders":["docs"]}`, "", "", false, []string{"docs"}},
+		{"a folder added", `,"sync":{"folders":["docs","shared"]}`, "", "", true, []string{"docs", "shared"}},
+		{"another adapter", `,"sync":{"adapter":"other","folders":["docs"]}`, "", "", true, []string{"docs"}},
+		{"the option turned off", `,"sync":{"folders":["docs"]}`, "off", "", true, nil},
+		{"the member removed", ``, "", "", true, nil},
+		// The folders' ids carry the repository's name (card 42): a
+		// checkout that gains a remote derives other ids.
+		{"the repository named by a remote", `,"sync":{"folders":["docs"]}`, "", "git@github.com:example/renamed.git", true, []string{"docs"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -198,6 +259,9 @@ func TestSyncChangeRespawnsTheWatcher(t *testing.T) {
 				t.Fatalf("exit %d: %s", exit, errOut)
 			}
 			f.writeTeamFile(tc.members)
+			if tc.origin != "" {
+				f.writeOrigin(tc.origin)
+			}
 			replacement := testutil.NewSleeper(t)
 			f.spawner.watcherPID = replacement
 			var extra []string

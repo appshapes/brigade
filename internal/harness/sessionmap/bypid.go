@@ -159,6 +159,15 @@ type ByPID struct {
 	SyncAdapter string   `json:"sync_adapter,omitzero"`
 	SyncFolders []string `json:"sync_folders,omitzero"`
 	SyncRoot    string   `json:"sync_root,omitzero"`
+	// SyncScope is the repository's name as the hook derived it
+	// (teamfile.RepoName), frozen beside the three above: the part of a
+	// folder's id that keeps two repositories of one team apart (card
+	// 42). It is never the `workspace_label` option, which a member may
+	// set to anything: an id must be the same on every checkout. Absent
+	// (omitzero) with sync off, in a map from before it existed, and for
+	// a checkout with no name to derive — then the folders keep the ids
+	// of 0.11.0 to 0.15.0 (foldersync.LegacyFolderID).
+	SyncScope string `json:"sync_scope,omitzero"`
 	// MessageSound is the `message_sound` option as the hook resolved it
 	// (card 35): true when this session's watcher plays one quiet sound
 	// as a message arrives. The watcher re-reads it on every liveness
@@ -242,13 +251,14 @@ func (m *ByPID) Interval() time.Duration {
 // §4.1): a map member names an adapter, never a path or a command.
 var syncAdapterName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
-// validateSync checks the three sync members as one: all absent, or an
+// validateSync checks the sync members as one: all absent, or an
 // adapter name, a clean absolute root and at least one folder, each a
-// clean relative path that stays under the root. Only what the watcher
-// needs to build a folder path it can hand an adapter: the team file's
-// parser applied its own rules before the hook froze these.
+// clean relative path that stays under the root, and a scope that is
+// absent or a repository name. Only what the watcher needs to build a
+// folder path and id it can hand an adapter: the team file's parser
+// applied its own rules before the hook froze these.
 func (m *ByPID) validateSync() error {
-	if m.SyncAdapter == "" && len(m.SyncFolders) == 0 && m.SyncRoot == "" {
+	if m.SyncAdapter == "" && len(m.SyncFolders) == 0 && m.SyncRoot == "" && m.SyncScope == "" {
 		return nil
 	}
 	switch {
@@ -258,6 +268,8 @@ func (m *ByPID) validateSync() error {
 		return errInvalid("sync_root")
 	case len(m.SyncFolders) == 0:
 		return errInvalid("sync_folders")
+	case m.SyncScope != "" && !ValidSyncScope(m.SyncScope):
+		return errInvalid("sync_scope")
 	}
 	// The folder rule is the team file's (internal/harness/teamfile/sync.go
 	// checkFolder) and nothing more: relative, path.Clean-unchanged, not ".".
@@ -272,6 +284,16 @@ func (m *ByPID) validateSync() error {
 		}
 	}
 	return nil
+}
+
+// ValidSyncScope reports whether s can be a folder id's scope: a
+// repository name as teamfile.RepoName writes one — a label that
+// sanitising leaves unchanged — with no "/", because the bundled adapter
+// splits a folder's label "<scope>/<folder>" at its first one. The hook
+// asks before it freezes a scope, so a name that fails is left out
+// rather than costing the session its map.
+func ValidSyncScope(s string) bool {
+	return s != "" && s != "." && s != ".." && !strings.Contains(s, "/") && protocol.SanitizeLabel(s) == s
 }
 
 // Instruction is the frame instruction the map carries, for the two

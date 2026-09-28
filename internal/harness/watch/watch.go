@@ -683,7 +683,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		releasePath:    inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
 			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath),
-		sync: syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, pluginBin: m.PluginBin},
+		sync: syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin},
 	}
 	w.sound = newSoundAnnouncer(w)
 	w.banner = newBannerAnnouncer(w)

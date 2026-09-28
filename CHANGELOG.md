@@ -9,6 +9,46 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Two repositories of one team that list the same folder both sync** (card 42). A folder's id named the team
+  and the folder, and nothing of the repository. A team whose two repositories both listed `.brigade` had one
+  id for both. On a machine that held a checkout of each, the instance held the folder for one of them: the
+  other showed `conflict_path`, its session said `1 folder is held by another checkout`, and what was written
+  there never left the machine. Between two machines whose instances held a different one of the two, the two
+  folders shared one id and synced into each other. Each repository now has ids of its own.
+
+### Changed
+
+- **Every folder's id changes: every member updates close together** (card 42). Say `/brigade:update`, then
+  `/reload-plugins`. The id is now `brigade-`, the first 8 characters of the team reference, `-`, and the first
+  12 hex digits of the SHA-256 of `<repository>/<folder>`, where the repository's name is the last part of the
+  checkout's `origin` URL — the name `brigade sessions` shows under `REPO`, and never the `workspace_label`
+  option. Members on 0.16.0 and members on an earlier version hold the same folder under different ids and
+  exchange no file until the last one has updated. Then the folders are in step again. Measured with Syncthing
+  2.1.5 between two machines: a file both sides had alike is left as it is, a file written on one side arrives
+  on the other, a file changed on one side wins and the older copy is kept as a conflict copy, and **a file
+  deleted on one side in between comes back**. [docs/sync.md](docs/sync.md), "Updating to 0.16.0".
+- **Brigade moves a folder to its new id by itself** (card 42). At a session's first round on 0.16.0, the
+  bundled Syncthing adapter finds the folder its instance holds under the old id at the checkout's path, removes
+  that entry and adds the folder again under the new id, at the same path, with every device the old entry
+  had — a server added by hand included. No file is touched; Syncthing removes its `.stfolder` marker with the
+  old entry and puts it back with the new one. The old id at another path is another checkout's and stays. A
+  folder that could not be moved shows `conflict_path`, keeps syncing under its old id, and is tried again at
+  the next round. **An always-on Syncthing set up by hand** holds its folder under the old id and needs the new
+  one: `brigade sync status --json` shows both, as `configured[].id` and `configured[].replaces`.
+- **The sync-adapter protocol gains one optional member, and stays `sync/1`** (card 42): a folder of `apply`'s
+  request can carry `replaces`, the id it had before 0.16.0. An adapter that does not know the member ignores
+  it. [docs/sync-adapters.md](docs/sync-adapters.md) now says so of every member an adapter does not know.
+- **A folder's label is always `<repository>/<folder>`** (card 42), in `brigade sync status` and in Syncthing's
+  own interface. It used to carry the member's `workspace_label`, and nothing of the repository for a member
+  who shared none. The by-pid map freezes the repository's name as `sync_scope`.
+- **The documents no longer say Brigade "only adds"** (card 42). `docs/security.md` section 12, `docs/sync.md`
+  and `docs/sync-adapters.md` read as if adding were a rule Brigade's Syncthing adapter is held to. It is not:
+  Brigade is open by default and restricted by configuration alone, and the `sync` option is the one switch.
+  The adapter keeps a device a person added by hand because a team set it up. The documents now say what the
+  adapter does and why.
+
 ## [0.15.0] — 2026-09-27
 ### Added
 

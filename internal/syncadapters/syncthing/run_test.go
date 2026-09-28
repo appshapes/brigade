@@ -42,6 +42,8 @@ type fakeAPI struct {
 	folders     []folderConfig
 	folderPosts int
 	pauses      int                // PATCHes that paused a folder
+	deletes     []string           // the folder ids DELETEd, in order
+	failDelete  bool               // DELETE answers 500
 	extra       []configuredFolder // folders "another project" holds
 	connected   map[string]bool
 	listen      []string // options.listenAddresses
@@ -149,6 +151,17 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such folder", http.StatusNotFound)
 	default:
 		id, ok := strings.CutPrefix(r.URL.Path, "/rest/config/folders/")
+		if ok && r.Method == http.MethodDelete {
+			if f.failDelete {
+				http.Error(w, "nope", http.StatusInternalServerError)
+				return
+			}
+			// Syncthing 2.1.5 answers 200 whether or not the id was
+			// configured (measured 2026-09-28).
+			f.deletes = append(f.deletes, id)
+			f.folders = slices.DeleteFunc(f.folders, func(e folderConfig) bool { return e.ID == id })
+			return
+		}
 		if r.Method != http.MethodPatch || !ok {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -461,36 +474,58 @@ func TestApplyLeavesAFolderHeldAtAnotherPath(t *testing.T) {
 	}
 }
 
-// testFolderID is foldersync.FolderID, the id every checkout derives
-// (docs/sync-adapters.md, "Folder ids").
-func testFolderID(ref, folder string) string {
+// testFolderID is foldersync.FolderID, the id every checkout of the
+// repository derives (docs/sync-adapters.md, "Folder ids"): the hash is
+// of "<repository>/<folder>", the folder's label.
+func testFolderID(ref, repository, folder string) string {
+	return testLegacyID(ref, repository+"/"+folder)
+}
+
+// testLegacyID is foldersync.LegacyFolderID, the id of 0.11.0 to 0.15.0:
+// the hash is of the folder alone.
+func testLegacyID(ref, folder string) string {
 	sum := sha256.Sum256([]byte(folder))
 	return "brigade-" + ref + "-" + hex.EncodeToString(sum[:])[:12]
 }
 
 // TestApplyPausesAFolderTheProjectNoLongerLists: a folder this checkout
 // shared and its project then drops is paused — PATCHed once, reported
-// `paused` every round, never deleted — ".." folders included; listing
-// it again un-pauses it through the ordinary post. Another repository's
-// folder of the same team, a folder under this team's prefix whose label
-// proves no name, and another team's folder are never touched.
+// `paused` every round, its configuration and its directory kept — ".."
+// folders included; listing it again un-pauses it through the ordinary
+// post. It runs for both derivations of the id: the one since 0.16.0 and
+// the earlier one, whose folders an instance may still hold. Another
+// repository's folder of the same team, a folder under this team's prefix
+// whose label proves no name, and another team's folder stay as they are.
 func TestApplyPausesAFolderTheProjectNoLongerLists(t *testing.T) {
 	t.Parallel()
+	for name, id := range map[string]func(ref, repository, folder string) string{
+		"ids since 0.16.0":        testFolderID,
+		"ids of 0.11.0 to 0.15.0": func(ref, _, folder string) string { return testLegacyID(ref, folder) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			testApplyPauses(t, id)
+		})
+	}
+}
+
+func testApplyPauses(t *testing.T, id func(ref, repository, folder string) string) {
+	t.Helper()
 	fake, srv := newFakeAPI(t)
 	d := testDeps(srv, "")
 	stateDir, _ := runningHome(t)
 	work := t.TempDir()
 	root := filepath.Join(work, "repo")
 	folder := func(name string) map[string]string {
-		return map[string]string{"id": testFolderID("6f0f2b41", name), "path": filepath.Join(root, name), "label": "repo/" + name}
+		return map[string]string{"id": id("6f0f2b41", "repo", name), "path": filepath.Join(root, name), "label": "repo/" + name}
 	}
 	untouched := []folderConfig{
 		// Another repository of the same team, beside this one.
-		{ID: testFolderID("6f0f2b41", "notes"), Label: "other/notes", Path: filepath.Join(work, "other", "notes")},
+		{ID: id("6f0f2b41", "other", "notes"), Label: "other/notes", Path: filepath.Join(work, "other", "notes")},
 		// Under this team's prefix, but its label proves no folder name.
-		{ID: testFolderID("6f0f2b41", "kept"), Label: "the server's copy", Path: filepath.Join(root, "kept")},
+		{ID: id("6f0f2b41", "repo", "kept"), Label: "the server's copy", Path: filepath.Join(root, "kept")},
 		// Another team's folder at a path this checkout would use.
-		{ID: testFolderID("0a0b0c0d", "gone"), Label: "repo/gone", Path: filepath.Join(root, "gone")},
+		{ID: id("0a0b0c0d", "repo", "gone"), Label: "repo/gone", Path: filepath.Join(root, "gone")},
 	}
 	fake.folders = slices.Clone(untouched)
 	all := []map[string]string{folder("docs"), folder("shared/deep"), folder("../beside")}
@@ -522,8 +557,8 @@ func TestApplyPausesAFolderTheProjectNoLongerLists(t *testing.T) {
 			t.Errorf("folder %s (%s) is not this checkout's and was paused", c.ID, c.Label)
 		}
 	}
-	if len(fake.folders) != len(untouched)+3 {
-		t.Errorf("folders = %+v: a dropped folder was deleted", fake.folders)
+	if len(fake.folders) != len(untouched)+3 || len(fake.deletes) != 0 {
+		t.Errorf("folders = %+v, deletes %v: a dropped folder's configuration was removed", fake.folders, fake.deletes)
 	}
 	fake.mu.Unlock()
 	for _, p := range []string{filepath.Join(root, "shared", "deep"), filepath.Join(work, "beside")} {
@@ -545,6 +580,188 @@ func TestApplyPausesAFolderTheProjectNoLongerLists(t *testing.T) {
 		if c.Paused {
 			t.Errorf("folder %s is still paused after the project listed it again", c.Label)
 		}
+	}
+}
+
+// TestFolderNameIsProvenByTheID pins how a label gives up its folder name
+// (formerFolders stands on it): since 0.16.0 the id hashes the whole
+// label and the name follows its first "/"; before, the id hashed the name
+// alone, which may be the whole label or follow any "/" of it.
+func TestFolderNameIsProvenByTheID(t *testing.T) {
+	t.Parallel()
+	const prefix = "brigade-6f0f2b41-"
+	for _, tc := range []struct {
+		about, id, label, want string
+	}{
+		{"since 0.16.0", testFolderID("6f0f2b41", "repo", "docs"), "repo/docs", "docs"},
+		{"since 0.16.0, nested", testFolderID("6f0f2b41", "repo", "docs/shared"), "repo/docs/shared", "docs/shared"},
+		{"since 0.16.0, above the checkout", testFolderID("6f0f2b41", "repo", "../notes"), "repo/../notes", "../notes"},
+		{"since 0.16.0, a name with a space", testFolderID("6f0f2b41", "my repo", "docs"), "my repo/docs", "docs"},
+		{"before, labelled", testLegacyID("6f0f2b41", "docs"), "repo/docs", "docs"},
+		{"before, nested", testLegacyID("6f0f2b41", "docs/shared"), "repo/docs/shared", "docs/shared"},
+		{"before, a label of the member's own", testLegacyID("6f0f2b41", "docs"), "my desk/docs", "docs"},
+		{"before, no label shared", testLegacyID("6f0f2b41", "docs"), "docs", "docs"},
+		{"another repository's label", testFolderID("6f0f2b41", "repo", "docs"), "other/docs", ""},
+		{"a label edited by hand", testFolderID("6f0f2b41", "repo", "docs"), "the server's copy", ""},
+		{"no repository before the folder", testLegacyID("6f0f2b41", "/docs"), "/docs", ""},
+		{"a name that is not clean", testLegacyID("6f0f2b41", "repo/docs/"), "repo/docs/", ""},
+	} {
+		got, ok := folderName(prefix, tc.id, tc.label)
+		if got != tc.want || ok != (tc.want != "") {
+			t.Errorf("%s: folderName(%q) = (%q, %v), want %q", tc.about, tc.label, got, ok, tc.want)
+		}
+	}
+}
+
+// TestApplyMovesAFolderToItsNewID is the upgrade of card 42: the instance
+// holds this checkout's folder under the id it had before 0.16.0, and the
+// request names that id as `replaces`. The earlier folder's configuration
+// is removed and the folder posted under its new id, at the same path,
+// with every device the earlier one had — a server a person added by
+// hand among them — plus the peers. The same earlier id at ANOTHER path
+// is another checkout's and stays. The second round changes nothing, and
+// the moved folder is never taken for one the project dropped.
+func TestApplyMovesAFolderToItsNewID(t *testing.T) {
+	t.Parallel()
+	fake, srv := newFakeAPI(t)
+	d := testDeps(srv, "")
+	stateDir, _ := runningHome(t)
+	work := t.TempDir()
+	path := filepath.Join(work, "web", ".brigade")
+	elsewhere := filepath.Join(work, "web-second-clone", ".brigade")
+	if err := os.MkdirAll(path, 0o750); err != nil { //nolint:gosec // G301: a project folder
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(path, "kept.md"), "a file the folder already holds\n")
+	legacy, scoped := testLegacyID("6f0f2b41", ".brigade"), testFolderID("6f0f2b41", "web", ".brigade")
+	otherLegacy := testLegacyID("6f0f2b41", "docs")
+	server := deviceRef{DeviceID: "SERVER", EncryptionPassword: "server-folder-password"}
+	fake.devices = []deviceConfig{{DeviceID: "SERVER", Name: "the server", Addresses: []string{"tcp://server.example:22000"}}}
+	fake.folders = []folderConfig{
+		{ID: legacy, Label: "web/.brigade", Path: path, Devices: []deviceRef{{DeviceID: testID}, server, {DeviceID: "PEERONE"}}},
+		// The earlier id of another folder, held by a second clone.
+		{ID: otherLegacy, Label: "web/docs", Path: filepath.Join(work, "web-second-clone", "docs")},
+	}
+	req := map[string]any{
+		"state_dir": stateDir,
+		"folders": []map[string]string{
+			{"id": scoped, "replaces": legacy, "path": path, "label": "web/.brigade"},
+			{"id": testFolderID("6f0f2b41", "web", "docs"), "replaces": otherLegacy, "path": filepath.Join(work, "web", "docs"), "label": "web/docs"},
+		},
+		"peers": []map[string]string{{"peer": "PEERONE", "label": "alice"}, {"peer": "PEERTWO", "label": "bob"}},
+	}
+	for round := range 2 {
+		res := mustOK(t, invoke(t, d, "apply", req), "apply")
+		fs := res["folders"].([]any)
+		if len(fs) != 2 || fs[0].(map[string]any)["id"] != scoped || fs[0].(map[string]any)["state"] != "idle" || fs[1].(map[string]any)["state"] != "idle" {
+			t.Fatalf("round %d: apply folders = %v, want the two folders idle under their new ids and nothing paused", round, fs)
+		}
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if !slices.Equal(fake.deletes, []string{legacy}) {
+		t.Fatalf("deletes = %v, want the earlier id at this path, once", fake.deletes)
+	}
+	byID := map[string]folderConfig{}
+	for _, c := range fake.folders {
+		byID[c.ID] = c
+	}
+	if _, still := byID[legacy]; still {
+		t.Error("the earlier id is still configured")
+	}
+	moved := byID[scoped]
+	want := []deviceRef{{DeviceID: testID}, server, {DeviceID: "PEERONE"}, {DeviceID: "PEERTWO"}}
+	if moved.Path != path || moved.Label != "web/.brigade" || moved.Paused || !slices.Equal(moved.Devices, want) {
+		t.Errorf("the moved folder = %+v, want it at %s with devices %+v", moved, path, want)
+	}
+	if kept := byID[otherLegacy]; kept.Path != filepath.Join(work, "web-second-clone", "docs") || kept.Paused {
+		t.Errorf("the earlier id held at another path = %+v, want it as it was", kept)
+	}
+	if fake.pauses != 0 {
+		t.Errorf("%d pauses: a moved folder is not a dropped one", fake.pauses)
+	}
+	if got := readFile(t, filepath.Join(path, "kept.md")); got != "a file the folder already holds\n" {
+		t.Errorf("the folder's file = %q", got)
+	}
+	if _, err := os.Stat(elsewhere); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("another checkout's folder was created: %v", err)
+	}
+}
+
+// TestApplyMovesNothingItCannotPlace: the earlier folder stays configured
+// whenever removing it would not let the new id take the path — the new
+// id is held by a second clone, a third id holds the path, or Syncthing
+// refuses the removal — and the folder is reported conflict_path, to be
+// tried again next round. A request that names an earlier id the instance
+// does not hold is an ordinary first share.
+func TestApplyMovesNothingItCannotPlace(t *testing.T) {
+	t.Parallel()
+	legacy, scoped := testLegacyID("6f0f2b41", "docs"), testFolderID("6f0f2b41", "repo", "docs")
+	for name, tc := range map[string]struct {
+		held       func(path, elsewhere string) []folderConfig
+		failDelete bool
+		state      string
+		posts      int
+	}{
+		"the new id is a second clone's": {
+			held: func(path, elsewhere string) []folderConfig {
+				return []folderConfig{{ID: legacy, Label: "repo/docs", Path: path}, {ID: scoped, Label: "repo/docs", Path: elsewhere}}
+			},
+			state: "conflict_path",
+		},
+		"a third id holds the path": {
+			held: func(path, _ string) []folderConfig {
+				return []folderConfig{{ID: legacy, Label: "repo/docs", Path: path}, {ID: "by-hand", Label: "mine", Path: path}}
+			},
+			state: "conflict_path",
+		},
+		"the removal is refused": {
+			held: func(path, _ string) []folderConfig {
+				return []folderConfig{{ID: legacy, Label: "repo/docs", Path: path}}
+			},
+			failDelete: true, state: "conflict_path",
+		},
+		"the earlier id is another checkout's": {
+			held: func(_, elsewhere string) []folderConfig {
+				return []folderConfig{{ID: legacy, Label: "other/docs", Path: elsewhere}}
+			},
+			state: "idle", posts: 1,
+		},
+		"no earlier folder": {
+			held:  func(_, _ string) []folderConfig { return nil },
+			state: "idle", posts: 1,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fake, srv := newFakeAPI(t)
+			d := testDeps(srv, "")
+			stateDir, _ := runningHome(t)
+			work := t.TempDir()
+			path, elsewhere := filepath.Join(work, "repo", "docs"), filepath.Join(work, "clone-2", "docs")
+			before := tc.held(path, elsewhere)
+			fake.folders = slices.Clone(before)
+			fake.failDelete = tc.failDelete
+			req := map[string]any{
+				"state_dir": stateDir,
+				"folders":   []map[string]string{{"id": scoped, "replaces": legacy, "path": path, "label": "repo/docs"}},
+				"peers":     []map[string]string{},
+			}
+			res := mustOK(t, invoke(t, d, "apply", req), "apply")
+			if fs := res["folders"].([]any); len(fs) != 1 || fs[0].(map[string]any)["state"] != tc.state {
+				t.Fatalf("apply folders = %v, want %s", fs, tc.state)
+			}
+			fake.mu.Lock()
+			defer fake.mu.Unlock()
+			if len(fake.deletes) != 0 || fake.pauses != 0 || fake.folderPosts != tc.posts {
+				t.Errorf("deletes %v, pauses %d, posts %d; want none, none and %d", fake.deletes, fake.pauses, fake.folderPosts, tc.posts)
+			}
+			for _, b := range before {
+				if !slices.ContainsFunc(fake.folders, func(c folderConfig) bool { return c.ID == b.ID && c.Path == b.Path && !c.Paused }) {
+					t.Errorf("folder %s at %s did not stay as it was: %+v", b.ID, b.Path, fake.folders)
+				}
+			}
+		})
 	}
 }
 

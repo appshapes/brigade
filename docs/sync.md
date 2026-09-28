@@ -27,6 +27,8 @@ What a teammate's machine can do in a listed folder on yours, and what the netwo
   to another and nothing syncs.
 - **A `sync` member in `.brigade.json`**, committed by the project.
 - **Every member's plugin at 0.11.0 or later**, before that commit (below).
+- **Every member's plugin on the same side of 0.16.0.** 0.16.0 changed how a folder's id is made, and members on
+  either side of it do not exchange files ("Updating to 0.16.0", below).
 
 Nothing else: no port to open, no account, no setting on the member's side.
 
@@ -68,12 +70,12 @@ watcher is replaced), and then:
 
 - **A folder added** is shared at that session's first apply, a moment after the start.
 - **A folder removed** is paused at that apply, on each machine whose checkout had shared it: Syncthing stops
-  syncing it, and its files stay where they are — Brigade never deletes a folder, or a file in one. The bundled
-  adapter pauses only a folder it can prove was this checkout's — its label still ends in the folder's name and
-  its path is where this checkout puts it — so another repository's folder, a second clone's, or one whose label
-  was edited in the web GUI is left alone. `brigade sync
+  syncing it, and its files stay where they are. Paused, it is ready to sync again the moment the project lists
+  it again. The bundled adapter pauses a folder it can prove was this checkout's — its label is still
+  `<repository>/<folder>` and its path is where this checkout puts it — so another repository's folder, a
+  second clone's, or one whose label was edited in the web GUI is not taken for it. `brigade sync
   status` shows it as `no longer listed (paused)` and the notice line ends in `; 1 folder no longer listed is
-  paused`. Listed again, it syncs again. To be rid of it, remove it in the instance's web GUI (on 127.0.0.1, at
+  paused`. To be rid of it, remove it in the instance's web GUI (on 127.0.0.1, at
   the port in `~/.local/state/brigade/sync/syncthing/port`); the files stay on disk either way.
 - **Every folder removed, or the `sync` member removed,** stops the session syncing and pauses nothing: the folders
   stay configured, and keep syncing while another session on the machine keeps the instance running. Remove them
@@ -180,7 +182,8 @@ says why)`; outside a session it refuses, because it reads the session's map.
   every other session of the team **in the same repository** — the same `REPO` name in `brigade sessions` —
   online or offline; Syncthing connects to each whenever both are up. A teammate who starts a session is
   introduced within about 15 seconds. A session that sends no repository name
-  (`share_workspace_label` off) introduces nobody, and nobody introduces it.
+  (`share_workspace_label` off) introduces nobody, and nobody introduces it. A member who sets a name of their
+  own (`workspace_label`) is introduced to the sessions that carry that same name.
 - **What travels how.** Files go directly between two machines' Syncthing instances, over Syncthing's own TLS,
   each device authenticated by its certificate. Syncthing's defaults are kept as they are: global discovery
   (Syncthing's public discovery servers learn each device's id and addresses), local discovery on the network,
@@ -190,11 +193,18 @@ says why)`; outside a session it refuses, because it reads the session's map.
   shares a port with a Syncthing you run yourself. Discovery announces that port, so nothing needs to be opened
   by hand; where a firewall stops it, relays carry the connection. The
   backend stores only the `sync_peer` string. No file, file name or folder name passes through Brigade's backend.
-- **The folder id.** Every checkout derives the same Syncthing folder id for a folder without exchanging it:
-  `brigade-`, the first 8 characters of the team reference with its dashes removed, `-`, and the first 12 hex
-  digits of the SHA-256 of the folder exactly as `.brigade.json` writes it — team `6f0f2b41-5a3c-…` and folder
-  `docs` give `brigade-6f0f2b41-46b42b4229cd` ([docs/sync-adapters.md](sync-adapters.md), "Folder ids"). The id
-  names the team and the folder, not the repository.
+- **The folder id.** Every checkout of a repository derives the same Syncthing folder id for a folder without
+  exchanging it: `brigade-`, the first 8 characters of the team reference with its dashes removed, `-`, and the
+  first 12 hex digits of the SHA-256 of `<repository>/<folder>` — the repository's name, and the folder exactly
+  as `.brigade.json` writes it. Team `6f0f2b41-5a3c-…`, repository `brigade` and folder `docs` give
+  `brigade-6f0f2b41-6f18276503a7` ([docs/sync-adapters.md](sync-adapters.md), "Folder ids"). The id names the
+  team, the repository and the folder, so two repositories of one team can list the same folder and each
+  syncs its own.
+- **The repository's name** is the last part of the checkout's `origin` URL, without `.git`: `payments-api` for
+  `git@github.com:example/payments-api.git`. It is the same on every teammate's checkout because they cloned the
+  same repository. A checkout with no `origin` uses its first remote, and one with no remote its directory's
+  name. It is what `brigade sessions` shows under `REPO` unless the member set a name of their own; the folder
+  id never follows the `workspace_label` option.
 - **The instance.** Brigade runs a Syncthing of its own, never yours: its home is
   `~/.local/state/brigade/sync/syncthing/` (under `XDG_STATE_HOME` when that is set; mode 0700), holding
   Syncthing's certificate — the device id —, `config.xml`, database and `syncthing.log`, and Brigade's
@@ -212,13 +222,46 @@ session open on a machine that stays up — Claude Code left running in a checko
 that session is on the roster like any other, so every teammate's session introduces it, and it holds the
 folders while everyone else is away. Or it can run a plain Syncthing on a server, sharing a folder under the same
 folder id (`brigade sync status --json` shows it), and add that server as a device to each member's Brigade
-instance and folder by hand, in the instance's web GUI (on 127.0.0.1, at the port in `port`). Brigade only ever
-adds devices: a device added by hand, to the instance or to a folder, stays as it was added, round after round.
+instance and folder by hand, in the instance's web GUI (on 127.0.0.1, at the port in `port`). A device added by
+hand, to the instance or to a folder, stays as it was added, round after round: Brigade keeps it because a team
+set it up.
+
+## Updating to 0.16.0
+
+**Every member updates the plugin, close together.** Say `/brigade:update`, then `/reload-plugins`. The `VERSION`
+column of `brigade sessions` shows who is behind.
+
+Before 0.16.0 a folder's id named the team and the folder. A team with two repositories that listed the same
+folder had one id for both. On a machine that held both, only one of the two synced; between two machines that
+each held the other one, the two folders synced into each other. From 0.16.0 the id names the repository as
+well, so every folder's id changes.
+
+- **Nothing to do on your machine.** At the first session start on 0.16.0, Brigade moves each of the project's
+  folders to its new id: it removes the folder's old entry from its Syncthing instance and adds the folder
+  again under the new id, at the same path, with the same devices — one you added by hand included. No file is
+  touched. Syncthing reads the folder again and finds the files it already has.
+- **Until everyone has updated, the team is in two groups.** Members on 0.16.0 exchange files with each other,
+  and members on an earlier version with each other. The two groups exchange nothing.
+- **When the last member updates, the folders are in step again.** Measured with Syncthing 2.1.5, between two
+  machines, 11 seconds after the second one updated:
+  - a file both groups have alike is left as it is;
+  - a file written in one group arrives in the other;
+  - a file changed in one group wins over the older copy, which is kept beside it as
+    `<name>.sync-conflict-<date>-<time>-<device>.<ext>`;
+  - **a file deleted in one group comes back** from the other. Delete it again.
+- **An always-on Syncthing you set up yourself** shares its folder under the old id. Give it the new one:
+  `brigade sync status --json` shows it as `configured[].id`, and the old one as `configured[].replaces`.
+- **A second clone of the repository on the machine** keeps the limit it had ("Limits"): the clone that held
+  the folder is the one that moves it.
+
+A folder that could not be moved shows `conflict_path` and keeps syncing under its old id; the next round, at
+most a minute later, tries again.
 
 ## What is written in your checkout
 
 - The listed folders, created when missing, and whatever teammates' machines put in them.
-- `.stfolder` in each listed folder: Syncthing's marker that the folder is present.
+- `.stfolder` in each listed folder: Syncthing's marker that the folder is present. Syncthing removes it when
+  a folder is removed from the instance, and puts it back when the folder is added again.
 - `.stversions` in each: the trash can. A file that a teammate's change replaces or deletes on your machine is
   moved there first and kept 14 days.
 - Conflict copies. When two machines changed one file before either saw the other's change, Syncthing keeps one
@@ -264,14 +307,21 @@ The protocol an adapter speaks — five verbs, one JSON document in and one out 
 
 ## Limits
 
-- **One checkout per folder id on a machine.** One Syncthing instance holds a folder id at one path. Two checkouts
-  on one machine that list the same folder for the same team — a second clone of the repository, or another
-  repository of the team that lists the same path — derive the same id. The checkout whose session shared the
-  folder first keeps it; the other leaves it where it is, shows `conflict_path` for it in `brigade sync status`,
-  and its notice line says `1 folder is held by another checkout`. That checkout's folder does not sync. To move
+- **One clone of a repository per machine syncs a folder.** Brigade's instance holds a folder id at one path.
+  Two clones of the same repository on one machine derive the same id for the same folder. The clone whose
+  session shared the folder first keeps it; the other shows `conflict_path` for it in `brigade sync status`,
+  and its notice line says `1 folder is held by another checkout`. That clone's folder does not sync. To move
   the folder to it, remove the folder from the instance in its web GUI; the next round of whichever session gets
   there first shares it from that session's checkout. A checkout that was deleted keeps holding the folder the
-  same way until it is removed.
+  same way until it is removed. Two different repositories of the team do not meet this limit: each has ids of
+  its own.
+- **Two repositories with the same name share their ids.** The id carries the repository's name, not its whole
+  URL: `example/tools` and `another/tools` are both `tools`. A team with two such repositories that list the
+  same folder meets the limit above on a machine that holds both, and between two machines the two folders
+  sync into each other. Give one of the two folders another name in its `.brigade.json`.
+- **A checkout whose name differs syncs with nobody.** A clone of a fork, a clone of the same repository under
+  another name, or a checkout with no remote in a directory named differently from its teammates', derives
+  other ids. It shows its folders `idle` and its teammates connected, and no file arrives.
 - **A crash is cleaned up by the next session.** A session whose watcher is killed without its exit path
   (`SIGKILL`) leaves its reference in `refs/`. The reference names the watcher's process, so the next session to
   start or end on the machine drops it, and the instance stops with the last live session. Until then — or after a

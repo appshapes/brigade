@@ -22,6 +22,11 @@ import (
 // syncRepo is the workspace label the tests' synced sessions share.
 const syncRepo = "brigade"
 
+// syncScope is the repository name the hook froze for the folder ids. It
+// differs from the label on purpose: a member may set the label to
+// anything, and the ids must not follow it.
+const syncScope = "brigade-repository"
+
 // registerPeer registers a session of the fixture's peer principal with
 // a workspace label and a sync peer (either may be nil), optionally
 // closing it again so it is listed offline.
@@ -72,6 +77,7 @@ func (fx *fixture) syncMap(adapter string, root string, folders ...string) {
 		m.SyncAdapter = adapter
 		m.SyncFolders = folders
 		m.SyncRoot = root
+		m.SyncScope = syncScope
 	})
 }
 
@@ -93,8 +99,9 @@ func (fx *fixture) readNotice() string {
 // end to end against the fs backend and the fake sync adapter: describe,
 // attach — whose descriptor reaches the roster as this session's
 // sync_peer through a heartbeat at the next liveness tick, not the next
-// interval — then apply with the project's folders (id, path, label as
-// derived) and exactly the teammates' peers this adapter can use (not
+// interval — then apply with the project's folders (id, path, label and
+// earlier id, derived from the repository's name and not from the
+// session's label) and exactly the teammates' peers this adapter can use (not
 // this session, same repository, this adapter's prefix stripped, offline
 // included, each descriptor once and never this machine's own), the
 // summary notice, and detach once the watcher stops.
@@ -152,8 +159,14 @@ func TestSyncDrivesTheAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantFolders := []foldersync.Folder{
-		{ID: foldersync.FolderID(fx.teamRef, ".context/plans"), Path: filepath.Join(root, ".context/plans"), Label: syncRepo + "/.context/plans"},
-		{ID: foldersync.FolderID(fx.teamRef, "docs"), Path: filepath.Join(root, "docs"), Label: syncRepo + "/docs"},
+		{
+			ID: foldersync.FolderID(fx.teamRef, syncScope, ".context/plans"), Path: filepath.Join(root, ".context/plans"),
+			Label: syncScope + "/.context/plans", Replaces: foldersync.LegacyFolderID(fx.teamRef, ".context/plans"),
+		},
+		{
+			ID: foldersync.FolderID(fx.teamRef, syncScope, "docs"), Path: filepath.Join(root, "docs"),
+			Label: syncScope + "/docs", Replaces: foldersync.LegacyFolderID(fx.teamRef, "docs"),
+		},
 	}
 	if apply.SessionID != fx.sessionID || apply.StateDir != fx.dirs.BrigadeState || !slices.Equal(apply.Folders, wantFolders) {
 		t.Fatalf("apply request = %+v\nwant folders %+v", apply, wantFolders)
