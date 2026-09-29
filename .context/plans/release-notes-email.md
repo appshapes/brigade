@@ -1,6 +1,6 @@
 # Release notes by email
 
-Date: 2026-09-29. Status: **built and committed; a preview is the next step; nothing sent to the list yet** (row
+Date: 2026-09-29. Status: **built, committed (`a2c1ddd`) and previewed; nothing sent to the list yet** (row
 P25-1 of the execution log). Owner: Rjae. Trello card **43**.
 
 ## 1. The ask
@@ -20,8 +20,8 @@ the email addresses for now"; collecting addresses is the next task.
 - 28 releases in 23 days: an email per release would be a flood. 23 of them are 0.5.0 or later.
 - `release-notes.yml` already writes gated notes onto every release page, and `CHANGELOG.md` has a section per
   version. Both are sources an email can be composed from.
-- The Resend account has one verified domain, and it is another product's. No domain of Brigade's own is
-  verified there.
+- The Resend account had one verified domain, another product's. `appshapes.com` was added and verified on
+  2026-09-29 (section 5), so the sender is `brigade@appshapes.com`.
 
 ## 3. Decisions
 
@@ -33,6 +33,7 @@ the email addresses for now"; collecting addresses is the next task.
 | 4 | **Weekly, Mondays 14:23 UTC, and by hand.** A run by hand is a preview unless it says `audience=recipients`. | The house's cadence. The safe default for the one step that cannot be undone. |
 | 5 | **The window follows the last email**: the newest successful run whose send step succeeded; else seven days; `from` overrides, inclusive. | A fixed seven days would send 0.16.0 twice after a first email sent by hand. The job token cannot write a variable, and a tag would reach goreleaser's changelog. The run history needs `actions: read` and nothing else. |
 | 6 | **The text is gated as the release notes are**: writer, lint, reviewer, one fix cycle. The rules of the email are `.claude/agents/release-notes-email.md`. | An email cannot be taken back. |
+| 9 | **A send by hand can take the draft of an earlier run** (`draft_run`). The scheduled run always writes its own. | A preview that is read and approved, then replaced by a text nobody read, is not a preview. The schedule has no reader to wait for. |
 | 7 | **The first email starts at 0.5.0** (Rjae). | Everything before 0.5.0 is install and join mechanics that the README now covers. From 0.5.0 each release adds something a member sees. It is grouped by what a member can do, not by version. |
 | 8 | **Resend over SMTP** (`smtp.resend.com`, port 465, user name `resend`, the API key as the password), through the mail step the house already uses. | Rjae's account and key. The workflow stays the house's shape, and another mail service is five settings away. |
 
@@ -47,9 +48,30 @@ the email addresses for now"; collecting addresses is the next task.
 The first design read the stargazers and resolved each to an address (a hand-kept `<login> <address>` list, then
 the profile's public address). It was built, tested and replaced the same day, before any commit.
 
-## 5. What is open
+## 5. What was measured after the commit
 
-- **The sender's domain.** The one verified domain is another product's. A domain of Brigade's own needs DNS
-  records that only Rjae can add.
+- **The preview run, 36626521185, green in 19 minutes.** The first draft was not approved, the writer fixed it, the
+  second review approved it, the lint was clean. The preview was delivered to one address and the two recipient
+  steps were skipped. The run's log and its artifact carry no recipient's address.
+- **The sender's domain.** Rjae wanted `brigade@appshapes.com`. Google SMTP would have needed an app password made
+  by hand and a send-as alias. Instead `appshapes.com` itself was added to Resend and four records were added at
+  Hover, the domain's DNS: TXT `resend._domainkey`, MX `send`, TXT `send`, CNAME `rsend`. Resend lists the CNAME
+  for domains created after August 2026, and the domain did not verify in 18 minutes without it. The 19 records
+  that were there before are as they were. Verified at 21:39 UTC; a one-line test from the new address was
+  delivered.
+- **Hover has no public API.** The records went in through the control panel's own endpoints, signed in with
+  Rjae's login and a code she read from her authenticator. The recovery code was never used.
+
+- **The first send, run 36636440249, was refused by the gate, and nothing was sent.** It wrote a new draft, as
+  every run does. The first review had three findings, the writer fixed them, and the second review had three
+  others: 23 releases in 450 words leaves no room for one more thing a reader must know. The preview of the same
+  releases had been approved. Hence `draft_run` and `send-release-notes.sh adopt`: a run by hand can send the
+  draft an earlier run's gate approved, so that what was previewed is what is sent. Tried read-only against the
+  two runs: the preview's draft is adopted byte for byte and lints clean, and the refused run is refused.
+
+## 6. What is open
+
+- **The first send**: Rjae said "Send" on 2026-09-29; it goes out with the preview's draft once `draft_run` is
+  on `master`.
+- **The schedule is live**: Mondays 14:23 UTC, first on 2026-10-05.
 - **Collecting addresses**: Rjae's next task for this card's session.
-- **The first send**, after Rjae has read the preview.

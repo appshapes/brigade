@@ -45,11 +45,12 @@ const notesEmailChangelog = "# Changelog\n\n## [Unreleased]\n\n" +
 // ---------------------------------------------------------------------------------------------------------
 // the fake API
 
-// notesEmailServer plays the four GitHub endpoints the script reads. Every answer is a field, so a case
+// notesEmailServer plays the five GitHub endpoints the script reads. Every answer is a field, so a case
 // changes one and nothing else. A path it does not know is a 404 with GitHub's own shape.
 type notesEmailServer struct {
 	url string
 
+	repo     string            // GET /repos/<repo>
 	releases string            // GET /repos/<repo>/releases
 	runs     string            // GET /repos/<repo>/actions/workflows/send-release-notes.yml/runs
 	run      map[string]string // GET /repos/<repo>/actions/runs/<id>
@@ -62,6 +63,7 @@ type notesEmailServer struct {
 func newNotesEmailServer(t *testing.T) *notesEmailServer {
 	t.Helper()
 	ns := &notesEmailServer{
+		repo:     `{"default_branch":"trunk"}`,
 		releases: `[]`,
 		runs:     `{"total_count":0,"workflow_runs":[]}`,
 		run:      map[string]string{},
@@ -82,6 +84,8 @@ func (ns *notesEmailServer) serve(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	firstPage := r.URL.Query().Get("page") == "" || r.URL.Query().Get("page") == "1"
 	switch {
+	case path == repo:
+		status, out = http.StatusOK, ns.repo
 	case path == repo+"/releases" && firstPage:
 		status, out = http.StatusOK, ns.releases
 	case path == repo+"/releases":
@@ -172,7 +176,7 @@ func runNotesEmail(t *testing.T, ns *notesEmailServer, mode string, vars ...stri
 func runNotesEmailIn(t *testing.T, ns *notesEmailServer, root, mode string, vars ...string) notesEmailRun {
 	t.Helper()
 	path, record := keepaliveShim(t, root)
-	restrictedPath(t, root, "awk", "cat", "grep", "mkdir", "paste", "sed", "tr")
+	restrictedPath(t, root, "awk", "cat", "cmp", "cp", "grep", "head", "mkdir", "paste", "sed", "tr")
 	home := filepath.Join(root, ".home")
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -409,6 +413,125 @@ func TestSendReleaseNotesRefusesAnAPIThatIsNotHTTPS(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------------------------------------
+// adopt
+
+// adoptFixture is what `adopt` reads: this run's window, and the artifact of the earlier run as the workflow
+// downloaded it. Each case changes one thing of a fixture every part of which would be adopted.
+type adoptFixture struct {
+	window       string // this run's window.txt
+	draftWindow  string // the earlier run's window.txt; "-" leaves the file out
+	notes        string // the earlier run's notes.md; "-" leaves the file out
+	review       string // the earlier run's review.md; "-" leaves the file out
+	run          string // GET /actions/runs/77
+	draftRun     string // BRIGADE_EMAIL_DRAFT_RUN
+	thisRun      string // GITHUB_RUN_ID
+	wantRequests bool
+}
+
+func goodAdoptFixture() adoptFixture {
+	return adoptFixture{
+		window:       "v0.2.0\nv0.3.0\n",
+		draftWindow:  "v0.2.0\nv0.3.0\n",
+		notes:        "# Brigade 0.2.0 to 0.3.0\n\nThe second thing and the third.\n",
+		review:       "APPROVED\n",
+		run:          `{"id":77,"path":".github/workflows/send-release-notes.yml","head_branch":"trunk","conclusion":"success"}`,
+		draftRun:     "77",
+		thisRun:      "99",
+		wantRequests: true,
+	}
+}
+
+func runAdopt(t *testing.T, fx adoptFixture) (notesEmailRun, *notesEmailServer) {
+	t.Helper()
+	ns := newNotesEmailServer(t)
+	ns.run["77"] = fx.run
+	root := t.TempDir()
+	draft := filepath.Join(root, "draft")
+	for _, dir := range []string{filepath.Join(root, "email"), draft} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, text := range map[string]string{
+		filepath.Join(root, "email", "window.txt"): fx.window,
+		filepath.Join(draft, "window.txt"):         fx.draftWindow,
+		filepath.Join(draft, "notes.md"):           fx.notes,
+		filepath.Join(draft, "review.md"):          fx.review,
+	} {
+		if text == "-" {
+			continue
+		}
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := runNotesEmailIn(t, ns, root, "adopt",
+		"BRIGADE_EMAIL_DRAFT_RUN="+fx.draftRun, "BRIGADE_EMAIL_DRAFT_DIR="+draft, "GITHUB_RUN_ID="+fx.thisRun)
+	return run, ns
+}
+
+func TestSendReleaseNotesAdoptTakesAnApprovedDraft(t *testing.T) {
+	t.Parallel()
+	fx := goodAdoptFixture()
+	run, ns := runAdopt(t, fx)
+	wantPass(t, run.result, "the draft of run 77 is adopted: approved there, 2 release(s), the same as this email covers")
+	if got := run.read(t, "notes.md"); got != fx.notes {
+		t.Errorf("notes.md is %q", got)
+	}
+	if got := run.read(t, "review.md"); got != fx.review {
+		t.Errorf("review.md is %q", got)
+	}
+	if !ns.asked("/repos/"+notesEmailRepo+"/actions/runs/77") || ns.asked("/repos/"+notesEmailRepo+"/actions/runs/99") {
+		t.Errorf("adopt did not ask about run 77 and run 77 alone")
+	}
+}
+
+func TestSendReleaseNotesAdoptRefusals(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		change func(*adoptFixture)
+		want   string
+	}{
+		{"an id that is not digits", func(fx *adoptFixture) { fx.draftRun = "77/../78" }, "BRIGADE_EMAIL_DRAFT_RUN is not the id of a run"},
+		{"no id", func(fx *adoptFixture) { fx.draftRun = "" }, "BRIGADE_EMAIL_DRAFT_RUN is not the id of a run"},
+		{"its own run", func(fx *adoptFixture) { fx.thisRun = "77" }, "a run cannot adopt its own draft"},
+		{"a run that does not exist", func(fx *adoptFixture) { fx.draftRun = "78" }, "GET /repos/" + notesEmailRepo + "/actions/runs/78 answered HTTP 404"},
+		{"a run of another workflow", func(fx *adoptFixture) {
+			fx.run = strings.Replace(fx.run, "send-release-notes.yml", "release-notes.yml", 1)
+		}, "run 77 is not a run of send-release-notes.yml"},
+		{"a run the gate failed", func(fx *adoptFixture) {
+			fx.run = strings.Replace(fx.run, `"success"`, `"failure"`, 1)
+		}, "run 77 did not succeed (failure): its gate approved no draft"},
+		{"a run on another branch", func(fx *adoptFixture) {
+			fx.run = strings.Replace(fx.run, `"trunk"`, `"someone/try"`, 1)
+		}, "run 77 ran on someone/try, not on the default branch"},
+		{"a review that asks for changes", func(fx *adoptFixture) { fx.review = "CHANGES_REQUESTED\nA finding.\n" }, "the review of run 77 does not say APPROVED"},
+		{"a review that says it lower down", func(fx *adoptFixture) { fx.review = "CHANGES_REQUESTED\nAPPROVED\n" }, "the review of run 77 does not say APPROVED"},
+		{"no review", func(fx *adoptFixture) { fx.review = "-" }, "run 77 left no review"},
+		{"no draft", func(fx *adoptFixture) { fx.notes = "-" }, "run 77 left no draft"},
+		{"an empty draft", func(fx *adoptFixture) { fx.notes = "" }, "run 77 left no draft"},
+		{"a release published since", func(fx *adoptFixture) { fx.window = "v0.2.0\nv0.3.0\nv0.4.0\n" }, "the draft of run 77 covers 2 release(s) and this email covers 3"},
+		{"another window of the same length", func(fx *adoptFixture) { fx.draftWindow = "v0.1.0\nv0.2.0\n" }, "or not the same ones: write a new draft"},
+		{"no window in the artifact", func(fx *adoptFixture) { fx.draftWindow = "-" }, "run 77 left no window"},
+		{"no window of this run", func(fx *adoptFixture) { fx.window = "-" }, "run window first"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fx := goodAdoptFixture()
+			tc.change(&fx)
+			run, _ := runAdopt(t, fx)
+			wantFail(t, run.result, tc.want)
+			for _, name := range []string{"notes.md", "review.md"} {
+				if _, err := os.Stat(filepath.Join(run.dir, name)); err == nil {
+					t.Errorf("%s was written although the draft was refused", name)
+				}
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------
 // recipients
 
 var notesEmailAddress = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+`)
@@ -544,7 +667,7 @@ func TestSendReleaseNotesUsage(t *testing.T) {
 	ns := newNotesEmailServer(t)
 	for _, mode := range []string{"", "send"} {
 		run := runNotesEmail(t, ns, mode)
-		if run.code != 2 || !strings.Contains(run.stderr, "usage: scripts/ci/send-release-notes.sh window|recipients|finish") {
+		if run.code != 2 || !strings.Contains(run.stderr, "usage: scripts/ci/send-release-notes.sh window|adopt|recipients|finish") {
 			t.Errorf("mode %q: exit %d\n%s", mode, run.code, run.all())
 		}
 	}
@@ -598,6 +721,15 @@ func TestSendReleaseNotesJoinsTheWorkflow(t *testing.T) {
 	}
 	if !strings.Contains(workflow, "bcc: ${{ steps.recipients.outputs.bcc }}") {
 		t.Errorf("the recipients are not addressed as bcc")
+	}
+	// The draft of an earlier run is found by the name its artifact was uploaded under.
+	if !strings.Contains(workflow, "name: release-notes-email-${{ github.run_id }}") ||
+		!strings.Contains(workflow, `--name "release-notes-email-$BRIGADE_EMAIL_DRAFT_RUN"`) {
+		t.Errorf("the artifact is not uploaded and downloaded under the same name")
+	}
+	// No agent writes or reviews when a draft is adopted: four agent steps, each behind the same condition.
+	if n := strings.Count(workflow, "inputs.draft_run == ''"); n < 4 {
+		t.Errorf("%d steps stand aside for an adopted draft, want the four agent steps at least", n)
 	}
 	// The footer tells the reader to answer the email in order to stop it: both mail steps carry the Reply-To.
 	if n := strings.Count(workflow, "reply_to: ${{ secrets.RELEASE_NOTES_REPLY_TO }}"); n != 2 {

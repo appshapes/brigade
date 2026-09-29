@@ -33,7 +33,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `.github/workflows/update-documentation.yml` | monthly cron, `workflow_dispatch` | Structural documentation refresh through the loop. Opens its PR **with** the auto-merge label. |
 | `.github/workflows/review-repository.yml` | monthly cron, `workflow_dispatch` | Reviewer pass over the tree; opens a PR with minimal fixes and **no** auto-merge label — that one merges by hand. |
 | `.github/workflows/release-notes.yml` | `workflow_dispatch` only — from `release.yml` after the publish, or by hand with `-f tag=v…` (the `release: published` and `workflow_call` triggers are gone: the job token raises no `release` event, and a call from the tag-push workflow ran the action under `push`, which it refuses, run 34537045037) | Drafts the published release's notes from `CHANGELOG.md` and the log with one agent, refuses anything that does not exist with `release-notes-lint.sh`, has a second agent review the draft against the sources, allows one fix cycle, and only then publishes the notes and opens the "run `/brigade:update`" announcement — both from shell steps, idempotently. |
-| `.github/workflows/send-release-notes.yml` | weekly cron (`23 14 * * 1` UTC) and `workflow_dispatch` (`audience` = `preview` or `recipients`, `from` = the first tag to cover) | Emails a list of recipients what changed in the releases published since the last email (card 43). `send-release-notes.sh` decides which releases and reads the list; one agent drafts from the changelog and the published notes, `release-notes-lint.sh` in its `email` kind and a second agent gate the draft with one fix cycle, and a mail step sends it with every reader as `bcc`. A run by hand is a preview unless it says `audience=recipients`. Without the mail configuration the scheduled run is a green no-op. |
+| `.github/workflows/send-release-notes.yml` | weekly cron (`23 14 * * 1` UTC) and `workflow_dispatch` (`audience` = `preview` or `recipients`, `from` = the first tag to cover, `draft_run` = an earlier run whose approved draft is sent as it is) | Emails a list of recipients what changed in the releases published since the last email (card 43). `send-release-notes.sh` decides which releases and reads the list; one agent drafts from the changelog and the published notes, `release-notes-lint.sh` in its `email` kind and a second agent gate the draft with one fix cycle, and a mail step sends it with every reader as `bcc`. A run by hand is a preview unless it says `audience=recipients`. With `draft_run` no agent runs: what was previewed is what is sent. Without the mail configuration the scheduled run is a green no-op. |
 | `.github/workflows/update-dependencies.yml` | monthly cron, `workflow_dispatch` | Dependency bump through the loop: `go.mod` and `tools.mod` by the agent, the action pins reported in the PR body (not edited) (`.claude/agents/developer.md`, dependency-update mode). Opens its PR **with** the auto-merge label. |
 
 ## Index
@@ -287,7 +287,7 @@ Needs `sh`, `grep`, `sed`, `sort`.
 
 ## `scripts/ci/send-release-notes.sh`
 
-The three deterministic steps of the release-notes email (card 43). The agents of `send-release-notes.yml` write
+The four deterministic steps of the release-notes email (card 43). The agents of `send-release-notes.yml` write
 the text; this script decides what cannot be left to them, from GitHub's own record.
 
 - `window` — which releases the email covers: those published after the last email and up to the run's own start.
@@ -296,6 +296,11 @@ the text; this script decides what cannot be left to them, from GitHub's own rec
   such run: the last seven days. `BRIGADE_EMAIL_FROM` (the `from` input) overrides both and is inclusive. It lays
   out the sources the agents read: each release's published notes and the changelog's sections for them. Drafts,
   pre-releases and tags that are not `vX.Y.Z` are never covered.
+- `adopt` — takes the draft of an earlier run in place of a new one, so that what was previewed is what is sent.
+  Every run writes a new draft, and the gate can approve one and refuse the next. It refuses unless that run is a
+  successful run of this workflow on the default branch, its review says `APPROVED`, and it covered the very
+  releases this run covers. The workflow downloads that run's artifact first; the lint runs on the adopted draft
+  as on any other.
 - `recipients` — who receives it: the list in `BRIGADE_EMAIL_RECIPIENTS` (the secret `RELEASE_NOTES_RECIPIENTS`).
   An entry that is not one plain address is refused, not cleaned; an address is lower-cased and counted once.
   Every address is registered as a mask (`::add-mask::`) before anything can print it, and the output carries
@@ -306,7 +311,7 @@ the text; this script decides what cannot be left to them, from GitHub's own rec
 Invoked by `.github/workflows/send-release-notes.yml` only. There is no `make` target: a developer does not have
 the list. `send_release_notes_test.go` runs every mode against a fake API.
 
-Needs `curl`, `jq` and `awk`, and for `window` the job token in `GH_TOKEN`, which reaches `curl` through a `0600`
+Needs `curl`, `jq` and `awk`, and for `window` and `adopt` the job token in `GH_TOKEN`, which reaches `curl` through a `0600`
 header file and never on argv. No response body is ever printed.
 
 ### Run locally
@@ -321,7 +326,8 @@ BRIGADE_EMAIL_FROM=v0.5.0 scripts/ci/send-release-notes.sh window
 
 ```sh
 gh workflow run send-release-notes.yml -f audience=preview -f from=v0.5.0      # the draft is attached to the run
-gh workflow run send-release-notes.yml -f audience=recipients -f from=v0.5.0   # sends it
+gh workflow run send-release-notes.yml -f audience=recipients -f from=v0.5.0   # writes a new draft and sends it
+gh workflow run send-release-notes.yml -f audience=recipients -f from=v0.5.0 -f draft_run=<the preview's run id>   # sends what was previewed
 gh run list --workflow send-release-notes.yml --limit 1
 ```
 
@@ -426,7 +432,7 @@ Go's:
 | --- | --- |
 | `checks_test.go` | The four POSIX-sh gates — `plugin-check.sh`, `no-secrets.sh`, `checksums-check.sh`, `release-verify.sh` — each proved able to FAIL against a fixture tree built under `t.TempDir()`, plus a read-only pass over the real repository. |
 | `release_prep_test.go` | `release-prep.sh`: every refusal fires (dirty tree, wrong branch, a published tag). |
-| `send_release_notes_test.go` | `send-release-notes.sh`: the window against a fake GitHub API, the list of recipients and the footer, that no address is printed outside a mask line and that the token stays off argv, and a join of the send step's name and the secrets to `send-release-notes.yml`. |
+| `send_release_notes_test.go` | `send-release-notes.sh`: the window and the adoption of an earlier run's draft against a fake GitHub API, the list of recipients and the footer, that no address is printed outside a mask line and that the token stays off argv, and a join of the send step's name and the secrets to `send-release-notes.yml`. |
 | `keepalive_test.go` | `keepalive.sh`: the four rungs against a fake endpoint, and a join of its endpoints to `gotrue.go`, `postgrest.go` and the schema migration. |
 | `manifests_test.go` | `plugin/.claude-plugin/plugin.json`, `plugin/hooks/hooks.json` and `.claude-plugin/marketplace.json` parsed as JSON — `plugin-check.sh` is textual by design and `claude plugin validate` never runs in CI. |
 | `proof_test.go` | `proof.sh`'s delimited constants block, joined against the Go and SQL sources. |

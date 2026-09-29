@@ -1,9 +1,10 @@
 #!/bin/sh
 # usage: scripts/ci/send-release-notes.sh window       which releases the email covers, and its sources
+#        scripts/ci/send-release-notes.sh adopt        the approved draft of an earlier run, in place of a new one
 #        scripts/ci/send-release-notes.sh recipients   the addresses the email goes to
 #        scripts/ci/send-release-notes.sh finish       the approved draft with the footer under it
 #
-# The three deterministic steps of .github/workflows/send-release-notes.yml (card 43). The email's text is
+# The four deterministic steps of .github/workflows/send-release-notes.yml (card 43). The email's text is
 # composed by an agent and gated by release-notes-lint.sh and a reviewer; WHICH releases it covers, WHO
 # receives it and WHAT it says about why they received it are decided here, by the shell.
 #
@@ -15,6 +16,15 @@
 #                INCLUSIVE: `v0.5.0` means the email starts with 0.5.0. It writes window.txt (one tag a line,
 #                oldest first), sources/<tag>.md (that release's published notes, which passed the
 #                release-notes gate) and sources/changelog.md (CHANGELOG.md's sections for those versions).
+#   adopt        Takes the draft an earlier run wrote and its gate approved, so that what was previewed is
+#                what is sent: every run writes a new draft, and the first send (run 36636440249) was
+#                refused by the gate after a preview of the same releases had been approved and read. It
+#                refuses unless the run is a successful run of this workflow on the default branch --
+#                a run only succeeds when its gate approved -- its review says APPROVED, and its window is
+#                this run's window, release for release: a release published since belongs in the email,
+#                and the old draft does not have it. The workflow downloads that run's artifact into
+#                BRIGADE_EMAIL_DRAFT_DIR first; this copies notes.md and review.md from it. The lint runs
+#                on the adopted draft as on any other.
 #   recipients   The addresses of BRIGADE_EMAIL_RECIPIENTS, a list the maintainers keep by hand (owner,
 #                2026-09-29: GitHub gives out the address of almost nobody who starred, so the list is fixed
 #                for now and collecting addresses is a later card). Each entry is held to one plain address,
@@ -36,6 +46,8 @@
 #                             a runner's `ps` and the Actions debug log both see argv (CLAUDE.md)
 #   BRIGADE_EMAIL_FROM        window: the first tag to cover, optional
 #   BRIGADE_EMAIL_CHANGELOG   window: the changelog to read; CHANGELOG.md of the working directory when unset
+#   BRIGADE_EMAIL_DRAFT_RUN   adopt: the id of the earlier run (the workflow's `draft_run` input)
+#   BRIGADE_EMAIL_DRAFT_DIR   adopt: where the workflow downloaded that run's artifact
 #   BRIGADE_EMAIL_RECIPIENTS  recipients: the list -- addresses separated by commas, blanks or line ends, `#`
 #                             starts a comment. A SECRET of the workflow, never a variable and never a
 #                             file of the repository: a variable is printed unmasked, and the repository
@@ -66,8 +78,8 @@ default_window=604800
 # ---- configuration --------------------------------------------------------------------------------------
 mode=${1:-}
 case $mode in
-  window|recipients|finish) ;;
-  *) echo 'usage: scripts/ci/send-release-notes.sh window|recipients|finish' >&2; exit 2 ;;
+  window|adopt|recipients|finish) ;;
+  *) echo 'usage: scripts/ci/send-release-notes.sh window|adopt|recipients|finish' >&2; exit 2 ;;
 esac
 
 dir=${BRIGADE_EMAIL_DIR:-}
@@ -235,6 +247,44 @@ window() {
   say "$count release(s), $first to $last; the subject is \"$subject\""
 }
 
+# ---- adopt ----------------------------------------------------------------------------------------------
+adopt() {
+  run=${BRIGADE_EMAIL_DRAFT_RUN:-}
+  from_dir=${BRIGADE_EMAIL_DRAFT_DIR:-}
+  printf '%s\n' "$run" | grep -E -q -x '[0-9]+' || die 'BRIGADE_EMAIL_DRAFT_RUN is not the id of a run: digits only'
+  [ -n "$from_dir" ] || die 'BRIGADE_EMAIL_DRAFT_DIR is not set: where that run'"'"'s artifact was downloaded'
+  [ "$run" != "${GITHUB_RUN_ID:-}" ] || die 'a run cannot adopt its own draft'
+  [ -f "$dir/window.txt" ] || die "there is no window at $dir/window.txt: run window first"
+
+  api_get "/repos/$repo"
+  branch=$(jq -r '.default_branch // empty' < "$body")
+  api_get "/repos/$repo/actions/runs/$run"
+  run_path=$(jq -r '.path // empty' < "$body")
+  run_conclusion=$(jq -r '.conclusion // empty' < "$body")
+  run_branch=$(jq -r '.head_branch // empty' < "$body")
+  # The path can carry `@<ref>` after the file name.
+  case $run_path in
+    ".github/workflows/$workflow_file"|".github/workflows/$workflow_file@"*) ;;
+    *) die "run $run is not a run of $workflow_file" ;;
+  esac
+  [ "$run_conclusion" = success ] || die "run $run did not succeed ($run_conclusion): its gate approved no draft"
+  if [ -z "$branch" ] || [ "$run_branch" != "$branch" ]; then
+    die "run $run ran on $run_branch, not on the default branch"
+  fi
+
+  [ -s "$from_dir/notes.md" ] || die "run $run left no draft: notes.md is missing from its artifact, or empty"
+  [ -f "$from_dir/review.md" ] || die "run $run left no review"
+  [ "$(head -n 1 "$from_dir/review.md")" = APPROVED ] || die "the review of run $run does not say APPROVED"
+  [ -f "$from_dir/window.txt" ] || die "run $run left no window"
+  if ! cmp -s "$from_dir/window.txt" "$dir/window.txt"; then
+    die "the draft of run $run covers $(awk 'END { print NR }' "$from_dir/window.txt") release(s) and this email covers $(awk 'END { print NR }' "$dir/window.txt"), or not the same ones: write a new draft"
+  fi
+
+  cp "$from_dir/notes.md" "$dir/notes.md"
+  cp "$from_dir/review.md" "$dir/review.md"
+  say "the draft of run $run is adopted: approved there, $(awk 'END { print NR }' "$dir/window.txt") release(s), the same as this email covers"
+}
+
 # ---- recipients -----------------------------------------------------------------------------------------
 # sendable <address> -> true for one plain address. The result becomes a comma-separated input of the mail
 # step, so anything but one address -- a display name, a second address glued on with a semicolon -- is
@@ -302,6 +352,7 @@ finish() {
 
 case $mode in
   window)     window ;;
+  adopt)      adopt ;;
   recipients) recipients ;;
   finish)     finish ;;
 esac

@@ -34,6 +34,15 @@
 #   gh workflow run send-release-notes.yml -f audience=preview -f from=v0.5.0      # look at it first
 #   gh workflow run send-release-notes.yml -f audience=recipients -f from=v0.5.0   # then send it
 #
+# What was previewed can be what is sent. Every run writes a new draft, and the gate can approve one and refuse
+# the next: the first send, run 36636440249, was refused after the preview of the same 23 releases, run
+# 36626521185, had been approved and read. The `draft_run` input names an earlier run, and
+# `send-release-notes.sh adopt` takes that run's draft in place of a new one -- no agent writes or reviews --
+# provided the run succeeded on the default branch, its review says APPROVED and it covered the very releases
+# this run covers. The lint still runs on it, against the tree as it is now:
+#
+#   gh workflow run send-release-notes.yml -f audience=recipients -f from=v0.5.0 -f draft_run=36626521185
+#
 # A run by hand is a PREVIEW unless it says otherwise: the email goes to RELEASE_NOTES_PREVIEW_ADDRESS (the
 # sender's own address when that secret is unset) and to nobody else, and the draft is attached to the run
 # either way, so a preview needs no mail server at all. The scheduled run sends to the recipients.
@@ -55,6 +64,10 @@ on:
         default: preview
       from:
         description: The first release the email covers, e.g. v0.5.0. Empty means every release since the last email.
+        required: false
+        type: string
+      draft_run:
+        description: The id of an earlier run whose approved draft is sent as it is, e.g. a preview's. Empty means a new draft is written.
         required: false
         type: string
 
@@ -131,10 +144,22 @@ jobs:
           echo "BRIGADE_NOTES_COMMANDS=$commands" >> "$GITHUB_ENV"
           echo "commands: $commands"
 
+      # ---- or the draft of an earlier run, approved there ----------------------------------------------------
+      - name: Take the approved draft of an earlier run
+        if: steps.window.outputs.count > 0 && inputs.draft_run != ''
+        run: |
+          case "$BRIGADE_EMAIL_DRAFT_RUN" in ''|*[!0-9]*) echo "::error::draft_run is not the id of a run: digits only"; exit 1 ;; esac
+          gh run download "$BRIGADE_EMAIL_DRAFT_RUN" --repo "$GITHUB_REPOSITORY" --name "release-notes-email-$BRIGADE_EMAIL_DRAFT_RUN" --dir "$BRIGADE_EMAIL_DRAFT_DIR"
+          scripts/ci/send-release-notes.sh adopt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRIGADE_EMAIL_DRAFT_RUN: ${{ inputs.draft_run }}
+          BRIGADE_EMAIL_DRAFT_DIR: /tmp/brigade-email-draft
+
       # ---- round 1 ------------------------------------------------------------------------------------------
       - name: Draft the email
         id: draft1
-        if: steps.window.outputs.count > 0
+        if: steps.window.outputs.count > 0 && inputs.draft_run == ''
         continue-on-error: true   # the file it wrote (or did not) is judged by the lint and the verdict step; the action also fails a step whose agent exceeded --max-turns after writing (release-notes.yml, run 34583310273)
         uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1 — pinned by SHA, as everywhere in this repository
         with:
@@ -192,7 +217,7 @@ jobs:
 
       - name: Review the draft
         id: review1
-        if: steps.window.outputs.count > 0
+        if: steps.window.outputs.count > 0 && inputs.draft_run == ''
         continue-on-error: true   # as the drafter's
         uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
         with:
@@ -238,7 +263,7 @@ jobs:
         run: cp "$RUNNER_TEMP/claude-execution-output.json" "$BRIGADE_EMAIL_DIR/review1-execution.json" 2>/dev/null || true
       - name: Read the round-1 verdict
         id: verdict1
-        if: steps.window.outputs.count > 0
+        if: steps.window.outputs.count > 0 && inputs.draft_run == ''
         run: |
           if [ -f "$BRIGADE_EMAIL_DIR/review.md" ]; then
             verdict=$(head -n 1 "$BRIGADE_EMAIL_DIR/review.md" | grep -o -E 'CHANGES_REQUESTED|APPROVED' | head -n 1)
@@ -253,7 +278,7 @@ jobs:
       # ---- round 2: exactly one fix cycle ---------------------------------------------------------------------
       - name: Fix the draft
         id: draft2
-        if: steps.window.outputs.count > 0 && (steps.lint1.outcome != 'success' || steps.verdict1.outputs.verdict != 'APPROVED')
+        if: steps.window.outputs.count > 0 && inputs.draft_run == '' && (steps.lint1.outcome != 'success' || steps.verdict1.outputs.verdict != 'APPROVED')
         continue-on-error: true   # as the drafter's
         uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
         with:
@@ -348,6 +373,8 @@ jobs:
             }
 
       # ---- the gate --------------------------------------------------------------------------------------------
+      # An adopted draft arrives with the review that approved it and is judged by this run's own lint: the
+      # fix cycle was skipped, so the gate below reads round 1.
       - name: Keep the second reviewer's execution log
         if: always() && steps.review2.outcome != 'skipped'
         run: cp "$RUNNER_TEMP/claude-execution-output.json" "$BRIGADE_EMAIL_DIR/review2-execution.json" 2>/dev/null || true
