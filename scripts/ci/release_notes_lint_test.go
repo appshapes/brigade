@@ -24,9 +24,16 @@ const goodNotes = "Brigade 0.5.1 is a fix release.\n\n" +
 	"```\nbrigade sessions --json\n```\n\n" +
 	"## Assets\n\n- brigade_0.5.1_darwin_arm64\n- brigade_0.5.1_linux_amd64\n- checksums.txt\n"
 
-// lint runs the script on notes with the given lists and returns exit
-// status and combined output.
+// lint runs the script on one release's notes with the given lists and
+// returns exit status and combined output.
 func lint(t *testing.T, notes, commands, assets, skills string) (int, string) {
+	t.Helper()
+	return lintKind(t, "", notes, commands, assets, skills)
+}
+
+// lintKind is lint with BRIGADE_NOTES_KIND set: "" for one release's notes,
+// "email" for the release-notes email of send-release-notes.yml.
+func lintKind(t *testing.T, kind, notes, commands, assets, skills string) (int, string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "notes.md")
@@ -40,6 +47,7 @@ func lint(t *testing.T, notes, commands, assets, skills string) (int, string) {
 		"BRIGADE_NOTES_COMMANDS="+commands,
 		"BRIGADE_NOTES_ASSETS="+assets,
 		"BRIGADE_NOTES_SKILLS="+skills,
+		"BRIGADE_NOTES_KIND="+kind,
 	)
 	out, err := cmd.CombinedOutput()
 	code := 0
@@ -145,5 +153,75 @@ func TestReleaseNotesLintReadsTheSkillsFromThePluginTree(t *testing.T) {
 	code, out = lint(t, strings.Replace(goodNotes, "`/brigade:update`", "`/brigade:"+absent+"`", 1), commands, assets, "")
 	if code != 1 || !strings.Contains(out, "FAIL: /brigade:"+absent+" is not a skill") {
 		t.Fatalf("exit %d:\n%s", code, out)
+	}
+}
+
+// The release-notes email (send-release-notes.yml, card 43) goes through the
+// same script with BRIGADE_NOTES_KIND=email: the checks of one release's
+// notes minus the assets, plus two of its own — nobody's address, and no
+// card or plan row. goodEmail names no asset and is linted with no asset
+// list, which the notes kind refuses ("no asset list", above).
+const goodEmail = "# Brigade 0.5.0 to 0.5.1\n\n" +
+	"`brigade sessions` shows which model each session is running.\n\n" +
+	"## Update\n\nSay `/brigade:update`, then run `/reload-plugins`.\n"
+
+func TestReleaseNotesLintPassesAGoodEmail(t *testing.T) {
+	t.Parallel()
+	code, out := lintKind(t, "email", goodEmail, commands, "", skills)
+	if code != 0 || !strings.Contains(out, "release-notes-lint: clean") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	for _, want := range []string{"ok: the notes name 0.5.1", "ok: /brigade:update exists", "ok: no address", "ok: no card or plan row"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	// The install command carries an `@` and is not an address.
+	code, out = lintKind(t, "email", goodEmail+"\nInstall with `/plugin install brigade@brigade`.\n", commands, "", skills)
+	if code != 0 {
+		t.Fatalf("the install command was refused: exit %d\n%s", code, out)
+	}
+}
+
+func TestReleaseNotesLintEmailRefusals(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		notes string
+		want  string
+	}{
+		{"an address", goodEmail + "\nWrite to someone@example.com.\n", "FAIL: the email carries an address"},
+		{"a card", strings.Replace(goodEmail, "is running.", "is running (card 34).", 1), "FAIL: the email names a card or a plan row"},
+		{"a plan row", strings.Replace(goodEmail, "is running.", "is running (P23-1).", 1), "FAIL: the email names a card or a plan row"},
+		{"a skill that does not exist", strings.Replace(goodEmail, "`/brigade:update`", "`/brigade:no-such-skill`", 1), "FAIL: /brigade:no-such-skill is not a skill"},
+		{"the newest version unnamed", strings.ReplaceAll(goodEmail, "0.5.1", "0.5.0"), "FAIL: the notes never name version 0.5.1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			code, out := lintKind(t, "email", tc.notes, commands, "", skills)
+			if code != 1 {
+				t.Fatalf("exit %d, want 1:\n%s", code, out)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("missing %q in:\n%s", tc.want, out)
+			}
+		})
+	}
+}
+
+// TestReleaseNotesLintKindsDiffer: the two checks of an email do not reach
+// one release's notes, whose changelog wording names cards, and an unknown
+// kind is refused rather than read as either.
+func TestReleaseNotesLintKindsDiffer(t *testing.T) {
+	t.Parallel()
+	carded := strings.Replace(goodNotes, "fix release", "fix release (card 42)", 1)
+	if code, out := lint(t, carded, commands, assets, skills); code != 0 {
+		t.Fatalf("one release's notes were refused for naming a card: exit %d\n%s", code, out)
+	}
+	if code, out := lintKind(t, "email", carded, commands, "", skills); code != 1 || !strings.Contains(out, "FAIL: the email names a card or a plan row") {
+		t.Fatalf("an email naming a card passed: exit %d\n%s", code, out)
+	}
+	if code, out := lintKind(t, "digest", goodEmail, commands, "", skills); code != 1 || !strings.Contains(out, "FAIL: BRIGADE_NOTES_KIND is neither unset nor email") {
+		t.Fatalf("an unknown kind was accepted: exit %d\n%s", code, out)
 	}
 }

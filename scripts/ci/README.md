@@ -7,12 +7,12 @@ and its runtime dependencies, and a `| Type | Name | Notes |` table of the GitHu
 Two adaptations of that shape, both deliberate:
 
 - **It lives beside the scripts themselves, rather than under `.github/`.** Brigade's CI scripts are not
-  workflow-only: ten of the sixteen shell scripts are reached through `make`, only four are reached from a
+  workflow-only: ten of the seventeen shell scripts are reached through `make`, only five are reached from a
   workflow without a target of their own, and the remaining two are reached by nothing at all. Moving them would
   break `scripts/ci/plugin-check.sh`'s shellcheck glob (`scripts/ci/*.sh scripts/*.sh`), the `make` recipes that
   name them by path, `ci.yml`'s steps, and the ten Go drift tests that open them by path.
 - **It also carries the workflow table** that the house keeps in `thinktech-app/.github/workflows/README.md`,
-  rather than a second index over there. Brigade has eleven workflows and fifteen scripts in a near-1:1
+  rather than a second index over there. Brigade has twelve workflows and sixteen scripts in a near-1:1
   relation, and two indexes of the same thing drift. `thinktech-php` keeps its own workflow table out of its
   own workflow directory for the same reason.
 
@@ -33,6 +33,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `.github/workflows/update-documentation.yml` | monthly cron, `workflow_dispatch` | Structural documentation refresh through the loop. Opens its PR **with** the auto-merge label. |
 | `.github/workflows/review-repository.yml` | monthly cron, `workflow_dispatch` | Reviewer pass over the tree; opens a PR with minimal fixes and **no** auto-merge label — that one merges by hand. |
 | `.github/workflows/release-notes.yml` | `workflow_dispatch` only — from `release.yml` after the publish, or by hand with `-f tag=v…` (the `release: published` and `workflow_call` triggers are gone: the job token raises no `release` event, and a call from the tag-push workflow ran the action under `push`, which it refuses, run 34537045037) | Drafts the published release's notes from `CHANGELOG.md` and the log with one agent, refuses anything that does not exist with `release-notes-lint.sh`, has a second agent review the draft against the sources, allows one fix cycle, and only then publishes the notes and opens the "run `/brigade:update`" announcement — both from shell steps, idempotently. |
+| `.github/workflows/send-release-notes.yml` | weekly cron (`23 14 * * 1` UTC) and `workflow_dispatch` (`audience` = `preview` or `recipients`, `from` = the first tag to cover) | Emails a list of recipients what changed in the releases published since the last email (card 43). `send-release-notes.sh` decides which releases and reads the list; one agent drafts from the changelog and the published notes, `release-notes-lint.sh` in its `email` kind and a second agent gate the draft with one fix cycle, and a mail step sends it with every reader as `bcc`. A run by hand is a preview unless it says `audience=recipients`. Without the mail configuration the scheduled run is a green no-op. |
 | `.github/workflows/update-dependencies.yml` | monthly cron, `workflow_dispatch` | Dependency bump through the loop: `go.mod` and `tools.mod` by the agent, the action pins reported in the PR body (not edited) (`.claude/agents/developer.md`, dependency-update mode). Opens its PR **with** the auto-merge label. |
 
 ## Index
@@ -50,7 +51,8 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/ci/checksums-check.sh` | `make checksums-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/advisor-lints.sql` | `make advisor-lints` → `ci.yml`'s `supabase` job |
 | `scripts/ci/release-verify.sh` | `release.yml` only — no `make` target |
-| `scripts/ci/release-notes-lint.sh` | `release-notes.yml` only — no `make` target |
+| `scripts/ci/release-notes-lint.sh` | `release-notes.yml` and `send-release-notes.yml` — no `make` target |
+| `scripts/ci/send-release-notes.sh` | `send-release-notes.yml` only — no `make` target |
 | `scripts/ci/keepalive.sh` | `keepalive.yml` only — no `make` target |
 | `scripts/ci/bootstrap-alpine.sh` | nothing — run by hand, see its section |
 | `scripts/ci/conformance-setup-supabase.sh` | nothing — passed by an adapter author to `--setup`, see its section |
@@ -83,13 +85,21 @@ Names only. No value of any of these appears in this repository, and none may be
 | Secret | `SUPABASE_DB_PASSWORD` | `ci.yml`'s `deploy-staging` job: the staging project's database password. |
 | Secret | `SUPABASE_PROJECT_ID` | `ci.yml`'s `deploy-staging` job: the staging project's ref, passed to `supabase link`. |
 | Secret | `GH_ACTIONS_TOKEN` | A classic personal access token of the owner's account (`repo`, `workflow`, `read:org`), read by `claude.yml`'s `open-pr` and `approve-fixer-runs` jobs, `auto-merge.yml` and `_create-claude-issue.yml`. It exists because `GITHUB_TOKEN`'s writes raise no workflow events, and it is deliberately absent from every job that runs an agent: a classic PAT cannot be scoped to one repository. |
-| Secret | `CLAUDE_CODE_OAUTH_TOKEN` | The model credential for `anthropics/claude-code-action`, read by `claude.yml`, `review-pull-request.yml` and `release-notes.yml`. Never reaches `_create-claude-issue.yml` or `auto-merge.yml`. |
+| Secret | `CLAUDE_CODE_OAUTH_TOKEN` | The model credential for `anthropics/claude-code-action`, read by `claude.yml`, `review-pull-request.yml`, `release-notes.yml` and `send-release-notes.yml`. Never reaches `_create-claude-issue.yml` or `auto-merge.yml`. |
+| Var | `SMTP_SERVER` | The mail server's host name, read by `send-release-notes.yml`. The house's names, as in `thinktech-php`. |
+| Var | `SMTP_PORT` | The mail server's port, read by the same workflow: `465` for TLS from the first byte, `587` for STARTTLS, which the workflow requires (`require_tls`). |
+| Var | `SMTP_FROM_ADDRESS` | The address the release-notes email is sent from, and its `to`: every reader is `bcc`. Public by nature — it is on every email. Its domain must be one the mail service has verified. |
+| Secret | `SMTP_USERNAME` | The mail account's user name, read by `send-release-notes.yml`'s two mail steps and by nothing else. |
+| Secret | `SMTP_PASSWORD` | The mail account's password, read by the same two steps. With Resend (`smtp.resend.com`, user name `resend`) it is the API key. |
+| Secret | `RELEASE_NOTES_RECIPIENTS` | The list of recipients, kept by hand: addresses separated by commas, blanks or line ends, `#` starts a comment. **A secret, never a variable and never a file**: a variable is printed unmasked, and this repository and its run logs are public. GitHub never shows a secret again, so whoever changes the list sets it whole. |
+| Secret | `RELEASE_NOTES_REPLY_TO` | The address an answer to the email reaches. The footer asks a reader to answer in order to stop the emails, so it must be an inbox someone reads. A secret for the same reason. |
+| Secret | `RELEASE_NOTES_PREVIEW_ADDRESS` | Optional. Where a preview run's email goes; `SMTP_FROM_ADDRESS` when unset. A secret for the same reason. |
 | Token | `GITHUB_TOKEN` / `GH_TOKEN` | The job token GitHub mints per run, never a stored secret. `ci.yml` passes it to `make checksums-check` for rule (c)'s release fallback; `release.yml` passes it to goreleaser and to the two `gh release edit`/`delete` steps. |
 | Setting | Fork pull request approval policy: `first_time_contributors_new_to_github` | Actions → General → "Approval for running fork pull request workflows from contributors", at the repository and the organization (`gh api …/actions/permissions/fork-pr-contributor-approval`), set 2026-09-16 (card 22, item 2; P14-2). The policy exists only on public repositories and gates the *actor* of the pull request event, and the fixer's App-token push never earns a merged commit under its own login (every merge is a squash authored by the owner), so under GitHub's default `first_time_contributors` every fixer push held `ci` and `review pr` at `action_required` until a human approved them (runs 34619166858, 34778601684). **Measured 2026-09-17 (PR #22, push `e849247`, login `github-actions[bot]`): the bot is held under this policy too**, so the setting is not the lever; it stays because it gates nothing the loop needs. Since 2026-09-19 `claude.yml`'s `approve-fixer-runs` job approves the held runs itself with `GH_ACTIONS_TOKEN` (P14-2). |
 
 **The Supabase secret key, the service-role key and the Supabase personal access token are never a variable or a
-secret of `ci.yml`, `release.yml` or `keepalive.yml`, and never reach the adapter, the plugin or this
-repository.** `SUPABASE_ACCESS_TOKEN` above is scoped to the staging deploy job of a workflow that is skipped
+secret of `ci.yml`, `release.yml`, `keepalive.yml` or `send-release-notes.yml`, and never reach the adapter, the
+plugin or this repository.** `SUPABASE_ACCESS_TOKEN` above is scoped to the staging deploy job of a workflow that is skipped
 until an administrator opts a staging project in. `scripts/ci/no-secrets.sh` fails the build on a JWT-shaped
 string or an `sb_secret_` key anywhere in the tracked tree, in `plugin/`, or in a built binary.
 
@@ -261,13 +271,59 @@ a placeholder or anything secret-shaped. One `FAIL:` line per finding (the write
 skill that had not been written yet. That skill exists now, so the tree-reading test derives a name the checkout
 does not carry (`absentSkill`) rather than hard-coding one — a literal there went stale the day the skill landed.
 
-Invoked by `.github/workflows/release-notes.yml` after each draft — no `make` target. The workflow derives the two
+With `BRIGADE_NOTES_KIND=email` the file is the release-notes email of `send-release-notes.yml` and `<tag>` is the
+newest release it covers: the asset checks are skipped (an email lists none, and `BRIGADE_NOTES_ASSETS` is not
+read) and two are added — the email carries nobody's address, and no card or plan row, which the changelog it is
+composed from is full of.
+
+Invoked by `.github/workflows/release-notes.yml` after each draft, and by `send-release-notes.yml` after each draft
+of the email — no `make` target. The release-notes workflow derives the two
 lists from the truth itself and passes them in the environment: `BRIGADE_NOTES_COMMANDS` from `brigade --help`
 of a fresh build and `BRIGADE_NOTES_ASSETS` from `gh release view --json assets`; `BRIGADE_NOTES_SKILLS`
 overrides the tree for the tests. `scripts/ci/release_notes_lint_test.go` runs it on fixtures with a passing
 control beside every refusal.
 
 Needs `sh`, `grep`, `sed`, `sort`.
+
+## `scripts/ci/send-release-notes.sh`
+
+The three deterministic steps of the release-notes email (card 43). The agents of `send-release-notes.yml` write
+the text; this script decides what cannot be left to them, from GitHub's own record.
+
+- `window` — which releases the email covers: those published after the last email and up to the run's own start.
+  The last email is the newest successful run of the workflow in which the step `Send to the recipients`
+  concluded `success`, so a preview, a run with nothing to send and a failed run leave the mark where it was. No
+  such run: the last seven days. `BRIGADE_EMAIL_FROM` (the `from` input) overrides both and is inclusive. It lays
+  out the sources the agents read: each release's published notes and the changelog's sections for them. Drafts,
+  pre-releases and tags that are not `vX.Y.Z` are never covered.
+- `recipients` — who receives it: the list in `BRIGADE_EMAIL_RECIPIENTS` (the secret `RELEASE_NOTES_RECIPIENTS`).
+  An entry that is not one plain address is refused, not cleaned; an address is lower-cased and counted once.
+  Every address is registered as a mask (`::add-mask::`) before anything can print it, and the output carries
+  counts only. It makes no request.
+- `finish` — puts the footer under the approved draft: where the release notes are, why the reader received the
+  email, and that answering it stops it.
+
+Invoked by `.github/workflows/send-release-notes.yml` only. There is no `make` target: a developer does not have
+the list. `send_release_notes_test.go` runs every mode against a fake API.
+
+Needs `curl`, `jq` and `awk`, and for `window` the job token in `GH_TOKEN`, which reaches `curl` through a `0600`
+header file and never on argv. No response body is ever printed.
+
+### Run locally
+
+```sh
+# which releases an email starting at 0.5.0 would cover, and its sources; reads only
+GH_TOKEN="$(gh auth token)" GITHUB_REPOSITORY=appshapes/brigade BRIGADE_EMAIL_DIR="$PWD/.ignored/release-notes-email" \
+BRIGADE_EMAIL_FROM=v0.5.0 scripts/ci/send-release-notes.sh window
+```
+
+### Trigger the workflow manually
+
+```sh
+gh workflow run send-release-notes.yml -f audience=preview -f from=v0.5.0      # the draft is attached to the run
+gh workflow run send-release-notes.yml -f audience=recipients -f from=v0.5.0   # sends it
+gh run list --workflow send-release-notes.yml --limit 1
+```
 
 ## `scripts/ci/keepalive.sh`
 
@@ -363,13 +419,14 @@ bin/brigade-conformance --env SUPABASE_URL=… --env SUPABASE_PUBLISHABLE_KEY=�
 ## Drift tests
 
 `scripts/ci/*_test.go` is package `ci_test` and runs in `make test` — Docker-free, stack-free and model-free.
-Ten files, one per thing they guard; the mapping is the house's rule (a test file per subject), the spelling is
+Eleven files, one per thing they guard; the mapping is the house's rule (a test file per subject), the spelling is
 Go's:
 
 | Test file | What it guards |
 | --- | --- |
 | `checks_test.go` | The four POSIX-sh gates — `plugin-check.sh`, `no-secrets.sh`, `checksums-check.sh`, `release-verify.sh` — each proved able to FAIL against a fixture tree built under `t.TempDir()`, plus a read-only pass over the real repository. |
 | `release_prep_test.go` | `release-prep.sh`: every refusal fires (dirty tree, wrong branch, a published tag). |
+| `send_release_notes_test.go` | `send-release-notes.sh`: the window against a fake GitHub API, the list of recipients and the footer, that no address is printed outside a mask line and that the token stays off argv, and a join of the send step's name and the secrets to `send-release-notes.yml`. |
 | `keepalive_test.go` | `keepalive.sh`: the four rungs against a fake endpoint, and a join of its endpoints to `gotrue.go`, `postgrest.go` and the schema migration. |
 | `manifests_test.go` | `plugin/.claude-plugin/plugin.json`, `plugin/hooks/hooks.json` and `.claude-plugin/marketplace.json` parsed as JSON — `plugin-check.sh` is textual by design and `claude plugin validate` never runs in CI. |
 | `proof_test.go` | `proof.sh`'s delimited constants block, joined against the Go and SQL sources. |

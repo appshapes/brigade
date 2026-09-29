@@ -9,6 +9,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **The release notes by email** (card 43). In a week with a release, one email says what changed: what a member
+  can now do, what to know before updating, and the words to type. It goes to a list the maintainers keep by
+  hand; there is no way to join it from the repository yet. Every reader is `bcc`, so no reader sees another's
+  address, and no address is printed. Answering the email stops it. The text is written by one agent from this
+  changelog and from the published notes, and sent only after a lint and a second agent approved it
+  ([`scripts/ci/README.md`](scripts/ci/README.md), `send-release-notes.yml`). Nothing in the plugin changed.
+
 ## [0.16.0] — 2026-09-28
 ### Fixed
 

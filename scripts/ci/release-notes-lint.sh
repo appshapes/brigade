@@ -6,18 +6,25 @@
 # exist at the time — a grounding slip that more thinking makes rarer and that this script makes impossible. (That
 # skill was written later and is real now; the slip was naming it before it was.) It exits 1 on the
 # first class of failure, printing one `FAIL:` line per finding so the writer's fix cycle can read them back, and
-# `ok:` lines for what it checked. It reads nothing but the notes, the plugin tree and three environment variables:
+# `ok:` lines for what it checked. It reads nothing but the notes, the plugin tree and four environment variables:
 #
 #   BRIGADE_NOTES_COMMANDS   the CLI's top-level commands, space-separated (release-notes.yml derives them from
 #                            `brigade --help` of a fresh build; the tests set them by hand)
 #   BRIGADE_NOTES_ASSETS     the release's asset names, space-separated (from `gh release view --json assets`)
 #   BRIGADE_NOTES_SKILLS     optional: the plugin's skills and commands, space-separated; when unset they are read
 #                            from plugin/skills/*/ and plugin/commands/*.md of the checkout
+#   BRIGADE_NOTES_KIND       optional: `email` when the file is the release-notes email of
+#                            send-release-notes.yml (card 43) rather than one release's notes; <tag> is then the
+#                            newest release the email covers
 #
 # Checks, in order: the file is non-empty and carries no placeholder; it names the released version and never
 # "Unreleased"; every `/brigade:<name>` is a skill or command that exists; every backticked `brigade <verb>` (and
 # every fenced line that starts with one) names a command the CLI has; every asset-shaped token it names shipped,
 # and every shipped asset is named at least once; nothing secret-shaped is in it.
+#
+# An email differs in two ways. It lists no assets, so the asset check is skipped and BRIGADE_NOTES_ASSETS is
+# not read. And it leaves the repository for readers who never saw its tracker or its plans, so it may carry no
+# address of anyone and no card or plan-row reference -- the changelog it is composed from is full of both.
 set -u
 
 notes=${1:-}
@@ -34,6 +41,11 @@ has_word() { # has_word <word> <space-separated list>
 }
 
 version=${tag#v}
+kind=${BRIGADE_NOTES_KIND:-notes}
+case $kind in
+  notes|email) ;;
+  *) echo "FAIL: BRIGADE_NOTES_KIND is neither unset nor email: $kind" >&2; exit 1 ;;
+esac
 
 # 1. Not empty, no placeholder, no "Unreleased".
 if ! grep -q '[^[:space:]]' "$notes"; then fail "the notes are empty"; else ok "the notes are not empty"; fi
@@ -62,19 +74,27 @@ for verb in $verbs; do
   if has_word "$verb" "$commands"; then ok "brigade $verb is a command"; else fail "brigade $verb is not a command of the CLI (have: $commands)"; fi
 done
 
-# 5. Assets: everything named shipped, and everything that shipped is named.
-assets=${BRIGADE_NOTES_ASSETS:-}
-[ -n "$assets" ] || fail "BRIGADE_NOTES_ASSETS is unset: the release's asset list is required"
-tokens=$(grep -o -E 'brigade_[0-9][A-Za-z0-9.+-]*_[a-z0-9]+_[a-z0-9]+|checksums\.txt' "$notes" | sort -u)
-for token in $tokens; do
-  if has_word "$token" "$assets"; then ok "asset $token shipped"; else fail "asset $token is named but did not ship (have: $assets)"; fi
-done
-for asset in $assets; do
-  if grep -q -F "$asset" "$notes"; then :; else fail "shipped asset $asset is not named in the notes"; fi
-done
+# 5. Assets: everything named shipped, and everything that shipped is named. Not for an email.
+if [ "$kind" = notes ]; then
+  assets=${BRIGADE_NOTES_ASSETS:-}
+  [ -n "$assets" ] || fail "BRIGADE_NOTES_ASSETS is unset: the release's asset list is required"
+  tokens=$(grep -o -E 'brigade_[0-9][A-Za-z0-9.+-]*_[a-z0-9]+_[a-z0-9]+|checksums\.txt' "$notes" | sort -u)
+  for token in $tokens; do
+    if has_word "$token" "$assets"; then ok "asset $token shipped"; else fail "asset $token is named but did not ship (have: $assets)"; fi
+  done
+  for asset in $assets; do
+    if grep -q -F "$asset" "$notes"; then :; else fail "shipped asset $asset is not named in the notes"; fi
+  done
+fi
 
 # 6. Nothing secret-shaped.
 if grep -n -E 'sbp_[A-Za-z0-9]{20,}|sb_secret_|eyJ[A-Za-z0-9_-]{20,}\.eyJ' "$notes"; then fail "the notes carry something secret-shaped (above)"; else ok "nothing secret-shaped"; fi
+
+# 7. An email only: nobody's address, and nothing that points into the tracker or the plans.
+if [ "$kind" = email ]; then
+  if grep -n -E '[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}' "$notes"; then fail "the email carries an address (above)"; else ok "no address"; fi
+  if grep -n -i -E '(^|[^A-Za-z])(card|ticket)s? #?[0-9]+|(^|[^A-Za-z0-9])P[0-9]+-[0-9]+' "$notes"; then fail "the email names a card or a plan row (above)"; else ok "no card or plan row"; fi
+fi
 
 if [ "$fails" -gt 0 ]; then echo "release-notes-lint: $fails finding(s)"; exit 1; fi
 echo "release-notes-lint: clean"

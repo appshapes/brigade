@@ -71,6 +71,11 @@
   `/trello-create <title> [--board] [--list] [--from file.md]` (defaults: board AppShapes, list Wanting; plain
   titles, Trello assigns the number; `.claude/skills/trello-create/SKILL.md`) and `/trello-read <number | title
   | id>` (`.claude/skills/trello-read/SKILL.md`); `docs/claude-code-usage.md` is the usage guide.
+- The release-notes email (card 43, `.github/workflows/send-release-notes.yml`) goes to a list kept by hand in
+  the secret `RELEASE_NOTES_RECIPIENTS`. Never print, upload, commit or put on a card the address of a
+  recipient: this repository is public, so the addresses are secrets, never variables and never a file, every
+  reader is `bcc`, and the list is read after the last agent step. The send step's name is how the next run
+  finds the last email: rename it in the workflow and in `scripts/ci/send-release-notes.sh` together.
 - Repository automation: an issue labelled `claude` is a work order for the agentic loop
   (`.github/workflows/claude.yml`). An agent working on a PR branch follows `.claude/agents/developer.md`; the
   PR reviewer follows `.claude/agents/reviewer.md`. Agents commit with plain `git` on their branch and never run

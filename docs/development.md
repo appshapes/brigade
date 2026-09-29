@@ -84,7 +84,8 @@ so no `--setup` hook is needed.
 `plugin/bin/VERSION` and the plugin manifest to that version, writes the sha256 of each published binary into
 `plugin/bin/checksums.txt`, and pushes the matching tag; the release workflow builds the four binaries from that
 tag and publishes them beside their `checksums.txt`, then the release-notes gate drafts, lints and publishes the
-notes. A tree in which that command has not run carries the pre-release `0.0.0` and an empty checksums file, and
+notes. Once a week `send-release-notes.yml` emails the releases published since the last email to a list of
+recipients ([`scripts/ci/README.md`](../scripts/ci/README.md)). A tree in which that command has not run carries the pre-release `0.0.0` and an empty checksums file, and
 its plugin has nothing to download. There is no Homebrew tap and no Linux package, and the credential is a 0600
 file rather than an operating-system keychain — [`docs/security.md`](security.md) says what that costs. The single
 source of truth for where the work stands is `.context/plans/brigade-execution-log.md`.

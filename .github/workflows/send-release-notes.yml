@@ -1,0 +1,431 @@
+# Card 43. Once a week, email the release notes to a list of recipients: what changed in the releases
+# published since the last email. The shape is the house's
+# `thinktech-php/.github/workflows/send-release-notes.yml` -- a weekly cron, an agent that composes, a mail
+# step, a list of recipients in the repository's settings -- with three differences that this repository
+# being PUBLIC requires.
+#
+# 1. The list is a SECRET, RELEASE_NOTES_RECIPIENTS, kept by hand, and never a variable or a file. The first
+#    design read the people who starred the repository; GitHub gives out an address only when its owner made
+#    it public on their profile, which was 1 of the 4 who had starred (measured 2026-09-29), so the owner
+#    fixed the list for now. Collecting addresses is a later card. There is no subscribe or unsubscribe
+#    capability: the footer of every email asks the reader to answer it in order to stop, and
+#    RELEASE_NOTES_REPLY_TO is the address that answer reaches.
+#
+# 2. No address is ever printed, uploaded or shown to another reader. A variable is printed unmasked, and
+#    this repository's run logs are public; send-release-notes.sh registers every address as a mask before
+#    anything can print it; the artifact carries the draft and never the list; every reader is `bcc`, so no
+#    reader sees another; and the list is read AFTER the last agent step has ended, so no agent session and
+#    no execution log coexists with it. The mail credentials reach the two mail steps and nothing else.
+#
+# 3. The text is gated as release-notes.yml's is, and for its reason: an email cannot be taken back. A writer
+#    agent drafts from the changelog and from the published notes of each release — which already passed the
+#    release-notes gate; release-notes-lint.sh, in its `email` kind, refuses a skill or a command that does not
+#    exist, an address, and a card or plan row; a reviewer agent reads the draft against the sources; the
+#    writer gets exactly one fix cycle; and only an APPROVED, lint-clean draft is sent. Both agents follow
+#    `.claude/agents/release-notes-email.md`. Neither can write to the repository: the job's token is read-only.
+#
+# What the email covers. `send-release-notes.sh window` takes the releases published after the last email and
+# up to this run's start. The last email is the newest successful run in which the step named "Send to the
+# recipients" concluded `success`, so a preview, a run with nothing to send and a failed run all leave the
+# mark where it was. The step's name is retyped in the script and joined to this file by
+# scripts/ci/send_release_notes_test.go: rename it in both or in neither. With no earlier email the window is
+# seven days. The `from` input overrides both and is inclusive; the FIRST email is sent that way:
+#
+#   gh workflow run send-release-notes.yml -f audience=preview -f from=v0.5.0      # look at it first
+#   gh workflow run send-release-notes.yml -f audience=recipients -f from=v0.5.0   # then send it
+#
+# A run by hand is a PREVIEW unless it says otherwise: the email goes to RELEASE_NOTES_PREVIEW_ADDRESS (the
+# sender's own address when that secret is unset) and to nobody else, and the draft is attached to the run
+# either way, so a preview needs no mail server at all. The scheduled run sends to the recipients.
+#
+# Without the mail configuration the scheduled run is a green no-op that says so on the run page, which is
+# what a fork sees; a half-configured repository fails, because that is a misconfiguration and not a fork.
+# The configuration, by name, is in scripts/ci/README.md.
+name: send release notes
+run-name: send release notes (${{ inputs.audience || 'recipients' }})
+
+on:
+  schedule: [{cron: "23 14 * * 1"}]      # Mondays 14:23 UTC; off the hour on GitHub's own advice (keepalive.yml's header)
+  workflow_dispatch:
+    inputs:
+      audience:
+        description: "preview: only the preview address receives it. recipients: the whole list receives it."
+        type: choice
+        options: [preview, recipients]
+        default: preview
+      from:
+        description: The first release the email covers, e.g. v0.5.0. Empty means every release since the last email.
+        required: false
+        type: string
+
+# One email at a time, queued, never cancelled: a run cancelled between the gate and the mail step would have
+# spent two agent sessions for nothing, and two runs side by side would both find the same last email and
+# send the same releases twice.
+concurrency:
+  group: send-release-notes
+  cancel-in-progress: false
+
+jobs:
+  email:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30         # not a p90: two bounded agent sessions, at most four, plus a build and one email
+    permissions:
+      contents: read            # the checkout and the releases
+      actions: read             # this workflow's own run history, which is where the last email is found
+      id-token: write           # claude-code-action's OIDC
+    env:
+      AUDIENCE: ${{ inputs.audience || 'recipients' }}
+      BRIGADE_EMAIL_DIR: /tmp/brigade-email
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Is the mail server configured?
+        id: mail
+        # The two secrets arrive as `true` or `false`, never as themselves: this step prints what is missing.
+        env:
+          SMTP_SERVER: ${{ vars.SMTP_SERVER }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_FROM_ADDRESS: ${{ vars.SMTP_FROM_ADDRESS }}
+          SMTP_USERNAME_SET: ${{ secrets.SMTP_USERNAME != '' }}
+          SMTP_PASSWORD_SET: ${{ secrets.SMTP_PASSWORD != '' }}
+        run: |
+          missing=''; present=0
+          for name in SMTP_SERVER SMTP_PORT SMTP_FROM_ADDRESS; do
+            if [ -n "${!name}" ]; then present=$((present + 1)); else missing="$missing $name (variable)"; fi
+          done
+          if [ "$SMTP_USERNAME_SET" = true ]; then present=$((present + 1)); else missing="$missing SMTP_USERNAME (secret)"; fi
+          if [ "$SMTP_PASSWORD_SET" = true ]; then present=$((present + 1)); else missing="$missing SMTP_PASSWORD (secret)"; fi
+          if [ -z "$missing" ]; then
+            echo "the mail server is configured"
+            echo "configured=true" >> "$GITHUB_OUTPUT"; echo "compose=true" >> "$GITHUB_OUTPUT"
+          elif [ "$present" -gt 0 ]; then
+            echo "::error::the mail server is half-configured; missing:$missing (scripts/ci/README.md)"
+            exit 1
+          elif [ "$AUDIENCE" = preview ]; then
+            echo "::notice::the mail server is not configured: the preview is attached to this run and mailed to nobody"
+            echo "configured=false" >> "$GITHUB_OUTPUT"; echo "compose=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::the mail server is not configured; nothing to do (a fork, or the variables are not set yet: scripts/ci/README.md)"
+            echo "configured=false" >> "$GITHUB_OUTPUT"; echo "compose=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Decide what the email covers
+        id: window
+        if: steps.mail.outputs.compose == 'true'
+        run: scripts/ci/send-release-notes.sh window
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRIGADE_EMAIL_FROM: ${{ inputs.from }}
+
+      # The lint's command list, from the truth itself: the CLI's own `--help` of a fresh build, never a
+      # hand-kept list. The plugin's skills the lint reads from the tree. (release-notes.yml does the same.)
+      - uses: actions/setup-go@v7
+        if: steps.window.outputs.count > 0
+        with: {go-version-file: go.mod}
+      - name: Prepare the lint's command list
+        if: steps.window.outputs.count > 0
+        run: |
+          go build -o "$BRIGADE_EMAIL_DIR/brigade" ./cmd/brigade
+          commands=$("$BRIGADE_EMAIL_DIR/brigade" --help | awk '/^Commands:/{f=1;next} /^Global flags:/{f=0} f && /^  [a-z]/{print $1}' | tr '\n' ' ')
+          test -n "$commands"
+          echo "BRIGADE_NOTES_COMMANDS=$commands" >> "$GITHUB_ENV"
+          echo "commands: $commands"
+
+      # ---- round 1 ------------------------------------------------------------------------------------------
+      - name: Draft the email
+        id: draft1
+        if: steps.window.outputs.count > 0
+        continue-on-error: true   # the file it wrote (or did not) is judged by the lint and the verdict step; the action also fails a step whose agent exceeded --max-turns after writing (release-notes.yml, run 34583310273)
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1 — pinned by SHA, as everywhere in this repository
+        with:
+          allowed_bots: "claude,github-actions"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50"
+          show_full_output: false
+          prompt: |
+            You are the WRITER of brigade's release-notes email. Read `.claude/agents/release-notes-email.md` and
+            follow it exactly. The email covers ${{ steps.window.outputs.count }} release(s),
+            ${{ steps.window.outputs.first }} to ${{ steps.window.outputs.last }}.
+
+            DRAFT the email — write it to the file /tmp/brigade-email/notes.md and do nothing else. The Write tool
+            is NOT available in this job: write the file from the Bash tool with a quoted heredoc, exactly
+            `tee /tmp/brigade-email/notes.md <<'EOF'` … `EOF`. You do not send: a lint and a reviewer read that
+            file after you, and a mail step sends it if they approve.
+
+            Do not edit any file in the repository. Do not push.
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(tee /tmp/brigade-email/notes.md:*)",
+                  "Read(//tmp/brigade-email/**)",
+                  "Bash(/tmp/brigade-email/brigade --help:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(head:*)",
+                  "Bash(wc:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(jq:*)"
+                ],
+                "deny": [
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+          # No WebFetch, no WebSearch, no `gh`, no `git`: the draft is composed from the sources the window step
+          # laid out and from the checkout. NO GH_ACTIONS_TOKEN and no mail credential anywhere near an agent.
+
+      - name: Keep the drafter's execution log
+        if: always() && steps.draft1.outcome != 'skipped'
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$BRIGADE_EMAIL_DIR/draft1-execution.json" 2>/dev/null || true
+      - name: Lint the draft
+        id: lint1
+        if: steps.window.outputs.count > 0
+        continue-on-error: true   # a failure is a finding for the fix cycle, recorded for the writer to read
+        run: scripts/ci/release-notes-lint.sh "$BRIGADE_EMAIL_DIR/notes.md" "$LAST" | tee "$BRIGADE_EMAIL_DIR/lint.txt"; exit "${PIPESTATUS[0]}"
+        env:
+          BRIGADE_NOTES_KIND: email
+          LAST: ${{ steps.window.outputs.last }}
+
+      - name: Review the draft
+        id: review1
+        if: steps.window.outputs.count > 0
+        continue-on-error: true   # as the drafter's
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
+        with:
+          allowed_bots: "claude,github-actions"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50"
+          show_full_output: false
+          prompt: |
+            You are the REVIEWER of a DRAFT of brigade's release-notes email, at /tmp/brigade-email/notes.md. Read
+            `.claude/agents/release-notes-email.md` and follow it exactly, "When you review" above all. The email
+            covers ${{ steps.window.outputs.count }} release(s), ${{ steps.window.outputs.first }} to
+            ${{ steps.window.outputs.last }}.
+
+            Write your verdict to /tmp/brigade-email/review.md from the Bash tool with a quoted heredoc, exactly
+            `tee /tmp/brigade-email/review.md <<'EOF'` … `EOF` (the Write tool is NOT available in this job): the
+            FIRST line is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line, each naming the
+            sentence and what is wrong. Do not edit any file but review.md. Do not push.
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(tee /tmp/brigade-email/review.md:*)",
+                  "Read(//tmp/brigade-email/**)",
+                  "Bash(/tmp/brigade-email/brigade --help:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(head:*)",
+                  "Bash(wc:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(jq:*)"
+                ],
+                "deny": [
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+
+      - name: Keep the reviewer's execution log
+        if: always() && steps.review1.outcome != 'skipped'
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$BRIGADE_EMAIL_DIR/review1-execution.json" 2>/dev/null || true
+      - name: Read the round-1 verdict
+        id: verdict1
+        if: steps.window.outputs.count > 0
+        run: |
+          if [ -f "$BRIGADE_EMAIL_DIR/review.md" ]; then
+            verdict=$(head -n 1 "$BRIGADE_EMAIL_DIR/review.md" | grep -o -E 'CHANGES_REQUESTED|APPROVED' | head -n 1)
+          else
+            echo "the reviewer wrote no review.md; the fix cycle runs on the lint alone" >&2
+            printf 'CHANGES_REQUESTED\nThe reviewer wrote no review; address the lint findings, if any, and recheck every claim against the sources.\n' > "$BRIGADE_EMAIL_DIR/review.md"
+            verdict=CHANGES_REQUESTED
+          fi
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          echo "round 1: lint ${{ steps.lint1.outcome }}, review $verdict"; cat "$BRIGADE_EMAIL_DIR/review.md"
+
+      # ---- round 2: exactly one fix cycle ---------------------------------------------------------------------
+      - name: Fix the draft
+        id: draft2
+        if: steps.window.outputs.count > 0 && (steps.lint1.outcome != 'success' || steps.verdict1.outputs.verdict != 'APPROVED')
+        continue-on-error: true   # as the drafter's
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
+        with:
+          allowed_bots: "claude,github-actions"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50"
+          show_full_output: false
+          prompt: |
+            You are the WRITER of brigade's release-notes email, and your draft, /tmp/brigade-email/notes.md, was
+            not approved. Read `.claude/agents/release-notes-email.md` again, then /tmp/brigade-email/lint.txt
+            (deterministic checks; every `FAIL:` line is a fact) and /tmp/brigade-email/review.md (the reviewer's
+            findings). Fix EVERY finding and rewrite /tmp/brigade-email/notes.md from the Bash tool with a quoted
+            heredoc, exactly `tee /tmp/brigade-email/notes.md <<'EOF'` … `EOF` (the Write tool is NOT available).
+            The email covers ${{ steps.window.outputs.count }} release(s), ${{ steps.window.outputs.first }} to
+            ${{ steps.window.outputs.last }}. Do nothing else: do not send, do not edit the repository, do not push.
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(tee /tmp/brigade-email/notes.md:*)",
+                  "Read(//tmp/brigade-email/**)",
+                  "Bash(/tmp/brigade-email/brigade --help:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(head:*)",
+                  "Bash(wc:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(jq:*)"
+                ],
+                "deny": [
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+
+      - name: Keep the fixer's execution log
+        if: always() && steps.draft2.outcome != 'skipped'
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$BRIGADE_EMAIL_DIR/draft2-execution.json" 2>/dev/null || true
+      - name: Lint the fix
+        id: lint2
+        if: steps.draft2.outcome == 'success'
+        continue-on-error: true
+        run: scripts/ci/release-notes-lint.sh "$BRIGADE_EMAIL_DIR/notes.md" "$LAST" | tee "$BRIGADE_EMAIL_DIR/lint.txt"; exit "${PIPESTATUS[0]}"
+        env:
+          BRIGADE_NOTES_KIND: email
+          LAST: ${{ steps.window.outputs.last }}
+
+      - name: Review the fix
+        id: review2
+        if: steps.draft2.outcome == 'success'
+        continue-on-error: true   # as the drafter's
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
+        with:
+          allowed_bots: "claude,github-actions"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50"
+          show_full_output: false
+          prompt: |
+            You are the REVIEWER of the SECOND draft of brigade's release-notes email, at
+            /tmp/brigade-email/notes.md; your first review is /tmp/brigade-email/review.md and the lint's result
+            is /tmp/brigade-email/lint.txt. Read `.claude/agents/release-notes-email.md` and follow it exactly,
+            "When you review" above all. The email covers ${{ steps.window.outputs.count }} release(s),
+            ${{ steps.window.outputs.first }} to ${{ steps.window.outputs.last }}.
+
+            Overwrite /tmp/brigade-email/review.md from the Bash tool with a quoted heredoc, exactly
+            `tee /tmp/brigade-email/review.md <<'EOF'` … `EOF` (the Write tool is NOT available): the FIRST line
+            is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line. Do nothing else.
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(tee /tmp/brigade-email/review.md:*)",
+                  "Read(//tmp/brigade-email/**)",
+                  "Bash(/tmp/brigade-email/brigade --help:*)",
+                  "Bash(ls:*)",
+                  "Bash(cat:*)",
+                  "Bash(head:*)",
+                  "Bash(wc:*)",
+                  "Bash(grep:*)",
+                  "Bash(rg:*)",
+                  "Bash(jq:*)"
+                ],
+                "deny": [
+                  "Read(./CLAUDE.user.md)",
+                  "Read(./.env)",
+                  "Read(./.env.*)"
+                ]
+              }
+            }
+
+      # ---- the gate --------------------------------------------------------------------------------------------
+      - name: Keep the second reviewer's execution log
+        if: always() && steps.review2.outcome != 'skipped'
+        run: cp "$RUNNER_TEMP/claude-execution-output.json" "$BRIGADE_EMAIL_DIR/review2-execution.json" 2>/dev/null || true
+      - name: Gate on the final lint and verdict
+        if: steps.window.outputs.count > 0
+        run: |
+          if [ "${{ steps.draft2.outcome }}" = "skipped" ]; then
+            lint="${{ steps.lint1.outcome }}"; round=1
+          else
+            lint="${{ steps.lint2.outcome }}"; round=2
+          fi
+          verdict=$(head -n 1 "$BRIGADE_EMAIL_DIR/review.md" | grep -o -E 'CHANGES_REQUESTED|APPROVED' | head -n 1)
+          echo "round $round: lint $lint, review $verdict"
+          if [ "$lint" != "success" ] || [ "$verdict" != "APPROVED" ]; then
+            echo "::error::the email was not approved after $round round(s); nothing was sent (draft, lint and review are attached as an artifact)"
+            exit 1
+          fi
+      - name: Put the footer under the email
+        if: steps.window.outputs.count > 0
+        run: scripts/ci/send-release-notes.sh finish
+
+      # The list is read here, after the last agent step and after the gate, and lives in the job's
+      # temporary directory until the runner is destroyed. It is in no artifact below.
+      - name: Read the recipients
+        id: recipients
+        if: steps.window.outputs.count > 0 && env.AUDIENCE == 'recipients'
+        run: scripts/ci/send-release-notes.sh recipients
+        env:
+          BRIGADE_EMAIL_RECIPIENTS: ${{ secrets.RELEASE_NOTES_RECIPIENTS }}
+
+      - name: Attach the draft, lint and review
+        if: always() && steps.window.outputs.count > 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-email-${{ github.run_id }}
+          path: |
+            /tmp/brigade-email/window.txt
+            /tmp/brigade-email/notes.md
+            /tmp/brigade-email/email.md
+            /tmp/brigade-email/lint.txt
+            /tmp/brigade-email/review.md
+            /tmp/brigade-email/*-execution.json
+          if-no-files-found: ignore
+
+      # ---- the one email ---------------------------------------------------------------------------------------
+      # The name of the next step is how the NEXT run finds this email (the header): rename it in
+      # send-release-notes.sh too. `to` is the sender's own address and every reader is `bcc`.
+      - name: Send to the recipients
+        if: steps.window.outputs.count > 0 && env.AUDIENCE == 'recipients' && steps.recipients.outputs.count > 0
+        uses: dawidd6/action-send-mail@v22
+        with:
+          server_address: ${{ vars.SMTP_SERVER }}
+          server_port: ${{ vars.SMTP_PORT }}
+          require_tls: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: ${{ steps.window.outputs.subject }}
+          from: "Brigade <${{ vars.SMTP_FROM_ADDRESS }}>"
+          to: ${{ vars.SMTP_FROM_ADDRESS }}
+          bcc: ${{ steps.recipients.outputs.bcc }}
+          reply_to: ${{ secrets.RELEASE_NOTES_REPLY_TO }}
+          body: file:///tmp/brigade-email/email.md
+          html_body: file:///tmp/brigade-email/email.md
+          convert_markdown: true
+
+      - name: Send the preview
+        if: steps.window.outputs.count > 0 && env.AUDIENCE == 'preview' && steps.mail.outputs.configured == 'true'
+        uses: dawidd6/action-send-mail@v22
+        with:
+          server_address: ${{ vars.SMTP_SERVER }}
+          server_port: ${{ vars.SMTP_PORT }}
+          require_tls: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "[preview] ${{ steps.window.outputs.subject }}"
+          from: "Brigade <${{ vars.SMTP_FROM_ADDRESS }}>"
+          to: ${{ secrets.RELEASE_NOTES_PREVIEW_ADDRESS || vars.SMTP_FROM_ADDRESS }}
+          reply_to: ${{ secrets.RELEASE_NOTES_REPLY_TO }}
+          body: file:///tmp/brigade-email/email.md
+          html_body: file:///tmp/brigade-email/email.md
+          convert_markdown: true
