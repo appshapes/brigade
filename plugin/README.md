@@ -476,7 +476,7 @@ plugin-dev` itself runs outside a session):
 
 ```sh
 make build
-printf '{"fs": ["%s/bin/brigade-adapter-fs"]}\n' "$PWD" > ~/.config/brigade/adapters.json && chmod 600 ~/.config/brigade/adapters.json
+printf '{"fs": ["<this checkout>/bin/brigade-adapter-fs"]}\n' > ~/.config/brigade/adapters.json && chmod 600 ~/.config/brigade/adapters.json
 cd <a project checkout>
 bin/brigade team create --adapter fs --url http://127.0.0.1:1 --key placeholder --name ops --label dev --secret-file ~/brigade-ops.secret
 ```

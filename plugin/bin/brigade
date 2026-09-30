@@ -157,9 +157,9 @@ tmp=$(mktemp "$cache_dir/.brigade-$version.XXXXXX") || fail 11 "cannot create a 
 trap 'rm -f "$tmp"' EXIT HUP INT TERM
 printf 'brigade: first use: downloading brigade %s for %s/%s from %s\n' "$version" "$os" "$arch" "$base" >&2
 if ! fetch "$tmp" "$url"; then
-  proxy=${HTTPS_PROXY:-${https_proxy:-}}
-  [ -n "$proxy" ] && proxy=" (HTTPS_PROXY=$proxy)"
-  fail 9 "download failed: $url$proxy. Check network or proxy access, or download the file yourself, verify sha256 $expected, and install it as $target"
+  # The proxy variables are not read here: curl honours them itself, and a proxy URL can carry a password that
+  # has no place in a hook error (which the plugin directory's scan also holds a download for).
+  fail 9 "download failed: $url. Check network access and any HTTPS_PROXY setting, or download the file yourself, verify sha256 $expected, and install it as $target"
 fi
 install_verified "$tmp"
 trap - EXIT HUP INT TERM

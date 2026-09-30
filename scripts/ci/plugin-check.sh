@@ -41,7 +41,7 @@ hooks_json=plugin/hooks/hooks.json
 find plugin -type f -print | LC_ALL=C sort | while IFS= read -r f; do
   rel=${f#plugin/}
   case $rel in
-    bin/brigade|bin/VERSION|bin/checksums.txt|.claude-plugin/plugin.json|hooks/hooks.json|README.md) ;;
+    bin/brigade|bin/VERSION|bin/checksums.txt|.claude-plugin/plugin.json|.claude-plugin/icon.png|hooks/hooks.json|README.md) ;;
     skills/*/*) ;;   # a skill directory and whatever it carries beside its SKILL.md
     *) die "not allow-listed under plugin/: $f" ;;
   esac
