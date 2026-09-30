@@ -33,12 +33,11 @@ func (w *watcher) heartbeat(s *session) {
 	snap := w.state.snapshot()
 	activity := snap.activity
 	inbound := snap.inbound
+	model, tokens, title := w.transcriptFacts(snap.transcriptPath)
 	var name *string
-	if snap.name != "" {
-		n := snap.name
+	if n := w.setTitle(title); n != "" {
 		name = &n
 	}
-	model, tokens := w.transcriptFacts(snap.transcriptPath)
 	peer := w.syncPeer.Load()
 	w.log.Debug("heartbeat",
 		slog.String("activity", activity), slog.String("inbound", inbound),
@@ -75,7 +74,8 @@ func (w *watcher) heartbeat(s *session) {
 }
 
 // transcriptFacts refreshes the transcript reader for path right before a
-// heartbeat and returns the two members the heartbeat carries: `model`
+// heartbeat and returns the conversation's custom title (raw; the name
+// resolution sanitises it) and the two members the heartbeat carries: `model`
 // when the transcript names one (sanitised and folded to one line), and
 // `context_used_tokens` when usage has been seen and the count is one the
 // wire carries — 0..MaxContextUsedTokens; the reader never yields a
@@ -85,15 +85,15 @@ func (w *watcher) heartbeat(s *session) {
 // "unchanged" on the wire (4.4.4), which is also what a refresh failure
 // yields — the reader keeps the last facts and the failure is a debug
 // line of fixed text. An empty path (the map names no transcript) drops
-// the reader and sends neither; a changed path (the hook rewrote the map
+// the reader, sends neither and yields no title; a changed path (the hook rewrote the map
 // on /clear) starts a fresh reader on the new file. The path is never
 // logged (T10); the model value is, once per change.
-func (w *watcher) transcriptFacts(path string) (model *string, tokens *int) {
+func (w *watcher) transcriptFacts(path string) (model *string, tokens *int, title string) {
 	w.transcriptMu.Lock()
 	defer w.transcriptMu.Unlock()
 	if path == "" {
 		w.transcript = nil
-		return nil, nil
+		return nil, nil, ""
 	}
 	if w.transcript == nil || w.transcript.Path() != path {
 		w.transcript = transcript.NewReader(path)
@@ -112,5 +112,5 @@ func (w *watcher) transcriptFacts(path string) (model *string, tokens *int) {
 	if n := facts.ContextUsedTokens; facts.HasContext && n >= 0 && n <= protocol.MaxContextUsedTokens {
 		tokens = &n
 	}
-	return model, tokens
+	return model, tokens, facts.CustomTitle
 }

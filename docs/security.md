@@ -142,15 +142,27 @@ appears only as `UserPromptSubmit hook`, never the text, while the session's tra
 `hook_success` hook attachment carrying the whole line (measured, `docs/experiments/E10-doing-triggers.md` Part
 2) — so the first thing you see is the `brigade doing` call.
 
-**Two facts Brigade now reads from your transcript — on this machine.** So that `brigade sessions` can tell your team
-which model a session is running and how full its context is, Brigade reports two values with each session: the
-**model identity** (`claude-opus-5[1m]`) and the **context occupancy in tokens**. It gets both by reading your
-session's own transcript file, locally, in the background watcher on your own machine, roughly every 30 seconds — and
-it sends **only those two values**, the one string and the one number. Nothing else from the transcript is read out,
-kept or transmitted: no prompt, no answer, no file name, no tool call. The transcript is never uploaded, and **its
-path is never sent** either — it is held only in Brigade's own 0600 state directory, where the background watcher
-finds it. The model string is handled like every other display string on the wire — capped, sanitised, and never taken
-as fact — because it is a harness's word about itself, not something the backend can check.
+**Three facts Brigade now reads from your transcript — on this machine.** So that `brigade sessions` can tell your
+team which model a session is running, how full its context is and what you have called the conversation, Brigade
+reports three values with each session: the **model identity** (`claude-opus-5[1m]`), the **context occupancy in
+tokens** and — from this version — the **title you gave the conversation**, the rename behind the pencil icon in the
+VS Code extension, which Claude Code records in the transcript and nowhere else. It gets all three by reading your
+session's own transcript file, locally, on your own machine: the background watcher reads it roughly every 30
+seconds, and the session-start hook reads it once more, for the title alone, so that a resume or a `/compact`
+registers the name you chose rather than the folder-derived one. *What leaves the machine:* those three values —
+the one string, the one number, and the title **as the session's name**, sent as `session_name` on the registration
+and with every heartbeat. *Who sees it:* every active member of the team and whoever runs the backend, exactly as a
+session name has always been seen (section 2); what is new is that the name can be words you typed rather than
+Claude Code's derived `<folder>-<hex>`, so a conversation title is now something your team reads. *How to stop it:*
+there is nothing new to switch off — rename the conversation, with the pencil icon or with `/rename` in the chat
+(which, once used, outranks a later pencil rename), to anything you would rather they saw. Brigade reads only the
+title **you** set: Claude Code's own generated summary of your first prompt is not read, and neither is anything
+else. Beyond these three values nothing from the transcript is read out, kept or transmitted: no prompt, no answer,
+no file name, no tool call, no path. The transcript is never uploaded, and **its path is never sent** either — it is
+held only in Brigade's own 0600 state directory, where the background watcher finds it. The model string is handled
+like every other display string on the wire — capped, sanitised, and never taken as fact — because it is a harness's
+word about itself, not something the backend can check; the title goes through the same sanitiser as any other
+session name — 64 code points, control characters and forged tags removed — because it is your own untrusted text.
 
 **One fact about Brigade itself.** From 0.10.0 each session also reports the **version of the Brigade plugin it
 is running** (`0.10.0`), at registration and with every heartbeat, so that `brigade sessions` can show your team

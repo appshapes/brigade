@@ -13,8 +13,15 @@
 //
 // The format is Claude Code's to change: a missing or malformed file, or
 // a member of an unexpected type, yields Found=false or an empty member,
-// never a failure the hook has to act on — the plan's fallbacks (hook
-// stdin session_title, then basename(cwd); activity idle) are the hook's.
+// never a failure the hook has to act on.
+//
+// ResolveName is the one display-name rule the hook and the watcher share:
+// a name the user set in the registry (/rename, --name), then the
+// transcript's latest custom-title (the VS Code extension's rename, which
+// leaves the registry name derived), then the derived registry name
+// (<basename(cwd)>-<hex>, new for each process), then the caller's
+// fallbacks — the hook's stdin session_title and basename(cwd), the
+// watcher's name from the by-pid map. The activity falls back to idle.
 package registry
 
 import (
@@ -143,4 +150,49 @@ func member(raw map[string]jsontext.Value, name string) string {
 		return ""
 	}
 	return s
+}
+
+// nameSourceDerived is the `nameSource` Claude Code writes for a name it
+// derived itself, <basename(cwd)>-<hex>: the only source a transcript title
+// outranks. Any other source, "user" or one Claude Code adds later, keeps
+// the registry name first.
+const nameSourceDerived = "derived"
+
+// The sources ResolveName reports, for the caller's log line.
+const (
+	NameFromRegistry = "registry"
+	NameFromTitle    = "transcript title"
+	NameFromFallback = "fallback"
+)
+
+// ResolveName picks the display name: the registry name unless Claude Code
+// derived it, the transcript's customTitle, the derived registry name, then
+// each fallback in order. Every candidate goes through clean (the caller's
+// sanitiser; the names are user-chosen and untrusted) and the first one
+// clean leaves non-empty wins, returned cleaned with its source. It
+// returns "", "" when none survives.
+func ResolveName(clean func(string) string, e Entry, customTitle string, fallbacks ...string) (name, source string) {
+	registryName := ""
+	if e.Found {
+		registryName = e.Name
+	}
+	derived := e.NameSource == nameSourceDerived
+	type candidate struct{ value, source string }
+	candidates := make([]candidate, 0, 3+len(fallbacks))
+	if !derived {
+		candidates = append(candidates, candidate{registryName, NameFromRegistry})
+	}
+	candidates = append(candidates, candidate{customTitle, NameFromTitle})
+	if derived {
+		candidates = append(candidates, candidate{registryName, NameFromRegistry})
+	}
+	for _, f := range fallbacks {
+		candidates = append(candidates, candidate{f, NameFromFallback})
+	}
+	for _, c := range candidates {
+		if n := clean(c.value); n != "" {
+			return n, c.source
+		}
+	}
+	return "", ""
 }

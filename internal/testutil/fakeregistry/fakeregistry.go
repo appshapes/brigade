@@ -76,8 +76,16 @@ type observed struct {
 
 // Observed builds an A.3-shaped entry for pid with the given display
 // name, status and socket path, every other member filled with plausible
-// fixed values. The result is one line of JSON.
+// fixed values; nameSource is "user", as /rename writes it. The result is
+// one line of JSON.
 func Observed(pid int, name, status, socket string) string {
+	return ObservedWithSource(pid, name, "user", status, socket)
+}
+
+// ObservedWithSource is Observed with the given nameSource: "derived" is
+// the <basename(cwd)>-<hex> name Claude Code gives a session nobody named,
+// and the one the VS Code extension's rename leaves in place.
+func ObservedWithSource(pid int, name, nameSource, status, socket string) string {
 	o := observed{
 		PID:                 pid,
 		SessionID:           "beee3690-0000-4000-8000-" + strings.Repeat("0", 12-len(strconv.Itoa(pid))) + strconv.Itoa(pid),
@@ -92,7 +100,7 @@ func Observed(pid int, name, status, socket string) string {
 		PIDDomain:           "darwin",
 		MessagingSocketPath: socket,
 		Name:                name,
-		NameSource:          "user",
+		NameSource:          nameSource,
 		NameSince:           1788091073682,
 		Status:              status,
 		UpdatedAt:           1788091073682,

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -481,5 +482,50 @@ func TestOneLineHelpers(t *testing.T) {
 	}
 	if got := adapterLine("p", os.ErrNotExist); !strings.Contains(got, "from its configuration") {
 		t.Errorf("adapterLine fallback = %q", got)
+	}
+}
+
+// TestResumeRegistersTheTranscriptTitle reproduces the VS Code rename at
+// the hook: a derived registry name and a transcript whose only name
+// records are custom-title. A resume registers the latest title, not the
+// derived name, and /compact writes it to the map; with no title the
+// derived name stands.
+func TestResumeRegistersTheTranscriptTitle(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.seedTeam(t)
+	f.registry = fakeregistry.New(t, map[int]string{f.pid: fakeregistry.ObservedWithSource(f.pid, "project-3f", "derived", "idle", f.socket)})
+	f.deps.Registry = f.registry
+	tr := filepath.Join(t.TempDir(), "native-1.jsonl")
+	title := func(v string) string {
+		return `{"type":"custom-title","customTitle":"` + v + `","sessionId":"native-1"}`
+	}
+	if err := os.WriteFile(tr, []byte(title("old title")+"\n"+`{"type":"ai-title","aiTitle":"generated"}`+"\n"+title("vs code title")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "vs code title", false))}})
+	doc := map[string]any{"session_id": f.nativeID, "cwd": f.cwd, "hook_event_name": "SessionStart", "source": "resume", "transcript_path": tr}
+	if exit, out, _ := f.run(SubSessionStart, f.doc(doc)); exit != 0 {
+		t.Fatalf("exit %d out %q", exit, out)
+	}
+	raw := string(seam.callsFor("session register")[0].Stdin)
+	if !strings.Contains(raw, `"session_name":"vs code title"`) {
+		t.Fatalf("registration does not carry the title: %s", raw)
+	}
+	if m := f.mustMap(); m.SessionName != "vs code title" {
+		t.Fatalf("map name %q, want the title", m.SessionName)
+	}
+
+	// /compact with a transcript that carries no title: the derived name.
+	bare := filepath.Join(t.TempDir(), "native-1.compacted.jsonl")
+	if err := os.WriteFile(bare, []byte(`{"type":"user","message":{"role":"user","content":"hi"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc["source"], doc["transcript_path"] = "compact", bare
+	if exit, _, _ := f.run(SubSessionStart, f.doc(doc)); exit != 0 {
+		t.Fatal(exit)
+	}
+	if m := f.mustMap(); m.SessionName != "project-3f" {
+		t.Fatalf("map name after compact %q, want the derived name", m.SessionName)
 	}
 }

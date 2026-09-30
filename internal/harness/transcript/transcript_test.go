@@ -404,3 +404,59 @@ func TestSyntheticRecordsAreIgnored(t *testing.T) {
 		t.Fatalf("after a real turn and a synthetic record: %+v, want claude-opus-5[1m] and 152", facts)
 	}
 }
+
+func titleLine(title string) string {
+	return `{"type":"custom-title","customTitle":"` + title + `","sessionId":"beee3690-1111-4222-8333-444455556666"}`
+}
+
+// TestCustomTitleLatestWins: the latest custom-title record is the title,
+// including one appended after an earlier Refresh; an empty value clears
+// it (owner ruling, 2026-09-23) and a record without the member does not;
+// ai-title and agent-name records are never
+// read, and the other facts are untouched.
+func TestCustomTitleLatestWins(t *testing.T) {
+	t.Parallel()
+	path := newPath(t)
+	write(t, path,
+		`{"type":"ai-title","aiTitle":"Generated from the first prompt","sessionId":"s"}`,
+		`{"type":"agent-name","agentName":"agent name only","sessionId":"s"}`,
+	)
+	r := transcript.NewReader(path)
+	if got := refresh(t, r).CustomTitle; got != "" {
+		t.Fatalf("title from ai-title/agent-name = %q, want none", got)
+	}
+	appendLines(t, path, titleLine("first"), assistantLine("claude-opus-5", 10, 20, 30, false), titleLine("second"))
+	got := refresh(t, r)
+	if got.CustomTitle != "second" {
+		t.Fatalf("title = %q, want the latest, second", got.CustomTitle)
+	}
+	want(t, got, "claude-opus-5", 60, true)
+	appendLines(t, path, `{"type":"ai-title","aiTitle":"later ai title"}`, `{"type":"agent-name","agentName":"later agent"}`)
+	if got := refresh(t, r).CustomTitle; got != "second" {
+		t.Fatalf("title after ai-title/agent-name = %q, want second", got)
+	}
+	appendLines(t, path, `{"type":"custom-title","sessionId":"s"}`, `{"type":"custom-title","customTitle":null}`)
+	if got := refresh(t, r).CustomTitle; got != "second" {
+		t.Fatalf("title after records with no customTitle = %q, want second", got)
+	}
+	appendLines(t, path, titleLine(""))
+	if got := refresh(t, r).CustomTitle; got != "" {
+		t.Fatalf("title after an empty record = %q, want none", got)
+	}
+}
+
+// TestCustomTitleClearedOnTruncation: a truncated or replaced file starts
+// the reader over, so a title the new content does not carry is gone.
+func TestCustomTitleClearedOnTruncation(t *testing.T) {
+	t.Parallel()
+	path := newPath(t)
+	write(t, path, titleLine("a long enough title to outlast the replacement"), userLine())
+	r := transcript.NewReader(path)
+	if got := refresh(t, r).CustomTitle; got == "" {
+		t.Fatal("no title before the truncation")
+	}
+	write(t, path, userLine())
+	if got := refresh(t, r).CustomTitle; got != "" {
+		t.Fatalf("title after truncation = %q, want none", got)
+	}
+}
