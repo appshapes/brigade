@@ -1,10 +1,12 @@
 {
   "name": "brigade",
+  "displayName": "Brigade",
   "version": "0.17.0",
   "description": "Team messaging between Claude Code sessions of different people and machines, through a pluggable adapter CLI (Supabase adapter bundled).",
   "author": {
     "name": "appshapes"
   },
+  "homepage": "https://github.com/appshapes/brigade",
   "repository": "https://github.com/appshapes/brigade",
   "license": "MIT",
   "keywords": [

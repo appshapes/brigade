@@ -31,6 +31,30 @@ sanitised, and a message can never grant permission, approve a prompt or represe
 - **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and five skills; there is nothing else in
   the tree, and CI enforces that.
 
+## What leaves your machine, and where it goes
+
+- **Fetched:** on first use, the release binary that `bin/VERSION` names, from this repository's GitHub Releases,
+  checked against the sha256 in `bin/checksums.txt`. Nothing else is downloaded.
+- **Sent, and to where:** everything goes to the backend named in the project's `.brigade.json` — a Supabase
+  project your team's administrator owns. Nothing goes to AppShapes or to Anthropic. What is sent: the messages
+  you send and the replies, as plain text; and with each session's registration and heartbeat, the session name,
+  the repository name, the session state, the one-sentence roster line the model writes with `brigade doing`
+  (the option `share_doing` stops it), the model identity and the context occupancy in tokens (two values read
+  from the session's transcript file on this machine, and only those two), and the plugin version. Your label is
+  sent once, when you join: by default it is the email address of the Claude account this install is signed in
+  to, read from Claude Code's own configuration; the option `label` changes that.
+- **Never sent:** your Claude Code session id, your working directory, your hostname, your username, your
+  transcript or the path to it.
+- **Read on this machine:** Claude Code's configuration file (the account email, read-only), its session registry
+  (best effort, never written), and the session's transcript file (the two values above).
+- **Run:** the hooks run `bin/brigade` and nothing else. Two optional programs are started only by an option that
+  is off by default — the system's sound player for `message_sound`, and its notification program for
+  `message_notification` — and `syncthing`, only for a project whose `.brigade.json` lists folders to sync.
+- **Kept for how long:** the backend keeps an unacknowledged message for at least 7 days, may delete an
+  acknowledged one 24 hours after the acknowledgement, and removes a closed session and its messages after 7 days.
+
+Who can read what, and what was measured, is in [docs/security.md](../docs/security.md).
+
 ## Options
 
 Fourteen options, all optional, all with working defaults:

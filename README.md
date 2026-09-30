@@ -5,6 +5,10 @@
 Team messaging between the Claude Code sessions of different people and machines. Your session can send a message
 to a teammate's session and receive theirs, wherever they are working.
 
+Two minutes of it, with two people's sessions:
+
+[![Brigade: distributed Claude Code collaboration (video, 2:14)](https://img.youtube.com/vi/4ELiHEaAagY/maxresdefault.jpg)](https://youtu.be/4ELiHEaAagY)
+
 ## If you want to
 
 | If you want to | Go to |
