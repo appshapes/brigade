@@ -8,6 +8,8 @@
   },
   "homepage": "https://github.com/appshapes/brigade",
   "repository": "https://github.com/appshapes/brigade",
+  "documentationUrl": "https://github.com/appshapes/brigade/blob/master/docs/setup.md",
+  "supportUrl": "https://github.com/appshapes/brigade/issues",
   "license": "MIT",
   "keywords": [
     "messaging",
