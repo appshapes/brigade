@@ -234,3 +234,6 @@ reviews.db
 
 # Claude Code subagent worktrees (never part of the tree)
 .claude/worktrees/
+
+# playwright-cli writes page snapshots here; they can hold whatever the browser showed
+.playwright-cli/
