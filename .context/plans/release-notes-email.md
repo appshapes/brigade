@@ -1,7 +1,7 @@
 # Release notes by email
 
-Date: 2026-09-29. Status: **built, committed (`a2c1ddd`) and previewed; nothing sent to the list yet** (row
-P25-1 of the execution log). Owner: Rjae. Trello card **43**.
+Date: 2026-09-29. Status: **the first email was sent on 2026-09-29** (rows P25-1 and P25-2 of the execution
+log; commits `a2c1ddd` and `c366b15`). Owner: Rjae. Trello card **43**.
 
 ## 1. The ask
 
@@ -28,7 +28,7 @@ the email addresses for now"; collecting addresses is the next task.
 | # | Decision | Why |
 | --- | --- | --- |
 | 1 | **The list is fixed and kept by hand** (Rjae). It is the secret `RELEASE_NOTES_RECIPIENTS`, not a line of the workflow. | The repository is public: an address written into a file is published to everyone, for good. A secret is the same fixed list, and changing it is one command. |
-| 2 | **Answering the email stops it.** The footer says so, and `RELEASE_NOTES_REPLY_TO` is the inbox the answer reaches. | There is no unsubscribe capability, and an email nobody can stop is not one to send. It needs no build. |
+| 2 | **Answering the email stops it.** The footer says so. The answer goes to the sender's address, which is an inbox Rjae reads; no Reply-To is set (Rjae, 2026-09-29, after the first email, which carried one). | There is no unsubscribe capability, and an email nobody can stop is not one to send. It needs no build. |
 | 3 | **Addresses are secrets, masked, `bcc`, in no artifact**, and read after the last agent step. | The repository and its run logs are public. |
 | 4 | **Weekly, Mondays 14:23 UTC, and by hand.** A run by hand is a preview unless it says `audience=recipients`. | The house's cadence. The safe default for the one step that cannot be undone. |
 | 5 | **The window follows the last email**: the newest successful run whose send step succeeded; else seven days; `from` overrides, inclusive. | A fixed seven days would send 0.16.0 twice after a first email sent by hand. The job token cannot write a variable, and a tag would reach goreleaser's changelog. The run history needs `actions: read` and nothing else. |
@@ -69,9 +69,15 @@ the profile's public address). It was built, tested and replaced the same day, b
   draft an earlier run's gate approved, so that what was previewed is what is sent. Tried read-only against the
   two runs: the preview's draft is adopted byte for byte and lints clean, and the refused run is refused.
 
+- **The first email went out in run 36639635317, 2026-09-29 22:27 UTC, in 36 seconds.** It adopted the draft of
+  the preview run, byte for byte; no agent ran. The mail service records one email from `brigade@appshapes.com`,
+  seven readers as `bcc`, delivered. The run's log shows the `bcc` and the Reply-To as `***`, and neither the log
+  nor the artifact carries a recipient's address. `window`, run afterwards, finds that run as the last email and
+  nothing to send.
+
 ## 6. What is open
 
-- **The first send**: Rjae said "Send" on 2026-09-29; it goes out with the preview's draft once `draft_run` is
-  on `master`.
+- **A scheduled run the gate refuses sends nothing that week.** The mark stays where it was, so the next run
+  covers those releases too. Whether one fix cycle is enough week after week is not measured.
 - **The schedule is live**: Mondays 14:23 UTC, first on 2026-10-05.
 - **Collecting addresses**: Rjae's next task for this card's session.

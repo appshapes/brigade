@@ -703,7 +703,7 @@ func TestSendReleaseNotesJoinsTheWorkflow(t *testing.T) {
 	}
 
 	// The addresses are secrets, never variables: a variable is printed unmasked in a public log.
-	for _, name := range []string{"RELEASE_NOTES_RECIPIENTS", "RELEASE_NOTES_PREVIEW_ADDRESS", "RELEASE_NOTES_REPLY_TO", "SMTP_USERNAME", "SMTP_PASSWORD"} {
+	for _, name := range []string{"RELEASE_NOTES_RECIPIENTS", "RELEASE_NOTES_PREVIEW_ADDRESS", "SMTP_USERNAME", "SMTP_PASSWORD"} {
 		if !strings.Contains(workflow, "secrets."+name) {
 			t.Errorf("the workflow never reads secrets.%s", name)
 		}
@@ -731,8 +731,9 @@ func TestSendReleaseNotesJoinsTheWorkflow(t *testing.T) {
 	if n := strings.Count(workflow, "inputs.draft_run == ''"); n < 4 {
 		t.Errorf("%d steps stand aside for an adopted draft, want the four agent steps at least", n)
 	}
-	// The footer tells the reader to answer the email in order to stop it: both mail steps carry the Reply-To.
-	if n := strings.Count(workflow, "reply_to: ${{ secrets.RELEASE_NOTES_REPLY_TO }}"); n != 2 {
-		t.Errorf("%d mail steps set the Reply-To, want 2", n)
+	// The footer tells the reader to answer the email in order to stop it, and the answer goes to the sender:
+	// no mail step sets a Reply-To (owner, 2026-09-29).
+	if strings.Contains(workflow, "reply_to:") {
+		t.Errorf("a mail step sets a Reply-To; an answer must reach the sender's address")
 	}
 }

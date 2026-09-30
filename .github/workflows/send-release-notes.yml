@@ -8,8 +8,9 @@
 #    design read the people who starred the repository; GitHub gives out an address only when its owner made
 #    it public on their profile, which was 1 of the 4 who had starred (measured 2026-09-29), so the owner
 #    fixed the list for now. Collecting addresses is a later card. There is no subscribe or unsubscribe
-#    capability: the footer of every email asks the reader to answer it in order to stop, and
-#    RELEASE_NOTES_REPLY_TO is the address that answer reaches.
+#    capability: the footer of every email asks the reader to answer it in order to stop. The answer goes
+#    to the sender's address, SMTP_FROM_ADDRESS, which is an inbox that is read; no Reply-To is set (owner,
+#    2026-09-29).
 #
 # 2. No address is ever printed, uploaded or shown to another reader. A variable is printed unmasked, and
 #    this repository's run logs are public; send-release-notes.sh registers every address as a mask before
@@ -435,7 +436,6 @@ jobs:
           from: "Brigade <${{ vars.SMTP_FROM_ADDRESS }}>"
           to: ${{ vars.SMTP_FROM_ADDRESS }}
           bcc: ${{ steps.recipients.outputs.bcc }}
-          reply_to: ${{ secrets.RELEASE_NOTES_REPLY_TO }}
           body: file:///tmp/brigade-email/email.md
           html_body: file:///tmp/brigade-email/email.md
           convert_markdown: true
@@ -452,7 +452,6 @@ jobs:
           subject: "[preview] ${{ steps.window.outputs.subject }}"
           from: "Brigade <${{ vars.SMTP_FROM_ADDRESS }}>"
           to: ${{ secrets.RELEASE_NOTES_PREVIEW_ADDRESS || vars.SMTP_FROM_ADDRESS }}
-          reply_to: ${{ secrets.RELEASE_NOTES_REPLY_TO }}
           body: file:///tmp/brigade-email/email.md
           html_body: file:///tmp/brigade-email/email.md
           convert_markdown: true

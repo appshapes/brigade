@@ -33,7 +33,7 @@
 #                public and so are its run logs. It makes no request.
 #   finish       Writes email.md: notes.md, then a footer that says where the release notes are, why the
 #                reader received this and how to stop it -- by answering the email, which is why the
-#                workflow sets a Reply-To that someone reads. The footer is the shell's and not the agent's
+#                sender's address is an inbox someone reads. The footer is the shell's and not the agent's
 #                so that no draft can leave it out.
 #
 # Environment:
