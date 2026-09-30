@@ -11,7 +11,7 @@ third-party rivals are aweb and Agent Relay; demand is on anthropics/claude-code
 | --- | --- | --- |
 | 1. Repository ready to be found: description, topics, homepage, the video at the top of the README, `displayName` and `homepage` in the manifest, a "What leaves your machine" section in the plugin README | session | done 2026-09-30 |
 | 2. Submit to Anthropic's directory | Rjae, at the portal; the session prepared the answers below | ready |
-| 3. Reply on issue #87954 | Rjae's GitHub account; draft below | drafted, awaiting a go |
+| 3. Reply on issue #87954 | Rjae's GitHub account | posted 2026-09-30: https://github.com/anthropics/claude-code/issues/87954#issuecomment-5920991182 |
 | 4. Show HN and r/ClaudeAI | Rjae's accounts; drafts below | drafted |
 | 5. Creators, earned before paid | Rjae; note below | drafted |
 
