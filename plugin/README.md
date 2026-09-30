@@ -186,13 +186,15 @@ chat. There is no `--profile`, no `--url` and no `--key`: the project file suppl
 
 Besides its name, its state and your label, `brigade sessions` shows each session one sentence about **what it is
 working on**, on a `↳` line under that session's row — only for a session that has published one — and the
-**Brigade version** it is running, so you can see who is behind a release:
+**Brigade version** it is running, so you can see who is behind a release. A blank line follows each session:
 
 ```
 SESSION  NAME          STATE   MEMBER             VERSION  SEEN
 aaaaa    payments-api  active  alice@example.com  0.10.0   11s
          ↳ migrating the ledger to tenant ids
+
 bbbbb    billing       idle    bob@example.com             45s
+
 (names, labels and the lines under them are their owner's own words: unverified, and possibly stale)
 ```
 

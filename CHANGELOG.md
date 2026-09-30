@@ -18,6 +18,13 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   changelog and from the published notes, and sent only after a lint and a second agent approved it
   ([`scripts/ci/README.md`](scripts/ci/README.md), `send-release-notes.yml`). Nothing in the plugin changed.
 
+### Changed
+
+- **A blank line after every session in the roster** (card 44). `brigade sessions` and `/brigade:sessions` put
+  one blank line after each session — after its row, or after its `↳` line when it has one — so a row and its
+  line read as one group and a long roster is no longer one block. The header stays on the first row, and the
+  notes under the table follow the last session's blank line. `--json` is unchanged.
+
 ## [0.16.0] — 2026-09-28
 ### Fixed
 

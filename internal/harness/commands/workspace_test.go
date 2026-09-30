@@ -54,7 +54,9 @@ func TestSessionsShowsTheRepository(t *testing.T) {
 	want := []string{
 		"SESSION  NAME          REPO           STATE   MEMBER                    SEEN",
 		shortSession(selfSessionID) + "    payments-api  thinktech-api  active  payments-api@example.com  5s",
+		"",
 		"bbbbb    billing                      active  billing@example.com       5s",
+		"",
 		RosterUnverifiedNote,
 	}
 	if len(lines) != len(want) {

@@ -84,6 +84,8 @@ type sessionsResult struct {
 // LABEL fallback with it), no INBOUND column, no unverified suffix in any
 // cell, a capped NAME, "2s" rather than "2s ago", and the doing line on a
 // continuation line of its own instead of a 160-character trailing cell.
+// Card 44 then put a blank line after every session, so a row and its
+// doing line read as one group and the notes stand apart from the last.
 //
 // The roster is one surface, shown the same to every session whatever its
 // own inbound policy (card 25, ruling 10): a `hold` or `refuse` session
@@ -261,7 +263,7 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 	// aligns the same way in a terminal and inside the fenced code block
 	// `/brigade:sessions` shows.
 	padded := padTable(rows)
-	lines := make([]string, 0, 2*len(records)+4)
+	lines := make([]string, 0, 3*len(records)+4)
 	lines = append(lines, tableRow(padded[0]))
 	for i, row := range padded[1:] {
 		lines = append(lines, tableRow(row))
@@ -274,6 +276,13 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		if doings[i] != "" {
 			lines = append(lines, doingRow(row[0], doings[i]))
 		}
+		// A blank line closes each session (card 44): with the doing line
+		// under its row, two rows back to back left a reader to work out
+		// which row a line belonged to, and a long roster was one block.
+		// The header stays on the first row — it labels the columns — and
+		// the last session's blank line is what keeps the notes below off
+		// its group; a header with no rows has no blank line at all.
+		lines = append(lines, "")
 	}
 	// B-3's "once per output" form. A LINE layout marks every label where
 	// it stands (UnverifiedSuffix); a table would repeat that on every
