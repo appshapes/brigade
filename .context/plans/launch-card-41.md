@@ -180,3 +180,9 @@ AppShapes
 - A mistake on the way: `5c58c9e` carried playwright snapshots of the portal pages (and the claude.ai sidebar
   behind them) into the public repository; `db55ef9` removed them and ignores `.playwright-cli/`. Rjae chose not
   to rewrite history.
+
+Corrections from the Telder submission the same night (session 45-directory-submission, observed in the portal):
+Save and exit is what creates the server-side draft and captures the icon (Validate and Next do not); the Branch
+field validates any pushed branch without saving; a hooks-only plugin without `bin/` is listed on Claude Code,
+Cowork and the Claude apps, with "Not used here: hooks" for the apps. Telder's own record is
+`.context/plans/directory-submission-2026-09-30.md` in the telder repository.
