@@ -174,8 +174,9 @@ AppShapes
   confused with an existing listing" and "Publisher name may be confused with another" ("appshapes" vs a
   connector named "shapes"). Warning, no action: `documentationUrl` and `supportUrl` are directory-only fields.
 - Listed on Claude Code only: Cowork and the Claude apps cannot install a plugin with a top-level `bin/`.
-- Not set: `privacyPolicyUrl` and `termsOfServiceUrl`. The plugin README's "What leaves your machine, and where it
-  goes" is the data statement; whether to name it as the privacy policy is Rjae's call.
+- `privacyPolicyUrl` points at the plugin README's "What leaves your machine, and where it goes" (Rjae's decision,
+  2026-09-30, commit `6b9e75d`). `termsOfServiceUrl` is not set.
+- Follow-up is Trello card 46: https://trello.com/c/4gpLdP6b/46-follow-up-the-claude-plugin-directory-submission
 - A mistake on the way: `5c58c9e` carried playwright snapshots of the portal pages (and the claude.ai sidebar
   behind them) into the public repository; `db55ef9` removed them and ignores `.playwright-cli/`. Rjae chose not
   to rewrite history.
