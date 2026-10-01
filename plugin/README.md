@@ -359,7 +359,7 @@ Is this session receiving team messages?
 It runs `brigade whoami`. The last line is the answer:
 
 ```
-delivery: watcher running (0.15.0), connected for 12m; last delivery recorded 3m ago; 0 held
+delivery: watcher running (0.17.0), connected for 12m; last delivery recorded 3m ago; 0 held
 ```
 
 | The line says | It means |
@@ -462,11 +462,11 @@ from that map, and the terminal commands the setup sections above use (`team cre
 `team rotate-secret|revoke-member|transfer`, `inbox release`) pass their terminal straight through to the adapter — `team revoke-member`, `team transfer`
 and `inbox release` refuse to run from inside a session; `team create`, `team join` (with `--secret-file`) and
 `team rotate-secret` run anywhere (P7-11). The backend is deployed on a hosted
-Supabase project and the conformance suite passes 47 of 47 against it; `team_inbound: hold` with its terminal
+Supabase project and the conformance suite passes 49 of 49 against it; `team_inbound: hold` with its terminal
 inbox ships; and a two-hour soak of two sessions on one team renewed the shared credential twice with no
 lockout. The frame's instruction text ships as levels, `open` by default.
 
-**0.4.1 is the current release.** `bin/VERSION` names the version a session downloads, and `bin/checksums.txt`
+**0.17.0 is the current release.** `bin/VERSION` names the version a session downloads, and `bin/checksums.txt`
 carries the sha256 of each published binary; `make release version=<v> card=<n>` writes both, and the release workflow
 builds the four binaries from the tag and publishes them beside their `checksums.txt`. A tree in which that command
 has not run carries the pre-release `0.0.0` with an empty `bin/checksums.txt`, and there is nothing to download.
