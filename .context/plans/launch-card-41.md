@@ -10,7 +10,7 @@ third-party rivals are aweb and Agent Relay; demand is on anthropics/claude-code
 | Step | Who | State |
 | --- | --- | --- |
 | 1. Repository ready to be found: description, topics, homepage, the video at the top of the README, `displayName` and `homepage` in the manifest, a "What leaves your machine" section in the plugin README | session | done 2026-09-30 |
-| 2. Submit to Anthropic's directory | Rjae, at the portal; the session prepared the answers below | ready |
+| 2. Submit to Anthropic's directory | session drove the portal, Rjae signed in and ticked the compliance boxes | submitted 2026-09-30 (portal id 939a9086-f45f-43c1-b23e-a76d59d915b8); validation passed on `ba17fdc` with 4 reviewer holds and 3 warnings; push webhook connected |
 | 3. Reply on issue #87954 | Rjae's GitHub account | posted 2026-09-30: https://github.com/anthropics/claude-code/issues/87954#issuecomment-5920991182 |
 | 4. Show HN and r/ClaudeAI | Rjae's accounts; drafts below | drafted |
 | 5. Creators, earned before paid | Rjae; note below | drafted |
@@ -159,3 +159,23 @@ AppShapes
   supabase, golang.
 - `plugin/.claude-plugin/plugin.json`: `displayName` "Brigade", `homepage` the repository.
 - `README.md`: the video under the first paragraph. `plugin/README.md`: "What leaves your machine, and where it goes".
+
+## Step 2 as it went (2026-09-30)
+
+- Submission: https://claude.ai/directory/manage/plugins/939a9086-f45f-43c1-b23e-a76d59d915b8 — status "submitted,
+  waiting for the security scan". Tracked branch `master`, GitHub push webhook (hook 689960904, ping delivered),
+  auto-publish on. Contact email: Rjae's.
+- Validation on `ba17fdc`: no blocking findings. Cleared before submitting: three "uses a credential" holds (a
+  `$PWD` in a README example; the bootstrap printing `HTTPS_PROXY` into an error) and the "no icon" warning
+  (`plugin/.claude-plugin/icon.png`, 1024 px, rendered from `.ignored/icon.html`).
+- Left for the reviewer, by design: "Scripts the validator couldn't follow" and "Contains a download-and-run
+  command" (the bootstrap downloads the checksum-verified release binary); "Image or font file that the plugin's
+  code could run" (the icon beside a script that execs a computed path; nothing runs the icon); "Name may be
+  confused with an existing listing" and "Publisher name may be confused with another" ("appshapes" vs a
+  connector named "shapes"). Warning, no action: `documentationUrl` and `supportUrl` are directory-only fields.
+- Listed on Claude Code only: Cowork and the Claude apps cannot install a plugin with a top-level `bin/`.
+- Not set: `privacyPolicyUrl` and `termsOfServiceUrl`. The plugin README's "What leaves your machine, and where it
+  goes" is the data statement; whether to name it as the privacy policy is Rjae's call.
+- A mistake on the way: `5c58c9e` carried playwright snapshots of the portal pages (and the claude.ai sidebar
+  behind them) into the public repository; `db55ef9` removed them and ignores `.playwright-cli/`. Rjae chose not
+  to rewrite history.
