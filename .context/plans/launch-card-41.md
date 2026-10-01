@@ -186,3 +186,12 @@ Save and exit is what creates the server-side draft and captures the icon (Valid
 field validates any pushed branch without saving; a hooks-only plugin without `bin/` is listed on Claude Code,
 Cowork and the Claude apps, with "Not used here: hooks" for the apps. Telder's own record is
 `.context/plans/directory-submission-2026-09-30.md` in the telder repository.
+
+More from the Telder submission (2026-10-01 morning, same session): the credential hold is raised for a script
+that reads the environment as a whole or reads a variable whose name is computed, and it clears when every
+variable is read by its literal name and nothing copies the environment (removing `$` characters or using a
+literal command name changed nothing); the publisher hold follows the GitHub owner, not `author.name`; "Could not
+validate: Too many validations" appears on the fourth Validate within about three minutes and clears about three
+minutes later; after Submit the directory first queues the commit the draft was saved at, so select Check for new
+commits if the branch moved since; the Versions tab shows a Publish link beside a version whose scan passed.
+Telder was submitted the same morning at v0.4.2.
