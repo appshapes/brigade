@@ -10,6 +10,7 @@
   "repository": "https://github.com/appshapes/brigade",
   "documentationUrl": "https://github.com/appshapes/brigade/blob/master/docs/setup.md",
   "supportUrl": "https://github.com/appshapes/brigade/issues",
+  "privacyPolicyUrl": "https://github.com/appshapes/brigade/blob/master/plugin/README.md#what-leaves-your-machine-and-where-it-goes",
   "license": "MIT",
   "keywords": [
     "messaging",
