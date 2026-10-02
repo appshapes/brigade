@@ -195,3 +195,15 @@ validate: Too many validations" appears on the fourth Validate within about thre
 minutes later; after Submit the directory first queues the commit the draft was saved at, so select Check for new
 commits if the branch moved since; the Versions tab shows a Publish link beside a version whose scan passed.
 Telder was submitted the same morning at v0.4.2.
+
+## Not approved (2026-10-01, about 20:50)
+
+The reviewer's words: "The plugin downloads a program or install script at setup or first run and executes it
+(for example a release binary, or a script piped into a shell). Plugins in the directory may only run code that is
+in the reviewed repository, or a package pinned to an exact version. Ship the program in the repository or package
+it as an MCPB bundle, then resubmit." This is `plugin/bin/brigade`. The decision sits on the page's Review tab
+(`?tab=feedback`), with a Resubmit for review button; no email came. The three routes the rule leaves are Rjae's
+decision: commit the four release binaries into `plugin/bin` (8.3 to 9.2 MiB each, 35 MiB a release, against a
+256 KiB-per-file reviewer hold and a 50 MiB repository archive limit), an MCPB bundle (Brigade has no MCP server
+by design), or a package launcher pinned to an exact version (`npx @appshapes/brigade@<v>`, which puts Node in the
+install path). Nothing was changed; see Trello card 46.
