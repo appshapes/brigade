@@ -199,14 +199,14 @@ It is separate from the project checkout where the team file will go.
 
 1. **Create the Supabase project.** In the [dashboard](https://supabase.com/dashboard), choose New project. Pick
    a region near your team (it cannot be changed later), let it generate a database password (you will not need
-   it), leave "Enable Data API" on, and do **not** add `brigade` to the exposed schemas. Use a project for Brigade
-   only: anyone who can read its database can read every message. Details: section 0, "Creating the project",
-   below.
+   it), leave "Enable Data API" on, and do **not** add `brigade` to the exposed schemas — step 4 does that, in
+   the only order that works. Use a project for Brigade only: anyone who can read its database can read every
+   message. Details: section 0, "Creating the project", below.
 2. **Write down the project reference.** It is the `<ref>` in `https://<ref>.supabase.co`. It is also the
    dashboard address: `supabase.com/dashboard/project/<ref>`, and Project Settings → General → Reference ID.
-3. **Make a personal access token.** Dashboard → your avatar → Account Preferences → Access Tokens → Generate
-   new token. It starts with `sbp_`. This token lets the Supabase command-line tool change your project. It is not
-   the key from step 5. Keep it on your machine only.
+3. **Make a personal access token.** Dashboard → your avatar → Account Preferences → Access Tokens
+   (`supabase.com/dashboard/account/tokens`) → Generate new token. It starts with `sbp_`. This token lets the
+   Supabase command-line tool change your project. It is not the key from step 5. Keep it on your machine only.
 
    A token only works for the projects it was given access to. A token with access to every project you can reach
    may be reused for each `make backend-install`. A token scoped to one project fails on any other project with
@@ -220,28 +220,26 @@ It is separate from the project checkout where the team file will go.
    make backend-install project=<ref>
    ```
 
-   This applies the database migrations, turns on the project settings Brigade needs (anonymous sign-ins on,
-   CAPTCHA off, Realtime public access off), checks that every migration is applied, and **prints the publishable
-   key on its last line**: `publishable key: sb_publishable_…`. Copy that value. Section 1, "Deploying the
-   backend", below explains each part.
+   (`read -s` is bash and zsh, not POSIX `sh`.) This applies the database migrations, **then** adds `brigade` to
+   the project's exposed schemas — that is the answer to step 1's "do not add it yourself": the schema has to
+   exist before it is exposed, or the Data API loops on `schema "brigade" does not exist`. It also turns on the
+   project settings Brigade needs (anonymous sign-ins on, CAPTCHA off, Realtime public access off), checks that
+   every migration is applied, and **prints the publishable key on its last line**:
+   `publishable key: sb_publishable_…`. Copy that value. Section 1, "Deploying the backend", below explains each
+   part.
 5. **Find the publishable key (if you did not copy it in step 4).** Dashboard → Project Settings → API Keys →
    the "Publishable and secret API keys" tab → the **Publishable key**. It starts with `sb_publishable_`.
    - The same page also lists a **secret key** (`sb_secret_…`). **Never use it for Brigade.** It bypasses all
      access rules. Brigade needs only the publishable key, which is safe to commit.
    - The tab "Legacy anon, service_role API keys" holds the old JWT-style keys. Brigade does not use them.
-6. **Create the team.** In the checkout of the project your team works in (not the Brigade clone):
-
-   ```sh
-   !brigade team create --url https://<ref>.supabase.co --key sb_publishable_… \
-     --name <team> --secret-file ~/brigade-<team>.secret
-   ```
-
-   This creates the team, writes `.brigade.json` at the top of the checkout, and saves the join secret to the
-   file you named. The `!` prefix is for a Claude Code session; in a terminal, drop it. The paragraphs after this
-   list explain the command and the label it sends for you.
-7. **Commit and share.** `git add .brigade.json && git commit && git push`. Send each member the secret file over
-   a password manager share (not chat, not email). Each member then runs `/brigade:join <path-to-secret-file>`
-   ("Member: join a team").
+6. **Create the team.** In the checkout of the project your team works in (not the Brigade clone), run the
+   `brigade team create` command spelled out after this list, with the project URL from step 2 and the
+   publishable key from step 4 or 5. It creates the team, writes `.brigade.json` at the top of the checkout, and
+   saves the join secret to the file `--secret-file` names. The paragraphs there explain each flag and the label
+   the command sends for you.
+7. **Commit and share.** Commit `.brigade.json`, then send each member the secret file over a password manager
+   share — not chat, not email; the paragraphs after this list say why. Each member then runs
+   `/brigade:join <path-to-secret-file>` ("Member: join a team").
 8. **Keep the project awake (Free plan only).** Supabase pauses a Free project after about 7 days of low activity.
    Set up the keep-alive in section 2, "The repository variables", and section 3, "The keep-alive workflow". One
    keep-alive serves one project.
@@ -796,7 +794,7 @@ Everything a Brigade team needs lives in one single-purpose Supabase project: a 
 that are the only write path into them, in a schema called `brigade`, exposed on the Data API, with Realtime
 restricted to private channels. Deploying it is **one command** and takes a few seconds.
 
-You need a **personal access token** (Account → Access Tokens in the dashboard, `sbp_…`) in
+You need a **personal access token** (Account Preferences → Access Tokens in the dashboard, `sbp_…`) in
 `SUPABASE_ACCESS_TOKEN`. A token scoped to the one project is enough — measured 2026-09-10 deploying
 `thinktech-brigade` end to end with a fine-grained token holding no organization access at all. You do **not**
 need the database password, and you do **not** need `supabase login`: `db push --project-ref <ref>` mints a
