@@ -85,3 +85,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: scripts/ci/keepalive.sh
+
+  keepalive-ifthen-team-2:
+    # An IfThen team's project (rcvbckrmfipcttpvnzmu), deployed 2026-10-02. Its team lives in another
+    # repository; the keep-alive rides here for the same reason keepalive-thinktech does. The job and variable
+    # names are generic on purpose: this repository is public and the team belongs to a client.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    env:
+      BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_IFTHEN_TEAM_2_SUPABASE_URL }}"
+      BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_IFTHEN_TEAM_2_SUPABASE_PUBLISHABLE_KEY }}"
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/ci/keepalive.sh

@@ -757,6 +757,15 @@ func TestKeepaliveWorkflowAndDocsAgree(t *testing.T) {
 	} {
 		keepaliveMentions(t, keepaliveDocRel, doc, "gh variable set "+name)
 	}
+	// The fourth project (an IfThen team's, added 2026-10-02), pinned for the same reason and by the same join.
+	keepaliveMentions(t, keepaliveWorkflowRel, workflow,
+		"keepalive-ifthen-team-2:",
+		`BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_IFTHEN_TEAM_2_SUPABASE_URL }}"`,
+		`BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_IFTHEN_TEAM_2_SUPABASE_PUBLISHABLE_KEY }}"`,
+	)
+	for _, name := range []string{"BRIGADE_IFTHEN_TEAM_2_SUPABASE_URL", "BRIGADE_IFTHEN_TEAM_2_SUPABASE_PUBLISHABLE_KEY"} {
+		keepaliveMentions(t, keepaliveDocRel, doc, "gh variable set "+name)
+	}
 	// Each project's job must run the script exactly once, so a second project cannot silently go unchecked.
 	if got := strings.Count(workflow, "run: "+keepaliveScriptRel); got != strings.Count(workflow, "runs-on:") {
 		t.Errorf("%s has %d `run: %s` steps but %d jobs: every keep-alive job must climb the rungs",
