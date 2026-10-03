@@ -119,6 +119,13 @@ adds the one MX record Resend shows, and passes `inbox=<address>`.
 Running the command again is safe: it keeps the existing gateway member, re-deploys the functions, replaces the
 webhook (its signing secret is shown once by Resend) and rotates the tick token.
 
+One Resend account can serve several teams. Resend's inbound webhook fires for every mail the account receives,
+so each team's gateway reads only the mail addressed to its own inbox (or to a reply tag of it) and ignores the
+rest; each team gets its own receiving address from its own inbox. If the team wants a friendlier address for
+people to start a conversation at, forward that mailbox to the receiving address: replies to the gateway's
+mails already go straight to it through their Reply-To. Do not forward a mailbox that also receives other
+mail, such as replies to a newsletter sent from the same address: the gateway would answer those with the roster.
+
 ## How it works
 
 ```

@@ -17,6 +17,7 @@ import {
   threadByMailIds,
 } from "../_shared/db.ts";
 import {
+  addressedToInbox,
   brigadeBody,
   resolveInbound,
   resolveSession,
@@ -59,6 +60,9 @@ Deno.serve(async (req) => {
     if (!(await markReceived(sql, hook.providerId))) return json(200, { duplicate: true });
     const gw = await loadGateway(sql, teamRef);
     const m: InboundMail = await mail.fetch(hook.providerId);
+    if (!addressedToInbox(m.to, inbox)) {
+      return json(200, { ignored: "not addressed to this gateway's inbox" });
+    }
     const threads = {
       byBrigadeId: (id: string) => threadByBrigadeId(sql, id),
       byMailIds: (ids: string[]) => threadByMailIds(sql, ids),

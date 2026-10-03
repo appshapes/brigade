@@ -80,6 +80,19 @@ export function tagOf(addresses: string[], inbox: string): string | null {
   return null;
 }
 
+/** addressedToInbox reports whether a mail was delivered to this gateway's inbox, or to a reply tag of it. A Resend
+ * account's webhook fires for every mail the account receives, so a second team's gateway on the same account
+ * sees this team's mail too; each gateway reads only what was addressed to it. */
+export function addressedToInbox(addresses: string[], inbox: string): boolean {
+  const local = localOf(inbox).toLowerCase();
+  const domain = domainOf(inbox);
+  return addresses.some((a) => {
+    if (domainOf(a) !== domain) return false;
+    const l = localOf(a).toLowerCase();
+    return l === local || l.startsWith(local + "+");
+  });
+}
+
 /** resolveSession finds the session an argument names: the id in full, or a unique tail of at least five
  * characters, as `brigade send` does (internal/harness/commands/send.go). Names are never addresses. */
 export function resolveSession(

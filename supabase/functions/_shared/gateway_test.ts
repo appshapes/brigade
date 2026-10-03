@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import {
+  addressedToInbox,
   brigadeBody,
   description,
   type Envelope,
@@ -81,6 +82,16 @@ Deno.test("resolveSession: full id, unique tail, ambiguous tail, too short, none
   assertStringIncludes(errOf(amb), "2 session ids");
   assertStringIncludes(errOf(resolveSession("3f9", sessions)), "too short");
   assertStringIncludes(errOf(resolveSession("zzzzz", sessions)), "no session ends");
+});
+
+Deno.test("addressedToInbox accepts the inbox and its tags, refuses another team's inbox on the same account", () => {
+  assertEquals(addressedToInbox([INBOX], INBOX), true);
+  assertEquals(addressedToInbox(["89219B45@SELUUSA.RESEND.APP"], INBOX), true);
+  assertEquals(addressedToInbox([replyTag(INBOX, M1)], INBOX), true);
+  assertEquals(addressedToInbox(["brigade@appshapes.com", INBOX], INBOX), true);
+  assertEquals(addressedToInbox(["7c7c7c7c@seluusa.resend.app"], INBOX), false);
+  assertEquals(addressedToInbox(["89219b45x@seluusa.resend.app"], INBOX), false);
+  assertEquals(addressedToInbox([], INBOX), false);
 });
 
 Deno.test("replyTag and tagOf round-trip the message id through the inbox address", () => {
