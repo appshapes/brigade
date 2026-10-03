@@ -41,7 +41,7 @@ func TestGatewayRules(t *testing.T) {
 		{"no dot in the domain", `{"email":"a@localhost"}`, teamfile.GatewayEmailInvalid, "", nil},
 		{"a display-name form", `{"email":"Brigade <a@b.io>"}`, teamfile.GatewayEmailInvalid, "", nil},
 		{"whitespace inside", `{"email":"a b@c.io"}`, teamfile.GatewayEmailInvalid, "", nil},
-		{"a format character inside", `{"email":"a‮@c.io"}`, teamfile.GatewayEmailInvalid, "", nil},
+		{"a format character inside", "{\"email\":\"a\u202e@c.io\"}", teamfile.GatewayEmailInvalid, "", nil},
 		{"over the byte cap", `{"email":"` + strings.Repeat("a", teamfile.MaxGatewayEmailBytes) + `@x.io"}`, teamfile.GatewayEmailTooLong, "", nil},
 	}
 	for _, c := range cases {
@@ -66,7 +66,7 @@ func TestGatewayRules(t *testing.T) {
 			if c.reason != "" && f.Gateway != nil {
 				t.Fatalf("an unusable member yielded a config: %+v", f.Gateway)
 			}
-			if !slices.Equal(f.Ignored, c.ignored) && !(len(f.Ignored) == 0 && len(c.ignored) == 0) {
+			if len(f.Ignored)+len(c.ignored) > 0 && !slices.Equal(f.Ignored, c.ignored) {
 				t.Fatalf("Ignored = %q, want %q", f.Ignored, c.ignored)
 			}
 		})
