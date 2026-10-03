@@ -4,7 +4,7 @@
 -- pin in full; this file pins the new schema the same way, so a later migration cannot quietly expose it.
 begin;
 \ir helpers/auth.sql
-select plan(28);
+select plan(33);
 
 -- 1. The schema and its three tables.
 select has_schema('brigade_gateway', 'the brigade_gateway schema exists');
@@ -57,7 +57,17 @@ select pg_temp.logout();
 select lives_ok(format($$insert into brigade_gateway.gateways (team_id, user_id, session_id) values (%L, %L, %L)$$, :'team', :'gw', :'sid'),
                 'a gateways row ties the team, the member and the session');
 select throws_ok(format($$insert into brigade_gateway.gateways (team_id, user_id, session_id) values (%L, %L, %L)$$, :'team', :'gw', :'sid'),
-                 '23505', null, 'one gateway per team');
+                 '23505', null, 'one gateway per team and kind (the default kind is email)');
+-- The Slack half (20261003210000_slack_gateway.sql): a second kind for the same team, and nothing else.
+select lives_ok(format($$insert into brigade_gateway.gateways (team_id, user_id, session_id, kind) values (%L, %L, %L, 'slack')$$, :'team', :'gw', :'sid'),
+                'a slack gateway beside the email one');
+select throws_ok(format($$insert into brigade_gateway.gateways (team_id, user_id, session_id, kind) values (%L, %L, %L, 'sms')$$, :'team', :'gw', :'sid'),
+                 '23514', null, 'kind is email or slack');
+select lives_ok(format($$insert into brigade_gateway.threads (brigade_message_id, team_id, direction, session_id, address, mail_message_id, kind, actor)
+                        values (gen_random_uuid(), %L, 'out', %L, 'C0123ABCD', '1759500000.000100', 'slack', 'U0123ABCD')$$, :'team', :'sid'),
+                'a slack thread row: channel, root ts and the person');
+select is((select actor from brigade_gateway.threads where mail_message_id = '1759500000.000100'), 'U0123ABCD',
+          'the slack row carries the person it is about');
 select lives_ok(format($$insert into brigade_gateway.threads (brigade_message_id, team_id, direction, session_id, address, mail_message_id, subject)
                         values (gen_random_uuid(), %L, 'in', %L, 'alice@example.com', '<abc@mail.example.com>', 'hello')$$, :'team', :'sid'),
                 'an inbound thread row');
@@ -66,6 +76,8 @@ select throws_ok(format($$insert into brigade_gateway.threads (brigade_message_i
                  '23514', null, 'direction is in or out');
 select is((select address from brigade_gateway.threads where mail_message_id = '<abc@mail.example.com>'), 'alice@example.com',
           'a thread row is found by its mail id');
+select is((select kind from brigade_gateway.threads where mail_message_id = '<abc@mail.example.com>'), 'email',
+          'a thread row written without a kind is an email row');
 select lives_ok($$insert into brigade_gateway.received (provider_mail_id) values ('re_1')$$, 'a received row');
 select lives_ok($$insert into brigade_gateway.received (provider_mail_id) values ('re_1') on conflict do nothing$$,
                 'a second webhook for the same mail is a no-op (the functions insert ... on conflict do nothing returning)');

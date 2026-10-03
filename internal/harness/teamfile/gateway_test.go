@@ -32,9 +32,15 @@ func TestGatewayRules(t *testing.T) {
 		{"a plus tag and a subdomain", `{"email":"brigade+team@mail.example.co.uk"}`, "", "brigade+team@mail.example.co.uk", nil},
 		{"exactly the byte cap", `{"email":"` + long + `"}`, "", long, nil},
 		{"an unknown inner member is ignored and named", `{"email":"a@b.io","provider":"resend"}`, "", "a@b.io", []string{"gateway.provider"}},
+		{"slack alone", `{"slack":"appshapes.slack.com: @brigade"}`, "", "", nil},
+		{"email and slack", `{"email":"a@b.io","slack":"appshapes.slack.com: @brigade"}`, "", "a@b.io", nil},
 		{"not an object", `"a@b.io"`, teamfile.GatewayNotObject, "", nil},
 		{"an array", `["a@b.io"]`, teamfile.GatewayNotObject, "", nil},
-		{"no email", `{}`, teamfile.GatewayEmailMissing, "", nil},
+		{"neither email nor slack", `{}`, teamfile.GatewayEmpty, "", nil},
+		{"slack is not a string", `{"slack":1}`, teamfile.GatewaySlackInvalid, "", nil},
+		{"slack is empty", `{"slack":""}`, teamfile.GatewaySlackInvalid, "", nil},
+		{"slack carries a control character", `{"slack":"a\u0007b"}`, teamfile.GatewaySlackInvalid, "", nil},
+		{"slack over the rune cap", `{"slack":"` + strings.Repeat("s", teamfile.MaxGatewaySlackRunes+1) + `"}`, teamfile.GatewaySlackTooLong, "", nil},
 		{"email is not a string", `{"email":1}`, teamfile.GatewayEmailInvalid, "", nil},
 		{"no at sign", `{"email":"nobody"}`, teamfile.GatewayEmailInvalid, "", nil},
 		{"two at signs", `{"email":"a@b@c.io"}`, teamfile.GatewayEmailInvalid, "", nil},
@@ -63,6 +69,9 @@ func TestGatewayRules(t *testing.T) {
 			if c.reason == "" && (f.Gateway == nil || f.Gateway.Email != c.email) {
 				t.Fatalf("gateway = %+v, want email %q", f.Gateway, c.email)
 			}
+			if c.reason == "" && strings.Contains(c.member, `"slack"`) && f.Gateway.Slack != "appshapes.slack.com: @brigade" {
+				t.Fatalf("gateway = %+v, want the slack line", f.Gateway)
+			}
 			if c.reason != "" && f.Gateway != nil {
 				t.Fatalf("an unusable member yielded a config: %+v", f.Gateway)
 			}
@@ -75,7 +84,7 @@ func TestGatewayRules(t *testing.T) {
 
 func TestGatewayReasonsListIsClosed(t *testing.T) {
 	t.Parallel()
-	want := []string{teamfile.GatewayNotObject, teamfile.GatewayEmailMissing, teamfile.GatewayEmailInvalid, teamfile.GatewayEmailTooLong}
+	want := []string{teamfile.GatewayNotObject, teamfile.GatewayEmpty, teamfile.GatewayEmailInvalid, teamfile.GatewayEmailTooLong, teamfile.GatewaySlackInvalid, teamfile.GatewaySlackTooLong}
 	if !slices.Equal(teamfile.GatewayReasons(), want) {
 		t.Fatalf("GatewayReasons() = %q", teamfile.GatewayReasons())
 	}

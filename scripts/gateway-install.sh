@@ -149,7 +149,7 @@ else
 fi
 
 # 4. the gateway principal and session
-existing=$(sql "select user_id::text as user_id from brigade_gateway.gateways where team_id = $(lit "$team_ref")" |
+existing=$(sql "select user_id::text as user_id from brigade_gateway.gateways where team_id = $(lit "$team_ref") and kind = 'email'" |
   jq -r 'if type == "array" then (.[0].user_id // empty) else empty end')
 uid="$existing"
 if [ -n "$existing" ]; then
@@ -169,7 +169,7 @@ if [ -z "$dry" ]; then
   block="do \$\$
 declare v_team uuid := $(lit "$team_ref"); v_uid uuid := $(lit "$uid"); v_existing uuid; v_sid uuid; v_rec jsonb; v_live boolean := false;
 begin
-  select user_id, session_id into v_existing, v_sid from brigade_gateway.gateways where team_id = v_team;
+  select user_id, session_id into v_existing, v_sid from brigade_gateway.gateways where team_id = v_team and kind = 'email';
   if found then v_uid := v_existing; end if;
   insert into brigade.memberships (team_id, user_id, human_label, joined_secret_version)
     select v_team, v_uid, 'mail gateway', t.secret_version from brigade.teams t where t.id = v_team
@@ -186,8 +186,8 @@ begin
     v_rec := brigade.register_session(v_team, 'mail-gateway', $(lit "$description"), 'idle', 'accept', 'gateway-email', '0.1.0', null, 600, v_sid);
     v_sid := (v_rec->>'session_id')::uuid;
   end if;
-  insert into brigade_gateway.gateways (team_id, user_id, session_id) values (v_team, v_uid, v_sid)
-    on conflict (team_id) do update set session_id = excluded.session_id;
+  insert into brigade_gateway.gateways (team_id, user_id, session_id, kind) values (v_team, v_uid, v_sid, 'email')
+    on conflict (team_id, kind) do update set session_id = excluded.session_id;
   perform set_config('request.jwt.claim.sub', '', true);
 end \$\$"
   out=$(sql "$block")
@@ -195,7 +195,7 @@ end \$\$"
     echo "gateway-install: the gateway SQL failed: $(printf '%s' "$out" | jq -r '.message // .error // .' 2>/dev/null | head -c 300)" >&2
     exit 1
   fi
-  session=$(sql "select session_id::text as s from brigade_gateway.gateways where team_id = $(lit "$team_ref")" | jq -r '.[0].s // empty')
+  session=$(sql "select session_id::text as s from brigade_gateway.gateways where team_id = $(lit "$team_ref") and kind = 'email'" | jq -r '.[0].s // empty')
   say "gateway session $session is registered as mail-gateway"
 fi
 

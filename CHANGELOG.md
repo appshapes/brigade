@@ -11,6 +11,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Added
 
+- **A Slack gateway: people on Slack take part in a team** (card 48). The Slack twin of the mail gateway, hosted
+  the same way in the team's own backend: two Edge Functions (`supabase/functions/slack-in`, `slack-out`), the
+  shared `brigade_gateway` tables with a `kind` column, and a two-run installer, `make slack-gateway-install
+  project=<ref>`, whose first run prints the Slack app manifest to paste and whose second, with the app's token
+  and signing secret in a 0600 file, finishes the install. A person DMs the bot or mentions it with a first line
+  `to: <session>`, or types `/brigade sessions` and `/brigade send <session> <text>`; a reply in the thread under
+  a session's message answers it. A session writes to a person or a channel with a first line `to: @name`,
+  `to: #channel` or `to: <email>`, and answers a Slack message with `--reply-to`, which the gateway posts into
+  the person's thread with a mention. Slack authenticates the author, so the user id a session is told is a
+  verified identity; the name is not. No protocol change. `.brigade.json`'s `gateway` member gains `slack`
+  ([`docs/slack-gateway.md`](docs/slack-gateway.md)).
+
 - **A mail gateway: people on email take part in a team** (card 48). A team's administrator runs
   `make gateway-install project=<ref> from='Name <address>'` once, with the Supabase access token and a Resend
   API key in the environment, and the team gains a session named `mail-gateway` hosted in its own backend: two

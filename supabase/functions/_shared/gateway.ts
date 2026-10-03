@@ -44,6 +44,8 @@ export interface ThreadRow {
   mail_message_id: string | null;
   provider_mail_id: string | null;
   subject: string | null;
+  kind?: "email" | "slack";
+  actor?: string | null;
 }
 
 export interface ThreadLookup {

@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "check": "deno check mail-in/index.ts mail-out/index.ts _shared/*.ts _shared/providers/*.ts",
+    "check": "deno check mail-in/index.ts mail-out/index.ts slack-in/index.ts slack-out/index.ts _shared/*.ts _shared/providers/*.ts",
     "test": "deno test _shared/"
   },
   "fmt": { "lineWidth": 110, "indentWidth": 2, "semiColons": true, "singleQuote": false },

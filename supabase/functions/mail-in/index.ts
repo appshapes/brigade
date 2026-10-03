@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
   const sql = connect();
   try {
     if (!(await markReceived(sql, hook.providerId))) return json(200, { duplicate: true });
-    const gw = await loadGateway(sql, teamRef);
+    const gw = await loadGateway(sql, teamRef, "email");
     const m: InboundMail = await mail.fetch(hook.providerId);
     if (!addressedToInbox(m.to, inbox)) {
       return json(200, { ignored: "not addressed to this gateway's inbox" });

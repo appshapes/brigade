@@ -830,11 +830,12 @@ been enabled since 2026-09-08, so the report is visible only to the maintainers 
 [`SECURITY.md`](../SECURITY.md) is the policy GitHub shows beside the form. Do not open a public issue for a
 suspected vulnerability.
 
-## 14. The mail gateway
+## 14. The mail and Slack gateways
 
-A team may run the mail gateway of [docs/mail-gateway.md](mail-gateway.md): one more member, hosted in the team's
-own Supabase project, that turns email into Brigade messages and back. Four things to know, in the same plain
-terms as the rest of this page.
+A team may run the mail gateway of [docs/mail-gateway.md](mail-gateway.md) and the Slack gateway of
+[docs/slack-gateway.md](slack-gateway.md): one more member each, hosted in the team's own Supabase project, that
+turn email or Slack messages into Brigade messages and back. Four things to know about mail, in the same plain
+terms as the rest of this page, and then what Slack changes.
 
 - **The gateway's address is public and unguarded.** It is in the committed `.brigade.json` and in the roster.
   Anyone who knows it can send text to any session of the team, and the gateway does not check that an email's
@@ -851,6 +852,14 @@ terms as the rest of this page.
   the Data API and have no policy and no grant.
 - **A loop is bounded, not prevented.** An auto-responder answering the gateway, and a model answering it back,
   would go on until the protocol's hop cap of 32; the gateway does not yet recognise auto-replies.
+
+**What Slack changes.** Slack authenticates the person: the user id a session is told (`from: U0123…`) is a
+verified identity in that workspace, and only the workspace's members and guests can reach the bot, so the
+unguarded-address problem of mail does not arise. The display name beside it is still unverified text. Every
+request is checked against the app's signing secret; the URL verification challenge alone is answered unsigned,
+because it carries nothing but a nonce. Slack, Inc. and the workspace's administrators can read everything that
+goes through the gateway. The bot token and signing secret live only in the project's function secrets; a leaked
+bot token lets its holder post as the bot and read its DMs, not join the team.
 
 ## Accepted for this version
 

@@ -1,6 +1,6 @@
 # Human sessions over Slack and email: what it takes
 
-Date: 2026-10-03. Trello card 48. Status: **the email half is built and live (section "As built" below); Slack is not built.** Owner: Rjae. Asked for: an overview of what it
+Date: 2026-10-03. Trello card 48. Status: **both halves are built (section "As built" below); the Slack half awaits its live test in a workspace.** Owner: Rjae. Asked for: an overview of what it
 takes to let non-agentic team members (product, QA, anyone without a coding session) take part in a Brigade team
 from Slack and from email, with an in-body protocol so that what travels is the message's object model, not a bare
 body, and so that a reply can target the session it answers.
@@ -36,6 +36,13 @@ allow-lists, sender verification) are set aside for now. The build, end to end:
 - **Not built:** Slack (sections 6 of the original design), sender verification and allow-lists (section 7's
   controls), the frame wording variant and the `KIND` column (section 8), auto-reply detection. The Postmark
   provider file is the seam's proof and waits on an account.
+
+**Slack, later the same day.** Rjae agreed the Slack half as the hosted twin of the mail gateway (DMs and channels;
+the tick alone, no insert trigger; `@name`, `#channel` and email addresses; a pasted app manifest; separate
+`slack-in`/`slack-out` functions sharing the core). Built as `docs/slack-gateway.md` describes: the Events API
+and slash commands reach `slack-in` directly, since the hosted gateway has a public URL (no Socket Mode); the
+gateways table is keyed by team and kind; a Slack reply is found by its thread's root `ts`; Slack's user id is a
+verified identity where an email `From:` was not. Installer: `make slack-gateway-install`, two runs.
 
 Sections 1 to 12 below are the research and the bridge design as written before the ruling; section 4 (the
 block) and section 9's dependency notes still describe what was built.

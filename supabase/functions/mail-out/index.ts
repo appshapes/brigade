@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
   const sql = connect();
   const report = { heartbeat: "", delivered: 0, undeliverable: 0, retry: 0, errors: [] as string[] };
   try {
-    const gw = await loadGateway(sql, teamRef);
+    const gw = await loadGateway(sql, teamRef, "email");
     const desc = description(inbox);
     try {
       const h = await asMember(sql, gw.userId, (tx) => heartbeat(tx, gw.sessionId, desc));
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
           gw.userId,
           (tx) => registerSession(tx, gw.teamId, SESSION_NAME, desc, HARNESS, GATEWAY_VERSION, resume),
         );
-        await setGatewaySession(sql, gw.teamId, r.session_id);
+        await setGatewaySession(sql, gw.teamId, "email", r.session_id);
         gw.sessionId = r.session_id;
         report.heartbeat = r.resumed ? "resumed" : "registered";
       } else {

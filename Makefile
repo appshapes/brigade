@@ -533,6 +533,14 @@ gateway-install: ## Install the hosted mail gateway (usage: make gateway-install
 	@test -n "$(project)" && test -n "$(from)" || { echo "usage: make gateway-install project=<ref> from='Name <address>' [inbox=<address>] [dry=1]" >&2; exit 1; }
 	SUPABASE="$(supabase)" scripts/gateway-install.sh $(project) --from "$(from)" $(if $(inbox),--inbox "$(inbox)",) $(if $(dry),--dry-run,)
 
+# slack-gateway-install: the hosted Slack gateway (card 48). Two runs: the first deploys and prints the app manifest to
+# paste at api.slack.com; the second, with SLACK_SECRETS_FILE (or SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET) set, joins
+# the gateway member, sets the secrets and schedules the tick. See scripts/slack-gateway-install.sh's header.
+.PHONY: slack-gateway-install
+slack-gateway-install: ## Install the hosted Slack gateway (usage: make slack-gateway-install project=<ref> [dry=1]; first run prints the manifest, second run needs SLACK_SECRETS_FILE)
+	@test -n "$(project)" || { echo "usage: make slack-gateway-install project=<ref> [dry=1]" >&2; exit 1; }
+	SUPABASE="$(supabase)" scripts/slack-gateway-install.sh $(project) $(if $(dry),--dry-run,)
+
 # functions-check: the Edge Functions under supabase/functions/ — formatted, type-checked and unit-tested with Deno,
 # fetched through npx like the Supabase CLI (no global install). CI runs it in the `fast` job.
 .PHONY: functions-check

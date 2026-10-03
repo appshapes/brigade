@@ -53,27 +53,36 @@ export async function asMember<T>(sql: Sql, uid: string, fn: (tx: Sql) => Promis
   }
 }
 
+export type GatewayKind = "email" | "slack";
+
 export interface Gateway {
   teamId: string;
   teamName: string;
   userId: string;
   sessionId: string;
+  kind: GatewayKind;
 }
 
-export async function loadGateway(sql: Sql, teamRef: string): Promise<Gateway> {
+export async function loadGateway(sql: Sql, teamRef: string, kind: GatewayKind): Promise<Gateway> {
   const rows = await sql`
     select g.team_id, t.name as team_name, g.user_id, g.session_id
       from brigade_gateway.gateways g join brigade.teams t on t.id = g.team_id
-     where g.team_id = ${teamRef}::uuid`;
+     where g.team_id = ${teamRef}::uuid and g.kind = ${kind}`;
   if (rows.length === 0) {
-    throw new Error("the gateway is not installed for this team: run make gateway-install");
+    throw new Error(`the ${kind} gateway is not installed for this team: run its install target`);
   }
   const r = rows[0];
-  return { teamId: r.team_id, teamName: r.team_name, userId: r.user_id, sessionId: r.session_id };
+  return { teamId: r.team_id, teamName: r.team_name, userId: r.user_id, sessionId: r.session_id, kind };
 }
 
-export async function setGatewaySession(sql: Sql, teamId: string, sessionId: string): Promise<void> {
-  await sql`update brigade_gateway.gateways set session_id = ${sessionId}::uuid where team_id = ${teamId}::uuid`;
+export async function setGatewaySession(
+  sql: Sql,
+  teamId: string,
+  kind: GatewayKind,
+  sessionId: string,
+): Promise<void> {
+  await sql`update brigade_gateway.gateways set session_id = ${sessionId}::uuid
+             where team_id = ${teamId}::uuid and kind = ${kind}`;
 }
 
 // ---- Brigade RPCs, as the member -------------------------------------------------------------------------
@@ -136,10 +145,17 @@ export interface ThreadRow {
   brigade_message_id: string;
   direction: "in" | "out";
   session_id: string;
+  /** email: the person's address; slack: the channel the message lives in. */
   address: string;
+  /** email: the mail's Message-ID; slack: the ts of the thread's root message. */
   mail_message_id: string | null;
+  /** email: the provider's id for the mail; slack: the event id (in) or the posted ts (out). */
   provider_mail_id: string | null;
   subject: string | null;
+  /** The gateway kind the row belongs to; the first migration's rows read as email. */
+  kind?: GatewayKind;
+  /** slack: the person's Slack user id. */
+  actor?: string | null;
 }
 
 /** markReceived records a provider mail id and answers true the first time it is seen (webhooks retry). */
@@ -151,16 +167,18 @@ export async function markReceived(sql: Sql, providerId: string): Promise<boolea
 
 export async function recordThread(sql: Sql, teamId: string, row: ThreadRow): Promise<void> {
   await sql`insert into brigade_gateway.threads
-              (brigade_message_id, team_id, direction, session_id, address, mail_message_id, provider_mail_id, subject)
+              (brigade_message_id, team_id, direction, session_id, address, mail_message_id, provider_mail_id, subject, kind, actor)
             values (${row.brigade_message_id}::uuid, ${teamId}::uuid, ${row.direction}, ${row.session_id}::uuid,
-                    ${row.address}, ${row.mail_message_id}, ${row.provider_mail_id}, ${row.subject})
+                    ${row.address}, ${row.mail_message_id}, ${row.provider_mail_id}, ${row.subject},
+                    ${row.kind ?? "email"}, ${row.actor ?? null})
             on conflict (brigade_message_id) do nothing`;
 }
 
 export async function threadByBrigadeId(sql: Sql, id: string): Promise<ThreadRow | null> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   const rows =
-    await sql`select brigade_message_id, direction, session_id, address, mail_message_id, provider_mail_id, subject
+    await sql`select brigade_message_id, direction, session_id, address, mail_message_id, provider_mail_id,
+                                subject, kind, actor
                            from brigade_gateway.threads where brigade_message_id = ${id}::uuid`;
   return rows.length ? (rows[0] as ThreadRow) : null;
 }
@@ -168,8 +186,21 @@ export async function threadByBrigadeId(sql: Sql, id: string): Promise<ThreadRow
 export async function threadByMailIds(sql: Sql, ids: string[]): Promise<ThreadRow | null> {
   if (ids.length === 0) return null;
   const rows =
-    await sql`select brigade_message_id, direction, session_id, address, mail_message_id, provider_mail_id, subject
-                           from brigade_gateway.threads where mail_message_id = any(${ids}::text[])
+    await sql`select brigade_message_id, direction, session_id, address, mail_message_id, provider_mail_id,
+                                subject, kind, actor
+                           from brigade_gateway.threads
+                          where kind = 'email' and mail_message_id = any(${ids}::text[])
+                          order by created_at desc limit 1`;
+  return rows.length ? (rows[0] as ThreadRow) : null;
+}
+
+/** threadBySlack finds the newest row of a Slack thread: the channel and the ts of its root message. */
+export async function threadBySlack(sql: Sql, channel: string, threadTs: string): Promise<ThreadRow | null> {
+  const rows =
+    await sql`select brigade_message_id, direction, session_id, address, mail_message_id, provider_mail_id,
+                                subject, kind, actor
+                           from brigade_gateway.threads
+                          where kind = 'slack' and address = ${channel} and mail_message_id = ${threadTs}
                           order by created_at desc limit 1`;
   return rows.length ? (rows[0] as ThreadRow) : null;
 }
