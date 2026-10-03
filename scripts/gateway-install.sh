@@ -120,6 +120,13 @@ fi
 
 # 3. Resend: the inbox that receives, and the webhook
 if [ -z "$inbox" ]; then
+  # An installed gateway keeps its receiving address across re-runs (a changed --from must not mint a new inbox:
+  # a mailbox routed to the old address would then be ignored). The Management API returns the secret's value.
+  inbox=$(mapi "https://api.supabase.com/v1/projects/$ref/secrets" |
+    jq -r 'if type == "array" then (.[] | select(.name == "BRIGADE_MAIL_INBOX") | .value // empty) else empty end' | head -1)
+  [ -z "$inbox" ] || say "keeping the receiving address the installed gateway already uses"
+fi
+if [ -z "$inbox" ]; then
   # The list carries no receiving address; the inbox itself does.
   inbox_id=$(resend "https://api.resend.com/inboxes" |
     jq -r --arg a "$from_addr" '(.data // [])[] | select(.email_address == $a) | .id // empty' | head -1)

@@ -37,7 +37,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   holds nothing in the brigade schema. The project's `.brigade.json` gains `"gateway": {"email": "<address>"}`,
   a public value; a plugin that does not know the member ignores it. No protocol change. The address is
   public and the gateway does not verify who sent a mail: a message from it is a person's words, untrusted
-  like any other ([`docs/mail-gateway.md`](docs/mail-gateway.md)).
+  like any other ([`docs/mail-gateway.md`](docs/mail-gateway.md)). A team may give people an address of its own
+  (`public_address=<address>`, routed to the receiving address by its mail provider); replies still travel on the
+  receiving address's tag, and the roster, the mails and the bounces name the public one.
 
 ## [0.17.0] — 2026-09-30
 
