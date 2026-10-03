@@ -529,9 +529,9 @@ backend-install: ## One-shot hosted backend setup (usage: make backend-install p
 # joins the gateway member, sets the functions' secrets and schedules the tick; see the script's header. Both tokens
 # come from the environment, never from argv: SUPABASE_ACCESS_TOKEN as for backend-install, and RESEND_API_KEY.
 .PHONY: gateway-install
-gateway-install: ## Install the hosted mail gateway (usage: make gateway-install project=<ref> from='Name <address>' [inbox=<address>] [dry=1]; needs SUPABASE_ACCESS_TOKEN and RESEND_API_KEY)
+gateway-install: ## Install the hosted mail gateway (usage: make gateway-install project=<ref> from='Name <address>' [inbox=<address>] [public_address=<address>] [dry=1]; needs SUPABASE_ACCESS_TOKEN and RESEND_API_KEY)
 	@test -n "$(project)" && test -n "$(from)" || { echo "usage: make gateway-install project=<ref> from='Name <address>' [inbox=<address>] [dry=1]" >&2; exit 1; }
-	SUPABASE="$(supabase)" scripts/gateway-install.sh $(project) --from "$(from)" $(if $(inbox),--inbox "$(inbox)",) $(if $(dry),--dry-run,)
+	SUPABASE="$(supabase)" scripts/gateway-install.sh $(project) --from "$(from)" $(if $(inbox),--inbox "$(inbox)",) $(if $(public_address),--public-address "$(public_address)",) $(if $(dry),--dry-run,)
 
 # slack-gateway-install: the hosted Slack gateway (card 48). Two runs: the first deploys and prints the app manifest to
 # paste at api.slack.com; the second, with SLACK_SECRETS_FILE (or SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET) set, joins

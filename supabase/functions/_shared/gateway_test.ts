@@ -280,9 +280,11 @@ Deno.test("renderOutbound writes the mail with the block, the reply tag and the 
     teamName: "brigade",
     from: "Brigade <brigade@appshapes.com>",
     inbox: INBOX,
+    publicAddress: "brigade-team@appshapes.com",
   });
   assertEquals(m.to, "alice@example.com");
   assertEquals(m.replyTo, replyTag(INBOX, M2));
+  assertStringIncludes(m.text, "send a new email to brigade-team@appshapes.com");
   assertEquals(m.headers["Message-ID"], undefined);
   assertEquals(m.headers["In-Reply-To"], undefined);
   assertEquals(m.headers["Auto-Submitted"], "auto-generated");

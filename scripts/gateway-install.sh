@@ -1,5 +1,10 @@
 #!/bin/sh
-# usage: scripts/gateway-install.sh <project-ref> --from 'Name <address>' [--inbox <address>] [--team-file <path>] [--dry-run]
+# usage: scripts/gateway-install.sh <project-ref> --from 'Name <address>' [--inbox <address>] [--public-address <address>]
+#                                   [--team-file <path>] [--dry-run]
+#
+#   --public-address  the address people are told to write to, when the team routes one of its own (a Google
+#                     Workspace alias with a routing rule, say) to the Resend receiving address; the receiving
+#                     address stays the Reply-To and the one a mail must be addressed to. Default: the inbox.
 #
 #   SUPABASE_ACCESS_TOKEN  a personal access token (sbp_...), exactly as `make backend-install` takes it
 #   RESEND_API_KEY         the Resend API key (re_...) of the account that sends for this team; from the
@@ -34,12 +39,14 @@ set -eu
 ref=''
 from=''
 inbox=''
+public_address=''
 team_file='.brigade.json'
 dry=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) from="$2"; shift 2 ;;
     --inbox) inbox="$2"; shift 2 ;;
+    --public-address) public_address="$2"; shift 2 ;;
     --team-file) team_file="$2"; shift 2 ;;
     --dry-run) dry=1; shift ;;
     -*) echo "gateway-install: unknown flag $1" >&2; exit 2 ;;
@@ -164,7 +171,8 @@ else
     exit 1
   fi
 fi
-description="email gateway: a person writes to $inbox with a first line \"to: <session>\"; a session writes to me with the same line, \"to: <address>\""
+[ -n "$public_address" ] || public_address="$inbox"
+description="email gateway: a person writes to $public_address with a first line \"to: <session>\"; a session writes to me with the same line, \"to: <address>\""
 if [ -z "$dry" ]; then
   block="do \$\$
 declare v_team uuid := $(lit "$team_ref"); v_uid uuid := $(lit "$uid"); v_existing uuid; v_sid uuid; v_rec jsonb; v_live boolean := false;
@@ -206,15 +214,16 @@ if [ -z "$dry" ]; then
     printf 'BRIGADE_TEAM_REF=%s\n' "$team_ref"
     printf 'BRIGADE_MAIL_FROM=%s\n' "$from"
     printf 'BRIGADE_MAIL_INBOX=%s\n' "$inbox"
+    printf 'BRIGADE_MAIL_PUBLIC_ADDRESS=%s\n' "$public_address"
     printf 'BRIGADE_MAIL_PROVIDER=resend\n'
     printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY"
     printf 'RESEND_WEBHOOK_SECRET=%s\n' "$webhook_secret"
     printf 'BRIGADE_TICK_TOKEN=%s\n' "$tick"
   } > "$work/secrets.env"
   $supabase_cmd secrets set --project-ref "$ref" --env-file "$work/secrets.env" >/dev/null
-  say "7 function secrets set"
+  say "8 function secrets set"
 else
-  say "would set 7 function secrets: BRIGADE_TEAM_REF, BRIGADE_MAIL_FROM, BRIGADE_MAIL_INBOX, BRIGADE_MAIL_PROVIDER, RESEND_API_KEY, RESEND_WEBHOOK_SECRET, BRIGADE_TICK_TOKEN"
+  say "would set 8 function secrets: BRIGADE_TEAM_REF, BRIGADE_MAIL_FROM, BRIGADE_MAIL_INBOX, BRIGADE_MAIL_PUBLIC_ADDRESS, BRIGADE_MAIL_PROVIDER, RESEND_API_KEY, RESEND_WEBHOOK_SECRET, BRIGADE_TICK_TOKEN"
 fi
 
 # 6. the tick
@@ -232,7 +241,7 @@ fi
 
 # 7. the team file, and one tick now
 if [ -z "$dry" ]; then
-  jq --arg a "$inbox" '.gateway = {email: $a}' "$team_file" > "$work/team.json" && cat "$work/team.json" > "$team_file"
+  jq --arg a "$public_address" '.gateway = ((.gateway // {}) + {email: $a})' "$team_file" > "$work/team.json" && cat "$work/team.json" > "$team_file"
   printf 'x-brigade-tick: %s\n' "$tick" > "$work/tick.h"
   first=$(curl -sS -X POST "$fn_base/mail-out" -H @"$work/tick.h" -H 'Content-Type: application/json' -d '{}' || true)
   say "first tick: $(printf '%s' "$first" | jq -c '{heartbeat, delivered, undeliverable, retry, error}' 2>/dev/null || printf '%s' "$first" | head -c 200)"
@@ -240,7 +249,8 @@ fi
 
 echo ''
 echo "mail gateway for team \"$team_name\" on $ref"
-echo "  inbox (where people write):  $inbox"
+echo "  people write to:             $public_address"
+echo "  receiving address (Resend):  $inbox"
 echo "  sends from:                  $from"
 echo "  functions:                   $fn_base/mail-in, $fn_base/mail-out"
 if [ -z "$dry" ]; then

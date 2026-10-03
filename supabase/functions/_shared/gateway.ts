@@ -57,8 +57,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** description is the gateway session's `↳` line: the one place the roster tells a model and a person where
  * mail goes. ≤ 256 code points (docs/protocol-v1.md 4.4.2). */
-export function description(inbox: string): string {
-  return `email gateway: a person writes to ${inbox} with a first line "to: <session>"; a session writes to me with the same line, "to: <address>"`;
+export function description(publicAddress: string): string {
+  return `email gateway: a person writes to ${publicAddress} with a first line "to: <session>"; a session writes to me with the same line, "to: <address>"`;
 }
 
 /** replyTag is the Reply-To address of an outbound mail: the inbox with the Brigade message id as a plus tag,
@@ -256,7 +256,10 @@ export async function resolveOutbound(
 export interface RenderContext {
   teamName: string;
   from: string;
+  /** The Resend receiving address: where replies go (tagged) and what a mail must be addressed to. */
   inbox: string;
+  /** The address people are told to write to; the inbox itself unless the team routes a nicer one to it. */
+  publicAddress: string;
 }
 
 /** renderOutbound writes the mail for a Brigade message: who wrote it, the text (escaped), the envelope block
@@ -284,7 +287,7 @@ export function renderOutbound(
     ["reply-to", env.message_id],
   ]);
   const tail =
-    `\n\nReply to this email to answer. To write to another session, send a new email to ${ctx.inbox} whose first line is "to: <session>".\n`;
+    `\n\nReply to this email to answer. To write to another session, send a new email to ${ctx.publicAddress} whose first line is "to: <session>".\n`;
   const text = head + escapeBlockLines(out.text.trim()) + "\n\n" + block + tail;
   // No Message-ID header: Resend's relay (Amazon SES, measured 2026-10-03) replaces it with its own, so the thread
   // table never knows the id a reply's In-Reply-To will carry. The Reply-To tag is the key that survives; the

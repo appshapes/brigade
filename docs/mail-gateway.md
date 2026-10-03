@@ -91,7 +91,8 @@ read -rs RESEND_API_KEY && export RESEND_API_KEY                 # paste re_…;
 make gateway-install project=<ref> from='Brigade <brigade@example.com>'
 ```
 
-Add `dry=1` to see the plan and change nothing. The command, which is `scripts/gateway-install.sh`, does
+Add `dry=1` to see the plan and change nothing, and `public_address=<address>` when people should write to an
+address of the team's own that routes to the receiving address (below). The command, which is `scripts/gateway-install.sh`, does
 these seven things and prints the address at the end:
 
 1. Pushes the `brigade_gateway` migration (`supabase db push`, the same step `backend-install` uses).
@@ -122,9 +123,12 @@ webhook (its signing secret is shown once by Resend) and rotates the tick token.
 One Resend account can serve several teams. Resend's inbound webhook fires for every mail the account receives,
 so each team's gateway reads only the mail addressed to its own inbox (or to a reply tag of it) and ignores the
 rest; each team gets its own receiving address from its own inbox. If the team wants a friendlier address for
-people to start a conversation at, forward that mailbox to the receiving address: replies to the gateway's
-mails already go straight to it through their Reply-To. Do not forward a mailbox that also receives other
-mail, such as replies to a newsletter sent from the same address: the gateway would answer those with the roster.
+people to start a conversation at, route one of its own to the receiving address (a Google Workspace alias with
+a routing rule that adds the receiving address as a recipient, say) and pass it as `public_address=<address>`:
+the roster, the mails and the bounces then name that address, while replies keep going straight to the
+receiving address through their Reply-To tag, which a forwarder would strip. Do not route a mailbox that also
+receives other mail, such as replies to a newsletter sent from the same address: the gateway would answer those
+with the roster.
 
 ## How it works
 

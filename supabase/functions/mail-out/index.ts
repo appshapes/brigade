@@ -42,6 +42,7 @@ Deno.serve(async (req) => {
 
   const teamRef = env("BRIGADE_TEAM_REF");
   const inbox = env("BRIGADE_MAIL_INBOX").toLowerCase();
+  const publicAddress = (env("BRIGADE_MAIL_PUBLIC_ADDRESS") || inbox).toLowerCase();
   const from = env("BRIGADE_MAIL_FROM");
   const mail = resendProvider({
     apiKey: env("RESEND_API_KEY"),
@@ -51,7 +52,7 @@ Deno.serve(async (req) => {
   const report = { heartbeat: "", delivered: 0, undeliverable: 0, retry: 0, errors: [] as string[] };
   try {
     const gw = await loadGateway(sql, teamRef, "email");
-    const desc = description(inbox);
+    const desc = description(publicAddress);
     try {
       const h = await asMember(sql, gw.userId, (tx) => heartbeat(tx, gw.sessionId, desc));
       report.heartbeat = h.state;
@@ -99,7 +100,7 @@ Deno.serve(async (req) => {
         report.undeliverable++;
         continue;
       }
-      const rendered = renderOutbound(m, out, { teamName: gw.teamName, from, inbox });
+      const rendered = renderOutbound(m, out, { teamName: gw.teamName, from, inbox, publicAddress });
       let sent: { providerId: string };
       try {
         sent = await mail.send(rendered);

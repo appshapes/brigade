@@ -54,6 +54,7 @@ Deno.serve(async (req) => {
 
   const teamRef = env("BRIGADE_TEAM_REF");
   const inbox = env("BRIGADE_MAIL_INBOX").toLowerCase();
+  const publicAddress = (env("BRIGADE_MAIL_PUBLIC_ADDRESS") || inbox).toLowerCase();
   const from = env("BRIGADE_MAIL_FROM");
   const sql = connect();
   try {
@@ -70,7 +71,7 @@ Deno.serve(async (req) => {
     const resolution = await resolveInbound(m, inbox, threads);
     const roster = await asMember(sql, gw.userId, (tx) => listSessions(tx, gw.teamId, true));
     const sessions = roster.sessions as SessionRecord[];
-    const rosterNote = rosterText(gw.teamName, sessions, gw.sessionId, inbox);
+    const rosterNote = rosterText(gw.teamName, sessions, gw.sessionId, publicAddress);
 
     const bounce = async (reason: string) => {
       if (
