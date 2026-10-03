@@ -179,6 +179,17 @@ peer to peer through Syncthing, while the session is active. Add the member by h
 prints and the limits. The file is open to members this version does not define: each is ignored, and the session
 start names it in one line.
 
+**The project may also name a mail gateway.** A `gateway` member, written by `make gateway-install` and committed
+like `sync`, carries the one address people without a session write to:
+
+```json
+"gateway": { "email": "89219b45@seluusa.resend.app" }
+```
+
+[docs/mail-gateway.md](mail-gateway.md) is the whole feature: what a person does, what a session does, the one
+command an administrator runs, and how it works. A plugin older than 0.18.0 ignores the member and names it in
+one line at session start.
+
 **Every member's plugin must be 0.11.0 or later before the project commits a `sync` member.** A plugin of 0.10.0
 or earlier reads `.brigade.json` against a closed schema and refuses the whole file — `team_file_unknown_field`
 for the `sync` member, `team_file_too_large` for a file over 4096 bytes — so its sessions say `Brigade: not

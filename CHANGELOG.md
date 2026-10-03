@@ -9,6 +9,24 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A mail gateway: people on email take part in a team** (card 48). A team's administrator runs
+  `make gateway-install project=<ref> from='Name <address>'` once, with the Supabase access token and a Resend
+  API key in the environment, and the team gains a session named `mail-gateway` hosted in its own backend: two
+  Edge Functions (`supabase/functions/mail-in`, `mail-out`), one migration (`brigade_gateway`, three tables the
+  Data API never sees), a Resend inbox and webhook, and a per-minute tick. A person writes to the gateway's
+  address with a first line `to: <session>` and their mail reaches that session as an ordinary Brigade message
+  from `mail-gateway`, with the text and a `[brigade]` block naming the address, subject and mail id; a session
+  writes to a person by sending to the gateway with a first line `to: <address>`, or by replying
+  (`--reply-to`) to a message that came from a mail, and the gateway mails it in the same thread. Threading
+  rides on a Reply-To tag, the Message-ID and the mail headers, with the quoted block as the last resort. The
+  gateway is an ordinary anonymous member: every RPC, limit and check applies to it, and the service role still
+  holds nothing in the brigade schema. The project's `.brigade.json` gains `"gateway": {"email": "<address>"}`,
+  a public value; a plugin that does not know the member ignores it. No protocol change. The address is
+  public and the gateway does not verify who sent a mail: a message from it is a person's words, untrusted
+  like any other ([`docs/mail-gateway.md`](docs/mail-gateway.md)).
+
 ## [0.17.0] — 2026-09-30
 
 ### Added

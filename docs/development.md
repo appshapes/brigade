@@ -110,6 +110,7 @@ source of truth for where the work stands is `.context/plans/brigade-execution-l
 | `internal/harness/foldersync`, `internal/syncadapters/syncthing` | the harness side of the sync-adapter protocol, and the Syncthing adapter (`brigade sync-adapter syncthing`) |
 | `plugin/` | what the Claude Code plugin ships: the manifest, the lifecycle hooks, the five skills, the sh bootstrap and the release pins |
 | `supabase/` | the Supabase backend: migrations, pgTAP tests, local stack config |
+| [`docs/mail-gateway.md`](mail-gateway.md), `supabase/functions/`, `scripts/gateway-install.sh` | the mail gateway (card 48): the feature and its contract, the two Edge Functions with their Deno unit tests (`make functions-check`), and the one-command installer (`make gateway-install`) |
 | `scripts/` | the proof scripts behind `make e2e` and `make proof`, the headless smoke test and the release sequence |
 | [`scripts/ci/`](../scripts/ci/README.md) | the CI checks (plugin tree, secrets, release pins, keep-alive), their fixtures and the Go drift tests that pin them |
 | `.context/plans/` | the implementation plan (an index plus one file per section under implementation/), the execution log and its archive |

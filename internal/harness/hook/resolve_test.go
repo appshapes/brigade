@@ -336,6 +336,7 @@ func TestHookTeamFileNotes(t *testing.T) {
 	const marker = "SENTINEL-FILE-VALUE"
 	const ignored = "Brigade: .brigade.json carries members this version does not define (frame, profile, sync.mode); ignored."
 	const unusable = "Brigade: .brigade.json's sync member is not usable (folder_not_relative); file sync is off for this session."
+	const gatewayUnusable = "Brigade: .brigade.json's gateway member is not usable (email_invalid); no mail gateway is known to this session."
 	const syncOn1 = "Brigade: file sync on: 1 folder(s) through syncthing."
 	cases := map[string]struct {
 		members string
@@ -350,6 +351,15 @@ func TestHookTeamFileNotes(t *testing.T) {
 			[]string{syncOn1, ignored},
 		},
 		"an unusable sync member": {`,"sync":{"folders":["/` + marker + `"]}`, []string{unusable}},
+		// Card 48: a usable gateway member earns no line at all (the address
+		// is a public value, but nothing at session start needs it); an
+		// unusable one earns one line, after the sync note, with its token.
+		"a usable gateway member says nothing": {`,"gateway":{"email":"89219b45@seluusa.resend.app"}`, nil},
+		"an unusable gateway member": {`,"gateway":{"email":"` + marker + `"}`, []string{gatewayUnusable}},
+		"an unusable sync and gateway, sync first": {
+			`,"sync":{"folders":["/` + marker + `"]},"gateway":{"email":1}`,
+			[]string{unusable, gatewayUnusable},
+		},
 		"both, ignored first": {
 			`,"profile":"` + marker + `","frame":1,"sync":{"folders":["/` + marker + `"],"mode":"` + marker + `"}`,
 			[]string{ignored, unusable},

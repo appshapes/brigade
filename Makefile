@@ -58,6 +58,7 @@ plugin_json        := plugin/.claude-plugin/plugin.json
 plugin_version     := $(shell cat plugin/bin/VERSION)
 sha256              = $(if $(shell command -v sha256sum),sha256sum,shasum -a 256)
 supabase           ?= npx --yes supabase@2.116.0
+deno               ?= npx --yes deno@2.6.2
 supabase_exclude   := studio,postgres-meta,imgproxy,storage-api,edge-runtime,mailpit,logflare,vector,supavisor
 tag                := $(shell git log -1 --pretty=format:"%H")
 targets            := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
@@ -522,6 +523,21 @@ backend-install: ## One-shot hosted backend setup (usage: make backend-install p
 	scripts/backend-settings.sh $(project) $(if $(dry),--dry-run,)
 	$(supabase) migration list --project-ref $(project)
 	$(supabase) projects api-keys --project-ref $(project) --output json | jq -r '(if type == "array" then . else .keys end)[] | select(.type == "publishable") | "publishable key: " + .api_key'
+
+# gateway-install: the hosted mail gateway (Trello card 48) on an installed backend. Runs scripts/gateway-install.sh,
+# which pushes the brigade_gateway migration, deploys the two functions, provisions the Resend inbox and webhook,
+# joins the gateway member, sets the functions' secrets and schedules the tick; see the script's header. Both tokens
+# come from the environment, never from argv: SUPABASE_ACCESS_TOKEN as for backend-install, and RESEND_API_KEY.
+.PHONY: gateway-install
+gateway-install: ## Install the hosted mail gateway (usage: make gateway-install project=<ref> from='Name <address>' [inbox=<address>] [dry=1]; needs SUPABASE_ACCESS_TOKEN and RESEND_API_KEY)
+	@test -n "$(project)" && test -n "$(from)" || { echo "usage: make gateway-install project=<ref> from='Name <address>' [inbox=<address>] [dry=1]" >&2; exit 1; }
+	SUPABASE="$(supabase)" scripts/gateway-install.sh $(project) --from "$(from)" $(if $(inbox),--inbox "$(inbox)",) $(if $(dry),--dry-run,)
+
+# functions-check: the Edge Functions under supabase/functions/ — formatted, type-checked and unit-tested with Deno,
+# fetched through npx like the Supabase CLI (no global install). CI runs it in the `fast` job.
+.PHONY: functions-check
+functions-check: ## Format-check, type-check and unit-test supabase/functions/ with Deno (CI)
+	cd supabase/functions && $(deno) fmt --check . && $(deno) task check && $(deno) task test
 
 # ========== Git ==========
 

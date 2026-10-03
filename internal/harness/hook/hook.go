@@ -620,8 +620,16 @@ func syncUnusableLine(reason string) string {
 	return "Brigade: .brigade.json's sync member is not usable (" + attr(reason) + "); file sync is off for this session."
 }
 
+// gatewayUnusableLine is the one line for a `gateway` member the parser
+// could not use (card 48): never a refusal, and the reason is a token from
+// teamfile.GatewayReasons, never a value.
+func gatewayUnusableLine(reason string) string {
+	return "Brigade: .brigade.json's gateway member is not usable (" + attr(reason) + "); no mail gateway is known to this session."
+}
+
 // teamFileNotes are the lines an attached session's team file earns
-// beside the context line: the ignored members, then an unusable sync.
+// beside the context line: the ignored members, then an unusable sync,
+// then an unusable gateway.
 func teamFileNotes(tf *teamfile.File) []string {
 	if tf == nil {
 		return nil
@@ -632,6 +640,9 @@ func teamFileNotes(tf *teamfile.File) []string {
 	}
 	if tf.SyncUnusable != "" {
 		notes = append(notes, syncUnusableLine(tf.SyncUnusable))
+	}
+	if tf.GatewayUnusable != "" {
+		notes = append(notes, gatewayUnusableLine(tf.GatewayUnusable))
 	}
 	return notes
 }

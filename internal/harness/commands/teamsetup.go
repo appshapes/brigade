@@ -51,6 +51,8 @@ type createOptions struct {
 	force                                      bool
 	carriedSync                                *teamfile.SyncConfig
 	syncNotCarried                             string
+	carriedGateway                             *teamfile.GatewayConfig
+	gatewayNotCarried                          string
 }
 
 // teamCreate implements the rebuilt `brigade team create` (brief §2):
@@ -84,6 +86,7 @@ func (inv Invocation) teamCreate(raw rawArgs) error {
 		// parses and the member is usable (folder-sync plan §4.1), and
 		// otherwise says so in one human line of finishCreate's report.
 		opts.carriedSync, opts.syncNotCarried = teamfile.CarriedSync(filePath)
+		opts.carriedGateway, opts.gatewayNotCarried = teamfile.CarriedGateway(filePath)
 	}
 	req, err := inv.createRequest(opts)
 	if err != nil {
@@ -287,6 +290,9 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 	if opts.carriedSync != nil {
 		members["sync"] = opts.carriedSync
 	}
+	if opts.carriedGateway != nil {
+		members["gateway"] = opts.carriedGateway
+	}
 	doc, err := json.Marshal(members)
 	if err != nil {
 		return fmt.Errorf("commands: marshal team file: %w", err)
@@ -305,6 +311,10 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 		// person who ran --force is the one who can put it back.
 		lines = append(lines, "the previous "+teamfile.FileName+"'s sync member was not carried into the new file ("+
 			opts.syncNotCarried+"); add it again if this project syncs folders")
+	}
+	if opts.gatewayNotCarried != "" {
+		lines = append(lines, "the previous "+teamfile.FileName+"'s gateway member was not carried into the new file ("+
+			opts.gatewayNotCarried+"); run make gateway-install again if this team has a mail gateway")
 	}
 	return writeLines(inv.Out, append(lines,
 		"the join secret is in "+opts.secretFile+" (0600); share it over a password-grade channel only",

@@ -98,6 +98,11 @@ type File struct {
 	// member is present but not usable, "" otherwise — never both set.
 	Sync         *SyncConfig
 	SyncUnusable string
+	// Gateway is the project's `gateway` member when present AND usable
+	// (card 48), nil otherwise; GatewayUnusable is the GatewayReasons
+	// token when the member is present but not usable, "" otherwise.
+	Gateway         *GatewayConfig
+	GatewayUnusable string
 	// Ignored lists the member names this version does not define — top
 	// level as `name`, inside `sync` as `sync.name` — sorted, each reduced
 	// to a plain character set and capped (displayName) so the hook may
@@ -122,7 +127,7 @@ var secretShape = regexp.MustCompile(`brg1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}`)
 var members = map[string]bool{
 	"version": true, "adapter": true, "url": true,
 	"publishable_key": true, "team_ref": true, "team_name": false,
-	"sync": false,
+	"sync": false, "gateway": false,
 }
 
 // Parse reads and validates the team file at path. Every check runs on
@@ -243,6 +248,11 @@ func parseDocument(path string, data []byte) (*File, error) {
 	if member, ok := raw["sync"]; ok {
 		var inner []string
 		f.Sync, inner, f.SyncUnusable = parseSync(member)
+		ignored = append(ignored, inner...)
+	}
+	if member, ok := raw["gateway"]; ok {
+		var inner []string
+		f.Gateway, inner, f.GatewayUnusable = parseGateway(member)
 		ignored = append(ignored, inner...)
 	}
 	slices.Sort(ignored)

@@ -24,6 +24,7 @@ Two minutes of it, with two people's sessions:
 | hold messages for your review before your session sees them | [`docs/setup.md` › Holding messages for review](docs/setup.md#holding-messages-for-review) |
 | change the sentence your sessions receive with each message | [`docs/setup.md` › The frame text your sessions receive](docs/setup.md#the-frame-text-your-sessions-receive) |
 | sync folders between teammates' checkouts | [Sync folders](#sync-folders) |
+| let people on email take part: QA, product, anyone without a session | [`docs/mail-gateway.md`](docs/mail-gateway.md) |
 | create a team | [Create a team](#create-a-team) |
 | add a repository to the team | [Add a repository to the team](#add-a-repository-to-the-team) |
 | create the database, once per organization | [Create a database](#create-a-database) |

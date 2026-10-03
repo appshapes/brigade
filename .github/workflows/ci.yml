@@ -92,6 +92,11 @@ jobs:
       # channels, exec-form hooks whose commands exist, sh/bash/zsh syntax, shellcheck (a hard failure here
       # because CI is set), and the secret scan.
       - run: make plugin-check
+      # The mail gateway's Edge Functions (card 48): `deno fmt --check`, `deno check` and the unit tests under
+      # supabase/functions/, through the Deno the Makefile would otherwise fetch with npx (`deno ?=`).
+      - uses: denoland/setup-deno@v2
+        with: {deno-version: v2.6.2}
+      - run: make functions-check deno=deno
 
   macos:                                  # the primary user platform: unix sockets, ps -o lstart, shasum paths
     # Rjae, 2026-09-05: `blacksmith-6vcpu-macos-latest`, restoring the pre-migration `macos-latest` meaning — the

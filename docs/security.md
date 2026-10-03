@@ -830,6 +830,28 @@ been enabled since 2026-09-08, so the report is visible only to the maintainers 
 [`SECURITY.md`](../SECURITY.md) is the policy GitHub shows beside the form. Do not open a public issue for a
 suspected vulnerability.
 
+## 14. The mail gateway
+
+A team may run the mail gateway of [docs/mail-gateway.md](mail-gateway.md): one more member, hosted in the team's
+own Supabase project, that turns email into Brigade messages and back. Four things to know, in the same plain
+terms as the rest of this page.
+
+- **The gateway's address is public and unguarded.** It is in the committed `.brigade.json` and in the roster.
+  Anyone who knows it can send text to any session of the team, and the gateway does not check that an email's
+  `From:` is who it says. Every such message arrives as a message from `mail-gateway` whose first line names the
+  address, marked unverified, so section 3 applies in full: it is another person's text in front of a model with
+  tools, and the frame, the sanitiser and the caps are the controls. Nothing a person writes can approve anything.
+  An allow-list of senders and sender verification are not in this version.
+- **More people read the mail.** What a session sends to a person leaves the backend for Resend and for the
+  person's mail provider and client, and stays in their mailbox and backups. Section 2's "the person who runs the
+  backend can read everything" gains those readers for exactly the messages that go through the gateway.
+- **The gateway is a member, not a grant.** It acts through the same RPCs as every member, under the same limits
+  and stamps; the service role still holds nothing in the brigade schema. Its functions hold the project's own
+  database connection, which the Edge Function runtime already holds the equivalent of. Its own tables are not on
+  the Data API and have no policy and no grant.
+- **A loop is bounded, not prevented.** An auto-responder answering the gateway, and a model answering it back,
+  would go on until the protocol's hop cap of 32; the gateway does not yet recognise auto-replies.
+
 ## Accepted for this version
 
 Every item below is a known limit that this version ships with, on purpose.
