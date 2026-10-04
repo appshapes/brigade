@@ -26,6 +26,10 @@ and `team transfer` — and so does the release of a held message (`docs/setup.m
 
 ## 1. Administrator: create a team
 
+For a first-time Supabase setup, `docs/setup.md` in the Brigade repository has "Supabase setup, step by step",
+including where to find the publishable key (Supabase dashboard → Project Settings → API Keys; it starts with
+`sb_publishable_`, and the `sb_secret_` key on the same page is never used). The short form follows.
+
 The bundled adapter keeps a team in a Supabase project, so create a **single-purpose** project for it first:
 enable anonymous sign-ins under Authentication > Sign In / Providers; leave CAPTCHA off (a command-line client
 cannot solve a browser challenge); do not enable the Pro session time-box or inactivity limits (they silently kill

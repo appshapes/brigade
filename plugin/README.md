@@ -133,6 +133,10 @@ untrusted text").
 
 ## Administrator: create a team
 
+First time with Supabase? [docs/setup.md](../docs/setup.md), "Supabase setup, step by step", walks from an empty
+account to a working team, and says where to find the `sb_publishable_…` key (Supabase dashboard → Project
+Settings → API Keys). The short form follows.
+
 The bundled adapter keeps a team in a Supabase project, so create a **single-purpose** project for it first: enable
 anonymous sign-ins under Authentication > Sign In / Providers; leave CAPTCHA off (a command-line client cannot solve
 a browser challenge); do not enable the Pro session time-box or inactivity limits (they silently kill idle

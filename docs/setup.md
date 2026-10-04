@@ -199,16 +199,118 @@ member runs `/brigade:update`. The `VERSION` column of `brigade sessions` shows 
 
 ## Administrator: create a team
 
-**The whole path, in order** — the sections below are not in this order, so this is the list to follow:
+### Supabase setup, step by step
 
-1. Create the Supabase project ("Hosted project: the administrator's responsibilities", section 0).
-2. Deploy the backend into it: `make backend-install project=<ref>` (same chapter, section 1). **This must
-   happen before step 3** — `team create` writes to a project that already has the migrations and the exposed
-   `brigade` schema.
-3. `brigade team create …` in the project checkout (this section), then commit `.brigade.json`.
-4. Send each member the secret file; they run `/brigade:join` ("Member: join a team").
-5. If the project is on the Free plan, arm a keep-alive for it or it pauses after about 7 days (same chapter,
-   sections 2 and 3). One keep-alive workflow serves one project.
+Brigade stores a team's messages in a Supabase project (a hosted Postgres database). This is the full path from
+nothing to a working team. Do the steps in order: step 4 must come before step 6, because `team create` writes to
+a project that already has the Brigade tables.
+
+**You need:** a Supabase account, [Node.js](https://nodejs.org) (for `npx`), `jq`, `make`, and a clone of the
+Brigade repository (`git clone https://github.com/appshapes/brigade`). The clone holds the database migrations.
+It is separate from the project checkout where the team file will go. Your computer also needs a working IPv6
+route for step 4, because a new project's database has only an IPv6 address ("If a step fails", below, says how
+to test and fix it).
+
+1. **Create the Supabase project.** In the [dashboard](https://supabase.com/dashboard), choose New project. Pick
+   a region near your team (it cannot be changed later), let it generate a database password (you will not need
+   it), leave "Enable Data API" on, and do **not** add `brigade` to the exposed schemas — step 4 does that, in
+   the only order that works. Use a project for Brigade only: anyone who can read its database can read every
+   message. Details: section 0, "Creating the project", below.
+2. **Write down the project reference.** It is the `<ref>` in `https://<ref>.supabase.co`. It is also the
+   dashboard address: `supabase.com/dashboard/project/<ref>`, and Project Settings → General → Reference ID.
+3. **Make a personal access token.** Dashboard → your avatar → Account Preferences → Access Tokens
+   (`supabase.com/dashboard/account/tokens`) → Generate new token. It starts with `sbp_`. This token lets the
+   Supabase command-line tool change your project. It is not the key from step 5. Keep it on your machine only.
+
+   The dashboard makes two kinds of token. A **classic** token carries a "Legacy" badge and reaches everything
+   your account can, in every organization and project, so one may be reused for each `make backend-install`. A
+   **scoped** token reaches only the organizations, projects and permissions you pick, and any call it lacks a
+   permission for answers HTTP 403 (see "If a step fails" below). Safer: make one scoped token per project and
+   delete it when the deploy is done. You need a token again only to apply a later migration. A leaked token then
+   exposes one project, not all of them.
+
+   A scoped token for `make backend-install` needs these permissions on the project: **Database** read-write (the
+   temporary login role `db push` creates), **Data API Config** read-write (exposing the `brigade` schema),
+   **Auth Config** read-write, **Realtime Config** read-write, and **API Keys** read (printing the publishable
+   key). Add **Projects** read if you want `projects list` to work as the 403 check below. Assumption: this list
+   is read from Supabase's permission table against the calls the recipe makes; it has not been measured with a
+   token holding exactly these permissions.
+4. **Deploy the backend.** In the Brigade clone:
+
+   ```sh
+   read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN   # paste the sbp_… token; nothing is echoed
+   make backend-install project=<ref>
+   ```
+
+   (`read -s` is bash and zsh, not POSIX `sh`.) This applies the database migrations, **then** adds `brigade` to
+   the project's exposed schemas — that is the answer to step 1's "do not add it yourself": the schema has to
+   exist before it is exposed, or the Data API loops on `schema "brigade" does not exist`. It also turns on the
+   project settings Brigade needs (anonymous sign-ins on, CAPTCHA off, Realtime public access off), lists every
+   migration, local and remote — confirm each one appears in both columns; the command does not check this for
+   you — and **prints the publishable key on its last line**:
+   `publishable key: sb_publishable_…`. Copy that value. Section 1, "Deploying the backend", below explains each
+   part.
+5. **Find the publishable key (if you did not copy it in step 4).** The project's **Connect** button, at the top
+   of its dashboard, shows the project URL and the publishable key together. Every key is also under Project
+   Settings → API Keys, on the "Publishable and secret API keys" tab, as the **Publishable key**. It starts with
+   `sb_publishable_`.
+   - The same page also lists a **secret key** (`sb_secret_…`). **Never use it for Brigade.** It bypasses all
+     access rules. Brigade needs only the publishable key, which is safe to commit.
+   - The tab "Legacy anon, service_role API keys" holds the old JWT-style keys. Brigade does not use them.
+6. **Create the team.** In the checkout of the project your team works in (not the Brigade clone), run the
+   `brigade team create` command in "Create the team", below, with the project URL from step 2 and the
+   publishable key from step 4 or 5. It creates the team, writes `.brigade.json` at the top of the checkout, and
+   saves the join secret to the file `--secret-file` names. That section explains each flag and the label the
+   command sends for you.
+7. **Commit and share.** Commit `.brigade.json`, then send each member the secret file over a password manager
+   share — not chat, not email; "Create the team", below, says why. Each member then runs
+   `/brigade:join <path-to-secret-file>` ("Member: join a team").
+8. **Keep the project awake (Free plan only).** Supabase pauses a Free project after about 7 days of low activity.
+   Set up the keep-alive in section 2, "The repository variables", and section 3, "The keep-alive workflow". One
+   keep-alive serves one project.
+9. **Back up your credential directory.** Copy `~/.config/brigade/teams/<key>` somewhere safe (mode 0700). Without
+   it nobody can rotate the secret or administer the team.
+
+**If a step fails.** Two errors can stop `make backend-install` (step 4) before anything changes:
+
+- **`IPv6 is not supported on your current network`.** New Supabase projects have only an IPv6 address for their
+  database, and the command connects to it directly. Your computer needs a working IPv6 route. Test with
+  `curl -6 -s -m 5 https://api64.ipify.org`: it should print an address. If it prints nothing, check two things.
+  On a Mac, `networksetup -getinfo Wi-Fi` may show `IPv6: Off`, which some VPN clients leave behind after they
+  disconnect; `sudo networksetup -setv6automatic Wi-Fi` turns it back on. If it is already automatic, your router
+  gives out no IPv6; use another network, such as a phone hotspot. The suggestion to run `supabase link` does not
+  help: `link` fails (see section 1 below).
+- **`unexpected login role status 403 … does not have the necessary privileges`.** Supabase accepted your token
+  but refused it this call. Three causes, most likely first:
+  - **A scoped token without the Database read-write permission.** Creating the login role is the first thing
+    the command does, and it needs that permission. Make a new token with the permissions step 3 lists.
+  - **A token that does not cover this project**: scoped to a different project, or made in a different
+    Supabase account than the one that owns the project's organization. Run
+    `npx --yes supabase@2.116.0 projects list` (a scoped token needs Projects read for it): if the project is not
+    in the list, make a new token that covers it (step 3).
+  - **Your role in the organization is too low.** If the token is classic or has every permission step 3 lists,
+    and the project is in the list, you need Owner or Administrator.
+
+Both are safe to retry: `make backend-install` can be run again.
+
+**Check it worked.** In the checkout, `brigade team status` names the team and the project URL. After a member
+joins, `brigade sessions` lists their session.
+
+**Where each value comes from, and who may see it:**
+
+| Value | Starts with | Where to get it | Who may have it |
+| --- | --- | --- | --- |
+| Project URL | `https://<ref>.supabase.co` | The project's Connect dialog, or build it from the reference | Everyone on the team. Committed in `.brigade.json`. |
+| Publishable key | `sb_publishable_` | The project's Connect dialog, Project Settings → API Keys, or the last line of `make backend-install` | Everyone on the team. Committed in `.brigade.json`. |
+| Personal access token | `sbp_` | Dashboard → Account Preferences → Access Tokens | You only. Used for step 4. |
+| Secret key | `sb_secret_` | Dashboard → Project Settings → API Keys | Nobody. Brigade never needs it. |
+| Database password | none | Chosen in step 1 | Nobody. Brigade never needs it. |
+| Join secret | none | The file `team create` wrote | Members, over a password manager only. |
+
+The Supabase dashboard is redesigned from time to time. If a menu name differs, look for "API Keys" under the
+project's settings.
+
+### Create the team
 
 The bundled adapter keeps a team in a Supabase project. Create a **single-purpose** project for it: put nothing
 else in that project, because anyone who can read its database can read every message. The settings the project
@@ -724,7 +826,7 @@ Everything a Brigade team needs lives in one single-purpose Supabase project: a 
 that are the only write path into them, in a schema called `brigade`, exposed on the Data API, with Realtime
 restricted to private channels. Deploying it is **one command** and takes a few seconds.
 
-You need a **personal access token** (Account → Access Tokens in the dashboard, `sbp_…`) in
+You need a **personal access token** (Account Preferences → Access Tokens in the dashboard, `sbp_…`) in
 `SUPABASE_ACCESS_TOKEN`. A token scoped to the one project is enough — measured 2026-09-10 deploying
 `thinktech-brigade` end to end with a fine-grained token holding no organization access at all. You do **not**
 need the database password, and you do **not** need `supabase login`: `db push --project-ref <ref>` mints a
