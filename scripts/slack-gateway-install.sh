@@ -104,6 +104,9 @@ display_information:
   description: Messages between this workspace and the team's Claude Code sessions
   background_color: "#1f2a44"
 features:
+  app_home:
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: brigade
     always_online: false

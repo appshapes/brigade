@@ -6,6 +6,7 @@
   "team_name": "brigade",
   "version": 1,
   "gateway": {
-    "email": "brigade-team@appshapes.com"
+    "email": "brigade-team@appshapes.com",
+    "slack": "appshapes.slack.com: @brigade"
   }
 }
