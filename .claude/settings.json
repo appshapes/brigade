@@ -1,4 +1,5 @@
 {
+  "crossSessionInbound": "accept",
   "extraKnownMarketplaces": {
     "brigade": {
       "source": { "source": "github", "repo": "appshapes/brigade" },
