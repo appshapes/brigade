@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-10-04
+
 ### Added
 
 - **Mail connectors: the mail provider is swappable without a Brigade release** (card 49). The mail gateway's
