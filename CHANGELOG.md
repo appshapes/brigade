@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-10-04
+
 ### Added
 
 - **The mail gateway can name an address of the team's own** (card 48). `make gateway-install …
