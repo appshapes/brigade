@@ -1,6 +1,6 @@
 # Human sessions over Slack and email: what it takes
 
-Date: 2026-10-03. Trello card 48. Status: **both halves are built (section "As built" below); the Slack half awaits its live test in a workspace.** Owner: Rjae. Asked for: an overview of what it
+Date: 2026-10-03. Trello card 48. Status: **both halves are built and measured live (section "As built" below); the Slack channel path is the one untested leg.** Owner: Rjae. Asked for: an overview of what it
 takes to let non-agentic team members (product, QA, anyone without a coding session) take part in a Brigade team
 from Slack and from email, with an in-body protocol so that what travels is the message's object model, not a bare
 body, and so that a reply can target the session it answers.
@@ -43,6 +43,15 @@ the tick alone, no insert trigger; `@name`, `#channel` and email addresses; a pa
 and slash commands reach `slack-in` directly, since the hosted gateway has a public URL (no Socket Mode); the
 gateways table is keyed by team and kind; a Slack reply is found by its thread's root `ts`; Slack's user id is a
 verified identity where an email `From:` was not. Installer: `make slack-gateway-install`, two runs.
+
+**Slack, measured live 2026-10-04 in appshapes.slack.com** (the app created from the printed manifest and installed
+through the signed-in browser; the manifest then gained `app_home.messages_tab_enabled`, without which Slack
+refuses DMs to a bot): a DM `to: ce74a` reached the session in about a second with the user id, name, channel, ts
+and permalink; the session's `--reply-to` answer posted into the DM thread with a mention, the header, the escaped
+forged block and the real block, within a minute; the person's reply in that thread came back with `in-reply-to`
+and `hops=2`; `/brigade sessions` answered ephemerally with the roster. The channel path (`@brigade` mention and
+`to: #channel`) was not exercised: creating a test channel through the web client's dialog resisted automation,
+so it waits on a channel the owner names.
 
 Sections 1 to 12 below are the research and the bridge design as written before the ruling; section 4 (the
 block) and section 9's dependency notes still describe what was built.

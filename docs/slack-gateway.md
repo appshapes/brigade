@@ -126,6 +126,9 @@ token or secret is the second run again with the new file.
 
 ## What it does not do yet
 
-It carries no files. It does not know Slack's `message_changed` edits or deletions. It posts as one bot user, so a
+A reply chain is bounded by the protocol's hop cap of 32 (`docs/protocol-v1.md` 4.5.12): every reply raises the
+count by one, and an unlabelled message between the same two sessions within ten minutes of the last one counts as
+a reply too, so a very long thread, or a fast back-and-forth, ends with `loop_detected` and the gateway tells the
+sender. Start a new message, not a reply, to begin a fresh chain. It carries no files. It does not know Slack's `message_changed` edits or deletions. It posts as one bot user, so a
 channel sees `brigade` as the author with the session named in the text. A workspace guest can reach it from a
 shared channel like any member. Each of these is a later card, not a surprise.

@@ -188,4 +188,5 @@ provider-blind.
 It does not verify who sent a mail: the address is text, the gateway accepts mail from anyone who knows its
 address, and the receiving session is told so in every message. It carries no attachments. It does not recognise
 auto-replies, so an out-of-office answer reaches a session as a message (the protocol's hop cap still bounds any
-loop at 32). It has one provider. Each of these is a later card, not a surprise.
+loop at 32, and bounds a very long reply thread the same way: start a new mail, not a reply, to begin a fresh
+chain). It has one provider. Each of these is a later card, not a surprise.
