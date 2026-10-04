@@ -1,9 +1,10 @@
 // mail-out: the tick. Called every minute by pg_cron through pg_net with the tick token. Keeps the gateway
 // session's lease alive (so the roster shows it online exactly while this runs), drains the gateway's inbox,
-// mails each message to the address it resolves to, records the thread, and acknowledges only after the
-// provider accepted the mail. A message with no address is answered to its sender and acknowledged.
+// mails each message to the address it resolves to through the connector's send endpoint
+// (docs/mail-connectors.md), records the thread, and acknowledges only after the connector accepted the mail. A
+// message with no address is answered to its sender and acknowledged.
 
-import { resendProvider, SendError } from "../_shared/providers/resend.ts";
+import { sendClient, SendError } from "../_shared/connector.ts";
 import {
   ackMessages,
   asMember,
@@ -44,10 +45,7 @@ Deno.serve(async (req) => {
   const inbox = env("BRIGADE_MAIL_INBOX").toLowerCase();
   const publicAddress = (env("BRIGADE_MAIL_PUBLIC_ADDRESS") || inbox).toLowerCase();
   const from = env("BRIGADE_MAIL_FROM");
-  const mail = resendProvider({
-    apiKey: env("RESEND_API_KEY"),
-    webhookSecret: env("RESEND_WEBHOOK_SECRET") || null,
-  });
+  const mail = sendClient(env("BRIGADE_MAIL_SEND_URL"), env("BRIGADE_MAIL_CONNECTOR_SECRET"));
   const sql = connect();
   const report = { heartbeat: "", delivered: 0, undeliverable: 0, retry: 0, errors: [] as string[] };
   try {

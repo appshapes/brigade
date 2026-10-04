@@ -13,6 +13,47 @@ needed by the design (`GET`/`PUT /server` take the Server token); it would be, o
 servers or sender signatures, which it does not. No token, login or password goes in a test fixture, a doc, a card
 or this plan (memory: fixtures never from credentials in context).
 
+## As built, 2026-10-04 (read this first)
+
+Built the same day as the plan, but not as sections 2 and 3 describe. After the plan was written Rjae asked how a
+team would use a provider Brigade does not ship, ruled that the provider should be swappable "without code change
+(nor release) of Brigade", the way the message store is, and that administrator simplicity outranks a high security
+bar ("are the two new secrets required? Can we simply overload the team's secret?"). So the seam moved out of the
+functions and became an HTTP contract, [`docs/mail-connectors.md`](../../docs/mail-connectors.md):
+
+- **The core knows no provider.** `mail-in` accepts one shape, the contract's inbound mail, authenticated by one
+  connector secret (bearer header, basic-auth password or path segment); `mail-out` POSTs the contract's outbound
+  mail to a send URL with the same secret (`_shared/connector.ts`). The Resend-specific webhook parsing and API
+  calls left the core.
+- **Connectors** are Edge Functions beside the core, one generic handler (`_shared/connector_serve.ts`) over a
+  `Provider` (`providers/resend.ts`, `providers/postmark.ts`): `…/webhook` takes the provider's webhook, verifies
+  it the provider's way and forwards the mail to the core; `…/send` takes the core's mail and sends it. A team on
+  another provider deploys its own connector anywhere with HTTPS and installs with `provider=external`.
+- **One secret, not the team's.** The join secret grants membership and its rotation is the team's; the connector
+  secret grants what the public address and the provider key already grant. A shipped connector gets a fresh one
+  with the core on every run and nobody sees it; an external connector's is written to the administrator's
+  `secret_file` and read back on re-runs (`rotate=1` to mint anew).
+- **Postmark** as planned in section 2.2, inside its connector: basic-auth password in the webhook URL, `403` on
+  failure (ruling 2), `MailboxHash` put back on the address, `POST /email` with the server token, `ErrorCode`
+  mapped. One installer with `--provider` (ruling 1). `scripts/mail-connector-check.sh` checks a send endpoint.
+- **Measured, 2026-10-04.** The Management API lists function secrets as SHA-256 digests, not values (the 0.20.0
+  installer's re-run logic would have set the inbox to a digest; the installer now hashes candidates against the
+  digest). Supabase forwards a non-JWT `Authorization` header and a sub-path to a `--no-verify-jwt` function.
+  **Resend, appshapes-brigade, re-installed onto connectors:** the installed inbox recognised by digest; Gmail →
+  alias → Resend → connector → core → this session in 4 s (received 21:33:14Z, delivered 21:33:18Z); session →
+  core → connector → Resend → Gmail inbox at 21:34:01Z, on the next tick; Gmail reply → tagged Reply-To → session
+  with `in-reply-to` (hops 1, the answered message being a fresh one). **Postmark, thinktech-brigade, first
+  install (ruling 3):** both gateway migrations applied, the server's inbound webhook set with the password, the
+  member registered; Gmail → `<hash>@inbound.postmarkapp.com` with `command: sessions` → Postmark "Processed" →
+  connector → core (dedupe row 21:35:44Z) → roster reply → connector → Postmark "Sent" at 21:35:45Z. Every
+  endpoint refuses an unauthenticated POST: the core and the send endpoints with 401, Postmark's webhook with 403.
+- **Not done here:** the thinktech repositories' `.brigade.json` does not yet carry `gateway.email` (the installer
+  ran against a scratch copy of the team file; the owner commits it to the three repositories); the thinktech
+  gateway sends from the owner's own confirmed address for want of a team address; Postmark's DKIM for the domain.
+
+Sections 1 to 7 below are the plan as written before the ruling; section 1's facts and section 5's measurements
+still hold.
+
 ## 1. Facts about Postmark (read 2026-10-04; the ones marked *measure* are unconfirmed)
 
 - **Inbound is a webhook that carries the whole mail.** The JSON has `From`, `FromName`, `FromFull {Email, Name,

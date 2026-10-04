@@ -1,9 +1,10 @@
-// mail-in: the provider's webhook for a received mail. Verifies it, fetches the mail, decides where it goes,
-// and sends it into the team as a Brigade message from the gateway session. A mail that cannot be routed is
-// answered by mail with the reason and the roster. Always 200 to the provider once the request is authentic:
-// a retry would not change the outcome.
+// mail-in: the gateway core's inbound endpoint. A connector (docs/mail-connectors.md) POSTs a received mail here
+// in the contract's shape, authenticated by the connector secret; the core decides where the mail goes and sends it
+// into the team as a Brigade message from the gateway session. A mail that cannot be routed is answered by mail,
+// through the connector's send endpoint, with the reason and the roster. Always 200 to the connector once the
+// request is authentic and well-formed: a retry would not change the outcome.
 
-import { resendProvider, SendError, WebhookRejected } from "../_shared/providers/resend.ts";
+import { authorized, fromInboundWire, sendClient, SendError } from "../_shared/connector.ts";
 import {
   asMember,
   connect,
@@ -24,7 +25,6 @@ import {
   rosterText,
   type SessionRecord,
 } from "../_shared/gateway.ts";
-import type { InboundMail } from "../_shared/mail.ts";
 
 const env = (k: string) => Deno.env.get(k) ?? "";
 
@@ -32,25 +32,17 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-function provider() {
-  return resendProvider({
-    apiKey: env("RESEND_API_KEY"),
-    webhookSecret: env("RESEND_WEBHOOK_SECRET") || null,
-  });
-}
-
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { error: "method not allowed" });
-  const raw = await req.text();
-  const mail = provider();
-  let hook: { providerId: string } | null;
-  try {
-    hook = await mail.webhook(req, raw);
-  } catch (e) {
-    if (e instanceof WebhookRejected) return json(401, { error: e.message });
-    throw e;
+  const secret = env("BRIGADE_MAIL_CONNECTOR_SECRET");
+  if (!authorized(req, "mail-in", secret)) {
+    return json(401, { error: "the request does not carry this gateway's connector secret" });
   }
-  if (!hook) return json(200, { ignored: true });
+  const raw = await req.text();
+  const parsed = fromInboundWire(raw);
+  if (!parsed.ok) return json(400, { error: parsed.reason });
+  const m = parsed.value;
+  const mail = sendClient(env("BRIGADE_MAIL_SEND_URL"), secret);
 
   const teamRef = env("BRIGADE_TEAM_REF");
   const inbox = env("BRIGADE_MAIL_INBOX").toLowerCase();
@@ -58,9 +50,8 @@ Deno.serve(async (req) => {
   const from = env("BRIGADE_MAIL_FROM");
   const sql = connect();
   try {
-    if (!(await markReceived(sql, hook.providerId))) return json(200, { duplicate: true });
+    if (!(await markReceived(sql, m.providerId))) return json(200, { duplicate: true });
     const gw = await loadGateway(sql, teamRef, "email");
-    const m: InboundMail = await mail.fetch(hook.providerId);
     if (!addressedToInbox(m.to, inbox)) {
       return json(200, { ignored: "not addressed to this gateway's inbox" });
     }
@@ -134,7 +125,7 @@ Deno.serve(async (req) => {
           sender: gw.sessionId,
           recipient: r.session.session_id,
           body,
-          key: `mail:${hook.providerId}`,
+          key: `mail:${m.providerId}`,
           summary: resolution.summary ?? summary,
           replyTo: resolution.replyTo,
         };
@@ -160,7 +151,7 @@ Deno.serve(async (req) => {
           session_id: r.session.session_id,
           address: m.from,
           mail_message_id: m.messageId,
-          provider_mail_id: hook.providerId,
+          provider_mail_id: m.providerId,
           subject: m.subject || null,
         });
         return json(200, {

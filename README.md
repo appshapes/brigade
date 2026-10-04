@@ -82,7 +82,8 @@ Nothing runs on anyone's machine.
 For administrators, after `make backend-install` and `brigade team create`:
 
 1. Email: `make gateway-install project=<ref> from='Brigade <brigade@your-domain.com>'`, with
-   `SUPABASE_ACCESS_TOKEN` and a Resend API key in the environment.
+   `SUPABASE_ACCESS_TOKEN` and the provider's key in the environment. Resend by default, `provider=postmark` for
+   Postmark, or a connector of your own for any other provider.
 2. Slack: `make slack-gateway-install project=<ref>` twice. The first run prints a Slack app manifest to paste
    at api.slack.com; the second reads the app's token and signing secret from a file you name.
 3. Commit the `.brigade.json` each run changed. Members need plugin 0.18.0 or later.
@@ -122,7 +123,8 @@ messages — the project settings, `make backend-install`, and the daily keep-al
 - [plugin/README.md](plugin/README.md) — the plugin's commands and options
 - [docs/sync.md](docs/sync.md) — syncing a project's folders between teammates' checkouts
 - [docs/mail-gateway.md](docs/mail-gateway.md), [docs/slack-gateway.md](docs/slack-gateway.md) — people on
-  email or Slack taking part in a team
+  email or Slack taking part in a team; [docs/mail-connectors.md](docs/mail-connectors.md) — plugging in a mail
+  provider of your own
 - [docs/adapter-authors.md](docs/adapter-authors.md) — writing an adapter for another backend; the protocol is
   [docs/protocol-v1.md](docs/protocol-v1.md); [docs/sync-adapters.md](docs/sync-adapters.md) is the same for a
   sync engine other than Syncthing

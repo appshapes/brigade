@@ -1,52 +1,75 @@
 #!/bin/sh
-# usage: scripts/gateway-install.sh <project-ref> --from 'Name <address>' [--inbox <address>] [--public-address <address>]
+# usage: scripts/gateway-install.sh <project-ref> --from 'Name <address>' [--provider resend|postmark|external]
+#                                   [--inbox <address>] [--public-address <address>]
+#                                   [--send-url <url>] [--secret-file <path>] [--rotate]
 #                                   [--team-file <path>] [--dry-run]
 #
+#   --provider        which mail connector carries the mail (docs/mail-connectors.md). `resend` (default) and
+#                     `postmark` are shipped: their connector is deployed into the project beside the core and
+#                     needs nothing from the administrator but the provider's token. `external` is a connector
+#                     of the team's own, anywhere with HTTPS: --send-url, --inbox and --secret-file are required.
+#   --inbox           the address the connector receives at. Default: for resend, the Resend-managed receiving
+#                     address; for postmark, the server's InboundAddress; for external, required.
 #   --public-address  the address people are told to write to, when the team routes one of its own (a Google
-#                     Workspace alias with a routing rule, say) to the Resend receiving address; the receiving
-#                     address stays the Reply-To and the one a mail must be addressed to. Default: the inbox.
+#                     Workspace alias with a routing rule, say) to the receiving address; the receiving address
+#                     stays the Reply-To and the one a mail must be addressed to. Default: the inbox.
+#   --send-url        external only: the connector's send endpoint, where the core POSTs mail to send.
+#   --secret-file     external only: an absolute path OUTSIDE the repository. The connector secret and the core's
+#                     inbound URL are written there (mode 0600) for the administrator to configure in their
+#                     connector; on a re-run the secret is read back from it, so the connector keeps working.
+#   --rotate          external only: mint a new connector secret even though the file holds one. A shipped
+#                     connector gets a fresh secret every run, with the core, and nobody has to know it.
 #
 #   SUPABASE_ACCESS_TOKEN  a personal access token (sbp_...), exactly as `make backend-install` takes it
-#   RESEND_API_KEY         the Resend API key (re_...) of the account that sends for this team; from the
-#                          environment, never from argv
+#   RESEND_API_KEY         resend: the Resend API key (re_...) of the account that sends for this team
+#   POSTMARK_SERVER_TOKEN  postmark: the Server API token of the Postmark server that sends and receives
 #   SUPABASE               the CLI command (the Makefile passes its own; default `npx --yes supabase@2.116.0`)
+#   Every token comes from the environment, never from argv, and reaches curl through 0600 header files.
 #
-# Installs the hosted mail gateway (Trello card 48; .context/plans/human-sessions-slack-email.md) on a team's
-# Supabase project, idempotently, in this order:
+# Installs the hosted mail gateway (Trello cards 48 and 49; docs/mail-gateway.md) on a team's Supabase project,
+# idempotently, in this order:
 #
 #   1. `db push`: the brigade_gateway migration (supabase/migrations/*_mail_gateway.sql).
-#   2. `functions deploy mail-in mail-out`, bundled server-side (--use-api: no Docker on the admin's machine),
-#      with the platform's JWT check off: mail-in is authenticated by the provider's webhook signature and
-#      mail-out by the tick token below, since neither caller holds a Supabase JWT.
-#   3. Resend: the inbox that receives (an existing one for the --from address, else one created in forwarding
-#      mode, whose Resend-managed receiving address needs no DNS), and the email.received webhook pointed at
-#      mail-in. A webhook's signing secret is shown once by Resend, so an existing webhook on the same endpoint
-#      is replaced rather than reused.
+#   2. `functions deploy`: the core, mail-in and mail-out, plus the shipped connector for the provider, bundled
+#      server-side (--use-api: no Docker on the admin's machine), with the platform's JWT check off: every caller
+#      authenticates with a secret of its own (the connector secret, the provider's webhook check, the tick token).
+#   3. The provider: resend, the inbox that receives (an existing one for the --from address, else one created in
+#      forwarding mode, whose Resend-managed receiving address needs no DNS) and the email.received webhook pointed
+#      at the connector; postmark, the server's InboundAddress and its InboundHookUrl pointed at the connector with
+#      the webhook password in the URL; external, the secret file written and the inbound URL printed.
 #   4. The gateway principal: when the team has none yet, one anonymous GoTrue sign-up through the project's
 #      publishable key (what every member's `team join` does), then one SQL block through the Management API as
 #      postgres: the membership, the gateway session (registered through brigade.register_session as that
 #      member, harness `gateway-email`, lease 600 s) and the brigade_gateway.gateways row that ties them.
-#   5. The functions' secrets, through the CLI from a 0600 file: team ref, from address, inbox, provider, the
-#      Resend key, the webhook secret and a fresh tick token.
+#   5. The functions' secrets, through the CLI from a 0600 file: the shared ones (team ref, from, inbox, public
+#      address, provider, connector secret, send URL, inbound URL, tick token) and the provider's own.
 #   6. pg_net and one pg_cron job, `brigade_gateway_tick`, that POSTs mail-out every minute with the token.
-#   7. The project's .brigade.json gains "gateway": {"email": "<inbox>"} (a public value) for the admin to
+#   7. The project's .brigade.json gains "gateway": {"email": "<address>"} (a public value) for the admin to
 #      commit, and one tick is run so the roster shows the gateway at once.
 #
-# Nothing here prints a token, a key or a signing secret; the access token and the Resend key reach curl through
-# 0600 header files (`-H @<file>`), never on argv (CLAUDE.md). `--dry-run` runs the reads and prints the plan.
+# Nothing here prints a token, a key or a secret. `--dry-run` runs the reads and prints the plan.
 set -eu
 
 ref=''
 from=''
+provider='resend'
 inbox=''
 public_address=''
+send_url=''
+secret_file=''
+rotate=''
 team_file='.brigade.json'
 dry=''
+usage="usage: scripts/gateway-install.sh <project-ref> --from 'Name <address>' [--provider resend|postmark|external] [--inbox <address>] [--public-address <address>] [--send-url <url>] [--secret-file <path>] [--rotate] [--dry-run]"
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) from="$2"; shift 2 ;;
+    --provider) provider="$2"; shift 2 ;;
     --inbox) inbox="$2"; shift 2 ;;
     --public-address) public_address="$2"; shift 2 ;;
+    --send-url) send_url="$2"; shift 2 ;;
+    --secret-file) secret_file="$2"; shift 2 ;;
+    --rotate) rotate=1; shift ;;
     --team-file) team_file="$2"; shift 2 ;;
     --dry-run) dry=1; shift ;;
     -*) echo "gateway-install: unknown flag $1" >&2; exit 2 ;;
@@ -54,11 +77,31 @@ while [ $# -gt 0 ]; do
   esac
 done
 if [ -z "$ref" ] || [ -z "$from" ]; then
-  echo "usage: scripts/gateway-install.sh <project-ref> --from 'Name <address>' [--inbox <address>] [--public-address <address>] [--dry-run]" >&2
+  echo "$usage" >&2
   exit 2
 fi
+case "$provider" in
+  resend|postmark|external) ;;
+  *) echo "gateway-install: --provider must be resend, postmark or external (got '$provider')" >&2; exit 2 ;;
+esac
 : "${SUPABASE_ACCESS_TOKEN:?set SUPABASE_ACCESS_TOKEN to a personal access token (sbp_...) first; see docs/setup.md}"
-: "${RESEND_API_KEY:?set RESEND_API_KEY to the Resend API key (re_...) first}"
+case "$provider" in
+  resend) : "${RESEND_API_KEY:?set RESEND_API_KEY to the Resend API key (re_...) first}" ;;
+  postmark) : "${POSTMARK_SERVER_TOKEN:?set POSTMARK_SERVER_TOKEN to the Postmark Server API token first}" ;;
+  external)
+    [ -n "$send_url" ] || { echo "gateway-install: --provider external needs --send-url <url>, the send endpoint of your connector" >&2; exit 2; }
+    [ -n "$inbox" ] || { echo "gateway-install: --provider external needs --inbox <address>, the address your connector receives at" >&2; exit 2; }
+    [ -n "$secret_file" ] || { echo "gateway-install: --provider external needs --secret-file <path>, an absolute path outside the repository" >&2; exit 2; }
+    case "$secret_file" in
+      /*) ;;
+      *) echo "gateway-install: --secret-file must be an absolute path" >&2; exit 2 ;;
+    esac
+    toplevel=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+    case "$secret_file" in
+      "$toplevel"/*) echo "gateway-install: --secret-file must be outside the repository ($toplevel)" >&2; exit 2 ;;
+    esac
+    ;;
+esac
 supabase_cmd="${SUPABASE:-npx --yes supabase@2.116.0}"
 for tool in curl jq od; do
   command -v "$tool" >/dev/null 2>&1 || { echo "gateway-install: $tool is required" >&2; exit 1; }
@@ -72,7 +115,7 @@ from_addr=$(printf '%s' "$from" | sed -n 's/.*<\([^>]*\)>.*/\1/p')
 [ -n "$from_addr" ] || from_addr="$from"
 case "$from_addr" in
   *@*.*) ;;
-  *) echo "gateway-install: --from must carry an email address on a domain verified in Resend" >&2; exit 2 ;;
+  *) echo "gateway-install: --from must carry an email address the provider may send from (a verified domain in Resend, a confirmed sender signature or domain in Postmark)" >&2; exit 2 ;;
 esac
 
 team_ref=$(jq -r '.team_ref // empty' "$team_file")
@@ -88,14 +131,14 @@ case "$url" in
   *) echo "gateway-install: $team_file names $url, not project $ref" >&2; exit 1 ;;
 esac
 fn_base="$url/functions/v1"
+host="${url#https://}"
+inbound_url="$fn_base/mail-in"
 
 umask 077
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
 printf 'Authorization: Bearer %s\n' "$SUPABASE_ACCESS_TOKEN" > "$work/sb.h"
-printf 'Authorization: Bearer %s\n' "$RESEND_API_KEY" > "$work/re.h"
 mapi() { curl -sS -H @"$work/sb.h" -H 'Content-Type: application/json' "$@"; }
-resend() { curl -sS -H @"$work/re.h" -H 'Content-Type: application/json' "$@"; }
 # sql runs one statement through the Management API as postgres and prints its JSON rows.
 sql() {
   jq -n --arg q "$1" '{query: $q}' | mapi -X POST "https://api.supabase.com/v1/projects/$ref/database/query" -d @-
@@ -103,6 +146,31 @@ sql() {
 # lit quotes a value as an SQL string literal.
 lit() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"; }
 say() { printf 'gateway-install: %s\n' "$*"; }
+mint() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
+sha256() {
+  if command -v openssl >/dev/null 2>&1; then printf '%s' "$1" | openssl dgst -sha256 | sed 's/.*= *//'
+  elif command -v shasum >/dev/null 2>&1; then printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1
+  else printf '%s' "$1" | sha256sum | cut -d' ' -f1
+  fi
+}
+# The Management API lists a project's function secrets with the SHA-256 of each value, never the value
+# (measured 2026-10-04). A re-run can therefore recognise what the installed gateway already uses, by hashing
+# candidates, but cannot read it back: secret_digest prints the stored digest, secret_is tests one candidate.
+secret_digest() {
+  mapi "https://api.supabase.com/v1/projects/$ref/secrets" |
+    jq -r --arg n "$1" 'if type == "array" then (.[] | select(.name == $n) | .value // empty) else empty end' | head -1
+}
+secret_is() { [ -n "$2" ] && [ "$(secret_digest "$1")" = "$(sha256 "$2")" ]; }
+case "$provider" in
+  resend)
+    printf 'Authorization: Bearer %s\n' "$RESEND_API_KEY" > "$work/re.h"
+    resend() { curl -sS -H @"$work/re.h" -H 'Content-Type: application/json' "$@"; }
+    ;;
+  postmark)
+    printf 'X-Postmark-Server-Token: %s\n' "$POSTMARK_SERVER_TOKEN" > "$work/pm.h"
+    postmark() { curl -sS -H @"$work/pm.h" -H 'Accept: application/json' -H 'Content-Type: application/json' "$@"; }
+    ;;
+esac
 
 # 1. migrations
 if [ -n "$dry" ]; then
@@ -111,56 +179,142 @@ else
   $supabase_cmd db push --yes --project-ref "$ref"
 fi
 
-# 2. functions
+# 2. functions: the core, and the shipped connector for the provider
+functions='mail-in mail-out'
+case "$provider" in
+  resend) functions="$functions mail-connector-resend" ;;
+  postmark) functions="$functions mail-connector-postmark" ;;
+esac
 if [ -n "$dry" ]; then
-  say "would deploy functions mail-in and mail-out to $fn_base (--use-api --no-verify-jwt)"
+  say "would deploy functions $functions to $fn_base (--use-api --no-verify-jwt)"
 else
-  $supabase_cmd functions deploy mail-in mail-out --project-ref "$ref" --use-api --no-verify-jwt
+  # shellcheck disable=SC2086  # $functions is a word list on purpose
+  $supabase_cmd functions deploy $functions --project-ref "$ref" --use-api --no-verify-jwt
 fi
 
-# 3. Resend: the inbox that receives, and the webhook
-if [ -z "$inbox" ]; then
-  # An installed gateway keeps its receiving address across re-runs (a changed --from must not mint a new inbox:
-  # a mailbox routed to the old address would then be ignored). The Management API returns the secret's value.
-  inbox=$(mapi "https://api.supabase.com/v1/projects/$ref/secrets" |
-    jq -r 'if type == "array" then (.[] | select(.name == "BRIGADE_MAIL_INBOX") | .value // empty) else empty end' | head -1)
-  [ -z "$inbox" ] || say "keeping the receiving address the installed gateway already uses"
+# 3. the connector secret, the inbox, and the provider's webhook
+# The connector secret authenticates both directions of docs/mail-connectors.md. A shipped connector lives in
+# this project and gets a fresh secret with the core on every run. An external connector holds the secret the
+# administrator configured, so it is read back from the secret file and kept; --rotate mints a new one.
+connector_secret=''
+if [ "$provider" = external ] && [ -z "$rotate" ] && [ -f "$secret_file" ]; then
+  connector_secret=$(sed -n 's/^BRIGADE_MAIL_CONNECTOR_SECRET=//p' "$secret_file" | head -1)
+  [ -z "$connector_secret" ] || say "keeping the connector secret from $secret_file"
 fi
-if [ -z "$inbox" ]; then
-  # The list carries no receiving address; the inbox itself does.
-  inbox_id=$(resend "https://api.resend.com/inboxes" |
-    jq -r --arg a "$from_addr" '(.data // [])[] | select(.email_address == $a) | .id // empty' | head -1)
-  if [ -n "$inbox_id" ]; then
-    inbox=$(resend "https://api.resend.com/inboxes/$inbox_id" | jq -r '.receiving_address // empty')
-  fi
+if [ -z "$connector_secret" ]; then
+  connector_secret=$(mint)
+  say "minted a new connector secret"
 fi
-if [ -z "$inbox" ] && [ -z "$dry" ]; then
-  inbox=$(jq -n --arg a "$from_addr" '{email_address: $a, name: "Brigade mail gateway", from_name: "Brigade", forwarding: true}' |
-    resend -X POST "https://api.resend.com/inboxes" -d @- | jq -r '.receiving_address // empty')
-fi
-if [ -z "$inbox" ]; then
-  if [ -n "$dry" ]; then
-    inbox="<a Resend-managed receiving address, created on the real run>"
-  else
-    echo "gateway-install: Resend did not provide a receiving address; enable receiving in the Resend dashboard and pass --inbox <address>" >&2
-    exit 1
-  fi
-fi
+
+# An installed gateway keeps its receiving address across re-runs: a changed --from must not mint a new inbox,
+# since a mailbox the team routed to the old address would then be ignored. The project's secrets say only the
+# digest of the address, so the provider's candidates are hashed against it below.
+inbox_digest=$(secret_digest BRIGADE_MAIL_INBOX)
+
 webhook_secret=''
-if [ -z "$dry" ]; then
-  resend "https://api.resend.com/webhooks" | jq -r --arg e "$fn_base/mail-in" '(.data // [])[] | select(.endpoint == $e) | .id' |
-    while IFS= read -r id; do
-      [ -n "$id" ] && resend -X DELETE "https://api.resend.com/webhooks/$id" >/dev/null
-    done
-  webhook_secret=$(jq -n --arg e "$fn_base/mail-in" '{endpoint: $e, events: ["email.received"]}' |
-    resend -X POST "https://api.resend.com/webhooks" -d @- | jq -r '.signing_secret // empty')
-  if [ -z "$webhook_secret" ]; then
-    echo "gateway-install: Resend did not return a webhook signing secret" >&2
-    exit 1
-  fi
-else
-  say "would point a Resend email.received webhook at $fn_base/mail-in"
-fi
+case "$provider" in
+  resend)
+    send_url="$fn_base/mail-connector-resend/send"
+    hook_url="$fn_base/mail-connector-resend/webhook"
+    if [ -z "$inbox" ]; then
+      # The list carries no receiving address; each inbox does. The one the installed gateway uses is the one
+      # whose receiving address hashes to the stored digest; failing that, the inbox for the --from address.
+      inboxes=$(resend "https://api.resend.com/inboxes")
+      if [ -n "$inbox_digest" ]; then
+        for inbox_id in $(printf '%s' "$inboxes" | jq -r '(.data // [])[] | .id'); do
+          candidate=$(resend "https://api.resend.com/inboxes/$inbox_id" | jq -r '.receiving_address // empty')
+          if [ -n "$candidate" ] && [ "$(sha256 "$candidate")" = "$inbox_digest" ]; then
+            inbox="$candidate"
+            say "keeping the receiving address the installed gateway already uses"
+            break
+          fi
+        done
+      fi
+      if [ -z "$inbox" ]; then
+        inbox_id=$(printf '%s' "$inboxes" |
+          jq -r --arg a "$from_addr" '(.data // [])[] | select(.email_address == $a) | .id // empty' | head -1)
+        if [ -n "$inbox_id" ]; then
+          inbox=$(resend "https://api.resend.com/inboxes/$inbox_id" | jq -r '.receiving_address // empty')
+        fi
+      fi
+    fi
+    if [ -z "$inbox" ] && [ -z "$dry" ]; then
+      inbox=$(jq -n --arg a "$from_addr" '{email_address: $a, name: "Brigade mail gateway", from_name: "Brigade", forwarding: true}' |
+        resend -X POST "https://api.resend.com/inboxes" -d @- | jq -r '.receiving_address // empty')
+    fi
+    if [ -z "$inbox" ]; then
+      if [ -n "$dry" ]; then
+        inbox="<a Resend-managed receiving address, created on the real run>"
+      else
+        echo "gateway-install: Resend did not provide a receiving address; enable receiving in the Resend dashboard and pass --inbox <address>" >&2
+        exit 1
+      fi
+    fi
+    if [ -z "$dry" ]; then
+      # Replace any webhook already pointed at the connector, or at the core's own endpoint (where the webhook
+      # pointed before connectors): a webhook's signing secret is shown once by Resend, so none can be reused.
+      resend "https://api.resend.com/webhooks" |
+        jq -r --arg a "$hook_url" --arg b "$inbound_url" '(.data // [])[] | select(.endpoint == $a or .endpoint == $b) | .id' |
+        while IFS= read -r id; do
+          [ -n "$id" ] && resend -X DELETE "https://api.resend.com/webhooks/$id" >/dev/null
+        done
+      webhook_secret=$(jq -n --arg e "$hook_url" '{endpoint: $e, events: ["email.received"]}' |
+        resend -X POST "https://api.resend.com/webhooks" -d @- | jq -r '.signing_secret // empty')
+      if [ -z "$webhook_secret" ]; then
+        echo "gateway-install: Resend did not return a webhook signing secret" >&2
+        exit 1
+      fi
+    else
+      say "would point a Resend email.received webhook at $hook_url"
+    fi
+    ;;
+  postmark)
+    send_url="$fn_base/mail-connector-postmark/send"
+    server=$(postmark "https://api.postmarkapp.com/server")
+    if ! printf '%s' "$server" | jq -e '.ID' >/dev/null 2>&1; then
+      echo "gateway-install: Postmark refused the server token: $(printf '%s' "$server" | jq -r '.Message // .' 2>/dev/null | head -c 200)" >&2
+      exit 1
+    fi
+    server_name=$(printf '%s' "$server" | jq -r '.Name // "server"')
+    if [ -z "$inbox" ]; then
+      inbox=$(printf '%s' "$server" | jq -r '.InboundAddress // empty')
+      [ -n "$inbox" ] || { echo "gateway-install: the Postmark server has no InboundAddress" >&2; exit 1; }
+      if [ -n "$inbox_digest" ] && [ "$(sha256 "$inbox")" != "$inbox_digest" ]; then
+        echo "gateway-install: the installed gateway receives at an address other than this server's inbound address (a custom inbound domain, or another server); pass --inbox <that address>, or --inbox $inbox to move to it" >&2
+        exit 1
+      fi
+    fi
+    # Postmark signs nothing; the password in the webhook URL is the control. Postmark keeps the URL, so a fresh
+    # password every run costs nothing and rotates it.
+    webhook_secret=$(mint)
+    hook_url="https://brigade:$webhook_secret@$host/functions/v1/mail-connector-postmark/webhook"
+    if [ -z "$dry" ]; then
+      set_hook=$(jq -n --arg u "$hook_url" '{InboundHookUrl: $u}' | postmark -X PUT "https://api.postmarkapp.com/server" -d @-)
+      if ! printf '%s' "$set_hook" | jq -e '.InboundHookUrl != null and .InboundHookUrl != ""' >/dev/null 2>&1; then
+        echo "gateway-install: Postmark did not accept the inbound webhook URL: $(printf '%s' "$set_hook" | jq -r '.Message // .' 2>/dev/null | head -c 200)" >&2
+        exit 1
+      fi
+      say "Postmark server \"$server_name\" posts inbound mail to the connector"
+    else
+      say "would set Postmark server \"$server_name\"'s InboundHookUrl to the connector (with a password in the URL)"
+    fi
+    ;;
+  external)
+    if [ -n "$inbox_digest" ] && ! secret_is BRIGADE_MAIL_INBOX "$inbox"; then
+      say "note: the installed gateway received at a different address until now; mail to the old one is no longer read"
+    fi
+    if [ -z "$dry" ]; then
+      {
+        printf '# Brigade mail gateway, team %s, project %s: configure these two values in your connector\n' "$team_name" "$ref"
+        printf 'BRIGADE_MAIL_INBOUND_URL=%s\n' "$inbound_url"
+        printf 'BRIGADE_MAIL_CONNECTOR_SECRET=%s\n' "$connector_secret"
+      } > "$secret_file"
+      say "wrote the inbound URL and the connector secret to $secret_file (mode 0600)"
+    else
+      say "would write the inbound URL and the connector secret to $secret_file"
+    fi
+    ;;
+esac
 
 # 4. the gateway principal and session
 existing=$(sql "select user_id::text as user_id from brigade_gateway.gateways where team_id = $(lit "$team_ref") and kind = 'email'" |
@@ -215,22 +369,39 @@ end \$\$"
 fi
 
 # 5. secrets
-tick=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
+tick=$(mint)
+shared='BRIGADE_TEAM_REF, BRIGADE_MAIL_FROM, BRIGADE_MAIL_INBOX, BRIGADE_MAIL_PUBLIC_ADDRESS, BRIGADE_MAIL_PROVIDER, BRIGADE_MAIL_CONNECTOR_SECRET, BRIGADE_MAIL_SEND_URL, BRIGADE_MAIL_INBOUND_URL, BRIGADE_TICK_TOKEN'
+case "$provider" in
+  resend) own='RESEND_API_KEY, RESEND_WEBHOOK_SECRET' ;;
+  postmark) own='POSTMARK_SERVER_TOKEN, POSTMARK_WEBHOOK_SECRET' ;;
+  *) own='' ;;
+esac
 if [ -z "$dry" ]; then
   {
     printf 'BRIGADE_TEAM_REF=%s\n' "$team_ref"
     printf 'BRIGADE_MAIL_FROM=%s\n' "$from"
     printf 'BRIGADE_MAIL_INBOX=%s\n' "$inbox"
     printf 'BRIGADE_MAIL_PUBLIC_ADDRESS=%s\n' "$public_address"
-    printf 'BRIGADE_MAIL_PROVIDER=resend\n'
-    printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY"
-    printf 'RESEND_WEBHOOK_SECRET=%s\n' "$webhook_secret"
+    printf 'BRIGADE_MAIL_PROVIDER=%s\n' "$provider"
+    printf 'BRIGADE_MAIL_CONNECTOR_SECRET=%s\n' "$connector_secret"
+    printf 'BRIGADE_MAIL_SEND_URL=%s\n' "$send_url"
+    printf 'BRIGADE_MAIL_INBOUND_URL=%s\n' "$inbound_url"
     printf 'BRIGADE_TICK_TOKEN=%s\n' "$tick"
+    case "$provider" in
+      resend)
+        printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY"
+        printf 'RESEND_WEBHOOK_SECRET=%s\n' "$webhook_secret"
+        ;;
+      postmark)
+        printf 'POSTMARK_SERVER_TOKEN=%s\n' "$POSTMARK_SERVER_TOKEN"
+        printf 'POSTMARK_WEBHOOK_SECRET=%s\n' "$webhook_secret"
+        ;;
+    esac
   } > "$work/secrets.env"
   $supabase_cmd secrets set --project-ref "$ref" --env-file "$work/secrets.env" >/dev/null
-  say "8 function secrets set"
+  say "function secrets set: $shared${own:+, $own}"
 else
-  say "would set 8 function secrets: BRIGADE_TEAM_REF, BRIGADE_MAIL_FROM, BRIGADE_MAIL_INBOX, BRIGADE_MAIL_PUBLIC_ADDRESS, BRIGADE_MAIL_PROVIDER, RESEND_API_KEY, RESEND_WEBHOOK_SECRET, BRIGADE_TICK_TOKEN"
+  say "would set function secrets: $shared${own:+, $own}"
 fi
 
 # 6. the tick
@@ -256,10 +427,15 @@ fi
 
 echo ''
 echo "mail gateway for team \"$team_name\" on $ref"
-echo "  people write to:             $public_address"
-echo "  receiving address (Resend):  $inbox"
-echo "  sends from:                  $from"
-echo "  functions:                   $fn_base/mail-in, $fn_base/mail-out"
+echo "  people write to:      $public_address"
+echo "  receiving address:    $inbox"
+echo "  sends from:           $from"
+echo "  provider:             $provider"
+echo "  core:                 $inbound_url (inbound), $fn_base/mail-out (tick)"
+echo "  connector send URL:   $send_url"
+if [ "$provider" = external ]; then
+  echo "  your connector needs: the inbound URL and the connector secret, in $secret_file"
+fi
 if [ -z "$dry" ]; then
   echo "next: git add $team_file && git commit && git push (it carries only public values); members update the plugin to learn the gateway"
 else

@@ -843,9 +843,17 @@ terms as the rest of this page, and then what Slack changes.
   address, marked unverified, so section 3 applies in full: it is another person's text in front of a model with
   tools, and the frame, the sanitiser and the caps are the controls. Nothing a person writes can approve anything.
   An allow-list of senders and sender verification are not in this version.
-- **More people read the mail.** What a session sends to a person leaves the backend for Resend and for the
-  person's mail provider and client, and stays in their mailbox and backups. Section 2's "the person who runs the
-  backend can read everything" gains those readers for exactly the messages that go through the gateway.
+- **More people read the mail.** What a session sends to a person leaves the backend for the team's mail
+  provider (Resend, Postmark, or the team's own connector) and for the person's mail provider and client, and
+  stays in their mailbox and backups. Section 2's "the person who runs the backend can read everything" gains
+  those readers for exactly the messages that go through the gateway.
+- **The connector secret.** Mail passes between the gateway's core and its connector under one secret the
+  installer mints ([docs/mail-connectors.md](mail-connectors.md)). Whoever holds it can put text in front of the
+  team's sessions, which the public address already allows, and can send mail from the team's address through the
+  connector, which the provider's own key already allows. It is a function secret, minted afresh by every run of
+  the installer for a shipped connector, kept in the administrator's secret file for a connector of the team's own
+  (`rotate=1` mints a new one), and otherwise never handled by anyone. Postmark signs nothing: its webhook is authenticated by a password in the webhook URL, held by Postmark
+  and by the connector.
 - **The gateway is a member, not a grant.** It acts through the same RPCs as every member, under the same limits
   and stamps; the service role still holds nothing in the brigade schema. Its functions hold the project's own
   database connection, which the Edge Function runtime already holds the equivalent of. Its own tables are not on

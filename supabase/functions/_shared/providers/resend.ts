@@ -1,6 +1,6 @@
-// The Resend provider: the inbound webhook (Svix-signed, carrying only ids), the fetch of a received mail's
-// body and headers, and the send. Everything provider-specific lives here; the gateway core sees only the
-// shapes in ../mail.ts. A second provider is a second file exporting the same Provider.
+// The Resend provider, wrapped by the mail-connector-resend function: the inbound webhook (Svix-signed, carrying
+// only ids), the fetch of a received mail's body and headers, and the send. Everything Resend-specific lives
+// here; the connector and the core see only the shapes in ../mail.ts and ../connector.ts.
 
 import {
   headerValue,
@@ -10,29 +10,10 @@ import {
   parseAddress,
   parseMessageIds,
 } from "../mail.ts";
+import { type Provider, SendError, WebhookRejected } from "../connector.ts";
 import { verifySvix } from "../svix.ts";
 
-export interface Provider {
-  name: string;
-  /** webhook reads a provider's webhook request. It answers null when the event is not a received mail, and
-   * throws WebhookRejected when the request is not authentic. */
-  webhook(req: Request, rawBody: string): Promise<{ providerId: string } | null>;
-  fetch(providerId: string): Promise<InboundMail>;
-  /** send delivers one mail; a SendError says whether a retry can succeed. */
-  send(mail: OutboundMail): Promise<{ providerId: string }>;
-}
-
-export class WebhookRejected extends Error {}
-
-export class SendError extends Error {
-  retryable: boolean;
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-    this.retryable = status === 429 || status >= 500;
-  }
-}
+export type { InboundMail, OutboundMail };
 
 export interface ResendOptions {
   apiKey: string;

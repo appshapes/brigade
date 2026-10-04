@@ -524,14 +524,22 @@ backend-install: ## One-shot hosted backend setup (usage: make backend-install p
 	$(supabase) migration list --project-ref $(project)
 	$(supabase) projects api-keys --project-ref $(project) --output json | jq -r '(if type == "array" then . else .keys end)[] | select(.type == "publishable") | "publishable key: " + .api_key'
 
-# gateway-install: the hosted mail gateway (Trello card 48) on an installed backend. Runs scripts/gateway-install.sh,
-# which pushes the brigade_gateway migration, deploys the two functions, provisions the Resend inbox and webhook,
-# joins the gateway member, sets the functions' secrets and schedules the tick; see the script's header. Both tokens
-# come from the environment, never from argv: SUPABASE_ACCESS_TOKEN as for backend-install, and RESEND_API_KEY.
+# gateway-install: the hosted mail gateway (Trello cards 48 and 49) on an installed backend. Runs
+# scripts/gateway-install.sh, which pushes the brigade_gateway migration, deploys the core functions and the shipped
+# connector for the provider, sets the provider's webhook up, joins the gateway member, sets the functions' secrets
+# and schedules the tick; see the script's header and docs/mail-connectors.md. Every token comes from the
+# environment, never from argv: SUPABASE_ACCESS_TOKEN as for backend-install, and RESEND_API_KEY or
+# POSTMARK_SERVER_TOKEN for the provider.
 .PHONY: gateway-install
-gateway-install: ## Install the hosted mail gateway (usage: make gateway-install project=<ref> from='Name <address>' [inbox=<address>] [public_address=<address>] [dry=1]; needs SUPABASE_ACCESS_TOKEN and RESEND_API_KEY)
-	@test -n "$(project)" && test -n "$(from)" || { echo "usage: make gateway-install project=<ref> from='Name <address>' [inbox=<address>] [public_address=<address>] [dry=1]" >&2; exit 1; }
-	SUPABASE="$(supabase)" scripts/gateway-install.sh $(project) --from "$(from)" $(if $(inbox),--inbox "$(inbox)",) $(if $(public_address),--public-address "$(public_address)",) $(if $(dry),--dry-run,)
+gateway-install: ## Install the hosted mail gateway (usage: make gateway-install project=<ref> from='Name <address>' [provider=resend|postmark|external] [inbox=<address>] [public_address=<address>] [send_url=<url>] [secret_file=<path>] [rotate=1] [dry=1]; needs SUPABASE_ACCESS_TOKEN and RESEND_API_KEY or POSTMARK_SERVER_TOKEN)
+	@test -n "$(project)" && test -n "$(from)" || { echo "usage: make gateway-install project=<ref> from='Name <address>' [provider=resend|postmark|external] [inbox=<address>] [public_address=<address>] [send_url=<url>] [secret_file=<path>] [rotate=1] [dry=1]" >&2; exit 1; }
+	SUPABASE="$(supabase)" scripts/gateway-install.sh $(project) --from "$(from)" $(if $(provider),--provider "$(provider)",) $(if $(inbox),--inbox "$(inbox)",) $(if $(public_address),--public-address "$(public_address)",) $(if $(send_url),--send-url "$(send_url)",) $(if $(secret_file),--secret-file "$(secret_file)",) $(if $(rotate),--rotate,) $(if $(dry),--dry-run,)
+
+# mail-connector-check: a connector's send endpoint checked from the outside (docs/mail-connectors.md).
+.PHONY: mail-connector-check
+mail-connector-check: ## Check a mail connector's send endpoint (usage: make mail-connector-check send_url=<url> secret_file=<path> [send_to=<address> from='Name <address>'])
+	@test -n "$(send_url)" || { echo "usage: make mail-connector-check send_url=<url> secret_file=<path> [send_to=<address> from='Name <address>']" >&2; exit 1; }
+	scripts/mail-connector-check.sh "$(send_url)" $(if $(secret_file),--secret-file "$(secret_file)",) $(if $(send_to),--send-to "$(send_to)",) $(if $(from),--from "$(from)",)
 
 # slack-gateway-install: the hosted Slack gateway (card 48). Two runs: the first deploys and prints the app manifest to
 # paste at api.slack.com; the second, with SLACK_SECRETS_FILE (or SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET) set, joins

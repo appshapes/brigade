@@ -9,6 +9,28 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **Mail connectors: the mail provider is swappable without a Brigade release** (card 49). The mail gateway's
+  core no longer knows any provider. A connector stands between it and the provider, and the two exchange two
+  JSON shapes over HTTPS under one secret the installer mints ([`docs/mail-connectors.md`](docs/mail-connectors.md)). Resend and Postmark ship as connectors, deployed into
+  the team's own project by `make gateway-install … provider=resend|postmark`. A team on another provider deploys
+  a connector of its own, in any language, and installs with `provider=external send_url=<url> inbox=<address>
+  secret_file=<path>`; `make mail-connector-check` checks its send endpoint from the outside. The core accepts
+  the secret as a bearer header, a basic-auth password or a path segment, so a connector that can only be given
+  a URL works too.
+- **Postmark as a mail provider** (card 49). `make gateway-install project=<ref> from='Name <address>'
+  provider=postmark` with `POSTMARK_SERVER_TOKEN` in the environment: the server's inbound address receives, its
+  inbound webhook is pointed at the connector with a password in the URL (Postmark signs nothing), and a POST that
+  fails that check is answered `403`, which stops Postmark's retries. Plus addressing arrives as `MailboxHash` and
+  goes back on the address, so replies thread as with Resend.
+
+### Changed
+
+- **Re-run `make gateway-install` once after updating.** The Resend webhook now points at the Resend connector,
+  not at the core, and the core now expects the connector secret. Until the re-run, mail to a gateway installed
+  by an earlier version is refused with `401` and Resend gives up after its retries; nothing else is affected.
+
 ## [0.20.0] — 2026-10-04
 
 ### Added
