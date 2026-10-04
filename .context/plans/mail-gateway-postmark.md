@@ -1,14 +1,17 @@
 # The mail gateway's second provider: Postmark
 
-Status: **plan only, not started** (Rjae, 2026-10-04: "The only follow-up I want to do at this time is 'a second mail
-provider' … make a pass at an implementation plan … I don't want to start the implementation yet"). Follows card 48,
-whose docs list "one provider" as a limit. Open a Trello card when the work starts; its number goes on the commits.
+Status: **plan only, not started**; rulings decided (section 6). **Trello card 49**
+(<https://trello.com/c/CazOjNbl/49-postmark-as-the-mail-gateways-second-provider>, AppShapes › Wanting): its number
+goes on the commits. Rjae, 2026-10-04: "The only follow-up I want to do at this time is 'a second mail provider' …
+make a pass at an implementation plan … I don't want to start the implementation yet". Follows card 48, whose docs
+list "one provider" as a limit.
 
-**Credentials.** `CLAUDE.user.md` now carries a Postmark **account login** (a user name and password). The gateway does
-not use that: it needs a **Server API token**, which the Postmark UI shows under *Servers → the server → API Tokens*.
-The installer reads it from the environment (`read -rs POSTMARK_SERVER_TOKEN`), never from argv; it is set as a
-function secret and appears nowhere else. Neither the login nor the token goes in a test fixture, a doc, a card or a
-plan (memory: fixtures never from credentials in context).
+**Credentials.** The owner's local `CLAUDE.user.md` carries the Postmark account login, a **Server API token** and an
+**Account API token** (2026-10-04). The gateway and the installer use the Server token only (`read -rs
+POSTMARK_SERVER_TOKEN`, never argv); it becomes a function secret and appears nowhere else. The Account token is not
+needed by the design (`GET`/`PUT /server` take the Server token); it would be, only if the installer ever created
+servers or sender signatures, which it does not. No token, login or password goes in a test fixture, a doc, a card
+or this plan (memory: fixtures never from credentials in context).
 
 ## 1. Facts about Postmark (read 2026-10-04; the ones marked *measure* are unconfirmed)
 
@@ -164,16 +167,17 @@ fine for that). Steps:
 
 Record the measurements in this file under "As built" and in the card's comments, as card 48 did.
 
-## 6. Rulings needed
+## 6. Rulings (decided by Rjae, 2026-10-04, one at a time)
 
-1. **One installer with `--provider`, or a second script** (`scripts/gateway-install-postmark.sh`, as Slack has)?
-   Recommended: one script; the shared steps are five of seven and the two must not drift.
-2. **Unauthenticated webhook POSTs answer 401 or 403?** 403 stops Postmark's ten retries, which is right for an
-   impostor and wrong for a misconfigured secret (the admin would see "Inbound Error" once and re-run the installer,
-   which is also fine). Recommended: 403 for Postmark, 401 kept for Resend.
-3. **Does the appshapes team move to Postmark**, or stay on Resend with Postmark measured on thinktech only?
-   Recommended: stay; the public address's Workspace routing points at the Resend address and works.
-4. **A card for this work**: open it when starting (`/trello-create`), the number goes on the commits.
+1. **One installer with `--provider`**, not a second script: `scripts/gateway-install.sh` gains `--provider
+   resend|postmark` (`make gateway-install provider=postmark …`), default `resend`; the shared five of seven steps
+   cannot drift.
+2. **An unauthenticated Postmark webhook POST answers 403**, which stops Postmark's ten retries; a misconfigured
+   secret shows once as "Inbound Error" and a re-run of the installer fixes it. Resend keeps 401.
+3. **Postmark goes live on thinktech-brigade only.** The appshapes team stays on Resend; its public address already
+   routes to the Resend receiving address.
+4. **The card is opened now**, by the planning session: card 49 on AppShapes in Wanting (status line above); its
+   number goes on the commits.
 
 ## 7. Out of scope, on purpose
 
