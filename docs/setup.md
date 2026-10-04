@@ -180,16 +180,16 @@ prints and the limits. The file is open to members this version does not define:
 start names it in one line.
 
 **The project may also name its gateways.** A `gateway` member, written by `make gateway-install` and
-`make slack-gateway-install` and committed like `sync`, carries what people without a session need to reach the
-team: the mail gateway's address, the Slack gateway's workspace and bot, or both:
+`make slack-gateway-install` and committed like `sync`, tells people without a session how to reach the team:
+the mail gateway's address, the Slack gateway's workspace and bot, or both:
 
 ```json
-"gateway": { "email": "89219b45@seluusa.resend.app", "slack": "appshapes.slack.com: @brigade" }
+"gateway": { "email": "brigade-team@example.com", "slack": "example.slack.com: @brigade" }
 ```
 
-[docs/mail-gateway.md](mail-gateway.md) and [docs/slack-gateway.md](slack-gateway.md) are the whole feature: what
-a person does, what a session does, what an administrator runs, and how it works. A plugin older than 0.18.0
-ignores the member and names it in one line at session start; 0.18.0 knows `email`, 0.19.0 knows `slack`.
+[docs/mail-gateway.md](mail-gateway.md) and [docs/slack-gateway.md](slack-gateway.md) are the whole feature. A
+plugin older than 0.18.0 ignores the member and says so in one line at session start; 0.18.0 knows `email`,
+0.19.0 knows `slack`.
 
 **Every member's plugin must be 0.11.0 or later before the project commits a `sync` member.** A plugin of 0.10.0
 or earlier reads `.brigade.json` against a closed schema and refuses the whole file — `team_file_unknown_field`

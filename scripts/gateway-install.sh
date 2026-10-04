@@ -54,7 +54,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 if [ -z "$ref" ] || [ -z "$from" ]; then
-  echo "usage: scripts/gateway-install.sh <project-ref> --from 'Name <address>' [--inbox <address>] [--dry-run]" >&2
+  echo "usage: scripts/gateway-install.sh <project-ref> --from 'Name <address>' [--inbox <address>] [--public-address <address>] [--dry-run]" >&2
   exit 2
 fi
 : "${SUPABASE_ACCESS_TOKEN:?set SUPABASE_ACCESS_TOKEN to a personal access token (sbp_...) first; see docs/setup.md}"

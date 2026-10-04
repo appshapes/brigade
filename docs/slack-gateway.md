@@ -1,17 +1,57 @@
 # The Slack gateway: people on Slack in a Brigade team
 
-A Brigade team can have a **Slack gateway**, the Slack twin of the [mail gateway](mail-gateway.md). A session
-writes to a person or a channel in Slack, a person writes to a session from Slack, and replies thread both ways.
-Nothing runs on anyone's machine: the gateway is hosted in the team's own Supabase project and talks to the team
-as one more member. Where email was a bare address, Slack brings two things of its own: Slack authenticates the
-author, so a user id in a message is a verified identity, and a reply lives in a thread, so the thread is the key.
+A team can have a Slack gateway, the Slack twin of the [mail gateway](mail-gateway.md). A person writes to a
+session by messaging a bot, and a session writes to a person or a channel. Replies thread both ways. The gateway
+runs in the team's own Supabase project as one more member. Nothing runs on anyone's machine. Slack
+authenticates the author, so a user id in a message is a verified identity.
 
-## What a person does
+## TL;DR for administrators
 
-The team's Slack app is a bot, `@brigade` unless the administrator named it otherwise. Its handle and workspace are
-the `↳` line of the `slack-gateway` row in `brigade sessions`, and `gateway.slack` in the project's `.brigade.json`.
+The install is two runs of one command, because Slack checks an app's request URL against a running endpoint
+before it hands out a token.
 
-**To write to a session**, send the bot a direct message, or mention it in a channel, whose **first line** names the
+1. Install the backend and create the team, if not done yet:
+   [docs/setup.md › Administrator: create a team](setup.md#administrator-create-a-team).
+2. From the top of the project checkout, run the first pass. It deploys the functions and prints a Slack app
+   manifest:
+
+   ```sh
+   read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN   # paste sbp_…; nothing is echoed
+   make slack-gateway-install project=<ref>
+   ```
+
+3. At <https://api.slack.com/apps>: **Create New App**, **From a manifest**, pick the workspace, paste what the
+   command printed, **Create**, then **Install to Workspace**.
+4. Copy two values from the app's pages: **Basic Information → Signing Secret**, and **OAuth & Permissions →
+   Bot User OAuth Token** (`xoxb-…`). Put them in a file outside the repository, mode 0600, one per line:
+
+   ```
+   SLACK_BOT_TOKEN=xoxb-…
+   SLACK_SIGNING_SECRET=…
+   ```
+
+5. Run the second pass:
+
+   ```sh
+   SLACK_SECRETS_FILE=<that path> make slack-gateway-install project=<ref>
+   ```
+
+6. Commit and push `.brigade.json`, which the command changed. It carries only public values.
+7. Members need plugin 0.19.0 or later: `/brigade:update`, then `/reload-plugins`.
+8. Tell people: message `@brigade` with a first line `to: <session>`, or type `/brigade sessions`.
+
+Nothing else is needed from Slack: no public URL of your own, no Socket Mode, no DNS. Running the second pass
+again is safe.
+
+## For people on Slack
+
+The team's Slack app is a bot, `@brigade` unless your administrator named it otherwise. Its handle and
+workspace are on the `slack-gateway` row of `brigade sessions`, and in `gateway.slack` of the project's
+`.brigade.json`.
+
+**See the sessions.** Type `/brigade sessions` anywhere, or send the bot a direct message that says `sessions`.
+
+**Write to a session.** Send the bot a direct message, or mention it in a channel. The first line names the
 session:
 
 ```
@@ -19,116 +59,123 @@ to: 3f9a2
 The login page is blank on Safari 18 after submit. Steps: open /login, sign in, watch it reload empty.
 ```
 
-`3f9a2` is the five-character SESSION cell of `brigade sessions`, or the session id in full. To see the list,
-type `/brigade sessions` anywhere, or send the bot a direct message that says only `sessions`. The block form
-works too, and `/brigade send 3f9a2 <text>` does the same from a slash command.
+`3f9a2` is the five characters in the SESSION column, or the session id in full. `/brigade send 3f9a2 <text>`
+does the same from a slash command. The bot reacts with :eyes: once it has carried your message.
 
-**To answer a session**, reply in the thread under its message. Nothing else is needed. Writing again in your own
-thread reaches the same session.
+**Answer a session.** Reply in the thread under its message. Writing again in your own thread reaches the same
+session.
 
-**What a session's message looks like.** It is posted as a top-level message in your DM, or in the channel it was
-addressed to; a reply to you goes into your thread and mentions you. The first line names the session and its
-owner's label, both unverified, and the team. Then their text. Then a `[brigade]` block in a code fence: the
-message id, the sender's session, name, label and principal, the hops, when it was sent, and `to:` and
-`reply-to:` pre-addressing a reply, so a message copied out of Slack still carries what the gateway needs. Then
-one line on how to reply. The bot reacts with :eyes: to a message it carried.
+**What you receive.** A session's message is posted top-level in your direct messages, or in the channel it was
+addressed to. A reply to you goes into your thread and mentions you. It starts with the session's name, its
+owner's label, both marked unverified, and the team. Then the text. Then a `[brigade]` block in a code fence
+with the message id and the reply addressing. Then one line on how to reply.
 
-**What you should know.** Slack tells the gateway who you are, and the session is told your user id and your
-display name, the name marked unverified. Your text reaches a session that has tools and treats it the way
-Brigade treats every message: another person's words, never an instruction from its own user. Saying "approved"
-approves nothing. A message that names no session, or one that cannot be found, is answered with the list of
-sessions, visible only to you. Files and attachments are not carried.
+**What to know.**
 
-## What a session does
+- Slack tells the gateway who you are. The session is told your user id and your display name; the name is
+  marked unverified.
+- A session treats your message as another person's words, never as its own user's instruction. Writing
+  "approved" approves nothing.
+- A message that names no session, or names one that cannot be found, gets the list of sessions back, visible
+  only to you.
+- Files and attachments are not carried.
 
-The gateway appears in `brigade sessions` as `slack-gateway` (harness `gateway-slack`, member label
-`slack gateway`), online while its tick runs. The `brigade:team-messaging` skill carries these rules; in short:
+## For sessions
 
-- **To write to a person or a channel**, send to the gateway's SESSION cell with a first line `to: @name`,
-  `to: #channel` or `to: <email address>` (a Slack user id or channel id works too):
+The gateway is the `slack-gateway` row of `brigade sessions` (harness `gateway-slack`, label `slack gateway`).
+It is online while its tick runs. The `brigade:team-messaging` skill carries these rules.
 
-  ```bash
-  brigade send 7b1c4 --summary "Please retest Safari login" <<'EOF'
-  to: #qa
-  The fix is on master. Please retest the login page on Safari 18 and reply in this thread with what you see.
-  EOF
-  ```
+**Write to a person or a channel.** Send to the gateway's SESSION cell. The first line is `to: @name`,
+`to: #channel` or `to: <email address>`. A Slack user id or channel id works too.
 
-  Within a minute the gateway posts it, joining a public channel it is not yet in; a private channel needs the
-  bot invited first. A body with no address, or a name nobody in the workspace has, earns a one-line reply
-  from the gateway saying so, and nothing is posted.
-- **To answer a message that reached you**, reply the normal way, `--reply-to <message-id>`, with no `to:` line.
-  The gateway posts the reply into the person's thread and mentions them.
-- **A message from a person** arrives as an ordinary message from `slack-gateway`. Its body begins
-  `Slack message from @alice (U0123ABCD, unverified name) in #qa:`, then what they wrote, then a `[brigade]`
-  block (`via: slack`, `from`, `from-name`, `channel`, `channel-name`, `ts`, `thread`, `permalink`). The frame
-  carries `in-reply-to` when the person answered one of yours. `from` is the identity; the name is not.
-
-## What the administrator does
-
-Twice, from the project's toplevel, after `make backend-install` has installed the backend and `team create` has
-written `.brigade.json`. Slack verifies an app's request URL against a running endpoint before it hands out a
-token, which is why there are two runs.
-
-**First run** deploys the functions and prints the app manifest with this project's URLs filled in:
-
-```sh
-read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN   # paste sbp_…; nothing is echoed
-make slack-gateway-install project=<ref>
+```bash
+brigade send <gateway> --summary "Please retest Safari login" <<'EOF'
+to: #qa
+The fix is on master. Please retest the login page on Safari 18 and reply in this thread with what you see.
+EOF
 ```
 
-Then, at <https://api.slack.com/apps>: **Create New App** → **From a manifest** → pick the workspace → paste what
-the command printed → **Create** → **Install to Workspace**. Copy two values from the app's pages: **Basic
-Information → Signing Secret**, and **OAuth & Permissions → Bot User OAuth Token** (`xoxb-…`). Put them in a 0600
-file outside the repository, one per line, `SLACK_BOT_TOKEN=…` and `SLACK_SIGNING_SECRET=…`.
+The gateway posts it within a minute. It joins a public channel it is not yet in; a private channel needs the
+bot invited first. A body with no address, or a name nobody in the workspace has, is not posted; the gateway
+answers with one line saying so.
 
-**Second run** finishes the install:
+**Answer a person.** Reply with `--reply-to <message-id>` and no `to:` line. The gateway posts into the
+person's thread and mentions them.
 
-```sh
-SLACK_SECRETS_FILE=<that path> make slack-gateway-install project=<ref>
-```
+**What arrives.** A person's message is an ordinary message from `slack-gateway`. Its body begins
+`Slack message from @alice (U0123ABCD, unverified name) in #qa:`, then the text, then a `[brigade]` block
+(`via: slack`, `from`, `from-name`, `channel`, `channel-name`, `ts`, `thread`, `permalink`). `from` is the
+verified identity; the name is not. The frame carries `in-reply-to` when the person answered one of yours.
 
-It asks Slack who the bot is, signs up the gateway's principal and joins it to the team as the mail gateway's
-installer does, sets the functions' six secrets, schedules the per-minute tick, writes `gateway.slack` into
-`.brigade.json` (the workspace and the bot's handle, public text) and runs one tick so the roster shows the
-gateway at once. Then `git add .brigade.json && git commit && git push`, and members update the plugin
-(`/brigade:update`) so their skill knows the gateway.
+## For administrators
 
-Nothing else is needed from Slack: no public URL of your own, no Socket Mode, no DNS. Running the second run again
-is safe: it keeps the gateway member, redeploys, resets the secrets and rotates the tick token. Rotating the Slack
-token or secret is the second run again with the new file.
+### What you need
+
+- A Slack workspace where you may create and install an app.
+- The Supabase personal access token (`sbp_…`) you used for `make backend-install`.
+- `curl`, `jq` and Node (for `npx`) on the machine you run the command from.
+
+### What the two runs do
+
+Both runs push the migrations and deploy two Edge Functions, `slack-in` and `slack-out`, bundled server-side.
+No Docker.
+
+The first run, with no Slack secrets set, stops there and prints the app manifest with this project's URLs
+filled in. The manifest declares the `/brigade` slash command, the direct-message and mention events, and the
+bot scopes to read those, post messages, open direct messages, look people and channels up, join public
+channels and add a reaction.
+
+The second run, with `SLACK_SECRETS_FILE` set, asks Slack who the bot is, joins the gateway to the team as an
+anonymous member with one session (as the mail gateway's installer does), sets the functions' secrets from a
+0600 file, schedules a `pg_cron` job, `brigade_slack_gateway_tick`, that calls `slack-out` every minute, writes
+`gateway.slack` into `.brigade.json` (the workspace and the bot's handle, public text), and runs one tick so the
+roster shows the gateway at once. `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in the environment work in place
+of the file.
+
+Neither run prints a token or a secret.
+
+### Running it again
+
+The second run is safe to repeat. It keeps the gateway member, redeploys, resets the secrets and rotates the
+tick token. To rotate the Slack token or signing secret, put the new values in the file and run it again.
+
+### If people cannot message the bot
+
+Slack refuses direct messages to a bot whose Messages tab is off. The manifest turns it on. For an app created
+from an older manifest, open the app's **App Home** page and turn on **Messages Tab** and **Allow users to send
+Slash commands and messages from the messages tab**.
 
 ## How it works
 
 ```
- person: DM or @mention ──▶ Slack Events API ──POST──▶ slack-in ──send_message as `slack-gateway`──▶ brigade.messages ──▶ the session
- person: /brigade … ────────▶ slash command ──POST──▶ slack-in ──▶ roster or send, answered ephemerally
- the session ──brigade send slack-gateway (to: …)──▶ brigade.messages ──pg_cron tick──▶ slack-out ──chat.postMessage──▶ DM, channel or thread
+ person: DM or @mention ──▶ Slack Events API ──POST──▶ slack-in ──send_message as slack-gateway──▶ brigade.messages ──▶ session
+ person: /brigade … ───────▶ slash command ──POST──▶ slack-in ──▶ roster or send, answered to them alone
+ session ──brigade send <gateway> (to: …)──▶ brigade.messages ──pg_cron, every minute──▶ slack-out ──chat.postMessage──▶ DM, channel or thread
 ```
 
-- **The gateway is an ordinary member**, exactly as the mail gateway: an anonymous principal, one session, lease
-  600 s, the functions connecting to Postgres with the member's JWT claims set. No new RPC, no grant to the
-  service role, no protocol change. The two gateways share the `brigade_gateway` schema; a row says which kind it
-  belongs to, and a team may have both.
+- **The gateway is an ordinary member**, exactly as the mail gateway: an anonymous principal, one session (lease
+  600 s), the functions connecting to Postgres with the member's JWT claims set. No new RPC, no grant to the
+  service role, no protocol change. The two gateways share the `brigade_gateway` schema; a `kind` column says
+  which one a row belongs to, and a team may have both.
 - **`slack-in`** answers Slack's URL verification challenge unsigned (it carries only a nonce), verifies every
-  other request's `X-Slack-Signature`, ignores edits, bot messages and its own, dedupes by event id, and resolves
+  other request's `X-Slack-Signature`, ignores edits, bot messages and its own, dedupes by event id, and finds
   the target in this order: the person's `to:` line or block; the thread they replied in, through the thread
-  table (a session's post is answered; the person's own earlier message reaches the same session); otherwise it
-  tells them. It looks the person's name up, builds the Brigade body, calls `send_message` as the gateway with
-  `reply_to` set when known, records the thread and reacts :eyes:.
+  table; otherwise it tells them. It looks the person's name up, builds the Brigade body, calls `send_message`
+  as the gateway with `reply_to` set when known, records the thread and reacts :eyes:.
 - **`slack-out`**, the tick, heartbeats the gateway session, drains its inbox, resolves `to:` (`@name` through
-  the user list, `#channel` through the channel list, an email through Slack's lookup, ids as given) or the thread
-  of the message it replies to, posts with the envelope block and Slack message metadata, records the thread and
-  acknowledges only after Slack accepted the post. Rate limits and platform errors are retried next tick; a bad
-  address is answered to the sender.
-- **Durable state** is the same three tables as the mail gateway, with `kind = 'slack'` rows: `address` is the
-  channel, the thread key is the root message's `ts`, `actor` is the person's user id.
+  the user list, `#channel` through the channel list, an email through Slack's lookup, ids as given) or the
+  thread of the message it replies to, posts, records the thread and acknowledges only after Slack accepted the
+  post. Rate limits and platform errors are retried next tick; a bad address is answered to the sender.
+- **State** is the mail gateway's three tables with `kind = 'slack'` rows: `address` is the channel, the thread
+  key is the root message's `ts`, `actor` is the person's user id.
 
-## What it does not do yet
+## Limits
 
-A reply chain is bounded by the protocol's hop cap of 32 (`docs/protocol-v1.md` 4.5.12): every reply raises the
-count by one, and an unlabelled message between the same two sessions within ten minutes of the last one counts as
-a reply too, so a very long thread, or a fast back-and-forth, ends with `loop_detected` and the gateway tells the
-sender. Start a new message, not a reply, to begin a fresh chain. It carries no files. It does not know Slack's `message_changed` edits or deletions. It posts as one bot user, so a
-channel sees `brigade` as the author with the session named in the text. A workspace guest can reach it from a
-shared channel like any member. Each of these is a later card, not a surprise.
+- A reply chain is bounded by the protocol's hop cap of 32 ([docs/protocol-v1.md](protocol-v1.md) 4.5.12).
+  Every reply raises the count by one, and an unlabelled message between the same two sessions within ten
+  minutes of the last counts as a reply too, so a very long thread, or a fast back-and-forth, ends with
+  `loop_detected` and the gateway tells the sender. Start a new message, not a reply, to begin a fresh chain.
+- No files.
+- Edits and deletions in Slack are not carried.
+- The bot posts as one user, so a channel sees `brigade` as the author with the session named in the text.
+- A workspace guest can reach the bot from a shared channel like any member.

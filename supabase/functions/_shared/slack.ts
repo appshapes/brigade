@@ -7,6 +7,7 @@ import { BlockError, escapeBlockLines, type Fields, parseLeading, renderBlock } 
 import {
   type Envelope,
   excerpt,
+  isGatewaySession,
   MAX_BODY_BYTES,
   MAX_SUMMARY_CHARS,
   type SessionRecord,
@@ -392,9 +393,7 @@ export function slackRoster(
   gatewayIds: string[],
   botHandle: string,
 ): string {
-  const rows = sessions.filter((s) =>
-    !gatewayIds.includes(s.session_id) && s.harness !== "gateway-email" && s.harness !== "gateway-slack"
-  );
+  const rows = sessions.filter((s) => !gatewayIds.includes(s.session_id) && !isGatewaySession(s));
   const lines = [
     `Sessions on Brigade team *${
       escapeMrkdwn(teamName)

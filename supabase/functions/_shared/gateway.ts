@@ -307,14 +307,20 @@ export function renderOutbound(
   };
 }
 
-/** rosterText lists the sessions a person can write to, the gateway itself left out. */
+/** isGatewaySession reports whether a roster row is a gateway of either kind: a person cannot usefully write
+ * to one, so every roster shown to a person leaves them out. */
+export function isGatewaySession(s: SessionRecord): boolean {
+  return s.harness === HARNESS || s.harness === "gateway-slack";
+}
+
+/** rosterText lists the sessions a person can write to, the gateways left out. */
 export function rosterText(
   teamName: string,
   sessions: SessionRecord[],
   gatewaySessionId: string,
   inbox: string,
 ): string {
-  const rows = sessions.filter((s) => s.session_id !== gatewaySessionId);
+  const rows = sessions.filter((s) => s.session_id !== gatewaySessionId && !isGatewaySession(s));
   const lines = [
     `Sessions on Brigade team ${teamName} right now (names and labels are their owners' own words):`,
     "",

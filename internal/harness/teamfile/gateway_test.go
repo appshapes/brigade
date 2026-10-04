@@ -28,7 +28,7 @@ func TestGatewayRules(t *testing.T) {
 		email        string // want, when usable
 		ignored      []string
 	}{
-		{"the installer's shape", `{"email":"89219b45@seluusa.resend.app"}`, "", "89219b45@seluusa.resend.app", nil},
+		{"the installer's shape", `{"email":"a1b2c3d4@example.resend.app"}`, "", "a1b2c3d4@example.resend.app", nil},
 		{"a plus tag and a subdomain", `{"email":"brigade+team@mail.example.co.uk"}`, "", "brigade+team@mail.example.co.uk", nil},
 		{"exactly the byte cap", `{"email":"` + long + `"}`, "", long, nil},
 		{"an unknown inner member is ignored and named", `{"email":"a@b.io","provider":"resend"}`, "", "a@b.io", []string{"gateway.provider"}},

@@ -11,6 +11,34 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Added
 
+- **The mail gateway can name an address of the team's own** (card 48). `make gateway-install …
+  public_address=<address>` names an address the team routes to the Resend receiving address (a Google Workspace
+  alias with a routing rule, say). The roster, the mails and the bounces then name that address; replies still
+  travel to the receiving address through their Reply-To tag, which a forwarder would strip
+  ([`docs/mail-gateway.md`](docs/mail-gateway.md), "An address of the team's own").
+
+### Fixed
+
+- Running `make gateway-install` again keeps the receiving address the installed gateway already uses. A changed
+  `from` no longer creates a second Resend inbox that nothing is routed to (card 48).
+- The Slack app manifest turns the App Home Messages tab on, without which Slack refuses direct messages to the
+  bot. An app created from the earlier manifest: turn the tab on in the app's App Home page (card 48).
+- The mail gateway recognises its own inbox, and a tagged reply address of it, by the inbox address alone when it
+  decides not to answer a mail; the check no longer names one Resend account (card 48).
+- The list of sessions a person receives by email leaves the Slack gateway out, as the list a person receives in
+  Slack already left both gateways out (card 48).
+
+### Changed
+
+- **The gateway documentation is shorter and starts with the steps** (card 48). `README.md` gains "Let people on
+  email or Slack take part"; [`docs/mail-gateway.md`](docs/mail-gateway.md) and
+  [`docs/slack-gateway.md`](docs/slack-gateway.md) open with a TL;DR for administrators, then what a person does,
+  what a session does, the administrator's details, how it works and the limits.
+
+## [0.19.0] — 2026-10-03
+
+### Added
+
 - **A Slack gateway: people on Slack take part in a team** (card 48). The Slack twin of the mail gateway, hosted
   the same way in the team's own backend: two Edge Functions (`supabase/functions/slack-in`, `slack-out`), the
   shared `brigade_gateway` tables with a `kind` column, and a two-run installer, `make slack-gateway-install
@@ -22,6 +50,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   the person's thread with a mention. Slack authenticates the author, so the user id a session is told is a
   verified identity; the name is not. No protocol change. `.brigade.json`'s `gateway` member gains `slack`
   ([`docs/slack-gateway.md`](docs/slack-gateway.md)).
+
+## [0.18.0] — 2026-10-03
+
+### Added
 
 - **A mail gateway: people on email take part in a team** (card 48). A team's administrator runs
   `make gateway-install project=<ref> from='Name <address>'` once, with the Supabase access token and a Resend
@@ -37,9 +69,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   holds nothing in the brigade schema. The project's `.brigade.json` gains `"gateway": {"email": "<address>"}`,
   a public value; a plugin that does not know the member ignores it. No protocol change. The address is
   public and the gateway does not verify who sent a mail: a message from it is a person's words, untrusted
-  like any other ([`docs/mail-gateway.md`](docs/mail-gateway.md)). A team may give people an address of its own
-  (`public_address=<address>`, routed to the receiving address by its mail provider); replies still travel on the
-  receiving address's tag, and the roster, the mails and the bounces name the public one.
+  like any other ([`docs/mail-gateway.md`](docs/mail-gateway.md)).
 
 ## [0.17.0] — 2026-09-30
 

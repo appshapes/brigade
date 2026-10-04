@@ -354,7 +354,7 @@ func TestHookTeamFileNotes(t *testing.T) {
 		// Card 48: a usable gateway member earns no line at all (the address
 		// is a public value, but nothing at session start needs it); an
 		// unusable one earns one line, after the sync note, with its token.
-		"a usable gateway member says nothing": {`,"gateway":{"email":"89219b45@seluusa.resend.app"}`, nil},
+		"a usable gateway member says nothing": {`,"gateway":{"email":"a1b2c3d4@example.resend.app"}`, nil},
 		"an unusable gateway member":           {`,"gateway":{"email":"` + marker + `"}`, []string{gatewayUnusable}},
 		"an unusable sync and gateway, sync first": {
 			`,"sync":{"folders":["/` + marker + `"]},"gateway":{"email":1}`,

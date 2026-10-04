@@ -24,7 +24,7 @@ Two minutes of it, with two people's sessions:
 | hold messages for your review before your session sees them | [`docs/setup.md` › Holding messages for review](docs/setup.md#holding-messages-for-review) |
 | change the sentence your sessions receive with each message | [`docs/setup.md` › The frame text your sessions receive](docs/setup.md#the-frame-text-your-sessions-receive) |
 | sync folders between teammates' checkouts | [Sync folders](#sync-folders) |
-| let people on email or Slack take part: QA, product, anyone without a session | [`docs/mail-gateway.md`](docs/mail-gateway.md), [`docs/slack-gateway.md`](docs/slack-gateway.md) |
+| let people on email or Slack take part: QA, product, anyone without a session | [Let people on email or Slack take part](#let-people-on-email-or-slack-take-part) |
 | create a team | [Create a team](#create-a-team) |
 | add a repository to the team | [Add a repository to the team](#add-a-repository-to-the-team) |
 | create the database, once per organization | [Create a database](#create-a-database) |
@@ -73,6 +73,24 @@ teammate's checkout of the repository keeps them in step, peer to peer through S
 active; each machine needs `syncthing` on its `PATH`. `brigade sync status` shows what is syncing, and the plugin
 option `sync: off` switches it off — [docs/sync.md](docs/sync.md).
 
+## Let people on email or Slack take part
+
+People without a session, such as QA or product, can write to the team's sessions by email or from Slack, and
+sessions write back. Each gateway is one more member of the team, hosted in the team's own Supabase project.
+Nothing runs on anyone's machine.
+
+For administrators, after `make backend-install` and `brigade team create`:
+
+1. Email: `make gateway-install project=<ref> from='Brigade <brigade@your-domain.com>'`, with
+   `SUPABASE_ACCESS_TOKEN` and a Resend API key in the environment.
+2. Slack: `make slack-gateway-install project=<ref>` twice. The first run prints a Slack app manifest to paste
+   at api.slack.com; the second reads the app's token and signing secret from a file you name.
+3. Commit the `.brigade.json` each run changed. Members need plugin 0.18.0 or later.
+
+People then email the gateway's address, or message its Slack bot, with a first line `to: <session>`. Sessions
+write to a person by sending to the gateway with a first line `to: <address>`, `to: @name` or `to: #channel`.
+Step by step: [docs/mail-gateway.md](docs/mail-gateway.md), [docs/slack-gateway.md](docs/slack-gateway.md).
+
 ## Be told when a message arrives
 
 Ask your session:
@@ -103,6 +121,8 @@ messages — the project settings, `make backend-install`, and the daily keep-al
 - [docs/security.md](docs/security.md) — what Brigade protects, what it does not, and what was measured
 - [plugin/README.md](plugin/README.md) — the plugin's commands and options
 - [docs/sync.md](docs/sync.md) — syncing a project's folders between teammates' checkouts
+- [docs/mail-gateway.md](docs/mail-gateway.md), [docs/slack-gateway.md](docs/slack-gateway.md) — people on
+  email or Slack taking part in a team
 - [docs/adapter-authors.md](docs/adapter-authors.md) — writing an adapter for another backend; the protocol is
   [docs/protocol-v1.md](docs/protocol-v1.md); [docs/sync-adapters.md](docs/sync-adapters.md) is the same for a
   sync engine other than Syncthing

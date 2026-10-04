@@ -74,10 +74,8 @@ Deno.serve(async (req) => {
     const rosterNote = rosterText(gw.teamName, sessions, gw.sessionId, publicAddress);
 
     const bounce = async (reason: string) => {
-      if (
-        !m.from || m.from === inbox.toLowerCase() ||
-        /@seluusa\.resend\.app$|\.resend\.app$/.test(m.from) && m.from.startsWith(inbox.split("@")[0])
-      ) return;
+      // Never answer the gateway's own inbox or a tagged reply address of it: that would be a loop.
+      if (!m.from || addressedToInbox([m.from], inbox)) return;
       const text = `Your email was not delivered to a Brigade session.\n\n${reason}\n\n${rosterNote}`;
       const headers: Record<string, string> = { "Auto-Submitted": "auto-replied" };
       if (m.messageId) {

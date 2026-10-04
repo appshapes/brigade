@@ -18,7 +18,7 @@ import {
 import type { InboundMail } from "./mail.ts";
 import { findBlocks, lastBlock } from "./block.ts";
 
-const INBOX = "89219b45@seluusa.resend.app";
+const INBOX = "a1b2c3d4@example.resend.app";
 const S1 = "6f6f6f6f-6f6f-4f6f-8f6f-6f6f6f6f3f9a2";
 const S2 = "7a7a7a7a-7a7a-4a7a-8a7a-7a7a7a7a7b1c4";
 const GW = "9c9c9c9c-9c9c-4c9c-8c9c-9c9c9c9c9c9c9";
@@ -41,6 +41,15 @@ const sessions: SessionRecord[] = [
     principal_ref: "p3",
     human_label: "mail gateway",
     state: "idle",
+    harness: "gateway-email",
+  },
+  {
+    session_id: "aaaaaaaa-0000-4000-8000-0000000000aa",
+    session_name: "slack-gateway",
+    principal_ref: "p4",
+    human_label: "slack gateway",
+    state: "idle",
+    harness: "gateway-slack",
   },
 ];
 
@@ -86,20 +95,20 @@ Deno.test("resolveSession: full id, unique tail, ambiguous tail, too short, none
 
 Deno.test("addressedToInbox accepts the inbox and its tags, refuses another team's inbox on the same account", () => {
   assertEquals(addressedToInbox([INBOX], INBOX), true);
-  assertEquals(addressedToInbox(["89219B45@SELUUSA.RESEND.APP"], INBOX), true);
+  assertEquals(addressedToInbox(["A1B2C3D4@EXAMPLE.RESEND.APP"], INBOX), true);
   assertEquals(addressedToInbox([replyTag(INBOX, M1)], INBOX), true);
   assertEquals(addressedToInbox(["brigade@appshapes.com", INBOX], INBOX), true);
-  assertEquals(addressedToInbox(["7c7c7c7c@seluusa.resend.app"], INBOX), false);
-  assertEquals(addressedToInbox(["89219b45x@seluusa.resend.app"], INBOX), false);
+  assertEquals(addressedToInbox(["7c7c7c7c@example.resend.app"], INBOX), false);
+  assertEquals(addressedToInbox(["a1b2c3d4x@example.resend.app"], INBOX), false);
   assertEquals(addressedToInbox([], INBOX), false);
 });
 
 Deno.test("replyTag and tagOf round-trip the message id through the inbox address", () => {
   const tagged = replyTag(INBOX, M1);
-  assertEquals(tagged, `89219b45+${M1}@seluusa.resend.app`);
+  assertEquals(tagged, `a1b2c3d4+${M1}@example.resend.app`);
   assertEquals(tagOf(["someone@else.com", tagged.toUpperCase()], INBOX), M1);
   assertEquals(tagOf([INBOX], INBOX), null);
-  assertEquals(tagOf(["89219b45+notauuid@seluusa.resend.app"], INBOX), null);
+  assertEquals(tagOf(["a1b2c3d4+notauuid@example.resend.app"], INBOX), null);
 });
 
 Deno.test("inbound: an explicit block wins and carries summary and reply-to", async () => {
@@ -296,11 +305,11 @@ Deno.test("renderOutbound writes the mail with the block, the reply tag and the 
   assertEquals(b?.["from-principal"], "p1");
 });
 
-Deno.test("rosterText leaves the gateway out and shows the five-character address", () => {
+Deno.test("rosterText leaves both gateways out and shows the five-character address", () => {
   const t = rosterText("brigade", sessions, GW, INBOX);
   assertStringIncludes(t, "3f9a2  frank-reviewer  idle  sam@example.com (unverified)");
   assertStringIncludes(t, "↳ reviewing the login fix");
-  assertEquals(t.includes("mail-gateway"), false);
+  assertEquals(t.includes("gateway"), false);
 });
 
 Deno.test("the gateway description fits the protocol's cap", () => {
