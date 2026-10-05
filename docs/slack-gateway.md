@@ -7,23 +7,24 @@ authenticates the author, so a user id in a message is a verified identity.
 
 ## TL;DR for administrators
 
-The install is two runs of one command, because Slack checks an app's request URL against a running endpoint
-before it hands out a token.
+You run one command twice, with a step at Slack in between.
 
 1. Install the backend and create the team, if not done yet:
    [docs/setup.md › Administrator: create a team](setup.md#administrator-create-a-team).
-2. From the top of the project checkout, run the first pass. It deploys the functions and prints a Slack app
-   manifest:
+2. From your checkout of the Brigade repository, where you ran `make backend-install`, run the first pass. It
+   deploys the functions and prints a Slack app manifest. `team_file=` is the project's `.brigade.json`; leave it
+   out when the project is this repository.
 
    ```sh
    read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN   # paste sbp_…; nothing is echoed
-   make slack-gateway-install project=<ref>
+   make slack-gateway-install project=<ref> team_file=<path>/.brigade.json
    ```
 
 3. At <https://api.slack.com/apps>: **Create New App**, **From a manifest**, pick the workspace, paste what the
    command printed, **Create**, then **Install to Workspace**.
 4. Copy two values from the app's pages: **Basic Information → Signing Secret**, and **OAuth & Permissions →
-   Bot User OAuth Token** (`xoxb-…`). Put them in a file outside the repository, mode 0600, one per line:
+   Bot User OAuth Token** (`xoxb-…`). Put them in a file outside any repository, readable by you alone:
+   `umask 077; cat > ~/brigade-slack.env`, paste the two lines, press Ctrl-D.
 
    ```
    SLACK_BOT_TOKEN=xoxb-…
@@ -33,24 +34,21 @@ before it hands out a token.
 5. Run the second pass:
 
    ```sh
-   SLACK_SECRETS_FILE=<that path> make slack-gateway-install project=<ref>
+   SLACK_SECRETS_FILE=~/brigade-slack.env make slack-gateway-install project=<ref> team_file=<path>/.brigade.json
    ```
 
-6. Commit and push `.brigade.json`, which the command changed. It carries only public values.
-7. Members need plugin 0.19.0 or later: `/brigade:update`, then `/reload-plugins`.
-8. Tell people: message `@brigade` with a first line `to: <session>`, or type `/brigade sessions`.
+6. Commit and push the project's `.brigade.json`, which the command changed. It carries only public values.
+7. Tell people: message `@brigade` with a first line `to: <session>`, or type `/brigade sessions`.
 
-Nothing else is needed from Slack: no public URL of your own, no Socket Mode, no DNS. Running the second pass
-again is safe.
+Nothing else is needed from Slack: no public URL of your own, no Socket Mode, no DNS. When the changelog says the
+gateway changed, `git pull` your Brigade checkout and run the second pass again.
 
 ## For people on Slack
 
-The team's Slack app is a bot, `@brigade` unless your administrator named it otherwise. Its handle and
-workspace are on the `slack-gateway` row of `brigade sessions`, and in `gateway.slack` of the project's
-`.brigade.json`.
+The bot is `@brigade` unless your administrator tells you otherwise.
 
 **See the sessions.** Type `/brigade sessions` anywhere, or send the bot a message that says just `sessions`, as
-a direct message or a mention.
+a direct message or a mention. The list shows the sessions online now.
 
 **Write to a session.** Send the bot a direct message, or mention it in a channel. The first line names the
 session:
@@ -60,17 +58,16 @@ to: 3f9a2
 The login page is blank on Safari 18 after submit. Steps: open /login, sign in, watch it reload empty.
 ```
 
-`3f9a2` is the five characters in the SESSION column, or the session id in full. `/brigade send 3f9a2 <text>`
+`3f9a2` is the five characters from the list, or the session id in full. `/brigade send 3f9a2 <text>`
 does the same from a slash command. A `summary:` line under the first, then a blank line, gives the message a
 summary. The bot reacts with :eyes: once it has carried your message.
 
 **Answer a session.** Reply in the thread under its message. Writing again in your own thread reaches the same
 session.
 
-**What you receive.** A session's message is posted top-level in your direct messages, or in the channel it was
-addressed to. A reply to you goes into your thread and mentions you. It starts with the session's name, its
-owner's label, both marked unverified, and the team. Then the text. Then a `[brigade]` block in a code fence
-with the message id and the reply addressing. Then one line on how to reply.
+**What you receive.** A session's message is posted in your direct messages, or in the channel it was addressed
+to; a reply to you goes into your thread and mentions you. It names the session, its owner's label (unverified)
+and the team, then the text, then a `[brigade]` block the gateway uses to thread a copied message.
 
 **What to know.**
 

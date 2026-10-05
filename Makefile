@@ -531,9 +531,9 @@ backend-install: ## One-shot hosted backend setup (usage: make backend-install p
 # environment, never from argv: SUPABASE_ACCESS_TOKEN as for backend-install, and RESEND_API_KEY or
 # POSTMARK_SERVER_TOKEN for the provider.
 .PHONY: gateway-install
-gateway-install: ## Install the hosted mail gateway (usage: make gateway-install project=<ref> from='Name <address>' [provider=resend|postmark|external] [inbox=<address>] [public_address=<address>] [send_url=<url>] [secret_file=<path>] [rotate=1] [dry=1]; needs SUPABASE_ACCESS_TOKEN and RESEND_API_KEY or POSTMARK_SERVER_TOKEN)
-	@test -n "$(project)" && test -n "$(from)" || { echo "usage: make gateway-install project=<ref> from='Name <address>' [provider=resend|postmark|external] [inbox=<address>] [public_address=<address>] [send_url=<url>] [secret_file=<path>] [rotate=1] [dry=1]" >&2; exit 1; }
-	SUPABASE="$(supabase)" scripts/gateway-install.sh $(project) --from "$(from)" $(if $(provider),--provider "$(provider)",) $(if $(inbox),--inbox "$(inbox)",) $(if $(public_address),--public-address "$(public_address)",) $(if $(send_url),--send-url "$(send_url)",) $(if $(secret_file),--secret-file "$(secret_file)",) $(if $(rotate),--rotate,) $(if $(dry),--dry-run,)
+gateway-install: ## Install the hosted mail gateway (usage: make gateway-install project=<ref> from='Name <address>' [team_file=<path to the project's .brigade.json>] [provider=resend|postmark|external] [inbox=<address>] [public_address=<address>] [send_url=<url>] [secret_file=<path>] [rotate=1] [dry=1]; needs SUPABASE_ACCESS_TOKEN and RESEND_API_KEY or POSTMARK_SERVER_TOKEN)
+	@test -n "$(project)" && test -n "$(from)" || { echo "usage: make gateway-install project=<ref> from='Name <address>' [team_file=<path>] [provider=resend|postmark|external] [inbox=<address>] [public_address=<address>] [send_url=<url>] [secret_file=<path>] [rotate=1] [dry=1]" >&2; exit 1; }
+	SUPABASE="$(supabase)" scripts/gateway-install.sh $(project) --from "$(from)" $(if $(team_file),--team-file "$(team_file)",) $(if $(provider),--provider "$(provider)",) $(if $(inbox),--inbox "$(inbox)",) $(if $(public_address),--public-address "$(public_address)",) $(if $(send_url),--send-url "$(send_url)",) $(if $(secret_file),--secret-file "$(secret_file)",) $(if $(rotate),--rotate,) $(if $(dry),--dry-run,)
 
 # mail-connector-check: a connector's send endpoint checked from the outside (docs/mail-connectors.md).
 .PHONY: mail-connector-check
@@ -545,9 +545,9 @@ mail-connector-check: ## Check a mail connector's send endpoint (usage: make mai
 # paste at api.slack.com; the second, with SLACK_SECRETS_FILE (or SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET) set, joins
 # the gateway member, sets the secrets and schedules the tick. See scripts/slack-gateway-install.sh's header.
 .PHONY: slack-gateway-install
-slack-gateway-install: ## Install the hosted Slack gateway (usage: make slack-gateway-install project=<ref> [dry=1]; first run prints the manifest, second run needs SLACK_SECRETS_FILE)
-	@test -n "$(project)" || { echo "usage: make slack-gateway-install project=<ref> [dry=1]" >&2; exit 1; }
-	SUPABASE="$(supabase)" scripts/slack-gateway-install.sh $(project) $(if $(dry),--dry-run,)
+slack-gateway-install: ## Install the hosted Slack gateway (usage: make slack-gateway-install project=<ref> [team_file=<path to the project's .brigade.json>] [dry=1]; first run prints the manifest, second run needs SLACK_SECRETS_FILE)
+	@test -n "$(project)" || { echo "usage: make slack-gateway-install project=<ref> [team_file=<path>] [dry=1]" >&2; exit 1; }
+	SUPABASE="$(supabase)" scripts/slack-gateway-install.sh $(project) $(if $(team_file),--team-file "$(team_file)",) $(if $(dry),--dry-run,)
 
 # functions-check: the Edge Functions under supabase/functions/ — formatted, type-checked and unit-tested with Deno,
 # fetched through npx like the Supabase CLI (no global install). CI runs it in the `fast` job.

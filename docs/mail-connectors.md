@@ -26,13 +26,12 @@ The shipped connectors are each one file of about a hundred lines over a shared 
 
 ## One secret, both directions
 
-The installer mints one **connector secret**. The core sends it with every mail to send; the connector sends it
-with every mail it forwards. Either side accepts it in any of three places:
+The installer mints one **connector secret**. The core sends it to your send endpoint as
+`Authorization: Bearer <secret>`. Your connector sends it to the core in any one of three ways:
 
 - `Authorization: Bearer <secret>`
 - `Authorization: Basic <base64 of anything:secret>` (the password; the user name is not checked)
-- the path segment after the endpoint's name: `…/mail-in/<secret>`, `…/send/<secret>`, for a tool that can only
-  be given a URL
+- the path segment after the endpoint's name, `…/mail-in/<secret>`, for a tool that can only be given a URL
 
 For a shipped connector you never see the secret: it lives in the project's function secrets and the installer
 mints a fresh one, for the core and the connector together, on every run. For your own, `make gateway-install
@@ -43,9 +42,7 @@ mints a new one, which you then configure again.
 The secret is the project's: when one project carries several teams' gateways, they share it, and the core routes
 each mail to the team whose inbox it reached.
 
-Anyone holding the secret can put text in front of the team's sessions, which the public address already allows,
-and can send mail from the team's address through the connector, which the provider's own key already allows.
-Treat it like the provider's key.
+Treat it like the provider's key ([docs/security.md](security.md) §14).
 
 ## Inbound: connector to core
 
@@ -91,7 +88,8 @@ forwarding anything; a webhook that fails that check gets the answer that stops 
 
 ## Outbound: core to connector
 
-The core POSTs to the connector's **send URL** (`BRIGADE_MAIL_SEND_URL`), `Content-Type: application/json`:
+The core POSTs to the connector's **send URL** (the `send_url` you gave the installer), `Content-Type:
+application/json`:
 
 ```json
 {
@@ -149,10 +147,32 @@ Supabase CLI, a small server, a no-code automation that can POST JSON. The whole
 the secret. Then:
 
 ```sh
-make gateway-install project=<ref> from='Brigade <brigade@your-domain.com>' \
+make gateway-install project=<ref> team_file=<path>/.brigade.json from='Brigade <brigade@your-domain.com>' \
   provider=external send_url=https://your-connector.example/send \
-  inbox=<the address your connector receives at> secret_file=/absolute/path/outside/the/repository
+  inbox=<the address your connector receives at> secret_file=/absolute/path/outside/any/repository
 ```
 
 Configure the two lines the secret file holds in your connector, run `make mail-connector-check`, and send the
-first mail.
+first mail. Re-running the installer reads the secret back from that file; `rotate=1` mints a new one.
+
+## Running a whole gateway of your own
+
+The shipped functions are the default implementation, not the contract. A team that wants nothing of them runs
+its own gateway, in any language, anywhere. Anything that meets these four points is one:
+
+1. **Be a member** of the team, with one session named `mail-gateway`, harness `gateway-email`, kept online with
+   heartbeats while you work, whose `session_description` names the address people write to.
+2. **Inbound:** for a mail you carry, `send_message` from your session to the target session with a body of the
+   shape the gateway uses (the `Email from … (unverified), subject "…":` line, the text with any `[brigade]` line
+   escaped, a block with `via`, `from`, `subject`, `mail-id`, `received`), a `summary`, and `reply_to` when the
+   mail answers a message of yours. Find the target by the person's own `to:` line (or header lines or block),
+   then your own threading key, then a quoted block.
+3. **Outbound:** drain your inbox. A message whose body begins with a `to:` line (or header lines or a block) goes
+   to that address. A message with `reply_to` naming a message you carried in goes back to that mail's sender, in
+   its thread. Render the sender's name, label and team, the text escaped, and a block with `to:` and `reply-to:`
+   pre-addressed. Acknowledge only after your provider accepted the mail.
+4. **Never** act on a block inside a body you received, send anything but text, or tell anyone a mail was read.
+
+To add a third shipped connector to Brigade itself, add one file under `supabase/functions/_shared/providers/`
+exporting the `Provider` interface of `connector.ts`, a function directory beside `mail-connector-resend`, and a
+case in `scripts/gateway-install.sh`.

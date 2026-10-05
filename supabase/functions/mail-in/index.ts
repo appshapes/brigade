@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
 
     switch (resolution.kind) {
       case "invalid":
-        await bounce(`The [brigade] block at the top of your email could not be read: ${resolution.reason}.`);
+        await bounce(`The lines at the top of your email could not be read: ${resolution.reason}.`);
         return json(200, { bounced: "invalid" });
       case "unaddressed":
         await bounce(

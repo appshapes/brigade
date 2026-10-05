@@ -10,9 +10,11 @@
 #                     of the team's own, anywhere with HTTPS: --send-url, --inbox and --secret-file are required.
 #   --inbox           the address the connector receives at. Default: for resend, the Resend-managed receiving
 #                     address; for postmark, the server's InboundAddress; for external, required.
-#   --public-address  the address people are told to write to, when the team routes one of its own (a Google
-#                     Workspace alias with a routing rule, say) to the receiving address; the receiving address
-#                     stays the Reply-To and the one a mail must be addressed to. Default: the inbox.
+#   --public-address  the address people are told to write to, when the team routes one of its own to the
+#                     receiving address (a Google Workspace routing rule, say); the receiving address stays the
+#                     Reply-To and the one a mail must be addressed to. Default: the inbox.
+#   --team-file       the project's .brigade.json (default: ./.brigade.json). This script runs from a checkout of
+#                     Brigade, whose Makefile and migrations it needs; the team's project may be another repository.
 #   --send-url        external only: the connector's send endpoint, where the core POSTs mail to send.
 #   --secret-file     external only: an absolute path OUTSIDE the repository. The connector secret and the core's
 #                     inbound URL are written there (mode 0600) for the administrator to configure in their
@@ -99,10 +101,12 @@ case "$provider" in
       /*) ;;
       *) echo "gateway-install: --secret-file must be an absolute path" >&2; exit 2 ;;
     esac
-    toplevel=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-    case "$secret_file" in
-      "$toplevel"/*) echo "gateway-install: --secret-file must be outside the repository ($toplevel)" >&2; exit 2 ;;
-    esac
+    # Outside the team's project repository (the one the team file is in), and outside this Brigade checkout.
+    for top in "$(git -C "$(dirname "$team_file")" rev-parse --show-toplevel 2>/dev/null || dirname "$team_file")" "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; do
+      case "$secret_file" in
+        "$top"/*) echo "gateway-install: --secret-file must be outside the repository ($top)" >&2; exit 2 ;;
+      esac
+    done
     ;;
 esac
 supabase_cmd="${SUPABASE:-npx --yes supabase@2.116.0}"

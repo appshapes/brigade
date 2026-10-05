@@ -81,12 +81,13 @@ Nothing runs on anyone's machine.
 
 For administrators, after `make backend-install` and `brigade team create`:
 
-1. Email: `make gateway-install project=<ref> from='Brigade <brigade@your-domain.com>'`, with
-   `SUPABASE_ACCESS_TOKEN` and the provider's key in the environment. Resend by default, `provider=postmark` for
-   Postmark, or a connector of your own for any other provider.
-2. Slack: `make slack-gateway-install project=<ref>` twice. The first run prints a Slack app manifest to paste
-   at api.slack.com; the second reads the app's token and signing secret from a file you name.
-3. Commit the `.brigade.json` each run changed. Members need plugin 0.18.0 or later.
+1. Email: `make gateway-install project=<ref> team_file=<path>/.brigade.json from='Brigade <brigade@your-domain.com>'`
+   from your Brigade checkout, with `SUPABASE_ACCESS_TOKEN` and the provider's key in the environment. Resend by
+   default, `provider=postmark` for Postmark, or a connector of your own for any other provider.
+2. Slack: `make slack-gateway-install project=<ref> team_file=<path>/.brigade.json` twice. The first run prints a
+   Slack app manifest to paste at api.slack.com; the second reads the app's token and signing secret from a file
+   you name.
+3. Commit the project's `.brigade.json`, which each run changed.
 
 People then email the gateway's address, or message its Slack bot, with a first line `to: <session>`. Sessions
 write to a person by sending to the gateway with a first line `to: <address>`, `to: @name` or `to: #channel`.

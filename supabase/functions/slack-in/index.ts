@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
 
     switch (resolution.kind) {
       case "invalid":
-        return await tell(`The [brigade] block could not be read: ${resolution.reason}.`);
+        return await tell(`The lines at the top of your message could not be read: ${resolution.reason}.`);
       case "unaddressed":
         return await tell(
           `No session was named. Start your message with a line \`to: <session>\`, or reply in the thread under a session's message.\n\n${rosterNote}`,
