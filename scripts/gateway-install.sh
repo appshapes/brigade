@@ -219,12 +219,13 @@ if [ -z "$inbox" ] && [ -n "$row_inbox" ]; then
   inbox="$row_inbox"
   say "keeping the receiving address the installed gateway already uses"
 fi
-inbox_digest=''
-[ -n "$inbox" ] || inbox_digest=$(secret_digest BRIGADE_MAIL_INBOX)
 # The project's BRIGADE_TEAM_REF and BRIGADE_MAIL_* secrets describe ONE team: the first installed, or the one
-# the Slack installer named. They are written for that team only; another team's settings live in its row.
+# the Slack installer named. They are written for that team only, another team's settings live in its row only,
+# and the digest fallback below reads them for that team only: a second team must not inherit the first's inbox.
 team_digest=$(secret_digest BRIGADE_TEAM_REF)
 if [ -z "$team_digest" ] || [ "$team_digest" = "$(sha256 "$team_ref")" ]; then env_team=1; else env_team=''; fi
+inbox_digest=''
+if [ -z "$inbox" ] && [ -n "$env_team" ]; then inbox_digest=$(secret_digest BRIGADE_MAIL_INBOX); fi
 
 webhook_secret=''
 case "$provider" in
@@ -330,6 +331,16 @@ case "$provider" in
     fi
     ;;
 esac
+
+# Two teams in one project never share an inbox: the core routes a mail to the team whose inbox it reached.
+if [ -z "$dry" ]; then
+  taken=$(sql "select t.name from brigade_gateway.gateways g join brigade.teams t on t.id = g.team_id where g.kind = 'email' and g.inbox = $(lit "$inbox") and g.team_id <> $(lit "$team_ref")" |
+    jq -r 'if type == "array" then (.[0].name // empty) else empty end')
+  if [ -n "$taken" ]; then
+    echo "gateway-install: the receiving address $inbox already belongs to team \"$taken\"'s gateway in this project; pass --inbox <an address of this team's own>" >&2
+    exit 1
+  fi
+fi
 
 # 4. the gateway principal and session
 existing=$(sql "select user_id::text as user_id from brigade_gateway.gateways where team_id = $(lit "$team_ref") and kind = 'email'" |
