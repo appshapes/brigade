@@ -492,14 +492,34 @@ messages also fills its inbox: the backend refuses new messages to it once sixty
 are told so.
 
 **Claude Code's own `crossSessionInbound` setting is a different layer.** It sits between Brigade and your session
-and Brigade cannot release from it. If Brigade's session-start scan finds `crossSessionInbound` set to `hold` or
-`refuse` in one of your settings files, it sets its own policy to `refuse` and says so: releasing into a session
-Claude Code will not deliver to would throw the message away *and* tell its sender it arrived. Remove that
-setting, or set it to `accept`, and then use `team_inbound: hold` if you want the review step.
+and Brigade cannot release from it. Two cases matter.
+
+**If you start Claude Code with `--dangerously-skip-permissions`, Brigade adds one line to your user settings
+file** — `settings.json` in your Claude Code configuration directory, the one `CLAUDE_CONFIG_DIR` names when it
+is set — the first time such a session starts without it, and prints a line saying so:
+
+```json
+"crossSessionInbound": "accept"
+```
+
+Without that line Claude Code holds every team message for your approval in a dialog that expires after five
+minutes. Nothing else in the file is touched, and a `hold` or `refuse` you set yourself is left alone. To keep
+Brigade out of the file, set the plugin option `claude_inbound_setting` to `false` and add the line yourself;
+until it is there, Brigade refuses team messages in such a session and prints a warning naming the file, and
+the prompt after you add it switches Brigade back to `accept`. Putting the line in the repository's
+`.claude/settings.json` does nothing — Claude Code lets a repository only tighten this setting — and the warning
+tells you when it finds one there.
+
+**If a settings file sets `crossSessionInbound` to `hold` or `refuse`**, Brigade sets its own policy to `refuse`
+and says so: releasing into a session Claude Code will not deliver to would throw the message away *and* tell its
+sender it arrived. Remove that setting, or set it to `accept`, and then use `team_inbound: hold` if you want the
+review step.
+
 One blind spot to know about: a `crossSessionInbound` passed with `--settings` on the command line is invisible to
-that scan, so a session started that way can hold or drop Brigade frames without Brigade knowing. What that costs a
-sender, and what `injected` does and does not mean, is in [docs/security.md](security.md), "Claude Code's own
-inbound setting is a second layer".
+Brigade's scan, so a session started that way can hold or drop Brigade frames without Brigade knowing, and an
+`accept` passed that way is not seen either — add it to the user file as well. What that costs a sender, and
+what `injected` does and does not mean, is in [docs/security.md](security.md), "Claude Code's own inbound
+setting is a second layer".
 
 ## Where your credential lives
 

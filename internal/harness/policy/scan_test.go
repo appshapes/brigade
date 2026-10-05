@@ -96,6 +96,41 @@ func TestScanNoneWhenNothingSet(t *testing.T) {
 	}
 }
 
+// TestScanAcceptPlaces is card 50: an accept in the user file is
+// UserAccept, an accept in a repository file is RepoAccept (the most
+// specific one), neither is a hit, and a hold or refuse is still reported
+// beside them. UserFile is the user file, or "" with no config dir.
+func TestScanAcceptPlaces(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		cfg        string
+		m          map[string]string
+		userAccept bool
+		repoAccept string
+		found      bool
+	}{
+		{"nothing", cfgDir, map[string]string{}, false, "", false},
+		{"user accept", cfgDir, map[string]string{userFile(): `{"crossSessionInbound": "accept"}`}, true, "", false},
+		{"project accept", cfgDir, map[string]string{projectFile(): `{"crossSessionInbound": "accept"}`}, false, projectFile(), false},
+		{"local accept", cfgDir, map[string]string{localFile(): `{"crossSessionInbound": "accept"}`}, false, localFile(), false},
+		{"local and project accept name the local", cfgDir, map[string]string{localFile(): `{"crossSessionInbound":"accept"}`, projectFile(): `{"crossSessionInbound":"accept"}`}, false, localFile(), false},
+		{"user and project accept", cfgDir, map[string]string{userFile(): `{"crossSessionInbound":"accept"}`, projectFile(): `{"crossSessionInbound":"accept"}`}, true, projectFile(), false},
+		{"user accept under a project hold", cfgDir, map[string]string{userFile(): `{"crossSessionInbound":"accept"}`, projectFile(): `{"crossSessionInbound":"hold"}`}, true, "", true},
+		{"no config dir, project accept", "", map[string]string{projectFile(): `{"crossSessionInbound": "accept"}`}, false, projectFile(), false},
+		{"wrong case accept", cfgDir, map[string]string{userFile(): `{"crossSessionInbound": "Accept"}`}, false, "", false},
+	} {
+		s := ScanNative(tc.cfg, cwd, files(tc.m))
+		wantUserFile := ""
+		if tc.cfg != "" {
+			wantUserFile = userFile()
+		}
+		if s.UserFile != wantUserFile || s.UserAccept != tc.userAccept || s.RepoAccept != tc.repoAccept || s.Found != tc.found {
+			t.Errorf("%s: %+v, want user file %q accept %v repo %q found %v", tc.name, s, wantUserFile, tc.userAccept, tc.repoAccept, tc.found)
+		}
+	}
+}
+
 func TestScanPrecedenceAnyHitWins(t *testing.T) {
 	t.Parallel()
 	// Any hold/refuse in any file wins over an accept elsewhere; when

@@ -19,7 +19,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOptions: %v", err)
 	}
-	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true, MessageInterval: notify.DefaultInterval}
+	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, ClaudeInboundSetting: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true, MessageInterval: notify.DefaultInterval}
 	if got != want {
 		t.Fatalf("defaults =\n %+v\nwant\n %+v", got, want)
 	}
@@ -41,6 +41,8 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		// distinguishable from the default, or the row proves nothing.
 		config.OptionShareDoing+"=no",
 		config.OptionPollOnPrompt+"=yes",
+		// `off` rather than `on`: the default is on (card 50).
+		config.OptionClaudeInboundSetting+"=off",
 		config.OptionFrame+"=guarded",
 		config.OptionFrameFile+"=/opt/brigade/frame.txt/",
 		config.OptionLabel+"=Alice of Ops",
@@ -56,21 +58,22 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		t.Fatalf("ParseOptions: %v", err)
 	}
 	want := config.Options{
-		ConfigDir:           "/opt/brigade-config",
-		AdapterCommand:      `["/opt/adapter","--root","/x"]`,
-		TeamInbound:         config.InboundRefuse,
-		ShareWorkspaceLabel: true,
-		WorkspaceLabel:      "laptop",
-		ShareDoing:          false,
-		PollOnPrompt:        true,
-		Frame:               frame.LevelGuarded,
-		FrameFile:           "/opt/brigade/frame.txt",
-		FrameWarning:        config.WarnFrameBothSet,
-		Label:               "Alice of Ops",
-		Sync:                false,
-		MessageSound:        true,
-		MessageNotification: true,
-		MessageInterval:     2 * time.Minute,
+		ConfigDir:            "/opt/brigade-config",
+		AdapterCommand:       `["/opt/adapter","--root","/x"]`,
+		TeamInbound:          config.InboundRefuse,
+		ShareWorkspaceLabel:  true,
+		WorkspaceLabel:       "laptop",
+		ShareDoing:           false,
+		PollOnPrompt:         true,
+		ClaudeInboundSetting: false,
+		Frame:                frame.LevelGuarded,
+		FrameFile:            "/opt/brigade/frame.txt",
+		FrameWarning:         config.WarnFrameBothSet,
+		Label:                "Alice of Ops",
+		Sync:                 false,
+		MessageSound:         true,
+		MessageNotification:  true,
+		MessageInterval:      2 * time.Minute,
 	}
 	if got != want {
 		t.Fatalf("options =\n %+v\nwant\n %+v", got, want)
@@ -174,6 +177,7 @@ func TestParseOptionsInvalidValues(t *testing.T) {
 		{"share_workspace_label junk", []string{config.OptionShareWorkspaceLabel + "=maybe" + evilMarker}, "share_workspace_label", config.ReasonInvalidBoolean},
 		{"share_doing junk", []string{config.OptionShareDoing + "=maybe" + evilMarker}, "share_doing", config.ReasonInvalidBoolean},
 		{"poll_on_prompt junk", []string{config.OptionPollOnPrompt + "=2"}, "poll_on_prompt", config.ReasonInvalidBoolean},
+		{"claude_inbound_setting junk", []string{config.OptionClaudeInboundSetting + "=maybe" + evilMarker}, "claude_inbound_setting", config.ReasonInvalidBoolean},
 		{"frame mixed case", []string{config.OptionFrame + "=Open"}, "frame", config.ReasonInvalidFrameLevel},
 		{"frame is a policy word", []string{config.OptionFrame + "=hold"}, "frame", config.ReasonInvalidFrameLevel},
 		{"frame custom is not a user value", []string{config.OptionFrame + "=custom"}, "frame", config.ReasonInvalidFrameLevel},

@@ -24,9 +24,25 @@
 // `accept` or a released `hold` there would acknowledge messages Claude
 // never saw — the message gone AND the sender told it arrived. Refusing
 // to deliver into a session that cannot receive is strictly better than
-// pretending to. `permission_mode`, `non_interactive` and the entrypoint
-// are recorded for diagnostics only; Decide echoes them and a test table
-// proves they never touch the outcome.
+// pretending to.
+//
+// Card 50 adds the one rule that reads the permission mode. Since Claude
+// Code 2.1.224 a receiving session in `bypassPermissions` holds every peer
+// message that does not identify its sender as bypassing too — for the
+// human to approve in a dialog that expires after five minutes, or, in a
+// headless session, to be dropped unseen — unless an explicit
+// `crossSessionInbound: accept` applies, and a repository's settings file
+// cannot supply that accept (Claude Code lets a repository only tighten).
+// Brigade's watcher is a detached process (Setsid, parent pid 1), so it is
+// not the session's own child by Claude Code's process evidence and its
+// posts are such messages (measured on 2.1.289; on 2.1.261 the token alone
+// had made every post an own-child one). So: in a bypass session whose
+// user settings file carries no accept, the policy is Refuse with the
+// parity warning — the same reasoning as the native hold, the post would
+// "succeed" and Brigade would acknowledge a message Claude may never see.
+// The rule reads the mode the hook was given; `non_interactive` and the
+// entrypoint stay diagnostics, and the test table proves they never touch
+// the outcome.
 package policy
 
 import (
@@ -56,17 +72,23 @@ func (p Policy) Valid() bool { return p == Accept || p == Hold || p == Refuse }
 // yields anything else) that fails closed rather than open.
 const WarnOptionUnknown = `Brigade: the team_inbound option could not be interpreted; the inbound policy is refuse — nothing is acknowledged blind.`
 
-// Effective computes the policy (6.8 step 3, 6.10): the option's own value
-// when it is accept, hold or refuse; Refuse when the option was invalid
-// (optionWarning is the config.ParseInbound warning that says so, passed
-// through unchanged so the hook prints it); and Refuse — whatever the
+// Effective computes the policy (6.8 step 3, 6.10, card 50): the option's
+// own value when it is accept, hold or refuse; Refuse when the option was
+// invalid (optionWarning is the config.ParseInbound warning that says so,
+// passed through unchanged so the hook prints it); Refuse — whatever the
 // option said, `hold` included — when the native scan found `hold` or
 // `refuse` (the scan's own warning is appended: Brigade's release path
 // ends in a socket post, and under a native hold or refuse that post is
-// lost while Brigade would acknowledge it, 3.6). The warnings come back in
-// that order, each a fixed text that never echoes a setting value the user
-// did not choose from the known ones.
-func Effective(option config.Inbound, optionWarning string, native Scan) (Policy, []string) {
+// lost while Brigade would acknowledge it, 3.6); and Refuse, with the
+// scan's parity warning, when permissionMode bypasses prompts and the scan
+// saw no accept in the user file — the post would be held natively for a
+// dialog that expires, lost in a headless session, and acknowledged by
+// Brigade either way. An unknown mode ("" at a SessionStart that carried
+// none) applies no parity rule; the prompt hook decides again with the
+// mode it is given. The warnings come back in that order, each a fixed
+// text that never echoes a setting value the user did not choose from the
+// known ones.
+func Effective(option config.Inbound, optionWarning string, native Scan, permissionMode string) (Policy, []string) {
 	var warnings []string
 	p := Accept
 	switch option {
@@ -84,18 +106,23 @@ func Effective(option config.Inbound, optionWarning string, native Scan) (Policy
 	if optionWarning != "" {
 		warnings = append(warnings, optionWarning)
 	}
-	if native.Found {
+	switch {
+	case native.Found:
 		p = Refuse
 		warnings = append(warnings, native.Warning())
+	case p != Refuse && BypassesPrompts(permissionMode) && !native.UserAccept:
+		p = Refuse
+		warnings = append(warnings, native.ParityWarning())
 	}
 	return p, warnings
 }
 
-// Inputs are everything the hook knows when it decides the policy. Only
-// Option, OptionWarning and Native are consulted; PermissionMode,
-// NonInteractive and Entrypoint are diagnostics (6.5) that Decide copies
-// into the Decision so the caller records them beside the policy, and a
-// test table proves they cannot change it (D18: no `auto` shape).
+// Inputs are everything the hook knows when it decides the policy. Option,
+// OptionWarning, Native and PermissionMode are consulted; NonInteractive
+// and Entrypoint are diagnostics (6.5) that Decide copies into the Decision
+// so the caller records them beside the policy, and a test table proves
+// they cannot change it (D18: no `auto` shape — the policy is still one of
+// accept, hold and refuse).
 type Inputs struct {
 	// Option is the policy the team_inbound option asks for, as
 	// config.ParseOptions or config.FromWatcherEnv resolved it.
@@ -105,7 +132,9 @@ type Inputs struct {
 	OptionWarning string
 	// Native is the result of ScanNative.
 	Native Scan
-	// PermissionMode is the hook stdin's permission_mode; diagnostics only.
+	// PermissionMode is the hook stdin's permission_mode, "" when the
+	// document carried none. BypassesPrompts of it, with Native.UserAccept,
+	// is the card 50 rule.
 	PermissionMode string
 	// NonInteractive is true for a `claude -p` session; diagnostics only.
 	NonInteractive bool
@@ -129,7 +158,7 @@ type Decision struct {
 
 // Decide is Effective over Inputs, with the diagnostics carried through.
 func Decide(in Inputs) Decision {
-	p, warnings := Effective(in.Option, in.OptionWarning, in.Native)
+	p, warnings := Effective(in.Option, in.OptionWarning, in.Native, in.PermissionMode)
 	return Decision{
 		Policy:         p,
 		Warnings:       warnings,

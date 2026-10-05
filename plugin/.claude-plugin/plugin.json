@@ -42,6 +42,12 @@
       "description": "accept (the default) delivers every team message into this session immediately, in every permission mode; refuse never delivers and never acknowledges, so senders see this session as refusing; hold records each message, delivers nothing, and waits for you to run brigade inbox release in your own terminal.",
       "default": "accept"
     },
+    "claude_inbound_setting": {
+      "type": "boolean",
+      "title": "Set Claude Code's crossSessionInbound to accept when a session needs it",
+      "description": "Claude Code holds every team message to a session started with --dangerously-skip-permissions for your approval, in a dialog that expires, unless your user settings file sets crossSessionInbound to accept. On (the default): the first time such a session starts without that setting, Brigade adds \"crossSessionInbound\": \"accept\" to settings.json in your Claude Code configuration directory and says so; nothing else in the file is touched, and a hold or refuse you set yourself is left alone. Off leaves the file to you: Brigade then refuses team messages in such a session until the line is there, with a warning naming the file.",
+      "default": true
+    },
     "share_workspace_label": {
       "type": "boolean",
       "title": "Share the repository name",

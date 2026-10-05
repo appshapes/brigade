@@ -576,7 +576,11 @@ func newFixture(t *testing.T) *fixture {
 		Now:      func() time.Time { return f.now },
 		Spawner:  f.spawner,
 		Registry: f.registry,
-		ReadFile: func(string) ([]byte, error) { return nil, os.ErrNotExist },
+		// The documented setup since card 50: the user settings file
+		// carries the crossSessionInbound accept a bypassPermissions
+		// session needs, and no other settings file exists. A test of
+		// the parity rule, or of the hold/refuse scan, overrides this.
+		ReadFile: userAcceptSettings(d.ClaudeConfig),
 		Lookup:   procutil.Lookup,
 		// The recorder writes the pidfile synchronously when it has a
 		// watcher pid, and never when it has none; a test that drives the
@@ -913,3 +917,19 @@ func countEnv(env []string, name string) int {
 
 // envValue is the last value of name in env.
 func envValue(env []string, name string) string { return adapterkit.Getenv(env, name) }
+
+// userAcceptSettings is a ReadFile over one file: <configDir>/settings.json
+// carrying `{"crossSessionInbound": "accept"}`; every other path is
+// fs.ErrNotExist.
+func userAcceptSettings(configDir string) func(string) ([]byte, error) {
+	user := filepath.Join(configDir, "settings.json")
+	return func(p string) ([]byte, error) {
+		if p == user {
+			return []byte(`{"crossSessionInbound": "accept"}`), nil
+		}
+		return nil, os.ErrNotExist
+	}
+}
+
+// noSettings is a ReadFile with no settings file anywhere.
+func noSettings(string) ([]byte, error) { return nil, os.ErrNotExist }

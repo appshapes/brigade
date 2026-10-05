@@ -644,7 +644,7 @@ func planRelease(sessions []heldSession, all bool, ids []string) ([]releasePlan,
 func refuseRelease() *protocol.Error {
 	return &protocol.Error{
 		Code:    protocol.CodeConfig,
-		Message: "that session refuses inbound messages (inbound=refuse): its team_inbound option is refuse, or Claude Code's crossSessionInbound setting is hold or refuse in a settings file (the session-start context line names the file); nothing was released",
+		Message: "that session refuses inbound messages (inbound=refuse): its team_inbound option is refuse, or Claude Code's crossSessionInbound setting is hold or refuse in a settings file, or the session bypasses permission prompts without a crossSessionInbound accept in its user settings file (the session-start context line names the file either way); nothing was released",
 		Details: map[string]string{"reason": ReasonInboundRefuse},
 	}
 }

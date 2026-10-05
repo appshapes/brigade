@@ -284,8 +284,8 @@ proof: e2e ## Phase 4 proof including the headless LLM run, the idle-wake run an
 	$(unclaude) scripts/proof-headless.sh && $(unclaude) scripts/proof-idle-wake.sh && $(unclaude) scripts/proof-crash-resume.sh
 
 .PHONY: harness-smoke
-harness-smoke: build ## Headless claude -p smoke test with the fs adapter (needs a logged-in claude)
-	$(unclaude) scripts/harness-smoke.sh
+harness-smoke: build ## Headless claude -p smoke test with the fs adapter (needs a logged-in claude; mode=bypassPermissions is card 50's arm, which writes crossSessionInbound accept into your user settings.json)
+	$(unclaude) SMOKE_PERMISSION_MODE=$(mode) scripts/harness-smoke.sh
 
 .PHONY: advisor-lints
 advisor-lints: ## Security Advisor lint mirrors, run with the psql inside the local database container (no host psql needed) (CI)

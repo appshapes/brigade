@@ -9,6 +9,33 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Team messages into a session that bypasses permission prompts** (card 50). Claude Code holds every
+  cross-session message to a `bypassPermissions` session for your approval, in a dialog that expires after five
+  minutes, unless `crossSessionInbound` is `accept` in managed settings, in `--settings` or in your user settings
+  file; a repository's `.claude/settings.json` cannot grant it, because Claude Code lets a repository only tighten
+  the setting. Brigade's watcher is such a sender: it is detached from the hook that started it, so Claude Code's
+  process evidence does not count it as the session's own child, as the session token alone did on 2.1.261.
+  Brigade now reads the permission mode, and in a bypass session whose user `settings.json` has no
+  `crossSessionInbound` at all it **adds `"crossSessionInbound": "accept"` to that file** and says so — the one
+  write Brigade makes under the Claude Code configuration directory: the member goes first, by text, every other
+  byte stays as it was, the result is checked against the original before the atomic write, and a `hold` or
+  `refuse` already there is left alone. The new plugin option `claude_inbound_setting` (`true` by default) turns
+  the write off; then, in such a session, Brigade's policy is `refuse` — nothing is acknowledged that Claude Code
+  may never deliver — and the session-start context names the file and the one line to add. The prompt hook
+  decides again at every prompt with the mode it is given and the settings as they are, so a line added by hand
+  takes effect at the next prompt without a new session, the watcher is replaced to run under the new policy,
+  and one line says so. The warning explains a repository `accept` away when it finds one. `brigade inbox
+  release`'s refusal names the new cause.
+
+### Changed
+
+- The repository's own `.claude/settings.json` no longer carries a `crossSessionInbound` of `accept`: a
+  repository file cannot grant it, and copying the pattern into other repositories had hidden the problem above.
+  [`docs/security.md`](docs/security.md) section 6 and [`docs/setup.md`](docs/setup.md) "Holding messages for
+  review" describe the rule, where an accept counts and what Brigade does.
+
 ## [0.22.0] — 2026-10-05
 
 ### Added

@@ -185,8 +185,12 @@ grep -count=4 '"verb":"register"' dump.ndjson
 # conversation id is that prompt document's, native-1, and a document
 # naming any other conversation would print nothing — the pid-reuse gate.)
 # The map is checked first, so a regression that leaves the mode unasked
-# or unresolved fails naming the mode rather than a missing line.
+# or unresolved fails naming the mode rather than a missing line. The user
+# settings file carries the crossSessionInbound accept a bypassPermissions
+# session needs (card 50; the parity section below takes it away), so
+# these prompts are about the doing line alone.
 grep '"doing_mode":"quiet"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+cp user-accept.json $WORK/.brigade/claude-config/settings.json
 expand prompt-bypass.json.in prompt-bypass.json
 stdin prompt-bypass.json
 exec brigade hook prompt
@@ -198,6 +202,58 @@ grep ' native-1$' $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.doing-nudg
 stdin prompt-bypass.json
 exec brigade hook prompt
 ! stdout .
+
+# --- card 50: a bypassPermissions prompt decides the inbound policy again ------
+# The fallback first, with the claude_inbound_setting option off: without
+# the accept in the user settings file, Claude Code would hold every
+# Brigade post for a dialog that expires, so Brigade flips to refuse and
+# prints the parity warning naming the file and the one line to add; the
+# doing stamp above is fresh, so no doing line rides along. With the file
+# back, the next prompt flips to accept and says so in one line; a prompt
+# that changes nothing prints nothing. (No socket here, so no watcher is
+# replaced; the Go tests cover the replacement.)
+env CLAUDE_PLUGIN_OPTION_CLAUDE_INBOUND_SETTING=false
+rm $WORK/.brigade/claude-config/settings.json
+stdin prompt-bypass.json
+exec brigade hook prompt
+stdout '^Brigade: this session bypasses permission prompts and .*claude-config/settings\.json has no "crossSessionInbound": "accept", so Claude Code would hold every Brigade message for your approval in a dialog that expires \(and drop it unseen in a headless session\); Brigade''s inbound policy is refuse instead \(nothing is acknowledged blind; messages wait on the server\)\. To receive team messages, add "crossSessionInbound": "accept" to .*claude-config/settings\.json — Brigade applies it at your next prompt\. Brigade cannot see managed settings or --settings; an "accept" there needs this line too\.$'
+stdout -count=1 '^Brigade'
+grep '"inbound":"refuse"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+stdin prompt-bypass.json
+exec brigade hook prompt
+! stdout .
+cp user-accept.json $WORK/.brigade/claude-config/settings.json
+stdin prompt-bypass.json
+exec brigade hook prompt
+stdout '^Brigade: this session''s inbound policy is now accept; team messages are delivered as they arrive\.$'
+stdout -count=1 '^Brigade'
+grep '"inbound":"accept"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+stdin prompt-bypass.json
+exec brigade hook prompt
+! stdout .
+
+# The write, with the option back at its default: a user file without the
+# member gains it first, the other member untouched, and the one line says
+# so; a missing file is created with the member; a prompt that finds it
+# present prints nothing.
+env CLAUDE_PLUGIN_OPTION_CLAUDE_INBOUND_SETTING=
+cp user-theme.json $WORK/.brigade/claude-config/settings.json
+stdin prompt-bypass.json
+exec brigade hook prompt
+stdout '^Brigade: added "crossSessionInbound": "accept" to .*claude-config/settings\.json, so Claude Code delivers team messages to this session, which bypasses permission prompts \(it would hold each one for a dialog otherwise\); Claude Code picks the change up within the session\. Remove the line, or set the plugin option claude_inbound_setting to false, to undo\.$'
+stdout -count=1 '^Brigade'
+grep '^  "crossSessionInbound": "accept",$' $WORK/.brigade/claude-config/settings.json
+grep '^  "theme": "dark"$' $WORK/.brigade/claude-config/settings.json
+grep '"inbound":"accept"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+stdin prompt-bypass.json
+exec brigade hook prompt
+! stdout .
+rm $WORK/.brigade/claude-config/settings.json
+stdin prompt-bypass.json
+exec brigade hook prompt
+stdout '^Brigade: wrote .*claude-config/settings\.json with "crossSessionInbound": "accept", so Claude Code delivers team messages to this session, which bypasses permission prompts \(it would hold each one for a dialog otherwise\); a new settings file is read at your next session start\. Remove the line, or set the plugin option claude_inbound_setting to false, to undo\.$'
+stdout -count=1 '^Brigade'
+cmp $WORK/.brigade/claude-config/settings.json user-accept-pretty.json
 
 # --- bad stdin: exit 0, nothing printed, nothing done --------------------------
 stdin garbage.txt
@@ -234,6 +290,16 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 {"version": 1, "session_id": "brigade-sess-1", "entries": [{"message_id": "h-1", "sender_session_id": "s1", "sender_name": "payments-api", "sender_principal": "p1", "summary": "red on main", "received_at": "2026-09-02T12:00:31Z"}, {"message_id": "h-2", "sender_session_id": "s2", "sender_name": "ci-runner", "sender_principal": "p2", "received_at": "2026-09-02T12:00:32Z"}, {"message_id": "h-3", "sender_session_id": "s3", "sender_name": "docs-bot", "sender_principal": "p3", "received_at": "2026-09-02T12:00:33Z"}, {"message_id": "h-4", "sender_session_id": "s4", "sender_name": "fourth", "sender_principal": "p4", "received_at": "2026-09-02T12:00:34Z"}], "dropped_total": 0, "updated_at": "2026-09-02T12:00:34Z"}
 -- prompt-plan.json.in --
 {"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "UserPromptSubmit", "permission_mode": "plan", "prompt": "never read", "prompt_id": "p1", "transcript_path": "/never/read.jsonl"}
+-- user-accept.json --
+{"crossSessionInbound": "accept"}
+-- user-theme.json --
+{
+  "theme": "dark"
+}
+-- user-accept-pretty.json --
+{
+  "crossSessionInbound": "accept"
+}
 -- prompt-bypass.json.in --
 {"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "UserPromptSubmit", "permission_mode": "bypassPermissions", "prompt": "never read", "prompt_id": "p2", "transcript_path": "/never/read.jsonl"}
 -- garbage.txt --

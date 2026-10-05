@@ -1,6 +1,20 @@
 #!/bin/sh
 # usage: scripts/harness-smoke.sh          (run from the repository root; no arguments)
 #        make harness-smoke                (the supported entry point: it builds first and wraps this in $(unclaude))
+#        make harness-smoke mode=bypassPermissions
+#                                          (card 50: the session bypasses permission prompts, so the SessionStart
+#                                          hook WRITES "crossSessionInbound": "accept" into the user's real
+#                                          settings.json under CLAUDE_CONFIG_DIR -- the one write the plugin makes
+#                                          there -- and bob's mid-turn message must still arrive. The member must be
+#                                          ABSENT from that file before the run, or the write is not exercised and
+#                                          the script stops; remove it by hand. SMOKE_PERMISSION_MODE is the
+#                                          variable behind `mode=`.)
+#
+# NOTE (2026-10-05, card 50): this script predates P7-6 — it still drives `brigade profile`, which no longer exists —
+# so it stops before Claude Code starts until someone ports its setup to `team create`/`team join`. The card 50
+# bypass arm was measured by hand instead (.context/plans/compensate-cross-session-inbound.md, §3): a headless
+# `claude -p --dangerously-skip-permissions` session with the dev plugin, the member removed from the user's
+# settings.json first; the hook wrote it back, a team message arrived mid-turn with no hold, and the reply came back.
 #
 # The headless harness smoke of plan P3-7: one real `claude -p` session, the real plugin, the real hooks, the real
 # detached watcher and the fs adapter as the backend, with a SECOND principal driven from this script's own terminal
@@ -45,6 +59,7 @@ bob_label='bob@smoke.invalid'
 model_body='hello bob, this is the smoke test'
 bob_body='mid-turn message from bob to alice'
 max_turns=8
+permission_mode=${SMOKE_PERMISSION_MODE:-}   # "" runs claude -p in its default mode; bypassPermissions is card 50's arm
 send_wait=240   # seconds to wait for the model's `brigade send` to reach bob's inbox
 run_wait=600    # seconds the whole `claude -p` run may take
 
@@ -78,6 +93,12 @@ fi
 claude_cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 case $claude_cfg in /*) ;; *) die "CLAUDE_CONFIG_DIR must be absolute: '$claude_cfg'" ;; esac
 [ -d "$claude_cfg" ] || die "no Claude config dir at $claude_cfg"
+# Card 50: the bypass arm exercises the plugin's one write into the user's settings.json, so the member it writes
+# must not be there yet. The script never removes it: that is the user's file.
+if [ "$permission_mode" = bypassPermissions ] && [ -f "$claude_cfg/settings.json" ] \
+  && jq -e 'has("crossSessionInbound")' "$claude_cfg/settings.json" >/dev/null 2>&1; then
+  die "$claude_cfg/settings.json already has crossSessionInbound: remove that member by hand so the bypass arm exercises the write (card 50)"
+fi
 
 # The inherited session environment is stripped BY PREFIX -- every CLAUDE* (there is no underscore, so CLAUDECODE is
 # covered too) and every AI_AGENT*, keeping only CLAUDE_CONFIG_DIR. An enumerated list is measurably short (E0-4,
@@ -322,6 +343,7 @@ run_start=$(date +%s)
     XDG_CONFIG_HOME="$xdg_config" XDG_STATE_HOME="$xdg_state" XDG_DATA_HOME="$xdg_data" \
     DISABLE_AUTOUPDATER=1 \
     claude -p "$prompt" \
+      ${permission_mode:+--permission-mode "$permission_mode"} \
       --plugin-dir "$repo/plugin" \
       --settings "$settings" \
       --allowedTools "Bash(brigade:*),Bash(sleep:*),Skill" \
@@ -434,6 +456,21 @@ case $start_line in
     bad "SessionStart context line missing or wrong: ${start_line:-<none>}" ;;
 esac
 line_id=$(printf '%s' "$start_line" | sed -n 's/^Brigade: this session is "[^"]*" (\([^)]*\)).*/\1/p')
+# (1b) Card 50, the bypass arm only: the SessionStart hook wrote the member into the user's settings.json and said
+#      so on its own context line, and the file now carries it -- the delivery asserted below happened under it.
+if [ "$permission_mode" = bypassPermissions ]; then
+  case $start_line in
+    *'Brigade: added "crossSessionInbound": "accept" to '*|*'Brigade: wrote '*' with "crossSessionInbound": "accept"'*)
+      ok "SessionStart wrote the crossSessionInbound accept and said so" ;;
+    *)
+      bad "bypass arm: the SessionStart context carries no 'Brigade: added/wrote' line: $start_line" ;;
+  esac
+  if jq -e '.crossSessionInbound == "accept"' "$claude_cfg/settings.json" >/dev/null 2>&1; then
+    ok "$claude_cfg/settings.json carries crossSessionInbound accept after the run"
+  else
+    bad "$claude_cfg/settings.json lacks crossSessionInbound accept after the run"
+  fi
+fi
 if [ -n "$line_id" ] && [ -n "$alice_id" ] && [ "$line_id" != "$alice_id" ]; then
   bad "the context line names session $line_id but the by-pid map says $alice_id"
 fi

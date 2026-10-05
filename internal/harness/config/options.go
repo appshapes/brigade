@@ -16,20 +16,21 @@ import (
 // exports USER-SET values only, as CLAUDE_PLUGIN_OPTION_<KEY>; defaults
 // are never exported and are applied here.
 const (
-	OptionConfigDir           = "CLAUDE_PLUGIN_OPTION_CONFIG_DIR"
-	OptionAdapterCommand      = "CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND"
-	OptionTeamInbound         = "CLAUDE_PLUGIN_OPTION_TEAM_INBOUND"
-	OptionShareWorkspaceLabel = "CLAUDE_PLUGIN_OPTION_SHARE_WORKSPACE_LABEL"
-	OptionShareDoing          = "CLAUDE_PLUGIN_OPTION_SHARE_DOING"
-	OptionWorkspaceLabel      = "CLAUDE_PLUGIN_OPTION_WORKSPACE_LABEL"
-	OptionPollOnPrompt        = "CLAUDE_PLUGIN_OPTION_POLL_ON_PROMPT"
-	OptionFrame               = "CLAUDE_PLUGIN_OPTION_FRAME"
-	OptionFrameFile           = "CLAUDE_PLUGIN_OPTION_FRAME_FILE"
-	OptionLabel               = "CLAUDE_PLUGIN_OPTION_LABEL"
-	OptionSync                = "CLAUDE_PLUGIN_OPTION_SYNC"
-	OptionMessageSound        = "CLAUDE_PLUGIN_OPTION_MESSAGE_SOUND"
-	OptionMessageNotification = "CLAUDE_PLUGIN_OPTION_MESSAGE_NOTIFICATION"
-	OptionMessageInterval     = "CLAUDE_PLUGIN_OPTION_MESSAGE_INTERVAL"
+	OptionConfigDir            = "CLAUDE_PLUGIN_OPTION_CONFIG_DIR"
+	OptionAdapterCommand       = "CLAUDE_PLUGIN_OPTION_ADAPTER_COMMAND"
+	OptionTeamInbound          = "CLAUDE_PLUGIN_OPTION_TEAM_INBOUND"
+	OptionShareWorkspaceLabel  = "CLAUDE_PLUGIN_OPTION_SHARE_WORKSPACE_LABEL"
+	OptionShareDoing           = "CLAUDE_PLUGIN_OPTION_SHARE_DOING"
+	OptionWorkspaceLabel       = "CLAUDE_PLUGIN_OPTION_WORKSPACE_LABEL"
+	OptionPollOnPrompt         = "CLAUDE_PLUGIN_OPTION_POLL_ON_PROMPT"
+	OptionFrame                = "CLAUDE_PLUGIN_OPTION_FRAME"
+	OptionFrameFile            = "CLAUDE_PLUGIN_OPTION_FRAME_FILE"
+	OptionLabel                = "CLAUDE_PLUGIN_OPTION_LABEL"
+	OptionSync                 = "CLAUDE_PLUGIN_OPTION_SYNC"
+	OptionMessageSound         = "CLAUDE_PLUGIN_OPTION_MESSAGE_SOUND"
+	OptionMessageNotification  = "CLAUDE_PLUGIN_OPTION_MESSAGE_NOTIFICATION"
+	OptionMessageInterval      = "CLAUDE_PLUGIN_OPTION_MESSAGE_INTERVAL"
+	OptionClaudeInboundSetting = "CLAUDE_PLUGIN_OPTION_CLAUDE_INBOUND_SETTING"
 )
 
 // The BRIGADE_* variables that stand in for three options OUTSIDE a
@@ -326,6 +327,14 @@ type Options struct {
 	ShareDoing bool
 	// PollOnPrompt enables the prompt-hook poll (6.3).
 	PollOnPrompt bool
+	// ClaudeInboundSetting is on unless the option says false (card 50):
+	// in a session that bypasses permission prompts, the hook puts
+	// `"crossSessionInbound": "accept"` into the user settings file when
+	// that file has no crossSessionInbound at all — the one write Brigade
+	// makes under the Claude Code configuration directory
+	// (policy.EnsureUserAccept). Off leaves the file alone; Brigade then
+	// refuses in such a session, with the parity warning.
+	ClaudeInboundSetting bool
 	// Frame is the instruction level the frame option names (P5-12):
 	// open, guarded or strict, default frame.DefaultLevel. FrameFile is
 	// the cleaned absolute path of the frame_file option, "" when unset;
@@ -431,6 +440,15 @@ func ParseOptions(environ []string) (Options, error) {
 		return Options{}, optionErr("poll_on_prompt", ReasonInvalidBoolean, errInvalidBool.Message)
 	}
 	o.PollOnPrompt = poll
+
+	o.ClaudeInboundSetting = true
+	if raw := opt(OptionClaudeInboundSetting); raw != "" {
+		on, err := ParseBool(raw)
+		if err != nil {
+			return Options{}, optionErr("claude_inbound_setting", ReasonInvalidBoolean, errInvalidBool.Message)
+		}
+		o.ClaudeInboundSetting = on
+	}
 
 	rawLevel := opt(OptionFrame)
 	level, err := frame.ParseLevel(rawLevel)

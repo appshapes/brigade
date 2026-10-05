@@ -55,6 +55,12 @@ func describeWithDescription() jsontext.Value {
 // "missing" for every other path.
 func settingsReader(f *fixture, content string) func(string) ([]byte, error) {
 	user := filepath.Join(f.dirs.ClaudeConfig, "settings.json")
+	// The user file also carries the crossSessionInbound accept the
+	// fixture's default reader models (card 50): these tests prompt in
+	// bypassPermissions and are about the doing rules, not the parity
+	// rule, which would otherwise flip the policy and print its warning.
+	// Every content here is a JSON object, so the member goes first.
+	content = strings.Replace(content, "{", `{"crossSessionInbound":"accept",`, 1)
 	return func(p string) ([]byte, error) {
 		if p == user {
 			return []byte(content), nil

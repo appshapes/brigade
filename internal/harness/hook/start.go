@@ -329,6 +329,7 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		return resolved{}, false
 	}
 	id := r.identity(f, in)
+	ensureLine := r.ensureInboundSetting(f, opts, in.PermissionMode)
 	scan := policy.ScanNative(f.claudeConfigDir, in.Cwd, r.deps.ReadFile)
 	doingRules := policy.ScanDoingRules(f.claudeConfigDir, doingScanDirs(r.environ, in), r.deps.ReadFile)
 	dec := policy.Decide(policy.Inputs{
@@ -339,6 +340,11 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		NonInteractive: id.nonInteractive,
 		Entrypoint:     id.entrypoint,
 	})
+	if ensureLine != "" {
+		// Printed right after the context line, before the policy's own
+		// warnings: what was written comes before what follows from it.
+		dec.Warnings = append([]string{ensureLine}, dec.Warnings...)
+	}
 	instruction, err := r.frameInstruction(opts)
 	if err != nil {
 		r.fail("session-start: frame text", err, frameLine(err))

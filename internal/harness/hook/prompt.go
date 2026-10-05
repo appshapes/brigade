@@ -24,12 +24,15 @@ import (
 )
 
 // prompt is `brigade hook prompt` (6.3): refresh permission_mode and the
-// transcript path in the map, keep the watcher alive, print the watcher's
-// notice once, remind the model of its doing line where Brigade may (card
-// 25, plan 5.4), run the opt-in poll through the shared inbound pipeline,
-// and print the held notice while anything is held under the `hold`
-// policy (P5-9). It prints nothing on the common path and exits 0
-// whatever happens (exit 2 would erase the user's prompt).
+// transcript path in the map, decide the inbound policy again with the
+// mode this prompt carries and the settings as they are now (card 50),
+// keep the watcher alive — replaced when the policy changed, so it runs
+// under the new one — print the watcher's notice once, remind the model of
+// its doing line where Brigade may (card 25, plan 5.4), run the opt-in
+// poll through the shared inbound pipeline, and print the held notice
+// while anything is held under the `hold` policy (P5-9). It prints nothing
+// on the common path and exits 0 whatever happens (exit 2 would erase the
+// user's prompt).
 func (r *run) prompt() int {
 	in, err := r.readInput()
 	if err != nil {
@@ -65,13 +68,17 @@ func (r *run) prompt() int {
 		m.TranscriptPath = p
 		changed = true
 	}
+	replaceWatcher := r.redecide(f, in, m)
+	if replaceWatcher {
+		changed = true
+	}
 	if changed {
 		m.UpdatedAt = r.deps.Now()
 		if werr := store.WriteByPID(m); werr != nil {
 			r.log.Warn("prompt: session map not updated", log.Err(werr))
 		}
 	}
-	spawned := r.ensureWatcher(ctx, f, m)
+	spawned := r.ensureWatcher(ctx, f, m, replaceWatcher)
 	r.printNotice(f)
 	// Before the poll, not last: the poll can take receiveTimeout of the
 	// budget, and the line must not land after untrusted poll frames.
@@ -326,11 +333,81 @@ func (r *run) retryConnect(ctx context.Context, f facts, in input) {
 	}
 }
 
+// redecide runs the SessionStart policy decision again with this prompt's
+// permission_mode and the settings files as they are now (card 50), and
+// applies the outcome to the map when it differs from the policy the map
+// holds: the SessionStart document may have carried no mode, the user may
+// have switched modes since, and the user settings file may have gained —
+// or lost — the `crossSessionInbound` accept the parity rule asks for,
+// which must take effect without a new session. First, as at SessionStart,
+// the accept is written into that file when the session bypasses prompts
+// and the file has none (ensureInboundSetting, whose line is printed), so
+// the scan that follows sees it. A changed policy prints the decision's
+// warnings (the refuse side) or one fixed line naming the new policy (the
+// accept side, unless the write's own line already said so), and reports
+// true so the caller replaces the watcher, which runs under the policy in
+// its environment. An unchanged policy prints nothing more: the warnings
+// were printed when it was decided. A document without permission_mode
+// decides nothing; neither does a hook whose options cannot be read.
+func (r *run) redecide(f facts, in input, m *sessionmap.ByPID) bool {
+	if in.PermissionMode == "" {
+		return false
+	}
+	opts, err := config.ParseOptions(r.environ)
+	if err != nil {
+		r.log.Warn("prompt: options unreadable; inbound policy not decided again", log.Err(err))
+		return false
+	}
+	ensureLine := r.ensureInboundSetting(f, opts, in.PermissionMode)
+	if ensureLine != "" && r.fits(ensureLine) {
+		r.say(ensureLine)
+	}
+	dec := policy.Decide(policy.Inputs{
+		Option:         opts.TeamInbound,
+		OptionWarning:  opts.TeamInboundWarning,
+		Native:         policy.ScanNative(f.claudeConfigDir, in.Cwd, r.deps.ReadFile),
+		PermissionMode: in.PermissionMode,
+		NonInteractive: m.NonInteractive,
+		Entrypoint:     f.entrypoint,
+	})
+	next := dec.Policy.String()
+	if next == m.Inbound {
+		return false
+	}
+	r.log.Info("prompt: inbound policy changed", slog.String("from", m.Inbound), slog.String("to", next))
+	m.Inbound = next
+	switch {
+	case dec.Policy == policy.Refuse:
+		for _, w := range dec.Warnings {
+			if r.fits(w) {
+				r.say(w)
+			}
+		}
+	case ensureLine != "":
+		// The write's line already says messages are delivered.
+	default:
+		if line := policyNowLine(dec.Policy); r.fits(line) {
+			r.say(line)
+		}
+	}
+	return true
+}
+
+// policyNowLine is the one line the prompt hook prints when the inbound
+// policy moved off refuse (card 50): fixed text plus one of the three
+// policy words.
+func policyNowLine(p policy.Policy) string {
+	return "Brigade: this session's inbound policy is now " + p.String() + "; team messages are " +
+		map[policy.Policy]string{policy.Accept: "delivered as they arrive", policy.Hold: "held for `brigade inbox release`"}[p] + "."
+}
+
 // ensureWatcher respawns the watcher when its pidfile is missing or dead
 // (6.6) and reports whether it did. A pidfile with a foreign start_token
 // is dead here and replaced by the watcher itself. Without a socket (and
-// no sink) there is nothing to inject into and nothing is spawned.
-func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID) bool {
+// no sink) there is nothing to inject into and nothing is spawned. With
+// replace set, a live watcher of this version is replaced too: the inbound
+// policy it was started under has changed (card 50).
+func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, replace bool) bool {
 	if f.socket == "" && r.deps.Sink == "" {
 		r.log.Debug("prompt: no inbox socket; the watcher is not needed")
 		return false
@@ -339,16 +416,21 @@ func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID) b
 	switch {
 	case err != nil:
 		r.log.Warn("prompt: watcher pidfile unreadable; spawning anyway", log.Err(err))
-	case v.Found && v.Alive && v.Entry.Version == buildinfo.String():
+	case v.Found && v.Alive && v.Entry.Version == buildinfo.String() && !replace:
 		return false
 	case v.Found && v.Alive:
 		// A live watcher of another Brigade version — the plugin was
-		// updated under a running session. Replace it here, at the next
-		// prompt, rather than when the session ends (the SessionStart
-		// path's respawnReason, applied to the coordinates it cannot
-		// have changed). Within the prompt budget: watcherStopWait plus
-		// promptPidfileWait leave room for the process to exit.
-		r.log.Info("prompt: watcher version changed; respawning", slog.Int("watcher_pid", v.Entry.PID),
+		// updated under a running session — or of another inbound policy.
+		// Replace it here, at the next prompt, rather than when the
+		// session ends (the SessionStart path's respawnReason, applied to
+		// the coordinates it cannot have changed). Within the prompt
+		// budget: watcherStopWait plus promptPidfileWait leave room for
+		// the process to exit.
+		reason := "version changed"
+		if v.Entry.Version == buildinfo.String() {
+			reason = "inbound policy changed"
+		}
+		r.log.Info("prompt: watcher "+reason+"; respawning", slog.Int("watcher_pid", v.Entry.PID),
 			slog.String("watcher_version", v.Entry.Version))
 		r.stopWatcher(v.Entry, f)
 		r.spawnWatcher(ctx, f, m, min(r.deps.PidfileWait, promptPidfileWait))

@@ -190,6 +190,10 @@ type Deps struct {
 	// 5.2) and, at SessionStart, the frame_file option's file (P5-12);
 	// nil means os.ReadFile.
 	ReadFile func(string) ([]byte, error)
+	// WriteFile is the ONE write under the Claude Code configuration
+	// directory (card 50, policy.EnsureUserAccept); nil means
+	// adapterkit.WriteAtomicMode.
+	WriteFile func(path string, data []byte, mode os.FileMode) error
 	// Spawn is the adapter request/response seam (adapterclient.Client.
 	// Spawn); nil means adapterkit.Spawn, a real child.
 	Spawn adapterclient.SpawnFunc

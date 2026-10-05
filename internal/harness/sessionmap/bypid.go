@@ -106,8 +106,10 @@ type ByPID struct {
 	// absent as "publish, print nothing" until the prompt hook resolves it
 	// once.
 	DoingMode string `json:"doing_mode,omitzero"`
-	// PermissionMode is recorded for diagnostics only; the inbound policy
-	// never depends on it (D18).
+	// PermissionMode is the hook stdin's permission_mode as last seen. The
+	// inbound policy reads it for one rule (card 50): a bypassPermissions
+	// session whose user settings carry no crossSessionInbound accept is
+	// refused, because Claude Code would hold every post for a dialog.
 	PermissionMode string `json:"permission_mode"`
 	// NonInteractive is true for a `claude -p` session (CLAUDE_CODE_ENTRYPOINT
 	// sdk-cli, 6.5); diagnostics only.

@@ -63,10 +63,15 @@ Claude account their install is signed in to. Brigade reads that address from Cl
 otherwise), read-only and best effort: a missing, unreadable or malformed file simply leaves the label empty. A failed read
 leaves one debug line on stderr saying that the account email was unavailable, and that line is fixed text — the
 address is never in it, and neither is the path, which would carry your home directory and your
-`CLAUDE_CONFIG_DIR`. Brigade never **writes** anything under Claude Code's configuration directory, and the only
-things it ever **reads** there are this `.claude.json`, your `settings.json` (the two session-start scans: the
-`crossSessionInbound` setting of section 6, and the `permissions` arrays for a rule on `brigade doing`, section
-5 — each read for one fixed answer, with nothing from the file sent, stored or logged; in a session that was
+`CLAUDE_CONFIG_DIR`. Brigade **writes** exactly one thing under Claude Code's configuration directory — the
+`"crossSessionInbound": "accept"` member of your `settings.json`, in a session that bypasses permission prompts
+when the file has no `crossSessionInbound` at all (section 6: one member inserted by text, every other byte of
+the file as it was, checked before the atomic write; the plugin option `claude_inbound_setting` set to `false`
+stops it) — and the only
+things it ever **reads** there are this `.claude.json`, your `settings.json` (the two scans: the
+`crossSessionInbound` setting of section 6, at session start and again at every prompt, and the `permissions`
+arrays for a rule on `brigade doing`, section 5, at session start — each read for one fixed answer, with nothing
+from the file sent, stored or logged; in a session that was
 already running when the plugin updated, whose session start never read it, the `permissions` read runs once
 more at the first prompt after the update that does not restart the watcher, retried until the adapter answers)
 and the registry entry for the session's own pid (`sessions/<pid>.json`) — never the 0600 `sessions/*.key` peer
@@ -518,33 +523,79 @@ between Brigade and your session, and Brigade cannot control it.
 
 **Its three behaviours.**
 
-- **No value set, the default.** Claude Code decides per message. There is one exception, and it covers Brigade:
-  a message from a verified own child process is delivered in every mode. Every Brigade post is one of those, so
-  the default's dialog and its five-minute expiry never apply to Brigade at all.
+- **No value set, the default.** Claude Code decides per message from the permission mode. A session that
+  prompts for permissions receives every message. A session that **bypasses** permission prompts
+  (`--dangerously-skip-permissions`) holds every message for your approval in a dialog, unless the sender
+  identifies itself as bypassing too. The dialog expires after five minutes (`dialogExpiry`) and the message is
+  dropped; a headless `claude -p` session has no dialog, so there the message is dropped after the same time.
+  Claude Code makes one exception, for a message it can verify came from the session's **own child process** —
+  a hook or a Bash command posting to its own socket. Brigade's watcher is not one: it is detached from the hook
+  that started it (its parent is process 1), and Claude Code's process evidence outranks the session token the
+  watcher presents — the token counts only where no process evidence exists. On Claude Code 2.1.261 the token
+  alone had made every Brigade post an own-child one, and this section said the dialog never applied to
+  Brigade. On 2.1.289 it does: the dialog reads *"The sender did not attest its permission mode and this session
+  bypasses prompts. Review it below, or set "crossSessionInbound" to "accept"."*
 - **`hold`, set explicitly.** Claude Code shows a notice for each message and does not deliver it. There is no
   dialog to answer. Nothing expired in about 25 minutes of watching. When the session ends, the held messages
   are simply lost: Claude Code reports them as expired to any sender it can reach, and a program posting to a
   socket has no reply address, so nobody is told.
 - **`refuse`, set explicitly.** The message is dropped silently, with no signal to either side.
 
-**What Brigade does about it.** At session start Brigade reads three settings files: your own `settings.json`
-under the Claude Code configuration directory, and the project's `.claude/settings.json` and
-`.claude/settings.local.json`. It reads only `crossSessionInbound` and the `permissions` arrays (section 5), at
-session start — and, in a session that was already running when the plugin updated, the `permissions` arrays
-once more at the first prompt after the update that does not restart the watcher, retried until the adapter
-answers; nothing from them is sent, stored or logged. If it finds `crossSessionInbound` set to `hold` or
-`refuse`, it prints a warning naming the setting and the file it came from, and sets Brigade's own policy to
-`refuse`. Nothing is acknowledged blind, messages wait on the server, and senders see the session as refusing.
-Measured 2 of 2 on Claude Code 2.1.261: the warning verbatim, the policy at `refuse`, and zero acknowledgements.
+**Where an `accept` counts.** An explicit `accept` turns the default off: every message is delivered, in every
+permission mode. It counts from managed settings, from `--settings`, and from your user settings file
+(`settings.json` under the Claude Code configuration directory). It does **not** count from a repository's
+`.claude/settings.json` or `.claude/settings.local.json`: Claude Code lets those two files only tighten the
+setting — "a project or local value that isn't stricter is ignored", in the words of its settings reference —
+so an `accept` checked into a repository changes nothing, and the dialog's own advice to "set
+crossSessionInbound to accept" is satisfied only by the user file.
+
+**What Brigade does about it.** At session start, and again at every prompt, Brigade reads three settings
+files: your own `settings.json` under the Claude Code configuration directory, and the project's
+`.claude/settings.json` and `.claude/settings.local.json`. It reads only `crossSessionInbound` there (and, at
+session start, the `permissions` arrays, section 5 — in a session that was already running when the plugin
+updated, those once more at the first prompt after the update that does not restart the watcher, retried until
+the adapter answers); nothing from them is sent, stored or logged. Two findings change Brigade's policy:
+
+- If it finds `crossSessionInbound` set to `hold` or `refuse`, it prints a warning naming the setting and the
+  file it came from, and sets Brigade's own policy to `refuse`. Nothing is acknowledged blind, messages wait on
+  the server, and senders see the session as refusing. Measured 2 of 2 on Claude Code 2.1.261: the warning
+  verbatim, the policy at `refuse`, and zero acknowledgements.
+- If the session bypasses permission prompts and your user `settings.json` has no `crossSessionInbound` at
+  all, Brigade **adds `"crossSessionInbound": "accept"` to it** — the line Claude Code's own dialog asks for, in
+  the one file where Claude Code reads it as explicit — and prints a line saying so. This is the one write
+  Brigade makes under the Claude Code configuration directory, and it is bounded: the file must be a regular
+  file (a symbolic link is refused unread), no larger than a megabyte, and one JSON object; the member is
+  inserted as the object's first, by text, so every other byte stays as you had it; the result is parsed back and
+  compared with the original member by member before the atomic write, under the file's own mode; a file that
+  already has the member, with `hold` or `refuse`, is left alone (the warning above applies); a missing file is
+  created with the one member. Claude Code watches the directories that held a settings file when the session
+  started, so a change to an existing file applies within the session, and a file Brigade had to create is read
+  at the next session start. Set the plugin option `claude_inbound_setting` to `false` to keep Brigade out of
+  the file. Then, in such a session, Brigade's policy is `refuse` with a warning naming the file and the one
+  line to add, for the same reason as the native hold: Claude Code would hold every Brigade post for a dialog
+  that expires, and Brigade would have acknowledged the message; add the line and send your next prompt, and
+  Brigade switches back to `accept`, prints one line saying so, and replaces its watcher so it runs under the
+  new policy. When a repository file carries an `accept`, the warning says why that one does not count. The
+  write and the rule read the permission mode the hook is given; plan mode counts as bypassing in Claude Code
+  when bypass is available to the session, which the hook cannot tell, so a plan-mode prompt is read as
+  prompting and fails open to `accept` — Claude Code's dialog, never a silent loss. Found on 2.1.289 (the dialog
+  above, in a bypass session whose repository carried the accept and whose user file did not), confirmed in
+  Claude Code's own inbound code and its documentation. Measured on 2.1.289, 2026-10-05: with the member removed
+  from the user file, a headless session started with `--dangerously-skip-permissions` had it written back by the
+  hook at its first prompt, received a teammate's message mid-turn with no hold, and replied; the reply reached
+  the sending session, whose own accept the same write had restored.
 
 **What that scan cannot see, and what follows.** It cannot see managed settings, and it cannot see anything
-passed with `--settings` on the command line. Under either of those, Brigade stays at `accept`, **acknowledges
-the message**, and the native layer holds or drops it. In your own terms: **the sender was told the message
-arrived, and it was never read.** Measured on 2.1.261.
+passed with `--settings` on the command line. For `hold` and `refuse` there, Brigade stays at `accept`,
+**acknowledges the message**, and the native layer holds or drops it. In your own terms: **the sender was told
+the message arrived, and it was never read.** Measured on 2.1.261. For an `accept` there, the blind spot runs
+the other way: in a bypass session Brigade refuses although Claude Code would deliver, and the warning says to
+add the line to the user file too, which is harmless beside the other source.
 
-**The repository case.** `crossSessionInbound` can be set from any settings file, and a project or local
-`refuse` applies over every other source. So a `.claude/settings.json` checked into a repository can silently
-make every session opened in that repository refuse Brigade messages.
+**The repository case.** A project or local `hold` or `refuse` applies over every other source, so a
+`.claude/settings.json` checked into a repository can silently make every session opened in that repository
+refuse Brigade messages. A project or local `accept` is ignored, so the same file cannot make a bypass session
+receive them.
 
 **What `injected` actually means.** The protocol says it, and this is the one place this page quotes the frozen
 specification ([`docs/protocol-v1.md`](protocol-v1.md), section 4.9):
