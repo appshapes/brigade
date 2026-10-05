@@ -138,9 +138,9 @@ the session receive it, as [docs/mail-gateway.md](mail-gateway.md) describes.
   connector puts the tag back on the address. Sends go through Postmark's email API with the server token.
 
 Both are deployed into the team's own Supabase project beside the core by `make gateway-install`, and read their
-provider's key from the project's function secrets. A third shipped connector is one file under `supabase/functions/_shared/providers/`
-exporting the `Provider` interface of `connector.ts`, a function directory beside `mail-connector-resend`, and a
-case in `scripts/gateway-install.sh`.
+provider's key from the project's function secrets. A third shipped connector is one file under
+`supabase/functions/_shared/providers/` exporting the `Provider` interface of `connector.ts`, a function directory
+beside `mail-connector-resend`, and a case in `scripts/gateway-install.sh`.
 
 ## Writing your own
 
