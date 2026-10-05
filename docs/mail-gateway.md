@@ -153,12 +153,16 @@ key in the environment.
 By default people write to the Resend-managed receiving address. For `brigade-team@your-domain.com` instead,
 do one of these:
 
-- **Route an address you already have.** Make it an alias that also delivers to the receiving address (in Google
-  Workspace: an alias plus a routing rule that adds the receiving address as a recipient), then run the command
-  with `public_address=brigade-team@your-domain.com`. The roster, the mails and the bounces name your address.
-  Replies keep going straight to the receiving address through their Reply-To tag, which a forwarder would strip.
-  Do not route a mailbox that also receives other mail, such as replies to a newsletter: the gateway would answer
-  each with the roster.
+- **Route an address you already have.** Make it an alias that also delivers to the receiving address, then run
+  the command with `public_address=brigade-team@your-domain.com`. In Google Workspace that is an alias plus a
+  Default routing rule (Admin console › Apps › Google Workspace › Gmail › Default routing): single recipient, your
+  address; Modify message › Also deliver to › Add, the receiving address; "Perform this action on non-recognized
+  and recognized addresses". On the added recipient, **turn off "Do not deliver spam to this recipient"**: Gmail
+  may class a short mail from outside as spam, and the gateway, which treats every mail as untrusted text anyway,
+  would otherwise never see it. The roster, the mails and the bounces name your address. Replies keep going
+  straight to the receiving address through their Reply-To tag, which a forwarder would strip. Do not route a
+  mailbox that also receives other mail, such as replies to a newsletter: the gateway would answer each with the
+  roster.
 - **Receive on your domain.** Resend: enable receiving on the domain, add the one MX record it shows. Postmark:
   set the server's inbound domain to a subdomain of yours and add the MX record `inbound.postmarkapp.com`,
   priority 10, on it. Then run the command with `inbox=brigade-team@your-domain.com`.
