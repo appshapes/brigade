@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-10-05
+
 ### Added
 
 - **Several teams' mail gateways in one Supabase project** (card 49). The settings that differ per team (the inbox,

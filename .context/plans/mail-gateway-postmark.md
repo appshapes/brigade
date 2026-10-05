@@ -51,6 +51,24 @@ functions and became an HTTP contract, [`docs/mail-connectors.md`](../../docs/ma
   ran against a scratch copy of the team file; the owner commits it to the three repositories); the thinktech
   gateway sends from the owner's own confirmed address for want of a team address; Postmark's DKIM for the domain.
 
+
+**Several teams in one project, 2026-10-05.** Rjae wanted a Telder team on the same Supabase project as the brigade
+team, with its own address. The gateway's per-team settings lived in the project's function secrets, one set per
+project, so migration `20261005090000_mail_gateway_settings.sql` moved them into the gateways row (inbox, public
+address, from, provider, send URL; all public), `mail-in` routes a mail to the team whose inbox it reached
+(`gatewayForMail`), `mail-out` ticks every gateway of the project, and the secrets (connector secret, provider keys,
+tick token) are shared. The installer writes the row and keeps the `BRIGADE_MAIL_*` copies for the one team the
+project's `BRIGADE_TEAM_REF` names. Two bugs found live and fixed: the digest fallback gave a second team the first
+team's inbox (now the fallback is the first team's only), and a re-run kept that poisoned inbox (now no two teams
+in a project may share an inbox; the installer refuses). Measured: the brigade team re-installed, then `telder`
+created (`brigade team create`, secret file outside the repository) and installed on the same project with its own
+Resend inbox; a mail to the brigade address reached its session with both gateways present; a roster request to
+the telder inbox was answered from the telder address in one second, with the telder roster; the tick reports
+`idle,idle`. The Telder repository carries `.brigade.json` and the brigade marketplace entry (`6c856ed`); the three
+thinktech repositories carry `gateway.email` (ThinkTech ticket 2170); thinktech's gateway sends from and is
+reached at the team address, pending the owner's Postmark signature confirmation and the two Workspace routing
+rules (the aliases deliver only to the owner's mailboxes until then).
+
 Sections 1 to 7 below are the plan as written before the ruling; section 1's facts and section 5's measurements
 still hold.
 
