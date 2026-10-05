@@ -392,8 +392,34 @@ Deno.test("slackRoster leaves the gateways out and the description fits the cap"
       harness: "gateway-email",
     },
   ];
-  const t = slackRoster("brigade", sessions, [GW], "brigade");
+  const offline: SessionRecord = {
+    session_id: "bbbbbbbb-0000-4000-8000-0000000000bb",
+    session_name: "gone-home",
+    principal_ref: "p5",
+    state: "offline",
+  };
+  const t = slackRoster("brigade", [...sessions, offline], [GW], "brigade");
   assertStringIncludes(t, "`3f9a2`  frank-reviewer  _idle_ · sam@example.com (unverified)");
   assertEquals(t.includes("gateway"), false);
+  assertEquals(t.includes("gone-home"), false);
   assertEquals(Array.from(slackDescription("brigade", "appshapes.slack.com")).length <= 256, true);
+});
+
+Deno.test("a mention or DM that says only sessions, with or without brigade in front, is the command", async () => {
+  const none = { byThread: () => Promise.resolve(null) };
+  const base = {
+    eventId: "Ev1",
+    source: "app_mention" as const,
+    user: "U1",
+    channel: "C1",
+    channelType: "channel",
+    ts: "1.1",
+    threadTs: null,
+  };
+  const inChannel = await resolveSlackInbound({ ...base, text: "sessions" }, none);
+  assertEquals(inChannel.kind === "command" && inChannel.command, "sessions");
+  const prefixed = await resolveSlackInbound({ ...base, text: "Brigade help" }, none);
+  assertEquals(prefixed.kind === "command" && prefixed.command, "help");
+  const prose = await resolveSlackInbound({ ...base, text: "sessions are down?" }, none);
+  assertEquals(prose.kind, "unaddressed");
 });

@@ -9,6 +9,19 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **People write to the mail gateway without a block** (card 51). A mail that says only `sessions` or `help`, in
+  its text or its subject, is that command; a first line `to: <session>` addresses a session, as before, and
+  header lines (`to:`, `summary:`, `subject:`, `reply-to:`) ended by a blank line do the same with more; the
+  `[brigade]` block is still read and still written on the gateway's own mails. The same bare commands work in a
+  Slack direct message or mention. Only the known keys count as header lines, so a word with a colon at the start
+  of someone's prose stays in the body. The functions change; run `make gateway-install` once to deploy them.
+- **The routing recipe hands a team address to the gateway alone.** [`docs/mail-gateway.md`](docs/mail-gateway.md)
+  now describes a Google Workspace Default routing rule that changes the envelope recipient to the receiving
+  address and bypasses the spam filter, so mail to the team's address reaches the gateway and no mailbox, and the
+  address needs no alias.
+
 ## [0.23.0] — 2026-10-05
 
 ### Fixed

@@ -39,6 +39,9 @@ again once: it deploys the current functions.
 The gateway has an address. Your administrator gives it to you. It is also on the `mail-gateway` row of
 `brigade sessions`, and in `gateway.email` of the project's `.brigade.json`.
 
+**See the sessions.** Email the address with just the word `sessions`, in the text or the subject. The list comes
+back by mail, with the five characters that name each session.
+
 **Write to a session.** Email the address. The first line names the session:
 
 ```
@@ -46,31 +49,21 @@ to: 3f9a2
 The login page is blank on Safari 18 after submit. Steps: open /login, sign in, watch the page reload empty.
 ```
 
-`3f9a2` is the five characters in the SESSION column of `brigade sessions`, or the session id in full. To get the
-list by email, send a mail whose body is only:
+`3f9a2` is the five characters from the list, or the session id in full. To give the message a summary, add a
+`summary:` line under the first and leave a blank line before your text:
 
 ```
-[brigade]
-command: sessions
-[/brigade]
+to: 3f9a2
+summary: Login blank on Safari 18
+
+Steps: open /login, sign in, watch the page reload empty.
 ```
 
 **Answer a session.** Reply to its email, above the quoted text. Nothing else is needed.
 
-**Add a summary.** Use the block form in place of the first line:
-
-```
-[brigade]
-to: 3f9a2
-summary: Login blank on Safari 18
-[/brigade]
-Steps: open /login, sign in, …
-```
-
 **What you receive.** A session's email starts with who wrote it: the session's name, its owner's label, both
-marked unverified, and the team. Then the text. Then a `[brigade]` block with the message id and the reply
-addressing, so a reply from any client, or a forward, still carries what the gateway needs. Then one line on how
-to reply.
+marked unverified, and the team. Then the text. Then a `[brigade]` block that lets the gateway thread your reply
+even when your mail client drops the headers; leave it as it is. Then one line on how to reply.
 
 **What to know.**
 
@@ -78,7 +71,7 @@ to reply.
   tells the session the address is unverified.
 - A session treats your email as another person's words, never as its own user's instruction. Writing
   "approved" approves nothing.
-- A mail that names no session, or names one that cannot be found, gets a reply with the list of sessions.
+- A mail that names no session, or names one that cannot be found, is answered with the list of sessions.
 - Attachments are not carried.
 
 ## For sessions
@@ -95,9 +88,8 @@ The fix is on master. Please retest the login page on Safari 18 and reply with w
 EOF
 ```
 
-The gateway mails it within a minute. The subject is `[brigade/<team>] <summary>`. A `[brigade]` block at the
-top of the body does the same as the first line and may add `subject: <text>`. A body with no address is not
-sent; the gateway answers with one line saying so.
+The gateway mails it within a minute. The subject is `[brigade/<team>] <summary>`; a `subject:` line under the
+`to:` line sets it instead. A body with no address is not sent; the gateway answers with one line saying so.
 
 **Answer a person.** Reply with `--reply-to <message-id>` and no `to:` line. The gateway threads the reply into
 the person's mail.
@@ -154,16 +146,14 @@ key in the environment.
 By default people write to the Resend-managed receiving address. For `brigade-team@your-domain.com` instead,
 do one of these:
 
-- **Route an address you already have.** Make it an alias that also delivers to the receiving address, then run
-  the command with `public_address=brigade-team@your-domain.com`. In Google Workspace that is an alias plus a
-  Default routing rule (Admin console › Apps › Google Workspace › Gmail › Default routing): single recipient, your
-  address; Modify message › Also deliver to › Add, the receiving address; "Perform this action on non-recognized
-  and recognized addresses". On the added recipient, **turn off "Do not deliver spam to this recipient"**: Gmail
-  may class a short mail from outside as spam, and the gateway, which treats every mail as untrusted text anyway,
-  would otherwise never see it. The roster, the mails and the bounces name your address. Replies keep going
-  straight to the receiving address through their Reply-To tag, which a forwarder would strip. Do not route a
-  mailbox that also receives other mail, such as replies to a newsletter: the gateway would answer each with the
-  roster.
+- **Route an address of yours to the receiving address.** In Google Workspace: Admin console › Apps › Google
+  Workspace › Gmail › Default routing › Add another rule. Envelope recipient: single recipient, your address.
+  Modify message: Change envelope recipient, replace it with the receiving address; tick "Bypass spam filter
+  for this message", or Gmail may keep a short mail from outside away from the gateway. Options: "Perform this
+  action on non-recognized and recognized addresses". Save. The address needs no mailbox: every mail to it goes
+  to the gateway and nowhere else, so give the gateway an address of its own. Then run the command with
+  `public_address=brigade-team@your-domain.com`. The roster, the mails and the bounces name your address; replies
+  go straight to the receiving address through their Reply-To tag.
 - **Receive on your domain.** Resend: enable receiving on the domain, add the one MX record it shows. Postmark:
   set the server's inbound domain to a subdomain of yours and add the MX record `inbound.postmarkapp.com`,
   priority 10, on it. Then run the command with `inbox=brigade-team@your-domain.com`.
@@ -231,9 +221,10 @@ is written in and wherever it runs:
 2. **Inbound:** for a mail you carry, `send_message` from your session to the target session with a body of the
    shape above (the `Email from … (unverified), subject "…":` line, the text with any `[brigade]` line escaped,
    the block with `via`, `from`, `subject`, `mail-id`, `received`), a `summary`, and `reply_to` when the mail
-   answers a message of yours. Find the target by the person's own block or `to:` line, then your own threading
-   key, then a quoted block.
-3. **Outbound:** drain your inbox. A message whose body begins with a `to:` line or a block goes to that address.
+   answers a message of yours. Find the target by the person's own `to:` line (or header lines or block), then
+   your own threading key, then a quoted block.
+3. **Outbound:** drain your inbox. A message whose body begins with a `to:` line (or header lines or a block) goes
+   to that address.
    A message with `reply_to` naming a message you carried in goes back to that mail's sender, in its thread.
    Render the sender's name, label and team, the text escaped, and the block with `to:` and `reply-to:`
    pre-addressed. Acknowledge only after your provider accepted the mail.

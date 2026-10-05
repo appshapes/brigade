@@ -3,7 +3,14 @@
 // mail gateway's (gateway.ts) with Slack's own facts: Slack authenticates the author (a user id is a verified
 // identity, a name is not), a reply lives in a thread whose root ts is the key, and there is no quoting.
 
-import { BlockError, escapeBlockLines, type Fields, parseLeading, renderBlock } from "./block.ts";
+import {
+  BlockError,
+  escapeBlockLines,
+  type Fields,
+  isBareCommand,
+  parseLeading,
+  renderBlock,
+} from "./block.ts";
 import {
   type Envelope,
   excerpt,
@@ -243,9 +250,8 @@ export async function resolveSlackInbound(m: InboundSlack, threads: SlackThreads
   const f = leading.fields ?? {};
   const text = leading.rest.trim();
   if (f.command) return { kind: "command", command: f.command.trim().toLowerCase(), args: "", text };
-  if (!leading.fields && m.channelType === "im" && /^(sessions|help)$/i.test(text)) {
-    return { kind: "command", command: text.toLowerCase(), args: "", text };
-  }
+  const bare = leading.fields ? null : isBareCommand(text);
+  if (bare) return { kind: "command", command: bare, args: "", text };
   let target: string | null = f.to ?? null;
   let replyTo: string | null = f["reply-to"] ?? null;
   let source = target ? "block" : "";
@@ -386,14 +392,16 @@ export function renderSlackText(
   return head + escapeMrkdwn(escapeBlockLines(out.text.trim())) + "\n\n```\n" + block + "\n```" + tail;
 }
 
-/** slackRoster lists the sessions a person can write to, the gateways left out. */
+/** slackRoster lists the sessions a person can write to: the ones online now, the gateways left out. */
 export function slackRoster(
   teamName: string,
   sessions: SessionRecord[],
   gatewayIds: string[],
   botHandle: string,
 ): string {
-  const rows = sessions.filter((s) => !gatewayIds.includes(s.session_id) && !isGatewaySession(s));
+  const rows = sessions.filter((s) =>
+    !gatewayIds.includes(s.session_id) && !isGatewaySession(s) && s.state !== "offline"
+  );
   const lines = [
     `Sessions on Brigade team *${
       escapeMrkdwn(teamName)

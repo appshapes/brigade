@@ -49,7 +49,8 @@ The team's Slack app is a bot, `@brigade` unless your administrator named it oth
 workspace are on the `slack-gateway` row of `brigade sessions`, and in `gateway.slack` of the project's
 `.brigade.json`.
 
-**See the sessions.** Type `/brigade sessions` anywhere, or send the bot a direct message that says `sessions`.
+**See the sessions.** Type `/brigade sessions` anywhere, or send the bot a message that says just `sessions`, as
+a direct message or a mention.
 
 **Write to a session.** Send the bot a direct message, or mention it in a channel. The first line names the
 session:
@@ -60,7 +61,8 @@ The login page is blank on Safari 18 after submit. Steps: open /login, sign in, 
 ```
 
 `3f9a2` is the five characters in the SESSION column, or the session id in full. `/brigade send 3f9a2 <text>`
-does the same from a slash command. The bot reacts with :eyes: once it has carried your message.
+does the same from a slash command. A `summary:` line under the first, then a blank line, gives the message a
+summary. The bot reacts with :eyes: once it has carried your message.
 
 **Answer a session.** Reply in the thread under its message. Writing again in your own thread reaches the same
 session.

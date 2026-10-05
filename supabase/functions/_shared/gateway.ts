@@ -4,7 +4,15 @@
 // The precedence a person's mail is resolved by: an explicit block (or `to:` line) they typed; then the reply
 // address tag and the mail headers, through the thread table; then a block quoted from the mail they answer.
 
-import { BlockError, escapeBlockLines, type Fields, lastBlock, parseLeading, renderBlock } from "./block.ts";
+import {
+  BlockError,
+  escapeBlockLines,
+  type Fields,
+  isBareCommand,
+  lastBlock,
+  parseLeading,
+  renderBlock,
+} from "./block.ts";
 import { domainOf, type InboundMail, isAddress, localOf, type OutboundMail, stripQuoted } from "./mail.ts";
 
 export const GATEWAY_VERSION = "0.1.0";
@@ -156,6 +164,11 @@ export async function resolveInbound(
   const { body, quoted } = stripQuoted(leading.rest);
   const f = leading.fields ?? {};
   if (f.command) return { kind: "command", command: f.command.trim().toLowerCase(), text: body };
+  if (!leading.fields) {
+    // A mail that says only `sessions` (or `help`), in its text or, with an empty text, in its subject.
+    const bare = isBareCommand(body) ?? (body.trim() === "" ? isBareCommand(mail.subject) : null);
+    if (bare) return { kind: "command", command: bare, text: body };
+  }
 
   let target: string | null = f.to ?? null;
   let replyTo: string | null = f["reply-to"] ?? null;
@@ -319,14 +332,17 @@ export function isGatewaySession(s: SessionRecord): boolean {
   return s.harness === HARNESS || s.harness === "gateway-slack";
 }
 
-/** rosterText lists the sessions a person can write to, the gateways left out. */
+/** rosterText lists the sessions a person can write to: the ones online now, the gateways left out. An offline
+ * session can still be addressed (its mail waits for it), but a person is shown who is there. */
 export function rosterText(
   teamName: string,
   sessions: SessionRecord[],
   gatewaySessionId: string,
   inbox: string,
 ): string {
-  const rows = sessions.filter((s) => s.session_id !== gatewaySessionId && !isGatewaySession(s));
+  const rows = sessions.filter((s) =>
+    s.session_id !== gatewaySessionId && !isGatewaySession(s) && s.state !== "offline"
+  );
   const lines = [
     `Sessions on Brigade team ${teamName} right now (names and labels are their owners' own words):`,
     "",

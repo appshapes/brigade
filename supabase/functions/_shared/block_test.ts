@@ -1,5 +1,6 @@
 import { assertEquals, assertThrows } from "jsr:@std/assert@1";
 import { BlockError, escapeBlockLines, findBlocks, lastBlock, parseLeading, renderBlock } from "./block.ts";
+import { HEADER_KEYS, isBareCommand } from "./block.ts";
 
 Deno.test("renderBlock writes key: value lines, skips empty values and flattens newlines", () => {
   const b = renderBlock([["team", "brigade"], ["summary", null], ["note", "two\nlines"], ["empty", ""]]);
@@ -64,4 +65,32 @@ Deno.test("escapeBlockLines disarms a forged block inside untrusted text", () =>
   const safe = escapeBlockLines(forged);
   assertEquals(findBlocks(safe.split("\n")), []);
   assertEquals(safe, "hello\n\\[brigade]\nto: evil\n\\[/brigade]\nbye");
+});
+
+Deno.test("header lines at the top are directives: known keys only, ended by a blank line or a non-header line", () => {
+  const h = parseLeading("to: 3f9a2\nsummary: Login blank on Safari\n\nSteps: open /login\n");
+  assertEquals(h.fields, { to: "3f9a2", summary: "Login blank on Safari" });
+  assertEquals(h.rest, "Steps: open /login\n");
+  const noBlank = parseLeading("to: 3f9a2\nsummary: short\nThe page is blank.");
+  assertEquals(noBlank.fields, { to: "3f9a2", summary: "short" });
+  assertEquals(noBlank.rest, "The page is blank.");
+  const unknownKey = parseLeading("to: 3f9a2\nnote: urgent\n\nbody");
+  assertEquals(unknownKey.fields, { to: "3f9a2" });
+  assertEquals(unknownKey.rest, "note: urgent\n\nbody");
+  const prose = parseLeading("note: urgent\nto: 3f9a2");
+  assertEquals(prose.fields, null);
+  const upper = parseLeading("To: 3f9a2\nbody");
+  assertEquals(upper.fields, null, "a capitalised key is prose, as before");
+  assertEquals(parseLeading("\n\nto: abcde\n").fields, { to: "abcde" });
+  assertThrows(() => parseLeading("to: a\nto: b\n\nx"), BlockError, "appears twice");
+  assertEquals(HEADER_KEYS.includes("subject"), true);
+});
+
+Deno.test("a text that is only a command word is a bare command", () => {
+  assertEquals(isBareCommand("sessions"), "sessions");
+  assertEquals(isBareCommand("  Brigade Sessions \n"), "sessions");
+  assertEquals(isBareCommand("help"), "help");
+  assertEquals(isBareCommand("sessions please"), null);
+  assertEquals(isBareCommand("to: 3f9a2"), null);
+  assertEquals(isBareCommand(""), null);
 });

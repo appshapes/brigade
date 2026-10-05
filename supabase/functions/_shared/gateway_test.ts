@@ -306,11 +306,20 @@ Deno.test("renderOutbound writes the mail with the block, the reply tag and the 
   assertEquals(b?.["from-principal"], "p1");
 });
 
-Deno.test("rosterText leaves both gateways out and shows the five-character address", () => {
-  const t = rosterText("brigade", sessions, GW, INBOX);
+Deno.test("rosterText shows the sessions online now: both gateways and offline sessions left out", () => {
+  const offline: SessionRecord = {
+    session_id: "bbbbbbbb-0000-4000-8000-0000000000bb",
+    session_name: "gone-home",
+    principal_ref: "p5",
+    human_label: "pat@example.com",
+    state: "offline",
+  };
+  const t = rosterText("brigade", [...sessions, offline], GW, INBOX);
   assertStringIncludes(t, "3f9a2  frank-reviewer  idle  sam@example.com (unverified)");
   assertStringIncludes(t, "↳ reviewing the login fix");
   assertEquals(t.includes("gateway"), false);
+  assertEquals(t.includes("gone-home"), false);
+  assertStringIncludes(rosterText("brigade", [offline], GW, INBOX), "(none)");
 });
 
 Deno.test("the gateway description fits the protocol's cap", () => {
@@ -323,4 +332,44 @@ Deno.test("gatewayForMail picks the gateway whose inbox the mail reached, tags i
   assertEquals(gatewayForMail(gws, [replyTag(INBOX, M1)])?.team, "brigade");
   assertEquals(gatewayForMail(gws, ["nobody@example.com"]), null);
   assertEquals(gatewayForMail([], [INBOX]), null);
+});
+
+Deno.test("a mail that says only sessions, in its text or its subject, is the sessions command", async () => {
+  const t = threads([]);
+  const bodyOnly = await resolveInbound(mail({ text: "sessions\n", subject: "anything" }), INBOX, t);
+  assertEquals(bodyOnly.kind, "command");
+  if (bodyOnly.kind === "command") assertEquals(bodyOnly.command, "sessions");
+  const prefixed = await resolveInbound(mail({ text: "Brigade sessions", subject: "x" }), INBOX, t);
+  assertEquals(prefixed.kind === "command" && prefixed.command, "sessions");
+  const subjectOnly = await resolveInbound(mail({ text: "", subject: "help" }), INBOX, t);
+  assertEquals(subjectOnly.kind === "command" && subjectOnly.command, "help");
+  const quoted = await resolveInbound(
+    mail({ text: "sessions\n\nOn Sat, Oct 4, 2026 Brigade wrote:\n> hi", subject: "Re: x" }),
+    INBOX,
+    t,
+  );
+  assertEquals(quoted.kind, "command", "the quoted part does not count");
+  const prose = await resolveInbound(
+    mail({ text: "sessions are slow today", subject: "sessions" }),
+    INBOX,
+    t,
+  );
+  assertEquals(prose.kind, "unaddressed");
+});
+
+Deno.test("header lines address a mail and carry a summary", async () => {
+  const r = await resolveInbound(
+    mail({
+      text: "to: 3f9a2\nsummary: Login blank on Safari 18\n\nSteps: open /login, sign in.\n",
+      subject: "x",
+    }),
+    INBOX,
+    threads([]),
+  );
+  assertEquals(r.kind, "message");
+  if (r.kind === "message") {
+    assertEquals(r.target, "3f9a2");
+    assertEquals(r.summary, "Login blank on Safari 18");
+    assertEquals(r.text, "Steps: open /login, sign in.");
+  }
 });

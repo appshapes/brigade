@@ -187,8 +187,8 @@ who answers mail or Slack. Both are hosted in the team's backend; nothing runs o
   ```
 
   The gateway delivers within a minute, with your session name and label at the top, and sends you a one-line
-  note if it could not (no `to:` line, an address or name nobody has). A `[brigade]` block at the top of the
-  body does the same as the `to:` line and may add `subject: <text>` for mail.
+  note if it could not (no `to:` line, an address or name nobody has). A `subject:` line under the `to:` line
+  sets a mail's subject.
 - **To answer a message that reached you through a gateway**, reply the normal way, with `--reply-to
   <message-id>` and **no** `to:` line: the gateway knows where it came from and threads the reply there.
 - **A message from a person arrives as an ordinary message from the gateway.** Its body starts
