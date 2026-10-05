@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-10-05
+
 ### Fixed
 
 - **Team messages into a session that bypasses permission prompts** (card 50). Claude Code holds every
