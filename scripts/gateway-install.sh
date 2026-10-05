@@ -65,7 +65,7 @@ secret_file=''
 rotate=''
 team_file='.brigade.json'
 dry=''
-usage="usage: scripts/gateway-install.sh <project-ref> --from 'Name <address>' [--provider resend|postmark|external] [--inbox <address>] [--public-address <address>] [--send-url <url>] [--secret-file <path>] [--rotate] [--dry-run]"
+usage="usage: scripts/gateway-install.sh <project-ref> --from 'Name <address>' [--team-file <path>] [--provider resend|postmark|external] [--inbox <address>] [--public-address <address>] [--send-url <url>] [--secret-file <path>] [--rotate] [--dry-run]"
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) from="$2"; shift 2 ;;
@@ -114,7 +114,7 @@ for tool in curl jq od; do
   command -v "$tool" >/dev/null 2>&1 || { echo "gateway-install: $tool is required" >&2; exit 1; }
 done
 if [ ! -f "$team_file" ]; then
-  echo "gateway-install: $team_file not found; run this at the toplevel of the project, after team create" >&2
+  echo "gateway-install: $team_file not found; pass --team-file <the project's .brigade.json> (make: team_file=), written by team create" >&2
   exit 1
 fi
 
@@ -217,11 +217,17 @@ fi
 # since a mailbox the team routed to the old address would then be ignored. The team's gateways row says it (from
 # migration 20261005090000 on); before that the project's secrets say only the digest of the address, so the
 # provider's candidates are hashed against it below.
-row_inbox=$(sql "select inbox from brigade_gateway.gateways where team_id = $(lit "$team_ref") and kind = 'email'" |
-  jq -r 'if type == "array" then (.[0].inbox // empty) else empty end')
+row=$(sql "select inbox, public_address from brigade_gateway.gateways where team_id = $(lit "$team_ref") and kind = 'email'")
+row_inbox=$(printf '%s' "$row" | jq -r 'if type == "array" then (.[0].inbox // empty) else empty end')
+row_public=$(printf '%s' "$row" | jq -r 'if type == "array" then (.[0].public_address // empty) else empty end')
 if [ -z "$inbox" ] && [ -n "$row_inbox" ]; then
   inbox="$row_inbox"
   say "keeping the receiving address the installed gateway already uses"
+fi
+# The address people are told is kept too, so a re-run without --public-address does not take it back.
+if [ -z "$public_address" ] && [ -n "$row_public" ] && [ "$row_public" != "$row_inbox" ]; then
+  public_address="$row_public"
+  say "keeping the public address the installed gateway already uses"
 fi
 # The project's BRIGADE_TEAM_REF and BRIGADE_MAIL_* secrets describe ONE team: the first installed, or the one
 # the Slack installer named. They are written for that team only, another team's settings live in its row only,
@@ -474,7 +480,7 @@ if [ "$provider" = external ]; then
   echo "  your connector needs: the inbound URL and the connector secret, in $secret_file"
 fi
 if [ -z "$dry" ]; then
-  echo "next: git add $team_file && git commit && git push (it carries only public values); members update the plugin to learn the gateway"
+  echo "next: git add $team_file && git commit && git push (it carries only public values)"
 else
   echo "(dry run: nothing was changed)"
 fi

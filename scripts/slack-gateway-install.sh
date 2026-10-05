@@ -46,7 +46,7 @@ for tool in curl jq od; do
   command -v "$tool" >/dev/null 2>&1 || { echo "slack-gateway-install: $tool is required" >&2; exit 1; }
 done
 if [ ! -f "$team_file" ]; then
-  echo "slack-gateway-install: $team_file not found; run this at the toplevel of the project, after team create" >&2
+  echo "slack-gateway-install: $team_file not found; pass --team-file <the project's .brigade.json> (make: team_file=), written by team create" >&2
   exit 1
 fi
 if [ -n "${SLACK_SECRETS_FILE:-}" ]; then
@@ -264,7 +264,7 @@ echo "  people:             DM @$bot_handle, or mention it in a channel, with a 
 echo "  sessions:           brigade send <slack-gateway> with a first line \"to: @name\", \"to: #channel\" or \"to: <email>\""
 echo "  functions:          $fn_base/slack-in, $fn_base/slack-out"
 if [ -z "$dry" ]; then
-  echo "next: git add $team_file && git commit && git push (it carries only public values); members update the plugin to learn the gateway"
+  echo "next: git add $team_file && git commit && git push (it carries only public values)"
 else
   echo "(dry run: nothing was changed)"
 fi

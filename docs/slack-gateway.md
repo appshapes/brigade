@@ -110,7 +110,8 @@ verified identity; the name is not. The frame carries `in-reply-to` when the per
 
 ### What you need
 
-- A Slack workspace where you may create and install an app.
+- A Slack workspace where you may create and install an app. One Slack gateway per Supabase project: a second
+  team's install takes it over.
 - The Supabase personal access token (`sbp_…`) you used for `make backend-install`.
 - `curl`, `jq` and Node (for `npx`) on the machine you run the command from.
 
@@ -125,11 +126,10 @@ bot scopes to read those, post messages, open direct messages, look people and c
 channels and add a reaction.
 
 The second run, with `SLACK_SECRETS_FILE` set, asks Slack who the bot is, joins the gateway to the team as an
-anonymous member with one session (as the mail gateway's installer does), sets the functions' secrets from a
-0600 file, schedules a `pg_cron` job, `brigade_slack_gateway_tick`, that calls `slack-out` every minute, writes
+anonymous member with one session (as the mail gateway's installer does), stores the token and signing secret as
+function secrets, schedules a `pg_cron` job, `brigade_slack_gateway_tick`, that calls `slack-out` every minute, writes
 `gateway.slack` into `.brigade.json` (the workspace and the bot's handle, public text), and runs one tick so the
-roster shows the gateway at once. `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in the environment work in place
-of the file.
+roster shows the gateway at once.
 
 Neither run prints a token or a secret.
 
@@ -170,10 +170,8 @@ Slash commands and messages from the messages tab**.
 
 ## Limits
 
-- A reply chain is bounded by the protocol's hop cap of 32 ([docs/protocol-v1.md](protocol-v1.md) 4.5.12).
-  Every reply raises the count by one, and an unlabelled message between the same two sessions within ten
-  minutes of the last counts as a reply too, so a very long thread, or a fast back-and-forth, ends with
-  `loop_detected` and the gateway tells the sender. Start a new message, not a reply, to begin a fresh chain.
+- A reply chain stops after 32 hops (`loop_detected`), which also bounds an auto-reply loop. To start afresh,
+  wait ten minutes after the session's last message, then send a new message, not a reply.
 - No files.
 - Edits and deletions in Slack are not carried.
 - The bot posts as one user, so a channel sees `brigade` as the author with the session named in the text.

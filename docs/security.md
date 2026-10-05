@@ -885,8 +885,7 @@ suspected vulnerability.
 
 A team may run the mail gateway of [docs/mail-gateway.md](mail-gateway.md) and the Slack gateway of
 [docs/slack-gateway.md](slack-gateway.md): one more member each, hosted in the team's own Supabase project, that
-turn email or Slack messages into Brigade messages and back. What to know about mail, in the same plain terms as
-the rest of this page, and then what Slack changes.
+turn email or Slack messages into Brigade messages and back. First mail, then what Slack changes.
 
 - **The gateway's address is public and unguarded.** It is in the committed `.brigade.json` and in the roster.
   Anyone who knows it can send text to any session of the team, and the gateway does not check that an email's
@@ -903,7 +902,8 @@ the rest of this page, and then what Slack changes.
   team's sessions, which the public address already allows, and can send mail from the team's address through the
   connector, which the provider's own key already allows. It is a function secret, minted afresh by every run of
   the installer for a shipped connector, kept in the administrator's secret file for a connector of the team's own
-  (`rotate=1` mints a new one), and otherwise never handled by anyone. Postmark signs nothing: its webhook is authenticated by a password in the webhook URL, held by Postmark
+  (`rotate=1` mints a new one), and otherwise never handled by anyone. Postmark signs nothing: its webhook is
+  authenticated by a password in the webhook URL, held by Postmark
   and by the connector.
 - **The gateway is a member, not a grant.** It acts through the same RPCs as every member, under the same limits
   and stamps; the service role still holds nothing in the brigade schema. Its functions use the database
@@ -918,9 +918,9 @@ unguarded-address problem of mail does not arise. The display name beside it is 
 request is checked against the app's signing secret; the URL verification challenge alone is answered unsigned,
 because it carries nothing but a nonce. Slack, Inc. and the workspace's administrators can read everything that
 goes through the gateway. The bot token and signing secret are kept in the project's function secrets and in the
-administrator's file outside the repository. A leaked bot token lets its holder post as the bot and read its
-direct messages. A leaked signing secret lets its holder send the gateway a message as any user id. Neither
-joins the team.
+administrator's file outside the repository. A leaked bot token lets its holder act as the bot: post, read its
+direct messages, and list the workspace's people with their email addresses. A leaked signing secret lets its
+holder send the gateway a message as any user id. Neither joins the team.
 
 ## Accepted for this version
 

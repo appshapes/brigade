@@ -11,21 +11,22 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
-- **People write to the mail gateway without a block** (card 51). A first line `to: <session>` addresses a
-  session, as before; lines such as `summary: …` may follow it, ended by a blank line. Only the keys `to`,
+- **Lines such as `summary:` may follow `to:`, and the one word `sessions` gets the list** (card 51). A first
+  line `to: <session>` addresses a session, as before; lines such as `summary: …` may follow it, ended by a blank
+  line. Only the keys `to`,
   `summary`, `subject`, `reply-to` and `command` count, so prose that starts `note: …` stays in the body. A mail
   whose whole text is `sessions` or `help` (or, with no text, whose subject is) gets the list of sessions back;
   so does a Slack direct message or mention. The `[brigade]` block still works and is still written on the
   gateway's own mails.
-- **The list of sessions a person receives shows only the sessions online now**, by mail and in Slack, without
-  the gateways. An offline session can still be written to; the message waits for it.
+- **The list of sessions a person receives shows only the sessions online now**, by mail and in Slack. An
+  offline session can still be written to; the message waits for it.
 - **[`docs/mail-gateway.md`](docs/mail-gateway.md): a simpler Google Workspace rule for a team address.** It
   changes the envelope recipient to the receiving address and bypasses the spam filter; the address needs no
   mailbox and no alias.
 - **`make gateway-install` and `make slack-gateway-install` take `team_file=`**, the project's `.brigade.json`:
   the commands run from a checkout of Brigade, and the team's project is usually another repository.
-- The functions change: run `make gateway-install` once, and `make slack-gateway-install project=<ref>` once for
-  a Slack gateway (the first pass is enough; ignore the manifest it prints).
+- The functions change: from your Brigade checkout, run your `make gateway-install … team_file=…` command again
+  with the same arguments, and for a Slack gateway the second `make slack-gateway-install … team_file=…` pass.
 
 ## [0.23.0] — 2026-10-05
 

@@ -87,7 +87,7 @@ For administrators, after `make backend-install` and `brigade team create`:
 2. Slack: `make slack-gateway-install project=<ref> team_file=<path>/.brigade.json` twice. The first run prints a
    Slack app manifest to paste at api.slack.com; the second reads the app's token and signing secret from a file
    you name.
-3. Commit the project's `.brigade.json`, which each run changed.
+3. Commit the project's `.brigade.json`, which the commands changed.
 
 People then email the gateway's address, or message its Slack bot, with a first line `to: <session>`. Sessions
 write to a person by sending to the gateway with a first line `to: <address>`, `to: @name` or `to: #channel`.

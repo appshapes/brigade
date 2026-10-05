@@ -40,8 +40,8 @@ checkout and run the command again.
 
 Your administrator gives you the gateway's address.
 
-**See the sessions.** Email the address with just the word `sessions`, in the text or the subject. The list comes
-back by mail: the sessions online now, each with the five characters that name it.
+**See the sessions.** Email the address with just the word `sessions` as the text, or as the subject of an empty
+mail. The list comes back by mail: the sessions online now, each with the five characters that name it.
 
 **Write to a session.** Email the address. The first line names the session:
 
@@ -152,10 +152,11 @@ run the command with `inbox=brigade-team@mail.your-domain.com`.
 
 ### Several teams
 
-Run the command once per team, each with its own `team_file=`. Each team gets its own inbox and address, and a
-mail is routed to the team whose inbox it reached. The teams share the provider's key, the connector secret and
-the tick, so: all use one Resend account; only one can use Postmark; only one can have a Slack gateway; a team
-with a connector of its own runs its command again after any other team's run.
+Run the command once per team, each with its own `team_file=` and its own `from=` address. Each team gets its
+own inbox and address, and a mail is routed to the team whose inbox it reached. The teams share the provider's
+key, the connector secret and the tick, so: all use one Resend account; only one can use Postmark; only one can
+have a Slack gateway; only one can have a connector of its own, and it runs its command again after any other
+team's run.
 
 ## How it works
 
@@ -190,8 +191,6 @@ with a connector of its own runs its command again after any other team's run.
 
 ## Limits
 
-- No auto-reply detection. An out-of-office answer reaches a session as a message. The protocol's hop cap of 32
-  bounds any loop, and bounds a very long reply thread the same way: start a new mail, not a reply, to begin a
-  fresh chain.
-- Two shipped providers, Resend and Postmark. Another needs a connector; a team that wants nothing of the shipped
-  functions runs a gateway of its own ([docs/mail-connectors.md](mail-connectors.md)).
+- No auto-reply detection: an out-of-office answer reaches a session as a message.
+- A reply chain stops after 32 hops (`loop_detected`), which also bounds an auto-reply loop. To start afresh,
+  wait ten minutes after the session's last message, then send a new message, not a reply.

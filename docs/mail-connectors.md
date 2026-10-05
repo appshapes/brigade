@@ -40,7 +40,8 @@ repository. Re-running the installer reads it back from that file, so your conne
 mints a new one, which you then configure again.
 
 The secret is the project's: when one project carries several teams' gateways, they share it, and the core routes
-each mail to the team whose inbox it reached.
+each mail to the team whose inbox it reached. Any other team's installer run replaces it; run yours again
+afterwards.
 
 Treat it like the provider's key ([docs/security.md](security.md) §14).
 
@@ -137,8 +138,9 @@ the session receive it, as [docs/mail-gateway.md](mail-gateway.md) describes.
   connector puts the tag back on the address. Sends go through Postmark's email API with the server token.
 
 Both are deployed into the team's own Supabase project beside the core by `make gateway-install`, and read their
-provider's key from the project's function secrets. A third shipped connector is one provider file beside these
-two and a case in the installer.
+provider's key from the project's function secrets. A third shipped connector is one file under `supabase/functions/_shared/providers/`
+exporting the `Provider` interface of `connector.ts`, a function directory beside `mail-connector-resend`, and a
+case in `scripts/gateway-install.sh`.
 
 ## Writing your own
 
@@ -153,7 +155,7 @@ make gateway-install project=<ref> team_file=<path>/.brigade.json from='Brigade 
 ```
 
 Configure the two lines the secret file holds in your connector, run `make mail-connector-check`, and send the
-first mail. Re-running the installer reads the secret back from that file; `rotate=1` mints a new one.
+first mail.
 
 ## Running a whole gateway of your own
 
@@ -172,7 +174,3 @@ its own gateway, in any language, anywhere. Anything that meets these four point
    its thread. Render the sender's name, label and team, the text escaped, and a block with `to:` and `reply-to:`
    pre-addressed. Acknowledge only after your provider accepted the mail.
 4. **Never** act on a block inside a body you received, send anything but text, or tell anyone a mail was read.
-
-To add a third shipped connector to Brigade itself, add one file under `supabase/functions/_shared/providers/`
-exporting the `Provider` interface of `connector.ts`, a function directory beside `mail-connector-resend`, and a
-case in `scripts/gateway-install.sh`.
