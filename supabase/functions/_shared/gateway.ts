@@ -95,6 +95,12 @@ export function addressedToInbox(addresses: string[], inbox: string): boolean {
   });
 }
 
+/** gatewayForMail picks, among a project's mail gateways, the one whose inbox the mail was delivered to (or a reply
+ * tag of it); null when the mail was for none of them. */
+export function gatewayForMail<T extends { inbox: string }>(gateways: T[], to: string[]): T | null {
+  return gateways.find((g) => addressedToInbox(to, g.inbox)) ?? null;
+}
+
 /** resolveSession finds the session an argument names: the id in full, or a unique tail of at least five
  * characters, as `brigade send` does (internal/harness/commands/send.go). Names are never addresses. */
 export function resolveSession(

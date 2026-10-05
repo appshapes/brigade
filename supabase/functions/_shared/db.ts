@@ -75,6 +75,75 @@ export async function loadGateway(sql: Sql, teamRef: string, kind: GatewayKind):
   return { teamId: r.team_id, teamName: r.team_name, userId: r.user_id, sessionId: r.session_id, kind };
 }
 
+/** MailSettings is what differs between two teams' mail gateways in one project: public values kept in the
+ * gateways row (migration 20261005090000). The secrets are project-wide. */
+export interface MailSettings {
+  inbox: string;
+  publicAddress: string;
+  from: string;
+  provider: string;
+  sendUrl: string;
+}
+
+export type MailGateway = Gateway & MailSettings;
+
+/** mailSettingsFromEnv reads the project's BRIGADE_MAIL_* secrets, which name one team's settings: the fallback
+ * for a gateways row installed before the settings columns existed. */
+export function mailSettingsFromEnv(): { teamRef: string } & MailSettings {
+  const env = (k: string) => Deno.env.get(k) ?? "";
+  const inbox = env("BRIGADE_MAIL_INBOX").toLowerCase();
+  return {
+    teamRef: env("BRIGADE_TEAM_REF"),
+    inbox,
+    publicAddress: (env("BRIGADE_MAIL_PUBLIC_ADDRESS") || inbox).toLowerCase(),
+    from: env("BRIGADE_MAIL_FROM"),
+    provider: env("BRIGADE_MAIL_PROVIDER"),
+    sendUrl: env("BRIGADE_MAIL_SEND_URL"),
+  };
+}
+
+/** listMailGateways returns every mail gateway of the project with its settings, oldest first. A row without
+ * settings takes the project's secrets when it is the team they name, and is left out otherwise. */
+export async function listMailGateways(
+  sql: Sql,
+  fallback: { teamRef: string } & MailSettings,
+): Promise<MailGateway[]> {
+  const rows = await sql`
+    select g.team_id, t.name as team_name, g.user_id, g.session_id,
+           g.inbox, g.public_address, g.from_address, g.provider, g.send_url
+      from brigade_gateway.gateways g join brigade.teams t on t.id = g.team_id
+     where g.kind = 'email'
+     order by g.created_at`;
+  const out: MailGateway[] = [];
+  for (const r of rows) {
+    const base: Gateway = {
+      teamId: r.team_id,
+      teamName: r.team_name,
+      userId: r.user_id,
+      sessionId: r.session_id,
+      kind: "email",
+    };
+    if (r.inbox) {
+      const inbox = String(r.inbox).toLowerCase();
+      out.push({
+        ...base,
+        inbox,
+        publicAddress: String(r.public_address || inbox).toLowerCase(),
+        from: String(r.from_address ?? fallback.from),
+        provider: String(r.provider ?? fallback.provider),
+        sendUrl: String(r.send_url ?? fallback.sendUrl),
+      });
+    } else if (r.team_id === fallback.teamRef && fallback.inbox) {
+      out.push({ ...base, ...fallback });
+    } else {
+      console.error(
+        `mail gateway of team ${r.team_name} has no settings yet: run make gateway-install for it`,
+      );
+    }
+  }
+  return out;
+}
+
 export async function setGatewaySession(
   sql: Sql,
   teamId: string,

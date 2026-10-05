@@ -40,6 +40,9 @@ provider=external … secret_file=<path>` writes it, with the core's inbound URL
 repository. Re-running the installer reads it back from that file, so your connector keeps working; `rotate=1`
 mints a new one, which you then configure again.
 
+The secret is the project's: when one project carries several teams' gateways, they share it, and the core routes
+each mail to the team whose inbox it reached.
+
 Anyone holding the secret can put text in front of the team's sessions, which the public address already allows,
 and can send mail from the team's address through the connector, which the provider's own key already allows.
 Treat it like the provider's key.

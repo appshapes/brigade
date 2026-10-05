@@ -4,6 +4,7 @@ import {
   brigadeBody,
   description,
   type Envelope,
+  gatewayForMail,
   MAX_BODY_BYTES,
   renderOutbound,
   replyTag,
@@ -314,4 +315,12 @@ Deno.test("rosterText leaves both gateways out and shows the five-character addr
 
 Deno.test("the gateway description fits the protocol's cap", () => {
   assertEquals(Array.from(description(INBOX)).length <= 256, true);
+});
+
+Deno.test("gatewayForMail picks the gateway whose inbox the mail reached, tags included", () => {
+  const gws = [{ inbox: INBOX, team: "brigade" }, { inbox: "other@example.resend.app", team: "telder" }];
+  assertEquals(gatewayForMail(gws, ["someone@example.com", "other@example.resend.app"])?.team, "telder");
+  assertEquals(gatewayForMail(gws, [replyTag(INBOX, M1)])?.team, "brigade");
+  assertEquals(gatewayForMail(gws, ["nobody@example.com"]), null);
+  assertEquals(gatewayForMail([], [INBOX]), null);
 });

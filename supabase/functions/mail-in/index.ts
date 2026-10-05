@@ -8,8 +8,9 @@ import { authorized, fromInboundWire, sendClient, SendError } from "../_shared/c
 import {
   asMember,
   connect,
+  listMailGateways,
   listSessions,
-  loadGateway,
+  mailSettingsFromEnv,
   markReceived,
   recordThread,
   RpcError,
@@ -20,6 +21,7 @@ import {
 import {
   addressedToInbox,
   brigadeBody,
+  gatewayForMail,
   resolveInbound,
   resolveSession,
   rosterText,
@@ -42,19 +44,14 @@ Deno.serve(async (req) => {
   const parsed = fromInboundWire(raw);
   if (!parsed.ok) return json(400, { error: parsed.reason });
   const m = parsed.value;
-  const mail = sendClient(env("BRIGADE_MAIL_SEND_URL"), secret);
-
-  const teamRef = env("BRIGADE_TEAM_REF");
-  const inbox = env("BRIGADE_MAIL_INBOX").toLowerCase();
-  const publicAddress = (env("BRIGADE_MAIL_PUBLIC_ADDRESS") || inbox).toLowerCase();
-  const from = env("BRIGADE_MAIL_FROM");
   const sql = connect();
   try {
     if (!(await markReceived(sql, m.providerId))) return json(200, { duplicate: true });
-    const gw = await loadGateway(sql, teamRef, "email");
-    if (!addressedToInbox(m.to, inbox)) {
-      return json(200, { ignored: "not addressed to this gateway's inbox" });
-    }
+    // One project may carry several teams' gateways; the inbox the mail was delivered to says whose it is.
+    const gw = gatewayForMail(await listMailGateways(sql, mailSettingsFromEnv()), m.to);
+    if (!gw) return json(200, { ignored: "not addressed to a gateway inbox of this project" });
+    const { inbox, publicAddress, from } = gw;
+    const mail = sendClient(gw.sendUrl, secret);
     const threads = {
       byBrigadeId: (id: string) => threadByBrigadeId(sql, id),
       byMailIds: (ids: string[]) => threadByMailIds(sql, ids),

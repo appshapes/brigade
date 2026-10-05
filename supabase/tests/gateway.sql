@@ -4,11 +4,16 @@
 -- pin in full; this file pins the new schema the same way, so a later migration cannot quietly expose it.
 begin;
 \ir helpers/auth.sql
-select plan(33);
+select plan(38);
 
 -- 1. The schema and its three tables.
 select has_schema('brigade_gateway', 'the brigade_gateway schema exists');
 select tables_are('brigade_gateway', array['gateways', 'threads', 'received'], 'brigade_gateway holds exactly gateways, threads and received');
+select has_column('brigade_gateway', 'gateways', 'inbox', 'gateways carries the per-team setting inbox (20261005090000)');
+select has_column('brigade_gateway', 'gateways', 'public_address', 'gateways carries the per-team setting public_address (20261005090000)');
+select has_column('brigade_gateway', 'gateways', 'from_address', 'gateways carries the per-team setting from_address (20261005090000)');
+select has_column('brigade_gateway', 'gateways', 'provider', 'gateways carries the per-team setting provider (20261005090000)');
+select has_column('brigade_gateway', 'gateways', 'send_url', 'gateways carries the per-team setting send_url (20261005090000)');
 select ok(c.relrowsecurity, 'RLS enabled: brigade_gateway.' || c.relname)
   from pg_class c where c.relnamespace = 'brigade_gateway'::regnamespace and c.relkind = 'r' order by c.relname;
 select is((select count(*) from pg_class c where c.relnamespace = 'brigade_gateway'::regnamespace and c.relkind = 'r'), 3::bigint,

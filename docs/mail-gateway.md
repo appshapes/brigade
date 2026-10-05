@@ -163,9 +163,13 @@ do one of these:
   set the server's inbound domain to a subdomain of yours and add the MX record `inbound.postmarkapp.com`,
   priority 10, on it. Then run the command with `inbox=brigade-team@your-domain.com`.
 
-### Several teams on one provider account
+### Several teams
 
-Fine. Each team's gateway has its own inbox and reads only the mail addressed to it.
+One Supabase project can carry several teams' gateways: run the installer once per team, from each team's
+checkout. Each team gets its own inbox and address, and a mail is routed to the team whose inbox it reached. The
+connector secret, the providers' keys and the tick are the project's and shared, so one Resend connector serves
+every team on the project. A Postmark server has one inbound address, so one project carries one Postmark team.
+One provider account can likewise serve several projects.
 
 ### Another provider: a connector of your own
 

@@ -40,9 +40,12 @@
 #   4. The gateway principal: when the team has none yet, one anonymous GoTrue sign-up through the project's
 #      publishable key (what every member's `team join` does), then one SQL block through the Management API as
 #      postgres: the membership, the gateway session (registered through brigade.register_session as that
-#      member, harness `gateway-email`, lease 600 s) and the brigade_gateway.gateways row that ties them.
-#   5. The functions' secrets, through the CLI from a 0600 file: the shared ones (team ref, from, inbox, public
-#      address, provider, connector secret, send URL, inbound URL, tick token) and the provider's own.
+#      member, harness `gateway-email`, lease 600 s) and the brigade_gateway.gateways row that ties them and
+#      carries the team's settings (inbox, public address, from, provider, send URL). One project may carry
+#      several teams' gateways: run this once per team, from each team's checkout.
+#   5. The functions' secrets, through the CLI from a 0600 file: the project-wide ones (connector secret, inbound
+#      URL, tick token, the provider's own), and, for the one team the project's BRIGADE_TEAM_REF names (or the
+#      first team installed), the BRIGADE_MAIL_* copies of its settings that a row without settings falls back to.
 #   6. pg_net and one pg_cron job, `brigade_gateway_tick`, that POSTs mail-out every minute with the token.
 #   7. The project's .brigade.json gains "gateway": {"email": "<address>"} (a public value) for the admin to
 #      commit, and one tick is run so the roster shows the gateway at once.
@@ -207,9 +210,21 @@ if [ -z "$connector_secret" ]; then
 fi
 
 # An installed gateway keeps its receiving address across re-runs: a changed --from must not mint a new inbox,
-# since a mailbox the team routed to the old address would then be ignored. The project's secrets say only the
-# digest of the address, so the provider's candidates are hashed against it below.
-inbox_digest=$(secret_digest BRIGADE_MAIL_INBOX)
+# since a mailbox the team routed to the old address would then be ignored. The team's gateways row says it (from
+# migration 20261005090000 on); before that the project's secrets say only the digest of the address, so the
+# provider's candidates are hashed against it below.
+row_inbox=$(sql "select inbox from brigade_gateway.gateways where team_id = $(lit "$team_ref") and kind = 'email'" |
+  jq -r 'if type == "array" then (.[0].inbox // empty) else empty end')
+if [ -z "$inbox" ] && [ -n "$row_inbox" ]; then
+  inbox="$row_inbox"
+  say "keeping the receiving address the installed gateway already uses"
+fi
+inbox_digest=''
+[ -n "$inbox" ] || inbox_digest=$(secret_digest BRIGADE_MAIL_INBOX)
+# The project's BRIGADE_TEAM_REF and BRIGADE_MAIL_* secrets describe ONE team: the first installed, or the one
+# the Slack installer named. They are written for that team only; another team's settings live in its row.
+team_digest=$(secret_digest BRIGADE_TEAM_REF)
+if [ -z "$team_digest" ] || [ "$team_digest" = "$(sha256 "$team_ref")" ]; then env_team=1; else env_team=''; fi
 
 webhook_secret=''
 case "$provider" in
@@ -355,8 +370,11 @@ begin
     v_rec := brigade.register_session(v_team, 'mail-gateway', $(lit "$description"), 'idle', 'accept', 'gateway-email', '0.1.0', null, 600, v_sid);
     v_sid := (v_rec->>'session_id')::uuid;
   end if;
-  insert into brigade_gateway.gateways (team_id, user_id, session_id, kind) values (v_team, v_uid, v_sid, 'email')
-    on conflict (team_id, kind) do update set session_id = excluded.session_id;
+  insert into brigade_gateway.gateways (team_id, user_id, session_id, kind, inbox, public_address, from_address, provider, send_url)
+    values (v_team, v_uid, v_sid, 'email', $(lit "$inbox"), $(lit "$public_address"), $(lit "$from"), $(lit "$provider"), $(lit "$send_url"))
+    on conflict (team_id, kind) do update set session_id = excluded.session_id, inbox = excluded.inbox,
+      public_address = excluded.public_address, from_address = excluded.from_address, provider = excluded.provider,
+      send_url = excluded.send_url;
   perform set_config('request.jwt.claim.sub', '', true);
 end \$\$"
   out=$(sql "$block")
@@ -370,21 +388,25 @@ fi
 
 # 5. secrets
 tick=$(mint)
-shared='BRIGADE_TEAM_REF, BRIGADE_MAIL_FROM, BRIGADE_MAIL_INBOX, BRIGADE_MAIL_PUBLIC_ADDRESS, BRIGADE_MAIL_PROVIDER, BRIGADE_MAIL_CONNECTOR_SECRET, BRIGADE_MAIL_SEND_URL, BRIGADE_MAIL_INBOUND_URL, BRIGADE_TICK_TOKEN'
+shared='BRIGADE_MAIL_CONNECTOR_SECRET, BRIGADE_MAIL_INBOUND_URL, BRIGADE_TICK_TOKEN'
+team_copies='BRIGADE_TEAM_REF, BRIGADE_MAIL_FROM, BRIGADE_MAIL_INBOX, BRIGADE_MAIL_PUBLIC_ADDRESS, BRIGADE_MAIL_PROVIDER, BRIGADE_MAIL_SEND_URL'
 case "$provider" in
   resend) own='RESEND_API_KEY, RESEND_WEBHOOK_SECRET' ;;
   postmark) own='POSTMARK_SERVER_TOKEN, POSTMARK_WEBHOOK_SECRET' ;;
   *) own='' ;;
 esac
+[ -n "$env_team" ] || say "the project's secrets name another team; this team's settings live in its gateway row only"
 if [ -z "$dry" ]; then
   {
-    printf 'BRIGADE_TEAM_REF=%s\n' "$team_ref"
-    printf 'BRIGADE_MAIL_FROM=%s\n' "$from"
-    printf 'BRIGADE_MAIL_INBOX=%s\n' "$inbox"
-    printf 'BRIGADE_MAIL_PUBLIC_ADDRESS=%s\n' "$public_address"
-    printf 'BRIGADE_MAIL_PROVIDER=%s\n' "$provider"
+    if [ -n "$env_team" ]; then
+      printf 'BRIGADE_TEAM_REF=%s\n' "$team_ref"
+      printf 'BRIGADE_MAIL_FROM=%s\n' "$from"
+      printf 'BRIGADE_MAIL_INBOX=%s\n' "$inbox"
+      printf 'BRIGADE_MAIL_PUBLIC_ADDRESS=%s\n' "$public_address"
+      printf 'BRIGADE_MAIL_PROVIDER=%s\n' "$provider"
+      printf 'BRIGADE_MAIL_SEND_URL=%s\n' "$send_url"
+    fi
     printf 'BRIGADE_MAIL_CONNECTOR_SECRET=%s\n' "$connector_secret"
-    printf 'BRIGADE_MAIL_SEND_URL=%s\n' "$send_url"
     printf 'BRIGADE_MAIL_INBOUND_URL=%s\n' "$inbound_url"
     printf 'BRIGADE_TICK_TOKEN=%s\n' "$tick"
     case "$provider" in
@@ -399,9 +421,9 @@ if [ -z "$dry" ]; then
     esac
   } > "$work/secrets.env"
   $supabase_cmd secrets set --project-ref "$ref" --env-file "$work/secrets.env" >/dev/null
-  say "function secrets set: $shared${own:+, $own}"
+  say "function secrets set: $shared${own:+, $own}${env_team:+, $team_copies}"
 else
-  say "would set function secrets: $shared${own:+, $own}"
+  say "would set function secrets: $shared${own:+, $own}${env_team:+, $team_copies}"
 fi
 
 # 6. the tick

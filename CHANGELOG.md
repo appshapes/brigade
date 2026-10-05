@@ -9,6 +9,22 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **Several teams' mail gateways in one Supabase project** (card 49). The settings that differ per team (the inbox,
+  the public address, the From, the provider, the connector's send URL) live in the team's gateway row
+  (migration `20261005090000_mail_gateway_settings.sql`) instead of the project's function secrets, which are one
+  set per project. The core routes a received mail to the team whose inbox it reached and ticks every gateway of
+  the project in turn; the connector secret, the providers' keys and the tick are shared. Run
+  `make gateway-install` once per team, from each team's checkout. A Postmark server has one inbound address, so one
+  project carries one Postmark team.
+
+### Changed
+
+- **Run `make gateway-install` once after updating**, as for 0.21.0: it applies the migration and writes the
+  team's settings into its row. Until then a gateway installed by an earlier version keeps working from the
+  project's secrets.
+
 ## [0.21.0] — 2026-10-04
 
 ### Added
