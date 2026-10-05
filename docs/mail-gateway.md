@@ -113,7 +113,8 @@ the person's mail.
 - **Resend:** an account whose sending domain is verified; the `from` address must be on it. The free plan's 3,000
   mails a month is plenty. The API key goes in `RESEND_API_KEY`.
 - **Postmark:** a server, and a confirmed sender signature or domain for the `from` address. Until Postmark
-  approves the account, it sends only to addresses on the account's own confirmed domains; receiving works
+  approves the account (a form on the account page), it refuses any recipient whose domain differs from the
+  `from` address's (error 412), so the gateway can mail only people on the team's own domain; receiving works
   regardless. The server's API token goes in `POSTMARK_SERVER_TOKEN`.
 - **Another provider:** a connector of your own, [docs/mail-connectors.md](mail-connectors.md).
 - The Supabase personal access token (`sbp_…`) you used for `make backend-install`.
