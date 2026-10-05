@@ -116,8 +116,11 @@ marker file.
   honouring the user-file accept for a non-child poster.
 - **`scripts/harness-smoke.sh` is stale**: it still drives `brigade profile` (gone since P7-6) and stops before
   Claude Code starts. The card 50 arm (`mode=bypassPermissions`) is in it for the day it is ported.
-- **The thinktech repositories** still carry the no-op `accept` in `.claude/settings.json`; harmless, but
-  misleading. Remove when convenient.
+- ~~The thinktech repositories still carry the no-op `accept`~~ Done 2026-10-05 on the owner's request ("clean up
+  the useless repo-level accept wherever it exists"): removed from eleven checkouts under `~/Development` — the
+  three aafp repositories, telder, thinktech-api, thinktech-app, thinktech (php) and thinktech-web, one commit per
+  repository pushed from one clone each, the duplicate clones pulled; a file that held only the member was
+  deleted. The user files keep theirs.
 - **Measure the fix live** from a teammate's session into a bypass session with the user-file accept: this
   change was verified by code, documentation and the owner's observation of the hold, not by a delivered
   message.
