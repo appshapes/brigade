@@ -40,6 +40,10 @@ if [ -z "$ref" ]; then
   echo "usage: scripts/slack-gateway-install.sh <project-ref> [--team-file <path>] [--dry-run]" >&2
   exit 2
 fi
+# zsh does not expand ~ after `team_file=` in a make argument; do it here (the quoted tilde is the literal we
+# look for, hence the shellcheck directive).
+# shellcheck disable=SC2088
+case $team_file in '~/'*) team_file=$HOME/${team_file#'~/'} ;; esac
 : "${SUPABASE_ACCESS_TOKEN:?set SUPABASE_ACCESS_TOKEN to a personal access token (sbp_...) first; see docs/setup.md}"
 supabase_cmd="${SUPABASE:-npx --yes supabase@2.116.0}"
 for tool in curl jq od; do

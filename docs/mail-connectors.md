@@ -20,7 +20,7 @@ A connector does two things:
 2. **Serves a send endpoint** that accepts the outbound shape below, sends the mail through the provider, and
    answers with the provider's id.
 
-The shipped connectors are each one file of about a hundred lines over a shared handler:
+The shipped connectors are each one short file over a shared handler:
 `supabase/functions/_shared/providers/resend.ts`, `supabase/functions/_shared/providers/postmark.ts`,
 `supabase/functions/_shared/connector_serve.ts`.
 
@@ -33,11 +33,11 @@ The installer mints one **connector secret**. The core sends it to your send end
 - `Authorization: Basic <base64 of anything:secret>` (the password; the user name is not checked)
 - the path segment after the endpoint's name, `…/mail-in/<secret>`, for a tool that can only be given a URL
 
-For a shipped connector you never see the secret: it lives in the project's function secrets and the installer
-mints a fresh one, for the core and the connector together, on every run. For your own, `make gateway-install
-provider=external … secret_file=<path>` writes it, with the core's inbound URL, to a file you name by absolute
-path, outside any repository. Re-running the installer reads it back from that file, so your connector keeps working; `rotate=1`
-mints a new one, which you then configure again.
+For a shipped connector you never see the secret: it lives in the project's function secrets and the installer mints a
+fresh one, for the core and the connector together, on every run. For your own, `make gateway-install
+provider=external … secret_file=<path>` writes it, with the core's inbound URL, to a file you name by absolute path,
+outside any repository. Re-running the installer reads it back from that file, so your connector keeps working;
+`rotate=1` mints a new one, which you then configure again.
 
 The secret is the project's: when one project carries several teams' gateways, they share it, and the core routes
 each mail to the team whose inbox it reached. Any other team's installer run replaces it; run yours again

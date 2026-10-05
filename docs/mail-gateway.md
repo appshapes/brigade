@@ -14,7 +14,7 @@ Resend and Postmark ship with Brigade, and any other provider is a small connect
 2. Install the backend and create the team, if not done yet:
    [docs/setup.md › Administrator: create a team](setup.md#administrator-create-a-team).
 3. From your checkout of the Brigade repository, where you ran `make backend-install`, run one of these.
-   `team_file=` is the project's `.brigade.json`; leave it out when the project is this repository.
+   `team_file=` is the project's `.brigade.json`, by its full path.
 
    ```sh
    read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN   # paste sbp_…; nothing is echoed
@@ -125,8 +125,9 @@ prints none), schedules a once-a-minute job that sends the sessions' mail, and a
 ### Running it again
 
 Safe. It keeps the gateway member, its receiving address and the address people write to, redeploys the
-functions, resets the provider's webhook and rotates the tick token and the connector secret. To rotate the provider's key, run it again with the
-new key in the environment. A connector of your own keeps its secret: [docs/mail-connectors.md](mail-connectors.md).
+functions, resets the provider's webhook and rotates the tick token and the connector secret. To rotate the
+provider's key, run it again with the new key in the environment. A connector of your own keeps its secret:
+[docs/mail-connectors.md](mail-connectors.md).
 
 ### An address of the team's own
 
@@ -155,8 +156,7 @@ run the command with `inbox=brigade-team@mail.your-domain.com`.
 Run the command once per team, each with its own `team_file=` and its own `from=` address. Each team gets its
 own inbox and address, and a mail is routed to the team whose inbox it reached. The teams share the provider's
 key, the connector secret and the tick, so: all use one Resend account; only one can use Postmark; only one can
-have a Slack gateway; only one can have a connector of its own, and it runs its command again after any other
-team's run.
+have a connector of its own, and it runs its command again after any other team's run.
 
 ## How it works
 

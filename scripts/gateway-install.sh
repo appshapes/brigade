@@ -85,6 +85,12 @@ if [ -z "$ref" ] || [ -z "$from" ]; then
   echo "$usage" >&2
   exit 2
 fi
+# zsh does not expand ~ after `team_file=` in a make argument; do it here (the quoted tilde is the literal we
+# look for, hence the shellcheck directive).
+# shellcheck disable=SC2088
+case $team_file in '~/'*) team_file=$HOME/${team_file#'~/'} ;; esac
+# shellcheck disable=SC2088
+case $secret_file in '~/'*) secret_file=$HOME/${secret_file#'~/'} ;; esac
 case "$provider" in
   resend|postmark|external) ;;
   *) echo "gateway-install: --provider must be resend, postmark or external (got '$provider')" >&2; exit 2 ;;

@@ -13,10 +13,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 - **Lines such as `summary:` may follow `to:`, and the one word `sessions` gets the list** (card 51). A first line
   `to: <session>` addresses a session, as before; lines such as `summary: …` may follow it, ended by a blank line.
-  Only the keys `to`, `summary`, `subject`, `reply-to` and `command` count, so prose that starts `note: …` stays in
-  the body. A mail whose whole text is `sessions` or `help` (or, with no text, whose subject is) gets the list of
-  sessions back; so does a Slack direct message or mention. The `[brigade]` block still works and is still written on
-  the gateway's own mails.
+  Only the keys `to`, `summary`, `subject`, `reply-to` and `command` count, in any case, so prose that starts `note:
+  …` stays in the body. A mail whose whole text is `sessions` or `help` (or, with no text, whose subject is) gets the
+  list of sessions back; so does a Slack direct message or mention. The `[brigade]` block still works and is still
+  written on the gateway's own mails.
 - **The list of sessions a person receives shows only the sessions online now**, by mail and in Slack. An
   offline session can still be written to; the message waits for it.
 - **[`docs/mail-gateway.md`](docs/mail-gateway.md): a simpler Google Workspace rule for a team address.** It
@@ -30,8 +30,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Fixed
 
-- Running `make gateway-install` again keeps the address people write to; leaving out `public_address=` no longer
-  resets it to the receiving address (card 51).
+- Running `make gateway-install` again without `public_address=` no longer resets the address people write to
+  (card 51).
 
 ## [0.23.0] — 2026-10-05
 

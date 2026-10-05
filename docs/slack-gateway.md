@@ -12,8 +12,8 @@ You run one command twice, with a step at Slack in between.
 1. Install the backend and create the team, if not done yet:
    [docs/setup.md › Administrator: create a team](setup.md#administrator-create-a-team).
 2. From your checkout of the Brigade repository, where you ran `make backend-install`, run the first pass. It
-   deploys the functions and prints a Slack app manifest. `team_file=` is the project's `.brigade.json`; leave it
-   out when the project is this repository.
+   deploys the functions and prints a Slack app manifest. `team_file=` is the project's `.brigade.json`, by its
+   full path.
 
    ```sh
    read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN   # paste sbp_…; nothing is echoed
@@ -126,10 +126,9 @@ bot scopes to read those, post messages, open direct messages, look people and c
 channels and add a reaction.
 
 The second run, with `SLACK_SECRETS_FILE` set, asks Slack who the bot is, joins the gateway to the team as an
-anonymous member with one session (as the mail gateway's installer does), stores the token and signing secret as
-function secrets, schedules a `pg_cron` job, `brigade_slack_gateway_tick`, that calls `slack-out` every minute, writes
-`gateway.slack` into `.brigade.json` (the workspace and the bot's handle, public text), and runs one tick so the
-roster shows the gateway at once.
+anonymous member with one session, stores the token and signing secret as function secrets, schedules a `pg_cron` job,
+`brigade_slack_gateway_tick`, that calls `slack-out` every minute, writes `gateway.slack` into `.brigade.json` (the
+workspace and the bot's handle, public text), and runs one tick so the roster shows the gateway at once.
 
 Neither run prints a token or a secret.
 
