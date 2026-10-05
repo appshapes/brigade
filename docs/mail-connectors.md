@@ -35,8 +35,8 @@ The installer mints one **connector secret**. The core sends it to your send end
 
 For a shipped connector you never see the secret: it lives in the project's function secrets and the installer
 mints a fresh one, for the core and the connector together, on every run. For your own, `make gateway-install
-provider=external … secret_file=<path>` writes it, with the core's inbound URL, to a file you name outside the
-repository. Re-running the installer reads it back from that file, so your connector keeps working; `rotate=1`
+provider=external … secret_file=<path>` writes it, with the core's inbound URL, to a file you name by absolute
+path, outside any repository. Re-running the installer reads it back from that file, so your connector keeps working; `rotate=1`
 mints a new one, which you then configure again.
 
 The secret is the project's: when one project carries several teams' gateways, they share it, and the core routes

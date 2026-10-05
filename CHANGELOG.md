@@ -11,13 +11,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
-- **Lines such as `summary:` may follow `to:`, and the one word `sessions` gets the list** (card 51). A first
-  line `to: <session>` addresses a session, as before; lines such as `summary: …` may follow it, ended by a blank
-  line. Only the keys `to`,
-  `summary`, `subject`, `reply-to` and `command` count, so prose that starts `note: …` stays in the body. A mail
-  whose whole text is `sessions` or `help` (or, with no text, whose subject is) gets the list of sessions back;
-  so does a Slack direct message or mention. The `[brigade]` block still works and is still written on the
-  gateway's own mails.
+- **Lines such as `summary:` may follow `to:`, and the one word `sessions` gets the list** (card 51). A first line
+  `to: <session>` addresses a session, as before; lines such as `summary: …` may follow it, ended by a blank line.
+  Only the keys `to`, `summary`, `subject`, `reply-to` and `command` count, so prose that starts `note: …` stays in
+  the body. A mail whose whole text is `sessions` or `help` (or, with no text, whose subject is) gets the list of
+  sessions back; so does a Slack direct message or mention. The `[brigade]` block still works and is still written on
+  the gateway's own mails.
 - **The list of sessions a person receives shows only the sessions online now**, by mail and in Slack. An
   offline session can still be written to; the message waits for it.
 - **[`docs/mail-gateway.md`](docs/mail-gateway.md): a simpler Google Workspace rule for a team address.** It
@@ -25,8 +24,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   mailbox and no alias.
 - **`make gateway-install` and `make slack-gateway-install` take `team_file=`**, the project's `.brigade.json`:
   the commands run from a checkout of Brigade, and the team's project is usually another repository.
-- The functions change: from your Brigade checkout, run your `make gateway-install … team_file=…` command again
-  with the same arguments, and for a Slack gateway the second `make slack-gateway-install … team_file=…` pass.
+- **Run the installers again after updating**: from your Brigade checkout, run your `make gateway-install …
+  team_file=…` command again with the same arguments, and for a Slack gateway the second
+  `make slack-gateway-install … team_file=…` pass.
+
+### Fixed
+
+- Running `make gateway-install` again keeps the address people write to; leaving out `public_address=` no longer
+  resets it to the receiving address (card 51).
 
 ## [0.23.0] — 2026-10-05
 

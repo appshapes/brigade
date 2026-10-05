@@ -897,20 +897,18 @@ turn email or Slack messages into Brigade messages and back. First mail, then wh
   provider (Resend, Postmark, or the team's own connector) and for the person's mail provider and client, and
   stays in their mailbox and backups. Section 2's "the person who runs the backend can read everything" gains
   those readers for exactly the messages that go through the gateway.
-- **The connector secret.** Mail passes between the gateway's core and its connector under one secret the
-  installer mints ([docs/mail-connectors.md](mail-connectors.md)). Whoever holds it can put text in front of the
-  team's sessions, which the public address already allows, and can send mail from the team's address through the
-  connector, which the provider's own key already allows. It is a function secret, minted afresh by every run of
-  the installer for a shipped connector, kept in the administrator's secret file for a connector of the team's own
-  (`rotate=1` mints a new one), and otherwise never handled by anyone. Postmark signs nothing: its webhook is
-  authenticated by a password in the webhook URL, held by Postmark
-  and by the connector.
-- **The gateway is a member, not a grant.** It acts through the same RPCs as every member, under the same limits
-  and stamps; the service role still holds nothing in the brigade schema. Its functions use the database
-  connection Supabase gives every Edge Function; they add no access the project did not already grant. Its own
-  tables are not on the Data API and have no policy and no grant.
-- **A loop is bounded, not prevented.** An auto-responder answering the gateway, and a model answering it back,
-  would go on until the protocol's hop cap of 32; the gateway does not yet recognise auto-replies.
+- **The connector secret.** Mail passes between the gateway's core and its connector under one secret the installer
+  mints ([docs/mail-connectors.md](mail-connectors.md)). Whoever holds it can put text in front of the team's
+  sessions, which the public address already allows, and can send mail from the team's address through the connector,
+  which the provider's own key already allows. It is a function secret, minted afresh by every run of the installer
+  for a shipped connector, kept in the administrator's secret file for a connector of the team's own (`rotate=1` mints
+  a new one), and otherwise never handled by anyone. Postmark signs nothing: its webhook is authenticated by a
+  password in the webhook URL, held by Postmark and by the connector. - **The gateway is a member, not a grant.** It
+  acts through the same RPCs as every member, under the same limits and stamps; the service role still holds nothing
+  in the brigade schema. Its functions use the database connection Supabase gives every Edge Function; they add no
+  access the project did not already grant. Its own tables are not on the Data API and have no policy and no grant. -
+  **A loop is bounded, not prevented.** An auto-responder answering the gateway, and a model answering it back, would
+  go on until the protocol's hop cap of 32; the gateway does not yet recognise auto-replies.
 
 **What Slack changes.** Slack authenticates the person: the user id a session is told (`from: U0123…`) is a
 verified identity in that workspace, and only the workspace's members and guests can reach the bot, so the

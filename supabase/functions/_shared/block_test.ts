@@ -79,8 +79,8 @@ Deno.test("header lines at the top are directives: known keys only, ended by a b
   assertEquals(unknownKey.rest, "note: urgent\n\nbody");
   const prose = parseLeading("note: urgent\nto: 3f9a2");
   assertEquals(prose.fields, null);
-  const upper = parseLeading("To: 3f9a2\nbody");
-  assertEquals(upper.fields, null, "a capitalised key is prose, as before");
+  const upper = parseLeading("To: 3f9a2\nSummary: phones capitalise\n\nbody");
+  assertEquals(upper.fields, { to: "3f9a2", summary: "phones capitalise" }, "a key's case does not matter");
   assertEquals(parseLeading("\n\nto: abcde\n").fields, { to: "abcde" });
   assertThrows(() => parseLeading("to: a\nto: b\n\nx"), BlockError, "appears twice");
   assertEquals(HEADER_KEYS.includes("subject"), true);

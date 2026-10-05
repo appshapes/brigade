@@ -24,7 +24,7 @@ You run one command twice, with a step at Slack in between.
    command printed, **Create**, then **Install to Workspace**.
 4. Copy two values from the app's pages: **Basic Information → Signing Secret**, and **OAuth & Permissions →
    Bot User OAuth Token** (`xoxb-…`). Put them in a file outside any repository, readable by you alone:
-   `umask 077; cat > ~/brigade-slack.env`, paste the two lines, press Ctrl-D.
+   `(umask 077; cat > ~/brigade-slack.env)`, paste the two lines, press Ctrl-D.
 
    ```
    SLACK_BOT_TOKEN=xoxb-…
@@ -51,7 +51,7 @@ The bot is `@brigade` unless your administrator tells you otherwise.
 a direct message or a mention. The list shows the sessions online now.
 
 **Write to a session.** Send the bot a direct message, or mention it in a channel. The first line names the
-session:
+session; press Shift+Enter to start the next line:
 
 ```
 to: 3f9a2

@@ -124,8 +124,8 @@ prints none), schedules a once-a-minute job that sends the sessions' mail, and a
 
 ### Running it again
 
-Safe. It keeps the gateway member and its receiving address, redeploys the functions, resets the provider's
-webhook and rotates the tick token and the connector secret. To rotate the provider's key, run it again with the
+Safe. It keeps the gateway member, its receiving address and the address people write to, redeploys the
+functions, resets the provider's webhook and rotates the tick token and the connector secret. To rotate the provider's key, run it again with the
 new key in the environment. A connector of your own keeps its secret: [docs/mail-connectors.md](mail-connectors.md).
 
 ### An address of the team's own

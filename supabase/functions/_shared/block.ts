@@ -17,11 +17,12 @@
 export const OPEN = "[brigade]";
 export const CLOSE = "[/brigade]";
 
-/** HEADER_KEYS are the keys a header line may use. Only these count, so a lowercase word with a colon at the
+/** HEADER_KEYS are the keys a header line may use, in any case. Only these count, so a word with a colon at the
  * start of someone's prose (`note: urgent`) ends the headers and stays in the body. */
 export const HEADER_KEYS = ["to", "command", "summary", "subject", "reply-to"] as const;
 
-const KEY = /^([a-z][a-z0-9-]*):\s?(.*)$/;
+// A key in any case: phones capitalise the first letter of a line, so `To: 3f9a2` must read as `to:`.
+const KEY = /^([A-Za-z][A-Za-z0-9-]*):\s?(.*)$/;
 
 export type Fields = Record<string, string>;
 
@@ -69,8 +70,9 @@ export function findBlocks(lines: string[]): Span[] {
       if (l === "") continue;
       const m = KEY.exec(l);
       if (!m) throw new BlockError(`line ${j + 1} inside the [brigade] block is not "key: value"`);
-      if (m[1] in fields) throw new BlockError(`the [brigade] block names "${m[1]}" twice`);
-      fields[m[1]] = m[2].trim();
+      const key = m[1].toLowerCase();
+      if (key in fields) throw new BlockError(`the [brigade] block names "${key}" twice`);
+      fields[key] = m[2].trim();
     }
     out.push({ fields, start: i, end });
     i = end;
@@ -98,9 +100,10 @@ export function parseLeading(text: string): { fields: Fields | null; rest: strin
     const l = lines[j].trim();
     if (l === "") break;
     const m = KEY.exec(l);
-    if (!m || !(HEADER_KEYS as readonly string[]).includes(m[1])) break;
-    if (m[1] in fields) throw new BlockError(`the line "${m[1]}:" appears twice at the top of the text`);
-    fields[m[1]] = m[2].trim();
+    const key = m?.[1].toLowerCase();
+    if (!m || !key || !(HEADER_KEYS as readonly string[]).includes(key)) break;
+    if (key in fields) throw new BlockError(`the line "${key}:" appears twice at the top of the text`);
+    fields[key] = m[2].trim();
   }
   if (j === i) return { fields: null, rest: text };
   return { fields, rest: trimLeadingBlank(lines.slice(j)) };
