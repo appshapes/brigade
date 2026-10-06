@@ -213,8 +213,10 @@ sets another value names it in one line at start. That line shows the configured
 whose lease range ends below three heartbeats the session beats faster, at a third of the lease (both bundled
 adapters allow 600 seconds, so neither does). A value Brigade cannot use (not a whole number, or out of range)
 makes the whole member unusable: the session says so in one line at start and runs on the defaults. A session picks up an edited member at
-its next start or `/clear`; `team create --force` carries the member into the file it rewrites. A plugin from before
-the member ignores it, names it in one line at session start, and keeps its own faster timers.
+its next start or `/clear`; `team create --force` carries the member into the file it rewrites. A plugin of 0.11.0
+or later that predates the member ignores it, names it in one line at session start, and keeps its own faster
+timers. A plugin of 0.10.0 or earlier refuses the whole file instead, exactly as it does for a `sync` member: the
+version rule below holds for `polling` too.
 
 For a team on Supabase's free plan that wants the fewest requests:
 
@@ -227,9 +229,9 @@ inbox checks, 4 roster reads), against about 60 at the defaults and about 480 be
 session in use adds one heartbeat each time it turns busy or idle. The cost: a crashed session shows online for up
 to 10 minutes, and a new teammate joins folder sync within 15 minutes.
 
-**Every member's plugin must be 0.11.0 or later before the project commits a `sync` member.** A plugin of 0.10.0
-or earlier reads `.brigade.json` against a closed schema and refuses the whole file — `team_file_unknown_field`
-for the `sync` member, `team_file_too_large` for a file over 4096 bytes — so its sessions say `Brigade: not
+**Every member's plugin must be 0.11.0 or later before the project commits a `sync` or a `polling` member.** A
+plugin of 0.10.0 or earlier reads `.brigade.json` against a closed schema and refuses the whole file —
+`team_file_unknown_field` for either member, `team_file_too_large` for a file over 4096 bytes — so its sessions say `Brigade: not
 connected (config: team_file_unknown_field): fix .brigade.json.` and connect to nothing, chat included, until that
 member runs `/brigade:update`. The `VERSION` column of `brigade sessions` shows who is behind.
 
