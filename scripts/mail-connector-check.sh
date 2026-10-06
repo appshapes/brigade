@@ -27,6 +27,8 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$send_url" ] || { echo "usage: scripts/mail-connector-check.sh <send-url> (--secret-file <path> | BRIGADE_MAIL_CONNECTOR_SECRET set) [--send-to <address> --from 'Name <address>']" >&2; exit 2; }
 if [ -n "$secret_file" ]; then
+  # shellcheck disable=SC2088
+  case $secret_file in '~/'*) secret_file=$HOME/${secret_file#'~/'} ;; esac
   BRIGADE_MAIL_CONNECTOR_SECRET=$(sed -n 's/^BRIGADE_MAIL_CONNECTOR_SECRET=//p' "$secret_file" | head -1)
 fi
 : "${BRIGADE_MAIL_CONNECTOR_SECRET:?set BRIGADE_MAIL_CONNECTOR_SECRET, or pass --secret-file <path>}"

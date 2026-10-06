@@ -387,8 +387,15 @@ export function renderSlackText(
     ["to", env.sender.session_id],
     ["reply-to", env.message_id],
   ]);
+  // The app hears direct messages and mentions only, so a reply in a channel thread must mention the bot.
+  const inChannel = out.target.kind === "channel" || out.target.kind === "channel-name"
+    ? !(out.target.kind === "channel" && out.target.id.startsWith("D"))
+    : false;
+  const how = inChannel
+    ? `Reply in this thread and mention @${ctx.botHandle} to answer.`
+    : "Reply in this thread to answer.";
   const tail =
-    `\n_Reply in this thread to answer. To write to another session, message @${ctx.botHandle} with a first line "to: <session>"._`;
+    `\n_${how} To write to another session, message @${ctx.botHandle} with a first line "to: <session>"._`;
   return head + escapeMrkdwn(escapeBlockLines(out.text.trim())) + "\n\n```\n" + block + "\n```" + tail;
 }
 

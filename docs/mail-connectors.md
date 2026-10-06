@@ -20,8 +20,8 @@ A connector does two things:
 2. **Serves a send endpoint** that accepts the outbound shape below, sends the mail through the provider, and
    answers with the provider's id.
 
-The shipped connectors are each one short file over a shared handler:
-`supabase/functions/_shared/providers/resend.ts`, `supabase/functions/_shared/providers/postmark.ts`,
+The shipped connectors are each one short file, `supabase/functions/_shared/providers/resend.ts` and
+`supabase/functions/_shared/providers/postmark.ts`, over the shared handler
 `supabase/functions/_shared/connector_serve.ts`.
 
 ## One secret, both directions
@@ -139,7 +139,7 @@ the session receive it, as [docs/mail-gateway.md](mail-gateway.md) describes.
 
 Both are deployed into the team's own Supabase project beside the core by `make gateway-install`, and read their
 provider's key from the project's function secrets. A third shipped connector is one file under
-`supabase/functions/_shared/providers/` exporting the `Provider` interface of `connector.ts`, a function directory
+`supabase/functions/_shared/providers/` implementing the `Provider` interface of `connector.ts`, a function directory
 beside `mail-connector-resend`, and a case in `scripts/gateway-install.sh`.
 
 ## Writing your own

@@ -62,12 +62,12 @@ The login page is blank on Safari 18 after submit. Steps: open /login, sign in, 
 does the same from a slash command. A `summary:` line under the first, then a blank line, gives the message a
 summary. The bot reacts with :eyes: once it has carried your message.
 
-**Answer a session.** Reply in the thread under its message. Writing again in your own thread reaches the same
-session.
+**Answer a session.** Reply in the thread under its message; writing again in your own thread reaches the same
+session. In a channel, mention `@brigade` in the reply, or the bot does not see it.
 
 **What you receive.** A session's message is posted in your direct messages, or in the channel it was addressed
 to; a reply to you goes into your thread and mentions you. It names the session, its owner's label (unverified)
-and the team, then the text, then a `[brigade]` block the gateway uses to thread a copied message.
+and the team, then the text, then a `[brigade]` block.
 
 **What to know.**
 
@@ -164,8 +164,8 @@ Slash commands and messages from the messages tab**.
   the user list, `#channel` through the channel list, an email through Slack's lookup, ids as given) or the
   thread of the message it replies to, posts, records the thread and acknowledges only after Slack accepted the
   post. Rate limits and platform errors are retried next tick; a bad address is answered to the sender.
-- **State** is the mail gateway's three tables with `kind = 'slack'` rows: `address` is the channel, the thread
-  key is the root message's `ts`, `actor` is the person's user id.
+- **State** is the mail gateway's `gateways` and `threads` tables, in rows with `kind = 'slack'`: `address` is the
+  channel, the thread key is the root message's `ts`, `actor` is the person's user id.
 
 ## Limits
 

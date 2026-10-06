@@ -278,7 +278,7 @@ case "$provider" in
       if [ -n "$dry" ]; then
         inbox="<a Resend-managed receiving address, created on the real run>"
       else
-        echo "gateway-install: Resend did not provide a receiving address; enable receiving in the Resend dashboard and pass --inbox <address>" >&2
+        echo "gateway-install: Resend did not provide a receiving address: the API key may lack full access, or receiving is off in the Resend dashboard (then pass --inbox <address>)" >&2
         exit 1
       fi
     fi

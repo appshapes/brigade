@@ -8,7 +8,8 @@ Resend and Postmark ship with Brigade, and any other provider is a small connect
 
 ## TL;DR for administrators
 
-1. Have a [Resend](https://resend.com) account with a verified sending domain and an API key (`re_…`), or a
+1. Have a [Resend](https://resend.com) account with a verified sending domain and a full-access API key (`re_…`),
+   or a
    [Postmark](https://postmarkapp.com) account with a server, a confirmed sender signature or domain, and the
    server's API token.
 2. Install the backend and create the team, if not done yet:
@@ -95,15 +96,15 @@ The gateway mails it within a minute. The subject is `[brigade/<team>] <summary>
 the person's mail.
 
 **What arrives.** A person's mail is an ordinary message from `mail-gateway`. Its body begins
-`Email from <address> (unverified), subject "…":`, then the text, then a `[brigade]` block (`via: email`,
+`Email from <sender> (unverified), subject "…":`, then the text, then a `[brigade]` block (`via: email`,
 `from`, `subject`, `mail-id`, `received`). The frame carries `in-reply-to` when the person answered one of yours.
 
 ## For administrators
 
 ### What you need
 
-- **Resend:** an account whose sending domain is verified; the `from` address must be on it. The API key goes in
-  `RESEND_API_KEY`.
+- **Resend:** an account whose sending domain is verified; the `from` address must be on it. A full-access API key
+  (the installer creates the inbox and the webhook) goes in `RESEND_API_KEY`.
 - **Postmark:** a server, and a confirmed sender signature or domain for the `from` address. Until Postmark
   approves the account (a form on the account page), it refuses any recipient whose domain differs from the
   `from` address's (error 412), so the gateway can mail only people on the team's own domain; receiving works

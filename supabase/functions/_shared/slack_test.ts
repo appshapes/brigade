@@ -423,3 +423,46 @@ Deno.test("a mention or DM that says only sessions, with or without brigade in f
   const prose = await resolveSlackInbound({ ...base, text: "sessions are down?" }, none);
   assertEquals(prose.kind, "unaddressed");
 });
+
+Deno.test("the footer tells a channel reader to mention the bot, and a direct-message reader not to", () => {
+  const env = {
+    message_id: "1e1e1e1e-1e1e-4e1e-8e1e-1e1e1e1e1e1e",
+    team_ref: "t",
+    sender: {
+      principal_ref: "p1",
+      human_label: "sam@example.com",
+      session_id: S1,
+      session_name: "frank-reviewer",
+    },
+    recipient_session_id: GW,
+    body: "ok",
+    hop_count: 0,
+    created_at: "2026-10-04T12:00:00Z",
+  };
+  const ctx = { teamName: "brigade", botHandle: "brigade" };
+  const channel = renderSlackText(env, {
+    ok: true,
+    target: { kind: "channel", id: "C123" },
+    threadTs: null,
+    mention: null,
+    text: "ok",
+  }, ctx);
+  assertStringIncludes(channel, "mention @brigade to answer");
+  const dm = renderSlackText(env, {
+    ok: true,
+    target: { kind: "channel", id: "D123" },
+    threadTs: "1.2",
+    mention: "U1",
+    text: "ok",
+  }, ctx);
+  assertEquals(dm.includes("mention @brigade to answer"), false);
+  assertStringIncludes(dm, "Reply in this thread to answer.");
+  const byName = renderSlackText(env, {
+    ok: true,
+    target: { kind: "user-name", name: "alice" },
+    threadTs: null,
+    mention: null,
+    text: "ok",
+  }, ctx);
+  assertStringIncludes(byName, "Reply in this thread to answer.");
+});
