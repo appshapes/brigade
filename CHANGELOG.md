@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-10-06
+
 ### Added
 
 - **A session the VS Code extension started closes itself after six idle hours** (card 61). Closing a conversation
