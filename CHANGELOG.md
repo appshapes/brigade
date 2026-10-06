@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-10-05
+
 ### Changed
 
 - **Lines such as `summary:` may follow `to:`, and the one word `sessions` gets the list** (card 51). A first line

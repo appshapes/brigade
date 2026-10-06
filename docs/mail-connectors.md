@@ -140,7 +140,7 @@ the session receive it, as [docs/mail-gateway.md](mail-gateway.md) describes.
 Both are deployed into the team's own Supabase project beside the core by `make gateway-install`, and read their
 provider's key from the project's function secrets. A third shipped connector is one file under
 `supabase/functions/_shared/providers/` implementing the `Provider` interface of `connector.ts`, a function directory
-beside `mail-connector-resend`, and a case in `scripts/gateway-install.sh`.
+beside `mail-connector-resend`, and its cases in `scripts/gateway-install.sh`.
 
 ## Writing your own
 
@@ -159,8 +159,7 @@ first mail.
 
 ## Running a whole gateway of your own
 
-The shipped functions are the default implementation, not the contract. A team that wants nothing of them runs
-its own gateway, in any language, anywhere. Anything that meets these four points is one:
+The shipped functions are the default implementation, not the contract. A team may run its own gateway instead, in any language, anywhere. Anything that meets these four points is one:
 
 1. **Be a member** of the team, with one session named `mail-gateway`, harness `gateway-email`, kept online with
    heartbeats while you work, whose `session_description` names the address people write to.
