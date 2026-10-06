@@ -318,20 +318,16 @@ func syncRosterList(t *testing.T, peer string) []byte {
 // TestSyncReadsTheRosterOnItsOwnTicker: the roster — a backend read — is
 // read every SyncListInterval (an hour here), and apply — a local call —
 // runs every SyncInterval with the peers of the last read, never reading
-// the roster again for it (card 53). Before the first read succeeds
-// nothing is applied and a failed read is tried again at the next round;
-// TestSyncKeepsTheLastPeersWhenARereadFails has the reads after it.
+// the roster again for it (card 53). TestSyncFailedFirstReadWaitsForTheListTick
+// and TestSyncKeepsTheLastPeersWhenARereadFails have the failed reads.
 func TestSyncReadsTheRosterOnItsOwnTicker(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{sink: true})
 	dump := filepath.Join(t.TempDir(), "dump.ndjson")
 	fx.useFake(fakeadapter.Script{
-		Responses: map[string][]fakeadapter.Response{"session list": {
-			{Error: &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "backend down", Retryable: true}},
-			{Result: syncRosterList(t, "syncthing:PEER-A")},
-		}},
-		Watch:    &fakeadapter.WatchScript{Lines: []fakeadapter.WatchLine{readyLine(t)}},
-		DumpFile: dump,
+		Responses: map[string][]fakeadapter.Response{"session list": {{Result: syncRosterList(t, "syncthing:PEER-A")}}},
+		Watch:     &fakeadapter.WatchScript{Lines: []fakeadapter.WatchLine{readyLine(t)}},
+		DumpFile:  dump,
 	})
 	fx.syncMap("syncthing", t.TempDir(), "docs")
 	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{})
@@ -344,11 +340,8 @@ func TestSyncReadsTheRosterOnItsOwnTicker(t *testing.T) {
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if n := dumpCount(t, dump, "session", "list"); n != 2 {
-		t.Fatalf("session list calls = %d, want the failed read and its one retry", n)
-	}
-	if !fx.logHas("sync: the roster could not be read; the last peers stand", nil) {
-		t.Errorf("no line for the failed read: %v", fx.logLines())
+	if n := dumpCount(t, dump, "session", "list"); n != 1 {
+		t.Fatalf("session list calls = %d, want the one read at the start", n)
 	}
 	for i, rec := range fake.Records(t) {
 		if rec.Verb != "apply" {
@@ -359,8 +352,46 @@ func TestSyncReadsTheRosterOnItsOwnTicker(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !slices.Equal(apply.Peers, []foldersync.Peer{{Peer: "PEER-A", Label: "peer@example.com"}}) {
-			t.Fatalf("call %d: apply peers = %+v, want the peer of the one read that succeeded", i, apply.Peers)
+			t.Fatalf("call %d: apply peers = %+v, want the peer of the one read", i, apply.Peers)
 		}
+	}
+}
+
+// TestSyncFailedFirstReadWaitsForTheListTick: a session that starts while
+// the backend answers nothing (an outage, a plan's limit: the 402 case)
+// reads the roster once and then waits for the next SyncListInterval (an
+// hour here) — not every SyncInterval, whose apply ticks run on — and
+// applies nothing, having no peers to apply (card 53).
+func TestSyncFailedFirstReadWaitsForTheListTick(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	dump := filepath.Join(t.TempDir(), "dump.ndjson")
+	fx.useFake(fakeadapter.Script{
+		Responses: map[string][]fakeadapter.Response{"session list": {
+			{Error: &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "backend down", Retryable: true}},
+		}},
+		Watch:    &fakeadapter.WatchScript{Lines: []fakeadapter.WatchLine{readyLine(t)}},
+		DumpFile: dump,
+	})
+	fx.syncMap("syncthing", t.TempDir(), "docs")
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{})
+	deps := fx.deps()
+	deps.SyncCommand = fake.Argv
+	deps.SyncInterval = 20 * time.Millisecond
+	deps.SyncListInterval = time.Hour
+	r := fx.start(deps, fx.args()...)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		return fx.logHas("sync: the roster could not be read; the last peers stand", nil)
+	})
+	time.Sleep(15 * deps.SyncInterval) // fifteen apply ticks
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if n := dumpCount(t, dump, "session", "list"); n != 1 {
+		t.Fatalf("session list calls = %d over fifteen apply ticks, want the one failed read: it waits for the list tick", n)
+	}
+	if n := applies(t, fake); n != 0 {
+		t.Fatalf("%d applies with no roster read yet, want none", n)
 	}
 }
 

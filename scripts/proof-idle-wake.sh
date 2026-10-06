@@ -29,6 +29,11 @@
 # deferral key would both silently swallow a repeat; and condition 1 of 9.6 is not re-implemented here but
 # delegated to `scripts/proof-headless.sh judge`, which 44 mutation rows already guard.
 #
+# Since card 53 the Supabase adapter's backup drain runs every 5 minutes while Realtime is joined, so the 30 s
+# send-accepted->enqueue budget (drain_target_ms) can be met only by the Realtime hint: the script fails on any
+# lost hint. It is the measurement of hint loss -- a red run on that line means a hint was lost, not a flake to
+# soften by raising the budget.
+#
 # `wake <dir>` re-scores saved artefacts offline with no model calls -- the same function the live run calls -- so
 # the verifier and P4-6 can re-score a bundle without spending a session. scripts/ci/proof_idle_wake_test.go
 # drives it over hand-sized fixtures under a mutation table.

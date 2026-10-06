@@ -209,7 +209,9 @@ Neither value changes how fast a message arrives: Supabase Realtime signals each
 within seconds. If a signal is lost, the Supabase adapter's backup check of the inbox, every 5 minutes, delivers the
 message: 5 minutes is the longest wait for every team, whatever these values are. A rename, a busy/idle change and
 an inbound change also reach teammates within seconds. Leave out a value to keep its default; a session whose team
-sets another value names it in one line at start. A value Brigade cannot use (not a whole number, or out of range)
+sets another value names it in one line at start. That line shows the configured `heartbeat_seconds`; with an adapter
+whose lease range ends below three heartbeats the session beats faster, at a third of the lease (both bundled
+adapters allow 600 seconds, so neither does). A value Brigade cannot use (not a whole number, or out of range)
 makes the whole member unusable: the session says so in one line at start and runs on the defaults. A session picks up an edited member at
 its next start or `/clear`; `team create --force` carries the member into the file it rewrites. A plugin from before
 the member ignores it, names it in one line at session start, and keeps its own faster timers.

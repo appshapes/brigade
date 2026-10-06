@@ -9,6 +9,10 @@ model sometimes replies through the binary's absolute path, which the shipped al
 Driver: `scripts/proof-idle-wake.sh` · Claude Code 2.1.260 · Model: `claude-opus-5[1m]` (the account default;
 no `--model` was passed) · macOS 25.6.0 (darwin/arm64)
 
+**Since card 53 (2026-10-06):** the Supabase adapter's backup drain runs every 5 minutes while Realtime is joined,
+so the driver's 30 s send-accepted→enqueue budget can be met only by the Realtime hint. A red run on that line now
+means a hint was lost: the script is the measurement of hint loss, not a flake to soften by raising the budget.
+
 **Four real `claude -p` sessions that sit IDLE with their stdin held open, the real plugin, the real hooks, the
 real detached watcher and the local Supabase stack through the bundled adapter: three of them are woken five
 times by the shipped path — `brigade send` → the bundled adapter → the local stack → the receiver's own

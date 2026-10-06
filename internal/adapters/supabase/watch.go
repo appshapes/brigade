@@ -57,7 +57,7 @@ var watchTiming = struct {
 	// message_accepted from a send and membership_revoked from leave_team,
 	// is a hint that drains at once — so the timer only bounds what a lost
 	// hint costs. Plan 5.6 set it at 30 s; card 53 set it at a fixed 5 min
-	// (owner ruling, 2026-10-06), because the timer of idle watchers was a
+	// (Frank's ruling, 2026-10-06), because the timer of idle watchers was a
 	// quarter of a team's backend requests (fetch_inbox, measured
 	// 2026-10-06) and the backend's free plan caps them: a lost hint now
 	// costs up to five minutes, for every team, whatever its heartbeat or

@@ -532,7 +532,7 @@ def main():
                 pass
         _w(os.path.join(bundle, "soak-run.json"), json.dumps(soak.run, indent=2, default=str))
         log("teardown: %s" % json.dumps({k: soak.run["teardown"].get(k) for k in ("watchers_killed", "project_dirs_removed", "claude_json_projects_pruned")}))
-        # score.py's LEASE_S and HEARTBEAT_S are the E5 run's 90 s and 30 s: since card 53 a run needs 300 and 100.
+        # score.py defaults to the E5 run's 90 s lease and 30 s heartbeat: since card 53 pass --lease-s 300 --heartbeat-s 100.
         log("say: sessions started: %d; bundle %s; now: python3 %s/score.py %s" % (soak.sessions_started, bundle, HERE, bundle))
         logf.close()
 

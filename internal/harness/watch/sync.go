@@ -74,8 +74,8 @@ func (s syncSetup) enabled() bool { return s.adapter != "" }
 //     whatever its state — an offline peer is still worth introducing,
 //     the engine connects when it can;
 //   - then rounds on two tickers: the roster is read every
-//     SyncListInterval (until one read succeeds nothing is applied, and a
-//     failed one is tried again at the next round), and apply runs
+//     SyncListInterval (a failed read waits for the next one, and until a
+//     read succeeds nothing is applied), and apply runs
 //     again when the teammates' peers changed, once more at the round
 //     after an apply that changed them (a peer just introduced connects a
 //     moment after that apply reported it, and this one refreshes the
@@ -136,12 +136,12 @@ func (w *watcher) runSync(ctx context.Context) {
 			if p, ok := w.syncRoster(ctx); ok {
 				peers, listed = p, true
 			}
-			// Until one read succeeds nothing is applied, so a failed read
-			// is tried again at the next round; afterwards the last peers
-			// stand and a failed read waits for SyncListInterval, so a
-			// backend that answers nothing (an outage, a plan's limit)
-			// is not asked every SyncInterval instead.
-			readDue = !listed
+			// A failed read, the first or a later one, waits for the next
+			// SyncListInterval: a backend that answers nothing (an outage,
+			// a plan's limit) is asked no more often than one that answers.
+			// Until a read succeeds nothing is applied; afterwards the last
+			// peers stand.
+			readDue = false
 		}
 		if set := peerSet(peers); listed && (applyDue || set != applied || followUp) {
 			if !attached {

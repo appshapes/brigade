@@ -1159,7 +1159,7 @@ func TestWatchHeartbeatRefreshPushesToken(t *testing.T) {
 	}
 }
 
-// TestWatchLiveDrainIgnoresTheHeartbeatLease (card 53, owner ruling
+// TestWatchLiveDrainIgnoresTheHeartbeatLease (card 53, Frank's ruling,
 // 2026-10-06): while the channel is joined the safety-net drain is a fixed
 // drainLive (5 min) for every team. A heartbeat that succeeds, whatever
 // lease it asks for — the protocol's shortest, the default, its longest —
@@ -1489,6 +1489,49 @@ func tokenTiming(t *testing.T, check time.Duration) {
 	saved := watchTiming
 	watchTiming.tokenCheck = check
 	t.Cleanup(func() { watchTiming = saved })
+}
+
+// TestWatchTokenCheckSurvivesATransientRefreshFailure: a refresh the
+// auth server refuses with a 503 — `unavailable`, retryable — is no reason
+// to end the watch: the check logs it and the next tick tries again, and
+// the third attempt's token reaches the channel. Two refusals, then the
+// refresh; /token is called exactly three times.
+func TestWatchTokenCheckSurvivesATransientRefreshFailure(t *testing.T) {
+	drainTiming(t, time.Hour, time.Hour)
+	settleTiming(t, 10*time.Millisecond)
+	tokenTiming(t, 20*time.Millisecond)
+	r, ph, in := watchRig(t)
+	var attempts atomic.Int32
+	r.be.onRefresh = func(w http.ResponseWriter, _ *http.Request, rt string) {
+		if attempts.Add(1) <= 2 {
+			writeJSON(w, http.StatusServiceUnavailable, `{"code":503,"msg":"upstream unavailable"}`)
+			return
+		}
+		r.be.writeSession(w, rt+"+1")
+	}
+	clock := &movingClock{}
+	clock.set(r.now)
+	w := startWatchClock(t, r, clock.now, func(w io.Writer) io.Writer { return w }, "message", "watch", "--session", watchSession)
+	w.expectReady()
+	ph.nextJoin()
+	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
+	in.quiesce(t, 200*time.Millisecond)
+
+	clock.set(r.now.Add(time.Hour - time.Minute))
+	select {
+	case pushed := <-ph.tokens:
+		if pushed != r.readSession().AccessToken {
+			t.Fatalf("the pushed token is not the refreshed one on disk")
+		}
+	case <-time.After(hangCatcher):
+		t.Fatalf("no access_token push within %s: the watch did not retry after the refused refreshes", hangCatcher)
+	}
+	if n := r.be.calls("/auth/v1/token"); n != 3 {
+		t.Fatalf("/token called %d times, want two refused and the one that refreshed", n)
+	}
+	if code := w.exit(); code != 0 {
+		t.Fatalf("exit %d, want 0: a transient refresh failure must not end the watch", code)
+	}
 }
 
 // TestWatchHeartbeatKeepsAnArmedSettlingDrain: a stdin heartbeat that
