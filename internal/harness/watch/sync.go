@@ -14,21 +14,28 @@ import (
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/notice"
+	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// DefaultSyncInterval is the longest the sync goroutine goes without an
-// `apply` (folder-sync plan §4.3): `apply` is idempotent, so a quiet
-// minute costs one apply, which also refreshes the notice line's
-// connected count.
+// DefaultSyncInterval is how often the sync goroutine runs an `apply`
+// whatever the roster says (folder-sync plan §4.3): `apply` is idempotent
+// and local — it talks to this machine's engine, never the backend — so
+// a quiet minute costs one apply, which also refreshes the notice line's
+// connected count and restores an attach a replaced watcher's late
+// detach dropped.
 const DefaultSyncInterval = 60 * time.Second
 
 // DefaultSyncListInterval is how often the sync goroutine reads the
-// roster (P18-6): an `apply` follows at once when the teammates' peers
+// roster from the backend when the team file's `polling.roster_seconds`
+// does not say: an `apply` follows at once when the teammates' peers
 // changed, so a teammate who starts a session is introduced within about
-// 15 s rather than a minute (60.8 s was measured with the roster read
-// only on the 60 s round).
-const DefaultSyncListInterval = 15 * time.Second
+// five minutes. P18-6 had made it 15 s (60.8 s was measured with the
+// roster read only on the 60 s round); card 53 made it five minutes,
+// because a roster read with offline sessions included was half of a
+// team's backend requests (`list_sessions`, measured 2026-10-06) and the
+// backend's free plan caps them.
+const DefaultSyncListInterval = polling.DefaultRosterSeconds * time.Second
 
 // syncNoticeMessageChars caps how much of an adapter's own error message
 // the one notice line carries: enough for "syncthing is not on PATH",
@@ -66,14 +73,16 @@ func (s syncSetup) enabled() bool { return s.adapter != "" }
 //     every teammate's peer the roster lists for the same repository,
 //     whatever its state — an offline peer is still worth introducing,
 //     the engine connects when it can;
-//   - then the roster every SyncListInterval, and apply again when the
-//     teammates' peers changed, once more at the read after an apply that
-//     changed them (a peer just introduced connects a moment after that
-//     apply reported it, and this one refreshes the notice's count), when
-//     SyncInterval has passed since the last apply, or when the last one
-//     failed. `attach` is repeated before
-//     each of these applies (it is idempotent) so a reference a replaced
-//     watcher's late `detach` dropped is restored within one interval;
+//   - then rounds on two tickers: the roster is read every
+//     SyncListInterval (a failed read waits for the next one, and until a
+//     read succeeds nothing is applied), and apply runs
+//     again when the teammates' peers changed, once more at the round
+//     after an apply that changed them (a peer just introduced connects a
+//     moment after that apply reported it, and this one refreshes the
+//     notice's count), every SyncInterval with the peers of the last read,
+//     or when the last one failed. `attach` is repeated before each of
+//     these applies (it is idempotent) so a reference a replaced watcher's
+//     late `detach` dropped is restored within one SyncInterval;
 //   - detach, on the way out: the engine stops with the last session.
 //
 // attach and detach carry the watcher's own pid, so the adapter can prune
@@ -108,45 +117,60 @@ func (w *watcher) runSync(ctx context.Context) {
 		w.syncUnavailable(ctx, err)
 		return
 	}
-	tick := time.NewTicker(w.deps.SyncListInterval)
-	defer tick.Stop()
+	listTick := time.NewTicker(w.deps.SyncListInterval)
+	defer listTick.Stop()
+	applyTick := time.NewTicker(w.deps.SyncInterval)
+	defer applyTick.Stop()
 	var (
 		lastSummary string
-		applied     string    // the peer set of the last apply that completed
-		appliedAt   time.Time // when it completed; zero: an apply is due
-		followUp    bool      // the last apply introduced a change: apply once more
-		attached    = true    // the attach above stands for the first apply
+		peers       []foldersync.Peer // the teammates' peers of the last roster read
+		listed      bool              // a roster read has succeeded
+		readDue     = true            // the roster is to be read this round
+		applied     string            // the peer set of the last apply that completed
+		applyDue    = true            // an apply is due: the first, SyncInterval's, or a retry
+		followUp    bool              // the last apply introduced a change: apply once more
+		attached    = true            // the attach above stands for the first apply
 	)
 	for {
-		if peers, ok := w.syncRoster(ctx); ok {
-			set := peerSet(peers)
-			now := w.deps.Clock()
-			if appliedAt.IsZero() || set != applied || followUp || now.Sub(appliedAt) >= w.deps.SyncInterval {
-				if !attached {
-					if err := w.syncAttach(ctx, client); err != nil && ctx.Err() == nil {
-						w.log.Warn("sync attach failed; the last peer stands", slog.String("code", string(codeOf(err))), adlog.Err(err))
-					}
+		if readDue {
+			if p, ok := w.syncRoster(ctx); ok {
+				peers, listed = p, true
+			}
+			// A failed read, the first or a later one, waits for the next
+			// SyncListInterval: a backend that answers nothing (an outage,
+			// a plan's limit) is asked no more often than one that answers.
+			// Until a read succeeds nothing is applied; afterwards the last
+			// peers stand.
+			readDue = false
+		}
+		if set := peerSet(peers); listed && (applyDue || set != applied || followUp) {
+			if !attached {
+				if err := w.syncAttach(ctx, client); err != nil && ctx.Err() == nil {
+					w.log.Warn("sync attach failed; the last peer stands", slog.String("code", string(codeOf(err))), adlog.Err(err))
 				}
-				attached = false
-				appliedAt = time.Time{}
-				if summary := w.syncApply(ctx, client, peers); summary != "" {
-					// A peer that apply has just introduced connects a moment
-					// later, after this apply reported it unconnected: one
-					// more apply at the next roster read refreshes the
-					// notice's count rather than a minute on.
-					followUp = set != applied
-					applied, appliedAt = set, now
-					if summary != lastSummary {
-						lastSummary = summary
-						w.writeNotice(notice.TopicSync, summary)
-					}
+			}
+			attached = false
+			applyDue = true
+			if summary := w.syncApply(ctx, client, peers); summary != "" {
+				// A peer that apply has just introduced connects a moment
+				// later, after this apply reported it unconnected: one
+				// more apply at the next round refreshes the notice's
+				// count rather than a SyncInterval on.
+				followUp = set != applied
+				applied, applyDue = set, false
+				if summary != lastSummary {
+					lastSummary = summary
+					w.writeNotice(notice.TopicSync, summary)
 				}
 			}
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-tick.C:
+		case <-listTick.C:
+			readDue = true
+		case <-applyTick.C:
+			applyDue = true
 		}
 	}
 }
@@ -163,7 +187,8 @@ func peerSet(peers []foldersync.Peer) string {
 }
 
 // syncRoster reads the teammates' peers for this round; false (logged)
-// when the roster could not be read, and the round applies nothing.
+// when the roster could not be read: the peers of the last read that
+// succeeded stand, and runSync decides when to read again.
 func (w *watcher) syncRoster(ctx context.Context) ([]foldersync.Peer, bool) {
 	own := ""
 	if p := w.syncPeer.Load(); p != nil {
@@ -172,7 +197,7 @@ func (w *watcher) syncRoster(ctx context.Context) ([]foldersync.Peer, bool) {
 	peers, err := w.syncPeers(ctx, own)
 	if err != nil {
 		if ctx.Err() == nil {
-			w.log.Warn("sync: the roster could not be read; apply skipped this round",
+			w.log.Warn("sync: the roster could not be read; the last peers stand",
 				slog.String("code", string(codeOf(err))), adlog.Err(err))
 		}
 		return nil, false

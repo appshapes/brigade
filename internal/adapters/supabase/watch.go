@@ -24,7 +24,7 @@ import (
 // before the join completes is never broadcast, E0-2 (f)), on EVERY
 // broadcast on the session's own topic (message_accepted from a send,
 // membership_revoked from leave_team, whatever a later migration adds),
-// and on a periodic timer — 30 s while joined, 10 s while polling, with
+// and on a periodic timer — 5 min while joined, 10 s while polling, with
 // two 3 s "settling" drains after `ready` and after every join — so a
 // lost hint costs latency, never a message. The RPC is the authority on
 // ownership and membership every time it runs (owned_active_session),
@@ -56,10 +56,18 @@ var watchTiming = struct {
 	// channel is the fast path — every broadcast on the session's topic,
 	// message_accepted from a send and membership_revoked from leave_team,
 	// is a hint that drains at once — so the timer only bounds what a lost
-	// hint costs, at one RPC per 30 s per watcher (plan 5.6). The suite's
+	// hint costs. Plan 5.6 set it at 30 s; card 53 set it at a fixed 5 min
+	// (Frank's ruling, 2026-10-06), because the timer of idle watchers was a
+	// quarter of a team's backend requests (fetch_inbox, measured
+	// 2026-10-06) and the backend's free plan caps them: a lost hint now
+	// costs up to five minutes, for every team, whatever its heartbeat or
+	// lease. This is the adapter's policy, not the protocol's (C-35 asks
+	// 5 s of a pushed message, which hints meet). The suite's
 	// deadlines, a message within 5 s (C-35) and a revoked member's watch
-	// ended within the same 5 s (C-08), are met by hints and never by this
-	// timer; the tests' negative control pins that it does not fire early.
+	// ended within the same 5 s (C-08), are met by hints and the settling
+	// drains and never by this timer; the tests' negative control pins that
+	// it does not fire early. The token no longer rides this timer either:
+	// tokenCheck refreshes it.
 	drainLive time.Duration
 	// drainPolling is the periodic drain while the channel is down and the
 	// watch has reported `status polling`, and before the first join (plan
@@ -77,6 +85,16 @@ var watchTiming = struct {
 	// apart bound what either costs to ~3 s without touching the steady
 	// cadence: at most four extra RPCs per start or rejoin.
 	settle time.Duration
+	// tokenCheck is how often the watch looks at its access token's exp and
+	// refreshes it once fewer than refreshMargin remain, then pushes it to
+	// the channel: auth-js's 30 s ticker and 90 s margin
+	// (docs/research/supabase-realtime-delivery.md 7.3). The look is local
+	// and /token is called only when a refresh is due. Without it the
+	// token was refreshed only inside an RPC, and with the 5 min drainLive
+	// and a 100 s harness heartbeat the gap between RPCs outgrew the
+	// margin: the JWT expired, the server closed the channel, and the
+	// watch fell back to polling until a forced refresh and a rejoin.
+	tokenCheck time.Duration
 	// heartbeat is the phx heartbeat cadence (the 66 s server rule, E0-2).
 	heartbeat time.Duration
 	// joinTimeout bounds the wait for phx_join's reply; a refusal arrives
@@ -96,9 +114,10 @@ var watchTiming = struct {
 	// closeTimeout bounds close_session for a `close` command.
 	closeTimeout time.Duration
 }{
-	drainLive:    30 * time.Second,
+	drainLive:    5 * time.Minute,
 	drainPolling: 10 * time.Second,
 	settle:       3 * time.Second,
+	tokenCheck:   30 * time.Second,
 	heartbeat:    25 * time.Second,
 	joinTimeout:  15 * time.Second,
 	joinRetry:    60 * time.Second,
@@ -216,6 +235,8 @@ func (w *watcher) run() int {
 	w.commands = c.readCommands(w.ctx)
 	w.drainTimer = time.NewTimer(time.Hour)
 	defer w.drainTimer.Stop()
+	tokenTick := time.NewTicker(watchTiming.tokenCheck)
+	defer tokenTick.Stop()
 	w.settling = settleDrains
 	w.rearm()
 	if w.link == nil {
@@ -236,6 +257,10 @@ func (w *watcher) run() int {
 			}
 		case <-w.drainTimer.C:
 			if code, done := w.drain(); done {
+				return w.finish(code)
+			}
+		case <-tokenTick.C:
+			if code, done := w.checkToken(); done {
 				return w.finish(code)
 			}
 		case ev := <-w.linkEvents:
@@ -342,7 +367,9 @@ func (w *watcher) drainFailed(err error) (int, bool) {
 	return protocol.ExitOK, false
 }
 
-// drainInterval is the periodic drain's interval in the watch's state.
+// drainInterval is the periodic drain's interval in the watch's state:
+// drainLive while the channel is joined — fixed, whatever lease a
+// heartbeat asks for — and drainPolling while it is not.
 func (w *watcher) drainInterval() time.Duration {
 	if w.live {
 		return watchTiming.drainLive
@@ -366,8 +393,29 @@ func (w *watcher) rearm() {
 	w.drainTimer.Reset(d)
 }
 
+// checkToken is the tokenCheck tick: the access token is refreshed when
+// it is inside refreshMargin (under the flock; another process's fresher
+// token is adopted without a call) and pushed to the channel, with no
+// RPC. A transient failure waits for the next tick or the next RPC, both
+// of which try again; a dead credential ends the watch as an RPC would.
+func (w *watcher) checkToken() (int, bool) {
+	if _, err := w.c.accessToken(w.ctx); err != nil {
+		if w.ctx.Err() != nil {
+			return protocol.ExitOK, true
+		}
+		code := asProtocolError(err).Code
+		if !code.Retryable() {
+			return w.c.watchFatal(w.events, err), true
+		}
+		w.c.log.Debug("token refresh failed; the next check tries again", slog.String("code", string(code)))
+		return protocol.ExitOK, false
+	}
+	w.syncToken()
+	return protocol.ExitOK, false
+}
+
 // syncToken pushes the access token to the channel when a refresh (which
-// happens inside c.rpc, under the flock) changed it. The push re-runs the
+// happens inside c.rpc or checkToken, under the flock) changed it. The push re-runs the
 // topic policy at the server (E0-2 (h)(2)); the channel needs the new JWT
 // before the old one expires or the server closes it.
 func (w *watcher) syncToken() {

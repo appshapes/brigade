@@ -13,6 +13,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/backoff"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/watch"
+	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
@@ -237,12 +238,30 @@ func TestMapIsTheTrustBoundary(t *testing.T) {
 	})
 }
 
-// TestRealDepsAreTheDocumentedDefaults pins the production knobs of 6.6.
+// TestRealDepsAreTheDocumentedDefaults pins the production knobs of 6.6,
+// with card 53's backend cadences: the heartbeat and the roster read are
+// left to the map — the team file's `polling` member — whose defaults are
+// a 100 s heartbeat under a 300 s lease (three beats, the rule 6.6 set
+// with 30 s and 90 s, inside the protocol's default range) and a
+// five-minute roster read; the local apply stays a minute.
 func TestRealDepsAreTheDocumentedDefaults(t *testing.T) {
 	t.Parallel()
 	d := watch.RealDeps()
-	if d.HeartbeatInterval != 30*time.Second || d.PollInterval != 2*time.Second || d.ReadyTimeout != 10*time.Second {
+	if d.HeartbeatInterval != 0 || d.LeaseSeconds != 0 || d.SyncListInterval != 0 {
+		t.Errorf("heartbeat %s, lease %d, roster %s: want all three left to the map", d.HeartbeatInterval, d.LeaseSeconds, d.SyncListInterval)
+	}
+	if d.PollInterval != 2*time.Second || d.ReadyTimeout != 10*time.Second {
 		t.Errorf("intervals: %+v", d)
+	}
+	if watch.DefaultHeartbeatInterval != 100*time.Second || watch.DefaultLeaseSeconds != 300 ||
+		time.Duration(watch.DefaultLeaseSeconds)*time.Second != 3*watch.DefaultHeartbeatInterval {
+		t.Errorf("heartbeat %s, lease %d s; want 100s and 300 s = three heartbeats", watch.DefaultHeartbeatInterval, watch.DefaultLeaseSeconds)
+	}
+	if watch.DefaultLeaseSeconds < protocol.LeaseMinSeconds || watch.DefaultLeaseSeconds > protocol.LeaseMaxSeconds {
+		t.Errorf("lease %d s is outside the protocol's default range %d..%d", watch.DefaultLeaseSeconds, protocol.LeaseMinSeconds, protocol.LeaseMaxSeconds)
+	}
+	if d.SyncInterval != time.Minute || watch.DefaultSyncListInterval != 5*time.Minute {
+		t.Errorf("sync: apply every %s, roster every %s by default; want 1m and 5m", d.SyncInterval, watch.DefaultSyncListInterval)
 	}
 	if d.CloseWaitClean != time.Second || d.CloseWaitDeath != 3*time.Second || d.ReplaceWait != 2*time.Second {
 		t.Errorf("budgets: %+v", d)

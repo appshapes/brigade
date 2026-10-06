@@ -43,6 +43,11 @@ type shared struct {
 	// and context facts. It is local state and never logged.
 	transcriptPath string
 	flip           bool // an activity change the next tick must heartbeat at once
+	// shown is a change of what the roster shows — the name, the inbound
+	// policy — that the next tick must heartbeat at once (card 53). It is
+	// apart from flip because the slow schedule reads flip as the person
+	// being at the session, and these are not.
+	shown bool
 }
 
 func newShared(target socketpost.Target, name, inbound, workspaceLabel, labelOption, doingMode, transcriptPath string) *shared {
@@ -85,6 +90,17 @@ func (s *shared) heartbeatSoon() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.flip = true
+}
+
+// takeHeartbeat reports and clears whatever asks this tick for a
+// heartbeat: an activity flip (or a new sync peer, heartbeatSoon) or a
+// change of what the roster shows.
+func (s *shared) takeHeartbeat() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	due := s.flip || s.shown
+	s.flip, s.shown = false, false
+	return due
 }
 
 // takeFlip reports and clears a pending activity flip.
@@ -152,7 +168,8 @@ func (w *watcher) refreshMap() string {
 	if !pol.Valid() {
 		pol = policy.Refuse
 	}
-	if pol != w.pipeline.Policy() {
+	polChanged := pol != w.pipeline.Policy()
+	if polChanged {
 		w.log.Info("inbound policy changed", slog.String("inbound", pol.String()))
 		w.pipeline.SetPolicy(pol)
 	}
@@ -170,6 +187,9 @@ func (w *watcher) refreshMap() string {
 	w.banner.apply(m.MessageNotification, m.Interval())
 	w.state.mu.Lock()
 	w.state.inbound = pol.String()
+	// The roster shows the policy, so a change is heartbeated at once like
+	// an activity flip rather than at the next interval (card 53).
+	w.state.shown = w.state.shown || polChanged
 	if w.state.name == "" && m.SessionName != "" {
 		w.state.name = m.SessionName
 	}
@@ -198,8 +218,9 @@ func (w *watcher) refreshMap() string {
 }
 
 // refreshRegistry re-reads Claude Code's registry entry, best effort: the
-// display name (sanitised, folded to one line), the busy/idle activity (a
-// flip is heartbeated at once) and the inbox socket path (a new absolute
+// display name (sanitised, folded to one line) and the busy/idle activity
+// (a change of either is heartbeated at once; teammates route by the
+// name) and the inbox socket path (a new absolute
 // path replaces the target; the token stays the one the watcher was
 // spawned with). The socket variable is the default when the entry has
 // none. Sink mode reads the registry for the name and activity only.
@@ -217,6 +238,7 @@ func (w *watcher) refreshRegistry() {
 	if name := oneLineName(e.Name); name != "" && name != w.state.name {
 		w.log.Info("session name updated from the registry", slog.String("session_name", name))
 		w.state.name = name
+		w.state.shown = true
 	}
 	if act := e.Activity(); act != w.state.activity {
 		w.log.Info("activity changed", slog.String("activity", act))

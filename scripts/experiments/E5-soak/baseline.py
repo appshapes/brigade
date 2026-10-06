@@ -337,13 +337,13 @@ def m3(stack, w, out, rep):
     sid = w["session_id"]
     inbox = stack.inbox_state(sid)
     log("measured: M3 inbox of %s before: %s" % (sid, inbox or "{}"))
-    # the background drain rate over a quiet 60 s (the 30 s live timer)
+    # the background drain rate over a quiet 60 s (the live timer: 30 s when E5 ran, 5 min since card 53)
     p0 = stack.pss_calls("fetch_inbox")
     t0 = time.monotonic()
     time.sleep(60)
     p1 = stack.pss_calls("fetch_inbox")
     bg = (p1 - p0) if (p0 is not None and p1 is not None) else None
-    log("measured: M3 background fetch_inbox calls over %.1f s with no hints: %s (the 30 s live timer of one watcher)"
+    log("measured: M3 background fetch_inbox calls over %.1f s with no hints: %s (the live timer of one watcher: 30 s when E5 ran, 5 min since card 53)"
         % (time.monotonic() - t0, bg))
     rt0 = stack.realtime_rows(sid)
     offered0 = count_lines(w["log"], '"msg":"message offered"')

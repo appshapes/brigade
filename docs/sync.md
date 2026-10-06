@@ -177,11 +177,12 @@ says why)`; outside a session it refuses, because it reads the session's map.
 ## How it works
 
 - **Who syncs with whom.** Each session publishes its machine's Syncthing device id in the roster, as its
-  `sync_peer` (`syncthing:<device id>`). Every 15 seconds the watcher reads the roster, and whenever the devices it
-  finds have changed — and at least once a minute regardless — it shares the listed folders with the device of
-  every other session of the team **in the same repository** — the same `REPO` name in `brigade sessions` —
-  online or offline; Syncthing connects to each whenever both are up. A teammate who starts a session is
-  introduced within about 15 seconds. A session that sends no repository name
+  `sync_peer` (`syncthing:<device id>`). Every 5 minutes by default (the team file's `polling.roster_seconds`
+  sets another interval, [docs/setup.md](setup.md)) the watcher reads the roster, and whenever the devices it
+  finds have changed — and once a minute regardless, with the devices of the last read — it shares the listed
+  folders with the device of every other session of the team **in the same repository** — the same `REPO` name in
+  `brigade sessions` — online or offline; Syncthing connects to each whenever both are up. A teammate who starts a
+  session is introduced within about that long. A session that sends no repository name
   (`share_workspace_label` off) introduces nobody, and nobody introduces it. A member who sets a name of their
   own (`workspace_label`) is introduced to the sessions that carry that same name.
 - **What travels how.** Files go directly between two machines' Syncthing instances, over Syncthing's own TLS,

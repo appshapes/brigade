@@ -31,8 +31,11 @@ import common   # noqa: E402  (read_ndjson)
 
 REFRESH_MARGIN_S = 90          # credentials.go refreshMargin
 JWT_EXPIRY_S = 3600            # supabase/config.toml jwt_expiry
-LEASE_S = 90                   # protocol.LeaseDefaultSeconds
-HEARTBEAT_S = 30               # watch.go DefaultHeartbeatInterval
+# The watcher's timers the scored run had: the defaults are the E5 run's, so its bundles re-score identically.
+# A bundle from a run after card 53 needs --lease-s 300 --heartbeat-s 100 (or three and one of the team's
+# polling.heartbeat_seconds): with the defaults, a healthy 100 s heartbeat gap would score as over the lease.
+LEASE_S = 90                   # --lease-s; the watcher's lease when E5 ran
+HEARTBEAT_S = 30               # --heartbeat-s; watch.go DefaultHeartbeatInterval when E5 ran
 QUEUE_CAPACITY = 50            # inbound/queue.go
 SENDER_RATE_PER_MINUTE = 10    # inbound/limiter.go
 WORKLOAD_FLOOR = 20            # brief 7 clause 7
@@ -746,10 +749,14 @@ def selftest(root):
 
 
 def main():
+    global LEASE_S, HEARTBEAT_S
     ap = argparse.ArgumentParser()
     ap.add_argument("bundle", nargs="?")
     ap.add_argument("--selftest", default=None, help="build a synthetic bundle under this directory and prove the detectors")
+    ap.add_argument("--lease-s", type=int, default=LEASE_S, help="the watcher's lease in the scored run (E5: 90; since card 53: 300)")
+    ap.add_argument("--heartbeat-s", type=int, default=HEARTBEAT_S, help="the watcher's heartbeat in the scored run (E5: 30; since card 53: 100)")
     args = ap.parse_args()
+    LEASE_S, HEARTBEAT_S = args.lease_s, args.heartbeat_s
     if args.selftest:
         raise SystemExit(selftest(args.selftest))
     if not args.bundle:

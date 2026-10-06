@@ -29,6 +29,11 @@
 # deferral key would both silently swallow a repeat; and condition 1 of 9.6 is not re-implemented here but
 # delegated to `scripts/proof-headless.sh judge`, which 44 mutation rows already guard.
 #
+# Since card 53 the Supabase adapter's backup drain runs every 5 minutes while Realtime is joined, so the 30 s
+# send-accepted->enqueue budget (drain_target_ms) can be met only by the Realtime hint: the script fails on any
+# lost hint. It is the measurement of hint loss -- a red run on that line means a hint was lost, not a flake to
+# soften by raising the budget.
+#
 # `wake <dir>` re-scores saved artefacts offline with no model calls -- the same function the live run calls -- so
 # the verifier and P4-6 can re-score a bundle without spending a session. scripts/ci/proof_idle_wake_test.go
 # drives it over hand-sized fixtures under a mutation table.
@@ -62,7 +67,7 @@ budget_first_result=120    # the priming turn to produce its first stdout `resul
 budget_send=60             # `brigade send` to answer `accepted`: a hang catcher on the send's own wall
 budget_wake=60             # LIVE hang catcher: a new stdout record after the send's accepted answer
 wake_target_ms=10000       # E0-4's own budget, applied to enqueue -> first assistant (the comparable half)
-drain_target_ms=30000      # send accepted -> the frame's enqueue (drainLive is 30 s; P4-2 measured 28-152 ms)
+drain_target_ms=30000      # send accepted -> the frame's enqueue, by the Realtime hint (P4-2 measured 28-152 ms); a lost hint waits for the 300 s live drain and fails this
 budget_eof=25              # EOF -> process exit (E0-4's bound; measured 0.24-0.48 s, n=8)
 budget_gone=10             # the by-pid map and the watcher pidfile to be gone after SessionEnd
 budget_session=420         # one receiver's whole life, incl. a 120 s hold: a hang catcher only
@@ -1517,9 +1522,9 @@ run_session() {
       case $_s2e in
         null) bad "$sess wake $_n: no send-accepted->enqueue number" ;;
         *) if [ "$_s2e" -lt "$drain_target_ms" ]; then
-             ok "$sess wake $_n: send-accepted->enqueue ${_s2e} ms is inside the ${drain_target_ms} ms drain budget (drainLive is 30 s; a NEGATIVE value is real -- the frame reached the receiver before \`brigade send\` returned)"
+             ok "$sess wake $_n: send-accepted->enqueue ${_s2e} ms is inside the ${drain_target_ms} ms hint-path budget (a NEGATIVE value is real -- the frame reached the receiver before \`brigade send\` returned)"
            else
-             bad "$sess wake $_n: send-accepted->enqueue ${_s2e} ms exceeds the ${drain_target_ms} ms drain budget"
+             bad "$sess wake $_n: send-accepted->enqueue ${_s2e} ms exceeds the ${drain_target_ms} ms hint-path budget"
            fi ;;
       esac
       if [ "$(printf '%s' "$_w" | jq -r '.woke')" = true ]; then wakes_proven=$((wakes_proven + 1)); fi

@@ -3,13 +3,9 @@ package teamfile
 import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
-	"errors"
-	"io/fs"
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"github.com/appshapes/brigade/internal/protocol"
 )
 
 // GatewayConfig is a usable `gateway` member (Trello card 48; the hosted
@@ -130,30 +126,5 @@ func gatewayAddress(s string) bool {
 // or nil and the token saying why nothing came across ("" when there was
 // nothing to carry).
 func CarriedGateway(filePath string) (carried *GatewayConfig, cause string) {
-	data, err := readCapped(filePath)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, ""
-		}
-		var perr *protocol.Error
-		if errors.As(err, &perr) {
-			return nil, perr.Details["reason"]
-		}
-		return nil, SyncNotCarriedUnreadable
-	}
-	f, perr := parseBytes(filePath, data)
-	if perr == nil {
-		return f.Gateway, f.GatewayUnusable
-	}
-	var raw map[string]jsontext.Value
-	if json.Unmarshal(data, &raw) == nil {
-		if _, ok := raw["gateway"]; ok {
-			var pe *protocol.Error
-			if errors.As(perr, &pe) {
-				return nil, pe.Details["reason"]
-			}
-			return nil, ReasonMalformed
-		}
-	}
-	return nil, ""
+	return carriedMember(filePath, "gateway", func(f *File) (*GatewayConfig, string) { return f.Gateway, f.GatewayUnusable })
 }

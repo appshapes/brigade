@@ -150,7 +150,8 @@ appears only as `UserPromptSubmit hook`, never the text, while the session's tra
 **Two facts Brigade now reads from your transcript — on this machine.** So that `brigade sessions` can tell your team
 which model a session is running and how full its context is, Brigade reports two values with each session: the
 **model identity** (`claude-opus-5[1m]`) and the **context occupancy in tokens**. It gets both by reading your
-session's own transcript file, locally, in the background watcher on your own machine, roughly every 30 seconds — and
+session's own transcript file, locally, in the background watcher on your own machine, at each heartbeat (every 100
+seconds unless the team sets another interval) — and
 it sends **only those two values**, the one string and the one number. Nothing else from the transcript is read out,
 kept or transmitted: no prompt, no answer, no file name, no tool call. The transcript is never uploaded, and **its
 path is never sent** either — it is held only in Brigade's own 0600 state directory, where the background watcher
@@ -938,6 +939,10 @@ Every item below is a known limit that this version ships with, on purpose.
 - **Every teammate's machine can write, overwrite and delete anything in the folders a project lists for sync**,
   with no prompt, whenever both machines have a session of that repository running (section 12). The join secret
   is the boundary. No permission rule sees file sync; the `sync` option is the one switch.
+- **Whoever can commit `.brigade.json` sets how long a session that died shows online**: the `polling` member's
+  `heartbeat_seconds` makes it up to three heartbeats, at most 10 minutes ([docs/setup.md](setup.md)). It does not
+  change how long a message can wait. The member cannot point a session at another backend or widen what it
+  trusts, and its bounds are fixed in the plugin; each session names non-default values in one line at start.
 - The outbound ask and deny rules gate the ordinary command form only.
 - A native `hold` or `refuse` that Brigade's settings scan cannot see makes `injected` a lie that the plugin can
   only warn about.

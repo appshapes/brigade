@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/harness/registry"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -496,15 +497,17 @@ func TestHeartbeatCadenceAndBusyIdleFlip(t *testing.T) {
 }
 
 // TestRenamePropagatesSanitised: a /rename in the registry reaches the
-// store through the next heartbeat; an injection-string name arrives
-// sanitised (no raw frame tag) and one line.
+// store at once — heartbeated at the next liveness tick like an activity
+// flip, the periodic heartbeat an hour away here (card 53: teammates
+// route by the name, and the interval is now 100 s); an injection-string
+// name arrives sanitised (no raw frame tag) and one line.
 func TestRenamePropagatesSanitised(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{})
 	fx.useFS()
 	fx.writeMap()
 	deps := fx.deps()
-	deps.HeartbeatInterval = 200 * time.Millisecond
+	deps.HeartbeatInterval = time.Hour
 	r := fx.start(deps)
 	fx.waitLog("watch ready", nil)
 	if got := fx.session().SessionName; got != "receiver" {
@@ -526,6 +529,70 @@ func TestRenamePropagatesSanitised(t *testing.T) {
 	if !strings.HasPrefix(got, "ci-runner") {
 		t.Errorf("sanitised name = %q", got)
 	}
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+// TestInboundChangeIsHeartbeatedAtOnce runs the team's own heartbeat end
+// to end (card 53): the map's heartbeat_seconds — the team file's
+// `polling` member as the hook froze it — sets the watcher's interval
+// (150 s here, longer than the test), and its heartbeats ask the fs store
+// for polling.LeaseBeats of them, which the store grants. An inbound
+// policy the hook rewrote into the map then reaches the store at the next
+// liveness tick, not the next heartbeat, because the roster shows it.
+func TestInboundChangeIsHeartbeatedAtOnce(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{})
+	fx.useFS()
+	team := func(m *sessionmap.ByPID) { m.HeartbeatSeconds = 150 }
+	fx.writeMapWith(team)
+	deps := fx.deps()
+	deps.HeartbeatInterval, deps.LeaseSeconds = 0, 0 // the map's, as in production
+	r := fx.start(deps)
+	fx.waitLog("watch ready", nil)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		s := fx.session()
+		return s.LeaseUntil.Sub(s.LastSeenAt) == time.Duration(polling.LeaseBeats*150)*time.Second
+	})
+	if got := fx.session().Inbound; got != protocol.InboundAccept {
+		t.Fatalf("inbound before = %q", got)
+	}
+	fx.inbound = protocol.InboundHold
+	fx.writeMapWith(team)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return fx.session().Inbound == protocol.InboundHold })
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+// TestHeartbeatTicksAtAThirdOfTheLease is the event loop's half of the
+// clamp rule (card 53): the ticker runs at the session's interval, never
+// slower than a third of the lease asked for, whatever the configured
+// heartbeat. A heartbeat of an hour against a 3 s lease beats every
+// second: the fs store's last_seen_at moves on at least twice within 5 s
+// of the heartbeat at ready, and the session stays online.
+func TestHeartbeatTicksAtAThirdOfTheLease(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{})
+	fx.useFS()
+	fx.writeMap()
+	deps := fx.deps()
+	deps.HeartbeatInterval, deps.LeaseSeconds = time.Hour, 3
+	r := fx.start(deps)
+	fx.waitLog("watch ready", nil)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		s := fx.session()
+		return s.LeaseUntil.Sub(s.LastSeenAt) == 3*time.Second
+	})
+	base := fx.session().LastSeenAt
+	seen := map[time.Time]bool{}
+	testutil.Eventually(t, 5*time.Second, pollEvery, func() bool {
+		if at := fx.session().LastSeenAt; at.After(base) {
+			seen[at] = true
+		}
+		return len(seen) >= 2
+	})
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}

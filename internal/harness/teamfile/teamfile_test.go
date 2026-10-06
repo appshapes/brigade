@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -583,6 +584,9 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"sync":{"adapter":"syncthing","folders":[".context/plans","docs/shared"]}}`))
 	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"sync":{"folders":["a/.git/x","../up","/abs","a","a/b"],"extra":1}}`))
 	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"sync":["not","an","object"],"future":{"x":[1e400]}}`))
+	// Card 53: the polling member, usable and not.
+	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"polling":{"heartbeat_seconds":100,"roster_seconds":300}}`))
+	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"polling":{"heartbeat_seconds":1e2,"roster_seconds":-5,"x":1}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > teamfile.MaxBytes {
 			data = data[:teamfile.MaxBytes]
@@ -609,5 +613,27 @@ func FuzzParse(f *testing.F) {
 			t.Fatalf("an accepted file has an empty required member: %+v", file)
 		}
 		assertSyncInvariants(t, file)
+		assertPollingInvariants(t, file)
 	})
+}
+
+// assertPollingInvariants: never both a member and a reason, a reason
+// from the closed list, and a usable member's values in bounds or 0 (the
+// default) — whatever bytes the file held.
+func assertPollingInvariants(t *testing.T, file *teamfile.File) {
+	t.Helper()
+	if file.Polling != nil && file.PollingUnusable != "" {
+		t.Fatalf("both a usable polling member and a reason: %+v %q", file.Polling, file.PollingUnusable)
+	}
+	if file.PollingUnusable != "" && !slices.Contains(teamfile.PollingReasons(), file.PollingUnusable) {
+		t.Fatalf("polling reason %q is not in the closed list", file.PollingUnusable)
+	}
+	if p := file.Polling; p != nil {
+		if p.HeartbeatSeconds != 0 && !polling.HeartbeatInRange(p.HeartbeatSeconds) {
+			t.Fatalf("a usable member's heartbeat_seconds %d is out of bounds", p.HeartbeatSeconds)
+		}
+		if p.RosterSeconds != 0 && !polling.RosterInRange(p.RosterSeconds) {
+			t.Fatalf("a usable member's roster_seconds %d is out of bounds", p.RosterSeconds)
+		}
+	}
 }

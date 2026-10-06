@@ -337,6 +337,7 @@ func TestHookTeamFileNotes(t *testing.T) {
 	const ignored = "Brigade: .brigade.json carries members this version does not define (frame, profile, sync.mode); ignored."
 	const unusable = "Brigade: .brigade.json's sync member is not usable (folder_not_relative); file sync is off for this session."
 	const gatewayUnusable = "Brigade: .brigade.json's gateway member is not usable (email_invalid); no mail gateway is known to this session."
+	const pollingUnusable = "Brigade: .brigade.json's polling member is not usable (heartbeat_out_of_range); this session uses the default intervals."
 	const syncOn1 = "Brigade: file sync on: 1 folder(s) through syncthing."
 	cases := map[string]struct {
 		members string
@@ -356,6 +357,24 @@ func TestHookTeamFileNotes(t *testing.T) {
 		// unusable one earns one line, after the sync note, with its token.
 		"a usable gateway member says nothing": {`,"gateway":{"email":"a1b2c3d4@example.resend.app"}`, nil},
 		"an unusable gateway member":           {`,"gateway":{"email":"` + marker + `"}`, []string{gatewayUnusable}},
+		// Card 53: a polling member at the defaults earns no line, one that
+		// sets other values names them, and an unusable one earns its own
+		// line, after the gateway note, with its token.
+		"a polling member at the defaults says nothing": {`,"polling":{"heartbeat_seconds":100,"roster_seconds":300}`, nil},
+		"an empty polling member says nothing":          {`,"polling":{}`, nil},
+		"a polling member that sets the heartbeat names it": {
+			`,"polling":{"heartbeat_seconds":60,"roster_seconds":300}`,
+			[]string{"Brigade: .brigade.json's polling member sets a heartbeat every 60 s."},
+		},
+		"a polling member that sets both names both": {
+			`,"polling":{"heartbeat_seconds":200,"roster_seconds":900}`,
+			[]string{"Brigade: .brigade.json's polling member sets a heartbeat every 200 s and a roster read every 900 s."},
+		},
+		"an unusable polling member": {`,"polling":{"heartbeat_seconds":1}`, []string{pollingUnusable}},
+		"an unusable gateway and polling, gateway first": {
+			`,"gateway":{"email":1},"polling":{"heartbeat_seconds":1}`,
+			[]string{gatewayUnusable, pollingUnusable},
+		},
 		"an unusable sync and gateway, sync first": {
 			`,"sync":{"folders":["/` + marker + `"]},"gateway":{"email":1}`,
 			[]string{unusable, gatewayUnusable},

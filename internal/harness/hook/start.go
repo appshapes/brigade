@@ -25,6 +25,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/notify"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
+	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
@@ -139,6 +140,9 @@ type resolved struct {
 	// line, "" when there is nothing to say.
 	sync     frozenSync
 	syncLine string
+	// polling is the team file's `polling` member as the map freezes it
+	// (card 53), zero for the defaults.
+	polling frozenPolling
 	// messageSound is the `message_sound` option as the map carries it
 	// (card 35): on, and a player this machine has; soundLine is the one
 	// line SessionStart prints when the option is on and no player is.
@@ -184,6 +188,11 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 			// sync adapter (folder-sync plan §4.3): an edited `sync` member or
 			// a flipped `sync` option takes effect through a new watcher.
 			reason = "sync changed"
+		}
+		if reason == "" && !res.polling.frozenIn(existing) {
+			// The same for the `polling` member (card 53): the watcher reads
+			// its intervals once, when it starts.
+			reason = "polling changed"
 		}
 		watcherRuns := true // the live watcher stays unless replaced
 		if reason != "" {
@@ -234,12 +243,18 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// spawn, because the register path also runs under the prompt hook's
 	// 4.5 s retry budget (the P5-18 trap).
 	res.doingMode = doingMode(res.opts, desc.Capabilities, res.doingRules)
+	// The lease the watcher's heartbeats will ask for, asked for at once
+	// (card 53): left out, the adapter grants its own default, which may
+	// be shorter than a heartbeat, and a first heartbeat that failed would
+	// leave the new session offline until the next one.
+	lease := polling.Lease(res.polling.heartbeat, desc.Lease)
 	reg := &protocol.SessionRegistration{
 		Harness:        harnessName,
 		HarnessVersion: res.id.harnessVersion,
 		SessionName:    res.id.name,
 		Activity:       res.id.activity,
 		Inbound:        res.dec.Policy.String(),
+		LeaseSeconds:   &lease,
 		BrigadeVersion: r.deps.BrigadeVersion(),
 		SyncPeer:       r.deps.SyncPeer(),
 		Resume:         r.resumeHint(f, in, res.store, existing),
@@ -351,11 +366,13 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		return resolved{}, false
 	}
 	sync, syncLine := r.resolveSync(opts, tf, in.Cwd)
+	polling := resolvePolling(tf)
 	messageSound, soundLine := r.resolveAnnounce(opts.MessageSound, r.deps.SoundPlayer, announceSound)
 	messageNotification, notificationLine := r.resolveAnnounce(opts.MessageNotification, r.deps.Notifier, announceNotification)
 	return resolved{
 		sync:                sync,
 		syncLine:            syncLine,
+		polling:             polling,
 		messageSound:        messageSound,
 		soundLine:           soundLine,
 		messageNotification: messageNotification,
@@ -541,6 +558,31 @@ type frozenSync struct {
 func (s frozenSync) frozenIn(m *sessionmap.ByPID) bool {
 	return m.SyncAdapter == s.adapter && m.SyncRoot == s.root && m.SyncScope == s.scope &&
 		slices.Equal(m.SyncFolders, s.folders)
+}
+
+// frozenPolling is the team file's `polling` member as SessionStart
+// freezes it into the by-pid map (card 53): the seconds it sets, 0 for a
+// value it leaves to the default. The zero value is the defaults.
+type frozenPolling struct {
+	heartbeat int
+	roster    int
+}
+
+// resolvePolling is the member's values, or the defaults when the team
+// file has none, or none usable (which earned card 32's kind of line,
+// pollingUnusableLine, already).
+func resolvePolling(tf *teamfile.File) frozenPolling {
+	if tf == nil || tf.Polling == nil {
+		return frozenPolling{}
+	}
+	return frozenPolling{heartbeat: tf.Polling.HeartbeatSeconds, roster: tf.Polling.RosterSeconds}
+}
+
+// frozenIn reports whether m already carries exactly these values: on the
+// continue path a difference is a respawn reason, because the watcher
+// reads them once, when it starts.
+func (p frozenPolling) frozenIn(m *sessionmap.ByPID) bool {
+	return m.HeartbeatSeconds == p.heartbeat && m.RosterSeconds == p.roster
 }
 
 // The reasons the SessionStart sync line gives for a session that syncs
@@ -986,6 +1028,8 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		MessageSound:           res.messageSound,
 		MessageNotification:    res.messageNotification,
 		MessageIntervalSeconds: int(res.opts.MessageInterval / time.Second),
+		HeartbeatSeconds:       res.polling.heartbeat,
+		RosterSeconds:          res.polling.roster,
 		HarnessVersion:         res.id.harnessVersion,
 		RegisteredAt:           registeredAt,
 		UpdatedAt:              now,
