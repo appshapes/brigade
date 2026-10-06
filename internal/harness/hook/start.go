@@ -566,6 +566,9 @@ func (s frozenSync) frozenIn(m *sessionmap.ByPID) bool {
 type frozenPolling struct {
 	heartbeat int
 	roster    int
+	// idleClose is `idle_close_hours` (card 61): nil for the default, 0
+	// for off, as the team file's parser gave it.
+	idleClose *int
 }
 
 // resolvePolling is the member's values, or the defaults when the team
@@ -575,14 +578,34 @@ func resolvePolling(tf *teamfile.File) frozenPolling {
 	if tf == nil || tf.Polling == nil {
 		return frozenPolling{}
 	}
-	return frozenPolling{heartbeat: tf.Polling.HeartbeatSeconds, roster: tf.Polling.RosterSeconds}
+	return frozenPolling{heartbeat: tf.Polling.HeartbeatSeconds, roster: tf.Polling.RosterSeconds, idleClose: tf.Polling.IdleCloseHours}
 }
 
 // frozenIn reports whether m already carries exactly these values: on the
 // continue path a difference is a respawn reason, because the watcher
 // reads them once, when it starts.
 func (p frozenPolling) frozenIn(m *sessionmap.ByPID) bool {
-	return m.HeartbeatSeconds == p.heartbeat && m.RosterSeconds == p.roster
+	return m.HeartbeatSeconds == p.heartbeat && m.RosterSeconds == p.roster && sameHours(m.IdleCloseHours, p.idleClose)
+}
+
+// sameHours is equality of two optional hour values: both absent, or both
+// present and equal.
+func sameHours(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+// mapEntrypoint is the entrypoint the map carries (card 61): the one the
+// identity resolved when it has the shape the map accepts, else nothing
+// — a value Claude Code never sets is not worth a refused map, and an
+// absent one is never idle-closed.
+func mapEntrypoint(entrypoint string) string {
+	if sessionmap.ValidEntrypoint(entrypoint) {
+		return entrypoint
+	}
+	return ""
 }
 
 // The reasons the SessionStart sync line gives for a session that syncs
@@ -1030,6 +1053,8 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		MessageIntervalSeconds: int(res.opts.MessageInterval / time.Second),
 		HeartbeatSeconds:       res.polling.heartbeat,
 		RosterSeconds:          res.polling.roster,
+		IdleCloseHours:         res.polling.idleClose,
+		Entrypoint:             mapEntrypoint(res.id.entrypoint),
 		HarnessVersion:         res.id.harnessVersion,
 		RegisteredAt:           registeredAt,
 		UpdatedAt:              now,

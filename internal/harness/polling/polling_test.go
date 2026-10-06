@@ -92,3 +92,38 @@ func TestLeaseIsThreeHeartbeatsHeldInTheRange(t *testing.T) {
 		}
 	}
 }
+
+// TestIdleCloseBoundsDefaultAndHosts (card 61) pins the idle close: six
+// hours by default, 0 to 168 hours usable with 0 meaning off, and the
+// host set — the VS Code extension's `claude-vscode` and nothing else, so
+// the CLI, `-p` and a value nobody has measured are never closed.
+func TestIdleCloseBoundsDefaultAndHosts(t *testing.T) {
+	t.Parallel()
+	if polling.DefaultIdleCloseHours != 6 || polling.MinIdleCloseHours != 0 || polling.MaxIdleCloseHours != 168 {
+		t.Fatalf("idle close default %d, bounds %d..%d; want 6 and 0..168",
+			polling.DefaultIdleCloseHours, polling.MinIdleCloseHours, polling.MaxIdleCloseHours)
+	}
+	for hours, want := range map[int]bool{-1: false, 0: true, 1: true, 6: true, 168: true, 169: false} {
+		if got := polling.IdleCloseInRange(hours); got != want {
+			t.Errorf("IdleCloseInRange(%d) = %v, want %v", hours, got, want)
+		}
+	}
+	if got := polling.IdleClose(nil); got != 6*time.Hour {
+		t.Errorf("IdleClose(nil) = %v, want the 6 h default", got)
+	}
+	zero, twelve := 0, 12
+	if got := polling.IdleClose(&zero); got != 0 {
+		t.Errorf("IdleClose(0) = %v, want off (0)", got)
+	}
+	if got := polling.IdleClose(&twelve); got != 12*time.Hour {
+		t.Errorf("IdleClose(12) = %v, want 12h", got)
+	}
+	for entrypoint, want := range map[string]bool{
+		"claude-vscode": true, "cli": false, "sdk-cli": false, "sdk-ts": false, "jetbrains": false,
+		"claude-desktop": false, "": false, "CLAUDE-VSCODE": false, "claude_vscode": false,
+	} {
+		if got := polling.IdleCloseHost(entrypoint); got != want {
+			t.Errorf("IdleCloseHost(%q) = %v, want %v", entrypoint, got, want)
+		}
+	}
+}

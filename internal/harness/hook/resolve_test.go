@@ -362,6 +362,17 @@ func TestHookTeamFileNotes(t *testing.T) {
 		// line, after the gateway note, with its token.
 		"a polling member at the defaults says nothing": {`,"polling":{"heartbeat_seconds":30,"roster_seconds":15}`, nil},
 		"an empty polling member says nothing":          {`,"polling":{}`, nil},
+		// Card 61: the idle close is named when it is not the default,
+		// off included; at the default it earns no line.
+		"a polling member that sets an idle close names it": {
+			`,"polling":{"idle_close_hours":12}`,
+			[]string{"Brigade: .brigade.json's polling member sets an idle close for VS Code sessions after 12 h."},
+		},
+		"a polling member that switches the idle close off says so": {
+			`,"polling":{"idle_close_hours":0}`,
+			[]string{"Brigade: .brigade.json's polling member sets no idle close for VS Code sessions."},
+		},
+		"an idle close at the default says nothing": {`,"polling":{"idle_close_hours":6}`, nil},
 		"a polling member that sets the heartbeat names it": {
 			`,"polling":{"heartbeat_seconds":60,"roster_seconds":15}`,
 			[]string{"Brigade: .brigade.json's polling member sets a heartbeat every 60 s."},

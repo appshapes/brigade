@@ -4,10 +4,12 @@ import (
 	json "encoding/json/v2"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
+	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
 
 // TestPollingIsFrozenIntoTheMap (card 53): SessionStart freezes the team
@@ -58,6 +60,8 @@ func TestPollingChangeRespawnsTheWatcher(t *testing.T) {
 		{"unchanged", before, false, 100},
 		{"a new heartbeat", `,"polling":{"heartbeat_seconds":150}`, true, 150},
 		{"a roster added", `,"polling":{"heartbeat_seconds":100,"roster_seconds":600}`, true, 100},
+		// Card 61: the idle close is read at the watcher's start too.
+		{"an idle close added", `,"polling":{"heartbeat_seconds":100,"idle_close_hours":0}`, true, 100},
 		{"the member removed", ``, true, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -144,6 +148,64 @@ func TestRegistrationAsksTheWatchersLease(t *testing.T) {
 			}
 			if *reg.LeaseSeconds != tc.want {
 				t.Fatalf("registration lease_seconds = %d, want %d", *reg.LeaseSeconds, tc.want)
+			}
+		})
+	}
+}
+
+// hours is a pointer to n, the shape IdleCloseHours takes (card 61).
+func hours(n int) *int { return &n }
+
+// TestEntrypointAndIdleCloseAreFrozenIntoTheMap (card 61): SessionStart
+// writes the session's entrypoint — the environment's
+// CLAUDE_CODE_ENTRYPOINT, else the registry's — and the team's
+// idle_close_hours into the by-pid map, which is how the watcher knows
+// whether, and after how long, to close the session for want of
+// activity: the VS Code extension's `claude-vscode` with the default or
+// the team's hours, never the CLI, never a value the map cannot carry.
+func TestEntrypointAndIdleCloseAreFrozenIntoTheMap(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name               string
+		env                string // CLAUDE_CODE_ENTRYPOINT; "" omits it
+		registryEntrypoint string // the registry entry's `entrypoint`
+		members            string
+		wantEntrypoint     string
+		wantHours          *int
+		wantIdle           time.Duration
+	}{
+		{"VS Code with no member", "claude-vscode", "cli", ``, "claude-vscode", nil, 6 * time.Hour},
+		{"VS Code with the team's hours", "claude-vscode", "cli", `,"polling":{"idle_close_hours":12}`, "claude-vscode", hours(12), 12 * time.Hour},
+		{"VS Code switched off", "claude-vscode", "cli", `,"polling":{"idle_close_hours":0}`, "claude-vscode", hours(0), 0},
+		{"the CLI never closes", "cli", "cli", `,"polling":{"idle_close_hours":12}`, "cli", hours(12), 0},
+		{"no environment value falls back to the registry", "", "claude-vscode", ``, "claude-vscode", nil, 6 * time.Hour},
+		{"a value the map cannot carry is blanked", "claude vscode", "cli", ``, "", nil, 0},
+		{"an unusable member leaves the default", "claude-vscode", "cli", `,"polling":{"idle_close_hours":999}`, "claude-vscode", nil, 6 * time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "x", false))}})
+			f.entrypoint = tc.env
+			if tc.registryEntrypoint != "cli" {
+				entry := strings.Replace(fakeregistry.Observed(f.pid, "payments-api", "busy", f.socket),
+					`"entrypoint":"cli"`, `"entrypoint":"`+tc.registryEntrypoint+`"`, 1)
+				f.registry = fakeregistry.New(t, map[int]string{f.pid: entry})
+				f.deps.Registry = f.registry
+			}
+			f.writeTeamFile(tc.members)
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			m := f.mustMap()
+			if m.Entrypoint != tc.wantEntrypoint {
+				t.Fatalf("map entrypoint %q, want %q", m.Entrypoint, tc.wantEntrypoint)
+			}
+			if !sameHours(m.IdleCloseHours, tc.wantHours) {
+				t.Fatalf("map idle_close_hours %v, want %v", m.IdleCloseHours, tc.wantHours)
+			}
+			if got := m.IdleClose(); got != tc.wantIdle {
+				t.Fatalf("the map's IdleClose = %v, want %v", got, tc.wantIdle)
 			}
 		})
 	}

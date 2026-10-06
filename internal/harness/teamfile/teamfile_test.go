@@ -587,6 +587,9 @@ func FuzzParse(f *testing.F) {
 	// Card 53: the polling member, usable and not.
 	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"polling":{"heartbeat_seconds":100,"roster_seconds":300}}`))
 	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"polling":{"heartbeat_seconds":1e2,"roster_seconds":-5,"x":1}}`))
+	// Card 61: the idle close, usable at its off value and not usable over its bound.
+	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"polling":{"idle_close_hours":0}}`))
+	f.Add([]byte(strings.TrimSuffix(validDoc, "}") + `,"polling":{"idle_close_hours":169}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > teamfile.MaxBytes {
 			data = data[:teamfile.MaxBytes]
@@ -634,6 +637,9 @@ func assertPollingInvariants(t *testing.T, file *teamfile.File) {
 		}
 		if p.RosterSeconds != 0 && !polling.RosterInRange(p.RosterSeconds) {
 			t.Fatalf("a usable member's roster_seconds %d is out of bounds", p.RosterSeconds)
+		}
+		if p.IdleCloseHours != nil && !polling.IdleCloseInRange(*p.IdleCloseHours) {
+			t.Fatalf("a usable member's idle_close_hours %d is out of bounds", *p.IdleCloseHours)
 		}
 	}
 }

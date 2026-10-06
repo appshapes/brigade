@@ -18,7 +18,9 @@ sanitised, and a message can never grant permission, approve a prompt or represe
 - **Three lifecycle hooks** (`hooks/hooks.json`, exec form, no shell): `SessionStart` registers the session with the
   team and starts the detached inbound watcher; `UserPromptSubmit` keeps that watcher alive, surfaces any pending
   notice and, where your permission settings allow it, reminds the model to keep its one-sentence roster line
-  current ("What teammates see about your session", below); `SessionEnd` closes the session. Before the binary is
+  current ("What teammates see about your session", below); `SessionEnd` closes the session. A session the VS Code
+  extension started also closes itself after six hours without activity, because the extension keeps the `claude`
+  process after a conversation is closed and fires no hook; its next prompt re-opens it (card 61). Before the binary is
   installed — a first use on a machine — the prompt and session-end hooks return at once and print nothing, and an
   install that fails for good is reported once, on the next prompt, as a hook error beginning
   `Brigade: not installed:`.

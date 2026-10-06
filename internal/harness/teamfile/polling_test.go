@@ -11,6 +11,9 @@ import (
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 )
 
+// hours is a pointer to n, the shape IdleCloseHours takes (card 61).
+func hours(n int) *int { return &n }
+
 // withPolling is validDoc with a `polling` member of the given raw JSON.
 func withPolling(member string) string {
 	return strings.TrimSuffix(validDoc, "}") + `,"polling":` + member + `}`
@@ -48,6 +51,18 @@ func TestPollingRules(t *testing.T) {
 		{"a roster under the bound", `{"roster_seconds":14}`, teamfile.PollingRosterOutOfRange, teamfile.PollingConfig{}, nil},
 		{"a roster over the bound", `{"roster_seconds":3601}`, teamfile.PollingRosterOutOfRange, teamfile.PollingConfig{}, nil},
 		{"the heartbeat's rule is reported first", `{"heartbeat_seconds":1,"roster_seconds":1}`, teamfile.PollingHeartbeatOutOfRange, teamfile.PollingConfig{}, nil},
+		// Card 61: idle_close_hours, a value whose 0 is off and whose
+		// absence is the default, so the config carries a pointer.
+		{"an idle close", `{"idle_close_hours":12}`, "", teamfile.PollingConfig{IdleCloseHours: hours(12)}, nil},
+		{"an idle close of zero is off, not absent", `{"idle_close_hours":0}`, "", teamfile.PollingConfig{IdleCloseHours: hours(0)}, nil},
+		{"the idle close's highest bound", `{"idle_close_hours":168}`, "", teamfile.PollingConfig{IdleCloseHours: hours(168)}, nil},
+		{"an idle close beside the timers", `{"heartbeat_seconds":60,"idle_close_hours":24}`, "", teamfile.PollingConfig{HeartbeatSeconds: 60, IdleCloseHours: hours(24)}, nil},
+		{"an idle close over the bound", `{"idle_close_hours":169}`, teamfile.PollingIdleCloseOutOfRange, teamfile.PollingConfig{}, nil},
+		{"a negative idle close", `{"idle_close_hours":-1}`, teamfile.PollingIdleCloseOutOfRange, teamfile.PollingConfig{}, nil},
+		{"the idle close as a string", `{"idle_close_hours":"6"}`, teamfile.PollingIdleCloseInvalid, teamfile.PollingConfig{}, nil},
+		{"a fractional idle close", `{"idle_close_hours":6.5}`, teamfile.PollingIdleCloseInvalid, teamfile.PollingConfig{}, nil},
+		{"a null idle close", `{"idle_close_hours":null}`, teamfile.PollingIdleCloseInvalid, teamfile.PollingConfig{}, nil},
+		{"the roster's rule is reported before the idle close's", `{"roster_seconds":1,"idle_close_hours":999}`, teamfile.PollingRosterOutOfRange, teamfile.PollingConfig{}, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -65,7 +80,7 @@ func TestPollingRules(t *testing.T) {
 			if c.reason != "" && f.Polling != nil {
 				t.Fatalf("an unusable member yielded a config: %+v", f.Polling)
 			}
-			if c.reason == "" && (f.Polling == nil || *f.Polling != c.want) {
+			if c.reason == "" && (f.Polling == nil || !reflect.DeepEqual(*f.Polling, c.want)) {
 				t.Fatalf("polling = %+v, want %+v", f.Polling, c.want)
 			}
 			if len(f.Ignored)+len(c.ignored) > 0 && !slices.Equal(f.Ignored, c.ignored) {
@@ -93,6 +108,7 @@ func TestPollingReasonsListIsClosed(t *testing.T) {
 	want := []string{
 		teamfile.PollingNotObject, teamfile.PollingHeartbeatInvalid, teamfile.PollingHeartbeatOutOfRange,
 		teamfile.PollingRosterInvalid, teamfile.PollingRosterOutOfRange,
+		teamfile.PollingIdleCloseInvalid, teamfile.PollingIdleCloseOutOfRange,
 	}
 	if !slices.Equal(teamfile.PollingReasons(), want) {
 		t.Fatalf("PollingReasons() = %q", teamfile.PollingReasons())

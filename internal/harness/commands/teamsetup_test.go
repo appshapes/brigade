@@ -316,6 +316,15 @@ func TestTeamCreateForceCarriesPolling(t *testing.T) {
 		"an unusable member is not carried": {
 			oldFile + `,"polling":{"heartbeat_seconds":5}}`, nil, teamfile.PollingHeartbeatOutOfRange,
 		},
+		// Card 61: an idle close of 0 is off, a value, and comes across as
+		// 0 — not as the member left out, which would be the default.
+		"an idle close of zero stays zero": {
+			oldFile + `,"polling":{"idle_close_hours":0}}`, &teamfile.PollingConfig{IdleCloseHours: new(int)}, "",
+		},
+		"an idle close beside a timer": {
+			oldFile + `,"polling":{"heartbeat_seconds":60,"idle_close_hours":24}}`,
+			&teamfile.PollingConfig{HeartbeatSeconds: 60, IdleCloseHours: func(n int) *int { return &n }(24)}, "",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

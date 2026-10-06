@@ -18,6 +18,11 @@ import (
 type PollingConfig struct {
 	HeartbeatSeconds int `json:"heartbeat_seconds,omitzero"`
 	RosterSeconds    int `json:"roster_seconds,omitzero"`
+	// IdleCloseHours is `idle_close_hours` (card 61): the hours without
+	// activity after which a session of a host that keeps its process
+	// (the VS Code extension) closes itself. A pointer because 0 is a
+	// value — off — and not the default: nil is the member left out.
+	IdleCloseHours *int `json:"idle_close_hours,omitzero"`
 }
 
 // The closed list of reasons a `polling` member is not usable. None is a
@@ -25,21 +30,24 @@ type PollingConfig struct {
 // session connects on the default intervals. The first rule a member
 // breaks, in the order below, is the one reported.
 const (
-	PollingNotObject           = "not_object"             // polling is not a JSON object
-	PollingHeartbeatInvalid    = "heartbeat_invalid"      // heartbeat_seconds is not an integer
-	PollingHeartbeatOutOfRange = "heartbeat_out_of_range" // heartbeat_seconds is outside polling's heartbeat bounds
-	PollingRosterInvalid       = "roster_invalid"         // roster_seconds is not an integer
-	PollingRosterOutOfRange    = "roster_out_of_range"    // roster_seconds is outside polling's roster bounds
+	PollingNotObject           = "not_object"              // polling is not a JSON object
+	PollingHeartbeatInvalid    = "heartbeat_invalid"       // heartbeat_seconds is not an integer
+	PollingHeartbeatOutOfRange = "heartbeat_out_of_range"  // heartbeat_seconds is outside polling's heartbeat bounds
+	PollingRosterInvalid       = "roster_invalid"          // roster_seconds is not an integer
+	PollingRosterOutOfRange    = "roster_out_of_range"     // roster_seconds is outside polling's roster bounds
+	PollingIdleCloseInvalid    = "idle_close_invalid"      // idle_close_hours is not an integer
+	PollingIdleCloseOutOfRange = "idle_close_out_of_range" // idle_close_hours is outside polling's idle-close bounds
 )
 
 // PollingReasons is the closed unusable-polling token list, in check order.
 func PollingReasons() []string {
-	return []string{PollingNotObject, PollingHeartbeatInvalid, PollingHeartbeatOutOfRange, PollingRosterInvalid, PollingRosterOutOfRange}
+	return []string{PollingNotObject, PollingHeartbeatInvalid, PollingHeartbeatOutOfRange, PollingRosterInvalid, PollingRosterOutOfRange,
+		PollingIdleCloseInvalid, PollingIdleCloseOutOfRange}
 }
 
 // pollingMembers is what this version reads inside `polling`; any other
 // inner member is ignored and named `polling.<name>`.
-var pollingMembers = map[string]bool{"heartbeat_seconds": true, "roster_seconds": true}
+var pollingMembers = map[string]bool{"heartbeat_seconds": true, "roster_seconds": true, "idle_close_hours": true}
 
 // parsePolling validates the `polling` member. It never refuses: an
 // unusable member is (nil, ignored, token), and the session runs on the
@@ -63,6 +71,16 @@ func parsePolling(member jsontext.Value) (*PollingConfig, []string, string) {
 	if reason := pollingValue(obj, "roster_seconds", polling.RosterInRange, &cfg.RosterSeconds,
 		PollingRosterInvalid, PollingRosterOutOfRange); reason != "" {
 		return nil, ignored, reason
+	}
+	if _, ok := obj["idle_close_hours"]; ok {
+		// Present is a value, 0 included (off), so the pointer is set
+		// whenever the member is there and usable (card 61).
+		var hours int
+		if reason := pollingValue(obj, "idle_close_hours", polling.IdleCloseInRange, &hours,
+			PollingIdleCloseInvalid, PollingIdleCloseOutOfRange); reason != "" {
+			return nil, ignored, reason
+		}
+		cfg.IdleCloseHours = &hours
 	}
 	return &cfg, ignored, ""
 }

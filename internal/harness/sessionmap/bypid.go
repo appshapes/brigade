@@ -196,6 +196,16 @@ type ByPID struct {
 	// read as the default.
 	HeartbeatSeconds int `json:"heartbeat_seconds,omitzero"`
 	RosterSeconds    int `json:"roster_seconds,omitzero"`
+	// IdleCloseHours is the team file's `idle_close_hours` as the hook
+	// froze it (card 61): nil for a member left out (polling's default), 0
+	// for off. Entrypoint is the session's CLAUDE_CODE_ENTRYPOINT as the
+	// hook saw it (else the registry's `entrypoint`), a short token the
+	// hook validated; "" when neither had one. Together they decide
+	// IdleClose: the watcher closes a session for want of activity only
+	// when its host keeps the process after the conversation is closed
+	// (polling.IdleCloseHost). Both read once at the watcher's start.
+	IdleCloseHours *int   `json:"idle_close_hours,omitzero"`
+	Entrypoint     string `json:"entrypoint,omitzero"`
 	// HarnessVersion is the Claude Code version from the registry's
 	// `version` member when present, else "unknown".
 	HarnessVersion string `json:"harness_version"`
@@ -250,8 +260,45 @@ func (m *ByPID) Validate() error {
 		return errInvalid("heartbeat_seconds")
 	case m.RosterSeconds != 0 && !polling.RosterInRange(m.RosterSeconds):
 		return errInvalid("roster_seconds")
+	case m.IdleCloseHours != nil && !polling.IdleCloseInRange(*m.IdleCloseHours):
+		return errInvalid("idle_close_hours")
+	case m.Entrypoint != "" && !ValidEntrypoint(m.Entrypoint):
+		return errInvalid("entrypoint")
 	}
 	return m.validateSync()
+}
+
+// MaxEntrypointChars bounds the entrypoint token the map carries.
+const MaxEntrypointChars = 64
+
+// ValidEntrypoint reports whether s is an entrypoint token the map may
+// carry: 1 to MaxEntrypointChars ASCII letters, digits, '-', '_' or '.',
+// the shape of every value Claude Code is known to set ("cli", "sdk-cli",
+// "claude-vscode"). The hook blanks anything else rather than write it.
+func ValidEntrypoint(s string) bool {
+	if s == "" || len(s) > MaxEntrypointChars {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_', c == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// IdleClose is the idle close this map asks for (card 61): the team's
+// hours, else polling's default, as a duration — and zero, which the
+// watcher reads as never, when the member is 0 or when the entrypoint is
+// not a host that keeps its process after the conversation is closed.
+func (m *ByPID) IdleClose() time.Duration {
+	if !polling.IdleCloseHost(m.Entrypoint) {
+		return 0
+	}
+	return polling.IdleClose(m.IdleCloseHours)
 }
 
 // Interval is the interval between two message sounds, or two

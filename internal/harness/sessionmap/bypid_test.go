@@ -593,3 +593,75 @@ func TestMessageIntervalMemberBoundsAndDefault(t *testing.T) {
 		}
 	}
 }
+
+// TestIdleCloseMembers (card 61): idle_close_hours and entrypoint round
+// trip, are omitted when absent, and are refused out of shape; a written
+// 0 stays 0 (off), not absent (the default); and IdleClose is the hours —
+// the 6 h default, or the member's — for a host that keeps its process
+// after the conversation is closed, and never for any other entrypoint.
+func TestIdleCloseMembers(t *testing.T) {
+	t.Parallel()
+	m := validByPID()
+	data, err := json.Marshal(&m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "idle_close_hours") || strings.Contains(string(data), `"entrypoint"`) {
+		t.Fatalf("a map with neither member writes them: %s", data)
+	}
+	if got := m.IdleClose(); got != 0 {
+		t.Fatalf("no entrypoint: IdleClose = %v, want none", got)
+	}
+	m.Entrypoint = "claude-vscode"
+	if got := m.IdleClose(); got != 6*time.Hour {
+		t.Fatalf("VS Code with no member: IdleClose = %v, want the 6h default", got)
+	}
+	zero, twelve := 0, 12
+	m.IdleCloseHours = &zero
+	if got := m.IdleClose(); got != 0 {
+		t.Fatalf("VS Code with 0: IdleClose = %v, want off", got)
+	}
+	if data, err = json.Marshal(&m); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"idle_close_hours":0`) {
+		t.Fatalf("a 0 was not written: %s", data)
+	}
+	m.IdleCloseHours = &twelve
+	if data, err = json.Marshal(&m); err != nil {
+		t.Fatal(err)
+	}
+	var back sessionmap.ByPID
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Entrypoint != "claude-vscode" || back.IdleClose() != 12*time.Hour {
+		t.Fatalf("after the round trip: entrypoint %q, IdleClose %v; want claude-vscode and 12h", back.Entrypoint, back.IdleClose())
+	}
+	for _, entrypoint := range []string{"cli", "sdk-cli", "sdk-ts", "jetbrains", ""} {
+		m.Entrypoint, m.IdleCloseHours = entrypoint, &twelve
+		if got := m.IdleClose(); got != 0 {
+			t.Errorf("entrypoint %q: IdleClose = %v, want none", entrypoint, got)
+		}
+	}
+	over := 169
+	bad := validByPID()
+	bad.IdleCloseHours = &over
+	if err := bad.Validate(); err == nil {
+		t.Errorf("idle_close_hours 169 validated")
+	}
+	for _, entrypoint := range []string{"claude vscode", "<claude-vscode>", strings.Repeat("a", 65), "é"} {
+		bad := validByPID()
+		bad.Entrypoint = entrypoint
+		if err := bad.Validate(); err == nil {
+			t.Errorf("entrypoint %q validated", entrypoint)
+		}
+	}
+	for _, entrypoint := range []string{"cli", "sdk-cli", "claude-vscode", "sdk_ts.v2", strings.Repeat("a", 64)} {
+		good := validByPID()
+		good.Entrypoint = entrypoint
+		if err := good.Validate(); err != nil {
+			t.Errorf("entrypoint %q refused: %v", entrypoint, err)
+		}
+	}
+}

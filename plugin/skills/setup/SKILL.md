@@ -16,7 +16,8 @@ team every session in that checkout talks to. It carries only public values, so 
 join secret is never in it. The administrator writes the file once; each member runs one command in their checkout.
 The file may carry optional members the project commits by hand: `sync` (folders to keep in step), `gateway` (how
 people without a session reach the team) and `polling` (how often sessions check in with the backend, to stay
-inside a plan's request budget). `docs/setup.md`, "The project owns the team", describes each.
+inside a plan's request budget, and how long a session the VS Code extension started may stay idle before it
+closes itself). `docs/setup.md`, "The project owns the team", describes each.
 
 Every command below is the **person's** to run. Inside a Claude Code session the `!` prefix runs it on the Bash
 tool's PATH, where `brigade` already is, and its output lands in the conversation — never a secret. In a terminal

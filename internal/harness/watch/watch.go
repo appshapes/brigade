@@ -621,6 +621,18 @@ type watcher struct {
 	// reads and writes it: supervise, and the event loop it calls.
 	degradedSince time.Time
 
+	// idleClose is the map's IdleClose (card 61, idleclose.go): how long
+	// the session may go without activity before this watcher closes it,
+	// for a host that keeps its process after the conversation is closed
+	// (the VS Code extension); zero for every other host and for a team
+	// that switched it off. lastActive is the start, then the last
+	// liveness tick that saw activity; transcriptSeen the transcript
+	// mtime that tick compared. The supervisor's goroutine alone touches
+	// them, through checkLiveness.
+	idleClose      time.Duration
+	lastActive     time.Time
+	transcriptSeen time.Time
+
 	// ctx ends with a signal, the Stop channel or a liveness verdict;
 	// cancel is what every exit path calls first.
 	ctx    context.Context
@@ -712,7 +724,8 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		releasePath:    inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
 			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath),
-		sync: syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin},
+		sync:      syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin},
+		idleClose: m.IdleClose(),
 	}
 	w.sound = newSoundAnnouncer(w)
 	w.banner = newBannerAnnouncer(w)
@@ -761,6 +774,7 @@ func (w *watcher) run() int {
 	if info, err := w.deps.Lookup(w.rc.env.ClaudePID); err == nil {
 		w.claudeStart = info.StartToken
 	}
+	w.armIdleClose()
 
 	proceed, code := w.acquire()
 	if !proceed {

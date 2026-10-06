@@ -223,14 +223,16 @@ request or egress cap, such as Supabase's free plan, may need them slower. An op
 |---|---|---|---|---|
 | `heartbeat_seconds` | How often a session reports that it is alive. A session counts as online for three heartbeats after its last one. | 10 to 200 | 30 | A session that ended without closing itself (a crash, a machine asleep) shows online for three heartbeats: 90 seconds at 30, 10 minutes at 200. |
 | `roster_seconds` | How often a session reads the session list for folder sync. Only a project with a `sync` member reads it. | 15 to 3600 | 15 | A teammate's new session joins folder sync up to this long after it starts. |
+| `idle_close_hours` | After this many hours with no activity (no prompt, no model work), a session the Claude Code VS Code extension started closes itself; its next prompt re-opens it under the same id with the messages that waited. Only those sessions: closing a conversation in the extension keeps the `claude` process running and fires no hook, so without this the session stays `idle` on the roster, polling, for as long as the window lives. The CLI and `-p` runs are never closed this way. | 0 to 168; 0 switches it off | 6 | A quiet but open VS Code conversation leaves the roster after this long; a message sent to it then waits for its next prompt instead of waking it, and folder sync for that session pauses until then. |
 
-Neither value changes how fast a message arrives. Supabase Realtime signals each message as it is sent, and a lost
+Neither timer changes how fast a message arrives. Supabase Realtime signals each message as it is sent, and a lost
 signal is caught by the Supabase adapter's own 30-second inbox check. A rename, a busy/idle change and an inbound
 change reach teammates within seconds. Leave a value out to keep its default. A session whose team sets another
 value says so in one line at start. A value Brigade cannot use (not a whole number, or out of range) makes the
 whole member unusable: the session says so in one line and runs on the defaults. An edited member takes effect at
 the next session start or `/clear`. `team create --force` carries the member. A plugin of 0.11.0 to 0.24.0
-ignores the member, names it in one line at start, and keeps the default timers. A plugin of 0.10.0 or earlier
+ignores the member, names it in one line at start, and keeps the default timers; one of 0.25.0 or 0.26.0 ignores
+`idle_close_hours` alone, names it the same way, and never closes an idle session. A plugin of 0.10.0 or earlier
 refuses the whole file, as it does for a `sync` member.
 
 What the timers cost on Supabase's free plan: the session list is the large response, about 650 bytes per session

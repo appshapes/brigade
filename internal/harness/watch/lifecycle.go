@@ -141,7 +141,9 @@ func (w *watcher) checkLiveness() string {
 		return reason
 	}
 	w.refreshRegistry()
-	return ""
+	// Card 61: with the activity just read, the idle close is the one
+	// liveness verdict that is the watcher's own.
+	return w.checkIdle()
 }
 
 // refreshMap re-reads the by-pid map: gone → "map_gone"; another session

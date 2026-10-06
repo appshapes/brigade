@@ -42,6 +42,50 @@ const (
 	MaxRosterSeconds     = 3600
 )
 
+// The `idle_close_hours` value (card 61, brief idle-close-vscode.md): how
+// long a session may go without activity before its own watcher closes
+// it, for the hosts that keep the Claude Code process after the person
+// closes the conversation. The VS Code extension is such a host: closing
+// a conversation leaves the `claude` process running and fires no hook,
+// so without this the session stays `idle` on the roster, polling the
+// backend, for as long as the window lives. The next prompt re-opens the
+// session under its id (P10-7). 0 switches the close off.
+const (
+	DefaultIdleCloseHours = 6
+	MinIdleCloseHours     = 0
+	MaxIdleCloseHours     = 168
+)
+
+// idleCloseHosts are the CLAUDE_CODE_ENTRYPOINT values of the hosts the
+// idle close applies to. Measured 2026-10-06: the VS Code extension sets
+// `claude-vscode` on the process it spawns, and Claude Code 2.1.291 carries
+// it into every hook's environment and the session registry entry. The
+// CLI's `cli` and `-p`'s `sdk-cli` are absent on purpose — their process
+// ends with the session — and so is every value not measured yet, so an
+// unknown or missing entrypoint is never closed.
+var idleCloseHosts = map[string]bool{"claude-vscode": true}
+
+// IdleCloseHost reports whether entrypoint names a host whose sessions
+// the idle close applies to.
+func IdleCloseHost(entrypoint string) bool {
+	return idleCloseHosts[entrypoint]
+}
+
+// IdleCloseInRange reports whether hours is a usable idle_close_hours.
+func IdleCloseInRange(hours int) bool {
+	return hours >= MinIdleCloseHours && hours <= MaxIdleCloseHours
+}
+
+// IdleClose is the threshold an idle_close_hours value asks for: nil, the
+// value a team file or map without the member carries, is the default,
+// and 0 is off, which the zero duration means.
+func IdleClose(hours *int) time.Duration {
+	if hours == nil {
+		return DefaultIdleCloseHours * time.Hour
+	}
+	return time.Duration(*hours) * time.Hour
+}
+
 // HeartbeatInRange reports whether seconds is a usable heartbeat_seconds.
 func HeartbeatInRange(seconds int) bool {
 	return seconds >= MinHeartbeatSeconds && seconds <= MaxHeartbeatSeconds

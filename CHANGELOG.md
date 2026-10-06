@@ -9,6 +9,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A session the VS Code extension started closes itself after six idle hours** (card 61). Closing a conversation
+  in the extension leaves its `claude` process running and fires no hook, so such sessions stayed `idle` on the
+  roster for as long as the window lived, each polling the backend on every timer. The watcher now closes the
+  session after six hours with no activity — no prompt, no model work — and the next prompt re-opens it under the
+  same id with the messages that waited. Only sessions the extension started: the CLI, `-p` runs and every other
+  host are untouched. `idle_close_hours` in the `polling` member of `.brigade.json` sets the hours (0 to 168; 0
+  switches it off), [docs/setup.md](docs/setup.md), "The project owns the team". A plugin of 0.25.0 or 0.26.0 names
+  the value as an ignored member in one line at start and keeps the session open.
+
 ### Changed
 
 - **Folder sync reads only the sessions that are online** (card 60). The watcher's session-list read, every 15

@@ -645,6 +645,15 @@ func pollingSetLine(p *teamfile.PollingConfig) string {
 	if p.RosterSeconds != 0 && p.RosterSeconds != polling.DefaultRosterSeconds {
 		set = append(set, "a roster read every "+strconv.Itoa(p.RosterSeconds)+" s")
 	}
+	if h := p.IdleCloseHours; h != nil && *h != polling.DefaultIdleCloseHours {
+		// Card 61: the hours a VS Code session may stay quiet before it
+		// closes itself, or none at all.
+		if *h == 0 {
+			set = append(set, "no idle close for VS Code sessions")
+		} else {
+			set = append(set, "an idle close for VS Code sessions after "+strconv.Itoa(*h)+" h")
+		}
+	}
 	if len(set) == 0 {
 		return ""
 	}
