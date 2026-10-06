@@ -159,7 +159,8 @@ first mail.
 
 ## Running a whole gateway of your own
 
-The shipped functions are the default implementation, not the contract. A team may run its own gateway instead, in any language, anywhere. Anything that meets these four points is one:
+The shipped functions are the default implementation, not the contract. A team may run its own gateway instead, in any
+language, anywhere. Anything that meets these four points is one:
 
 1. **Be a member** of the team, with one session named `mail-gateway`, harness `gateway-email`, kept online with
    heartbeats while you work, whose `session_description` names the address people write to.
