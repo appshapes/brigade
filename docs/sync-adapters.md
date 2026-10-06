@@ -102,7 +102,7 @@ $ echo '{"state_dir":"/home/u/.local/state/brigade","session_id":"6f0f2b41","pid
 ### `apply`
 
 The whole desired set, every time: share these folders with these peers. Called right after the first `attach`;
-then Brigade reads the roster every 5 minutes (a team may set 15 seconds to an hour, `polling.roster_seconds` in
+then Brigade reads the roster every 15 seconds (a team may set 15 seconds to an hour, `polling.roster_seconds` in
 its team file) and calls `apply` again as soon as the teammates' peers change, and every 60 seconds while the
 session lives (with the peers of the last read).
 

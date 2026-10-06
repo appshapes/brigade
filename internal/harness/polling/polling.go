@@ -5,14 +5,15 @@
 // file's parser, the by-pid map and the watcher all take their defaults
 // and bounds from here, so the relationship is written once.
 //
-// The timers are timers, not work: an idle session's heartbeat and its
-// folder-sync roster read were most of a team's backend requests
-// (measured 2026-10-06), and a free backend plan caps them. A longer
-// heartbeat means a session whose watcher died without closing it shows
-// online for longer (up to one lease); it does not change how long a
-// message can wait (the Supabase adapter's backup drain is a fixed 5 min).
-// A longer roster read means a teammate's new session joins folder sync
-// later.
+// The defaults are the 0.24.0 timers: a 30 s heartbeat, a 90 s lease and
+// a 15 s roster read. 0.25.0 shipped 100 s and 5 min; 0.26.0 put the
+// 0.24.0 values back (Rjae's ruling, 2026-10-06). A team whose backend
+// plan caps requests or egress sets longer values in its team file. A
+// longer heartbeat makes a session whose watcher died without closing it
+// show online longer (up to one lease). A longer roster read makes a
+// teammate's new session join folder sync later. Neither changes how long
+// a message can wait: the Supabase adapter's backup drain is its own 30 s
+// timer.
 package polling
 
 import (
@@ -28,7 +29,7 @@ const LeaseBeats = 3
 // bounds are the protocol's default lease range divided by LeaseBeats,
 // so the lease it derives is one every adapter of that range grants.
 const (
-	DefaultHeartbeatSeconds = 100
+	DefaultHeartbeatSeconds = 30
 	MinHeartbeatSeconds     = protocol.LeaseMinSeconds / LeaseBeats
 	MaxHeartbeatSeconds     = protocol.LeaseMaxSeconds / LeaseBeats
 )
@@ -36,7 +37,7 @@ const (
 // The `roster_seconds` value: how often folder sync reads the team's
 // sessions to find the teammates to share folders with.
 const (
-	DefaultRosterSeconds = 300
+	DefaultRosterSeconds = 15
 	MinRosterSeconds     = 15
 	MaxRosterSeconds     = 3600
 )

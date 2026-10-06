@@ -257,7 +257,7 @@ func crashResumeSourceInt(t *testing.T, rel, pattern string) int {
 // that claim into a tautology (a longer lease in the script) or a false red (a shorter one), silently and with
 // a green suite. It is watch.DefaultLeaseSeconds, not protocol.LeaseDefaultSeconds or the sessions table's
 // default: those are the lease of a registration that names none, and arm B kills a watcher that has
-// heartbeated (card 53 parted the two, 300 s against 90 s).
+// heartbeated (equal at the 0.26.0 defaults; a team's polling member moves the first).
 func TestProofCrashResumeTimingConstantsMatchTheSources(t *testing.T) {
 	t.Parallel()
 

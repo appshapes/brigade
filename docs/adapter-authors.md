@@ -2087,7 +2087,7 @@ inherited; treat an empty value as unset and pick your own default. Everything e
 own — is absent by construction, because the list above is an allow-list and not a deny-list. The inbox socket
 token exists in exactly one process's environment, the watcher's, and reaches no adapter child.
 
-**Two extra facts ride on the heartbeat.** The Claude Code harness's watcher heartbeats its session every 100 s
+**Two extra facts ride on the heartbeat.** The Claude Code harness's watcher heartbeats its session every 30 s
 by default (a team may set 10 to 200 s in its team file's `polling` member), asking for a lease of three
 heartbeats clamped into your advertised range and never beating less often than three times per lease it asked
 for, and on every activity flip, rename and inbound change (on the stdin path at most one heartbeat is outstanding:
@@ -2101,8 +2101,8 @@ there (T10). Absent means unchanged and the harness never clears them, so a hear
 transcript leaves whatever you stored alone. Advertise `session.model` / `session.context_used_tokens` and store
 what arrives; advertise neither and accept-and-ignore — both are conformant, and both are what C-44 measures.
 
-The bundled Supabase adapter drains the inbox every 5 minutes while its Realtime channel is joined, whatever lease
-the heartbeat asks for: a safety net for a lost signal, so such a message waits at most 5 minutes. It is that
+The bundled Supabase adapter drains the inbox every 30 s while its Realtime channel is joined, whatever lease
+the heartbeat asks for: a safety net for a lost signal, so such a message waits at most 30 s. It is that
 adapter's choice, not a protocol rule; C-35's 5 s is met by the signals.
 
 **Timeouts, by command.** The harness bounds each call with a context deadline; the constants are

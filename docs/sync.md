@@ -177,7 +177,7 @@ says why)`; outside a session it refuses, because it reads the session's map.
 ## How it works
 
 - **Who syncs with whom.** Each session publishes its machine's Syncthing device id in the roster, as its
-  `sync_peer` (`syncthing:<device id>`). Every 5 minutes by default (the team file's `polling.roster_seconds`
+  `sync_peer` (`syncthing:<device id>`). Every 15 seconds by default (the team file's `polling.roster_seconds`
   sets another interval, [docs/setup.md](setup.md)) the watcher reads the roster, and whenever the devices it
   finds have changed — and once a minute regardless, with the devices of the last read — it shares the listed
   folders with the device of every other session of the team **in the same repository** — the same `REPO` name in

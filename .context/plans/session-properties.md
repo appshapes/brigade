@@ -132,7 +132,7 @@ The v1 ruling (the statusline payload) was made before two findings landed, and 
    teammates. The bar this feature has to clear is **no operator intervention** — install the plugin and it
    works — and the transcript route is the only candidate that clears it: the file already exists for every
    interactive session, the hook already receives its path on stdin, and the watcher already runs on the machine
-   that owns the file, every 30 seconds (100 seconds by default since card 53), for exactly this session.
+   that owns the file, every 30 seconds (or the team file's `polling.heartbeat_seconds`), for exactly this session.
 
 **The T10 objection was a misreading of Brigade's own rule.** T10 governs what goes **on the wire**: no member for
 a native session id, a working directory, a hostname, a username or a transcript path. It does not say the harness
@@ -363,7 +363,7 @@ Two further rulings this brief records:
   on the way out *and* on the way in to the display (§5.5), and `sessions.txtar` carries a hostile value to prove
   the second half.
 - **Occupancy is a lagging number.** It is the latest assistant record's usage, refreshed immediately before each
-  heartbeat, so it is at most one heartbeat interval (30 s; 100 s by default since card 53) old and it does not
+  heartbeat, so it is at most one heartbeat interval (30 s by default; the team file may set 10 to 200 s) old and it does not
   move while a session is idle —
   which is the truth about that session, not staleness.
 - **Adapter and schema versions are not ours to pair** (Rjae, 2026-09-10: releases must be schema-compatible in

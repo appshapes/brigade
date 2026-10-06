@@ -99,11 +99,10 @@ const (
 // The production values of the [Deps] knobs (6.6, 6.8).
 const (
 	// DefaultHeartbeatInterval is the periodic heartbeat of a team whose
-	// team file does not set `polling.heartbeat_seconds` (card 53: 100 s,
-	// was 6.6's 30 s). An idle session's heartbeat is a timer, not work,
-	// and it was a quarter of a team's backend requests; an activity flip,
-	// a rename and an inbound change are each heartbeated at the next
-	// liveness tick, so a teammate sees those as soon as before.
+	// team file does not set `polling.heartbeat_seconds`: 6.6's 30 s
+	// (0.25.0 shipped 100 s; 0.26.0 restored 30 s). An activity flip, a
+	// rename and an inbound change are each heartbeated at the next
+	// liveness tick as well.
 	DefaultHeartbeatInterval = polling.DefaultHeartbeatSeconds * time.Second
 	DefaultPollInterval      = 2 * time.Second
 	DefaultReadyTimeout      = 10 * time.Second
@@ -142,8 +141,8 @@ const (
 	DefaultLogRotateBytes = foldersync.LogRotateBytes
 	// DefaultLeaseSeconds is the lease the heartbeat asks for at the
 	// default heartbeat, before it is clamped into the adapter's
-	// advertised range: polling.LeaseBeats beats (card 53: 300 s; 6.6 set
-	// the rule with 30 s and 90 s). A team's own heartbeat derives its own
+	// advertised range: polling.LeaseBeats beats (6.6's 90 s at the 30 s
+	// default). A team's own heartbeat derives its own
 	// lease the same way (leaseWanted). It is not
 	// protocol.LeaseDefaultSeconds, the lease an adapter grants a caller
 	// that names none: a session whose watcher died without its exit path

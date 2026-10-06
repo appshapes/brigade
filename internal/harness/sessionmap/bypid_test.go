@@ -509,8 +509,8 @@ func TestMessageNotificationRoundTripsAndIsOmittedWhenOff(t *testing.T) {
 func TestPollingMembersBoundsAndDefault(t *testing.T) {
 	t.Parallel()
 	m := validByPID()
-	if m.Heartbeat() != 100*time.Second || m.Roster() != 5*time.Minute {
-		t.Fatalf("with no members: heartbeat %v, roster %v; want the defaults 100s and 5m", m.Heartbeat(), m.Roster())
+	if m.Heartbeat() != 30*time.Second || m.Roster() != 15*time.Second {
+		t.Fatalf("with no members: heartbeat %v, roster %v; want the defaults 30s and 15s", m.Heartbeat(), m.Roster())
 	}
 	data, err := json.Marshal(&m)
 	if err != nil {

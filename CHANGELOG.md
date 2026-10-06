@@ -9,6 +9,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **The 0.24.0 timers are the defaults again** (card 53). 0.25.0 slowed three timers for every team: the heartbeat
+  to 100 seconds, the folder-sync session-list read to 5 minutes, and the Supabase adapter's backup inbox check to
+  5 minutes. 0.26.0 puts them back to 30 seconds, 15 seconds and 30 seconds. A lost Realtime signal again costs
+  at most 30 seconds, and a session that ends without closing itself shows online for 90 seconds, not 5 minutes.
+  The `polling` member of `.brigade.json` stays: a team on a capped backend plan sets its own `heartbeat_seconds`
+  and `roster_seconds` there ([docs/setup.md](docs/setup.md), "The project owns the team"). The inbox check has no
+  setting; measured on a 19-session team, the session-list read is nearly all of the egress and the inbox check a
+  few percent of it.
+
 ## [0.25.0] — 2026-10-06
 
 ### Added

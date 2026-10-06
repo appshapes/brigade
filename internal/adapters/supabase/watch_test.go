@@ -740,8 +740,8 @@ func TestWatchPushReadyLiveAndHints(t *testing.T) {
 }
 
 // TestWatchTimingIsTheShippedCadence pins the shipped drain cadence on
-// the constants: card 53's 5 min live timer (what a lost hint costs: one
-// RPC per 5 min per watcher, whatever the lease; plan 5.6 had 30 s), the 10 s polling timer,
+// the constants: the 30 s live timer (what a lost hint costs: one
+// RPC per 30 s per watcher, whatever the lease; plan 5.6; 0.25.0 had 5 min), the 10 s polling timer,
 // two settling drains 3 s apart after every join, and the 30 s token
 // check, which must look more often than refreshMargin so the token is
 // refreshed before it expires whatever the RPC cadence.
@@ -751,8 +751,8 @@ func TestWatchPushReadyLiveAndHints(t *testing.T) {
 // that test runs with the live timer an hour away. Not parallel: it reads
 // the package's timing while no test mutates it.
 func TestWatchTimingIsTheShippedCadence(t *testing.T) {
-	if watchTiming.drainLive != 5*time.Minute || watchTiming.drainPolling != 10*time.Second {
-		t.Fatalf("drain timers live %s polling %s, want 5m and 10s (card 53)", watchTiming.drainLive, watchTiming.drainPolling)
+	if watchTiming.drainLive != 30*time.Second || watchTiming.drainPolling != 10*time.Second {
+		t.Fatalf("drain timers live %s polling %s, want 30s and 10s (plan 5.6; 0.26.0 restored 30s)", watchTiming.drainLive, watchTiming.drainPolling)
 	}
 	if watchTiming.settle != 3*time.Second || settleDrains != 2 {
 		t.Fatalf("settling drains %d × %s, want 2 × 3s (runs 33696302372 and 33756168929)", settleDrains, watchTiming.settle)
@@ -773,9 +773,9 @@ func TestWatchTimingIsTheShippedCadence(t *testing.T) {
 // drains are the only timer left and the wait for them is a hang
 // catcher rather than a window that had to close before the live timer
 // (2 × settle = 6 s, then 20 s against the 36 s the 30 s live timer of
-// the time needed); the shipped 5 min / 10 s cadence is pinned by
+// the time needed); the shipped 30 s / 10 s cadence is pinned by
 // TestWatchTimingIsTheShippedCadence. The channel is the fast path and
-// the timer only bounds what a lost hint costs — one RPC per 5 min per
+// the timer only bounds what a lost hint costs — one RPC per 30 s per
 // watcher, not one per second — so the suite's deadlines (C-08, C-35)
 // are met by hints and the settling drains, never by this timer.
 func TestWatchTimerOnlyDoesNotDrainEarly(t *testing.T) {
@@ -1161,7 +1161,7 @@ func TestWatchHeartbeatRefreshPushesToken(t *testing.T) {
 
 // TestWatchLiveDrainIgnoresTheHeartbeatLease (card 53, Frank's ruling,
 // 2026-10-06): while the channel is joined the safety-net drain is a fixed
-// drainLive (5 min) for every team. A heartbeat that succeeds, whatever
+// drainLive (30 s) for every team. A heartbeat that succeeds, whatever
 // lease it asks for — the protocol's shortest, the default, its longest —
 // leaves the interval where it was, and while polling it stays 10 s.
 func TestWatchLiveDrainIgnoresTheHeartbeatLease(t *testing.T) {
@@ -1178,8 +1178,8 @@ func TestWatchLiveDrainIgnoresTheHeartbeatLease(t *testing.T) {
 		if _, done := w.heartbeat(&protocol.WatchCommand{Type: protocol.CommandHeartbeat, Activity: &busy, LeaseSeconds: &lease}); done {
 			t.Fatal("a heartbeat ended the watch")
 		}
-		if got := w.drainInterval(); got != 5*time.Minute {
-			t.Fatalf("live drain after a heartbeat asking %d s = %s, want the fixed 5m", lease, got)
+		if got := w.drainInterval(); got != 30*time.Second {
+			t.Fatalf("live drain after a heartbeat asking %d s = %s, want the fixed 30s", lease, got)
 		}
 	}
 	if n := r.be.calls(rpcPath + "session_heartbeat"); n != 3 {
@@ -1590,7 +1590,7 @@ func (in *fakeInbox) quiesce(t *testing.T, d time.Duration) {
 // TestWatchTokenCheckRefreshesWithoutAnRPC: the token check refreshes the
 // access token once it is inside refreshMargin and pushes it on the
 // channel with no RPC to carry it — the drain timers are an hour away and
-// the settling drains spent — so the 5 min drainLive or a slow harness
+// the settling drains spent — so the 30 s drainLive or a slow harness
 // heartbeat can no longer let the JWT expire under a joined channel.
 // While the token is fresh the checks call /token not once.
 func TestWatchTokenCheckRefreshesWithoutAnRPC(t *testing.T) {

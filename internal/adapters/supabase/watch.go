@@ -24,7 +24,7 @@ import (
 // before the join completes is never broadcast, E0-2 (f)), on EVERY
 // broadcast on the session's own topic (message_accepted from a send,
 // membership_revoked from leave_team, whatever a later migration adds),
-// and on a periodic timer — 5 min while joined, 10 s while polling, with
+// and on a periodic timer — 30 s while joined, 10 s while polling, with
 // two 3 s "settling" drains after `ready` and after every join — so a
 // lost hint costs latency, never a message. The RPC is the authority on
 // ownership and membership every time it runs (owned_active_session),
@@ -56,18 +56,15 @@ var watchTiming = struct {
 	// channel is the fast path — every broadcast on the session's topic,
 	// message_accepted from a send and membership_revoked from leave_team,
 	// is a hint that drains at once — so the timer only bounds what a lost
-	// hint costs. Plan 5.6 set it at 30 s; card 53 set it at a fixed 5 min
-	// (Frank's ruling, 2026-10-06), because the timer of idle watchers was a
-	// quarter of a team's backend requests (fetch_inbox, measured
-	// 2026-10-06) and the backend's free plan caps them: a lost hint now
-	// costs up to five minutes, for every team, whatever its heartbeat or
-	// lease. This is the adapter's policy, not the protocol's (C-35 asks
-	// 5 s of a pushed message, which hints meet). The suite's
-	// deadlines, a message within 5 s (C-35) and a revoked member's watch
-	// ended within the same 5 s (C-08), are met by hints and the settling
-	// drains and never by this timer; the tests' negative control pins that
-	// it does not fire early. The token no longer rides this timer either:
-	// tokenCheck refreshes it.
+	// hint costs: 30 s (plan 5.6). 0.25.0 made it 5 min for every team
+	// (card 53); 0.26.0 put 30 s back (Rjae's ruling, 2026-10-06): the
+	// drain was a few percent of a team's backend egress, and 5 min on a
+	// lost hint is too long a default. It is the adapter's policy, not the
+	// protocol's, and no team file value reaches it. The suite's deadlines,
+	// a message within 5 s (C-35) and a revoked member's watch ended within
+	// the same 5 s (C-08), are met by hints and the settling drains, never
+	// by this timer; the tests' negative control pins that it does not fire
+	// early. The token does not ride this timer: tokenCheck refreshes it.
 	drainLive time.Duration
 	// drainPolling is the periodic drain while the channel is down and the
 	// watch has reported `status polling`, and before the first join (plan
@@ -90,10 +87,10 @@ var watchTiming = struct {
 	// the channel: auth-js's 30 s ticker and 90 s margin
 	// (docs/research/supabase-realtime-delivery.md 7.3). The look is local
 	// and /token is called only when a refresh is due. Without it the
-	// token was refreshed only inside an RPC, and with the 5 min drainLive
-	// and a 100 s harness heartbeat the gap between RPCs outgrew the
-	// margin: the JWT expired, the server closed the channel, and the
-	// watch fell back to polling until a forced refresh and a rejoin.
+	// token is refreshed only inside an RPC, so a team whose timers are
+	// slower than the margin would let the JWT expire under the channel:
+	// the server closes it and the watch falls back to polling until a
+	// forced refresh and a rejoin.
 	tokenCheck time.Duration
 	// heartbeat is the phx heartbeat cadence (the 66 s server rule, E0-2).
 	heartbeat time.Duration
@@ -114,7 +111,7 @@ var watchTiming = struct {
 	// closeTimeout bounds close_session for a `close` command.
 	closeTimeout time.Duration
 }{
-	drainLive:    5 * time.Minute,
+	drainLive:    30 * time.Second,
 	drainPolling: 10 * time.Second,
 	settle:       3 * time.Second,
 	tokenCheck:   30 * time.Second,

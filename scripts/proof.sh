@@ -98,8 +98,7 @@ name_payments='payments-api'
 name_refuse='alice-refuse'
 
 budget_ready=60          # a `watch ready` line: 10 s ready timeout + up to 30 s restart backoff + a second window
-budget_sink=330          # a frame reaching a sink: the live drain (5 min) + 30 s, the repo's own rule (a hint is
-                         # seconds); a hang catcher -- one full wait fits budget_total, two do not, and a green run takes ~80 s
+budget_sink=60           # a frame reaching a sink: the live drain (30 s) + 30 s, the repo's own rule; a hint is seconds
 budget_ack=30            # the ack command issued and the backend drained
 budget_gone=15           # a process to be gone
 budget_quiet=10          # the quiet window that spans both settling drains

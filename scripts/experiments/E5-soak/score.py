@@ -32,8 +32,8 @@ import common   # noqa: E402  (read_ndjson)
 REFRESH_MARGIN_S = 90          # credentials.go refreshMargin
 JWT_EXPIRY_S = 3600            # supabase/config.toml jwt_expiry
 # The watcher's timers the scored run had: the defaults are the E5 run's, so its bundles re-score identically.
-# A bundle from a run after card 53 needs --lease-s 300 --heartbeat-s 100 (or three and one of the team's
-# polling.heartbeat_seconds): with the defaults, a healthy 100 s heartbeat gap would score as over the lease.
+# A bundle from a 0.25.0 run needs --lease-s 300 --heartbeat-s 100, and one from a team with a polling member
+# three and one of its heartbeat_seconds: with the wrong values a healthy heartbeat gap scores as over the lease.
 LEASE_S = 90                   # --lease-s; the watcher's lease when E5 ran
 HEARTBEAT_S = 30               # --heartbeat-s; watch.go DefaultHeartbeatInterval when E5 ran
 QUEUE_CAPACITY = 50            # inbound/queue.go

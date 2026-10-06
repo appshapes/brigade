@@ -150,7 +150,7 @@ appears only as `UserPromptSubmit hook`, never the text, while the session's tra
 **Two facts Brigade now reads from your transcript — on this machine.** So that `brigade sessions` can tell your team
 which model a session is running and how full its context is, Brigade reports two values with each session: the
 **model identity** (`claude-opus-5[1m]`) and the **context occupancy in tokens**. It gets both by reading your
-session's own transcript file, locally, in the background watcher on your own machine, at each heartbeat (every 100
+session's own transcript file, locally, in the background watcher on your own machine, at each heartbeat (every 30
 seconds unless the team sets another interval) — and
 it sends **only those two values**, the one string and the one number. Nothing else from the transcript is read out,
 kept or transmitted: no prompt, no answer, no file name, no tool call. The transcript is never uploaded, and **its

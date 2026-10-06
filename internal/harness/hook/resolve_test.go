@@ -360,10 +360,10 @@ func TestHookTeamFileNotes(t *testing.T) {
 		// Card 53: a polling member at the defaults earns no line, one that
 		// sets other values names them, and an unusable one earns its own
 		// line, after the gateway note, with its token.
-		"a polling member at the defaults says nothing": {`,"polling":{"heartbeat_seconds":100,"roster_seconds":300}`, nil},
+		"a polling member at the defaults says nothing": {`,"polling":{"heartbeat_seconds":30,"roster_seconds":15}`, nil},
 		"an empty polling member says nothing":          {`,"polling":{}`, nil},
 		"a polling member that sets the heartbeat names it": {
-			`,"polling":{"heartbeat_seconds":60,"roster_seconds":300}`,
+			`,"polling":{"heartbeat_seconds":60,"roster_seconds":15}`,
 			[]string{"Brigade: .brigade.json's polling member sets a heartbeat every 60 s."},
 		},
 		"a polling member that sets both names both": {

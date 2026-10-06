@@ -29,7 +29,7 @@
 # deferral key would both silently swallow a repeat; and condition 1 of 9.6 is not re-implemented here but
 # delegated to `scripts/proof-headless.sh judge`, which 44 mutation rows already guard.
 #
-# Since card 53 the Supabase adapter's backup drain runs every 5 minutes while Realtime is joined, so the 30 s
+# The Supabase adapter's backup drain runs every 30 s while Realtime is joined (5 min in 0.25.0 only), so the 30 s
 # send-accepted->enqueue budget (drain_target_ms) can be met only by the Realtime hint: the script fails on any
 # lost hint. It is the measurement of hint loss -- a red run on that line means a hint was lost, not a flake to
 # soften by raising the budget.
@@ -67,7 +67,7 @@ budget_first_result=120    # the priming turn to produce its first stdout `resul
 budget_send=60             # `brigade send` to answer `accepted`: a hang catcher on the send's own wall
 budget_wake=60             # LIVE hang catcher: a new stdout record after the send's accepted answer
 wake_target_ms=10000       # E0-4's own budget, applied to enqueue -> first assistant (the comparable half)
-drain_target_ms=30000      # send accepted -> the frame's enqueue, by the Realtime hint (P4-2 measured 28-152 ms); a lost hint waits for the 300 s live drain and fails this
+drain_target_ms=30000      # send accepted -> the frame's enqueue, by the Realtime hint (P4-2 measured 28-152 ms); a lost hint waits for the 30 s live drain and may fail this
 budget_eof=25              # EOF -> process exit (E0-4's bound; measured 0.24-0.48 s, n=8)
 budget_gone=10             # the by-pid map and the watcher pidfile to be gone after SessionEnd
 budget_session=420         # one receiver's whole life, incl. a 120 s hold: a hang catcher only

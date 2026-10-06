@@ -26,12 +26,12 @@ const writerStopWait = 10 * time.Second
 // answers (4.4.9 says it must, with heartbeat_ok or an error event) still
 // heartbeats inside its lease and stays online. It is the lease the
 // heartbeat asks for less one and a half intervals, which puts the
-// deadline mid-way between two ticks: with the production 100 s interval
-// and 300 s lease the 100 s tick defers (100 < 150) and the 200 s tick
-// sends, 100 s inside the lease. Measured against the lease itself the
-// deadline would sit ON a tick — time.Since(sentAt) at the 300 s tick is
-// marginally under 300 s, since sentAt is stamped after the write — and
-// the next heartbeat would go out at 400 s, past the lease. The deadline
+// deadline mid-way between two ticks: with the default 30 s interval and
+// 90 s lease the 30 s tick defers (30 < 45) and the 60 s tick sends, 30 s
+// inside the lease. Measured against the lease itself the deadline would
+// sit ON a tick — time.Since(sentAt) at the 90 s tick is marginally under
+// 90 s, since sentAt is stamped after the write — and the next heartbeat
+// would go out at 120 s, past the lease. The deadline
 // is mid-way only while the lease is a whole number of intervals, which
 // leaseWanted and heartbeatInterval keep.
 func (w *watcher) heartbeatAnswerWait(s *session) time.Duration {

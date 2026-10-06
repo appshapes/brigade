@@ -114,10 +114,10 @@ func TestRegistrationAsksTheWatchersLease(t *testing.T) {
 		lease   *protocol.Lease // the adapter's advertised range; nil for the protocol's default
 		want    int
 	}{
-		{"the default heartbeat", ``, nil, 300},
+		{"the default heartbeat", ``, nil, 90},
 		{"a team's own heartbeat", `,"polling":{"heartbeat_seconds":150}`, nil, 450},
-		{"an unusable member is the default", `,"polling":{"heartbeat_seconds":1}`, nil, 300},
-		{"a range that ends under it", ``, &narrow, 120},
+		{"an unusable member is the default", `,"polling":{"heartbeat_seconds":1}`, nil, 90},
+		{"a range that ends under it", `,"polling":{"heartbeat_seconds":100}`, &narrow, 120},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -139,8 +139,11 @@ func TestRegistrationAsksTheWatchersLease(t *testing.T) {
 			if err := json.Unmarshal(seam.callsFor("session register")[0].Stdin, &reg); err != nil {
 				t.Fatal(err)
 			}
-			if reg.LeaseSeconds == nil || *reg.LeaseSeconds != tc.want {
-				t.Fatalf("registration lease_seconds = %v, want %d", reg.LeaseSeconds, tc.want)
+			if reg.LeaseSeconds == nil {
+				t.Fatalf("registration carries no lease_seconds, want %d", tc.want)
+			}
+			if *reg.LeaseSeconds != tc.want {
+				t.Fatalf("registration lease_seconds = %d, want %d", *reg.LeaseSeconds, tc.want)
 			}
 		})
 	}

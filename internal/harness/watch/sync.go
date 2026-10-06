@@ -30,11 +30,11 @@ const DefaultSyncInterval = 60 * time.Second
 // roster from the backend when the team file's `polling.roster_seconds`
 // does not say: an `apply` follows at once when the teammates' peers
 // changed, so a teammate who starts a session is introduced within about
-// five minutes. P18-6 had made it 15 s (60.8 s was measured with the
-// roster read only on the 60 s round); card 53 made it five minutes,
-// because a roster read with offline sessions included was half of a
-// team's backend requests (`list_sessions`, measured 2026-10-06) and the
-// backend's free plan caps them.
+// 15 s (P18-6; 60.8 s was measured with the roster read only on the 60 s
+// round). 0.25.0 made it 5 min, because the read, with offline sessions
+// included, was most of a team's backend egress (measured 2026-10-06);
+// 0.26.0 restored 15 s (Rjae's ruling, 2026-10-06), and a team whose plan
+// caps egress sets its own value.
 const DefaultSyncListInterval = polling.DefaultRosterSeconds * time.Second
 
 // syncNoticeMessageChars caps how much of an adapter's own error message
