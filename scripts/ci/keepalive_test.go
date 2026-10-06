@@ -701,6 +701,18 @@ func checkKeepaliveDrift(r reporter, script, repoRoot string) {
 	}
 }
 
+// keepaliveProjects is every hosted project keepalive.yml keeps alive: the job's name and the prefix of its
+// variable pair (`<prefix>_SUPABASE_URL`, `<prefix>_SUPABASE_PUBLISHABLE_KEY`). The first row's pair is the
+// adapter's own two names (P5-0 brief 3.1), which the test below joins to internal/adapters/supabase/team.go as
+// well. A fifth project is a fifth row here, a fifth job in the workflow and a fifth pair in docs/setup.md
+// section 2, in one commit: the test fails on a job without a row and on a row without a job.
+var keepaliveProjects = []struct{ job, prefix string }{
+	{"keepalive", "BRIGADE"},                                               // appshapes-brigade, 2026-09-05
+	{"keepalive-thinktech", "BRIGADE_THINKTECH"},                           // thinktech-brigade, 2026-09-10
+	{"keepalive-aafp-board-review-team", "BRIGADE_AAFP_BOARD_REVIEW_TEAM"}, // the AAFP Board Review team's, 2026-09-17
+	{"keepalive-ifthen-team-2", "BRIGADE_IFTHEN_TEAM_2"},                   // an IfThen team's, 2026-10-06 (card 62)
+}
+
 // TestKeepaliveWorkflowAndDocsAgree pins the three places the two repository-variable names are written down
 // to each other. A typo in any one of them is a workflow that silently no-ops for ever (the script cannot
 // tell an unset variable from a misspelt one) — which is exactly the failure mode a keep-alive must not have.
@@ -722,8 +734,6 @@ func TestKeepaliveWorkflowAndDocsAgree(t *testing.T) {
 	}
 	for _, name := range []string{"BRIGADE_SUPABASE_URL", "BRIGADE_SUPABASE_PUBLISHABLE_KEY"} {
 		keepaliveMentions(t, "the adapter's environment names", team, `Var = "`+name+`"`)
-		keepaliveMentions(t, keepaliveWorkflowRel, workflow, name+`: "${{ vars.`+name+` }}"`)
-		keepaliveMentions(t, keepaliveDocRel, doc, "gh variable set "+name)
 	}
 	keepaliveMentions(t, keepaliveWorkflowRel, workflow,
 		"name: keepalive",
@@ -733,31 +743,26 @@ func TestKeepaliveWorkflowAndDocsAgree(t *testing.T) {
 		"uses: actions/checkout@v7",
 		"run: "+keepaliveScriptRel,
 	)
-	// One job per hosted project, each with its own variable pair (thinktech-brigade added 2026-09-10). The
-	// second job maps its pair onto the SAME two names the script reads, so keepalive.sh stays single-project.
-	keepaliveMentions(t, keepaliveWorkflowRel, workflow,
-		"keepalive-thinktech:",
-		`BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_THINKTECH_SUPABASE_URL }}"`,
-		`BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY }}"`,
-	)
-	for _, name := range []string{"BRIGADE_THINKTECH_SUPABASE_URL", "BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY"} {
-		keepaliveMentions(t, keepaliveDocRel, doc, "gh variable set "+name)
+	// One job per hosted project, each with its own variable pair, pinned by the same join on both sides: the
+	// job key on its own line and both `vars.` expressions in the workflow, both `gh variable set` lines in the
+	// doc. Every job maps its pair onto the SAME two names the script reads, so keepalive.sh stays
+	// single-project. The pin matters because rung 0 reads BOTH variables unset as a notice and exit 0: a pair
+	// set under a name the workflow does not read is a job that is green forever and never touches the project.
+	for _, project := range keepaliveProjects {
+		urlVar, keyVar := project.prefix+"_SUPABASE_URL", project.prefix+"_SUPABASE_PUBLISHABLE_KEY"
+		keepaliveMentions(t, keepaliveWorkflowRel, workflow,
+			"\n  "+project.job+":\n",
+			`BRIGADE_SUPABASE_URL: "${{ vars.`+urlVar+` }}"`,
+			`BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.`+keyVar+` }}"`,
+		)
+		keepaliveMentions(t, keepaliveDocRel, doc, "gh variable set "+urlVar, "gh variable set "+keyVar)
 	}
-	// The third project (the AAFP Board Review team's, added 2026-09-17), pinned for the same reason and by the
-	// same join: rung 0 reads BOTH variables unset as a notice and exit 0, so a pair set under a name the
-	// workflow does not read is a job that is green forever and never touches the project.
-	keepaliveMentions(t, keepaliveWorkflowRel, workflow,
-		"keepalive-aafp-board-review-team:",
-		`BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL }}"`,
-		`BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY }}"`,
-	)
-	for _, name := range []string{
-		"BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL",
-		"BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY",
-	} {
-		keepaliveMentions(t, keepaliveDocRel, doc, "gh variable set "+name)
+	// The workflow has exactly the table's jobs, so a job added there without a row here is caught as well as
+	// the reverse, and each job runs the script exactly once, so a project cannot silently go unchecked.
+	if got := strings.Count(workflow, "runs-on:"); got != len(keepaliveProjects) {
+		t.Errorf("%s has %d jobs but keepaliveProjects names %d hosted projects: add the row, or the job",
+			keepaliveWorkflowRel, got, len(keepaliveProjects))
 	}
-	// Each project's job must run the script exactly once, so a second project cannot silently go unchecked.
 	if got := strings.Count(workflow, "run: "+keepaliveScriptRel); got != strings.Count(workflow, "runs-on:") {
 		t.Errorf("%s has %d `run: %s` steps but %d jobs: every keep-alive job must climb the rungs",
 			keepaliveWorkflowRel, got, keepaliveScriptRel, strings.Count(workflow, "runs-on:"))

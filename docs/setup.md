@@ -1003,6 +1003,14 @@ gh variable set BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL --body https://<ref>
 gh variable set BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
 ```
 
+A fourth project is a fourth job and a fourth pair — an IfThen team's, named generically because this repository
+is public and the team belongs to a client:
+
+```sh
+gh variable set BRIGADE_IFTHEN_TEAM_2_SUPABASE_URL --body https://<ref>.supabase.co
+gh variable set BRIGADE_IFTHEN_TEAM_2_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
+```
+
 **Set both names of a pair, and spell them exactly as the workflow does.** Rung 0 treats *both* variables unset
 as a `::notice::` and exit 0 — only exactly one set is an error — so a pair typed under a name the workflow does
 not read leaves the job green forever while the project quietly pauses on day seven.
