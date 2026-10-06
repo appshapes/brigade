@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.26.0] — 2026-10-06
+
 ### Changed
 
 - **The 0.24.0 timers are the defaults again** (card 53). 0.25.0 slowed three timers for every team: the heartbeat
