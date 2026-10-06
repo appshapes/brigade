@@ -741,7 +741,7 @@ func TestWatchPushReadyLiveAndHints(t *testing.T) {
 
 // TestWatchTimingIsTheShippedCadence pins the shipped drain cadence on
 // the constants: card 53's 5 min live timer (what a lost hint costs: one
-// RPC per 5 min per watcher; plan 5.6 had 30 s), the 10 s polling timer,
+// RPC per 5 min per watcher, whatever the lease; plan 5.6 had 30 s), the 10 s polling timer,
 // two settling drains 3 s apart after every join, and the 30 s token
 // check, which must look more often than refreshMargin so the token is
 // refreshed before it expires whatever the RPC cadence.
@@ -1159,45 +1159,31 @@ func TestWatchHeartbeatRefreshPushesToken(t *testing.T) {
 	}
 }
 
-// TestWatchLiveDrainFollowsTheHeartbeatLease (card 53): while the channel
-// is joined the safety-net drain runs once per lease — drainLive (5 min)
-// until a stdin heartbeat names one, then that heartbeat's lease_seconds.
-// A heartbeat without the member keeps the last lease, a refused one
-// changes nothing, and while polling the drain stays at its 10 s.
-func TestWatchLiveDrainFollowsTheHeartbeatLease(t *testing.T) {
+// TestWatchLiveDrainIgnoresTheHeartbeatLease (card 53, owner ruling
+// 2026-10-06): while the channel is joined the safety-net drain is a fixed
+// drainLive (5 min) for every team. A heartbeat that succeeds, whatever
+// lease it asks for — the protocol's shortest, the default, its longest —
+// leaves the interval where it was, and while polling it stays 10 s.
+func TestWatchLiveDrainIgnoresTheHeartbeatLease(t *testing.T) {
 	t.Parallel()
-	r, _, in := watchRig(t)
+	r, _, _ := watchRig(t)
 	c := r.command("message", "watch", "--session", watchSession)
 	if err := c.authenticate(true); err != nil {
 		t.Fatal(err)
 	}
 	w := &watcher{c: c, ctx: t.Context(), events: protocol.NewLineWriter(io.Discard), id: watchSession,
 		topic: sessionTopic(watchSession), seen: map[string]bool{}, live: true}
-	beat := func(lease *int) {
-		t.Helper()
-		busy := protocol.ActivityBusy
-		if _, done := w.heartbeat(&protocol.WatchCommand{Type: protocol.CommandHeartbeat, Activity: &busy, LeaseSeconds: lease}); done {
+	busy := protocol.ActivityBusy
+	for _, lease := range []int{protocol.LeaseMinSeconds, 300, protocol.LeaseMaxSeconds} {
+		if _, done := w.heartbeat(&protocol.WatchCommand{Type: protocol.CommandHeartbeat, Activity: &busy, LeaseSeconds: &lease}); done {
 			t.Fatal("a heartbeat ended the watch")
 		}
+		if got := w.drainInterval(); got != 5*time.Minute {
+			t.Fatalf("live drain after a heartbeat asking %d s = %s, want the fixed 5m", lease, got)
+		}
 	}
-	if got := w.drainInterval(); got != watchTiming.drainLive {
-		t.Fatalf("live drain before any heartbeat = %s, want drainLive %s", got, watchTiming.drainLive)
-	}
-	shorter, longer := 120, 450
-	beat(&shorter)
-	if got := w.drainInterval(); got != 2*time.Minute {
-		t.Fatalf("live drain after a 120 s lease = %s, want 2m", got)
-	}
-	beat(nil)
-	if got := w.drainInterval(); got != 2*time.Minute {
-		t.Fatalf("live drain after a heartbeat without a lease = %s, want the last lease's 2m", got)
-	}
-	in.mu.Lock()
-	in.closed = true // session_heartbeat now answers conflict: session_closed
-	in.mu.Unlock()
-	beat(&longer)
-	if got := w.drainInterval(); got != 2*time.Minute {
-		t.Fatalf("live drain after a refused heartbeat = %s, want the last accepted lease's 2m", got)
+	if n := r.be.calls(rpcPath + "session_heartbeat"); n != 3 {
+		t.Fatalf("session_heartbeat called %d times, want the three heartbeats to have succeeded", n)
 	}
 	w.live = false
 	if got := w.drainInterval(); got != watchTiming.drainPolling {
@@ -1505,52 +1491,33 @@ func tokenTiming(t *testing.T, check time.Duration) {
 	t.Cleanup(func() { watchTiming = saved })
 }
 
-// TestWatchLeaseChangeKeepsAnArmedSettlingDrain: a heartbeat whose lease
-// changes the live drain's interval arrives between the two settling
-// drains after a join and must not replace the second with a whole lease:
-// the settling drains are what find a hint lost right after a join (C-08;
-// runs 33696302372 and 33756168929). The second still fires on time, and
-// the re-arm after it is the first to use the new lease. Real timers, 20
-// ms settles.
-func TestWatchLeaseChangeKeepsAnArmedSettlingDrain(t *testing.T) {
+// TestWatchHeartbeatKeepsAnArmedSettlingDrain: a stdin heartbeat that
+// lands between the two settling drains after a join — whatever lease it
+// asks for — leaves the second one armed, and it fires on time: the
+// settling drains are what find a hint lost right after a join (C-08;
+// runs 33696302372 and 33756168929). Real timers, 20 ms settles.
+func TestWatchHeartbeatKeepsAnArmedSettlingDrain(t *testing.T) {
 	settleTiming(t, 20*time.Millisecond)
-	w := &watcher{live: true, settling: settleDrains, drainTimer: time.NewTimer(time.Hour)}
+	r, _, _ := watchRig(t)
+	c := r.command("message", "watch", "--session", watchSession)
+	if err := c.authenticate(true); err != nil {
+		t.Fatal(err)
+	}
+	w := &watcher{c: c, ctx: t.Context(), events: protocol.NewLineWriter(io.Discard), id: watchSession,
+		topic: sessionTopic(watchSession), seen: map[string]bool{}, live: true,
+		settling: settleDrains, drainTimer: time.NewTimer(time.Hour)}
 	defer w.drainTimer.Stop()
 	w.rearm() // the first settling drain, armed at the join
 	<-w.drainTimer.C
 	w.rearm() // the second, armed after the first ran: none is owed now
-	lease := 120
-	w.followLease(&lease)
+	busy, lease := protocol.ActivityBusy, protocol.LeaseMaxSeconds
+	if _, done := w.heartbeat(&protocol.WatchCommand{Type: protocol.CommandHeartbeat, Activity: &busy, LeaseSeconds: &lease}); done {
+		t.Fatal("the heartbeat ended the watch")
+	}
 	select {
 	case <-w.drainTimer.C:
 	case <-time.After(time.Second):
-		t.Fatal("the lease change replaced the armed settling drain with a whole lease")
-	}
-	if got := w.drainInterval(); got != 2*time.Minute {
-		t.Fatalf("the live drain after the settling drains = %s, want the heartbeat's 2m lease", got)
-	}
-}
-
-// TestWatchLeaseNeverRearmsTheDrain: a heartbeat — the same lease or a new
-// one — leaves the armed live drain alone. Re-arming at every heartbeat
-// would push the safety net a whole lease away each time, and the harness
-// heartbeats three times per lease, so it would never fire; a new lease
-// takes effect at the next re-arm instead.
-func TestWatchLeaseNeverRearmsTheDrain(t *testing.T) {
-	t.Parallel()
-	w := &watcher{live: true, lease: 300, drainTimer: time.NewTimer(20 * time.Millisecond)}
-	defer w.drainTimer.Stop()
-	for _, lease := range []int{300, 120} {
-		w.followLease(&lease)
-		select {
-		case <-w.drainTimer.C:
-		case <-time.After(time.Second):
-			t.Fatalf("a heartbeat naming a %d s lease re-armed the live drain", lease)
-		}
-		w.drainTimer.Reset(20 * time.Millisecond)
-	}
-	if got := w.drainInterval(); got != 2*time.Minute {
-		t.Fatalf("live drain after the new lease = %s, want 2m at the next re-arm", got)
+		t.Fatal("the heartbeat cancelled the armed settling drain")
 	}
 }
 

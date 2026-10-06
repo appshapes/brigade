@@ -24,10 +24,9 @@ import (
 // before the join completes is never broadcast, E0-2 (f)), on EVERY
 // broadcast on the session's own topic (message_accepted from a send,
 // membership_revoked from leave_team, whatever a later migration adds),
-// and on a periodic timer — once per lease while joined (5 min until a
-// heartbeat names the lease), 10 s while polling, with two 3 s "settling"
-// drains after `ready` and after every join — so a lost hint costs
-// latency, never a message. The RPC is the authority on
+// and on a periodic timer — 5 min while joined, 10 s while polling, with
+// two 3 s "settling" drains after `ready` and after every join — so a
+// lost hint costs latency, never a message. The RPC is the authority on
 // ownership and membership every time it runs (owned_active_session),
 // which is what ends the watch of a revoked member with the uniform
 // `unauthorized` (C-08) and answers a foreign session with the uniform
@@ -53,19 +52,17 @@ const drainPageSize = 200
 // watchTiming holds the watch's intervals. It is a variable so a test can
 // shorten them; the tests that do are not parallel and restore it.
 var watchTiming = struct {
-	// drainLive is the periodic drain while the private channel is up,
-	// until a stdin heartbeat names the session's lease; from then on the
-	// drain runs once per that lease (liveDrain). The channel is the fast
-	// path — every broadcast on the session's topic, message_accepted from
-	// a send and membership_revoked from leave_team, is a hint that drains
-	// at once — so the timer only bounds what a lost hint costs. Plan 5.6
-	// set it at 30 s; card 53 tied it to the lease, 5 min at the harness's
-	// default heartbeat, because the timer of idle watchers was a quarter
-	// of a team's backend requests (fetch_inbox, measured 2026-10-06) and
-	// the backend's free plan caps them: a lost hint now costs up to one
-	// lease, the same time a crashed session shows online. This is the
-	// adapter's policy, not the protocol's (C-35 asks 5 s of a pushed
-	// message, which hints meet). The suite's
+	// drainLive is the periodic drain while the private channel is up. The
+	// channel is the fast path — every broadcast on the session's topic,
+	// message_accepted from a send and membership_revoked from leave_team,
+	// is a hint that drains at once — so the timer only bounds what a lost
+	// hint costs. Plan 5.6 set it at 30 s; card 53 set it at a fixed 5 min
+	// (owner ruling, 2026-10-06), because the timer of idle watchers was a
+	// quarter of a team's backend requests (fetch_inbox, measured
+	// 2026-10-06) and the backend's free plan caps them: a lost hint now
+	// costs up to five minutes, for every team, whatever its heartbeat or
+	// lease. This is the adapter's policy, not the protocol's (C-35 asks
+	// 5 s of a pushed message, which hints meet). The suite's
 	// deadlines, a message within 5 s (C-35) and a revoked member's watch
 	// ended within the same 5 s (C-08), are met by hints and the settling
 	// drains and never by this timer; the tests' negative control pins that
@@ -193,7 +190,6 @@ type watcher struct {
 	polling    bool        // a `status polling` was reported since the last live
 	refreshed  bool        // the one forced refresh a bad-token refusal earns
 	pushed     string      // the access token the channel was last given
-	lease      int         // lease_seconds of the last stdin heartbeat that succeeded; 0 before one names it
 	outage     time.Time   // the first of the current run of drain failures
 }
 
@@ -371,38 +367,14 @@ func (w *watcher) drainFailed(err error) (int, bool) {
 	return protocol.ExitOK, false
 }
 
-// drainInterval is the periodic drain's interval in the watch's state.
+// drainInterval is the periodic drain's interval in the watch's state:
+// drainLive while the channel is joined — fixed, whatever lease a
+// heartbeat asks for — and drainPolling while it is not.
 func (w *watcher) drainInterval() time.Duration {
 	if w.live {
-		return w.liveDrain()
-	}
-	return watchTiming.drainPolling
-}
-
-// liveDrain is the drain's interval while the channel is joined: once per
-// lease the harness asks for (card 53), so a message whose hint was lost
-// waits no longer than a dead session shows online; drainLive until a
-// heartbeat names one. The lease is held to the protocol's default range,
-// which the heartbeat's own check already enforced.
-func (w *watcher) liveDrain() time.Duration {
-	if w.lease == 0 {
 		return watchTiming.drainLive
 	}
-	return time.Duration(min(max(w.lease, protocol.LeaseMinSeconds), protocol.LeaseMaxSeconds)) * time.Second
-}
-
-// followLease records the lease a heartbeat that succeeded asked for. It
-// never re-arms the drain timer: the next rearm — after the drain that
-// timer runs, a hint's or its own — reads the lease. Re-arming here could
-// replace an armed settling drain with a whole lease (the drains that find
-// a hint lost right after a join, C-08), or, at every heartbeat, push the
-// live drain a whole lease away for good: the harness heartbeats three
-// times per lease. The first heartbeat comes with `ready`, so the lease is
-// known before the settling drains hand over to the live interval.
-func (w *watcher) followLease(seconds *int) {
-	if seconds != nil {
-		w.lease = *seconds
-	}
+	return watchTiming.drainPolling
 }
 
 // rearm schedules the next timer-driven drain a whole interval from now —
@@ -779,7 +751,6 @@ func (w *watcher) heartbeat(cmd *protocol.WatchCommand) (int, bool) {
 	if err != nil {
 		return w.commandFailed(err)
 	}
-	w.followLease(req.LeaseSeconds)
 	w.syncToken()
 	if !w.emit(&protocol.WatchHeartbeatOK{
 		Event: protocol.EventHeartbeatOK, SessionID: out.SessionID, State: out.State,

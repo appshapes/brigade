@@ -62,7 +62,7 @@ budget_first_result=120    # the priming turn to produce its first stdout `resul
 budget_send=60             # `brigade send` to answer `accepted`: a hang catcher on the send's own wall
 budget_wake=60             # LIVE hang catcher: a new stdout record after the send's accepted answer
 wake_target_ms=10000       # E0-4's own budget, applied to enqueue -> first assistant (the comparable half)
-drain_target_ms=30000      # send accepted -> the frame's enqueue, by the Realtime hint (P4-2 measured 28-152 ms); a lost hint waits for the live drain, once per lease (300 s), and fails this
+drain_target_ms=30000      # send accepted -> the frame's enqueue, by the Realtime hint (P4-2 measured 28-152 ms); a lost hint waits for the 300 s live drain and fails this
 budget_eof=25              # EOF -> process exit (E0-4's bound; measured 0.24-0.48 s, n=8)
 budget_gone=10             # the by-pid map and the watcher pidfile to be gone after SessionEnd
 budget_session=420         # one receiver's whole life, incl. a 120 s hold: a hang catcher only
@@ -1519,7 +1519,7 @@ run_session() {
         *) if [ "$_s2e" -lt "$drain_target_ms" ]; then
              ok "$sess wake $_n: send-accepted->enqueue ${_s2e} ms is inside the ${drain_target_ms} ms hint-path budget (a NEGATIVE value is real -- the frame reached the receiver before \`brigade send\` returned)"
            else
-             bad "$sess wake $_n: send-accepted->enqueue ${_s2e} ms exceeds the ${drain_target_ms} ms hint-path budget: the Realtime hint did not deliver it, and the live drain (once per lease) did"
+             bad "$sess wake $_n: send-accepted->enqueue ${_s2e} ms exceeds the ${drain_target_ms} ms hint-path budget"
            fi ;;
       esac
       if [ "$(printf '%s' "$_w" | jq -r '.woke')" = true ]; then wakes_proven=$((wakes_proven + 1)); fi

@@ -2101,9 +2101,8 @@ there (T10). Absent means unchanged and the harness never clears them, so a hear
 transcript leaves whatever you stored alone. Advertise `session.model` / `session.context_used_tokens` and store
 what arrives; advertise neither and accept-and-ignore — both are conformant, and both are what C-44 measures.
 
-The bundled Supabase adapter keys one policy of its own to the heartbeat's lease: while its Realtime channel is
-joined, it drains the inbox once per the lease the last stdin heartbeat named (300 s until one does), a safety net
-for a lost signal, so a message whose signal was lost waits no longer than a dead session shows online. It is that
+The bundled Supabase adapter drains the inbox every 5 minutes while its Realtime channel is joined, whatever lease
+the heartbeat asks for: a safety net for a lost signal, so such a message waits at most 5 minutes. It is that
 adapter's choice, not a protocol rule; C-35's 5 s is met by the signals.
 
 **Timeouts, by command.** The harness bounds each call with a context deadline; the constants are

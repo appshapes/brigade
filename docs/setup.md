@@ -202,13 +202,15 @@ budget, such as Supabase's free plan, an optional `polling` member sets how ofte
 
 | Value | What it does | Range | Default | What a longer value costs |
 |---|---|---|---|---|
-| `heartbeat_seconds` | How often a session reports that it is alive (a heartbeat). A session counts as online for three heartbeats after its last one (its lease). | 10 to 200 | 100 | A session that ended without closing itself (a crash, a machine asleep) shows online for up to three heartbeats: 5 minutes at 100, 10 minutes at 200. On Supabase, a message whose instant signal was lost waits up to the same three heartbeats, because the adapter checks the inbox once per lease as a safety net. |
+| `heartbeat_seconds` | How often a session reports that it is alive (a heartbeat). A session counts as online for three heartbeats after its last one (its lease). | 10 to 200 | 100 | A session that ended without closing itself (a crash, a machine asleep) shows online for up to three heartbeats: 5 minutes at 100, 10 minutes at 200. |
 | `roster_seconds` | How often a session reads the list of sessions for folder sync. Only a project with a `sync` member reads it. | 15 to 3600 | 300 | A teammate's new session joins folder sync up to this long after it starts. |
 
-Neither value slows normal delivery: Supabase Realtime signals each message as it is sent, and it arrives within
-seconds. A rename, a busy/idle change and an inbound change also reach teammates within seconds. Leave out a value
-to keep its default; a session whose team sets another value names it in one line at start. A value Brigade cannot use (not a whole number, or out of range) makes the whole member
-unusable: the session says so in one line at start and runs on the defaults. A session picks up an edited member at
+Neither value changes how fast a message arrives: Supabase Realtime signals each one as it is sent, and it arrives
+within seconds. If a signal is lost, the Supabase adapter's backup check of the inbox, every 5 minutes, delivers the
+message: 5 minutes is the longest wait for every team, whatever these values are. A rename, a busy/idle change and
+an inbound change also reach teammates within seconds. Leave out a value to keep its default; a session whose team
+sets another value names it in one line at start. A value Brigade cannot use (not a whole number, or out of range)
+makes the whole member unusable: the session says so in one line at start and runs on the defaults. A session picks up an edited member at
 its next start or `/clear`; `team create --force` carries the member into the file it rewrites. A plugin from before
 the member ignores it, names it in one line at session start, and keeps its own faster timers.
 
@@ -218,10 +220,10 @@ For a team on Supabase's free plan that wants the fewest requests:
 "polling": { "heartbeat_seconds": 200, "roster_seconds": 900 }
 ```
 
-In a project that syncs folders, each idle session's timers then send about 28 requests an hour (18 heartbeats, 6
-inbox checks, 4 roster reads), against about 60 at the defaults and about 480 before these timers were slowed. A session in use adds one heartbeat
-each time it turns busy or idle. The cost: a crashed session shows online for up to 10 minutes, a message whose
-signal was lost waits up to 10 minutes, and a new teammate joins folder sync within 15 minutes.
+In a project that syncs folders, each idle session's timers then send about 34 requests an hour (18 heartbeats, 12
+inbox checks, 4 roster reads), against about 60 at the defaults and about 480 before these timers were slowed. A
+session in use adds one heartbeat each time it turns busy or idle. The cost: a crashed session shows online for up
+to 10 minutes, and a new teammate joins folder sync within 15 minutes.
 
 **Every member's plugin must be 0.11.0 or later before the project commits a `sync` member.** A plugin of 0.10.0
 or earlier reads `.brigade.json` against a closed schema and refuses the whole file — `team_file_unknown_field`

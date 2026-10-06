@@ -9,9 +9,9 @@
 // it names), as whom and with what trust; how often a connected session
 // checks in — its cadence, the `polling` member (card 53) — is the one
 // property of the connection the file may set, and only within package
-// polling's fixed bounds: a committed value can make a session slower to
-// show offline or to receive a message whose signal was lost, never point
-// it elsewhere or widen what it trusts. `adapter` and `sync.adapter` are NAMES, resolved strictly
+// polling's fixed bounds: a committed value can make a dead session show
+// online longer, never point it elsewhere, widen what it trusts or delay a
+// message. `adapter` and `sync.adapter` are NAMES, resolved strictly
 // user-side; `sync.folders` are clean relative paths from the toplevel,
 // and nothing more is asked of them (open by default, §4.1).
 //

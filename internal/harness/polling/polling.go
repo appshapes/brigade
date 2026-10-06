@@ -9,10 +9,10 @@
 // folder-sync roster read were most of a team's backend requests
 // (measured 2026-10-06), and a free backend plan caps them. A longer
 // heartbeat means a session whose watcher died without closing it shows
-// online for longer (up to one lease), and — the Supabase adapter drains
-// its inbox once per lease while Realtime is joined — that a message
-// whose Realtime signal was lost waits up to one lease. A longer roster
-// read means a teammate's new session joins folder sync later.
+// online for longer (up to one lease); it does not change how long a
+// message can wait (the Supabase adapter's backup drain is a fixed 5 min).
+// A longer roster read means a teammate's new session joins folder sync
+// later.
 package polling
 
 import (

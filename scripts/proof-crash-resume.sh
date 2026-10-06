@@ -1862,7 +1862,7 @@ run_arm() {
     bad "arm $arm: the resumed session produced no stdout result within ${budget_session}s"
   fi
   say "measured: arm $arm the pre-crash session's own frame enqueues are in the SAME transcript file (a --resume interleaves, E0-5 (f)): $(frame_count "$tr2") enqueue(s) in the whole file against $(frame_count "$tr2" "$resume_launch_ms") after the resume launch -- counting the file would read M0 as a replay"
-  say "measured: arm $arm resume launch -> $n_messages frames $(since_ms "$resume_launch_ms") ms (the live drain is one 300 s lease; the delivery MODE is recorded, never required -- the watcher fetches before it announces ready, supabase/watch.go:200-212)"
+  say "measured: arm $arm resume launch -> $n_messages frames $(since_ms "$resume_launch_ms") ms (the live drain is 5 min; the delivery MODE is recorded, never required -- the watcher fetches before it announces ready, supabase/watch.go:200-212)"
   # The quiet window: proof.sh:938-941's "no repeats" assertion, moved onto the LLM path. 15 s spans both 3 s
   # settle drains and gives the 10 s polling drain one turn.
   sleep "$quiet_after_catchup"

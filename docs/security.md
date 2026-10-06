@@ -939,11 +939,10 @@ Every item below is a known limit that this version ships with, on purpose.
 - **Every teammate's machine can write, overwrite and delete anything in the folders a project lists for sync**,
   with no prompt, whenever both machines have a session of that repository running (section 12). The join secret
   is the boundary. No permission rule sees file sync; the `sync` option is the one switch.
-- **Whoever can commit `.brigade.json` sets how long a session that died shows online, and how long a message whose
-  Realtime signal was lost can wait**: the `polling` member's `heartbeat_seconds` makes both up to three
-  heartbeats, at most 10 minutes ([docs/setup.md](setup.md)). The member cannot point a session at another backend
-  or widen what it trusts, and its bounds are fixed in the plugin; each session names non-default values in one
-  line at start.
+- **Whoever can commit `.brigade.json` sets how long a session that died shows online**: the `polling` member's
+  `heartbeat_seconds` makes it up to three heartbeats, at most 10 minutes ([docs/setup.md](setup.md)). It does not
+  change how long a message can wait. The member cannot point a session at another backend or widen what it
+  trusts, and its bounds are fixed in the plugin; each session names non-default values in one line at start.
 - The outbound ask and deny rules gate the ordinary command form only.
 - A native `hold` or `refuse` that Brigade's settings scan cannot see makes `injected` a lie that the plugin can
   only warn about.
