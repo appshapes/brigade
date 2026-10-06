@@ -9,6 +9,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Folder sync reads only the sessions that are online** (card 60). The watcher's session-list read, every 15
+  seconds by default, used to include offline sessions, which linger for up to seven days and were two thirds of
+  the bytes on a 19-session team. An offline session's machine runs no Brigade Syncthing, so its peer could not
+  connect anyway, and a device introduced once stays configured. A teammate is introduced when their session is
+  online, within one roster interval, as before. No wire change, no migration.
+
 ## [0.26.0] — 2026-10-06
 
 ### Changed

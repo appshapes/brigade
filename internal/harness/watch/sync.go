@@ -70,9 +70,11 @@ func (s syncSetup) enabled() bool { return s.adapter != "" }
 //     and its descriptor becomes this session's sync_peer, heartbeated at
 //     the next liveness tick so the roster carries it at once;
 //   - apply, immediately after the attach: the project's folders and
-//     every teammate's peer the roster lists for the same repository,
-//     whatever its state — an offline peer is still worth introducing,
-//     the engine connects when it can;
+//     the peer of every teammate's session that is online now in the
+//     same repository (card 60: offline sessions are not read — their
+//     machines run no Brigade engine, so their peers could not connect,
+//     and their rows were two thirds of the roster's bytes; a peer
+//     introduced earlier stays configured, the adapter removes none);
 //   - then rounds on two tickers: the roster is read every
 //     SyncListInterval (a failed read waits for the next one, and until a
 //     read succeeds nothing is applied), and apply runs
@@ -297,7 +299,7 @@ func syncSummary(res *foldersync.ApplyResult, listed []foldersync.Folder) (strin
 }
 
 // syncPeers reads the roster through the watcher's own backend client
-// (offline sessions included) and keeps the teammates' peers this adapter
+// (online sessions only, card 60) and keeps the teammates' peers this adapter
 // can use: not this session, the same workspace_label — by default the
 // repository's name, so a session is introduced to the sessions of its
 // own repository; the folder ids are kept apart by the repository's name
@@ -310,7 +312,7 @@ func syncSummary(res *foldersync.ApplyResult, listed []foldersync.Folder) (strin
 func (w *watcher) syncPeers(ctx context.Context, own string) ([]foldersync.Peer, error) {
 	lctx, cancel := context.WithTimeout(ctx, adapterclient.DefaultTimeout)
 	defer cancel()
-	list, err := w.client.ListSessions(lctx, true)
+	list, err := w.client.ListSessions(lctx, false)
 	if err != nil {
 		return nil, err
 	}

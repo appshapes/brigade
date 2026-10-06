@@ -105,7 +105,7 @@ func (fx *fixture) readNotice() string {
 // earlier id, derived from the repository's name and not from the
 // session's label) and exactly the teammates' peers this adapter can use (not
 // this session, same repository, this adapter's prefix stripped, offline
-// included, each descriptor once and never this machine's own), the
+// sessions left out, each descriptor once and never this machine's own), the
 // summary notice, and detach once the watcher stops.
 func TestSyncDrivesTheAdapter(t *testing.T) {
 	t.Parallel()
@@ -114,7 +114,7 @@ func TestSyncDrivesTheAdapter(t *testing.T) {
 	repo, other := ptr(syncRepo), ptr("another-repo")
 	fx.registerPeer(repo, ptr("syncthing:PEER-A"), false)
 	fx.registerPeer(repo, ptr("syncthing:PEER-A"), false) // the same machine twice: offered once
-	fx.registerPeer(repo, ptr("syncthing:PEER-D"), true)  // offline: still introduced
+	fx.registerPeer(repo, ptr("syncthing:PEER-D"), true)  // offline: not read, not introduced (card 60)
 	fx.registerPeer(repo, ptr("other:PEER-B"), false)     // another adapter's peer
 	fx.registerPeer(other, ptr("syncthing:PEER-C"), false)
 	fx.registerPeer(repo, ptr("syncthing:"+fakesync.SelfPeer), false) // another session on this machine
@@ -124,7 +124,7 @@ func TestSyncDrivesTheAdapter(t *testing.T) {
 	root := t.TempDir()
 	fx.syncMap("syncthing", root, ".context/plans", "docs")
 	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{
-		Apply: `{"folders":[{"id":"a","state":"idle"},{"id":"b","state":"scanning"}],"peers":[{"peer":"PEER-A","connected":true},{"peer":"PEER-D","connected":false}]}`,
+		Apply: `{"folders":[{"id":"a","state":"idle"},{"id":"b","state":"scanning"}],"peers":[{"peer":"PEER-A","connected":true}]}`,
 	})
 	deps := fx.deps()
 	deps.SyncCommand = fake.Argv
@@ -140,7 +140,7 @@ func TestSyncDrivesTheAdapter(t *testing.T) {
 		return fx.ownSyncPeer() == "syncthing:"+fakesync.SelfPeer
 	})
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {
-		return fx.readNotice() == "Brigade sync: 2 folders, 1 of 2 peers connected"
+		return fx.readNotice() == "Brigade sync: 2 folders, 1 of 1 peers connected"
 	})
 
 	recs := fake.Records(t)
@@ -174,7 +174,7 @@ func TestSyncDrivesTheAdapter(t *testing.T) {
 		t.Fatalf("apply request = %+v\nwant folders %+v", apply, wantFolders)
 	}
 	slices.SortFunc(apply.Peers, func(a, b foldersync.Peer) int { return strings.Compare(a.Peer, b.Peer) })
-	wantPeers := []foldersync.Peer{{Peer: "PEER-A", Label: "peer@example.com"}, {Peer: "PEER-D", Label: "peer@example.com"}}
+	wantPeers := []foldersync.Peer{{Peer: "PEER-A", Label: "peer@example.com"}}
 	if !slices.Equal(apply.Peers, wantPeers) {
 		t.Fatalf("apply peers = %+v, want %+v", apply.Peers, wantPeers)
 	}

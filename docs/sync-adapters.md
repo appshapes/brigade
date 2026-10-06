@@ -111,9 +111,10 @@ session lives (with the peers of the last read).
   the id this folder had before 0.16.0, absent when it had no other. When your engine still holds the folder
   under that id at `path`, move it to `id` and keep its files where they are. The same id at another path is
   another checkout's folder.
-- `peers`: every teammate's peer the roster lists for the same repository and the same adapter, online or not —
-  an offline peer is still worth introducing; the engine connects when it can. Never this machine's own. `label` is
-  the teammate's roster label: unverified text, for display only.
+- `peers`: the peer of every teammate's session that is online now, for the same repository and the same adapter.
+  Offline sessions are not read: their machines run no engine, and their rows were most of the roster's bytes. A
+  peer that was listed before may stay configured. Never this machine's own. `label` is the teammate's roster
+  label: unverified text, for display only.
 
 Report each folder's state in your engine's own words (`idle`, `syncing`, `error`, …) and whether each peer is
 connected right now. What `apply` changes in your engine to get there is yours to decide. A peer or folder that
