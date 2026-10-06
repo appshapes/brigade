@@ -31,9 +31,11 @@ import (
 const syncthingVar = "BRIGADE_TEST_SYNCTHING"
 
 // Hang catchers for the smoke, never performance bounds (plan 7.3):
-// waitSync covers the watcher's roster read (every 15 s — a peer
-// published after a session's last apply is introduced at the next read,
-// and at the latest by the 60 s re-apply) plus Syncthing's discovery;
+// waitSync covers the watcher's roster read (every 15 s: the rig's team
+// file sets the `polling` member's roster_seconds to 15, where the default
+// is 300 — a peer published after a session's last read is introduced at
+// the next one, since the 60 s re-apply reuses the last read's peers) plus
+// Syncthing's discovery;
 // waitFile covers a transfer, which Syncthing starts after its filesystem
 // watcher's 10 s delay.
 const (
@@ -640,7 +642,9 @@ func (r *rig) bundledSync(syncthing string) string {
 }
 
 // teamFileWithSync is the team file `team create` wrote, with a `sync`
-// member listing folders.
+// member listing folders and a `polling` member reading the roster every
+// 15 s (card 53: the default 300 s would outlast waitSync when a peer
+// publishes after the other session's first read).
 func (r *rig) teamFileWithSync(folders ...string) []byte {
 	r.t.Helper()
 	raw, err := os.ReadFile(filepath.Join(r.checkout, teamfile.FileName))
@@ -652,6 +656,7 @@ func (r *rig) teamFileWithSync(folders ...string) []byte {
 		r.t.Fatal(err)
 	}
 	doc["sync"] = map[string]any{"folders": folders}
+	doc["polling"] = map[string]any{"roster_seconds": 15}
 	raw, err = json.Marshal(doc)
 	if err != nil {
 		r.t.Fatal(err)

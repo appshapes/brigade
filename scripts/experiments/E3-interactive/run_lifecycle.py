@@ -81,7 +81,8 @@ xsend "/rename @NEWNAME@" "rename (text)"
 nap 2
 xsend "\r" "rename (enter)"
 mark renamed newname @NEWNAME@
-# The watcher re-reads the registry once a heartbeat (~30 s), so give it two.
+# The watcher reads the registry every 2 s and, since card 53, heartbeats a rename at once; 70 s is the two
+# ~30 s heartbeats a rename once had to wait for.
 nap 70
 catch {exec "@ROSTERDUMP@" "@RESULTS@/roster-after.json"} re
 mark roster_dumped err "$re"
