@@ -18,7 +18,8 @@
 #           two seconds -- which meets "within lease + 5 s" by two orders of magnitude and therefore measures
 #           nothing about the lease. This is 3.7 case 2 as written, and the resume re-opens a CLOSED row.
 #   arm b   SIGKILL of the WATCHER FIRST, then of `claude`. Nothing closes the session, so `offline` can only
-#           come from lease expiry: the claim is computed against last_seen_at + 90 s + 5 s read BEFORE the kill.
+#           come from lease expiry: the claim is computed against last_seen_at + lease_seconds (300 s, the lease the
+#           watcher's heartbeats ask for) + 5 s, read BEFORE the kill.
 #           This is the machine-crash shape, it is the only arm in which the row's fourth clause means anything,
 #           and it is the other half of register_session's resume predicate (schema.sql:333-345) -- the half
 #           nothing else in the tree exercises.
@@ -67,13 +68,13 @@ budget_ack=30              # the pre-crash message M0 to be acked (proof.sh:budg
 budget_watcher_exit=30     # kill -9 claude -> the watcher pidfile gone (2 s poll + 3 s CloseWaitDeath)
 budget_child_gone=30       # the orphaned `adapter ... message watch` child to exit (proof.sh:893-898)
 budget_offline_close=30    # ARM A: kill -> alice sees `offline` (the close path)
-budget_offline_lease=150   # ARM B: a HANG CATCHER only; the CLAIM is computed from last_seen_at (5.4)
-budget_catchup=120         # resume launch -> the fifth frame's enqueue in the transcript (drainLive is 30 s)
+budget_offline_lease=360   # ARM B: a HANG CATCHER only (the lease + 60 s); the CLAIM is computed from last_seen_at (5.4)
+budget_catchup=120         # resume launch -> the fifth frame's enqueue in the transcript (the catch-up fetch, not drainLive)
 budget_eof=25              # EOF -> process exit (E0-4's bound; measured 0.24-0.48 s, n=8)
 budget_gone=15             # a process or a file to be gone (proof.sh:budget_gone)
 budget_session=420         # one receiver's whole life: a hang catcher only
 budget_total=3600          # the whole run: 1 h
-lease_seconds=90           # protocol.LeaseDefaultSeconds; schema.sql:62's `default 90`; drift-checked (section 8)
+lease_seconds=300          # watch.DefaultLeaseSeconds, the lease the watcher's heartbeats ask for; drift-checked (section 8)
 lease_claim_slack=5        # the P4-4 row's own "+ 5 s" (.context/plans/implementation/08-phases.md:109)
 settle_short=5             # the idle hold before the crash
 quiet_after_catchup=15     # the no-repeats quiet window (spans both 3 s settle drains and one 10 s polling drain)
@@ -1676,7 +1677,7 @@ run_arm() {
       else
         bad "arm b: offline observed at $offline_observed_ms, PAST the computed deadline $claim_deadline_ms (margin ${lease_margin_ms} ms)"
       fi
-      say "measured: arm b lease_margin_ms $lease_margin_ms (the kill lands 0-30 s after the last heartbeat, watch.go:83, so down_detected_ms is expected between ${lease_seconds}s minus that offset and ${lease_seconds}s)"
+      say "measured: arm b lease_margin_ms $lease_margin_ms (the kill lands 0-100 s after the last heartbeat, watch.go DefaultHeartbeatInterval, so down_detected_ms is expected between ${lease_seconds}s minus that offset and ${lease_seconds}s)"
     fi
   fi
   # The product's own answer to "did alice see bob go offline": one adapter spawn each, not a poll.
@@ -1861,7 +1862,7 @@ run_arm() {
     bad "arm $arm: the resumed session produced no stdout result within ${budget_session}s"
   fi
   say "measured: arm $arm the pre-crash session's own frame enqueues are in the SAME transcript file (a --resume interleaves, E0-5 (f)): $(frame_count "$tr2") enqueue(s) in the whole file against $(frame_count "$tr2" "$resume_launch_ms") after the resume launch -- counting the file would read M0 as a replay"
-  say "measured: arm $arm resume launch -> $n_messages frames $(since_ms "$resume_launch_ms") ms (drainLive is 30 s; the delivery MODE is recorded, never required -- the watcher fetches before it announces ready, supabase/watch.go:200-212)"
+  say "measured: arm $arm resume launch -> $n_messages frames $(since_ms "$resume_launch_ms") ms (the live drain is one 300 s lease; the delivery MODE is recorded, never required -- the watcher fetches before it announces ready, supabase/watch.go:200-212)"
   # The quiet window: proof.sh:938-941's "no repeats" assertion, moved onto the LLM path. 15 s spans both 3 s
   # settle drains and gives the 10 s polling drain one turn.
   sleep "$quiet_after_catchup"

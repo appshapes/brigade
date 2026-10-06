@@ -11,6 +11,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/backoff"
 	"github.com/appshapes/brigade/internal/harness/inbound"
+	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/harness/watchstate"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -25,18 +26,48 @@ const writerStopWait = 10 * time.Second
 // answers (4.4.9 says it must, with heartbeat_ok or an error event) still
 // heartbeats inside its lease and stays online. It is the lease the
 // heartbeat asks for less one and a half intervals, which puts the
-// deadline mid-way between two ticks: with the production 30 s interval
-// and 90 s lease the 30 s tick defers (30 < 45) and the 60 s tick sends,
-// 30 s inside the lease. Measured against the lease itself the deadline
-// would sit ON a tick — time.Since(sentAt) at the 90 s tick is marginally
-// under 90 s, since sentAt is stamped after the write — and the next
-// heartbeat would go out at 120 s, past the lease.
+// deadline mid-way between two ticks: with the production 100 s interval
+// and 300 s lease the 100 s tick defers (100 < 150) and the 200 s tick
+// sends, 100 s inside the lease. Measured against the lease itself the
+// deadline would sit ON a tick — time.Since(sentAt) at the 300 s tick is
+// marginally under 300 s, since sentAt is stamped after the write — and
+// the next heartbeat would go out at 400 s, past the lease. The deadline
+// is mid-way only while the lease is a whole number of intervals, which
+// leaseWanted and heartbeatInterval keep.
 func (w *watcher) heartbeatAnswerWait(s *session) time.Duration {
-	lease := DefaultLeaseSeconds
+	return w.leaseOf(s) - w.heartbeatInterval(s)*3/2
+}
+
+// heartbeatInterval is the session's heartbeat cadence: HeartbeatInterval,
+// or 1/polling.LeaseBeats of the lease when the adapter's range held the
+// lease under that many beats, so the interval never exceeds that share
+// of the lease asked for and one missed heartbeat never takes the session
+// offline. A lease too short to divide (an adapter range that ends under
+// a second) leaves HeartbeatInterval: a ticker needs a positive interval.
+func (w *watcher) heartbeatInterval(s *session) time.Duration {
+	if iv := min(w.deps.HeartbeatInterval, w.leaseOf(s)/polling.LeaseBeats); iv > 0 {
+		return iv
+	}
+	return w.deps.HeartbeatInterval
+}
+
+// leaseOf is the lease the session's heartbeats ask for.
+func (w *watcher) leaseOf(s *session) time.Duration {
+	lease := w.leaseWanted()
 	if s.lease != nil {
 		lease = *s.lease
 	}
-	return time.Duration(lease)*time.Second - w.deps.HeartbeatInterval*3/2
+	return time.Duration(lease) * time.Second
+}
+
+// leaseWanted is the lease the heartbeat interval asks for before the
+// adapter's range clamps it: polling.LeaseBeats intervals (card 53), or a
+// test's LeaseSeconds.
+func (w *watcher) leaseWanted() int {
+	if w.deps.LeaseSeconds > 0 {
+		return w.deps.LeaseSeconds
+	}
+	return polling.LeaseSeconds(w.deps.HeartbeatInterval)
 }
 
 // A session is one running watch child with the facts the loop needs.
@@ -127,7 +158,7 @@ func (w *watcher) attempt() attemptResult {
 		return r
 	}
 	s := newSession(wt, wcancel, slices.Contains(desc.Capabilities, StdinCommandsCapability),
-		slices.Contains(desc.Capabilities, DescriptionCapability), chooseLease(desc.Lease))
+		slices.Contains(desc.Capabilities, DescriptionCapability), chooseLease(desc.Lease, w.leaseWanted()))
 	w.log.Info("watch child started", slog.Bool("stdin_commands", s.stdinCommands))
 
 	cctx, ccancel := context.WithCancel(context.Background())
@@ -149,14 +180,16 @@ func (w *watcher) attempt() attemptResult {
 	return r
 }
 
-// chooseLease is the lease_seconds a heartbeat asks for: DefaultLeaseSeconds
-// when the adapter's advertised range allows it, else nil (the adapter's
-// own default; never a value outside its range).
-func chooseLease(l protocol.Lease) *int {
-	if l.MinSeconds > 0 && l.MaxSeconds > 0 && (DefaultLeaseSeconds < l.MinSeconds || DefaultLeaseSeconds > l.MaxSeconds) {
-		return nil
+// chooseLease is the lease_seconds a heartbeat asks for: the lease wanted
+// clamped into the adapter's advertised range, never a value outside it.
+// It is always sent: the adapter's own default lease may be shorter than
+// three heartbeat intervals (the 4.4.1 default is 90 s), and
+// heartbeatInterval paces the beats to the lease asked for.
+func chooseLease(l protocol.Lease, wanted int) *int {
+	v := wanted
+	if l.MinSeconds > 0 && l.MaxSeconds >= l.MinSeconds {
+		v = min(max(v, l.MinSeconds), l.MaxSeconds)
 	}
-	v := DefaultLeaseSeconds
 	return &v
 }
 
@@ -166,7 +199,7 @@ func (w *watcher) eventLoop(s *session, r *attemptResult) {
 	defer readyTimer.Stop()
 	liveTick := time.NewTicker(w.deps.PollInterval)
 	defer liveTick.Stop()
-	hbTick := time.NewTicker(w.deps.HeartbeatInterval)
+	hbTick := time.NewTicker(w.heartbeatInterval(s))
 	defer hbTick.Stop()
 	var fatal <-chan time.Time
 	// healthy fires HealthyAfter after the ready event of a watcher on the
@@ -208,7 +241,7 @@ func (w *watcher) eventLoop(s *session, r *attemptResult) {
 				w.shutdown(s, r)
 				return
 			}
-			if w.state.takeFlip() {
+			if w.state.takeHeartbeat() {
 				s.requestHeartbeat()
 			}
 			// The hold policy's release file rides the same tick (3.6):

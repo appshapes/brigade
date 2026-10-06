@@ -36,6 +36,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/notify"
+	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -185,6 +186,16 @@ type ByPID struct {
 	// notifications, within notify's bounds. Absent (omitzero) in a map
 	// from before the option existed, which Interval reads as the default.
 	MessageIntervalSeconds int `json:"message_interval_seconds,omitzero"`
+	// HeartbeatSeconds and RosterSeconds are the team file's `polling`
+	// member as the hook froze it (card 53): how often the watcher
+	// heartbeats — its lease is polling.LeaseBeats of them — and how often
+	// folder sync reads the roster, each within package polling's bounds.
+	// The watcher reads them once, when it starts, so the hook respawns it
+	// when either changes. Absent (omitzero) for a value the member leaves
+	// out, a team file without one, or a map from before it existed, all
+	// read as the default.
+	HeartbeatSeconds int `json:"heartbeat_seconds,omitzero"`
+	RosterSeconds    int `json:"roster_seconds,omitzero"`
 	// HarnessVersion is the Claude Code version from the registry's
 	// `version` member when present, else "unknown".
 	HarnessVersion string `json:"harness_version"`
@@ -235,6 +246,10 @@ func (m *ByPID) Validate() error {
 		return errInvalid("frame_text")
 	case m.MessageIntervalSeconds != 0 && (m.MessageIntervalSeconds < int(notify.IntervalFloor/time.Second) || m.MessageIntervalSeconds > int(notify.IntervalCeiling/time.Second)):
 		return errInvalid("message_interval_seconds")
+	case m.HeartbeatSeconds != 0 && !polling.HeartbeatInRange(m.HeartbeatSeconds):
+		return errInvalid("heartbeat_seconds")
+	case m.RosterSeconds != 0 && !polling.RosterInRange(m.RosterSeconds):
+		return errInvalid("roster_seconds")
 	}
 	return m.validateSync()
 }
@@ -248,6 +263,14 @@ func (m *ByPID) Interval() time.Duration {
 	}
 	return time.Duration(m.MessageIntervalSeconds) * time.Second
 }
+
+// Heartbeat is the heartbeat interval this map asks for: the member's
+// seconds, or polling's default when the member is absent.
+func (m *ByPID) Heartbeat() time.Duration { return polling.Heartbeat(m.HeartbeatSeconds) }
+
+// Roster is the interval between two folder-sync roster reads this map
+// asks for: the member's seconds, or polling's default.
+func (m *ByPID) Roster() time.Duration { return polling.Roster(m.RosterSeconds) }
 
 // syncAdapterName is the team file's adapter-name rule (folder-sync plan
 // §4.1): a map member names an adapter, never a path or a command.

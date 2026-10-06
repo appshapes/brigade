@@ -502,6 +502,52 @@ func TestMessageNotificationRoundTripsAndIsOmittedWhenOff(t *testing.T) {
 	}
 }
 
+// TestPollingMembersBoundsAndDefault (card 53): heartbeat_seconds and
+// roster_seconds round-trip within package polling's bounds, are omitted
+// at zero — a team file without them, or a map from before them, read as
+// the defaults — and are refused outside the bounds.
+func TestPollingMembersBoundsAndDefault(t *testing.T) {
+	t.Parallel()
+	m := validByPID()
+	if m.Heartbeat() != 100*time.Second || m.Roster() != 5*time.Minute {
+		t.Fatalf("with no members: heartbeat %v, roster %v; want the defaults 100s and 5m", m.Heartbeat(), m.Roster())
+	}
+	data, err := json.Marshal(&m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "heartbeat_seconds") || strings.Contains(string(data), "roster_seconds") {
+		t.Fatalf("a map with no polling values writes them: %s", data)
+	}
+	m.HeartbeatSeconds, m.RosterSeconds = 60, 900
+	if data, err = json.Marshal(&m); err != nil {
+		t.Fatal(err)
+	}
+	var back sessionmap.ByPID
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Heartbeat() != time.Minute || back.Roster() != 15*time.Minute {
+		t.Fatalf("after the round trip: heartbeat %v, roster %v; want 1m and 15m", back.Heartbeat(), back.Roster())
+	}
+	if err := back.Validate(); err != nil {
+		t.Fatalf("Validate after the round trip: %v", err)
+	}
+	for _, tc := range []struct {
+		heartbeat, roster int
+		ok                bool
+	}{
+		{10, 15, true}, {200, 3600, true}, {9, 0, false}, {201, 0, false}, {-1, 0, false},
+		{0, 14, false}, {0, 3601, false}, {0, -1, false},
+	} {
+		m := validByPID()
+		m.HeartbeatSeconds, m.RosterSeconds = tc.heartbeat, tc.roster
+		if err := m.Validate(); (err == nil) != tc.ok {
+			t.Errorf("Validate(heartbeat %d, roster %d) = %v, want ok %v", tc.heartbeat, tc.roster, err, tc.ok)
+		}
+	}
+}
+
 // TestMessageIntervalMemberBoundsAndDefault (card 38): the member
 // round-trips within notify's bounds, is omitted at zero — a map from
 // before the option, read as the default — and is refused outside them.

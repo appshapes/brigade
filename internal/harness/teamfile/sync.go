@@ -147,6 +147,12 @@ const SyncNotCarriedUnreadable = "unreadable"
 // SyncReasons or SyncNotCarriedUnreadable, never file content) that the
 // command's one human line names.
 func CarriedSync(filePath string) (carried *SyncConfig, cause string) {
+	return carriedMember(filePath, "sync", func(f *File) (*SyncConfig, string) { return f.Sync, f.SyncUnusable })
+}
+
+// carriedMember is CarriedSync's rule for any optional member: pick
+// gives the parsed file's usable member and its unusable token.
+func carriedMember[T any](filePath, member string, pick func(*File) (*T, string)) (*T, string) {
 	data, err := readCapped(filePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -160,11 +166,11 @@ func CarriedSync(filePath string) (carried *SyncConfig, cause string) {
 	}
 	f, perr := parseBytes(filePath, data)
 	if perr == nil {
-		return f.Sync, f.SyncUnusable
+		return pick(f)
 	}
 	var raw map[string]jsontext.Value
 	if json.Unmarshal(data, &raw) == nil {
-		if _, ok := raw["sync"]; ok {
+		if _, ok := raw[member]; ok {
 			var pe *protocol.Error
 			if errors.As(perr, &pe) {
 				return nil, pe.Details["reason"]
@@ -172,7 +178,7 @@ func CarriedSync(filePath string) (carried *SyncConfig, cause string) {
 			return nil, ReasonMalformed
 		}
 	}
-	// A refused file with no `sync` member (not JSON at all, say) has
+	// A refused file without the member (not JSON at all, say) has
 	// nothing in it to carry.
 	return nil, ""
 }

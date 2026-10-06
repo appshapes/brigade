@@ -41,11 +41,12 @@ import (
 // swept, short enough that a crashed one does not linger for weeks.
 const orphanMaxAge = time.Hour
 
-// createOptions is `team create`'s parsed flag set, plus the one thing
-// --force carries from the file it replaces: the project's `sync`
-// member (card 32), nil when there is none; syncNotCarried is the fixed
-// token saying why a member that was, or may have been, there did not
-// come across ("" when nothing was dropped).
+// createOptions is `team create`'s parsed flag set, plus what --force
+// carries from the file it replaces: the project's `sync` member (card
+// 32), `gateway` member (card 48) and `polling` member (card 53), each
+// nil when there is none; each *NotCarried is the fixed token saying why
+// a member that was, or may have been, there did not come across (""
+// when nothing was dropped).
 type createOptions struct {
 	url, key, name, label, adapter, secretFile string
 	force                                      bool
@@ -53,6 +54,8 @@ type createOptions struct {
 	syncNotCarried                             string
 	carriedGateway                             *teamfile.GatewayConfig
 	gatewayNotCarried                          string
+	carriedPolling                             *teamfile.PollingConfig
+	pollingNotCarried                          string
 }
 
 // teamCreate implements the rebuilt `brigade team create` (brief §2):
@@ -87,6 +90,7 @@ func (inv Invocation) teamCreate(raw rawArgs) error {
 		// otherwise says so in one human line of finishCreate's report.
 		opts.carriedSync, opts.syncNotCarried = teamfile.CarriedSync(filePath)
 		opts.carriedGateway, opts.gatewayNotCarried = teamfile.CarriedGateway(filePath)
+		opts.carriedPolling, opts.pollingNotCarried = teamfile.CarriedPolling(filePath)
 	}
 	req, err := inv.createRequest(opts)
 	if err != nil {
@@ -293,6 +297,9 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 	if opts.carriedGateway != nil {
 		members["gateway"] = opts.carriedGateway
 	}
+	if opts.carriedPolling != nil {
+		members["polling"] = opts.carriedPolling
+	}
 	doc, err := json.Marshal(members)
 	if err != nil {
 		return fmt.Errorf("commands: marshal team file: %w", err)
@@ -315,6 +322,10 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 	if opts.gatewayNotCarried != "" {
 		lines = append(lines, "the previous "+teamfile.FileName+"'s gateway member was not carried into the new file ("+
 			opts.gatewayNotCarried+"); run make gateway-install again if this team has a mail gateway")
+	}
+	if opts.pollingNotCarried != "" {
+		lines = append(lines, "the previous "+teamfile.FileName+"'s polling member was not carried into the new file ("+
+			opts.pollingNotCarried+"); add it again if this team tunes its intervals")
 	}
 	return writeLines(inv.Out, append(lines,
 		"the join secret is in "+opts.secretFile+" (0600); share it over a password-grade channel only",

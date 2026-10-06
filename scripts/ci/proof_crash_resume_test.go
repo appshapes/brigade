@@ -15,8 +15,8 @@
 //
 // It also closes the frame-literal quadruplication: proof-crash-resume.sh's delimited block is compared against
 // scripts/proof.sh's, which scripts/ci/proof_test.go already joins to the Go sources; and it joins the script's
-// lease and liveness budgets to internal/protocol, internal/harness/watch and the schema migration, so a lease
-// that moves in one place and not the other cannot silently turn arm B's claim into a tautology.
+// lease and liveness budgets to internal/harness/watch, so a lease that moves in one place and not the other
+// cannot silently turn arm B's claim into a tautology.
 package ci_test
 
 import (
@@ -31,6 +31,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
@@ -251,23 +252,26 @@ func crashResumeSourceInt(t *testing.T, rel, pattern string) int {
 }
 
 // TestProofCrashResumeTimingConstantsMatchTheSources is the reason P4-4 needs a drift test of its own: arm B's
-// whole claim is `offline_observed <= last_seen_at + lease_seconds + 5 s`, computed in the script from numbers
-// the backend owns. A lease that moves in the migration and not in the script would turn that claim into a
-// tautology (a longer lease in the script) or a false red (a shorter one), silently and with a green suite.
+// whole claim is `offline_observed <= last_seen_at + lease_seconds + 5 s`, computed in the script from a lease
+// the watcher asks for on every heartbeat. A lease that moves in the watcher and not in the script would turn
+// that claim into a tautology (a longer lease in the script) or a false red (a shorter one), silently and with
+// a green suite. It is watch.DefaultLeaseSeconds, not protocol.LeaseDefaultSeconds or the sessions table's
+// default: those are the lease of a registration that names none, and arm B kills a watcher that has
+// heartbeated (card 53 parted the two, 300 s against 90 s).
 func TestProofCrashResumeTimingConstantsMatchTheSources(t *testing.T) {
 	t.Parallel()
 
 	lease := crashResumeShellInt(t, "lease_seconds")
-	proto := crashResumeSourceInt(t, "internal/protocol/limits.go", `LeaseDefaultSeconds\s*=\s*([0-9]+)`)
-	if lease != proto {
-		t.Errorf("lease_seconds = %d in %s but protocol.LeaseDefaultSeconds = %d: arm B's claim is computed against the wrong lease",
-			lease, crashResumeScriptRel, proto)
+	// The watcher derives it (polling.LeaseBeats default heartbeats), so it
+	// is read from the package rather than out of the source's text.
+	if watcher := watch.DefaultLeaseSeconds; lease != watcher {
+		t.Errorf("lease_seconds = %d in %s but watch.DefaultLeaseSeconds = %d: arm B's claim is computed against the wrong lease",
+			lease, crashResumeScriptRel, watcher)
 	}
-	schema := crashResumeSourceInt(t, "supabase/migrations/20260830120000_brigade_schema.sql",
-		`lease_seconds\s+integer not null default ([0-9]+)`)
-	if lease != schema {
-		t.Errorf("lease_seconds = %d in %s but the sessions table defaults to %d: the backend and the proof disagree",
-			lease, crashResumeScriptRel, schema)
+	// The poll for arm B's offline is a hang catcher: it has to outlast the claim it waits to judge.
+	if got, slack := crashResumeShellInt(t, "budget_offline_lease"), crashResumeShellInt(t, "lease_claim_slack"); got <= lease+slack {
+		t.Errorf("budget_offline_lease = %ds but the claim's deadline is the lease plus %ds, %ds after the last heartbeat: a healthy arm B would time out",
+			got, slack, lease+slack)
 	}
 
 	// The row's own "+ 5 s" (.context/plans/implementation/08-phases.md:109). It is a plan number, not a code

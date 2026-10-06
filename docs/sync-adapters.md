@@ -102,8 +102,9 @@ $ echo '{"state_dir":"/home/u/.local/state/brigade","session_id":"6f0f2b41","pid
 ### `apply`
 
 The whole desired set, every time: share these folders with these peers. Called right after the first `attach`;
-then Brigade reads the roster every 15 seconds and calls `apply` again as soon as the teammates' peers change, and at
-least every 60 seconds while the session lives.
+then Brigade reads the roster every 5 minutes (a team may set 15 seconds to an hour, `polling.roster_seconds` in
+its team file) and calls `apply` again as soon as the teammates' peers change, and every 60 seconds while the
+session lives (with the peers of the last read).
 
 - `folders`: the project's folders. `id` is the same on every checkout of the repository (see *Folder ids* below),
   `path` is the absolute local path, `label` is for humans (`<repository>/<folder>`). `replaces` is **optional**:

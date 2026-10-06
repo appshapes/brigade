@@ -11,11 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
+	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 	"github.com/appshapes/brigade/internal/testutil/fakesync"
 )
 
@@ -197,7 +199,7 @@ func TestSyncDrivesTheAdapter(t *testing.T) {
 }
 
 // TestSyncReattachesEveryRound: with the peers unchanged, an apply still
-// runs once SyncInterval has passed, and `attach` precedes every apply
+// runs every SyncInterval, and `attach` precedes every apply
 // after the first (it is idempotent), so a reference a replaced watcher's
 // late detach dropped comes back within one interval.
 func TestSyncReattachesEveryRound(t *testing.T) {
@@ -244,7 +246,7 @@ func applies(t *testing.T, fake *fakesync.Fake) int {
 // TestSyncAppliesWhenThePeersChange: the roster is read every
 // SyncListInterval and an apply follows as soon as the teammates' peers
 // changed — long before SyncInterval — carrying the new peer; one more
-// apply follows at the next read (the peer just introduced has connected
+// apply follows at the next round (the peer just introduced has connected
 // by then), and the notice line is refreshed from that apply's result,
 // naming a folder another checkout holds (conflict_path) in its one fixed
 // sentence. While the peers stay the same, no further apply runs before
@@ -292,6 +294,72 @@ func TestSyncAppliesWhenThePeersChange(t *testing.T) {
 	}
 	if code := r.stopAndWait(); code != 0 {
 		t.Fatalf("exit %d", code)
+	}
+}
+
+// syncRosterList is a `session list` result holding one teammate's
+// session of the synced repository with the given sync_peer.
+func syncRosterList(t *testing.T, peer string) []byte {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Second)
+	rec := protocol.SessionRecord{
+		SessionID: "s2", SessionName: "teammate", PrincipalRef: "p2", HumanLabel: "peer@example.com",
+		State: protocol.SessionStateIdle, Activity: protocol.ActivityIdle, Inbound: protocol.InboundAccept,
+		LastSeenAt: now, LeaseUntil: now.Add(time.Minute), CreatedAt: now,
+		WorkspaceLabel: ptr(syncRepo), SyncPeer: ptr(peer),
+	}
+	out, err := json.Marshal(adapterclient.ListResult{TeamRef: "team-1", TeamName: "ops", ServerTime: now, Sessions: []protocol.SessionRecord{rec}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestSyncReadsTheRosterOnItsOwnTicker: the roster — a backend read — is
+// read every SyncListInterval (an hour here), and apply — a local call —
+// runs every SyncInterval with the peers of the last read, never reading
+// the roster again for it (card 53). A read that failed is tried again at
+// the next round, and nothing is applied before one succeeds.
+func TestSyncReadsTheRosterOnItsOwnTicker(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	dump := filepath.Join(t.TempDir(), "dump.ndjson")
+	fx.useFake(fakeadapter.Script{
+		Responses: map[string][]fakeadapter.Response{"session list": {
+			{Error: &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "backend down", Retryable: true}},
+			{Result: syncRosterList(t, "syncthing:PEER-A")},
+		}},
+		Watch:    &fakeadapter.WatchScript{Lines: []fakeadapter.WatchLine{readyLine(t)}},
+		DumpFile: dump,
+	})
+	fx.syncMap("syncthing", t.TempDir(), "docs")
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{})
+	deps := fx.deps()
+	deps.SyncCommand = fake.Argv
+	deps.SyncInterval = 50 * time.Millisecond
+	deps.SyncListInterval = time.Hour
+	r := fx.start(deps, fx.args()...)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return applies(t, fake) >= 3 })
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if n := dumpCount(t, dump, "session", "list"); n != 2 {
+		t.Fatalf("session list calls = %d, want the failed read and its one retry", n)
+	}
+	if !fx.logHas("sync: the roster could not be read; the next round reads it again", nil) {
+		t.Errorf("no line for the failed read: %v", fx.logLines())
+	}
+	for i, rec := range fake.Records(t) {
+		if rec.Verb != "apply" {
+			continue
+		}
+		var apply foldersync.ApplyRequest
+		if err := json.Unmarshal(rec.Request, &apply); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(apply.Peers, []foldersync.Peer{{Peer: "PEER-A", Label: "peer@example.com"}}) {
+			t.Fatalf("call %d: apply peers = %+v, want the peer of the one read that succeeded", i, apply.Peers)
+		}
 	}
 }
 

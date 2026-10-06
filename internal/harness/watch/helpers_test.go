@@ -623,16 +623,20 @@ func (fx *fixture) args() []string {
 
 // deps are fast production-shaped dependencies: real process facts, the
 // real registry and poster, tiny intervals and schedules so a test runs
-// in seconds. The real defaults (30 s heartbeats, 1..30 s restarts) are
+// in seconds. The real defaults (the map's heartbeat, 1..30 s restarts) are
 // what RealDeps returns and TestRealDeps pins.
 func (fx *fixture) deps() watch.Deps {
 	return watch.Deps{
 		PollInterval:      50 * time.Millisecond,
 		HeartbeatInterval: 300 * time.Millisecond,
-		ReadyTimeout:      waitShort,
-		ReplaceWait:       500 * time.Millisecond,
-		CloseWaitClean:    fx.closeWait,
-		CloseWaitDeath:    fx.closeWait,
+		// A lease of its own: three of these heartbeats would ask the fs
+		// store for one second, and a test that lengthens the heartbeat
+		// keeps it up to a third of this (card 53).
+		LeaseSeconds:   protocol.LeaseMaxSeconds,
+		ReadyTimeout:   waitShort,
+		ReplaceWait:    500 * time.Millisecond,
+		CloseWaitClean: fx.closeWait,
+		CloseWaitDeath: fx.closeWait,
 		RestartSchedule: func() *backoff.Schedule {
 			return backoff.New(5*time.Millisecond, 40*time.Millisecond, seeded(1))
 		},

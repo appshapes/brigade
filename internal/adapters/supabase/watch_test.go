@@ -525,12 +525,19 @@ func startWatch(t *testing.T, r *rig, args ...string) *watchRun {
 // so a test can hold the adapter goroutine inside a write.
 func startWatchWith(t *testing.T, r *rig, wrap func(io.Writer) io.Writer, args ...string) *watchRun {
 	t.Helper()
+	return startWatchClock(t, r, r.clock(), wrap, args...)
+}
+
+// startWatchClock is startWatchWith on the given clock instead of the
+// rig's fixed one, so a test can move the time the watch sees.
+func startWatchClock(t *testing.T, r *rig, clock func() time.Time, wrap func(io.Writer) io.Writer, args ...string) *watchRun {
+	t.Helper()
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
 	w := &watchRun{t: t, stdin: stdinW, lines: make(chan []byte, 256), done: make(chan int, 1), exited: make(chan struct{}), stderr: &syncBuffer{}}
 	go func() {
 		defer close(w.exited)
-		code := run(args, stdinR, wrap(stdoutW), w.stderr, r.env, r.clock())
+		code := run(args, stdinR, wrap(stdoutW), w.stderr, r.env, clock)
 		_ = stdoutW.Close()
 		w.done <- code
 	}()
@@ -732,20 +739,26 @@ func TestWatchPushReadyLiveAndHints(t *testing.T) {
 	}
 }
 
-// TestWatchTimingIsPlan56 pins the shipped drain cadence on the constants:
-// plan 5.6's 30 s live timer (what a lost hint costs: one RPC per 30 s
-// per watcher), the 10 s polling timer, and two settling drains 3 s apart
-// after every join. TestWatchTimerOnlyDoesNotDrainEarly used to witness
-// the live timer by not seeing it fire within 5 s of the settling drains,
-// a window on the wall clock; the cadence is the property, so it is
-// asserted here and that test runs with the live timer an hour away.
-// Not parallel: it reads the package's timing while no test mutates it.
-func TestWatchTimingIsPlan56(t *testing.T) {
-	if watchTiming.drainLive != 30*time.Second || watchTiming.drainPolling != 10*time.Second {
-		t.Fatalf("drain timers live %s polling %s, want 30s and 10s (plan 5.6)", watchTiming.drainLive, watchTiming.drainPolling)
+// TestWatchTimingIsTheShippedCadence pins the shipped drain cadence on
+// the constants: card 53's 5 min live timer (what a lost hint costs: one
+// RPC per 5 min per watcher; plan 5.6 had 30 s), the 10 s polling timer,
+// two settling drains 3 s apart after every join, and the 30 s token
+// check, which must look more often than refreshMargin so the token is
+// refreshed before it expires whatever the RPC cadence.
+// TestWatchTimerOnlyDoesNotDrainEarly used to witness the live timer by
+// not seeing it fire within 5 s of the settling drains, a window on the
+// wall clock; the cadence is the property, so it is asserted here and
+// that test runs with the live timer an hour away. Not parallel: it reads
+// the package's timing while no test mutates it.
+func TestWatchTimingIsTheShippedCadence(t *testing.T) {
+	if watchTiming.drainLive != 5*time.Minute || watchTiming.drainPolling != 10*time.Second {
+		t.Fatalf("drain timers live %s polling %s, want 5m and 10s (card 53)", watchTiming.drainLive, watchTiming.drainPolling)
 	}
 	if watchTiming.settle != 3*time.Second || settleDrains != 2 {
 		t.Fatalf("settling drains %d × %s, want 2 × 3s (runs 33696302372 and 33756168929)", settleDrains, watchTiming.settle)
+	}
+	if watchTiming.tokenCheck != 30*time.Second || watchTiming.tokenCheck >= refreshMargin {
+		t.Fatalf("token check %s, want 30s and under the %s refresh margin (auth-js's ticker)", watchTiming.tokenCheck, refreshMargin)
 	}
 }
 
@@ -759,12 +772,12 @@ func TestWatchTimingIsPlan56(t *testing.T) {
 // is due. The live and polling timers are an hour here so the settling
 // drains are the only timer left and the wait for them is a hang
 // catcher rather than a window that had to close before the live timer
-// (2 × settle = 6 s, then 20 s against the 36 s the live timer needed);
-// the shipped 30 s / 10 s cadence is pinned by TestWatchTimingIsPlan56.
-// The channel is the fast path and the timer only bounds what a lost
-// hint costs — one RPC per 30 s per watcher, not one per second — so the
-// suite's deadlines (C-08, C-35) are met by hints and the settling
-// drains, never by this timer.
+// (2 × settle = 6 s, then 20 s against the 36 s the 30 s live timer of
+// the time needed); the shipped 5 min / 10 s cadence is pinned by
+// TestWatchTimingIsTheShippedCadence. The channel is the fast path and
+// the timer only bounds what a lost hint costs — one RPC per 5 min per
+// watcher, not one per second — so the suite's deadlines (C-08, C-35)
+// are met by hints and the settling drains, never by this timer.
 func TestWatchTimerOnlyDoesNotDrainEarly(t *testing.T) {
 	drainTiming(t, time.Hour, time.Hour)
 	r, ph, in := watchRig(t)
@@ -1108,6 +1121,90 @@ func TestWatchTransportLossReconnectsAndPushesToken(t *testing.T) {
 	}
 }
 
+// TestWatchHeartbeatRefreshPushesToken: a token refreshed on the stdin
+// heartbeat's RPC (PGRST303 once: one forced refresh and one retry) is
+// pushed on the channel as access_token by the heartbeat path itself —
+// the refresh and the push run in the one loop goroutine, so no drain or
+// token check can push it first.
+func TestWatchHeartbeatRefreshPushesToken(t *testing.T) {
+	t.Parallel()
+	r, ph, in := watchRig(t)
+	w := startWatch(t, r, "message", "watch", "--session", watchSession)
+	w.expectReady()
+	ph.nextJoin()
+	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
+
+	in.next("session_heartbeat", func(w http.ResponseWriter) bool {
+		postgrest(w, http.StatusUnauthorized, "PGRST303", "JWT expired")
+		return true
+	})
+	w.send(`{"type":"heartbeat","activity":"busy"}`)
+	select {
+	case pushed := <-ph.tokens:
+		if pushed != r.readSession().AccessToken {
+			t.Fatalf("the pushed token is not the refreshed one on disk")
+		}
+	case <-time.After(hangCatcher):
+		t.Fatalf("no access_token push within %s of the heartbeat's refresh", hangCatcher)
+	}
+	w.expect(protocol.EventHeartbeatOK, hangCatcher)
+	if n := r.be.calls("/auth/v1/token"); n != 1 {
+		t.Fatalf("/token called %d times, want the one forced refresh", n)
+	}
+	if n := r.be.calls(rpcPath + "session_heartbeat"); n != 2 {
+		t.Fatalf("session_heartbeat called %d times, want the refused one and its retry", n)
+	}
+	if code := w.exit(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+// TestWatchLiveDrainFollowsTheHeartbeatLease (card 53): while the channel
+// is joined the safety-net drain runs once per lease — drainLive (5 min)
+// until a stdin heartbeat names one, then that heartbeat's lease_seconds.
+// A heartbeat without the member keeps the last lease, a refused one
+// changes nothing, and while polling the drain stays at its 10 s.
+func TestWatchLiveDrainFollowsTheHeartbeatLease(t *testing.T) {
+	t.Parallel()
+	r, _, in := watchRig(t)
+	c := r.command("message", "watch", "--session", watchSession)
+	if err := c.authenticate(true); err != nil {
+		t.Fatal(err)
+	}
+	w := &watcher{c: c, ctx: t.Context(), events: protocol.NewLineWriter(io.Discard), id: watchSession,
+		topic: sessionTopic(watchSession), seen: map[string]bool{}, live: true}
+	beat := func(lease *int) {
+		t.Helper()
+		busy := protocol.ActivityBusy
+		if _, done := w.heartbeat(&protocol.WatchCommand{Type: protocol.CommandHeartbeat, Activity: &busy, LeaseSeconds: lease}); done {
+			t.Fatal("a heartbeat ended the watch")
+		}
+	}
+	if got := w.drainInterval(); got != watchTiming.drainLive {
+		t.Fatalf("live drain before any heartbeat = %s, want drainLive %s", got, watchTiming.drainLive)
+	}
+	shorter, longer := 120, 450
+	beat(&shorter)
+	if got := w.drainInterval(); got != 2*time.Minute {
+		t.Fatalf("live drain after a 120 s lease = %s, want 2m", got)
+	}
+	beat(nil)
+	if got := w.drainInterval(); got != 2*time.Minute {
+		t.Fatalf("live drain after a heartbeat without a lease = %s, want the last lease's 2m", got)
+	}
+	in.mu.Lock()
+	in.closed = true // session_heartbeat now answers conflict: session_closed
+	in.mu.Unlock()
+	beat(&longer)
+	if got := w.drainInterval(); got != 2*time.Minute {
+		t.Fatalf("live drain after a refused heartbeat = %s, want the last accepted lease's 2m", got)
+	}
+	w.live = false
+	if got := w.drainInterval(); got != watchTiming.drainPolling {
+		t.Fatalf("drain while polling = %s, want drainPolling %s", got, watchTiming.drainPolling)
+	}
+}
+
 // TestWatchChannelErrorTriggersRejoin: a system error on the channel
 // (what a revoked member's open channel gets on the next token push) is
 // a fall-back to polling and a rejoin; the RPC decides whether the
@@ -1397,6 +1494,83 @@ func settleTiming(t *testing.T, settle time.Duration) {
 	saved := watchTiming
 	watchTiming.settle = settle
 	t.Cleanup(func() { watchTiming = saved })
+}
+
+// tokenTiming sets the token check's interval for one non-parallel test
+// and restores it afterwards.
+func tokenTiming(t *testing.T, check time.Duration) {
+	t.Helper()
+	saved := watchTiming
+	watchTiming.tokenCheck = check
+	t.Cleanup(func() { watchTiming = saved })
+}
+
+// movingClock is a clock a test moves while a watch goroutine reads it.
+type movingClock struct{ ns atomic.Int64 }
+
+func (m *movingClock) set(at time.Time) { m.ns.Store(at.UnixNano()) }
+
+func (m *movingClock) now() time.Time { return time.Unix(0, m.ns.Load()).UTC() }
+
+// quiesce waits until no fetch_inbox has run for one whole d: with the
+// drain timers an hour away, the settling drains are then spent.
+func (in *fakeInbox) quiesce(t *testing.T, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(hangCatcher)
+	for last := in.fetched(); time.Now().Before(deadline); {
+		time.Sleep(d)
+		n := in.fetched()
+		if n == last {
+			return
+		}
+		last = n
+	}
+	t.Fatalf("fetch_inbox still running after %s", hangCatcher)
+}
+
+// TestWatchTokenCheckRefreshesWithoutAnRPC: the token check refreshes the
+// access token once it is inside refreshMargin and pushes it on the
+// channel with no RPC to carry it — the drain timers are an hour away and
+// the settling drains spent — so the 5 min drainLive or a slow harness
+// heartbeat can no longer let the JWT expire under a joined channel.
+// While the token is fresh the checks call /token not once.
+func TestWatchTokenCheckRefreshesWithoutAnRPC(t *testing.T) {
+	drainTiming(t, time.Hour, time.Hour)
+	settleTiming(t, 10*time.Millisecond)
+	tokenTiming(t, 20*time.Millisecond)
+	r, ph, in := watchRig(t)
+	clock := &movingClock{}
+	clock.set(r.now)
+	w := startWatchClock(t, r, clock.now, func(w io.Writer) io.Writer { return w }, "message", "watch", "--session", watchSession)
+	w.expectReady()
+	ph.nextJoin()
+	w.expectStatus(protocol.StatusStateLive, statusDetailJoined)
+	in.quiesce(t, 200*time.Millisecond)
+	if n := r.be.calls("/auth/v1/token"); n != 0 {
+		t.Fatalf("/token called %d times while the token had an hour left, want none", n)
+	}
+	rpcs := r.be.calls(rpcPath)
+
+	// The rig's token expires an hour after its clock: a minute left is
+	// inside the margin.
+	clock.set(r.now.Add(time.Hour - time.Minute))
+	select {
+	case pushed := <-ph.tokens:
+		if pushed != r.readSession().AccessToken {
+			t.Fatalf("the pushed token is not the refreshed one on disk")
+		}
+	case <-time.After(hangCatcher):
+		t.Fatalf("no access_token push within %s of the token entering the margin", hangCatcher)
+	}
+	if n := r.be.calls("/auth/v1/token"); n != 1 {
+		t.Fatalf("/token called %d times, want one refresh", n)
+	}
+	if n := r.be.calls(rpcPath); n != rpcs {
+		t.Fatalf("%d RPCs ran meanwhile, want none: the check refreshes on its own", n-rpcs)
+	}
+	if code := w.exit(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
 }
 
 // TestWatchSettleDrainFindsARevocationWhileTheJoinIsPending: C-08's other

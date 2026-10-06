@@ -21,7 +21,9 @@
 // token list in Reasons; the SessionStart hook renders each token as its
 // own fixed line (team_file_<reason>), so the list may not grow silently.
 // An unusable `sync` member is never a refusal: File.Sync is nil and
-// File.SyncUnusable carries a token from the closed SyncReasons list.
+// File.SyncUnusable carries a token from the closed SyncReasons list; the
+// same holds for `gateway` (GatewayReasons) and `polling`
+// (PollingReasons), whose unusable member leaves the default intervals.
 // File contents never appear in an error: the only file-sourced strings
 // any caller may surface are TeamName and the Ignored names, which leave
 // this package already reduced and capped.
@@ -103,8 +105,14 @@ type File struct {
 	// token when the member is present but not usable, "" otherwise.
 	Gateway         *GatewayConfig
 	GatewayUnusable string
+	// Polling is the project's `polling` member when present AND usable
+	// (card 53), nil otherwise — the defaults; PollingUnusable is the
+	// PollingReasons token when the member is present but not usable.
+	Polling         *PollingConfig
+	PollingUnusable string
 	// Ignored lists the member names this version does not define — top
-	// level as `name`, inside `sync` as `sync.name` — sorted, each reduced
+	// level as `name`, inside `sync` as `sync.name` (and so on for
+	// `gateway` and `polling`) — sorted, each reduced
 	// to a plain character set and capped (displayName) so the hook may
 	// echo it. Never a value.
 	Ignored []string
@@ -127,7 +135,7 @@ var secretShape = regexp.MustCompile(`brg1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}`)
 var members = map[string]bool{
 	"version": true, "adapter": true, "url": true,
 	"publishable_key": true, "team_ref": true, "team_name": false,
-	"sync": false, "gateway": false,
+	"sync": false, "gateway": false, "polling": false,
 }
 
 // Parse reads and validates the team file at path. Every check runs on
@@ -253,6 +261,11 @@ func parseDocument(path string, data []byte) (*File, error) {
 	if member, ok := raw["gateway"]; ok {
 		var inner []string
 		f.Gateway, inner, f.GatewayUnusable = parseGateway(member)
+		ignored = append(ignored, inner...)
+	}
+	if member, ok := raw["polling"]; ok {
+		var inner []string
+		f.Polling, inner, f.PollingUnusable = parsePolling(member)
 		ignored = append(ignored, inner...)
 	}
 	slices.Sort(ignored)

@@ -66,6 +66,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
+	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/harness/registry"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/socketpost"
@@ -97,7 +98,13 @@ const (
 
 // The production values of the [Deps] knobs (6.6, 6.8).
 const (
-	DefaultHeartbeatInterval = 30 * time.Second
+	// DefaultHeartbeatInterval is the periodic heartbeat of a team whose
+	// team file does not set `polling.heartbeat_seconds` (card 53: 100 s,
+	// was 6.6's 30 s). An idle session's heartbeat is a timer, not work,
+	// and it was a quarter of a team's backend requests; an activity flip,
+	// a rename and an inbound change are each heartbeated at the next
+	// liveness tick, so a teammate sees those as soon as before.
+	DefaultHeartbeatInterval = polling.DefaultHeartbeatSeconds * time.Second
 	DefaultPollInterval      = 2 * time.Second
 	DefaultReadyTimeout      = 10 * time.Second
 	// DefaultFatalExitGrace is how long a child may outlive an `error`
@@ -133,9 +140,15 @@ const (
 	// DefaultLogRotateBytes is the log rotation threshold (6.6: 5 MB), the
 	// sync adapters' log shares it.
 	DefaultLogRotateBytes = foldersync.LogRotateBytes
-	// DefaultLeaseSeconds is the lease the heartbeat asks for when the
-	// adapter's advertised range allows it (6.6: 90 s = three missed beats).
-	DefaultLeaseSeconds = protocol.LeaseDefaultSeconds
+	// DefaultLeaseSeconds is the lease the heartbeat asks for at the
+	// default heartbeat, before it is clamped into the adapter's
+	// advertised range: polling.LeaseBeats beats (card 53: 300 s; 6.6 set
+	// the rule with 30 s and 90 s). A team's own heartbeat derives its own
+	// lease the same way (leaseWanted). It is not
+	// protocol.LeaseDefaultSeconds, the lease an adapter grants a caller
+	// that names none: a session whose watcher died without its exit path
+	// shows online for up to one lease.
+	DefaultLeaseSeconds = polling.LeaseBeats * polling.DefaultHeartbeatSeconds
 	// ExitGaveUp is the exit status after DefaultGiveUpFailures of a kind
 	// the slow schedule does not take.
 	ExitGaveUp = 3
@@ -191,10 +204,12 @@ type Deps struct {
 	// binary, or brigade-sync-<name> on PATH). nil in production; a test
 	// points it at `/bin/sh <fixture script>`.
 	SyncCommand []string
-	// SyncInterval is the longest the sync goroutine goes without
-	// re-applying folders and peers (DefaultSyncInterval);
-	// SyncListInterval is how often it reads the roster, applying at once
-	// when the teammates' peers changed (DefaultSyncListInterval).
+	// SyncInterval is how often the sync goroutine re-applies folders and
+	// peers, a local call (DefaultSyncInterval); SyncListInterval is how
+	// often it reads the roster from the backend, applying at once when
+	// the teammates' peers changed — zero, as in production, means the
+	// map's `roster_seconds` (the team file's polling member, else
+	// DefaultSyncListInterval); a test sets its own.
 	SyncInterval     time.Duration
 	SyncListInterval time.Duration
 	// Announce runs the message-arrival sound player or desktop notifier
@@ -210,7 +225,15 @@ type Deps struct {
 	SoundCommand  []string
 	BannerCommand []string
 
+	// HeartbeatInterval is the periodic heartbeat; zero, as in
+	// production, means the map's `heartbeat_seconds` (the team file's
+	// polling member, else DefaultHeartbeatInterval); a test sets its own.
+	// LeaseSeconds is the lease the heartbeats ask for; zero, as in
+	// production, derives it from the heartbeat (polling.LeaseSeconds); a
+	// test whose heartbeat is milliseconds sets one, rather than ask a
+	// one-second lease of its fs store.
 	HeartbeatInterval time.Duration
+	LeaseSeconds      int
 	PollInterval      time.Duration
 	ReadyTimeout      time.Duration
 	FatalExitGrace    time.Duration
@@ -235,35 +258,47 @@ type Deps struct {
 // RealDeps are the production dependencies.
 func RealDeps() Deps {
 	return Deps{
-		Lookup:            procutil.Lookup,
-		Signal:            syscall.Kill,
-		Clock:             time.Now,
-		Registry:          registry.Dir,
-		Post:              socketpost.Post,
-		Announce:          runQuiet,
-		Signals:           []os.Signal{syscall.SIGTERM, syscall.SIGINT},
-		HeartbeatInterval: DefaultHeartbeatInterval,
-		PollInterval:      DefaultPollInterval,
-		ReadyTimeout:      DefaultReadyTimeout,
-		FatalExitGrace:    DefaultFatalExitGrace,
-		ReplaceWait:       DefaultReplaceWait,
-		CloseWaitClean:    DefaultCloseWaitClean,
-		CloseWaitDeath:    DefaultCloseWaitDeath,
-		RestartSchedule:   func() *backoff.Schedule { return backoff.WatchRestart(nil) },
-		SlowSchedule:      func() *backoff.Schedule { return backoff.WatchSlow(nil) },
-		InjectSchedule:    func() *backoff.Schedule { return backoff.AdapterError(nil) },
-		GiveUpFailures:    DefaultGiveUpFailures,
-		GiveUpWindow:      DefaultGiveUpWindow,
-		HealthyAfter:      DefaultHealthyAfter,
-		ActivityRetryGap:  DefaultActivityRetryGap,
-		LogRotateBytes:    DefaultLogRotateBytes,
-		SyncInterval:      DefaultSyncInterval,
-		SyncListInterval:  DefaultSyncListInterval,
+		Lookup:           procutil.Lookup,
+		Signal:           syscall.Kill,
+		Clock:            time.Now,
+		Registry:         registry.Dir,
+		Post:             socketpost.Post,
+		Announce:         runQuiet,
+		Signals:          []os.Signal{syscall.SIGTERM, syscall.SIGINT},
+		PollInterval:     DefaultPollInterval,
+		ReadyTimeout:     DefaultReadyTimeout,
+		FatalExitGrace:   DefaultFatalExitGrace,
+		ReplaceWait:      DefaultReplaceWait,
+		CloseWaitClean:   DefaultCloseWaitClean,
+		CloseWaitDeath:   DefaultCloseWaitDeath,
+		RestartSchedule:  func() *backoff.Schedule { return backoff.WatchRestart(nil) },
+		SlowSchedule:     func() *backoff.Schedule { return backoff.WatchSlow(nil) },
+		InjectSchedule:   func() *backoff.Schedule { return backoff.AdapterError(nil) },
+		GiveUpFailures:   DefaultGiveUpFailures,
+		GiveUpWindow:     DefaultGiveUpWindow,
+		HealthyAfter:     DefaultHealthyAfter,
+		ActivityRetryGap: DefaultActivityRetryGap,
+		LogRotateBytes:   DefaultLogRotateBytes,
+		SyncInterval:     DefaultSyncInterval,
 	}
 }
 
+// fromMap fills the knobs a team tunes in its team file's `polling`
+// member (card 53) from the by-pid map the hook froze it into, unless a
+// test set them: the heartbeat interval and the roster read's.
+func (d Deps) fromMap(m *sessionmap.ByPID) Deps {
+	if d.HeartbeatInterval <= 0 {
+		d.HeartbeatInterval = m.Heartbeat()
+	}
+	if d.SyncListInterval <= 0 {
+		d.SyncListInterval = m.Roster()
+	}
+	return d
+}
+
 // withDefaults fills every zero member with its production value, so a
-// test may override one knob and inherit the rest.
+// test may override one knob and inherit the rest. The heartbeat and the
+// roster read are the map's, filled by fromMap once it is read.
 func (d Deps) withDefaults() Deps {
 	prod := RealDeps()
 	if d.Lookup == nil {
@@ -286,9 +321,6 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.BrigadeVersion == nil {
 		d.BrigadeVersion = buildinfo.Claimed
-	}
-	if d.HeartbeatInterval <= 0 {
-		d.HeartbeatInterval = prod.HeartbeatInterval
 	}
 	if d.PollInterval <= 0 {
 		d.PollInterval = prod.PollInterval
@@ -334,9 +366,6 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.SyncInterval <= 0 {
 		d.SyncInterval = prod.SyncInterval
-	}
-	if d.SyncListInterval <= 0 {
-		d.SyncListInterval = prod.SyncListInterval
 	}
 	return d
 }
@@ -625,6 +654,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 			Details: map[string]string{"reason": "map_team_key_mismatch"},
 		}
 	}
+	d = d.fromMap(m)
 	pol := policy.Policy(m.Inbound)
 	if !pol.Valid() {
 		pol = policy.Refuse

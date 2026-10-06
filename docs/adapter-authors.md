@@ -2087,17 +2087,24 @@ inherited; treat an empty value as unset and pick your own default. Everything e
 own — is absent by construction, because the list above is an allow-list and not a deny-list. The inbox socket
 token exists in exactly one process's environment, the watcher's, and reaches no adapter child.
 
-**Two extra facts ride on the heartbeat.** The Claude Code harness's watcher heartbeats its session about every
-30 s and on every activity flip (on the stdin path at most one heartbeat is outstanding: a flip that comes due while
-the last heartbeat is unanswered is sent when the answer arrives, or with the next request once the unanswered one is
-older than the lease less one and a half intervals), and on that path it may report `model` and
-`context_used_tokens` (4.4.2, 4.4.4 and
+**Two extra facts ride on the heartbeat.** The Claude Code harness's watcher heartbeats its session every 100 s
+by default (a team may set 10 to 200 s in its team file's `polling` member), asking for a lease of three
+heartbeats clamped into your advertised range and never beating less often than three times per lease it asked
+for, and on every activity flip, rename and inbound change (on the stdin path at most one heartbeat is outstanding:
+a flip that comes due while the last heartbeat is unanswered is sent when the answer arrives, or with the next
+request once the unanswered one is older than the lease less one and a half intervals), and on that path it may
+report `model` and `context_used_tokens` (4.4.2, 4.4.4 and
 the watch `heartbeat` command of 4.4.9): the model identity the session is running, and how many tokens its context
 currently holds. It derives both **locally**, from that session's own transcript file on the user's machine, just
 before it sends; the transcript, its path, the native session id, the cwd, the hostname and the username all stay
 there (T10). Absent means unchanged and the harness never clears them, so a heartbeat that could not read the
 transcript leaves whatever you stored alone. Advertise `session.model` / `session.context_used_tokens` and store
 what arrives; advertise neither and accept-and-ignore — both are conformant, and both are what C-44 measures.
+
+The bundled Supabase adapter keys one policy of its own to the heartbeat's lease: while its Realtime channel is
+joined, it drains the inbox once per the lease the last stdin heartbeat named (300 s until one does), a safety net
+for a lost signal, so a message whose signal was lost waits no longer than a dead session shows online. It is that
+adapter's choice, not a protocol rule; C-35's 5 s is met by the signals.
 
 **Timeouts, by command.** The harness bounds each call with a context deadline; the constants are
 `internal/harness/adapterclient`'s:

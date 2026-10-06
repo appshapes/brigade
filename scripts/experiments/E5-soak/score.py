@@ -31,8 +31,8 @@ import common   # noqa: E402  (read_ndjson)
 
 REFRESH_MARGIN_S = 90          # credentials.go refreshMargin
 JWT_EXPIRY_S = 3600            # supabase/config.toml jwt_expiry
-LEASE_S = 90                   # protocol.LeaseDefaultSeconds
-HEARTBEAT_S = 30               # watch.go DefaultHeartbeatInterval
+LEASE_S = 90                   # the watcher's lease when E5 ran (card 53 made it 300 s); kept so a bundle re-scores identically
+HEARTBEAT_S = 30               # watch.go DefaultHeartbeatInterval when E5 ran (card 53 made it 100 s)
 QUEUE_CAPACITY = 50            # inbound/queue.go
 SENDER_RATE_PER_MINUTE = 10    # inbound/limiter.go
 WORKLOAD_FLOOR = 20            # brief 7 clause 7

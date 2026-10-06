@@ -292,6 +292,71 @@ func TestTeamCreateForceCarriesSync(t *testing.T) {
 	}
 }
 
+// TestTeamCreateForceCarriesPolling is TestTeamCreateForceCarriesSync for
+// the `polling` member (card 53): a usable member comes across unchanged
+// in meaning — the values it sets, and none it left to the defaults — a
+// file without one gains none, and a member that cannot be carried is
+// dropped with one fixed human line naming a token.
+func TestTeamCreateForceCarriesPolling(t *testing.T) {
+	t.Parallel()
+	const oldFile = `{"version":1,"adapter":"supabase","url":"https://old.supabase.co","publishable_key":"sb_publishable_old","team_ref":"t_old","team_name":"old"`
+	for name, tc := range map[string]struct {
+		doc   string
+		want  *teamfile.PollingConfig
+		cause string // the token the not-carried line names; "" means no line
+	}{
+		"both values": {
+			oldFile + `,"polling":{"heartbeat_seconds":150,"roster_seconds":900,"later":true}}`,
+			&teamfile.PollingConfig{HeartbeatSeconds: 150, RosterSeconds: 900}, "",
+		},
+		"one value stays one value": {
+			oldFile + `,"polling":{"roster_seconds":60}}`, &teamfile.PollingConfig{RosterSeconds: 60}, "",
+		},
+		"no polling member stays without one": {oldFile + `}`, nil, ""},
+		"an unusable member is not carried": {
+			oldFile + `,"polling":{"heartbeat_seconds":5}}`, nil, teamfile.PollingHeartbeatOutOfRange,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			top := mkCheckout(t, f.dirs.Root)
+			path := filepath.Join(top, teamfile.FileName)
+			//nolint:gosec // G306: a committed team file IS 0644
+			if err := os.WriteFile(path, []byte(tc.doc), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			f.rec.on("profile init", answer{result: `{"ok":true}`})
+			f.rec.on("team create", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_1"}`})
+			iv := f.inv(f.terminalEnv(), "", "create", "--url", "https://abc.supabase.co", "--key", "sb_publishable_x",
+				"--name", "devs", "--secret-file", filepath.Join(f.dirs.Root, "s"), "--force")
+			iv.Deps.Getwd = func() (string, error) { return top, nil }
+			if err := Team(iv); err != nil {
+				t.Fatalf("--force must always replace the file: %v", err)
+			}
+			got, err := teamfile.Parse(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got.Polling, tc.want) || got.PollingUnusable != "" {
+				t.Fatalf("polling = %+v (%q), want %+v", got.Polling, got.PollingUnusable, tc.want)
+			}
+			if len(got.Ignored) != 0 {
+				t.Fatalf("the replacement carries unknown members %q", got.Ignored)
+			}
+			out := f.out.String()
+			line := "the previous " + teamfile.FileName + "'s polling member was not carried into the new file (" +
+				tc.cause + "); add it again if this team tunes its intervals\n"
+			if tc.cause != "" && !strings.Contains(out, line) {
+				t.Fatalf("output lacks the not-carried line %q:\n%s", line, out)
+			}
+			if tc.cause == "" && strings.Contains(out, "not carried") {
+				t.Fatalf("a not-carried line with nothing dropped:\n%s", out)
+			}
+		})
+	}
+}
+
 // joinFixture prepares a checkout with a team file and the join answers.
 func joinFixture(t *testing.T) (*fixture, string) {
 	t.Helper()

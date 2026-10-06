@@ -9,6 +9,32 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A team can set how often its sessions check in with the backend** (card 53): an optional `polling` member in
+  `.brigade.json`, `{"heartbeat_seconds": 100, "roster_seconds": 300}`. `heartbeat_seconds` (10 to 200) is how
+  often a session reports that it is alive; `roster_seconds` (15 to 3600) is how often folder sync reads the list
+  of sessions. Longer values send fewer requests, at a cost: a crashed session shows online for up to three
+  heartbeats, and a new teammate joins folder sync later. A member Brigade cannot use is named in one line at
+  session start, and the defaults apply. `team create --force` carries the member. [docs/setup.md](docs/setup.md),
+  "The project owns the team", has the details and an example for Supabase's free plan.
+
+### Changed
+
+- **An idle session asks the backend far less often** (card 53). Timers in idle sessions made most of a team's
+  Supabase requests, and Supabase's free plan caps them. By default a session now reports itself every 100
+  seconds instead of every 30, checks its inbox on a timer once per lease (5 minutes) instead of every 30 seconds,
+  and reads the list of sessions for folder sync every 5 minutes instead of every 15 seconds: about 60 requests an
+  hour per idle session, from about 480. A new message still arrives within seconds: Supabase Realtime signals
+  each one as it is sent. A rename, a busy/idle change and an inbound change still reach teammates within seconds
+  too.
+- **A session that ends without closing itself shows online for up to 5 minutes** by default, not 90 seconds: its
+  lease is now three heartbeats. This is the case of a machine that crashed or slept. A message whose Realtime
+  signal was lost waits up to the same lease. A teammate who starts a session in the same repository is
+  introduced for folder sync within about 5 minutes.
+- **The Supabase adapter now refreshes its sign-in token on its own 30-second check**, not only when it calls the
+  backend, so the slower timers never let the token expire under a live Realtime connection.
+
 ## [0.24.0] — 2026-10-05
 
 ### Changed

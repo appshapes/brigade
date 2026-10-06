@@ -228,6 +228,10 @@ func awaitEvent(t *testing.T, w *watchRun, what string, d time.Duration, pred fu
 // `status live` and push delivery when the container comes back.
 func TestIntegrationWatchPollingDegradation(t *testing.T) {
 	requireDockerFaults(t)
+	// The 30 s live drain of plan 5.6, not the shipped 5 min (card 53): a
+	// first broadcast lost after the Realtime restart (below) is carried
+	// by that drain, and the wait for it is drainLive + 30 s.
+	drainTiming(t, 30*time.Second, watchTiming.drainPolling)
 	a, secret := liveTeam(t, liveName(t, "p2-11-degrade"))
 	b := liveJoin(t, secret)
 	_, sa := registerLive(t, a, regDoc(liveName(t, "sa")))
