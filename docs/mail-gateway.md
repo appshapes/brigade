@@ -9,9 +9,8 @@ Resend and Postmark ship with Brigade, and any other provider is a small connect
 ## TL;DR for administrators
 
 1. Have a [Resend](https://resend.com) account with a verified sending domain and a full-access API key (`re_…`),
-   or a
-   [Postmark](https://postmarkapp.com) account with a server, a confirmed sender signature or domain, and the
-   server's API token.
+   or a [Postmark](https://postmarkapp.com) account with a server, a confirmed sender signature or domain, and
+   the server's API token.
 2. Install the backend and create the team, if not done yet:
    [docs/setup.md › Administrator: create a team](setup.md#administrator-create-a-team).
 3. From your checkout of the Brigade repository, where you ran `make backend-install`, run one of these.

@@ -19,14 +19,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   written on the gateway's own mails.
 - **The list of sessions a person receives shows only the sessions online now**, by mail and in Slack. An
   offline session can still be written to; the message waits for it.
+- **In a channel, a session's Slack message now says to mention @brigade in a thread reply**; the bot does not see
+  a reply without the mention (card 51).
 - **[`docs/mail-gateway.md`](docs/mail-gateway.md): a simpler Google Workspace rule for a team address.** It
   changes the envelope recipient to the receiving address and bypasses the spam filter; the address needs no
   mailbox and no alias.
 - **`make gateway-install` and `make slack-gateway-install` take `team_file=`**, the project's `.brigade.json`:
   the commands run from a checkout of Brigade, and the team's project is usually another repository.
-- **Run the installers again after updating**: from your Brigade checkout, run your `make gateway-install …
-  team_file=…` command again with the same arguments, and for a Slack gateway the second
-  `make slack-gateway-install … team_file=…` pass.
+- **Run the installers again after updating**: from your Brigade checkout, run `make gateway-install` as you
+  installed it, now with `team_file=`, and for a Slack gateway the second `make slack-gateway-install` pass.
 
 ### Fixed
 

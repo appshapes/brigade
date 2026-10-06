@@ -24,7 +24,7 @@ You run one command twice, with a step at Slack in between.
    command printed, **Create**, then **Install to Workspace**.
 4. Copy two values from the app's pages: **Basic Information → Signing Secret**, and **OAuth & Permissions →
    Bot User OAuth Token** (`xoxb-…`). Put them in a file outside any repository, readable by you alone:
-   `(umask 077; cat > ~/brigade-slack.env)`, paste the two lines, press Ctrl-D.
+   `(umask 077; cat > ~/brigade-slack.env)`, type the two lines, press Enter, then Ctrl-D.
 
    ```
    SLACK_BOT_TOKEN=xoxb-…
@@ -38,7 +38,8 @@ You run one command twice, with a step at Slack in between.
    ```
 
 6. Commit and push the project's `.brigade.json`, which the command changed. It carries only public values.
-7. Tell people: message `@brigade` with a first line `to: <session>`, or type `/brigade sessions`.
+7. Tell people the bot's handle, on the command's `workspace and bot:` line: they message it with a first line
+   `to: <session>`, or type `/brigade sessions`.
 
 Nothing else is needed from Slack: no public URL of your own, no Socket Mode, no DNS. When the changelog says the
 gateway changed, `git pull` your Brigade checkout and run the second pass again.
