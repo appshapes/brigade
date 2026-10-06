@@ -318,8 +318,9 @@ func syncRosterList(t *testing.T, peer string) []byte {
 // TestSyncReadsTheRosterOnItsOwnTicker: the roster — a backend read — is
 // read every SyncListInterval (an hour here), and apply — a local call —
 // runs every SyncInterval with the peers of the last read, never reading
-// the roster again for it (card 53). A read that failed is tried again at
-// the next round, and nothing is applied before one succeeds.
+// the roster again for it (card 53). Before the first read succeeds
+// nothing is applied and a failed read is tried again at the next round;
+// TestSyncKeepsTheLastPeersWhenARereadFails has the reads after it.
 func TestSyncReadsTheRosterOnItsOwnTicker(t *testing.T) {
 	t.Parallel()
 	fx := newFixture(t, fixtureOptions{sink: true})
@@ -346,7 +347,7 @@ func TestSyncReadsTheRosterOnItsOwnTicker(t *testing.T) {
 	if n := dumpCount(t, dump, "session", "list"); n != 2 {
 		t.Fatalf("session list calls = %d, want the failed read and its one retry", n)
 	}
-	if !fx.logHas("sync: the roster could not be read; the next round reads it again", nil) {
+	if !fx.logHas("sync: the roster could not be read; the last peers stand", nil) {
 		t.Errorf("no line for the failed read: %v", fx.logLines())
 	}
 	for i, rec := range fake.Records(t) {
@@ -359,6 +360,61 @@ func TestSyncReadsTheRosterOnItsOwnTicker(t *testing.T) {
 		}
 		if !slices.Equal(apply.Peers, []foldersync.Peer{{Peer: "PEER-A", Label: "peer@example.com"}}) {
 			t.Fatalf("call %d: apply peers = %+v, want the peer of the one read that succeeded", i, apply.Peers)
+		}
+	}
+}
+
+// TestSyncKeepsTheLastPeersWhenARereadFails: once a read has succeeded, a
+// failed one leaves its peers standing — applies go on with them every
+// SyncInterval — and the roster is not read again before the next
+// SyncListInterval, so a backend that answers nothing (an outage, a
+// plan's limit) is asked no more often than when it answers (card 53).
+func TestSyncKeepsTheLastPeersWhenARereadFails(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	dump := filepath.Join(t.TempDir(), "dump.ndjson")
+	fx.useFake(fakeadapter.Script{
+		Responses: map[string][]fakeadapter.Response{"session list": {
+			{Result: syncRosterList(t, "syncthing:PEER-A")},
+			{Error: &protocol.ErrorObject{Code: protocol.CodeUnavailable, Message: "backend down", Retryable: true}},
+		}},
+		Watch:    &fakeadapter.WatchScript{Lines: []fakeadapter.WatchLine{readyLine(t)}},
+		DumpFile: dump,
+	})
+	fx.syncMap("syncthing", t.TempDir(), "docs")
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{})
+	deps := fx.deps()
+	deps.SyncCommand = fake.Argv
+	deps.SyncInterval = 20 * time.Millisecond
+	deps.SyncListInterval = 200 * time.Millisecond
+	r := fx.start(deps, fx.args()...)
+	// The first read succeeds, the second (at the first list tick) fails;
+	// applies go on meanwhile with PEER-A.
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		return fx.logHas("sync: the roster could not be read; the last peers stand", nil)
+	})
+	failedAt := time.Now()
+	reads := dumpCount(t, dump, "session", "list")
+	n := applies(t, fake)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return applies(t, fake) >= n+3 })
+	// Several apply ticks later, no read beyond one per list tick.
+	ticks := int(time.Since(failedAt)/deps.SyncListInterval) + 1
+	if got := dumpCount(t, dump, "session", "list"); got > reads+ticks {
+		t.Fatalf("session list calls = %d after the failure, want at most %d (one per list tick, not per apply tick)", got, reads+ticks)
+	}
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for i, rec := range fake.Records(t) {
+		if rec.Verb != "apply" {
+			continue
+		}
+		var apply foldersync.ApplyRequest
+		if err := json.Unmarshal(rec.Request, &apply); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(apply.Peers, []foldersync.Peer{{Peer: "PEER-A", Label: "peer@example.com"}}) {
+			t.Fatalf("call %d: apply peers = %+v, want the last read's PEER-A", i, apply.Peers)
 		}
 	}
 }

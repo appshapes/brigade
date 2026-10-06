@@ -55,6 +55,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
+	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/harness/registry"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/procutil"
@@ -631,6 +632,25 @@ func gatewayUnusableLine(reason string) string {
 	return "Brigade: .brigade.json's gateway member is not usable (" + attr(reason) + "); no mail gateway is known to this session."
 }
 
+// pollingSetLine is the one line for a usable `polling` member that sets
+// a value other than the default (card 53): what the team chose, so a
+// session that shows online longer, or a teammate introduced later, has
+// its reason in view. "" at the defaults. The values are integers the
+// parser bounded, never text from the file.
+func pollingSetLine(p *teamfile.PollingConfig) string {
+	var set []string
+	if p.HeartbeatSeconds != 0 && p.HeartbeatSeconds != polling.DefaultHeartbeatSeconds {
+		set = append(set, "a heartbeat every "+strconv.Itoa(p.HeartbeatSeconds)+" s")
+	}
+	if p.RosterSeconds != 0 && p.RosterSeconds != polling.DefaultRosterSeconds {
+		set = append(set, "a roster read every "+strconv.Itoa(p.RosterSeconds)+" s")
+	}
+	if len(set) == 0 {
+		return ""
+	}
+	return "Brigade: .brigade.json's polling member sets " + strings.Join(set, " and ") + "."
+}
+
 // pollingUnusableLine is the one line for a `polling` member the parser
 // could not use (card 53): never a refusal, and the reason is a token from
 // teamfile.PollingReasons, never a value.
@@ -640,7 +660,8 @@ func pollingUnusableLine(reason string) string {
 
 // teamFileNotes are the lines an attached session's team file earns
 // beside the context line: the ignored members, then an unusable sync,
-// an unusable gateway and an unusable polling member.
+// an unusable gateway, and a polling member that is unusable or sets
+// other than the defaults.
 func teamFileNotes(tf *teamfile.File) []string {
 	if tf == nil {
 		return nil
@@ -657,6 +678,11 @@ func teamFileNotes(tf *teamfile.File) []string {
 	}
 	if tf.PollingUnusable != "" {
 		notes = append(notes, pollingUnusableLine(tf.PollingUnusable))
+	}
+	if tf.Polling != nil {
+		if line := pollingSetLine(tf.Polling); line != "" {
+			notes = append(notes, line)
+		}
 	}
 	return notes
 }

@@ -59,6 +59,7 @@ func TestHeartbeatTimingFollowsTheLease(t *testing.T) {
 		{"the defaults", DefaultHeartbeatInterval, 0, protocol.DefaultLease(), 300, 100 * time.Second, 150 * time.Second},
 		{"a team's 150 s heartbeat", 150 * time.Second, 0, protocol.DefaultLease(), 450, 150 * time.Second, 225 * time.Second},
 		{"the slowest heartbeat", 200 * time.Second, 0, protocol.DefaultLease(), 600, 200 * time.Second, 300 * time.Second},
+		{"the fastest heartbeat", 10 * time.Second, 0, protocol.DefaultLease(), 30, 10 * time.Second, 15 * time.Second},
 		{"an adapter whose lease ends under 300 s", DefaultHeartbeatInterval, 0, protocol.Lease{DefaultSeconds: 60, MinSeconds: 30, MaxSeconds: 120}, 120, 40 * time.Second, 60 * time.Second},
 		{"an adapter whose lease ends at 2 s", DefaultHeartbeatInterval, 0, protocol.Lease{DefaultSeconds: 1, MinSeconds: 1, MaxSeconds: 2}, 2, 2 * time.Second / 3, 2*time.Second - (2*time.Second/3)*3/2},
 		{"an adapter whose lease is 1 s", DefaultHeartbeatInterval, 0, protocol.Lease{DefaultSeconds: 1, MinSeconds: 1, MaxSeconds: 1}, 1, time.Second / 3, time.Second - (time.Second/3)*3/2},

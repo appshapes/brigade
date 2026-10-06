@@ -186,10 +186,7 @@ func (w *watcher) attempt() attemptResult {
 // three heartbeat intervals (the 4.4.1 default is 90 s), and
 // heartbeatInterval paces the beats to the lease asked for.
 func chooseLease(l protocol.Lease, wanted int) *int {
-	v := wanted
-	if l.MinSeconds > 0 && l.MaxSeconds >= l.MinSeconds {
-		v = min(max(v, l.MinSeconds), l.MaxSeconds)
-	}
+	v := polling.ClampLease(wanted, l)
 	return &v
 }
 

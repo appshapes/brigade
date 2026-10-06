@@ -701,8 +701,8 @@ func messageID(t *testing.T, event map[string]any) string {
 // watch with exit 0 after a phx_leave. Every drain timer is an hour here,
 // so a hint is the only thing that can run the drain that delivers: the
 // message arriving at all is the proof of the hint path, and the fetch
-// count pins one drain per hint. (At the shipped timers the proof was a
-// 700 ms bound on the hint's latency against the 30 s live timer — a
+// count pins one drain per hint. (Under plan 5.6's 30 s live timer the
+// proof was a 700 ms bound on the hint's latency against that timer — a
 // performance bound under -race and load — and the 3 s settling drain
 // could add a fetch to the count meanwhile.)
 func TestWatchPushReadyLiveAndHints(t *testing.T) {
@@ -868,8 +868,8 @@ func TestWatchForeignSessionIsTheUniformNotFound(t *testing.T) {
 // only way the watch can learn of the revocation: the error arriving at
 // all is the proof of the hint path (C-08's 5 s push budget is met by it,
 // never by a timer — a timer-only watch sits here for ever), and the
-// fetch count pins the one drain it ran. (At the shipped timers the proof
-// was a 2 s bound against the 30 s live timer — a performance bound under
+// fetch count pins the one drain it ran. (Under plan 5.6's 30 s live
+// timer the proof was a 2 s bound against that timer — a performance bound under
 // -race and load — and the 3 s settling drain would have found the 403
 // too.)
 func TestWatchRevocationEndsTheWatch(t *testing.T) {
@@ -1503,6 +1503,55 @@ func tokenTiming(t *testing.T, check time.Duration) {
 	saved := watchTiming
 	watchTiming.tokenCheck = check
 	t.Cleanup(func() { watchTiming = saved })
+}
+
+// TestWatchLeaseChangeKeepsAnArmedSettlingDrain: a heartbeat whose lease
+// changes the live drain's interval arrives between the two settling
+// drains after a join and must not replace the second with a whole lease:
+// the settling drains are what find a hint lost right after a join (C-08;
+// runs 33696302372 and 33756168929). The second still fires on time, and
+// the re-arm after it is the first to use the new lease. Real timers, 20
+// ms settles.
+func TestWatchLeaseChangeKeepsAnArmedSettlingDrain(t *testing.T) {
+	settleTiming(t, 20*time.Millisecond)
+	w := &watcher{live: true, settling: settleDrains, drainTimer: time.NewTimer(time.Hour)}
+	defer w.drainTimer.Stop()
+	w.rearm() // the first settling drain, armed at the join
+	<-w.drainTimer.C
+	w.rearm() // the second, armed after the first ran: none is owed now
+	lease := 120
+	w.followLease(&lease)
+	select {
+	case <-w.drainTimer.C:
+	case <-time.After(time.Second):
+		t.Fatal("the lease change replaced the armed settling drain with a whole lease")
+	}
+	if got := w.drainInterval(); got != 2*time.Minute {
+		t.Fatalf("the live drain after the settling drains = %s, want the heartbeat's 2m lease", got)
+	}
+}
+
+// TestWatchLeaseNeverRearmsTheDrain: a heartbeat — the same lease or a new
+// one — leaves the armed live drain alone. Re-arming at every heartbeat
+// would push the safety net a whole lease away each time, and the harness
+// heartbeats three times per lease, so it would never fire; a new lease
+// takes effect at the next re-arm instead.
+func TestWatchLeaseNeverRearmsTheDrain(t *testing.T) {
+	t.Parallel()
+	w := &watcher{live: true, lease: 300, drainTimer: time.NewTimer(20 * time.Millisecond)}
+	defer w.drainTimer.Stop()
+	for _, lease := range []int{300, 120} {
+		w.followLease(&lease)
+		select {
+		case <-w.drainTimer.C:
+		case <-time.After(time.Second):
+			t.Fatalf("a heartbeat naming a %d s lease re-armed the live drain", lease)
+		}
+		w.drainTimer.Reset(20 * time.Millisecond)
+	}
+	if got := w.drainInterval(); got != 2*time.Minute {
+		t.Fatalf("live drain after the new lease = %s, want 2m at the next re-arm", got)
+	}
 }
 
 // movingClock is a clock a test moves while a watch goroutine reads it.

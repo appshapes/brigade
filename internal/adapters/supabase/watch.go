@@ -391,19 +391,17 @@ func (w *watcher) liveDrain() time.Duration {
 	return time.Duration(min(max(w.lease, protocol.LeaseMinSeconds), protocol.LeaseMaxSeconds)) * time.Second
 }
 
-// followLease records the lease a heartbeat that succeeded asked for. A
-// changed lease re-arms the live drain at once, so a shorter one need not
-// wait out the longer; not while settling drains are owed (re-arming
-// would spend one), and never for an unchanged lease, which would push
-// the drain a whole interval away on every heartbeat — and the harness
-// heartbeats more often than once per lease.
+// followLease records the lease a heartbeat that succeeded asked for. It
+// never re-arms the drain timer: the next rearm — after the drain that
+// timer runs, a hint's or its own — reads the lease. Re-arming here could
+// replace an armed settling drain with a whole lease (the drains that find
+// a hint lost right after a join, C-08), or, at every heartbeat, push the
+// live drain a whole lease away for good: the harness heartbeats three
+// times per lease. The first heartbeat comes with `ready`, so the lease is
+// known before the settling drains hand over to the live interval.
 func (w *watcher) followLease(seconds *int) {
-	if seconds == nil || *seconds == w.lease {
-		return
-	}
-	w.lease = *seconds
-	if w.live && w.settling == 0 {
-		w.rearm()
+	if seconds != nil {
+		w.lease = *seconds
 	}
 }
 

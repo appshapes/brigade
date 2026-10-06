@@ -74,3 +74,21 @@ func Roster(seconds int) time.Duration {
 func LeaseSeconds(heartbeat time.Duration) int {
 	return int((LeaseBeats*heartbeat + time.Second - 1) / time.Second)
 }
+
+// ClampLease holds a lease into an adapter's advertised range (4.4.1),
+// so it is never refused; a range not advertised leaves it as it is.
+func ClampLease(seconds int, l protocol.Lease) int {
+	if l.MinSeconds > 0 && l.MaxSeconds >= l.MinSeconds {
+		return min(max(seconds, l.MinSeconds), l.MaxSeconds)
+	}
+	return seconds
+}
+
+// Lease is the lease_seconds a session asks for at the team's
+// heartbeat_seconds (0 for the default): LeaseBeats heartbeats, held into
+// the adapter's range. The SessionStart registration and the watcher's
+// heartbeats ask the same, so the lease never drops to an adapter's own
+// default (the 4.4.1 default is 90 s) between the two.
+func Lease(heartbeatSeconds int, l protocol.Lease) int {
+	return ClampLease(LeaseSeconds(Heartbeat(heartbeatSeconds)), l)
+}

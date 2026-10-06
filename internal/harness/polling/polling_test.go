@@ -67,3 +67,28 @@ func TestLeaseSecondsRoundsUp(t *testing.T) {
 		}
 	}
 }
+
+// TestLeaseIsThreeHeartbeatsHeldInTheRange: the lease a session asks for
+// — at registration and on every heartbeat — is LeaseBeats of the team's
+// heartbeats (the default for 0), held into the adapter's advertised
+// range; a range not advertised leaves it.
+func TestLeaseIsThreeHeartbeatsHeldInTheRange(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		heartbeat int
+		l         protocol.Lease
+		want      int
+	}{
+		{"the default in the protocol's range", 0, protocol.DefaultLease(), 300},
+		{"a team's heartbeat", 150, protocol.DefaultLease(), 450},
+		{"the slowest heartbeat", polling.MaxHeartbeatSeconds, protocol.DefaultLease(), 600},
+		{"a range that ends under it", 0, protocol.Lease{DefaultSeconds: 60, MinSeconds: 30, MaxSeconds: 120}, 120},
+		{"a range that starts over it", 0, protocol.Lease{DefaultSeconds: 900, MinSeconds: 600, MaxSeconds: 3600}, 600},
+		{"no range advertised", 0, protocol.Lease{}, 300},
+	} {
+		if got := polling.Lease(tc.heartbeat, tc.l); got != tc.want {
+			t.Errorf("%s: Lease(%d, %+v) = %d, want %d", tc.name, tc.heartbeat, tc.l, got, tc.want)
+		}
+	}
+}

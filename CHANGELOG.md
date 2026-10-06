@@ -15,8 +15,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `.brigade.json`, `{"heartbeat_seconds": 100, "roster_seconds": 300}`. `heartbeat_seconds` (10 to 200) is how
   often a session reports that it is alive; `roster_seconds` (15 to 3600) is how often folder sync reads the list
   of sessions. Longer values send fewer requests, at a cost: a crashed session shows online for up to three
-  heartbeats, and a new teammate joins folder sync later. A member Brigade cannot use is named in one line at
-  session start, and the defaults apply. `team create --force` carries the member. [docs/setup.md](docs/setup.md),
+  heartbeats, and a new teammate joins folder sync later. A session names values other than the defaults in one
+  line at start; a member Brigade cannot use is named in one line too, and the defaults apply. `team create --force` carries the member. [docs/setup.md](docs/setup.md),
   "The project owns the team", has the details and an example for Supabase's free plan.
 
 ### Changed

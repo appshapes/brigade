@@ -357,10 +357,20 @@ func TestHookTeamFileNotes(t *testing.T) {
 		// unusable one earns one line, after the sync note, with its token.
 		"a usable gateway member says nothing": {`,"gateway":{"email":"a1b2c3d4@example.resend.app"}`, nil},
 		"an unusable gateway member":           {`,"gateway":{"email":"` + marker + `"}`, []string{gatewayUnusable}},
-		// Card 53: a usable polling member earns no line; an unusable one
-		// earns one, after the gateway note, with its token.
-		"a usable polling member says nothing": {`,"polling":{"heartbeat_seconds":60}`, nil},
-		"an unusable polling member":           {`,"polling":{"heartbeat_seconds":1}`, []string{pollingUnusable}},
+		// Card 53: a polling member at the defaults earns no line, one that
+		// sets other values names them, and an unusable one earns its own
+		// line, after the gateway note, with its token.
+		"a polling member at the defaults says nothing": {`,"polling":{"heartbeat_seconds":100,"roster_seconds":300}`, nil},
+		"an empty polling member says nothing":          {`,"polling":{}`, nil},
+		"a polling member that sets the heartbeat names it": {
+			`,"polling":{"heartbeat_seconds":60,"roster_seconds":300}`,
+			[]string{"Brigade: .brigade.json's polling member sets a heartbeat every 60 s."},
+		},
+		"a polling member that sets both names both": {
+			`,"polling":{"heartbeat_seconds":200,"roster_seconds":900}`,
+			[]string{"Brigade: .brigade.json's polling member sets a heartbeat every 200 s and a roster read every 900 s."},
+		},
+		"an unusable polling member": {`,"polling":{"heartbeat_seconds":1}`, []string{pollingUnusable}},
 		"an unusable gateway and polling, gateway first": {
 			`,"gateway":{"email":1},"polling":{"heartbeat_seconds":1}`,
 			[]string{gatewayUnusable, pollingUnusable},

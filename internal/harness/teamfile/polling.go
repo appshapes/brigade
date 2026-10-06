@@ -11,8 +11,9 @@ import (
 // team's sessions heartbeat and how often folder sync reads the roster,
 // each in whole seconds, 0 for a value the member leaves out (the
 // default, package polling). A team tunes them against its backend's
-// request budget; nothing here changes how Brigade connects or what it
-// trusts. The json tags are the member's own shape, so `team create
+// request budget; they are the connection's cadence, the one property of
+// it the file may set (the package comment), never where it connects or
+// what it trusts. The json tags are the member's own shape, so `team create
 // --force` writes a carried PollingConfig back unchanged.
 type PollingConfig struct {
 	HeartbeatSeconds int `json:"heartbeat_seconds,omitzero"`

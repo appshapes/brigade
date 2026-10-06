@@ -566,6 +566,38 @@ func TestInboundChangeIsHeartbeatedAtOnce(t *testing.T) {
 	}
 }
 
+// TestHeartbeatTicksAtAThirdOfTheLease is the event loop's half of the
+// clamp rule (card 53): the ticker runs at the session's interval, never
+// slower than a third of the lease asked for, whatever the configured
+// heartbeat. A heartbeat of an hour against a 3 s lease beats every
+// second: the fs store's last_seen_at moves on at least twice within 5 s
+// of the heartbeat at ready, and the session stays online.
+func TestHeartbeatTicksAtAThirdOfTheLease(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{})
+	fx.useFS()
+	fx.writeMap()
+	deps := fx.deps()
+	deps.HeartbeatInterval, deps.LeaseSeconds = time.Hour, 3
+	r := fx.start(deps)
+	fx.waitLog("watch ready", nil)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		s := fx.session()
+		return s.LeaseUntil.Sub(s.LastSeenAt) == 3*time.Second
+	})
+	base := fx.session().LastSeenAt
+	seen := map[time.Time]bool{}
+	testutil.Eventually(t, 5*time.Second, pollEvery, func() bool {
+		if at := fx.session().LastSeenAt; at.After(base) {
+			seen[at] = true
+		}
+		return len(seen) >= 2
+	})
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
 // TestOneShotCommandsWithoutStdinCommands: an adapter that does not
 // advertise message.watch.stdin_commands is heartbeated, acknowledged and
 // closed through one-shot `session heartbeat`, `message ack` and `session

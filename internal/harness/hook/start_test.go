@@ -123,7 +123,8 @@ func assertWatcherEnv(t *testing.T, env []string, f *fixture) {
 
 // TestRegistrationCarriesNoLocalFacts is U-22 and I-33's harness half:
 // the SessionRegistration document has exactly the 4.4.2 members — no cwd,
-// hostname, username, native id or transcript path. The workspace label
+// hostname, username, native id or transcript path; lease_seconds is the
+// lease the watcher's heartbeats ask for (card 53, TestRegistrationAsksTheWatchersLease). The workspace label
 // is the repository's NAME by default (P11-5: the fixture's checkout
 // directory, which has no remote), the user's own when set, and absent
 // only when share_workspace_label is off; it is never the path.
@@ -157,7 +158,7 @@ func TestRegistrationCarriesNoLocalFacts(t *testing.T) {
 			if err := json.Unmarshal(raw, &members); err != nil {
 				t.Fatal(err)
 			}
-			allowed := map[string]bool{"harness": true, "harness_version": true, "session_name": true, "activity": true, "inbound": true, "workspace_label": true}
+			allowed := map[string]bool{"harness": true, "harness_version": true, "session_name": true, "activity": true, "inbound": true, "workspace_label": true, "lease_seconds": true}
 			for k := range members {
 				if !allowed[k] {
 					t.Errorf("registration carries member %q", k)

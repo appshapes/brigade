@@ -25,6 +25,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/notify"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
+	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
@@ -242,12 +243,18 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// spawn, because the register path also runs under the prompt hook's
 	// 4.5 s retry budget (the P5-18 trap).
 	res.doingMode = doingMode(res.opts, desc.Capabilities, res.doingRules)
+	// The lease the watcher's heartbeats will ask for, asked for at once
+	// (card 53): left out, the adapter grants its own default, which may
+	// be shorter than a heartbeat, and a first heartbeat that failed would
+	// leave the new session offline until the next one.
+	lease := polling.Lease(res.polling.heartbeat, desc.Lease)
 	reg := &protocol.SessionRegistration{
 		Harness:        harnessName,
 		HarnessVersion: res.id.harnessVersion,
 		SessionName:    res.id.name,
 		Activity:       res.id.activity,
 		Inbound:        res.dec.Policy.String(),
+		LeaseSeconds:   &lease,
 		BrigadeVersion: r.deps.BrigadeVersion(),
 		SyncPeer:       r.deps.SyncPeer(),
 		Resume:         r.resumeHint(f, in, res.store, existing),

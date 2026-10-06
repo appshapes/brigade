@@ -74,8 +74,8 @@ func (s syncSetup) enabled() bool { return s.adapter != "" }
 //     whatever its state — an offline peer is still worth introducing,
 //     the engine connects when it can;
 //   - then rounds on two tickers: the roster is read every
-//     SyncListInterval (a read that failed is tried again at the next
-//     round, and until one succeeds nothing is applied), and apply runs
+//     SyncListInterval (until one read succeeds nothing is applied, and a
+//     failed one is tried again at the next round), and apply runs
 //     again when the teammates' peers changed, once more at the round
 //     after an apply that changed them (a peer just introduced connects a
 //     moment after that apply reported it, and this one refreshes the
@@ -134,8 +134,14 @@ func (w *watcher) runSync(ctx context.Context) {
 	for {
 		if readDue {
 			if p, ok := w.syncRoster(ctx); ok {
-				peers, listed, readDue = p, true, false
+				peers, listed = p, true
 			}
+			// Until one read succeeds nothing is applied, so a failed read
+			// is tried again at the next round; afterwards the last peers
+			// stand and a failed read waits for SyncListInterval, so a
+			// backend that answers nothing (an outage, a plan's limit)
+			// is not asked every SyncInterval instead.
+			readDue = !listed
 		}
 		if set := peerSet(peers); listed && (applyDue || set != applied || followUp) {
 			if !attached {
@@ -181,8 +187,8 @@ func peerSet(peers []foldersync.Peer) string {
 }
 
 // syncRoster reads the teammates' peers for this round; false (logged)
-// when the roster could not be read: the read is tried again at the next
-// round, and the peers of the last read that succeeded stand meanwhile.
+// when the roster could not be read: the peers of the last read that
+// succeeded stand, and runSync decides when to read again.
 func (w *watcher) syncRoster(ctx context.Context) ([]foldersync.Peer, bool) {
 	own := ""
 	if p := w.syncPeer.Load(); p != nil {
@@ -191,7 +197,7 @@ func (w *watcher) syncRoster(ctx context.Context) ([]foldersync.Peer, bool) {
 	peers, err := w.syncPeers(ctx, own)
 	if err != nil {
 		if ctx.Err() == nil {
-			w.log.Warn("sync: the roster could not be read; the next round reads it again",
+			w.log.Warn("sync: the roster could not be read; the last peers stand",
 				slog.String("code", string(codeOf(err))), adlog.Err(err))
 		}
 		return nil, false

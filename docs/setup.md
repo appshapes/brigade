@@ -207,7 +207,7 @@ budget, such as Supabase's free plan, an optional `polling` member sets how ofte
 
 Neither value slows normal delivery: Supabase Realtime signals each message as it is sent, and it arrives within
 seconds. A rename, a busy/idle change and an inbound change also reach teammates within seconds. Leave out a value
-to keep its default. A value Brigade cannot use (not a whole number, or out of range) makes the whole member
+to keep its default; a session whose team sets another value names it in one line at start. A value Brigade cannot use (not a whole number, or out of range) makes the whole member
 unusable: the session says so in one line at start and runs on the defaults. A session picks up an edited member at
 its next start or `/clear`; `team create --force` carries the member into the file it rewrites. A plugin from before
 the member ignores it, names it in one line at session start, and keeps its own faster timers.

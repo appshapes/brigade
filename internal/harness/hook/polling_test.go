@@ -1,9 +1,11 @@
 package hook
 
 import (
+	json "encoding/json/v2"
 	"strings"
 	"testing"
 
+	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
@@ -93,6 +95,52 @@ func TestPollingChangeRespawnsTheWatcher(t *testing.T) {
 			}
 			if m := f.mustMap(); m.HeartbeatSeconds != tc.heartbeat {
 				t.Fatalf("map heartbeat_seconds = %d, want %d", m.HeartbeatSeconds, tc.heartbeat)
+			}
+		})
+	}
+}
+
+// TestRegistrationAsksTheWatchersLease (card 53): SessionStart registers
+// with the lease the watcher's heartbeats will ask for — three of the
+// team's heartbeats, held into the adapter's advertised range — so the
+// session never holds the adapter's own default lease (90 s on Supabase),
+// shorter than a heartbeat, until the watcher's first heartbeat lands.
+func TestRegistrationAsksTheWatchersLease(t *testing.T) {
+	t.Parallel()
+	narrow := protocol.Lease{DefaultSeconds: 60, MinSeconds: 30, MaxSeconds: 120}
+	for _, tc := range []struct {
+		name    string
+		members string
+		lease   *protocol.Lease // the adapter's advertised range; nil for the protocol's default
+		want    int
+	}{
+		{"the default heartbeat", ``, nil, 300},
+		{"a team's own heartbeat", `,"polling":{"heartbeat_seconds":150}`, nil, 450},
+		{"an unusable member is the default", `,"polling":{"heartbeat_seconds":1}`, nil, 300},
+		{"a range that ends under it", ``, &narrow, 120},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "x", false))}})
+			if tc.lease != nil {
+				var d protocol.DescribeResult
+				if err := json.Unmarshal(seam.describe, &d); err != nil {
+					t.Fatal(err)
+				}
+				d.Lease = *tc.lease
+				seam.describe = mustJSON(&d)
+			}
+			f.writeTeamFile(tc.members)
+			if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup")); exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			var reg protocol.SessionRegistration
+			if err := json.Unmarshal(seam.callsFor("session register")[0].Stdin, &reg); err != nil {
+				t.Fatal(err)
+			}
+			if reg.LeaseSeconds == nil || *reg.LeaseSeconds != tc.want {
+				t.Fatalf("registration lease_seconds = %v, want %d", reg.LeaseSeconds, tc.want)
 			}
 		})
 	}
