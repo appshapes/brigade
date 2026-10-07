@@ -9,6 +9,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **The release-notes email has a layout** (card 73). The weekly email arrives as a card an inbox can read: the
+  plugin icon and the date at the top, the version range as the title, each change under its own heading with a
+  chip that links to its release, the words to type in dark terminal cards, "Before you update" in a callout, and
+  the demo video at the end. Inline styles only, under 100 KB; the plain-text part is the Markdown, as before. The
+  words are written as before; a dev-only renderer (`cmd/brigade-release-email`) lays them out, and the lint reads
+  every draft through it so that nothing the layout cannot show is approved
+  ([`scripts/ci/README.md`](scripts/ci/README.md)). Nothing in the plugin changed.
+
 ## [0.27.0] — 2026-10-06
 
 ### Added

@@ -25,6 +25,14 @@
 #    writer gets exactly one fix cycle; and only an APPROVED, lint-clean draft is sent. Both agents follow
 #    `.claude/agents/release-notes-email.md`. Neither can write to the repository: the job's token is read-only.
 #
+# 4. The email is laid out as HTML (card 73): the approved draft, rendered by cmd/brigade-release-email in
+#    `send-release-notes.sh finish` into a 600 px card with the plugin icon, a version chip on every item that
+#    links to its release, the words to type as terminal cards, "Before you update" as a callout, and the
+#    footer in grey. The renderer knows the brief's shape and nothing else; the lint runs it on every draft, so
+#    a construct it would refuse is a finding for the fix cycle. Inline styles only, no web font, under 100 KB;
+#    every image is a file of this repository served at GITHUB_SHA, so an email never changes under its reader.
+#    The text part of the email is the Markdown itself, unchanged.
+#
 # What the email covers. `send-release-notes.sh window` takes the releases published after the last email and
 # up to this run's start. The last email is the newest successful run in which the step named "Send to the
 # recipients" concluded `success`, so a preview, a run with nothing to send and a failed run all leave the
@@ -133,16 +141,20 @@ jobs:
 
       # The lint's command list, from the truth itself: the CLI's own `--help` of a fresh build, never a
       # hand-kept list. The plugin's skills the lint reads from the tree. (release-notes.yml does the same.)
+      # The email's renderer is built beside it: the lint reads every draft through it, and `finish` renders
+      # the approved one with it.
       - uses: actions/setup-go@v7
         if: steps.window.outputs.count > 0
         with: {go-version-file: go.mod}
-      - name: Prepare the lint's command list
+      - name: Prepare the lint's command list and the email's renderer
         if: steps.window.outputs.count > 0
         run: |
           go build -o "$BRIGADE_EMAIL_DIR/brigade" ./cmd/brigade
+          go build -o "$BRIGADE_EMAIL_DIR/brigade-release-email" ./cmd/brigade-release-email
           commands=$("$BRIGADE_EMAIL_DIR/brigade" --help | awk '/^Commands:/{f=1;next} /^Global flags:/{f=0} f && /^  [a-z]/{print $1}' | tr '\n' ' ')
           test -n "$commands"
           echo "BRIGADE_NOTES_COMMANDS=$commands" >> "$GITHUB_ENV"
+          echo "BRIGADE_EMAIL_RENDERER=$BRIGADE_EMAIL_DIR/brigade-release-email" >> "$GITHUB_ENV"
           echo "commands: $commands"
 
       # ---- or the draft of an earlier run, approved there ----------------------------------------------------
@@ -393,7 +405,7 @@ jobs:
             echo "::error::the email was not approved after $round round(s); nothing was sent (draft, lint and review are attached as an artifact)"
             exit 1
           fi
-      - name: Put the footer under the email
+      - name: Put the footer under the email and render the HTML
         if: steps.window.outputs.count > 0
         run: scripts/ci/send-release-notes.sh finish
 
@@ -415,6 +427,7 @@ jobs:
             /tmp/brigade-email/window.txt
             /tmp/brigade-email/notes.md
             /tmp/brigade-email/email.md
+            /tmp/brigade-email/email.html
             /tmp/brigade-email/lint.txt
             /tmp/brigade-email/review.md
             /tmp/brigade-email/*-execution.json
@@ -437,8 +450,8 @@ jobs:
           to: ${{ vars.SMTP_FROM_ADDRESS }}
           bcc: ${{ steps.recipients.outputs.bcc }}
           body: file:///tmp/brigade-email/email.md
-          html_body: file:///tmp/brigade-email/email.md
-          convert_markdown: true
+          html_body: file:///tmp/brigade-email/email.html
+          convert_markdown: false
 
       - name: Send the preview
         if: steps.window.outputs.count > 0 && env.AUDIENCE == 'preview' && steps.mail.outputs.configured == 'true'
@@ -453,5 +466,5 @@ jobs:
           from: "Brigade <${{ vars.SMTP_FROM_ADDRESS }}>"
           to: ${{ secrets.RELEASE_NOTES_PREVIEW_ADDRESS || vars.SMTP_FROM_ADDRESS }}
           body: file:///tmp/brigade-email/email.md
-          html_body: file:///tmp/brigade-email/email.md
-          convert_markdown: true
+          html_body: file:///tmp/brigade-email/email.html
+          convert_markdown: false

@@ -32,20 +32,36 @@ earlier one added, the email describes what the newest release does, once: the r
 
 ## The shape
 
-Markdown, in this order. Leave out a section that would be empty.
+Markdown, in this order, and nothing but these constructs: `#`, `##` and `###` headings, paragraphs, `-`
+bullets (one level), fenced blocks, `**bold**`, `` `code` ``, `[text](https://…)` links, and an image on a line
+of its own. No table, no quote, no HTML, no nested list, no `####`: the renderer that lays the email out
+refuses them, and the lint hands you its findings with their line numbers. Leave out a section that would be
+empty.
 
 1. `# Brigade <first> to <last>`, or `# Brigade <version>` when the email covers one release. Versions without
    the `v`.
-2. One or two sentences: what Brigade is for someone who forgot what it does, and what this email covers.
-3. `## What's new` — grouped by what a member can now **do**, never by version. Three to six groups. Each is a
-   bold lead and one to three sentences, with the version the thing arrived in, in parentheses, where it helps.
+2. One or two sentences: what Brigade is for someone who forgot what it does, and what this email covers. The
+   words that say what this email covers are bold.
+3. `## What's new` — grouped by what a member can now **do**, never by version. Three to six groups. Each group
+   is a `### <lead> (<version>)` heading — the lead says what the member can now do, the version in
+   parentheses is the release it arrived in — and one to three sentences under it. Where the words to type are
+   the point, put them in a fenced block under the sentences, with a label of two to four words as the fence's
+   info string saying where they are typed, for example ```` ```in claude code ````, ```` ```in slack ```` or
+   ```` ```an email to a session ````; the block holds the words and nothing else. When a group has a
+   step-by-step page, end its text with the link, written `[Step by step →](https://…)`.
 4. `## Before you update` — only what a release in the window asks of the reader: every member of a team updating
-   together, a migration an administrator applies, a default that changed under them.
-5. `## Update` — the exact words to type, in a fenced block, and one line for someone who has not installed yet
-   with a link to `https://github.com/appshapes/brigade#install`.
+   together, a migration an administrator applies, a default that changed under them. One bullet each.
+5. `## Update` — the exact words to type, in a fenced block labelled `in claude code`, and one line for someone who
+   has not installed yet with a link to `https://github.com/appshapes/brigade#install`.
+
+An image goes under a group's sentences, on a line of its own, `![what it shows](docs/email/<file>)`, and only
+when a source names that file — the changelog entry or the release notes point at it. The path is a file of the
+repository under `docs/email/`, never a URL and never a file the checkout does not have; the alt text says what
+the picture shows.
 
 No greeting, no sign-off and no footer. The workflow puts the footer under the email: where the release notes
-are, why the reader received this, and how to stop it.
+are, why the reader received this, and how to stop it. The layout — the card, the masthead, the version chips,
+the demo card at the end — is the renderer's. You write the words.
 
 ## Rules
 
@@ -68,7 +84,9 @@ what is wrong with it. Check, in this order:
 1. Every change described is in the sources, for a release in the window, and means what the email says it means.
 2. Nothing the reader must act on is missing: read every `Changed`, `Removed` and `Security` entry of the window.
 3. Every command, skill and option named exists today, by the listings above.
-4. The shape and the rules above, the word limits included.
+4. The shape and the rules above, the word limits included: every `###` heading carries its version in
+   parentheses, every fenced block has a label, every image names a file a source points at, and nothing
+   outside the constructs the shape allows.
 5. Every `FAIL:` line of `/tmp/brigade-email/lint.txt` is a finding.
 
 Approve only when you found nothing.

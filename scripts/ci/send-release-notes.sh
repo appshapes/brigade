@@ -34,7 +34,11 @@
 #   finish       Writes email.md: notes.md, then a footer that says where the release notes are, why the
 #                reader received this and how to stop it -- by answering the email, which is why the
 #                sender's address is an inbox someone reads. The footer is the shell's and not the agent's
-#                so that no draft can leave it out.
+#                so that no draft can leave it out. Then renders email.html from it with the renderer
+#                BRIGADE_EMAIL_RENDERER names (cmd/brigade-release-email, card 73): the layout an inbox
+#                shows -- the card, the masthead with the plugin icon, the version chips, the terminal
+#                cards -- with every image pinned to GITHUB_SHA so that an email never changes under its
+#                reader. The mail step sends email.html as the HTML part and email.md as the text part.
 #
 # Environment:
 #   BRIGADE_EMAIL_DIR         the working directory, outside the checkout (the workflow: /tmp/brigade-email)
@@ -52,6 +56,9 @@
 #                             starts a comment. A SECRET of the workflow, never a variable and never a
 #                             file of the repository: a variable is printed unmasked, and the repository
 #                             is public
+#   BRIGADE_EMAIL_RENDERER    finish: the path of the built renderer (`go build ./cmd/brigade-release-email`)
+#   GITHUB_SHA                finish: the commit the email's images are pinned to (Actions sets it); `master`
+#                             when unset
 #
 # Output: every line goes to stdout, the annotations included, so that GitHub renders them on the run page.
 # No address is ever printed except on its own `::add-mask::` line, which the runner consumes.
@@ -340,14 +347,23 @@ recipients() {
 # ---- finish ---------------------------------------------------------------------------------------------
 finish() {
   notes=$dir/notes.md
+  renderer=${BRIGADE_EMAIL_RENDERER:-}
   [ -s "$notes" ] || die "there is no draft at $notes"
+  [ -n "$renderer" ] || die 'BRIGADE_EMAIL_RENDERER is not set: the path of the email renderer (go build ./cmd/brigade-release-email) is required'
+  [ -x "$renderer" ] || die "the renderer $renderer does not exist or is not executable"
+  [ -f "$dir/window.txt" ] || die "there is no window at $dir/window.txt: run window first"
   {
     cat "$notes"
     printf '\n\n---\n\n'
     printf 'Every release and its notes: %s/%s/releases\n\n' "$server" "$repo"
     printf 'You are receiving this because you are on the list for the release notes of [%s](%s/%s). To stop these emails, reply to this one and say so.\n' "$repo" "$server" "$repo"
   } > "$dir/email.md"
-  say "the email is $(awk 'END { print NR }' "$dir/email.md") lines, footer included"
+  # The HTML part. The renderer refuses what the writer's shape forbids -- the lint ran it on the draft
+  # already, so a refusal here is the footer's or the renderer's own, and nothing is sent.
+  "$renderer" -in "$dir/email.md" -window "$dir/window.txt" -out "$dir/email.html" \
+    -repo "$repo" -server "$server" -commit "${GITHUB_SHA:-master}" -date "$(date -u +%Y-%m-%d)" \
+    || die 'the email did not render as HTML (above); nothing is sent'
+  say "the email is $(awk 'END { print NR }' "$dir/email.md") lines, footer included; the HTML is $(wc -c < "$dir/email.html" | tr -d ' ') bytes"
 }
 
 case $mode in

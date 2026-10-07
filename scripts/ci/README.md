@@ -274,8 +274,11 @@ does not carry (`absentSkill`) rather than hard-coding one — a literal there w
 
 With `BRIGADE_NOTES_KIND=email` the file is the release-notes email of `send-release-notes.yml` and `<tag>` is the
 newest release it covers: the asset checks are skipped (an email lists none, and `BRIGADE_NOTES_ASSETS` is not
-read) and two are added — the email carries nobody's address, and no card or plan row, which the changelog it is
-composed from is full of.
+read) and three are added — the email carries nobody's address; no card or plan row, which the changelog it is
+composed from is full of; and the draft renders, read in `-check` mode by the email's renderer
+(`cmd/brigade-release-email`, the path in `BRIGADE_EMAIL_RENDERER`, card 73), which knows the shape the writer's
+brief asks for and nothing else, so a table, a quote, raw HTML, a nested list, a relative link or an image the
+checkout does not have under `docs/email/` is a finding with its line rather than a surprise in the inbox.
 
 Invoked by `.github/workflows/release-notes.yml` after each draft, and by `send-release-notes.yml` after each draft
 of the email — no `make` target. The release-notes workflow derives the two
@@ -284,7 +287,7 @@ of a fresh build and `BRIGADE_NOTES_ASSETS` from `gh release view --json assets`
 overrides the tree for the tests. `scripts/ci/release_notes_lint_test.go` runs it on fixtures with a passing
 control beside every refusal.
 
-Needs `sh`, `grep`, `sed`, `sort`.
+Needs `sh`, `grep`, `sed`, `sort`, and for the email kind the built renderer.
 
 ## `scripts/ci/send-release-notes.sh`
 
@@ -307,13 +310,33 @@ the text; this script decides what cannot be left to them, from GitHub's own rec
   Every address is registered as a mask (`::add-mask::`) before anything can print it, and the output carries
   counts only. It makes no request.
 - `finish` — puts the footer under the approved draft: where the release notes are, why the reader received the
-  email, and that answering it stops it.
+  email, and that answering it stops it (`email.md`, the text part). Then renders `email.html`, the HTML part
+  (card 73), with the renderer `BRIGADE_EMAIL_RENDERER` names — `cmd/brigade-release-email`, a dev-only Go
+  command with no dependency outside the standard library — from `email.md` and `window.txt`: a 600 px card on
+  a grey page, the plugin icon and the run's date in the masthead, the version range as the title, each `###`
+  item with a chip that links to its release, inline code as chips, fenced blocks as dark terminal cards with
+  their label, "Before you update" as a callout, the demo video's card, the footer in grey. Inline styles only,
+  no `<style>`, no web font, refused over 100 KB (Gmail clips at 102). Every image — the icon, and any
+  `docs/email/` file the draft names — is served from the repository at `GITHUB_SHA`, so an email never changes
+  under its reader. The renderer refuses what the brief's shape forbids; the lint ran it on the draft already,
+  so a refusal here fails the step and nothing is sent.
 
 Invoked by `.github/workflows/send-release-notes.yml` only. There is no `make` target: a developer does not have
-the list. `send_release_notes_test.go` runs every mode against a fake API.
+the list. `send_release_notes_test.go` runs every mode against a fake API, `finish` with the real renderer built
+by the test; the renderer's own tests are `internal/releaseemail`.
 
-Needs `curl`, `jq` and `awk`, and for `window` and `adopt` the job token in `GH_TOKEN`, which reaches `curl` through a `0600`
-header file and never on argv. No response body is ever printed.
+Needs `curl`, `jq` and `awk`, for `finish` also `date`, `wc` and the built renderer, and for `window` and `adopt` the
+job token in `GH_TOKEN`, which reaches `curl` through a `0600` header file and never on argv. No response body is
+ever printed.
+
+To see the HTML of a draft on this machine:
+
+```sh
+go build -o .ignored/brigade-release-email ./cmd/brigade-release-email
+.ignored/brigade-release-email -in .ignored/release-notes-email/email.md -window .ignored/release-notes-email/window.txt \
+  -out .ignored/release-notes-email/email.html -repo appshapes/brigade -commit "$(git rev-parse HEAD)" -date "$(date -u +%Y-%m-%d)"
+.ignored/brigade-release-email -check -in .ignored/release-notes-email/notes.md      # the lint's reading of a draft
+```
 
 ### Run locally
 

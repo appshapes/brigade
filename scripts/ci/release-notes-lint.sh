@@ -16,15 +16,20 @@
 #   BRIGADE_NOTES_KIND       optional: `email` when the file is the release-notes email of
 #                            send-release-notes.yml (card 43) rather than one release's notes; <tag> is then the
 #                            newest release the email covers
+#   BRIGADE_EMAIL_RENDERER   the email kind only: the path of the email's renderer (`go build
+#                            ./cmd/brigade-release-email`), which reads the draft in -check mode
 #
 # Checks, in order: the file is non-empty and carries no placeholder; it names the released version and never
 # "Unreleased"; every `/brigade:<name>` is a skill or command that exists; every backticked `brigade <verb>` (and
 # every fenced line that starts with one) names a command the CLI has; every asset-shaped token it names shipped,
 # and every shipped asset is named at least once; nothing secret-shaped is in it.
 #
-# An email differs in two ways. It lists no assets, so the asset check is skipped and BRIGADE_NOTES_ASSETS is
-# not read. And it leaves the repository for readers who never saw its tracker or its plans, so it may carry no
-# address of anyone and no card or plan-row reference -- the changelog it is composed from is full of both.
+# An email differs in three ways. It lists no assets, so the asset check is skipped and BRIGADE_NOTES_ASSETS is
+# not read. It leaves the repository for readers who never saw its tracker or its plans, so it may carry no
+# address of anyone and no card or plan-row reference -- the changelog it is composed from is full of both. And
+# it is laid out as HTML by a renderer that knows the brief's shape and nothing else (card 73), so the draft must
+# render: a table, a quote, raw HTML, a nested list, a relative link or an image the checkout does not have is
+# a finding here, with its line, rather than a surprise in the inbox.
 set -u
 
 notes=${1:-}
@@ -94,6 +99,20 @@ if grep -n -E 'sbp_[A-Za-z0-9]{20,}|sb_secret_|eyJ[A-Za-z0-9_-]{20,}\.eyJ' "$not
 if [ "$kind" = email ]; then
   if grep -n -E '[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}' "$notes"; then fail "the email carries an address (above)"; else ok "no address"; fi
   if grep -n -i -E '(^|[^A-Za-z])(card|ticket)s? #?[0-9]+|(^|[^A-Za-z0-9])P[0-9]+-[0-9]+' "$notes"; then fail "the email names a card or a plan row (above)"; else ok "no card or plan row"; fi
+fi
+
+# 8. An email only: the draft renders. The renderer reads the draft from the checkout's root (an image's
+#    file must exist there) and prints every finding on its own line.
+if [ "$kind" = email ]; then
+  renderer=${BRIGADE_EMAIL_RENDERER:-}
+  if [ -z "$renderer" ]; then
+    fail "BRIGADE_EMAIL_RENDERER is unset: the email's renderer is required"
+  elif findings=$("$renderer" -check -in "$notes" -root . 2>&1); then
+    ok "the draft renders as the email"
+  else
+    printf '%s\n' "$findings"
+    fail "the draft does not render as the email (above)"
+  fi
 fi
 
 if [ "$fails" -gt 0 ]; then echo "release-notes-lint: $fails finding(s)"; exit 1; fi

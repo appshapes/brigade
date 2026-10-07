@@ -176,7 +176,7 @@ func runNotesEmail(t *testing.T, ns *notesEmailServer, mode string, vars ...stri
 func runNotesEmailIn(t *testing.T, ns *notesEmailServer, root, mode string, vars ...string) notesEmailRun {
 	t.Helper()
 	path, record := keepaliveShim(t, root)
-	restrictedPath(t, root, "awk", "cat", "cmp", "cp", "grep", "head", "mkdir", "paste", "sed", "tr")
+	restrictedPath(t, root, "awk", "cat", "cmp", "cp", "date", "grep", "head", "mkdir", "paste", "sed", "tr", "wc")
 	home := filepath.Join(root, ".home")
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -619,19 +619,32 @@ func TestSendReleaseNotesRecipientsWhenTheListIsEmpty(t *testing.T) {
 // ---------------------------------------------------------------------------------------------------------
 // finish
 
-func TestSendReleaseNotesFinishPutsTheFooterUnderTheDraft(t *testing.T) {
-	t.Parallel()
-	ns := newNotesEmailServer(t)
-	root := t.TempDir()
+// finishFixture lays out a root for `finish`: the draft and the window the agents' steps left behind.
+func finishFixture(t *testing.T, draft string) (root string) {
+	t.Helper()
+	root = t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "email"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	draft := "# Brigade 0.2.0 to 0.3.0\n\nThe second thing and the third.\n"
 	if err := os.WriteFile(filepath.Join(root, "email", "notes.md"), []byte(draft), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	run := runNotesEmailIn(t, ns, root, "finish")
-	wantPass(t, run.result)
+	if err := os.WriteFile(filepath.Join(root, "email", "window.txt"), []byte("v0.2.0\nv0.3.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+const finishDraft = "# Brigade 0.2.0 to 0.3.0\n\nThe second thing and the third.\n\n## What's new\n\n### The third thing (0.3.0)\n\nIt does the third thing.\n"
+
+func TestSendReleaseNotesFinishPutsTheFooterUnderTheDraft(t *testing.T) {
+	t.Parallel()
+	ns := newNotesEmailServer(t)
+	root := finishFixture(t, finishDraft)
+	renderer := testutil.Build(t, "./cmd/brigade-release-email")
+	run := runNotesEmailIn(t, ns, root, "finish", "BRIGADE_EMAIL_RENDERER="+renderer, "GITHUB_SHA=0123456789abcdef0123456789abcdef01234567")
+	wantPass(t, run.result, "the HTML is")
+	draft := finishDraft
 	email := run.read(t, "email.md")
 	if !strings.HasPrefix(email, draft) {
 		t.Errorf("email.md does not start with the draft:\n%s", email)
@@ -650,6 +663,30 @@ func TestSendReleaseNotesFinishPutsTheFooterUnderTheDraft(t *testing.T) {
 	if len(ns.seen()) != 0 {
 		t.Errorf("finish reached the API")
 	}
+
+	// The HTML part (card 73): the same words laid out, the images pinned to the commit, the chip linking to
+	// the release on the server the window read from, the footer's words under the card.
+	html := run.read(t, "email.html")
+	for _, want := range []string{
+		"<!doctype html>",
+		"<title>Brigade 0.2.0 to 0.3.0</title>",
+		">Two releases</p>",
+		`src="https://github.example/` + notesEmailRepo + `/raw/0123456789abcdef0123456789abcdef01234567/plugin/.claude-plugin/icon.png"`,
+		`<a href="https://github.example/` + notesEmailRepo + `/releases/tag/v0.3.0"`,
+		"The third thing",
+		"Every release and its notes: <a href=\"https://github.example/" + notesEmailRepo + "/releases\"",
+		"To stop these emails, reply to this one and say so.",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("email.html lacks %q:\n%s", want, html)
+		}
+	}
+	if strings.Contains(html, "<style") {
+		t.Errorf("email.html carries a <style> block")
+	}
+	if info, err := os.Stat(filepath.Join(run.dir, "email.html")); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("email.html: %v %v", info, err)
+	}
 }
 
 func TestSendReleaseNotesFinishRefusesWithoutADraft(t *testing.T) {
@@ -659,6 +696,31 @@ func TestSendReleaseNotesFinishRefusesWithoutADraft(t *testing.T) {
 	wantFail(t, run.result, "there is no draft at")
 	if _, err := os.Stat(filepath.Join(run.dir, "email.md")); err == nil {
 		t.Errorf("email.md was written without a draft")
+	}
+}
+
+// Without the renderer there is no HTML part, and the step fails rather than sending the Markdown as the
+// HTML: the mail step reads email.html by name.
+func TestSendReleaseNotesFinishRefusesWithoutTheRenderer(t *testing.T) {
+	t.Parallel()
+	ns := newNotesEmailServer(t)
+	run := runNotesEmailIn(t, ns, finishFixture(t, finishDraft), "finish")
+	wantFail(t, run.result, "BRIGADE_EMAIL_RENDERER is not set")
+	run = runNotesEmailIn(t, ns, finishFixture(t, finishDraft), "finish", "BRIGADE_EMAIL_RENDERER="+filepath.Join(t.TempDir(), "absent"))
+	wantFail(t, run.result, "does not exist or is not executable")
+}
+
+// A draft the renderer refuses -- the lint ran it on the draft, so this is the footer's or the renderer's
+// own doing -- fails the step with the renderer's findings, and no email.html is left for the mail step.
+func TestSendReleaseNotesFinishRefusesADraftThatDoesNotRender(t *testing.T) {
+	t.Parallel()
+	ns := newNotesEmailServer(t)
+	root := finishFixture(t, finishDraft+"\n| a | b |\n|---|---|\n")
+	renderer := testutil.Build(t, "./cmd/brigade-release-email")
+	run := runNotesEmailIn(t, ns, root, "finish", "BRIGADE_EMAIL_RENDERER="+renderer)
+	wantFail(t, run.result, "the email did not render as HTML", "a table is not supported")
+	if _, err := os.Stat(filepath.Join(run.dir, "email.html")); err == nil {
+		t.Errorf("email.html was written for a draft that does not render")
 	}
 }
 
@@ -735,5 +797,20 @@ func TestSendReleaseNotesJoinsTheWorkflow(t *testing.T) {
 	// no mail step sets a Reply-To (owner, 2026-09-29).
 	if strings.Contains(workflow, "reply_to:") {
 		t.Errorf("a mail step sets a Reply-To; an answer must reach the sender's address")
+	}
+	// The HTML part is the renderer's (card 73): both mail steps send email.html as it is and email.md as the
+	// text part, the renderer is built beside the CLI the lint reads, and the HTML joins the artifact.
+	for want, n := range map[string]int{
+		"html_body: file:///tmp/brigade-email/email.html": 2,
+		"body: file:///tmp/brigade-email/email.md":        2,
+		"convert_markdown: false":                         2,
+		"convert_markdown: true":                          0,
+		`go build -o "$BRIGADE_EMAIL_DIR/brigade-release-email" ./cmd/brigade-release-email`:      1,
+		`echo "BRIGADE_EMAIL_RENDERER=$BRIGADE_EMAIL_DIR/brigade-release-email" >> "$GITHUB_ENV"`: 1,
+		"            /tmp/brigade-email/email.html\n":                                             1,
+	} {
+		if got := strings.Count(workflow, want); got != n {
+			t.Errorf("the workflow has %d of %q, want %d", got, want, n)
+		}
 	}
 }

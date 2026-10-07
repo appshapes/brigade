@@ -32,8 +32,20 @@ func lint(t *testing.T, notes, commands, assets, skills string) (int, string) {
 }
 
 // lintKind is lint with BRIGADE_NOTES_KIND set: "" for one release's notes,
-// "email" for the release-notes email of send-release-notes.yml.
+// "email" for the release-notes email of send-release-notes.yml, which is
+// read through the email's renderer (card 73), built here.
 func lintKind(t *testing.T, kind, notes, commands, assets, skills string) (int, string) {
+	t.Helper()
+	var env []string
+	if kind == "email" {
+		env = append(env, "BRIGADE_EMAIL_RENDERER="+testutil.Build(t, "./cmd/brigade-release-email"))
+	}
+	return lintWith(t, kind, notes, commands, assets, skills, env...)
+}
+
+// lintWith is lintKind with the environment spelled out: the email kind
+// without a renderer is a case of its own.
+func lintWith(t *testing.T, kind, notes, commands, assets, skills string, env ...string) (int, string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "notes.md")
@@ -48,7 +60,9 @@ func lintKind(t *testing.T, kind, notes, commands, assets, skills string) (int, 
 		"BRIGADE_NOTES_ASSETS="+assets,
 		"BRIGADE_NOTES_SKILLS="+skills,
 		"BRIGADE_NOTES_KIND="+kind,
+		"BRIGADE_EMAIL_RENDERER=",
 	)
+	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	code := 0
 	if err != nil {
@@ -171,7 +185,7 @@ func TestReleaseNotesLintPassesAGoodEmail(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "release-notes-lint: clean") {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	for _, want := range []string{"ok: the notes name 0.5.1", "ok: /brigade:update exists", "ok: no address", "ok: no card or plan row"} {
+	for _, want := range []string{"ok: the notes name 0.5.1", "ok: /brigade:update exists", "ok: no address", "ok: no card or plan row", "ok: the draft renders as the email"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -195,6 +209,11 @@ func TestReleaseNotesLintEmailRefusals(t *testing.T) {
 		{"a plan row", strings.Replace(goodEmail, "is running.", "is running (P23-1).", 1), "FAIL: the email names a card or a plan row"},
 		{"a skill that does not exist", strings.Replace(goodEmail, "`/brigade:update`", "`/brigade:no-such-skill`", 1), "FAIL: /brigade:no-such-skill is not a skill"},
 		{"the newest version unnamed", strings.ReplaceAll(goodEmail, "0.5.1", "0.5.0"), "FAIL: the notes never name version 0.5.1"},
+		// The renderer's reading (card 73): what the layout cannot show is a finding, with its line.
+		{"a table", goodEmail + "\n| a | b |\n|---|---|\n", "FAIL: the draft does not render as the email"},
+		{"a table, by line", goodEmail + "\n| a | b |\n|---|---|\n", "line 9: a table is not supported"},
+		{"an image the checkout lacks", goodEmail + "\n![The roster](docs/email/no-such-file.png)\n", "docs/email/no-such-file.png does not exist in the checkout"},
+		{"a relative link", strings.Replace(goodEmail, "`/brigade:update`", "[the skill](plugin/skills/update/SKILL.md)", 1), "is not an absolute https URL"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -206,6 +225,19 @@ func TestReleaseNotesLintEmailRefusals(t *testing.T) {
 				t.Fatalf("missing %q in:\n%s", tc.want, out)
 			}
 		})
+	}
+}
+
+// The email kind needs the renderer, and says so rather than skipping the
+// check; one release's notes never need it.
+func TestReleaseNotesLintEmailNeedsTheRenderer(t *testing.T) {
+	t.Parallel()
+	code, out := lintWith(t, "email", goodEmail, commands, "", skills)
+	if code != 1 || !strings.Contains(out, "FAIL: BRIGADE_EMAIL_RENDERER is unset") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if code, out := lintWith(t, "", goodNotes, commands, assets, skills); code != 0 {
+		t.Fatalf("one release's notes were refused without a renderer: exit %d\n%s", code, out)
 	}
 }
 
