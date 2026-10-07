@@ -39,7 +39,9 @@ enable anonymous sign-ins under Authentication > Sign In / Providers; leave CAPT
 cannot solve a browser challenge); do not enable the Pro session time-box or inactivity limits (they silently kill
 idle principals); turn "Allow public access" off in the Realtime settings; and apply the migrations from this
 repository's `supabase/` directory to the project. Members ever receive only two values, and both are non-secret:
-the **project URL** and the **publishable key** — and the committed file already carries both.
+the **project URL** and the **publishable key** — and the committed file already carries both. A project that
+already holds a Brigade team can hold another: run `team create` with the same URL and key and skip this setup.
+Anyone who can read the project's database can read every team in it.
 
 Run this **in the project checkout** (drop the `!` in a terminal):
 
@@ -52,6 +54,21 @@ then `git add .brigade.json && git commit && git push`. `team create` writes `.b
 level and stores your credential locally so your sessions attach at once. `--secret-file` is required and must be
 an absolute path outside the repository; it holds the join secret at mode 0600 instead of your terminal scrollback
 or the conversation.
+
+`team create` runs only inside a git checkout, because that is where sessions look for the file. With no checkout
+of the project on this machine, run it in an empty `git init` directory and copy the `.brigade.json` it writes into
+each repository. One team can span several repositories: commit the same file in each (section 2).
+
+To keep folders in step between the members' checkouts, add a `sync` member to `.brigade.json` by hand and commit
+it:
+
+```json
+"sync": { "folders": [".brigade"] }
+```
+
+`team create --force` carries it into the file it rewrites. Add each listed folder to `.gitignore`, or a teammate's
+edit shows in your `git status` as a change of yours. Every member's plugin must be 0.16.0 or later before the
+project commits the member. `docs/sync.md` in the Brigade repository has the rules.
 
 Then send each member the join secret **over a password-grade channel** — a password manager share, not chat and
 not email. The secret is a bearer capability: anyone holding it can join and pick any label.
@@ -107,6 +124,9 @@ Either way the secret never reaches your scrollback, your shell history or a cha
 - A second checkout of the same project on this machine needs `team join` once too, but no secret. One team can
   span several repositories: commit the same `.brigade.json` in each and join each checkout once; a different
   `.brigade.json` is a different team. Either way, `cd` between checkouts — nothing is shared or switched.
+- A project that syncs folders (its `.brigade.json` has a `sync` member) needs Syncthing on your `PATH`:
+  `brew install syncthing` on macOS, `sudo apt install syncthing` on Debian or Ubuntu. Without it the session
+  joins all the same and says file sync is off.
 - A backend other than the bundled Supabase adapter is named in the project file's `adapter` field, and the name
   resolves to a command through your own `adapters.json` (an absolute path or a JSON array);
   `docs/adapter-authors.md` in the Brigade repository explains the forms. `brigade team status`, run in the
