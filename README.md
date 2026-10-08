@@ -32,6 +32,7 @@ Two minutes of it, with two people's sessions:
 | leave a team, or uninstall | [`docs/setup.md` › Leaving and uninstalling](docs/setup.md#leaving-and-uninstalling) |
 | know what Brigade protects, and what it does not | [`docs/security.md`](docs/security.md) |
 | see what changed in a release | [`CHANGELOG.md`](CHANGELOG.md) |
+| put a picture in the release-notes email | [`docs/email/README.md`](docs/email/README.md) |
 | write an adapter, or work on Brigade | [`docs/adapter-authors.md`](docs/adapter-authors.md), [`docs/development.md`](docs/development.md) |
 
 ## Install
