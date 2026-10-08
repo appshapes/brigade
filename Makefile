@@ -385,6 +385,23 @@ release-dry-run: ## goreleaser check + a local release without publishing (needs
 	$(goreleaser) check
 	GOTOOLCHAIN=$(go_toolchain) $(goreleaser) release --skip=publish --clean
 
+# The pictures of the release-notes email (docs/email/README.md). A picture is a hand-made terminal capture of
+# one change, named <version>-<slug>.png, 1040 px wide, named by a line in the change's CHANGELOG entry; nothing
+# reads it before it is sent, so look at it before committing it. macOS only: screencapture and sips.
+.PHONY: email-picture
+email-picture: ## Capture one picture for the release-notes email into docs/email/$(version)-$(slug).png, 1040 px wide, then print the CHANGELOG line to add (usage: make email-picture version=0.28.0 slug=mail-summary; drag a rectangle)
+	@test -n "$(version)" && test -n "$(slug)" || { echo "usage: make email-picture version=X.Y.Z slug=<lower-case-and-dashes>" >&2; exit 2; }
+	@mkdir -p docs/email
+	screencapture -i -t png docs/email/$(version)-$(slug).png
+	sips --resampleWidth 1040 docs/email/$(version)-$(slug).png >/dev/null
+	@echo "saved docs/email/$(version)-$(slug).png: $$(sips -g pixelWidth -g pixelHeight docs/email/$(version)-$(slug).png | awk '/pixel/ { printf "%s ", $$2 }')px, $$(wc -c < docs/email/$(version)-$(slug).png | tr -d ' ') bytes"
+	@echo "look at it (no address, no person, no secret), then add this line at the end of the change's CHANGELOG entry, indented two spaces:"
+	@echo "  ![What the picture shows](docs/email/$(version)-$(slug).png)"
+
+.PHONY: email-pictures-check
+email-pictures-check: ## Check docs/email/ and the CHANGELOG's picture lines against docs/email/README.md's rules (make test runs the same check)
+	go run ./cmd/brigade-release-email -images
+
 # ========== Supabase (local stack) ==========
 
 # E0-1: with `brigade` in config.toml's [api] schemas, `supabase start` cannot succeed until a migration has

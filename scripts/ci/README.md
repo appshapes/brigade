@@ -325,6 +325,12 @@ Invoked by `.github/workflows/send-release-notes.yml` only. There is no `make` t
 the list. `send_release_notes_test.go` runs every mode against a fake API, `finish` with the real renderer built
 by the test; the renderer's own tests are `internal/releaseemail`.
 
+The pictures a draft may name are the files of `docs/email/`, made at release time by the rules of
+[`docs/email/README.md`](../docs/email/README.md): `make email-picture version=<x.y.z> slug=<slug>` captures one,
+the change's CHANGELOG entry names it, and `brigade-release-email -images` (`make email-pictures-check`, and
+`make test` through the renderer's tests) checks the name, the size and that every picture and every picture
+line point at each other.
+
 Needs `curl`, `jq` and `awk`, for `finish` also `date`, `wc` and the built renderer, and for `window` and `adopt` the
 job token in `GH_TOKEN`, which reaches `curl` through a `0600` header file and never on argv. No response body is
 ever printed.

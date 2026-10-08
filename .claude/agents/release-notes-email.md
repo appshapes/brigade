@@ -54,10 +54,11 @@ empty.
 5. `## Update` — the exact words to type, in a fenced block labelled `in claude code`, and one line for someone who
    has not installed yet with a link to `https://github.com/appshapes/brigade#install`.
 
-An image goes under a group's sentences, on a line of its own, `![what it shows](docs/email/<file>)`, and only
-when a source names that file — the changelog entry or the release notes point at it. The path is a file of the
-repository under `docs/email/`, never a URL and never a file the checkout does not have; the alt text says what
-the picture shows.
+A picture goes under a group's sentences and above its fenced block, on a line of its own, and only when the
+changelog entry for that change carries one: copy its line as it is, `![what it shows](docs/email/<version>-<slug>.png)`,
+the same file and the same alt text. At most one picture per group. Never a URL, never a file the checkout does
+not have, never a picture the sources do not name. A group without a picture needs nothing — most have none,
+and nothing marks the absence.
 
 No greeting, no sign-off and no footer. The workflow puts the footer under the email: where the release notes
 are, why the reader received this, and how to stop it. The layout — the card, the masthead, the version chips,

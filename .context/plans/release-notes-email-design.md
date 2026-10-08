@@ -101,6 +101,10 @@ when a source names it. The lint's `email` kind gains one rule: every `![alt](ur
 `raw.githubusercontent.com/appshapes/brigade/<newest tag>/docs/email/…` URL to a file that exists in the
 checkout at that tag, with non-empty alt. Width 520 px in the card (the content column), like Delta's 468.
 
+The procedure for those screenshots was given shape on 2026-10-08 (row P33-2): `docs/email/README.md` is the
+authority — who, when, `make email-picture`, the CHANGELOG line, the rules a program checks, and what a reader
+sees when a change has no picture (its words and a terminal card; nothing marks the absence).
+
 **A generated title card per issue** (Delta's "September 2026" card): the runner image has Chrome 154 but no
 ImageMagick, pandoc or rsvg (GitHub's ubuntu-24.04 readme; Blacksmith's image mirrors it), so a headless-Chrome
 render of an HTML card to PNG is possible, but the PNG then needs a home the email job can write to, and the job

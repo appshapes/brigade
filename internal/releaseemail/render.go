@@ -93,6 +93,7 @@ func analyze(blocks []block, root string, draft bool) (document, Findings) {
 		doc      document
 		findings Findings
 		inFooter bool
+		pictures int // under the current heading
 	)
 	fail := func(line int, msg string) { findings = append(findings, Finding{Line: line, Msg: msg}) }
 
@@ -119,8 +120,13 @@ func analyze(blocks []block, root string, draft bool) (document, Findings) {
 				fail(b.line, "a second # heading; the email has one title")
 			}
 		case b.kind == kindHeading && b.level == 2:
+			pictures = 0
 			doc.sections = append(doc.sections, section{heading: b.text})
 		case b.kind == kindImage:
+			pictures++
+			if pictures > 1 {
+				fail(b.line, "a second picture under one heading; one picture per change")
+			}
 			if b.alt == "" {
 				fail(b.line, "an image needs alt text: what it shows, in words")
 			}
@@ -133,6 +139,9 @@ func analyze(blocks []block, root string, draft bool) (document, Findings) {
 			}
 			fallthrough
 		default:
+			if b.kind == kindHeading {
+				pictures = 0
+			}
 			if len(doc.sections) == 0 {
 				if b.kind == kindHeading {
 					fail(b.line, "a ### heading before the first ## section")

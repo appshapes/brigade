@@ -17,7 +17,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   the demo video at the end. Inline styles only, under 100 KB; the plain-text part is the Markdown, as before. The
   words are written as before; a dev-only renderer (`cmd/brigade-release-email`) lays them out, and the lint reads
   every draft through it so that nothing the layout cannot show is approved
-  ([`scripts/ci/README.md`](scripts/ci/README.md)). Nothing in the plugin changed.
+  ([`scripts/ci/README.md`](scripts/ci/README.md)). A release may show one picture under a change — a terminal
+  capture under `docs/email/`, named from the change's entry here, by the rules of
+  [`docs/email/README.md`](docs/email/README.md); a change without one shows its words and, where the words to
+  type are the point, a terminal card. Nothing in the plugin changed.
 
 ## [0.27.0] — 2026-10-06
 

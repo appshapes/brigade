@@ -16,6 +16,7 @@ import (
 //
 //	brigade-release-email -in email.md -window window.txt -out email.html -repo owner/name -server https://github.com -commit <sha> [-date YYYY-MM-DD]
 //	brigade-release-email -check -in notes.md [-root <checkout>]
+//	brigade-release-email -images [-root <checkout>]
 func Run(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("brigade-release-email", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -27,14 +28,23 @@ func Run(args []string, stderr io.Writer) int {
 	commit := fs.String("commit", "", "the commit the images are pinned to (GITHUB_SHA)")
 	date := fs.String("date", "", "the masthead's date, YYYY-MM-DD; empty leaves it out")
 	check := fs.Bool("check", false, "read a draft and report every finding; write nothing")
+	images := fs.Bool("images", false, "check docs/email/ and the CHANGELOG's picture lines against docs/email/README.md's rules; write nothing")
 	root := fs.String("root", ".", "the checkout, where an image's file must exist")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() > 0 || *in == "" {
+	if fs.NArg() > 0 || (*in == "" && !*images) {
 		fmt.Fprintln(stderr, "usage: brigade-release-email -in <markdown> -out <html> -window <file> -repo <owner/name> -commit <sha> [-server <url>] [-date <YYYY-MM-DD>]")
 		fmt.Fprintln(stderr, "       brigade-release-email -check -in <draft> [-root <checkout>]")
+		fmt.Fprintln(stderr, "       brigade-release-email -images [-root <checkout>]")
 		return 2
+	}
+	if *images {
+		if findings := CheckImages(*root); len(findings) > 0 {
+			report(stderr, findings)
+			return 1
+		}
+		return 0
 	}
 	src, err := os.ReadFile(*in)
 	if err != nil {
