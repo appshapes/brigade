@@ -9,6 +9,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.29.1] — 2026-10-15
+
+### Fixed
+
+- **The `/brigade:email` and `/brigade:slack` hints show the flags before the text** (card 104). The hint Claude Code
+  shows while you type put `<text>` straight after the address, so a subject typed at the end became part of
+  the body or was refused; it now reads `<address> [--subject "<line>"] … <text>`, the order the skills take.
+
 ## [0.29.0] — 2026-10-15
 
 ### Added

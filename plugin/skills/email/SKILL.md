@@ -9,7 +9,7 @@ description: >-
   person by email, or to answer an email that reached this session through the gateway. A teammate's Claude Code
   session is addressed with `brigade:team-messaging`; a person on Slack with `brigade:slack`.
 user-invocable: true
-argument-hint: "<address> <text> [--subject <line>] [--summary <line>] [--reply-to <message-id>] [--body-file <path>]"
+argument-hint: "<address> [--subject \"<line>\"] [--summary \"<line>\"] [--reply-to <message-id>] [--body-file <path>] <text>"
 allowed-tools: Bash(brigade send:*), Bash(brigade sessions:*)
 ---
 

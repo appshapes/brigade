@@ -8,7 +8,7 @@ description: >-
   message, tell, ask or notify a person or a channel on Slack, or to answer a Slack message that reached this
   session through the gateway. A teammate's Claude Code session is addressed with `brigade:team-messaging`.
 user-invocable: true
-argument-hint: "<@name|#channel|email> <text> [--summary <line>] [--reply-to <message-id>] [--body-file <path>]"
+argument-hint: "<@name|#channel|email> [--summary \"<line>\"] [--reply-to <message-id>] [--body-file <path>] <text>"
 allowed-tools: Bash(brigade send:*), Bash(brigade sessions:*)
 ---
 
