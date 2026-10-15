@@ -48,7 +48,7 @@ go_toolchain       := go$(shell sed -n 's/^go //p' go.mod)
 # is exactly the cross-host claim P1-1 exists to make. Pin them at the recipe.
 go_build_env       := GOTOOLCHAIN=$(go_toolchain) CGO_ENABLED=0 GOFLAGS= GOAMD64=v1 GOARM64=v8.0
 golangci_lint      := $(bin_dir)/golangci-lint
-golangci_version   := v2.13.2
+golangci_version   := v2.14.0
 goreleaser         := $(bin_dir)/goreleaser
 goreleaser_version := v2.18.0
 ld_flags            = -s -w -X github.com/appshapes/brigade/internal/buildinfo.Version=$(version)
