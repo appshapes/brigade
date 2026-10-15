@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-10-15
+
 ### Added
 
 - **`/brigade:slack <to> <text>`** (card 99). One line sends a message to a person or a channel on Slack through
