@@ -20,6 +20,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   never polls, and refuses a body that looks like a credential. It also tells the user when an answer can only
   arrive once the administrator lists the person's address (card 55). Asking a session in words to email
   someone loads it ([docs/mail-gateway.md](docs/mail-gateway.md), "For sessions").
+- **`brigade send --member <who>`** (card 101). A message to a person rather than to one of their sessions:
+  `<who>` is their label as the `MEMBER` column shows it (compared case-insensitively, whole) or the first eight
+  or more characters of their principal reference, bracketed or bare, and the command picks their best session
+  the way the gateways have since 0.28.0: the gateways and the sessions that refuse messages left out, active
+  before idle before offline, the most recently seen among equals. The `recipient:` line says which session was
+  chosen and why, and names the others that could have taken the message; `--json` carries the same under
+  `recipient.member`. A label two members share is refused, both named by principal prefix, and so is a prefix
+  two references share; a roster that cannot be read fails the send instead of guessing. The
+  `brigade:team-messaging` skill now sends a session to `--member` when it means a person, instead of choosing
+  among that person's sessions from the roster.
 
 ### Security
 

@@ -801,3 +801,230 @@ func TestResolveRecipient(t *testing.T) {
 		}
 	})
 }
+
+// The roster --member picks from (card 101). pat has four sessions: an
+// offline one seen an hour ago, an idle one seen five minutes ago, an idle
+// one seen a minute ago (the pick), and an active one that refuses messages
+// (left out). quinn has one active session and is named by principal
+// prefix. tess shares the first eight characters of her principal reference
+// with pat. "Shared Label" belongs to two members, in two cases. zed's only
+// session refuses. The mail gateway carries its own label.
+const (
+	patOffline = "pppppppppppppppppppppppppppp0001"
+	patIdleOld = "pppppppppppppppppppppppppppp0002"
+	patIdleNew = "pppppppppppppppppppppppppppp0003"
+	patRefuse  = "pppppppppppppppppppppppppppp0004"
+	quinnID    = "qqqqqqqqqqqqqqqqqqqqqqqqqqqq0001"
+)
+
+func memberRoster() string {
+	rec := func(id, label, principal, state, inbound string, seenAgo time.Duration, harness string) map[string]any {
+		r := map[string]any{
+			"session_id": id, "session_name": "s-" + id[len(id)-4:], "human_label": label, "principal_ref": principal,
+			"state": state, "activity": "idle", "inbound": inbound,
+			"last_seen_at": fixtureNow.Add(-seenAgo), "lease_until": fixtureNow.Add(60 * time.Second),
+			"created_at": fixtureNow.Add(-time.Hour), "is_self": false,
+		}
+		if harness != "" {
+			r["harness"] = harness
+		}
+		return r
+	}
+	return rosterJSON(false,
+		rec(patOffline, "pat@example.com", "11111111-pat", protocol.SessionStateOffline, protocol.InboundAccept, time.Hour, ""),
+		rec(patRefuse, "pat@example.com", "11111111-pat", protocol.SessionStateActive, protocol.InboundRefuse, 5*time.Second, ""),
+		rec(patIdleOld, "pat@example.com", "11111111-pat", protocol.SessionStateIdle, protocol.InboundAccept, 5*time.Minute, ""),
+		rec(patIdleNew, "pat@example.com", "11111111-pat", protocol.SessionStateIdle, protocol.InboundAccept, time.Minute, ""),
+		rec(quinnID, "quinn@example.com", "22222222-quinn", protocol.SessionStateActive, protocol.InboundAccept, 10*time.Second, ""),
+		rec("tttttttttttttttttttttttttttt0001", "tess@example.com", "11111111-tess", protocol.SessionStateIdle, protocol.InboundAccept, time.Minute, ""),
+		rec("rrrrrrrrrrrrrrrrrrrrrrrrrrrr0001", "Shared Label", "33333333-rrrr", protocol.SessionStateIdle, protocol.InboundAccept, time.Minute, ""),
+		rec("ssssssssssssssssssssssssssss0001", "shared label", "34343434-ssss", protocol.SessionStateIdle, protocol.InboundAccept, time.Minute, ""),
+		rec("zzzzzzzzzzzzzzzzzzzzzzzzzzzz0001", "zed@example.com", "44444444-zed", protocol.SessionStateActive, protocol.InboundRefuse, time.Second, ""),
+		rec("gggggggggggggggggggggggggggg0001", "mail gateway", "55555555-gw", protocol.SessionStateIdle, protocol.InboundAccept, time.Second, "gateway-email"),
+	)
+}
+
+// TestSendByMember is card 101: --member picks a member's best session the
+// way the gateways do, the recipient line says which and why, and every
+// refusal sends nothing and echoes nothing.
+func TestSendByMember(t *testing.T) {
+	t.Parallel()
+	const patTail = "; the best of 3 sessions of the member that can receive a message (active before idle before offline, the most recently seen first), matched by label; the others: p0002 (idle), p0001 (offline)"
+
+	t.Run("the best session by label, in any case, with the pick explained", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.rec.on("session list", okAnswer(memberRoster())).on("message send", okAnswer(sendResultTo("m-m", patIdleNew, false)))
+		if err := Send(f.inv(f.sessionEnv(), "body"), SendOptions{Member: "PAT@Example.com"}); err != nil {
+			t.Fatalf("send: %v", err)
+		}
+		req := sentRequest(t, f)
+		if req.RecipientSessionID != patIdleNew {
+			t.Errorf("recipient_session_id = %q, want the idle session seen most recently", req.RecipientSessionID)
+		}
+		if req.IdempotencyKey != IdempotencyKey(selfSessionID, patIdleNew, "body", fixtureNow) {
+			t.Error("the idempotency key was not derived from the chosen id")
+		}
+		want := "accepted: message m-m to " + patIdleNew + ". " + AcceptedNote + "\n" +
+			`recipient: p0003, idle, inbound accept, name "s-0003" (unverified)` + patTail + "\n"
+		if f.out.String() != want {
+			t.Errorf("stdout:\n got %q\nwant %q", f.out.String(), want)
+		}
+		if list := f.rec.specsOf("session list"); len(list) != 1 || !slices.Contains(list[0].Argv, "--include-offline") {
+			t.Errorf("session list children = %v", list)
+		}
+	})
+
+	t.Run("--json carries the pick", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.rec.on("session list", okAnswer(memberRoster())).on("message send", okAnswer(sendResultTo("m-j", patIdleNew, false)))
+		inv := f.inv(f.sessionEnv(), "body")
+		inv.JSON = true
+		if err := Send(inv, SendOptions{Member: "pat@example.com"}); err != nil {
+			t.Fatalf("send --json: %v", err)
+		}
+		_, result := envelopeOf(t, f.out.String())
+		to, _ := result["recipient"].(map[string]any)
+		m, _ := to["member"].(map[string]any)
+		if m["how"] != matchedByLabel || m["candidates"] != float64(3) || m["note"] != MemberNote {
+			t.Errorf("recipient.member = %v", m)
+		}
+		if others, _ := m["others"].([]any); len(others) != 2 || others[0] != patIdleOld || others[1] != patOffline {
+			t.Errorf("others = %v", m["others"])
+		}
+	})
+
+	t.Run("by principal prefix, bracketed or bare", func(t *testing.T) {
+		t.Parallel()
+		for _, who := range []string{"22222222", "[22222222]", "22222222-qui"} {
+			t.Run(who, func(t *testing.T) {
+				t.Parallel()
+				f := newFixture(t)
+				f.rec.on("session list", okAnswer(memberRoster())).on("message send", okAnswer(sendResultTo("m-p", quinnID, false)))
+				if err := Send(f.inv(f.sessionEnv(), "body"), SendOptions{Member: who}); err != nil {
+					t.Fatalf("send: %v", err)
+				}
+				if req := sentRequest(t, f); req.RecipientSessionID != quinnID {
+					t.Errorf("recipient_session_id = %q", req.RecipientSessionID)
+				}
+				want := "accepted: message m-p to " + quinnID + ". " + AcceptedNote + "\n" +
+					`recipient: q0001, active, inbound accept, name "s-0001" (unverified); the one session of the member that can receive a message, matched by principal reference` + "\n"
+				if f.out.String() != want {
+					t.Errorf("stdout:\n got %q\nwant %q", f.out.String(), want)
+				}
+			})
+		}
+	})
+
+	refused := func(t *testing.T, who string, code protocol.Code, reason string) *protocol.Error {
+		t.Helper()
+		f := newFixture(t)
+		f.rec.on("session list", okAnswer(memberRoster())).on("message send", okAnswer(sendResultJSON("never", false)))
+		perr := wantCodeErr(t, Send(f.inv(f.sessionEnv(), "body"), SendOptions{Member: who}), code, reason)
+		if perr.Details["field"] != "member" {
+			t.Errorf("details = %v", perr.Details)
+		}
+		if n := len(f.rec.specsOf("message send")); n != 0 {
+			t.Errorf("%d sends", n)
+		}
+		return perr
+	}
+
+	t.Run("a shared label is refused, both members named by prefix", func(t *testing.T) {
+		t.Parallel()
+		perr := refused(t, "SHARED LABEL", protocol.CodeInvalidInput, "ambiguous")
+		if perr.Details["matches"] != "2" || !strings.HasSuffix(perr.Message, "principal reference: 33333333, 34343434") {
+			t.Errorf("message = %q, details = %v", perr.Message, perr.Details)
+		}
+		// The label is the argument, and the argument is never echoed (4.5.14).
+		if strings.Contains(strings.ToLower(perr.Message), "shared label") {
+			t.Errorf("the argument was echoed: %q", perr.Message)
+		}
+	})
+
+	t.Run("a prefix two references share is refused with the references in full", func(t *testing.T) {
+		t.Parallel()
+		perr := refused(t, "11111111", protocol.CodeInvalidInput, "ambiguous")
+		if want := "those characters begin the principal references of 2 members: 11111111-pat, 11111111-tess; give more of one"; perr.Message != want {
+			t.Errorf("message = %q", perr.Message)
+		}
+	})
+
+	t.Run("no member matches", func(t *testing.T) {
+		t.Parallel()
+		perr := refused(t, "nobody@example.com", protocol.CodeNotFound, "no_match")
+		if !strings.Contains(perr.Message, "no principal reference begins") || strings.Contains(perr.Message, "nobody") {
+			t.Errorf("message = %q", perr.Message)
+		}
+		perr = refused(t, "1234", protocol.CodeNotFound, "no_match")
+		if !strings.Contains(perr.Message, "first 8 characters") {
+			t.Errorf("message = %q", perr.Message)
+		}
+	})
+
+	t.Run("a member with no session that can receive, and the gateway's own label", func(t *testing.T) {
+		t.Parallel()
+		perr := refused(t, "zed@example.com", protocol.CodeNotFound, "no_receiving_session")
+		if perr.Details["sessions"] != "1" {
+			t.Errorf("details = %v", perr.Details)
+		}
+		_ = refused(t, "mail gateway", protocol.CodeNotFound, "no_receiving_session")
+	})
+
+	t.Run("a session id and --member together is usage, nothing spawned", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		wantCode(t, Send(f.inv(f.sessionEnv(), "body", "bbbbb"), SendOptions{Member: "pat@example.com"}), protocol.CodeUsage, "")
+		if f.rec.count() != 0 {
+			t.Errorf("%d children spawned", f.rec.count())
+		}
+	})
+
+	t.Run("without a roster, --member fails instead of guessing", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.rec.on("session list", failAnswer(protocol.CodeUnavailable, "backend down")).on("message send", okAnswer(sendResultJSON("never", false)))
+		perr := wantCodeErr(t, Send(f.inv(f.sessionEnv(), "body"), SendOptions{Member: "pat@example.com"}), protocol.CodeUnavailable, "")
+		if perr.Message != "backend down"+MemberRosterHint || perr.Details["roster"] != "unread" {
+			t.Errorf("message = %q, details = %v", perr.Message, perr.Details)
+		}
+		if n := len(f.rec.specsOf("message send")); n != 0 {
+			t.Errorf("%d sends", n)
+		}
+	})
+}
+
+// TestResolveMember is the pick's order on its own: active before idle
+// before offline, the most recently seen first among equals, a session
+// that holds messages still a candidate, an unknown state last.
+func TestResolveMember(t *testing.T) {
+	t.Parallel()
+	rec := func(id, state, inbound string, seenAgo time.Duration) protocol.SessionRecord {
+		return protocol.SessionRecord{
+			SessionID: id, HumanLabel: "pat@example.com", PrincipalRef: "11111111-pat",
+			State: state, Inbound: inbound, LastSeenAt: fixtureNow.Add(-seenAgo),
+		}
+	}
+	roster := []protocol.SessionRecord{
+		rec("idle-old", protocol.SessionStateIdle, protocol.InboundAccept, time.Hour),
+		rec("offline-new", protocol.SessionStateOffline, protocol.InboundAccept, time.Second),
+		rec("odd-state", "dormant", protocol.InboundAccept, 0),
+		rec("idle-new", protocol.SessionStateIdle, protocol.InboundAccept, time.Minute),
+		rec("active-old", protocol.SessionStateActive, protocol.InboundAccept, 2*time.Hour),
+		rec("hold", protocol.SessionStateIdle, protocol.InboundHold, 3*time.Hour),
+		rec("refuses", protocol.SessionStateActive, protocol.InboundRefuse, 0),
+	}
+	p, err := resolveMember("pat@example.com", roster)
+	if err != nil {
+		t.Fatalf("resolveMember: %v", err)
+	}
+	got := []string{p.session.SessionID}
+	for _, o := range p.others {
+		got = append(got, o.SessionID)
+	}
+	want := []string{"active-old", "idle-new", "idle-old", "hold", "offline-new", "odd-state"}
+	if !slices.Equal(got, want) || p.candidates != len(want) || p.how != matchedByLabel {
+		t.Errorf("order = %v (candidates %d, how %q), want %v", got, p.candidates, p.how, want)
+	}
+}

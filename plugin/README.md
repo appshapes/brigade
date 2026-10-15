@@ -288,6 +288,10 @@ waiting: the recipient refuses team messages; this one waits, unread, while it d
 
 - The five characters are the end of the session's id. The id in full works too.
 - Only an id is an address. A name is not: anyone can copy a name.
+- To reach a person rather than one of their sessions, your session runs `brigade send --member <who>` with
+  their `MEMBER` cell: the best of their sessions is picked (the gateways and the sessions that refuse messages
+  left out, active before idle before offline, the most recently seen among equals), and the `recipient:` line
+  says which and why. A label two members share is refused.
 - When two sessions end with the same characters, nothing is sent. The answer lists both ids in full.
 
 **Where the sentence comes from.** Your session's own model writes it, with `brigade doing` — one present-tense

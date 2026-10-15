@@ -1,12 +1,14 @@
 package commands
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"io"
 	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +30,12 @@ type SendOptions struct {
 	// relative path is fine — it is the model's own file — and the path
 	// is never echoed.
 	BodyFile string
+	// Member names a member instead of a session (card 101): their label as
+	// the MEMBER column shows it, or the first shortPrincipalChars or more
+	// characters of their principal reference. The roster then picks the
+	// member's best session the way the gateways do (resolveMember), and
+	// the command takes no <session_id>.
+	Member string
 }
 
 // sendResult is the --json result: the adapter's SendResponse plus the
@@ -44,11 +52,22 @@ type sendResult struct {
 // message was sent (card 34). Waiting is absent for a recipient that was
 // online and accepting.
 type sendRecipient struct {
-	SessionName string   `json:"session_name"`
-	State       string   `json:"state"`
-	Inbound     string   `json:"inbound"`
-	Waiting     []string `json:"waiting,omitzero"`
-	Note        string   `json:"note"`
+	SessionName string      `json:"session_name"`
+	State       string      `json:"state"`
+	Inbound     string      `json:"inbound"`
+	Waiting     []string    `json:"waiting,omitzero"`
+	Member      *sendMember `json:"member,omitzero"`
+	Note        string      `json:"note"`
+}
+
+// sendMember is the --json account of a --member pick (card 101): how the
+// argument matched, how many of the member's sessions could have taken the
+// message, and the ids of the others, best first.
+type sendMember struct {
+	How        string   `json:"how"`
+	Candidates int      `json:"candidates"`
+	Others     []string `json:"others,omitzero"`
+	Note       string   `json:"note"`
 }
 
 // RosterTimeout is the budget of the roster read `send` makes before the
@@ -72,6 +91,11 @@ const (
 	// RosterUnreadHint follows the `not_found` of a short id that went to
 	// the adapter unresolved because the roster read failed.
 	RosterUnreadHint = "; the roster could not be read, so the short id was not resolved: run the command again, or use the full session_id"
+	// MemberNote is the note member of the --json recipient.member (card 101).
+	MemberNote = "chosen for --member: the best of the member's sessions that can receive a message (the gateways and inbound refuse left out), active before idle before offline, the most recently seen first; others are the rest, best first"
+	// MemberRosterHint follows the failure of the roster read that --member
+	// cannot do without.
+	MemberRosterHint = "; the roster could not be read, so --member could not be resolved: run the command again, or address the session by its id"
 )
 
 // Send implements `brigade send <session_id> [--summary <text>]
@@ -99,12 +123,18 @@ const (
 // The first line of the confirmation is unchanged — the proof scripts read
 // the two ids off it — and the recipient lines come after it.
 func Send(inv Invocation, opts SendOptions) error {
-	if len(inv.Args) != 1 {
-		return usage("send takes exactly one <session_id>; the body travels on stdin or through --body-file")
-	}
-	recipient := inv.Args[0]
-	if recipient == "" {
-		return usage("the recipient session id must not be empty")
+	member := oneLine(opts.Member)
+	var recipient string
+	switch {
+	case member != "" && len(inv.Args) != 0:
+		return usage("send takes either <session_id> or --member <who>, not both")
+	case member == "" && len(inv.Args) != 1:
+		return usage("send takes exactly one <session_id>, or --member <who>; the body travels on stdin or through --body-file")
+	case member == "":
+		recipient = inv.Args[0]
+		if recipient == "" {
+			return usage("the recipient session id must not be empty")
+		}
 	}
 	if n := utf8.RuneCountInString(opts.Summary); n > protocol.MaxSummaryChars {
 		return &protocol.Error{
@@ -131,6 +161,10 @@ func Send(inv Invocation, opts SendOptions) error {
 	self := t.selfSessionID()
 
 	var to *protocol.SessionRecord
+	// pick is set for --member (card 101): the roster is then not an aid but
+	// the one place the recipient can come from, so a roster that cannot be
+	// read fails the send instead of letting it go as given.
+	var pick *memberPick
 	// unresolved is true for a short id that goes to the adapter as it was
 	// given. "Short" is "shorter than this session's own id": an adapter's
 	// ids are one shape, and nothing else here knows what that shape is.
@@ -138,10 +172,20 @@ func Send(inv Invocation, opts SendOptions) error {
 	list, rosterErr := callWithin(RosterTimeout, func(ctx context.Context) (*adapterclient.ListResult, error) {
 		return t.client.ListSessions(ctx, true)
 	})
-	if rosterErr != nil {
+	switch {
+	case member != "":
+		if rosterErr != nil {
+			return memberNeedsRoster(rosterErr)
+		}
+		p, merr := resolveMember(member, list.Sessions)
+		if merr != nil {
+			return merr
+		}
+		pick, to, recipient = &p, &p.session, p.session.SessionID
+	case rosterErr != nil:
 		inv.logger().Debug("send: no roster; the recipient goes as given", log.Err(rosterErr))
 		unresolved = utf8.RuneCountInString(recipient) < utf8.RuneCountInString(self)
-	} else {
+	default:
 		found, ok, rerr := resolveRecipient(recipient, list.Sessions)
 		if rerr != nil {
 			return rerr
@@ -185,6 +229,9 @@ func Send(inv Invocation, opts SendOptions) error {
 				Waiting:     waiting(to),
 				Note:        RecipientNote,
 			}
+			if pick != nil {
+				out.Recipient.Member = pick.json()
+			}
 		}
 		return writeJSON(inv.Out, out)
 	}
@@ -195,7 +242,11 @@ func Send(inv Invocation, opts SendOptions) error {
 	line += ". " + AcceptedNote
 	lines := []string{line}
 	if to != nil {
-		lines = append(lines, recipientLine(to))
+		rl := recipientLine(to)
+		if pick != nil {
+			rl += pickLine(pick)
+		}
+		lines = append(lines, rl)
 		for _, w := range waiting(to) {
 			lines = append(lines, "waiting: "+w)
 		}
@@ -266,6 +317,195 @@ func ambiguousRecipient(matches []protocol.SessionRecord) *protocol.Error {
 		Message: msg + "; address one by its full session_id",
 		Details: map[string]string{"field": "session_id", "reason": "ambiguous", "matches": itoa(len(matches))},
 	}
+}
+
+// The harness names of the two hosted gateways (docs/mail-gateway.md,
+// docs/slack-gateway.md). A --member message never goes to one: a gateway
+// forwards to people, and --member addresses a teammate's session.
+const (
+	harnessGatewayEmail = "gateway-email"
+	harnessGatewaySlack = "gateway-slack"
+)
+
+// How a --member argument matched, in the --json `how` member.
+const (
+	matchedByLabel     = "label"
+	matchedByPrincipal = "principal"
+)
+
+// isGatewayHarness reports whether a roster row is one of the gateways.
+func isGatewayHarness(h string) bool { return h == harnessGatewayEmail || h == harnessGatewaySlack }
+
+// memberPick is what --member resolved to (card 101): the session chosen,
+// how the argument matched, how many of the member's sessions could have
+// received the message, and the others, best first.
+type memberPick struct {
+	session    protocol.SessionRecord
+	how        string
+	candidates int
+	others     []protocol.SessionRecord
+}
+
+// resolveMember picks a member's best session the way the gateways do
+// (resolveRecipient in supabase/functions/_shared/gateway.ts, card 99):
+// the member is the one whose sessions carry the label `who`, compared
+// case-insensitively and whole as the MEMBER column shows it; failing that,
+// the one whose principal reference begins with `who` (brackets stripped,
+// at least shortPrincipalChars long, as `sessions --member` reads it). A
+// label two members share is refused, both named by principal prefix — a
+// label is unverified text anyone can pick — and so is a prefix two
+// references share. Among the member's sessions the gateways and the ones
+// that refuse messages are left out; the rest are ordered active before
+// idle before offline, the most recently seen first. The argument is never
+// echoed (4.5.14); the refusals carry the roster's own facts.
+func resolveMember(who string, sessions []protocol.SessionRecord) (memberPick, error) {
+	var mine []protocol.SessionRecord
+	for i := range sessions {
+		if l := oneLine(protocol.SanitizeLabel(sessions[i].HumanLabel)); l != "" && strings.EqualFold(l, who) {
+			mine = append(mine, sessions[i])
+		}
+	}
+	how := matchedByLabel
+	prefix := who
+	if inner, ok := strings.CutPrefix(prefix, "["); ok && strings.HasSuffix(inner, "]") {
+		prefix = strings.TrimSuffix(inner, "]")
+	}
+	longEnough := utf8.RuneCountInString(prefix) >= shortPrincipalChars
+	if len(mine) == 0 && longEnough {
+		how = matchedByPrincipal
+		for i := range sessions {
+			if ref := idLine(sessions[i].PrincipalRef); ref != "" && strings.HasPrefix(ref, prefix) {
+				mine = append(mine, sessions[i])
+			}
+		}
+	}
+	if len(mine) == 0 {
+		msg := "no member has that label, and no principal reference begins with those characters"
+		if !longEnough {
+			msg = "no member has that label; a principal reference is named by its first " + itoa(shortPrincipalChars) + " characters or more"
+		}
+		return memberPick{}, &protocol.Error{
+			Code:    protocol.CodeNotFound,
+			Message: msg,
+			Details: map[string]string{"field": "member", "reason": "no_match"},
+		}
+	}
+	var principals []string
+	for i := range mine {
+		if !slices.Contains(principals, mine[i].PrincipalRef) {
+			principals = append(principals, mine[i].PrincipalRef)
+		}
+	}
+	if len(principals) > 1 {
+		return memberPick{}, ambiguousMember(how, principals)
+	}
+	var eligible []protocol.SessionRecord
+	for i := range mine {
+		if !isGatewayHarness(mine[i].Harness) && mine[i].Inbound != protocol.InboundRefuse {
+			eligible = append(eligible, mine[i])
+		}
+	}
+	if len(eligible) == 0 {
+		return memberPick{}, &protocol.Error{
+			Code:    protocol.CodeNotFound,
+			Message: "none of the member's " + itoa(len(mine)) + " sessions can receive a message: the gateways and the sessions that refuse messages are left out",
+			Details: map[string]string{"field": "member", "reason": "no_receiving_session", "sessions": itoa(len(mine))},
+		}
+	}
+	slices.SortStableFunc(eligible, func(a, b protocol.SessionRecord) int {
+		if r := cmp.Compare(stateRank(a.State), stateRank(b.State)); r != 0 {
+			return r
+		}
+		return b.LastSeenAt.Compare(a.LastSeenAt)
+	})
+	return memberPick{session: eligible[0], how: how, candidates: len(eligible), others: eligible[1:]}, nil
+}
+
+// ambiguousMember is the invalid_input refusal of a label two members
+// share, or of a prefix two principal references share. It names the
+// members by the roster's own facts — principal prefixes for a label, the
+// references in full for a prefix that was not enough — and never the
+// argument.
+func ambiguousMember(how string, principals []string) *protocol.Error {
+	shown := make([]string, 0, ambiguousShown)
+	for _, p := range principals[:min(len(principals), ambiguousShown)] {
+		if how == matchedByLabel {
+			shown = append(shown, shortPrincipal(p))
+		} else {
+			shown = append(shown, idLine(p))
+		}
+	}
+	var msg string
+	if how == matchedByLabel {
+		msg = "that label is shared by " + itoa(len(principals)) + " members (a label is unverified text anyone can pick); name one by the first " +
+			itoa(shortPrincipalChars) + " characters of their principal reference: " + strings.Join(shown, ", ")
+	} else {
+		msg = "those characters begin the principal references of " + itoa(len(principals)) + " members: " + strings.Join(shown, ", ")
+	}
+	if more := len(principals) - len(shown); more > 0 {
+		msg += " and " + itoa(more) + " more"
+	}
+	if how != matchedByLabel {
+		msg += "; give more of one"
+	}
+	return &protocol.Error{
+		Code:    protocol.CodeInvalidInput,
+		Message: msg,
+		Details: map[string]string{"field": "member", "reason": "ambiguous", "matches": itoa(len(principals))},
+	}
+}
+
+// pickLine is what --member adds to the recipient line (card 101): which
+// of the member's sessions was chosen and why, in the roster's terms. The
+// order is sessions.go's stateRank, the roster's own "active first".
+func pickLine(p *memberPick) string {
+	how := "matched by label"
+	if p.how == matchedByPrincipal {
+		how = "matched by principal reference"
+	}
+	if p.candidates == 1 {
+		return "; the one session of the member that can receive a message, " + how
+	}
+	shown := make([]string, 0, ambiguousShown)
+	for _, o := range p.others[:min(len(p.others), ambiguousShown)] {
+		shown = append(shown, shortSession(o.SessionID)+" ("+enumLine(o.State)+")")
+	}
+	line := "; the best of " + itoa(p.candidates) + " sessions of the member that can receive a message (active before idle before offline, the most recently seen first), " +
+		how + "; the others: " + strings.Join(shown, ", ")
+	if more := len(p.others) - len(shown); more > 0 {
+		line += " and " + itoa(more) + " more"
+	}
+	return line
+}
+
+// json is the --json form of the pick.
+func (p *memberPick) json() *sendMember {
+	ids := make([]string, 0, len(p.others))
+	for _, o := range p.others {
+		ids = append(ids, o.SessionID)
+	}
+	return &sendMember{How: p.how, Candidates: p.candidates, Others: sanitizeIDs(ids), Note: MemberNote}
+}
+
+// memberNeedsRoster is the failure of a --member send whose roster read
+// failed: the error as it came, with the hint that names the way out.
+func memberNeedsRoster(err error) error {
+	perr, ok := err.(*protocol.Error) //nolint:errorlint // the adapterclient returns the value itself
+	if !ok {
+		return &protocol.Error{
+			Code:    protocol.CodeUnavailable,
+			Message: "the roster could not be read" + MemberRosterHint,
+			Details: map[string]string{"field": "member", "roster": "unread"},
+		}
+	}
+	out := *perr
+	out.Message = perr.Message + MemberRosterHint
+	out.Details = maps.Clone(perr.Details)
+	if out.Details == nil {
+		out.Details = map[string]string{}
+	}
+	out.Details["roster"] = "unread"
+	return &out
 }
 
 // recipientLine is the confirmation's second line: the short id, the state
