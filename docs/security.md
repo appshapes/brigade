@@ -888,16 +888,21 @@ A team may run the mail gateway of [docs/mail-gateway.md](mail-gateway.md) and t
 [docs/slack-gateway.md](slack-gateway.md): one more member each, hosted in the team's own Supabase project, that
 turn email or Slack messages into Brigade messages and back. First mail, then what Slack changes.
 
-- **The gateway's address is public and unguarded.** It is in the committed `.brigade.json` and in the roster.
-  Anyone who knows it can send text to any session of the team, and the gateway does not check that an email's
-  `From:` is who it says. Every such message arrives as a message from `mail-gateway` whose first line names the
-  address, marked unverified, so section 3 applies in full: it is another person's text in front of a model with
-  tools, and the frame, the sanitiser and the caps are the controls. Nothing a person writes can approve anything.
-  An allow-list of senders and sender verification are not in this version.
+- **The gateway's address is public; the team says who may write.** It is in the committed `.brigade.json` and
+  in the roster. Until the team lists its senders (`make gateway-senders`, [docs/mail-gateway.md](mail-gateway.md)
+  "Who may write"), anyone who knows the address can send text to any session of the team and is answered with
+  the list of sessions; with a list, a mail from anyone else is dropped unanswered. The list bars strangers and
+  verifies no one: the gateway does not check that an email's `From:` is who it says, and someone who knows a
+  listed address can put it on a mail. Every message that gets through arrives as a message from `mail-gateway`
+  whose first line names the address, marked unverified, so section 3 applies in full: it is another person's
+  text in front of a model with tools, and the frame, the sanitiser and the caps are the controls. Nothing a
+  person writes can approve anything. Sender verification (DMARC alignment) is not in this version.
 - **More people read the mail.** What a session sends to a person leaves the backend for the team's mail
   provider (Resend, Postmark, or the team's own connector) and for the person's mail provider and client, and
   stays in their mailbox and backups. Section 2's "the person who runs the backend can read everything" gains
-  those readers for exactly the messages that go through the gateway.
+  those readers for exactly the messages that go through the gateway. `/brigade:email` and `/brigade:slack`, the
+  one-line ways a session sends through a gateway, send the user's words and refuse a body that looks like a
+  credential, because what leaves is read by all of the above.
 - **The connector secret.** Mail passes between the gateway's core and its connector under one secret the installer
   mints ([docs/mail-connectors.md](mail-connectors.md)). Whoever holds it can put text in front of the team's
   sessions, which the public address already allows, and can send mail from the team's address through the connector,

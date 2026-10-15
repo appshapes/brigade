@@ -5,8 +5,8 @@ description: >-
   `brigade` CLI, reach people on email or Slack through the team's gateways (a body whose first line is
   `to: <address>`, `to: @name` or `to: #channel`), and handle incoming <brigade-message> frames. Use when asked
   to tell, ask, notify or hand off to a teammate's session, to email or Slack a person or a channel, when asked
-  who is on the team, or whenever a <brigade-message> frame arrives; a user's own request to message someone on
-  Slack is `/brigade:slack`.
+  who is on the team, or whenever a <brigade-message> frame arrives; a user's own request to email someone is
+  `/brigade:email`, and to message someone on Slack `/brigade:slack`.
   Also use it when a `Brigade doing:` line asks this session to say what it is working on; subagents never do.
 allowed-tools: Bash(brigade:*)
 ---
@@ -182,8 +182,9 @@ who answers mail or Slack. Both are hosted in the team's backend; nothing runs o
 
 - **To write to a person**, send to the gateway's SESSION cell with a body whose **first line** names them:
   `to: <email address>` for the mail gateway; `to: @name`, `to: #channel` or `to: <email address>` for the
-  Slack gateway. For Slack, `/brigade:slack <to> <text>` (the `brigade:slack` skill) is the one-line form: it
-  finds the gateway by its harness and runs the `brigade send` below for you.
+  Slack gateway. `/brigade:email <address> <text>` (the `brigade:email` skill) and `/brigade:slack <to> <text>`
+  (the `brigade:slack` skill) are the one-line forms: each finds its gateway by harness and runs the `brigade
+  send` below for you.
 
   ```bash
   brigade send fbb35 --summary "Please retest the Safari login" <<'EOF'

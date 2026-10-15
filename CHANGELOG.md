@@ -9,6 +9,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **`/brigade:email <address> <text>`** (card 100). The mail twin of `/brigade:slack`: one line mails a person
+  through the team's mail gateway. `--subject "<line>"` sets the mail's subject, `--summary "<line>"` the
+  Brigade summary, `--reply-to <message-id>` answers in the thread of a mail that reached the session through
+  the gateway, and `--body-file <path>` carries a long body. The skill finds the gateway by its harness
+  (`gateway-email`) in `brigade sessions --json`, builds a body whose first lines are `to: <address>` and the
+  optional `subject:`, runs one `brigade send`, and prints what it printed; it never re-sends on `waiting:`,
+  never polls, and refuses a body that looks like a credential. It also tells the user when an answer can only
+  arrive once the administrator lists the person's address (card 55). Asking a session in words to email
+  someone loads it ([docs/mail-gateway.md](docs/mail-gateway.md), "For sessions").
+
 ### Security
 
 - **The mail gateway drops mail from senders the team does not list** (card 55). A team names who may write to

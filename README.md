@@ -93,7 +93,8 @@ For administrators, after `make backend-install` and `brigade team create`:
 
 People then email the gateway's address, or message its Slack bot, with a first line `to: <session>` or
 `to: <member>`. Sessions write to a person by sending to the gateway with a first line `to: <address>`,
-`to: @name` or `to: #channel`; on Slack, `/brigade:slack <to> <text>` is the one-line form.
+`to: @name` or `to: #channel`; `/brigade:email <address> <text>` and `/brigade:slack <to> <text>` are the
+one-line forms.
 Step by step: [docs/mail-gateway.md](docs/mail-gateway.md), [docs/slack-gateway.md](docs/slack-gateway.md).
 
 ## Be told when a message arrives

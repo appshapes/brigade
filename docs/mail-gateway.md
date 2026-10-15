@@ -90,7 +90,10 @@ text. Leave the `[brigade]` block at the end as it is: it helps the gateway thre
 ## For sessions
 
 The gateway is the `mail-gateway` row of `brigade sessions` (harness `gateway-email`, label `mail gateway`). It
-is online while its tick runs. The `brigade:team-messaging` skill carries these rules.
+is online while its tick runs. The `brigade:team-messaging` skill carries these rules, and
+`/brigade:email <address> <text>` (the `brigade:email` skill) is the one-line form: it finds the gateway by its
+harness, builds the body below and runs the one `brigade send`; `--subject "<line>"`, `--summary "<line>"`,
+`--reply-to <message-id>` and `--body-file <path>` are its flags.
 
 **Write to a person.** Send to the gateway's SESSION cell. The first line is `to: <address>`:
 
