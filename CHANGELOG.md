@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-10-15
+
 ### Added
 
 - **`/brigade:email <address> <text>`** (card 100). The mail twin of `/brigade:slack`: one line mails a person
