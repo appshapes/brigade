@@ -83,6 +83,8 @@ export interface MailSettings {
   from: string;
   provider: string;
   sendUrl: string;
+  /** Who may write (card 55): lowercase addresses and `@domain` entries; empty keeps the gateway open. */
+  allowedSenders: string[];
 }
 
 export type MailGateway = Gateway & MailSettings;
@@ -99,18 +101,20 @@ export function mailSettingsFromEnv(): { teamRef: string } & MailSettings {
     from: env("BRIGADE_MAIL_FROM"),
     provider: env("BRIGADE_MAIL_PROVIDER"),
     sendUrl: env("BRIGADE_MAIL_SEND_URL"),
+    allowedSenders: [],
   };
 }
 
 /** listMailGateways returns every mail gateway of the project with its settings, oldest first. A row without
- * settings takes the project's secrets when it is the team they name, and is left out otherwise. */
+ * settings takes the project's secrets when it is the team they name, and is left out otherwise. The
+ * allowed-senders list is the row's in either case: it was never a secret. */
 export async function listMailGateways(
   sql: Sql,
   fallback: { teamRef: string } & MailSettings,
 ): Promise<MailGateway[]> {
   const rows = await sql`
     select g.team_id, t.name as team_name, g.user_id, g.session_id,
-           g.inbox, g.public_address, g.from_address, g.provider, g.send_url
+           g.inbox, g.public_address, g.from_address, g.provider, g.send_url, g.allowed_senders
       from brigade_gateway.gateways g join brigade.teams t on t.id = g.team_id
      where g.kind = 'email'
      order by g.created_at`;
@@ -123,6 +127,7 @@ export async function listMailGateways(
       sessionId: r.session_id,
       kind: "email",
     };
+    const allowedSenders = Array.isArray(r.allowed_senders) ? (r.allowed_senders as string[]) : [];
     if (r.inbox) {
       const inbox = String(r.inbox).toLowerCase();
       out.push({
@@ -132,9 +137,10 @@ export async function listMailGateways(
         from: String(r.from_address ?? fallback.from),
         provider: String(r.provider ?? fallback.provider),
         sendUrl: String(r.send_url ?? fallback.sendUrl),
+        allowedSenders,
       });
     } else if (r.team_id === fallback.teamRef && fallback.inbox) {
-      out.push({ ...base, ...fallback });
+      out.push({ ...base, ...fallback, allowedSenders });
     } else {
       console.error(
         `mail gateway of team ${r.team_name} has no settings yet: run make gateway-install for it`,

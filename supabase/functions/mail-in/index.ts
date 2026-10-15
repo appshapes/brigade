@@ -1,8 +1,9 @@
 // mail-in: the gateway core's inbound endpoint. A connector (docs/mail-connectors.md) POSTs a received mail here
 // in the contract's shape, authenticated by the connector secret; the core decides where the mail goes and sends it
-// into the team as a Brigade message from the gateway session. A mail that cannot be routed is answered by mail,
-// through the connector's send endpoint, with the reason and the roster. Always 200 to the connector once the
-// request is authentic and well-formed: a retry would not change the outcome.
+// into the team as a Brigade message from the gateway session. A mail from a sender the team does not list is
+// dropped unanswered (card 55). A mail that cannot be routed is answered by mail, through the connector's send
+// endpoint, with the reason and the roster. Always 200 to the connector once the request is authentic and
+// well-formed: a retry would not change the outcome.
 
 import { authorized, fromInboundWire, sendClient, SendError } from "../_shared/connector.ts";
 import {
@@ -25,8 +26,10 @@ import {
   resolveInbound,
   resolveRecipient,
   rosterText,
+  senderAllowed,
   type SessionRecord,
 } from "../_shared/gateway.ts";
+import { domainOf } from "../_shared/mail.ts";
 
 const env = (k: string) => Deno.env.get(k) ?? "";
 
@@ -50,6 +53,13 @@ Deno.serve(async (req) => {
     // One project may carry several teams' gateways; the inbox the mail was delivered to says whose it is.
     const gw = gatewayForMail(await listMailGateways(sql, mailSettingsFromEnv()), m.to);
     if (!gw) return json(200, { ignored: "not addressed to a gateway inbox of this project" });
+    if (!senderAllowed(m.from, gw.allowedSenders)) {
+      // Card 55: the list is the one bar on strangers. No roster and no bounce (a reply to a forged From would make
+      // the gateway a backscatter source and confirm the address is live); the domain alone goes to the log.
+      const domain = domainOf(m.from) || "?";
+      console.error(`mail-in: dropped a mail from @${domain}: not on team ${gw.teamName}'s allowed senders`);
+      return json(200, { ignored: "the sender is not on the team's allowed-senders list" });
+    }
     const { inbox, publicAddress, from } = gw;
     const mail = sendClient(gw.sendUrl, secret);
     const threads = {

@@ -12,6 +12,7 @@ import {
   resolveOutbound,
   resolveRecipient,
   rosterText,
+  senderAllowed,
   type SessionRecord,
   tagOf,
   type ThreadRow,
@@ -447,4 +448,18 @@ Deno.test("header lines address a mail and carry a summary", async () => {
     assertEquals(r.summary, "Login blank on Safari 18");
     assertEquals(r.text, "Steps: open /login, sign in.");
   }
+});
+
+Deno.test("senderAllowed: an empty list is open; a listed address or @domain gets in; nobody else does", () => {
+  assertEquals(senderAllowed("anyone@stranger.example", []), true);
+  assertEquals(senderAllowed("anyone@stranger.example", null), true);
+  assertEquals(senderAllowed("anyone@stranger.example", [" ", ""]), true);
+  const list = ["QA@Example.com", "@AppShapes.com", ""];
+  assertEquals(senderAllowed("qa@example.com", list), true);
+  assertEquals(senderAllowed("Rjae@AppShapes.com", list), true);
+  assertEquals(senderAllowed("dev@example.com", list), false, "the address was listed, not its domain");
+  assertEquals(senderAllowed("rjae@mail.appshapes.com", list), false, "the domain exactly, not a subdomain");
+  assertEquals(senderAllowed("x@appshapes.com.evil.example", list), false);
+  assertEquals(senderAllowed("@appshapes.com", list), false, "no local part is no address");
+  assertEquals(senderAllowed("", list), false);
 });

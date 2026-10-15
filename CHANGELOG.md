@@ -9,6 +9,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Security
+
+- **The mail gateway drops mail from senders the team does not list** (card 55). A team names who may write to
+  its gateway, addresses or whole domains, with `make gateway-senders project=<ref> team_file=<path>
+  add='qa@example.com,@example.com'` (`remove=`, `clear=1`, or no change flag to show the list). The list lives
+  in the team's gateway row and `mail-in` reads it on every mail, so a change takes effect on the next mail and
+  needs only the Supabase access token: no redeploy, no provider key. Until a list is set the gateway is open, as
+  before, and the installer's summary now says so. Why: the gateway answered any mail that named no session, or
+  said `sessions`, with the team's session list (who is on the team, what each session is doing and the id tails
+  that address them), and its address is published. A stranger's mail is now dropped before anything is looked up
+  or answered, with no bounce, because a reply to a forged From would make the gateway a backscatter source and
+  confirm the address is live. A From address is unverified text, so the list is a bar on strangers, not
+  authentication. `docs/mail-gateway.md` now says what the list contains and who receives it. The Slack gateway
+  needs no such list: Slack verifies every request and names the workspace member.
+
 ## [0.28.1] — 2026-10-15
 
 ### Security

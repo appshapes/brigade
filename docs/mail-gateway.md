@@ -32,6 +32,12 @@ Resend and Postmark ship with Brigade, and any other provider is a small connect
 4. Commit and push the project's `.brigade.json`, which the command changed. It carries only public values.
 5. Give people the address on the command's `people write to:` line. They email it with a first line
    `to: <session>` or `to: <member>`.
+6. Say who may write. Until you do, anyone who knows the address can write to the gateway and is sent the list of
+   sessions. Addresses, or whole domains with a leading `@`, separated by commas:
+
+   ```sh
+   make gateway-senders project=<ref> team_file=<path>/.brigade.json add='qa@your-domain.com,@your-domain.com'
+   ```
 
 `dry=1` shows the plan and changes nothing. When the changelog says the gateway changed, `git pull` your Brigade
 checkout and run the command again.
@@ -71,11 +77,14 @@ text. Leave the `[brigade]` block at the end as it is: it helps the gateway thre
 
 **What to know.**
 
-- Anyone who knows the address can write to it. The gateway does not check that the From address is yours, and
-  tells the session the address is unverified.
+- Your administrator lists who may write: addresses, or whole domains. A mail from anyone else is dropped and
+  not answered. The gateway does not check that the From address is yours, and tells the session the address is
+  unverified.
 - A session treats your email as another person's words, never as its own user's instruction. Writing
   "approved" approves nothing.
-- A mail that names no session, or names one that cannot be found, is answered with the list of sessions.
+- A mail that names no session, or names one that cannot be found, is answered with the list of sessions: for
+  each session online, the five characters that name it, its name, its state, its owner's label and its `↳`
+  line.
 - Attachments are not carried.
 
 ## For sessions
@@ -124,14 +133,42 @@ You do not need an MX record, a mailbox, the database password or `supabase link
 It applies the gateway's migration, deploys the gateway and your provider's connector, points the provider's
 webhook at the connector, joins the gateway to the team as a member, stores the keys as function secrets (it
 prints none), schedules a once-a-minute job that sends the sessions' mail, and adds the address to the project's
-`.brigade.json`. Its summary names the address people write to, the receiving address and the sender.
+`.brigade.json`. Its summary names the address people write to, the receiving address, the sender and who may
+write.
+
+### Who may write
+
+By default anyone who knows the address can write to the gateway, and a mail that names no session, or says
+`sessions`, is answered with the list of sessions: who is on the team, what each session is doing and the
+characters that address it. List the people you expect, and a mail from anyone else is dropped before anything is
+looked up or answered:
+
+```sh
+read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN
+make gateway-senders project=<ref> team_file=<path>/.brigade.json add='qa@your-domain.com,@partner.example'
+make gateway-senders project=<ref> team_file=<path>/.brigade.json remove='qa@your-domain.com'
+make gateway-senders project=<ref> team_file=<path>/.brigade.json             # shows the list
+make gateway-senders project=<ref> team_file=<path>/.brigade.json clear=1     # open to anyone again
+```
+
+An entry is an address (`qa@your-domain.com`) or a domain with a leading `@` (`@partner.example`: every address
+on exactly that domain, not its subdomains; a bare `partner.example` is read the same way). The mail's From
+address is matched case-insensitively. The list lives in the team's gateway row and `mail-in` reads it on every
+mail, so a change takes effect on the next mail: no redeploy, no provider key, only the Supabase access token.
+The installer never touches the list, so running it again keeps it. A dropped mail gets no answer, which keeps
+the gateway from confirming its address to strangers and from bouncing to forged From addresses; the function
+logs the sender's domain.
+
+The list is a bar on strangers, not authentication: a From address is unverified text, and someone who knows a
+listed address can put it on a mail. Sessions see `(unverified)` beside every sender for that reason. The Slack
+gateway needs no such list: Slack verifies every request and names the workspace member.
 
 ### Running it again
 
-Safe. It keeps the gateway member, its receiving address and the address people write to, redeploys the
-functions, resets the provider's webhook and rotates the tick token and the connector secret. To rotate the
-provider's key, run it again with the new key in the environment. A connector of your own keeps its secret:
-[docs/mail-connectors.md](mail-connectors.md).
+Safe. It keeps the gateway member, its receiving address, the address people write to and the allowed-senders
+list, redeploys the functions, resets the provider's webhook and rotates the tick token and the connector secret.
+To rotate the provider's key, run it again with the new key in the environment. A connector of your own keeps
+its secret: [docs/mail-connectors.md](mail-connectors.md).
 
 ### An address of the team's own
 
@@ -176,16 +213,17 @@ have a connector of its own, and it runs its command again after any other team'
 - **The connector** receives the provider's webhook, verifies it the provider's way, and POSTs the mail to
   `mail-in` in the contract's shape under the connector secret; it serves the send endpoint `mail-out` calls.
   The core knows no provider ([docs/mail-connectors.md](mail-connectors.md)).
-- **`mail-in`** checks the connector secret, splits what the person typed from what their client quoted, and
-  finds the target in this order: a `to:` line, header lines or block they typed; the message id in the address
-  they replied to (every mail carrying a session's message has `Reply-To: <inbox>+<message id>@…`); the mail
-  headers against the thread table; a block quoted from the mail they answer. It then calls `send_message` as
-  the gateway, with `reply_to` set when known.
+- **`mail-in`** checks the connector secret, drops a mail whose From is not on the team's allowed-senders list
+  when one is set, splits what the person typed from what their client quoted, and finds the target in this
+  order: a `to:` line, header lines or block they typed; the message id in the address they replied to (every
+  mail carrying a session's message has `Reply-To: <inbox>+<message id>@…`); the mail headers against the
+  thread table; a block quoted from the mail they answer. It then calls `send_message` as the gateway, with
+  `reply_to` set when known.
 - **`mail-out`**, the tick, heartbeats the gateway session, drains its inbox, finds each message's address from
   its `to:` line or from the thread it replies to, POSTs it to the connector's send endpoint, and acknowledges
   only after the connector accepted the mail. A message it cannot deliver is answered to its sender and
   acknowledged.
-- **State** lives in the `brigade_gateway` schema: `gateways` (one row per team, with its settings), `threads`
+- **State** lives in the `brigade_gateway` schema: `gateways` (one row per team, with its settings and who may write), `threads`
   (which Brigade message is which mail, kept 90 days) and `received` (the webhook's dedupe set). Not on the Data
   API; RLS with no policy and no grant.
 - **Text rules.** A person's text is escaped so it cannot forge a `[brigade]` block. A body is cut to the

@@ -110,6 +110,18 @@ export function gatewayForMail<T extends { inbox: string }>(gateways: T[], to: s
   return gateways.find((g) => addressedToInbox(to, g.inbox)) ?? null;
 }
 
+/** senderAllowed reports whether a mail's From address may write to the gateway (card 55): the list is empty, so
+ * the gateway is open; or it names the address; or it names the address's domain as `@domain` (that domain
+ * exactly, not a subdomain). A From is unverified text, so this bars strangers; it authenticates no one. */
+export function senderAllowed(from: string, allowed: readonly string[] | null | undefined): boolean {
+  const list = (allowed ?? []).map((e) => e.trim().toLowerCase()).filter((e) => e !== "");
+  if (list.length === 0) return true;
+  const address = from.trim().toLowerCase();
+  const domain = domainOf(address);
+  if (!domain || !localOf(address)) return false;
+  return list.some((e) => e === address || e === `@${domain}`);
+}
+
 export type Recipient =
   | { session: SessionRecord; how: "id" | "tail"; who: null; others: SessionRecord[] }
   | { session: SessionRecord; how: "label" | "principal"; who: string; others: SessionRecord[] }

@@ -552,6 +552,14 @@ gateway-install: ## Install the hosted mail gateway (usage: make gateway-install
 	@test -n "$(project)" && test -n "$(from)" || { echo "usage: make gateway-install project=<ref> from='Name <address>' [team_file=<path>] [provider=resend|postmark|external] [inbox=<address>] [public_address=<address>] [send_url=<url>] [secret_file=<path>] [rotate=1] [dry=1]" >&2; exit 1; }
 	SUPABASE="$(supabase)" scripts/gateway-install.sh $(project) --from "$(from)" $(if $(team_file),--team-file "$(team_file)",) $(if $(provider),--provider "$(provider)",) $(if $(inbox),--inbox "$(inbox)",) $(if $(public_address),--public-address "$(public_address)",) $(if $(send_url),--send-url "$(send_url)",) $(if $(secret_file),--secret-file "$(secret_file)",) $(if $(rotate),--rotate,) $(if $(dry),--dry-run,)
 
+# gateway-senders: who may write to the team's mail gateway (card 55). The list lives in the team's gateway row and
+# mail-in reads it on every mail, so a change takes effect at once with no redeploy; only SUPABASE_ACCESS_TOKEN is
+# needed, from the environment. See scripts/gateway-senders.sh's header and docs/mail-gateway.md "Who may write".
+.PHONY: gateway-senders
+gateway-senders: ## Show or change who may write to the mail gateway (usage: make gateway-senders project=<ref> [team_file=<path to the project's .brigade.json>] [add='qa@example.com,@example.com'] [remove='<entries>'] [clear=1]; needs SUPABASE_ACCESS_TOKEN)
+	@test -n "$(project)" || { echo "usage: make gateway-senders project=<ref> [team_file=<path>] [add='<entries>'] [remove='<entries>'] [clear=1]" >&2; exit 1; }
+	scripts/gateway-senders.sh $(project) $(if $(team_file),--team-file "$(team_file)",) $(if $(add),--add "$(add)",) $(if $(remove),--remove "$(remove)",) $(if $(clear),--clear,)
+
 # mail-connector-check: a connector's send endpoint checked from the outside (docs/mail-connectors.md).
 .PHONY: mail-connector-check
 mail-connector-check: ## Check a mail connector's send endpoint (usage: make mail-connector-check send_url=<url> secret_file=<path> [send_to=<address> from='Name <address>'])

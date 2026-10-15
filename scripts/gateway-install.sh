@@ -43,8 +43,9 @@
 #      publishable key (what every member's `team join` does), then one SQL block through the Management API as
 #      postgres: the membership, the gateway session (registered through brigade.register_session as that
 #      member, harness `gateway-email`, lease 600 s) and the brigade_gateway.gateways row that ties them and
-#      carries the team's settings (inbox, public address, from, provider, send URL). One project may carry
-#      several teams' gateways: run this once per team, from each team's checkout.
+#      carries the team's settings (inbox, public address, from, provider, send URL). The allowed-senders list
+#      (card 55) is not among them: `make gateway-senders` keeps it, and a re-run leaves it alone. One project may
+#      carry several teams' gateways: run this once per team, from each team's checkout.
 #   5. The functions' secrets, through the CLI from a 0600 file: the project-wide ones (connector secret, inbound
 #      URL, tick token, the provider's own), and, for the one team the project's BRIGADE_TEAM_REF names (or the
 #      first team installed), the BRIGADE_MAIL_* copies of its settings that a row without settings falls back to.
@@ -411,6 +412,8 @@ end \$\$"
   fi
   session=$(sql "select session_id::text as s from brigade_gateway.gateways where team_id = $(lit "$team_ref") and kind = 'email'" | jq -r '.[0].s // empty')
   say "gateway session $session is registered as mail-gateway"
+  # Who may write (card 55) is this row's too, kept by make gateway-senders; read here only so the summary can say.
+  allowed=$(sql "select coalesce(array_to_string(allowed_senders, ', '), '') as a from brigade_gateway.gateways where team_id = $(lit "$team_ref") and kind = 'email'" | jq -r 'if type == "array" then (.[0].a // empty) else empty end')
 fi
 
 # 5. secrets
@@ -482,6 +485,14 @@ echo "  sends from:           $from"
 echo "  provider:             $provider"
 echo "  core:                 $inbound_url (inbound), $fn_base/mail-out (tick)"
 echo "  connector send URL:   $send_url"
+if [ -n "$dry" ]; then
+  echo "  allowed senders:      unchanged (make gateway-senders project=$ref team_file=$team_file shows the list)"
+elif [ -n "${allowed:-}" ]; then
+  echo "  allowed senders:      $allowed"
+else
+  echo "  allowed senders:      (none: anyone who knows the address may write, and is sent the session list)"
+  echo "                        make gateway-senders project=$ref team_file=$team_file add='qa@your-domain.com,@your-domain.com'"
+fi
 if [ "$provider" = external ]; then
   echo "  your connector needs: the inbound URL and the connector secret, in $secret_file"
 fi
