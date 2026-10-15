@@ -24,7 +24,7 @@ The agents commit with plain `git` on their branch and never run `make commit`, 
 Invoked via `/command`:
 - `/commit <ticket-id>` - Commit, pull and push through `make push` with a `<ticket-id>: <Imperative summary>` message
 - `/playwright-cli` - Browser automation for testing, screenshots and data extraction
-- `/trello-create <title> [--board] [--list] [--from file.md]` - Create a Trello card (defaults: board AppShapes, list Wanting)
+- `/trello-create <title> [--board] [--list] [--label] [--from file.md]` - Create a Trello card (defaults: board AppShapes, list Wanting, label Brigade)
 - `/trello-read <number | title | id>` - Read a Trello card: description, comments, checklists, attachments
 
 The Brigade plugin's own skills — `/brigade:setup`, `/brigade:join`, `/brigade:update`,
@@ -90,9 +90,12 @@ Example: `/playwright-cli`
 
 ### `/trello-create`
 
-Create a Trello card. Board defaults to `AppShapes`, list to `Wanting` (the other lists are Doing,
-Completing and Pinning). With `--from file.md`, the file's first heading is the title and the rest
-is the description. Trello assigns the card number; the title carries none.
+Create a Trello card. Board defaults to `AppShapes`, list to `Wanting` (the other lists are
+Hibernating, Brigade, Cavalry, Website and Canary) and label to `Brigade`: every card carries exactly
+one project label, one of the board's (`Brigade`, `Cavalry`, `AppShapes` or `Canary` today), and
+`--label` picks another when the card is for a different project. With `--from file.md`, the file's
+first heading is the title and the rest is the description. Trello assigns the card number; the
+title carries none.
 
 Examples:
 - `/trello-create Retry supabase start once in CI's supabase job`

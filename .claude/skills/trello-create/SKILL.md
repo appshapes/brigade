@@ -1,7 +1,7 @@
 ---
 name: trello-create
 description: Create a Trello card on a board and list with the trello-cli (mheap) command line tool
-argument-hint: "<title> [--board <name>] [--list <name>] [--from <markdown file>]"
+argument-hint: "<title> [--board <name>] [--list <name>] [--label <name>] [--from <markdown file>]"
 ---
 Create one Trello card with the `trello` CLI (`npm install -g trello-cli`, mheap/trello-cli 1.8+).
 
@@ -9,8 +9,13 @@ The arguments are: $ARGUMENTS
 
 ## Defaults and conventions
 
-- Board defaults to `AppShapes` (id `65be2d49d367b88f7e35ab55`, in the AppShapes workspace) and list
-  defaults to `Wanting` (the intake list). Other lists on that board: Doing, Deploying, Releasing, Supporting.
+- Board defaults to `AppShapes` (id `65be2d49d367b88f7e35ab55`, in the AppShapes workspace), the
+  board Brigade shares with Cavalry and the website. List defaults to `Wanting` (the intake list).
+  Other lists on the board: Hibernating, Brigade, Cavalry, Website, Canary.
+- Every card carries exactly one project label, one of the board's (`trello label:list --board
+  AppShapes`): `Brigade`, `Cavalry`, `AppShapes` (the website) and `Canary` today. This
+  repository's is `Brigade`, so the command below passes it; pass another only when the card is
+  for a different project. Never leave a card unlabelled.
 - Titles are plain, without a ticket number. Trello assigns the card number (`idShort`), which
   is what commits reference (`20: ...`) and what appears in the card URL (`/20-slug`). Ticket 15
   is the Brigade build-out card; a piece of work with a card of its own uses that card's number.
@@ -29,13 +34,15 @@ The arguments are: $ARGUMENTS
    lists locally) and retry.
 3. Create the card. Pass the description through a file to avoid shell quoting problems:
    ```
-   trello card:create --board "AppShapes" --list "Wanting" --name "<title>" \
+   trello card:create --board "AppShapes" --list "Wanting" --label "Brigade" --name "<title>" \
        --description "$(sed '1{/^# /d;}' card.md)" --format json
    ```
-   Optional flags: `--label <name>` (repeatable), `--due "<date or natural language>"`,
-   `--position top|bottom`.
+   Optional flags: `--due "<date or natural language>"`, `--position top|bottom`. `--label` is
+   repeatable, but a card takes one project label.
 4. Read the returned JSON and report the card number and URL: the number is the path segment
-   before the slug in `url` (`/c/<short>/<number>-<slug>`); `id` is the long id.
+   before the slug in `url` (`/c/<short>/<number>-<slug>`); `id` is the long id. Check that
+   `labels` names the project label; if it is empty, add it with
+   `trello card:label --id <id> --label <name>`.
 5. To attach a link afterwards: `trello card:attach --board ... --list ... --card "<title>" --url <url>`.
    To add a checklist: `trello card:checklist ... --name "<name>"`.
 

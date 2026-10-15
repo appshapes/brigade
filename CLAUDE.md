@@ -68,7 +68,8 @@
 - Commit messages: `<card>: <Imperative summary>`, the number being the AppShapes Trello card the work belongs
   to; `make push message="<card>: ..."`; merges only, never rebase. Skills: `/commit <card>`
   (`.claude/skills/commit/SKILL.md`), `/playwright-cli`,
-  `/trello-create <title> [--board] [--list] [--from file.md]` (defaults: board AppShapes, list Wanting; plain
+  `/trello-create <title> [--board] [--list] [--label] [--from file.md]` (defaults: board AppShapes, list
+  Wanting, label Brigade — every card carries exactly one project label, one of the board's; plain
   titles, Trello assigns the number; `.claude/skills/trello-create/SKILL.md`) and `/trello-read <number | title
   | id>` (`.claude/skills/trello-read/SKILL.md`); `docs/claude-code-usage.md` is the usage guide.
 - The release-notes email (card 43, `.github/workflows/send-release-notes.yml`) goes to a list kept by hand in
