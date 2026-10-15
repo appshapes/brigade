@@ -29,13 +29,15 @@ A plugin runs inside the service, once for each project folder ("location").
 | Session ID in bash tool children | PASS | A bash child had `OPENCODE_SESSION_ID`, `OPENCODE` and `AI_AGENT`. |
 | Plugin env injection into shell children | PASS | `ctx.shell.hook("create.before")` set `BRIGADE_PROBE_SESSION`. A bash child saw it. The hook event has no `sessionID` field. |
 | Human-only verb boundary | SAME AS CLAUDE | Bash variables can be unset or changed. This is the best-effort boundary already in `docs/security.md`. |
-| Approval gate | NOT TESTED | The probe config set `bash` and `edit` to allow. Brigade's "allow by default" model does not depend on a gate. |
+| Approval gate | NOT TESTED (probe runs with bash allowed) | The probe config set `bash` and `edit` to allow. Brigade's "allow by default" model does not depend on a gate. |
 | Plugin lifetime | FINDING | The plugin sets up when a project folder loads and cleans up on `location.shutdown`. Listeners must close in the cleanup function. |
 | v1 plugins on v2 | FINDING | A v1 plugin (named function export) fails to load: "Plugin must export a default definition with an id and an effect or setup function". |
 | New session, fork, resume, compaction: ID behavior | NOT RUN | |
 | Two sessions in one service | NOT RUN | The probe plugin picks the last active session. That is wrong with two sessions. Brigade must register each session when it sees its first `prompt` hook. |
 | Steer versus queue delivery | NOT RUN | The `prompt` hook reports `delivery: steer` by default. |
 | Hosted model | NOT RUN | |
+
+Security note: the probe config sets `bash` and `edit` to `allow`, so the local model runs commands with the account's permissions. Only fixed prompts were sent. A narrow allowlist was not tested. Run the probe in a container or VM before you send any other prompt.
 
 Findings outside Brigade's scope:
 - The real file `~/.config/opencode/plugins/ifthen-hooks.js` is a v1 plugin. It fails to load on 2.0.29 (the real service log shows the error). Its hooks do not run. This needs a v2 port.

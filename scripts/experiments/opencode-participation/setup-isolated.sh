@@ -2,6 +2,9 @@
 # Build an isolated opencode 2.x home and service for the probe. Usage: setup-isolated.sh <dir>
 # Prints the path of env.sh; source it, then run `opencode run --session <id> "<text>" </dev/null`.
 # Needs LM Studio on localhost:1234 with qwen/qwen3-coder-next. Never touches the real service.
+# WARNING: the config sets bash and edit to "allow" because headless runs cannot answer approval prompts.
+# The model then runs commands with your account's permissions. Send only fixed, trusted prompts,
+# or run this inside a container or VM with no host home mount before you reuse it.
 set -eu
 S=$1; HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$S/config/opencode/plugins" "$S/data" "$S/state" "$S/cache" "$S/work"
