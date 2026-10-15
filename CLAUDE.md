@@ -71,7 +71,13 @@
   `/trello-create <title> [--board] [--list] [--label] [--from file.md]` (defaults: board AppShapes, list
   Wanting, label Brigade — every card carries exactly one project label, one of the board's; plain
   titles, Trello assigns the number; `.claude/skills/trello-create/SKILL.md`) and `/trello-read <number | title
-  | id>` (`.claude/skills/trello-read/SKILL.md`); `docs/claude-code-usage.md` is the usage guide.
+  | id>` (`.claude/skills/trello-read/SKILL.md`) and `/trello-done <number | id>`
+  (`.claude/skills/trello-done/SKILL.md`); `docs/claude-code-usage.md` is the usage guide.
+- A card is done when its done criteria are met and shipped (released, or merged when no release carries it;
+  a research or decision card when its answer is on the card) and nothing on it is open. Then run
+  `/trello-done <card>` without being asked: it posts the closing comment, marks the card complete and
+  archives it. When something is still open, say what it is and leave the card; never report a card as
+  done without having run it.
 - The release-notes email (card 43, `.github/workflows/send-release-notes.yml`) goes to a list kept by hand in
   the secret `RELEASE_NOTES_RECIPIENTS`. Never print, upload, commit or put on a card the address of a
   recipient: this repository is public, so the addresses are secrets, never variables and never a file, every

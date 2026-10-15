@@ -26,6 +26,7 @@ Invoked via `/command`:
 - `/playwright-cli` - Browser automation for testing, screenshots and data extraction
 - `/trello-create <title> [--board] [--list] [--label] [--from file.md]` - Create a Trello card (defaults: board AppShapes, list Wanting, label Brigade)
 - `/trello-read <number | title | id>` - Read a Trello card: description, comments, checklists, attachments
+- `/trello-done <number | id>` - Close a card whose work is done: closing comment, mark complete, archive
 
 The Brigade plugin's own skills — `/brigade:setup`, `/brigade:join`, `/brigade:update`,
 `/brigade:sessions` and the team-messaging skill that handles incoming frames — are documented in
@@ -59,7 +60,7 @@ job ends (since 2026-09-19); the only time a person steps in is the fix cap hand
 
 ## Trello CLI
 
-The ticket numbers are Trello card numbers, and the two Trello skills use
+The ticket numbers are Trello card numbers, and the three Trello skills use
 [mheap/trello-cli](https://github.com/mheap/trello-cli):
 
 1. `npm install -g trello-cli`
