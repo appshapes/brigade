@@ -9,6 +9,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.28.1] — 2026-10-15
+
+### Security
+
+- **Built with Go 1.27.2** (card 102). `govulncheck` reported nine Go standard-library advisories (GO-2026-6603,
+  GO-2026-6604 and GO-2026-6605: `net/http`, HTTP/2 and `os`), all fixed in go1.27.2 and reached only from
+  Brigade's test and conformance helpers. The `go` line of `go.mod` is the release-reproducibility pin, so the
+  bump ships as a release of its own; nothing in the plugin's behaviour changed.
+
 ## [0.28.0] — 2026-10-15
 
 ### Added

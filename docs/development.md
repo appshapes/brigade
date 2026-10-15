@@ -29,7 +29,7 @@ front [`README.md`](../README.md) has the seven journeys in short form.
 
 ## Setup
 
-Go 1.27.0, `make`, `git` and `curl`, then `make setup`: module downloads, the pinned golangci-lint and goreleaser
+Go 1.27.2, `make`, `git` and `curl`, then `make setup`: module downloads, the pinned golangci-lint and goreleaser
 into `./bin`, shellcheck (Homebrew on macOS), `.env` from `.env.example`, `push.autoSetupRemote`. It stops if `gh`
 is missing or logged out, or if Docker is not running.
 
@@ -66,7 +66,7 @@ opens no port:
 BRIGADE_TEST_SYNCTHING=1 go test -count=1 -timeout 15m -run TestTwoSessionsSyncAFolderThroughSyncthing ./internal/harness/e2e/ -v
 ```
 
-Go 1.27.0 is pinned in `go.mod` with no `toolchain` line, and [`docs/allowed-deps.txt`](allowed-deps.txt) binds
+Go 1.27.2 is pinned in `go.mod` with no `toolchain` line, and [`docs/allowed-deps.txt`](allowed-deps.txt) binds
 only the shipped `brigade` binary, not your adapter. `master` only, merges only, never rebase; commit messages
 `<card>: <Imperative summary>`, through `make push message="<card>: …"` — the number is the card on the AppShapes
 Trello board the work belongs to, and [`docs/claude-code-usage.md`](claude-code-usage.md) sets up the Trello CLI
