@@ -31,7 +31,7 @@ Resend and Postmark ship with Brigade, and any other provider is a small connect
 
 4. Commit and push the project's `.brigade.json`, which the command changed. It carries only public values.
 5. Give people the address on the command's `people write to:` line. They email it with a first line
-   `to: <session>`.
+   `to: <session>` or `to: <member>`.
 
 `dry=1` shows the plan and changes nothing. When the changelog says the gateway changed, `git pull` your Brigade
 checkout and run the command again.
@@ -50,7 +50,11 @@ to: 3f9a2
 The login page is blank on Safari 18 after submit. Steps: open /login, sign in, watch the page reload empty.
 ```
 
-`3f9a2` is the five characters from the list, or the session id in full. To give the message a summary, add a
+`3f9a2` is the five characters from the list, or the session id in full. `to: rjae@example.com` — the label the
+list shows beside a member's sessions, or the first eight characters of their principal reference — reaches that
+member's best session instead: active before idle before offline, the most recently seen among equals, the
+gateways and the sessions that refuse messages left out; a label two members share is refused, because a label
+is unverified text anyone can pick. To give the message a summary, add a
 `summary:` line under the first and leave a blank line before your text:
 
 ```

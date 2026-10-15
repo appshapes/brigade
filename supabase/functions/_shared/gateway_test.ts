@@ -10,7 +10,7 @@ import {
   replyTag,
   resolveInbound,
   resolveOutbound,
-  resolveSession,
+  resolveRecipient,
   rosterText,
   type SessionRecord,
   tagOf,
@@ -78,20 +78,94 @@ function mail(over: Partial<InboundMail>): InboundMail {
   };
 }
 
-function errOf(r: ReturnType<typeof resolveSession>): string {
+function errOf(r: ReturnType<typeof resolveRecipient>): string {
   return "error" in r ? r.error : "";
 }
 
-Deno.test("resolveSession: full id, unique tail, ambiguous tail, too short, none", () => {
-  assertEquals(resolveSession(S1, sessions), { session: sessions[0] });
-  assertEquals(resolveSession("3F9A2", sessions), { session: sessions[0] });
-  const amb = resolveSession("9c9c9", [
+function pick(r: ReturnType<typeof resolveRecipient>): { id: string; how: string; others: string[] } {
+  if ("error" in r) throw new Error(r.error);
+  return { id: r.session.session_id, how: r.how, others: r.others.map((s) => s.session_id) };
+}
+
+Deno.test("resolveRecipient: full id, unique tail, ambiguous tail, too short, none", () => {
+  assertEquals(pick(resolveRecipient(S1, sessions)), { id: S1, how: "id", others: [] });
+  assertEquals(pick(resolveRecipient("3F9A2", sessions)), { id: S1, how: "tail", others: [] });
+  const amb = resolveRecipient("9c9c9", [
     sessions[2],
     { ...sessions[2], session_id: "aaaaaaaa-0000-4000-8000-00000009c9c9" },
   ]);
   assertStringIncludes(errOf(amb), "2 session ids");
-  assertStringIncludes(errOf(resolveSession("3f9", sessions)), "too short");
-  assertStringIncludes(errOf(resolveSession("zzzzz", sessions)), "no session ends");
+  assertStringIncludes(errOf(resolveRecipient("3f9", sessions)), "too short");
+  assertStringIncludes(errOf(resolveRecipient("3f9", sessions)), "no member has that label");
+  assertStringIncludes(errOf(resolveRecipient("zzzzz", sessions)), "no session ends");
+  assertStringIncludes(errOf(resolveRecipient("", sessions)), "no session or member");
+});
+
+const sam = (over: Partial<SessionRecord>): SessionRecord => ({
+  session_id: "cccccccc-0000-4000-8000-0000000000c1",
+  session_name: "sam-one",
+  principal_ref: "9f3c1a20-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  human_label: "Sam@Example.com",
+  state: "idle",
+  last_seen_at: "2026-10-15T10:00:00Z",
+  ...over,
+});
+
+Deno.test("resolveRecipient: a member's label picks their best session, active before idle before offline", () => {
+  const idle = sam({});
+  const active = sam({
+    session_id: "cccccccc-0000-4000-8000-0000000000c2",
+    session_name: "sam-two",
+    state: "active",
+  });
+  const offline = sam({
+    session_id: "cccccccc-0000-4000-8000-0000000000c3",
+    session_name: "sam-old",
+    state: "offline",
+  });
+  // sessions[0] carries the same label under another principal; the rest are the unlabelled one and the gateways.
+  const r = pick(resolveRecipient("sam@example.com", [offline, idle, active, ...sessions.slice(1)]));
+  assertEquals(r, { id: active.session_id, how: "label", others: [idle.session_id, offline.session_id] });
+  // Among equals, the most recently seen.
+  const older = sam({
+    session_id: "cccccccc-0000-4000-8000-0000000000c4",
+    last_seen_at: "2026-10-15T09:00:00Z",
+  });
+  assertEquals(pick(resolveRecipient("sam@example.com", [older, idle])).id, idle.session_id);
+  // Every session offline: the most recently seen one, and the message waits.
+  const r2 = resolveRecipient("sam@example.com", [offline, { ...older, state: "offline" }]);
+  assertEquals(pick(r2).id, offline.session_id);
+  if ("error" in r2) throw new Error(r2.error);
+  assertEquals(r2.who, "sam@example.com");
+});
+
+Deno.test("resolveRecipient: refusing sessions and gateways are never picked; a shared label is refused", () => {
+  const refusing = sam({ inbound: "refuse", state: "active" });
+  const holding = sam({ session_id: "cccccccc-0000-4000-8000-0000000000c5", inbound: "hold" });
+  assertEquals(pick(resolveRecipient("sam@example.com", [refusing, holding])).id, holding.session_id);
+  assertStringIncludes(errOf(resolveRecipient("sam@example.com", [refusing])), "can receive");
+  assertStringIncludes(errOf(resolveRecipient("mail gateway", sessions)), "can receive");
+  const impostor = sam({
+    session_id: "dddddddd-0000-4000-8000-0000000000d1",
+    principal_ref: "0b0b0b0b-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    state: "active",
+  });
+  const shared = errOf(resolveRecipient("sam@example.com", [sam({}), impostor]));
+  assertStringIncludes(shared, "2 members");
+  assertStringIncludes(shared, "9f3c1a20, 0b0b0b0b");
+});
+
+Deno.test("resolveRecipient: eight or more characters of a principal reference name the member", () => {
+  const one = sam({});
+  const two = sam({ session_id: "cccccccc-0000-4000-8000-0000000000c2", state: "active", human_label: null });
+  assertEquals(pick(resolveRecipient("9F3C1A20", [one, two, ...sessions])), {
+    id: two.session_id,
+    how: "principal",
+    others: [one.session_id],
+  });
+  assertStringIncludes(errOf(resolveRecipient("9f3c1a2", [one])), "no session ends");
+  // A session's name is never an address.
+  assertStringIncludes(errOf(resolveRecipient("frank-reviewer", sessions)), "no member has that label");
 });
 
 Deno.test("addressedToInbox accepts the inbox and its tags, refuses another team's inbox on the same account", () => {
@@ -315,6 +389,7 @@ Deno.test("rosterText shows the sessions online now: both gateways and offline s
     state: "offline",
   };
   const t = rosterText("brigade", [...sessions, offline], GW, INBOX);
+  assertStringIncludes(t, "or a member's label");
   assertStringIncludes(t, "3f9a2  frank-reviewer  idle  sam@example.com (unverified)");
   assertStringIncludes(t, "↳ reviewing the login fix");
   assertEquals(t.includes("gateway"), false);

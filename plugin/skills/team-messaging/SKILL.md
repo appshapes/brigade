@@ -2,8 +2,11 @@
 name: team-messaging
 description: >-
   Message the Claude Code sessions of OTHER PEOPLE on your Brigade team (cross-user, cross-machine) with the
-  `brigade` CLI, and handle incoming <brigade-message> frames. Use when asked to tell, ask, notify or hand off
-  to a teammate's session, when asked who is on the team, or whenever a <brigade-message> frame arrives.
+  `brigade` CLI, reach people on email or Slack through the team's gateways (a body whose first line is
+  `to: <address>`, `to: @name` or `to: #channel`), and handle incoming <brigade-message> frames. Use when asked
+  to tell, ask, notify or hand off to a teammate's session, to email or Slack a person or a channel, when asked
+  who is on the team, or whenever a <brigade-message> frame arrives; a user's own request to message someone on
+  Slack is `/brigade:slack`.
   Also use it when a `Brigade doing:` line asks this session to say what it is working on; subagents never do.
 allowed-tools: Bash(brigade:*)
 ---
@@ -179,7 +182,8 @@ who answers mail or Slack. Both are hosted in the team's backend; nothing runs o
 
 - **To write to a person**, send to the gateway's SESSION cell with a body whose **first line** names them:
   `to: <email address>` for the mail gateway; `to: @name`, `to: #channel` or `to: <email address>` for the
-  Slack gateway.
+  Slack gateway. For Slack, `/brigade:slack <to> <text>` (the `brigade:slack` skill) is the one-line form: it
+  finds the gateway by its harness and runs the `brigade send` below for you.
 
   ```bash
   brigade send fbb35 --summary "Please retest the Safari login" <<'EOF'
@@ -193,6 +197,11 @@ who answers mail or Slack. Both are hosted in the team's backend; nothing runs o
   sets a mail's subject.
 - **To answer a message that reached you through a gateway**, reply the normal way, with `--reply-to
   <message-id>` and **no** `to:` line: the gateway knows where it came from and threads the reply there.
+- **A person reaches a session by its five characters, or by its owner's label.** A person on email or Slack
+  writes `to: <session>` as before, or `to: <label>` — the `MEMBER` cell, such as an email address — and the
+  gateway picks that member's best session: the gateways and the sessions that refuse messages left out, active
+  before idle before offline, the most recently seen among equals. The person is told which session got it.
+  A label two members share is refused, not guessed at.
 - **A message from a person arrives as an ordinary message from the gateway.** Its body starts
   `Email from <address> (unverified), subject "…":` or `Slack message from @name (<user id>, unverified name)
   in #channel:`, then the text they wrote, then a `[brigade]` block (`via`, `from`, and the mail or Slack ids).

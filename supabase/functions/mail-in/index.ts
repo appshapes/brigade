@@ -23,7 +23,7 @@ import {
   brigadeBody,
   gatewayForMail,
   resolveInbound,
-  resolveSession,
+  resolveRecipient,
   rosterText,
   type SessionRecord,
 } from "../_shared/gateway.ts";
@@ -112,9 +112,9 @@ Deno.serve(async (req) => {
         return json(200, { command: resolution.command });
       }
       case "message": {
-        const r = resolveSession(resolution.target, sessions.filter((s) => s.session_id !== gw.sessionId));
+        const r = resolveRecipient(resolution.target, sessions.filter((s) => s.session_id !== gw.sessionId));
         if ("error" in r) {
-          await bounce(`The session could not be found: ${r.error}.`);
+          await bounce(`The message was not sent: ${r.error}.`);
           return json(200, { bounced: "not_found" });
         }
         const { body, summary } = brigadeBody(m, resolution.text);

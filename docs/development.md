@@ -110,7 +110,7 @@ source of truth for where the work stands is `.context/plans/brigade-execution-l
 | `internal/conformance`, `cmd/brigade-conformance` | the conformance suite (dev and test only) |
 | `cmd/brigade` | the one shipped binary: the plugin harness, the bundled Supabase adapter and the bundled Syncthing sync adapter |
 | `internal/harness/foldersync`, `internal/syncadapters/syncthing` | the harness side of the sync-adapter protocol, and the Syncthing adapter (`brigade sync-adapter syncthing`) |
-| `plugin/` | what the Claude Code plugin ships: the manifest, the lifecycle hooks, the five skills, the sh bootstrap and the release pins |
+| `plugin/` | what the Claude Code plugin ships: the manifest, the lifecycle hooks, the six skills, the sh bootstrap and the release pins |
 | `supabase/` | the Supabase backend: migrations, pgTAP tests, local stack config |
 | [`docs/mail-gateway.md`](mail-gateway.md), [`docs/slack-gateway.md`](slack-gateway.md), `supabase/functions/`, `scripts/gateway-install.sh`, `scripts/slack-gateway-install.sh`, `scripts/mail-connector-check.sh` | the mail and Slack gateways (card 48): the features and the gateway contract, the six Edge Functions (the mail core, the Resend and Postmark connectors of [`docs/mail-connectors.md`](mail-connectors.md), the Slack pair) with their Deno unit tests (`make functions-check`), and the installers (`make gateway-install`, `make slack-gateway-install`) |
 | `scripts/` | the proof scripts behind `make e2e` and `make proof`, the headless smoke test and the release sequence |

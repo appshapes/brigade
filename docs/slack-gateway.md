@@ -39,7 +39,7 @@ You run one command twice, with a step at Slack in between.
 
 6. Commit and push the project's `.brigade.json`, which the command changed. It carries only public values.
 7. Tell people the bot's handle, on the command's `workspace and bot:` line: they message it with a first line
-   `to: <session>`, or type `/brigade sessions`.
+   `to: <session>` or `to: <member>`, or type `/brigade sessions`.
 
 Nothing else is needed from Slack: no public URL of your own, no Socket Mode, no DNS. When the changelog says the
 gateway changed, `git pull` your Brigade checkout and run the second pass again.
@@ -60,7 +60,15 @@ The login page is blank on Safari 18 after submit. Steps: open /login, sign in, 
 ```
 
 `3f9a2` is the five characters from the list, or the session id in full. `/brigade send 3f9a2 <text>`
-does the same from a slash command. A `summary:` line under the first, then a blank line, gives the message a
+does the same from a slash command.
+
+**Or name the member.** `to: rjae@example.com` — the label the list shows beside their sessions, or the first
+eight characters of their principal reference — picks that member's best session: active before idle before
+offline, the most recently seen among equals, the gateways and the sessions that refuse messages left out. If
+every session of theirs is offline, the message waits for the one seen most recently. The bot tells you which
+session got it and which other sessions of theirs are online, so a wrong pick is corrected by resending to one
+of those. `/brigade send rjae@example.com <text>` does the same. A label two members share is refused, with both
+named by principal prefix: a label is unverified text anyone can pick. A `summary:` line under the first, then a blank line, gives the message a
 summary. The bot reacts with :eyes: once it has carried your message.
 
 **Answer a session.** Reply in the thread under its message; writing again in your own thread reaches the same
@@ -68,7 +76,8 @@ session. In a channel, mention `@brigade` in the reply, or the bot does not see 
 
 **What you receive.** A session's message is posted in your direct messages, or in the channel it was addressed
 to; a reply to you goes into your thread and mentions you. It names the session, its owner's label (unverified)
-and the team, then the text, then a `[brigade]` block.
+and the team, then the text, then how to reply — nothing else. The gateway needs no breadcrumb in the text: a
+reply is routed by its thread.
 
 **What to know.**
 
@@ -83,7 +92,10 @@ and the team, then the text, then a `[brigade]` block.
 ## For sessions
 
 The gateway is the `slack-gateway` row of `brigade sessions` (harness `gateway-slack`, label `slack gateway`).
-It is online while its tick runs. The `brigade:team-messaging` skill carries these rules.
+It is online while its tick runs. The `brigade:team-messaging` skill carries these rules, and
+`/brigade:slack <to> <text>` (the `brigade:slack` skill) is the one-line form: it finds the gateway by its
+harness, builds the body below and runs the one `brigade send`; `--summary "<line>"`, `--reply-to <message-id>`
+and `--body-file <path>` are its flags.
 
 **Write to a person or a channel.** Send to the gateway's SESSION cell. The first line is `to: @name`,
 `to: #channel` or `to: <email address>`. A Slack user id or channel id works too.
@@ -159,8 +171,11 @@ Slash commands and messages from the messages tab**.
 - **`slack-in`** answers Slack's URL verification challenge unsigned (it carries only a nonce), verifies every
   other request's `X-Slack-Signature`, ignores edits, bot messages and its own, dedupes by event id, and finds
   the target in this order: the person's `to:` line or block; the thread they replied in, through the thread
-  table; otherwise it tells them. It looks the person's name up, builds the Brigade body, calls `send_message`
-  as the gateway with `reply_to` set when known, records the thread and reacts :eyes:.
+  table; otherwise it tells them. What a `to:` names is a session id in full, a unique tail of five or more
+  characters, or a member — by label, or by eight or more characters of their principal reference — whose best
+  session is then chosen (`resolveRecipient` in `_shared/gateway.ts`, shared with the mail gateway). It looks
+  the person's name up, builds the Brigade body, calls `send_message` as the gateway with `reply_to` set when
+  known, records the thread, reacts :eyes: and, when a member was named, says which session got it.
 - **`slack-out`**, the tick, heartbeats the gateway session, drains its inbox, resolves `to:` (`@name` through
   the user list, `#channel` through the channel list, an email through Slack's lookup, ids as given) or the
   thread of the message it replies to, posts, records the thread and acknowledges only after Slack accepted the

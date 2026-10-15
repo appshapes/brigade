@@ -15,8 +15,9 @@ import {
   sendMessage,
   threadBySlack,
 } from "../_shared/db.ts";
-import { resolveSession, type SessionRecord } from "../_shared/gateway.ts";
+import { resolveRecipient, type SessionRecord } from "../_shared/gateway.ts";
 import {
+  escapeMrkdwn,
   parseCommandRequest,
   parseEventsRequest,
   resolveSlackInbound,
@@ -29,6 +30,26 @@ const env = (k: string) => Deno.env.get(k) ?? "";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+
+/** sentNote says where a person's message went: the session, and, when they named a member, why that one and
+ * which other sessions of theirs are online. */
+function sentNote(r: Exclude<ReturnType<typeof resolveRecipient>, { error: string }>): string {
+  const name = (s: SessionRecord) => `*${escapeMrkdwn(s.session_name)}* (\`…${s.session_id.slice(-5)}\`)`;
+  let text = `Sent to ${name(r.session)}`;
+  if (r.who !== null) {
+    const seen = r.session.state === "offline"
+      ? "offline; the message waits for it"
+      : `the ${r.session.state} session of theirs seen most recently`;
+    text += `: ${escapeMrkdwn(r.who)}'s ${seen}`;
+    const online = r.others.filter((s) => s.state !== "offline");
+    if (online.length > 0) {
+      text += `. ${online.length} other session${online.length === 1 ? "" : "s"} of theirs ${
+        online.length === 1 ? "is" : "are"
+      } online: ${online.map(name).join(", ")}; send to one of those to choose it`;
+    }
+  }
+  return `${text}. Accepted means stored for that session, not read; its reply will come to you here.`;
 }
 
 /** The bot's own user id, learned once per instance from auth.test. */
@@ -99,17 +120,17 @@ Deno.serve(async (req) => {
         return await tell(`The lines at the top of your message could not be read: ${resolution.reason}.`);
       case "unaddressed":
         return await tell(
-          `No session was named. Start your message with a line \`to: <session>\`, or reply in the thread under a session's message.\n\n${rosterNote}`,
+          `No session was named. Start your message with a line \`to: <session or member>\`, or reply in the thread under a session's message.\n\n${rosterNote}`,
         );
       case "command": {
         const text = resolution.command === "sessions" || resolution.command === "help"
           ? rosterNote
-          : `Unknown command \`${resolution.command}\`. Try \`sessions\`, \`help\`, or \`send <session> <text>\`.\n\n${rosterNote}`;
+          : `Unknown command \`${resolution.command}\`. Try \`sessions\`, \`help\`, or \`send <session or member> <text>\`.\n\n${rosterNote}`;
         return await tell(text);
       }
       case "message": {
-        const r = resolveSession(resolution.target, sessions.filter((s) => s.session_id !== gw.sessionId));
-        if ("error" in r) return await tell(`The session could not be found: ${r.error}.\n\n${rosterNote}`);
+        const r = resolveRecipient(resolution.target, sessions.filter((s) => s.session_id !== gw.sessionId));
+        if ("error" in r) return await tell(`The message was not sent: ${r.error}.\n\n${rosterNote}`);
         let userName: string | null = null;
         let channelName: string | null = null;
         let permalink: string | null = null;
@@ -157,14 +178,11 @@ Deno.serve(async (req) => {
           actor: m.user,
         });
         if (m.ts) await api.addReaction(m.channel, m.ts, "eyes").catch(() => {});
-        if (isCommand) {
-          return json(200, {
-            response_type: "ephemeral",
-            text: `Sent to *${r.session.session_name}* (\`…${
-              r.session.session_id.slice(-5)
-            }\`). Accepted means stored for that session, not read; its reply will come to you here.`,
-          });
-        }
+        // A person who named a member is told which of their sessions got the message, and which others could
+        // have, so a wrong pick is corrected by resending to one of those; a person who named a session is not.
+        const note = sentNote(r);
+        if (isCommand) return json(200, { response_type: "ephemeral", text: note });
+        if (r.who !== null) await tell(note);
         return json(200, {
           message_id: sent.message_id,
           to: r.session.session_id,

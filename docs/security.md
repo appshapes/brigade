@@ -460,7 +460,7 @@ The `join`, `update` and `sessions` skills carry the same kind of grant for thei
 the three: it reaches one read-only verb, where `Bash(brigade:*)` reaches every `brigade` verb and
 `Bash(claude plugin:*)` installs and removes software.
 
-**All five skills are model-invocable from 0.9.0.** `join`, `sessions` and `update` carried
+**Every skill is model-invocable from 0.9.0.** `join`, `sessions` and `update` carried
 `disable-model-invocation: true` until then; the key is gone from the tree, `user-invocable: true` stays so the
 slash commands are unchanged, and `scripts/ci/plugin-check.sh` check 10 fails if any skill declares it again.
 Be plain about what that trades. No permission boundary fell: a message cannot load a skill — the model decides

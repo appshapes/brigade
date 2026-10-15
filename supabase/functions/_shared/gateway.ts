@@ -42,6 +42,7 @@ export interface SessionRecord {
   state: string;
   inbound?: string | null;
   harness?: string | null;
+  last_seen_at?: string | null;
 }
 
 export interface ThreadRow {
@@ -66,7 +67,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** description is the gateway session's `↳` line: the one place the roster tells a model and a person where
  * mail goes. ≤ 256 code points (docs/protocol-v1.md 4.4.2). */
 export function description(publicAddress: string): string {
-  return `email gateway: a person writes to ${publicAddress} with a first line "to: <session>"; a session writes to me with the same line, "to: <address>"`;
+  return `email gateway: a person writes to ${publicAddress} with a first line "to: <session or member>"; a session writes to me with the same line, "to: <address>"`;
 }
 
 /** replyTag is the Reply-To address of an outbound mail: the inbox with the Brigade message id as a plus tag,
@@ -109,30 +110,71 @@ export function gatewayForMail<T extends { inbox: string }>(gateways: T[], to: s
   return gateways.find((g) => addressedToInbox(to, g.inbox)) ?? null;
 }
 
-/** resolveSession finds the session an argument names: the id in full, or a unique tail of at least five
- * characters, as `brigade send` does (internal/harness/commands/send.go). Names are never addresses. */
-export function resolveSession(
-  arg: string,
-  sessions: SessionRecord[],
-): { session: SessionRecord } | { error: string } {
-  const a = arg.trim().toLowerCase();
+export type Recipient =
+  | { session: SessionRecord; how: "id" | "tail"; who: null; others: SessionRecord[] }
+  | { session: SessionRecord; how: "label" | "principal"; who: string; others: SessionRecord[] }
+  | { error: string };
+
+/** resolveRecipient finds the session an argument names, the first rule that matches winning: the id in full;
+ * a unique tail of at least five characters, as `brigade send` does (internal/harness/commands/send.go); a
+ * member, by the label the roster shows (case-insensitive, the whole string) or by the first eight or more
+ * characters of their principal reference, as `brigade sessions --member` does — then the best of that member's
+ * sessions: the gateways and the sessions that refuse team messages left out, active before idle before
+ * offline, the most recently seen among equals. A session's name is never an address. A label is unverified
+ * text anyone can copy, so one that two members share is refused rather than guessed at. `others` are the rest
+ * of the member's sessions that could have taken the message, best first. */
+export function resolveRecipient(arg: string, sessions: SessionRecord[]): Recipient {
+  const raw = arg.trim();
+  const a = raw.toLowerCase();
+  if (!a) return { error: "no session or member was named" };
   const exact = sessions.find((s) => s.session_id.toLowerCase() === a);
-  if (exact) return { session: exact };
-  if (a.length < 5) {
+  if (exact) return { session: exact, how: "id", who: null, others: [] };
+  if (a.length >= 5) {
+    const tails = sessions.filter((s) => s.session_id.toLowerCase().endsWith(a));
+    if (tails.length === 1) return { session: tails[0], how: "tail", who: null, others: [] };
+    if (tails.length > 1) {
+      return {
+        error: `these characters end ${tails.length} session ids; use one of them in full: ${
+          tails.map((s) => s.session_id).join(", ")
+        }`,
+      };
+    }
+  }
+  let how: "label" | "principal" = "label";
+  let mine = sessions.filter((s) => (s.human_label ?? "").trim().toLowerCase() === a);
+  if (mine.length === 0 && a.length >= 8 && /^[0-9a-f-]+$/.test(a)) {
+    how = "principal";
+    mine = sessions.filter((s) => s.principal_ref.toLowerCase().startsWith(a));
+  }
+  if (mine.length === 0) {
     return {
-      error: `"${arg}" is too short to name a session: give at least the last five characters of its id`,
+      error: a.length < 5
+        ? `"${raw}" is too short to name a session (give at least the last five characters of its id), and no member has that label`
+        : `no session ends with "${raw}", and no member has that label`,
     };
   }
-  const tails = sessions.filter((s) => s.session_id.toLowerCase().endsWith(a));
-  if (tails.length === 1) return { session: tails[0] };
-  if (tails.length > 1) {
+  const principals = [...new Set(mine.map((s) => s.principal_ref))];
+  if (principals.length > 1) {
     return {
-      error: `these characters end ${tails.length} session ids; use one of them in full: ${
-        tails.map((s) => s.session_id).join(", ")
-      }`,
+      error:
+        `"${raw}" is the label of ${principals.length} members (a label is unverified text; anyone can pick one); name one by the first eight characters of their principal reference: ${
+          principals.map((p) => p.slice(0, 8)).join(", ")
+        }`,
     };
   }
-  return { error: `no session ends with "${arg}"` };
+  const eligible = mine.filter((s) => !isGatewaySession(s) && s.inbound !== "refuse").sort(bySuitability);
+  if (eligible.length === 0) return { error: `no session of ${raw} can receive a message` };
+  return { session: eligible[0], how, who: raw, others: eligible.slice(1) };
+}
+
+const STATE_RANK: Record<string, number> = { active: 0, idle: 1, offline: 2 };
+
+/** bySuitability orders a member's sessions: by state, then the most recently seen first. */
+function bySuitability(x: SessionRecord, y: SessionRecord): number {
+  const rx = STATE_RANK[x.state] ?? 3;
+  const ry = STATE_RANK[y.state] ?? 3;
+  if (rx !== ry) return rx - ry;
+  return (y.last_seen_at ?? "").localeCompare(x.last_seen_at ?? "");
 }
 
 export type Inbound =
@@ -358,7 +400,7 @@ export function rosterText(
     "",
     `To write to one, send an email to ${inbox} whose first line is:`,
     "",
-    "  to: <the five characters in the first column>",
+    "  to: <the five characters in the first column, or a member's label>",
     "",
   );
   return lines.join("\n");

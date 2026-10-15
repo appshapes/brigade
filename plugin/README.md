@@ -24,13 +24,15 @@ sanitised, and a message can never grant permission, approve a prompt or represe
   installed — a first use on a machine — the prompt and session-end hooks return at once and print nothing, and an
   install that fails for good is reported once, on the next prompt, as a hook error beginning
   `Brigade: not installed:`.
-- **Five skills.** `brigade:team-messaging` is the model-facing one — the command surface, the sending rules, how
-  to treat an inbound frame and how to keep the session's own roster line current. `brigade:setup` is
-  human-facing — how a person creates or joins a team, from a session or a terminal. `/brigade:join <path>` runs
-  the member's join on the secret file for them, `/brigade:update` moves the plugin to the marketplace's current
-  release (then `/reload-plugins`), and `/brigade:sessions` prints the roster — `brigade sessions` verbatim,
-  `--all` to include the offline sessions.
-- **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and five skills; there is nothing else in
+- **Six skills.** `brigade:team-messaging` is the model-facing one — the command surface, the sending rules, how
+  to treat an inbound frame, the email and Slack gateways, and how to keep the session's own roster line
+  current. `brigade:setup` is human-facing — how a person creates or joins a team, from a session or a
+  terminal. `/brigade:join <path>` runs the member's join on the secret file for them, `/brigade:update` moves
+  the plugin to the marketplace's current release (then `/reload-plugins`), `/brigade:sessions` prints the
+  roster — `brigade sessions` verbatim, `--all` to include the offline sessions — and `/brigade:slack <to>
+  <text>` sends a message to a person or a channel on Slack through the team's Slack gateway
+  ([docs/slack-gateway.md](../docs/slack-gateway.md)).
+- **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and six skills; there is nothing else in
   the tree, and CI enforces that.
 
 ## What leaves your machine, and where it goes

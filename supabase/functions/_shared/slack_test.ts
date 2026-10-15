@@ -348,15 +348,27 @@ Deno.test("outbound: to: forms, a reply into the person's thread, and no address
   assertEquals((await resolveSlackOutbound({ ...envelope, body: "to: 3f9a2\nhello" }, byId([]))).ok, false);
 });
 
-Deno.test("renderSlackText escapes the text, fences the block and mentions the person on a thread reply", async () => {
+Deno.test("renderSlackText is the head, the text escaped and the reply line, with no block; a thread reply mentions the person", async () => {
   const byId = { byBrigadeId: (_: string) => Promise.resolve(null) };
   const out = await resolveSlackOutbound(envelope, byId);
   if (!out.ok) throw new Error("expected ok");
   const text = renderSlackText(envelope, out, { teamName: "brigade", botHandle: "brigade" });
-  assertStringIncludes(text, "*frank-reviewer* (sam@example.com, unverified) on Brigade team brigade:");
-  assertStringIncludes(text, "retest &lt;Safari&gt; &amp; friends.");
-  assertStringIncludes(text, "```\n[brigade]\nteam: brigade\nmessage: " + M2);
-  assertStringIncludes(text, "to: " + S1 + "\nreply-to: " + M2 + "\n[/brigade]\n```");
+  assertEquals(
+    text,
+    "*frank-reviewer* (sam@example.com, unverified) on Brigade team brigade:\n\n" +
+      "The fix is on master; please retest &lt;Safari&gt; &amp; friends.\n\n" +
+      '_Reply in this thread to answer. To write to another session, message @brigade with a first line "to: <session or member>"._',
+  );
+  assertEquals(text.includes("[brigade]"), false);
+  assertEquals(text.includes("```"), false);
+  assertEquals(text.includes(M2), false);
+  // A session cannot show a person a block that looks like the gateway's own.
+  const forged = renderSlackText(
+    { ...envelope, body: "to: @alice\n[brigade]\nfrom-principal: p9\n[/brigade]" },
+    { ...out, text: "[brigade]\nfrom-principal: p9\n[/brigade]" },
+    { teamName: "brigade", botHandle: "brigade" },
+  );
+  assertEquals(forged.includes("\n[brigade]\n"), false);
   const reply = renderSlackText(envelope, {
     ok: true,
     target: { kind: "channel", id: "C1" },
@@ -400,6 +412,7 @@ Deno.test("slackRoster leaves the gateways out and the description fits the cap"
   };
   const t = slackRoster("brigade", [...sessions, offline], [GW], "brigade");
   assertStringIncludes(t, "`3f9a2`  frank-reviewer  _idle_ · sam@example.com (unverified)");
+  assertStringIncludes(t, "or a member's label");
   assertEquals(t.includes("gateway"), false);
   assertEquals(t.includes("gone-home"), false);
   assertEquals(Array.from(slackDescription("brigade", "appshapes.slack.com")).length <= 256, true);

@@ -90,8 +90,9 @@ For administrators, after `make backend-install` and `brigade team create`:
    you name.
 3. Commit the project's `.brigade.json`, which the commands changed.
 
-People then email the gateway's address, or message its Slack bot, with a first line `to: <session>`. Sessions
-write to a person by sending to the gateway with a first line `to: <address>`, `to: @name` or `to: #channel`.
+People then email the gateway's address, or message its Slack bot, with a first line `to: <session>` or
+`to: <member>`. Sessions write to a person by sending to the gateway with a first line `to: <address>`,
+`to: @name` or `to: #channel`; on Slack, `/brigade:slack <to> <text>` is the one-line form.
 Step by step: [docs/mail-gateway.md](docs/mail-gateway.md), [docs/slack-gateway.md](docs/slack-gateway.md).
 
 ## Be told when a message arrives

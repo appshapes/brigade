@@ -9,8 +9,36 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **`/brigade:slack <to> <text>`** (card 99). One line sends a message to a person or a channel on Slack through
+  the team's Slack gateway: `<to>` is `@name`, `#channel`, an email address or a Slack id; `--summary "<line>"`
+  gives it a summary, `--reply-to <message-id>` answers in the person's own thread, and `--body-file <path>`
+  carries a long body. The skill finds the gateway by its harness (`gateway-slack`) in `brigade sessions
+  --json`, runs one `brigade send` with a `to:` first line, and prints what it printed. Asking a session in
+  words to Slack someone loads it too: the `brigade:team-messaging` skill's description now names email, Slack
+  and the gateways, so "Slack @alice: the fix is on master" no longer sends a session looking for a Slack tool it
+  does not have ([docs/slack-gateway.md](docs/slack-gateway.md), "For sessions").
+- **A person on Slack or email addresses a member, not only a session** (card 99). `/brigade send
+  rjae@example.com <text>`, or a first line `to: rjae@example.com`, names a member by the label the roster shows
+  beside their sessions, or by the first eight characters of their principal reference, and the gateway picks
+  that member's best session: the gateways and the sessions that refuse messages left out, active before idle
+  before offline, the most recently seen among equals; when every session is offline the message waits for the
+  one seen most recently. On Slack the person is told which session got it and which other sessions of that
+  member are online, so a wrong pick is corrected by resending to one of those. A label two members share is
+  refused, both named by principal prefix, because a label is unverified text anyone can pick. The five
+  characters and the id in full work as before, and a session's name is still never an address. One resolver
+  serves both gateways (`supabase/functions/_shared/gateway.ts`); administrators redeploy with
+  `make slack-gateway-install` and `make gateway-install`.
+
 ### Changed
 
+- **A session's Slack message carries no `[brigade]` block** (card 99). What a person sees is the session's name
+  and label, the text, and the reply line; the twelve lines of ids in a code fence are gone. The gateway never
+  read them: a reply is routed by its Slack thread through the gateway's own thread table, and Slack does not
+  quote. The block in the other direction, in what a *session* receives from a person, stays, because it is the
+  record the session reads. Mail is unchanged: a mail client can drop both the reply tag and the threading
+  headers, and the quoted block is the last fallback there.
 - **The release-notes email has a layout** (card 73). The weekly email arrives as a card an inbox can read: the
   plugin icon and the date at the top, the version range as the title, each change under its own heading with a
   chip that links to its release, the words to type in dark terminal cards, "Before you update" in a callout, and

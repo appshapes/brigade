@@ -28,7 +28,7 @@ export const SLACK_HARNESS = "gateway-slack";
 
 /** slackDescription is the gateway session's `↳` line. ≤ 256 code points. */
 export function slackDescription(botHandle: string, workspace: string): string {
-  return `slack gateway for ${workspace}: a person DMs @${botHandle} or mentions it with a first line "to: <session>"; a session writes to me with "to: @name", "to: #channel" or "to: <email>"`;
+  return `slack gateway for ${workspace}: a person DMs @${botHandle} or mentions it with a first line "to: <session or member>"; a session writes to me with "to: @name", "to: #channel" or "to: <email>"`;
 }
 
 // ---- Signature -------------------------------------------------------------------------------------------
@@ -223,7 +223,8 @@ export type SlackInbound =
   | { kind: "invalid"; reason: string };
 
 /** resolveSlackInbound decides what a person's message is and where it goes: their explicit `to:` line or block
- * first, then the thread they replied in. A slash command's text is `sessions`, `help`, or `send <session> <text>`. */
+ * first, then the thread they replied in. A slash command's text is `sessions`, `help`, or
+ * `send <session or member> <text>`; what names a session is resolveRecipient's business (gateway.ts). */
 export async function resolveSlackInbound(m: InboundSlack, threads: SlackThreads): Promise<SlackInbound> {
   if (m.source === "command") {
     const [verb, ...rest] = m.text.split(/\s+/);
@@ -363,8 +364,11 @@ export interface SlackRenderContext {
   botHandle: string;
 }
 
-/** renderSlackText writes the Slack message for a Brigade envelope: who wrote it, the text (escaped), the
- * envelope block in a code fence, and how to reply. A mention in front notifies the person in a channel thread. */
+/** renderSlackText writes the Slack message for a Brigade envelope: who wrote it, the text (escaped), and how to
+ * reply — nothing else. The gateway needs no breadcrumb in the text: a reply is routed by its thread, through the
+ * thread table (resolveSlackInbound), and Slack never quotes. A mention in front notifies the person in a channel
+ * thread. The text is still escaped against block lines, so a session cannot show a person a block that looks
+ * like the gateway's own. */
 export function renderSlackText(
   env: Envelope,
   out: SlackOutbound & { ok: true },
@@ -374,19 +378,6 @@ export function renderSlackText(
   const head = `${out.mention ? `<@${out.mention}> ` : ""}*${
     escapeMrkdwn(env.sender.session_name)
   }* (${label}) on Brigade team ${escapeMrkdwn(ctx.teamName)}:\n\n`;
-  const block = renderBlock([
-    ["team", ctx.teamName],
-    ["message", env.message_id],
-    ["from-session", env.sender.session_id],
-    ["from-name", env.sender.session_name],
-    ["from-label", env.sender.human_label ?? null],
-    ["from-principal", env.sender.principal_ref],
-    ["in-reply-to", env.reply_to ?? null],
-    ["hops", env.hop_count],
-    ["sent", env.created_at],
-    ["to", env.sender.session_id],
-    ["reply-to", env.message_id],
-  ]);
   // The app hears direct messages and mentions only, so a reply in a channel thread must mention the bot.
   const inChannel = out.target.kind === "channel" || out.target.kind === "channel-name"
     ? !(out.target.kind === "channel" && out.target.id.startsWith("D"))
@@ -395,8 +386,8 @@ export function renderSlackText(
     ? `Reply in this thread and mention @${ctx.botHandle} to answer.`
     : "Reply in this thread to answer.";
   const tail =
-    `\n_${how} To write to another session, message @${ctx.botHandle} with a first line "to: <session>"._`;
-  return head + escapeMrkdwn(escapeBlockLines(out.text.trim())) + "\n\n```\n" + block + "\n```" + tail;
+    `\n\n_${how} To write to another session, message @${ctx.botHandle} with a first line "to: <session or member>"._`;
+  return head + escapeMrkdwn(escapeBlockLines(out.text.trim())) + tail;
 }
 
 /** slackRoster lists the sessions a person can write to: the ones online now, the gateways left out. */
@@ -423,7 +414,7 @@ export function slackRoster(
   }
   lines.push(
     "",
-    `To write to one: message @${botHandle} with a first line \`to: <the five characters>\`, or \`/brigade send <five characters> <text>\`.`,
+    `To write to one: message @${botHandle} with a first line \`to: <the five characters, or a member's label>\`, or \`/brigade send <five characters or label> <text>\`.`,
   );
   return lines.join("\n");
 }
