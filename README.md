@@ -28,6 +28,7 @@ Two minutes of it, with two people's sessions:
 | create a team | [Create a team](#create-a-team) |
 | add a repository to the team | [Add a repository to the team](#add-a-repository-to-the-team) |
 | create the database, once per organization | [Create a database](#create-a-database) |
+| update the hosted project after a release: migrations, the gateways | [`docs/setup.md` › Updating the backend](docs/setup.md#updating-the-backend) |
 | rotate the join secret, revoke a member, transfer the team | [`docs/setup.md` › Team administration](docs/setup.md#team-administration) |
 | leave a team, or uninstall | [`docs/setup.md` › Leaving and uninstalling](docs/setup.md#leaving-and-uninstalling) |
 | know what Brigade protects, and what it does not | [`docs/security.md`](docs/security.md) |

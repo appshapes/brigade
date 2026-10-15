@@ -167,6 +167,32 @@ says where — your session's model publishes one sentence about its work to the
 of it is a `brigade doing` call in your transcript. "What teammates see about your session's work", under
 "Member: join a team", says what that is and how to turn it off.
 
+### Updating the backend
+
+A release can also change what the hosted project runs: a migration under `supabase/migrations/`, or the gateway
+functions under `supabase/functions/`. The release's entry in [`CHANGELOG.md`](../CHANGELOG.md) says so when it
+does; a release that says nothing about either needs nothing from the administrator. When it does, from your
+Brigade checkout, with `SUPABASE_ACCESS_TOKEN` in the environment the way
+[section 1 of the hosted-project chapter](#1-deploying-the-backend) shows:
+
+1. **Pull the Brigade checkout** (`git pull`), so what you deploy is the release's code.
+2. **Apply the migrations:** `make backend-install project=<ref>`. It is idempotent: it applies the migrations
+   not applied yet and leaves everything else alone; `dry=1` first lists them and changes nothing.
+3. **Redeploy the mail gateway, if the team has one:** the same `make gateway-install …` command you installed
+   it with, with the same values ("Running it again" in [docs/mail-gateway.md](mail-gateway.md)).
+4. **Redeploy the Slack gateway, if the team has one:** the second pass,
+   `SLACK_SECRETS_FILE=<path> make slack-gateway-install project=<ref> team_file=<path>/.brigade.json`
+   ("Running it again" in [docs/slack-gateway.md](slack-gateway.md)). The first pass, without the secrets file,
+   redeploys the functions too and prints the manifest again; it leaves the gateway's roster line as it was.
+5. **Check:** `npx --yes supabase@2.116.0 migration list --project-ref <ref>` shows every migration on both
+   sides, and `npx --yes supabase@2.116.0 functions list --project-ref <ref>` shows each function's version and
+   when it was last deployed.
+
+Members need nothing from this: a plugin version and a migration are independent by design (section 1 again),
+and a gateway's functions belong to the project, so every team on the project has the new ones once one
+administrator deploys them. The Slack app and the mail provider need nothing either unless the release notes say
+a scope, an endpoint or a provider setting changed.
+
 ## The project owns the team
 
 A Brigade team belongs to a **project**: one file, `.brigade.json`, committed at the repository's top level, names
