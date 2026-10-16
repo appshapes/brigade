@@ -9,6 +9,31 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A session can tag a person on Slack** (card 106). `@handle` in the text of a message to the Slack gateway
+  becomes a mention when the workspace knows the handle or display name, and so does Slack's own markup with the
+  user id, `<@U0123ABCD>` — the id a `from` line carries — or with a channel, `<#C0123ABCD>`. Until now the
+  gateway escaped the markup and resolved no name, so a session had no way to get a person's attention in a
+  channel but a separate direct message. `@here`, `@channel`, `@everyone` and user groups are never passed: a
+  session cannot page a whole channel ([docs/slack-gateway.md](docs/slack-gateway.md), "For sessions").
+
+### Changed
+
+- **A reply in a Slack channel thread reaches the session without mentioning the bot** (card 106). People reply
+  in the thread and do not read the footer asking for `@brigade`; those replies were never delivered to the
+  gateway. The app now subscribes to channel messages (`message.channels`, `message.groups`; scopes
+  `channels:history`, `groups:history`), and the gateway carries a channel message without a mention exactly
+  when it is a reply in a thread it is part of — a session's post, or a person's earlier message to one. Anything
+  else in a channel is dropped unread and unanswered, and a tagged reply is carried once. The footer of a channel
+  post stops asking for the mention as soon as the installed app's token carries the scope, read from Slack's
+  own header, so a redeploy before the reinstall below promises nothing false. **Administrators: the app
+  manifest changed.** At api.slack.com open the app, **App Manifest**, replace it with what the first pass
+  prints, **Save Changes**, **Install App → Reinstall to Workspace**, then run the second pass; it checks the
+  token's scopes before deploying and says what to do when one is missing. With the new scopes the bot can read
+  the channels it is in; the people who approve the app should hear that plainly
+  ([docs/slack-gateway.md](docs/slack-gateway.md)).
+
 ## [0.29.1] — 2026-10-15
 
 ### Fixed

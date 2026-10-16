@@ -92,6 +92,9 @@ export interface InboundSlack {
   /** The ts of the thread's root when the message is a reply inside a thread. */
   threadTs: string | null;
   text: string;
+  /** A channel message that did not mention the bot: a reply in a thread, carried only when the thread is the
+   * gateway's (resolveSlackInbound decides). Slack delivers these once the app has the channel-history scopes. */
+  implicit: boolean;
 }
 
 export type ParsedRequest =
@@ -120,14 +123,24 @@ export function parseEventsRequest(raw: string, botUserId: string | null): Parse
   if (ev.type !== "message" && ev.type !== "app_mention") {
     return { kind: "ignore", reason: `event ${String(ev.type)}` };
   }
-  if (ev.subtype || ev.bot_id || typeof ev.user !== "string") {
+  // Edits, deletions and Slack's other subtypes are not a person's new words; a reply the person also sent
+  // to the channel (thread_broadcast) is.
+  if ((ev.subtype && ev.subtype !== "thread_broadcast") || ev.bot_id || typeof ev.user !== "string") {
     return { kind: "ignore", reason: "not a person's message" };
   }
   if (botUserId && ev.user === botUserId) return { kind: "ignore", reason: "our own message" };
-  if (ev.type === "message" && ev.channel_type !== "im") {
-    return { kind: "ignore", reason: "a channel message without a mention" };
-  }
   const text = typeof ev.text === "string" ? ev.text : "";
+  const threadTs = typeof ev.thread_ts === "string" && ev.thread_ts !== ev.ts ? ev.thread_ts : null;
+  let implicit = false;
+  if (ev.type === "message" && ev.channel_type !== "im") {
+    // A channel message arrives once the app has the channel-history scopes. One that mentions the bot is
+    // delivered as app_mention too, and that copy is the one carried; a top-level message without a mention is
+    // not ours; a reply in a thread may be, when the thread is the gateway's (resolveSlackInbound decides).
+    if (!botUserId) return { kind: "ignore", reason: "a channel message before the bot's identity is known" };
+    if (mentionsUser(text, botUserId)) return { kind: "ignore", reason: "carried by the mention event" };
+    if (!threadTs) return { kind: "ignore", reason: "a channel message without a mention" };
+    implicit = true;
+  }
   return {
     kind: "event",
     message: {
@@ -137,8 +150,9 @@ export function parseEventsRequest(raw: string, botUserId: string | null): Parse
       channel: String(ev.channel ?? ""),
       channelType: typeof ev.channel_type === "string" ? ev.channel_type : null,
       ts: typeof ev.ts === "string" ? ev.ts : null,
-      threadTs: typeof ev.thread_ts === "string" && ev.thread_ts !== ev.ts ? ev.thread_ts : null,
+      threadTs,
       text: stripMention(text, botUserId),
+      implicit,
     },
   };
 }
@@ -163,14 +177,24 @@ export function parseCommandRequest(raw: string): ParsedRequest {
       ts: null,
       threadTs: null,
       text: (f.get("text") ?? "").trim(),
+      implicit: false,
     },
   };
+}
+
+/** mentionsUser says whether a text carries Slack's mention of a user, `<@U…>` or `<@U…|name>`. */
+export function mentionsUser(text: string, userId: string): boolean {
+  return mentionOf(userId).test(text);
+}
+
+function mentionOf(userId: string): RegExp {
+  return new RegExp(`<@${userId}(?:\\|[^>]*)?>`, "g");
 }
 
 /** stripMention removes the bot's own mention from a text and unescapes Slack's three entities. */
 export function stripMention(text: string, botUserId: string | null): string {
   let t = text;
-  if (botUserId) t = t.replace(new RegExp(`<@${botUserId}(?:\\|[^>]*)?>`, "g"), "");
+  if (botUserId) t = t.replace(mentionOf(botUserId), "");
   return t.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").trim();
 }
 
@@ -220,11 +244,15 @@ export type SlackInbound =
     source: string;
   }
   | { kind: "unaddressed"; text: string }
-  | { kind: "invalid"; reason: string };
+  | { kind: "invalid"; reason: string }
+  | { kind: "ignore"; reason: string };
 
 /** resolveSlackInbound decides what a person's message is and where it goes: their explicit `to:` line or block
  * first, then the thread they replied in. A slash command's text is `sessions`, `help`, or
- * `send <session or member> <text>`; what names a session is resolveRecipient's business (gateway.ts). */
+ * `send <session or member> <text>`; what names a session is resolveRecipient's business (gateway.ts). A
+ * channel reply that did not mention the bot is carried only inside a thread the gateway is part of — a
+ * session's post, or a person's earlier message to one — and is otherwise ignored, not answered: the bot would
+ * else speak in every thread of every channel it has joined. */
 export async function resolveSlackInbound(m: InboundSlack, threads: SlackThreads): Promise<SlackInbound> {
   if (m.source === "command") {
     const [verb, ...rest] = m.text.split(/\s+/);
@@ -241,6 +269,10 @@ export async function resolveSlackInbound(m: InboundSlack, threads: SlackThreads
     }
     return { kind: "command", command: v || "help", args: rest.join(" "), text: m.text };
   }
+  // The newest row of the thread: a session's post (answer it) or the person's own earlier message (a second
+  // message to the same session; it cannot be a reply_to, since the gateway sent that one).
+  const thread = m.threadTs ? await threads.byThread(m.channel, m.threadTs) : null;
+  if (m.implicit && !thread) return { kind: "ignore", reason: "a channel reply outside a Brigade thread" };
   let leading: { fields: Fields | null; rest: string };
   try {
     leading = parseLeading(m.text);
@@ -256,15 +288,10 @@ export async function resolveSlackInbound(m: InboundSlack, threads: SlackThreads
   let target: string | null = f.to ?? null;
   let replyTo: string | null = f["reply-to"] ?? null;
   let source = target ? "block" : "";
-  if (!target && m.threadTs) {
-    // The newest row of the thread: a session's post (answer it) or the person's own earlier message (a second
-    // message to the same session; it cannot be a reply_to, since the gateway sent that one).
-    const row = await threads.byThread(m.channel, m.threadTs);
-    if (row) {
-      target = row.session_id;
-      if (row.direction === "out") replyTo = replyTo ?? row.brigade_message_id;
-      source = "thread";
-    }
+  if (!target && thread) {
+    target = thread.session_id;
+    if (thread.direction === "out") replyTo = replyTo ?? thread.brigade_message_id;
+    source = "thread";
   }
   if (!target) return { kind: "unaddressed", text };
   return { kind: "message", target, replyTo, summary: f.summary ?? null, text, source };
@@ -362,13 +389,20 @@ export async function resolveSlackOutbound(env: Envelope, threads: OutboundThrea
 export interface SlackRenderContext {
   teamName: string;
   botHandle: string;
+  /** The installed app's token carries the channel-history scopes, so a reply in a channel thread reaches the
+   * gateway without a mention and the footer asks for none. Until the administrator reinstalls the app with
+   * those scopes it does not, and the footer says to mention the bot. */
+  hearsChannelThreads?: boolean;
+  /** The Slack user behind each @handle in the text, as slack-out resolved them; each becomes a mention. */
+  mentions?: Record<string, string>;
 }
 
 /** renderSlackText writes the Slack message for a Brigade envelope: who wrote it, the text (escaped), and how to
  * reply — nothing else. The gateway needs no breadcrumb in the text: a reply is routed by its thread, through the
  * thread table (resolveSlackInbound), and Slack never quotes. A mention in front notifies the person in a channel
  * thread. The text is still escaped against block lines, so a session cannot show a person a block that looks
- * like the gateway's own. */
+ * like the gateway's own; Slack's own mention markup for a user or a channel, and the @handles the gateway
+ * resolved, are the one thing let through, so a session can tag a person. */
 export function renderSlackText(
   env: Envelope,
   out: SlackOutbound & { ok: true },
@@ -378,16 +412,66 @@ export function renderSlackText(
   const head = `${out.mention ? `<@${out.mention}> ` : ""}*${
     escapeMrkdwn(env.sender.session_name)
   }* (${label}) on Brigade team ${escapeMrkdwn(ctx.teamName)}:\n\n`;
-  // The app hears direct messages and mentions only, so a reply in a channel thread must mention the bot.
   const inChannel = out.target.kind === "channel" || out.target.kind === "channel-name"
     ? !(out.target.kind === "channel" && out.target.id.startsWith("D"))
     : false;
-  const how = inChannel
+  const how = inChannel && !ctx.hearsChannelThreads
     ? `Reply in this thread and mention @${ctx.botHandle} to answer.`
     : "Reply in this thread to answer.";
   const tail =
     `\n\n_${how} To write to another session, message @${ctx.botHandle} with a first line "to: <session or member>"._`;
-  return head + escapeMrkdwn(escapeBlockLines(out.text.trim())) + tail;
+  const body = linkMentions(
+    passMentionMarkup(escapeMrkdwn(escapeBlockLines(out.text.trim()))),
+    ctx.mentions ?? {},
+  );
+  return head + body + tail;
+}
+
+// ---- Mentions --------------------------------------------------------------------------------------------
+
+/** A Slack user id: U, or W in an Enterprise Grid. */
+const USER_ID = /^[UW][A-Z0-9]{6,}$/;
+// An @handle: an at sign that begins a word — so the domain of an email address and the `@U…` inside Slack's
+// own `<@U…>` markup are not one — then a handle's characters. Trailing punctuation is the sentence's.
+const HANDLE = /(?<![\w.@<-])@([A-Za-z0-9][\w.-]*)/g;
+
+/** mentionNames lists the @handles in a session's text, each once, as written. */
+export function mentionNames(text: string): string[] {
+  const names = new Set<string>();
+  for (const m of text.matchAll(HANDLE)) {
+    const name = m[1].replace(/[._-]+$/, "");
+    if (name) names.add(name);
+  }
+  return [...names];
+}
+
+/** isSlackUserId says whether an @handle is a user id written bare, which needs no lookup. */
+export function isSlackUserId(name: string): boolean {
+  return USER_ID.test(name);
+}
+
+/** passMentionMarkup restores, in an escaped text, Slack's own mention of a user or a channel — `<@U…>`,
+ * `<@U…|name>`, `<#C…>`, `<#C…|name>` — so a session can tag a person by the id a `from` line gave it. The
+ * broadcast forms (`<!here>`, `<!channel>`, `<!everyone>`, user groups) stay literal: a session does not page a
+ * whole channel. */
+export function passMentionMarkup(escaped: string): string {
+  return escaped.replace(/&lt;((?:@[UW]|#[CG])[A-Z0-9]+(?:\|[^&<>|]*)?)&gt;/g, "<$1>");
+}
+
+/** linkMentions turns each @handle the map knows into Slack's mention of that user, in an escaped text whose
+ * markup passMentionMarkup has already restored. A handle is matched whole and as written. */
+export function linkMentions(escaped: string, ids: Record<string, string>): string {
+  let out = escaped;
+  for (const [name, id] of Object.entries(ids)) {
+    if (!USER_ID.test(id) || !name) continue;
+    const re = new RegExp(`(?<![\\w.@<-])@${escapeRegExp(name)}(?![\\w-]|[._-]+\\w)`, "g");
+    out = out.replace(re, `<@${id}>`);
+  }
+  return out;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** slackRoster lists the sessions a person can write to: the ones online now, the gateways left out. */

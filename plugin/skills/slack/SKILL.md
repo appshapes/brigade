@@ -61,7 +61,9 @@ asked in words and you loaded this skill — their address and their words, neve
    ```
 
    Add `--summary "<one line>"` only when the user gave one; use `--body-file <path>` in place of the heredoc
-   only when they named a file.
+   only when they named a file. When the user wants a person tagged, `@handle` in the text does it: the gateway
+   turns a handle or display name the workspace knows into a mention, and `<@U0123ABCD>` (Slack's markup with
+   the id a `from` line carried) works as well. `@here`, `@channel` and user groups are never passed.
 4. Print what the command printed, verbatim. `accepted` means stored for the gateway, not posted: the gateway
    posts within a minute, under this session's name and label. A `waiting:` line means the gateway is offline
    (its tick is not running): say so once and never send the message again. If `<to>` names nobody in the

@@ -15,12 +15,14 @@
 #   https://api.slack.com/apps -> Create New App -> From a manifest, installs the app to the workspace, and copies
 #   the Bot User OAuth Token and the Signing Secret.
 #
-#   Second run, with SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET set (or SLACK_SECRETS_FILE): pushes and deploys
-#   again (idempotent), asks Slack who the bot is (auth.test, users.info), creates the gateway principal when the
-#   team has none (one anonymous GoTrue sign-up, then one SQL block through the Management API: membership,
-#   session, gateways row of kind slack), sets the functions' secrets from a 0600 file, schedules the per-minute
-#   tick (pg_net + pg_cron), writes `gateway.slack` into .brigade.json (workspace and bot handle, public text)
-#   and runs one tick so the roster shows the gateway at once.
+#   Second run, with SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET set (or SLACK_SECRETS_FILE): asks Slack who the bot
+#   is (auth.test, users.info) and checks that the token carries every scope the manifest asks for — an app
+#   created from an older manifest stops here, before anything is deployed, with the instruction to update its
+#   manifest at api.slack.com and reinstall it — then pushes and deploys again (idempotent), creates the gateway
+#   principal when the team has none (one anonymous GoTrue sign-up, then one SQL block through the Management
+#   API: membership, session, gateways row of kind slack), sets the functions' secrets from a 0600 file,
+#   schedules the per-minute tick (pg_net + pg_cron), writes `gateway.slack` into .brigade.json (workspace and
+#   bot handle, public text) and runs one tick so the roster shows the gateway at once.
 #
 # Nothing here prints a token or a secret; every bearer credential reaches curl through a 0600 header file.
 set -eu
@@ -86,6 +88,48 @@ sql() {
 lit() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"; }
 say() { printf 'slack-gateway-install: %s\n' "$*"; }
 
+# The bot scopes the manifest below declares; the second run refuses to deploy functions that rely on one the
+# installed app lacks (channels:history and groups:history arrived with card 106: without them Slack never
+# delivers an untagged reply in a channel thread, and the new footer would promise that it does).
+manifest_scopes='app_mentions:read channels:history channels:join channels:read chat:write commands groups:history groups:read im:history im:read im:write reactions:write users:read users:read.email'
+
+# Second run: who the bot is, and what its token may do. Checked before the deploy, so an app whose manifest is
+# behind is sent to Slack first and nothing half-new is left running.
+if [ -n "$bot_token" ] && [ -n "$signing_secret" ]; then
+  printf 'Authorization: Bearer %s\n' "$bot_token" > "$work/slack.h"
+  auth=$(curl -sS -D "$work/auth.headers" -H @"$work/slack.h" -X POST https://slack.com/api/auth.test)
+  if ! printf '%s' "$auth" | jq -e '.ok == true' >/dev/null 2>&1; then
+    echo "slack-gateway-install: the bot token was refused by Slack ($(printf '%s' "$auth" | jq -r '.error // "no answer"'))" >&2
+    exit 1
+  fi
+  # Slack lists the token's scopes on every answer; header names are lowercase over HTTP/2, so match any case.
+  granted=$(tr -d '\r' < "$work/auth.headers" | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes: *//p' | head -1 | tr -d ' ')
+  if [ -n "$granted" ]; then
+    missing=''
+    for scope in $manifest_scopes; do
+      case ",$granted," in *",$scope,"*) ;; *) missing="$missing $scope" ;; esac
+    done
+    if [ -n "$missing" ]; then
+      cat >&2 <<MISSING
+slack-gateway-install: the installed Slack app lacks the scope(s):$missing
+  Its manifest is behind this checkout's. At https://api.slack.com/apps open the app, then App Manifest: replace
+  the manifest with the one this command prints when run without the Slack secrets (or add the missing scopes
+  under oauth_config.scopes.bot and, for the history scopes, message.channels and message.groups under
+  settings.event_subscriptions.bot_events), Save Changes, then Install App -> Reinstall to Workspace. Copy the
+  Bot User OAuth Token again afterwards; if it changed, put it in your secrets file. Then run this command again.
+  Nothing was deployed.
+MISSING
+      exit 1
+    fi
+  else
+    say "warning: Slack sent no x-oauth-scopes header, so the token's scopes were not checked"
+  fi
+  bot_user=$(printf '%s' "$auth" | jq -r '.user_id')
+  workspace=$(printf '%s' "$auth" | jq -r '.url' | sed 's#^https\{0,1\}://##; s#/$##')
+  bot_handle=$(curl -sS -H @"$work/slack.h" "https://slack.com/api/users.info?user=$bot_user" | jq -r '.user.name // "brigade"')
+  say "the app is @$bot_handle in $workspace"
+fi
+
 # migrations and functions, on both runs
 if [ -n "$dry" ]; then
   $supabase_cmd db push --dry-run --project-ref "$ref"
@@ -101,6 +145,8 @@ if [ -z "$bot_token" ] || [ -z "$signing_secret" ]; then
 
 The functions are deployed. Now create the Slack app from this manifest, at https://api.slack.com/apps
 (Create New App -> From a manifest -> pick the workspace -> paste -> Create), then Install to Workspace.
+For an app that already exists: open it there, App Manifest, replace the manifest with this one, Save Changes,
+then Install App -> Reinstall to Workspace (the new scopes take effect only then).
 
 ---------------------------------------------------------------------------------------------------------
 display_information:
@@ -124,10 +170,12 @@ oauth_config:
   scopes:
     bot:
       - app_mentions:read
+      - channels:history
       - channels:join
       - channels:read
       - chat:write
       - commands
+      - groups:history
       - groups:read
       - im:history
       - im:read
@@ -140,6 +188,8 @@ settings:
     request_url: $fn_base/slack-in
     bot_events:
       - app_mention
+      - message.channels
+      - message.groups
       - message.im
   interactivity:
     is_enabled: false
@@ -159,19 +209,7 @@ MANIFEST
   exit 0
 fi
 
-# Second run: who the bot is
-printf 'Authorization: Bearer %s\n' "$bot_token" > "$work/slack.h"
-auth=$(curl -sS -H @"$work/slack.h" -X POST https://slack.com/api/auth.test)
-if ! printf '%s' "$auth" | jq -e '.ok == true' >/dev/null 2>&1; then
-  echo "slack-gateway-install: the bot token was refused by Slack ($(printf '%s' "$auth" | jq -r '.error // "no answer"'))" >&2
-  exit 1
-fi
-bot_user=$(printf '%s' "$auth" | jq -r '.user_id')
-workspace=$(printf '%s' "$auth" | jq -r '.url' | sed 's#^https\{0,1\}://##; s#/$##')
-bot_handle=$(curl -sS -H @"$work/slack.h" "https://slack.com/api/users.info?user=$bot_user" | jq -r '.user.name // "brigade"')
-say "the app is @$bot_handle in $workspace"
-
-# the gateway principal and session
+# Second run, from here on: the gateway principal and session
 existing=$(sql "select user_id::text as user_id from brigade_gateway.gateways where team_id = $(lit "$team_ref") and kind = 'slack'" |
   jq -r 'if type == "array" then (.[0].user_id // empty) else empty end')
 uid="$existing"
@@ -264,7 +302,7 @@ fi
 echo ''
 echo "slack gateway for team \"$team_name\" on $ref"
 echo "  workspace and bot:  $slack_line"
-echo "  people:             DM @$bot_handle, or mention it in a channel, with a first line \"to: <session>\"; /brigade sessions lists them"
+echo "  people:             DM @$bot_handle, or mention it in a channel, with a first line \"to: <session>\"; a reply in a thread needs no mention; /brigade sessions lists them"
 echo "  sessions:           brigade send <slack-gateway> with a first line \"to: @name\", \"to: #channel\" or \"to: <email>\""
 echo "  functions:          $fn_base/slack-in, $fn_base/slack-out"
 if [ -z "$dry" ]; then

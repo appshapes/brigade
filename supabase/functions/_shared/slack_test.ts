@@ -4,9 +4,14 @@ import { findBlocks } from "./block.ts";
 import {
   escapeMrkdwn,
   type InboundSlack,
+  isSlackUserId,
+  linkMentions,
+  mentionNames,
+  mentionsUser,
   parseCommandRequest,
   parseEventsRequest,
   parseSlackTarget,
+  passMentionMarkup,
   renderSlackText,
   resolveSlackInbound,
   resolveSlackOutbound,
@@ -70,6 +75,7 @@ Deno.test("parseEventsRequest: challenge, a DM, a mention, and the things to ign
       ts: "1.1",
       threadTs: null,
       text: "to: 3f9a2\nhello & bye",
+      implicit: false,
     },
   });
   const mention = parseEventsRequest(
@@ -89,6 +95,7 @@ Deno.test("parseEventsRequest: challenge, a DM, a mention, and the things to ign
   );
   assertEquals(mention.kind === "event" && mention.message.text, "to: 3f9a2 please look");
   assertEquals(mention.kind === "event" && mention.message.threadTs, "2.0");
+  assertEquals(mention.kind === "event" && mention.message.implicit, false);
   for (
     const ev of [
       { type: "message", channel_type: "im", user: BOT, channel: "D1", ts: "1", text: "me" },
@@ -114,6 +121,124 @@ Deno.test("parseEventsRequest: challenge, a DM, a mention, and the things to ign
   assertEquals(parseEventsRequest("not json", BOT).kind, "ignore");
 });
 
+Deno.test("parseEventsRequest: a channel reply without a mention is implicit; the rest of a channel is ignored", () => {
+  const event = (ev: Record<string, unknown>, bot: string | null = BOT) =>
+    parseEventsRequest(JSON.stringify({ type: "event_callback", event_id: "Ev3", event: ev }), bot);
+  const reply = event({
+    type: "message",
+    channel_type: "channel",
+    user: "U1",
+    channel: "C1",
+    ts: "3.3",
+    thread_ts: "3.0",
+    text: "it passes &amp; ships",
+  });
+  assertEquals(reply, {
+    kind: "event",
+    message: {
+      eventId: "Ev3",
+      source: "message",
+      user: "U1",
+      channel: "C1",
+      channelType: "channel",
+      ts: "3.3",
+      threadTs: "3.0",
+      text: "it passes & ships",
+      implicit: true,
+    },
+  });
+  // A private channel is a channel too; a reply the person also sent to the channel is still their reply.
+  const inGroup = event({
+    type: "message",
+    channel_type: "group",
+    user: "U1",
+    channel: "G1",
+    ts: "3.4",
+    thread_ts: "3.0",
+    text: "ok",
+  });
+  assertEquals(inGroup.kind === "event" && inGroup.message.implicit, true);
+  const broadcast = event({
+    type: "message",
+    subtype: "thread_broadcast",
+    channel_type: "channel",
+    user: "U1",
+    channel: "C1",
+    ts: "3.5",
+    thread_ts: "3.0",
+    text: "also to the channel",
+  });
+  assertEquals(broadcast.kind === "event" && broadcast.message.implicit, true);
+  // Not carried: a reply that mentions the bot (app_mention carries it), a top-level message, a thread root, a
+  // channel message before the bot's own id is known, and an edit.
+  const ignored = (ev: Record<string, unknown>, bot: string | null = BOT) => {
+    const r = event(ev, bot);
+    return r.kind === "ignore" ? r.reason : r.kind;
+  };
+  assertEquals(
+    ignored({
+      type: "message",
+      channel_type: "channel",
+      user: "U1",
+      channel: "C1",
+      ts: "3.6",
+      thread_ts: "3.0",
+      text: `<@${BOT}> ship it`,
+    }),
+    "carried by the mention event",
+  );
+  assertEquals(
+    ignored({
+      type: "message",
+      channel_type: "channel",
+      user: "U1",
+      channel: "C1",
+      ts: "3.7",
+      text: "hello",
+    }),
+    "a channel message without a mention",
+  );
+  assertEquals(
+    ignored({
+      type: "message",
+      channel_type: "channel",
+      user: "U1",
+      channel: "C1",
+      ts: "3.0",
+      thread_ts: "3.0",
+      text: "root",
+    }),
+    "a channel message without a mention",
+  );
+  assertEquals(
+    ignored({
+      type: "message",
+      channel_type: "channel",
+      user: "U1",
+      channel: "C1",
+      ts: "3.8",
+      thread_ts: "3.0",
+      text: "ok",
+    }, null),
+    "a channel message before the bot's identity is known",
+  );
+  assertEquals(
+    ignored({
+      type: "message",
+      subtype: "message_changed",
+      channel_type: "channel",
+      user: "U1",
+      channel: "C1",
+      ts: "3.9",
+      thread_ts: "3.0",
+      text: "edit",
+    }),
+    "not a person's message",
+  );
+  assertEquals(mentionsUser(`hi <@${BOT}|brigade> there`, BOT), true);
+  assertEquals(mentionsUser("hi <@U0OTHER00> there", BOT), false);
+});
+
 Deno.test("parseCommandRequest reads a slash command's form body", () => {
   const r = parseCommandRequest(
     "command=%2Fbrigade&text=send+3f9a2+please+retest&user_id=U1&channel_id=C1&trigger_id=T1&response_url=https%3A%2F%2Fhooks",
@@ -130,6 +255,7 @@ Deno.test("parseCommandRequest reads a slash command's form body", () => {
       ts: null,
       threadTs: null,
       text: "send 3f9a2 please retest",
+      implicit: false,
     });
   }
   assertEquals(parseCommandRequest("x=1").kind, "ignore");
@@ -162,6 +288,7 @@ function msg(over: Partial<InboundSlack>): InboundSlack {
     ts: "10.1",
     threadTs: null,
     text: "",
+    implicit: false,
     ...over,
   };
 }
@@ -244,6 +371,65 @@ Deno.test("inbound: a to: line, a thread reply to a session's post, a second mes
   assertEquals(
     (await resolveSlackInbound(msg({ text: "[brigade]\nto: a\nto: b\n[/brigade]" }), threads([]))).kind,
     "invalid",
+  );
+});
+
+Deno.test("inbound: an untagged channel reply is carried inside a Brigade thread and ignored anywhere else", async () => {
+  const outRow: ThreadRow = {
+    brigade_message_id: M1,
+    direction: "out",
+    session_id: S1,
+    address: "C1",
+    mail_message_id: "5.5",
+    provider_mail_id: "5.5",
+    subject: null,
+    kind: "slack",
+  };
+  const reply = msg({
+    channel: "C1",
+    channelType: "channel",
+    threadTs: "5.5",
+    text: "ship it",
+    implicit: true,
+  });
+  // Under a session's post: the reply answers that message, exactly as a tagged reply does.
+  assertEquals(await resolveSlackInbound(reply, threads([outRow])), {
+    kind: "message",
+    target: S1,
+    replyTo: M1,
+    summary: null,
+    text: "ship it",
+    source: "thread",
+  });
+  // Under a person's earlier message to a session: a second message to the same session.
+  const inRow: ThreadRow = { ...outRow, brigade_message_id: M2, direction: "in", actor: "U1" };
+  assertEquals(await resolveSlackInbound(reply, threads([inRow])), {
+    kind: "message",
+    target: S1,
+    replyTo: null,
+    summary: null,
+    text: "ship it",
+    source: "thread",
+  });
+  // A to: line inside a Brigade thread still wins, as it does for a tagged reply.
+  const redirected = await resolveSlackInbound({ ...reply, text: "to: 3f9a2\nlook here" }, threads([outRow]));
+  assertEquals(redirected.kind === "message" && redirected.target, "3f9a2");
+  // Any other thread, in a channel the bot happens to be in, is not the gateway's and is not answered.
+  assertEquals(await resolveSlackInbound(reply, threads([])), {
+    kind: "ignore",
+    reason: "a channel reply outside a Brigade thread",
+  });
+  assertEquals(await resolveSlackInbound({ ...reply, channel: "C2" }, threads([outRow])), {
+    kind: "ignore",
+    reason: "a channel reply outside a Brigade thread",
+  });
+  // Not even a to: line or a command carries an untagged message out of a thread the gateway is not part of.
+  assertEquals((await resolveSlackInbound({ ...reply, text: "to: 3f9a2\nhi" }, threads([]))).kind, "ignore");
+  assertEquals((await resolveSlackInbound({ ...reply, text: "sessions" }, threads([]))).kind, "ignore");
+  // A tagged reply in an unknown thread is still answered (unaddressed), as before.
+  assertEquals(
+    (await resolveSlackInbound({ ...reply, source: "app_mention", implicit: false }, threads([]))).kind,
+    "unaddressed",
   );
 });
 
@@ -428,6 +614,7 @@ Deno.test("a mention or DM that says only sessions, with or without brigade in f
     channelType: "channel",
     ts: "1.1",
     threadTs: null,
+    implicit: false,
   };
   const inChannel = await resolveSlackInbound({ ...base, text: "sessions" }, none);
   assertEquals(inChannel.kind === "command" && inChannel.command, "sessions");
@@ -478,4 +665,78 @@ Deno.test("the footer tells a channel reader to mention the bot, and a direct-me
     text: "ok",
   }, ctx);
   assertStringIncludes(byName, "Reply in this thread to answer.");
+  // Once the installed app hears channel threads, a channel reader is not asked to mention the bot either.
+  const heard = renderSlackText(env, {
+    ok: true,
+    target: { kind: "channel", id: "C123" },
+    threadTs: null,
+    mention: null,
+    text: "ok",
+  }, { ...ctx, hearsChannelThreads: true });
+  assertEquals(heard.includes("mention @brigade to answer"), false);
+  assertStringIncludes(heard, "Reply in this thread to answer.");
+});
+
+Deno.test("a session tags a person: Slack's own markup passes, @handles the gateway resolved become mentions, broadcasts do not", () => {
+  const env = {
+    message_id: "1e1e1e1e-1e1e-4e1e-8e1e-1e1e1e1e1e1e",
+    team_ref: "t",
+    sender: { principal_ref: "p1", human_label: null, session_id: S1, session_name: "frank-reviewer" },
+    recipient_session_id: GW,
+    body: "x",
+    hop_count: 0,
+    created_at: "2026-10-16T12:00:00Z",
+  };
+  const render = (text: string, mentions?: Record<string, string>) =>
+    renderSlackText(env, {
+      ok: true,
+      target: { kind: "channel", id: "C1" },
+      threadTs: null,
+      mention: null,
+      text,
+    }, {
+      teamName: "brigade",
+      botHandle: "brigade",
+      mentions,
+    });
+  // 1. Slack's markup with the member id, with or without a label, and a channel; a stray < is still escaped.
+  const markup = render("<@UGLP0XL9RD> and <@W012345678|alicia>: see <#C0123ABCD|qa>; 1 < 2");
+  assertStringIncludes(markup, "<@UGLP0XL9RD> and <@W012345678|alicia>: see <#C0123ABCD|qa>; 1 &lt; 2");
+  // 2. A handle the gateway resolved, however punctuated, as written; another spelling is another handle.
+  const linked = render("@alicia, @Alicia. and @alicia.smith: @alicia-x @alicia", { alicia: "U0ALICIA00" });
+  assertStringIncludes(linked, "<@U0ALICIA00>, @Alicia. and @alicia.smith: @alicia-x <@U0ALICIA00>");
+  // 3. The broadcast forms, user groups and links stay literal; so does an email address and a bare name.
+  const literal = render("<!channel> <!here> <!subteam^S123> <https://x.io|x> mail sam@example.com, @nobody");
+  assertStringIncludes(
+    literal,
+    "&lt;!channel&gt; &lt;!here&gt; &lt;!subteam^S123&gt; &lt;https://x.io|x&gt; mail sam@example.com, @nobody",
+  );
+  // The footer's own @brigade is never linked.
+  assertEquals(render("hi", { brigade: "U0BOT00000" }).includes("<@U0BOT00000>"), false);
+});
+
+Deno.test("mentionNames, isSlackUserId, passMentionMarkup and linkMentions", () => {
+  assertEquals(
+    mentionNames(
+      "@alicia, then @Bob.Smith. ask @UGLP0XL9RD; not sam@example.com nor <@U0BOT0000> or @ or @-x",
+    ),
+    ["alicia", "Bob.Smith", "UGLP0XL9RD"],
+  );
+  assertEquals(mentionNames("to: @alice\n@alice again"), ["alice"]);
+  assertEquals(isSlackUserId("UGLP0XL9RD"), true);
+  assertEquals(isSlackUserId("W012345678"), true);
+  assertEquals(isSlackUserId("alicia"), false);
+  assertEquals(isSlackUserId("U1"), false);
+  assertEquals(
+    passMentionMarkup("&lt;@U1234567&gt; &lt;#C1234567|qa&gt; &lt;!here&gt; &lt;@bad&gt;"),
+    "<@U1234567> <#C1234567|qa> &lt;!here&gt; &lt;@bad&gt;",
+  );
+  assertEquals(
+    linkMentions("@a.b and @a", { "a.b": "U0000000A", a: "U0000000B", bad: "not-an-id" }),
+    "<@U0000000A> and <@U0000000B>",
+  );
+  assertEquals(
+    linkMentions("x@a and <@U0000000B>", { a: "U0000000A", U0000000B: "U0000000B" }),
+    "x@a and <@U0000000B>",
+  );
 });

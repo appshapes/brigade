@@ -1,7 +1,9 @@
 // slack-in: Slack's Events API and slash-command endpoint. Answers the URL verification challenge, verifies every
-// other request's signature, reads a person's DM, mention or /brigade command, decides where it goes and sends it
-// into the team as a Brigade message from the gateway session. What cannot be routed is answered where the
-// person is: in the DM, ephemerally in the channel, or in the slash command's own reply.
+// other request's signature, reads a person's DM, mention, reply in a Brigade thread or /brigade command, decides
+// where it goes and sends it into the team as a Brigade message from the gateway session. What cannot be routed
+// is answered where the person is: in the DM, ephemerally in the channel, or in the slash command's own reply. A
+// channel reply that did not mention the bot and is not in a Brigade thread is not the gateway's, and is dropped
+// without a word.
 
 import { slackApi } from "../_shared/providers/slack.ts";
 import {
@@ -94,9 +96,12 @@ Deno.serve(async (req) => {
   const botHandle = env("BRIGADE_SLACK_BOT_HANDLE") || "brigade";
   const sql = connect();
   try {
+    // Where the message goes is decided first: a channel reply outside a Brigade thread is dropped before
+    // anything is recorded or read.
+    const resolution = await resolveSlackInbound(m, { byThread: (c, t) => threadBySlack(sql, c, t) });
+    if (resolution.kind === "ignore") return json(200, { ignored: resolution.reason });
     if (!(await markReceived(sql, `slack:${m.eventId}`))) return json(200, { duplicate: true });
     const gw = await loadGateway(sql, teamRef, "slack");
-    const resolution = await resolveSlackInbound(m, { byThread: (c, t) => threadBySlack(sql, c, t) });
     const roster = await asMember(sql, gw.userId, (tx) => listSessions(tx, gw.teamId, true));
     const sessions = roster.sessions as SessionRecord[];
     const rosterNote = slackRoster(gw.teamName, sessions, [gw.sessionId], botHandle);

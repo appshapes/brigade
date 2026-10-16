@@ -922,10 +922,14 @@ verified identity in that workspace, and only the workspace's members and guests
 unguarded-address problem of mail does not arise. The display name beside it is still unverified text. Every
 request is checked against the app's signing secret; the URL verification challenge alone is answered unsigned,
 because it carries nothing but a nonce. Slack, Inc. and the workspace's administrators can read everything that
-goes through the gateway. The bot token and signing secret are kept in the project's function secrets and in the
-administrator's file outside the repository. A leaked bot token lets its holder act as the bot: post, read its
-direct messages, and list the workspace's people with their email addresses. A leaked signing secret lets its
-holder send the gateway a message as any user id. Neither joins the team.
+goes through the gateway. The app's manifest asks for the channel-history scopes (`channels:history`,
+`groups:history`), so that a reply in a channel thread reaches the gateway without the bot being mentioned: with
+them Slack delivers every message in the channels the bot is in, and the gateway drops all but a reply inside a
+thread it is part of, unread and unrecorded; whoever approves the app should know that the permission is the
+wider one. The bot token and signing secret are kept in the project's function secrets and in the administrator's
+file outside the repository. A leaked bot token lets its holder act as the bot: post, read its direct messages and
+the history of the channels it is in, and list the workspace's people with their email addresses. A leaked signing
+secret lets its holder send the gateway a message as any user id. Neither joins the team.
 
 ## Accepted for this version
 

@@ -203,7 +203,8 @@ who answers mail or Slack. Both are hosted in the team's backend; nothing runs o
 
   The gateway delivers within a minute, with your session name and label at the top, and sends you a one-line
   note if it could not (no `to:` line, an address or name nobody has). A `subject:` line under the `to:` line
-  sets a mail's subject.
+  sets a mail's subject. In a Slack message, `@handle` in the text tags that person — a handle the workspace
+  knows, or `<@U…>` with the id a `from` line carried; `@here` and `@channel` are never passed.
 - **To answer a message that reached you through a gateway**, reply the normal way, with `--reply-to
   <message-id>` and **no** `to:` line: the gateway knows where it came from and threads the reply there.
 - **A person reaches a session by its five characters, or by its owner's label.** A person on email or Slack

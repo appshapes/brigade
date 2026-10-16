@@ -42,7 +42,10 @@ You run one command twice, with a step at Slack in between.
    `to: <session>` or `to: <member>`, or type `/brigade sessions`.
 
 Nothing else is needed from Slack: no public URL of your own, no Socket Mode, no DNS. When the changelog says the
-gateway changed, `git pull` your Brigade checkout and run the second pass again.
+gateway changed, `git pull` your Brigade checkout and run the second pass again. When it says the app manifest
+changed, update the app first: at <https://api.slack.com/apps> open the app, **App Manifest**, replace it with
+what the first pass prints, **Save Changes**, then **Install App → Reinstall to Workspace**. The second pass
+checks the token's scopes and refuses to deploy until this is done.
 
 ## For people on Slack
 
@@ -71,13 +74,16 @@ of those. `/brigade send rjae@example.com <text>` does the same. A label two mem
 named by principal prefix: a label is unverified text anyone can pick. A `summary:` line under the first, then a blank line, gives the message a
 summary. The bot reacts with :eyes: once it has carried your message.
 
-**Answer a session.** Reply in the thread under its message; writing again in your own thread reaches the same
-session. In a channel, mention `@brigade` in the reply, or the bot does not see it.
+**Answer a session.** Reply in the thread under its message, in a direct message or in a channel; there is no
+need to mention the bot. Writing again in your own thread reaches the same session. The bot hears a channel
+thread only while it is in the channel: it joins a public channel when it posts there, and a private channel
+needs it invited. If the last line of a message still asks you to mention `@brigade`, your administrator has not
+yet reinstalled the app, and you must.
 
 **What you receive.** A session's message is posted in your direct messages, or in the channel it was addressed
 to; a reply to you goes into your thread and mentions you. It names the session, its owner's label (unverified)
 and the team, then the text, then how to reply — nothing else. The gateway needs no breadcrumb in the text: a
-reply is routed by its thread.
+reply is routed by its thread. A session can tag you: `@you` in its text is a mention like any other.
 
 **What to know.**
 
@@ -114,6 +120,11 @@ answers with one line saying so.
 **Answer a person.** Reply with `--reply-to <message-id>` and no `to:` line. The gateway posts into the
 person's thread and mentions them.
 
+**Tag a person.** Write `@handle` in the text: a handle or display name the workspace knows becomes a mention,
+and the person is notified. Slack's own markup with the user id, `<@U0123ABCD>`, works too — the `from` line of
+a message a person sent you carries their id — and so does `<#C0123ABCD>` for a channel. An unknown name stays
+text. `@here`, `@channel`, `@everyone` and user groups are never passed: a session cannot page a whole channel.
+
 **What arrives.** A person's message is an ordinary message from `slack-gateway`. Its body begins
 `Slack message from @alice (U0123ABCD, unverified name) in #qa:`, then the text, then a `[brigade]` block
 (`via: slack`, `from`, `from-name`, `channel`, `channel-name`, `ts`, `thread`, `permalink`). `from` is the
@@ -134,12 +145,18 @@ Both runs push the migrations and deploy two Edge Functions, `slack-in` and `sla
 No Docker.
 
 The first run, with no Slack secrets set, stops there and prints the app manifest with this project's URLs
-filled in. The manifest declares the `/brigade` slash command, the direct-message and mention events, and the
-bot scopes to read those, post messages, open direct messages, look people and channels up, join public
-channels and add a reaction.
+filled in. The manifest declares the `/brigade` slash command, the direct-message, mention and channel-message
+events, and the bot scopes to read those, post messages, open direct messages, look people and channels up, join
+public channels and add a reaction. The channel-message events (`message.channels` and `message.groups`, scopes
+`channels:history` and `groups:history`) are how a reply in a thread reaches the gateway without a mention. Say
+it plainly to whoever approves the app: with those scopes the bot can read every message in the channels it is
+in. The code carries only a reply inside a thread the gateway is part of and drops the rest unread; the
+permission is still the wider one.
 
-The second run, with `SLACK_SECRETS_FILE` set, asks Slack who the bot is, joins the gateway to the team as an
-anonymous member with one session, stores the token and signing secret as function secrets, schedules a `pg_cron` job,
+The second run, with `SLACK_SECRETS_FILE` set, asks Slack who the bot is and checks that its token carries every
+scope the manifest asks for — when one is missing it stops, before deploying anything, and says to update the
+manifest at api.slack.com and reinstall the app — then joins the gateway to the team as an anonymous member with
+one session, stores the token and signing secret as function secrets, schedules a `pg_cron` job,
 `brigade_slack_gateway_tick`, that calls `slack-out` every minute, writes `gateway.slack` into `.brigade.json` (the
 workspace and the bot's handle, public text), and runs one tick so the roster shows the gateway at once.
 
@@ -148,7 +165,10 @@ Neither run prints a token or a secret.
 ### Running it again
 
 The second run is safe to repeat. It keeps the gateway member, redeploys, resets the secrets and rotates the
-tick token. To rotate the Slack token or signing secret, put the new values in the file and run it again.
+tick token. To rotate the Slack token or signing secret, put the new values in the file and run it again. After
+a release that changes the manifest, update the app's manifest and reinstall it before the second run, as the
+TL;DR says; until then the footer of a channel post keeps asking people to mention the bot, which is the one way
+a channel reply still reaches it.
 
 ### If people cannot message the bot
 
@@ -159,7 +179,7 @@ Slash commands and messages from the messages tab**.
 ## How it works
 
 ```
- person: DM or @mention ──▶ Slack Events API ──POST──▶ slack-in ──send_message as slack-gateway──▶ brigade.messages ──▶ session
+ person: DM, @mention or a reply in a Brigade thread ──▶ Slack Events API ──POST──▶ slack-in ──send_message as slack-gateway──▶ brigade.messages ──▶ session
  person: /brigade … ───────▶ slash command ──POST──▶ slack-in ──▶ roster or send, answered to them alone
  session ──brigade send <gateway> (to: …)──▶ brigade.messages ──pg_cron, every minute──▶ slack-out ──chat.postMessage──▶ DM, channel or thread
 ```
@@ -171,15 +191,22 @@ Slash commands and messages from the messages tab**.
 - **`slack-in`** answers Slack's URL verification challenge unsigned (it carries only a nonce), verifies every
   other request's `X-Slack-Signature`, ignores edits, bot messages and its own, dedupes by event id, and finds
   the target in this order: the person's `to:` line or block; the thread they replied in, through the thread
-  table; otherwise it tells them. What a `to:` names is a session id in full, a unique tail of five or more
+  table; otherwise it tells them. A channel message that did not mention the bot is carried only when it is a
+  reply in a thread the thread table knows — a session's post, or a person's earlier message to one — and is
+  otherwise dropped without an answer, before anything is recorded; the channel-message copy of a tagged reply
+  is dropped too, since the mention event carries it. What a `to:` names is a session id in full, a unique tail of five or more
   characters, or a member — by label, or by eight or more characters of their principal reference — whose best
   session is then chosen (`resolveRecipient` in `_shared/gateway.ts`, shared with the mail gateway). It looks
   the person's name up, builds the Brigade body, calls `send_message` as the gateway with `reply_to` set when
   known, records the thread, reacts :eyes: and, when a member was named, says which session got it.
 - **`slack-out`**, the tick, heartbeats the gateway session, drains its inbox, resolves `to:` (`@name` through
   the user list, `#channel` through the channel list, an email through Slack's lookup, ids as given) or the
-  thread of the message it replies to, posts, records the thread and acknowledges only after Slack accepted the
-  post. Rate limits and platform errors are retried next tick; a bad address is answered to the sender.
+  thread of the message it replies to, turns each `@handle` in the text into a mention (the user list again, a
+  bare user id as it is, a bot never) and lets Slack's own user and channel mention markup through the escaping,
+  posts, records the thread and acknowledges only after Slack accepted the post. The footer asks for a mention
+  only while the token lacks `channels:history`, read from Slack's `x-oauth-scopes` header on each tick that has
+  something to post. Rate limits and platform errors are retried next tick; a bad address is answered to the
+  sender.
 - **State** is the mail gateway's `gateways` and `threads` tables, in rows with `kind = 'slack'`: `address` is the
   channel, the thread key is the root message's `ts`, `actor` is the person's user id.
 

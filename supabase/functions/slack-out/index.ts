@@ -1,9 +1,10 @@
 // slack-out: the tick. Called every minute by pg_cron through pg_net with the tick token. Keeps the Slack gateway
 // session's lease alive, drains its inbox, posts each message to the person or channel it resolves to (a reply
-// goes into the thread it answers), records the thread, and acknowledges only after Slack accepted the post. A
-// message with no address is answered to its sender and acknowledged.
+// goes into the thread it answers), turns the @handles in the text into mentions, records the thread, and
+// acknowledges only after Slack accepted the post. A message with no address is answered to its sender and
+// acknowledged.
 
-import { slackApi, SlackError } from "../_shared/providers/slack.ts";
+import { type SlackApi, slackApi, SlackError } from "../_shared/providers/slack.ts";
 import {
   ackMessages,
   asMember,
@@ -20,6 +21,8 @@ import {
 } from "../_shared/db.ts";
 import { type Envelope, excerpt } from "../_shared/gateway.ts";
 import {
+  isSlackUserId,
+  mentionNames,
   renderSlackText,
   resolveSlackOutbound,
   SLACK_GATEWAY_VERSION,
@@ -78,6 +81,11 @@ Deno.serve(async (req) => {
 
     const inbox = (await asMember(sql, gw.userId, (tx) => fetchInbox(tx, gw.sessionId, 50))) as Envelope[];
     const threads = { byBrigadeId: (id: string) => threadByBrigadeId(sql, id) };
+    // The footer promises that a reply in a channel thread is heard only once the installed app's token carries
+    // the channel-history scopes, which the administrator grants by reinstalling the app; until then it asks for
+    // the mention. Read from Slack's own header, so a redeploy before the reinstall tells nobody something false.
+    const hearsChannelThreads = inbox.length > 0 && await hearsThreads(api);
+    const names = new Map<string, string | null>(); // @handle (lowercased) → user id, looked up once a tick
     for (const m of inbox) {
       const ack = () => asMember(sql, gw.userId, (tx) => ackMessages(tx, gw.sessionId, [m.message_id]));
       const already = await threadByBrigadeId(sql, m.message_id);
@@ -132,7 +140,23 @@ Deno.serve(async (req) => {
         report.undeliverable++;
         continue;
       }
-      const text = renderSlackText(m, out, { teamName: gw.teamName, botHandle });
+      let mentions: Record<string, string>;
+      try {
+        mentions = await resolveMentions(api, out.text, names);
+      } catch (e) {
+        if (e instanceof SlackError && e.retryable) {
+          report.retry++;
+          report.errors.push(e.message);
+          continue;
+        }
+        mentions = {}; // a handle Slack would not look up stays text
+      }
+      const text = renderSlackText(m, out, {
+        teamName: gw.teamName,
+        botHandle,
+        hearsChannelThreads,
+        mentions,
+      });
       const metadata = {
         event_type: "brigade_message",
         event_payload: { message_id: m.message_id, from_session: m.sender.session_id, team: gw.teamName },
@@ -180,6 +204,40 @@ Deno.serve(async (req) => {
     await sql.end({ timeout: 2 });
   }
 });
+
+/** hearsThreads says whether the bot token carries channels:history, the scope under which Slack delivers a
+ * channel thread's replies to slack-in. False when Slack cannot be asked: the footer then asks for the mention,
+ * which always works. */
+async function hearsThreads(api: SlackApi): Promise<boolean> {
+  try {
+    return (await api.scopes()).includes("channels:history");
+  } catch {
+    return false;
+  }
+}
+
+/** resolveMentions finds the Slack user behind each @handle in a session's text: a user id written bare as it
+ * is, a name through the user list (a bot, the gateway's own included, never matches); an unknown name stays
+ * text. One lookup per name per tick. A retryable Slack error propagates, so the message waits for the next
+ * tick instead of going out with the name unlinked. */
+async function resolveMentions(
+  api: SlackApi,
+  text: string,
+  cache: Map<string, string | null>,
+): Promise<Record<string, string>> {
+  const ids: Record<string, string> = {};
+  for (const name of mentionNames(text)) {
+    let id: string | null;
+    if (isSlackUserId(name)) id = name;
+    else {
+      const key = name.toLowerCase();
+      if (!cache.has(key)) cache.set(key, (await api.findUserByName(name))?.id ?? null);
+      id = cache.get(key) ?? null;
+    }
+    if (id) ids[name] = id;
+  }
+  return ids;
+}
 
 /** resolveChannel turns a target into the channel to post in: a person's DM, or a channel by id or name. */
 async function resolveChannel(api: ReturnType<typeof slackApi>, t: SlackTarget): Promise<string | null> {

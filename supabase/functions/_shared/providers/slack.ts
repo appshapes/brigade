@@ -49,11 +49,15 @@ export interface SlackApi {
   joinChannel(channel: string): Promise<void>;
   addReaction(channel: string, ts: string, name: string): Promise<void>;
   permalink(channel: string, ts: string): Promise<string | null>;
+  /** scopes the bot token carries, as Slack's x-oauth-scopes header on its last answer lists them; auth.test is
+   * called first when nothing has been asked yet. Empty when Slack sent no such header. */
+  scopes(): Promise<string[]>;
 }
 
 const API = "https://slack.com/api";
 
 export function slackApi(botToken: string, fetchFn: typeof fetch = fetch, base = API): SlackApi {
+  let scopes: string[] | null = null;
   async function call(
     method: string,
     body: Record<string, unknown> | null,
@@ -77,6 +81,8 @@ export function slackApi(botToken: string, fetchFn: typeof fetch = fetch, base =
     }
     if (body === null && method.includes("?")) url = `${base}/${method}`;
     const r = await fetchFn(url, init);
+    const granted = r.headers.get("x-oauth-scopes");
+    if (granted !== null) scopes = granted.split(",").map((s) => s.trim()).filter(Boolean);
     if (!r.ok) throw new SlackError(`http_${r.status}`, `slack: ${method} answered ${r.status}`);
     const d = (await r.json()) as Record<string, unknown>;
     if (d.ok !== true) {
@@ -228,6 +234,10 @@ export function slackApi(botToken: string, fetchFn: typeof fetch = fetch, base =
       } catch {
         return null;
       }
+    },
+    async scopes() {
+      if (scopes === null) await call("auth.test", {});
+      return scopes ?? [];
     },
   };
 }
