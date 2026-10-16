@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.30.0] — 2026-10-16
+
 ### Added
 
 - **A session can tag a person on Slack** (card 106). `@handle` in the text of a message to the Slack gateway
