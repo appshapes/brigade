@@ -219,6 +219,20 @@ mkdir -p dist
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
+// museFiles adds the Muse Code package's pins and the marketplace catalog (card 115) to the fixture, committed.
+// With them present the script requires `muse` on PATH and step 4 rewrites the catalog's digest with it.
+func (r *repo) museFiles() {
+	r.t.Helper()
+	r.write("plugin/bin/brigade", "#!/bin/sh\nexit 0\n", 0o700)
+	r.write("muse/brigade/.muse-plugin/plugin.json", "{\n  \"name\": \"brigade\",\n  \"version\": \"0.0.0\"\n}\n", 0o600)
+	r.write("muse/brigade/bin/VERSION", "0.0.0\n", 0o600)
+	r.write("muse/brigade/bin/brigade", "#!/bin/sh\nexit 0\n", 0o700)
+	r.write("muse/brigade/bin/checksums.txt", "", 0o600)
+	r.write("marketplace.json", catalogJSON("0.0.0", digestZero), 0o600)
+	r.git("add", "-A")
+	r.git("commit", "-qm", "the Muse package and its catalog")
+}
+
 // run executes scripts/release-prep.sh -- the real one, from the repository -- inside the fixture.
 func (r *repo) run(extraEnv []string, args ...string) result {
 	r.t.Helper()
@@ -369,6 +383,38 @@ func TestReleasePrepRefusals(t *testing.T) {
 		wantFail(t, r.run([]string{"card=15"}, "0.1.0"), "the documentation gate failed")
 		if strings.Contains(r.read("plugin/bin/VERSION"), "0.1.0") {
 			t.Fatal("the pins were bumped although the documentation gate failed")
+		}
+	})
+
+	t.Run("a Muse package with no muse on PATH is refused before anything is mutated", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.museFiles()
+		// The developer's own PATH may carry a real Muse, so this run sees only the stubs and the tools the
+		// script needs before the refusal.
+		path := r.stubBin + string(os.PathListSeparator) + restrictedPath(t, r.home, "git", "sed", "grep", "head", "cp", "rm", "diff", "env", "mktemp") // under the ignored .home/, so the tree stays clean
+		res := r.run([]string{"DRY_RUN=1", "card=15", "PATH=" + path}, "0.1.0")
+		wantFail(t, res, "muse is not on PATH", "owner ruling 2026-10-17")
+		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
+			t.Fatalf("the pins were bumped although muse is missing: %q", got)
+		}
+		if r.exists("dist-cross/checksums.txt") {
+			t.Fatal("the build ran although muse is missing")
+		}
+	})
+
+	t.Run("the dry run announces the catalog write and leaves the catalog alone", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.museFiles()
+		stubMuse(t, r.stubBin, digestA)
+		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
+		wantPass(t, res, "4. MUSE_DIGEST_REQUIRE=1 sh scripts/muse-digest.sh write", "stopping before the commit")
+		if got := r.read("muse/brigade/bin/VERSION"); got != "0.1.0\n" {
+			t.Fatalf("the Muse package's pin was not bumped: %q", got)
+		}
+		if got := r.read("marketplace.json"); got != catalogJSON("0.0.0", digestZero) {
+			t.Fatalf("the dry run rewrote the catalog:\n%s", got)
 		}
 	})
 

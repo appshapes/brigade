@@ -33,6 +33,10 @@ worded for the harness, a `README.md`, and `bin/` copies of `plugin/bin`'s boots
   job.
 - `scripts/release-prep.sh` bumps the manifest's version and copies the pins into the package's `bin/`;
   `checksums-check.sh` rule (a) and `release.yml`'s guard compare them.
+- A harness that installs from a catalog carries it at the repository root (`.claude-plugin/marketplace.json`,
+  `.agents/plugins/marketplace.json`, `marketplace.json` for Muse). When the harness pins a package digest, as Muse
+  does, `scripts/muse-digest.sh` is the model: the harness computes it in a throwaway root, `make release` rewrites
+  it, the package check verifies it where the harness is installed.
 
 ## The documentation
 

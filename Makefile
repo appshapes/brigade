@@ -299,8 +299,12 @@ plugin-check: ## Static checks of plugin/: exec-form hooks, no .mcp.json, VERSIO
 	scripts/ci/no-secrets.sh
 
 .PHONY: muse-plugin-check
-muse-plugin-check: ## Static checks of muse/brigade/, the Muse Code package (card 88): allowlist, native manifest, one wrapper per hook, assets equal to plugin/bin's (CI)
+muse-plugin-check: ## Static checks of muse/brigade/, the Muse Code package (card 88): allowlist, native manifest, one wrapper per hook, assets equal to plugin/bin's, the marketplace catalog (CI)
 	sh scripts/ci/muse-plugin-check.sh
+
+.PHONY: muse-digest
+muse-digest: ## Rewrite marketplace.json's digest and version from muse/brigade/ with Muse (card 115): after any change under muse/brigade/, and by make release
+	MUSE_DIGEST_REQUIRE=1 sh scripts/muse-digest.sh write
 
 .PHONY: codex-plugin-check
 codex-plugin-check: ## Static checks of codex/brigade/, the Codex CLI package (card 107): allowlist, native manifest, the three hook commands, the marketplace file, assets equal to plugin/bin's (CI)

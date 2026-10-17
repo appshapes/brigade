@@ -12,6 +12,9 @@
 #    `capabilities` member, no `args`, no `userConfig`)   8  sh -n / bash -n / zsh -n and shellcheck -s sh on the wrappers
 # 5  no symlink anywhere under muse/ (Muse refuses the    9  every skill the manifest names exists, and no skill declares
 #    package)                                                disable-model-invocation (card 28)
+# 10 marketplace.json, the Muse catalog at the root, names 11  the catalog's digest is what Muse computes over the
+#    brigade at muse/brigade, pins bin/VERSION, carries a     package (scripts/muse-digest.sh check: verified where
+#    sha256 digest and the available status (card 115)       Muse is installed, skipped with a line elsewhere)
 #
 # The JSON checks are textual on purpose, as plugin-check.sh's are: the manifest is small and hand-written, and
 # `muse plugins validate` (run by a developer with Muse installed) covers the schema half.
@@ -135,5 +138,27 @@ for f in "$root"/skills/*/SKILL.md; do
 done
 [ -z "$disabled" ] || die "disable-model-invocation is declared in:$disabled -- Brigade's skills are reachable by the model (card 28)"
 ok "every skill the manifest names exists and none declares disable-model-invocation"
+
+# ---- 10. the marketplace catalog (card 115) -----------------------------------------------------------------------
+# Muse reads marketplace.json at the repository root first (before the Codex and the Claude Code catalogs), so a
+# Muse member installs this package with `muse plugins install brigade@<marketplace>`. Its one entry must name this
+# package, pin the release and carry the digest only Muse computes (scripts/muse-digest.sh); the digest's value is
+# check 11's.
+catalog=marketplace.json
+[ -f "$catalog" ] || die "missing $catalog: the Muse marketplace catalog (card 115), what \`muse plugins marketplace add brigade appshapes/brigade\` reads"
+grep -qE '^[[:space:]]*"schemaVersion":[[:space:]]*1[[:space:]]*,?[[:space:]]*$' "$catalog" || die "$catalog declares no \"schemaVersion\": 1"
+grep -qE '^[[:space:]]*"name":[[:space:]]*"brigade"' "$catalog" || die "$catalog names no plugin brigade"
+grep -qE '"transport":[[:space:]]*"local-path"' "$catalog" || die "$catalog's install transport is not local-path (the only transport a snapshot supports)"
+grep -qE '"source":[[:space:]]*"muse/brigade"' "$catalog" || die "$catalog does not point at muse/brigade"
+grep -qE '"status":[[:space:]]*"available"' "$catalog" || die "$catalog's availability is not \"available\" (Muse installs no other status)"
+grep -qE '^[[:space:]]*"digest":[[:space:]]*"sha256:[0-9a-f]{64}"' "$catalog" || die "$catalog carries no \"digest\": \"sha256:<64 hex>\" on its own line (make muse-digest writes it)"
+catalog_version=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$catalog" | head -n 1)
+[ "$catalog_version" = "$version" ] || die "$catalog version '$catalog_version' != $root/bin/VERSION '$version' (make muse-digest rewrites both)"
+ok "$catalog names brigade at muse/brigade, pins $version and carries a sha256 digest"
+
+# ---- 11. the digest is what Muse computes, where Muse is installed ----------------------------------------------
+case $0 in */*) here=${0%/*} ;; *) here=. ;; esac
+sh "$here/../muse-digest.sh" check || die "$catalog's digest is stale: run 'make muse-digest' and commit the catalog"
+ok "$catalog's digest was checked by scripts/muse-digest.sh (verified where Muse is installed, skipped with a line elsewhere)"
 
 printf 'muse-plugin-check: all checks passed\n'

@@ -25,9 +25,11 @@ Details: [Install in Claude Code](claude-code.md).
 
 ## Install in Muse Code
 
-1. From a clone of this repository: `muse plugins install ./muse/brigade --scope user`.
-2. `muse plugins approve brigade` (Muse's review step: hooks stay inactive until you approve them).
-3. Join in a terminal, then open `muse` in the checkout and type one prompt.
+1. In a Muse session: `/plugins marketplace add brigade appshapes/brigade`, then `/plugins install brigade@brigade`.
+2. Approve the hooks: `/plugins`, Installed, `brigade`, Runtime; or `muse plugins approve brigade` in a terminal.
+3. Join in a terminal, then type one prompt in the session.
+
+The same in a terminal: `muse plugins marketplace add brigade appshapes/brigade`, then `muse plugins install brigade@brigade`.
 
 Details: [Install in Muse Code](muse-code.md).
 

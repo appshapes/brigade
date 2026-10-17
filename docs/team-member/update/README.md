@@ -22,8 +22,8 @@ Details: [Update in Claude Code](claude-code.md).
 
 ## Update in Muse Code
 
-1. `git pull` the clone you installed from.
-2. `muse plugins update brigade`, then start a new session.
+1. `muse plugins marketplace update brigade`, then `muse plugins remove brigade`, `muse plugins install brigade@brigade`, `muse plugins approve brigade`.
+2. Start a new session and type one prompt; re-point the `~/.local/bin/brigade` symlink.
 
 Details: [Update in Muse Code](muse-code.md).
 

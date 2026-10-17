@@ -43,7 +43,11 @@ func (tr *tree) museTree() {
 	}
 	// The pre-release pin: the manifest's version must equal bin/VERSION.
 	tr.write("muse/brigade/.muse-plugin/plugin.json", replaceVersion(string(manifest), "0.0.0"))
-	tr.git("add", "plugin", "muse")
+	// The Muse marketplace catalog (card 115), pinned like the package, carrying the digest the stub Muse
+	// reports: check 11 then compares the two without running Muse.
+	tr.write("marketplace.json", catalogJSON("0.0.0", digestA))
+	stubMuse(tr.t, tr.stubBin(), digestA)
+	tr.git("add", "plugin", "muse", "marketplace.json")
 	for _, exe := range []string{"plugin/bin/brigade", "muse/brigade/bin/brigade",
 		"muse/brigade/hooks/session-start.sh", "muse/brigade/hooks/prompt.sh", "muse/brigade/hooks/session-end.sh"} {
 		tr.git("update-index", "--add", "--chmod=+x", exe)
@@ -52,6 +56,21 @@ func (tr *tree) museTree() {
 			tr.t.Fatalf("chmod: %v", err)
 		}
 	}
+}
+
+// stubBin is the directory museEnv puts in front of PATH: the stub `muse` lives there, so check 11 compares the
+// catalog's digest with what the stub reports instead of running Muse.
+func (tr *tree) stubBin() string { return filepath.Join(tr.root, ".stub-bin") }
+
+// museEnv is the fixture's environment with the stub Muse first on PATH.
+func (tr *tree) museEnv() []string {
+	env := tr.env()
+	for i, kv := range env {
+		if strings.HasPrefix(kv, "PATH=") {
+			env[i] = "PATH=" + tr.stubBin() + string(os.PathListSeparator) + os.Getenv("PATH")
+		}
+	}
+	return env
 }
 
 // replaceVersion rewrites the manifest's one `"version": "…"` line.
@@ -84,7 +103,7 @@ func TestMusePluginCheck(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)
 		tr.museTree()
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
 		wantPass(t, r, "all checks passed")
 	})
 
@@ -93,7 +112,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("muse/brigade/hooks/.DS_Store", "junk\n")
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
 		wantFail(t, r, "not allow-listed under muse/brigade/")
 	})
 
@@ -102,7 +121,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("muse/brigade/bin/VERSION", "0.0.0\n# drift\n")
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
 		wantFail(t, r, "differs from plugin/bin/VERSION")
 	})
 
@@ -115,7 +134,7 @@ func TestMusePluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("muse/brigade/.muse-plugin/plugin.json", replaceVersion(string(manifest), "9.9.9"))
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
 		wantFail(t, r, "!= muse/brigade/bin/VERSION")
 	})
 
@@ -128,7 +147,7 @@ func TestMusePluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("muse/brigade/.muse-plugin/plugin.json", replaceOnce(string(manifest), `"capabilities": {`, `"userConfig": {}, "capabilities": {`))
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
 		wantFail(t, r, "member Muse does not run")
 	})
 
@@ -141,7 +160,7 @@ func TestMusePluginCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		tr.write("muse/brigade/.muse-plugin/plugin.json", replaceOnce(string(manifest), `["hooks/prompt.sh"]`, `["hooks/session-start.sh"]`))
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
 		wantFail(t, r, "share one source")
 	})
 
@@ -150,7 +169,7 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("muse/brigade/hooks/prompt.sh", "#!/bin/sh\nset -u\ncase $0 in */*) dir=${0%/*} ;; *) dir=. ;; esac\nexec \"$dir/../bin/brigade\" hook start \"$@\"\n")
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
 		wantFail(t, r, "'start'", "does not implement")
 	})
 
@@ -166,7 +185,7 @@ func TestMusePluginCheck(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
 		wantFail(t, r, "symlink")
 	})
 
@@ -175,7 +194,56 @@ func TestMusePluginCheck(t *testing.T) {
 		tr := newTree(t)
 		tr.museTree()
 		tr.write("muse/brigade/skills/update/SKILL.md", "---\nname: update\ndisable-model-invocation: true\n---\n# x\n")
-		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
 		wantFail(t, r, "disable-model-invocation")
+	})
+
+	// The marketplace catalog (card 115), checks 10 and 11.
+
+	t.Run("a missing catalog fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.museTree()
+		if err := os.Remove(filepath.Join(tr.root, "marketplace.json")); err != nil {
+			t.Fatal(err)
+		}
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
+		wantFail(t, r, "missing marketplace.json")
+	})
+
+	t.Run("a catalog version that is not the pin fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.museTree()
+		tr.write("marketplace.json", catalogJSON("9.9.9", digestA))
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
+		wantFail(t, r, "marketplace.json version '9.9.9' != muse/brigade/bin/VERSION")
+	})
+
+	t.Run("a catalog that does not point at muse/brigade fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.museTree()
+		tr.write("marketplace.json", replaceOnce(catalogJSON("0.0.0", digestA), `"source": "muse/brigade"`, `"source": "codex/brigade"`))
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
+		wantFail(t, r, "does not point at muse/brigade")
+	})
+
+	t.Run("a catalog digest that is not a sha256 fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.museTree()
+		tr.write("marketplace.json", catalogJSON("0.0.0", "sha256:tooshort"))
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
+		wantFail(t, r, `carries no "digest"`)
+	})
+
+	t.Run("a catalog digest that is not what Muse computes fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.museTree()
+		stubMuse(t, tr.stubBin(), digestB)
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.museEnv())
+		wantFail(t, r, "differs from what Muse computes", "make muse-digest")
 	})
 }

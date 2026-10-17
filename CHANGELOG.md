@@ -7,6 +7,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [0.33.0] — 2026-10-17
+
+### Added
+
+- **Muse Code installs Brigade from this repository's marketplace** (card 115). `marketplace.json` at the repository
+  root is Muse's catalog: in a session, `/plugins marketplace add brigade appshapes/brigade` and `/plugins install
+  brigade@brigade`, then the hooks' review in the plugin panel; or the same `muse plugins` commands in a terminal
+  ([Install in Muse Code](docs/team-member/install/muse-code.md)). A clone of the repository is no longer needed; the
+  local-path install stays for developers. An update is a refresh of the snapshot and a reinstall, because Muse's
+  `plugins update` re-reads the first snapshot of a git marketplace ([Update in Muse
+  Code](docs/team-member/update/muse-code.md)); the update skill knows both kinds of install. Muse reads the native
+  catalog before the Codex and the Claude Code ones, which is what stops `brigade@brigade` resolving to another
+  harness's package in Muse.
+
+### Changed
+
+- `make release` needs Muse Code on the release machine: the catalog's `integrity.digest` is the SHA-256 Muse
+  computes over `muse/brigade/`, by a serialisation nobody has reproduced (card 114), so `scripts/muse-digest.sh`
+  (`make muse-digest`) has Muse compute it in a throwaway root and a release rewrites it. `make muse-plugin-check`
+  checks the catalog's shape and version everywhere and its digest where Muse is installed; the release workflow
+  checks the version and the digest's shape.
+
 ## [0.32.0] — 2026-10-17
 
 ### Added

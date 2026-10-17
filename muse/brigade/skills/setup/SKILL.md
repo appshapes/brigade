@@ -142,7 +142,8 @@ The order matters. Every step is optional except step 3 when the goal is to remo
 2. `brigade team reset` revokes the credential family on the backend and deletes the
    local credential. **Run step 1 first:** after a reset the membership and its sessions can no longer be closed
    from this machine, and a later rejoin mints a new principal that teammates see as a new person.
-3. `muse plugins remove brigade` removes the plugin itself.
+3. `muse plugins remove brigade` removes the plugin itself; `muse plugins marketplace remove brigade` drops the
+   catalog snapshot it was installed from.
 4. `rm -rf ~/.local/state/brigade ~/.local/share/brigade` (or the `XDG_STATE_HOME`/`XDG_DATA_HOME` equivalents)
    removes the session maps, pidfiles, logs and the cached binaries. Keep
    `~/.local/state/brigade/sessions/by-native` if a later reinstall should resume your old Brigade sessions.

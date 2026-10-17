@@ -46,6 +46,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/proof-crash-resume.sh` | `make proof` (link 4 of 4) |
 | `scripts/harness-smoke.sh` | `make harness-smoke` |
 | `scripts/release-prep.sh` | `make release` |
+| `scripts/muse-digest.sh` | `make muse-digest` (`write`); `scripts/release-prep.sh` step 4 (`write`); `scripts/ci/muse-plugin-check.sh` check 11 (`check`) |
 | `scripts/ci/plugin-check.sh` | `make plugin-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/no-secrets.sh` | `make plugin-check` → `ci.yml`'s `fast` job |
 | `scripts/ci/checksums-check.sh` | `make checksums-check` → `ci.yml`'s `fast` job |
@@ -57,7 +58,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/ci/bootstrap-alpine.sh` | nothing — run by hand, see its section |
 | `scripts/ci/conformance-setup-supabase.sh` | nothing — passed by an adapter author to `--setup`, see its section |
 | `scripts/ci/pr-guard.sh` | `.github/workflows/review-pull-request.yml` (not `make`) |
-| `scripts/ci/muse-plugin-check.sh` | `make muse-plugin-check` → `ci.yml`'s `fast` job |
+| `scripts/ci/muse-plugin-check.sh` | `make muse-plugin-check` → `ci.yml`'s `fast` job (its check 11 verifies the Muse catalog's digest where Muse is installed) |
 | `scripts/ci/codex-plugin-check.sh` | `make codex-plugin-check` → `ci.yml`'s `fast` job |
 | `cmd/brigade-docs` (Go, not a script) | `make docs-check` and `make docs-generate` → `ci.yml`'s `fast` job, `release.yml`'s guard, `scripts/release-prep.sh`; the same rules run in `make test` through `docs_check_test.go` |
 
@@ -178,7 +179,11 @@ Invoked by `make release version=X.Y.Z card=<n> [branch=<name>]`, the card namin
 but `master` unless `branch=` is passed, and refuses to rewrite a published tag, because `plugin/bin/checksums.txt`
 is a compatibility surface for every plugin installed from that commit.
 
-Needs `git`, the Go toolchain named by `go.mod`, and `bin/goreleaser` (`make setup-goreleaser`, which needs `gh`).
+Needs `git`, the Go toolchain named by `go.mod`, `bin/goreleaser` (`make setup-goreleaser`, which needs `gh`) and,
+when the tree carries the Muse Code package, `muse` on PATH: step 4 runs `scripts/muse-digest.sh write`, which has
+Muse install `muse/brigade/` into a throwaway XDG root and copies the `package_sha256` it reports into
+`marketplace.json`, the catalog `muse plugins marketplace add brigade appshapes/brigade` reads (card 115; owner
+ruling 2026-10-17: Muse on the release machine until card 114 reproduces the digest).
 
 `DRY_RUN=1` is the rehearsal form, and it is **not** side-effect free: steps 1-3 run for real — step 1 rewrites
 `plugin/bin/VERSION` and `plugin/.claude-plugin/plugin.json` — and only steps 4 and 5 are printed instead of run.
@@ -468,7 +473,7 @@ One file per thing they guard; the mapping is the house's rule (a test file per 
 | Test file | What it guards |
 | --- | --- |
 | `checks_test.go` | The four POSIX-sh gates — `plugin-check.sh`, `no-secrets.sh`, `checksums-check.sh`, `release-verify.sh` — each proved able to FAIL against a fixture tree built under `t.TempDir()`, plus a read-only pass over the real repository. |
-| `release_prep_test.go` | `release-prep.sh`: every refusal fires (dirty tree, wrong branch, a published tag). |
+| `release_prep_test.go` | `release-prep.sh`: every refusal fires (dirty tree, wrong branch, a published tag, no changelog section, a red documentation gate, no `muse` beside a Muse package); the dry run announces the catalog write and leaves the catalog alone. |
 | `send_release_notes_test.go` | `send-release-notes.sh`: the window and the adoption of an earlier run's draft against a fake GitHub API, the list of recipients and the footer, that no address is printed outside a mask line and that the token stays off argv, and a join of the send step's name and the secrets to `send-release-notes.yml`. |
 | `keepalive_test.go` | `keepalive.sh`: the four rungs against a fake endpoint, and a join of its endpoints to `gotrue.go`, `postgrest.go` and the schema migration. |
 | `manifests_test.go` | `plugin/.claude-plugin/plugin.json`, `plugin/hooks/hooks.json` and `.claude-plugin/marketplace.json` parsed as JSON — `plugin-check.sh` is textual by design and `claude plugin validate` never runs in CI. |
@@ -477,7 +482,8 @@ One file per thing they guard; the mapping is the house's rule (a test file per 
 | `proof_idle_wake_test.go` | `proof-idle-wake.sh wake`, over `testdata/proof-idle-wake/`, plus the frame literals it shares with `proof.sh`. |
 | `proof_crash_resume_test.go` | `proof-crash-resume.sh catchup`, over `testdata/proof-crash-resume/`, plus the shared frame literals and the lease and liveness budgets. |
 | `fixtures_test.go` | The ignore rules around the fixture trees, and that no compiled Python is tracked. |
-| `muse_plugin_check_test.go` | `muse-plugin-check.sh` (card 88): the Muse Code package's allowlist, native manifest, one wrapper per hook and assets equal to `plugin/bin`'s, each proved able to fail. |
+| `muse_plugin_check_test.go` | `muse-plugin-check.sh` (card 88): the Muse Code package's allowlist, native manifest, one wrapper per hook and assets equal to `plugin/bin`'s, and (card 115) the marketplace catalog's shape, version and digest against a stub Muse, each proved able to fail. |
+| `muse_digest_test.go` | `muse-digest.sh` (card 115): a stub Muse proves the throwaway XDG root, the stripped session environment and the argv; `print`, `write` (digest and version, nothing else) and `check`; the skip without Muse, the refusal under `MUSE_DIGEST_REQUIRE=1`. |
 | `codex_plugin_check_test.go` | `codex-plugin-check.sh` (card 107): the Codex CLI package's allowlist, native manifest, the three exact hook commands, the marketplace file and assets equal to `plugin/bin`'s, each proved able to fail; the manifest, `hooks/hooks.json` and `.agents/plugins/marketplace.json` parsed as JSON. |
 | `setup_docs_test.go` | The setup copies join: the invocation forms of create, join, leave and reset must read the same in both setup skills and the member's and admin's pages (`docs/team-admin/create/create-the-team.md`, `docs/team-member/join/muse-code.md`, `docs/team-member/join/codex.md`, `docs/team-member/leave/leave-the-team.md`). |
 | `docs_check_test.go` | The documentation gate of card 110 (`internal/docscheck`, `make docs-check`): green on the repository, and every rule proved able to fail against a copy of the tree with one violation planted — the README shape, a three-sentence persona section, a missing `Details:` line, an orphan leaf, a broken link and anchor, an unreachable page, an unindexed experiment, a harness without its pages, an unregistered package, an unlisted skill, an unimported rule file, an undocumented option, a stale make-target page, a pinned version with no changelog section. |
