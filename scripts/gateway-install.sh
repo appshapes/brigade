@@ -28,7 +28,7 @@
 #   SUPABASE               the CLI command (the Makefile passes its own; default `npx --yes supabase@2.116.0`)
 #   Every token comes from the environment, never from argv, and reaches curl through 0600 header files.
 #
-# Installs the hosted mail gateway (Trello cards 48 and 49; docs/mail-gateway.md) on a team's Supabase project,
+# Installs the hosted mail gateway (Trello cards 48 and 49; docs/project-owner/configure/mail-gateway.md) on a team's Supabase project,
 # idempotently, in this order:
 #
 #   1. `db push`: the brigade_gateway migration (supabase/migrations/*_mail_gateway.sql).
@@ -96,7 +96,7 @@ case "$provider" in
   resend|postmark|external) ;;
   *) echo "gateway-install: --provider must be resend, postmark or external (got '$provider')" >&2; exit 2 ;;
 esac
-: "${SUPABASE_ACCESS_TOKEN:?set SUPABASE_ACCESS_TOKEN to a personal access token (sbp_...) first; see docs/setup.md}"
+: "${SUPABASE_ACCESS_TOKEN:?set SUPABASE_ACCESS_TOKEN to a personal access token (sbp_...) first; see docs/project-owner/install/deploy-the-backend.md}"
 case "$provider" in
   resend) : "${RESEND_API_KEY:?set RESEND_API_KEY to the Resend API key (re_...) first}" ;;
   postmark) : "${POSTMARK_SERVER_TOKEN:?set POSTMARK_SERVER_TOKEN to the Postmark Server API token first}" ;;

@@ -11,7 +11,7 @@
 #
 #   0. configuration   BRIGADE_SUPABASE_URL + BRIGADE_SUPABASE_PUBLISHABLE_KEY, both repository VARIABLES and
 #                      both public by design. Neither set: a `::notice::` and exit 0 -- a fork, or a
-#                      repository whose administrator has not set them yet (docs/setup.md). Exactly one set:
+#                      repository whose administrator has not set them yet (docs/project-owner/install/keep-alive.md). Exactly one set:
 #                      exit 1, because a half-configured repository is a misconfiguration, not a fork.
 #   1. reachability    GET  /auth/v1/health               200 expected, with retries so a transient blip does
 #                      not page anyone. Anything else is THE ALERT: paused, deleted or unreachable. Exit 1.
@@ -58,8 +58,8 @@ if [ -z "$url" ] && [ -z "$key" ]; then
   note "$nothing_to_do"
   exit 0
 fi
-[ -n "$url" ] || die 'BRIGADE_SUPABASE_PUBLISHABLE_KEY is set but BRIGADE_SUPABASE_URL is not: a half-configured repository is a misconfiguration, not a fork -- set both or neither (docs/setup.md)'
-[ -n "$key" ] || die 'BRIGADE_SUPABASE_URL is set but BRIGADE_SUPABASE_PUBLISHABLE_KEY is not: a half-configured repository is a misconfiguration, not a fork -- set both or neither (docs/setup.md)'
+[ -n "$url" ] || die 'BRIGADE_SUPABASE_PUBLISHABLE_KEY is set but BRIGADE_SUPABASE_URL is not: a half-configured repository is a misconfiguration, not a fork -- set both or neither (docs/project-owner/install/keep-alive.md)'
+[ -n "$key" ] || die 'BRIGADE_SUPABASE_URL is set but BRIGADE_SUPABASE_PUBLISHABLE_KEY is not: a half-configured repository is a misconfiguration, not a fork -- set both or neither (docs/project-owner/install/keep-alive.md)'
 
 url=${url%/}                             # one trailing slash is the likeliest way for the variable to be pasted wrong
 # The https-only rule of 5.2, the same one the adapter enforces on a profile's backend url (profile.go,
@@ -99,7 +99,7 @@ curl_status() {
 # adds the connection-level failures; a project that is genuinely paused answers something else and fails at
 # once, which is the point of this rung.
 health=$(curl_status "$body" --retry 3 --retry-delay 10 --retry-all-errors -H @"$hdr" "$url/auth/v1/health") || true
-[ "$health" = 200 ] || die "the project at $host did not answer /auth/v1/health (HTTP $health): paused, deleted or unreachable -- see docs/setup.md"
+[ "$health" = 200 ] || die "the project at $host did not answer /auth/v1/health (HTTP $health): paused, deleted or unreachable -- see docs/project-owner/install/keep-alive.md"
 say "health ok (HTTP 200): $host answers"
 
 # ---- 2. the database write ------------------------------------------------------------------------------
@@ -113,7 +113,7 @@ if [ "$signup" != 200 ]; then
     *anonymous_provider_disabled*|*signup_disabled*|*'nonymous sign-ins are disabled'*|*'ignups not allowed'*)
       die "anonymous sign-up refused (HTTP $signup, $error_code): $msg -- turn the setting on in the dashboard: Authentication -> Sign In / Providers -> Allow anonymous sign-ins (plugin/README.md, Administrator)" ;;
   esac
-  die "anonymous sign-up failed (HTTP $signup): error_code=$error_code msg=$msg -- see docs/setup.md"
+  die "anonymous sign-up failed (HTTP $signup): error_code=$error_code msg=$msg -- see docs/project-owner/install/keep-alive.md"
 fi
 token=$(jq -r '.access_token // empty' < "$body" 2>/dev/null) || token=''
 [ -n "$token" ] || die 'the anonymous sign-up answered HTTP 200 without an access_token: the response is not a GoTrue session'

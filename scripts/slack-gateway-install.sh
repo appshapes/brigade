@@ -7,7 +7,7 @@
 #   SLACK_SECRETS_FILE     instead of the two above: a 0600 file outside the repository with one NAME=value per line
 #   SUPABASE               the CLI command (the Makefile passes its own; default `npx --yes supabase@2.116.0`)
 #
-# Installs the hosted Slack gateway (Trello card 48; docs/slack-gateway.md) on a team's Supabase project, in two
+# Installs the hosted Slack gateway (Trello card 48; docs/project-owner/configure/slack-gateway.md) on a team's Supabase project, in two
 # runs, because Slack verifies an app's request URL against a running endpoint before it hands out a token:
 #
 #   First run, no Slack secrets in the environment: pushes the migrations, deploys slack-in and slack-out, and
@@ -46,7 +46,7 @@ fi
 # look for, hence the shellcheck directive).
 # shellcheck disable=SC2088
 case $team_file in '~/'*) team_file=$HOME/${team_file#'~/'} ;; esac
-: "${SUPABASE_ACCESS_TOKEN:?set SUPABASE_ACCESS_TOKEN to a personal access token (sbp_...) first; see docs/setup.md}"
+: "${SUPABASE_ACCESS_TOKEN:?set SUPABASE_ACCESS_TOKEN to a personal access token (sbp_...) first; see docs/project-owner/install/deploy-the-backend.md}"
 supabase_cmd="${SUPABASE:-npx --yes supabase@2.116.0}"
 for tool in curl jq od; do
   command -v "$tool" >/dev/null 2>&1 || { echo "slack-gateway-install: $tool is required" >&2; exit 1; }

@@ -17,7 +17,7 @@ const gutter = 46
 func usageAll(all bool) string {
 	var b strings.Builder
 	b.WriteString("Usage: " + Program + " <command> [arguments]\n")
-	b.WriteString("\nTeam messaging between the Claude Code sessions of different people.\n")
+	b.WriteString("\nTeam messaging between the coding sessions of different people and machines.\n")
 
 	var ready, planned []Command
 	for _, c := range commands {

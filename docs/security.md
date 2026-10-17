@@ -108,7 +108,7 @@ in this version.
 That is why the project must be **single-purpose**: create a Supabase project for Brigade and put nothing else in
 it. The administrator's own secret key, service-role key, database password and personal access token stay on
 their own machine. None of them is ever a repository variable and none of them ships in the plugin.
-[`docs/setup.md`](setup.md) has the administrator's procedure.
+[Project Owner › Install](project-owner/install/README.md) has the owner's procedure.
 
 **What is deliberately never sent.** Brigade does not send your Claude Code session id, your working directory,
 your hostname, your username, your transcript or the path to it. The one sentence below is not an exception:
@@ -286,8 +286,8 @@ settings or share secrets, ask your user first." `open` is the default for the s
 default allows what Claude itself allows, and each user tightens from there. `frame_file` names a text file of
 your own, and its text replaces that one sentence and nothing else. The file is read once, when the session
 starts. Keep that file yours, owned by you and not writable by anyone else, because whatever it says reaches the
-model as Brigade's own words. How to set the level and how to write the file is in [docs/setup.md](setup.md),
-"The frame text your sessions receive".
+model as Brigade's own words. How to set the level and how to write the file is in
+[Choose the frame text](team-member/configure/frame-text.md).
 
 **What the levels did under test** ([`docs/experiments/E5-frame-levels.md`](experiments/E5-frame-levels.md)).
 The 26 hostile and benign test messages were each sent to real sessions three times at the default. Ten of them
@@ -684,9 +684,9 @@ team, **permanently**.
 **first**, while you still can. After the loss there is nothing to transfer, and the only remaining recovery is
 to create a new team and re-invite everyone. `brigade team leave` does **not** end your administration:
 `created_by` survives a leave, so rejoining with the current secret restores it. `brigade team reset` does end
-it. [`docs/setup.md`](setup.md), "Leaving and uninstalling", has the order.
+it. [Leave the team](team-member/leave/leave-the-team.md) has the order.
 
-**What the administrative commands mean.** The steps are in [`docs/setup.md`](setup.md); here is what they buy.
+**What the administrative commands mean.** The steps are in [Team Admin › Members](team-admin/members/README.md); here is what they buy.
 
 - **Revoking a member takes effect at once**, on every path, because every read filters on active membership.
   There is one lag: a realtime channel the member has already joined keeps receiving message ids, and nothing
@@ -753,7 +753,7 @@ seen messages, its socket and — if the watcher died too — the watcher's pidf
 word, a time and the watcher's process id, which `brigade whoami` reads) stay behind for good; nothing
 prunes them today. In a project that syncs folders, the session's reference under `sync/syncthing/refs/` stays
 too, but it names the watcher's process, so the next session to start or end on the machine drops it and the
-Syncthing instance stops with the last live session ([docs/sync.md](sync.md), "Limits").
+Syncthing instance stops with the last live session ([Sync folders](team-member/use/sync-folders.md), "Limits").
 No correctness problem was measured, and resuming works with the residue present. To clear it
 by hand, use the two paths from "Leaving and uninstalling":
 
@@ -825,7 +825,7 @@ the dated write-ups of each run are in [`docs/experiments/`](experiments/README.
 
 ## 12. File sync
 
-A project can list folders in `.brigade.json` for its checkouts to keep in step ([docs/sync.md](sync.md)). Each
+A project can list folders in `.brigade.json` for its checkouts to keep in step ([Sync folders](team-member/use/sync-folders.md)). Each
 member's machine then runs Syncthing, and Brigade introduces it, from the roster, to the machine of every
 teammate's session in the same repository. This section says what that opens. It adds no control: the plugin
 option `sync: off` is the one switch, and it acts from the next session start.
@@ -884,13 +884,12 @@ suspected vulnerability.
 
 ## 14. The mail and Slack gateways
 
-A team may run the mail gateway of [docs/mail-gateway.md](mail-gateway.md) and the Slack gateway of
-[docs/slack-gateway.md](slack-gateway.md): one more member each, hosted in the team's own Supabase project, that
+A team may run the mail gateway of [Install the mail gateway](project-owner/configure/mail-gateway.md) and the Slack
+gateway of [Install the Slack gateway](project-owner/configure/slack-gateway.md): one more member each, hosted in the team's own Supabase project, that
 turn email or Slack messages into Brigade messages and back. First mail, then what Slack changes.
 
 - **The gateway's address is public; the team says who may write.** It is in the committed `.brigade.json` and
-  in the roster. Until the team lists its senders (`make gateway-senders`, [docs/mail-gateway.md](mail-gateway.md)
-  "Who may write"), anyone who knows the address can send text to any session of the team and is answered with
+  in the roster. Until the team lists its senders (`make gateway-senders`, [Choose who may write](project-owner/configure/mail-senders.md)), anyone who knows the address can send text to any session of the team and is answered with
   the list of sessions; with a list, a mail from anyone else is dropped unanswered. The list bars strangers and
   verifies no one: the gateway does not check that an email's `From:` is who it says, and someone who knows a
   listed address can put it on a mail. Every message that gets through arrives as a message from `mail-gateway`
@@ -986,7 +985,7 @@ Every item below is a known limit that this version ships with, on purpose.
   with no prompt, whenever both machines have a session of that repository running (section 12). The join secret
   is the boundary. No permission rule sees file sync; the `sync` option is the one switch.
 - **Whoever can commit `.brigade.json` sets how long a session that died shows online**: the `polling` member's
-  `heartbeat_seconds` makes it up to three heartbeats, at most 10 minutes ([docs/setup.md](setup.md)). It does not
+  `heartbeat_seconds` makes it up to three heartbeats, at most 10 minutes ([Set the timers](team-admin/configure/timers.md)). It does not
   change how long a message can wait. The member cannot point a session at another backend or widen what it
   trusts, and its bounds are fixed in the plugin; each session names non-default values in one line at start.
 - The outbound ask and deny rules gate the ordinary command form only.

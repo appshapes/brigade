@@ -107,6 +107,12 @@ branch=$(git branch --show-current)
 
 [ -x bin/goreleaser ] || die "bin/goreleaser is missing or not executable: run 'make setup-goreleaser'"
 
+# The documentation gate (card 110) runs here, before anything is mutated, and again inside step 4's `make push`
+# (through `make test`) once the pins carry <v>: the changelog must already have the `## [<v>]` section a release
+# ships with, and the tree must pass every other rule. Checked by name first so the failure says what is missing.
+grep -q "^## \[$v\]" CHANGELOG.md || die "CHANGELOG.md has no '## [$v]' section: write the release's section before releasing it"
+make docs-check >/dev/null || die "the documentation gate failed: run 'make docs-check' and fix what it names before releasing"
+
 go_line=$(sed -n 's/^go //p' go.mod | head -n 1)
 [ -n "$go_line" ] || die "go.mod declares no 'go' line: cannot pin the toolchain"
 # Forced, not `auto`: `auto` uses the local toolchain whenever it is at least as new as the go line, so a

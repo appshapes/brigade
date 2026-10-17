@@ -307,7 +307,7 @@ func (s *realSide) knows(t *testing.T, other *realSide) {
 // between two machines, with the syncthing on PATH: two instances share
 // one folder under the id of 0.11.0 to 0.15.0; one is upgraded and then
 // the other, as a team's members update one after another. It records
-// what docs/sync.md says of the time in between and after:
+// what docs/team-member/use/sync-folders.md says of the time in between and after:
 //
 //   - while one side is upgraded and the other is not, the two hold the
 //     folder under different ids, so they exchange nothing;

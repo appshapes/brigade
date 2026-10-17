@@ -875,7 +875,7 @@ func frameLine(err error) string {
 // `Bash(brigade:*)` denies, the ask rule `Bash(brigade send*)` does not
 // gate (that send executed with no dialog) and 9.6's judge classes
 // `evasive`. The path is a human surface now — `brigade whoami` and
-// docs/setup.md (finding F1, ruled 2026-09-04).
+// docs/team-member/install/terminal.md (finding F1, ruled 2026-09-04).
 func startLine(name, id, team, policy string) string {
 	var b strings.Builder
 	b.WriteString("Brigade: this session is \"")

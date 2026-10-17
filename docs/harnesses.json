@@ -1,0 +1,21 @@
+{
+  "_comment": "The harnesses Brigade ships a package for (card 110). The documentation gate (make docs-check) requires, for each entry, the member pages docs/team-member/{install,join,update,configure,leave}/<id>.md, the agent page docs/agent/in-a-team/<id>.md listing every skill under <skills>, and a <package>/README.md that links to the install page. Add an entry with the package; the gate names what is missing.",
+  "harnesses": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "vendor": "Anthropic",
+      "host": "claude-code",
+      "package": "plugin",
+      "skills": "plugin/skills"
+    },
+    {
+      "id": "muse-code",
+      "name": "Muse Code",
+      "vendor": "Meta",
+      "host": "muse",
+      "package": "muse/brigade",
+      "skills": "muse/brigade/skills"
+    }
+  ]
+}

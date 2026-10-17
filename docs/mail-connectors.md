@@ -1,6 +1,6 @@
 # Mail connectors: how a mail provider plugs into the gateway
 
-The [mail gateway](mail-gateway.md) has two halves. The **core** is Brigade's: it knows the team, the sessions, the
+The [mail gateway](project-owner/configure/mail-gateway.md) has two halves. The **core** is Brigade's: it knows the team, the sessions, the
 threads and the rules, and never a mail provider. A **connector** stands between the core and one provider. Resend
 and Postmark ship as connectors and the installer deploys them for you. A team on any other provider writes a
 connector of its own, in any language, anywhere with HTTPS, and nothing in Brigade changes. This page is the
@@ -125,7 +125,7 @@ make mail-connector-check send_url=<your send URL> secret_file=<the file the ins
 checks the send endpoint from the outside, as the core calls it: no secret is refused with `401`, a malformed body
 with `400`. Add `send_to=<address> from='Name <address>'` to send one real mail and check the answer carries an id.
 The inbound half is checked end to end: mail the connector's address with a first line `to: <session>` and watch
-the session receive it, as [docs/mail-gateway.md](mail-gateway.md) describes.
+the session receive it, as [docs/project-owner/configure/mail-gateway.md](project-owner/configure/mail-gateway.md) describes.
 
 ## The shipped connectors
 

@@ -97,6 +97,7 @@ jobs:
           test "$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' plugin/.claude-plugin/plugin.json)" = "$(cat plugin/bin/VERSION)"
           test "$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' muse/brigade/.muse-plugin/plugin.json)" = "$(cat plugin/bin/VERSION)"   # the Muse Code package pins the same tag (card 88)
           cmp plugin/bin/checksums.txt muse/brigade/bin/checksums.txt
+          make docs-check               # the documentation gate (card 110): a release ships with its pages and its changelog section
           make cross && diff dist-cross/checksums.txt plugin/bin/checksums.txt
       - uses: goreleaser/goreleaser-action@v7
         if: steps.published.outputs.exists != 'true'

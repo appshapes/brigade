@@ -1,7 +1,7 @@
 #!/bin/sh
 # usage: scripts/gateway-senders.sh <project-ref> [--team-file <path>] [--add <entries>] [--remove <entries>] [--clear]
 #
-# Who may write to a team's mail gateway (Trello card 55; docs/mail-gateway.md "Who may write"). With no change flag
+# Who may write to a team's mail gateway (Trello card 55; docs/project-owner/configure/mail-senders.md). With no change flag
 # it prints the list. <entries> is addresses and domains separated by commas or spaces: `qa@example.com` admits one
 # address, `@example.com` admits every address on exactly that domain (a bare `example.com` is read as
 # `@example.com`). mail-in matches a mail's From against the list case-insensitively and drops a mail from anyone
@@ -45,7 +45,7 @@ fi
 # look for, hence the shellcheck directive).
 # shellcheck disable=SC2088
 case $team_file in '~/'*) team_file=$HOME/${team_file#'~/'} ;; esac
-: "${SUPABASE_ACCESS_TOKEN:?set SUPABASE_ACCESS_TOKEN to a personal access token (sbp_...) first; see docs/setup.md}"
+: "${SUPABASE_ACCESS_TOKEN:?set SUPABASE_ACCESS_TOKEN to a personal access token (sbp_...) first; see docs/project-owner/install/deploy-the-backend.md}"
 for tool in curl jq; do
   command -v "$tool" >/dev/null 2>&1 || { echo "gateway-senders: $tool is required" >&2; exit 1; }
 done

@@ -42,7 +42,7 @@ import (
 const (
 	keepaliveScriptRel   = "scripts/ci/keepalive.sh"
 	keepaliveWorkflowRel = ".github/workflows/keepalive.yml"
-	keepaliveDocRel      = "docs/setup.md"
+	keepaliveDocRel      = "docs/project-owner/install/keep-alive.md"
 )
 
 // keepaliveSignupBody is the anonymous sign-up body, retyped from
@@ -489,7 +489,7 @@ var keepaliveCaseTable = []keepaliveCase{
 			keepaliveFail(r, run.result,
 				"::error::keepalive: the project at 127.0.0.1",
 				"did not answer /auth/v1/health (HTTP 540)",
-				"paused, deleted or unreachable -- see docs/setup.md")
+				"paused, deleted or unreachable -- see docs/project-owner/install/keep-alive.md")
 			got := ks.seen()
 			if len(got) < 1 {
 				r.Errorf("the backend saw no request at all, so the health rung never ran")
@@ -704,7 +704,7 @@ func checkKeepaliveDrift(r reporter, script, repoRoot string) {
 // keepaliveProjects is every hosted project keepalive.yml keeps alive: the job's name and the prefix of its
 // variable pair (`<prefix>_SUPABASE_URL`, `<prefix>_SUPABASE_PUBLISHABLE_KEY`). The first row's pair is the
 // adapter's own two names (P5-0 brief 3.1), which the test below joins to internal/adapters/supabase/team.go as
-// well. A fifth project is a fifth row here, a fifth job in the workflow and a fifth pair in docs/setup.md
+// well. A fifth project is a fifth row here, a fifth job in the workflow and a fifth pair in docs/project-owner/install/keep-alive.md
 // section 2, in one commit: the test fails on a job without a row and on a row without a job.
 var keepaliveProjects = []struct{ job, prefix string }{
 	{"keepalive", "BRIGADE"},                                               // appshapes-brigade, 2026-09-05

@@ -17,7 +17,7 @@ join secret is never in it. The administrator writes the file once; each member 
 The file may carry optional members the project commits by hand: `sync` (folders to keep in step), `gateway` (how
 people without a session reach the team) and `polling` (how often sessions check in with the backend, to stay
 inside a plan's request budget, and how long a session the VS Code extension started may stay idle before it
-closes itself). `docs/setup.md`, "The project owns the team", describes each.
+closes itself). `docs/team-admin/configure/team-file.md` in the Brigade repository describes each.
 
 Every command below is the **person's** to run, in their own terminal, through the package's bootstrap: the
 `bin/brigade` under Muse's plugin cache for `brigade` (the session-start line names its path), and a symlink such
@@ -26,12 +26,12 @@ Code session: it has no `!` prefix that runs a command on the person's behalf, s
 of these, give them the command to paste into their terminal. The join secret is a bearer capability:
 **never paste it into a Muse Code chat**, a commit, an issue or a log — it lives in the file `team create` wrote,
 saved outside the repository, and `--secret-file` names that file (its mode and owner are never checked). Two team commands run in a terminal only — `team revoke-member`
-and `team transfer` — and so does the release of a held message (`docs/setup.md`, "Holding messages for review").
+and `team transfer` — and so does the release of a held message (`docs/team-member/use/held-messages.md`).
 
 ## 1. Administrator: create a team
 
-For a first Supabase setup, `docs/setup.md` in the Brigade repository, "Administrator: create a team", is the
-ordered procedure. The publishable key is under Project Settings → API Keys and starts with `sb_publishable_`;
+For a first Supabase setup, `docs/project-owner/install/README.md` in the Brigade repository is the project
+owner's ordered procedure, and `docs/team-admin/create/create-the-team.md` the administrator's. The publishable key is under Project Settings → API Keys and starts with `sb_publishable_`;
 the `sb_secret_` key on the same page is never used. The short form follows.
 
 The bundled adapter keeps a team in a Supabase project, so create a **single-purpose** project for it first:
@@ -68,7 +68,7 @@ it:
 
 `team create --force` carries it into the file it rewrites. Add each listed folder to `.gitignore`, or a teammate's
 edit shows in your `git status` as a change of yours. Every member's plugin must be 0.16.0 or later before the
-project commits the member. `docs/sync.md` in the Brigade repository has the rules.
+project commits the member. `docs/team-admin/configure/sync-folders.md` in the Brigade repository has the rules.
 
 Then send each member the join secret **over a password-grade channel** — a password manager share, not chat and
 not email. The secret is a bearer capability: anyone holding it can join and pick any label.
@@ -86,7 +86,7 @@ team's only administrative credential. Keep a 0700 backup of it somewhere you co
 rotate the secret or administer the team. Rotating the join secret runs in a session or a terminal
 (`brigade team rotate-secret --secret-file <path>`, the file outside the repository); revoking a member and
 transferring the team are terminal-only administrative commands that refuse inside a session. The procedure is in
-`docs/setup.md`, "Team administration", in the Brigade repository.
+`docs/team-admin/members/README.md` in the Brigade repository.
 
 ## 2. Member: join
 

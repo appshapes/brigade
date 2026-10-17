@@ -63,6 +63,8 @@ func newRepo(t *testing.T) *repo {
 	r.write("plugin/bin/VERSION", "0.0.0\n", 0o600)
 	r.write("plugin/bin/checksums.txt", "", 0o600)
 	r.write("plugin/.claude-plugin/plugin.json", manifest, 0o600)
+	// The release's changelog section: the card-110 precondition refuses a version with none.
+	r.write("CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n## [0.1.0] — 2026-01-01\n\n### Added\n\n- The fixture.\n", 0o600)
 	// The machinery is untracked, so swapping a stub mid-test does not itself make the tree dirty and trip the
 	// clean-tree precondition the test is not looking at.
 	r.write(".gitignore", "/.home/\n/.stub-bin/\n/bin/\n/dist/\n/dist-cross/\n/make.log\n/goreleaser.log\n", 0o600)
@@ -347,6 +349,27 @@ func TestReleasePrepRefusals(t *testing.T) {
 		r := newRepo(t)
 		r.remove("bin/goreleaser")
 		wantFail(t, r.run([]string{"card=15"}, "0.1.0"), "make setup-goreleaser")
+	})
+
+	t.Run("a version with no changelog section is refused", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.write("CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n## [0.0.9] — 2026-01-01\n", 0o600)
+		r.git("commit", "-qam", "drop the section")
+		wantFail(t, r.run([]string{"card=15"}, "0.1.0"), "CHANGELOG.md has no '## [0.1.0]' section")
+		if r.exists("dist-cross/checksums.txt") {
+			t.Fatal("the build ran although the changelog section is missing")
+		}
+	})
+
+	t.Run("a failing documentation gate is refused before anything is mutated", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.writeAbs(filepath.Join(r.stubBin, "make"), "#!/bin/sh\nprintf 'make %s\\n' \"$*\" >> make.log\n[ \"${1:-}\" = docs-check ] && exit 1\nexit 0\n", 0o700)
+		wantFail(t, r.run([]string{"card=15"}, "0.1.0"), "the documentation gate failed")
+		if strings.Contains(r.read("plugin/bin/VERSION"), "0.1.0") {
+			t.Fatal("the pins were bumped although the documentation gate failed")
+		}
 	})
 
 	t.Run("a toolchain that cannot be selected is refused", func(t *testing.T) {

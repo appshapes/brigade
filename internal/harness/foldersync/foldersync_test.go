@@ -31,7 +31,7 @@ func TestFolderIDIsTheSpecifiedDerivation(t *testing.T) {
 	if got := foldersync.FolderID(ref, "brigade", "docs/shared"); got != want {
 		t.Fatalf("FolderID = %q, want %q", got, want)
 	}
-	// The id docs/sync.md and docs/sync-adapters.md print.
+	// The id docs/team-member/use/sync-folders.md and docs/sync-adapters.md print.
 	if got := foldersync.FolderID(ref, "brigade", "docs"); got != "brigade-6f0f2b41-6f18276503a7" {
 		t.Fatalf("FolderID(brigade, docs) = %q, want the documents' example", got)
 	}

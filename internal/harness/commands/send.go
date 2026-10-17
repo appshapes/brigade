@@ -319,8 +319,8 @@ func ambiguousRecipient(matches []protocol.SessionRecord) *protocol.Error {
 	}
 }
 
-// The harness names of the two hosted gateways (docs/mail-gateway.md,
-// docs/slack-gateway.md). A --member message never goes to one: a gateway
+// The harness names of the two hosted gateways (docs/project-owner/configure/mail-gateway.md,
+// docs/project-owner/configure/slack-gateway.md). A --member message never goes to one: a gateway
 // forwards to people, and --member addresses a teammate's session.
 const (
 	harnessGatewayEmail = "gateway-email"

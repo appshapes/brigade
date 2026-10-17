@@ -1,9 +1,10 @@
 # Monthly structural-documentation refresh. SCOPED, deliberately: paths, make targets, versions and command
-# names in the four documents a reader actually follows. Not prose, not reasoning, and explicitly NOT
-# docs/security.md or docs/protocol-v1.md — those are argued documents whose sentences carry rulings, and an
-# agent rewriting them for "accuracy" would be rewriting decisions. The gate is CI's own doc-witness tests
-# (scripts/ci/setup_docs_test.go joins the five invocation forms across docs/setup.md, plugin/README.md and
-# plugin/skills/setup/SKILL.md; `make test` runs it).
+# names in the persona trees a reader actually follows. Not prose, not reasoning, and explicitly NOT
+# docs/security.md, docs/protocol-v1.md or the rule files under docs/agent/repository/ — those are argued
+# documents whose sentences carry rulings, and an agent rewriting them for "accuracy" would be rewriting
+# decisions. The gate is `make docs-check` (card 110) plus CI's own doc-witness tests
+# (scripts/ci/setup_docs_test.go joins the invocation forms across the setup skills and the member and admin
+# pages; `make test` runs both).
 name: update documentation
 
 on:
@@ -37,7 +38,8 @@ jobs:
       body: >-
         You are the documenter agent. Read `.claude/agents/documenter.md` for your operating instructions and
         follow them exactly. Scope: structural drift only — paths, `make` target names, version strings, command
-        names and file layout — in `docs/setup.md`, `plugin/README.md`, `README.md` and `docs/adapter-authors.md`.
-        Do not touch `docs/security.md` or `docs/protocol-v1.md`. Run `make test` before you push: the
-        doc-witness tests are the gate on the three setup copies. If nothing is structurally stale, change
+        names and file layout — in the five persona trees under `docs/`, `README.md`, `plugin/README.md`,
+        `muse/brigade/README.md` and `docs/adapter-authors.md`. Do not touch `docs/security.md`,
+        `docs/protocol-v1.md` or the rule files under `docs/agent/repository/`. Run `make docs-check` and
+        `make test` before you push: the documentation gate and the doc-witness tests are the gate on the pages. If nothing is structurally stale, change
         nothing and say so — the workflow closes this issue automatically when no branch is pushed.

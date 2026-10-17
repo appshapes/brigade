@@ -24,7 +24,7 @@ they will give this email one minute.
   on what changed and why.
 - `/tmp/brigade-email/sources/<tag>.md` — each release's published notes.
 - The checkout, for what exists **today**: `plugin/skills/` (the skills), `plugin/.claude-plugin/plugin.json`
-  (the options), `README.md` and `plugin/README.md` (how a member does a thing), and
+  (the options), `README.md` and the Team Member tree under `docs/team-member/` (how a member does a thing), and
   `/tmp/brigade-email/brigade --help` (the commands).
 
 Every statement in the email is in those sources. Where a later release in the window changed or removed what an

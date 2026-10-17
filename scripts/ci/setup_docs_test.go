@@ -1,10 +1,10 @@
-// The setup drift join. Plan 6.9 says `plugin/skills/setup/SKILL.md`, `plugin/README.md` and `docs/setup.md`
-// "carry the same text" for the same three procedures, and until now nothing checked it. Three copies is a
-// deliberate decision, not an accident: a skill body cannot follow a link, and a marketplace reader may only
-// ever see plugin/README.md. What each copy carries differs (docs/setup.md has the reasons, the README has the
-// commands plus a link, the skill has the commands with ${CLAUDE_PLUGIN_ROOT} substituted) — but the COMMANDS
+// The setup drift join. Plan 6.9 says the setup skill and the documentation "carry the same text" for the same
+// procedures, and until now nothing checked it. Several copies is a deliberate decision, not an accident: a skill
+// body cannot follow a link, and each harness ships its own skill. What each copy carries differs (the persona
+// pages have the reasons, the skills have the commands with ${CLAUDE_PLUGIN_ROOT} substituted) — but the COMMANDS
 // must be identical in every copy that exists, because a command that drifts is a command one of the readers
-// runs wrong.
+// runs wrong. Since card 110 the pages are the member's and the admin's leaves, each joined on the forms of its
+// own procedure.
 //
 // The join is deliberately narrow. It pins the five invocation forms a person types and nothing else: not
 // prose, not which copies exist (a copy may be consolidated away — Rjae's ruling 2026-09-08, open by default),
@@ -17,17 +17,21 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
-// The three copies, relative to the repository root.
-var setupDocFiles = []string{
-	"docs/setup.md",
-	"plugin/README.md",
-	"plugin/skills/setup/SKILL.md",
+// The copies, relative to the repository root, each with the witnesses it carries: the two setup skills carry
+// every form; since card 110 the member and admin pages carry the forms of their own procedures.
+var setupDocFiles = map[string][]string{
+	"plugin/skills/setup/SKILL.md":              setupDocWitnesses,
+	"muse/brigade/skills/setup/SKILL.md":        setupDocWitnesses,
+	"docs/team-admin/create/create-the-team.md": {setupDocWitnesses[0], setupDocWitnesses[1]},
+	"docs/team-member/join/muse-code.md":        {setupDocWitnesses[2]},
+	"docs/team-member/leave/leave-the-team.md":  {setupDocWitnesses[3], setupDocWitnesses[4]},
 }
 
 // pluginBinPrefix is the one difference the join tolerates: each copy names the binary the way its own reader
@@ -47,10 +51,15 @@ var setupDocWitnesses = []string{
 	"brigade team reset",
 }
 
-// checkSetupDocs asserts every witness in every copy that exists, with the path prefix normalised away.
+// checkSetupDocs asserts each copy's witnesses in every copy that exists, with the path prefix normalised away.
 func checkSetupDocs(r reporter, root string) {
 	r.Helper()
-	for _, rel := range setupDocFiles {
+	rels := make([]string, 0, len(setupDocFiles))
+	for rel := range setupDocFiles {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	for _, rel := range rels {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			continue // a copy that is gone has nothing to drift
 		}
@@ -59,10 +68,10 @@ func checkSetupDocs(r reporter, root string) {
 			continue
 		}
 		normalised := whitespaceRun.ReplaceAllString(pluginBinPrefix.ReplaceAllString(text, "brigade"), " ")
-		for _, witness := range setupDocWitnesses {
+		for _, witness := range setupDocFiles[rel] {
 			if !strings.Contains(normalised, witness) {
 				r.Errorf("%s does not carry %q; the setup copies (%s) must name the same commands (plan 6.9)",
-					rel, witness, strings.Join(setupDocFiles, ", "))
+					rel, witness, strings.Join(rels, ", "))
 			}
 		}
 	}
@@ -79,7 +88,7 @@ func copySetupDocs(t *testing.T) string {
 	t.Helper()
 	src := testutil.RepoRoot(t)
 	dst := t.TempDir()
-	for _, rel := range setupDocFiles {
+	for rel := range setupDocFiles {
 		//nolint:gosec // G304: rel is a constant from the table above, under the repository being tested.
 		data, err := os.ReadFile(filepath.Join(src, rel))
 		if err != nil {
@@ -130,14 +139,14 @@ var setupDocMutations = []struct {
 	because string
 }{
 	{
-		"a_setup_doc_changes_a_flag",
-		replaceOnceIn("docs/setup.md", "--name <team> --secret-file ~/brigade-<team>.secret", "--name <team> --secret-out ~/brigade-<team>.secret"),
+		"a_admin_page_changes_a_flag",
+		replaceOnceIn("docs/team-admin/create/create-the-team.md", "--name <team> --secret-file ~/brigade-<team>.secret", "--name <team> --secret-off ~/brigade-<team>.secret"),
 		"a flag mistyped in one copy is a command that reader runs wrong",
 	},
 	{
-		"b_plugin_readme_changes_a_flag",
-		replaceOnceIn("plugin/README.md", "team create --url https://<ref>.supabase.co --key sb_publishable_", "team create --url https://<ref>.supabase.co --secret sb_publishable_"),
-		"the marketplace reader may see only this copy",
+		"b_muse_skill_changes_a_flag",
+		replaceOnceIn("muse/brigade/skills/setup/SKILL.md", "team create --url https://<ref>.supabase.co --key sb_publishable_", "team create --url https://<ref>.supabase.co --secret sb_publishable_"),
+		"the Muse reader may see only this copy",
 	},
 	{
 		"c_skill_changes_a_profile_name",

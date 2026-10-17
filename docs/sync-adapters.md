@@ -6,7 +6,7 @@ tells the adapter which folders this checkout shares and which teammates' peers 
 team roster — and asks how it is going. Everything else is the engine's: discovery, transfer, conflicts, deletions.
 
 This page is the whole contract. It is short because the protocol is: five verbs, one JSON document in, one out.
-What file sync does for a team, with the bundled adapter, is [docs/sync.md](sync.md).
+What file sync does for a team, with the bundled adapter, is [docs/team-member/use/sync-folders.md](team-member/use/sync-folders.md).
 
 ## Which adapter runs
 

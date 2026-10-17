@@ -1,94 +1,16 @@
-# Development Guidelines
+# Brigade
 
-**Plans and temporary docs:**
-- All plans **must** go in `.context/plans/`
-- Ephemeral scratch **must** go in `.ignored/` (gitignored).
+Team messaging between the coding sessions of different people and machines: one Go binary (`cmd/brigade`), a
+Claude Code plugin (`plugin/`), a Muse Code package (`muse/brigade/`), a Supabase backend (`supabase/`) and the
+adapter protocol between them (`docs/protocol-v1.md`). This file is the agent's root. The rule files below load
+with it; each is one subject, and a rule lives in exactly one of them. Humans start at [README.md](README.md);
+the agent persona's own page is [docs/agent/README.md](docs/agent/README.md).
+
+@docs/agent/repository/conventions.md
+@docs/agent/repository/invariants.md
+@docs/agent/repository/gates.md
+@docs/agent/repository/documentation.md
+@docs/agent/repository/automation.md
 
 # Overrides
 - @./CLAUDE.user.md (optional, local-only, gitignored — absent in fresh clones)
-
-# Brigade
-- Protocol v1 is frozen in docs/protocol-v1.md. Changing a wire shape means changing internal/protocol (types and
-  Validate), docs/protocol-v1.schema.json (`make schema`), the conformance suite and both adapters in one commit.
-- Never write to stdout from a command, the watcher or an adapter except protocol JSON/NDJSON or the documented human
-  output of harness/commands (forbidigo enforces it); diagnostics go to stderr through the redacting logger; never
-  `slog.Any`. Never spawn with a shell in shipped code; always argument arrays with an allow-listed environment.
-  A test fixture that is a shell script is launched as `/bin/sh <script>` (an argv array, never `sh -c`) so the
-  fresh file is read, not exec'd: exec'ing it is what macOS's first-exec assessment and Linux's ETXTBSY need.
-- Never put secrets on argv, in logs, in `describe` output, or in files under the project directory. The join secret is
-  read from stdin, a no-echo prompt, or a `--secret-file` outside the repository (whose mode and owner Brigade never
-  checks — owner ruling 4, 2026-09-08) — never argv, never the chat.
-  The Supabase secret/service-role key must never appear in the adapter, the plugin, the repo or CI variables that
-  ship.
-- Never hardcode `~/.claude`; use `CLAUDE_CONFIG_DIR ?? ~/.claude`. Never read or copy `$CLAUDE_CONFIG_DIR/sessions/*.key`;
-  the session registry JSON is read best-effort only and never written. Inside a Claude Code session (CLAUDE_PID set)
-  the harness ignores every inherited BRIGADE_* variable and reads its configuration from the hook-written by-pid map.
-- internal/harness must not import internal/adapters/supabase (depguard); the plugin talks only the adapter protocol
-  and spawns the bundled adapter as a child process (`brigade adapter supabase …`).
-- The shipped binary links only the modules in docs/allowed-deps.txt (`make deps-check`); dev tools live in tools.mod,
-  never in go.mod; go.mod has no `toolchain` line.
-- From 0.1.0 on, go.mod's `go` line is a release-reproducibility pin: the release job rebuilds from the tag and diffs
-  against the committed checksums, so a toolchain bump changes the bytes — bump the version with it, or accept a red
-  `fast` job until the next release (`make checksums-check` rule (c)).
-- `make test` is Docker-free and stack-free: the live Supabase tests are opt-in behind `BRIGADE_TEST_LIVE=1`, which only `make test-integration` (and CI's `supabase` job through it) sets. Run `make supabase-start supabase-env` once, then `make test-all` before pushing anything
-  that touches supabase/ or internal/adapters/supabase.
-- Never commit a plugin/bin/checksums.txt or plugin/bin/VERSION you did not produce with `make release`. CI now
-  verifies them on every push: `make checksums-check` requires the committed file to be reproduced by a fresh
-  cross-compile or backed by the published release (in the pre-release `0.0.0` state it requires the file to be
-  empty and skips the rest), and `make plugin-check` carries the plugin-tree checks — the `plugin/` file
-  allowlist, mode 100755 in git for `plugin/bin/brigade`, VERSION == plugin.json,
-  no `.mcp.json`/`mcpServers`/`channels`, exec-form hooks whose command paths exist and are executable, `sh -n`
-  and `shellcheck -s sh` — and the only secret scan (`scripts/ci/no-secrets.sh`). CI's Ubuntu runner —
-  Blacksmith's `blacksmith-4vcpu-ubuntu-2404` image since P5-17 — has shellcheck **0.9.0** (printed by `ci.yml`'s
-  `fast` job in its "Runner image inventory" step, run 33998830833; the earlier "0.10" was inferred once from
-  diagnostic codes on the GitHub-hosted runner, never printed) and this machine has 0.11, and versions disagree
-  (0.10 reported SC2317 for a trap-invoked function's body and SC2015 for `A && B || C`; 0.11 reports SC2329 for
-  the same function): before pushing a shell file run
-  `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.9.0 -s sh <file>` as well as the local one, and
-  re-pin this sentence and `scripts/ci/README.md`'s copy whenever the inventory step prints a different version.
-- Every Brigade skill is reachable by the model: never add `disable-model-invocation` to a skill under
-  `plugin/skills/` (card 28, owner ruling 2026-09-20 — Brigade's security model is open and team-based, and a
-  skill the model cannot reach cannot help unasked). `make plugin-check` check 10 enforces it, and that check is
-  wanted: it is the ONE deliberate carve-out from the 2026-09-08 ruling that CI does not police what a skill
-  declares — never remove it on the strength of that ruling.
-- Local dev: `make plugin-dev` writes the dev-binary pointer and starts Claude Code with the local plugin; `make
-  plugin-dev-off` removes it. Two personas on one machine: pass
-  `--settings '{"pluginConfigs":{"brigade@inline":{"options":{"config_dir":"<dir>"}}}}'` (P7-7: the profile
-  option is gone; each persona is its own credential store).
-- Experiment reports live in docs/experiments/ and their driver scripts in scripts/experiments/; the research digests and
-  their evidence are committed under docs/research/ (the threat model defines U-01..U-25, I-01..I-33, E2E-*, CI-*;
-  U-26..U-28 and I-34 are this plan's additions, defined in its sections 9.8/9.9); scratch in .ignored/; plans in
-  .context/plans/.
-- Proof and experiment scripts, and the e2e/proof/harness-smoke/plugin-dev targets, run outside the current Claude
-  session. Strip the inherited session environment BY PREFIX, never by a name list: unset every variable whose
-  name begins with `CLAUDE` — note there is no underscore, so this covers `CLAUDECODE` as well as `CLAUDE_*` —
-  plus `AI_AGENT`, keeping only `CLAUDE_CONFIG_DIR`. The enumerated eight-name list in plan 9.6/7.4 is short by at
-  least three — `CLAUDE_CODE_BRIDGE_SESSION_ID`, `CLAUDE_EFFORT` and `AI_AGENT` (that last one is not even
-  `CLAUDE_`-prefixed), measured in E0-4 and E0-7 — and the next Claude Code release can add more.
-- Commit messages: `<card>: <Imperative summary>`, the number being the AppShapes Trello card the work belongs
-  to; `make push message="<card>: ..."`; merges only, never rebase. Skills: `/commit <card>`
-  (`.claude/skills/commit/SKILL.md`), `/playwright-cli`,
-  `/trello-create <title> [--board] [--list] [--label] [--from file.md]` (defaults: board AppShapes, list
-  Wanting, label Brigade — every card carries exactly one project label, one of the board's; plain
-  titles, Trello assigns the number; `.claude/skills/trello-create/SKILL.md`) and `/trello-read <number | title
-  | id>` (`.claude/skills/trello-read/SKILL.md`) and `/trello-done <number | id>`
-  (`.claude/skills/trello-done/SKILL.md`); `docs/claude-code-usage.md` is the usage guide.
-- A card is done when its done criteria are met and shipped (released, or merged when no release carries it;
-  a research or decision card when its answer is on the card) and nothing on it is open. Then run
-  `/trello-done <card>` without being asked: it posts the closing comment, marks the card complete and
-  archives it. When something is still open, say what it is and leave the card; never report a card as
-  done without having run it.
-- The release-notes email (card 43, `.github/workflows/send-release-notes.yml`) goes to a list kept by hand in
-  the secret `RELEASE_NOTES_RECIPIENTS`. Never print, upload, commit or put on a card the address of a
-  recipient: this repository is public, so the addresses are secrets, never variables and never a file, every
-  reader is `bcc`, and the list is read after the last agent step. The send step's name is how the next run
-  finds the last email: rename it in the workflow and in `scripts/ci/send-release-notes.sh` together.
-- Repository automation: an issue labelled `claude` is a work order for the agentic loop
-  (`.github/workflows/claude.yml`). An agent working on a PR branch follows `.claude/agents/developer.md`; the
-  PR reviewer follows `.claude/agents/reviewer.md`. Agents commit with plain `git` on their branch and never run
-  `make commit`, `make push` or `make release`. A PR labelled `maintenance` is exempt from the execution-log-row
-  rule (owner ruling, 2026-09-09); its squash-merge title, `<card>: <Imperative summary>`, satisfies the
-  commit-message rule. Agent memory lives under `.context/plans/agent-memory/`, never under `.claude/`.
-  `anthropics/claude-code-action` is pinned by **full commit SHA** — the only action in this repository that is,
-  because it is the only one that runs a model with repository write access; every other action stays on its
-  major tag.

@@ -9,6 +9,23 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **The documentation is one tree per reader** (card 110). `README.md` names five personas — Project Owner, Team
+  Admin, Team Member, Developer, AI Agent — and each has a root page under `docs/` with an "If you want to" table,
+  topic pages with a TL;DR per action, and a detail page per action; `docs/setup.md`, `docs/sync.md`,
+  `docs/mail-gateway.md`, `docs/slack-gateway.md`, `docs/development.md` and `docs/claude-code-usage.md` are
+  dissolved into it, and `docs/security.md`, the protocol, the adapter guides, the experiments and the research are
+  reached from it unchanged. Agents enter at `CLAUDE.md`, which now imports one rule file per subject from
+  `docs/agent/repository/`; `AGENTS.md` lists the same files. Links in this changelog follow the pages.
+- **A documentation gate holds the tree** (card 110): `make docs-check` (`internal/docscheck`, `cmd/brigade-docs`)
+  fails on a broken link or anchor, an orphan page, a persona or topic page out of shape, a harness in
+  `docs/harnesses.json` without its six pages, an unlisted skill, an undocumented plugin option, a stale
+  `docs/developer/reference/make-targets.md` (`make docs-generate` rewrites it) or a pinned version with no
+  changelog section. It runs in `make test`, in CI, as a precondition of `make release` and as a guard of the
+  release workflow, so a release cannot ship without its documentation.
+- The binary's usage line says "coding sessions of different people and machines" rather than naming one harness.
+
 ## [0.31.0] — 2026-10-17
 
 ### Added
@@ -24,7 +41,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   come from `~/.config/brigade/muse-options.json` (Muse runs no plugin `userConfig`); `brigade whoami` says
   `host: muse`; the frame a Muse session reads names no Claude Code surface. The Claude Code package, its hooks
   and its frame bytes are unchanged ([muse/brigade/README.md](muse/brigade/README.md),
-  [docs/setup.md](docs/setup.md) "Muse Code", [docs/security.md](docs/security.md) section 15).
+  [Install in Muse Code](docs/team-member/install/muse-code.md), [docs/security.md](docs/security.md) section 15).
 - `brigade inbox follow`: prints each team message of this session as it lands, between a
   `Brigade: team message … follows` line and a `Brigade: end of message …` line; the command a Muse Code
   monitor runs. Inside a session only.
@@ -44,7 +61,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   user id, `<@U0123ABCD>` — the id a `from` line carries — or with a channel, `<#C0123ABCD>`. Until now the
   gateway escaped the markup and resolved no name, so a session had no way to get a person's attention in a
   channel but a separate direct message. `@here`, `@channel`, `@everyone` and user groups are never passed: a
-  session cannot page a whole channel ([docs/slack-gateway.md](docs/slack-gateway.md), "For sessions").
+  session cannot page a whole channel ([Write to people on email or Slack](docs/team-member/use/people-on-email-and-slack.md)).
 
 ### Changed
 
@@ -60,7 +77,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   prints, **Save Changes**, **Install App → Reinstall to Workspace**, then run the second pass; it checks the
   token's scopes before deploying and says what to do when one is missing. With the new scopes the bot can read
   the channels it is in; the people who approve the app should hear that plainly
-  ([docs/slack-gateway.md](docs/slack-gateway.md)).
+  ([Install the Slack gateway](docs/project-owner/configure/slack-gateway.md)).
 
 ## [0.29.1] — 2026-10-15
 
@@ -82,7 +99,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   optional `subject:`, runs one `brigade send`, and prints what it printed; it never re-sends on `waiting:`,
   never polls, and refuses a body that looks like a credential. It also tells the user when an answer can only
   arrive once the administrator lists the person's address (card 55). Asking a session in words to email
-  someone loads it ([docs/mail-gateway.md](docs/mail-gateway.md), "For sessions").
+  someone loads it ([Write to people on email or Slack](docs/team-member/use/people-on-email-and-slack.md)).
 - **`brigade send --member <who>`** (card 101). A message to a person rather than to one of their sessions:
   `<who>` is their label as the `MEMBER` column shows it (compared case-insensitively, whole) or the first eight
   or more characters of their principal reference, bracketed or bare, and the command picks their best session
@@ -129,7 +146,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   --json`, runs one `brigade send` with a `to:` first line, and prints what it printed. Asking a session in
   words to Slack someone loads it too: the `brigade:team-messaging` skill's description now names email, Slack
   and the gateways, so "Slack @alice: the fix is on master" no longer sends a session looking for a Slack tool it
-  does not have ([docs/slack-gateway.md](docs/slack-gateway.md), "For sessions").
+  does not have ([Write to people on email or Slack](docs/team-member/use/people-on-email-and-slack.md)).
 - **A person on Slack or email addresses a member, not only a session** (card 99). `/brigade send
   rjae@example.com <text>`, or a first line `to: rjae@example.com`, names a member by the label the roster shows
   beside their sessions, or by the first eight characters of their principal reference, and the gateway picks
@@ -171,7 +188,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   session after six hours with no activity — no prompt, no model work — and the next prompt re-opens it under the
   same id with the messages that waited. Only sessions the extension started: the CLI, `-p` runs and every other
   host are untouched. `idle_close_hours` in the `polling` member of `.brigade.json` sets the hours (0 to 168; 0
-  switches it off), [docs/setup.md](docs/setup.md), "The project owns the team". A plugin of 0.25.0 or 0.26.0 names
+  switches it off), [Set the timers](docs/team-admin/configure/timers.md). A plugin of 0.25.0 or 0.26.0 names
   the value as an ignored member in one line at start and keeps the session open.
 
 ### Changed
@@ -191,7 +208,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   5 minutes. 0.26.0 puts them back to 30 seconds, 15 seconds and 30 seconds. A lost Realtime signal again costs
   at most 30 seconds, and a session that ends without closing itself shows online for 90 seconds, not 5 minutes.
   The `polling` member of `.brigade.json` stays: a team on a capped backend plan sets its own `heartbeat_seconds`
-  and `roster_seconds` there ([docs/setup.md](docs/setup.md), "The project owns the team"). The inbox check has no
+  and `roster_seconds` there ([Set the timers](docs/team-admin/configure/timers.md)). The inbox check has no
   setting; measured on a 19-session team, the session-list read is nearly all of the egress and the inbox check a
   few percent of it.
 
@@ -205,7 +222,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   of sessions. Longer values send fewer requests, at a cost: a crashed session shows online for up to three
   heartbeats, and a new teammate joins folder sync later. A session names values other than the defaults in one
   line at start; a member Brigade cannot use is named in one line too, and the defaults apply. `team create
-  --force` carries the member. [docs/setup.md](docs/setup.md), "The project owns the team", has the details and an
+  --force` carries the member. [Set the timers](docs/team-admin/configure/timers.md), has the details and an
   example for Supabase's free plan.
 
 ### Changed
@@ -238,7 +255,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   offline session can still be written to; the message waits for it.
 - **In a channel, a session's Slack message now says to mention @brigade in a thread reply**; the bot does not see
   a reply without the mention (card 51).
-- **[`docs/mail-gateway.md`](docs/mail-gateway.md): a simpler Google Workspace rule for a team address.** It
+- **[Install the mail gateway](docs/project-owner/configure/mail-gateway.md): a simpler Google Workspace rule for a team address.** It
   changes the envelope recipient to the receiving address and bypasses the spam filter; the address needs no
   mailbox and no alias.
 - **`make gateway-install` and `make slack-gateway-install` take `team_file=`**, the project's `.brigade.json`:
@@ -277,7 +294,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 - The repository's own `.claude/settings.json` no longer carries a `crossSessionInbound` of `accept`: a
   repository file cannot grant it, and copying the pattern into other repositories had hidden the problem above.
-  [`docs/security.md`](docs/security.md) section 6 and [`docs/setup.md`](docs/setup.md) "Holding messages for
+  [`docs/security.md`](docs/security.md) section 6 and [Hold messages for review](docs/team-member/configure/hold-messages.md) "Holding messages for
   review" describe the rule, where an accept counts and what Brigade does.
 
 ## [0.22.0] — 2026-10-05
@@ -330,7 +347,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   public_address=<address>` names an address the team routes to the Resend receiving address (a Google Workspace
   alias with a routing rule, say). The roster, the mails and the bounces then name that address; replies still
   travel to the receiving address through their Reply-To tag, which a forwarder would strip
-  ([`docs/mail-gateway.md`](docs/mail-gateway.md), "An address of the team's own").
+  ([Install the mail gateway](docs/project-owner/configure/mail-gateway.md), "An address of the team's own").
 
 ### Fixed
 
@@ -346,8 +363,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 ### Changed
 
 - **The gateway documentation is shorter and starts with the steps** (card 48). `README.md` gains "Let people on
-  email or Slack take part"; [`docs/mail-gateway.md`](docs/mail-gateway.md) and
-  [`docs/slack-gateway.md`](docs/slack-gateway.md) open with a TL;DR for administrators, then what a person does,
+  email or Slack take part"; [the mail gateway page](docs/project-owner/configure/mail-gateway.md) and
+  [the Slack gateway page](docs/project-owner/configure/slack-gateway.md) open with a TL;DR for administrators, then what a person does,
   what a session does, the administrator's details, how it works and the limits.
 
 ## [0.19.0] — 2026-10-03
@@ -364,7 +381,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `to: #channel` or `to: <email>`, and answers a Slack message with `--reply-to`, which the gateway posts into
   the person's thread with a mention. Slack authenticates the author, so the user id a session is told is a
   verified identity; the name is not. No protocol change. `.brigade.json`'s `gateway` member gains `slack`
-  ([`docs/slack-gateway.md`](docs/slack-gateway.md)).
+  ([Install the Slack gateway](docs/project-owner/configure/slack-gateway.md)).
 
 ## [0.18.0] — 2026-10-03
 
@@ -384,7 +401,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   holds nothing in the brigade schema. The project's `.brigade.json` gains `"gateway": {"email": "<address>"}`,
   a public value; a plugin that does not know the member ignores it. No protocol change. The address is
   public and the gateway does not verify who sent a mail: a message from it is a person's words, untrusted
-  like any other ([`docs/mail-gateway.md`](docs/mail-gateway.md)).
+  like any other ([Install the mail gateway](docs/project-owner/configure/mail-gateway.md)).
 
 ## [0.17.0] — 2026-09-30
 
@@ -424,7 +441,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   exchange no file until the last one has updated. Then the folders are in step again. Measured with Syncthing
   2.1.5 between two machines: a file both sides had alike is left as it is, a file written on one side arrives
   on the other, a file changed on one side wins and the older copy is kept as a conflict copy, and **a file
-  deleted on one side in between comes back**. [docs/sync.md](docs/sync.md), "Updating to 0.16.0".
+  deleted on one side in between comes back**. [Sync folders](docs/team-member/use/sync-folders.md), "Limits".
 - **Brigade moves a folder to its new id by itself** (card 42). At a session's first round on 0.16.0, the
   bundled Syncthing adapter finds the folder its instance holds under the old id at the checkout's path, removes
   that entry and adds the folder again under the new id, at the same path, with every device the old entry
@@ -589,7 +606,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   over the five-verb protocol of [`docs/sync-adapters.md`](docs/sync-adapters.md). The session start says what
   is syncing in one line — `Brigade: file sync on: 2 folder(s) through syncthing.`, or `Brigade: file sync off
   (<why>).` — and the watcher's notice says `Brigade sync: <f> folders, <c> of <p> peers connected` whenever that
-  changes. [`docs/sync.md`](docs/sync.md) is the whole feature, limits included (two checkouts on one machine
+  changes. [Sync folders](docs/team-member/use/sync-folders.md) is the whole feature, limits included (two checkouts on one machine
   cannot both sync one folder). [`docs/security.md`](docs/security.md) section 12 says what it opens, and states
   it as accepted: a teammate's machine can write, overwrite and delete anything in a listed folder, no permission
   rule gates file sync, and the join secret is the boundary, as it is for messages. A folder the project stops
@@ -633,7 +650,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 - **Backend migration `20260923022323_session_sync_peer.sql`** — append-only, like the three before it: a
   nullable column on `brigade.sessions` (checked at 256 characters), the member on `session_record`, and one
   defaulted parameter appended to `register_session` and `session_heartbeat`. **Administrators: apply it with
-  `make backend-install project=<ref>`** ([`docs/setup.md`](docs/setup.md)); until then no session's peer is
+  `make backend-install project=<ref>`** ([Know which migration adds what](docs/project-owner/update/migrations.md)); until then no session's peer is
   stored, so a project's listed folders sync nowhere, and nothing else changes. Both directions of schema
   compatibility hold, as they did for `20260920180000`: an older adapter never names the parameter, and a newer one
   on a backend without the migration is refused once (`PGRST202`), sends the call again without the peer —
@@ -685,7 +702,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 - **Backend migration `20260920180000_session_brigade_version.sql`** — append-only, like the two before it: a
   nullable column on `brigade.sessions`, the member on `session_record`, and one defaulted parameter appended to
   `register_session` and `session_heartbeat`. **Administrators: apply it with `make backend-install
-  project=<ref>`** ([`docs/setup.md`](docs/setup.md)); until then the `VERSION` column is absent for your team and
+  project=<ref>`** ([Know which migration adds what](docs/project-owner/update/migrations.md)); until then the `VERSION` column is absent for your team and
   nothing else changes. Both directions of schema compatibility hold. An older adapter never names the parameter
   and matches the new signature through its default. A newer adapter on a backend without the migration is
   refused once (`PGRST202`), sends the call again without the version — dropping that value and **only** that
@@ -1263,7 +1280,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   carry one is refused once (`PGRST202`), sent again without it and succeeds, so no lease is lost; the adapter
   says so once on stderr naming the migration, stores neither value until the migration lands (the two
   columns stay blank for that team), re-checks every 10 minutes, and its `describe` withholds the two
-  capabilities meanwhile. Apply it the way [`docs/setup.md`](docs/setup.md) *Deploying the backend* documents —
+  capabilities meanwhile. Apply it the way [Deploy the backend](docs/project-owner/install/deploy-the-backend.md) documents —
   `read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN`, then `make backend-install project=<ref>`,
   which dry-runs `supabase db push`, applies only what is pending and lists the versions on both sides. The
   frozen migrations are not touched. Both hosted projects were migrated on 2026-09-10.
@@ -1568,7 +1585,7 @@ against that committed sha256, and refuses to install anything that does not mat
   lists the migrations that are not applied yet, applies them, writes the four project settings Brigade needs
   through `scripts/backend-settings.sh`, and lists the migrations on both sides so you can check them.
   `scripts/backend-settings.sh` changes only what differs and reports what it found.
-  [`docs/setup.md`](docs/setup.md) carries the administrator's procedure.
+  [Arm the keep-alive](docs/project-owner/install/keep-alive.md) carries the owner's procedure.
 
 ### Security
 

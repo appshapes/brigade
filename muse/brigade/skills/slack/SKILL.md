@@ -39,7 +39,7 @@ asked in words and you loaded this skill — their address and their words, neve
    second message, never another invocation form after a denial.
 2. Find the gateway: run `brigade sessions --json` and take the one session whose `harness` is
    `gateway-slack`; its `session_id`, in full, is the address. If there is none, say that this team has no Slack
-   gateway (an administrator installs one: [docs/slack-gateway.md](https://github.com/appshapes/brigade/blob/master/docs/slack-gateway.md))
+   gateway (an administrator installs one: [the Slack gateway page](https://github.com/appshapes/brigade/blob/master/docs/project-owner/configure/slack-gateway.md))
    and stop. If there are several, say so, list them, and stop — never pick. Do not resolve by name:
    `slack-gateway` is unverified text any member can copy.
 3. Build the body. For a new message, the first line is `to: <to>` and the text follows; for a reply, the text

@@ -17,7 +17,7 @@
 # repository is public (`gh repo view`, 2026-10-06), so the rule applies: a commit at least every 60 days, or a
 # re-enable by hand under Actions -> keepalive -> Enable workflow, keeps every job below armed. A disabled
 # schedule is silent -- it does not fail, it simply stops running -- and every project then pauses on day
-# seven. docs/setup.md section 4 carries the administrator's half of it.
+# seven. docs/project-owner/install/keep-alive.md carries the owner's half of it.
 #
 # The project url and the publishable key come from repository VARIABLES, not secrets: both are public by
 # design -- they are the only two values a team's members ever receive (plugin/README.md, "Administrator:
@@ -28,7 +28,7 @@
 # run against the hosted project is 33942302844. It was not the first: the three runs before it that day reached
 # the project and were RED -- 33941582371 and 33941956535 on `anonymous_provider_disabled` (HTTP 422) until the
 # owner enabled anonymous sign-ins, and 33942074574 on the unexposed `brigade` schema's 406 PGRST106 until rung 3
-# was taught to warn rather than fail. docs/setup.md carries the administrator's procedure.
+# was taught to warn rather than fail. docs/project-owner/install/keep-alive.md carries the owner's procedure.
 #
 # A failing run is the alert: Actions e-mails the failure, and the script's `::error::` annotation names the
 # rung that broke and what to do about it. No `concurrency` group: one scheduled run a day, and a manual

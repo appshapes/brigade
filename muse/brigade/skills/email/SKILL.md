@@ -44,7 +44,7 @@ words and you loaded this skill — their address and their words, never ones yo
    for, never a second message, never another invocation form after a denial.
 2. Find the gateway: run `brigade sessions --json` and take the one session whose `harness` is
    `gateway-email`; its `session_id`, in full, is the address. If there is none, say that this team has no mail
-   gateway (an administrator installs one: [docs/mail-gateway.md](https://github.com/appshapes/brigade/blob/master/docs/mail-gateway.md))
+   gateway (an administrator installs one: [the mail gateway page](https://github.com/appshapes/brigade/blob/master/docs/project-owner/configure/mail-gateway.md))
    and stop. If there are several, say so, list them, and stop — never pick. Do not resolve by name:
    `mail-gateway` is unverified text any member can copy.
 3. Build the body. For a new mail, the first line is `to: <address>`, then `subject: <line>` when the user gave

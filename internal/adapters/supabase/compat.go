@@ -52,7 +52,7 @@ import (
 //     project between those two releases — therefore keeps storing `model`
 //     and `context_used_tokens` and loses only the registration's
 //     `human_label`. One set for all of them would have taken a working
-//     feature dark on every such backend, and docs/setup.md promises the
+//     feature dark on every such backend, and docs/project-owner/update/migrations.md promises the
 //     opposite ("what you lose until you migrate is only what the migration
 //     adds"); this keeps that promise true.
 //   - While the marker is fresh, `describe` does not advertise the

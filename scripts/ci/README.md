@@ -57,6 +57,8 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/ci/bootstrap-alpine.sh` | nothing — run by hand, see its section |
 | `scripts/ci/conformance-setup-supabase.sh` | nothing — passed by an adapter author to `--setup`, see its section |
 | `scripts/ci/pr-guard.sh` | `.github/workflows/review-pull-request.yml` (not `make`) |
+| `scripts/ci/muse-plugin-check.sh` | `make muse-plugin-check` → `ci.yml`'s `fast` job |
+| `cmd/brigade-docs` (Go, not a script) | `make docs-check` and `make docs-generate` → `ci.yml`'s `fast` job, `release.yml`'s guard, `scripts/release-prep.sh`; the same rules run in `make test` through `docs_check_test.go` |
 
 `release-verify.sh` and `keepalive.sh` have no `make` target on purpose, and the house does the same with its own
 workflow-only scripts (`thinktech-php` runs `send-weekly-metrics.yml`, `phinx-ownership.yml` and
@@ -109,7 +111,7 @@ string or an `sb_secret_` key anywhere in the tracked tree, in `plugin/`, or in 
 the three before it that day reached the project and were red — two on `anonymous_provider_disabled` (HTTP 422)
 until the owner enabled anonymous sign-ins, and one on the unexposed `brigade` schema's `406 PGRST106` until
 rung 3 was taught to warn rather than fail. Where the two variables are unset — any fork, and this repository
-before 2026-09-05 — every run is a green no-op that says so on the run page. `docs/setup.md` carries the
+before 2026-09-05 — every run is a green no-op that says so on the run page. `docs/project-owner/install/keep-alive.md` carries the
 administrator's procedure for setting them.
 
 ## `scripts/proof.sh`
@@ -460,8 +462,7 @@ bin/brigade-conformance --env SUPABASE_URL=… --env SUPABASE_PUBLISHABLE_KEY=�
 ## Drift tests
 
 `scripts/ci/*_test.go` is package `ci_test` and runs in `make test` — Docker-free, stack-free and model-free.
-Eleven files, one per thing they guard; the mapping is the house's rule (a test file per subject), the spelling is
-Go's:
+One file per thing they guard; the mapping is the house's rule (a test file per subject), the spelling is Go's:
 
 | Test file | What it guards |
 | --- | --- |
@@ -475,6 +476,9 @@ Go's:
 | `proof_idle_wake_test.go` | `proof-idle-wake.sh wake`, over `testdata/proof-idle-wake/`, plus the frame literals it shares with `proof.sh`. |
 | `proof_crash_resume_test.go` | `proof-crash-resume.sh catchup`, over `testdata/proof-crash-resume/`, plus the shared frame literals and the lease and liveness budgets. |
 | `fixtures_test.go` | The ignore rules around the fixture trees, and that no compiled Python is tracked. |
+| `muse_plugin_check_test.go` | `muse-plugin-check.sh` (card 88): the Muse Code package's allowlist, native manifest, one wrapper per hook and assets equal to `plugin/bin`'s, each proved able to fail. |
+| `setup_docs_test.go` | The setup copies join: the invocation forms of create, join, leave and reset must read the same in both setup skills and the member's and admin's pages (`docs/team-admin/create/create-the-team.md`, `docs/team-member/join/muse-code.md`, `docs/team-member/leave/leave-the-team.md`). |
+| `docs_check_test.go` | The documentation gate of card 110 (`internal/docscheck`, `make docs-check`): green on the repository, and every rule proved able to fail against a copy of the tree with one violation planted — the README shape, a three-sentence persona section, a missing `Details:` line, an orphan leaf, a broken link and anchor, an unreachable page, an unindexed experiment, a harness without its pages, an unregistered package, an unlisted skill, an unimported rule file, an undocumented option, a stale make-target page, a pinned version with no changelog section. |
 | `shell_test.go` | Every `scripts/*.sh`, `scripts/ci/*.sh` and `plugin/bin/brigade`: no comment line may sit directly after a line ending in a backslash. A commit put four such comments inside the `exec env … \` that launches every nested `claude` session, and three proof scripts silently ran `env` instead while `sh -n`, both shellcheck versions and every other drift test stayed green. |
 
 Those joins are load-bearing and are the reason no script here can become a `make` recipe body: a recipe can be

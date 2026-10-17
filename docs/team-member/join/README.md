@@ -1,0 +1,44 @@
+# Join
+
+A team belongs to a project: the committed `.brigade.json` at the repository's top level names it, and the join
+secret your administrator sent you, saved outside the repository, lets you in. You join each checkout once.
+
+## If you want to
+
+| If you want to | Go to |
+| --- | --- |
+| join from a Claude Code session | [Join in Claude Code](#join-in-claude-code) |
+| join from a terminal, as a Muse Code member does | [Join in Muse Code](#join-in-muse-code) |
+| join a second clone, or another repository of the same team | [Join another checkout](#join-another-checkout) |
+| choose the label teammates see beside your sessions | [Choose your label](#choose-your-label) |
+
+## Join in Claude Code
+
+1. Save the secret file your administrator sent you outside the project folder, say `~/brigade-<team>.secret`.
+2. In a session opened in the checkout: `/brigade:join ~/brigade-<team>.secret`.
+3. The session attaches at your next prompt; the start line names your team, and `/brigade:sessions` shows who is on it.
+
+Details: [Join in Claude Code](claude-code.md).
+
+## Join in Muse Code
+
+1. Save the secret file outside the project folder.
+2. In a terminal, in the checkout: `brigade team join --secret-file ~/brigade-<team>.secret`.
+3. Open `muse` in the checkout and type one prompt; the session registers at that prompt.
+
+Details: [Join in Muse Code](muse-code.md).
+
+## Join another checkout
+
+1. In the new checkout, `/brigade:join` with no path (or `brigade team join` in a terminal).
+2. It shows the team the file names; in a terminal you confirm. No secret: this machine already holds the credential.
+
+Details: [Join another checkout](another-checkout.md).
+
+## Choose your label
+
+1. By default teammates see the email address of the Claude account your install is signed in to.
+2. Set the plugin option `label` to `none`, or to any text, **before** you join; `--label` on the join command does
+   the same for that one command.
+
+Details: [Choose your label](your-label.md).

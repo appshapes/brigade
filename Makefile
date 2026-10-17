@@ -302,6 +302,14 @@ plugin-check: ## Static checks of plugin/: exec-form hooks, no .mcp.json, VERSIO
 muse-plugin-check: ## Static checks of muse/brigade/, the Muse Code package (card 88): allowlist, native manifest, one wrapper per hook, assets equal to plugin/bin's (CI)
 	sh scripts/ci/muse-plugin-check.sh
 
+.PHONY: docs-check
+docs-check: ## The documentation gate (card 110): README and persona shapes, links and anchors, orphans, harness pages, options, the make-target page, the changelog section (CI)
+	go run ./cmd/brigade-docs check
+
+.PHONY: docs-generate
+docs-generate: ## Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines (docs-check fails when it is stale)
+	go run ./cmd/brigade-docs generate
+
 .PHONY: plugin-validate
 plugin-validate: ## claude plugin validate on the marketplace and the plugin root
 	claude plugin validate .
@@ -558,7 +566,7 @@ gateway-install: ## Install the hosted mail gateway (usage: make gateway-install
 
 # gateway-senders: who may write to the team's mail gateway (card 55). The list lives in the team's gateway row and
 # mail-in reads it on every mail, so a change takes effect at once with no redeploy; only SUPABASE_ACCESS_TOKEN is
-# needed, from the environment. See scripts/gateway-senders.sh's header and docs/mail-gateway.md "Who may write".
+# needed, from the environment. See scripts/gateway-senders.sh's header and docs/project-owner/configure/mail-senders.md.
 .PHONY: gateway-senders
 gateway-senders: ## Show or change who may write to the mail gateway (usage: make gateway-senders project=<ref> [team_file=<path to the project's .brigade.json>] [add='qa@example.com,@example.com'] [remove='<entries>'] [clear=1]; needs SUPABASE_ACCESS_TOKEN)
 	@test -n "$(project)" || { echo "usage: make gateway-senders project=<ref> [team_file=<path>] [add='<entries>'] [remove='<entries>'] [clear=1]" >&2; exit 1; }
