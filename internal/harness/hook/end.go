@@ -71,12 +71,24 @@ func (r *run) sessionEnd() int {
 	if derr := store.DeleteStart(f.pid); derr != nil {
 		r.log.Debug("session-end: start facts not removed", log.Err(derr))
 	}
+	if f.muse() && m != nil {
+		if derr := store.DeleteByHost(string(f.host), m.ClaudeSessionID); derr != nil {
+			r.log.Debug("session-end: session pointer not removed", log.Err(derr))
+		}
+	}
 	// The doing reminder stamp goes with the map (card 25, plan 5.3); the
 	// sentence itself stays on the closed record (ruling 6).
 	if rerr := os.Remove(doingStampPath(f.stateDir, f.pid)); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
 		r.log.Debug("session-end: doing stamp not removed", log.Err(rerr))
 	}
 	if m == nil {
+		return 0
+	}
+	if f.muse() {
+		// Muse Code gives a SessionEnd hook 0.1–0.4 s (measured, card 88),
+		// not enough for an adapter call: the SIGTERM above is the close —
+		// the watcher's own exit path closes the session within its
+		// budget, and the lease expires if it cannot.
 		return 0
 	}
 	adapter, aerr := config.AdapterFromArgv(m.AdapterCommand)

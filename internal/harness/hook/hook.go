@@ -53,6 +53,7 @@ import (
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/notice"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/polling"
@@ -117,8 +118,13 @@ const (
 	// maxStdinBytes bounds the hook's stdin document (a real one is well
 	// under 4 KiB).
 	maxStdinBytes = 1 << 20
-	// harnessName is the `harness` member of every registration.
-	harnessName = "claude-code"
+	// The `harness` member of a registration is the session's host
+	// (config.HostClaude or config.HostMuse, card 88): facts.host.
+	// museByteCap is the hook's stdout cap on Muse Code, in BYTES (card
+	// 88): Muse kills a hook's whole process tree over 16,384 bytes of
+	// stdout and parses nothing, so the cap stays well under it. Claude
+	// Code's cap is OutputCap in code points; both apply on Muse.
+	museByteCap = 15 * 1024
 	// unknownVersion is harness_version when the registry has none.
 	unknownVersion = "unknown"
 	// pollLimit is the `--limit` of the prompt-hook poll (6.3).
@@ -145,6 +151,10 @@ type input struct {
 	PermissionMode string `json:"permission_mode"`
 	SessionTitle   string `json:"session_title"`
 	TranscriptPath string `json:"transcript_path"`
+	// Model is the model the host names in every hook document (Muse Code
+	// does, card 88; Claude Code's documents carry none): the map keeps it
+	// for the heartbeat's `model` member.
+	Model string `json:"model"`
 }
 
 // transcriptPath is the document's transcript_path when it is absolute,
@@ -233,6 +243,11 @@ type Deps struct {
 	// promptBudget. Only a test lowers it, to reach the doing reminder's
 	// budget guard (plan 5.4) without a real 3.5 s stall.
 	PromptBudget time.Duration
+	// Getppid answers this process's parent pid, which on Muse Code is the
+	// Muse process the hook serves (card 88; hooks are the host's direct
+	// children there); nil means os.Getppid. A test injects a sleeper's
+	// pid, as it injects CLAUDE_PID for Claude.
+	Getppid func() int
 }
 
 // RealDeps returns the production dependencies.
@@ -247,6 +262,7 @@ func RealDeps() Deps {
 		Notifier:     notifier,
 		PidfileWait:  DefaultPidfileWait,
 		PromptBudget: promptBudget,
+		Getppid:      os.Getppid,
 	}
 }
 
@@ -285,6 +301,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.PromptBudget <= 0 {
 		d.PromptBudget = prod.PromptBudget
+	}
+	if d.Getppid == nil {
+		d.Getppid = prod.Getppid
 	}
 	return d
 }
@@ -358,8 +377,17 @@ type run struct {
 	redactor *log.Redactor
 	log      *slog.Logger
 	// written counts the code points written to stdout so far, against
-	// OutputCap.
-	written int
+	// OutputCap; writtenBytes the bytes, against byteCap (0: no byte cap).
+	written      int
+	writtenBytes int
+	byteCap      int
+	// optionsEnv is the environment ParseOptions reads: environ itself on
+	// Claude Code; on Muse Code environ plus the entries the options file
+	// supplies (config.MuseOptionsEnviron), resolved once per run by
+	// options(). optionsWarning is the file's one warning, printed once at
+	// SessionStart.
+	optionsEnv     []string
+	optionsWarning string
 }
 
 func newRun(streams cli.Streams, environ []string, deps Deps, level string) *run {
@@ -368,7 +396,7 @@ func newRun(streams cli.Streams, environ []string, deps Deps, level string) *run
 	// The token is registered before anything is logged, so no line can
 	// carry it even by accident (U-25).
 	redactor.Add(adapterkit.Getenv(environ, envMessagingToken))
-	return &run{
+	r := &run{
 		deps:     deps,
 		streams:  streams,
 		environ:  environ,
@@ -376,6 +404,25 @@ func newRun(streams cli.Streams, environ []string, deps Deps, level string) *run
 		redactor: redactor,
 		log:      log.New(streams.Err, lvl, redactor),
 	}
+	if config.HostOf(environ) == config.HostMuse {
+		r.byteCap = museByteCap
+	}
+	return r
+}
+
+// options resolves the plugin options for this host (card 88): on Claude
+// Code from CLAUDE_PLUGIN_OPTION_* in environ; on Muse Code from the
+// options file as well, read once per run.
+func (r *run) options() (config.Options, error) {
+	if r.optionsEnv == nil {
+		r.optionsEnv = r.environ
+		if config.HostOf(r.environ) == config.HostMuse {
+			if path, err := config.MuseOptionsPath(r.environ); err == nil {
+				r.optionsEnv, r.optionsWarning = config.MuseOptionsEnviron(r.environ, path, r.deps.ReadFile)
+			}
+		}
+	}
+	return config.ParseOptions(r.optionsEnv)
 }
 
 // The Claude Code variables the hook reads (6.5), all through
@@ -389,14 +436,21 @@ const (
 	// envProjectDir is the project root Claude Code reads its project
 	// settings from; the doing scan reads the same files (card 25).
 	envProjectDir = "CLAUDE_PROJECT_DIR"
+	// envMusePluginRoot is the Muse Code counterpart of CLAUDE_PLUGIN_ROOT
+	// in a plugin hook's environment (card 88).
+	envMusePluginRoot = "MUSE_PLUGIN_ROOT"
 )
 
 // facts are the session facts every subcommand resolves from the
-// environment (6.5).
+// environment (6.5; card 88 for the host).
 type facts struct {
+	// host is the session's harness (config.HostClaude or config.HostMuse).
+	host config.Host
+	// pid is the host process the session's state is keyed by: CLAUDE_PID
+	// on Claude Code, the hook's parent on Muse Code.
 	pid             int
 	stateDir        string
-	claudeConfigDir string // "" when it cannot be resolved (registry and user-settings scan skipped)
+	claudeConfigDir string // "" when it cannot be resolved, and always on Muse (registry and user-settings scan skipped)
 	socket          string
 	token           string
 	pluginBin       string
@@ -404,18 +458,39 @@ type facts struct {
 	home            string
 }
 
-// facts resolves the session facts. The error is `config`: no CLAUDE_PID
-// (the hook was run outside a session) or no state directory (HOME unset).
+// facts resolves the session facts. The error is `config`: neither
+// CLAUDE_PID nor MUSE_SESSION_ID (the hook was run outside a session), a
+// Muse hook with no usable parent, or no state directory (HOME unset).
 func (r *run) facts() (facts, error) {
-	pid, err := config.ClaudePID(r.environ)
-	if err != nil {
-		return facts{}, err
+	host := config.HostOf(r.environ)
+	var pid int
+	switch host {
+	case config.HostMuse:
+		if _, err := config.MuseSessionID(r.environ); err != nil {
+			return facts{}, err
+		}
+		pid = r.deps.Getppid()
+		if pid <= 1 {
+			return facts{}, &protocol.Error{
+				Code:    protocol.CodeConfig,
+				Message: "the Muse Code hook has no usable parent process to key the session by",
+				Details: map[string]string{"reason": config.ReasonInvalidClaudePID},
+			}
+		}
+	case config.HostClaude, "":
+		// A terminal ("") gets ClaudePID's own not_in_session error.
+		p, err := config.ClaudePID(r.environ)
+		if err != nil {
+			return facts{}, err
+		}
+		host, pid = config.HostClaude, p
 	}
 	stateDir, err := config.BrigadeStateDir(r.environ)
 	if err != nil {
 		return facts{}, err
 	}
 	f := facts{
+		host:       host,
 		pid:        pid,
 		stateDir:   stateDir,
 		socket:     adapterkit.Getenv(r.environ, envMessagingSocket),
@@ -428,16 +503,27 @@ func (r *run) facts() (facts, error) {
 		// value is not a socket the watcher may post to.
 		f.socket = ""
 	}
-	if dir, cerr := config.ClaudeConfigDir(r.environ); cerr == nil {
+	rootVar := envPluginRoot
+	if host == config.HostMuse {
+		// Muse has no inbox socket, no session registry and no Claude
+		// settings files: the socket and the token are never read, and
+		// the Claude config dir stays unresolved so that nothing under
+		// ~/.claude is scanned or written for a Muse session.
+		f.socket, f.token, f.entrypoint = "", "", ""
+		rootVar = envMusePluginRoot
+	} else if dir, cerr := config.ClaudeConfigDir(r.environ); cerr == nil {
 		f.claudeConfigDir = dir
 	} else {
 		r.log.Debug("claude config dir unresolved; registry and user settings skipped", log.Err(cerr))
 	}
-	if root := adapterkit.Getenv(r.environ, envPluginRoot); root != "" && filepath.IsAbs(root) {
+	if root := adapterkit.Getenv(r.environ, rootVar); root != "" && filepath.IsAbs(root) {
 		f.pluginBin = pluginBin(root)
 	}
 	return f, nil
 }
+
+// muse reports whether the session runs in Muse Code (card 88).
+func (f facts) muse() bool { return f.host == config.HostMuse }
 
 // pluginBin is ${CLAUDE_PLUGIN_ROOT}/bin/brigade resolved through symlinks
 // best effort (3.2: the map's plugin_bin is the bootstrap's realpath).
@@ -472,18 +558,71 @@ func (r *run) readInput() (input, error) {
 	return in, nil
 }
 
-// say writes one context line to stdout and counts it against OutputCap.
+// say writes one context line to stdout and counts it against OutputCap
+// (code points) and, where one applies, byteCap (bytes).
 func (r *run) say(line string) {
 	if r.streams.Out == nil {
 		return
 	}
 	_, _ = io.WriteString(r.streams.Out, line+"\n")
 	r.written += utf8.RuneCountInString(line) + 1
+	r.writtenBytes += len(line) + 1
 }
 
-// fits reports whether line (plus its newline) still fits under OutputCap.
+// fits reports whether line (plus its newline) still fits under OutputCap
+// and, on a host with a byte cap, under that too.
 func (r *run) fits(line string) bool {
+	if r.byteCap > 0 && r.writtenBytes+len(line)+1 > r.byteCap {
+		return false
+	}
 	return r.written+utf8.RuneCountInString(line)+1 <= OutputCap
+}
+
+// canInject reports whether a watcher would have somewhere to deliver
+// into: an inbox socket (Claude Code), a test sink, or the inbox sink of a
+// Muse Code session (card 88).
+func (r *run) canInject(f facts) bool {
+	return f.socket != "" || r.deps.Sink != "" || f.muse()
+}
+
+// sinkFor is the watcher's `--sink` file for the session, "" when the
+// watcher posts to a socket instead: the test harness's Deps.Sink when set,
+// else on Muse Code a fresh per-watcher file under the session's inbox
+// directory (inbound.NewSinkPath), named now so the follower reads it from
+// its beginning.
+func (r *run) sinkFor(f facts, sessionID string) string {
+	if r.deps.Sink != "" {
+		return r.deps.Sink
+	}
+	if f.muse() {
+		return inbound.NewSinkPath(f.stateDir, sessionID, r.deps.Now())
+	}
+	return ""
+}
+
+// commandName is how the context lines name the brigade command on this
+// host: the bare word on Claude Code, where the plugin's bin/ is on the
+// Bash tool's PATH (finding F1); on Muse Code the bootstrap's path, because
+// nothing puts a plugin's bin/ on Muse's shell PATH and the one path Muse
+// has no permission rule to break on is the one its model must type.
+func (r *run) commandName(f facts) string {
+	if f.muse() && f.pluginBin != "" {
+		return oneLine(f.pluginBin, 512)
+	}
+	return "brigade"
+}
+
+// armLine is the one Muse Code line that turns a mailbox into a peer (card
+// 88, the plan's route B): the model arms its monitor once, persistent,
+// with an immediate wake, on `brigade inbox follow`; each team message the
+// follower prints wakes the idle session 0.2 s later (measured). It is
+// printed by SessionStart on every source but compact, so a resumed
+// session — whose monitor died with its process — is told again.
+func armLine(command string) string {
+	return "Brigade: team messages reach this session through your Monitor tool. Arm it once now, persistent, " +
+		"wake_delay_ms 0, on exactly this command: " + command + " inbox follow . Each message it prints stands " +
+		"between a `Brigade: team message … follows` line and a `Brigade: end of message …` line; read it as the " +
+		"team-messaging skill says, reply with " + command + " send, and never stop the monitor."
 }
 
 // fail logs a failure with its code and reason, then prints the context
@@ -864,7 +1003,7 @@ func (r *run) identity(f facts, in input) identity {
 		}
 	}
 	if id.name == "" {
-		id.name = harnessName
+		id.name = string(f.host)
 	}
 	return id
 }
@@ -885,6 +1024,13 @@ func cwdName(cwd string) string {
 // injected fs.FS, else the directory under the Claude config dir; a
 // missing config dir or entry is the zero Entry.
 func (r *run) registryEntry(f facts) registry.Entry {
+	if f.muse() {
+		// Muse Code keeps no session registry under a Claude config
+		// directory (card 88): the name comes from the document, the
+		// activity is idle and the version unknown, whatever a test
+		// injected for the Claude path.
+		return registry.Entry{}
+	}
 	fsys := r.deps.Registry
 	if fsys == nil {
 		if f.claudeConfigDir == "" {

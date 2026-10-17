@@ -93,8 +93,14 @@ func Inbox(inv Invocation, opts InboxOptions) error {
 	if len(inv.Args) > 0 && inv.Args[0] == "release" {
 		return inboxRelease(inv, opts, inv.Args[1:])
 	}
+	if len(inv.Args) > 0 && inv.Args[0] == "follow" {
+		if opts.Session != "" || opts.All {
+			return usage("inbox follow takes no flags: brigade inbox follow")
+		}
+		return inboxFollow(inv, inv.Args[1:])
+	}
 	if len(inv.Args) > 0 {
-		return usage("inbox takes no arguments other than the release verb: brigade inbox [release] [--session <id>] [--all | <message_id>…]")
+		return usage("inbox takes no arguments other than the release and follow verbs: brigade inbox [release] [--session <id>] [--all | <message_id>…] | brigade inbox follow")
 	}
 	if opts.All {
 		return usage("--all belongs to brigade inbox release")

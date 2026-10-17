@@ -40,6 +40,7 @@ is missing or logged out, or if Docker is not running.
 | `make plugin-dev`, `make harness-smoke`, `make proof` | a logged-in `claude`, `jq` |
 | `make release`, `make release-dry-run`, `make checksums-check` | `gh`, logged in |
 | `make plugin-check` | shellcheck; Docker for CI's 0.9.0 — [`scripts/ci/README.md`](../scripts/ci/README.md) |
+| `make muse-plugin-check` | the Muse Code package (card 88): the same shellcheck; `muse plugins validate ./muse/brigade` when Muse is installed |
 | the real-Syncthing test | `syncthing` on `PATH` (`brew install syncthing`); measured with 2.1.5 |
 | the Trello skills | [trello-cli](claude-code-usage.md#trello-cli) |
 

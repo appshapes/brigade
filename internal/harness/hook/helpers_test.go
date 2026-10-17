@@ -524,9 +524,30 @@ type fixture struct {
 	noSocket        bool
 	noAdapterOption bool
 	entrypoint      string
+	// muse makes the fixture a Muse Code session (card 88): MUSE_SESSION_ID
+	// and MUSE_PLUGIN_ROOT in the environment instead of the CLAUDE_*
+	// variables, no socket, and the hook's parent pid (Deps.Getppid) the
+	// fixture's sleeper.
+	muse bool
 }
 
 func newFixture(t *testing.T) *fixture {
+	t.Helper()
+	return buildFixture(t, false)
+}
+
+// newMuseFixture is newFixture for a Muse Code session (card 88): the
+// session variables are MUSE_SESSION_ID and MUSE_PLUGIN_ROOT, there is no
+// socket, the hook's parent is the sleeper, and — because a Muse session
+// resolves Brigade's directories from HOME alone — the team store and the
+// state directory live under HOME/.config/brigade and
+// HOME/.local/state/brigade rather than under the XDG triple.
+func newMuseFixture(t *testing.T) *fixture {
+	t.Helper()
+	return buildFixture(t, true)
+}
+
+func buildFixture(t *testing.T, muse bool) *fixture {
 	t.Helper()
 	d := testutil.NewDirs(t.TempDir())
 	if err := d.Mkdir(); err != nil {
@@ -549,11 +570,16 @@ func newFixture(t *testing.T) *fixture {
 		socket:     filepath.Join(d.Root, "inbox.sock"),
 		stateDir:   filepath.Join(d.XDGState, "brigade"),
 		configDir:  filepath.Join(d.XDGConfig, "brigade"),
+		muse:       muse,
 		pluginBin:  realpath(t, filepath.Join(binDir, "brigade")),
 		dumpPath:   filepath.Join(d.Root, "dump.ndjson"),
 		spawner:    &spawnRecorder{},
 		now:        fixedTime,
 		entrypoint: "cli",
+	}
+	if muse {
+		f.stateDir = filepath.Join(d.Home, ".local", "state", "brigade")
+		f.configDir = filepath.Join(d.Home, ".config", "brigade")
 	}
 	// P7-6: every fixture is born attachable — a checkout, its team
 	// file, the binding and the pin. Tests of the not-joined/drift/silent
@@ -586,6 +612,9 @@ func newFixture(t *testing.T) *fixture {
 		// watcher pid, and never when it has none; a test that drives the
 		// real spawner raises this to a hang catcher.
 		PidfileWait: 100 * time.Millisecond,
+		// The Muse Code hook's parent (card 88): the same sleeper that
+		// stands in for CLAUDE_PID, so both hosts key one map.
+		Getppid: func() int { return pid },
 	}
 	t.Cleanup(func() { f.assertTokenInNoFile() })
 	return f
@@ -638,16 +667,20 @@ func (f *fixture) env(extra ...string) []string {
 		"HOME=" + f.dirs.Home,
 	}
 	vars = append(vars, f.dirs.Vars()...)
-	vars = append(vars,
-		"CLAUDE_PID="+strconv.Itoa(f.pid),
-		"CLAUDE_CODE_SESSION_ID="+f.nativeID,
-		"CLAUDECODE=1",
-	)
-	if !f.noSocket {
-		vars = append(vars, "CLAUDE_CODE_MESSAGING_SOCKET="+f.socket, "CLAUDE_CODE_MESSAGING_TOKEN="+msgTok)
-	}
-	if f.entrypoint != "" {
-		vars = append(vars, "CLAUDE_CODE_ENTRYPOINT="+f.entrypoint)
+	if f.muse {
+		vars = append(vars, "MUSE_SESSION_ID="+f.nativeID, "MUSE_THREAD_ID="+f.nativeID, "MUSE_PLUGIN_ROOT="+f.dirs.PluginRoot)
+	} else {
+		vars = append(vars,
+			"CLAUDE_PID="+strconv.Itoa(f.pid),
+			"CLAUDE_CODE_SESSION_ID="+f.nativeID,
+			"CLAUDECODE=1",
+		)
+		if !f.noSocket {
+			vars = append(vars, "CLAUDE_CODE_MESSAGING_SOCKET="+f.socket, "CLAUDE_CODE_MESSAGING_TOKEN="+msgTok)
+		}
+		if f.entrypoint != "" {
+			vars = append(vars, "CLAUDE_CODE_ENTRYPOINT="+f.entrypoint)
+		}
 	}
 	if !f.noAdapterOption {
 		vars = append(vars, config.OptionAdapterCommand+"="+f.adapterOption())

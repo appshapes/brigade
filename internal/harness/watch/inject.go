@@ -6,10 +6,12 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 	"unicode/utf8"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/socketpost"
@@ -20,14 +22,9 @@ import (
 const logExcerptChars = 80
 
 // A sinkRecord is one line of the --sink file (6.6): what a socket post
-// would have carried, with the ids a test asserts on. A notice has an
-// empty message_id.
-type sinkRecord struct {
-	TS              time.Time `json:"ts"`
-	Frame           string    `json:"frame"`
-	MessageID       string    `json:"message_id"`
-	SenderSessionID string    `json:"sender_session_id"`
-}
+// would have carried, with the ids a test asserts on and `brigade inbox
+// follow` reads (card 88). A notice has an empty message_id.
+type sinkRecord = inbound.SinkRecord
 
 // The injector drains the pipeline into the socket or the sink (6.8 items
 // 6–7): Next → inject → Done, one item at a time, acknowledging only what
@@ -210,6 +207,23 @@ func (in *injector) inject(ctx context.Context, item inbound.Item) error {
 		opts.Logger = in.w.log
 	}
 	return in.w.deps.Post(ctx, target, item.Content, opts)
+}
+
+// ensureSinkDir makes sure the sink's directory exists, 0700, as soon as
+// the watcher holds the session (card 88): the hook names a per-watcher
+// file under the session's inbox directory, which may not exist yet, and
+// appendSink creates the FILE but not the directory. The file itself is
+// created by the first append and not before — under the `hold` policy
+// nothing is injected until a release, and the sink must not exist until
+// then (watch-hold.txtar); a Muse Code follower waits for the file to
+// appear. Nothing in socket mode. Best effort, logged.
+func (w *watcher) ensureSinkDir() {
+	if w.rc.sink == "" {
+		return
+	}
+	if err := adapterkit.MkdirPrivate(filepath.Dir(w.rc.sink)); err != nil {
+		w.log.Warn("sink directory not created", adlog.Err(err))
+	}
 }
 
 // appendSink appends one record to the sink file, 0600.

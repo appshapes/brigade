@@ -27,18 +27,50 @@ import (
 	"strings"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// The two Claude Code variables this package reads directly.
+// The two Claude Code variables this package reads directly, and the one
+// Muse Code variable (card 88).
 const (
 	// ClaudePIDVar is set in hooks and in the Bash tool (6.5); its
-	// presence is what "inside a session" means.
+	// presence is what "inside a Claude Code session" means.
 	ClaudePIDVar = "CLAUDE_PID"
 	// ClaudeConfigDirVar is inherited from the user's shell, never
 	// injected; unset means the default under HOME.
 	ClaudeConfigDirVar = "CLAUDE_CONFIG_DIR"
+	// MuseSessionIDVar is set in Muse Code's hooks, in its shell tool and
+	// in its monitors (Muse 1.4.4 on): the session's UUID. Its presence
+	// is what "inside a Muse Code session" means (card 88). It is as
+	// strong as CLAUDE_PID and no stronger: an environment variable the
+	// model can unset, which docs/security.md accepts; the host's own
+	// approval policy is the gate.
+	MuseSessionIDVar = "MUSE_SESSION_ID"
 )
+
+// A Host is the coding harness a session runs in: the value the
+// registration's `harness` member carries (protocol.SessionRegistration).
+type Host string
+
+// The two hosts Brigade knows. The empty Host means "not in a session".
+const (
+	HostClaude Host = "claude-code"
+	HostMuse   Host = "muse"
+)
+
+// HostOf names the host environ belongs to: Claude Code when CLAUDE_PID is
+// set (it wins, so a Muse variable leaking into a Claude session changes
+// nothing), Muse Code when MUSE_SESSION_ID is set, else "" — a terminal.
+func HostOf(environ []string) Host {
+	switch {
+	case adapterkit.Getenv(environ, ClaudePIDVar) != "":
+		return HostClaude
+	case adapterkit.Getenv(environ, MuseSessionIDVar) != "":
+		return HostMuse
+	}
+	return ""
+}
 
 // claudeConfigDefaultDir is the directory under HOME that Claude Code uses
 // when CLAUDE_CONFIG_DIR is unset (6.5). It is spelled here, once, as the
@@ -64,13 +96,40 @@ const (
 	// ReasonUnresolvable: HOME is unset or relative, so no default can be
 	// computed.
 	ReasonUnresolvable = "unresolvable"
+	// ReasonInvalidNativeID: MUSE_SESSION_ID is set but is not a value that
+	// can name a session (card 88).
+	ReasonInvalidNativeID = "invalid_native_id"
 )
 
-// InSession reports whether environ belongs to a Claude Code session:
-// CLAUDE_PID is set and non-empty. The value is not parsed here (ClaudePID
-// does that) because the strip rule must apply even to a malformed pid.
+// InSession reports whether environ belongs to a session of either host:
+// CLAUDE_PID or MUSE_SESSION_ID is set and non-empty. The value is not
+// parsed here (ClaudePID and MuseSessionID do that) because the strip rule
+// must apply even to a malformed one.
 func InSession(environ []string) bool {
-	return adapterkit.Getenv(environ, ClaudePIDVar) != ""
+	return HostOf(environ) != ""
+}
+
+// MuseSessionID reads MUSE_SESSION_ID as a native session id usable as a
+// path component (sessionmap.CheckNativeID's rules; Muse's ids are UUIDs).
+// Unset is `config` with details.reason not_in_session; a value that is not
+// a safe id is `config` with invalid_native_id. The value is never echoed.
+func MuseSessionID(environ []string) (string, error) {
+	raw := adapterkit.Getenv(environ, MuseSessionIDVar)
+	if raw == "" {
+		return "", &protocol.Error{
+			Code:    protocol.CodeConfig,
+			Message: "not inside a Muse Code session (MUSE_SESSION_ID is unset)",
+			Details: map[string]string{"reason": ReasonNotInSession, "variable": MuseSessionIDVar},
+		}
+	}
+	if err := sessionmap.CheckNativeID(raw); err != nil {
+		return "", &protocol.Error{
+			Code:    protocol.CodeConfig,
+			Message: MuseSessionIDVar + " is not a usable session id",
+			Details: map[string]string{"reason": ReasonInvalidNativeID, "variable": MuseSessionIDVar},
+		}
+	}
+	return raw, nil
 }
 
 // Strip returns environ without every entry whose name begins with
@@ -88,12 +147,38 @@ func Strip(environ []string) []string {
 
 // Trusted returns the environment the resolvers may honour: environ with
 // every BRIGADE_* removed inside a session, environ itself outside one
-// (3.2). Every resolver in this package reads through it.
+// (3.2). Every resolver in this package reads through it. Inside a Muse
+// Code session the XDG_*_HOME variables go too (card 88): Muse runs its
+// hooks from a cleared environment that has HOME and no XDG_*, so the hook
+// resolves Brigade's directories from HOME alone, while the shell tool
+// inherits the user's whole environment — with XDG_STATE_HOME set, a
+// command there would look for the session's map where the hook never
+// wrote it. Both sides therefore resolve from HOME in a Muse session; a
+// member who keeps Brigade's config elsewhere names it with the
+// `config_dir` option of muse-options.json.
 func Trusted(environ []string) []string {
-	if InSession(environ) {
+	switch HostOf(environ) {
+	case HostMuse:
+		return stripXDG(Strip(environ))
+	case HostClaude:
 		return Strip(environ)
 	}
 	return environ
+}
+
+// xdgPrefix selects the variables stripXDG removes.
+const xdgPrefix = "XDG_"
+
+// stripXDG returns environ without every XDG_* entry.
+func stripXDG(environ []string) []string {
+	out := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		if strings.HasPrefix(entry, xdgPrefix) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // BrigadeConfigDir resolves the Brigade config directory through Trusted:

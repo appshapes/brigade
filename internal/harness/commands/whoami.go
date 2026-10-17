@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
@@ -125,6 +126,11 @@ func Whoami(inv Invocation) error {
 		"; inbound: " + enumLine(m.Inbound)}
 	if repo := workspaceLine(m.WorkspaceLabel); repo != "" {
 		out = append(out, "repo: "+repo)
+	}
+	if m.Harness != "" && m.Harness != string(config.HostClaude) {
+		// Card 88: a session of another host says so; a Claude Code
+		// session's line stays as it was.
+		out = append(out, "host: "+attrLine(m.Harness))
 	}
 	if p := pathLine(m.PluginBin); p != "" {
 		out = append(out, "terminal: "+p)

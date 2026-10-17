@@ -92,6 +92,7 @@ jobs:
       # channels, exec-form hooks whose commands exist, sh/bash/zsh syntax, shellcheck (a hard failure here
       # because CI is set), and the secret scan.
       - run: make plugin-check
+      - run: make muse-plugin-check     # the Muse Code package, card 88: muse/brigade/ against the same pins
       # The mail gateway's Edge Functions (card 48): `deno fmt --check`, `deno check` and the unit tests under
       # supabase/functions/, through the Deno the Makefile would otherwise fetch with npx (`deno ?=`).
       - uses: denoland/setup-deno@v2

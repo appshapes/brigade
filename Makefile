@@ -298,6 +298,10 @@ plugin-check: ## Static checks of plugin/: exec-form hooks, no .mcp.json, VERSIO
 	scripts/ci/plugin-check.sh
 	scripts/ci/no-secrets.sh
 
+.PHONY: muse-plugin-check
+muse-plugin-check: ## Static checks of muse/brigade/, the Muse Code package (card 88): allowlist, native manifest, one wrapper per hook, assets equal to plugin/bin's (CI)
+	sh scripts/ci/muse-plugin-check.sh
+
 .PHONY: plugin-validate
 plugin-validate: ## claude plugin validate on the marketplace and the plugin root
 	claude plugin validate .

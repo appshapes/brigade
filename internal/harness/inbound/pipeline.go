@@ -98,8 +98,12 @@ type Config struct {
 	TeamName string
 	// Wrap nests each frame in the variant-C wrapper (frame.Wrap) for a
 	// socket post; the prompt-hook poll prints the bare frame and leaves
-	// this false.
+	// this false, and so does a Muse Code sink (card 88).
 	Wrap bool
+	// Host selects the frame's prose (frame.BuildFor): "" or "claude-code"
+	// for the Claude Code text, "muse" for the Muse Code variant whose
+	// preamble names neither Claude Code nor CLAUDE.md alone (card 88).
+	Host string
 	// Clock is the time source; nil means SystemClock.
 	Clock Clock
 	// Seen persists injected ids across restarts; nil means memory only
@@ -603,7 +607,7 @@ func (p *Pipeline) Next() (Item, bool) {
 		return Item{}, false
 	}
 	q.handed = true
-	content := frame.Build(q.env, p.cfg.TeamName, p.cfg.Instruction)
+	content := frame.BuildFor(p.cfg.Host, q.env, p.cfg.TeamName, p.cfg.Instruction)
 	if p.cfg.Wrap {
 		content = frame.Wrap(content, q.env.Sender.SessionName)
 	}

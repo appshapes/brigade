@@ -100,6 +100,25 @@ claude --plugin-dir ./plugin
 That loads the plugin from the checkout, in place, for that one session only. Its options key is `brigade@inline`
 rather than `brigade@brigade`.
 
+**Muse Code.** Brigade also ships a package for Meta's Muse Code (`muse`), so a Muse session joins the same team
+as the Claude Code ones. From a checkout of this repository:
+
+```sh
+muse plugins install ./muse/brigade --scope user
+muse plugins approve brigade
+```
+
+The second command is Muse's review step: a plugin's hooks stay inactive until the person approves them. Join the
+project's team in a terminal exactly as below (`brigade team join --secret-file <path>` in the checkout; the
+bootstrap is `<Muse plugin cache>/brigade/bin/brigade`, and a symlink from `~/.local/bin/brigade` keeps the bare
+word on your PATH), then open `muse` in the checkout and type one prompt — any prompt; `brigade sessions` shows
+the teammates. Muse runs Brigade's SessionStart hook at that first prompt, not at launch: that is when the session
+registers and when its model arms Muse's Monitor tool on `brigade inbox follow`, the instruction Brigade puts in
+front of it; from then on every team message wakes the idle session about 0.2 s after it lands. A resumed session
+(`muse resume`) needs its first prompt again. Options come from `~/.config/brigade/muse-options.json` rather than
+plugin settings; [muse/brigade/README.md](../muse/brigade/README.md) has the file's keys and the rest of what
+differs, and [security.md](security.md) section 15 what Muse's own layers add.
+
 **What the first use does.** On a cold cache the first session downloads the 8 MB Brigade binary before the
 hooks can run, so that first `SessionStart` waits on the download rather than registering; the line that names
 your team then appears on a **later** prompt, once the binary is in place. It needs a connection of roughly

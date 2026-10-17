@@ -157,6 +157,52 @@ func goldenCases() []goldenCase {
 		// Card 34: the same envelope as a REPLY, at the shipped default, so
 		// the only difference from preamble-open.golden is the attribute.
 		{"reply", func() string { return Build(replyEnvelope(), "ops", Instruction{Level: LevelOpen}) }},
+		// Card 88: the same envelope for a Muse Code receiver, so the only
+		// difference from preamble-open.golden is the host-neutral prose
+		// of the shared piece and the tail.
+		{"host-muse", func() string { return BuildFor(HostMuse, e03Envelope(), "ops", Instruction{Level: LevelOpen}) }},
+	}
+}
+
+// TestMusePieces pins the Muse Code variant's shape (card 88): the shared
+// piece ends in one space and opens with the same four words as the Claude
+// anchor, the tail names Muse's own session messaging instead of Claude's
+// SendMessage, and an unknown host renders the Claude text unchanged.
+func TestMusePieces(t *testing.T) {
+	t.Parallel()
+	if !strings.HasSuffix(musePreambleShared, " ") || strings.HasSuffix(musePreambleShared, "  ") {
+		t.Errorf("musePreambleShared %q does not end in exactly one space", musePreambleShared)
+	}
+	if !strings.HasPrefix(musePreambleShared, "Brigade team message from another person") {
+		t.Error("the Muse shared piece does not open as the Claude anchor does")
+	}
+	if strings.Contains(musePreambleShared, "Claude Code") || strings.Contains(musePreambleTail, "SendMessage") {
+		t.Error("the Muse pieces still name Claude Code's own surfaces")
+	}
+	claude := Build(e03Envelope(), "ops", Instruction{Level: LevelOpen})
+	if got := BuildFor("", e03Envelope(), "ops", Instruction{Level: LevelOpen}); got != claude {
+		t.Error("BuildFor(\"\") differs from Build")
+	}
+	if got := BuildFor("claude-code", e03Envelope(), "ops", Instruction{Level: LevelOpen}); got != claude {
+		t.Error("BuildFor(\"claude-code\") differs from Build")
+	}
+	muse := BuildFor(HostMuse, e03Envelope(), "ops", Instruction{Level: LevelOpen})
+	if muse == claude {
+		t.Error("BuildFor(HostMuse) renders the Claude text")
+	}
+	// Everything but the preamble line is byte-identical: the tag line,
+	// the separator and the sender's part do not change with the host.
+	cl, ml := strings.Split(claude, "\n"), strings.Split(muse, "\n")
+	if len(cl) != len(ml) {
+		t.Fatalf("line counts differ: claude %d, muse %d", len(cl), len(ml))
+	}
+	for i := range cl {
+		if i == 1 {
+			continue
+		}
+		if cl[i] != ml[i] {
+			t.Errorf("line %d differs between the hosts: %q vs %q", i, cl[i], ml[i])
+		}
 	}
 }
 

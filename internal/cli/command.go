@@ -120,8 +120,8 @@ func init() {
 		},
 		{
 			Name:    "inbox",
-			Args:    "[release] [--session <id>] [--all | <message_id>…]",
-			Summary: "show and release held messages",
+			Args:    "[release] [--session <id>] [--all | <message_id>…] | follow",
+			Summary: "show and release held messages; follow prints each team message as it lands (a Muse Code monitor's command)",
 			Flags: func(fs *flag.FlagSet) {
 				fs.String("session", "", "the Brigade session to list or release for (terminal only)")
 				fs.Bool("all", false, "release every held message of the selected sessions")

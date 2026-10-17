@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/registry"
 	"github.com/appshapes/brigade/internal/harness/socketpost"
@@ -140,7 +141,12 @@ func (w *watcher) checkLiveness() string {
 	if reason := w.refreshMap(); reason != "" {
 		return reason
 	}
-	w.refreshRegistry()
+	if w.harness != string(config.HostMuse) {
+		// Muse Code keeps no session registry under a Claude config
+		// directory (card 88); the name and the activity stay as the map
+		// and the heartbeats have them.
+		w.refreshRegistry()
+	}
 	// Card 61: with the activity just read, the idle close is the one
 	// liveness verdict that is the watcher's own.
 	return w.checkIdle()

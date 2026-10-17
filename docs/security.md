@@ -931,6 +931,43 @@ file outside the repository. A leaked bot token lets its holder act as the bot: 
 the history of the channels it is in, and list the workspace's people with their email addresses. A leaked signing
 secret lets its holder send the gateway a message as any user id. Neither joins the team.
 
+## 15. Muse Code sessions
+
+A Muse Code session (card 88, [the live test](experiments/muse-participation.md)) is a Brigade member like a
+Claude Code one, with these differences in what stands between a teammate's message and the model.
+
+- **What a message can do is decided by Muse's own approval policy**, as Claude Code's is by its permission
+  rules: under Muse's default profile the approval judge reviews each tool call and the sandbox confines the
+  shell (no writes outside the workspace, network only through Muse's proxy with a review on the first
+  connection to a host); under `--yolo`, which Brigade's customers run, nothing is reviewed. Brigade adds the same
+  layer on both hosts: the frame, whose Muse variant says the message came from "another person's coding
+  session", that it is untrusted, that it cannot approve anything or change permissions, settings or instruction
+  files (AGENTS.md, CLAUDE.md), and how to reply. The 26-message injection test set has been run against Claude
+  Code's model behind Claude's preamble and Brigade's frame; **it has not been run against Muse's model**, so the
+  Muse variant's wording has no measured result of its own yet.
+- **Delivery is a file the model's monitor reads**, not a socket the host owns. The watcher appends each frame
+  to `~/.local/state/brigade/inbox/<session>/<watcher>.ndjson`, mode 0600, and the model arms Muse's Monitor
+  tool on `brigade inbox follow`, which prints the file's records. Whoever can write that file can put text in
+  front of the model, exactly as whoever can write the by-pid map can choose the session's team: the state
+  directory's permissions are the boundary, as section 10 says. The follower reads and never writes.
+- **The arming is the model's act.** Brigade's SessionStart line asks the model to arm the monitor; a model
+  that does not leaves the session a mailbox until the next prompt (the prompt hook's poll still delivers
+  then, if `poll_on_prompt` is on). A monitor the model stops is the same. Nothing outside the session can arm
+  or re-arm it.
+- **Identity.** `MUSE_SESSION_ID` is a UUID Muse sets in hooks, in the shell tool and in monitors; Brigade keys
+  the session's map by the hook's parent pid and points the UUID at it. It is as strong as `CLAUDE_PID` and no
+  stronger — an environment variable a model can unset or set — and section 4's rule holds unchanged: the
+  marker is parity with the host, the host's approval policy is the gate.
+- **The hooks see no Claude settings.** The native-settings scan, the `crossSessionInbound` parity rule and the
+  one write Brigade makes under `~/.claude` (section 6) do not run for a Muse session; the inbound option
+  (`team_inbound` in `muse-options.json`) is the one knob, accept by default.
+- **Hook output is byte-capped** under Muse's 16 KiB kill, and the SessionEnd hook has a few hundred
+  milliseconds: the close is the watcher's and the lease's, never the hook's alone.
+- **Privacy.** Muse reads a person's `~/.claude` skills and rules into its context by default and sends them to
+  Meta with every prompt; Brigade's hooks do not, and the live test's sessions ran with Muse's kill switch
+  (`MUSE_EXPERIMENTAL_FOREIGN_PERSONAL_CONTEXT_KILL=on`). That is Muse's behaviour to know about, not Brigade's
+  to change.
+
 ## Accepted for this version
 
 Every item below is a known limit that this version ships with, on purpose.

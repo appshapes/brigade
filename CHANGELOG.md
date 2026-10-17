@@ -9,6 +9,30 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **Muse Code sessions take part in a Brigade team** (card 88). A second package, `muse/brigade/`, installs into
+  Meta's Muse Code (`muse plugins install ./muse/brigade --scope user`, then `muse plugins approve brigade`) with
+  the same bootstrap, version pin and checksums as the Claude Code plugin. A Muse session registers at its first
+  prompt — Muse runs SessionStart there, not at launch — and is woken for every team message through Muse's own
+  Monitor tool, which the model arms once on `brigade inbox follow` from the instruction Brigade puts in front of
+  it; the live test measured a wake 0.2 s after a message lands, after 5 s, 120 s and 35 minutes idle, under
+  Muse's default profile and under `--yolo` ([docs/experiments/muse-participation.md](docs/experiments/muse-participation.md)).
+  So: join once, type one prompt in each new or resumed Muse session, and it is a participating member. Options
+  come from `~/.config/brigade/muse-options.json` (Muse runs no plugin `userConfig`); `brigade whoami` says
+  `host: muse`; the frame a Muse session reads names no Claude Code surface. The Claude Code package, its hooks
+  and its frame bytes are unchanged ([muse/brigade/README.md](muse/brigade/README.md),
+  [docs/setup.md](docs/setup.md) "Muse Code", [docs/security.md](docs/security.md) section 15).
+- `brigade inbox follow`: prints each team message of this session as it lands, between a
+  `Brigade: team message … follows` line and a `Brigade: end of message …` line; the command a Muse Code
+  monitor runs. Inside a session only.
+
+### Changed
+
+- `make muse-plugin-check` joins `make plugin-check` in CI: the Muse package's allowlist, native manifest, one
+  wrapper per hook, and `bin/` assets byte-equal to `plugin/bin/`'s. `make release` bumps both manifests and
+  copies the pinned assets into both packages; `make checksums-check` and the release job hold them equal.
+
 ## [0.30.0] — 2026-10-16
 
 ### Added

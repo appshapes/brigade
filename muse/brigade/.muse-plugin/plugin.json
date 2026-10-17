@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "name": "brigade",
+  "version": "0.30.0",
+  "description": "Team messaging between the coding sessions of different people and machines: Muse Code sessions beside Claude Code ones, through a pluggable adapter CLI (Supabase adapter bundled).",
+  "compat": {
+    "manifestDir": ".muse-plugin"
+  },
+  "capabilities": {
+    "hooks": [
+      {
+        "id": "session-start",
+        "event": "SessionStart",
+        "command": ["hooks/session-start.sh"],
+        "timeoutMs": 60000,
+        "statusMessage": "Connecting to the Brigade team"
+      },
+      {
+        "id": "prompt",
+        "event": "UserPromptSubmit",
+        "command": ["hooks/prompt.sh"],
+        "timeoutMs": 5000
+      },
+      {
+        "id": "session-end",
+        "event": "SessionEnd",
+        "command": ["hooks/session-end.sh"],
+        "timeoutMs": 1000
+      }
+    ],
+    "skills": [
+      { "id": "team-messaging", "path": "skills/team-messaging/SKILL.md" },
+      { "id": "sessions", "path": "skills/sessions/SKILL.md" },
+      { "id": "setup", "path": "skills/setup/SKILL.md" },
+      { "id": "join", "path": "skills/join/SKILL.md" },
+      { "id": "update", "path": "skills/update/SKILL.md" },
+      { "id": "email", "path": "skills/email/SKILL.md" },
+      { "id": "slack", "path": "skills/slack/SKILL.md" }
+    ]
+  }
+}

@@ -115,10 +115,11 @@ func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLev
 // watcher that does not appear is logged, not an error: the next prompt
 // hook respawns it. It reports whether a watcher was spawned.
 func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pidfileWait time.Duration) bool {
-	if f.socket == "" && r.deps.Sink == "" {
+	if !r.canInject(f) {
 		r.log.Info("no inbox socket in this session; the watcher is not started (poll_on_prompt is the fallback)")
 		return false
 	}
+	sink := r.sinkFor(f, m.BrigadeSessionID)
 	adapter, err := config.AdapterFromArgv(m.AdapterCommand)
 	if err != nil {
 		r.log.Warn("watcher not started: adapter command", log.Err(err))
@@ -137,8 +138,8 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 		return false
 	}
 	args := []string{"watch"}
-	if r.deps.Sink != "" {
-		args = append(args, "--sink", r.deps.Sink)
+	if sink != "" {
+		args = append(args, "--sink", sink)
 	}
 	dir := f.home
 	if dir == "" || !filepath.IsAbs(dir) {

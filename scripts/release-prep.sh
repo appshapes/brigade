@@ -43,6 +43,10 @@ say() { printf 'release-prep: %s\n' "$1"; }
 plugin_json=plugin/.claude-plugin/plugin.json
 version_file=plugin/bin/VERSION
 committed=plugin/bin/checksums.txt
+# The Muse Code package (card 88) carries the same pin: its manifest is bumped with the Claude one and its three
+# bin/ assets are copies of plugin/bin's, which scripts/ci/muse-plugin-check.sh and checksums-check.sh rule (a) hold.
+muse_json=muse/brigade/.muse-plugin/plugin.json
+muse_bin=muse/brigade/bin
 
 v=${1:-}
 # The commit message's card: `<card>: Release <v>` is the house rule, the number being the AppShapes Trello card
@@ -129,7 +133,15 @@ rm -f "$plugin_json.bak"
 manifest=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$plugin_json" | head -n 1)
 [ "$manifest" = "$v" ] || die "the bump did not take in $plugin_json (its version reads as '$manifest'): \"version\" must start its own line"
 printf '%s\n' "$v" > "$version_file"
-say "1. pinned $version_file and $plugin_json to $v"
+if [ -f "$muse_json" ]; then
+  sed -i.bak -E "s/^([[:space:]]*\"version\":[[:space:]]*)\"[^\"]+\"/\1\"$v\"/" "$muse_json"
+  rm -f "$muse_json.bak"
+  muse_manifest=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$muse_json" | head -n 1)
+  [ "$muse_manifest" = "$v" ] || die "the bump did not take in $muse_json (its version reads as '$muse_manifest')"
+  cp "$version_file" "$muse_bin/VERSION"
+  cp plugin/bin/brigade "$muse_bin/brigade"
+fi
+say "1. pinned $version_file, $plugin_json and $muse_json to $v"
 
 # ---- 2. the reproducible build ---------------------------------------------------------------------------------
 make cross version="$v"
@@ -155,6 +167,7 @@ fi
 
 # ---- 4. commit the checksums goreleaser produced -----------------------------------------------------------------
 cp dist/checksums.txt "$committed"
+[ ! -f "$muse_json" ] || cp "$committed" "$muse_bin/checksums.txt"
 make push message="$card: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push
 say "4. committed $committed"
 

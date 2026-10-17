@@ -44,6 +44,15 @@ fi
 manifest=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$plugin_json" | head -n 1)
 [ -n "$manifest" ] || die "(a) $plugin_json declares no \"version\""
 [ "$manifest" = "$version" ] || die "(a) $plugin_json version '$manifest' != $version_file '$version'"
+muse_json=muse/brigade/.muse-plugin/plugin.json
+if [ -f "$muse_json" ]; then
+  # The Muse Code package (card 88) carries the same pin and the same three assets.
+  muse_version=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$muse_json" | head -n 1)
+  [ "$muse_version" = "$version" ] || die "(a) $muse_json version '$muse_version' != $version_file '$version'"
+  for asset in brigade VERSION checksums.txt; do
+    cmp -s "plugin/bin/$asset" "muse/brigade/bin/$asset" || die "(a) muse/brigade/bin/$asset differs from plugin/bin/$asset"
+  done
+fi
 printf 'checksums-check: (a) %s == %s == %s\n' "$version_file" "$plugin_json" "$version"
 
 # ---- (b) exactly the four assets for this version ---------------------------------------------------------------

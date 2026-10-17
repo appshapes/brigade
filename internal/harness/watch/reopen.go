@@ -179,13 +179,21 @@ func (w *watcher) reopen(s *session) {
 		return
 	}
 	snap := w.state.snapshot()
+	harness := w.harness
+	if harness == "" {
+		harness = harnessName
+	}
 	name := snap.name
 	if name == "" {
-		name = harnessName
+		name = harness
 	}
 	model, tokens := w.transcriptFacts(snap.transcriptPath)
+	if model == nil && w.model != "" {
+		m := w.model
+		model = &m
+	}
 	reg := &protocol.SessionRegistration{
-		Harness:           harnessName,
+		Harness:           harness,
 		HarnessVersion:    w.harnessVersion,
 		SessionName:       name,
 		Activity:          snap.activity,

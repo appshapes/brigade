@@ -112,7 +112,7 @@ func (r *run) prompt() int {
 // publishes and no line is printed. Nothing read from a settings file is
 // sent, stored or logged — the map carries one of five words.
 func (r *run) resolveDoingMode(ctx context.Context, f facts, in input, store sessionmap.Store, m *sessionmap.ByPID) {
-	opts, err := config.ParseOptions(r.environ)
+	opts, err := r.options()
 	if err != nil {
 		r.log.Warn("prompt: options unreadable; the doing mode stays unresolved", log.Err(err))
 		return
@@ -129,7 +129,10 @@ func (r *run) resolveDoingMode(ctx context.Context, f facts, in input, store ses
 		r.log.Debug("prompt: describe failed; the doing mode stays unresolved", log.Err(err))
 		return
 	}
-	rules := policy.ScanDoingRules(f.claudeConfigDir, doingScanDirs(r.environ, in), r.deps.ReadFile)
+	rules := policy.VerdictNone
+	if !f.muse() {
+		rules = policy.ScanDoingRules(f.claudeConfigDir, doingScanDirs(r.environ, in), r.deps.ReadFile)
+	}
 	m.DoingMode = doingMode(opts, desc.Capabilities, rules)
 	m.UpdatedAt = r.deps.Now()
 	if werr := store.WriteByPID(m); werr != nil {
@@ -353,19 +356,24 @@ func (r *run) redecide(f facts, in input, m *sessionmap.ByPID) bool {
 	if in.PermissionMode == "" {
 		return false
 	}
-	opts, err := config.ParseOptions(r.environ)
+	opts, err := r.options()
 	if err != nil {
 		r.log.Warn("prompt: options unreadable; inbound policy not decided again", log.Err(err))
 		return false
 	}
-	ensureLine := r.ensureInboundSetting(f, opts, in.PermissionMode)
+	ensureLine := ""
+	scan := museScan
+	if !f.muse() {
+		ensureLine = r.ensureInboundSetting(f, opts, in.PermissionMode)
+		scan = policy.ScanNative(f.claudeConfigDir, in.Cwd, r.deps.ReadFile)
+	}
 	if ensureLine != "" && r.fits(ensureLine) {
 		r.say(ensureLine)
 	}
 	dec := policy.Decide(policy.Inputs{
 		Option:         opts.TeamInbound,
 		OptionWarning:  opts.TeamInboundWarning,
-		Native:         policy.ScanNative(f.claudeConfigDir, in.Cwd, r.deps.ReadFile),
+		Native:         scan,
 		PermissionMode: in.PermissionMode,
 		NonInteractive: m.NonInteractive,
 		Entrypoint:     f.entrypoint,
@@ -408,7 +416,7 @@ func policyNowLine(p policy.Policy) string {
 // replace set, a live watcher of this version is replaced too: the inbound
 // policy it was started under has changed (card 50).
 func (r *run) ensureWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, replace bool) bool {
-	if f.socket == "" && r.deps.Sink == "" {
+	if !r.canInject(f) {
 		r.log.Debug("prompt: no inbox socket; the watcher is not needed")
 		return false
 	}
@@ -472,7 +480,7 @@ func (r *run) printNotice(f facts) {
 // only the printed ones are acknowledged, and the rest stay stamped in the
 // pending file for the next prompt.
 func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
-	opts, err := config.ParseOptions(r.environ)
+	opts, err := r.options()
 	if err != nil {
 		r.log.Warn("prompt: options unreadable; no poll", log.Err(err))
 		return

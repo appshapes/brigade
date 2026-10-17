@@ -249,7 +249,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// leave the new session offline until the next one.
 	lease := polling.Lease(res.polling.heartbeat, desc.Lease)
 	reg := &protocol.SessionRegistration{
-		Harness:        harnessName,
+		Harness:        string(f.host),
 		HarnessVersion: res.id.harnessVersion,
 		SessionName:    res.id.name,
 		Activity:       res.id.activity,
@@ -267,7 +267,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// announces session.human_label to adopt into a membership that has
 	// none. Absent when the `label` option is `none` or the account email
 	// cannot be read — the fill is best effort and never a refusal.
-	if label := r.humanLabel(res.opts); label != "" {
+	if label := r.humanLabel(f, res.opts); label != "" {
 		reg.HumanLabel = &label
 	}
 	result, err := r.register(ctx, res.client, reg)
@@ -319,7 +319,7 @@ func respawnReason(e pidfile.Entry, f facts) string {
 // transmits a secret or writes the store, and the refusal lines echo
 // nothing from a mismatched file.
 func (r *run) resolve(f facts, in input) (resolved, bool) {
-	opts, err := config.ParseOptions(r.environ)
+	opts, err := r.options()
 	if err != nil {
 		r.fail("session-start: options", err, optionsLine(err))
 		return resolved{}, false
@@ -344,9 +344,17 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		return resolved{}, false
 	}
 	id := r.identity(f, in)
-	ensureLine := r.ensureInboundSetting(f, opts, in.PermissionMode)
-	scan := policy.ScanNative(f.claudeConfigDir, in.Cwd, r.deps.ReadFile)
-	doingRules := policy.ScanDoingRules(f.claudeConfigDir, doingScanDirs(r.environ, in), r.deps.ReadFile)
+	ensureLine := ""
+	scan := museScan
+	doingRules := policy.VerdictNone
+	if !f.muse() {
+		// The three readers of Claude Code's own settings files (card 50,
+		// the native scan, the doing rules) have nothing to read on Muse
+		// Code, whose approval policy is the gate (card 88, decision D5).
+		ensureLine = r.ensureInboundSetting(f, opts, in.PermissionMode)
+		scan = policy.ScanNative(f.claudeConfigDir, in.Cwd, r.deps.ReadFile)
+		doingRules = policy.ScanDoingRules(f.claudeConfigDir, doingScanDirs(r.environ, in), r.deps.ReadFile)
+	}
 	dec := policy.Decide(policy.Inputs{
 		Option:         opts.TeamInbound,
 		OptionWarning:  opts.TeamInboundWarning,
@@ -390,6 +398,15 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		doingRules:          doingRules,
 	}, true
 }
+
+// museScan stands in for the native scan on Muse Code (card 88, D5): no
+// native hold or refuse was found (there is no file to find one in), and the
+// one explicit accept the card-50 parity rule asks of a session that
+// bypasses prompts is deemed given — Muse's `--yolo` is the user's own
+// choice for the whole session, and Brigade's inbound option is the one
+// knob left, exactly as the decision's "allow-all by default, options to
+// restrict" asks.
+var museScan = policy.Scan{UserAccept: true}
 
 // doingScanDirs names the directories whose project settings the doing
 // scan reads (plan 5.2): CLAUDE_PROJECT_DIR from the hook's environment
@@ -510,7 +527,14 @@ func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
 // debug line without the value and an empty label, never a refusal, so a
 // session whose account cannot be read registers as every session did
 // before this version.
-func (r *run) humanLabel(opts config.Options) string {
+func (r *run) humanLabel(f facts, opts config.Options) string {
+	if f.muse() && opts.Label == config.LabelAccount {
+		// A Muse Code session has no Claude account to read an address
+		// from, and its hooks read nothing under ~/.claude (card 88): the
+		// default sends no label; the `label` option in muse-options.json
+		// names one.
+		return ""
+	}
 	return config.LabelFor(opts.Label, func() string {
 		email, err := account.Email(r.environ)
 		if err != nil {
@@ -725,7 +749,7 @@ func (r *run) resolveAnnounce(on bool, probe func(string) ([]string, string), wh
 // in the watcher — file sync's reasons for a session that runs none.
 func (r *run) sayAnnounce(f facts, on bool, line, what string, watcherRuns bool) {
 	switch {
-	case on && !watcherRuns && f.socket == "" && r.deps.Sink == "":
+	case on && !watcherRuns && !r.canInject(f):
 		r.say(announceOffLine(what, syncOffNoSocket))
 	case on && !watcherRuns:
 		r.say(announceOffLine(what, syncOffNoWatcher))
@@ -1023,7 +1047,18 @@ func (r *run) otherLiveWatcher(f facts, sessionID string) (int, bool) {
 // re-fires SessionStart with a new native session and a new transcript,
 // and this rewrite is how the watcher learns of it.
 func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, teamName string, registeredAt, now time.Time) *sessionmap.ByPID {
+	harness, model := "", ""
+	if f.muse() {
+		// The harness member is written for Muse only: an absent member
+		// reads as claude-code, so every map from before card 88 is a
+		// Claude map. The model is the document's, folded and sanitised
+		// to an attribute (the wire's `model` member is one).
+		harness = string(config.HostMuse)
+		model = protocol.SanitizeAttribute(oneLine(in.Model, 64))
+	}
 	return &sessionmap.ByPID{
+		Harness:                harness,
+		Model:                  model,
 		ClaudePID:              f.pid,
 		ClaudeSessionID:        in.SessionID,
 		BrigadeSessionID:       sessionID,
@@ -1073,7 +1108,11 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 		return
 	}
 	r.writeByNative(res.store, in.SessionID, m, now)
+	r.writeByHost(f, res.store, in.SessionID, m, now)
 	warnings := append([]string{}, res.dec.Warnings...)
+	if r.optionsWarning != "" {
+		warnings = append(warnings, r.optionsWarning)
+	}
 	if res.opts.FrameWarning != "" {
 		warnings = append(warnings, res.opts.FrameWarning)
 	}
@@ -1086,10 +1125,17 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	warnings = append(warnings, teamFileNotes(res.teamFile)...)
 	r.pruneCache(f, now)
 	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
+	if f.muse() {
+		// The monitor is what makes a Muse session a peer (card 88): the
+		// arming line follows the context line on every SessionStart but
+		// compact, because a resume starts a new process and the old
+		// monitor died with the old one.
+		r.say(armLine(r.commandName(f)))
+	}
 	if line := res.syncLine; line != "" {
 		if res.sync.adapter != "" && !watcherRuns {
 			line = syncOffLine(syncOffNoWatcher)
-			if f.socket == "" && r.deps.Sink == "" {
+			if !r.canInject(f) {
 				line = syncOffLine(syncOffNoSocket)
 			}
 		}
@@ -1114,6 +1160,24 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	}
 	for _, w := range warnings {
 		r.say(w)
+	}
+}
+
+// writeByHost records the by-host pointer of a Muse Code session (card
+// 88): native id → host pid and Brigade session, so a command in the
+// model's shell, which knows MUSE_SESSION_ID and not the pid, finds the
+// map. Nothing on Claude Code, where CLAUDE_PID is in the shell.
+func (r *run) writeByHost(f facts, store sessionmap.Store, nativeID string, m *sessionmap.ByPID, now time.Time) {
+	if !f.muse() || nativeID == "" {
+		return
+	}
+	err := store.WriteByHost(string(f.host), nativeID, &sessionmap.ByHost{
+		HostPID:          f.pid,
+		BrigadeSessionID: m.BrigadeSessionID,
+		UpdatedAt:        now,
+	})
+	if err != nil {
+		r.log.Warn("by-host pointer not written", log.Err(err))
 	}
 }
 

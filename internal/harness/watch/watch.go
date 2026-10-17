@@ -591,8 +591,13 @@ type watcher struct {
 
 	// harnessVersion is the map's harness_version, carried on a re-open
 	// registration (reopen.go); reopening keeps two re-open triggers —
-	// the RPC path's error and an error event — from racing.
+	// the RPC path's error and an error event — from racing. harness is
+	// the map's harness ("" reads as claude-code) and model the map's
+	// model, the host-named one a heartbeat carries when no transcript
+	// supplies it (card 88).
 	harnessVersion string
+	harness        string
+	model          string
 	reopening      atomic.Bool
 	// brigadeVersion is THIS binary's own version as it reports it on the
 	// wire (brigade_version, C-46), or nil when it has none to claim
@@ -673,12 +678,17 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 	// The frame instruction comes from the MAP, as the policy does (P5-12):
 	// the hook resolved it once at SessionStart; an invalid one is a
 	// `config` exit from inbound.New, never a silent fallback.
+	// A Muse Code session (card 88) reads the sink through a monitor, not
+	// through Claude Code's inbox: no variant-C wrapper, and the frame's
+	// prose is the Muse receiver's.
+	muse := m.Harness == string(config.HostMuse)
 	pipe, err := inbound.New(inbound.Config{
 		Policy:      pol,
 		Instruction: m.Instruction(),
 		SessionID:   m.BrigadeSessionID,
 		TeamName:    m.TeamName,
-		Wrap:        true,
+		Wrap:        !muse,
+		Host:        m.Harness,
 		Clock:       inbound.ClockFunc(d.Clock),
 		Seen:        inbound.FileSeenStore{Path: inbound.SeenPath(rc.env.StateDir, m.BrigadeSessionID)},
 		Pending: inbound.FilePendingStore{
@@ -719,6 +729,8 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 			}
 			return "unknown"
 		}(),
+		harness:        m.Harness,
+		model:          m.Model,
 		brigadeVersion: d.BrigadeVersion(),
 		pidPath:        pidfile.Path(rc.env.StateDir, rc.env.ClaudePID),
 		releasePath:    inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
@@ -781,6 +793,7 @@ func (w *watcher) run() int {
 		return code
 	}
 	defer w.release()
+	w.ensureSinkDir()
 
 	w.injector = newInjector(w)
 	ictx, icancel := context.WithCancel(base)

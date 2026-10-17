@@ -39,6 +39,13 @@ func (w *watcher) heartbeat(s *session) {
 		name = &n
 	}
 	model, tokens := w.transcriptFacts(snap.transcriptPath)
+	if model == nil && w.model != "" {
+		// A host that names its model in the hook document (Muse Code,
+		// card 88) has no transcript to read it from: the map's value
+		// rides every heartbeat instead.
+		m := w.model
+		model = &m
+	}
 	peer := w.syncPeer.Load()
 	w.log.Debug("heartbeat",
 		slog.String("activity", activity), slog.String("inbound", inbound),
