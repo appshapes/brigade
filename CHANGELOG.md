@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-10-17
+
 ### Added
 
 - **Muse Code sessions take part in a Brigade team** (card 88). A second package, `muse/brigade/`, installs into
