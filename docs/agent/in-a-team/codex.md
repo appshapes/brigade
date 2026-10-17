@@ -19,8 +19,8 @@ What differs from Claude Code:
   prompt registers the session and prints two lines: the session's name and team, and where the `brigade` command
   is. Nothing to arm. A resumed session (`codex resume`) registers again at its first prompt and the new thread
   `/new` opens is a new session; `/compact` needs nothing. A quit session stays on the roster until Codex ends its
-  thread (archive, delete, or 30 idle minutes with no client), because Codex fires no SessionEnd at `/quit` in its
-  normal, daemon mode.
+  thread (archive, delete, or 30 minutes after the quit, measured), because Codex fires no SessionEnd at `/quit`
+  in its normal, daemon mode.
 - **Delivery is a queued turn.** Brigade's watcher runs `codex queue --thread <id> --message <frame>` for each
   message, so it arrives as a turn of its own: a `<brigade-message>` frame that looks like a prompt and says in its
   first sentence that your user did not type it. Read it as the frame says. The frame is the same as Claude Code's

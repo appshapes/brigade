@@ -34,7 +34,7 @@ The procedures are in the documentation tree: [install](../../docs/team-member/i
   and says so. Nothing is armed; nothing is polled.
 - **The hooks run at the first prompt**, not at launch, from Codex's shared background daemon in daemon mode: so a
   session is keyed by its thread, not by a process, `/new` is a new thread and a new session, and `/quit` leaves
-  the Brigade session `idle` until Codex ends the thread (archive, delete, or 30 idle minutes with no client),
+  the Brigade session `idle` until Codex ends the thread (archive, delete, or 30 minutes after the quit, measured),
   since Codex fires no SessionEnd at `/quit` there. In embedded mode the hooks are the TUI's children and `/quit`
   ends the session at once.
 - **Options** come from `~/.config/brigade/codex-options.json`: Codex plugins have no option mechanism.

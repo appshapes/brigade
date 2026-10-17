@@ -53,9 +53,9 @@ prompt, and the new thread `/new` opens is a new session; `/compact` needs nothi
 
 **Ending a session.** Codex runs Brigade's hooks from its shared background daemon, which outlives `/quit`, and
 fires no SessionEnd at `/quit`; the Brigade session therefore stays `idle` on the roster until Codex ends the
-thread — when you archive or delete it, or after 30 idle minutes with no client, by Codex's rule. A message sent
-to it meanwhile is accepted and waits in Codex's own queue; it appears as a turn when you `codex resume` that
-thread. The same holds for the thread you leave behind with `/new`. (In embedded mode `/quit` ends the session at
+thread — when you archive or delete it, or 30 minutes after the quit (Codex's idle rule, measured to the second:
+the session was offline at 30:00). A message sent to it meanwhile is accepted and waits in Codex's own queue; it
+appears as a turn when you `codex resume` that thread. The same holds for the thread you leave behind with `/new`. (In embedded mode `/quit` ends the session at
 once.)
 
 ## What differs from Claude Code

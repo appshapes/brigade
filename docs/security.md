@@ -990,8 +990,9 @@ Claude Code one, with these differences in what stands between a teammate's mess
   its next resume. The watcher queues nothing when the Codex process it knows is gone — the TUI in embedded mode,
   the shared app-server daemon in daemon mode, where Codex runs Brigade's hooks itself and nothing names the TUI —
   so in daemon mode a message to a quit session is stored by Codex for the thread's next resume, and the session
-  shows `idle` until Codex ends the thread (archive, delete, or 30 idle minutes with no client). That is Codex's
-  own rule, and an accepted limit below.
+  shows `idle` until Codex ends the thread (archive, delete, or 30 minutes after the quit: measured 2026-10-17,
+  SessionEnd fired at 30:00 and the session was offline within a second). That is Codex's own rule, and an
+  accepted limit below.
 - **Any local process of your user can queue into any of your Codex sessions**, Brigade or not: `codex queue` has
   no admission control beyond the user account and the daemon's 0700 socket directory. That is the reach of your
   own keyboard, and section 10's accepted local attacker; the P8-1 ruling on the shell markers (parity with Claude,
@@ -1042,8 +1043,8 @@ Every item below is a known limit that this version ships with, on purpose.
 - The frame of a message to a Codex CLI session is on the `codex queue` command's argv for the command's run time,
   readable by programs running as you (section 16); and any such program can queue text into any of your Codex
   sessions, which Brigade neither causes nor can prevent.
-- A Codex CLI session quit in Codex's normal (daemon) mode shows `idle` until Codex ends its thread, up to 30 idle
-  minutes, and a message sent to it meanwhile waits in Codex's queue for the thread's next resume (section 16):
+- A Codex CLI session quit in Codex's normal (daemon) mode shows `idle` until Codex ends its thread, 30 minutes
+  after the quit (measured), and a message sent to it meanwhile waits in Codex's queue for the thread's next resume (section 16):
   Codex fires no SessionEnd at `/quit` there and names no process Brigade could watch instead.
 - Claude Code drops inbox messages beyond 50 while a session is busy with a turn, after Brigade has
   acknowledged them (section 4).

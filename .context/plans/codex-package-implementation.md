@@ -48,8 +48,9 @@ The session is reachable once its first prompt has run SessionStart.
 - **Daemon mode** (hooks trusted in `/hooks`, the documented path): the hooks' parent is the app-server daemon
   (`codex app-server --listen`, ppid 1); the frame was visible in the TUI **0.62 s** after the send; the reply
   came 19 s later; `/quit` fired no SessionEnd, the thread stayed loaded, the daemon lived on. Hence D2 and D3 as
-  revised. Whether Codex's documented SessionEnd after 30 idle minutes fires is measured on the quit thread (see
-  the execution-log row).
+  revised. Codex's documented SessionEnd after 30 idle minutes **fired 30:00 after the quit** (16:10:39Z → 16:40:39Z): the
+  end hook stopped the watcher and removed the map, the pointer and the pidfile, the roster showed the session
+  offline within a second, and the daemon dropped the thread's writer lock.
 - Installing the plugin does not trust its hooks: the first launch afterwards shows a dialog ("Trust all and
   continue"); `/hooks` lists the three with "needs review" and `t` trusts them; a prompt before that registers
   nothing.
