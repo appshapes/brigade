@@ -77,8 +77,9 @@ P5-1 (2026-09-05); Rjae waived E0-10 for 0.1.0 on 2026-09-05 with the daily keep
 TLS as the mitigation. It stays a candidate for after 0.1.0. Per the plan's own Phase 0
 table, nothing in Phases 1–4 depends on it.
 
-## Codex (card 107, in progress)
+## Codex (card 107; the gate of 2026-09-08 and the reassessment of 2026-10-17)
 
 | File | What it settled |
 | --- | --- |
-| [codex-participation.md](codex-participation.md) | Card 107. Whether an OpenAI Codex session can take part in a Brigade team: the research is in progress in another session, and this row exists so the index lists every report. |
+| [codex-participation.md](codex-participation.md) | The September gate (P8-1, Codex 0.153.4): hooks, a repository marketplace plugin and model-visible delivery pass; the shell identity marker can be stripped by a nested child (ruled parity with Claude on 2026-10-16); **no supported interface could start a turn in the user's idle conversation**, so the workstream closed as won't do. |
+| [codex-queue-participation.md](codex-queue-participation.md) | Card 107, reassessed on Codex **0.163.0**. **An outside process wakes an idle Codex TUI session: `codex queue --thread <uuid> --message <text>` starts a turn within the command's own 45 ms (daemon mode), under the bypass flag and under the default profile, after 5 s, 120 s and 35 minutes idle, before the session's first prompt too, with null controls of 120 s and 2,100 s clean** — the capability P8-1 closed on. A message queued mid-turn starts the next turn 2 ms after the current one ends; embedded mode (`--no-daemon` or any `-c`) polls about every 10 s; 16 and 32 KiB lines arrive whole (asking the model to echo 16 KiB hangs its turn). Hooks fire client-side with the thread id, `UserPromptSubmit` on queued turns, `SessionStart` at the first turn and on resume but not at launch or `/new`, `SessionEnd` not on `/quit`; exit 0 means stored, not delivered. macOS, the operator's account. Driver: `scripts/experiments/codex-queue/`. |
