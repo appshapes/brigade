@@ -12,14 +12,22 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 ### Fixed
 
 - **The join skill works inside a Muse Code or Codex CLI session** (card 116). Both packages shipped it (the `join`
-  skill in Muse, `$brigade:join <path>` in Codex), but the command it runs, `brigade team join`, refused in a session that
-  had not joined yet: it looked for the SessionStart hook's start facts through `CLAUDE_PID`, which those shells do
+  skill in Muse, `$join <path>` in Codex, as 0.33.0 named it), but the command it runs, `brigade team join`, refused in a
+  session that had not joined yet: it looked for the SessionStart hook's start facts through `CLAUDE_PID`, which those shells do
   not carry. The hook now leaves a start-time pointer from the session's native id to its start facts, beside the
   pointer an attached session gets, and `team join` and `team create` follow it; so a Muse or Codex member joins
   the way a Claude Code member does — one prompt, the skill with the secret file's path (or no path for a second
   checkout of a team this machine holds), and the session attaches at the next prompt ([Join in Muse
   Code](docs/team-member/join/muse-code.md), [Join in Codex CLI](docs/team-member/join/codex.md)). The refusal for
   a join without `--secret-file` inside a session no longer names Claude Code alone.
+- **A not-yet-joined Muse Code or Codex CLI session is told which `brigade` to run** (card 116, found in the live
+  verification). Nothing puts a package's `bin/` on those shells' PATH, and the only Brigade line a not-joined session's
+  model had seen named the bare word `brigade`, so it ran a command that was not found. The `not joined` line now names
+  the bootstrap's path on Muse Code and Codex CLI (the bare word on Claude Code, where the plugin's `bin/` is on PATH),
+  and both the Muse and the Codex `join` skills run the command that line named.
+- **Every Codex CLI skill is invoked as `$brigade:<name>`** (card 116). Codex invokes a plugin's skills by their
+  qualified name — `$brigade:join`, `$brigade:sessions`, `$brigade:update`, `$brigade:setup`, `$brigade:email`,
+  `$brigade:slack` — so the Codex skills, the package README and the agent page now say so where they said `$<name>`.
 
 ## [0.33.0] — 2026-10-17
 
