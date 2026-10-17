@@ -78,6 +78,12 @@ the profile's public address). It was built, tested and replaced the same day, b
 ## 6. What is open
 
 - **A scheduled run the gate refuses sends nothing that week.** The mark stays where it was, so the next run
-  covers those releases too. Whether one fix cycle is enough week after week is not measured.
+  covers those releases too. Measured 2026-10-12 (run 38265059855, 11 releases, v0.17.0 to v0.27.0): one fix
+  cycle was not enough, for the reason of the first send — the first review's three findings were fixed and the
+  second review refused on one it had not raised, which no round could fix. Fixed 2026-10-17 (Rjae: "Find the root
+  cause and fix"): the second review is bounded to the first review's findings and the lines the fix changed,
+  the first draft kept as `notes-round1.md` and diffed, with a `NOTES` line for what it notices outside the
+  bound; and the brief's word cap grows with the window (30 words per release beyond five, to 700). The
+  2026-10-05 scheduled run never started: the workflow was active, GitHub skipped it.
 - **The schedule is live**: Mondays 14:23 UTC, first on 2026-10-05.
 - **Collecting addresses**: Rjae's next task for this card's session.

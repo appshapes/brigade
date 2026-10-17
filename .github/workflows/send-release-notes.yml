@@ -24,6 +24,14 @@
 #    exist, an address, and a card or plan row; a reviewer agent reads the draft against the sources; the
 #    writer gets exactly one fix cycle; and only an APPROVED, lint-clean draft is sent. Both agents follow
 #    `.claude/agents/release-notes-email.md`. Neither can write to the repository: the job's token is read-only.
+#    The second review is BOUNDED to the first review's findings and to the lines the fix changed (the first
+#    draft is kept as notes-round1.md and the reviewer diffs the two), because the fix cycle is the last: a
+#    finding first raised after it cannot be fixed, only refuse the email. Both real sends that wrote a new
+#    draft were refused exactly that way -- run 36636440249 (three findings fixed, three new ones raised) and
+#    run 38265059855 (three fixed, one new) -- and a refusal moves no mark, so each one made the next email
+#    longer; the brief's word cap grows with the window for the same reason. What the second reviewer notices
+#    outside its bound goes after a `NOTES` line in review.md, for the people who read the artifact. (The
+#    house's thinktech-php workflow has no reviewer at all and sends what its one agent wrote.)
 #
 # 4. The email is laid out as HTML (card 73): the approved draft, rendered by cmd/brigade-release-email in
 #    `send-release-notes.sh finish` into a 600 px card with the plugin icon, a version chip on every item that
@@ -289,6 +297,10 @@ jobs:
           echo "round 1: lint ${{ steps.lint1.outcome }}, review $verdict"; cat "$BRIGADE_EMAIL_DIR/review.md"
 
       # ---- round 2: exactly one fix cycle ---------------------------------------------------------------------
+      # The first draft is kept beside the second, so the second review can diff them and stay inside its bound.
+      - name: Keep the first draft for the second review
+        if: steps.window.outputs.count > 0 && inputs.draft_run == '' && (steps.lint1.outcome != 'success' || steps.verdict1.outputs.verdict != 'APPROVED')
+        run: cp "$BRIGADE_EMAIL_DIR/notes.md" "$BRIGADE_EMAIL_DIR/notes-round1.md" 2>/dev/null || echo "the writer wrote no first draft; the second review reads the whole draft"
       - name: Fix the draft
         id: draft2
         if: steps.window.outputs.count > 0 && inputs.draft_run == '' && (steps.lint1.outcome != 'success' || steps.verdict1.outputs.verdict != 'APPROVED')
@@ -306,7 +318,9 @@ jobs:
             findings). Fix EVERY finding and rewrite /tmp/brigade-email/notes.md from the Bash tool with a quoted
             heredoc, exactly `tee /tmp/brigade-email/notes.md <<'EOF'` … `EOF` (the Write tool is NOT available).
             The email covers ${{ steps.window.outputs.count }} release(s), ${{ steps.window.outputs.first }} to
-            ${{ steps.window.outputs.last }}. Do nothing else: do not send, do not edit the repository, do not push.
+            ${{ steps.window.outputs.last }}. Change the sentences the findings name and what making room for them
+            requires, and leave every other line as it is: the second review re-reads only what changed. Do nothing
+            else: do not send, do not edit the repository, do not push.
           settings: |
             {
               "permissions": {
@@ -354,19 +368,24 @@ jobs:
           show_full_output: false
           prompt: |
             You are the REVIEWER of the SECOND draft of brigade's release-notes email, at
-            /tmp/brigade-email/notes.md; your first review is /tmp/brigade-email/review.md and the lint's result
-            is /tmp/brigade-email/lint.txt. Read `.claude/agents/release-notes-email.md` and follow it exactly,
-            "When you review" above all. The email covers ${{ steps.window.outputs.count }} release(s),
-            ${{ steps.window.outputs.first }} to ${{ steps.window.outputs.last }}.
+            /tmp/brigade-email/notes.md; the first draft is /tmp/brigade-email/notes-round1.md, your first review
+            is /tmp/brigade-email/review.md and the lint's result is /tmp/brigade-email/lint.txt. Read
+            `.claude/agents/release-notes-email.md` and follow it exactly, "When you review the second draft"
+            above all: `diff` the two drafts, check that every finding of your first review is fixed and that the
+            lines the fix changed are right by the sources, and re-read nothing else. The email covers
+            ${{ steps.window.outputs.count }} release(s), ${{ steps.window.outputs.first }} to
+            ${{ steps.window.outputs.last }}.
 
             Overwrite /tmp/brigade-email/review.md from the Bash tool with a quoted heredoc, exactly
             `tee /tmp/brigade-email/review.md <<'EOF'` … `EOF` (the Write tool is NOT available): the FIRST line
-            is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line. Do nothing else.
+            is exactly `APPROVED` or `CHANGES_REQUESTED`, then one finding per line, then, after a line that reads
+            exactly `NOTES`, whatever you noticed outside the bound. Do nothing else.
           settings: |
             {
               "permissions": {
                 "allow": [
                   "Bash(tee /tmp/brigade-email/review.md:*)",
+                  "Bash(diff /tmp/brigade-email/notes-round1.md /tmp/brigade-email/notes.md:*)",
                   "Read(//tmp/brigade-email/**)",
                   "Bash(/tmp/brigade-email/brigade --help:*)",
                   "Bash(ls:*)",
@@ -425,6 +444,7 @@ jobs:
           name: release-notes-email-${{ github.run_id }}
           path: |
             /tmp/brigade-email/window.txt
+            /tmp/brigade-email/notes-round1.md
             /tmp/brigade-email/notes.md
             /tmp/brigade-email/email.md
             /tmp/brigade-email/email.html
