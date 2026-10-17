@@ -106,6 +106,16 @@ edited.
 
 ## 5. Open after this card
 
+Walked through with the owner on 2026-10-17; each item has a card.
+
 - The `brigade` command reference is still the skill and `brigade help`; a generated command reference, like the
-  make-target one, would let the gate pin it.
-- The injection test set has not been run against Muse's model (card 88's limit); the security page says so.
+  make-target one, lets the gate pin it, and a coverage rule makes every listed command name a persona page:
+  card 112.
+- The injection test set has not been run against Muse's model (card 88's limit); the security page says so. A
+  driver generic across harnesses, Muse the first run, both approval profiles: card 113.
+- A Muse Code member installs from a clone (`docs/team-member/install/README.md`, "Install in Muse Code") where a
+  Claude Code member types two lines in the session. Muse 1.4.10 has marketplaces and the in-session verbs
+  (`/plugins marketplace add`, `/plugins install <plugin>@<marketplace>`), verified in isolated roots on
+  2026-10-17, but this repository offers Muse no usable catalog: a native `marketplace.json` at the root with the
+  package digest is the fix, and the digest ties the release to Muse on the release machine (owner ruling, for
+  now): card 115. Reproducing the digest without Muse: card 114.
