@@ -735,3 +735,17 @@ machine only, not in the repository.
 - The customer configuration (`--yolo`) for every arm; null controls; a hold of at least 35 minutes; the 0600
   Unix-socket inlet; TUI ↔ `serve` hand-off of one session; the scorer with mutation rows; the privacy pre-flight;
   arms run one at a time so the wrong-session gate holds.
+
+## 11. Live results, 2026-10-16 (macOS, real provider) — see `docs/experiments/muse-participation.md`
+
+Run by Rjae's session after the hand-off, on the operator's Power subscription (browser sign-in, never
+`META_API_KEY`), Muse **1.4.10-R6427.1** `aarch64_macos`, in the plan's order. Headline: the signed-in account's
+feature config has no `external_agent_ingress` (route A **closed**, both profiles; behind the undocumented switch a
+cold send is refused `sender_unverified` before any card); Arm 0 confirms D99 on 1.4.10; **route B passes its short
+holds** — a persistent `monitor` with `wake_delay_ms: 0` wakes the idle session 0.2 s after an outside append, under
+`--yolo` and under the default profile, with no approval record, lines whole to 16 KiB, surviving `/compact` and
+`/clear` (not `/exit` + resume); settings-level hooks fire all three events with `MUSE_SESSION_ID = session_id`, a
+detached SessionStart child survives, SessionEnd gets 0.1–0.4 s. The ≥ 35-minute hold, its null control and the
+UserPromptSubmit-on-wake row are in the report. Route D was not probed (5.2 step 5). The decisions 5.10 leaves to
+Rjae are listed in the report's §8.
+
