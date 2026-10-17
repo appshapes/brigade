@@ -87,20 +87,30 @@ func watcherLogPath(stateDir string, claudePID int) string {
 	return filepath.Join(stateDir, "logs", "watcher-"+strconv.Itoa(claudePID)+".log")
 }
 
+// envCodexHome is the one Codex CLI variable a Codex session's watcher
+// carries (card 107): where Codex keeps its state, and so where
+// `codex queue` finds the app-server daemon's socket. Passed through from
+// the hook's environment when the user set it; absent, Codex uses its
+// default (~/.codex), and so does the command the watcher runs.
+const envCodexHome = "CODEX_HOME"
+
 // watcherEnviron builds the watcher's environment from scratch (6.6, 3.2):
 // the adapter-child allow-list of environ (PATH, HOME, TMPDIR, LANG, LC_*,
 // XDG_*, CLAUDE_CONFIG_DIR, the proxy variables, SSL_CERT_*; every
 // inherited BRIGADE_* and CLAUDE_CODE_MESSAGING_* dropped), then the six
-// hook-built BRIGADE_* of config.WatcherEnv.Vars, BRIGADE_LOG_LEVEL, and the
-// socket and token as the hook saw them. The token travels here and only
-// here (T13.4).
-func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLevel string) ([]string, error) {
+// hook-built BRIGADE_* of config.WatcherEnv.Vars, BRIGADE_LOG_LEVEL, the
+// socket and token as the hook saw them, and — for a Codex session — the
+// user's CODEX_HOME. The token travels here and only here (T13.4).
+func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLevel string, codex bool) ([]string, error) {
 	vars, err := w.Vars()
 	if err != nil {
 		return nil, err
 	}
 	out := adapterkit.ChildEnv(environ, vars...)
 	out = append(out, "BRIGADE_LOG_LEVEL="+logLevel)
+	if home := adapterkit.Getenv(environ, envCodexHome); codex && home != "" && filepath.IsAbs(home) {
+		out = append(out, envCodexHome+"="+home)
+	}
 	if socket != "" {
 		out = append(out, envMessagingSocket+"="+socket)
 	}
@@ -132,14 +142,19 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 		StateDir:    f.stateDir,
 		Adapter:     adapter,
 		TeamInbound: config.Inbound(m.Inbound),
-	}, f.socket, f.token, r.logLevel)
+	}, f.socket, f.token, r.logLevel, f.codex())
 	if err != nil {
 		r.log.Warn("watcher not started: environment", log.Err(err))
 		return false
 	}
 	args := []string{"watch"}
-	if sink != "" {
+	switch {
+	case sink != "":
 		args = append(args, "--sink", sink)
+	case f.codex():
+		// A Codex session's watcher delivers through `codex queue` (card
+		// 107): no socket, no sink.
+		args = append(args, "--host", string(config.HostCodex))
 	}
 	dir := f.home
 	if dir == "" || !filepath.IsAbs(dir) {

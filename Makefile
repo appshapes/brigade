@@ -302,6 +302,10 @@ plugin-check: ## Static checks of plugin/: exec-form hooks, no .mcp.json, VERSIO
 muse-plugin-check: ## Static checks of muse/brigade/, the Muse Code package (card 88): allowlist, native manifest, one wrapper per hook, assets equal to plugin/bin's (CI)
 	sh scripts/ci/muse-plugin-check.sh
 
+.PHONY: codex-plugin-check
+codex-plugin-check: ## Static checks of codex/brigade/, the Codex CLI package (card 107): allowlist, native manifest, the three hook commands, the marketplace file, assets equal to plugin/bin's (CI)
+	sh scripts/ci/codex-plugin-check.sh
+
 .PHONY: docs-check
 docs-check: ## The documentation gate (card 110): README and persona shapes, links and anchors, orphans, harness pages, options, the make-target page, the changelog section (CI)
 	go run ./cmd/brigade-docs check

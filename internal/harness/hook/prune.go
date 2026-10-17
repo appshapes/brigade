@@ -34,8 +34,8 @@ func (r *run) pruneCache(f facts, now time.Time) {
 	if last, ok := lastPrune(stamp); ok && now.Sub(last) < pruneInterval {
 		return
 	}
-	root := adapterkit.Getenv(r.environ, envPluginRoot)
-	if root == "" || !filepath.IsAbs(root) {
+	root := f.pluginRoot
+	if root == "" {
 		return
 	}
 	current := currentVersion(root)
@@ -73,7 +73,7 @@ func lastPrune(stamp string) (time.Time, bool) {
 	return fi.ModTime(), true
 }
 
-// currentVersion reads ${CLAUDE_PLUGIN_ROOT}/bin/VERSION, one line.
+// currentVersion reads <plugin root>/bin/VERSION, one line.
 func currentVersion(root string) string {
 	data, err := os.ReadFile(filepath.Join(root, "bin", "VERSION"))
 	if err != nil {

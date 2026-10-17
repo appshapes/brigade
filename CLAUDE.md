@@ -1,8 +1,8 @@
 # Brigade
 
 Team messaging between the coding sessions of different people and machines: one Go binary (`cmd/brigade`), a
-Claude Code plugin (`plugin/`), a Muse Code package (`muse/brigade/`), a Supabase backend (`supabase/`) and the
-adapter protocol between them (`docs/protocol-v1.md`). This file is the agent's root. The rule files below load
+Claude Code plugin (`plugin/`), a Muse Code package (`muse/brigade/`), a Codex CLI package (`codex/brigade/`), a
+Supabase backend (`supabase/`) and the adapter protocol between them (`docs/protocol-v1.md`). This file is the agent's root. The rule files below load
 with it; each is one subject, and a rule lives in exactly one of them. Humans start at [README.md](README.md);
 the agent persona's own page is [docs/agent/README.md](docs/agent/README.md).
 

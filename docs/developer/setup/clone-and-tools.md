@@ -18,6 +18,7 @@ job rebuilds from the tag with that toolchain and diffs against the committed ch
 | `make release`, `make release-dry-run`, `make checksums-check` | `gh`, logged in |
 | `make plugin-check` | shellcheck; Docker for CI's 0.9.0 ([scripts/ci/README.md](../../../scripts/ci/README.md)) |
 | `make muse-plugin-check` | the same shellcheck; `muse plugins validate ./muse/brigade` when Muse is installed |
+| `make codex-plugin-check` | nothing beyond POSIX sh and git; a local `codex plugin marketplace add <clone>` then `codex plugin add brigade@brigade` installs the package when Codex is installed |
 | the real-Syncthing tests | `syncthing` on `PATH` (`brew install syncthing`); measured with 2.1.5 |
 | the Trello skills | [Work a card](../contribute/cards.md) |
 

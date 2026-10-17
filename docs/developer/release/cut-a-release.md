@@ -9,12 +9,13 @@ make release version=0.32.0 card=110          # on a clean master, with bin/gore
 0. **Preconditions**: a version token, a clean tree (untracked files included: step 4 stages everything), the
    expected branch, the manifests, `bin/goreleaser`, a selectable `go<go.mod line>` toolchain, a `## [<v>]`
    section in `CHANGELOG.md`, `make docs-check` green, `git pull --no-edit`.
-1. **Bump the pins**: `plugin/bin/VERSION`, `plugin/.claude-plugin/plugin.json`, `muse/brigade/.muse-plugin/plugin.json`.
+1. **Bump the pins**: `plugin/bin/VERSION`, `plugin/.claude-plugin/plugin.json`, `muse/brigade/.muse-plugin/plugin.json`,
+   `codex/brigade/.codex-plugin/plugin.json`.
 2. **Reproducible build**: `make cross version=<v>` builds the four targets (darwin and linux, amd64 and arm64) with
    `GOTOOLCHAIN` forced, `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false` and a version-only `-X`, so the bytes do
    not depend on the commit.
 3. **Cross-check**: goreleaser's own build of the same four targets must produce an identical `checksums.txt`.
-4. **Commit**: `cp dist/checksums.txt plugin/bin/checksums.txt`, the same into `muse/brigade/bin/`, then
+4. **Commit**: `cp dist/checksums.txt plugin/bin/checksums.txt`, the same into `muse/brigade/bin/` and `codex/brigade/bin/`, then
    `make push message="<card>: Release <v>"` (typecheck, pull, build, test with the documentation gate, commit, push).
 5. **Tag**: `git tag -a v<v> && git push origin v<v>`.
 

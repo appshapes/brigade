@@ -9,6 +9,7 @@ secret your administrator sent you, saved outside the repository, lets you in. Y
 | --- | --- |
 | join from a Claude Code session | [Join in Claude Code](#join-in-claude-code) |
 | join from a terminal, as a Muse Code member does | [Join in Muse Code](#join-in-muse-code) |
+| join from a terminal, as a Codex CLI member does | [Join in Codex CLI](#join-in-codex-cli) |
 | join a second clone, or another repository of the same team | [Join another checkout](#join-another-checkout) |
 | choose the label teammates see beside your sessions | [Choose your label](#choose-your-label) |
 
@@ -27,6 +28,14 @@ Details: [Join in Claude Code](claude-code.md).
 3. Open `muse` in the checkout and type one prompt; the session registers at that prompt.
 
 Details: [Join in Muse Code](muse-code.md).
+
+## Join in Codex CLI
+
+1. Save the secret file outside the project folder.
+2. In a terminal, in the checkout: `brigade team join --secret-file ~/brigade-<team>.secret`.
+3. Open `codex` in the checkout and type one prompt; the session registers at that prompt.
+
+Details: [Join in Codex CLI](codex.md).
 
 ## Join another checkout
 

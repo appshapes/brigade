@@ -165,6 +165,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	}
 	res.workspaceLabel = workspaceLabel(res.opts, in.Cwd)
 	existing := r.existingMap(res.store, f.pid)
+	r.retirePointer(f, res.store, existing, in)
 	verdict := r.checkPidfile(f)
 	now := r.deps.Now()
 
@@ -345,12 +346,13 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 	}
 	id := r.identity(f, in)
 	ensureLine := ""
-	scan := museScan
+	scan := pointedScan
 	doingRules := policy.VerdictNone
-	if !f.muse() {
+	if !f.pointed() {
 		// The three readers of Claude Code's own settings files (card 50,
 		// the native scan, the doing rules) have nothing to read on Muse
-		// Code, whose approval policy is the gate (card 88, decision D5).
+		// Code or Codex CLI, whose own approval policy is the gate (card
+		// 88, decision D5; card 107, D5).
 		ensureLine = r.ensureInboundSetting(f, opts, in.PermissionMode)
 		scan = policy.ScanNative(f.claudeConfigDir, in.Cwd, r.deps.ReadFile)
 		doingRules = policy.ScanDoingRules(f.claudeConfigDir, doingScanDirs(r.environ, in), r.deps.ReadFile)
@@ -399,14 +401,15 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 	}, true
 }
 
-// museScan stands in for the native scan on Muse Code (card 88, D5): no
-// native hold or refuse was found (there is no file to find one in), and the
-// one explicit accept the card-50 parity rule asks of a session that
-// bypasses prompts is deemed given — Muse's `--yolo` is the user's own
-// choice for the whole session, and Brigade's inbound option is the one
+// pointedScan stands in for the native scan on Muse Code and Codex CLI
+// (card 88, D5; card 107): no native hold or refuse was found (there is no
+// file to find one in), and the one explicit accept the card-50 parity rule
+// asks of a session that bypasses prompts is deemed given — Muse's `--yolo`
+// and Codex's `--dangerously-bypass-approvals-and-sandbox` are the user's
+// own choice for the whole session, and Brigade's inbound option is the one
 // knob left, exactly as the decision's "allow-all by default, options to
 // restrict" asks.
-var museScan = policy.Scan{UserAccept: true}
+var pointedScan = policy.Scan{UserAccept: true}
 
 // doingScanDirs names the directories whose project settings the doing
 // scan reads (plan 5.2): CLAUDE_PROJECT_DIR from the hook's environment
@@ -528,11 +531,11 @@ func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
 // session whose account cannot be read registers as every session did
 // before this version.
 func (r *run) humanLabel(f facts, opts config.Options) string {
-	if f.muse() && opts.Label == config.LabelAccount {
-		// A Muse Code session has no Claude account to read an address
-		// from, and its hooks read nothing under ~/.claude (card 88): the
-		// default sends no label; the `label` option in muse-options.json
-		// names one.
+	if f.pointed() && opts.Label == config.LabelAccount {
+		// A Muse Code or Codex CLI session has no Claude account to read an
+		// address from, and its hooks read nothing under ~/.claude (cards
+		// 88, 107): the default sends no label; the `label` option in the
+		// host's options file names one.
 		return ""
 	}
 	return config.LabelFor(opts.Label, func() string {
@@ -1048,17 +1051,18 @@ func (r *run) otherLiveWatcher(f facts, sessionID string) (int, bool) {
 // and this rewrite is how the watcher learns of it.
 func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, teamName string, registeredAt, now time.Time) *sessionmap.ByPID {
 	harness, model := "", ""
-	if f.muse() {
-		// The harness member is written for Muse only: an absent member
-		// reads as claude-code, so every map from before card 88 is a
-		// Claude map. The model is the document's, folded and sanitised
-		// to an attribute (the wire's `model` member is one).
-		harness = string(config.HostMuse)
+	if f.pointed() {
+		// The harness member is written for the pointed hosts only: an
+		// absent member reads as claude-code, so every map from before card
+		// 88 is a Claude map. The model is the document's, folded and
+		// sanitised to an attribute (the wire's `model` member is one).
+		harness = string(f.host)
 		model = protocol.SanitizeAttribute(oneLine(in.Model, 64))
 	}
 	return &sessionmap.ByPID{
 		Harness:                harness,
 		Model:                  model,
+		HostProcessPID:         f.hostProcessPID,
 		ClaudePID:              f.pid,
 		ClaudeSessionID:        in.SessionID,
 		BrigadeSessionID:       sessionID,
@@ -1125,12 +1129,17 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	warnings = append(warnings, teamFileNotes(res.teamFile)...)
 	r.pruneCache(f, now)
 	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
-	if f.muse() {
+	switch {
+	case f.muse():
 		// The monitor is what makes a Muse session a peer (card 88): the
 		// arming line follows the context line on every SessionStart but
 		// compact, because a resume starts a new process and the old
 		// monitor died with the old one.
 		r.say(armLine(r.commandName(f)))
+	case f.codex():
+		// Nothing to arm on Codex (card 107): the line says how a message
+		// arrives and where the command is.
+		r.say(codexLine(r.commandName(f)))
 	}
 	if line := res.syncLine; line != "" {
 		if res.sync.adapter != "" && !watcherRuns {
@@ -1163,12 +1172,31 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	}
 }
 
-// writeByHost records the by-host pointer of a Muse Code session (card
-// 88): native id → host pid and Brigade session, so a command in the
-// model's shell, which knows MUSE_SESSION_ID and not the pid, finds the
-// map. Nothing on Claude Code, where CLAUDE_PID is in the shell.
+// retirePointer removes the by-host pointer of the thread this host pid
+// served BEFORE this SessionStart, when the document names another (card
+// 107): Codex's `/new` opens a new thread in the same TUI, whose
+// SessionStart fires at the new chat's first prompt while the old thread
+// keeps accepting rows unseen, so a stale pointer would let a command in
+// the old thread's shell act as this session. The map is rewritten with
+// the new id by the same SessionStart; this removes the old road to it.
+func (r *run) retirePointer(f facts, store sessionmap.Store, existing *sessionmap.ByPID, in input) {
+	if !f.pointed() || existing == nil || existing.ClaudeSessionID == "" || existing.ClaudeSessionID == in.SessionID {
+		return
+	}
+	if err := store.DeleteByHost(string(f.host), existing.ClaudeSessionID); err != nil {
+		r.log.Debug("the previous thread's pointer was not removed", log.Err(err))
+		return
+	}
+	r.log.Info("retired the pointer of the previous native session of this process")
+}
+
+// writeByHost records the by-host pointer of a pointed-host session (Muse
+// Code, card 88; Codex CLI, card 107): native id → host pid and Brigade
+// session, so a command in the model's shell, which knows the native id
+// and not the pid, finds the map. Nothing on Claude Code, where CLAUDE_PID
+// is in the shell.
 func (r *run) writeByHost(f facts, store sessionmap.Store, nativeID string, m *sessionmap.ByPID, now time.Time) {
-	if !f.muse() || nativeID == "" {
+	if !f.pointed() || nativeID == "" {
 		return
 	}
 	err := store.WriteByHost(string(f.host), nativeID, &sessionmap.ByHost{

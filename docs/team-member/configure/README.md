@@ -10,6 +10,7 @@ teammate's message cannot change them.
 | see every option, its default and its meaning | [Know the options](#know-the-options) |
 | set an option in Claude Code | [Configure in Claude Code](#configure-in-claude-code) |
 | set an option in Muse Code | [Configure in Muse Code](#configure-in-muse-code) |
+| set an option in Codex CLI | [Configure in Codex CLI](#configure-in-codex-cli) |
 | change the sentence your sessions receive with each message | [Choose the frame text](#choose-the-frame-text) |
 | hold messages for your review before your session sees them | [Hold messages for review](#hold-messages-for-review) |
 | hear a sound, or see a desktop notification, when a message arrives | [Be told when a message arrives](#be-told-when-a-message-arrives) |
@@ -39,6 +40,13 @@ Details: [Configure in Claude Code](claude-code.md).
 2. Start a new session; a missing file is the defaults.
 
 Details: [Configure in Muse Code](muse-code.md).
+
+## Configure in Codex CLI
+
+1. Write `~/.config/brigade/codex-options.json`: a JSON object whose keys are the option names.
+2. Start a new session; a missing file is the defaults.
+
+Details: [Configure in Codex CLI](codex.md).
 
 ## Choose the frame text
 

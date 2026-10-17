@@ -146,7 +146,10 @@ func Whoami(inv Invocation) error {
 func (inv Invocation) delivery(t *target) whoamiDelivery {
 	m := t.session
 	d := whoamiDelivery{Watcher: WatcherNotRunning}
-	if m.SocketPath == "" {
+	if m.SocketPath == "" && !config.Host(m.Harness).Pointed() {
+		// A Claude Code session without an inbox socket runs no watcher; a
+		// Muse Code or Codex CLI session has none and runs one all the same
+		// (cards 88, 107), so for it the word is running or not_running.
 		d.Watcher = WatcherNone
 	}
 	lookup := inv.Deps.Lookup

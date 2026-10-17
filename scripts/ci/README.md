@@ -58,6 +58,7 @@ workflows renumber on every edit, and a `grep` for a target name or a step name 
 | `scripts/ci/conformance-setup-supabase.sh` | nothing — passed by an adapter author to `--setup`, see its section |
 | `scripts/ci/pr-guard.sh` | `.github/workflows/review-pull-request.yml` (not `make`) |
 | `scripts/ci/muse-plugin-check.sh` | `make muse-plugin-check` → `ci.yml`'s `fast` job |
+| `scripts/ci/codex-plugin-check.sh` | `make codex-plugin-check` → `ci.yml`'s `fast` job |
 | `cmd/brigade-docs` (Go, not a script) | `make docs-check` and `make docs-generate` → `ci.yml`'s `fast` job, `release.yml`'s guard, `scripts/release-prep.sh`; the same rules run in `make test` through `docs_check_test.go` |
 
 `release-verify.sh` and `keepalive.sh` have no `make` target on purpose, and the house does the same with its own
@@ -477,7 +478,8 @@ One file per thing they guard; the mapping is the house's rule (a test file per 
 | `proof_crash_resume_test.go` | `proof-crash-resume.sh catchup`, over `testdata/proof-crash-resume/`, plus the shared frame literals and the lease and liveness budgets. |
 | `fixtures_test.go` | The ignore rules around the fixture trees, and that no compiled Python is tracked. |
 | `muse_plugin_check_test.go` | `muse-plugin-check.sh` (card 88): the Muse Code package's allowlist, native manifest, one wrapper per hook and assets equal to `plugin/bin`'s, each proved able to fail. |
-| `setup_docs_test.go` | The setup copies join: the invocation forms of create, join, leave and reset must read the same in both setup skills and the member's and admin's pages (`docs/team-admin/create/create-the-team.md`, `docs/team-member/join/muse-code.md`, `docs/team-member/leave/leave-the-team.md`). |
+| `codex_plugin_check_test.go` | `codex-plugin-check.sh` (card 107): the Codex CLI package's allowlist, native manifest, the three exact hook commands, the marketplace file and assets equal to `plugin/bin`'s, each proved able to fail; the manifest, `hooks/hooks.json` and `.agents/plugins/marketplace.json` parsed as JSON. |
+| `setup_docs_test.go` | The setup copies join: the invocation forms of create, join, leave and reset must read the same in both setup skills and the member's and admin's pages (`docs/team-admin/create/create-the-team.md`, `docs/team-member/join/muse-code.md`, `docs/team-member/join/codex.md`, `docs/team-member/leave/leave-the-team.md`). |
 | `docs_check_test.go` | The documentation gate of card 110 (`internal/docscheck`, `make docs-check`): green on the repository, and every rule proved able to fail against a copy of the tree with one violation planted — the README shape, a three-sentence persona section, a missing `Details:` line, an orphan leaf, a broken link and anchor, an unreachable page, an unindexed experiment, a harness without its pages, an unregistered package, an unlisted skill, an unimported rule file, an undocumented option, a stale make-target page, a pinned version with no changelog section. |
 | `shell_test.go` | Every `scripts/*.sh`, `scripts/ci/*.sh` and `plugin/bin/brigade`: no comment line may sit directly after a line ending in a backslash. A commit put four such comments inside the `exec env … \` that launches every nested `claude` session, and three proof scripts silently ran `env` instead while `sh -n`, both shellcheck versions and every other drift test stayed green. |
 

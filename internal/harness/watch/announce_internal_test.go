@@ -108,7 +108,7 @@ func testWatcher(g *gatedProgram, clk *settableClock, sound, banner []string) *w
 		log:       slog.New(slog.DiscardHandler),
 		environ:   []string{"PATH=/nonexistent/bin"},
 		sessionID: "sess-1",
-		state:     newShared(socketpost.Target{}, "brigade-8d", "accept", "", "", "", ""),
+		state:     newShared(socketpost.Target{}, "brigade-8d", "accept", "", "", "", "", ""),
 	}
 }
 

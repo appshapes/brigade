@@ -19,6 +19,7 @@
   never report a card as done without having run it. Never put a secret, a credential or a recipient's address
   on a card: the board is as public as the repository.
 - **Skills of this repository** live in `.claude/skills/`: `commit`, `trello-create`, `trello-read`, `trello-done`,
-  `playwright-cli`. The Brigade plugin's own skills (`plugin/skills/`, `muse/brigade/skills/`) are the product.
+  `playwright-cli`. The Brigade plugin's own skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`)
+  are the product.
 - **Dates** in plans and logs are absolute (`2026-10-17`), never relative.
 - **Wording.** Say "the 26 test messages" or "the injection test set", never "corpus".

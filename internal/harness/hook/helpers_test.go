@@ -524,16 +524,24 @@ type fixture struct {
 	noSocket        bool
 	noAdapterOption bool
 	entrypoint      string
-	// muse makes the fixture a Muse Code session (card 88): MUSE_SESSION_ID
-	// and MUSE_PLUGIN_ROOT in the environment instead of the CLAUDE_*
-	// variables, no socket, and the hook's parent pid (Deps.Getppid) the
-	// fixture's sleeper.
-	muse bool
+	// host is the session's harness: config.HostClaude (the default), or
+	// config.HostMuse (card 88: MUSE_SESSION_ID and MUSE_PLUGIN_ROOT in the
+	// environment instead of the CLAUDE_* variables, no socket, the hook's
+	// parent pid — Deps.Getppid — the fixture's sleeper) or config.HostCodex
+	// (card 107: no session variable at all in the environment, `--host
+	// codex --plugin-root <root>` on the hook's argv instead).
+	host config.Host
 }
+
+// muse reports whether the fixture is a Muse Code session.
+func (f *fixture) muse() bool { return f.host == config.HostMuse }
+
+// codex reports whether the fixture is a Codex CLI session.
+func (f *fixture) codex() bool { return f.host == config.HostCodex }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	return buildFixture(t, false)
+	return buildFixture(t, config.HostClaude)
 }
 
 // newMuseFixture is newFixture for a Muse Code session (card 88): the
@@ -544,10 +552,20 @@ func newFixture(t *testing.T) *fixture {
 // HOME/.local/state/brigade rather than under the XDG triple.
 func newMuseFixture(t *testing.T) *fixture {
 	t.Helper()
-	return buildFixture(t, true)
+	return buildFixture(t, config.HostMuse)
 }
 
-func buildFixture(t *testing.T, muse bool) *fixture {
+// newCodexFixture is newFixture for a Codex CLI session (card 107): the
+// hook's environment carries no host marker at all (measured: Codex runs
+// its hooks with no CODEX_* variable), the hook learns its host and the
+// package root from argv, the thread id from the document, the parent is
+// the sleeper, and the directories resolve from HOME alone as on Muse.
+func newCodexFixture(t *testing.T) *fixture {
+	t.Helper()
+	return buildFixture(t, config.HostCodex)
+}
+
+func buildFixture(t *testing.T, host config.Host) *fixture {
 	t.Helper()
 	d := testutil.NewDirs(t.TempDir())
 	if err := d.Mkdir(); err != nil {
@@ -570,14 +588,14 @@ func buildFixture(t *testing.T, muse bool) *fixture {
 		socket:     filepath.Join(d.Root, "inbox.sock"),
 		stateDir:   filepath.Join(d.XDGState, "brigade"),
 		configDir:  filepath.Join(d.XDGConfig, "brigade"),
-		muse:       muse,
+		host:       host,
 		pluginBin:  realpath(t, filepath.Join(binDir, "brigade")),
 		dumpPath:   filepath.Join(d.Root, "dump.ndjson"),
 		spawner:    &spawnRecorder{},
 		now:        fixedTime,
 		entrypoint: "cli",
 	}
-	if muse {
+	if host.Pointed() {
 		f.stateDir = filepath.Join(d.Home, ".local", "state", "brigade")
 		f.configDir = filepath.Join(d.Home, ".config", "brigade")
 	}
@@ -667,9 +685,13 @@ func (f *fixture) env(extra ...string) []string {
 		"HOME=" + f.dirs.Home,
 	}
 	vars = append(vars, f.dirs.Vars()...)
-	if f.muse {
+	switch {
+	case f.muse():
 		vars = append(vars, "MUSE_SESSION_ID="+f.nativeID, "MUSE_THREAD_ID="+f.nativeID, "MUSE_PLUGIN_ROOT="+f.dirs.PluginRoot)
-	} else {
+	case f.codex():
+		// Nothing: a Codex hook's environment names no host (measured on
+		// 0.163.0, docs/experiments/codex-queue-participation.md §5).
+	default:
 		vars = append(vars,
 			"CLAUDE_PID="+strconv.Itoa(f.pid),
 			"CLAUDE_CODE_SESSION_ID="+f.nativeID,
@@ -707,8 +729,18 @@ func (f *fixture) run(sub, stdin string, extraEnv ...string) (int, string, strin
 		f.writeScript()
 	}
 	var out, errOut bytes.Buffer
-	code := Run([]string{sub}, cli.Streams{In: strings.NewReader(stdin), Out: &out, Err: &errOut}, f.env(extraEnv...), f.deps)
+	code := Run(f.hookArgs(sub), cli.Streams{In: strings.NewReader(stdin), Out: &out, Err: &errOut}, f.env(extraEnv...), f.deps)
 	return code, out.String(), errOut.String()
+}
+
+// hookArgs is the hook's argv for this fixture's host: the subcommand
+// alone, or — as the Codex package's hooks.json writes it (card 107) — with
+// the host and the package root.
+func (f *fixture) hookArgs(sub string) []string {
+	if f.codex() {
+		return []string{sub, "--host", "codex", "--plugin-root", f.dirs.PluginRoot}
+	}
+	return []string{sub}
 }
 
 // startDoc is a SessionStart stdin document (the 2.1.251 shape).
@@ -792,10 +824,19 @@ func (f *fixture) doc(m map[string]any) string {
 // store is the fixture's map store.
 func (f *fixture) store() sessionmap.Store { return sessionmap.Store{StateDir: f.stateDir} }
 
+// key is what this session's state is keyed by: the sleeper's pid, or on
+// Codex the thread-derived key (card 107, D2).
+func (f *fixture) key() int {
+	if f.codex() {
+		return codexKey(f.nativeID)
+	}
+	return f.pid
+}
+
 // mustMap reads this session's by-pid map.
 func (f *fixture) mustMap() *sessionmap.ByPID {
 	f.t.Helper()
-	m, err := f.store().ReadByPID(f.pid)
+	m, err := f.store().ReadByPID(f.key())
 	if err != nil {
 		f.t.Fatalf("by-pid map: %v", err)
 	}
@@ -804,7 +845,7 @@ func (f *fixture) mustMap() *sessionmap.ByPID {
 
 // mapExists reports whether the by-pid map file exists.
 func (f *fixture) mapExists() bool {
-	p, _ := f.store().ByPIDPath(f.pid)
+	p, _ := f.store().ByPIDPath(f.key())
 	_, err := os.Lstat(p)
 	return err == nil
 }
@@ -812,7 +853,7 @@ func (f *fixture) mapExists() bool {
 // startFactsExist reports whether SessionStart's start facts are down for
 // this session (P7-11).
 func (f *fixture) startFactsExist() bool {
-	p, _ := f.store().StartPath(f.pid)
+	p, _ := f.store().StartPath(f.key())
 	_, err := os.Lstat(p)
 	return err == nil
 }
@@ -826,7 +867,7 @@ func (f *fixture) writeStartFacts(t *testing.T) {
 }
 
 // pidfilePath is this session's watcher pidfile.
-func (f *fixture) pidfilePath() string { return pidfile.Path(f.stateDir, f.pid) }
+func (f *fixture) pidfilePath() string { return pidfile.Path(f.stateDir, f.key()) }
 
 // dump reads the fake adapter's invocation dump.
 func (f *fixture) dump() []fakeadapter.Invocation {

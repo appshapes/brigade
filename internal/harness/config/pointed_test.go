@@ -14,7 +14,10 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-const museID = "01a14785-947f-7d93-a4f4-6ee1f6b2be94"
+const (
+	museID  = "01a14785-947f-7d93-a4f4-6ee1f6b2be94"
+	codexID = "019a2b3c-4d5e-7f80-9a1b-2c3d4e5f6071"
+)
 
 // museMap is sampleMap as the Muse Code hook writes it (card 88): the
 // harness member, the model, no socket, keyed by the Muse process's pid.
@@ -38,8 +41,12 @@ func TestHostOfAndInSession(t *testing.T) {
 		{"terminal", []string{"HOME=/h"}, ""},
 		{"claude", []string{"CLAUDE_PID=4242"}, config.HostClaude},
 		{"muse", []string{"MUSE_SESSION_ID=" + museID}, config.HostMuse},
+		{"codex", []string{"CODEX_THREAD_ID=" + codexID}, config.HostCodex},
 		{"claude wins over a leaked muse id", []string{"MUSE_SESSION_ID=" + museID, "CLAUDE_PID=4242"}, config.HostClaude},
+		{"claude wins over a leaked codex id", []string{"CODEX_THREAD_ID=" + codexID, "CLAUDE_PID=4242"}, config.HostClaude},
+		{"muse wins over a leaked codex id", []string{"CODEX_THREAD_ID=" + codexID, "MUSE_SESSION_ID=" + museID}, config.HostMuse},
 		{"an empty muse id is a terminal", []string{"MUSE_SESSION_ID="}, ""},
+		{"an empty codex id is a terminal", []string{"CODEX_THREAD_ID="}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -61,17 +68,21 @@ func TestHostOfAndInSession(t *testing.T) {
 	}
 }
 
-// TestMuseIgnoresXDG pins the HOME-only resolution of a Muse session (card
-// 88): the hook never sees XDG_*, so the shell tool must not honour them
-// either, or the two resolve different directories.
-func TestMuseIgnoresXDG(t *testing.T) {
+// TestPointedHostsIgnoreXDG pins the HOME-only resolution of a Muse session
+// (card 88) and a Codex session (card 107): the hook never sees XDG_* (Muse)
+// or sees the TUI's while the shell sees the daemon's (Codex), so the shell
+// tool must not honour them either, or the two resolve different
+// directories.
+func TestPointedHostsIgnoreXDG(t *testing.T) {
 	t.Parallel()
-	env := []string{"HOME=/h", "XDG_STATE_HOME=/" + evilMarker, "XDG_CONFIG_HOME=/" + evilMarker, "MUSE_SESSION_ID=" + museID}
-	if got, err := config.BrigadeStateDir(env); err != nil || got != "/h/.local/state/brigade" {
-		t.Fatalf("BrigadeStateDir = %q, %v", got, err)
-	}
-	if got, err := config.BrigadeConfigDir(env); err != nil || got != "/h/.config/brigade" {
-		t.Fatalf("BrigadeConfigDir = %q, %v", got, err)
+	for name, marker := range map[string]string{"muse": "MUSE_SESSION_ID=" + museID, "codex": "CODEX_THREAD_ID=" + codexID} {
+		env := []string{"HOME=/h", "XDG_STATE_HOME=/" + evilMarker, "XDG_CONFIG_HOME=/" + evilMarker, marker}
+		if got, err := config.BrigadeStateDir(env); err != nil || got != "/h/.local/state/brigade" {
+			t.Fatalf("%s: BrigadeStateDir = %q, %v", name, got, err)
+		}
+		if got, err := config.BrigadeConfigDir(env); err != nil || got != "/h/.config/brigade" {
+			t.Fatalf("%s: BrigadeConfigDir = %q, %v", name, got, err)
+		}
 	}
 	// A Claude session keeps honouring XDG_*, as every proof relies on.
 	claude := []string{"HOME=/h", "XDG_STATE_HOME=/x", "CLAUDE_PID=4242"}
@@ -80,19 +91,35 @@ func TestMuseIgnoresXDG(t *testing.T) {
 	}
 }
 
-func TestMuseSessionID(t *testing.T) {
+func TestNativeIDs(t *testing.T) {
 	t.Parallel()
 	if id, err := config.MuseSessionID([]string{"MUSE_SESSION_ID=" + museID}); err != nil || id != museID {
 		t.Fatalf("MuseSessionID = %q, %v", id, err)
 	}
+	if id, err := config.CodexThreadID([]string{"CODEX_THREAD_ID=" + codexID}); err != nil || id != codexID {
+		t.Fatalf("CodexThreadID = %q, %v", id, err)
+	}
+	// Each reader reads its own variable and no other.
+	if _, err := config.CodexThreadID([]string{"MUSE_SESSION_ID=" + museID}); err == nil {
+		t.Fatal("CodexThreadID read MUSE_SESSION_ID")
+	}
+	if _, err := config.NativeID(config.HostClaude, []string{"CLAUDE_PID=4242"}); err == nil {
+		t.Fatal("NativeID answered for Claude Code, which has no native id variable")
+	}
 	for name, env := range map[string][]string{
-		"unset":     {"HOME=/h"},
-		"traversal": {"MUSE_SESSION_ID=../../" + evilMarker},
-		"too long":  {"MUSE_SESSION_ID=" + strings.Repeat("a", 81)},
+		"unset":           {"HOME=/h"},
+		"traversal":       {"MUSE_SESSION_ID=../../" + evilMarker},
+		"too long":        {"MUSE_SESSION_ID=" + strings.Repeat("a", 81)},
+		"codex traversal": {"CODEX_THREAD_ID=../../" + evilMarker},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, err := config.MuseSessionID(env)
+			var err error
+			if strings.HasPrefix(name, "codex") {
+				_, err = config.CodexThreadID(env)
+			} else {
+				_, err = config.MuseSessionID(env)
+			}
 			var perr *protocol.Error
 			if !errors.As(err, &perr) || perr.Code != protocol.CodeConfig {
 				t.Fatalf("err = %v, want a config error", err)
@@ -184,9 +211,33 @@ func assertReason(t *testing.T, err error, reason string) {
 	}
 }
 
-// TestMuseOptionsEnviron reads the options file a Muse session gets its
-// options from (card 88, D4).
-func TestMuseOptionsEnviron(t *testing.T) {
+// TestOptionsFileNames pins which host reads which file (cards 88, 107) and
+// that Claude Code and a terminal read none.
+func TestOptionsFileNames(t *testing.T) {
+	t.Parallel()
+	if got := config.OptionsFile(config.HostMuse); got != "muse-options.json" {
+		t.Fatalf("muse file %q", got)
+	}
+	if got := config.OptionsFile(config.HostCodex); got != "codex-options.json" {
+		t.Fatalf("codex file %q", got)
+	}
+	if got := config.OptionsFile(config.HostClaude); got != "" {
+		t.Fatalf("claude file %q, want none", got)
+	}
+	if p, err := config.OptionsPath([]string{"HOME=/h", "CLAUDE_PID=4242"}); err != nil || p != "" {
+		t.Fatalf("claude path %q %v, want none", p, err)
+	}
+	if p, err := config.OptionsPath([]string{"HOME=/h", "CODEX_THREAD_ID=" + codexID, "XDG_CONFIG_HOME=/" + evilMarker}); err != nil || p != "/h/.config/brigade/codex-options.json" {
+		t.Fatalf("codex path %q %v (XDG_CONFIG_HOME must be ignored in a Codex session)", p, err)
+	}
+	if got := config.WarnOptionsUnusable("/h/.config/brigade/codex-options.json"); got != "Brigade: codex-options.json is not a JSON object of option names to values; the defaults apply for this session." {
+		t.Fatalf("warning %q", got)
+	}
+}
+
+// TestOptionsEnviron reads the options file a Muse session gets its
+// options from (card 88, D4); a Codex session reads its own the same way.
+func TestOptionsEnviron(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	write := func(name, body string) string {
@@ -201,7 +252,7 @@ func TestMuseOptionsEnviron(t *testing.T) {
 
 	t.Run("a missing file is the defaults with no warning", func(t *testing.T) {
 		t.Parallel()
-		env, warn := config.MuseOptionsEnviron(base, filepath.Join(dir, "absent.json"), os.ReadFile)
+		env, warn := config.OptionsEnviron(base, filepath.Join(dir, "absent.json"), os.ReadFile)
 		if warn != "" || !slices.Equal(env, base) {
 			t.Fatalf("env %v warn %q", env, warn)
 		}
@@ -210,7 +261,7 @@ func TestMuseOptionsEnviron(t *testing.T) {
 		t.Parallel()
 		p := write("ok.json", `{"team_inbound": " hold ", "poll_on_prompt": true, "message_interval": 45, "frame": "guarded",
 			"label": "none", "not_an_option": "x", "sync": {"nested": 1}, "workspace_label": null}`)
-		env, warn := config.MuseOptionsEnviron(base, p, os.ReadFile)
+		env, warn := config.OptionsEnviron(base, p, os.ReadFile)
 		if warn != "" {
 			t.Fatalf("warning %q", warn)
 		}
@@ -238,22 +289,92 @@ func TestMuseOptionsEnviron(t *testing.T) {
 		"an array":     `["team_inbound"]`,
 		"a string":     `"hold"`,
 		"null":         "null",
-		"over the cap": strings.Repeat(" ", config.MaxMuseOptionsBytes+1),
+		"over the cap": strings.Repeat(" ", config.MaxOptionsFileBytes+1),
 	} {
 		t.Run("an unusable file is the defaults with the warning: "+name, func(t *testing.T) {
 			t.Parallel()
 			p := write(strings.ReplaceAll(name, " ", "-")+".json", body)
-			env, warn := config.MuseOptionsEnviron(base, p, os.ReadFile)
-			if warn != config.WarnMuseOptionsUnusable || !slices.Equal(env, base) {
+			env, warn := config.OptionsEnviron(base, p, os.ReadFile)
+			if warn != config.WarnOptionsUnusable(p) || !slices.Equal(env, base) {
 				t.Fatalf("env %v warn %q", env, warn)
 			}
 		})
 	}
 	t.Run("the path is under the config directory the environment resolves", func(t *testing.T) {
 		t.Parallel()
-		p, err := config.MuseOptionsPath([]string{"HOME=/h", "MUSE_SESSION_ID=" + museID, "BRIGADE_CONFIG_DIR=/" + evilMarker})
+		p, err := config.OptionsPath([]string{"HOME=/h", "MUSE_SESSION_ID=" + museID, "BRIGADE_CONFIG_DIR=/" + evilMarker})
 		if err != nil || p != "/h/.config/brigade/"+config.MuseOptionsFile {
 			t.Fatalf("path %q %v (BRIGADE_CONFIG_DIR must be ignored in a session)", p, err)
+		}
+	})
+}
+
+// codexMap is sampleMap as the Codex CLI hook writes it (card 107): the
+// harness member, the model, no socket, keyed by the TUI's pid.
+func codexMap() sessionmap.ByPID {
+	m := sampleMap(777)
+	m.Harness = string(config.HostCodex)
+	m.Model = "gpt-5.6-sol"
+	m.ClaudeSessionID = codexID
+	m.SocketPath = ""
+	return m
+}
+
+// TestSessionCodex resolves a Codex CLI session through the by-host pointer
+// (card 107), as TestSessionMuse does for Muse: the model's shell knows
+// CODEX_THREAD_ID and not the pid.
+func TestSessionCodex(t *testing.T) {
+	t.Parallel()
+	env := []string{"HOME=/h", "CODEX_THREAD_ID=" + codexID, "BRIGADE_STATE_DIR=/" + evilMarker, "XDG_STATE_HOME=/" + evilMarker}
+
+	t.Run("positive control", func(t *testing.T) {
+		t.Parallel()
+		stateDir := filepath.Join(t.TempDir(), "state")
+		want := codexMap()
+		writeMap(t, stateDir, want)
+		s := sessionmap.Store{StateDir: stateDir}
+		if err := s.WriteByHost("codex", codexID, &sessionmap.ByHost{HostPID: 777, BrigadeSessionID: want.BrigadeSessionID}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := config.Session(env, stateDir)
+		if err != nil {
+			t.Fatalf("Session: %v", err)
+		}
+		if got.ClaudePID != 777 || got.Harness != "codex" || got.Model != want.Model || got.BrigadeSessionID != want.BrigadeSessionID || got.ClaudeSessionID != codexID {
+			t.Fatalf("Session = %+v", *got)
+		}
+	})
+	t.Run("a muse pointer does not answer for a codex id", func(t *testing.T) {
+		t.Parallel()
+		stateDir := filepath.Join(t.TempDir(), "state")
+		writeMap(t, stateDir, codexMap())
+		s := sessionmap.Store{StateDir: stateDir}
+		if err := s.WriteByHost("muse", codexID, &sessionmap.ByHost{HostPID: 777, BrigadeSessionID: codexMap().BrigadeSessionID}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := config.Session(env, stateDir)
+		assertReason(t, err, config.ReasonNotRegistered)
+	})
+	t.Run("a pointer whose map says muse is refused", func(t *testing.T) {
+		t.Parallel()
+		stateDir := filepath.Join(t.TempDir(), "state")
+		m := codexMap()
+		m.Harness = string(config.HostMuse)
+		writeMap(t, stateDir, m)
+		s := sessionmap.Store{StateDir: stateDir}
+		if err := s.WriteByHost("codex", codexID, &sessionmap.ByHost{HostPID: 777, BrigadeSessionID: codexMap().BrigadeSessionID}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := config.Session(env, stateDir)
+		assertReason(t, err, sessionmap.ReasonMapMismatch)
+	})
+	t.Run("the message names the host", func(t *testing.T) {
+		t.Parallel()
+		stateDir := filepath.Join(t.TempDir(), "state")
+		_, err := config.Session(env, stateDir)
+		var perr *protocol.Error
+		if !errors.As(err, &perr) || !strings.Contains(perr.Message, "Codex CLI session") {
+			t.Fatalf("err = %v", err)
 		}
 	})
 }

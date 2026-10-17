@@ -7,10 +7,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
-## [Unreleased]
+## [0.32.0] — 2026-10-17
+
+### Added
+
+- **Codex CLI sessions take part in a Brigade team** (card 107). A third package, `codex/brigade/`, installs into
+  OpenAI's Codex CLI from this repository's marketplace (`codex plugin marketplace add appshapes/brigade`, then
+  `codex plugin add brigade@brigade`, and `/hooks` once to trust the three hooks) with the same bootstrap, version
+  pin and checksums as the Claude Code plugin. A Codex session registers at its first prompt — Codex runs
+  SessionStart there, not at launch — and is woken for every team message by `codex queue --thread <id> --message
+  <frame>`, which Brigade's watcher runs from outside the session: the turn starts within the command's own run
+  time, with nothing to arm and nothing to poll. The live test measured wakes 45 ms after the send, under
+  `--dangerously-bypass-approvals-and-sandbox` and under Codex's default profile, after 5 s, 120 s and 35 minutes
+  idle ([docs/experiments/codex-queue-participation.md](docs/experiments/codex-queue-participation.md)). A Codex session is
+  keyed by its thread (Codex runs its hooks from a daemon every session shares); the watcher queues nothing once
+  the Codex process it knows is gone (the command's exit 0 means stored, not delivered), and a quit session stays
+  `idle` until Codex ends its thread, since Codex fires no SessionEnd at `/quit` in daemon mode
+  ([docs/security.md](docs/security.md) section 16 has the limit). Options come from `~/.config/brigade/codex-options.json`; `brigade whoami` says `host: codex`; the frame a
+  Codex session reads says it was not typed by the user and that `codex queue` cannot reach a Brigade session. The
+  Claude Code and Muse Code packages, their hooks and their frame bytes are unchanged
+  ([codex/brigade/README.md](codex/brigade/README.md), [Install in Codex CLI](docs/team-member/install/codex.md),
+  [docs/security.md](docs/security.md) section 16).
+- `brigade hook <event> --host codex --plugin-root <dir>`: the hook of a host whose hooks carry no marker of their
+  own learns its host and its package root from argv; `brigade watch --host codex` is the watcher that delivers
+  through `codex queue`.
 
 ### Changed
 
+- `make codex-plugin-check` joins `make plugin-check` and `make muse-plugin-check` in CI: the Codex package's
+  allowlist, native manifest, the three exact hook commands, the marketplace file, and `bin/` assets byte-equal to
+  `plugin/bin/`'s. `make release` bumps the three manifests and copies the pinned assets into the three packages;
+  `make checksums-check` and the release job hold them equal.
+- `brigade whoami`'s `delivery:` line for a Muse Code or Codex CLI session whose watcher is not running says
+  `watcher not running`, where it said the session had no inbox socket.
 - **The documentation is one tree per reader** (card 110). `README.md` names five personas — Project Owner, Team
   Admin, Team Member, Developer, AI Agent — and each has a root page under `docs/` with an "If you want to" table,
   topic pages with a TL;DR per action, and a detail page per action; `docs/setup.md`, `docs/sync.md`,

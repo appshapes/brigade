@@ -8,7 +8,7 @@ then on your sessions message teammates' sessions and receive theirs. You ask yo
 
 | If you want to | Go to |
 | --- | --- |
-| install Brigade in Claude Code or Muse Code, or use it from a terminal | [Install](install/README.md) |
+| install Brigade in Claude Code, Muse Code or Codex CLI, or use it from a terminal | [Install](install/README.md) |
 | join a team, a second checkout, or choose your label | [Join](join/README.md) |
 | update Brigade, or see who is behind | [Update](update/README.md) |
 | set an option: the frame text, holding messages, sounds, file sync, permissions | [Configure](configure/README.md) |
@@ -19,7 +19,7 @@ then on your sessions message teammates' sessions and receive theirs. You ask yo
 ## Install
 
 Two commands in your harness install one pinned, checksum-verified binary. [Install](install/README.md) covers
-Claude Code, Muse Code and your own terminal.
+Claude Code, Muse Code, Codex CLI and your own terminal.
 
 ## Join
 
@@ -29,7 +29,7 @@ checkout. [Join](join/README.md) also covers a second checkout and the label tea
 ## Update
 
 Claude Code updates Brigade in the background and asks for `/reload-plugins`; Muse Code updates from a pulled
-clone. [Update](update/README.md) says what a release can change about what your sessions share.
+clone, Codex CLI from a refreshed marketplace. [Update](update/README.md) says what a release can change about what your sessions share.
 
 ## Configure
 

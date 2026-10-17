@@ -9,33 +9,54 @@ import (
 	"github.com/appshapes/brigade/internal/adapterkit"
 )
 
-// Muse Code's plugin manifest has no working `userConfig` (its diagnostics
-// call the member "unsupported behavior": it installs but stays inactive),
-// so a Muse session's options come from a file Brigade owns (card 88):
-// ${configDir}/muse-options.json, a JSON object whose keys are the option
+// A host whose plugin manifest runs no `userConfig` — Muse Code (its
+// diagnostics call the member "unsupported behavior": it installs but
+// stays inactive; card 88) and Codex CLI (whose plugins have no option
+// mechanism at all; card 107) — gets its options from a file Brigade owns:
+// ${configDir}/<host>-options.json, a JSON object whose keys are the option
 // names of plugin/.claude-plugin/plugin.json's userConfig and whose values
 // are strings, booleans or numbers. The hook reads it once per run and
 // turns each known key into the CLAUDE_PLUGIN_OPTION_<KEY> entry
-// ParseOptions already understands, so the two hosts share one parser and
+// ParseOptions already understands, so every host shares one parser and
 // one set of defaults. The file is found under the config directory the
-// environment resolves without the file's own say (a Muse hook gets HOME
+// environment resolves without the file's own say (such a hook gets HOME
 // and no XDG_*, so that is HOME/.config/brigade); `config_dir` inside it
 // then relocates the credential store exactly as the Claude option does.
 const (
-	// MuseOptionsFile is the file's name under the config directory.
-	MuseOptionsFile = "muse-options.json"
-	// MaxMuseOptionsBytes bounds what is read of it.
-	MaxMuseOptionsBytes = 64 << 10
-	// WarnMuseOptionsUnusable is the one line the hook prints when the file
-	// exists but cannot be used; the defaults then apply. Fixed text: the
-	// file's content is never echoed.
-	WarnMuseOptionsUnusable = "Brigade: muse-options.json is not a JSON object of option names to values; the defaults apply for this session."
+	// MuseOptionsFile and CodexOptionsFile are the files' names under the
+	// config directory; OptionsFile picks by host.
+	MuseOptionsFile  = "muse-options.json"
+	CodexOptionsFile = "codex-options.json"
+	// MaxOptionsFileBytes bounds what is read of the file.
+	MaxOptionsFileBytes = 64 << 10
 )
 
-// museOptionKeys are the userConfig option names the file may set, each
+// OptionsFile is the options file's name for a host that reads one, ""
+// for Claude Code (whose options arrive as CLAUDE_PLUGIN_OPTION_*) and for
+// a terminal.
+func OptionsFile(host Host) string {
+	switch host {
+	case HostMuse:
+		return MuseOptionsFile
+	case HostCodex:
+		return CodexOptionsFile
+	case HostClaude:
+		return ""
+	}
+	return ""
+}
+
+// WarnOptionsUnusable is the one line the hook prints when the file at
+// path exists but cannot be used; the defaults then apply. Fixed text plus
+// the file's own name: the file's content is never echoed.
+func WarnOptionsUnusable(path string) string {
+	return "Brigade: " + filepath.Base(path) + " is not a JSON object of option names to values; the defaults apply for this session."
+}
+
+// optionsFileKeys are the userConfig option names the file may set, each
 // mapped to the environment variable ParseOptions reads for it. A key not
 // listed is ignored, so a typo costs nothing but its effect.
-var museOptionKeys = map[string]string{
+var optionsFileKeys = map[string]string{
 	"config_dir":             OptionConfigDir,
 	"adapter_command":        OptionAdapterCommand,
 	"team_inbound":           OptionTeamInbound,
@@ -53,39 +74,44 @@ var museOptionKeys = map[string]string{
 	"claude_inbound_setting": OptionClaudeInboundSetting,
 }
 
-// MuseOptionsPath is the options file's path for environ: the config
-// directory adapterkit resolves through Trusted (BRIGADE_CONFIG_DIR is
-// stripped inside a session, so HOME/.config/brigade in a Muse hook).
-func MuseOptionsPath(environ []string) (string, error) {
+// OptionsPath is the options file's path for environ: the host's file
+// under the config directory adapterkit resolves through Trusted
+// (BRIGADE_CONFIG_DIR is stripped inside a session, so HOME/.config/brigade
+// in such a hook). "" with no error for a host that reads no file.
+func OptionsPath(environ []string) (string, error) {
+	name := OptionsFile(HostOf(environ))
+	if name == "" {
+		return "", nil
+	}
 	dir, err := adapterkit.ConfigDir(Trusted(environ))
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, MuseOptionsFile), nil
+	return filepath.Join(dir, name), nil
 }
 
-// MuseOptionsEnviron returns environ with one CLAUDE_PLUGIN_OPTION_* entry
+// OptionsEnviron returns environ with one CLAUDE_PLUGIN_OPTION_* entry
 // appended per known key of the options file at path, read through
 // readFile. A missing file is the defaults with no warning; a file that is
-// not a JSON object, or is over MaxMuseOptionsBytes, is the defaults with
-// WarnMuseOptionsUnusable as the warning. A value that is a string, a
+// not a JSON object, or is over MaxOptionsFileBytes, is the defaults with
+// WarnOptionsUnusable(path) as the warning. A value that is a string, a
 // boolean or a number is rendered as its text; any other value (an object,
 // an array, null) is skipped. Appended, not prepended, because
 // adapterkit.Getenv takes the LAST occurrence.
-func MuseOptionsEnviron(environ []string, path string, readFile func(string) ([]byte, error)) ([]string, string) {
+func OptionsEnviron(environ []string, path string, readFile func(string) ([]byte, error)) ([]string, string) {
 	data, err := readFile(path)
 	if err != nil {
 		return environ, ""
 	}
-	if len(data) > MaxMuseOptionsBytes {
-		return environ, WarnMuseOptionsUnusable
+	if len(data) > MaxOptionsFileBytes {
+		return environ, WarnOptionsUnusable(path)
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil || raw == nil {
-		return environ, WarnMuseOptionsUnusable
+		return environ, WarnOptionsUnusable(path)
 	}
 	out := append([]string{}, environ...)
-	for key, variable := range museOptionKeys {
+	for key, variable := range optionsFileKeys {
 		v, ok := raw[key]
 		if !ok {
 			continue

@@ -13,6 +13,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/socketpost"
 )
@@ -197,6 +198,9 @@ func (in *injector) inject(ctx context.Context, item inbound.Item) error {
 		slog.String("excerpt", excerpt(item.Content)))
 	if in.w.rc.sink != "" {
 		return in.appendSink(item)
+	}
+	if in.w.rc.host == string(config.HostCodex) {
+		return in.queueCodex(ctx, item)
 	}
 	target := in.w.state.snapshot().target
 	if target.Path == "" {

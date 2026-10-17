@@ -43,10 +43,13 @@ say() { printf 'release-prep: %s\n' "$1"; }
 plugin_json=plugin/.claude-plugin/plugin.json
 version_file=plugin/bin/VERSION
 committed=plugin/bin/checksums.txt
-# The Muse Code package (card 88) carries the same pin: its manifest is bumped with the Claude one and its three
-# bin/ assets are copies of plugin/bin's, which scripts/ci/muse-plugin-check.sh and checksums-check.sh rule (a) hold.
+# The Muse Code package (card 88) and the Codex CLI package (card 107) carry the same pin: their manifests are bumped
+# with the Claude one and their three bin/ assets are copies of plugin/bin's, which scripts/ci/muse-plugin-check.sh,
+# scripts/ci/codex-plugin-check.sh and checksums-check.sh rule (a) hold.
 muse_json=muse/brigade/.muse-plugin/plugin.json
 muse_bin=muse/brigade/bin
+codex_json=codex/brigade/.codex-plugin/plugin.json
+codex_bin=codex/brigade/bin
 
 v=${1:-}
 # The commit message's card: `<card>: Release <v>` is the house rule, the number being the AppShapes Trello card
@@ -147,7 +150,15 @@ if [ -f "$muse_json" ]; then
   cp "$version_file" "$muse_bin/VERSION"
   cp plugin/bin/brigade "$muse_bin/brigade"
 fi
-say "1. pinned $version_file, $plugin_json and $muse_json to $v"
+if [ -f "$codex_json" ]; then
+  sed -i.bak -E "s/^([[:space:]]*\"version\":[[:space:]]*)\"[^\"]+\"/\1\"$v\"/" "$codex_json"
+  rm -f "$codex_json.bak"
+  codex_manifest=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$codex_json" | head -n 1)
+  [ "$codex_manifest" = "$v" ] || die "the bump did not take in $codex_json (its version reads as '$codex_manifest')"
+  cp "$version_file" "$codex_bin/VERSION"
+  cp plugin/bin/brigade "$codex_bin/brigade"
+fi
+say "1. pinned $version_file, $plugin_json, $muse_json and $codex_json to $v"
 
 # ---- 2. the reproducible build ---------------------------------------------------------------------------------
 make cross version="$v"
@@ -174,6 +185,7 @@ fi
 # ---- 4. commit the checksums goreleaser produced -----------------------------------------------------------------
 cp dist/checksums.txt "$committed"
 [ ! -f "$muse_json" ] || cp "$committed" "$muse_bin/checksums.txt"
+[ ! -f "$codex_json" ] || cp "$committed" "$codex_bin/checksums.txt"
 make push message="$card: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push
 say "4. committed $committed"
 

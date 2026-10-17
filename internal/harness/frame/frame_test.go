@@ -161,6 +161,9 @@ func goldenCases() []goldenCase {
 		// difference from preamble-open.golden is the host-neutral prose
 		// of the shared piece and the tail.
 		{"host-muse", func() string { return BuildFor(HostMuse, e03Envelope(), "ops", Instruction{Level: LevelOpen}) }},
+		// The Codex CLI variant (card 107): the Muse opening, a tail naming
+		// `codex queue` as the command that cannot reach a Brigade session.
+		{"host-codex", func() string { return BuildFor(HostCodex, e03Envelope(), "ops", Instruction{Level: LevelOpen}) }},
 	}
 }
 
@@ -170,13 +173,13 @@ func goldenCases() []goldenCase {
 // SendMessage, and an unknown host renders the Claude text unchanged.
 func TestMusePieces(t *testing.T) {
 	t.Parallel()
-	if !strings.HasSuffix(musePreambleShared, " ") || strings.HasSuffix(musePreambleShared, "  ") {
-		t.Errorf("musePreambleShared %q does not end in exactly one space", musePreambleShared)
+	if !strings.HasSuffix(neutralPreambleShared, " ") || strings.HasSuffix(neutralPreambleShared, "  ") {
+		t.Errorf("neutralPreambleShared %q does not end in exactly one space", neutralPreambleShared)
 	}
-	if !strings.HasPrefix(musePreambleShared, "Brigade team message from another person") {
+	if !strings.HasPrefix(neutralPreambleShared, "Brigade team message from another person") {
 		t.Error("the Muse shared piece does not open as the Claude anchor does")
 	}
-	if strings.Contains(musePreambleShared, "Claude Code") || strings.Contains(musePreambleTail, "SendMessage") {
+	if strings.Contains(neutralPreambleShared, "Claude Code") || strings.Contains(musePreambleTail, "SendMessage") {
 		t.Error("the Muse pieces still name Claude Code's own surfaces")
 	}
 	claude := Build(e03Envelope(), "ops", Instruction{Level: LevelOpen})
@@ -1233,4 +1236,38 @@ func firstDiff(a, b []byte) int {
 		}
 	}
 	return n
+}
+
+// TestCodexVariant pins the Codex CLI pieces (card 107): the host-neutral
+// opening the Muse variant uses, a tail that names `codex queue` as the
+// command that cannot reach a Brigade session, and everything but the
+// preamble line byte-identical to the Claude frame.
+func TestCodexVariant(t *testing.T) {
+	t.Parallel()
+	claude := Build(e03Envelope(), "ops", Instruction{Level: LevelOpen})
+	muse := BuildFor(HostMuse, e03Envelope(), "ops", Instruction{Level: LevelOpen})
+	codex := BuildFor(HostCodex, e03Envelope(), "ops", Instruction{Level: LevelOpen})
+	if codex == claude || codex == muse {
+		t.Fatal("BuildFor(HostCodex) renders another host's text")
+	}
+	if !strings.Contains(codexPreambleTail, "codex queue cannot reach Brigade sessions") ||
+		strings.Contains(codexPreambleTail, "SendMessage") || strings.Contains(codexPreambleTail, "Muse") {
+		t.Errorf("codex tail %q", codexPreambleTail)
+	}
+	cl, xl := strings.Split(claude, "\n"), strings.Split(codex, "\n")
+	if len(cl) != len(xl) {
+		t.Fatalf("line counts differ: claude %d, codex %d", len(cl), len(xl))
+	}
+	for i := range cl {
+		if i == 1 {
+			continue
+		}
+		if cl[i] != xl[i] {
+			t.Errorf("line %d differs between the Claude and Codex frames:\n%s\n%s", i+1, cl[i], xl[i])
+		}
+	}
+	// The anchor every proof keys on opens both variants.
+	if !strings.HasPrefix(xl[1], "Brigade team message from another person") {
+		t.Errorf("the Codex preamble does not open as the anchor does: %q", xl[1])
+	}
 }

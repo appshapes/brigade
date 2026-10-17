@@ -53,6 +53,15 @@ if [ -f "$muse_json" ]; then
     cmp -s "plugin/bin/$asset" "muse/brigade/bin/$asset" || die "(a) muse/brigade/bin/$asset differs from plugin/bin/$asset"
   done
 fi
+codex_json=codex/brigade/.codex-plugin/plugin.json
+if [ -f "$codex_json" ]; then
+  # The Codex CLI package (card 107): the same pin, the same three assets.
+  codex_version=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$codex_json" | head -n 1)
+  [ "$codex_version" = "$version" ] || die "(a) $codex_json version '$codex_version' != $version_file '$version'"
+  for asset in brigade VERSION checksums.txt; do
+    cmp -s "plugin/bin/$asset" "codex/brigade/bin/$asset" || die "(a) codex/brigade/bin/$asset differs from plugin/bin/$asset"
+  done
+fi
 printf 'checksums-check: (a) %s == %s == %s\n' "$version_file" "$plugin_json" "$version"
 
 # ---- (b) exactly the four assets for this version ---------------------------------------------------------------

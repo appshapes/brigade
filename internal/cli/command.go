@@ -130,15 +130,15 @@ func init() {
 		},
 		{
 			Name:      "hook",
-			Args:      "session-start|prompt|session-end",
-			Summary:   "Claude Code lifecycle hook entrypoint",
+			Args:      "session-start|prompt|session-end [--host codex --plugin-root <dir>]",
+			Summary:   "harness lifecycle hook entrypoint (Claude Code, Muse Code, Codex CLI)",
 			Hidden:    true,
 			MultiCall: true,
 			Run:       runHookEntry,
 		},
 		{
 			Name:      "watch",
-			Args:      "[--sink <file>]",
+			Args:      "[--sink <file> | --host codex]",
 			Summary:   "detached inbound watcher for one session",
 			Hidden:    true,
 			MultiCall: true,
@@ -234,7 +234,7 @@ func runHookEntry(*Context, []string) error {
 }
 
 func runWatchEntry(*Context, []string) error {
-	return usagef("watch", "the watcher entrypoint is dispatched by the multi-call seam; run `"+Program+" watch [--sink <file>]`")
+	return usagef("watch", "the watcher entrypoint is dispatched by the multi-call seam; run `"+Program+" watch [--sink <file> | --host codex]`")
 }
 
 // invocation builds the harnesscmd.Invocation of one table entry from the

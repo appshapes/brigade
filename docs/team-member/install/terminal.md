@@ -22,8 +22,8 @@ ln -sf /Users/you/.claude/plugins/cache/brigade/brigade/0.31.0/bin/brigade ~/.lo
 
 - **Re-point it after a plugin upgrade.** The path carries the version and each version is copied into its own
   directory. Run `brigade whoami` again, copy the new line, run the same `ln -sf`. A checkout loaded with
-  `--plugin-dir` has no version in its path, so a symlink to it survives. In Muse Code the bootstrap is under
-  Muse's plugin cache; the session-start line names it.
+  `--plugin-dir` has no version in its path, so a symlink to it survives. In Muse Code and Codex CLI the bootstrap is
+  under the harness's plugin cache; the session-start line names it.
 - **A symlink, not a copy.** A copy goes stale at the next upgrade, and a `brigade` on your PATH that is not the
   plugin's own is what the session-start shadowing warning is about:
 

@@ -69,7 +69,7 @@ const (
 	adapterEntry = "adapter"
 	// hookEntry is `brigade hook session-start|prompt|session-end` (6.3).
 	hookEntry = "hook"
-	// watchEntry is `brigade watch [--sink <file>]`, the detached watcher
+	// watchEntry is `brigade watch [--sink <file> | --host codex]`, the detached watcher
 	// the SessionStart and prompt hooks start (6.6).
 	watchEntry = "watch"
 	// syncAdapterEntry is `brigade sync-adapter <name> <verb>`, a bundled

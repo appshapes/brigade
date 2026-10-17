@@ -25,7 +25,7 @@ The documentation is one tree for humans and one for agents (card 110, `.context
 - **A harness** is one entry in `docs/harnesses.json` (id, name, vendor, host, package, skills) and six pages:
   `docs/team-member/{install,join,update,configure,leave}/<id>.md` and `docs/agent/in-a-team/<id>.md`, each
   linked from its topic root, plus a `<package>/README.md` that links to the install page. A directory carrying a
-  plugin manifest (`.claude-plugin/`, `.muse-plugin/`) that the registry does not list fails the gate.
+  plugin manifest (`.claude-plugin/`, `.muse-plugin/`, `.codex-plugin/`) that the registry does not list fails the gate.
 - **The gate** is `make docs-check` (`internal/docscheck`, `cmd/brigade-docs`, `scripts/ci/docs_check_test.go`),
   offline, in `make test`, CI's `fast` job, `scripts/release-prep.sh` and `release.yml`. Its rules: the README
   shape; the persona and topic shapes above; every relative link and `#anchor` in the tree, the changelog and the

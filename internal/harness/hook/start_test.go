@@ -872,7 +872,7 @@ func TestPlantedMapIsReplaced(t *testing.T) {
 func TestStopWatcherIgnoresGonePid(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	r := newRun(streamsOf(t), f.env(), f.deps.withDefaults(), "info")
+	r := newRun(streamsOf(t), f.env(), f.deps.withDefaults(), hookArgs{level: "info"})
 	dead := testutil.NewSleeper(t)
 	if err := syscall.Kill(dead, syscall.SIGTERM); err != nil {
 		t.Fatal(err)

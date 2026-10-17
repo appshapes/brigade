@@ -1,0 +1,36 @@
+{
+  "name": "brigade",
+  "version": "0.31.0",
+  "description": "Team messaging between the coding sessions of different people and machines: Codex CLI sessions beside Claude Code and Muse Code ones, through a pluggable adapter CLI (Supabase adapter bundled).",
+  "author": {
+    "name": "appshapes",
+    "url": "https://github.com/appshapes"
+  },
+  "homepage": "https://github.com/appshapes/brigade",
+  "repository": "https://github.com/appshapes/brigade",
+  "license": "MIT",
+  "keywords": [
+    "messaging",
+    "team",
+    "cross-session"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Brigade",
+    "shortDescription": "Message the coding sessions of your teammates, whichever harness they use.",
+    "longDescription": "Brigade connects the coding sessions of different people and machines in one team: a Codex session sends a message to a teammate's Claude Code, Muse Code or Codex session and receives theirs, and people without a session take part by email or Slack. One team, one backend your organisation owns.",
+    "developerName": "appshapes",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/appshapes/brigade",
+    "privacyPolicyURL": "https://github.com/appshapes/brigade/blob/master/plugin/README.md#what-leaves-your-machine-and-where-it-goes",
+    "termsOfServiceURL": "https://github.com/appshapes/brigade/blob/master/LICENSE",
+    "defaultPrompt": [
+      "Show me the team's sessions",
+      "Tell the teammate working on the API that the migration has landed"
+    ]
+  }
+}

@@ -2,8 +2,8 @@
 
 | Workflow | When | Jobs |
 | --- | --- | --- |
-| `ci.yml` | every push and pull request | `fast` (Ubuntu: the gate, `checksums-check`, `plugin-check`, `muse-plugin-check`, `docs-check`, `functions-check`), `macos` (the tests and a cross-build), `reproducibility` (the two cross-builds must be byte-identical), `supabase` (the live suites and `make e2e` against a local stack), `deploy-staging` (master, when `BRIGADE_STAGING` is set) |
-| `release.yml` | a `v*` tag | guards that the plugin pins the tag, both manifests agree, the documentation gate passes and the source reproduces the committed checksums; goreleaser builds a draft; the build is verified against the checksums; publish; dispatch the notes |
+| `ci.yml` | every push and pull request | `fast` (Ubuntu: the gate, `checksums-check`, `plugin-check`, `muse-plugin-check`, `codex-plugin-check`, `docs-check`, `functions-check`), `macos` (the tests and a cross-build), `reproducibility` (the two cross-builds must be byte-identical), `supabase` (the live suites and `make e2e` against a local stack), `deploy-staging` (master, when `BRIGADE_STAGING` is set) |
+| `release.yml` | a `v*` tag | guards that the plugin pins the tag, the three manifests agree, the documentation gate passes and the source reproduces the committed checksums; goreleaser builds a draft; the build is verified against the checksums; publish; dispatch the notes |
 | `send-release-notes.yml` | weekly, and on dispatch | the release-notes email ([Send the release notes](../release/release-notes.md)) |
 | `keepalive.yml` | daily | one job per hosted project ([Arm the keep-alive](../../project-owner/install/keep-alive.md)) |
 | `claude.yml`, `review-pull-request.yml`, `update-documentation.yml`, `review-repository.yml`, `update-dependencies.yml` | an issue labelled `claude`; a PR; monthly | the agentic loop ([Use the agentic loop](../contribute/agentic-loop.md)) |

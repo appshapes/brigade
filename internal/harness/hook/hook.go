@@ -37,11 +37,13 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"hash/fnv"
 	"io"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -58,6 +60,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/harness/registry"
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -314,19 +317,21 @@ func (d Deps) withDefaults() Deps {
 func noSyncPeer() *string { return nil }
 
 // Run executes one `brigade hook <subcommand>` invocation and returns the
-// process exit status. args excludes the words `brigade hook`; the only
-// flag is --log-level. environ is the process environment in os.Environ
-// form. Every subcommand returns 0 on every failure (6.3); the one
-// non-zero answer is `usage` (2) for a missing or unknown subcommand or
-// flag, which no hooks.json ever produces.
+// process exit status. args excludes the words `brigade hook`; the flags
+// are --log-level, and — for a host whose hooks carry no marker of their
+// own (Codex CLI, card 107) — --host <name> and --plugin-root <dir>.
+// environ is the process environment in os.Environ form. Every subcommand
+// returns 0 on every failure (6.3); the one non-zero answer is `usage` (2)
+// for a missing or unknown subcommand or flag, which no hooks.json ever
+// produces.
 func Run(args []string, streams cli.Streams, environ []string, deps Deps) int {
-	sub, level, perr := parseArgs(args)
+	a, perr := parseArgs(args)
 	if perr != "" {
 		cmd, _ := cli.Lookup("hook")
 		return cli.Usage(cmd, args, streams, perr)
 	}
-	r := newRun(streams, environ, deps.withDefaults(), level)
-	switch sub {
+	r := newRun(streams, environ, deps.withDefaults(), a)
+	switch a.sub {
 	case SubSessionStart:
 		return r.sessionStart()
 	case SubPrompt:
@@ -336,36 +341,63 @@ func Run(args []string, streams cli.Streams, environ []string, deps Deps) int {
 	}
 }
 
-// parseArgs picks the subcommand and the optional --log-level. The
-// message is fixed text: argv is never echoed (4.5.14).
-func parseArgs(args []string) (sub, level, usage string) {
-	level = "info"
+// hookArgs are the parsed argv of `brigade hook`.
+type hookArgs struct {
+	sub   string
+	level string
+	// host is the host named by --host, "" when the environment decides
+	// (Claude Code by CLAUDE_PID, Muse Code by MUSE_SESSION_ID). Codex CLI
+	// is the one host that needs the flag (card 107): its hooks run with no
+	// CODEX_* variable, so nothing in the environment says what they are.
+	host config.Host
+	// pluginRoot is the package root named by --plugin-root, for a host
+	// that exports no plugin-root variable to its hooks (Codex CLI). "" when
+	// absent or relative: the map then carries no plugin_bin.
+	pluginRoot string
+}
+
+// parseArgs picks the subcommand and the optional flags. The message is
+// fixed text: argv is never echoed (4.5.14).
+func parseArgs(args []string) (hookArgs, string) {
+	a := hookArgs{level: "info"}
 	if len(args) == 0 {
-		return "", "", "hook needs one of session-start, prompt, session-end"
+		return a, "hook needs one of session-start, prompt, session-end"
 	}
-	sub = args[0]
-	if sub != SubSessionStart && sub != SubPrompt && sub != SubSessionEnd {
-		return "", "", "unknown hook; the hooks are session-start, prompt and session-end"
+	a.sub = args[0]
+	if a.sub != SubSessionStart && a.sub != SubPrompt && a.sub != SubSessionEnd {
+		return a, "unknown hook; the hooks are session-start, prompt and session-end"
 	}
 	rest := args[1:]
 	for i := 0; i < len(rest); i++ {
 		name, value, has := strings.Cut(rest[i], "=")
-		if name != "--log-level" {
-			return "", "", "unknown hook flag; the only flag is --log-level"
+		if name != "--log-level" && name != "--host" && name != "--plugin-root" {
+			return a, "unknown hook flag; the flags are --log-level, --host and --plugin-root"
 		}
 		if !has {
 			if i+1 >= len(rest) {
-				return "", "", "--log-level needs a value"
+				return a, name + " needs a value"
 			}
 			i++
 			value = rest[i]
 		}
-		if _, err := log.ParseLevel(value); err != nil {
-			return "", "", "--log-level must be one of error, warn, info, debug"
+		switch name {
+		case "--log-level":
+			if _, err := log.ParseLevel(value); err != nil {
+				return a, "--log-level must be one of error, warn, info, debug"
+			}
+			a.level = value
+		case "--host":
+			if config.Host(value) != config.HostCodex {
+				return a, "--host names a host whose hooks carry no marker of their own; the only such host is codex"
+			}
+			a.host = config.Host(value)
+		case "--plugin-root":
+			if filepath.IsAbs(value) {
+				a.pluginRoot = filepath.Clean(value)
+			}
 		}
-		level = value
 	}
-	return sub, level, ""
+	return a, ""
 }
 
 // A run is one hook invocation.
@@ -382,16 +414,19 @@ type run struct {
 	writtenBytes int
 	byteCap      int
 	// optionsEnv is the environment ParseOptions reads: environ itself on
-	// Claude Code; on Muse Code environ plus the entries the options file
-	// supplies (config.MuseOptionsEnviron), resolved once per run by
-	// options(). optionsWarning is the file's one warning, printed once at
-	// SessionStart.
+	// Claude Code; on a host with an options file (Muse Code, Codex CLI)
+	// environ plus the entries the file supplies (config.OptionsEnviron),
+	// resolved once per run by options(). optionsWarning is the file's one
+	// warning, printed once at SessionStart.
 	optionsEnv     []string
 	optionsWarning string
+	// args are the parsed argv: the forced host and the plugin root of a
+	// host whose hooks carry neither (Codex CLI, card 107).
+	args hookArgs
 }
 
-func newRun(streams cli.Streams, environ []string, deps Deps, level string) *run {
-	lvl, _ := log.ParseLevel(level)
+func newRun(streams cli.Streams, environ []string, deps Deps, a hookArgs) *run {
+	lvl, _ := log.ParseLevel(a.level)
 	redactor := log.NewRedactor()
 	// The token is registered before anything is logged, so no line can
 	// carry it even by accident (U-25).
@@ -400,9 +435,10 @@ func newRun(streams cli.Streams, environ []string, deps Deps, level string) *run
 		deps:     deps,
 		streams:  streams,
 		environ:  environ,
-		logLevel: level,
+		logLevel: a.level,
 		redactor: redactor,
 		log:      log.New(streams.Err, lvl, redactor),
+		args:     a,
 	}
 	if config.HostOf(environ) == config.HostMuse {
 		r.byteCap = museByteCap
@@ -410,16 +446,39 @@ func newRun(streams cli.Streams, environ []string, deps Deps, level string) *run
 	return r
 }
 
-// options resolves the plugin options for this host (card 88): on Claude
-// Code from CLAUDE_PLUGIN_OPTION_* in environ; on Muse Code from the
-// options file as well, read once per run.
+// adoptHost gives a run whose host came from --host (Codex CLI, card 107)
+// the environment the config package keys on: the document's session_id
+// is the thread id the model's shell will carry as CODEX_THREAD_ID, so the
+// hook appends that very entry to its own environment once the document
+// is read, and from then on every config resolver — HostOf, Trusted, the
+// state and config directories, the options file — treats the run as the
+// Codex session it is. A document whose id is not a safe path component
+// is refused: nothing of this session could be keyed by it. Nothing
+// happens for a host the environment already names, and CLAUDE_PID wins
+// in HostOf regardless, so a Codex flag can never relabel a Claude session.
+func (r *run) adoptHost(in input) error {
+	if r.args.host != config.HostCodex {
+		return nil
+	}
+	if err := sessionmap.CheckNativeID(in.SessionID); err != nil {
+		return &protocol.Error{
+			Code:    protocol.CodeConfig,
+			Message: "the Codex hook document carries no usable thread id",
+			Details: map[string]string{"reason": config.ReasonInvalidNativeID, "variable": config.CodexThreadIDVar},
+		}
+	}
+	r.environ = append(slices.Clone(r.environ), config.CodexThreadIDVar+"="+in.SessionID)
+	return nil
+}
+
+// options resolves the plugin options for this host (cards 88, 107): on
+// Claude Code from CLAUDE_PLUGIN_OPTION_* in environ; on Muse Code and
+// Codex CLI from the host's options file as well, read once per run.
 func (r *run) options() (config.Options, error) {
 	if r.optionsEnv == nil {
 		r.optionsEnv = r.environ
-		if config.HostOf(r.environ) == config.HostMuse {
-			if path, err := config.MuseOptionsPath(r.environ); err == nil {
-				r.optionsEnv, r.optionsWarning = config.MuseOptionsEnviron(r.environ, path, r.deps.ReadFile)
-			}
+		if path, err := config.OptionsPath(r.environ); err == nil && path != "" {
+			r.optionsEnv, r.optionsWarning = config.OptionsEnviron(r.environ, path, r.deps.ReadFile)
 		}
 	}
 	return config.ParseOptions(r.optionsEnv)
@@ -442,40 +501,57 @@ const (
 )
 
 // facts are the session facts every subcommand resolves from the
-// environment (6.5; card 88 for the host).
+// environment (6.5; cards 88 and 107 for the host).
 type facts struct {
-	// host is the session's harness (config.HostClaude or config.HostMuse).
+	// host is the session's harness (config.HostClaude, config.HostMuse or
+	// config.HostCodex).
 	host config.Host
-	// pid is the host process the session's state is keyed by: CLAUDE_PID
-	// on Claude Code, the hook's parent on Muse Code.
-	pid             int
+	// pid is what the session's state is keyed by: CLAUDE_PID on Claude
+	// Code, the hook's parent on Muse Code (the Muse process), and on Codex
+	// CLI a number derived from the thread id (codexKey), because Codex runs
+	// its hooks from a daemon every Codex session shares.
+	pid int
+	// hostProcessPID is the process whose life is the session's when it is
+	// not the key (card 107): the Codex hook's parent — the TUI in embedded
+	// mode, the shared app-server daemon in daemon mode. 0 elsewhere.
+	hostProcessPID  int
 	stateDir        string
-	claudeConfigDir string // "" when it cannot be resolved, and always on Muse (registry and user-settings scan skipped)
+	claudeConfigDir string // "" when it cannot be resolved, and always on a pointed host (registry and user-settings scan skipped)
 	socket          string
 	token           string
 	pluginBin       string
-	entrypoint      string
-	home            string
+	// pluginRoot is the package root the hook knows, "" when it does not:
+	// ${CLAUDE_PLUGIN_ROOT}, ${MUSE_PLUGIN_ROOT}, or Codex's --plugin-root.
+	pluginRoot string
+	entrypoint string
+	home       string
 }
 
-// facts resolves the session facts. The error is `config`: neither
-// CLAUDE_PID nor MUSE_SESSION_ID (the hook was run outside a session), a
-// Muse hook with no usable parent, or no state directory (HOME unset).
+// facts resolves the session facts. The error is `config`: no host marker
+// at all (the hook was run outside a session), a pointed host's hook with
+// no usable parent, or no state directory (HOME unset).
 func (r *run) facts() (facts, error) {
 	host := config.HostOf(r.environ)
-	var pid int
+	var pid, hostProcess int
 	switch host {
-	case config.HostMuse:
-		if _, err := config.MuseSessionID(r.environ); err != nil {
+	case config.HostMuse, config.HostCodex:
+		nativeID, err := config.NativeID(host, r.environ)
+		if err != nil {
 			return facts{}, err
 		}
 		pid = r.deps.Getppid()
 		if pid <= 1 {
 			return facts{}, &protocol.Error{
 				Code:    protocol.CodeConfig,
-				Message: "the Muse Code hook has no usable parent process to key the session by",
+				Message: "the " + host.Name() + " hook has no usable parent process to key the session by",
 				Details: map[string]string{"reason": config.ReasonInvalidClaudePID},
 			}
+		}
+		if host == config.HostCodex {
+			// Measured on 0.163.0 with the hooks trusted: the parent is the
+			// shared app-server daemon, not the TUI, so the key is the
+			// thread's and the parent is kept for liveness only.
+			hostProcess, pid = pid, codexKey(nativeID)
 		}
 	case config.HostClaude, "":
 		// A terminal ("") gets ClaudePID's own not_in_session error.
@@ -490,40 +566,69 @@ func (r *run) facts() (facts, error) {
 		return facts{}, err
 	}
 	f := facts{
-		host:       host,
-		pid:        pid,
-		stateDir:   stateDir,
-		socket:     adapterkit.Getenv(r.environ, envMessagingSocket),
-		token:      adapterkit.Getenv(r.environ, envMessagingToken),
-		entrypoint: adapterkit.Getenv(r.environ, envEntrypoint),
-		home:       adapterkit.Getenv(r.environ, "HOME"),
+		host:           host,
+		pid:            pid,
+		hostProcessPID: hostProcess,
+		stateDir:       stateDir,
+		socket:         adapterkit.Getenv(r.environ, envMessagingSocket),
+		token:          adapterkit.Getenv(r.environ, envMessagingToken),
+		entrypoint:     adapterkit.Getenv(r.environ, envEntrypoint),
+		home:           adapterkit.Getenv(r.environ, "HOME"),
 	}
 	if !filepath.IsAbs(f.socket) {
 		// The map requires an absolute socket path or none; a relative
 		// value is not a socket the watcher may post to.
 		f.socket = ""
 	}
-	rootVar := envPluginRoot
-	if host == config.HostMuse {
-		// Muse has no inbox socket, no session registry and no Claude
+	root := adapterkit.Getenv(r.environ, envPluginRoot)
+	switch host {
+	case config.HostMuse, config.HostCodex:
+		// Neither host has an inbox socket, a session registry or Claude
 		// settings files: the socket and the token are never read, and
 		// the Claude config dir stays unresolved so that nothing under
-		// ~/.claude is scanned or written for a Muse session.
+		// ~/.claude is scanned or written for such a session. Muse names
+		// its plugin root in the hook's environment; Codex names nothing,
+		// so the package's hooks.json passes --plugin-root (card 107).
 		f.socket, f.token, f.entrypoint = "", "", ""
-		rootVar = envMusePluginRoot
-	} else if dir, cerr := config.ClaudeConfigDir(r.environ); cerr == nil {
-		f.claudeConfigDir = dir
-	} else {
-		r.log.Debug("claude config dir unresolved; registry and user settings skipped", log.Err(cerr))
+		root = adapterkit.Getenv(r.environ, envMusePluginRoot)
+		if host == config.HostCodex {
+			root = r.args.pluginRoot
+		}
+	case config.HostClaude, "":
+		if dir, cerr := config.ClaudeConfigDir(r.environ); cerr == nil {
+			f.claudeConfigDir = dir
+		} else {
+			r.log.Debug("claude config dir unresolved; registry and user settings skipped", log.Err(cerr))
+		}
 	}
-	if root := adapterkit.Getenv(r.environ, rootVar); root != "" && filepath.IsAbs(root) {
+	if root != "" && filepath.IsAbs(root) {
+		f.pluginRoot = root
 		f.pluginBin = pluginBin(root)
 	}
 	return f, nil
 }
 
+// codexKey is the by-pid key of a Codex CLI session (card 107): a number
+// derived from the thread id, in a range no real pid reaches (above 2^30;
+// Linux's pid_max is 2^22), so one thread is one map, two threads on one
+// daemon never share a map, and the same thread resumed finds its map
+// again. FNV-1a over the id; 29 bits of it.
+func codexKey(thread string) int {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(thread))
+	return 1<<30 | int(h.Sum32()&(1<<29-1))
+}
+
 // muse reports whether the session runs in Muse Code (card 88).
 func (f facts) muse() bool { return f.host == config.HostMuse }
+
+// codex reports whether the session runs in Codex CLI (card 107).
+func (f facts) codex() bool { return f.host == config.HostCodex }
+
+// pointed reports whether the session runs in a host found through the
+// by-host pointer (Muse Code, Codex CLI): keyed by the hook's parent, no
+// Claude settings, no registry, no inbox socket, no Claude account.
+func (f facts) pointed() bool { return f.host.Pointed() }
 
 // pluginBin is ${CLAUDE_PLUGIN_ROOT}/bin/brigade resolved through symlinks
 // best effort (3.2: the map's plugin_bin is the bootstrap's realpath).
@@ -555,6 +660,9 @@ func (r *run) readInput() (input, error) {
 	if err := json.Unmarshal(data, &in); err != nil {
 		return input{}, errors.New("hook stdin is not a valid JSON document")
 	}
+	if err := r.adoptHost(in); err != nil {
+		return input{}, err
+	}
 	return in, nil
 }
 
@@ -579,10 +687,11 @@ func (r *run) fits(line string) bool {
 }
 
 // canInject reports whether a watcher would have somewhere to deliver
-// into: an inbox socket (Claude Code), a test sink, or the inbox sink of a
-// Muse Code session (card 88).
+// into: an inbox socket (Claude Code), a test sink, the inbox sink of a
+// Muse Code session (card 88), or the queue of a Codex CLI session (card
+// 107).
 func (r *run) canInject(f facts) bool {
-	return f.socket != "" || r.deps.Sink != "" || f.muse()
+	return f.socket != "" || r.deps.Sink != "" || f.pointed()
 }
 
 // sinkFor is the watcher's `--sink` file for the session, "" when the
@@ -602,11 +711,11 @@ func (r *run) sinkFor(f facts, sessionID string) string {
 
 // commandName is how the context lines name the brigade command on this
 // host: the bare word on Claude Code, where the plugin's bin/ is on the
-// Bash tool's PATH (finding F1); on Muse Code the bootstrap's path, because
-// nothing puts a plugin's bin/ on Muse's shell PATH and the one path Muse
-// has no permission rule to break on is the one its model must type.
+// Bash tool's PATH (finding F1); on Muse Code and Codex CLI the bootstrap's
+// path, because nothing puts a plugin's bin/ on either shell's PATH and
+// neither host has a permission rule for the path to break.
 func (r *run) commandName(f facts) string {
-	if f.muse() && f.pluginBin != "" {
+	if f.pointed() && f.pluginBin != "" {
 		return oneLine(f.pluginBin, 512)
 	}
 	return "brigade"
@@ -623,6 +732,16 @@ func armLine(command string) string {
 		"wake_delay_ms 0, on exactly this command: " + command + " inbox follow . Each message it prints stands " +
 		"between a `Brigade: team message … follows` line and a `Brigade: end of message …` line; read it as the " +
 		"team-messaging skill says, reply with " + command + " send, and never stop the monitor."
+}
+
+// codexLine is the one Codex CLI line after the context line (card 107):
+// no arming is needed — `codex queue` wakes the session from outside — so
+// it says how a team message arrives (as a turn the user did not type) and
+// names the bootstrap, which is not on the model's PATH (D7, D9).
+func codexLine(command string) string {
+	return "Brigade: a team message reaches this session as a turn of its own, a <brigade-message> frame your user did " +
+		"not type; read it as the team-messaging skill says and reply with " + command + " send. The brigade command is " +
+		command + " when the bare word is not on your PATH."
 }
 
 // fail logs a failure with its code and reason, then prints the context
@@ -1024,11 +1143,11 @@ func cwdName(cwd string) string {
 // injected fs.FS, else the directory under the Claude config dir; a
 // missing config dir or entry is the zero Entry.
 func (r *run) registryEntry(f facts) registry.Entry {
-	if f.muse() {
-		// Muse Code keeps no session registry under a Claude config
-		// directory (card 88): the name comes from the document, the
-		// activity is idle and the version unknown, whatever a test
-		// injected for the Claude path.
+	if f.pointed() {
+		// Muse Code and Codex CLI keep no session registry under a Claude
+		// config directory (cards 88, 107): the name comes from the
+		// document, the activity is idle and the version unknown, whatever
+		// a test injected for the Claude path.
 		return registry.Entry{}
 	}
 	fsys := r.deps.Registry

@@ -1,0 +1,38 @@
+{
+  "description": "Registers this Codex session with its Brigade team at its first prompt, keeps the inbound watcher alive on each prompt, and closes the session when Codex ends it.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}/bin/brigade\" hook session-start --host codex --plugin-root \"${PLUGIN_ROOT}\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}/bin/brigade\" hook prompt --host codex --plugin-root \"${PLUGIN_ROOT}\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}/bin/brigade\" hook session-end --host codex --plugin-root \"${PLUGIN_ROOT}\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

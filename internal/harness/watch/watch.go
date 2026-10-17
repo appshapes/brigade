@@ -85,8 +85,12 @@ const (
 	TokenVar  = "CLAUDE_CODE_MESSAGING_TOKEN" //nolint:gosec // G101: the NAME of the variable, not a credential
 	// LogLevelVar is the hook's BRIGADE_LOG_LEVEL for the watcher's own log.
 	LogLevelVar = "BRIGADE_LOG_LEVEL"
-	// SinkFlag is the one argv flag: `brigade watch --sink <absolute file>`.
+	// SinkFlag and HostFlag are the two argv flags: `brigade watch --sink
+	// <absolute file>` (the test harness and a Muse Code session, card 88)
+	// or `brigade watch --host codex` (a Codex CLI session, card 107, whose
+	// frames go out through `codex queue`).
 	SinkFlag = "sink"
+	HostFlag = "host"
 	// StdinCommandsCapability is the describe capability that selects the
 	// stdin command path over the one-shot calls (4.7).
 	StdinCommandsCapability = "message.watch.stdin_commands"
@@ -211,18 +215,22 @@ type Deps struct {
 	// DefaultSyncListInterval); a test sets its own.
 	SyncInterval     time.Duration
 	SyncListInterval time.Duration
-	// Announce runs the message-arrival sound player or desktop notifier
-	// to completion (cards 35 and 36, announce.go): argv is the fixed
-	// list the notify package gave, env the from-scratch child
-	// environment; nil means adapterkit.RunQuiet. A test injects a
-	// recorder.
+	// Announce runs a program that speaks no protocol to completion: the
+	// message-arrival sound player or desktop notifier (cards 35 and 36,
+	// announce.go) and, in a Codex CLI session, `codex queue` (card 107,
+	// codexqueue.go). argv is the fixed list the caller built, env the
+	// from-scratch child environment; nil means adapterkit.RunQuiet. A test
+	// injects a recorder.
 	Announce func(ctx context.Context, argv, env []string) error
 	// SoundCommand and BannerCommand, when set, are the player's and the
 	// notifier's argv instead of the ones the notify package finds on
 	// PATH; nil in production, a test sets them so the machine's own
-	// programs do not decide the test.
+	// programs do not decide the test. QueueCommand is the same for the
+	// `codex` executable a Codex session's watcher queues into (card 107):
+	// the argv prefix that stands for `codex`, nil in production.
 	SoundCommand  []string
 	BannerCommand []string
+	QueueCommand  []string
 
 	// HeartbeatInterval is the periodic heartbeat; zero, as in
 	// production, means the map's `heartbeat_seconds` (the team file's
@@ -372,17 +380,19 @@ func (d Deps) withDefaults() Deps {
 // args are the parsed argv of `brigade watch`.
 type args struct {
 	sink     string
+	host     string
 	logLevel string
 }
 
-// parseArgs accepts exactly `[--sink <path>] [--log-level <level>]`, in
-// either `--flag value` or `--flag=value` form. Anything else is `usage`.
+// parseArgs accepts exactly `[--sink <path> | --host codex] [--log-level
+// <level>]`, in either `--flag value` or `--flag=value` form. Anything else
+// is `usage`.
 func parseArgs(argv []string) (args, error) {
 	var a args
 	for i := 0; i < len(argv); i++ {
 		name, value, hasValue := strings.Cut(strings.TrimLeft(argv[i], "-"), "=")
 		if !strings.HasPrefix(argv[i], "-") || name == "" {
-			return a, errors.New("unexpected argument; usage: brigade watch [--sink <absolute file>]")
+			return a, errors.New("unexpected argument; usage: brigade watch [--sink <absolute file> | --host codex]")
 		}
 		if !hasValue {
 			if i+1 >= len(argv) {
@@ -397,13 +407,18 @@ func parseArgs(argv []string) (args, error) {
 				return a, errors.New("--sink must be an absolute path")
 			}
 			a.sink = value
+		case HostFlag:
+			if config.Host(value) != config.HostCodex {
+				return a, errors.New("--host names a host the watcher cannot deliver into; the only one is codex")
+			}
+			a.host = value
 		case "log-level":
 			if _, err := adlog.ParseLevel(value); err != nil {
 				return a, errors.New("--log-level must be one of error, warn, info, debug")
 			}
 			a.logLevel = value
 		default:
-			return a, errors.New("unknown flag; usage: brigade watch [--sink <absolute file>]")
+			return a, errors.New("unknown flag; usage: brigade watch [--sink <absolute file> | --host codex]")
 		}
 	}
 	return a, nil
@@ -411,8 +426,11 @@ func parseArgs(argv []string) (args, error) {
 
 // runConfig is everything Run resolved before the supervisor starts.
 type runConfig struct {
-	env             config.WatcherEnv
-	sink            string
+	env  config.WatcherEnv
+	sink string
+	// host is the delivery host of `--host`: config.HostCodex, whose frames
+	// go out through `codex queue` (card 107); "" for a socket or a sink.
+	host            string
 	socketPath      string
 	token           string
 	claudeConfigDir string
@@ -421,8 +439,9 @@ type runConfig struct {
 
 // loadConfig resolves the configuration from argv and the hook-built
 // environment (6.6). A `--sink` with the socket variable set is `usage`:
-// a real session must never be diverted to a file. Without a socket and
-// without a sink there is nothing to inject into: `config`.
+// a real session must never be diverted to a file; so is `--host` with
+// either, since a session has one road in. Without a socket, a sink or a
+// host there is nothing to inject into: `config`.
 func loadConfig(a args, environ []string) (runConfig, error) {
 	var rc runConfig
 	env, err := config.FromWatcherEnv(environ)
@@ -433,6 +452,7 @@ func loadConfig(a args, environ []string) (runConfig, error) {
 	rc.socketPath = adapterkit.Getenv(environ, SocketVar)
 	rc.token = adapterkit.Getenv(environ, TokenVar)
 	rc.sink = a.sink
+	rc.host = a.host
 	if rc.sink != "" && rc.socketPath != "" {
 		return rc, &protocol.Error{
 			Code:    protocol.CodeUsage,
@@ -440,10 +460,17 @@ func loadConfig(a args, environ []string) (runConfig, error) {
 			Details: map[string]string{"reason": "sink_with_socket"},
 		}
 	}
-	if rc.sink == "" && rc.socketPath == "" {
+	if rc.host != "" && (rc.sink != "" || rc.socketPath != "") {
+		return rc, &protocol.Error{
+			Code:    protocol.CodeUsage,
+			Message: "--host is refused with --sink or while " + SocketVar + " is set: a session has one road in",
+			Details: map[string]string{"reason": "host_with_socket_or_sink"},
+		}
+	}
+	if rc.sink == "" && rc.socketPath == "" && rc.host == "" {
 		return rc, &protocol.Error{
 			Code:    protocol.CodeConfig,
-			Message: "nothing to inject into: neither " + SocketVar + " nor --sink is set",
+			Message: "nothing to inject into: none of " + SocketVar + ", --sink and --host is set",
 			Details: map[string]string{"reason": "no_socket"},
 		}
 	}
@@ -478,7 +505,7 @@ func loadConfig(a args, environ []string) (runConfig, error) {
 	return rc, nil
 }
 
-// Run is `brigade watch [--sink <file>]`: the detached watcher's whole
+// Run is `brigade watch [--sink <file> | --host codex]`: the detached watcher's whole
 // life, from the hook-built environment to the removed pidfile. It returns
 // the process exit status: 0 after a clean end (the session is over, or
 // another watcher already serves it), 2 for a usage refusal, 11 for a
@@ -555,9 +582,13 @@ type watcher struct {
 	client  *adapterclient.Client
 	store   sessionmap.Store
 
-	sessionID   string
-	teamRef     string
-	claudeStart string // the Claude pid's start token at startup (pid reuse)
+	sessionID string
+	teamRef   string
+	// hostPID is the process whose life is the session's: the map's key
+	// (CLAUDE_PID, the Muse process) or, for a Codex CLI session, the host
+	// process the map names beside its thread-derived key (card 107).
+	hostPID     int
+	claudeStart string // the host pid's start token at startup (pid reuse)
 	pipeline    *inbound.Pipeline
 	pidPath     string
 	releasePath string // the hold policy's release file (inbound.ReleasePath)
@@ -625,6 +656,10 @@ type watcher struct {
 	// while it restarts at the fast pace. The supervisor's goroutine alone
 	// reads and writes it: supervise, and the event loop it calls.
 	degradedSince time.Time
+	// codexMissing is set once a Codex session's watcher has logged that
+	// no `codex` is on its PATH (codexqueue.go), so the line is not
+	// repeated at every arrival.
+	codexMissing atomic.Bool
 
 	// idleClose is the map's IdleClose (card 61, idleclose.go): how long
 	// the session may go without activity before this watcher closes it,
@@ -670,6 +705,15 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 			Details: map[string]string{"reason": "map_team_key_mismatch"},
 		}
 	}
+	if rc.host != "" && m.Harness != rc.host {
+		// The hook that spawned this watcher wrote the map; a map naming
+		// another harness is not the one it meant (card 107).
+		return nil, protocol.CodeConfig.Exit(), &protocol.Error{
+			Code:    protocol.CodeConfig,
+			Message: "the by-pid map names a different harness than the watcher's --host",
+			Details: map[string]string{"reason": "map_harness_mismatch"},
+		}
+	}
 	d = d.fromMap(m)
 	pol := policy.Policy(m.Inbound)
 	if !pol.Valid() {
@@ -678,16 +722,17 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 	// The frame instruction comes from the MAP, as the policy does (P5-12):
 	// the hook resolved it once at SessionStart; an invalid one is a
 	// `config` exit from inbound.New, never a silent fallback.
-	// A Muse Code session (card 88) reads the sink through a monitor, not
+	// A Muse Code session (card 88) reads the sink through a monitor and a
+	// Codex CLI session (card 107) takes the frame as a queued turn, not
 	// through Claude Code's inbox: no variant-C wrapper, and the frame's
-	// prose is the Muse receiver's.
-	muse := m.Harness == string(config.HostMuse)
+	// prose is that host's receiver variant.
+	pointed := config.Host(m.Harness).Pointed()
 	pipe, err := inbound.New(inbound.Config{
 		Policy:      pol,
 		Instruction: m.Instruction(),
 		SessionID:   m.BrigadeSessionID,
 		TeamName:    m.TeamName,
-		Wrap:        !muse,
+		Wrap:        !pointed,
 		Host:        m.Harness,
 		Clock:       inbound.ClockFunc(d.Clock),
 		Seen:        inbound.FileSeenStore{Path: inbound.SeenPath(rc.env.StateDir, m.BrigadeSessionID)},
@@ -722,6 +767,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		store:     store,
 		sessionID: m.BrigadeSessionID,
 		teamRef:   m.TeamRef,
+		hostPID:   m.LivenessPID(),
 		pipeline:  pipe,
 		harnessVersion: func() string {
 			if m.HarnessVersion != "" {
@@ -735,7 +781,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		pidPath:        pidfile.Path(rc.env.StateDir, rc.env.ClaudePID),
 		releasePath:    inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
-			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath),
+			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath, m.ClaudeSessionID),
 		sync:      syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin},
 		idleClose: m.IdleClose(),
 	}
@@ -771,11 +817,15 @@ func (w *watcher) run() int {
 	defer cancel()
 
 	mode := "socket"
-	if w.rc.sink != "" {
+	switch {
+	case w.rc.sink != "":
 		mode = "sink"
+	case w.rc.host != "":
+		mode = "queue"
 	}
 	w.log.Info("watcher starting",
 		slog.Int("claude_pid", w.rc.env.ClaudePID),
+		slog.Int("host_pid", w.hostPID),
 		slog.String("session_id", w.sessionID),
 		slog.String("profile", w.rc.env.Profile),
 		slog.String("inbound", w.state.snapshot().inbound),
@@ -783,7 +833,7 @@ func (w *watcher) run() int {
 		slog.Int("pid", os.Getpid()),
 	)
 
-	if info, err := w.deps.Lookup(w.rc.env.ClaudePID); err == nil {
+	if info, err := w.deps.Lookup(w.hostPID); err == nil {
 		w.claudeStart = info.StartToken
 	}
 	w.armIdleClose()

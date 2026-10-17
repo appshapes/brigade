@@ -47,7 +47,7 @@ rm -rf ~/.local/state/brigade ~/.local/share/brigade
 
 Session maps, pidfiles, held-message records, logs, the Syncthing instance and every cached binary. Keep
 `~/.local/state/brigade/sessions/by-native` if a later reinstall should resume your old Brigade sessions. Use the
-`XDG_STATE_HOME` and `XDG_DATA_HOME` equivalents if you set those (a Muse Code session ignores them).
+`XDG_STATE_HOME` and `XDG_DATA_HOME` equivalents if you set those (a Muse Code or Codex CLI session ignores them).
 
 ## 4. Remove the credential store
 
@@ -58,4 +58,5 @@ rm -rf ~/.config/brigade
 Or the directory named by the `config_dir` option. Do this **only after step 2 for each team**: a deleted
 credential file whose family was never revoked stays usable by anyone holding a copy of it.
 
-Removing the package itself is [Uninstall from Claude Code](claude-code.md) or [Uninstall from Muse Code](muse-code.md).
+Removing the package itself is [Uninstall from Claude Code](claude-code.md), [Uninstall from Muse Code](muse-code.md)
+or [Uninstall from Codex CLI](codex.md).
