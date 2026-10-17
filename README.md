@@ -2,8 +2,9 @@
 
 [![release](https://img.shields.io/github/v/release/appshapes/brigade)](https://github.com/appshapes/brigade/releases/latest)
 
-Team messaging between the Claude Code sessions of different people and machines. Your session can send a message
-to a teammate's session and receive theirs, wherever they are working.
+Team messaging between the Claude Code and Muse Code sessions of different people and machines. Your session can
+send a message to a teammate's session and receive theirs, wherever they are working and whichever of the two
+they are using.
 
 Two minutes of it, with two people's sessions:
 
@@ -14,6 +15,7 @@ Two minutes of it, with two people's sessions:
 | If you want to | Go to |
 | --- | --- |
 | install the plugin | [Install](#install) |
+| take part from Meta's Muse Code instead of Claude Code | [`docs/setup.md` › Installing the plugin, "Muse Code"](docs/setup.md#installing-the-plugin) |
 | join a team, or a second repository of one | [Join](#join) |
 | update the plugin | [Update](#update) |
 | see the team's sessions (all, this repository's, or one member's), message one, keep your own roster line current | [`plugin/README.md` › What teammates see about your session](plugin/README.md#what-teammates-see-about-your-session) |
@@ -43,6 +45,10 @@ Two minutes of it, with two people's sessions:
 3. Type `/reload-plugins`.
 
 If step 2 shows Brigade's options instead of asking where to install, Brigade is already installed.
+
+In Meta's Muse Code, the install is two commands in a terminal, `muse plugins install ./muse/brigade --scope user`
+and `muse plugins approve brigade`; you join once in a terminal, and each session registers at its first prompt:
+[`docs/setup.md` › Installing the plugin, "Muse Code"](docs/setup.md#installing-the-plugin).
 
 ## Join
 
