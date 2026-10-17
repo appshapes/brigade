@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
@@ -377,4 +378,46 @@ func TestSessionCodex(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 	})
+}
+
+// TestStateKey pins card 116's key resolution for a command in the model's
+// shell: CLAUDE_PID on Claude Code; on a pointed host the attached
+// pointer's key, else the start pointer's (a session not yet joined), else
+// not_registered; a terminal is not_in_session.
+func TestStateKey(t *testing.T) {
+	t.Parallel()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	s := sessionmap.Store{StateDir: stateDir}
+	if key, err := config.StateKey([]string{"HOME=/h", "CLAUDE_PID=4242"}, s); err != nil || key != 4242 {
+		t.Fatalf("claude: %d %v", key, err)
+	}
+	_, err := config.StateKey([]string{"HOME=/h"}, s)
+	assertReason(t, err, config.ReasonNotInSession)
+	codex := []string{"HOME=/h", "CODEX_THREAD_ID=" + codexID}
+	_, err = config.StateKey(codex, s)
+	assertReason(t, err, config.ReasonNotRegistered)
+	if err := s.WriteStartPointer("codex", codexID, 1<<30|9, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if key, err := config.StateKey(codex, s); err != nil || key != 1<<30|9 {
+		t.Fatalf("start pointer: %d %v", key, err)
+	}
+	// Once attached, the by-host pointer wins (it names the same key in
+	// practice; here a different one shows which was read).
+	if err := s.WriteByHost("codex", codexID, &sessionmap.ByHost{HostPID: 1<<30 | 10, BrigadeSessionID: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	if key, err := config.StateKey(codex, s); err != nil || key != 1<<30|10 {
+		t.Fatalf("attached pointer: %d %v", key, err)
+	}
+	// A Muse session reads its own pointers, never Codex's.
+	muse := []string{"HOME=/h", "MUSE_SESSION_ID=" + museID}
+	_, err = config.StateKey(muse, s)
+	assertReason(t, err, config.ReasonNotRegistered)
+	if err := s.WriteStartPointer("muse", museID, 777, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if key, err := config.StateKey(muse, s); err != nil || key != 777 {
+		t.Fatalf("muse start pointer: %d %v", key, err)
+	}
 }

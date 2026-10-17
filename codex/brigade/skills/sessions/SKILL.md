@@ -1,7 +1,7 @@
 ---
 name: sessions
 description: >-
-  Show the team's sessions: the `$sessions` skill runs `brigade sessions` and prints its output unchanged.
+  Show the team's sessions: the `$brigade:sessions` skill runs `brigade sessions` and prints its output unchanged.
   with `--all` it includes the offline ones, with `--here` only this repository's,
   and with `--member <who>` only one member's. Use it whenever the roster is being SHOWN to the
   user, so they see what the command printed rather than a retelling of it; reading the roster to address a
@@ -10,7 +10,7 @@ description: >-
 
 # Show the team's sessions
 
-`$ARGUMENTS` is what came after `$sessions`: typed by the user when they invoked this skill, or passed by
+`$ARGUMENTS` is what came after `$brigade:sessions`: typed by the user when they invoked this skill, or passed by
 you when you loaded this skill to show the roster — a flag only when the user asked for what it does, otherwise
 nothing. Either way the steps below are the whole of it.
 

@@ -71,9 +71,16 @@ func (r *run) sessionEnd() int {
 	if derr := store.DeleteStart(f.pid); derr != nil {
 		r.log.Debug("session-end: start facts not removed", log.Err(derr))
 	}
-	if f.pointed() && m != nil {
-		if derr := store.DeleteByHost(string(f.host), m.ClaudeSessionID); derr != nil {
-			r.log.Debug("session-end: session pointer not removed", log.Err(derr))
+	if f.pointed() {
+		if m != nil {
+			if derr := store.DeleteByHost(string(f.host), m.ClaudeSessionID); derr != nil {
+				r.log.Debug("session-end: session pointer not removed", log.Err(derr))
+			}
+		}
+		if in.SessionID != "" {
+			if derr := store.DeleteStartPointer(string(f.host), in.SessionID); derr != nil {
+				r.log.Debug("session-end: start pointer not removed", log.Err(derr))
+			}
 		}
 	}
 	// The doing reminder stamp goes with the map (card 25, plan 5.3); the

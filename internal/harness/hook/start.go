@@ -330,7 +330,7 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 	// use. Best effort — a session that cannot write its state directory
 	// fails at the map write below with its own line.
 	r.writeStartFacts(f, in, opts)
-	tf, key, ok := r.resolveTeam(opts, in)
+	tf, key, ok := r.resolveTeam(f, opts, in)
 	if !ok {
 		return resolved{}, false
 	}
@@ -518,6 +518,16 @@ func (r *run) writeStartFacts(f facts, in input, opts config.Options) {
 	})
 	if err != nil {
 		r.log.Warn("session-start: start facts not written", log.Err(err))
+		return
+	}
+	if f.pointed() && in.SessionID != "" {
+		// The model's shell on a pointed host knows the native id, not the
+		// key (card 116): the start pointer is how an in-session `team join`
+		// finds these facts before the session has a map and a by-host
+		// pointer of its own.
+		if perr := store.WriteStartPointer(string(f.host), in.SessionID, f.pid, r.deps.Now()); perr != nil {
+			r.log.Warn("session-start: start pointer not written", log.Err(perr))
+		}
 	}
 }
 
@@ -793,7 +803,7 @@ func pathValue(environ []string) string {
 // resolveTeam runs steps 1-3: discovery, the pin gate, the binding gate.
 // A false return means the session does not attach; whether a line was
 // printed depends on which gate said no (no file at all says nothing).
-func (r *run) resolveTeam(opts config.Options, in input) (*teamfile.File, string, bool) {
+func (r *run) resolveTeam(f facts, opts config.Options, in input) (*teamfile.File, string, bool) {
 	path, found := teamfile.Discover(in.Cwd)
 	if !found {
 		r.log.Debug("no team file discovered; Brigade stays off")
@@ -816,7 +826,7 @@ func (r *run) resolveTeam(opts config.Options, in input) (*teamfile.File, string
 	}
 	if !pinned {
 		r.log.Debug("no pin for this checkout", slog.String("canonical", canon))
-		r.say(notJoinedLine(tf.TeamName))
+		r.say(notJoinedLine(tf.TeamName, r.commandName(f)))
 		return nil, "", false
 	}
 	if !pin.Matches(tf) {
@@ -830,11 +840,11 @@ func (r *run) resolveTeam(opts config.Options, in input) (*teamfile.File, string
 	binding, err := teamstore.LoadBinding(opts.ConfigDir, key)
 	if err != nil {
 		r.log.Debug("no binding for the pinned team", log.Err(err))
-		r.say(notJoinedLine(tf.TeamName))
+		r.say(notJoinedLine(tf.TeamName, r.commandName(f)))
 		return nil, "", false
 	}
 	if err := teamstore.VerifyBinding(binding, tf); err != nil {
-		r.fail("session-start: binding mismatch", err, notJoinedLine(tf.TeamName))
+		r.fail("session-start: binding mismatch", err, notJoinedLine(tf.TeamName, r.commandName(f)))
 		return nil, "", false
 	}
 	return tf, key, true

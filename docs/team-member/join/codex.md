@@ -1,8 +1,25 @@
 # Join in Codex CLI
 
-A Codex CLI member joins in a terminal: the hooks run only at a prompt, and the secret never passes through a chat.
+A Codex CLI member joins from the session, with `$brigade:join`, or from a terminal. Either way the secret stays in the
+file your administrator sent and never passes through a chat.
 
-## The command
+## From the session
+
+1. Save the secret file outside the project folder, say `~/brigade-<team>.secret`.
+2. Open `codex` in the checkout and type one prompt, any prompt: Codex runs Brigade's SessionStart hook at the
+   first prompt, and a session in a checkout it has not joined says so in one line.
+3. Type `$brigade:join ~/brigade-<team>.secret`. The skill runs exactly `brigade team join --secret-file <path>` on the
+   path you gave, never one it chose, and relays the output, which ends `this session attaches at your next
+   prompt`. The secret is read from the file, never printed. Under Codex's default profile the join reaches the
+   backend from the model's shell, so Codex asks for your approval once; under
+   `--dangerously-bypass-approvals-and-sandbox` nothing is asked.
+4. Type your next prompt: the session registers, the start line names your team, and from then on every team
+   message arrives as a turn of its own.
+
+A second checkout of a team this machine already holds joins the same way with `$brigade:join` and no path: the skill
+runs `brigade team join`, which re-consents that checkout.
+
+## From a terminal
 
 In the checkout, with `brigade` on your PATH ([Install in Codex CLI](../install/codex.md)):
 
@@ -12,17 +29,9 @@ brigade team join --secret-file ~/brigade-<team>.secret
 
 `team join` reads the project's `.brigade.json`, prints the team and the backend host it is joining, reads the
 secret from the file and joins; its output never carries the secret. Without `--secret-file` it shows what the file
-names, asks you to confirm before you type anything, then reads the secret without echoing it. Either way the
-secret never reaches your scrollback or your shell history.
-
-## Then
-
-1. Open `codex` in the checkout.
-2. Type one prompt, any prompt (`brigade sessions` shows the teammates).
-
-Codex runs Brigade's SessionStart hook at that first prompt: the session registers, and from then on every team
-message arrives as a turn of its own. A resumed session (`codex resume`) and the new thread `/new` opens each
-register at their first prompt.
+names, asks you to confirm before you type anything, then reads the secret without echoing it. Then open `codex`
+in the checkout and type one prompt; the session registers at that prompt. A resumed session (`codex resume`) and
+the new thread `/new` opens each register at their first prompt.
 
 ## What to know
 

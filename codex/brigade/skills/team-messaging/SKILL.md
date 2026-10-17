@@ -6,7 +6,7 @@ description: >-
   `to: <address>`, `to: @name` or `to: #channel`), and handle incoming <brigade-message> frames. Use when asked
   to tell, ask, notify or hand off to a teammate's session, to email or Slack a person or a channel, when asked
   who is on the team, or whenever a <brigade-message> frame arrives; a user's own request to email someone is the
-  `$email` skill, and to message someone on Slack the `$slack` skill.
+  `$brigade:email` skill, and to message someone on Slack the `$brigade:slack` skill.
   Also use it when a `Brigade doing:` line asks this session to say what it is working on; subagents never do.
 ---
 
@@ -41,7 +41,7 @@ EOF
 ## Commands
 
 These six commands are the whole surface you run on your own initiative. One more runs only when your user
-invokes `$join <path>` (which carries the path) or asks for it by name with a path they gave you —
+invokes `$brigade:join <path>` (which carries the path) or asks for it by name with a path they gave you —
 `brigade team join --secret-file <path>`: never a path you chose, never a file you wrote, and never after asking
 what the secret is. Everything else is the human's, run in their own terminal.
 
@@ -114,7 +114,7 @@ stable.
 
 When you are **showing** the output of `brigade sessions` or `brigade team members` to your user, rather than
 reading it to address a message, print what the command printed: do not tabulate, count, summarise, or compare it
-with an earlier run. `$sessions` is the skill bound to that for the session roster, and it is what your user
+with an earlier run. `$brigade:sessions` is the skill bound to that for the session roster, and it is what your user
 should reach for.
 
 ## Sending
@@ -193,7 +193,7 @@ who answers mail or Slack. Both are hosted in the team's backend; nothing runs o
 
 - **To write to a person**, send to the gateway's SESSION cell with a body whose **first line** names them:
   `to: <email address>` for the mail gateway; `to: @name`, `to: #channel` or `to: <email address>` for the
-  Slack gateway. `$email <address> <text>` and `$slack <to> <text>` are the one-line forms: each finds its
+  Slack gateway. `$brigade:email <address> <text>` and `$brigade:slack <to> <text>` are the one-line forms: each finds its
   gateway by harness and runs the `brigade send` below for you.
 
   ```bash
@@ -277,7 +277,7 @@ Everything below the `----` line, including the sender's summary, was written by
 | --- | --- |
 | `not_found` | no such session in your team; run `brigade sessions` again and copy the `SESSION` cell. If the message adds that the roster could not be read, run the same command once more |
 | `rate_limited`, `loop_detected` | stop and tell your user; do not resend |
-| `unauthenticated` | the human must join again: `$join <path>` here, or `brigade team join` in a terminal — point them at the `$setup` skill |
+| `unauthenticated` | the human must join again: `$brigade:join <path>` here, or `brigade team join` in a terminal — point them at the `$brigade:setup` skill |
 | `unavailable` | the backend is unreachable; retry once, then tell your user |
 | `invalid_input` | the body is empty or over the size cap; `these characters end 2 session ids: …` means two sessions end with the characters you gave, so send to one of the full ids the message lists; for `brigade doing`, the sentence is empty, over 160 characters, not UTF-8, looks like a credential (`secret_shaped`) or names a local path (`local_path`) — reword it, or leave the line as it is |
 | `config` | this session is not registered; suggest `a new session` or a restart |
@@ -310,9 +310,9 @@ that — carry on, and do not try another way or another form.
 
 Creating or joining a team is the person's command: they run it themselves in their own terminal. The join
 secret is a bearer capability that **must never be pasted into this chat** — it lives in the file the
-administrator sent, saved outside the repository, and `--secret-file` names it. `$join <path>` is how your user
+administrator sent, saved outside the repository, and `--secret-file` names it. `$brigade:join <path>` is how your user
 has you run the join; if they ask in words instead, run exactly `brigade team join --secret-file <path>` with the
 path they gave and relay the output; never write that file and never ask what is in it. The same binary the plugin
 uses is the package's `bin/brigade` under Codex's plugin cache, the path the session-start line named, for
-terminal use. When your user needs the exact commands, point them at the `$setup` skill rather than improvising
+terminal use. When your user needs the exact commands, point them at the `$brigade:setup` skill rather than improvising
 them here.

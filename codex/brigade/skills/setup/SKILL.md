@@ -1,7 +1,7 @@
 ---
 name: setup
 description: >-
-  How a HUMAN creates or joins a Brigade team — `team create` from a terminal, `$join <path>` (or `brigade team
+  How a HUMAN creates or joins a Brigade team — `team create` from a terminal, `$brigade:join <path>` (or `brigade team
   join --secret-file <path>` in a terminal) to join — and how to leave and uninstall: the Supabase project prerequisites,
   `team create` (which writes the project's committed `.brigade.json`), the one-line join, and
   the removal order. Use when someone asks how to set Brigade up, join a team, add a teammate, leave, or remove
@@ -89,10 +89,10 @@ transferring the team are terminal-only administrative commands that refuse insi
 ## 2. Member: join
 
 Clone the project, save the secret file your administrator sent you outside the repository, open a Codex
-session in the checkout, and ask it to join with `$join`, naming the file:
+session in the checkout, and ask it to join with `$brigade:join`, naming the file:
 
 ```
-$join ~/brigade-<team>.secret
+$brigade:join ~/brigade-<team>.secret
 ```
 
 That runs `brigade team join --secret-file ~/brigade-<team>.secret` and relays the output. `team join` reads the

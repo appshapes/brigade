@@ -824,11 +824,15 @@ func adapterLine(name string, err error) string {
 // the ONLY repo-sourced value that ever reaches the model, and only
 // here (the other repo-sourced text, the reduced NAMES of ignored
 // members, is printed only once a session attaches: teamFileNotes). The
-// remedy is runnable as printed — in this session `brigade` is on PATH
-// (P7-11) — and names no path of its own: the human supplies the secret
-// file's, and the model never invents one.
-func notJoinedLine(teamName string) string {
-	return "Brigade: not joined: this project uses team \"" + attr(teamName) + "\" — run `brigade team join` here or in a terminal (a first join on this machine needs `--secret-file <path>`, the join secret saved to a file outside the repository)."
+// remedy is runnable as printed: command is `brigade` on Claude Code,
+// where the plugin's bin/ is on PATH (P7-11), and the bootstrap's path on
+// Muse Code and Codex CLI (card 116: nothing puts a package's bin/ on
+// those shells' PATH, and the line naming the path is otherwise printed
+// only once a session attaches, so a model told to join had no command to
+// run). It names no path of the secret file: the human supplies that, and
+// the model never invents one.
+func notJoinedLine(teamName, command string) string {
+	return "Brigade: not joined: this project uses team \"" + attr(teamName) + "\" — run `" + command + " team join` here or in a terminal (a first join on this machine needs `--secret-file <path>`, the join secret saved to a file outside the repository)."
 }
 
 // driftLine is the swap refusal (brief §5): the committed file no longer

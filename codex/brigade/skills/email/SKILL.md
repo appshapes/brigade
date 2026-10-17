@@ -1,20 +1,20 @@
 ---
 name: email
 description: >-
-  Email a person through the team's Brigade mail gateway: `$email <address> <text>` sends the text to
+  Email a person through the team's Brigade mail gateway: `$brigade:email <address> <text>` sends the text to
   that email address as a Brigade message to the gateway session, which mails it; `--subject "<line>"` sets the
   mail's subject, `--summary "<line>"` its Brigade summary, `--reply-to <message-id>` answers in the thread of a
   mail that reached this session through the gateway (no `<address>`), and `--body-file <path>` carries a long
   body; these are the only flags. Use when the user asks to email someone, to message, tell, ask or notify a
   person by email, or to answer an email that reached this session through the gateway. A teammate's
-  session is addressed with the `team-messaging` skill; a person on Slack with `$slack`.
+  session is addressed with the `team-messaging` skill; a person on Slack with `$brigade:slack`.
 ---
 
 # Email a person through the team's mail gateway
 
 A team may have a mail gateway: a hosted member whose session (`mail-gateway`, harness `gateway-email`) mails
 what it is sent and carries what people write back. This skill sends one message to it. `$ARGUMENTS` is what
-came after `$email`: typed by the user, or passed by you when they asked in words and you loaded this skill — their address and their words, never ones you chose.
+came after `$brigade:email`: typed by the user, or passed by you when they asked in words and you loaded this skill — their address and their words, never ones you chose.
 
 1. Read `$ARGUMENTS`, ignoring surrounding whitespace. These are the only forms:
 

@@ -91,6 +91,39 @@ func pointedSession(host Host, environ []string, store sessionmap.Store) (*sessi
 	return m, nil
 }
 
+// StateKey is the key a session's state is filed under — the by-pid map,
+// the start facts, the pidfile, the stamps — for a command run in the
+// model's shell (card 116). On Claude Code it is CLAUDE_PID. On a pointed
+// host (Muse Code, Codex CLI) the shell knows the native id and not the
+// key: the attached pointer names it once the session has a map, and
+// before that — a session not yet joined to its team, whose `team join`
+// is what needs the start facts (P7-11) — the start pointer SessionStart
+// left beside the start facts does. Failures are `config`: not_in_session
+// with no host marker, not_registered when neither pointer exists.
+func StateKey(environ []string, store sessionmap.Store) (int, error) {
+	host := HostOf(environ)
+	switch host {
+	case HostMuse, HostCodex:
+	case HostClaude, "":
+		return ClaudePID(environ)
+	}
+	id, err := NativeID(host, environ)
+	if err != nil {
+		return 0, err
+	}
+	if ptr, perr := store.ReadByHost(string(host), id); perr == nil {
+		return ptr.HostPID, nil
+	}
+	key, err := store.ReadStartPointer(string(host), id)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, notRegistered("this session has no start pointer (the SessionStart hook did not run or failed, or the plugin was enabled mid-session), so where its state is filed is unknown; send one prompt or restart the session, then run this again")
+	}
+	if err != nil {
+		return 0, err
+	}
+	return key, nil
+}
+
 // notRegistered is the `config` failure for a missing map or pointer.
 func notRegistered(message string) *protocol.Error {
 	return &protocol.Error{

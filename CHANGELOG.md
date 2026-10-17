@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [0.34.0] — 2026-10-17
+
+### Fixed
+
+- **The join skill works inside a Muse Code or Codex CLI session** (card 116). Both packages shipped it (the `join`
+  skill in Muse, `$brigade:join <path>` in Codex), but the command it runs, `brigade team join`, refused in a session that
+  had not joined yet: it looked for the SessionStart hook's start facts through `CLAUDE_PID`, which those shells do
+  not carry. The hook now leaves a start-time pointer from the session's native id to its start facts, beside the
+  pointer an attached session gets, and `team join` and `team create` follow it; so a Muse or Codex member joins
+  the way a Claude Code member does — one prompt, the skill with the secret file's path (or no path for a second
+  checkout of a team this machine holds), and the session attaches at the next prompt ([Join in Muse
+  Code](docs/team-member/join/muse-code.md), [Join in Codex CLI](docs/team-member/join/codex.md)). The refusal for
+  a join without `--secret-file` inside a session no longer names Claude Code alone.
+
 ## [0.33.0] — 2026-10-17
 
 ### Added
