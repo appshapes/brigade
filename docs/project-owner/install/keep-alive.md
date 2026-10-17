@@ -27,13 +27,9 @@ gh variable set BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY --body sb_publishable
 # the AAFP Board Review team's project, whose team spans two other repositories
 gh variable set BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL --body https://<ref>.supabase.co
 gh variable set BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
-
-# an IfThen team's project, named generically because this repository is public and the team is a client's
-gh variable set BRIGADE_IFTHEN_TEAM_2_SUPABASE_URL --body https://<ref>.supabase.co
-gh variable set BRIGADE_IFTHEN_TEAM_2_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
 ```
 
-A fifth project is a fifth job, a fifth pair and a fifth block here. The script itself stays single-project: each
+A fourth project is a fourth job, a fourth pair and a fourth block here. The script itself stays single-project: each
 job maps its own pair onto the two names `keepalive.sh` reads, so a red run names the job, and therefore the
 project, on the run page.
 
