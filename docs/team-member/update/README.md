@@ -9,6 +9,7 @@ owner migrates when they like, and nothing has to be sequenced.
 | --- | --- |
 | update Brigade in Claude Code | [Update in Claude Code](#update-in-claude-code) |
 | update Brigade in Muse Code | [Update in Muse Code](#update-in-muse-code) |
+| update Brigade in Codex CLI | [Update in Codex CLI](#update-in-codex-cli) |
 | know what an update can change about what your sessions share, and who is behind | [Know what an update changes](#know-what-an-update-changes) |
 
 ## Update in Claude Code
@@ -21,10 +22,17 @@ Details: [Update in Claude Code](claude-code.md).
 
 ## Update in Muse Code
 
-1. `git pull` the clone you installed from.
-2. `muse plugins update brigade`, then start a new session.
+1. `muse plugins marketplace update brigade`, then `muse plugins remove brigade`, `muse plugins install brigade@brigade`, `muse plugins approve brigade`.
+2. Start a new session and type one prompt; re-point the `~/.local/bin/brigade` symlink.
 
 Details: [Update in Muse Code](muse-code.md).
+
+## Update in Codex CLI
+
+1. `codex plugin marketplace upgrade brigade`, then `codex plugin add brigade@brigade`.
+2. Start a new session and type one prompt.
+
+Details: [Update in Codex CLI](codex.md).
 
 ## Know what an update changes
 

@@ -32,7 +32,9 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `harness-smoke` | Headless claude -p smoke test with the fs adapter (needs a logged-in claude; mode=bypassPermissions is card 50's arm, which writes crossSessionInbound accept into your user settings.json) |
 | `advisor-lints` | Security Advisor lint mirrors, run with the psql inside the local database container (no host psql needed) (CI) |
 | `plugin-check` | Static checks of plugin/: exec-form hooks, no .mcp.json, VERSION == plugin.json, shellcheck, no secrets (CI) |
-| `muse-plugin-check` | Static checks of muse/brigade/, the Muse Code package (card 88): allowlist, native manifest, one wrapper per hook, assets equal to plugin/bin's (CI) |
+| `muse-plugin-check` | Static checks of muse/brigade/, the Muse Code package (card 88): allowlist, native manifest, one wrapper per hook, assets equal to plugin/bin's, the marketplace catalog (CI) |
+| `muse-digest` | Rewrite marketplace.json's digest and version from muse/brigade/ with Muse (card 115): after any change under muse/brigade/, and by make release |
+| `codex-plugin-check` | Static checks of codex/brigade/, the Codex CLI package (card 107): allowlist, native manifest, the three hook commands, the marketplace file, assets equal to plugin/bin's (CI) |
 | `docs-check` | The documentation gate (card 110): README and persona shapes, links and anchors, orphans, harness pages, options, the make-target page, the changelog section (CI) |
 | `docs-generate` | Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines (docs-check fails when it is stale) |
 | `plugin-validate` | claude plugin validate on the marketplace and the plugin root |

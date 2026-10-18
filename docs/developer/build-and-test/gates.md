@@ -16,7 +16,7 @@ make typecheck lint build test vuln deps-check schema-check tidy-check docs-chec
 | `tidy-check` | `go.mod` and `go.sum` would not change |
 | `docs-check` | the documentation tree's shape, links, orphans, harness pages, options, the make-target page, the changelog section ([Run the gate](../documentation/gate.md)) |
 
-CI's `fast` job adds `checksums-check`, `plugin-check`, `muse-plugin-check` and `functions-check`; the `macos`,
+CI's `fast` job adds `checksums-check`, `plugin-check`, `muse-plugin-check`, `codex-plugin-check` and `functions-check`; the `macos`,
 `reproducibility` and `supabase` jobs the rest ([Know the CI](ci.md)).
 
 ## What lint enforces, in one place

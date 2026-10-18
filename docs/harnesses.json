@@ -16,6 +16,14 @@
       "host": "muse",
       "package": "muse/brigade",
       "skills": "muse/brigade/skills"
+    },
+    {
+      "id": "codex",
+      "name": "Codex CLI",
+      "vendor": "OpenAI",
+      "host": "codex",
+      "package": "codex/brigade",
+      "skills": "codex/brigade/skills"
     }
   ]
 }

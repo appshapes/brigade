@@ -29,8 +29,10 @@ import (
 var setupDocFiles = map[string][]string{
 	"plugin/skills/setup/SKILL.md":              setupDocWitnesses,
 	"muse/brigade/skills/setup/SKILL.md":        setupDocWitnesses,
+	"codex/brigade/skills/setup/SKILL.md":       setupDocWitnesses,
 	"docs/team-admin/create/create-the-team.md": {setupDocWitnesses[0], setupDocWitnesses[1]},
 	"docs/team-member/join/muse-code.md":        {setupDocWitnesses[2]},
+	"docs/team-member/join/codex.md":            {setupDocWitnesses[2]},
 	"docs/team-member/leave/leave-the-team.md":  {setupDocWitnesses[3], setupDocWitnesses[4]},
 }
 

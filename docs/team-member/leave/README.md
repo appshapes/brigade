@@ -10,6 +10,7 @@ second, remove the package last.
 | leave a team, keeping Brigade installed | [Leave the team](#leave-the-team) |
 | remove Brigade from Claude Code | [Uninstall from Claude Code](#uninstall-from-claude-code) |
 | remove Brigade from Muse Code | [Uninstall from Muse Code](#uninstall-from-muse-code) |
+| remove Brigade from Codex CLI | [Uninstall from Codex CLI](#uninstall-from-codex-cli) |
 
 ## Leave the team
 
@@ -30,7 +31,15 @@ Details: [Uninstall from Claude Code](claude-code.md).
 ## Uninstall from Muse Code
 
 1. Steps 1 and 2 of Leave the team, for each team.
-2. `muse plugins remove brigade`, and remove the `~/.local/bin/brigade` symlink.
+2. `muse plugins remove brigade`; optionally `muse plugins marketplace remove brigade`; remove the `~/.local/bin/brigade` symlink.
 3. `rm -rf ~/.local/state/brigade ~/.local/share/brigade`, then `rm -rf ~/.config/brigade`.
 
 Details: [Uninstall from Muse Code](muse-code.md).
+
+## Uninstall from Codex CLI
+
+1. Steps 1 and 2 of Leave the team, for each team.
+2. `codex plugin remove brigade@brigade`; optionally `codex plugin marketplace remove brigade`; remove the `~/.local/bin/brigade` symlink.
+3. `rm -rf ~/.local/state/brigade ~/.local/share/brigade`, then `rm -rf ~/.config/brigade`.
+
+Details: [Uninstall from Codex CLI](codex.md).

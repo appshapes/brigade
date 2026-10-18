@@ -1,27 +1,50 @@
 # Install in Muse Code
 
-Brigade ships a package for Meta's Muse Code, so a Muse session joins the same team as the Claude Code ones.
+Brigade ships a package for Meta's Muse Code, so a Muse session joins the same team as the Claude Code and Codex
+CLI ones. Muse installs it from this repository's marketplace catalog, from inside a session or from a terminal.
 
-## Install
+## In a session
 
-From a clone of this repository:
+1. `/plugins marketplace add brigade appshapes/brigade`: Muse clones the repository, reads its `marketplace.json`
+   and stores a snapshot; the plugin panel opens on its Marketplaces tab with `brigade` listed.
+2. `/plugins install brigade@brigade`: Muse installs the package at user scope and checks it against the digest the
+   catalog carries, so a package that differs from the one the release recorded is refused.
+3. Approve the hooks, which stay inactive until a person reviews them: `/plugins`, the Installed tab, `brigade`,
+   the Runtime tab; or `muse plugins approve brigade` in a terminal.
+
+## In a terminal
+
+```sh
+muse plugins marketplace add brigade appshapes/brigade
+muse plugins install brigade@brigade
+muse plugins approve brigade
+```
+
+`appshapes/brigade` is GitHub shorthand for `https://github.com/appshapes/brigade.git`; a git URL or a local clone
+works the same, and `#<ref>` after the source pins a branch or a tag. Muse reads the snapshot offline afterwards:
+[Update in Muse Code](../update/muse-code.md) refreshes it.
+
+## From a clone (developers)
 
 ```sh
 muse plugins install ./muse/brigade --scope user
 muse plugins approve brigade
 ```
 
-The second command is Muse's review step: a plugin's hooks stay inactive until the person approves them.
+A package installed this way follows the clone: `git pull`, then `muse plugins update brigade`.
 `muse plugins validate ./muse/brigade` checks the package before installing it.
 
 ## Put brigade on your PATH
 
-Muse does not put a plugin's binaries on the shell's PATH. The bootstrap is `<Muse plugin cache>/brigade/bin/brigade`;
-the session-start line names its path. A symlink gives your terminal and the session the bare word:
+Muse does not put a plugin's binaries on the shell's PATH. The bootstrap is `bin/brigade` under the installed
+package in Muse's plugin cache; the session-start line names its path. A symlink gives your terminal and the session
+the bare word:
 
 ```sh
 ln -sf <that path> ~/.local/bin/brigade
 ```
+
+The path carries the package's digest, so re-point the symlink after an update.
 
 ## Join, then take part
 
@@ -36,6 +59,9 @@ nothing.
 
 ## What differs from Claude Code
 
+- **The catalog.** Muse reads `marketplace.json` at the repository root; Claude Code reads
+  `.claude-plugin/marketplace.json` and Codex CLI `.agents/plugins/marketplace.json`. Muse takes the first of the
+  three it finds, in that order, and the native one carries the package digest Muse requires.
 - **Options** come from `~/.config/brigade/muse-options.json`, not plugin settings: [Configure in Muse Code](../configure/muse-code.md).
 - **Directories.** A Muse session resolves Brigade's directories from `HOME` alone, so `~/.config/brigade` and
   `~/.local/state/brigade` whatever `XDG_*` says; a member who sets `XDG_CONFIG_HOME` puts `config_dir` in the

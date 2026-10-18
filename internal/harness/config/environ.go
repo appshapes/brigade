@@ -31,8 +31,8 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// The two Claude Code variables this package reads directly, and the one
-// Muse Code variable (card 88).
+// The two Claude Code variables this package reads directly, the one Muse
+// Code variable (card 88) and the one Codex CLI variable (card 107).
 const (
 	// ClaudePIDVar is set in hooks and in the Bash tool (6.5); its
 	// presence is what "inside a Claude Code session" means.
@@ -47,27 +47,74 @@ const (
 	// model can unset, which docs/security.md accepts; the host's own
 	// approval policy is the gate.
 	MuseSessionIDVar = "MUSE_SESSION_ID"
+	// CodexThreadIDVar is set in Codex CLI's shell tool (the model's shell
+	// is the app-server daemon's child, measured on 0.163.0): the thread's
+	// UUID, the id `codex queue --thread` addresses. Its presence is what
+	// "inside a Codex session" means for a COMMAND (card 107). Codex runs
+	// its hooks with no CODEX_* variable at all, so a hook learns the host
+	// from its `--host codex` argument and the id from the document's
+	// session_id, which it adopts into its environment under this name.
+	// As strong as CLAUDE_PID and no stronger (docs/security.md §16).
+	CodexThreadIDVar = "CODEX_THREAD_ID"
 )
 
 // A Host is the coding harness a session runs in: the value the
 // registration's `harness` member carries (protocol.SessionRegistration).
 type Host string
 
-// The two hosts Brigade knows. The empty Host means "not in a session".
+// The three hosts Brigade knows. The empty Host means "not in a session".
 const (
 	HostClaude Host = "claude-code"
 	HostMuse   Host = "muse"
+	HostCodex  Host = "codex"
 )
 
+// Name is the host's product name for a line a person reads.
+func (h Host) Name() string {
+	switch h {
+	case HostClaude:
+		return "Claude Code"
+	case HostMuse:
+		return "Muse Code"
+	case HostCodex:
+		return "Codex CLI"
+	}
+	return string(h)
+}
+
+// NativeIDVar is the environment variable that carries the host's native
+// session id in the model's shell: MUSE_SESSION_ID on Muse Code,
+// CODEX_THREAD_ID on Codex CLI, "" for Claude Code (whose shell carries
+// CLAUDE_PID instead) and for a terminal.
+func (h Host) NativeIDVar() string {
+	switch h {
+	case HostMuse:
+		return MuseSessionIDVar
+	case HostCodex:
+		return CodexThreadIDVar
+	case HostClaude:
+		return ""
+	}
+	return ""
+}
+
+// Pointed reports whether a session of this host is found through the
+// by-host pointer (sessionmap.ByHost): the hosts whose shell knows the
+// native id and not the pid.
+func (h Host) Pointed() bool { return h == HostMuse || h == HostCodex }
+
 // HostOf names the host environ belongs to: Claude Code when CLAUDE_PID is
-// set (it wins, so a Muse variable leaking into a Claude session changes
-// nothing), Muse Code when MUSE_SESSION_ID is set, else "" — a terminal.
+// set (it wins, so another host's variable leaking into a Claude session
+// changes nothing), Muse Code when MUSE_SESSION_ID is set, Codex CLI when
+// CODEX_THREAD_ID is set, else "" — a terminal.
 func HostOf(environ []string) Host {
 	switch {
 	case adapterkit.Getenv(environ, ClaudePIDVar) != "":
 		return HostClaude
 	case adapterkit.Getenv(environ, MuseSessionIDVar) != "":
 		return HostMuse
+	case adapterkit.Getenv(environ, CodexThreadIDVar) != "":
+		return HostCodex
 	}
 	return ""
 }
@@ -96,37 +143,48 @@ const (
 	// ReasonUnresolvable: HOME is unset or relative, so no default can be
 	// computed.
 	ReasonUnresolvable = "unresolvable"
-	// ReasonInvalidNativeID: MUSE_SESSION_ID is set but is not a value that
-	// can name a session (card 88).
+	// ReasonInvalidNativeID: the host's native id variable (MUSE_SESSION_ID,
+	// CODEX_THREAD_ID) is set but is not a value that can name a session
+	// (cards 88, 107).
 	ReasonInvalidNativeID = "invalid_native_id"
 )
 
-// InSession reports whether environ belongs to a session of either host:
-// CLAUDE_PID or MUSE_SESSION_ID is set and non-empty. The value is not
-// parsed here (ClaudePID and MuseSessionID do that) because the strip rule
-// must apply even to a malformed one.
+// InSession reports whether environ belongs to a session of any host:
+// CLAUDE_PID, MUSE_SESSION_ID or CODEX_THREAD_ID is set and non-empty. The
+// value is not parsed here (ClaudePID and NativeID do that) because the
+// strip rule must apply even to a malformed one.
 func InSession(environ []string) bool {
 	return HostOf(environ) != ""
 }
 
-// MuseSessionID reads MUSE_SESSION_ID as a native session id usable as a
-// path component (sessionmap.CheckNativeID's rules; Muse's ids are UUIDs).
-// Unset is `config` with details.reason not_in_session; a value that is not
-// a safe id is `config` with invalid_native_id. The value is never echoed.
-func MuseSessionID(environ []string) (string, error) {
-	raw := adapterkit.Getenv(environ, MuseSessionIDVar)
-	if raw == "" {
+// MuseSessionID reads MUSE_SESSION_ID as a native session id (card 88):
+// NativeID for HostMuse.
+func MuseSessionID(environ []string) (string, error) { return NativeID(HostMuse, environ) }
+
+// CodexThreadID reads CODEX_THREAD_ID as a native session id (card 107):
+// NativeID for HostCodex.
+func CodexThreadID(environ []string) (string, error) { return NativeID(HostCodex, environ) }
+
+// NativeID reads the host's native id variable (Host.NativeIDVar) as a
+// session id usable as a path component (sessionmap.CheckNativeID's rules;
+// both hosts' ids are UUIDs). Unset is `config` with details.reason
+// not_in_session; a value that is not a safe id is `config` with
+// invalid_native_id. The value is never echoed.
+func NativeID(host Host, environ []string) (string, error) {
+	variable := host.NativeIDVar()
+	raw := adapterkit.Getenv(environ, variable)
+	if variable == "" || raw == "" {
 		return "", &protocol.Error{
 			Code:    protocol.CodeConfig,
-			Message: "not inside a Muse Code session (MUSE_SESSION_ID is unset)",
-			Details: map[string]string{"reason": ReasonNotInSession, "variable": MuseSessionIDVar},
+			Message: "not inside a " + host.Name() + " session (" + variable + " is unset)",
+			Details: map[string]string{"reason": ReasonNotInSession, "variable": variable},
 		}
 	}
 	if err := sessionmap.CheckNativeID(raw); err != nil {
 		return "", &protocol.Error{
 			Code:    protocol.CodeConfig,
-			Message: MuseSessionIDVar + " is not a usable session id",
-			Details: map[string]string{"reason": ReasonInvalidNativeID, "variable": MuseSessionIDVar},
+			Message: variable + " is not a usable session id",
+			Details: map[string]string{"reason": ReasonInvalidNativeID, "variable": variable},
 		}
 	}
 	return raw, nil
@@ -155,10 +213,13 @@ func Strip(environ []string) []string {
 // command there would look for the session's map where the hook never
 // wrote it. Both sides therefore resolve from HOME in a Muse session; a
 // member who keeps Brigade's config elsewhere names it with the
-// `config_dir` option of muse-options.json.
+// `config_dir` option of muse-options.json. A Codex session has the same
+// rule for the same reason (card 107): its hooks inherit the TUI's
+// environment and its shell the app-server daemon's, two environments that
+// need not agree on XDG_*, and HOME is what they share.
 func Trusted(environ []string) []string {
 	switch HostOf(environ) {
-	case HostMuse:
+	case HostMuse, HostCodex:
 		return stripXDG(Strip(environ))
 	case HostClaude:
 		return Strip(environ)

@@ -967,6 +967,52 @@ Claude Code one, with these differences in what stands between a teammate's mess
   (`MUSE_EXPERIMENTAL_FOREIGN_PERSONAL_CONTEXT_KILL=on`). That is Muse's behaviour to know about, not Brigade's
   to change.
 
+## 16. Codex CLI sessions
+
+A Codex CLI session (card 107, [the live test](experiments/codex-queue-participation.md)) is a Brigade member like a
+Claude Code one, with these differences in what stands between a teammate's message and the model.
+
+- **What a message can do is decided by Codex's own approval policy**, as Claude Code's is by its permission rules:
+  under Codex's default profile the model's shell runs in a workspace-write sandbox with the network off and each
+  step outside it asks for approval; under `--dangerously-bypass-approvals-and-sandbox`, which Brigade's customers
+  run, nothing is asked. Brigade adds the same layer on every host: the frame, whose Codex variant says the message
+  came from "another person's coding session", that it was not typed by the user, that it cannot approve anything
+  or change permissions, settings or instruction files (AGENTS.md, CLAUDE.md), and how to reply. The 26-message
+  injection test set has been run against Claude Code's model behind Claude's preamble and Brigade's frame; **it has
+  not been run against Codex's model**, and on Codex the frame arrives as a user turn with no harness preamble of
+  its own, so the frame's first sentence is the only thing that tells the model what it is reading.
+- **Delivery is a turn queued from outside.** The watcher runs `codex queue --thread <id> --message <frame>` for
+  each message, and the turn starts within that command's own run time in daemon mode (measured: the frame on
+  screen 0.6 s after the send), within one poll of a few seconds in embedded mode. The frame travels on the
+  command's argv, visible to `ps` of the same user for the command's run time (45 ms to a few hundred); a
+  message's body is already readable by that user from the files under the state directory, so nothing new is
+  exposed. Exit 0 means stored, not delivered: a thread whose TUI has quit keeps accepting rows, which it reads at
+  its next resume. The watcher queues nothing when the Codex process it knows is gone — the TUI in embedded mode,
+  the shared app-server daemon in daemon mode, where Codex runs Brigade's hooks itself and nothing names the TUI —
+  so in daemon mode a message to a quit session is stored by Codex for the thread's next resume, and the session
+  shows `idle` until Codex ends the thread (archive, delete, or 30 minutes after the quit: measured 2026-10-17,
+  SessionEnd fired at 30:00 and the session was offline within a second). That is Codex's own rule, and an
+  accepted limit below.
+- **Any local process of your user can queue into any of your Codex sessions**, Brigade or not: `codex queue` has
+  no admission control beyond the user account and the daemon's 0700 socket directory. That is the reach of your
+  own keyboard, and section 10's accepted local attacker; the P8-1 ruling on the shell markers (parity with Claude,
+  2026-10-16) applies unchanged.
+- **Identity.** `CODEX_THREAD_ID` is the thread's UUID in the model's shell; Codex runs its hooks with no Codex
+  variable at all, so the package's `hooks.json` passes `--host codex` and the hook adopts the document's
+  `session_id`. Brigade keys the session's map by a number derived from the thread id (every Codex session on a
+  machine shares one daemon, so a pid would not do), keeps the hook's parent beside it for liveness, and points
+  the UUID at the key. It is as strong as `CLAUDE_PID` and no stronger. `/new` opens a new thread, which is a new
+  Brigade session; the old thread's session stands until Codex ends that thread.
+- **The hooks see no Claude settings.** The native-settings scan, the `crossSessionInbound` parity rule and the one
+  write Brigade makes under `~/.claude` (section 6) do not run for a Codex session; the inbound option
+  (`team_inbound` in `codex-options.json`) is the one knob, accept by default.
+- **Trusting the hooks is yours.** Installing the plugin does not trust its hooks; the first launch afterwards
+  asks, and `/hooks` in a session does the same, once. Until then nothing of Brigade runs in Codex. The
+  `--dangerously-bypass-hook-trust` flag runs them without that review and puts Codex in embedded mode, where a
+  queued message waits for a poll of a few seconds (measured 3 s) instead of starting the turn at once.
+- **`SessionEnd` does not fire on `/quit`** in daemon mode, so the close is the watcher's liveness poll of the
+  Codex process and the lease, never the hook's.
+
 ## Accepted for this version
 
 Every item below is a known limit that this version ships with, on purpose.
@@ -994,6 +1040,12 @@ Every item below is a known limit that this version ships with, on purpose.
 - An implicit reply chain resets after 10 minutes of silence, so a very slow loop is bounded only by the rate
   limits.
 - The bootstrap trusts the absolute `HOME` and `XDG_*` paths in its environment, and the plugin directory.
+- The frame of a message to a Codex CLI session is on the `codex queue` command's argv for the command's run time,
+  readable by programs running as you (section 16); and any such program can queue text into any of your Codex
+  sessions, which Brigade neither causes nor can prevent.
+- A Codex CLI session quit in Codex's normal (daemon) mode shows `idle` until Codex ends its thread, 30 minutes
+  after the quit (measured), and a message sent to it meanwhile waits in Codex's queue for the thread's next resume (section 16):
+  Codex fires no SessionEnd at `/quit` there and names no process Brigade could watch instead.
 - Claude Code drops inbox messages beyond 50 while a session is busy with a turn, after Brigade has
   acknowledged them (section 4).
 - `brigade doing` has no rate bound of its own and keeps no local state (owner ruling 12, 2026-09-19): the

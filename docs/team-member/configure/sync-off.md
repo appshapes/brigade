@@ -4,7 +4,7 @@ The folder list is the project's: whoever commits `.brigade.json` decides what e
 yours: it can switch sync off, never add a folder.
 
 Set the plugin option `sync` to `off`, from `/plugin` in a Claude Code session, in `muse-options.json` in Muse Code,
-or on the command line:
+in `codex-options.json` in Codex CLI, or on the command line:
 
 ```sh
 claude --settings '{"pluginConfigs":{"brigade@brigade":{"options":{"sync":"off"}}}}'

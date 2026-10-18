@@ -6,8 +6,6 @@
 package ci_test
 
 import (
-	"bytes"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,26 +32,7 @@ func (r result) all() string { return r.stdout + r.stderr }
 // runScript runs scripts/ci/<name> with `sh`, from workdir, with an environment built from scratch.
 func runScript(t *testing.T, name, workdir string, env []string, args ...string) result {
 	t.Helper()
-	script := filepath.Join(testutil.RepoRoot(t), "scripts", "ci", name)
-	//nolint:gosec // G204: a fixed script path under the repository and this test's own fixture arguments
-	cmd := exec.CommandContext(t.Context(), "sh", append([]string{script}, args...)...)
-	cmd.Dir = workdir
-	cmd.Env = env
-	cmd.Stdin = strings.NewReader("")
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	err := cmd.Run()
-	r := result{stdout: out.String(), stderr: errb.String()}
-	var ee *exec.ExitError
-	switch {
-	case err == nil:
-	case errors.As(err, &ee):
-		r.code = ee.ExitCode()
-	default:
-		t.Fatalf("running %s: %v", script, err)
-	}
-	return r
+	return runScriptAt(t, filepath.Join(testutil.RepoRoot(t), "scripts", "ci", name), workdir, env, args...)
 }
 
 // baseEnv is the environment every fixture run gets: PATH so tools can be found, a temp HOME so git never

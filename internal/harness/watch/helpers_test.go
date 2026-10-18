@@ -360,6 +360,13 @@ type fixture struct {
 	sock      *fakesock.Server
 	token     string
 	sink      string
+	// host is the `--host` of a pointed-host fixture (card 107: "codex"),
+	// whose map carries that harness and whose watcher has neither socket
+	// nor sink; "" otherwise. For such a fixture claudePID is the
+	// thread-derived key the map is filed under and hostPID the sleeper
+	// standing in for the Codex process (the map's host_process_pid).
+	host    string
+	hostPID int
 
 	adapterArgv []string
 	extraEnv    []string // appended last to environ (a test's override)
@@ -397,6 +404,7 @@ type fixture struct {
 // fixtureOptions tune a fixture.
 type fixtureOptions struct {
 	sink    bool   // sink mode: no socket, no token
+	host    string // queue mode (card 107): `--host <host>`, no socket, no sink
 	inbound string // the map's inbound policy; default accept
 	pid     int    // the Claude pid; default a fresh sleeper
 }
@@ -419,9 +427,14 @@ func newFixture(t *testing.T, o fixtureOptions) *fixture {
 	if fx.claudePID == 0 {
 		fx.claudePID = testutil.NewSleeper(t)
 	}
-	if o.sink {
+	switch {
+	case o.host != "":
+		fx.host = o.host
+		fx.hostPID = fx.claudePID
+		fx.claudePID = 1<<30 | 424242
+	case o.sink:
 		fx.sink = filepath.Join(dirs.Root, "sink.ndjson")
-	} else {
+	default:
 		fx.sock = fakesock.New(t)
 		fx.token = "tok-" + testutil.RunID() + "-" + strconv.Itoa(fx.claudePID)
 	}
@@ -555,6 +568,8 @@ func (fx *fixture) writeMapWith(edit func(*sessionmap.ByPID)) {
 		ConfigDir:        fx.dirs.BrigadeConfig,
 		AdapterCommand:   fx.adapterArgv,
 		HarnessVersion:   "test",
+		Harness:          fx.host,
+		HostProcessPID:   fx.hostPID,
 		RegisteredAt:     now,
 		UpdatedAt:        now,
 	}
@@ -613,10 +628,14 @@ func mustEncode(t *testing.T, argv []string) string {
 	return string(b)
 }
 
-// args are the watcher's argv: `--sink <file>` in sink mode.
+// args are the watcher's argv: `--sink <file>` in sink mode, `--host
+// <host>` in queue mode.
 func (fx *fixture) args() []string {
-	if fx.sink != "" {
+	switch {
+	case fx.sink != "":
 		return []string{"--sink", fx.sink}
+	case fx.host != "":
+		return []string{"--host", fx.host}
 	}
 	return nil
 }

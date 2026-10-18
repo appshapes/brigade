@@ -43,7 +43,12 @@ type shared struct {
 	// none: the file the command writer reads for the heartbeat's model
 	// and context facts. It is local state and never logged.
 	transcriptPath string
-	flip           bool // an activity change the next tick must heartbeat at once
+	// nativeID is the map's claude_session_id: the host's own id of the
+	// session, which a Codex CLI watcher queues into (`codex queue
+	// --thread`, card 107) and which `/new` changes under a running TUI,
+	// so refreshMap keeps it current. Local state, never sent (T10).
+	nativeID string
+	flip     bool // an activity change the next tick must heartbeat at once
 	// shown is a change of what the roster shows — the name, the inbound
 	// policy — that the next tick must heartbeat at once (card 53). It is
 	// apart from flip because the slow schedule reads flip as the person
@@ -51,7 +56,7 @@ type shared struct {
 	shown bool
 }
 
-func newShared(target socketpost.Target, name, inbound, workspaceLabel, labelOption, doingMode, transcriptPath string) *shared {
+func newShared(target socketpost.Target, name, inbound, workspaceLabel, labelOption, doingMode, transcriptPath, nativeID string) *shared {
 	return &shared{
 		target:         target,
 		name:           name,
@@ -61,6 +66,7 @@ func newShared(target socketpost.Target, name, inbound, workspaceLabel, labelOpt
 		labelOption:    labelOption,
 		doingMode:      doingMode,
 		transcriptPath: transcriptPath,
+		nativeID:       nativeID,
 	}
 }
 
@@ -74,13 +80,15 @@ type sharedSnapshot struct {
 	labelOption    string
 	doingMode      string
 	transcriptPath string
+	nativeID       string
 }
 
 func (s *shared) snapshot() sharedSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return sharedSnapshot{target: s.target, name: s.name, activity: s.activity, inbound: s.inbound,
-		workspaceLabel: s.workspaceLabel, labelOption: s.labelOption, doingMode: s.doingMode, transcriptPath: s.transcriptPath}
+		workspaceLabel: s.workspaceLabel, labelOption: s.labelOption, doingMode: s.doingMode, transcriptPath: s.transcriptPath,
+		nativeID: s.nativeID}
 }
 
 // heartbeatSoon asks the next liveness tick for a heartbeat, through the
@@ -121,30 +129,33 @@ func (s *shared) takeFlip() bool {
 // name, the activity and the socket path. A missing socket is NOT an exit
 // condition (E0-5 defect 2). It returns the stop reason, "" to go on.
 func (w *watcher) checkLiveness() string {
-	info, err := w.deps.Lookup(w.rc.env.ClaudePID)
+	// The texts and the attribute keep their Claude Code wording: the proof
+	// scripts and the tests key on them, and the pid is the host process's
+	// — CLAUDE_PID, the Muse process, or a Codex session's host_process_pid.
+	info, err := w.deps.Lookup(w.hostPID)
 	switch {
 	case err != nil:
 		w.log.Warn("claude pid lookup failed", adlog.Err(err))
 	case !info.Exists:
-		w.log.Info("claude process is gone", slog.Int("claude_pid", w.rc.env.ClaudePID))
+		w.log.Info("claude process is gone", slog.Int("claude_pid", w.hostPID))
 		return "claude_gone"
 	case info.Zombie:
-		w.log.Info("claude process is a zombie", slog.Int("claude_pid", w.rc.env.ClaudePID))
+		w.log.Info("claude process is a zombie", slog.Int("claude_pid", w.hostPID))
 		return "claude_gone"
 	case info.Foreign:
-		w.log.Info("claude pid belongs to another user; treated as reuse", slog.Int("claude_pid", w.rc.env.ClaudePID))
+		w.log.Info("claude pid belongs to another user; treated as reuse", slog.Int("claude_pid", w.hostPID))
 		return "claude_gone"
 	case w.claudeStart != "" && info.StartToken != "" && info.StartToken != w.claudeStart:
-		w.log.Info("claude pid was reused by another process", slog.Int("claude_pid", w.rc.env.ClaudePID))
+		w.log.Info("claude pid was reused by another process", slog.Int("claude_pid", w.hostPID))
 		return "claude_gone"
 	}
 	if reason := w.refreshMap(); reason != "" {
 		return reason
 	}
-	if w.harness != string(config.HostMuse) {
-		// Muse Code keeps no session registry under a Claude config
-		// directory (card 88); the name and the activity stay as the map
-		// and the heartbeats have them.
+	if !config.Host(w.harness).Pointed() {
+		// Muse Code and Codex CLI keep no session registry under a Claude
+		// config directory (cards 88, 107); the name and the activity stay
+		// as the map and the heartbeats have them.
 		w.refreshRegistry()
 	}
 	// Card 61: with the activity just read, the idle close is the one
@@ -220,6 +231,14 @@ func (w *watcher) refreshMap() string {
 	if m.TranscriptPath != w.state.transcriptPath {
 		w.log.Info("transcript path updated from the by-pid map", slog.Bool("present", m.TranscriptPath != ""))
 		w.state.transcriptPath = m.TranscriptPath
+	}
+	// Codex's /new gives the same TUI a new thread, and the new thread's
+	// first prompt rewrites the map with its id (card 107): the next frame
+	// is queued into the thread the person is looking at. Logged without
+	// the id (T10).
+	if m.ClaudeSessionID != w.state.nativeID {
+		w.log.Info("native session id updated from the by-pid map")
+		w.state.nativeID = m.ClaudeSessionID
 	}
 	w.state.mu.Unlock()
 	return ""

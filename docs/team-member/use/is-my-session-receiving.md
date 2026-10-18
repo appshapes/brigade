@@ -19,7 +19,9 @@ delivery: watcher running (0.31.0), connected for 12m; last delivery recorded 3m
 
 The line is read from files on your machine; nothing is asked of the backend. The lines above it name the
 session, its team and adapter, the inbound policy, the frame level and, outside Claude Code, the host (`host:
-muse`); the `terminal:` line is the plugin binary's path ([Use brigade in a terminal](../install/terminal.md)).
+muse`, `host: codex`); the `terminal:` line is the plugin binary's path ([Use brigade in a terminal](../install/terminal.md)).
 
 A Muse Code session is receiving once its model has armed the monitor at the first prompt; until then, or after a
-`muse resume` with no prompt yet, it is a mailbox whose messages wait.
+`muse resume` with no prompt yet, it is a mailbox whose messages wait. A Codex CLI session is receiving once its
+first prompt has registered it; until then it is unknown to the team, and a message sent to its old session waits
+on the server.

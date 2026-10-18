@@ -1,7 +1,8 @@
 # Know the options
 
 Fifteen options, all optional, all with working defaults. The names and meanings are the same in every harness;
-how to set them is [Configure in Claude Code](claude-code.md) and [Configure in Muse Code](muse-code.md). Option
+how to set them is [Configure in Claude Code](claude-code.md), [Configure in Muse Code](muse-code.md) and
+[Configure in Codex CLI](codex.md). Option
 values are read from your own settings only, never from a project.
 
 | Option | Default | Meaning |
@@ -23,5 +24,5 @@ values are read from your own settings only, never from a project.
 | `message_interval` | `30` | the least seconds between two sounds, or two notifications, for one session: never under `5`, never over `3600`; anything else keeps the default and says so once at session start |
 
 Where an option is read in Claude Code: your user settings, `--settings` and managed settings. In Muse Code:
-`~/.config/brigade/muse-options.json`. A value Brigade cannot use is named in one line at session start and the
+`~/.config/brigade/muse-options.json`; in Codex CLI: `~/.config/brigade/codex-options.json`. A value Brigade cannot use is named in one line at session start and the
 default is used; a `frame_file` that fails a check leaves the session without Brigade, with one line saying why.

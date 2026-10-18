@@ -102,7 +102,8 @@ type Config struct {
 	Wrap bool
 	// Host selects the frame's prose (frame.BuildFor): "" or "claude-code"
 	// for the Claude Code text, "muse" for the Muse Code variant whose
-	// preamble names neither Claude Code nor CLAUDE.md alone (card 88).
+	// preamble names neither Claude Code nor CLAUDE.md alone (card 88),
+	// "codex" for the Codex CLI variant (card 107).
 	Host string
 	// Clock is the time source; nil means SystemClock.
 	Clock Clock

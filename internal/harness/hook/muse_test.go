@@ -233,7 +233,7 @@ func TestMuseOptionsFileReachesTheHook(t *testing.T) {
 	if m := f.mustMap(); m.Inbound != "hold" {
 		t.Fatalf("the options file did not reach the hook: inbound %q (stdout %q)", m.Inbound, out)
 	}
-	if strings.Contains(out, config.WarnMuseOptionsUnusable) {
+	if strings.Contains(out, config.WarnOptionsUnusable(path)) {
 		t.Fatalf("a usable file earned the warning: %q", out)
 	}
 }

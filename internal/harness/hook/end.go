@@ -71,9 +71,16 @@ func (r *run) sessionEnd() int {
 	if derr := store.DeleteStart(f.pid); derr != nil {
 		r.log.Debug("session-end: start facts not removed", log.Err(derr))
 	}
-	if f.muse() && m != nil {
-		if derr := store.DeleteByHost(string(f.host), m.ClaudeSessionID); derr != nil {
-			r.log.Debug("session-end: session pointer not removed", log.Err(derr))
+	if f.pointed() {
+		if m != nil {
+			if derr := store.DeleteByHost(string(f.host), m.ClaudeSessionID); derr != nil {
+				r.log.Debug("session-end: session pointer not removed", log.Err(derr))
+			}
+		}
+		if in.SessionID != "" {
+			if derr := store.DeleteStartPointer(string(f.host), in.SessionID); derr != nil {
+				r.log.Debug("session-end: start pointer not removed", log.Err(derr))
+			}
 		}
 	}
 	// The doing reminder stamp goes with the map (card 25, plan 5.3); the
@@ -84,11 +91,12 @@ func (r *run) sessionEnd() int {
 	if m == nil {
 		return 0
 	}
-	if f.muse() {
-		// Muse Code gives a SessionEnd hook 0.1–0.4 s (measured, card 88),
-		// not enough for an adapter call: the SIGTERM above is the close —
-		// the watcher's own exit path closes the session within its
-		// budget, and the lease expires if it cannot.
+	if f.pointed() {
+		// Muse Code gives a SessionEnd hook 0.1–0.4 s (measured, card 88)
+		// and Codex CLI 1 s by default, 3 s at most (card 107): not enough
+		// for an adapter call. The SIGTERM above is the close — the
+		// watcher's own exit path closes the session within its budget,
+		// and the lease expires if it cannot.
 		return 0
 	}
 	adapter, aerr := config.AdapterFromArgv(m.AdapterCommand)

@@ -35,7 +35,7 @@ Details: [Invariants](invariants.md).
 
 1. `make typecheck lint build test vuln deps-check schema-check tidy-check docs-check`; `make test-all` against the
    local stack before touching `supabase/`.
-2. Never hand-edit the release pins; `make plugin-check` and `make muse-plugin-check` hold the package trees;
+2. Never hand-edit the release pins; `make plugin-check`, `make muse-plugin-check` and `make codex-plugin-check` hold the package trees;
    shellcheck 0.9.0 through Docker before pushing shell.
 3. Scripts that run outside the session strip `CLAUDE*` and `AI_AGENT` by prefix.
 

@@ -17,6 +17,7 @@ argued record; this page is the way in.
 | know where your credential lives and what can read it | [Know where your credential lives](#know-where-your-credential-lives) |
 | know what file sync lets a teammate's machine do on yours | [Know what file sync opens](#know-what-file-sync-opens) |
 | know what Muse Code adds and what has not been measured there | [Know what Muse Code changes](#know-what-muse-code-changes) |
+| know what Codex CLI adds and what has not been measured there | [Know what Codex CLI changes](#know-what-codex-cli-changes) |
 | report a problem, or a vulnerability | [Report a problem](#report-a-problem) |
 
 ## Know what is trusted
@@ -78,6 +79,14 @@ Details: [docs/security.md, section 12](../../security.md#12-file-sync).
 2. The injection test set has not been run against Muse's model.
 
 Details: [docs/security.md, section 15](../../security.md#15-muse-code-sessions).
+
+## Know what Codex CLI changes
+
+1. Codex's approval policy decides what a message can make the model do; delivery is a turn Brigade queues into
+   the session from outside, and any process of your user account could do the same.
+2. The injection test set has not been run against Codex's model.
+
+Details: [docs/security.md, section 16](../../security.md#16-codex-cli-sessions).
 
 ## Report a problem
 

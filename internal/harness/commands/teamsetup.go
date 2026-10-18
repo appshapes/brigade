@@ -660,7 +660,7 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 	name := nameLine(f.TeamName)
 	if inv.inSession() {
 		head := did + " team \"" + name + "\" (" + sanitizeID(f.TeamRef) + ")"
-		pid, perr := config.ClaudePID(inv.Environ)
+		pid, perr := config.StateKey(inv.Environ, sessionmap.Store{StateDir: t.stateDir})
 		if perr == nil {
 			// A session that already has a map is attached — to this team
 			// (nothing to do) or to another (the prompt hook only registers
@@ -693,7 +693,7 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 func (inv Invocation) joinSecret(secretFile string) (string, error) {
 	if secretFile == "" {
 		if inv.inSession() {
-			return "", usage("team join inside a Claude Code session needs --secret-file <path>: save the secret file your administrator sent you outside this project, then run this again — never paste the secret into the chat")
+			return "", usage("team join inside a session needs --secret-file <path>: save the secret file your administrator sent you outside this project, then run this again — never paste the secret into the chat")
 		}
 		return inv.readSecret()
 	}
@@ -779,16 +779,20 @@ func (inv Invocation) storeDir() (string, error) {
 	return configDir, nil
 }
 
-// startFacts reads what SessionStart recorded for this process (P7-11):
+// startFacts reads what SessionStart recorded for this session (P7-11):
 // above all the store the hooks use, which the config_dir option names
-// and which never reaches the Bash tool's environment. A session without
-// the file cannot know where to write and refuses rather than guess.
+// and which never reaches the shell tool's environment. A session without
+// the file cannot know where to write and refuses rather than guess. The
+// facts are filed under the session's key — CLAUDE_PID, or on Muse Code
+// and Codex CLI the key the start pointer names (card 116: the model's
+// shell there knows the native id, not the key).
 func (inv Invocation) startFacts(stateDir string) (*sessionmap.StartFacts, error) {
-	pid, err := config.ClaudePID(inv.Environ)
+	store := sessionmap.Store{StateDir: stateDir}
+	pid, err := config.StateKey(inv.Environ, store)
 	if err != nil {
 		return nil, err
 	}
-	facts, err := (sessionmap.Store{StateDir: stateDir}).ReadStart(pid)
+	facts, err := store.ReadStart(pid)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, &protocol.Error{
 			Code:    protocol.CodeConfig,

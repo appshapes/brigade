@@ -8,8 +8,8 @@ Your sessions carry a display label. Teammates see it in the MEMBER column of `b
 In Claude Code the default is **the email address of the Claude account this install is signed in to**. Brigade
 reads it from Claude Code's own configuration (`.claude.json`, under `CLAUDE_CONFIG_DIR` when set), never writes
 it, and sends it once, with the `team join` that makes you a member. So joining shares that address with everyone
-on the team and with whoever runs its backend. A Muse Code join reads no Claude configuration: its label is the
-`label` key of `muse-options.json`, or nothing.
+on the team and with whoever runs its backend. A Muse Code or Codex CLI join reads no Claude configuration: its
+label is the `label` key of `muse-options.json` or `codex-options.json`, or nothing.
 
 ## The option
 

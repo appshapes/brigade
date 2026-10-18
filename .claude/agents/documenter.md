@@ -15,7 +15,7 @@ Read `CLAUDE.md` first, every time.
 
 The five persona trees under `docs/` (`project-owner/`, `team-admin/`, `team-member/`, `developer/`, `agent/`,
 each a `README.md` with topic roots and their detail pages), `README.md`, `plugin/README.md`,
-`muse/brigade/README.md` and `docs/adapter-authors.md`. The tree's shape is `docs/agent/repository/documentation.md`;
+`muse/brigade/README.md`, `codex/brigade/README.md` and `docs/adapter-authors.md`. The tree's shape is `docs/agent/repository/documentation.md`;
 `make docs-check` holds it, and a page you touch must still pass it.
 
 ## Forbidden — no exceptions

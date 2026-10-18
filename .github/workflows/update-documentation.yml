@@ -39,7 +39,7 @@ jobs:
         You are the documenter agent. Read `.claude/agents/documenter.md` for your operating instructions and
         follow them exactly. Scope: structural drift only — paths, `make` target names, version strings, command
         names and file layout — in the five persona trees under `docs/`, `README.md`, `plugin/README.md`,
-        `muse/brigade/README.md` and `docs/adapter-authors.md`. Do not touch `docs/security.md`,
+        `muse/brigade/README.md`, `codex/brigade/README.md` and `docs/adapter-authors.md`. Do not touch `docs/security.md`,
         `docs/protocol-v1.md` or the rule files under `docs/agent/repository/`. Run `make docs-check` and
         `make test` before you push: the documentation gate and the doc-witness tests are the gate on the pages. If nothing is structurally stale, change
         nothing and say so — the workflow closes this issue automatically when no branch is pushed.

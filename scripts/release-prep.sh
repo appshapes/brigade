@@ -14,7 +14,8 @@
 #   2  reproducible build   make cross version=<v>  ->  dist-cross/{brigade_<v>_<os>_<arch>,checksums.txt}
 #   3  cross-check          goreleaser's own build of the same four targets; the two checksums.txt must be
 #                           identical, which is what stops .goreleaser.yaml and the Makefile drifting apart
-#   4  commit               cp dist/checksums.txt plugin/bin/checksums.txt; make push message="<card>: Release <v>"
+#   4  commit               cp dist/checksums.txt plugin/bin/checksums.txt (and the two copies), rewrite
+#                           marketplace.json's digest with Muse; make push message="<card>: Release <v>"
 #   5  tag                  git tag -a v<v> && git push origin v<v>  ->  release.yml builds, verifies, publishes
 #
 # POSIX sh, no process substitution, `shellcheck -s sh` clean (plugin-check.sh check 7 enforces it). Never
@@ -43,10 +44,13 @@ say() { printf 'release-prep: %s\n' "$1"; }
 plugin_json=plugin/.claude-plugin/plugin.json
 version_file=plugin/bin/VERSION
 committed=plugin/bin/checksums.txt
-# The Muse Code package (card 88) carries the same pin: its manifest is bumped with the Claude one and its three
-# bin/ assets are copies of plugin/bin's, which scripts/ci/muse-plugin-check.sh and checksums-check.sh rule (a) hold.
+# The Muse Code package (card 88) and the Codex CLI package (card 107) carry the same pin: their manifests are bumped
+# with the Claude one and their three bin/ assets are copies of plugin/bin's, which scripts/ci/muse-plugin-check.sh,
+# scripts/ci/codex-plugin-check.sh and checksums-check.sh rule (a) hold.
 muse_json=muse/brigade/.muse-plugin/plugin.json
 muse_bin=muse/brigade/bin
+codex_json=codex/brigade/.codex-plugin/plugin.json
+codex_bin=codex/brigade/bin
 
 v=${1:-}
 # The commit message's card: `<card>: Release <v>` is the house rule, the number being the AppShapes Trello card
@@ -107,6 +111,15 @@ branch=$(git branch --show-current)
 
 [ -x bin/goreleaser ] || die "bin/goreleaser is missing or not executable: run 'make setup-goreleaser'"
 
+# The Muse marketplace catalog (card 115): marketplace.json at the root carries the SHA-256 Muse computes over
+# muse/brigade/, which every release changes (step 1 and step 4 rewrite the package's bin/), and only Muse can
+# compute it (card 114 researches the way without it). So Muse Code must be installed on the release machine (owner
+# ruling 2026-10-17), checked here before anything is mutated; step 4 runs scripts/muse-digest.sh with it.
+if [ -f "$muse_json" ]; then
+  command -v muse >/dev/null 2>&1 || die "muse is not on PATH: step 4 rewrites marketplace.json's digest with Muse (card 115, owner ruling 2026-10-17); install Muse Code on this machine"
+  [ -f marketplace.json ] || die "marketplace.json is missing: the Muse marketplace catalog (card 115)"
+fi
+
 # The documentation gate (card 110) runs here, before anything is mutated, and again inside step 4's `make push`
 # (through `make test`) once the pins carry <v>: the changelog must already have the `## [<v>]` section a release
 # ships with, and the tree must pass every other rule. Checked by name first so the failure says what is missing.
@@ -147,7 +160,15 @@ if [ -f "$muse_json" ]; then
   cp "$version_file" "$muse_bin/VERSION"
   cp plugin/bin/brigade "$muse_bin/brigade"
 fi
-say "1. pinned $version_file, $plugin_json and $muse_json to $v"
+if [ -f "$codex_json" ]; then
+  sed -i.bak -E "s/^([[:space:]]*\"version\":[[:space:]]*)\"[^\"]+\"/\1\"$v\"/" "$codex_json"
+  rm -f "$codex_json.bak"
+  codex_manifest=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$codex_json" | head -n 1)
+  [ "$codex_manifest" = "$v" ] || die "the bump did not take in $codex_json (its version reads as '$codex_manifest')"
+  cp "$version_file" "$codex_bin/VERSION"
+  cp plugin/bin/brigade "$codex_bin/brigade"
+fi
+say "1. pinned $version_file, $plugin_json, $muse_json and $codex_json to $v"
 
 # ---- 2. the reproducible build ---------------------------------------------------------------------------------
 make cross version="$v"
@@ -166,6 +187,7 @@ say "3. goreleaser reproduces dist-cross/checksums.txt byte for byte"
 if [ "$dry_run" = 1 ]; then
   say "DRY_RUN=1: stopping before the commit. A real run would now:"
   say "  4. cp dist/checksums.txt $committed"
+  [ ! -f "$muse_json" ] || say "  4. MUSE_DIGEST_REQUIRE=1 sh scripts/muse-digest.sh write   (marketplace.json's digest and version)"
   say "  4. make push message=\"$card: Release $v\""
   say "  5. git tag -a v$v -m v$v && git push origin v$v"
   exit 0
@@ -174,8 +196,11 @@ fi
 # ---- 4. commit the checksums goreleaser produced -----------------------------------------------------------------
 cp dist/checksums.txt "$committed"
 [ ! -f "$muse_json" ] || cp "$committed" "$muse_bin/checksums.txt"
+[ ! -f "$codex_json" ] || cp "$committed" "$codex_bin/checksums.txt"
+# The package's bin/ is final now, so the digest Muse computes over it is the release's (card 115).
+[ ! -f "$muse_json" ] || MUSE_DIGEST_REQUIRE=1 sh scripts/muse-digest.sh write
 make push message="$card: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push
-say "4. committed $committed"
+say "4. committed $committed and marketplace.json"
 
 # ---- 5. tag the commit that now carries VERSION + checksums --------------------------------------------------------
 git tag -a "v$v" -m "v$v"

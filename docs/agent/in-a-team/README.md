@@ -1,6 +1,6 @@
 # In a team
 
-Each harness Brigade supports ships the same seven skills, worded for that harness. The model-facing one is
+Each harness Brigade supports — Claude Code, Muse Code, Codex CLI — ships the same seven skills, worded for that harness. The model-facing one is
 `team-messaging`; the rest are slash commands a person types. The frame around every team message is the same on
 every harness but for one sentence.
 
@@ -10,6 +10,7 @@ every harness but for one sentence.
 | --- | --- |
 | know the skills a Claude Code session loads | [Claude Code](#claude-code) |
 | know the skills a Muse Code session loads, and how a Muse session is woken | [Muse Code](#muse-code) |
+| know the skills a Codex CLI session loads, and how a Codex session is woken | [Codex CLI](#codex-cli) |
 | read what a team message looks like when it reaches you, and what it can never do | [The frame around a message](#the-frame-around-a-message) |
 
 ## Claude Code
@@ -29,6 +30,15 @@ Details: [Claude Code](claude-code.md).
 3. `brigade` is the bootstrap the session-start line names, or the bare word once a symlink puts it on PATH.
 
 Details: [Muse Code](muse-code.md).
+
+## Codex CLI
+
+1. The package loads the same seven skills from `codex/brigade/skills/`, worded for Codex.
+2. Nothing to arm: Brigade queues each team message into the session from outside, and it arrives as a turn of
+   its own, a `<brigade-message>` frame your user did not type.
+3. `brigade` is the bootstrap the session-start line names, or the bare word once a symlink puts it on PATH.
+
+Details: [Codex CLI](codex.md).
 
 ## The frame around a message
 

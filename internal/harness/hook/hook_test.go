@@ -13,6 +13,7 @@ import (
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/cli"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
@@ -61,14 +62,31 @@ func TestParseArgsLogLevel(t *testing.T) {
 		args  []string
 		sub   string
 		level string
+		host  config.Host
+		root  string
 	}{
-		{[]string{"prompt"}, SubPrompt, "info"},
-		{[]string{"session-start", "--log-level=debug"}, SubSessionStart, "debug"},
-		{[]string{"session-end", "--log-level", "warn"}, SubSessionEnd, "warn"},
+		{[]string{"prompt"}, SubPrompt, "info", "", ""},
+		{[]string{"session-start", "--log-level=debug"}, SubSessionStart, "debug", "", ""},
+		{[]string{"session-end", "--log-level", "warn"}, SubSessionEnd, "warn", "", ""},
+		// The Codex package's hooks.json (card 107): the host and the
+		// package root on argv, in either flag form.
+		{[]string{"session-start", "--host", "codex", "--plugin-root", "/p/brigade/"}, SubSessionStart, "info", config.HostCodex, "/p/brigade"},
+		{[]string{"prompt", "--host=codex", "--plugin-root=/p"}, SubPrompt, "info", config.HostCodex, "/p"},
+		// A relative root is not a root: the map then carries no plugin_bin.
+		{[]string{"session-end", "--host", "codex", "--plugin-root", "rel"}, SubSessionEnd, "info", config.HostCodex, ""},
 	} {
-		sub, level, usage := parseArgs(tc.args)
-		if usage != "" || sub != tc.sub || level != tc.level {
-			t.Errorf("parseArgs(%q) = %q %q %q", tc.args, sub, level, usage)
+		a, usage := parseArgs(tc.args)
+		if usage != "" || a.sub != tc.sub || a.level != tc.level || a.host != tc.host || a.pluginRoot != tc.root {
+			t.Errorf("parseArgs(%q) = %+v %q", tc.args, a, usage)
+		}
+	}
+	// Only a host whose hooks carry no marker of their own takes --host:
+	// Claude Code and Muse Code are named by their environment.
+	for _, args := range [][]string{
+		{"prompt", "--host", "muse"}, {"prompt", "--host", "claude-code"}, {"prompt", "--host"}, {"prompt", "--plugin-root"}, {"prompt", "--sink", "/x"},
+	} {
+		if _, usage := parseArgs(args); usage == "" {
+			t.Errorf("parseArgs(%q) accepted", args)
 		}
 	}
 }

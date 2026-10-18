@@ -9,6 +9,7 @@ downloads one pinned, checksum-verified binary on first use.
 | --- | --- |
 | install Brigade in Claude Code | [Install in Claude Code](#install-in-claude-code) |
 | install Brigade in Muse Code | [Install in Muse Code](#install-in-muse-code) |
+| install Brigade in Codex CLI | [Install in Codex CLI](#install-in-codex-cli) |
 | run `brigade` in your own terminal, or build it from source | [Use brigade in a terminal](#use-brigade-in-a-terminal) |
 
 ## Install in Claude Code
@@ -24,11 +25,21 @@ Details: [Install in Claude Code](claude-code.md).
 
 ## Install in Muse Code
 
-1. From a clone of this repository: `muse plugins install ./muse/brigade --scope user`.
-2. `muse plugins approve brigade` (Muse's review step: hooks stay inactive until you approve them).
-3. Join in a terminal, then open `muse` in the checkout and type one prompt.
+1. In a Muse session: `/plugins marketplace add brigade appshapes/brigade`, then `/plugins install brigade@brigade`.
+2. Approve the hooks: `/plugins`, Installed, `brigade`, Runtime; or `muse plugins approve brigade` in a terminal.
+3. Join in a terminal, then type one prompt in the session.
+
+The same in a terminal: `muse plugins marketplace add brigade appshapes/brigade`, then `muse plugins install brigade@brigade`.
 
 Details: [Install in Muse Code](muse-code.md).
+
+## Install in Codex CLI
+
+1. In a terminal: `codex plugin marketplace add appshapes/brigade`, then `codex plugin add brigade@brigade`.
+2. The next `codex` asks to trust the plugin's hooks: choose Trust all and continue (or `/hooks`, then `t`, later).
+3. Join in a terminal, then open `codex` in the checkout and type one prompt.
+
+Details: [Install in Codex CLI](codex.md).
 
 ## Use brigade in a terminal
 

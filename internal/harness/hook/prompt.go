@@ -130,7 +130,7 @@ func (r *run) resolveDoingMode(ctx context.Context, f facts, in input, store ses
 		return
 	}
 	rules := policy.VerdictNone
-	if !f.muse() {
+	if !f.pointed() {
 		rules = policy.ScanDoingRules(f.claudeConfigDir, doingScanDirs(r.environ, in), r.deps.ReadFile)
 	}
 	m.DoingMode = doingMode(opts, desc.Capabilities, rules)
@@ -362,8 +362,8 @@ func (r *run) redecide(f facts, in input, m *sessionmap.ByPID) bool {
 		return false
 	}
 	ensureLine := ""
-	scan := museScan
-	if !f.muse() {
+	scan := pointedScan
+	if !f.pointed() {
 		ensureLine = r.ensureInboundSetting(f, opts, in.PermissionMode)
 		scan = policy.ScanNative(f.claudeConfigDir, in.Cwd, r.deps.ReadFile)
 	}

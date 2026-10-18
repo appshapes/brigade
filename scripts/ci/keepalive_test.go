@@ -146,11 +146,12 @@ type keepaliveRun struct {
 
 // runScriptAt is runScript's (checks_test.go) twin for a script that is not necessarily the repository's own
 // copy: the mutation table runs the same cases against a mutated copy under t.TempDir(), so the runner has to
-// take a path rather than a name under scripts/ci/.
-func runScriptAt(t *testing.T, script, workdir string, env []string) result {
+// take a path rather than a name under scripts/ci/. runScript delegates to it, and muse_digest_test.go runs a
+// script under scripts/ through it, with arguments.
+func runScriptAt(t *testing.T, script, workdir string, env []string, args ...string) result {
 	t.Helper()
 	//nolint:gosec // G204: a fixed script path — the repository's own, or this test's mutated copy of it
-	cmd := exec.CommandContext(t.Context(), "sh", script)
+	cmd := exec.CommandContext(t.Context(), "sh", append([]string{script}, args...)...)
 	cmd.Dir = workdir
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader("")

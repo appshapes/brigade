@@ -211,11 +211,21 @@ type ByPID struct {
 	HarnessVersion string `json:"harness_version"`
 	// Harness is the host the session runs in (card 88): "muse" for a Muse
 	// Code session, whose pid is the hook's parent and whose native id is
-	// MUSE_SESSION_ID; absent (omitzero) for a Claude Code session and for
-	// every map written before the member existed, which read as
-	// claude-code. The watcher and the commands key their host-specific
-	// behaviour (the sink, the frame's prose) on it.
+	// MUSE_SESSION_ID; "codex" for a Codex CLI session (card 107); absent
+	// (omitzero) for a Claude Code session and for every map written before
+	// the member existed, which read as claude-code. The watcher and the
+	// commands key their host-specific behaviour (the sink, the queue, the
+	// frame's prose) on it.
 	Harness string `json:"harness,omitzero"`
+	// HostProcessPID is the process whose life is the session's when that
+	// process is NOT the map's key (card 107): a Codex CLI session is keyed
+	// by a number derived from its thread id, because Codex runs its hooks
+	// from the shared app-server daemon, whose pid every Codex session on
+	// the machine would otherwise share; the hook's parent — the TUI in
+	// embedded mode, the daemon in daemon mode — goes here, and the watcher
+	// polls it instead of the key. Absent (omitzero) for every other host,
+	// where the key is the process.
+	HostProcessPID int `json:"host_process_pid,omitzero"`
 	// Model is the model the host named in the hook's stdin (Muse Code
 	// does; Claude Code's comes from the transcript instead), sanitised,
 	// for the heartbeat's `model` member. Absent (omitzero) when the host
@@ -278,6 +288,8 @@ func (m *ByPID) Validate() error {
 		return errInvalid("entrypoint")
 	case m.Harness != "" && CheckHost(m.Harness) != nil:
 		return errInvalid("harness")
+	case m.HostProcessPID < 0:
+		return errInvalid("host_process_pid")
 	case m.Model != "" && protocol.SanitizeAttribute(m.Model) != m.Model:
 		return errInvalid("model")
 	}
@@ -382,6 +394,16 @@ func (m *ByPID) validateSync() error {
 // rather than costing the session its map.
 func ValidSyncScope(s string) bool {
 	return s != "" && s != "." && s != ".." && !strings.Contains(s, "/") && protocol.SanitizeLabel(s) == s
+}
+
+// LivenessPID is the process the watcher polls for the session's life: the
+// host process the map names when it is not the key (card 107), else the
+// key itself.
+func (m *ByPID) LivenessPID() int {
+	if m.HostProcessPID > 0 {
+		return m.HostProcessPID
+	}
+	return m.ClaudePID
 }
 
 // Instruction is the frame instruction the map carries, for the two

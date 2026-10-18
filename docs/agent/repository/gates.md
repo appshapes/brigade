@@ -8,12 +8,19 @@
   `make release`; `muse/brigade/bin/` carries copies the release sequence writes. `make checksums-check` requires
   the committed file to be reproduced by a fresh cross-compile or backed by the published release (in the
   pre-release `0.0.0` state it requires the file to be empty and skips the rest).
+- **The Muse marketplace catalog** (card 115). `marketplace.json` at the repository root is what Muse reads first
+  in a checkout; its one entry carries the SHA-256 Muse computes over `muse/brigade/`, by a serialisation nobody has
+  reproduced (card 114). `make muse-digest` (`scripts/muse-digest.sh write`) rewrites it after any change under
+  `muse/brigade/`, `make release` rewrites it in step 4, and `make muse-plugin-check` verifies it where Muse is
+  installed and skips with a line where it is not, so **Muse Code is installed on the release machine** (owner ruling
+  2026-10-17). Never hand-edit the digest.
 - **Package checks.** `make plugin-check` carries the Claude Code plugin tree's checks: the `plugin/` file
   allowlist, mode 100755 in git for `plugin/bin/brigade`, `VERSION == plugin.json`, no `.mcp.json`, `mcpServers`
   or `channels`, exec-form hooks whose command paths exist and are executable, `sh -n` and `shellcheck -s sh`, and
   the only secret scan (`scripts/ci/no-secrets.sh`). `make muse-plugin-check` is the same for `muse/brigade/`:
-  allowlist, native manifest, one wrapper per hook, assets equal to `plugin/bin`'s. A new harness package gets a
-  check of its own in `scripts/ci/` and a job step in `ci.yml`.
+  allowlist, native manifest, one wrapper per hook, assets equal to `plugin/bin`'s; `make codex-plugin-check` for
+  `codex/brigade/`: allowlist, native manifest, the three exact hook commands, `.agents/plugins/marketplace.json`,
+  assets equal. A new harness package gets a check of its own in `scripts/ci/` and a job step in `ci.yml`.
 - **shellcheck is pinned.** CI's Ubuntu runner (Blacksmith's `blacksmith-4vcpu-ubuntu-2404` image since P5-17)
   has shellcheck **0.9.0**, printed by `ci.yml`'s `fast` job in its "Runner image inventory" step (run
   33998830833); this machine has 0.11, and versions disagree (0.10 reported SC2317 for a trap-invoked function's

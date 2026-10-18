@@ -7,10 +7,83 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
-## [Unreleased]
+## [0.34.0] — 2026-10-17
+
+### Fixed
+
+- **The join skill works inside a Muse Code or Codex CLI session** (card 116). Both packages shipped it (the `join`
+  skill in Muse, `$join <path>` in Codex, as 0.33.0 named it), but the command it runs, `brigade team join`, refused in a
+  session that had not joined yet: it looked for the SessionStart hook's start facts through `CLAUDE_PID`, which those shells do
+  not carry. The hook now leaves a start-time pointer from the session's native id to its start facts, beside the
+  pointer an attached session gets, and `team join` and `team create` follow it; so a Muse or Codex member joins
+  the way a Claude Code member does — one prompt, the skill with the secret file's path (or no path for a second
+  checkout of a team this machine holds), and the session attaches at the next prompt ([Join in Muse
+  Code](docs/team-member/join/muse-code.md), [Join in Codex CLI](docs/team-member/join/codex.md)). The refusal for
+  a join without `--secret-file` inside a session no longer names Claude Code alone.
+- **A not-yet-joined Muse Code or Codex CLI session is told which `brigade` to run** (card 116, found in the live
+  verification). Nothing puts a package's `bin/` on those shells' PATH, and the only Brigade line a not-joined session's
+  model had seen named the bare word `brigade`, so it ran a command that was not found. The `not joined` line now names
+  the bootstrap's path on Muse Code and Codex CLI (the bare word on Claude Code, where the plugin's `bin/` is on PATH),
+  and both the Muse and the Codex `join` skills run the command that line named.
+- **Every Codex CLI skill is invoked as `$brigade:<name>`** (card 116). Codex invokes a plugin's skills by their
+  qualified name — `$brigade:join`, `$brigade:sessions`, `$brigade:update`, `$brigade:setup`, `$brigade:email`,
+  `$brigade:slack` — so the Codex skills, the package README and the agent page now say so where they said `$<name>`.
+
+## [0.33.0] — 2026-10-17
+
+### Added
+
+- **Muse Code installs Brigade from this repository's marketplace** (card 115). `marketplace.json` at the repository
+  root is Muse's catalog: in a session, `/plugins marketplace add brigade appshapes/brigade` and `/plugins install
+  brigade@brigade`, then the hooks' review in the plugin panel; or the same `muse plugins` commands in a terminal
+  ([Install in Muse Code](docs/team-member/install/muse-code.md)). A clone of the repository is no longer needed; the
+  local-path install stays for developers. An update is a refresh of the snapshot and a reinstall, because Muse's
+  `plugins update` re-reads the first snapshot of a git marketplace ([Update in Muse
+  Code](docs/team-member/update/muse-code.md)); the update skill knows both kinds of install. Muse reads the native
+  catalog before the Codex and the Claude Code ones, which is what stops `brigade@brigade` resolving to another
+  harness's package in Muse.
 
 ### Changed
 
+- `make release` needs Muse Code on the release machine: the catalog's `integrity.digest` is the SHA-256 Muse
+  computes over `muse/brigade/`, by a serialisation nobody has reproduced (card 114), so `scripts/muse-digest.sh`
+  (`make muse-digest`) has Muse compute it in a throwaway root and a release rewrites it. `make muse-plugin-check`
+  checks the catalog's shape and version everywhere and its digest where Muse is installed; the release workflow
+  checks the version and the digest's shape.
+
+## [0.32.0] — 2026-10-17
+
+### Added
+
+- **Codex CLI sessions take part in a Brigade team** (card 107). A third package, `codex/brigade/`, installs into
+  OpenAI's Codex CLI from this repository's marketplace (`codex plugin marketplace add appshapes/brigade`, then
+  `codex plugin add brigade@brigade`, and `/hooks` once to trust the three hooks) with the same bootstrap, version
+  pin and checksums as the Claude Code plugin. A Codex session registers at its first prompt — Codex runs
+  SessionStart there, not at launch — and is woken for every team message by `codex queue --thread <id> --message
+  <frame>`, which Brigade's watcher runs from outside the session: the turn starts within the command's own run
+  time, with nothing to arm and nothing to poll. The live test measured wakes 45 ms after the send, under
+  `--dangerously-bypass-approvals-and-sandbox` and under Codex's default profile, after 5 s, 120 s and 35 minutes
+  idle ([docs/experiments/codex-queue-participation.md](docs/experiments/codex-queue-participation.md)). A Codex session is
+  keyed by its thread (Codex runs its hooks from a daemon every session shares); the watcher queues nothing once
+  the Codex process it knows is gone (the command's exit 0 means stored, not delivered), and a quit session stays
+  `idle` until Codex ends its thread, since Codex fires no SessionEnd at `/quit` in daemon mode
+  ([docs/security.md](docs/security.md) section 16 has the limit). Options come from `~/.config/brigade/codex-options.json`; `brigade whoami` says `host: codex`; the frame a
+  Codex session reads says it was not typed by the user and that `codex queue` cannot reach a Brigade session. The
+  Claude Code and Muse Code packages, their hooks and their frame bytes are unchanged
+  ([codex/brigade/README.md](codex/brigade/README.md), [Install in Codex CLI](docs/team-member/install/codex.md),
+  [docs/security.md](docs/security.md) section 16).
+- `brigade hook <event> --host codex --plugin-root <dir>`: the hook of a host whose hooks carry no marker of their
+  own learns its host and its package root from argv; `brigade watch --host codex` is the watcher that delivers
+  through `codex queue`.
+
+### Changed
+
+- `make codex-plugin-check` joins `make plugin-check` and `make muse-plugin-check` in CI: the Codex package's
+  allowlist, native manifest, the three exact hook commands, the marketplace file, and `bin/` assets byte-equal to
+  `plugin/bin/`'s. `make release` bumps the three manifests and copies the pinned assets into the three packages;
+  `make checksums-check` and the release job hold them equal.
+- `brigade whoami`'s `delivery:` line for a Muse Code or Codex CLI session whose watcher is not running says
+  `watcher not running`, where it said the session had no inbox socket.
 - **The documentation is one tree per reader** (card 110). `README.md` names five personas — Project Owner, Team
   Admin, Team Member, Developer, AI Agent — and each has a root page under `docs/` with an "If you want to" table,
   topic pages with a TL;DR per action, and a detail page per action; `docs/setup.md`, `docs/sync.md`,

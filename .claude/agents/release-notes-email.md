@@ -67,8 +67,9 @@ the demo card at the end — is the renderer's. You write the words.
 ## Rules
 
 - Plain language and short sentences. Lead with the words to type. Say what a thing does, not how it was built.
-- Up to 250 words for one release, up to 450 for several. A release that changed nothing a member sees gets no
-  words at all.
+- Up to 250 words for one release; for several, 450, plus 30 for each release beyond five, to 700 at most (the
+  releases of a refused email join the next one, and the cap must leave that one room). A release that changed
+  nothing a member sees gets no words at all.
 - Name a slash command only if its skill exists under `plugin/skills/`, a `brigade <verb>` only if
   `/tmp/brigade-email/brigade --help` lists the verb, and an option only if `plugin.json` defines it. Take the
   name from the listing, never from memory.
@@ -91,3 +92,15 @@ what is wrong with it. Check, in this order:
 5. Every `FAIL:` line of `/tmp/brigade-email/lint.txt` is a finding.
 
 Approve only when you found nothing.
+
+## When you review the second draft
+
+Your first review named what was wrong, the writer had one cycle to fix it, and that cycle was the last: a finding
+raised now cannot be fixed, it can only refuse the email. So the second review is bounded. `diff` the first draft,
+`/tmp/brigade-email/notes-round1.md`, against the second, read your first review and the lint, and check two things
+against the sources and the rules above: that every finding of your first review is fixed, and that the lines the
+fix changed are right. A line your first review did not name and the fix did not change was approved by your
+first review; it is not re-read, and nothing you notice in it changes the verdict. Write such a thing, if you have
+one, after a line that reads exactly `NOTES` at the end of the review: the people who read the run's artifact see
+it, the gate does not. Approve when the two things hold. If the first draft is absent, the writer wrote none:
+review the whole draft as a first review.
