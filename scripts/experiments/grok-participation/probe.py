@@ -14,6 +14,9 @@ from pathlib import Path
 
 class Client:
     def __init__(self):
+        self.proc = None
+        self.reader = None
+        self.err_reader = None
         self.pending = {}
         self.updates = []
         self.seq = 0
@@ -72,15 +75,56 @@ class Client:
                        and p.get('update', {}).get('sessionUpdate') == 'agent_message_chunk')
 
     async def close(self):
-        if self.proc.returncode is None:
-            self.proc.stdin.close()
-            try:
-                await asyncio.wait_for(self.proc.wait(), 5)
-            except asyncio.TimeoutError:
-                self.proc.terminate()
-                await asyncio.wait_for(self.proc.wait(), 5)
-        await self.reader
-        await self.err_reader
+        outcome = {'reaped': True, 'forced_kill': False, 'readers_stopped': True}
+        if self.proc is None:
+            return outcome
+        try:
+            if self.proc.returncode is None:
+                try:
+                    self.proc.stdin.close()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                for action in ('wait', 'terminate', 'kill'):
+                    try:
+                        if action != 'wait':
+                            getattr(self.proc, action)()
+                            outcome['forced_kill'] = action == 'kill'
+                        await asyncio.wait_for(self.proc.wait(), 5)
+                        break
+                    except ProcessLookupError:
+                        continue
+                    except asyncio.TimeoutError:
+                        continue
+                outcome['reaped'] = self.proc.returncode is not None
+        finally:
+            tasks = [t for t in (self.reader, self.err_reader) if t is not None]
+            if tasks:
+                _, pending = await asyncio.wait(tasks, timeout=1)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    _, pending = await asyncio.wait(pending, timeout=1)
+                outcome['readers_stopped'] = not pending
+                for task in tasks:
+                    if task.done() and not task.cancelled():
+                        task.exception()
+        return outcome
+
+
+def capabilities_report(init):
+    caps = init.get('agentCapabilities', {})
+    hooks = caps.get('_meta', {}).get('x.ai/hooks', {})
+    return {
+        'loadSession': caps.get('loadSession') is True,
+        'sessionOperations': [name for name in ('list', 'resume', 'close')
+                              if name in caps.get('sessionCapabilities', {})],
+        'hooks': {key: [value for value in hooks.get(key, []) if value in allowed]
+                  for key, allowed in {
+                      'blockingEvents': ('pre_tool_use', 'stop', 'subagent_stop'),
+                      'decisions': ('deny', 'block'),
+                      'stopSignals': ('continue', 'stopReason', 'additionalContext'),
+                  }.items()},
+    }
 
 
 async def main():
@@ -88,14 +132,17 @@ async def main():
     parser.add_argument('--live', action='store_true', help='attempt one synthetic model turn using the existing login')
     args = parser.parse_args()
     c = Client()
-    report = {'schema': 1, 'scope': 'standalone ACP; not proof of existing TUI delivery'}
+    report = {'schema': 1, 'scope': 'standalone ACP; not proof of existing TUI delivery',
+              'live': {'status': 'not_run'}}
     sid = None
     with tempfile.TemporaryDirectory(prefix='brigade-grok-probe-') as cwd:
         try:
             init = (await c.start(cwd))['result']
             report['version'] = init.get('_meta', {}).get('agentVersion')
-            report['capabilities'] = init.get('agentCapabilities', {})
-            report['auth_method_ids'] = [m['id'] for m in init.get('authMethods', [])]
+            report['capabilities'] = capabilities_report(init)
+            report['default_auth_method_present'] = bool(init.get('_meta', {}).get('defaultAuthMethodId'))
+            report['auth_method_ids'] = [m['id'] for m in init.get('authMethods', [])
+                                         if m.get('id') in ('grok.com', 'cached_token', 'xai.api_key')]
             missing = '00000000-0000-4000-8000-000000000120'
             report['negative_routing'] = {}
             for method in ('x.ai/interject', '_x.ai/interject'):
@@ -116,18 +163,24 @@ async def main():
                                       'error_code': response.get('error', {}).get('code')}
             else:
                 report['live'] = {'status': 'not_run'}
-        except (TimeoutError, KeyError, ValueError) as error:
+        except (TimeoutError, KeyError, ValueError, OSError) as error:
             report['probe_error'] = type(error).__name__
         finally:
             if sid is not None:
                 try:
                     closed = await c.call('session/close', {'sessionId': sid}, timeout=10)
                     report['session_close_ok'] = 'result' in closed
-                except TimeoutError:
+                except (TimeoutError, OSError):
                     report['session_close_ok'] = False
-            await c.close()
+            try:
+                report['cleanup'] = await c.close()
+            except Exception as error:
+                report['cleanup'] = {'error': type(error).__name__}
+                report['probe_error'] = 'CleanupError'
     print(json.dumps(report, indent=2))
-    return 1 if 'probe_error' in report or report['live']['status'] in ('blocked', 'fail') else 0
+    return 1 if ('probe_error' in report or report['live']['status'] in ('blocked', 'fail')
+                 or not report.get('cleanup', {}).get('reaped')
+                 or not report.get('cleanup', {}).get('readers_stopped')) else 0
 
 
 if __name__ == '__main__':

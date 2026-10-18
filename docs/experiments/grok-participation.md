@@ -17,7 +17,7 @@ process successfully initialized, but `session/new` returned `-32000`,
 `Authentication required`, with `no auth method id provided`. Initialization
 advertised only the `grok.com` auth method and no default auth method. An explicit
 `authenticate` request with that method and `headless: true` did not answer within
-20 seconds. That process was stopped. No login was automated or credential copied.
+20 seconds. That process was stopped. Interactive authentication was attempted; no completion was observed and no credential was read or copied. The final probe does not invoke that login flow.
 This does not prove the user's normal TUI is logged out: independent ACP startup
 may need different authentication wiring. Confirm a normal terminal prompt, then
 resolve that contract before proceeding with live delivery tests.
@@ -43,6 +43,13 @@ Its [README](../../scripts/experiments/grok-participation/README.md) describes s
 Sanitized handshake and live-blocker snapshots are in
 [grok-participation-evidence](grok-participation-evidence/README.md).
 Repeated script runs confirmed the handshake, extension dispatch and auth blocker.
+Independent review identified an unbounded child cleanup path in the initial
+probe. The corrected driver escalates only its owned process through EOF,
+SIGTERM and SIGKILL with bounded waits, then cancels bounded reader tasks. A
+synthetic SIGTERM-ignoring child was killed and reaped in 10.01 seconds; the
+not-started cleanup path also passed. Capability output now selects known fields
+instead of copying arbitrary metadata.
+
 The model-content witness never passed: no successful model response was observed.
 
 ## Source-backed candidates, not runtime proof
