@@ -17,7 +17,9 @@ process successfully initialized, but `session/new` returned `-32000`,
 `Authentication required`, with `no auth method id provided`. Initialization
 advertised only the `grok.com` auth method and no default auth method. An explicit
 `authenticate` request with that method and `headless: true` did not answer within
-20 seconds. That process was stopped. Interactive authentication was attempted; no completion was observed and no credential was read or copied. The final probe does not invoke that login flow.
+20 seconds. That process was stopped. Authentication was attempted through a flow that may require interactive login;
+no completion was observed and no credential was read or copied. The final probe
+does not invoke that flow.
 This does not prove the user's normal TUI is logged out: independent ACP startup
 may need different authentication wiring. Confirm a normal terminal prompt, then
 resolve that contract before proceeding with live delivery tests.
@@ -92,6 +94,21 @@ Plain `session/prompt` is the candidate intake operation to test first. An
 interjection may only work while a turn is active; it cannot be assumed to wake
 idle sessions. Never send cancellation or a send-now option simply to make an
 otherwise blocked delivery work.
+
+## Authentication follow-up
+
+The pinned upstream [initialization](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/agent/mvp_agent/acp_agent.rs)
+reloads cached authentication and selects a method when usable. The [login flow](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-login/src/flow.rs)
+can include cache, refresh, external provider and interactive login. The
+`headless` metadata flag is not a cache-only promise. TUI and shared-leader
+startup have additional auth lifecycle behavior; a valid login in one process
+can coexist with a null method in another.
+
+Await the normal-TUI result. If it works, compare the executable/version and
+non-secret launch context before retrying. Do not force an unadvertised
+`cached_token` method, copy an auth file, or repeat interactive authentication
+blindly. The public source revision mismatch remains a limitation on these
+explanations.
 
 ## Next live arms and controls
 

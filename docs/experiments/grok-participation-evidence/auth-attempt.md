@@ -13,7 +13,8 @@ The request had no response within its 20-second `asyncio.wait_for` deadline;
 the caller raised `TimeoutError` and closed its owned process. No subsequent
 `session/new` or model request was made in that diagnostic. No credentials or
 login URL are retained here. Upstream research subsequently established that
-this method starts an interactive login flow, not a cache-only lookup. Therefore
+this method invokes a full authentication chain that may reach interactive login,
+not a cache-only lookup; the timeout does not identify the stalled stage. Therefore
 the conclusion is **authentication attempted, no completion observed**, not
 "cached login failed" or "the normal TUI is logged out".
 
