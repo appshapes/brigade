@@ -1,0 +1,77 @@
+{
+  "version": "1.0.62",
+  "topology": "two TUIs plus independent ACP producer on an owned leader",
+  "checks": [
+    {
+      "name": "launch_A"
+    },
+    {
+      "name": "launch_B"
+    },
+    {
+      "name": "tui_readiness_A",
+      "observed": true
+    },
+    {
+      "name": "tui_readiness_B",
+      "observed": true
+    },
+    {
+      "name": "producer_initialize",
+      "ok": true
+    },
+    {
+      "name": "attach_A",
+      "ok": true,
+      "error": null
+    },
+    {
+      "name": "attach_B",
+      "ok": true,
+      "error": null
+    },
+    {
+      "name": "idle_A",
+      "ok": true,
+      "stop": "end_turn",
+      "elapsed_seconds": 2.11,
+      "sibling_agent_text": false,
+      "reply": "GROK120_IDLE_A",
+      "tui_witness": false
+    },
+    {
+      "name": "busy_A",
+      "request_in_flight": true,
+      "original_completed": true,
+      "nonce_observed": true,
+      "original_stop": "end_turn",
+      "followup_stop": "end_turn",
+      "tui_witness": false,
+      "sibling_agent_text": false
+    },
+    {
+      "name": "idle_hold_start",
+      "seconds": 75
+    },
+    {
+      "name": "no_send_control",
+      "quiet": true
+    },
+    {
+      "name": "idle_B_after_hold",
+      "ok": true,
+      "sibling_agent_text": false,
+      "reply": "GROK120_IDLE_B",
+      "tui_witness": false
+    },
+    {
+      "name": "producer_disconnect",
+      "tuis_alive": true
+    },
+    {
+      "name": "cleanup",
+      "owned_tuis_closed": true,
+      "leader_reaped": true
+    }
+  ]
+}

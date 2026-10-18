@@ -12,10 +12,14 @@ team, appear with the correct identity, send/reply through skills, receive while
 busy and idle, recover on resume, and close without harming sibling sessions.
 This work first establishes feasibility, then chooses the integration contract.
 
-**No GO yet.** ACP handshake and missing-target interjection dispatch are measured.
-The standalone ACP client cannot create a session with its current authentication
-state. Busy/idle delivery and normal TUI attachment remain unproven. The following
-phases are a dependency-ordered proposal, not claims of supported behavior.
+**Conditional feasibility demonstrated for explicit leader-backed TUIs.** After
+normal login, standalone ACP completes a model turn. Two TUIs launched with
+`grok --leader --leader-socket <owned socket>` receive addressed `session/prompt`
+turns from a secondary ACP client through `session/resume`. Joined nonce replies
+appear in the original windows while idle and after queued busy work; siblings
+remain quiet. A 75-second no-send hold passes. Socket selection alone did not
+produce TUI-visible replies: do not restore disk history and call it live delivery.
+This is a transport candidate, not a production GO. G4–G7 still gate implementation.
 
 ## Phase 0 — prove the host contract
 
@@ -27,16 +31,18 @@ login through supported host behavior; do not copy auth files or bypass trust.
 | Gate | Required evidence | Current state |
 | --- | --- | --- |
 | G0: version and protocol | Exact executable version; initialized capabilities; bounded cleanup | PASS for standalone ACP |
-| G1: authentication | A synthetic session completes a fixed response with the existing login | BLOCKED |
-| G2: exact routing | Independent producer addresses A; B with same directory/title remains untouched | NOT RUN |
-| G3: idle and busy | Same live TUI consumes split nonce after idle and during/after busy work, no typed nudge or cancellation | NOT RUN |
+| G1: authentication | A synthetic session completes a fixed response with the existing login | PASS after normal login |
+| G2: exact routing | Independent producer addresses A; B with same directory/title remains untouched | PARTIAL: same-directory A/B isolated; duplicate titles not tested |
+| G3: idle and busy | Same live TUI consumes split nonce after idle and during/after busy work, no typed nudge or cancellation | PASS for explicit leader mode; busy turn initiated by producer |
 | G4: lifetime | 35-minute idle hold plus matched no-send control; repeat short cases in three independent sessions | NOT RUN |
 | G5: hook and identity | Normal installed/trusted hook payloads, tool env, shared-parent behavior and session-specific liveness | NOT RUN |
 | G6: admission and recovery | Wrong/closed IDs, disconnects, lost response, backpressure, native permission hold and replay behavior | NOT RUN |
 | G7: lifecycle and size | New/fork/resume/compact/exit/crash, leader survives receiver exit; frame sizes up to production cap | NOT RUN |
 
-Choose `session/prompt` through a secondary shared-leader client as the first
-candidate, based on source inspection. Compare `session/load` and `session/resume`
+Use measured `session/prompt` through a secondary shared-leader client as the
+leading candidate. Canonicalize cwd before attachment (`/tmp` and `/private/tmp`
+were not interchangeable on macOS). Require an already-live session; a successful
+resume alone can restore saved history into a different backend. Compare `session/load` and `session/resume`
 only after inspecting their attachment and ownership effects. `_x.ai/interject`
 is a separate busy-delivery candidate; its recognized method alone proves nothing
 about idle wake. Do not invent a `queue/enqueue` command: the installed probe
@@ -163,7 +169,31 @@ cannot expand scope through their reports. The retained local reports provide
 additional file/function references; the public experiment record contains only
 sanitized, reproducible observations.
 
-Next action: confirm normal Grok login, prove isolated ACP session creation, then
-run a two-TUI shared-leader delivery experiment. Implementation phases wait for
-the resulting GO decision. No release or message to another person is authorized
-by this research milestone.
+Next action: validate normally installed/trusted hooks and session identity, then
+endpoint discovery, admission/ACK semantics, longer idle and lifecycle cases.
+Keep monitor-based inbox following as an alternative for non-leader sessions;
+measure its idle wake, arming and lifetime before choosing it. Do not implement
+`internal/harness/watch` delivery on a hook-output assumption.
+
+## Grok-session guidance supplied by the user
+
+The following are useful guide-derived claims, **not yet live measurements**.
+Follow [harness package changes](../../docs/developer/change/harness-packages.md)
+and [harness documentation](../../docs/developer/documentation/add-a-harness.md).
+
+- Plan a distinct `grok/brigade/` package and `.grok-plugin/marketplace.json`, seven
+  skills, native hooks, and the shared POSIX bootstrap/release assets. Test normal
+  `grok plugin marketplace add` / `grok plugin install --trust`; hooks require trust.
+- Confirm options-file behavior; proposed path is `~/.config/brigade/grok-options.json`
+  because the guide describes no plugin `userConfig`.
+- Measure `GROK_SESSION_ID` in both hooks and model shell, `GROK_PLUGIN_ROOT`, and
+  agreement of HOME/XDG directories. Validate camelCase payloads and aliases.
+- Measure SessionStart `new`/`load`, subagent exclusion and lack of compaction
+  startup; plan watcher-owned close around the reportedly short SessionEnd budget
+  (about 1.5 seconds; observe hooks default about 5 seconds).
+- Treat allowing UserPromptSubmit stdout/additionalContext as discarded unless
+  measured otherwise. Do not use `poll_on_prompt` stdout as delivery. A top-level
+  SessionStart `systemMessage` is not proven model context either.
+- Monitor stdout events are the alternate wake candidate. Prove an idle model
+  consumes the line and that arming survives lifecycle changes; do not infer this
+  from a Muse-compatible tool name.

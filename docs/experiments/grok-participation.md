@@ -6,23 +6,26 @@ Installed Grok: `1.0.62 (1474f9cbdd91) [stable]`, macOS arm64.
 
 ## Verdict
 
-**BLOCKED on live authentication; first-class participation is not yet proven.**
-The installed runtime exposes promising ACP and shared-leader surfaces. No
-production Grok integration has been implemented, and no real user's session or
-credential files were inspected. Registration, busy delivery and idle wake must
-not be inferred from plugin compatibility or a successful protocol handshake.
+**Conditional feasibility: explicit leader-backed Grok TUIs receive external turns.**
+After the user completed normal login, the standalone ACP model-content check
+passed. An independent producer then delivered joined nonce replies into two
+original Grok terminal windows using their native IDs. Idle delivery, queued busy
+delivery without cancellation, a 75-second no-send hold, sibling isolation, and
+producer disconnect survival passed in the tested topology. No production Grok
+integration is implemented; longer idle, hooks, lifecycle and ACK semantics remain
+unproven.
 
-The user has installed and updated Grok. A separate `grok agent --no-leader stdio`
-process successfully initialized, but `session/new` returned `-32000`,
-`Authentication required`, with `no auth method id provided`. Initialization
-advertised only the `grok.com` auth method and no default auth method. An explicit
-`authenticate` request with that method and `headless: true` did not answer within
-20 seconds. That process was stopped. Authentication was attempted through a flow that may require interactive login;
-no completion was observed and no credential was read or copied. The final probe
-does not invoke that flow.
-This does not prove the user's normal TUI is logged out: independent ACP startup
-may need different authentication wiring. Confirm a normal terminal prompt, then
-resolve that contract before proceeding with live delivery tests.
+Both TUIs must explicitly use `--leader` in this experiment. Merely selecting
+`--leader-socket` yielded successful ACP model replies but **no reply in either
+original TUI**. This negative control prevents mistaking a restored copy of saved
+history for delivery into a live conversation. On macOS, canonical cwd was also
+required: `/tmp/...` attachment failed with `FS_NOT_FOUND` while the saved session
+used `/private/tmp/...`.
+
+The earlier authentication-blocked snapshots are retained as historical evidence.
+After normal login, initialization advertised `cached_token` and `grok.com`, a
+default auth method existed, and `session/new` worked without explicit authenticate.
+No credential files were read or copied.
 
 ## Measured results
 
@@ -35,16 +38,18 @@ resolve that contract before proceeding with live delivery tests.
 | `_x.ai/interject` with the same missing ID | `-32602`, session not found | Addressed method is dispatched and rejects a missing target; not proof of delivery |
 | `x.ai/queue/enqueue`, `_x.ai/queue/enqueue` | `-32601` | These guessed enqueue methods do not exist on this build |
 | `session/resume` with an invented missing ID | `FS_NOT_FOUND` | Refuses the nonexistent saved session; no existing history was opened |
-| `session/new` | BLOCKED, `-32000` | This standalone connection cannot create a model session with its current auth state |
-| Explicit `authenticate` | BLOCKED, 20-second timeout | No headless auth completion observed; no model request followed |
-| Same-session busy/idle delivery, TUI attach, routing isolation | NOT RUN | Requires live authenticated sessions |
+| `session/new` after normal login | PASS | Synthetic model turn completed; own session closed |
+| Earlier explicit `authenticate` | Historical 20-second timeout | Not retried after normal login |
+| Explicit leader TUI attach, idle/busy delivery, routing isolation | PASS, bounded pilot | Original TUI displays generated joined nonce; sibling produces no agent text |
+| 75-second no-send hold; producer disconnect | PASS | Idle B wakes afterward; terminals remain alive on disconnect |
+| Socket-only launch without `--leader` | FAIL existing-TUI witness | ACP success alone is insufficient |
 | Lifecycle hooks, names/model/context, package install | NOT RUN | No inferred compatibility claims |
 
 The initial reproduction driver is [probe.py](../../scripts/experiments/grok-participation/probe.py).
 Its [README](../../scripts/experiments/grok-participation/README.md) describes scope and cleanup.
 Sanitized handshake and live-blocker snapshots are in
 [grok-participation-evidence](grok-participation-evidence/README.md).
-Repeated script runs confirmed the handshake, extension dispatch and auth blocker.
+Initial script runs confirmed the handshake, extension dispatch and former auth blocker.
 Independent review identified an unbounded child cleanup path in the initial
 probe. The corrected driver escalates only its owned process through EOF,
 SIGTERM and SIGKILL with bounded waits, then cancels bounded reader tasks. A
@@ -52,7 +57,15 @@ synthetic SIGTERM-ignoring child was killed and reaped in 10.01 seconds; the
 not-started cleanup path also passed. Capability output now selects known fields
 instead of copying arbitrary metadata.
 
-The model-content witness never passed: no successful model response was observed.
+The standalone model witness now passes. The live TUI driver is
+[tui_probe.py](../../scripts/experiments/grok-participation/tui_probe.py). It launches
+only synthetic windows on an owned socket, uses explicit default permission mode,
+asks for no tools, and checks both ACP-generated content and the original screen.
+Busy work is initiated by the producer in that same attached session; this does
+not yet cover a human-originated tool call or permission hold. A/B share cwd but
+have different generated titles. Model completion latency was 1.49 seconds for
+short-idle A in the first successful run; wake onset was not separately timed.
+The 75-second hold is not the planned 2,100-second lifetime gate.
 
 ## Source-backed candidates, not runtime proof
 
@@ -104,23 +117,21 @@ can include cache, refresh, external provider and interactive login. The
 startup have additional auth lifecycle behavior; a valid login in one process
 can coexist with a null method in another.
 
-Await the normal-TUI result. If it works, compare the executable/version and
-non-secret launch context before retrying. Do not force an unadvertised
-`cached_token` method, copy an auth file, or repeat interactive authentication
-blindly. The public source revision mismatch remains a limitation on these
-explanations.
+Normal login resolved the measured blocker. No unadvertised authentication method
+was forced, and no OAuth flow was repeated. The public source revision mismatch
+remains a limitation on source-based explanations.
 
-## Next live arms and controls
+## Live arms and remaining controls
 
-1. Obtain a successful ordinary Grok prompt using the existing login. Resolve
+1. DONE: obtain a successful ordinary Grok prompt using the existing login. Resolve
    authentication for the isolated leader/client topology without exporting auth.
-2. Launch two synthetic TUI conversations A and B on a separately owned leader.
+2. DONE for explicit leader mode: launch two synthetic TUI conversations A and B on a separately owned leader.
    Keep their full native IDs and client attachment identities distinct. A second
    producer must attach without stealing either TUI or loading a replacement run.
-3. Deliver a split nonce to A after a short idle hold. Require a completed model
+3. DONE for content completion: deliver a split nonce to A after a short idle hold. Require a completed model
    reply joining its two pieces; the joined answer must not appear in the request.
    B must stay silent. Measure wake and model-content separately.
-4. Repeat while A is busy. Require eventual model-visible delivery without
+4. DONE for producer-started work: repeat while A is busy. Require eventual model-visible delivery without
    cancelling its current work. Determine whether prompts queue or interject.
 5. Hold an existing receiver idle for 2,100 seconds with a no-send control; repeat
    across three independent sessions. This tests attachment lifetime, not just a
@@ -141,9 +152,9 @@ is useful baseline evidence but cannot pass the existing-TUI gate.
 ## Limits and next decision
 
 This investigation creates no backend team and sends no messages to teammates.
-No normal Grok leader was killed. The standalone probe process was closed; its
-workspace was temporary. Failed session creation left no probe-created conversation
-to close. No production files, release pins or configuration were changed.
+No normal Grok leader was killed. Owned probe clients, TUI windows and leaders
+were stopped. Grok may retain synthetic histories; no real transcript was read.
+Temporary TUI workspaces remain outside the repository for inspection. No production files, release pins or configuration were changed.
 
 The [conditional implementation plan](../../.context/plans/grok-build-participation.md)
 starts with the live proof. If only next-human-prompt polling or a separate worker

@@ -30,7 +30,32 @@ The temporary workspace is removed after the process exits. The JSON report is
 printed to stdout; redirect it under `.ignored/` for scratch evidence. A blocked
 or failed live check exits nonzero. No shared leader is stopped.
 
-Next arms must test a separate producer connected to an isolated shared leader
-and two real TUIs. A headless reply or queue receipt alone cannot satisfy idle
+The TUI pilot below tests a separate producer connected to an isolated shared
+leader and two real TUIs. A headless reply or queue receipt alone cannot satisfy idle
 wake, isolation or acknowledgment durability. See the [experiment record](../../../docs/experiments/grok-participation.md)
 and [implementation plan](../../../.context/plans/grok-build-participation.md).
+
+## Two existing terminal windows
+
+After normal login, with `tmux` installed, run the bounded live pilot (model quota
+is consumed; allow several minutes):
+
+```sh
+mkdir -p .ignored/grok-tui
+python3 scripts/experiments/grok-participation/tui_probe.py \
+  --scratch .ignored/grok-tui --report .ignored/grok-tui/report.json
+```
+
+The driver creates two synthetic TUIs with explicit `--leader`, a unique socket,
+canonical workspace path and default permission mode. A separate ACP client
+attaches by full session UUID, then sends split nonces to idle A, busy A, and B
+after a 75-second quiet hold. Passing requires generated content in ACP **and**
+the original TUI, no sibling agent text, completed original busy work, surviving
+TUIs after producer disconnect, and cleanup. Exit 1 means failure, including
+missing TUI witnesses. Progress is NDJSON on stdout; `--report` holds final JSON.
+
+Only owned tmux sessions and leader are stopped. The private scratch includes
+synthetic IDs and failure screens; temporary workspaces and Grok's synthetic
+histories are retained. Do not publish private scratch wholesale. This is a
+short transport pilot, not hook, permission, durable-ACK or long-idle certification.
+The busy turn originates from the producer, not from a human or tool execution.
