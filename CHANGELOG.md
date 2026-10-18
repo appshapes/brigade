@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.34.1] — 2026-10-18
+
 ### Fixed
 
 - **Muse Code and Codex CLI roster names and context follow their host records** (card 117). The watcher reads
