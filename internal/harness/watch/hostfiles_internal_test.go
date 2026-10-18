@@ -148,7 +148,11 @@ func TestHostFactsIndexReplacement(t *testing.T) {
 	}
 	outside := filepath.Join(t.TempDir(), "index")
 	putFacts(t, outside, `{"id":"`+factsID+`","thread_name":"outside tree"}`+"\n")
-	if err := os.Remove(index); err != nil {
+	// Retain the inode so restoring it with the same size and mtime
+	// deterministically exercises the metadata collision seen on Linux.
+	saved := filepath.Join(root, "saved-index")
+	stamp := r.indexInfo.ModTime()
+	if err := os.Rename(index, saved); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, index); err != nil {
@@ -160,7 +164,13 @@ func TestHostFactsIndexReplacement(t *testing.T) {
 	if err := os.Remove(index); err != nil {
 		t.Fatal(err)
 	}
-	putFacts(t, index, strings.ReplaceAll(original, "renamed codex", "restored name"))
+	putFacts(t, saved, strings.ReplaceAll(original, "renamed codex", "restored name"))
+	if err := os.Chtimes(saved, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(saved, index); err != nil {
+		t.Fatal(err)
+	}
 	if got := r.refresh(); got.name != "restored name" {
 		t.Fatalf("index replacement not refreshed: %+v", got)
 	}

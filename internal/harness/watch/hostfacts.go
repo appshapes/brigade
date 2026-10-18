@@ -239,6 +239,9 @@ func readHostLines(f *os.File, start, size int64, apply func([]byte)) {
 func (r *hostFactsReader) refreshIndex(root *os.File) {
 	f, fi := openHostPath(root, "session_index.jsonl", false)
 	if f == nil {
+		// A restored index may reuse the same inode, size and timestamp.
+		// Keep the last facts, but require a fresh read after an open failure.
+		r.indexInfo = nil
 		return
 	}
 	defer func() { _ = f.Close() }()
