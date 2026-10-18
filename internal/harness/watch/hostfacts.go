@@ -73,6 +73,8 @@ func hostHistoryRoot(host config.Host, environ []string) string {
 		return ""
 	}
 	switch host {
+	case config.HostClaude:
+		return ""
 	case config.HostCodex:
 		return filepath.Join(home, ".codex")
 	case config.HostMuse:
@@ -114,7 +116,7 @@ func hostSessionID(id string) bool {
 			if c != '-' {
 				return false
 			}
-		} else if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+		} else if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}
@@ -211,7 +213,7 @@ func openHostFile(path string) (*os.File, os.FileInfo) {
 }
 
 func unchangedHostFile(old, current os.FileInfo) bool {
-	return old != nil && os.SameFile(old, current) && old.Size() == current.Size() && old.ModTime() == current.ModTime()
+	return old != nil && os.SameFile(old, current) && old.Size() == current.Size() && old.ModTime().Equal(current.ModTime())
 }
 
 // readHostLines reads a bounded window. A partial first or final line is

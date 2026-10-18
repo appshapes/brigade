@@ -48,16 +48,18 @@ func TestHostFactsFixtures(t *testing.T) {
 		t.Run(string(host), func(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
-			file, name, tokens := "muse-session.jsonl", "renamed muse", 42000
+			file, name := "muse-session.jsonl", "renamed muse"
+			contextCount := 42000
 			if host == config.HostCodex {
-				file, name, tokens = "codex-rollout.jsonl", "renamed codex", 73000
+				file, name = "codex-rollout.jsonl", "renamed codex"
+				contextCount = 73000
 				putFacts(t, filepath.Join(root, "session_index.jsonl"), factsFixture(t, "codex-index.jsonl"))
 			}
 			path := factsLog(root, host)
 			original := factsFixture(t, file)
 			putFacts(t, path, original)
 			r := hostFactsReader{host: host, root: root, id: factsID}
-			want := localHostFacts{name: name, tokens: tokens, hasContext: true}
+			want := localHostFacts{name: name, tokens: contextCount, hasContext: true}
 			if got := r.refresh(); got != want {
 				t.Fatalf("got %+v, want %+v", got, want)
 			}
