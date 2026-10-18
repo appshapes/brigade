@@ -1,5 +1,13 @@
 # Muse Code: the skills a session loads, and how it is woken
 
+`brigade sessions` follows `session.name.changed` events in Muse's own session journal on the next heartbeat,
+matching the exact session ID. CONTEXT is the latest `model_completed` prompt count, including cache once,
+not cumulative session or child usage. For older records without that count, native Meta input tokens are used
+only with a matching run-provider record; unknown conventions stay blank. MODEL still comes from the hook-written
+map. The reader uses `$HOME/.local/share/muse/sessions`: Muse strips `XDG_*` from plugin hooks, so custom data
+directories are unsupported. Missing/unsupported records preserve the last known name and leave unobserved
+context blank. See [format evidence, validation limits and read bounds](../../research/host-session-facts.md).
+
 The Muse Code package (`muse/brigade/`) ships the same seven skills, worded for Muse. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 

@@ -154,8 +154,9 @@ func (w *watcher) checkLiveness() string {
 	}
 	if !config.Host(w.harness).Pointed() {
 		// Muse Code and Codex CLI keep no session registry under a Claude
-		// config directory (cards 88, 107); the name and the activity stay
-		// as the map and the heartbeats have them.
+		// config directory (cards 88, 107). Their names are refreshed from
+		// host history by the heartbeat writer (card 117); activity stays
+		// as the map and the heartbeats have it.
 		w.refreshRegistry()
 	}
 	// Card 61: with the activity just read, the idle close is the one
@@ -239,6 +240,9 @@ func (w *watcher) refreshMap() string {
 	if m.ClaudeSessionID != w.state.nativeID {
 		w.log.Info("native session id updated from the by-pid map")
 		w.state.nativeID = m.ClaudeSessionID
+		if config.Host(w.harness).Pointed() {
+			w.state.name = m.SessionName
+		}
 	}
 	w.state.mu.Unlock()
 	return ""

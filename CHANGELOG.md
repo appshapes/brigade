@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and is frozen at BAP/1 ([`docs/protocol-v1.md`](docs/protocol-v1.md)); a protocol change that an existing
 conforming adapter would fail is a new protocol major, not a Brigade release.
 
+## [Unreleased]
+
+### Fixed
+
+- **Muse Code and Codex CLI roster names and context follow their host records** (card 117). The watcher reads
+  applied names and latest input-context usage by exact native session ID on each heartbeat. Models keep their
+  existing source. Reads are bounded and best effort; missing usage stays blank. Supported formats, custom-data
+  directory limitations and privacy are described on [the sessions page](docs/team-member/use/your-session-on-the-roster.md).
+
 ## [0.34.0] — 2026-10-17
 
 ### Fixed

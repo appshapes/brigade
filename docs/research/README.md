@@ -1,5 +1,8 @@
 # Research inputs (2026-08-30)
 
+Later host-format evidence: [Muse Code and Codex CLI session facts, 2026-10-18](host-session-facts.md)
+(card 117: exact-ID names, token usage, bounded readers and validation limits).
+
 Committed copy of the research that produced `.context/plans/claude-code-team-messaging-implementation-plan.md`.
 These files are the reference for every `U-`, `I-`, `E2E-` and `CI-` test id the plan cites (defined in
 `security-threat-model.md`, section 8) and for the empirical facts the plan marks `[verified]`. They were written by
