@@ -619,6 +619,9 @@ type watcher struct {
 	transcriptMu sync.Mutex
 	transcript   *transcript.Reader
 	lastModel    string
+	// hostFacts is guarded by transcriptMu, like the Claude reader. Only
+	// heartbeat's command writer reads host history; hooks never do.
+	hostFacts hostFactsReader
 
 	// harnessVersion is the map's harness_version, carried on a re-open
 	// registration (reopen.go); reopening keeps two re-open triggers —

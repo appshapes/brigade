@@ -6,6 +6,7 @@ import (
 
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/transcript"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -31,6 +32,24 @@ func (w *watcher) heartbeat(s *session) {
 		return
 	}
 	snap := w.state.snapshot()
+	var model *string
+	var tokens *int
+	if config.Host(w.harness).Pointed() {
+		facts := w.pointedFacts(snap.nativeID)
+		if facts.name != "" {
+			snap.name = facts.name
+			w.state.mu.Lock()
+			if w.state.nativeID == snap.nativeID {
+				w.state.name = facts.name
+			}
+			w.state.mu.Unlock()
+		}
+		if facts.hasContext && facts.tokens >= 0 && facts.tokens <= protocol.MaxContextUsedTokens {
+			tokens = &facts.tokens
+		}
+	} else {
+		model, tokens = w.transcriptFacts(snap.transcriptPath)
+	}
 	activity := snap.activity
 	inbound := snap.inbound
 	var name *string
@@ -38,7 +57,6 @@ func (w *watcher) heartbeat(s *session) {
 		n := snap.name
 		name = &n
 	}
-	model, tokens := w.transcriptFacts(snap.transcriptPath)
 	if model == nil && w.model != "" {
 		// A host that names its model in the hook document (Muse Code,
 		// card 88) has no transcript to read it from: the map's value

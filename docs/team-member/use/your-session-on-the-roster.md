@@ -2,7 +2,7 @@
 
 Every active member of the team, and whoever runs its backend, sees each session's name, state, your label, its
 model identity and context occupancy, its Brigade version, the repository name, and one sentence about its work.
-Never sent: your Claude Code session id, your working directory, your hostname, your username, your transcript or
+Never sent: your host's native session id, your working directory, your hostname, your username, your transcript or
 the path to it.
 
 ## The sentence under your row
@@ -35,11 +35,25 @@ hostname, a person's or a customer's name, your account email when `label` is `n
 cannot see: [docs/security.md, section 2](../../security.md#2-the-person-who-runs-the-backend-can-read-everything)
 and [section 5](../../security.md#5-sending-what-the-ask-and-deny-rules-stop-and-what-they-miss).
 
-## The two values read from your transcript
+## Names, models and context by host
 
-So that the roster can show which model a session runs and how full its context is, the watcher reads your
-session's transcript file, locally, at each heartbeat, and sends **only those two values**: the model identity and
-the context occupancy in tokens. Nothing else is read out, kept or transmitted, and the path is never sent.
+The watcher reads local host records at each heartbeat. Claude Code supplies model and context from its
+transcript and the name from its session registry. Muse Code and Codex CLI supply names and context from their
+own history, matched by exact native session ID; their model still comes from the hook-written session map.
+Only the roster name and the two derived facts, model and context, are shared. File contents and paths stay local.
+
+| Host | Name changes | CONTEXT |
+| --- | --- | --- |
+| Claude Code | Registry updates, including `/rename` | Latest assistant input plus cache creation and cache reads |
+| Muse Code | Journal `session.name.changed`, next heartbeat | Latest model completion's counted-once prompt tokens; native Meta input count as a fallback |
+| Codex CLI | Thread title index, next heartbeat | Latest rollout `token_count` input tokens, including cache once |
+
+CONTEXT is the last reported input context, not lifetime usage, output tokens or a percentage of the model's
+window. Compaction can reduce it. Until a supported usage record exists it stays blank; temporarily missing
+records keep the last known values. Reads are bounded, so unusually large or unsupported records may be skipped.
+Codex 0.163.0's paginated mode still writes the supported rollout events; page-only/database-only histories are
+unsupported. Muse custom data directories are unsupported because its plugin hooks do not receive the original
+XDG data setting. Details: [Muse](../../agent/in-a-team/muse-code.md), [Codex](../../agent/in-a-team/codex.md).
 
 ## The repository name
 

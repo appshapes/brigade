@@ -1,0 +1,4 @@
+{"timestamp":"2026-10-18T10:00:00Z","ordinal":0,"type":"session_meta","payload":{"id":"0199aa11-bb22-7333-8444-555566667777","session_id":"ephemeral-connection","cli_version":"0.163.0","history_mode":"paginated"}}
+{"timestamp":"2026-10-18T10:01:00Z","ordinal":1,"type":"token_usage_record","payload":{"thread_id":"0199aa11-bb22-7333-8444-555566667777","usage":{"input_tokens":73000},"thread_token_usage":{"input_tokens":900000}}}
+{"timestamp":"2026-10-18T10:01:00Z","ordinal":2,"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":900000},"last_token_usage":{"input_tokens":73000,"cached_input_tokens":70000,"cache_write_input_tokens":0,"output_tokens":1200,"reasoning_output_tokens":800,"total_tokens":74200},"model_context_window":200000}}}
+{"type":"event_msg","payload":{"type":"token_count","info":null}}

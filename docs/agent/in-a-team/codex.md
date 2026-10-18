@@ -1,5 +1,12 @@
 # Codex CLI: the skills a session loads, and how it is woken
 
+`brigade sessions` follows host renames from `$CODEX_HOME/session_index.jsonl` (default `$HOME/.codex`) on the
+next heartbeat, matching the exact thread ID. CONTEXT is the latest rollout `token_count` event's input tokens,
+including cached input once; it is neither cumulative usage nor window capacity. MODEL still comes from the
+hook-written session map. The observed 0.163.0 paginated history retains these events, as classic JSONL does.
+Missing/unsupported records leave context blank and the name at its last known value. Reads are bounded;
+page-only or database-only storage is unsupported. See [format evidence and limits](../../research/host-session-facts.md).
+
 The Codex CLI package (`codex/brigade/`) ships the same seven skills, worded for Codex. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 
