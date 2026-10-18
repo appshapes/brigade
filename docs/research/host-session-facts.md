@@ -87,7 +87,16 @@ are skipped; malformed lines do not stop later records. Facts older than these w
 fresh watcher. A live rename appended in the supported shape arrives on the next heartbeat. Missing files keep
 last known facts; truncation/replacement resets journal facts. Changing host, root or native ID clears the cache.
 
-Reads require regular files and use nonblocking, no-follow opens. JSON remains lenient on duplicate members and
+Every poll opens the configured host directory and checks its identity against the first successful poll.
+Replacing that root (including through a changed ancestor) keeps the last known facts until the original root
+returns or the watcher restarts; cache invalidation never adopts the replacement. Configured parent paths may
+use system aliases such as macOS `/var`; the configured directory itself must not be a symlink. Discovery,
+cached journals and the title index all open each child component relative to an opened directory descriptor,
+with no-follow enforced by the open itself. Directory replacement cannot redirect a checked path through a
+symlink between checking and opening it. Leaves must be regular files, with nonblocking opens so a FIFO cannot
+stall a heartbeat. All descriptors close after each poll; discovery and byte limits remain the same.
+
+JSON remains lenient on duplicate members and
 invalid Unicode, matching the Claude transcript reader. Negative/non-integer counters are rejected, integer
 overflow saturates, and counts beyond the wire's safe range are omitted so lease renewal still works. Names use
 the existing name sanitiser. No raw file bytes, paths, native IDs, timestamps, provider usage detail or filesystem

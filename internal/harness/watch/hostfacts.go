@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/harness/config"
@@ -38,10 +37,10 @@ type localHostFacts struct {
 }
 
 type hostFactsReader struct {
-	host               config.Host
-	root, id, path     string
-	facts              localHostFacts
-	logInfo, indexInfo os.FileInfo
+	host                         config.Host
+	root, id, path               string
+	facts                        localHostFacts
+	rootInfo, logInfo, indexInfo os.FileInfo
 	// The last run configuration is enough for the sequential foreground
 	// run. A completion from another run needs its explicit prompt_tokens.
 	runID, provider string
@@ -93,14 +92,25 @@ func (r *hostFactsReader) refresh() localHostFacts {
 	if r.host != config.HostCodex && r.host != config.HostMuse {
 		return localHostFacts{}
 	}
+	root, info := openHostRoot(r.root)
+	if root == nil {
+		return r.facts
+	}
+	defer func() { _ = root.Close() }()
+	// Pin the configured directory's identity across polls. Never adopt a
+	// replacement root, even if a cached path is invalidated and rediscovered.
+	if r.rootInfo != nil && !os.SameFile(r.rootInfo, info) {
+		return r.facts
+	}
+	r.rootInfo = info
 	if r.path == "" {
-		r.path = findHostLog(filepath.Join(r.root, "sessions"), r.host, r.id)
+		r.path = findHostLog(root, r.host, r.id)
 	}
 	if r.path != "" {
-		r.refreshLog()
+		r.refreshLog(root)
 	}
 	if r.host == config.HostCodex {
-		r.refreshIndex()
+		r.refreshIndex(root)
 	}
 	return r.facts
 }
@@ -126,7 +136,7 @@ func hostSessionID(id string) bool {
 // Search ONLY YYYY/MM/DD. Never descend into subagents, tool output,
 // archives, arbitrary directories or SQLite stores. Directory entries
 // share one budget, including non-matching entries; reads are batched.
-func findHostLog(root string, host config.Host, id string) string {
+func findHostLog(root *os.File, host config.Host, id string) string {
 	budget := hostDiscoveryEntries
 	var visit func(string, int) string
 	visit = func(dir string, depth int) string {
@@ -135,23 +145,17 @@ func findHostLog(root string, host config.Host, id string) string {
 		}
 		if depth == 3 && host == config.HostMuse {
 			path := filepath.Join(dir, id, "session.jsonl")
-			if fi, err := os.Lstat(filepath.Dir(path)); err == nil && fi.IsDir() {
-				if f, _ := openHostFile(path); f != nil {
-					_ = f.Close()
-					return path
-				}
+			if f, _ := openHostPath(root, path, false); f != nil {
+				_ = f.Close()
+				return path
 			}
 			return ""
 		}
-		f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
-		if err != nil {
+		f, _ := openHostPath(root, dir, true)
+		if f == nil {
 			return ""
 		}
 		defer func() { _ = f.Close() }()
-		fi, err := f.Stat()
-		if err != nil || !fi.IsDir() {
-			return ""
-		}
 		var entries []os.DirEntry
 		for budget > 0 {
 			n := min(128, budget)
@@ -177,7 +181,7 @@ func findHostLog(root string, host config.Host, id string) string {
 		}
 		return ""
 	}
-	return visit(root, 0)
+	return visit("sessions", 0)
 }
 
 func datePart(s string, depth int) bool {
@@ -194,22 +198,6 @@ func datePart(s string, depth int) bool {
 		}
 	}
 	return true
-}
-
-// O_NONBLOCK prevents a FIFO replacement from hanging the heartbeat;
-// O_NOFOLLOW refuses a symlink at the final component. No error or path
-// is returned to a caller that could accidentally put it on the wire.
-func openHostFile(path string) (*os.File, os.FileInfo) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return nil, nil
-	}
-	fi, err := f.Stat()
-	if err != nil || !fi.Mode().IsRegular() {
-		_ = f.Close()
-		return nil, nil
-	}
-	return f, fi
 }
 
 func unchangedHostFile(old, current os.FileInfo) bool {
@@ -248,8 +236,8 @@ func readHostLines(f *os.File, start, size int64, apply func([]byte)) {
 	}
 }
 
-func (r *hostFactsReader) refreshIndex() {
-	f, fi := openHostFile(filepath.Join(r.root, "session_index.jsonl"))
+func (r *hostFactsReader) refreshIndex(root *os.File) {
+	f, fi := openHostPath(root, "session_index.jsonl", false)
 	if f == nil {
 		return
 	}
@@ -271,8 +259,8 @@ func (r *hostFactsReader) refreshIndex() {
 	r.indexInfo = fi
 }
 
-func (r *hostFactsReader) refreshLog() {
-	f, fi := openHostFile(r.path)
+func (r *hostFactsReader) refreshLog(root *os.File) {
+	f, fi := openHostPath(root, r.path, false)
 	if f == nil {
 		r.path = ""
 		return

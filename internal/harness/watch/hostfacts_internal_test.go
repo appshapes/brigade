@@ -265,7 +265,12 @@ func TestHostFactsBoundsAndSpecialFiles(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "records")
 	putFacts(t, path, strings.Repeat("x", hostLineBytes+1)+"\n{}\n{partial")
-	f, _ := openHostFile(path)
+	dir, _ := openHostRoot(root)
+	if dir == nil {
+		t.Fatal("no root")
+	}
+	defer func() { _ = dir.Close() }()
+	f, _ := openHostPath(dir, "records", false)
 	if f == nil {
 		t.Fatal("no fixture")
 	}
@@ -283,15 +288,15 @@ func TestHostFactsBoundsAndSpecialFiles(t *testing.T) {
 	if err := os.Symlink(path, link); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{fifo, root, link, filepath.Join(root, "missing")} {
-		if f, _ := openHostFile(p); f != nil {
+	for _, p := range []string{"fifo", ".", "link", "missing"} {
+		if f, _ := openHostPath(dir, p, false); f != nil {
 			_ = f.Close()
 			t.Fatalf("opened special file %s", p)
 		}
 	}
 	// An exact suffix alone does not permit arbitrary recursive discovery.
 	putFacts(t, filepath.Join(root, "sessions", "subagent", "2026", "10", "18", factsID, "session.jsonl"), factsFixture(t, "muse-session.jsonl"))
-	if got := findHostLog(filepath.Join(root, "sessions"), config.HostMuse, factsID); got != "" {
+	if got := findHostLog(dir, config.HostMuse, factsID); got != "" {
 		t.Fatal("found subagent")
 	}
 }
