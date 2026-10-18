@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "scope": "standalone ACP; not proof of existing TUI delivery",
+  "version": "1.0.62",
+  "capabilities": {
+    "loadSession": true,
+    "promptCapabilities": {
+      "image": false,
+      "audio": false,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "sessionCapabilities": {
+      "list": {},
+      "resume": {},
+      "close": {}
+    },
+    "auth": {},
+    "_meta": {
+      "x.ai/fs_notify": true,
+      "x.ai/hooks": {
+        "blockingEvents": [
+          "pre_tool_use",
+          "stop",
+          "subagent_stop"
+        ],
+        "decisions": [
+          "deny",
+          "block"
+        ],
+        "stopSignals": [
+          "continue",
+          "stopReason",
+          "additionalContext"
+        ]
+      },
+      "x.ai/capabilities": {
+        "toolOverrides": {
+          "x_keyword_search": true,
+          "x_semantic_search": true,
+          "x_user_search": false,
+          "x_thread_fetch": false
+        }
+      }
+    }
+  },
+  "auth_method_ids": [
+    "grok.com"
+  ],
+  "negative_routing": {
+    "x.ai/interject": {
+      "error_code": -32601
+    },
+    "_x.ai/interject": {
+      "error_code": -32602
+    }
+  },
+  "live": {
+    "status": "blocked",
+    "error_code": -32000,
+    "action": "Complete a normal Grok prompt in a terminal, then retry. No login flow is automated."
+  }
+}
