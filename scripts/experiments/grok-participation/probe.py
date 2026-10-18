@@ -163,14 +163,14 @@ async def main():
                                       'error_code': response.get('error', {}).get('code')}
             else:
                 report['live'] = {'status': 'not_run'}
-        except (TimeoutError, KeyError, ValueError, OSError) as error:
+        except (asyncio.TimeoutError, KeyError, ValueError, OSError) as error:
             report['probe_error'] = type(error).__name__
         finally:
             if sid is not None:
                 try:
                     closed = await c.call('session/close', {'sessionId': sid}, timeout=10)
                     report['session_close_ok'] = 'result' in closed
-                except (TimeoutError, OSError):
+                except (asyncio.TimeoutError, OSError):
                     report['session_close_ok'] = False
             try:
                 report['cleanup'] = await c.close()
