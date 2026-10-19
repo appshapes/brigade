@@ -137,7 +137,7 @@ func (w *watcher) checkLiveness() string {
 			return "claude_gone"
 		case sessionmap.GrokUnknown:
 			w.log.Warn("grok pid lookup failed", adlog.Err(lerr))
-		default:
+		case sessionmap.GrokLive:
 			if err := w.checkGrokReceiver(); err != nil {
 				return "map_mismatch"
 			}

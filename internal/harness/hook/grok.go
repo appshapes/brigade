@@ -340,6 +340,8 @@ func (r *run) claimGrok(f facts, in input) bool {
 	case sessionmap.GrokUnknown:
 		r.say("Brigade: the other Grok TUI could not be checked; registration refused.")
 		return false
+	case sessionmap.GrokDead:
+		// Proven death. The reuse path below stops any leftover watcher.
 	}
 	previous := f
 	previous.pid = ptr.HostPID

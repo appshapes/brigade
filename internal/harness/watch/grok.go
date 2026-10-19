@@ -23,6 +23,8 @@ func (w *watcher) checkGrokReceiver() error {
 		return errGrokReceiverChanged
 	case sessionmap.GrokUnknown:
 		w.log.Warn("grok pid lookup failed; injection continues", adlog.Err(lerr))
+	case sessionmap.GrokLive:
+		// The by-host pointer check below is the remaining binding test.
 	}
 	ptr, err := w.store.ReadByHost("grok", m.ClaudeSessionID)
 	if err != nil || ptr.HostPID != m.ClaudePID || ptr.BrigadeSessionID != m.BrigadeSessionID {

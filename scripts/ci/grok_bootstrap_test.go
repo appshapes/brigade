@@ -78,6 +78,7 @@ func TestGrokBootstrapKeepsOverridesForOlderHost(t *testing.T) {
 				t.Fatal(err)
 			}
 			target := filepath.Join(data, "brigade/bin", "brigade-"+strings.TrimSpace(string(v))+"-"+runtime.GOOS+"-"+runtime.GOARCH)
+			//nolint:gosec // G703: target is under t.TempDir(); the version segment is this fixture's VERSION
 			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -125,9 +126,11 @@ func TestBootstrapStopColdCacheDoesNotDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 	failed := filepath.Join(home, ".local/share/brigade/bin", "brigade-"+strings.TrimSpace(string(v))+"-"+runtime.GOOS+"-"+runtime.GOARCH+".failed")
+	//nolint:gosec // G703: failed is under t.TempDir(); the version segment is this fixture's VERSION
 	if err := os.MkdirAll(filepath.Dir(failed), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	//nolint:gosec // G703: failed is under t.TempDir(); the version segment is this fixture's VERSION
 	if err := os.WriteFile(failed, []byte("9 download failed: synthetic\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -137,6 +140,7 @@ func TestBootstrapStopColdCacheDoesNotDownload(t *testing.T) {
 	if err == nil || !strings.Contains(string(out), "not installed: download failed: synthetic") {
 		t.Fatalf("stop marker %q %v", out, err)
 	}
+	//nolint:gosec // G703: failed is under t.TempDir(); the version segment is this fixture's VERSION
 	if _, statErr := os.Stat(failed); !os.IsNotExist(statErr) {
 		t.Fatal("install-failure marker was not consumed")
 	}
