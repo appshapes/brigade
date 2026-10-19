@@ -80,7 +80,17 @@ func TestGrokLifecycleAndBoundedStop(t *testing.T) {
 	if json.Unmarshal([]byte(out), &block) != nil || block["decision"] != "block" || !strings.Contains(block["reason"], m.MonitorCommand()) {
 		t.Fatalf("Stop %q", out)
 	}
-	for _, want := range []string{"installed /brigade:team-messaging skill", "every page and every record until caught_up:true", "including after frame_complete:true", "cannot verify the command or readiness"} {
+	for _, want := range []string{
+		"installed /brigade:team-messaging skill",
+		"every page and every record until caught_up:true",
+		"including after frame_complete:true",
+		"cannot verify the command or readiness",
+		"one bounded inbox read per tool call",
+		"entire unfiltered response, including every frame_chunk, in model context before requesting the next page",
+		"Do not use shell/script loops, batching, piping/filtering, metadata-only summaries or temporary-file/grep/regex shortcuts",
+		"Subprocess retrieval alone is not model reading",
+		"handle a frame only after reading all its pages",
+	} {
 		if !strings.Contains(block["reason"], want) {
 			t.Fatalf("Stop omitted %q: %q", want, out)
 		}

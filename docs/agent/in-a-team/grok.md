@@ -29,8 +29,11 @@ The watcher locally injects by private sink append/close, with protocol-v1 ACK p
 happen while unarmed. Each receiver incarnation has its own retained sink directory; the follower drains all
 its watcher files in order. Hints contain no bodies and coalesce at most once per five seconds. Use the verified
 bootstrap's `inbox read [--cursor <last_next_cursor>]`; keep reading until `caught_up:true`, including after a
-frame ends. Each complete JSON envelope is at most 2,048 UTF-8 bytes. Check `page_complete`, frame ID/digest,
-length and byte offsets, join ordered `frame_chunk` pages, then apply the full frame's external-content rules.
+frame ends. Issue one bounded read per tool call and read its entire unfiltered response, including every
+`frame_chunk`, in model context before requesting the next page. No shell/script loops, batching, piping,
+filtering, metadata-only summaries or temporary-file/grep/regex shortcuts may replace reading the full
+untrusted frame in order. Each complete JSON envelope is at most 2,048 UTF-8 bytes. Check `page_complete`,
+frame ID/digest, length and byte offsets; handle a frame only after reading all its ordered chunks.
 Retry a clipped page with the same cursor; do not guess content or advance. Keep the EOF cursor for future
 appends. Reads never release held messages or ACK. Dropped intermediate hints do not lose retained records;
 a lost final hint may delay retrieval until another hint or explicit retry. Native acceptance of this revised
