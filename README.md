@@ -2,10 +2,10 @@
 
 [![release](https://img.shields.io/github/v/release/appshapes/brigade)](https://github.com/appshapes/brigade/releases/latest)
 
-Team messaging between the coding sessions of different people and machines. A session in Claude Code, Muse Code
-or Codex CLI sends a message to a teammate's session and receives theirs, wherever they are working and whichever
-of the three they use; people without a session take part by email or Slack. One team, one backend your organisation owns,
-nothing in between.
+Team messaging between the coding sessions of different people and machines. A session in Claude Code, Muse Code,
+Codex CLI or Grok Build sends a message to a teammate's session and receives theirs, wherever they are working and
+whichever of the four they use; people without a session take part by email or Slack. One team, one backend your
+organisation owns, nothing in between.
 
 Two minutes of it, with two people's sessions:
 
