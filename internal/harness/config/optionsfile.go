@@ -27,6 +27,7 @@ const (
 	// config directory; OptionsFile picks by host.
 	MuseOptionsFile  = "muse-options.json"
 	CodexOptionsFile = "codex-options.json"
+	GrokOptionsFile  = "grok-options.json"
 	// MaxOptionsFileBytes bounds what is read of the file.
 	MaxOptionsFileBytes = 64 << 10
 )
@@ -40,6 +41,8 @@ func OptionsFile(host Host) string {
 		return MuseOptionsFile
 	case HostCodex:
 		return CodexOptionsFile
+	case HostGrok:
+		return GrokOptionsFile
 	case HostClaude:
 		return ""
 	}
@@ -99,6 +102,17 @@ func OptionsPath(environ []string) (string, error) {
 // an array, null) is skipped. Appended, not prepended, because
 // adapterkit.Getenv takes the LAST occurrence.
 func OptionsEnviron(environ []string, path string, readFile func(string) ([]byte, error)) ([]string, string) {
+	if HostOf(environ) == HostGrok {
+		// Grok has its own options file. Inherited Claude plugin options
+		// must not become defaults when that file omits a key or is absent.
+		clean := make([]string, 0, len(environ))
+		for _, entry := range environ {
+			if !strings.HasPrefix(entry, "CLAUDE_PLUGIN_OPTION_") {
+				clean = append(clean, entry)
+			}
+		}
+		environ = clean
+	}
 	data, err := readFile(path)
 	if err != nil {
 		return environ, ""

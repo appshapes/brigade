@@ -51,6 +51,8 @@ muse_json=muse/brigade/.muse-plugin/plugin.json
 muse_bin=muse/brigade/bin
 codex_json=codex/brigade/.codex-plugin/plugin.json
 codex_bin=codex/brigade/bin
+grok_json=grok/brigade/.grok-plugin/plugin.json
+grok_bin=grok/brigade/bin
 
 v=${1:-}
 # The commit message's card: `<card>: Release <v>` is the house rule, the number being the AppShapes Trello card
@@ -168,6 +170,15 @@ if [ -f "$codex_json" ]; then
   cp "$version_file" "$codex_bin/VERSION"
   cp plugin/bin/brigade "$codex_bin/brigade"
 fi
+if [ -f "$grok_json" ]; then
+  mkdir -p "$grok_bin"
+  sed -i.bak -E "s/^([[:space:]]*\"version\":[[:space:]]*)\"[^\"]+\"/\1\"$v\"/" "$grok_json"
+  rm -f "$grok_json.bak"
+  grok_manifest=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$grok_json" | head -n 1)
+  [ "$grok_manifest" = "$v" ] || die "the bump did not take in $grok_json"
+  cp "$version_file" "$grok_bin/VERSION"
+  cp plugin/bin/brigade "$grok_bin/brigade"
+fi
 say "1. pinned $version_file, $plugin_json, $muse_json and $codex_json to $v"
 
 # ---- 2. the reproducible build ---------------------------------------------------------------------------------
@@ -197,6 +208,8 @@ fi
 cp dist/checksums.txt "$committed"
 [ ! -f "$muse_json" ] || cp "$committed" "$muse_bin/checksums.txt"
 [ ! -f "$codex_json" ] || cp "$committed" "$codex_bin/checksums.txt"
+[ ! -f "$grok_json" ] || cp "$committed" "$grok_bin/checksums.txt"
+[ ! -f "$grok_json" ] || sh scripts/ci/grok-plugin-check.sh
 # The package's bin/ is final now, so the digest Muse computes over it is the release's (card 115).
 [ ! -f "$muse_json" ] || MUSE_DIGEST_REQUIRE=1 sh scripts/muse-digest.sh write
 make push message="$card: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push

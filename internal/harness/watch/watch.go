@@ -701,6 +701,13 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 	case err != nil:
 		return nil, codeOf(err).Exit(), err
 	}
+	if m.Harness == string(config.HostGrok) {
+		return nil, protocol.CodeConfig.Exit(), &protocol.Error{
+			Code:    protocol.CodeConfig,
+			Message: "Grok Build participation is gated: live session identity and native ingress admission are not established",
+			Details: map[string]string{"reason": "grok_contract_unproven"},
+		}
+	}
 	if m.TeamKey != rc.env.Profile {
 		return nil, protocol.CodeConfig.Exit(), &protocol.Error{
 			Code:    protocol.CodeConfig,

@@ -24,6 +24,14 @@
       "host": "codex",
       "package": "codex/brigade",
       "skills": "codex/brigade/skills"
+    },
+    {
+      "id": "grok",
+      "name": "Grok Build (experimental)",
+      "vendor": "xAI",
+      "host": "grok",
+      "package": "grok/brigade",
+      "skills": "grok/brigade/skills"
     }
   ]
 }

@@ -1,0 +1,38 @@
+{
+  "description": "Experimental native hooks: runtime fails closed until hook identity, liveness and ingress contracts are measured.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${GROK_PLUGIN_ROOT}/bin/brigade\" hook session-start --host grok --plugin-root \"${GROK_PLUGIN_ROOT}\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${GROK_PLUGIN_ROOT}/bin/brigade\" hook prompt --host grok --plugin-root \"${GROK_PLUGIN_ROOT}\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${GROK_PLUGIN_ROOT}/bin/brigade\" hook session-end --host grok --plugin-root \"${GROK_PLUGIN_ROOT}\"",
+            "timeout": 1
+          }
+        ]
+      }
+    ]
+  }
+}

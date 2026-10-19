@@ -1,0 +1,11 @@
+{
+  "name": "brigade",
+  "version": "0.0.0",
+  "description": "Experimental Grok Build package scaffolding. Native session registration and delivery remain gated pending measured contracts.",
+  "author": {
+    "name": "appshapes"
+  },
+  "homepage": "https://github.com/appshapes/brigade",
+  "repository": "https://github.com/appshapes/brigade",
+  "license": "MIT"
+}

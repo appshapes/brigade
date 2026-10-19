@@ -331,6 +331,12 @@ func Run(args []string, streams cli.Streams, environ []string, deps Deps) int {
 		return cli.Usage(cmd, args, streams, perr)
 	}
 	r := newRun(streams, environ, deps.withDefaults(), a)
+	if a.host == config.HostGrok || config.HostOf(environ) == config.HostGrok {
+		// No registration, parent-PID key, Claude settings scan or hook
+		// stdout until native identity and session liveness are measured.
+		r.log.Warn("Grok Build participation is gated: native hook identity, session liveness and ingress admission are not yet established")
+		return 0
+	}
 	switch a.sub {
 	case SubSessionStart:
 		return r.sessionStart()
@@ -387,8 +393,8 @@ func parseArgs(args []string) (hookArgs, string) {
 			}
 			a.level = value
 		case "--host":
-			if config.Host(value) != config.HostCodex {
-				return a, "--host names a host whose hooks carry no marker of their own; the only such host is codex"
+			if config.Host(value) != config.HostCodex && config.Host(value) != config.HostGrok {
+				return a, "--host names a host whose hooks carry no marker of their own; the recognized explicit hosts are codex and grok"
 			}
 			a.host = config.Host(value)
 		case "--plugin-root":

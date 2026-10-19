@@ -1,0 +1,17 @@
+{
+  "name": "brigade",
+  "description": "Brigade experimental Grok Build package",
+  "owner": {
+    "name": "appshapes"
+  },
+  "plugins": [
+    {
+      "name": "brigade",
+      "description": "Experimental Grok Build package scaffolding. Native session registration and delivery remain gated pending measured contracts.",
+      "source": {
+        "type": "local",
+        "path": "./grok/brigade"
+      }
+    }
+  ]
+}

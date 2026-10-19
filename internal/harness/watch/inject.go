@@ -133,6 +133,8 @@ func (in *injector) isQuiet() bool {
 // began: not injected, not acknowledged.
 var errQuiet = errors.New("watch: exit path running; not injected")
 
+var errGrokAdmissionUnproven = errors.New("watch: Grok native ingress admission is not established; not injected")
+
 // loop is the injector goroutine: wait for a kick, drain, back off on a
 // failure, repeat until ctx ends. It is a state-directory writer (the sink
 // file, and the seen and pending files through the pipeline), so it starts
@@ -196,6 +198,11 @@ func (in *injector) inject(ctx context.Context, item inbound.Item) error {
 		slog.String("message_id", item.MessageID),
 		slog.String("sender_session_id", item.SenderSessionID),
 		slog.String("excerpt", excerpt(item.Content)))
+	if in.w.rc.host == string(config.HostGrok) {
+		// A sink append or a successful socket write cannot stand in for
+		// native admission to an already-live Grok conversation.
+		return errGrokAdmissionUnproven
+	}
 	if in.w.rc.sink != "" {
 		return in.appendSink(item)
 	}

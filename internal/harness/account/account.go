@@ -83,6 +83,11 @@ var (
 // config.ClaudeConfigDir, never a hardcoded ~/.claude), then the one
 // directly under HOME. Empty when neither can be resolved.
 func Paths(environ []string) []string {
+	if config.HostOf(environ) == config.HostGrok {
+		// No Grok account source is measured. Never use Claude's account
+		// as the fallback for a different harness.
+		return nil
+	}
 	var paths []string
 	if dir, err := config.ClaudeConfigDir(environ); err == nil {
 		paths = append(paths, filepath.Join(dir, FileName))

@@ -164,6 +164,7 @@ func goldenCases() []goldenCase {
 		// The Codex CLI variant (card 107): the Muse opening, a tail naming
 		// `codex queue` as the command that cannot reach a Brigade session.
 		{"host-codex", func() string { return BuildFor(HostCodex, e03Envelope(), "ops", Instruction{Level: LevelOpen}) }},
+		{"host-grok", func() string { return BuildFor(HostGrok, e03Envelope(), "ops", Instruction{Level: LevelOpen}) }},
 	}
 }
 

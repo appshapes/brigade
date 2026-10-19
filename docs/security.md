@@ -1053,3 +1053,23 @@ Every item below is a known limit that this version ships with, on purpose.
   the invariant the read-only-home proof protects. Its heartbeat also renews the session's lease, which proves that
   a process holding the session's `CLAUDE_PID` ran — not that Claude is alive — and can revive a session whose
   lease had expired but which was never closed; it adds nothing the accepted local attacker lacks.
+
+## 17. Experimental Grok Build foundation
+
+The Grok package is source scaffolding, not supported delivery. Its hook entry points stop before reading
+configuration, registering a session or starting a watcher. A watcher refuses a Grok map before creating its
+inbound pipeline, and the injector independently refuses a Grok route before any sink or socket write.
+Neither a successful resume of saved history nor a shared leader's PID establishes a live receiver or native
+admission. No Grok message is marked injected on those grounds.
+
+`GROK_SESSION_ID` selects an isolated namespace; competing Claude/Muse/Codex markers fail closed before a
+session lookup. A by-host pointer must match the full native ID, host, Brigade session ID and state key in its
+private by-pid map. Grok resolves Brigade state and options from HOME alone, strips inherited Brigade/XDG
+values, and discards inherited Claude plugin options before file parsing. It never reads a Claude account for
+a Grok display label. These are synthetic unit-tested boundaries; hook/tool identity and environment agreement,
+normal native trust, session-specific liveness, transport admission, replay and permission-hold behavior still
+require the [live experiment gates](experiments/grok-participation.md).
+
+The shared bootstrap source is unchanged and still uses XDG for the cache and developer pointer. Missing
+release assets stop this scaffold before that lookup. HOME-only launcher agreement is not yet established;
+resolve it with the hook/tool environment contract before enabling a runnable package.

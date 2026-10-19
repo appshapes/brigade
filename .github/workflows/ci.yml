@@ -94,6 +94,7 @@ jobs:
       - run: make plugin-check
       - run: make muse-plugin-check     # the Muse Code package, card 88: muse/brigade/ against the same pins
       - run: make codex-plugin-check    # the Codex CLI package, card 107: codex/brigade/ and the marketplace file against the same pins
+      - run: make grok-plugin-check     # experimental source scaffolding; no live participation or release-asset claim
       - run: make docs-check            # the documentation gate, card 110: the tree's shape, links, harness pages, the changelog section
       # The mail gateway's Edge Functions (card 48): `deno fmt --check`, `deno check` and the unit tests under
       # supabase/functions/, through the Deno the Makefile would otherwise fetch with npx (`deno ?=`).

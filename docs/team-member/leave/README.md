@@ -11,6 +11,7 @@ second, remove the package last.
 | remove Brigade from Claude Code | [Uninstall from Claude Code](#uninstall-from-claude-code) |
 | remove Brigade from Muse Code | [Uninstall from Muse Code](#uninstall-from-muse-code) |
 | remove Brigade from Codex CLI | [Uninstall from Codex CLI](#uninstall-from-codex-cli) |
+| inspect experimental Grok Build leave status | [Grok Build (experimental)](#grok-build-experimental) |
 
 ## Leave the team
 
@@ -43,3 +44,9 @@ Details: [Uninstall from Muse Code](muse-code.md).
 3. `rm -rf ~/.local/state/brigade ~/.local/share/brigade`, then `rm -rf ~/.config/brigade`.
 
 Details: [Uninstall from Codex CLI](codex.md).
+
+## Grok Build (experimental)
+
+Participation remains gated. Read the current source-package limits before an owned packaging experiment.
+
+Details: [Grok Build (experimental)](grok.md).

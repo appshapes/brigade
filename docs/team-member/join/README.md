@@ -12,6 +12,7 @@ secret your administrator sent you, saved outside the repository, lets you in. Y
 | join from a Codex CLI session | [Join in Codex CLI](#join-in-codex-cli) |
 | join a second clone, or another repository of the same team | [Join another checkout](#join-another-checkout) |
 | choose the label teammates see beside your sessions | [Choose your label](#choose-your-label) |
+| inspect experimental Grok Build join status | [Grok Build (experimental)](#grok-build-experimental) |
 
 ## Join in Claude Code
 
@@ -53,3 +54,9 @@ Details: [Join another checkout](another-checkout.md).
    the same for that one command.
 
 Details: [Choose your label](your-label.md).
+
+## Grok Build (experimental)
+
+Participation remains gated. Read the current source-package limits before an owned packaging experiment.
+
+Details: [Grok Build (experimental)](grok.md).

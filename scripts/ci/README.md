@@ -529,3 +529,15 @@ Then, if the case was cut from a real run, run `make test` and confirm `TestFixt
 passes. It is the guard for the failure that produced it: the P4-3 commit carried seventeen `stdin-writes.log`
 fixtures that `.gitignore`'s bare `*.log` swallowed at `git add` time, so every local run passed against the
 files on disk while CI failed on a clean checkout that never had them (run `33915532579`).
+
+### Experimental Grok package (card 120)
+
+`make grok-plugin-check` runs `grok-plugin-check.sh --source`: native manifest/catalog layout, three exact
+hook command declarations, seven reachable skills, file allowlist, no symlinks and canonical bootstrap source.
+Mutation tests reject missing/unreachable skills, alternate hosts/catalog paths, extra files and an oversized
+end-hook timeout. This explicitly checks scaffolding, not release or live participation readiness.
+
+`sh scripts/ci/grok-plugin-check.sh` is the strict release-asset gate. It requires all three canonical bin assets
+and a matching manifest version; it currently fails because VERSION/checksums are intentionally absent. Only
+`scripts/release-prep.sh` produces these pins after its reproducible-build sequence. `release.yml` runs the
+strict check before publishing. The [package status](../../grok/brigade/README.md) explains the runtime gates.

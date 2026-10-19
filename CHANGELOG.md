@@ -9,6 +9,13 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **Experimental Grok Build foundation** (card 120): an isolated host/options namespace, exact session-pointer
+  validation, a Grok frame variant and a distinct native package scaffold with seven skills. Registration and
+  delivery remain gated pending measured hook identity, session liveness and native ingress admission; this is
+  not released participation support. [Current limits](docs/team-member/install/grok.md).
+
 ## [0.34.1] — 2026-10-18
 
 ### Fixed
