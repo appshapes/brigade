@@ -46,8 +46,19 @@ func TestHostOfAndInSession(t *testing.T) {
 		{"claude wins over a leaked muse id", []string{"MUSE_SESSION_ID=" + museID, "CLAUDE_PID=4242"}, config.HostClaude},
 		{"claude wins over a leaked codex id", []string{"CODEX_THREAD_ID=" + codexID, "CLAUDE_PID=4242"}, config.HostClaude},
 		{"muse wins over a leaked codex id", []string{"CODEX_THREAD_ID=" + codexID, "MUSE_SESSION_ID=" + museID}, config.HostMuse},
+		{"grok", []string{"GROK_SESSION_ID=" + grokID}, config.HostGrok},
+		// Grok is last in the precedence (card 120): a Grok terminal tool
+		// exports GROK_SESSION_ID, so every session started from one
+		// inherits it, and relabelling such a session would route its hooks
+		// into the Grok path and leave it unregistered and silent. The Grok
+		// direction of the leak is refused by NativeID instead
+		// (TestGrokIdentityAndOptionsIsolation).
+		{"claude wins over a leaked grok id", []string{"GROK_SESSION_ID=" + grokID, "CLAUDE_PID=4242"}, config.HostClaude},
+		{"muse wins over a leaked grok id", []string{"GROK_SESSION_ID=" + grokID, "MUSE_SESSION_ID=" + museID}, config.HostMuse},
+		{"codex wins over a leaked grok id", []string{"GROK_SESSION_ID=" + grokID, "CODEX_THREAD_ID=" + codexID}, config.HostCodex},
 		{"an empty muse id is a terminal", []string{"MUSE_SESSION_ID="}, ""},
 		{"an empty codex id is a terminal", []string{"CODEX_THREAD_ID="}, ""},
+		{"an empty grok id is a terminal", []string{"GROK_SESSION_ID="}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

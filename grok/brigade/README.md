@@ -14,7 +14,8 @@ the user can request explicit retry. Startup notices are UI-only, never delivery
 
 ACK means successful local sink append/close, as on Muse, not model receipt. Pre-arm backlog remains in this
 incarnation's sink files; helper restart can replay it. Fixed body-free hints coalesce at five seconds. `inbox read` drains retained rotations with validated cursors
-and lossless pages capped at 2,048 serialized UTF-8 bytes. Long-idle, payload/burst and lifecycle native acceptance remains coordinator-owned.
+and lossless pages capped at 1,800 serialized UTF-8 bytes — the proposed 2,048 corrupted escaped JSON at the
+native shell's measured 2,000-column wrap. Long-idle, payload/burst and lifecycle native acceptance remains coordinator-owned.
 
 `make grok-plugin-check` is strict: native manifest/catalog, four exact exec hook strings, seven reachable
 skills, allowlist, no symlinks and the three bin assets equal to the canonical package. VERSION/checksums here

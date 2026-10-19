@@ -173,6 +173,35 @@ func TestGrokRefusesUnboundInputs(t *testing.T) {
 		})
 	}
 }
+
+// TestGrokIDNeverRelabelsAClaudeSession: a Grok terminal tool exports
+// GROK_SESSION_ID, so a `claude` started from one inherits it (card 120).
+// CLAUDE_PID still wins in config.HostOf, so the hooks never take the Grok
+// path: the session registers as Claude Code with no receiver, and no Grok
+// pointer is written. The nesting is the reason Grok is LAST in the host
+// precedence — relabelled, this session would register nothing and receive
+// nothing, with only a stderr line to say why.
+func TestGrokIDNeverRelabelsAClaudeSession(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.spawner.watcherPID = testutil.NewSleeper(t)
+	leaked := "02000000-0000-7000-8000-00000000000a"
+	exit, out, errOut := f.run(SubSessionStart, f.startDoc("startup"), "GROK_SESSION_ID="+leaked)
+	if exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	m := f.mustMap()
+	if m.Harness != "" || m.Grok != nil {
+		t.Fatalf("a Claude session registered as %q with receiver %+v", m.Harness, m.Grok)
+	}
+	if _, err := f.store().ReadByHost(string(config.HostGrok), leaked); err == nil {
+		t.Fatal("a Claude session wrote a Grok pointer")
+	}
+	if !strings.Contains(out, "Brigade: this session is") {
+		t.Fatalf("the Claude session did not connect: %q (stderr %q)", out, errOut)
+	}
+}
+
 func TestGrokStopHonorsRecursionAndOtherTasks(t *testing.T) {
 	t.Parallel()
 	f := grokFixture(t)

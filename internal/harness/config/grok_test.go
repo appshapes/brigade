@@ -59,10 +59,13 @@ func TestGrokIdentityAndOptionsIsolation(t *testing.T) {
 			t.Fatalf("inherited options leaked: %+v", opts)
 		}
 	}
-	for _, marker := range []string{"CLAUDE_PID=17", "MUSE_SESSION_ID=other", "CODEX_THREAD_ID=other"} {
+	// A leaked GROK_SESSION_ID never relabels an older host's session
+	// (HostOf keeps the established precedence), and the Grok direction of
+	// the same leak is refused rather than resolved.
+	for marker, host := range map[string]config.Host{"CLAUDE_PID=17": config.HostClaude, "MUSE_SESSION_ID=other": config.HostMuse, "CODEX_THREAD_ID=other": config.HostCodex} {
 		mixed := append(grokEnv(), marker)
-		if config.HostOf(mixed) != config.HostGrok {
-			t.Fatal("Grok fell into another host")
+		if config.HostOf(mixed) != host {
+			t.Fatalf("a leaked Grok id relabelled a %s session", host)
 		}
 		_, err := config.NativeID(config.HostGrok, mixed)
 		assertReason(t, err, config.ReasonAmbiguousHost)

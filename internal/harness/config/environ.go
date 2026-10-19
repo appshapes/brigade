@@ -110,21 +110,27 @@ func (h Host) NativeIDVar() string {
 // native id and not the pid.
 func (h Host) Pointed() bool { return h == HostMuse || h == HostCodex || h == HostGrok }
 
-// HostOf names the host environ belongs to. A Grok marker selects Grok's
-// isolated namespace; NativeID then refuses competing host markers. Without
-// Grok, the established precedence stays Claude, Muse, Codex, then terminal.
+// HostOf names the host environ belongs to: Claude Code when CLAUDE_PID is
+// set (it wins, so another host's variable leaking into a Claude session
+// changes nothing), then Muse Code, then Codex CLI, then Grok Build, then
+// a terminal. Grok is LAST for the same reason Claude is first: a
+// GROK_SESSION_ID a Grok terminal tool exports is inherited by every
+// session started from it, and relabelling such a session would route its
+// hooks into the Grok path, where they register nothing and receive
+// nothing. The Grok direction of the same leak is REFUSED rather than
+// resolved: NativeID(HostGrok, …) answers ambiguous_host when a competing
+// marker is set, and the Grok hooks — which name their host with
+// --host grok and so do not depend on this function — fail closed there.
 func HostOf(environ []string) Host {
 	switch {
-	case adapterkit.Getenv(environ, GrokSessionIDVar) != "":
-		// A new host must never fall through to a leaked legacy marker.
-		// NativeID refuses ambiguous Grok environments before map lookup.
-		return HostGrok
 	case adapterkit.Getenv(environ, ClaudePIDVar) != "":
 		return HostClaude
 	case adapterkit.Getenv(environ, MuseSessionIDVar) != "":
 		return HostMuse
 	case adapterkit.Getenv(environ, CodexThreadIDVar) != "":
 		return HostCodex
+	case adapterkit.Getenv(environ, GrokSessionIDVar) != "":
+		return HostGrok
 	}
 	return ""
 }

@@ -42,6 +42,20 @@ func (r *run) runGrok() int {
 		r.log.Warn("Grok leader mode refused; use --no-leader")
 		return 0
 	}
+	// The other direction of the nesting HostOf keeps Grok last for: this
+	// Grok TUI was started from another harness's session, whose marker it
+	// inherited, so no identity here can be proven and the hook serves
+	// nothing. Said once, where the person can see it — a deferred hook is
+	// otherwise a stderr line nobody reads.
+	if _, err := config.NativeID(config.HostGrok, r.environ); err != nil {
+		if _, reason := codeOf(err); reason == config.ReasonAmbiguousHost {
+			if r.args.sub == SubSessionStart && original != nil {
+				_, _ = io.WriteString(original, "{\"systemMessage\":\"Brigade: this Grok session's environment also carries another harness's session marker, so its identity cannot be proven and Brigade is off here. Start Grok from a plain terminal.\"}\n")
+			}
+			r.log.Warn("Grok hook refused: competing host markers")
+			return 0
+		}
+	}
 	// Count lock waiting inside the native timeout, rather than adding it to
 	// the shared Claude 55-second startup budget. Grok's hook allows 15s.
 	budget := r.deps.PromptBudget

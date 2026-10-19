@@ -1062,7 +1062,11 @@ terminal, so leader/session-info success is not a TUI liveness witness. No nativ
 
 Hooks bind the full UUID/environment agreement, canonical workspace/cwd, actual TUI PID/kernel start token
 and a fresh new/load incarnation. Foreign host markers, mismatched aliases, subagents, unknown parent topology
-and malformed inputs fail closed. Only the exact current private by-host/map binding can inject or follow.
+and malformed inputs fail closed. `GROK_SESSION_ID` is LAST in the host precedence, after `CLAUDE_PID`,
+`MUSE_SESSION_ID` and `CODEX_THREAD_ID`: a Grok terminal tool exports it, so a session of an older host started
+from one inherits it, and relabelling that session would leave it unregistered and silent. The Grok direction of
+the same leak is refused rather than resolved, with one visible line and no registration.
+Only the exact current private by-host/map binding can inject or follow.
 The watcher checks actual TUI death/PID reuse independently of the short end hook; old cleanup leaves a
 replacement incarnation alone. It signals only its own watcher, never a TUI or shared leader.
 
@@ -1079,7 +1083,9 @@ Successful private sink append/close is local injection and may ACK before a mon
 It is not model read, durable native admission or exactly-once processing. A read-only follower replays this
 incarnation's retained files in order, emitting only fixed body-free hints at most once per five seconds. Native
 monitor output truncates, so frame bodies are retrieved with incarnation-bound `inbox read` cursors in
-complete JSON pages capped at 2,048 UTF-8 bytes including the protocol envelope. Frame digests, byte offsets
+complete JSON pages capped at 1,800 UTF-8 bytes for the whole serialized response, envelope and newline
+included: the proposed 2,048-byte cap was measured to corrupt escaped JSON at the native shell's 2,000-column
+hard wrap, so the shipped cap keeps a margin below it. Frame digests, byte offsets
 and completion markers are checked and pages joined before handling. The generated monitor command restores its missing native UUID; reads and follows require
 the exact map/incarnation, live TUI start token and process ancestry. Only this receiver's private injected
 sink files are read, never held bodies or arbitrary histories. One hint drains all retained rotations; a lost

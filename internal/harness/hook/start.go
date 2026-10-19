@@ -1176,7 +1176,6 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		m.Grok = &sessionmap.GrokReceiver{Cwd: in.Cwd, ProcessStart: info.StartToken, Incarnation: in.grokIncarnation, MonitorState: "unarmed"}
 	}
 	return m
-
 }
 
 // finish writes the maps (the by-pid map is rewritten on every
