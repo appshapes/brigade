@@ -35,13 +35,36 @@ func SameReceiver(a, b *ByPID) bool {
 	return a.ValidGrokReceiver() && b.ValidGrokReceiver() && a.Grok.Cwd == b.Grok.Cwd && a.Grok.ProcessStart == b.Grok.ProcessStart && a.Grok.Incarnation == b.Grok.Incarnation
 }
 
-// GrokAlive uses the actual TUI process and start identity, never a leader or shell parent.
-func (m *ByPID) GrokAlive(lookup func(int) (procutil.Info, error)) bool {
+// GrokLiveness is Dead when the TUI is gone or the binding is not a Grok
+// receiver, Live when the pid is that TUI, and Unknown when the lookup
+// itself failed. Unknown is not death: a blip must not retire, rotate or
+// steal the receiver.
+type GrokLiveness int
+
+const (
+	GrokDead GrokLiveness = iota
+	GrokUnknown
+	GrokLive
+)
+
+func (m *ByPID) GrokLiveness(lookup func(int) (procutil.Info, error)) (GrokLiveness, error) {
 	if lookup == nil || !m.ValidGrokReceiver() {
-		return false
+		return GrokDead, nil
 	}
 	info, err := lookup(m.ClaudePID)
-	return err == nil && procutil.IsGrokProcess(info) && info.StartToken == m.Grok.ProcessStart
+	if err != nil {
+		return GrokUnknown, err
+	}
+	if !procutil.IsGrokProcess(info) || info.StartToken != m.Grok.ProcessStart {
+		return GrokDead, nil
+	}
+	return GrokLive, nil
+}
+
+// GrokAlive uses the actual TUI process and start identity, never a leader or shell parent.
+func (m *ByPID) GrokAlive(lookup func(int) (procutil.Info, error)) bool {
+	life, _ := m.GrokLiveness(lookup)
+	return life == GrokLive
 }
 
 // MonitorCommand is shell text for the native monitor tool, not a subprocess spawn.

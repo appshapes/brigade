@@ -12,6 +12,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/registry"
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/socketpost"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -130,11 +131,16 @@ func (s *shared) takeFlip() bool {
 // condition (E0-5 defect 2). It returns the stop reason, "" to go on.
 func (w *watcher) checkLiveness() string {
 	if w.harness == string(config.HostGrok) {
-		if !w.grokReceiver.GrokAlive(w.deps.Lookup) {
+		life, lerr := w.grokReceiver.GrokLiveness(w.deps.Lookup)
+		switch life {
+		case sessionmap.GrokDead:
 			return "claude_gone"
-		}
-		if err := w.checkGrokReceiver(); err != nil {
-			return "map_mismatch"
+		case sessionmap.GrokUnknown:
+			w.log.Warn("grok pid lookup failed", adlog.Err(lerr))
+		default:
+			if err := w.checkGrokReceiver(); err != nil {
+				return "map_mismatch"
+			}
 		}
 	}
 	// The texts and the attribute keep their Claude Code wording: the proof

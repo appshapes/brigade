@@ -220,7 +220,8 @@ func (r *run) grokMatches(m *sessionmap.ByPID, in input) bool {
 	if !m.ValidGrokReceiver() || m.ClaudePID != r.deps.Getppid() || m.ClaudeSessionID != in.SessionID || m.Grok.Cwd != in.Cwd {
 		return false
 	}
-	return m.GrokAlive(r.deps.Lookup)
+	life, _ := m.GrokLiveness(r.deps.Lookup)
+	return life != sessionmap.GrokDead
 }
 
 func (r *run) grokStop() int {
@@ -332,8 +333,12 @@ func (r *run) claimGrok(f facts, in input) bool {
 		r.say("Brigade: a stale Grok pointer has no verifiable receiver binding; registration refused.")
 		return false
 	}
-	if old.GrokAlive(r.deps.Lookup) {
+	switch life, _ := old.GrokLiveness(r.deps.Lookup); life {
+	case sessionmap.GrokLive:
 		r.say("Brigade: this native UUID is already owned by another live Grok TUI; registration refused.")
+		return false
+	case sessionmap.GrokUnknown:
+		r.say("Brigade: the other Grok TUI could not be checked; registration refused.")
 		return false
 	}
 	previous := f

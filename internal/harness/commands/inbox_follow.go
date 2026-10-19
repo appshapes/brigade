@@ -263,7 +263,7 @@ func (f *follower) receiverValid() bool {
 	if lookup == nil {
 		lookup = procutil.Lookup
 	}
-	if !current.GrokAlive(lookup) {
+	if life, _ := current.GrokLiveness(lookup); life == sessionmap.GrokDead {
 		return false
 	}
 	ppid := os.Getppid()

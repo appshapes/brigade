@@ -51,3 +51,93 @@ func TestGrokBootstrapUsesHomeAndStripsOverrides(t *testing.T) {
 		t.Fatalf("bootstrap %q %v", out, err)
 	}
 }
+
+func TestGrokBootstrapKeepsOverridesForOlderHost(t *testing.T) {
+	t.Parallel()
+	for _, marker := range []string{"CLAUDE_PID=17", "MUSE_SESSION_ID=muse-1", "CODEX_THREAD_ID=codex-1"} {
+		t.Run(marker, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			repo := testutil.RepoRoot(t)
+			bindir := filepath.Join(root, "bin")
+			data := filepath.Join(root, "xdg-data")
+			if err := os.MkdirAll(bindir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for _, asset := range []string{"brigade", "VERSION", "checksums.txt"} {
+				b, err := os.ReadFile(filepath.Join(repo, "plugin/bin", asset))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(bindir, asset), b, 0o600); err != nil { //nolint:gosec // asset is one of three fixed names
+					t.Fatal(err)
+				}
+			}
+			v, err := os.ReadFile(filepath.Join(bindir, "VERSION"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(data, "brigade/bin", "brigade-"+strings.TrimSpace(string(v))+"-"+runtime.GOOS+"-"+runtime.GOARCH)
+			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			testutil.WriteExecutable(t, target, []byte("#!/bin/sh\nprintf '%s\\n' \"${BRIGADE_PROFILE:-unset}\"\n"))
+			cmd := exec.CommandContext(t.Context(), "/bin/sh", filepath.Join(bindir, "brigade"), "whoami") //nolint:gosec // argv fixture
+			cmd.Env = []string{"HOME=" + filepath.Join(root, "home"), "PATH=/usr/bin:/bin", "GROK_SESSION_ID=02000000-0000-7000-8000-000000000001", "XDG_DATA_HOME=" + data, "BRIGADE_PROFILE=kept", marker}
+			out, err := cmd.CombinedOutput()
+			if err != nil || string(out) != "kept\n" {
+				t.Fatalf("bootstrap %q %v", out, err)
+			}
+		})
+	}
+}
+
+func TestBootstrapStopColdCacheDoesNotDownload(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	repo := testutil.RepoRoot(t)
+	bindir := filepath.Join(root, "bin")
+	home := filepath.Join(root, "home")
+	if err := os.MkdirAll(bindir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, asset := range []string{"brigade", "VERSION", "checksums.txt"} {
+		b, err := os.ReadFile(filepath.Join(repo, "plugin/bin", asset))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bindir, asset), b, 0o600); err != nil { //nolint:gosec // asset is one of three fixed names
+			t.Fatal(err)
+		}
+	}
+	run := func(args ...string) ([]byte, error) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "/bin/sh", append([]string{filepath.Join(bindir, "brigade")}, args...)...) //nolint:gosec // argv fixture
+		cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin"}
+		return cmd.CombinedOutput()
+	}
+	out, err := run("hook", "stop")
+	if err != nil || strings.Contains(string(out), "downloading") {
+		t.Fatalf("cold stop %q %v", out, err)
+	}
+	v, err := os.ReadFile(filepath.Join(bindir, "VERSION"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := filepath.Join(home, ".local/share/brigade/bin", "brigade-"+strings.TrimSpace(string(v))+"-"+runtime.GOOS+"-"+runtime.GOARCH+".failed")
+	if err := os.MkdirAll(filepath.Dir(failed), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(failed, []byte("9 download failed: synthetic\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), "/bin/sh", filepath.Join(bindir, "brigade"), "hook", "stop") //nolint:gosec // argv fixture
+	cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin"}
+	out, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "not installed: download failed: synthetic") {
+		t.Fatalf("stop marker %q %v", out, err)
+	}
+	if _, statErr := os.Stat(failed); !os.IsNotExist(statErr) {
+		t.Fatal("install-failure marker was not consumed")
+	}
+}

@@ -62,6 +62,15 @@ if [ -f "$codex_json" ]; then
     cmp -s "plugin/bin/$asset" "codex/brigade/bin/$asset" || die "(a) codex/brigade/bin/$asset differs from plugin/bin/$asset"
   done
 fi
+grok_json=grok/brigade/.grok-plugin/plugin.json
+if [ -f "$grok_json" ]; then
+  # The Grok Build package (card 120): the same pin, the same three assets.
+  grok_version=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$grok_json" | head -n 1)
+  [ "$grok_version" = "$version" ] || die "(a) $grok_json version '$grok_version' != $version_file '$version'"
+  for asset in brigade VERSION checksums.txt; do
+    cmp -s "plugin/bin/$asset" "grok/brigade/bin/$asset" || die "(a) grok/brigade/bin/$asset differs from plugin/bin/$asset"
+  done
+fi
 printf 'checksums-check: (a) %s == %s == %s\n' "$version_file" "$plugin_json" "$version"
 
 # ---- (b) exactly the four assets for this version ---------------------------------------------------------------

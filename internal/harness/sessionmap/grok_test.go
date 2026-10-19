@@ -1,6 +1,7 @@
 package sessionmap
 
 import (
+	"errors"
 	"runtime"
 	"strings"
 	"testing"
@@ -33,5 +34,20 @@ func TestGrokAlivePackagedKernelNameKeepsExactPIDAndStart(t *testing.T) {
 	info.Command = command + "-other"
 	if m.GrokAlive(lookup) {
 		t.Fatal("arbitrary prefix accepted")
+	}
+}
+
+func TestGrokLivenessLookupErrorIsUnknown(t *testing.T) {
+	t.Parallel()
+	m := &ByPID{ClaudePID: 4242, Harness: "grok", Grok: &GrokReceiver{Cwd: "/synthetic", ProcessStart: "owned-start", Incarnation: strings.Repeat("a", 32)}}
+	lookup := func(int) (procutil.Info, error) { return procutil.Info{}, errors.New("lookup failed") }
+	life, err := m.GrokLiveness(lookup)
+	if life != GrokUnknown || err == nil || m.GrokAlive(lookup) {
+		t.Fatalf("life %v err %v", life, err)
+	}
+	lookup = func(int) (procutil.Info, error) { return procutil.Info{}, nil }
+	life, err = m.GrokLiveness(lookup)
+	if life != GrokDead || err != nil || m.GrokAlive(lookup) {
+		t.Fatalf("missing process life %v err %v", life, err)
 	}
 }

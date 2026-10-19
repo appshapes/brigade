@@ -3,6 +3,7 @@ package inbound_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,5 +41,51 @@ func TestSinkPaths(t *testing.T) {
 	}
 	if got := inbound.NewestSink(stateDir, sid); got != later {
 		t.Fatalf("NewestSink = %q, want %q", got, later)
+	}
+}
+
+func TestAdoptGrokSinkMovesPrivateFiles(t *testing.T) {
+	t.Parallel()
+	state := t.TempDir()
+	const session = "s"
+	from := strings.Repeat("a", 32)
+	to := strings.Repeat("b", 32)
+	if err := inbound.AdoptGrokSink(state, session, from, to); err != nil {
+		t.Fatal(err)
+	}
+	src := inbound.GrokSinkDir(state, session, from)
+	dst := inbound.GrokSinkDir(state, session, to)
+	if err := os.MkdirAll(src, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dst, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"message_id\":\"kept\"}\n")
+	const name = "00000000000000000001.ndjson"
+	if err := os.WriteFile(filepath.Join(src, name), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, name), []byte("occupant\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := inbound.AdoptGrokSink(state, session, from, to); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dst, "00000000000000000001~1.ndjson"))
+	if err != nil || string(got) != string(body) {
+		t.Fatalf("moved file %q %v", got, err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Fatal("old incarnation directory remained")
+	}
+	if err := os.MkdirAll(src, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(t.TempDir(), "elsewhere"), filepath.Join(src, "00000000000000000002.ndjson")); err != nil {
+		t.Fatal(err)
+	}
+	if err := inbound.AdoptGrokSink(state, session, from, to); err == nil {
+		t.Fatal("symlink sink adopted")
 	}
 }

@@ -760,6 +760,31 @@ func TestChecksumsCheck(t *testing.T) {
 		wantFail(t, r, "(a)", "1.2.4")
 	})
 
+	t.Run("(a) a grok package whose pin or bootstrap differs fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.pluginTree()
+		tr.write("plugin/bin/VERSION", "1.2.3\n")
+		tr.write("plugin/.claude-plugin/plugin.json", "{\n  \"name\": \"brigade\",\n  \"version\": \"1.2.3\"\n}\n")
+		tr.write("plugin/bin/checksums.txt", checksumLines("1.2.3", "ab"))
+		tr.write("fresh.txt", checksumLines("1.2.3", "ab"))
+		tr.write("grok/brigade/.grok-plugin/plugin.json", "{\n  \"name\": \"brigade\",\n  \"version\": \"9.9.9\"\n}\n")
+		for _, asset := range []string{"brigade", "VERSION", "checksums.txt"} {
+			b, err := os.ReadFile(filepath.Join(tr.root, "plugin/bin", asset))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tr.write("grok/brigade/bin/"+asset, string(b))
+		}
+		r := runScript(t, "checksums-check.sh", tr.root, tr.env(), filepath.Join(tr.root, "fresh.txt"))
+		wantFail(t, r, "(a)", "9.9.9")
+
+		tr.write("grok/brigade/.grok-plugin/plugin.json", "{\n  \"name\": \"brigade\",\n  \"version\": \"1.2.3\"\n}\n")
+		tr.write("grok/brigade/bin/brigade", "different\n")
+		r = runScript(t, "checksums-check.sh", tr.root, tr.env(), filepath.Join(tr.root, "fresh.txt"))
+		wantFail(t, r, "(a)", "grok/brigade/bin/brigade differs")
+	})
+
 	t.Run("(b) three lines fails, four well-formed lines passes", func(t *testing.T) {
 		t.Parallel()
 		tr := newTree(t)

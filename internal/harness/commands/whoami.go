@@ -13,6 +13,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/watchstate"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -167,8 +168,10 @@ func (inv Invocation) delivery(t *target) whoamiDelivery {
 	if lookup == nil {
 		lookup = procutil.Lookup
 	}
-	if m.Harness == string(config.HostGrok) && !m.GrokAlive(lookup) {
-		d.Monitor = "paused"
+	if m.Harness == string(config.HostGrok) {
+		if life, _ := m.GrokLiveness(lookup); life == sessionmap.GrokDead {
+			d.Monitor = "paused"
+		}
 	}
 	v, err := pidfile.Check(pidfile.Path(t.stateDir, m.ClaudePID), lookup)
 	if err == nil && v.Found && v.Alive && v.Entry.BrigadeSessionID == m.BrigadeSessionID {
