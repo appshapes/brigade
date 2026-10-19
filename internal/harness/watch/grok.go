@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 )
@@ -13,8 +14,17 @@ var errGrokReceiverChanged = errors.New("watch: Grok receiver incarnation is no 
 
 func (w *watcher) checkGrokReceiver() error {
 	m, err := w.store.ReadByPID(w.rc.env.ClaudePID)
-	if err != nil || !sessionmap.SameReceiver(w.grokReceiver, m) || !m.GrokAlive(w.deps.Lookup) {
+	if err != nil || !sessionmap.SameReceiver(w.grokReceiver, m) {
 		return errGrokReceiverChanged
+	}
+	life, lerr := m.GrokLiveness(w.deps.Lookup)
+	switch life {
+	case sessionmap.GrokDead:
+		return errGrokReceiverChanged
+	case sessionmap.GrokUnknown:
+		w.log.Warn("grok pid lookup failed; injection continues", adlog.Err(lerr))
+	case sessionmap.GrokLive:
+		// The by-host pointer check below is the remaining binding test.
 	}
 	ptr, err := w.store.ReadByHost("grok", m.ClaudeSessionID)
 	if err != nil || ptr.HostPID != m.ClaudePID || ptr.BrigadeSessionID != m.BrigadeSessionID {
@@ -30,7 +40,10 @@ func (w *watcher) retireGrokReceiver() {
 		return
 	}
 	m, err := w.store.ReadByPID(w.rc.env.ClaudePID)
-	if err != nil || !sessionmap.SameReceiver(w.grokReceiver, m) || m.GrokAlive(w.deps.Lookup) {
+	if err != nil || !sessionmap.SameReceiver(w.grokReceiver, m) {
+		return
+	}
+	if life, _ := m.GrokLiveness(w.deps.Lookup); life != sessionmap.GrokDead {
 		return
 	}
 	ptr, err := w.store.ReadByHost("grok", m.ClaudeSessionID)

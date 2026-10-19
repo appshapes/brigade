@@ -13,8 +13,14 @@
 set -u
 
 # Grok hooks and model tools share HOME. Ignore inherited repository options
-# before resolving the cache/developer pointer as the Go resolvers do.
-if [ -n "${GROK_SESSION_ID:-}" ]; then
+# before resolving the cache/developer pointer as the Go resolvers do, and
+# only when Grok is the host. A Claude, Muse or Codex session started from
+# Grok inherits GROK_SESSION_ID; those hosts win and keep their own paths.
+grok_host=0
+if [ -n "${GROK_SESSION_ID:-}" ] && [ -z "${CLAUDE_PID:-}" ] && [ -z "${MUSE_SESSION_ID:-}" ] && [ -z "${CODEX_THREAD_ID:-}" ]; then
+  grok_host=1
+fi
+if [ "$grok_host" = 1 ]; then
   for brigade_env_name in $(env | sed -nE 's/^((BRIGADE_|XDG_)[A-Za-z0-9_]*)=.*/\1/p'); do
     unset "$brigade_env_name"
   done
@@ -130,26 +136,28 @@ if [ $# -ge 2 ] && [ "$1" = hook ] && [ "$2" = session-start ]; then
     install_verified "$tmp"
     trap - EXIT HUP INT TERM
   ) </dev/null >/dev/null 2>&1 &
-  if [ -n "${GROK_SESSION_ID:-}" ]; then
+  if [ "$grok_host" = 1 ]; then
     printf '%s\n' '{"systemMessage":"Brigade: installing the binary in the background; the next prompt retries registration. Monitor setup follows a completed turn."}'
   else
-  printf 'Brigade: installing the brigade binary in the background; team messaging becomes available on your next prompt\n'
+    printf 'Brigade: installing the brigade binary in the background; team messaging becomes available on your next prompt\n'
   fi
   exit 0
 fi
 
-# ---- P5-18: the two other hooks hooks.json runs return at once on a cold cache and never download ---------------
+# ---- P5-18: hooks that cannot wait return at once on a cold cache and never download -----------------------
 # Measured (E5 §3): on the synchronous path a cold-cache `hook prompt` was killed at its 5 s timeout -- 2 prompts at
 # 1 MB/s, 6 at 250 kB/s, every prompt for ever below curl's floor -- each kill re-downloading the asset beside the
-# worker, and a kill during the registration left a retry stamp that silenced the next minute. So: the worker above
-# is the only downloader; `hook prompt` reports the worker's final verdict once (its exit code and reason on stderr,
-# which Claude Code 2.1.261 draws on screen as a non-blocking hook error -- measured; a context line on stdout is
-# never drawn) and removes it; otherwise both hooks exit 0 silently, so a warming cache costs a prompt nothing (a
-# silent NON-ZERO exit would draw "No stderr output" on every prompt -- also measured). Exactly the two argv shapes
-# plugin/hooks/hooks.json produces: a human, the Bash tool, any other argv and a warm cache never reach this line.
+# worker, and a kill during the registration left a retry stamp that silenced the next minute. Grok's Stop hook has
+# the same 5 s timeout and is the model-visible arming surface, so a cold `hook stop` takes this path too. The
+# worker above is the only downloader; `hook prompt` and `hook stop` report the worker's final verdict once (its
+# exit code and reason on stderr, which Claude Code 2.1.261 draws on screen as a non-blocking hook error --
+# measured; a context line on stdout is never drawn) and remove it; otherwise these hooks exit 0, so a warming
+# cache costs a prompt nothing (a silent NON-ZERO exit would draw "No stderr output" on every prompt -- also
+# measured). `hook session-end` stays silent. A human, the Bash tool, any other argv and a warm cache never reach
+# this line.
 if [ $# -ge 2 ] && [ "$1" = hook ]; then
   case $2 in
-    prompt)
+    prompt|stop)
       if [ -s "$failed" ]; then
         read -r code reason < "$failed" 2>/dev/null || code=9   # a marker that vanished or cannot be read still reports once, never as the shell's own error
         rm -f "$failed"

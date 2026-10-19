@@ -22,6 +22,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/harness/frame"
+	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/notify"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
@@ -169,10 +170,19 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	res.workspaceLabel = workspaceLabel(res.opts, in.Cwd)
 	existing := r.existingMap(res.store, f.pid)
 	sameGrok := f.host == config.HostGrok && existing != nil && r.grokMatches(existing, in) && existing.TeamKey == res.teamKey && existing.ConfigDir == res.opts.ConfigDir && slices.Equal(existing.AdapterCommand, res.argv)
+	var prior *sessionmap.ByPID
 	if f.host == config.HostGrok && existing != nil && (in.Source == "load" || !sameGrok) {
 		// A load creates a fresh receiver even if the PID/native UUID
 		// recurs. Repeated new hooks for the same live receiver are idempotent.
-		// Retire the old watcher before publishing a replacement.
+		// The previous incarnation's sink files move after register when the
+		// Brigade session id is unchanged. Retire the old watcher before
+		// publishing a replacement.
+		if existing.ValidGrokReceiver() {
+			saved := *existing
+			g := *existing.Grok
+			saved.Grok = &g
+			prior = &saved
+		}
 		v := r.checkPidfile(f)
 		if v.Found && v.Alive {
 			r.stopWatcher(v.Entry, f)
@@ -311,8 +321,19 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	if existing != nil && existing.BrigadeSessionID == m.BrigadeSessionID && !existing.RegisteredAt.IsZero() {
 		m.RegisteredAt = existing.RegisteredAt
 	}
+	if err := r.adoptGrokBacklog(f.stateDir, prior, m); err != nil {
+		// The move renames one file at a time and stops at the first
+		// failure, so the error can arrive with part of the backlog already
+		// in the new directory — which this path never publishes. Move it
+		// back before restoring the previous map, or those records would
+		// sit in a directory no reader resolves.
+		r.restoreGrokBacklog(f.stateDir, res.store, prior, m)
+		r.fail("session-start: grok backlog not moved", err, notConnected(protocol.CodeConfig))
+		return
+	}
 	if f.host == config.HostGrok {
 		if !r.publishGrok(res.store, m, now) {
+			r.restoreGrokBacklog(f.stateDir, res.store, prior, m)
 			return
 		}
 	} else if err := res.store.WriteByPID(m); err != nil {
@@ -335,6 +356,36 @@ func (r *run) continueMap(f facts, in input, res resolved, existing *sessionmap.
 // Publish both sides before starting the watcher, whose first injection/tick
 // validates the exact pointer. The hook transaction keeps finish/Stop/prompt
 // from replacing this binding while the child is being admitted.
+// adoptGrokBacklog moves the previous incarnation's sink files when a
+// replacement resumes the same Brigade session. A new session id leaves
+// the old directory alone. Nothing to move is success.
+func (r *run) adoptGrokBacklog(stateDir string, prior, next *sessionmap.ByPID) error {
+	if prior == nil || next == nil || next.Grok == nil || !prior.ValidGrokReceiver() {
+		return nil
+	}
+	if prior.BrigadeSessionID != next.BrigadeSessionID || prior.Grok.Incarnation == next.Grok.Incarnation {
+		return nil
+	}
+	return inbound.AdoptGrokSink(stateDir, prior.BrigadeSessionID, prior.Grok.Incarnation, next.Grok.Incarnation)
+}
+
+// restoreGrokBacklog puts a moved backlog back when the move itself failed
+// partway or the new binding cannot be published, and writes the previous
+// map so the next attempt can retry. The reverse move is the same one: every
+// file the forward pass renamed goes back under the previous incarnation,
+// and the unpublished directory is removed once it is empty.
+func (r *run) restoreGrokBacklog(stateDir string, store sessionmap.Store, prior, next *sessionmap.ByPID) {
+	if prior == nil || next == nil || next.Grok == nil || !prior.ValidGrokReceiver() || prior.BrigadeSessionID != next.BrigadeSessionID || prior.Grok.Incarnation == next.Grok.Incarnation {
+		return
+	}
+	if err := inbound.AdoptGrokSink(stateDir, prior.BrigadeSessionID, next.Grok.Incarnation, prior.Grok.Incarnation); err != nil {
+		r.log.Warn("Grok backlog could not be restored", log.Err(err))
+	}
+	if err := store.WriteByPID(prior); err != nil {
+		r.log.Warn("previous Grok receiver map could not be restored", log.Err(err))
+	}
+}
+
 func (r *run) publishGrok(store sessionmap.Store, m *sessionmap.ByPID, now time.Time) bool {
 	if err := store.WriteByPID(m); err != nil {
 		r.log.Warn("Grok receiver map not published", log.Err(err))

@@ -1071,7 +1071,8 @@ The watcher checks actual TUI death/PID reuse independently of the short end hoo
 replacement incarnation alone. It signals only its own watcher, never a TUI or shared leader.
 
 The bootstrap and Go resolvers use HOME-only directories inside Grok and ignore inherited Brigade/XDG and
-Claude plugin options. No Claude account/settings or arbitrary Grok history is read. Unknown native metadata
+Claude plugin options. A Claude, Muse or Codex session that merely inherited `GROK_SESSION_ID` keeps its own
+`XDG_*` and `BRIGADE_*` values; the strip runs only when Grok is the host. No Claude account/settings or arbitrary Grok history is read. Unknown native metadata
 stays blank; the display name falls back to `grok`. Protocol v1 and its inbound policy are unchanged.
 
 Startup systemMessage is UI-only. Stop's measured block/reason continuation offers one monitor setup attempt
@@ -1094,5 +1095,10 @@ scanned per call, 1 MiB per record) fail explicitly without discarding records. 
 replay IDs; native truncation/drop/noise behavior, maximum payload, burst survival, 35-minute lifetime and
 resume/crash native acceptance remain distinct coordinator gates. Incomplete events must not be acted on.
 
-A new/load receiver does not adopt previous-incarnation sink files. Older locally ACKed unread records
-remain on disk but are not automatically redelivered; no unmeasured history/receiver adoption is performed.
+A load, or a replacement that is no longer the same live binding, mints a fresh incarnation so the monitor
+can re-arm. When that registration resumes the same Brigade session, the previous incarnation's private sink
+files move into the new directory before the new binding is published. A move that fails puts back every file it
+had already moved and leaves the previous binding in place, so a retained record stays readable under the old
+incarnation; a restore that itself fails is logged. A new Brigade session id leaves the old directory where it is. An old-incarnation cursor
+stays rejected, so a resumed read starts again and may replay frames already shown. A lookup that fails is
+not TUI death: the watcher keeps injecting and does not delete the receiver until the process is proven gone.

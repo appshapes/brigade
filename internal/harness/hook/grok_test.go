@@ -3,6 +3,7 @@ package hook
 import (
 	"bytes"
 	"encoding/json/v2"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/inbound"
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/testutil"
 )
@@ -120,11 +123,30 @@ func TestGrokLifecycleAndBoundedStop(t *testing.T) {
 		t.Fatalf("prompt leaked stdout %q", out)
 	}
 	// An actual load gets a fresh incarnation and exactly one new opportunity.
+	// Unread sink files of the same Brigade session move with it.
 	f.spawner.watcherPID = testutil.NewSleeper(t)
+	oldDir := inbound.GrokSinkDir(f.stateDir, m.BrigadeSessionID, m.Grok.Incarnation)
+	if err := os.MkdirAll(oldDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	kept := []byte("{\"message_id\":\"kept\"}\n")
+	if err := os.WriteFile(filepath.Join(oldDir, "00000000000000000001.ndjson"), kept, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	grokRun(f, SubSessionStart, grokDoc(f, "session_start", "load", nil))
 	next := f.mustMap()
 	if next.Grok.Incarnation == m.Grok.Incarnation {
 		t.Fatal("load kept old incarnation")
+	}
+	if next.BrigadeSessionID != m.BrigadeSessionID {
+		t.Fatalf("load session %s, want %s", next.BrigadeSessionID, m.BrigadeSessionID)
+	}
+	moved, err := os.ReadFile(filepath.Join(inbound.GrokSinkDir(f.stateDir, next.BrigadeSessionID, next.Grok.Incarnation), "00000000000000000001.ndjson"))
+	if err != nil || string(moved) != string(kept) {
+		t.Fatalf("backlog %q %v", moved, err)
+	}
+	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
+		t.Fatal("old incarnation directory remained")
 	}
 	_, out, _ = grokRun(f, "stop", stop)
 	if !strings.Contains(out, `"decision":"block"`) {
@@ -135,6 +157,89 @@ func TestGrokLifecycleAndBoundedStop(t *testing.T) {
 		t.Fatalf("end stdout %q map %v", out, f.mapExists())
 	}
 }
+
+// A move that fails partway must not strand the files it already renamed
+// under an incarnation no reader resolves: they go back, and the previous
+// map comes back with them.
+func TestGrokFailedBacklogAdoptionRestoresTheOldDirectory(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	if code, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil)); code != 0 {
+		t.Fatalf("hook exit %d: %s", code, errOut)
+	}
+	m := f.mustMap()
+	oldDir := inbound.GrokSinkDir(f.stateDir, m.BrigadeSessionID, m.Grok.Incarnation)
+	if err := os.MkdirAll(oldDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	kept := []byte("{\"message_id\":\"kept\"}\n")
+	// The first entry moves; the second cannot, so the adoption fails with
+	// one file already sitting under the new incarnation.
+	if err := os.WriteFile(filepath.Join(oldDir, "00000000000000000001.ndjson"), kept, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(t.TempDir(), "elsewhere"), filepath.Join(oldDir, "00000000000000000002.ndjson")); err != nil {
+		t.Fatal(err)
+	}
+	f.spawner.watcherPID = testutil.NewSleeper(t)
+	_, out, _ := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "load", nil))
+	if !strings.Contains(out, "not connected (config)") {
+		t.Fatalf("failed adoption stdout %q", out)
+	}
+	back, err := os.ReadFile(filepath.Join(oldDir, "00000000000000000001.ndjson"))
+	if err != nil || string(back) != string(kept) {
+		t.Fatalf("restored backlog %q %v", back, err)
+	}
+	still := f.mustMap()
+	if !still.ValidGrokReceiver() || still.Grok.Incarnation != m.Grok.Incarnation {
+		t.Fatalf("map %+v, want incarnation %s", still, m.Grok.Incarnation)
+	}
+	entries, err := os.ReadDir(inbound.SinkDir(f.stateDir, m.BrigadeSessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != "grok-"+m.Grok.Incarnation {
+			t.Fatalf("directory %q of an unpublished incarnation remained", e.Name())
+		}
+	}
+}
+
+func TestGrokClaimDoesNotStealOnLookupError(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+	m := f.mustMap()
+	other := *m
+	other.ClaudePID = m.ClaudePID + 1
+	if other.HostProcessPID != 0 {
+		other.HostProcessPID = other.ClaudePID
+	}
+	g := *m.Grok
+	other.Grok = &g
+	if err := f.store().WriteByPID(&other); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store().WriteByHost("grok", m.ClaudeSessionID, &sessionmap.ByHost{HostPID: other.ClaudePID, BrigadeSessionID: m.BrigadeSessionID}); err != nil {
+		t.Fatal(err)
+	}
+	base := f.deps.Lookup
+	f.deps.Lookup = func(pid int) (procutil.Info, error) {
+		if pid == other.ClaudePID {
+			return procutil.Info{}, errors.New("lookup failed")
+		}
+		return base(pid)
+	}
+	_, out, _ := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+	if !strings.Contains(out, "could not be checked") {
+		t.Fatalf("stdout %q", out)
+	}
+	still, err := f.store().ReadByPID(other.ClaudePID)
+	if err != nil || still.Grok.Incarnation != other.Grok.Incarnation {
+		t.Fatal("lookup error let a new TUI steal the UUID")
+	}
+}
+
 func TestGrokRefusesUnboundInputs(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"leader", "collision", "unknown source", "malformed", "alias conflict", "bad native", "subagent", "cwd mismatch", "unknown parent"} {

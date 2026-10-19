@@ -95,7 +95,7 @@ func inboxReadGrok(inv Invocation, args []string, token string) error {
 	}
 	found := token == ""
 	total := 0
-	for _, entry := range entries {
+	for i, entry := range entries {
 		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), ".ndjson") {
 			continue
 		}
@@ -105,6 +105,9 @@ func inboxReadGrok(inv Invocation, args []string, token string) error {
 		if err := f.open(filepath.Join(dir, entry.Name())); err != nil {
 			return err
 		}
+		if f.file == nil {
+			continue
+		}
 		reader := bufio.NewReaderSize(f.file, followMaxLineBytes+1)
 		for {
 			line, e := reader.ReadSlice('\n')
@@ -113,10 +116,21 @@ func inboxReadGrok(inv Invocation, args []string, token string) error {
 				return errors.New("local inbox scan limit exceeded; no records discarded")
 			}
 			if errors.Is(e, io.EOF) {
-				if len(line) > 0 {
-					return errors.New("incomplete local inbox record; reader paused")
+				if len(line) == 0 {
+					break
 				}
-				break
+				// A torn prefix with later files will never be completed.
+				// The live tail stays unconsumed so a repaired append is readable.
+				if grokLaterSink(entries, i) {
+					break
+				}
+				if !found {
+					return errors.New("inbox cursor record is missing or changed; no cursor advanced")
+				}
+				if !f.receiverValid() {
+					return notRegisteredFollow()
+				}
+				return boundedGrokPage(inv, grokReadPage{Untrusted: true, CaughtUp: true, Cursor: token, PageComplete: true})
 			}
 			if e != nil || len(line) > followMaxLineBytes {
 				return errors.New("local inbox record exceeds reader limit")
@@ -151,6 +165,15 @@ func inboxReadGrok(inv Invocation, args []string, token string) error {
 		return notRegisteredFollow()
 	}
 	return boundedGrokPage(inv, grokReadPage{Untrusted: true, CaughtUp: true, Cursor: token, PageComplete: true})
+}
+
+func grokLaterSink(entries []os.DirEntry, i int) bool {
+	for _, entry := range entries[i+1:] {
+		if entry.Type().IsRegular() && strings.HasSuffix(entry.Name(), ".ndjson") {
+			return true
+		}
+	}
+	return false
 }
 
 func emitGrokPage(f *follower, c grokCursor, rec inbound.SinkRecord) error {

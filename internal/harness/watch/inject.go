@@ -253,9 +253,14 @@ func (in *injector) appendSink(item inbound.Item) error {
 	if err != nil {
 		return err
 	}
-	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	flags := os.O_CREATE | os.O_WRONLY
 	if in.w.harness == string(config.HostGrok) {
-		flags |= unix.O_NOFOLLOW
+		// Read-write, not O_APPEND: repairing a torn tail reads the end of
+		// the file, and ReadAt fails on a write-only or append-only
+		// descriptor. This watcher is the only writer.
+		flags = os.O_CREATE | os.O_RDWR | unix.O_NOFOLLOW
+	} else {
+		flags |= os.O_APPEND
 	}
 	f, err := os.OpenFile(in.w.rc.sink, flags, 0o600) //nolint:gosec // 0600; the path is the test harness's argv flag
 	if err != nil {
@@ -272,8 +277,62 @@ func (in *injector) appendSink(item inbound.Item) error {
 			_ = f.Close()
 			return errors.New("watch: inbox sink is not private")
 		}
+		if err := repairGrokTornTail(f); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if _, err := f.Seek(0, io.SeekEnd); err != nil {
+			_ = f.Close()
+			return err
+		}
 	}
 	return appendRecord(f, append(line, '\n'))
+}
+
+// repairGrokTornTail drops a trailing prefix that has no newline. A failed
+// append is not acknowledged, and the retry must not concatenate onto it.
+func repairGrokTornTail(f *os.File) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	size := info.Size()
+	if size == 0 {
+		return nil
+	}
+	last := make([]byte, 1)
+	if _, err := f.ReadAt(last, size-1); err != nil {
+		return err
+	}
+	if last[0] == '\n' {
+		return nil
+	}
+	const window = 64 << 20
+	start := int64(0)
+	if size > window {
+		start = size - window
+	}
+	buf := make([]byte, 64<<10)
+	pos := size
+	for pos > start {
+		n := int64(len(buf))
+		if n > pos-start {
+			n = pos - start
+		}
+		pos -= n
+		if _, err := f.ReadAt(buf[:n], pos); err != nil {
+			return err
+		}
+		for i := n - 1; i >= 0; i-- {
+			if buf[i] == '\n' {
+				return f.Truncate(pos + i + 1)
+			}
+		}
+	}
+	if start == 0 {
+		return f.Truncate(0)
+	}
+	return errors.New("watch: inbox sink tail has no record boundary")
 }
 
 // appendRecord returns failures at each local-injection boundary, including close.

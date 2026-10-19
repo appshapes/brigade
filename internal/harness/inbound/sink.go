@@ -1,12 +1,17 @@
 package inbound
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/appshapes/brigade/internal/adapterkit"
 )
 
 // The inbox sink of a host without an inbox socket (card 88). On Muse Code
@@ -82,4 +87,115 @@ func GrokSinkDir(stateDir, sessionID, incarnation string) string {
 // allowing the incarnation's follower to drain all files in order.
 func GrokSinkPath(stateDir, sessionID, incarnation string, now time.Time) string {
 	return filepath.Join(GrokSinkDir(stateDir, sessionID, incarnation), filepath.Base(NewSinkPath(stateDir, sessionID, now)))
+}
+
+// AdoptGrokSink moves one incarnation's private sink files into another
+// incarnation of the same Brigade session. A load mints a fresh incarnation
+// so the monitor can re-arm; the files move with it so a locally ACKed
+// backlog is still readable. A missing source is success. The old directory
+// is removed only when it is empty afterwards. A name that already exists in
+// the destination is kept distinct and still sorts after the occupant.
+func AdoptGrokSink(stateDir, sessionID, fromIncarnation, toIncarnation string) error {
+	if fromIncarnation == toIncarnation {
+		return nil
+	}
+	if !hexIncarnation(fromIncarnation) || !hexIncarnation(toIncarnation) {
+		return errors.New("grok sink incarnation is not a 32-character hex id")
+	}
+	src := GrokSinkDir(stateDir, sessionID, fromIncarnation)
+	info, err := os.Lstat(src)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := privateDir(info); err != nil {
+		return err
+	}
+	dst := GrokSinkDir(stateDir, sessionID, toIncarnation)
+	if err := adapterkit.MkdirPrivate(dst); err != nil {
+		return err
+	}
+	dstInfo, err := os.Lstat(dst)
+	if err != nil {
+		return err
+	}
+	if err := privateDir(dstInfo); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || !strings.HasSuffix(name, sinkSuffix) || filepath.Base(name) != name {
+			return errors.New("grok sink directory holds an entry that cannot be moved")
+		}
+		fileInfo, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if err := privateRegular(fileInfo); err != nil {
+			return err
+		}
+		target, err := uniqueSinkName(dst, name)
+		if err != nil {
+			return err
+		}
+		if err := os.Rename(filepath.Join(src, name), filepath.Join(dst, target)); err != nil {
+			return err
+		}
+	}
+	left, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	if len(left) != 0 {
+		return errors.New("grok sink directory was not emptied")
+	}
+	return os.Remove(src)
+}
+
+func hexIncarnation(s string) bool {
+	return len(s) == 32 && strings.Trim(s, "0123456789abcdef") == ""
+}
+
+func privateDir(info os.FileInfo) error {
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		return errors.New("grok sink directory is not private")
+	}
+	return ownedByUser(info)
+}
+
+func privateRegular(info os.FileInfo) error {
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return errors.New("grok sink file is not a private regular file")
+	}
+	return ownedByUser(info)
+}
+
+func ownedByUser(info os.FileInfo) error {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int64(stat.Uid) != int64(os.Getuid()) {
+		return errors.New("grok sink is not owned by this user")
+	}
+	return nil
+}
+
+func uniqueSinkName(dir, name string) (string, error) {
+	base := strings.TrimSuffix(name, sinkSuffix)
+	candidate := name
+	for n := 1; n < 1000; n++ {
+		_, err := os.Lstat(filepath.Join(dir, candidate))
+		if errors.Is(err, os.ErrNotExist) {
+			return candidate, nil
+		}
+		if err != nil {
+			return "", err
+		}
+		candidate = fmt.Sprintf("%s~%d%s", base, n, sinkSuffix)
+	}
+	return "", errors.New("grok sink name collision")
 }

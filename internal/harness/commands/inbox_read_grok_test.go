@@ -152,6 +152,76 @@ func TestGrokReadPagesOwnedRecordAndRefusesOtherReceivers(t *testing.T) {
 	}
 }
 
+func TestGrokReadTornTailDoesNotAbortThePage(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	state := filepath.Join(home, ".local/state/brigade")
+	incarnation := strings.Repeat("a", 32)
+	m := &sessionmap.ByPID{Harness: "grok", ClaudePID: 4242, ClaudeSessionID: "02000000-0000-7000-8000-000000000001", BrigadeSessionID: "s", TeamRef: "t", TeamName: "ops", SessionName: "grok", Inbound: "accept", FrameLevel: "open", TeamKey: "work", ConfigDir: "/c", Grok: &sessionmap.GrokReceiver{Cwd: "/owned", ProcessStart: "start", Incarnation: incarnation}}
+	store := sessionmap.Store{StateDir: state}
+	if err := store.WriteByPID(m); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteByHost("grok", m.ClaudeSessionID, &sessionmap.ByHost{HostPID: 4242, BrigadeSessionID: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := inbound.GrokSinkDir(state, "s", incarnation)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	whole, _ := json.Marshal(inbound.SinkRecord{MessageID: "m", Frame: "complete"})
+	whole = append(whole, '\n')
+	path := filepath.Join(dir, "00000000000000000001.ndjson")
+	if err := os.WriteFile(path, append(append([]byte{}, whole...), []byte("torn")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inv := Invocation{Environ: []string{"HOME=" + home, "GROK_SESSION_ID=" + m.ClaudeSessionID}, Deps: Deps{Getppid: func() int { return 4343 }, Lookup: func(int) (procutil.Info, error) {
+		return procutil.Info{Exists: true, Command: "grok", StartToken: "start", ParentPID: 4242}, nil
+	}}}
+	var out bytes.Buffer
+	inv.Out = &out
+	if err := inboxReadGrok(inv, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	var env struct {
+		Result grokReadPage `json:"result"`
+	}
+	if json.Unmarshal(out.Bytes(), &env) != nil || env.Result.Chunk != "complete" || !env.Result.FrameComplete {
+		t.Fatalf("page %+v from %q", env.Result, out.String())
+	}
+	out.Reset()
+	if err := inboxReadGrok(inv, nil, env.Result.Cursor); err != nil {
+		t.Fatal(err)
+	}
+	env.Result = grokReadPage{}
+	if json.Unmarshal(out.Bytes(), &env) != nil || !env.Result.CaughtUp {
+		t.Fatalf("torn tail did not settle: %s", out.String())
+	}
+	later := filepath.Join(dir, "00000000000000000002.ndjson")
+	if err := os.WriteFile(path, []byte("torn-only"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := json.Marshal(inbound.SinkRecord{MessageID: "m2", Frame: "after"})
+	if err := os.WriteFile(later, append(second, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := inboxReadGrok(inv, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	env.Result = grokReadPage{}
+	if json.Unmarshal(out.Bytes(), &env) != nil || env.Result.Chunk != "after" {
+		t.Fatalf("later file hidden by a torn prefix: %s", out.String())
+	}
+	if err := os.Remove(later); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := inboxReadGrok(inv, nil, ""); err != nil || !bytes.Contains(out.Bytes(), []byte(`"caught_up":true`)) {
+		t.Fatalf("sole torn tail: %v %s", err, out.String())
+	}
+}
+
 func TestGrokMonitorCommandRestoresMissingNativeIdentity(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "spaces and 'quotes'")

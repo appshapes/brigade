@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/appshapes/brigade/internal/harness/account"
+	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -35,6 +36,9 @@ func dirs(t *testing.T) (claudeConfig, home string) {
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfig)
 	t.Setenv("HOME", home)
+	// These cases read Claude's account file. A suite launched from a Grok
+	// session inherits GROK_SESSION_ID, and Paths refuses that host.
+	t.Setenv(config.GrokSessionIDVar, "")
 	return claudeConfig, home
 }
 

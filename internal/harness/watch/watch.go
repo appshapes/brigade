@@ -702,8 +702,12 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 	case err != nil:
 		return nil, codeOf(err).Exit(), err
 	}
-	if m.Harness == string(config.HostGrok) && (!m.GrokAlive(d.Lookup) || filepath.Dir(rc.sink) != inbound.GrokSinkDir(rc.env.StateDir, m.BrigadeSessionID, m.Grok.Incarnation)) {
-		return nil, protocol.CodeConfig.Exit(), &protocol.Error{Code: protocol.CodeConfig, Message: "Grok monitor receiver or private sink binding is invalid", Details: map[string]string{"reason": "grok_receiver_invalid"}}
+	if m.Harness == string(config.HostGrok) {
+		life, _ := m.GrokLiveness(d.Lookup)
+		sinkOK := m.Grok != nil && filepath.Dir(rc.sink) == inbound.GrokSinkDir(rc.env.StateDir, m.BrigadeSessionID, m.Grok.Incarnation)
+		if life == sessionmap.GrokDead || !sinkOK {
+			return nil, protocol.CodeConfig.Exit(), &protocol.Error{Code: protocol.CodeConfig, Message: "Grok monitor receiver or private sink binding is invalid", Details: map[string]string{"reason": "grok_receiver_invalid"}}
+		}
 	}
 	if m.TeamKey != rc.env.Profile {
 		return nil, protocol.CodeConfig.Exit(), &protocol.Error{

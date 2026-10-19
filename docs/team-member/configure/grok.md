@@ -14,6 +14,8 @@ Keys are the [common option names](options.md); values are strings, booleans or 
 
 The Go resolvers and the shared bootstrap use HOME-only Brigade directories inside Grok. Inherited
 `BRIGADE_*`, `XDG_*` and Claude plugin options cannot relocate Grok's store or supply its option defaults.
+A Claude, Muse or Codex session started from Grok keeps those variables; Grok strips them only when it is
+the host.
 `config_dir` relocates credentials only after this options file is found. Missing files give defaults;
 malformed/oversized files produce a fixed warning; unknown keys and nested values are ignored.
 

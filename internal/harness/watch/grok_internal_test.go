@@ -118,6 +118,38 @@ func (f failingSink) Write(p []byte) (int, error) {
 	return len(p), f.writeErr
 }
 func (f failingSink) Close() error { return f.closeErr }
+func TestGrokAppendRepairsTornTail(t *testing.T) {
+	t.Parallel()
+	w := monitorWatcher(t)
+	if err := os.WriteFile(w.rc.sink, []byte("{\"message_id\":\"whole\"}\n{\"message_id\":\"tor"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := newInjector(w).appendSink(inbound.Item{Content: "next", MessageID: "n"}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(w.rc.sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	if strings.Contains(text, "tor") || !strings.Contains(text, "whole") || !strings.Contains(text, `"message_id":"n"`) || !strings.HasSuffix(text, "\n") {
+		t.Fatalf("repaired sink %q", text)
+	}
+}
+
+func TestGrokLookupErrorDoesNotRetire(t *testing.T) {
+	t.Parallel()
+	w := monitorWatcher(t)
+	w.deps.Lookup = func(int) (procutil.Info, error) { return procutil.Info{}, errors.New("lookup failed") }
+	if err := w.checkGrokReceiver(); err != nil {
+		t.Fatal(err)
+	}
+	w.retireGrokReceiver()
+	if _, err := w.store.ReadByPID(4242); err != nil {
+		t.Fatal("lookup error retired the receiver", err)
+	}
+}
+
 func TestGrokAppendFailuresAreNotSuccess(t *testing.T) {
 	t.Parallel()
 	e := errors.New("fixture")
