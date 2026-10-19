@@ -122,16 +122,95 @@ class ExportTests(unittest.TestCase):
                     'nonce_observed': True, 'completion_seconds': 18.23, 'status': 'pass'},
                 'monitor-random-tail-report.json': {'status': 'fail', 'cases': [
                     {'body_bytes': 2048, 'kind': 'ascii', 'tail_reply_observed': False, 'completion_seconds': 121.95}]},
+                'monitor-lifetime-report.json': {'status': 'fail', 'hold_seconds': 2100,
+                    'completion_seconds': 128.13, 'hold_started': 1792371939.406662,
+                    'checks': {'auto_initial_wake': True, 'control_initial_wake': True,
+                        'auto_quiet': True, 'control_quiet': True, 'long_idle_wake': False}},
+                'monitor-environment-report.json': {'monitor_home_equals_hook': True,
+                    'grok_session_id_present': False, 'names': ['GROK_AGENT'],
+                    'ancestors': [{'pid': 987654, 'ppid': 987655, 'kernel_name': name,
+                                   'private': private} for name in ('Python', 'bash', 'grok-macos-aarch', 'tmux')]},
+                'monitor-native-normal-exit.json': {'monitor_exited': True, 'elapsed_seconds': 0.34},
+                'monitor-native-resume.json': {'same_native_id': True, 'generated_nonce_visible': True,
+                    'monitor_count_text_one': True, 'native_id': private},
+                'monitor-native-compaction.json': {'compaction_completed': True,
+                    'generated_nonce_visible': True, 'monitor_count_text_one': True, 'elapsed_seconds': 2.6},
+                'monitor-native-crash.json': {'monitor_exited_within_10s': False,
+                    'elapsed_seconds': 10.59, 'owned_orphan_cleanup_sent': True},
+                'home-probe-report.json': {'normal_auth_model_reply': True, 'shell_home_matches_scratch': True,
+                    'shell_native_id_matches': True, 'grok_home_matches_normal': True, 'home': private},
+                'monitor-lifetime-supplement.json': {'status': 'pass', 'raw_screen_scorer_status': 'fail',
+                    'raw_screen_failure_retained': True, 'hold_seconds': 2100, 'both_quiet_during_hold': True,
+                    'ingress_after_hold': True, 'turn_native_id_matches': True, 'turn_started_seconds': 0.258,
+                    'turn_completed_seconds': 2.489, 'turn_completed': True, 'assistant_export_exact_nonce': True,
+                    'original_tui_after_scroll_nonce_visible': True, 'only_scroll_keys_after_observation_window': True,
+                    'control_export_has_no_long_nonce': True},
                 private: {'unexpected': private}}
 
     def test_allowlist_excludes_private_values_extra_keys_and_raw_content(self):
         output = evidence.summarize(self.records())
         text = json.dumps(output)
-        for private in ('/Users/', 'account-secret', 'signature', 'DIRECT_LIVE_120', 'EXPECTED'):
+        for private in ('/Users/', 'account-secret', 'signature', 'DIRECT_LIVE_120', 'EXPECTED',
+                        '987654', '987655', '1792371939', 'hold_started'):
             self.assertNotIn(private, text)
         self.assertEqual(output['sources'], list(evidence.NAMES))
         self.assertTrue(output['rejected_prompt']['usage_matches_preceding_turn'])
         self.assertTrue(output['direct_transport']['agent_chunks_correlated'])
+        self.assertEqual(output['monitor_long_idle']['status'], 'fail')
+        self.assertFalse(output['native_lifecycle']['crash']['monitor_exited_within_10s'])
+        self.assertEqual(output['production_package_acceptance'], 'not_established')
+
+    def test_long_idle_requires_completed_consistent_full_duration_observations(self):
+        for key, value in (('status', 'ongoing'), ('status', 'pass'), ('hold_seconds', 75),
+                           ('hold_seconds', True), ('completion_seconds', float('nan'))):
+            records = self.records()
+            records['monitor-lifetime-report.json'][key] = value
+            with self.assertRaises(ValueError, msg=(key, value)):
+                evidence.summarize(records)
+        for key in self.records()['monitor-lifetime-report.json']['checks']:
+            records = self.records()
+            del records['monitor-lifetime-report.json']['checks'][key]
+            with self.assertRaises(KeyError):
+                evidence.summarize(records)
+        records = self.records()
+        records['monitor-lifetime-report.json']['status'] = 'pass'
+        records['monitor-lifetime-report.json']['checks']['long_idle_wake'] = True
+        # A supplement may not overwrite the raw failure it purports to explain.
+        with self.assertRaises(ValueError):
+            evidence.summarize(records)
+        for key in records['monitor-lifetime-report.json']['checks']:
+            damaged = deepcopy(records)
+            damaged['monitor-lifetime-report.json']['checks'][key] = False
+            with self.assertRaises(ValueError):
+                evidence.summarize(damaged)
+
+    def test_environment_cannot_export_arbitrary_names_or_ancestry(self):
+        for key, value in (('names', ['/private/secret']),
+                           ('ancestors', [{'kernel_name': '/private/secret'}]),
+                           ('grok_session_id_present', 'false')):
+            records = self.records()
+            records['monitor-environment-report.json'][key] = value
+            with self.assertRaises(ValueError):
+                evidence.summarize(records)
+
+    def test_supplement_needs_every_witness_and_correlated_timing(self):
+        base = self.records()
+        self.assertEqual(evidence.summarize(base)['monitor_long_idle_supplement']['status'], 'pass')
+        for key, value in base['monitor-lifetime-supplement.json'].items():
+            damaged = deepcopy(base)
+            damaged['monitor-lifetime-supplement.json'][key] = (
+                False if type(value) is bool else -1 if type(value) in (float, int) else 'wrong')
+            with self.assertRaises(ValueError, msg=key):
+                evidence.summarize(damaged)
+            missing = deepcopy(base)
+            del missing['monitor-lifetime-supplement.json'][key]
+            with self.assertRaises(KeyError, msg=key):
+                evidence.summarize(missing)
+        for start, end in ((3, 2), (0.258, 128.13)):
+            damaged = deepcopy(base)
+            damaged['monitor-lifetime-supplement.json'].update(turn_started_seconds=start, turn_completed_seconds=end)
+            with self.assertRaises(ValueError):
+                evidence.summarize(damaged)
 
     def test_unexpected_enums_and_nonboolean_measurements_rejected(self):
         records = self.records()

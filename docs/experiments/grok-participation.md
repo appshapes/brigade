@@ -6,14 +6,19 @@ Installed Grok: `1.0.62 (1474f9cbdd91) [stable]`, macOS arm64.
 
 ## Verdict
 
-**Monitor-first reversible implementation is feasible; shared-leader delivery is
-not production-ready.** The coordinator measured a normally installed/trusted
+**Native nonleader monitor feasibility now includes a supplemental 35-minute
+PASS; actual production package acceptance remains open. Shared-leader delivery
+is unsupported.** The coordinator measured a normally installed/trusted
 Stop hook bootstrapping a native monitor in a fresh `--no-leader` TUI, with one
 normal command permission and generated content after idle external ingress.
 The [contract](grok-participation-contract.md) is accepted as implementation
-guidance; the user's launch-mode scope preference is still pending. Monitor tool-busy wake passed; the 35-minute idle test remains ongoing. Full-body
-wake/read retrieval, resume and cleanup
-gates also remain open.
+guidance for explicit `--no-leader` integration, chosen by the coordinator as a
+reasonable implementation scope, not user approval of the unanswered preference
+question. The raw long-idle screen FAIL is retained: subsequent correlated native
+events, same-session assistant export and scroll-only TUI witness establish a
+viewport false-negative, not a native wake failure.
+Actual production package acceptance, full-body wake/read retrieval and bounded
+crash cleanup remain open; this checkpoint is not merge-ready.
 
 Earlier leader results below remain bounded **transport pilots**. A later normal
 TUI exit left the subscribed native actor resident and direct ghost prompts still
@@ -57,9 +62,14 @@ No credential files were read or copied.
 | SessionStart systemMessage | UI-only | Visible notice; model answered NONE |
 | Stop bootstrap + nonleader short idle monitor wake | PASS bounded pilot | One ordinary command approval, once-per-incarnation block/reason, joined idle nonce without typed nudge |
 | Monitor tool-busy | PASS bounded pilot | Ingress during owned 12-second tool, done marker and joined nonce at 18.23 seconds |
-| 35-minute monitor idle | ONGOING | No pass claimed |
+| 35-minute monitor idle | Supplemental PASS, native-only | Raw screen FAIL retained; same-session events/export and scroll-only original-TUI witness prove fresh completion at 2.489 seconds after 2,100-second quiet hold |
 | Direct-monitor payload | REJECTED | Reused END120 size passes invalidated; fresh 2-KiB random tail not seen at 121.95 seconds; 16-KiB escaped case no reply within 120 seconds |
-| Payload/burst, monitor resume/crash, names/model/context | OPEN | No inferred compatibility claims |
+| Native normal exit | PASS native child only | Child exited in 0.34 seconds; not production watcher proof |
+| Native SIGKILL | FAIL native cleanup | Child remained after 10.59 seconds; coordinator cleaned its owned orphan |
+| Native resume | PASS explicit rearm pilot | Same native ID, source load, fresh joined nonce; not automatic production rearm proof |
+| Native compaction | PASS bounded pilot | Child survived a 25-second compaction; subsequent nonce visible in 2.6 seconds |
+| Isolated HOME / existing GROK_HOME | PASS native preflight | Normal authenticated model reply and ordinary shell HOME/native ID matched; actual package hook isolation still pending |
+| Full retrieval/burst, production lifecycle, names/model/context | OPEN | No inferred compatibility claims |
 
 The initial reproduction driver is [probe.py](../../scripts/experiments/grok-participation/probe.py).
 Its [README](../../scripts/experiments/grok-participation/README.md) describes scope and cleanup.
@@ -176,19 +186,53 @@ pinned-source constants, and no exactly-once processing or durable monitor recei
 
 The [plan gate ledger](../../.context/plans/grok-build-participation.md#gate-ledger)
 and [finite test matrix](grok-participation-contract.md#remaining-finite-coordinator-gates)
-carry the passed tool-busy wake, ongoing 35-minute monitor run and pending full
-wake/read retrieval, payload, burst, resume,
+carry the passed tool-busy wake, supplemental native 35-minute PASS and pending
+production wake/read retrieval, payload, burst, resume,
 denied-arming, sibling, stale binding and crash cleanup controls.
 The [operator fixture](../../scripts/experiments/grok-participation/README.md#nonleader-monitor-bootstrap)
 prepares an inert scratch plugin; only the coordinator performs normal install,
 trust, launch, approval and cleanup. This worker ran only offline scorer/fixture
 checks, not any live model session.
 
+## Completed native lifecycle checkpoint
+
+The [schema-3 evidence](grok-participation-evidence/coordinator-checkpoint.json)
+exports only allowlisted assertions from retained private coordinator evidence.
+After 2,100 seconds, both automatic and control monitors had been quiet and their
+initial wakes had passed. The raw screen-only scorer failed at 128.13 seconds:
+the viewport remained on old output. It is preserved unchanged. The later retained
+private `monitor-lifetime-supplement.json` correlates the same native session's
+turn with ingress: start 0.258 seconds, completion 2.489 seconds, exact joined
+assistant nonce in that owned session's export, no long nonce in the control.
+Two PageDown keys only after the observation window revealed the reply in the
+original TUI; no prompt or model nudge was sent. This is supplemental evidence of
+the same run, not a rerun or a silent rewrite of the failed screen score. Together
+these witnesses establish native long-idle PASS. A process/trigger remaining
+present alone never established that pass. Production receiving still requires
+the actual package gates below; do not infer native runtime correctness from the
+source or model receipt from local ACK.
+The later leader 35-minute individual controls passed, but that whole run failed
+its replay-contaminated short-idle check; it is not an overall PASS or a substitute.
+
+Ordinary shell exposes the full native UUID; the monitor child exposes only
+`GROK_AGENT`, with no `GROK_SESSION_ID`. Monitor HOME matches hook HOME. Observed
+ancestry was Python -> bash -> actual TUI (kernel name `grok-macos-aarch`). Stop
+`backgroundTasks` carried ID/type/status/description and no command field. These
+facts require explicit validated binding in the monitor command and honest
+unverified task status where exact command evidence is unavailable. Neither
+native watcher-count text nor a model's ARMED banner establishes readiness.
+
+Normal exit, explicit-rearm resume, compaction and HOME-split observations above
+are native-only. SIGKILL survival requires production watcher/follower retirement;
+a native child lifetime promise is insufficient. No auth file was read/copied and
+no global configuration changed in the HOME preflight. Actual package hooks,
+local sink/ACK, pagination and cleanup still need coordinator acceptance.
+
 ## Limits and next decision
 
 This investigation creates no backend team and sends no messages to teammates.
 No normal Grok leader was killed. In the completed historical pilots, owned
-probe clients, TUI windows and leaders were stopped; current ongoing pilots remain
+probe clients, TUI windows and leaders were stopped; follow-up diagnosis remains
 coordinator-owned. Grok may retain synthetic histories; no real transcript was read.
 Temporary TUI workspaces remain outside the repository for inspection. This
 checkpoint changes no production files, release pins or configuration.

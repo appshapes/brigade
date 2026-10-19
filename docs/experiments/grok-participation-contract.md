@@ -12,15 +12,19 @@ Implement a reversible **native monitor route for explicitly nonleader Grok
 TUIs**, using body-free monitor wake notices plus bounded local sink retrieval.
 Keep the existing sink and protocol-v1 local-injection ACK.
 Bootstrap once through the measured Stop block/reason continuation; retain an
-explicit skill retry. Leader-backed delivery remains unsupported. The user's
-monitor-first versus require-leader scope preference is still pending; do not
-represent this narrower route as satisfying both choices or enable general
-support before the remaining gates below pass.
+explicit skill retry. Leader-backed delivery remains unsupported. The coordinator
+selected explicit `--no-leader` scope as a reasonable implementation choice; the
+unanswered preference question is not user approval or an indefinite gate. The
+35-minute native hold now has a supplemental PASS from correlated events/export
+and scroll-only original-TUI witness; retain the raw viewport FAIL. Actual package
+technical gates remain mandatory before merge-ready acceptance.
 
 Stop-assisted arming, short idle and native tool-busy wake have passed coordinator-owned
 synthetic pilots under normal plugin trust and command-specific permission.
-They establish feasibility, not throughput, long-idle retention, resume, crash
-cleanup or unrestricted launch-mode support. No durable native receipt or
+They establish bounded feasibility only. Native explicit-rearm resume and
+compaction also passed; native crash cleanup failed. Long-idle supplemental
+evidence corrected a screen-only false-negative. None is
+actual production package acceptance or unrestricted launch-mode support. No durable native receipt or
 exactly-once model processing is claimed or required by this contract.
 
 ## Evidence and provenance
@@ -73,7 +77,9 @@ failed tail visibility after 121.95 seconds; the coordinator also reports no
 16-KiB escaped-case reply within 120 seconds. Neither proves an exact installed
 truncation threshold, but neither supports full-body transport. The independent
 12-second native tool-busy pilot passed: in-flight ingress, completion marker and
-joined nonce, 18.23 seconds. The 35-minute monitor/no-send test remains ongoing.
+joined nonce, 18.23 seconds. The completed 35-minute monitor test has a
+supplemental native PASS (2.489-second completion), retaining the raw screen FAIL
+as a viewport false-negative; see the [native checkpoint](grok-participation.md#completed-native-lifecycle-checkpoint).
 
 Coordinator retrieved `monitor-{types,event,tool,rate_limiter}.rs` at public pin
 `2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`. Source declares line/batch truncation
@@ -208,9 +214,20 @@ records even though monitor hints are coalesced correctly.
 The [plan](../../.context/plans/grok-build-participation.md) now owns the concrete
 identity, options, hook, arming, cleanup, skills and packaging instructions.
 The contract is accepted as guidance for reversible monitor-first implementation;
-the user's launch-mode scope preference remains pending. The
+the coordinator selected explicit `--no-leader` scope without claiming user
+approval. The
 [fixture and operator steps](../../scripts/experiments/grok-participation/README.md)
 reproduce the bootstrap without automating trust or touching unrelated sessions.
+
+Read-only seam check of Sol's current implementation: `MonitorCommand` supplies
+hook-bound GROK_SESSION_ID and incarnation explicitly; `grokStop` keeps an exact
+native description-only match unverified, and suppresses repeat automatic arming.
+`inboxReadGrok` resolves the current receiver and local sink, binds cursors to its
+identity and record, and uses a 2,048-byte serialized page budget. These are code
+observations only, not a review verdict or executed production/native tests. The
+actual native Stop lacks command evidence, so readiness remains unverified under
+that code path. Installed command execution, ancestry checks, complete pages,
+ACK behavior and watcher retirement require coordinator acceptance.
 
 ## Remaining finite coordinator gates
 
@@ -223,11 +240,11 @@ synthetic frames; no broader permission grants.
 | --- | --- |
 | Payload/latency | Direct full-frame monitor output rejected; implemented wake/read retrieval proof pending. Isolated 64 B, 2 KiB, 8 KiB and actual protocol-maximum body, each with single-line and multiline content. Include UTF-8 and split writes. Require complete ID/body/end marker and generated split-nonce reply; candidate wake/content budgets 30/120 seconds. Measure encoded record/frame expansion; do not invent a new wire cap. |
 | Burst/drop/batching | Count hints separately from retrieved records; drop/coalesce hints deliberately. Send 1, 10 and 50 numbered frames at 1 frame/s, then a bounded 10-frame burst. Count all four boundaries and native task survival. Measure batching delay and missing/partial frames; repeat with proposed pacing. Freeze a supported envelope only after zero unexplained losses within it; installed monitor rate/retention limits remain unverified. |
-| Long idle | Native monitor-specific 2,100 seconds (35 minutes) quiet hold with no-send control, then a fresh split nonce and the same latency budgets. Leader longhold evidence does not substitute. |
-| Resume and task guards | New/load, same UUID/new TUI incarnation, compaction, helper failure and explicit retry. Exactly one bound live monitor; one automatic attempt per incarnation. Deny the initial command permission: no ready state or repeated automatic continuation; later explicit retry works. Verify native task ID/command evidence, not banners. |
-| Ownership/cleanup | Normal /exit and owned TUI crash, same-cwd sibling, stale pointer/PID and receiver replacement. Candidate local retirement bound: 10 seconds (two current map-check intervals), measured from TUI death. No post-retirement append/ACK by stale watcher, surviving ready binding or model wake. Distinguish an already accepted local append from a new stale-target injection. |
+| Long idle | Native supplemental PASS: 2,100-second quiet hold, exact own-session assistant export, correlated 2.489-second completion and scroll-only original-TUI witness. Raw 128.13-second screen FAIL retained as viewport false-negative. Actual package long-idle acceptance still required; leader whole run failed replay scoring. |
+| Resume and task guards | New/load, same UUID/new TUI incarnation, compaction, helper failure and explicit retry. Exactly one bound live monitor; one automatic attempt per incarnation. Deny the initial command permission: no ready state or repeated automatic continuation; later explicit retry works. Native explicit-rearm resume and compaction passed only. Actual Stop lacks command; verify binding without claiming description-only evidence is ready. |
+| Ownership/cleanup | Native /exit child exit 0.34 seconds; SIGKILL child survived 10.59 seconds (owned orphan cleaned). Production normal /exit and owned TUI crash, same-cwd sibling, stale pointer/PID and receiver replacement. Candidate local retirement bound: 10 seconds (two current map-check intervals), measured from TUI death. No post-retirement append/ACK by stale watcher, surviving ready binding or model wake. Distinguish an already accepted local append from a new stale-target injection. |
 | Local ACK regressions | Synthetic sink write/close failure, hold/refusal, pre-arm backlog, watcher/helper restart, output closure and partial record. Only successful permitted local injection ACKs; replay is tolerated. Check native loss separately, without claiming ACK is model receipt. |
-| Trusted environment | Normal installed/trusted plugin, default permissions, native UUID/canonical cwd/actual TUI parent, isolated synthetic HOME/path tests and poisoned XDG/BRIGADE inputs. No credential access or global configuration changes. |
+| Trusted environment | Native scratch HOME/existing GROK_HOME preflight passed without auth reads/copies; actual package hook isolation still pending. Normal installed/trusted plugin, default permissions, native UUID/canonical cwd/actual TUI parent, isolated synthetic HOME/path tests and poisoned XDG/BRIGADE inputs. No credential access or global configuration changes. |
 
 ## Scope choice and validation status
 
@@ -254,14 +271,14 @@ Task-start lessons had no matching evidence-packaging guidance; the test-count
 follow-up reinforced checking each mutation's discriminating value. Coordinator
 owns shared external state and any subsequent lesson capture.
 
-Validation: ten offline tests cover passive interactions, replay/correlation,
+Validation: sixteen offline tests cover passive interactions, replay/correlation,
 30 invalid field mutations, 11 missing-check cases, private-data exclusion and
 fixture scope/one-shot/lifecycle guards, plus rejection of invalidated payload
-passes. No production pagination or end-to-end retrieval test is claimed. Python
+passes, completed long-idle status/duration/required checks and lifecycle/environment
+export boundaries, plus every supplemental witness and timing guard. No production pagination or end-to-end retrieval test is claimed. Python
 syntax, supplied synthetic-summary
 assertions, local relative links/anchors, whitespace and `git diff --check` are
-checked separately. Full `make docs-check` remains with the coordinator: the
-earlier attempt was denied access to the protected Go build cache (`operation
-not permitted`, exit 2), and was not retried or bypassed. No production/live tests
-were run by this worker. Coordinator may import the scoped checkpoint and run the
-docs gate while the preference and live gates remain explicitly pending.
+checked separately. The final `make docs-check` passed (169 pages, 665 links); the earlier protected
+Go-cache denial remains historical, with no permission/cache workaround used. No
+production/live tests were run by this worker. Coordinator may import the scoped
+checkpoint; actual package gates still block acceptance.

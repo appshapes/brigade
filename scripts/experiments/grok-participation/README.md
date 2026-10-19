@@ -162,7 +162,7 @@ change fails the probe; do not weaken the correlation predicate to pass it.
 
 The old `monitor-payload-report.json` is invalidated because every case reused the
 same tail. The exporter rejects it and unverified positive random-tail results.
-Current schema 2 exports the failed fresh 2-KiB tail case and the passed native
+Schema 3 retains the failed fresh 2-KiB tail case and the passed native
 tool-busy wake separately. Full-frame delivery must use the
 [wake/read contract](../../../docs/experiments/grok-participation-contract.md#delivery-correction-wake-notices-plus-local-retrieval);
 this short-line fixture is only a bootstrap/wake probe, not a payload proof.
@@ -206,10 +206,11 @@ not be used as a setup recipe (it still calls removed `brigade profile`).
 
 Operator sequence, all actual native actions owned by the coordinator:
 
-1. Treat HOME separation as an **unproven prerequisite**. The installed guide
-   documents GROK_HOME as Grok's config-directory override, but that alone does
-   not prove plugin storage, normal authentication and hook/model-shell HOME
-   behavior under this split. From the printed workspace, use the printed launch
+1. Native HOME separation preflight **passed** in retained private coordinator
+   `home-probe-report.json`: normal authenticated model reply, scratch shell HOME
+   and native ID matched with existing normal GROK_HOME; no auth copy/read or global
+   configuration edit. This does not prove actual package hook HOME or installation
+   storage. Revalidate those boundaries for each new production fixture. From the printed workspace, use the printed launch
    environment: `env -i`, scratch HOME/TMPDIR, supplied existing GROK_HOME, normal
    executable PATH, default permissions, `--no-leader`, no inherited harness/XDG
    markers or API-key environment. Before installing Brigade, verify normal login
@@ -234,7 +235,10 @@ Operator sequence, all actual native actions owned by the coordinator:
 4. Complete an initial user turn and approve only the actual monitor command if
    requested. Record the native task and one-shot arming behavior. New coordinator
    evidence says Stop `backgroundTasks` has ID/type/status/description but **no
-   command field**: a guard requiring command remains unverified. Do not patch
+   command field**. Current Sol code restores hook-bound GROK_SESSION_ID in its
+   fixed monitor command (native monitor has only GROK_AGENT) and keeps an exact
+   description-only task match unverified. This is source inspection, not native
+   package acceptance. Do not patch
    task metadata or mark ready from a banner to pass acceptance. The measured
    0.34-second native monitor exit after `/exit` is not production watcher proof.
 5. Send only to that observed receiver using the private fixture:
@@ -300,6 +304,26 @@ Grok action, 16-KiB generation, receiver/path refusal, stdin bodies, ACK observa
 without ACK mutation, and binary/bootstrap rejection. These do **not** prove the
 real CLI setup or the native pipeline. No supplied compiled development binaries
 were available to this worker, so actual fs setup/send is pending coordinator
-execution; HOME separation, actual hook registration, task readiness and native
-full-frame delivery remain live gates. No privileged sockets/network or Go-cache
+execution; native HOME/auth preflight has passed separately, while actual package
+hook isolation/registration, task readiness and full-frame retrieval remain live gates. No privileged sockets/network or Go-cache
 workaround was attempted.
+
+### Completed native gate update
+
+The native-only 2,100-second hold now has **supplemental PASS evidence**, preserving
+the raw screen-only FAIL at 128.13 seconds. Same-session native events correlate
+ingress with completion at 2.489 seconds; owned assistant export contains the
+exact joined nonce, the control does not. PageDown-only input after the observation
+window reveals it in the original TUI, without a prompt/model nudge. Do not erase
+the raw failure, call this a rerun, or infer delivery from process survival.
+Use the same correlated evidence boundaries for actual package long-idle acceptance,
+which remains pending with full retrieval and production lifecycle gates.
+
+Native /exit stopped its child in 0.34 seconds; SIGKILL left the child for at least
+10.59 seconds and the coordinator cleaned the owned orphan. Resume with explicit
+rearm and compaction woke successfully; neither proves production rearm or cleanup.
+The small bootstrap fixture above predates the missing-monitor-UUID observation;
+its environment assumption must not be mistaken for current native acceptance.
+Use the actual package acceptance flow with validated explicit binding. The later
+leader longhold controls passed individually, but the whole run failed replay
+scoring. These native records do not establish actual package production readiness.

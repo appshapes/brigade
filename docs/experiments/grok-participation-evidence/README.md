@@ -35,7 +35,11 @@ not retroactively certify these snapshots with it.
   from retained private coordinator evidence named `direct-report.json`,
   `rejected-report.json`, `liveness-normal-report.json`, `monitor-summary.json`,
   `monitor-tool-busy-report.json` and
-  `monitor-random-tail-report.json`.
+  `monitor-random-tail-report.json`, `monitor-lifetime-report.json`,
+  `monitor-environment-report.json`, `monitor-native-normal-exit.json`,
+  `monitor-native-resume.json`, `monitor-native-compaction.json`,
+  `monitor-native-crash.json`, `home-probe-report.json` and
+  `monitor-lifetime-supplement.json`.
   It records direct generated content/correlation, rejection with unchanged prior
   usage, resident ghost prompt after normal exit, and nonleader identity/idle wake.
 - [Contract](../grok-participation-contract.md): accepted monitor-first reversible
@@ -58,13 +62,32 @@ corroborates parent/native identity/socket absence and nonce visibility, but doe
 not independently encode those entire permission/TUI sequences. No source-only
 claim is promoted to installed runtime proof.
 
-Monitor tool-busy wake passed at 18.23 seconds. The 35-minute idle test remains
-ongoing at this checkpoint. Resume,
-payload/burst loss, native task binding, denied arming and crash cleanup remain
-open. XDG absence is not a poison test. One Python hook run timed out; it is not
-counted as a full hook pass. A replay-contaminated later leader short-idle scorer
-run is not a whole-run PASS. Prior measured short transport successes remain
-historical; the corrected driver has only offline regression tests here.
+Monitor tool-busy wake passed at 18.23 seconds. The completed 35-minute monitor
+hold has **supplemental native PASS evidence**. Preserve the raw screen FAIL at
+128.13 seconds: its old viewport missed the reply. The supplement establishes
+same-session native event correlation (start 0.258 seconds, completion 2.489),
+exact assistant nonce in owned native export, no long nonce in the control, and
+original-TUI visibility after only PageDown keys following the observation window.
+No prompt/model nudge was sent. This is the same run, not a fabricated rerun;
+process survival alone was never the pass criterion. Actual package acceptance
+remains open.
+Native-only normal exit passed (0.34 seconds); SIGKILL cleanup failed (child still
+present at 10.59 seconds, coordinator cleaned its orphan). Explicit-rearm resume
+and compaction passed; neither establishes production hook rearming. Native HOME
+split/authenticated shell preflight passed without credential access/copy; actual
+package hook isolation remains pending. See the [measured checkpoint](../grok-participation.md#completed-native-lifecycle-checkpoint).
+
+Native task-count text is a UI observation, not exact task binding. Actual Stop
+tasks lack command (coordinator hook observation); the monitor has only GROK_AGENT,
+while ordinary shell has native identity. Exported ancestry contains only fixed
+kernel names, never PIDs. The later leader 35-minute controls passed individually,
+but its whole run failed replay-contaminated short-idle scoring. Historical leader
+pilots remain unchanged; no retrospective whole-run PASS.
+
+The initial scope is explicitly `--no-leader`, chosen by the coordinator, not
+user approval of the unanswered preference question. Payload/burst, denial/retry,
+production identity and bounded retirement remain technical gates. Native-only
+results never promote `production_package_acceptance` beyond `not_established`.
 
 ## Payload evidence invalidation
 
@@ -76,9 +99,19 @@ this negative is allowlisted, without the nonce or raw output. A fabricated
 positive tail result is rejected by the regression test. The 16-KiB escaped-case
 120-second no-reply observation is coordinator-reported prose only.
 
-Schema 2 adds the native tool-busy pilot and direct-monitor payload negative,
+Schema 2 added the native tool-busy pilot and direct-monitor payload negative,
 plus explicitly source-only constants from the newly retrieved pinned monitor
 source. Source pin differs from installed binary. It does not export, infer or
 claim a successful full-body size test. Production hint/read pagination needs its
 own byte-exact offline and fresh-hidden-sentinel original-TUI proof. Monitor
 notices are wake signals; they are no longer a candidate full-frame carrier.
+
+Schema 3 adds completed long-idle, native lifecycle/environment and HOME-split
+assertions. It rejects unfinished/inconsistent long-idle status, holds shorter
+than 2,100 seconds, missing checks, invalid booleans/nonfinite durations and
+unrecognized environment/ancestry strings. Tests reject every false required
+check in a claimed pass. Extra raw keys, timestamps, PIDs, private paths and IDs
+are not exported. The supplemental pass requires every same-session, timing, control and scroll-only
+witness and preserves the raw failure; missing/false checks reject the export.
+A failed native cleanup result remains false; native-only passes
+do not become package acceptance. New evidence needs an explicit allowlist update.

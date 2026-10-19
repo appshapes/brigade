@@ -6,7 +6,11 @@ from pathlib import Path
 
 
 NAMES = ('direct-report.json', 'rejected-report.json', 'liveness-normal-report.json', 'monitor-summary.json',
-         'monitor-tool-busy-report.json', 'monitor-random-tail-report.json')
+         'monitor-tool-busy-report.json', 'monitor-random-tail-report.json',
+         'monitor-lifetime-report.json', 'monitor-environment-report.json',
+         'monitor-native-normal-exit.json', 'monitor-native-resume.json',
+         'monitor-native-compaction.json', 'monitor-native-crash.json', 'home-probe-report.json',
+         'monitor-lifetime-supplement.json')
 
 def summarize(records):
     if 'monitor-payload-report.json' in records:
@@ -53,11 +57,78 @@ def summarize(records):
     calls = rm['usage']['modelCalls']
     if type(calls) is not int or not 0 <= calls <= 100:
         raise ValueError('unexpected modelCalls; inspect privately')
+    lifetime = records['monitor-lifetime-report.json']
+    lifetime_status = enum(lifetime['status'], ('pass', 'fail'))
+    hold = lifetime['hold_seconds']
+    if type(hold) is not int or not 2100 <= hold <= 3600:
+        raise ValueError('completed long-idle evidence requires at least 2100 seconds')
+    checks = {k: boolean(lifetime['checks'][k]) for k in (
+        'auto_initial_wake', 'control_initial_wake', 'auto_quiet', 'control_quiet', 'long_idle_wake')}
+    if (lifetime_status == 'pass') != all(checks.values()):
+        raise ValueError('long-idle status contradicts required observations')
+    supplement = records['monitor-lifetime-supplement.json']
+    supplemental_checks = {k: boolean(supplement[k]) for k in (
+        'raw_screen_failure_retained', 'both_quiet_during_hold', 'ingress_after_hold',
+        'turn_native_id_matches', 'turn_completed', 'assistant_export_exact_nonce',
+        'original_tui_after_scroll_nonce_visible', 'only_scroll_keys_after_observation_window',
+        'control_export_has_no_long_nonce')}
+    started = seconds(supplement['turn_started_seconds'])
+    completed = seconds(supplement['turn_completed_seconds'])
+    if (supplement['status'] != 'pass' or supplement['raw_screen_scorer_status'] != 'fail'
+            or lifetime_status != 'fail' or checks['long_idle_wake'] is not False
+            or not all(v for k, v in checks.items() if k != 'long_idle_wake')
+            or type(supplement['hold_seconds']) is not int or supplement['hold_seconds'] != hold
+            or not all(supplemental_checks.values()) or not 0 <= started <= completed <= 120):
+        raise ValueError('supplemental pass requires all correlated native and scroll-only witnesses')
+    environment = records['monitor-environment-report.json']
+    names = environment['names']
+    if names != ['GROK_AGENT']:
+        raise ValueError('unexpected monitor environment; inspect privately')
+    ancestry = [a['kernel_name'] for a in environment['ancestors']]
+    if ancestry != ['Python', 'bash', 'grok-macos-aarch', 'tmux']:
+        raise ValueError('unexpected monitor ancestry; inspect privately')
+    normal = records['monitor-native-normal-exit.json']
+    resume = records['monitor-native-resume.json']
+    compact = records['monitor-native-compaction.json']
+    crash = records['monitor-native-crash.json']
+    home = records['home-probe-report.json']
     return {
-        'schema': 2,
+        'schema': 3,
         'build': '1.0.62 (1474f9cbdd91) [stable]',
         'scope': 'owned synthetic sessions; allowlisted assertions only',
         'sources': list(NAMES),
+        'production_package_acceptance': 'not_established',
+        'monitor_long_idle': {
+            'status': lifetime_status, 'hold_seconds': hold, 'checks': checks,
+            'completion_seconds': seconds(lifetime['completion_seconds']),
+            'scope': 'raw screen scorer; viewport false-negative retained',
+        },
+        'monitor_long_idle_supplement': {
+            'status': 'pass', 'scope': 'native-only; supplemental evidence, not rerun',
+            'hold_seconds': hold, 'checks': supplemental_checks,
+            'turn_started_seconds': started, 'turn_completed_seconds': completed,
+        },
+        'monitor_environment': {
+            'home_equals_hook': boolean(environment['monitor_home_equals_hook']),
+            'native_id_present': boolean(environment['grok_session_id_present']),
+            'grok_variable_names': ['GROK_AGENT'], 'ancestor_kernel_names': ancestry,
+        },
+        'native_lifecycle': {
+            'scope': 'native child only; not production watcher acceptance',
+            'normal_exit': {'monitor_exited': boolean(normal['monitor_exited']),
+                            'elapsed_seconds': seconds(normal['elapsed_seconds'])},
+            'resume_explicit_rearm': {k: boolean(resume[k]) for k in (
+                'same_native_id', 'generated_nonce_visible', 'monitor_count_text_one')},
+            'compaction': {**{k: boolean(compact[k]) for k in (
+                'compaction_completed', 'generated_nonce_visible', 'monitor_count_text_one')},
+                'elapsed_seconds': seconds(compact['elapsed_seconds'])},
+            'crash': {'monitor_exited_within_10s': boolean(crash['monitor_exited_within_10s']),
+                      'elapsed_seconds': seconds(crash['elapsed_seconds']),
+                      'owned_orphan_cleanup_sent': boolean(crash['owned_orphan_cleanup_sent'])},
+        },
+        'home_split': {k: boolean(home[k]) for k in (
+            'normal_auth_model_reply', 'shell_home_matches_scratch',
+            'shell_native_id_matches', 'grok_home_matches_normal')},
         'direct_transport': {
             'live_info_present': bool(direct['live_info']['result']['result'].get('sessionId')),
             'missing_info_empty': direct['missing_info']['result']['result'] == {},

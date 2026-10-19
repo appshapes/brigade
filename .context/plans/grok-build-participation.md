@@ -1,7 +1,9 @@
 # Grok Build participation — card 120
 
 Date: 2026-10-18. Status: monitor-first contract accepted for reversible
-implementation; user launch-mode scope preference and live gates pending. Direct full-frame monitor output is superseded by bounded
+implementation targeting explicit `--no-leader` by coordinator scope choice;
+35-minute native monitor supplemental PASS retains the raw viewport FAIL.
+Actual production package gates remain pending before merge-ready acceptance. Direct full-frame monitor output is superseded by bounded
 wake notices and local sink retrieval.
 [Card](https://trello.com/c/sTkdphju/120-make-grok-build-a-first-class-brigade-participant).
 [Measured experiment](../../docs/experiments/grok-participation.md).
@@ -14,9 +16,10 @@ Implementation base: `70111d68bde3532dbf7d5ac98345864a6cff0fc3`; measured Grok B
 Make Grok a Brigade peer with correct identity, seven skills, busy/idle receiving,
 resume and bounded cleanup. Implement the reversible **explicit --no-leader native
 monitor route** while Sol owns production code and coordinator owns Git and live
-external state. General support remains gated; the user's monitor-first versus
-require-leader preference is pending. If leader support is required, independent
-TUI ownership remains an unresolved blocker, not a monitor acceptance by default.
+external state. The coordinator selected this initial scope after the optional
+preference question received no answer; this is not claimed user approval.
+General support remains technically gated. Shared-leader delivery is unsupported
+until independent TUI ownership is proven.
 
 Preserve the prior leader idle/busy/isolation successes as transport pilots.
 Later direct prompt without load/resume succeeded in the original TUI, but normal
@@ -38,12 +41,12 @@ from the public source revision that differs from the installed executable.
 | --- | --- | --- |
 | G0: version/protocol | PASS: standalone ACP and version captured | Version drift/package checks |
 | G1: normal authentication/trust | PASS: existing login, normal local plugin install --trust, one command approval | No bypass or blanket permission; denied-arming case |
-| G2: identity/routing | Leader sibling isolation passed; nonleader hook parent/native ID match | Nonleader sibling/duplicate-title and poisoned XDG/BRIGADE tests; same pointed binding in shell |
+| G2: identity/routing | Leader sibling isolation passed; nonleader hook parent/native ID match | Nonleader sibling/duplicate-title and poisoned XDG/BRIGADE tests; same pointed binding in actual package shell/monitor. Native scratch HOME/existing GROK_HOME authenticated preflight passed without auth access; package hook isolation pending |
 | G3: busy/idle | Leader producer-originated busy/idle pilot passed; nonleader short idle and Stop bootstrap passed | Native 12-second tool-busy pilot PASS (18.23-second nonce completion); full retrieval still pending; raw replay-contaminated scorer run is not a whole-run pass |
-| G4: lifetime | 75-second leader pilot only | 2,100-second monitor idle/no-send test ongoing, not passed; independent receivers |
-| G5: hooks/arming | Normal new/load/end observed; Stop one-shot continuation and nonleader parent measured | Production native task/command correlation, denial/retry, no duplicate on resume/compact; Python startup timeouts are not hook passes |
+| G4: lifetime | Native supplemental PASS: 2,100-second quiet hold, correlated turn completes 2.489 seconds after ingress, own-session exact assistant export and scroll-only original-TUI witness. Raw 128.13-second viewport FAIL retained | Actual production package long-idle acceptance; do not count stale viewport alone as delivery failure or process survival as success. Leader longhold controls passed individually, whole run failed replay scoring |
+| G5: hooks/arming | Normal new/load/end observed; Stop one-shot continuation and nonleader parent measured | Native Stop has no command field; production task binding, denial/retry, no duplicate on resume/compact; Python startup timeouts are not hook passes |
 | G6: local injection | Muse parity selected: sink append + close -> Pipeline.Done -> ACK | Grok failure/hold/refusal/restart regressions; native drop/batch counts separate from ACK |
-| G7: lifecycle/payload | Ghost actor/rejection negatives; direct monitor body transport rejected, reused-tail size passes invalidated; fresh 2-KiB tail failed | Nonleader exit/crash/stale pointer/PID/replacement, wake/read full-body proof, payload/rate/retention limits and follower termination |
+| G7: lifecycle/payload | Native /exit child stops in 0.34 s; SIGKILL child survives 10.59 s (owned orphan cleaned); explicit-rearm resume and compaction nonce pass. Direct full-body monitor rejected; fresh 2-KiB tail failed | Actual package exit/crash/stale binding/replacement, full wake/read retrieval, burst/retention and bounded follower retirement; native-only is not production acceptance |
 
 Live tests are coordinator-owned, synthetic and limited to owned sessions. No
 credentials, real transcripts, global config edits or auto-trust plugin-dir route.
@@ -64,6 +67,11 @@ defaults. No unknown rate/retention value becomes a promise by inference.
    PPID. Execute hook entrypoints without an intervening long-lived wrapper
    process that changes PPID. Never adopt a leader PID or resurrect saved history.
    Validate stale PID/reuse, sibling, pointer replacement and mismatched cwd.
+   Ordinary shell has the full native UUID; native monitor child has only
+   GROK_AGENT. Supply the hook-bound identity explicitly in the fixed monitor
+   command and validate it against the current map/incarnation and actual TUI
+   ancestry. Environment text alone is not authorization. Measured child ancestry
+   is Python -> bash -> TUI with kernel name `grok-macos-aarch`.
 2. **Options and package boundaries.** Add Grok's host identity and
    `grok-options.json` through the shared options/parser and harness contracts,
    following Muse's typed options and HOME-based trusted discovery. Preserve
@@ -101,7 +109,8 @@ defaults. No unknown rate/retention value becomes a promise by inference.
    keep ordinary permissions and exact command approval. Track native task ID,
    monitor type/live status and binding to the expected command/incarnation via
    supported hook task evidence. The installed guide exposes `backgroundTasks`
-   with ID/type/status and optional command; descriptions can be clipped. A
+   with ID/type/status and optional command, but measured native Stop has **no
+   command field**; descriptions can be clipped. A
    model's ARMED text, description substring or attempt marker is not readiness.
    Where command/task binding cannot be proven, keep status unverified and expose
    retry/diagnosis rather than claiming ready or issuing repeated auto-arms.
@@ -163,7 +172,9 @@ rotation, cursor retry/tampering and hold/refusal isolation. Prior END120 tail
 reuse invalidates the entire earlier size-pilot success claim. Fresh random-tail
 2-KiB direct-monitor visibility failed at 121.95 seconds; 16-KiB escaped case had
 no reply within 120 seconds. Native tool-busy wake passed at 18.23 seconds, while
-35-minute idle remains ongoing. These are not retrieval passes.
+the completed 35-minute hold has a supplemental native PASS at 2.489 seconds
+(raw viewport FAIL retained). These native successes and lifecycle negatives are
+not production retrieval passes.
 
 ## Implementation, tests and packaging
 
@@ -185,8 +196,8 @@ Run appropriate focused tests plus the repository acceptance gate:
 make typecheck lint build test vuln deps-check schema-check tidy-check docs-check
 ```
 
-Coordinator owns the docs gate denied by this worker's Go-cache sandbox; no cache
-or permission bypass. Run existing/new package checks and pinned shellcheck if
+The final research checkpoint passed `make docs-check` (169 pages, 665 links);
+the earlier Go-cache denial was not bypassed. Coordinator owns full acceptance. Run existing/new package checks and pinned shellcheck if
 shell files change. Independent review by Rjae Fable follows runtime work; the
 coordinator owns subsequent Git/PR/auto-merge authorization. This research
 checkpoint is not card completion, shipping, review approval or a live-gate pass.

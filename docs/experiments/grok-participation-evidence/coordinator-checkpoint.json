@@ -1,5 +1,5 @@
 {
-  "schema": 2,
+  "schema": 3,
   "build": "1.0.62 (1474f9cbdd91) [stable]",
   "scope": "owned synthetic sessions; allowlisted assertions only",
   "sources": [
@@ -8,8 +8,90 @@
     "liveness-normal-report.json",
     "monitor-summary.json",
     "monitor-tool-busy-report.json",
-    "monitor-random-tail-report.json"
+    "monitor-random-tail-report.json",
+    "monitor-lifetime-report.json",
+    "monitor-environment-report.json",
+    "monitor-native-normal-exit.json",
+    "monitor-native-resume.json",
+    "monitor-native-compaction.json",
+    "monitor-native-crash.json",
+    "home-probe-report.json",
+    "monitor-lifetime-supplement.json"
   ],
+  "production_package_acceptance": "not_established",
+  "monitor_long_idle": {
+    "status": "fail",
+    "hold_seconds": 2100,
+    "checks": {
+      "auto_initial_wake": true,
+      "control_initial_wake": true,
+      "auto_quiet": true,
+      "control_quiet": true,
+      "long_idle_wake": false
+    },
+    "completion_seconds": 128.13,
+    "scope": "raw screen scorer; viewport false-negative retained"
+  },
+  "monitor_long_idle_supplement": {
+    "status": "pass",
+    "scope": "native-only; supplemental evidence, not rerun",
+    "hold_seconds": 2100,
+    "checks": {
+      "raw_screen_failure_retained": true,
+      "both_quiet_during_hold": true,
+      "ingress_after_hold": true,
+      "turn_native_id_matches": true,
+      "turn_completed": true,
+      "assistant_export_exact_nonce": true,
+      "original_tui_after_scroll_nonce_visible": true,
+      "only_scroll_keys_after_observation_window": true,
+      "control_export_has_no_long_nonce": true
+    },
+    "turn_started_seconds": 0.258,
+    "turn_completed_seconds": 2.489
+  },
+  "monitor_environment": {
+    "home_equals_hook": true,
+    "native_id_present": false,
+    "grok_variable_names": [
+      "GROK_AGENT"
+    ],
+    "ancestor_kernel_names": [
+      "Python",
+      "bash",
+      "grok-macos-aarch",
+      "tmux"
+    ]
+  },
+  "native_lifecycle": {
+    "scope": "native child only; not production watcher acceptance",
+    "normal_exit": {
+      "monitor_exited": true,
+      "elapsed_seconds": 0.34
+    },
+    "resume_explicit_rearm": {
+      "same_native_id": true,
+      "generated_nonce_visible": true,
+      "monitor_count_text_one": true
+    },
+    "compaction": {
+      "compaction_completed": true,
+      "generated_nonce_visible": true,
+      "monitor_count_text_one": true,
+      "elapsed_seconds": 2.6
+    },
+    "crash": {
+      "monitor_exited_within_10s": false,
+      "elapsed_seconds": 10.59,
+      "owned_orphan_cleanup_sent": true
+    }
+  },
+  "home_split": {
+    "normal_auth_model_reply": true,
+    "shell_home_matches_scratch": true,
+    "shell_native_id_matches": true,
+    "grok_home_matches_normal": true
+  },
   "direct_transport": {
     "live_info_present": true,
     "missing_info_empty": true,
