@@ -31,13 +31,13 @@ func TestParseProcStat(t *testing.T) {
 		want  procStat
 		valid bool
 	}{
-		{"running sleep", statLine("4242", "sleep", "S", "123456789"), procStat{4242, 'S', "123456789"}, true},
-		{"zombie", statLine("4242", "sleep", "Z", "5"), procStat{4242, 'Z', "5"}, true},
-		{"comm with spaces and parens", statLine("7", "sleep 1) (x", "R", "99"), procStat{7, 'R', "99"}, true},
-		{"comm that is only a paren", statLine("7", ")", "R", "99"), procStat{7, 'R', "99"}, true},
-		{"comm with a fake state after a paren", statLine("7", "Z) Z 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19", "S", "31"), procStat{7, 'S', "31"}, true},
-		{"kernel-thread comm", statLine("2", "kthreadd", "S", "3"), procStat{2, 'S', "3"}, true},
-		{"no trailing newline", strings.TrimSuffix(statLine("1", "init", "S", "8"), "\n"), procStat{1, 'S', "8"}, true},
+		{"running sleep", statLine("4242", "sleep", "S", "123456789"), procStat{pid: 4242, state: 'S', startTicks: "123456789"}, true},
+		{"zombie", statLine("4242", "sleep", "Z", "5"), procStat{pid: 4242, state: 'Z', startTicks: "5"}, true},
+		{"comm with spaces and parens", statLine("7", "sleep 1) (x", "R", "99"), procStat{pid: 7, state: 'R', startTicks: "99"}, true},
+		{"comm that is only a paren", statLine("7", ")", "R", "99"), procStat{pid: 7, state: 'R', startTicks: "99"}, true},
+		{"comm with a fake state after a paren", statLine("7", "Z) Z 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19", "S", "31"), procStat{pid: 7, state: 'S', startTicks: "31"}, true},
+		{"kernel-thread comm", statLine("2", "kthreadd", "S", "3"), procStat{pid: 2, state: 'S', startTicks: "3"}, true},
+		{"no trailing newline", strings.TrimSuffix(statLine("1", "init", "S", "8"), "\n"), procStat{pid: 1, state: 'S', startTicks: "8"}, true},
 		{"empty", "", procStat{}, false},
 		{"no parens", "1 init S 1 2 3", procStat{}, false},
 		{"close before open", "1 ) init ( S", procStat{}, false},
@@ -56,6 +56,10 @@ func TestParseProcStat(t *testing.T) {
 			}
 			if !tc.valid && err == nil {
 				t.Fatalf("parseProcStat(%q) = %+v, want an error", tc.line, got)
+			}
+			if tc.valid {
+				tc.want.parent = 10
+				tc.want.command = tc.line[strings.IndexByte(tc.line, '(')+1 : strings.LastIndexByte(tc.line, ')')]
 			}
 			if got != tc.want {
 				t.Fatalf("parseProcStat(%q) = %+v, want %+v", tc.line, got, tc.want)
@@ -91,4 +95,27 @@ func indexOf(ss []string, s string) int {
 		}
 	}
 	return -1
+}
+
+func TestParseProcStatParentAndCommand(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		parent string
+		valid  bool
+		want   int
+	}{
+		{"0", true, 0}, {"42", true, 42}, {"-1", false, 0}, {"no", false, 0}, {"999999999999999999999999", false, 0},
+	} {
+		t.Run(tc.parent, func(t *testing.T) {
+			t.Parallel()
+			line := strings.Replace(statLine("7", "name ) (space", "S", "99"), ") S 10 ", ") S "+tc.parent+" ", 1)
+			got, err := parseProcStat([]byte(line))
+			if (err == nil) != tc.valid {
+				t.Fatalf("valid=%v, err=%v", tc.valid, err)
+			}
+			if tc.valid && (got.parent != tc.want || got.command != "name ) (space") {
+				t.Fatalf("parsed %+v", got)
+			}
+		})
+	}
 }

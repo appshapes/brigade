@@ -3,7 +3,6 @@
 package procutil
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -46,14 +45,9 @@ func query(pid int) (state, error) {
 	if st.pid != pid {
 		return state{}, fmt.Errorf("procutil: /proc/%d/stat names pid %d", pid, st.pid)
 	}
-	fields := bytes.Fields(data[bytes.LastIndexByte(data, ')')+1:])
-	parent, err := strconv.Atoi(string(fields[1]))
-	if err != nil || parent < 0 {
-		return state{}, errProcStatMalformed
-	}
 	return state{
-		parent:  parent,
-		command: string(data[bytes.IndexByte(data, '(')+1 : bytes.LastIndexByte(data, ')')]),
+		parent:  st.parent,
+		command: st.command,
 		zombie:  st.state == 'Z',
 		token:   st.startTicks,
 	}, nil

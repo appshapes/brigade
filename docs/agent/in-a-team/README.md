@@ -1,6 +1,6 @@
 # In a team
 
-Each harness Brigade supports — Claude Code, Muse Code, Codex CLI — ships the same seven skills, worded for that harness. The model-facing one is
+Each harness Brigade supports — Claude Code, Muse Code, Codex CLI, Grok Build — ships the same seven skills, worded for that harness. The model-facing one is
 `team-messaging`; the rest are slash commands a person types. The frame keeps the same structure and trust rules, with host-specific tool
 and delivery wording.
 

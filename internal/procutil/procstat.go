@@ -12,6 +12,8 @@ import (
 // reads /proc.
 type procStat struct {
 	pid        int
+	parent     int
+	command    string
 	state      byte
 	startTicks string
 }
@@ -49,6 +51,10 @@ func parseProcStat(line []byte) (procStat, error) {
 	if len(fields[0]) != 1 {
 		return procStat{}, errProcStatMalformed
 	}
+	parent, err := strconv.Atoi(string(fields[1]))
+	if err != nil || parent < 0 {
+		return procStat{}, errProcStatMalformed
+	}
 	ticks := fields[19]
 	for _, c := range ticks {
 		if c < '0' || c > '9' {
@@ -57,6 +63,8 @@ func parseProcStat(line []byte) (procStat, error) {
 	}
 	return procStat{
 		pid:        pid,
+		parent:     parent,
+		command:    string(line[open+1 : closeIdx]),
 		state:      fields[0][0],
 		startTicks: string(ticks),
 	}, nil

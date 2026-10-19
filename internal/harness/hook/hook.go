@@ -66,8 +66,9 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// The three subcommands (6.3, hooks.json).
+// Hook subcommands (6.3, hooks.json), including Grok Stop.
 const (
+	SubStop         = "stop"
 	SubSessionStart = "session-start"
 	SubPrompt       = "prompt"
 	SubSessionEnd   = "session-end"
@@ -341,7 +342,7 @@ func Run(args []string, streams cli.Streams, environ []string, deps Deps) int {
 	if a.host == config.HostGrok || config.HostOf(environ) == config.HostGrok {
 		return r.runGrok()
 	}
-	if a.sub == "stop" {
+	if a.sub == SubStop {
 		return 0
 	}
 	switch a.sub {
@@ -377,7 +378,7 @@ func parseArgs(args []string) (hookArgs, string) {
 		return a, "hook needs one of session-start, prompt, session-end"
 	}
 	a.sub = args[0]
-	if a.sub != SubSessionStart && a.sub != SubPrompt && a.sub != SubSessionEnd && a.sub != "stop" {
+	if a.sub != SubSessionStart && a.sub != SubPrompt && a.sub != SubSessionEnd && a.sub != SubStop {
 		return a, "unknown hook; the hooks are session-start, prompt and session-end"
 	}
 	rest := args[1:]
@@ -609,7 +610,10 @@ func (r *run) facts() (facts, error) {
 			root = r.args.pluginRoot
 		}
 		if host == config.HostGrok {
-			root = adapterkit.Getenv(r.environ, "GROK_PLUGIN_ROOT")
+			root = r.args.pluginRoot
+			if root == "" {
+				root = adapterkit.Getenv(r.environ, "GROK_PLUGIN_ROOT")
+			}
 		}
 	case config.HostClaude, "":
 		if dir, cerr := config.ClaudeConfigDir(r.environ); cerr == nil {

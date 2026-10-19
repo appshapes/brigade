@@ -20,8 +20,8 @@ func TestGrokNeverReadsAClaudeAccount(t *testing.T) {
 	// A Claude session that merely inherited a Grok terminal tool's
 	// GROK_SESSION_ID is still a Claude session (config.HostOf keeps Grok
 	// last): it reads its own account, as every Claude session does.
-	nested := append(env, "CLAUDE_PID=42")
-	if got := Paths(nested); len(got) != 2 {
+	env = append(env, "CLAUDE_PID=42")
+	if got := Paths(env); len(got) != 2 {
 		t.Fatalf("a nested Claude session lost its account paths: %v", got)
 	}
 }

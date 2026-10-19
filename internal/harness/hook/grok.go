@@ -74,7 +74,7 @@ func (r *run) runGrok() int {
 	defer release()
 	var ui bytes.Buffer
 	r.streams.Out = &ui
-	if r.args.sub == "stop" {
+	if r.args.sub == SubStop {
 		r.streams.Out = original
 		return r.grokStop()
 	}
@@ -151,7 +151,7 @@ func (r *run) decodeGrok(data []byte, in *input) error {
 		return errors.New("conflicting Grok hook aliases")
 	}
 	events := map[string]string{"session_start": "SessionStart", "user_prompt_submit": "UserPromptSubmit", "session_end": "SessionEnd", "stop": "Stop"}
-	expected := map[string]string{SubSessionStart: "SessionStart", SubPrompt: "UserPromptSubmit", SubSessionEnd: "SessionEnd", "stop": "Stop"}[r.args.sub]
+	expected := map[string]string{SubSessionStart: "SessionStart", SubPrompt: "UserPromptSubmit", SubSessionEnd: "SessionEnd", SubStop: "Stop"}[r.args.sub]
 	if aliases.HookEventName != "" {
 		event := events[aliases.HookEventName]
 		if event == "" || in.HookEventName != "" && in.HookEventName != event {

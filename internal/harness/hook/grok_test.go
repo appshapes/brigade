@@ -245,3 +245,23 @@ func TestGrokNativeAliasesAndFailedTaskSettle(t *testing.T) {
 		t.Fatal("failed task disappearance triggered an automatic retry", out)
 	}
 }
+
+func TestGrokExplicitPluginRoot(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	f.writeScript()
+	var out, errOut bytes.Buffer
+	env := []string{"HOME=" + f.dirs.Home, "PATH=/usr/bin:/bin", "GROK_SESSION_ID=" + f.nativeID, "GROK_WORKSPACE_ROOT=" + f.cwd, "GROK_PLUGIN_ROOT=/wrong-root"}
+	code := Run([]string{SubSessionStart, "--host", "grok", "--plugin-root", f.dirs.PluginRoot}, cli.Streams{In: strings.NewReader(grokDoc(f, "session_start", "new", nil)), Out: &out, Err: &errOut}, env, f.deps)
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	m := f.mustMap()
+	root, err := filepath.EvalSymlinks(f.dirs.PluginRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.PluginBin != filepath.Join(root, "bin", "brigade") {
+		t.Fatalf("plugin binary %q", m.PluginBin)
+	}
+}
