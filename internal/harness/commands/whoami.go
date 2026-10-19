@@ -21,18 +21,20 @@ import (
 // whoamiResult is the --json result of `brigade whoami`: the session's
 // identity from the by-pid map and the adapter from the cached describe.
 type whoamiResult struct {
-	SessionID      string   `json:"session_id"`
-	SessionName    string   `json:"session_name"`
-	WorkspaceLabel string   `json:"workspace_label,omitzero"`
-	TeamRef        string   `json:"team_ref"`
-	TeamName       string   `json:"team_name"`
-	Inbound        string   `json:"inbound"`
-	AdapterName    string   `json:"adapter_name"`
-	AdapterVersion string   `json:"adapter_version"`
-	AdapterCommand []string `json:"adapter_command"`
-	AdapterSource  string   `json:"adapter_source"`
-	PermissionMode string   `json:"permission_mode,omitzero"`
-	NonInteractive bool     `json:"non_interactive"`
+	MonitorCommand     string   `json:"monitor_command,omitzero"`
+	MonitorDescription string   `json:"monitor_description,omitzero"`
+	SessionID          string   `json:"session_id"`
+	SessionName        string   `json:"session_name"`
+	WorkspaceLabel     string   `json:"workspace_label,omitzero"`
+	TeamRef            string   `json:"team_ref"`
+	TeamName           string   `json:"team_name"`
+	Inbound            string   `json:"inbound"`
+	AdapterName        string   `json:"adapter_name"`
+	AdapterVersion     string   `json:"adapter_version"`
+	AdapterCommand     []string `json:"adapter_command"`
+	AdapterSource      string   `json:"adapter_source"`
+	PermissionMode     string   `json:"permission_mode,omitzero"`
+	NonInteractive     bool     `json:"non_interactive"`
 	// Delivery is whether this session is receiving, from this machine's
 	// own files (card 34).
 	Delivery      whoamiDelivery `json:"delivery"`
@@ -45,6 +47,7 @@ type whoamiResult struct {
 // file was last written — it is saved after every injection — and the
 // pending file of the `hold` policy. No path and no id is in it.
 type whoamiDelivery struct {
+	Monitor string `json:"monitor,omitzero"`
 	// Watcher is WatcherRunning, WatcherNotRunning or WatcherNone.
 	Watcher        string `json:"watcher"`
 	WatcherVersion string `json:"watcher_version,omitzero"`
@@ -103,21 +106,23 @@ func Whoami(inv Invocation) error {
 	d := inv.delivery(t)
 	if inv.JSON {
 		return writeJSON(inv.Out, whoamiResult{
-			SessionID:      sanitizeID(m.BrigadeSessionID),
-			SessionName:    protocol.SanitizeName(m.SessionName),
-			WorkspaceLabel: protocol.SanitizeLabel(m.WorkspaceLabel),
-			TeamRef:        sanitizeID(m.TeamRef),
-			TeamName:       protocol.SanitizeName(m.TeamName),
-			Inbound:        protocol.SanitizeAttribute(m.Inbound),
-			AdapterName:    protocol.SanitizeAttribute(t.describe.Adapter.Name),
-			AdapterVersion: protocol.SanitizeAttribute(t.describe.Adapter.Version),
-			AdapterCommand: append([]string{}, m.AdapterCommand...),
-			AdapterSource:  t.adapter.Source,
-			PermissionMode: protocol.SanitizeAttribute(m.PermissionMode),
-			NonInteractive: m.NonInteractive,
-			Delivery:       d,
-			SelfSessionID:  sanitizeID(m.BrigadeSessionID),
-			Note:           WhoamiNote,
+			MonitorCommand:     m.MonitorCommand(),
+			MonitorDescription: m.MonitorDescription(),
+			SessionID:          sanitizeID(m.BrigadeSessionID),
+			SessionName:        protocol.SanitizeName(m.SessionName),
+			WorkspaceLabel:     protocol.SanitizeLabel(m.WorkspaceLabel),
+			TeamRef:            sanitizeID(m.TeamRef),
+			TeamName:           protocol.SanitizeName(m.TeamName),
+			Inbound:            protocol.SanitizeAttribute(m.Inbound),
+			AdapterName:        protocol.SanitizeAttribute(t.describe.Adapter.Name),
+			AdapterVersion:     protocol.SanitizeAttribute(t.describe.Adapter.Version),
+			AdapterCommand:     append([]string{}, m.AdapterCommand...),
+			AdapterSource:      t.adapter.Source,
+			PermissionMode:     protocol.SanitizeAttribute(m.PermissionMode),
+			NonInteractive:     m.NonInteractive,
+			Delivery:           d,
+			SelfSessionID:      sanitizeID(m.BrigadeSessionID),
+			Note:               WhoamiNote,
 		})
 	}
 	out := []string{"session " + idLine(m.BrigadeSessionID) + " \"" + nameLine(m.SessionName) + "\"" +
@@ -146,6 +151,12 @@ func Whoami(inv Invocation) error {
 func (inv Invocation) delivery(t *target) whoamiDelivery {
 	m := t.session
 	d := whoamiDelivery{Watcher: WatcherNotRunning}
+	if m.Harness == string(config.HostGrok) {
+		d.Monitor = "unverified"
+		if m.Grok != nil {
+			d.Monitor = m.Grok.MonitorState
+		}
+	}
 	if m.SocketPath == "" && !config.Host(m.Harness).Pointed() {
 		// A Claude Code session without an inbox socket runs no watcher; a
 		// Muse Code or Codex CLI session has none and runs one all the same
@@ -155,6 +166,9 @@ func (inv Invocation) delivery(t *target) whoamiDelivery {
 	lookup := inv.Deps.Lookup
 	if lookup == nil {
 		lookup = procutil.Lookup
+	}
+	if m.Harness == string(config.HostGrok) && !m.GrokAlive(lookup) {
+		d.Monitor = "paused"
 	}
 	v, err := pidfile.Check(pidfile.Path(t.stateDir, m.ClaudePID), lookup)
 	if err == nil && v.Found && v.Alive && v.Entry.BrigadeSessionID == m.BrigadeSessionID {
@@ -189,6 +203,9 @@ func (inv Invocation) delivery(t *target) whoamiDelivery {
 // line renders the delivery facts for the human form, as of now.
 func (d whoamiDelivery) line(now time.Time) string {
 	var parts []string
+	if d.Monitor != "" {
+		parts = append(parts, "monitor "+enumLine(d.Monitor)+" (last native observation); local ACK is not model receipt; unarmed backlog waits for a monitor")
+	}
 	switch d.Watcher {
 	case WatcherRunning:
 		w := "watcher running"

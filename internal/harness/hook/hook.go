@@ -146,6 +146,13 @@ const (
 // the file (T10); `prompt` stays absent from the type — never read,
 // stored or sent.
 type input struct {
+	WorkspaceRoot   string     `json:"workspaceRoot"`
+	SubagentType    string     `json:"subagentType"`
+	StopReason      string     `json:"stopReason"`
+	StopHookActive  bool       `json:"stopHookActive"`
+	BackgroundTasks []grokTask `json:"backgroundTasks"`
+	grokIncarnation string
+
 	SessionID      string `json:"session_id"`
 	Cwd            string `json:"cwd"`
 	HookEventName  string `json:"hook_event_name"`
@@ -332,9 +339,9 @@ func Run(args []string, streams cli.Streams, environ []string, deps Deps) int {
 	}
 	r := newRun(streams, environ, deps.withDefaults(), a)
 	if a.host == config.HostGrok || config.HostOf(environ) == config.HostGrok {
-		// No registration, parent-PID key, Claude settings scan or hook
-		// stdout until native identity and session liveness are measured.
-		r.log.Warn("Grok Build participation is gated: native hook identity, session liveness and ingress admission are not yet established")
+		return r.runGrok()
+	}
+	if a.sub == "stop" {
 		return 0
 	}
 	switch a.sub {
@@ -370,7 +377,7 @@ func parseArgs(args []string) (hookArgs, string) {
 		return a, "hook needs one of session-start, prompt, session-end"
 	}
 	a.sub = args[0]
-	if a.sub != SubSessionStart && a.sub != SubPrompt && a.sub != SubSessionEnd {
+	if a.sub != SubSessionStart && a.sub != SubPrompt && a.sub != SubSessionEnd && a.sub != "stop" {
 		return a, "unknown hook; the hooks are session-start, prompt and session-end"
 	}
 	rest := args[1:]
@@ -540,7 +547,7 @@ func (r *run) facts() (facts, error) {
 	host := config.HostOf(r.environ)
 	var pid, hostProcess int
 	switch host {
-	case config.HostMuse, config.HostCodex:
+	case config.HostMuse, config.HostCodex, config.HostGrok:
 		nativeID, err := config.NativeID(host, r.environ)
 		if err != nil {
 			return facts{}, err
@@ -588,7 +595,7 @@ func (r *run) facts() (facts, error) {
 	}
 	root := adapterkit.Getenv(r.environ, envPluginRoot)
 	switch host {
-	case config.HostMuse, config.HostCodex:
+	case config.HostMuse, config.HostCodex, config.HostGrok:
 		// Neither host has an inbox socket, a session registry or Claude
 		// settings files: the socket and the token are never read, and
 		// the Claude config dir stays unresolved so that nothing under
@@ -600,6 +607,9 @@ func (r *run) facts() (facts, error) {
 		if host == config.HostCodex {
 			root = r.args.pluginRoot
 		}
+		if host == config.HostGrok {
+			root = adapterkit.Getenv(r.environ, "GROK_PLUGIN_ROOT")
+		}
 	case config.HostClaude, "":
 		if dir, cerr := config.ClaudeConfigDir(r.environ); cerr == nil {
 			f.claudeConfigDir = dir
@@ -610,6 +620,11 @@ func (r *run) facts() (facts, error) {
 	if root != "" && filepath.IsAbs(root) {
 		f.pluginRoot = root
 		f.pluginBin = pluginBin(root)
+	}
+	if host == config.HostGrok {
+		if _, err := r.grokProcess(); err != nil {
+			return facts{}, err
+		}
 	}
 	return f, nil
 }
@@ -666,6 +681,11 @@ func (r *run) readInput() (input, error) {
 	if err := json.Unmarshal(data, &in); err != nil {
 		return input{}, errors.New("hook stdin is not a valid JSON document")
 	}
+	if r.isGrok() {
+		if err := r.decodeGrok(data, &in); err != nil {
+			return input{}, err
+		}
+	}
 	if err := r.adoptHost(in); err != nil {
 		return input{}, err
 	}
@@ -709,7 +729,7 @@ func (r *run) sinkFor(f facts, sessionID string) string {
 	if r.deps.Sink != "" {
 		return r.deps.Sink
 	}
-	if f.muse() {
+	if f.muse() || f.host == config.HostGrok {
 		return inbound.NewSinkPath(f.stateDir, sessionID, r.deps.Now())
 	}
 	return ""
@@ -1112,6 +1132,9 @@ type identity struct {
 // version (registry version → unknown) and the entrypoint (environment →
 // registry; `kind` is ignored).
 func (r *run) identity(f facts, in input) identity {
+	if f.host == config.HostGrok {
+		return identity{name: "grok", activity: protocol.ActivityIdle, harnessVersion: unknownVersion}
+	}
 	entry := r.registryEntry(f)
 	id := identity{
 		activity:       entry.Activity(),

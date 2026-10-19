@@ -1,12 +1,16 @@
-# Leave an experimental Grok installation
+# Leave and uninstall from Grok Build
 
-Grok Build participation is experimental. This source tree does not register Grok sessions or deliver team messages; native identity, session-specific liveness and admission remain gated.
+Use the [common leaving procedure](leave-the-team.md) before deleting credentials. A membership and the plugin
+are separate; leaving closes that member's sessions, while uninstalling alone leaves membership intact.
 
-If a terminal membership was created, use the [common leaving procedure](leave-the-team.md) before deleting
-credentials. Membership removal and plugin removal are separate actions. Do not delete shared Brigade state
-while sibling Claude, Muse or Codex sessions use it.
+```sh
+grok plugin uninstall brigade
+```
 
-For an owned experimental installation, use the native command `grok plugin uninstall brigade`; follow its
-normal confirmation. Remove its marketplace with `grok plugin marketplace remove <source>` only when no
-other plugin needs it. Never edit Grok trust or configuration files directly. This foundation starts no Grok
-watcher and must not kill a shared leader during cleanup.
+Follow its normal confirmation. Remove the marketplace with `grok plugin marketplace remove <source>` only
+when no other plugin needs it. Do not delete shared Brigade state used by Claude, Muse or Codex siblings.
+
+Normal SessionEnd signals only this receiver's watcher, which closes its backend session within a bounded
+budget. If the TUI crashes or the hook is missed, the watcher independently observes the actual TUI's death or
+PID reuse. The bound follower stops when registration/incarnation changes or the consumer closes. No shared
+leader or TUI is killed by cleanup. Backend lease expiry is the fallback if network close fails.

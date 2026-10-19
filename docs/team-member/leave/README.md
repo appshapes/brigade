@@ -11,7 +11,7 @@ second, remove the package last.
 | remove Brigade from Claude Code | [Uninstall from Claude Code](#uninstall-from-claude-code) |
 | remove Brigade from Muse Code | [Uninstall from Muse Code](#uninstall-from-muse-code) |
 | remove Brigade from Codex CLI | [Uninstall from Codex CLI](#uninstall-from-codex-cli) |
-| inspect experimental Grok Build leave status | [Grok Build (experimental)](#grok-build-experimental) |
+| use Grok Build leave status | [Grok Build](#grok-build) |
 
 ## Leave the team
 
@@ -45,8 +45,8 @@ Details: [Uninstall from Muse Code](muse-code.md).
 
 Details: [Uninstall from Codex CLI](codex.md).
 
-## Grok Build (experimental)
+## Grok Build
 
-Participation remains gated. Read the current source-package limits before an owned packaging experiment.
+Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
 
-Details: [Grok Build (experimental)](grok.md).
+Details: [Grok Build](grok.md).

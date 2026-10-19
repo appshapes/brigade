@@ -10,7 +10,7 @@ esac
 [ "$#" -le 1 ] || { printf 'too many arguments\n' >&2; exit 2; }
 go test ./scripts/ci -run '^TestGrokPackageSource$' -count=1
 if [ "$source_only" = 1 ]; then
-  printf 'grok-plugin-check: source scaffolding checked; NOT a release or live participation check\n'
+  printf 'grok-plugin-check: source checked; native acceptance is a separate coordinator gate\n'
   exit 0
 fi
 for asset in brigade VERSION checksums.txt; do

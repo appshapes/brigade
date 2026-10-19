@@ -1,23 +1,22 @@
-# Brigade for Grok Build — experimental scaffolding
+# Brigade for Grok Build
 
-This distinct package contains a native manifest, three trusted lifecycle hook declarations, seven skills
-and the shared POSIX bootstrap source. It does not yet register a Grok session or deliver team messages.
-The runtime emits a diagnostic and stops before configuration reads, registration or watcher spawn.
+Team messaging for direct `grok --no-leader` TUIs through a persistent native monitor. Four native hooks
+register/maintain the receiver, offer one Stop-assisted setup attempt and signal the receiver's watcher at end.
+The seven skills use the same Brigade commands and gateway rules as the other packages.
 
-[Install status](../../docs/team-member/install/grok.md), [agent skills](../../docs/agent/in-a-team/grok.md),
-and [measured feasibility](../../docs/experiments/grok-participation.md).
+[Install](../../docs/team-member/install/grok.md), [configure](../../docs/team-member/configure/grok.md),
+[skills and monitor status](../../docs/agent/in-a-team/grok.md), and
+[measured feasibility](../../docs/experiments/grok-participation.md).
 
-`bin/VERSION` and `bin/checksums.txt` are deliberately absent. Only the normal release sequence may produce
-them from reproducible builds; no placeholder checksums or existing release pins were changed. The source
-check is `make grok-plugin-check`; the strict release-asset check is
-`sh scripts/ci/grok-plugin-check.sh` and currently fails on those missing assets. An installation of this
-source tree is a packaging experiment, not supported participation, and its bootstrap cannot download a
-release until those assets exist.
+The full native UUID, canonical cwd, TUI PID/start token and fresh incarnation bind the private local sink and
+follower. Leader mode is refused. Normal monitor command permission applies. A denied/failed setup settles;
+the user can request explicit retry. Startup notices are UI-only, never delivery.
 
-The native layout and hook declarations follow the pinned public Grok source guide, revision
-`2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`. That source differs from installed Grok Build 1.0.62
-(`1474f9cbdd91`); normal installed/trusted validation remains a coordinator-owned gate.
+ACK means successful local sink append/close, as on Muse, not model receipt. Pre-arm backlog remains in this
+incarnation's sink files; helper restart can replay it. Fixed body-free hints coalesce at five seconds. `inbox read` drains retained rotations with validated cursors
+and lossless pages capped at 2,048 serialized UTF-8 bytes. Long-idle, payload/burst and lifecycle native acceptance remains coordinator-owned.
 
-The Go configuration foundation uses HOME-only paths. The unchanged shared bootstrap uses XDG for its cache
-and developer pointer; its missing release assets currently stop execution first. Launcher/environment
-agreement is an additional prerequisite before producing a runnable package.
+`make grok-plugin-check` is strict: native manifest/catalog, four exact exec hook strings, seven reachable
+skills, allowlist, no symlinks and the three bin assets equal to the canonical package. VERSION/checksums here
+are identical copies of the existing release-produced pins, not new hashes or a version bump. The next normal
+release rebuilds/pins all packages together; this source implementation is not in the already published binary.

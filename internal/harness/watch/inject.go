@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
@@ -133,8 +137,6 @@ func (in *injector) isQuiet() bool {
 // began: not injected, not acknowledged.
 var errQuiet = errors.New("watch: exit path running; not injected")
 
-var errGrokAdmissionUnproven = errors.New("watch: Grok native ingress admission is not established; not injected")
-
 // loop is the injector goroutine: wait for a kick, drain, back off on a
 // failure, repeat until ctx ends. It is a state-directory writer (the sink
 // file, and the seen and pending files through the pipeline), so it starts
@@ -198,10 +200,12 @@ func (in *injector) inject(ctx context.Context, item inbound.Item) error {
 		slog.String("message_id", item.MessageID),
 		slog.String("sender_session_id", item.SenderSessionID),
 		slog.String("excerpt", excerpt(item.Content)))
-	if in.w.rc.host == string(config.HostGrok) {
-		// A sink append or a successful socket write cannot stand in for
-		// native admission to an already-live Grok conversation.
-		return errGrokAdmissionUnproven
+	if in.w.harness == string(config.HostGrok) {
+		// Local injection requires this exact live receiver. Successful
+		// append/close is ACK parity with Muse, never model receipt.
+		if err := in.w.checkGrokReceiver(); err != nil {
+			return err
+		}
 	}
 	if in.w.rc.sink != "" {
 		return in.appendSink(item)
@@ -249,11 +253,36 @@ func (in *injector) appendSink(item inbound.Item) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(in.w.rc.sink, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // 0600; the path is the test harness's argv flag
+	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	if in.w.harness == string(config.HostGrok) {
+		flags |= unix.O_NOFOLLOW
+	}
+	f, err := os.OpenFile(in.w.rc.sink, flags, 0o600) //nolint:gosec // 0600; the path is the test harness's argv flag
 	if err != nil {
 		return err
 	}
-	if _, werr := f.Write(append(line, '\n')); werr != nil {
+	if in.w.harness == string(config.HostGrok) {
+		info, serr := f.Stat()
+		if serr != nil {
+			_ = f.Close()
+			return serr
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || !ok || int64(stat.Uid) != int64(os.Getuid()) {
+			_ = f.Close()
+			return errors.New("watch: inbox sink is not private")
+		}
+	}
+	return appendRecord(f, append(line, '\n'))
+}
+
+// appendRecord returns failures at each local-injection boundary, including close.
+func appendRecord(f io.WriteCloser, line []byte) error {
+	n, werr := f.Write(line)
+	if werr == nil && n != len(line) {
+		werr = io.ErrShortWrite
+	}
+	if werr != nil {
 		_ = f.Close()
 		return werr
 	}

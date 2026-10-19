@@ -159,12 +159,30 @@ type resolved struct {
 // the prompt hook's retry passes a shorter one. Every failure prints a
 // `not connected` line and returns; the exit status is the caller's 0.
 func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.Duration) {
+	if f.host == config.HostGrok && !r.claimGrok(f, in) {
+		return
+	}
 	res, ok := r.resolve(f, in)
 	if !ok {
 		return
 	}
 	res.workspaceLabel = workspaceLabel(res.opts, in.Cwd)
 	existing := r.existingMap(res.store, f.pid)
+	if f.host == config.HostGrok && existing != nil && (in.Source == "new" || in.Source == "load" || !r.grokMatches(existing, in)) {
+		// Start/load creates a receiver incarnation even if the PID/native
+		// UUID recurs. Retire its watcher before publishing the replacement.
+		v := r.checkPidfile(f)
+		if v.Found && v.Alive {
+			r.stopWatcher(v.Entry, f)
+			if next := r.checkPidfile(f); next.Found && next.Alive {
+				r.say("Brigade: previous watcher is still retiring; retry on the next prompt.")
+				return
+			}
+		}
+		r.retirePointer(f, res.store, existing, in)
+		_ = res.store.DeleteByPID(f.pid)
+		existing = nil
+	}
 	r.retirePointer(f, res.store, existing, in)
 	verdict := r.checkPidfile(f)
 	now := r.deps.Now()
@@ -1010,6 +1028,9 @@ func (r *run) register(ctx context.Context, c *adapterclient.Client, reg *protoc
 // the session was gone); skipped when a live pidfile of ANOTHER pid names
 // that session, because the original process is still running.
 func (r *run) resumeHint(f facts, in input, store sessionmap.Store, existing *sessionmap.ByPID) *protocol.ResumeRef {
+	if f.host == config.HostGrok && in.Source != "load" {
+		return nil
+	}
 	hint := ""
 	if bn, err := store.ReadByNative(in.SessionID); err == nil && bn.BrigadeSessionID != "" {
 		hint = bn.BrigadeSessionID
@@ -1069,7 +1090,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		harness = string(f.host)
 		model = protocol.SanitizeAttribute(oneLine(in.Model, 64))
 	}
-	return &sessionmap.ByPID{
+	m := &sessionmap.ByPID{
 		Harness:                harness,
 		Model:                  model,
 		HostProcessPID:         f.hostProcessPID,
@@ -1108,6 +1129,13 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		RegisteredAt:           registeredAt,
 		UpdatedAt:              now,
 	}
+	if f.host == config.HostGrok {
+		info, _ := r.grokProcess()
+		m.Model, m.TranscriptPath = "", ""
+		m.Grok = &sessionmap.GrokReceiver{Cwd: in.Cwd, ProcessStart: info.StartToken, Incarnation: in.grokIncarnation, MonitorState: "unarmed"}
+	}
+	return m
+
 }
 
 // finish writes the maps (the by-pid map is rewritten on every
@@ -1140,6 +1168,8 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	r.pruneCache(f, now)
 	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
 	switch {
+	case f.host == config.HostGrok:
+		r.say("Brigade: monitor unarmed. Setup follows the first completed turn; use /brigade:team-messaging to retry. Startup notices are UI-only. Local backlog is retained and may already be locally ACKed before arming.")
 	case f.muse():
 		// The monitor is what makes a Muse session a peer (card 88): the
 		// arming line follows the context line on every SessionStart but
@@ -1193,9 +1223,18 @@ func (r *run) retirePointer(f facts, store sessionmap.Store, existing *sessionma
 	if !f.pointed() || existing == nil || existing.ClaudeSessionID == "" || existing.ClaudeSessionID == in.SessionID {
 		return
 	}
+	if f.host == config.HostGrok {
+		p, err := store.ReadByHost("grok", existing.ClaudeSessionID)
+		if err != nil || p.HostPID != existing.ClaudePID || p.BrigadeSessionID != existing.BrigadeSessionID {
+			return
+		}
+	}
 	if err := store.DeleteByHost(string(f.host), existing.ClaudeSessionID); err != nil {
 		r.log.Debug("the previous thread's pointer was not removed", log.Err(err))
 		return
+	}
+	if f.host == config.HostGrok {
+		_ = store.DeleteStartPointer("grok", existing.ClaudeSessionID)
 	}
 	r.log.Info("retired the pointer of the previous native session of this process")
 }

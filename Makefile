@@ -315,8 +315,8 @@ docs-check: ## The documentation gate (card 110): README and persona shapes, lin
 	go run ./cmd/brigade-docs check
 
 .PHONY: grok-plugin-check
-grok-plugin-check: ## Validate experimental Grok package source scaffolding; release assets and live participation are separate gates (CI)
-	sh scripts/ci/grok-plugin-check.sh --source
+grok-plugin-check: ## Validate Grok native package, four hooks, seven skills and canonical release assets (CI)
+	sh scripts/ci/grok-plugin-check.sh
 
 .PHONY: docs-generate
 docs-generate: ## Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines (docs-check fails when it is stale)

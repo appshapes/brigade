@@ -1,12 +1,20 @@
-# Join status for Grok Build
+# Join in Grok Build
 
-Grok Build participation is experimental. This source tree does not register Grok sessions or deliver team messages; native identity, session-specific liveness and admission remain gated.
+Use a direct `grok --no-leader` TUI with the installed trusted package. Save the administrator's secret file
+outside the repository, then ask the `join` skill to use that exact path:
 
-Joining a backend membership and attaching a live conversation are separate operations. A human may join
-through the ordinary terminal CLI in the checkout with `brigade team join --secret-file <absolute-path>`.
-The administrator supplies that secret file outside the repository; never paste or print its contents.
-[Joining in a terminal](claude-code.md) describes consent and checkout binding.
+```
+/brigade:join /absolute/path/to/the-secret-file
+```
 
-The Grok hook currently stops before registration. A successful terminal join therefore does not put this
-Grok conversation on the roster or enable receipt. In-session joining must wait for verified hook/tool native
-identity and start facts. Do not repeat joining to work around a missing session map.
+The skill runs `brigade team join --secret-file <that path>`, relays its output and never reads or prints the
+secret. The hook's start facts allow a not-yet-attached session to find its configuration. A successful join
+attaches at the next prompt; one already attached to another team stays there until a new session.
+
+A person may instead run `brigade team join` in their terminal in the checkout, confirm the backend and read
+the secret without echo. Each checkout needs consent. Set a literal `label` or `none` in
+[the Grok options file](../configure/grok.md) before joining; Grok never borrows a Claude account label.
+
+Joining and monitor readiness are separate. After registration, the first eligible Stop offers one monitor
+setup attempt. Approve the exact command through the normal permission prompt, or leave it unarmed and request
+an explicit retry later. A membership or watcher on the roster does not prove the model is receiving events.

@@ -25,6 +25,9 @@ import (
 // unreadable account is a debug line WITHOUT the value and an empty
 // label, never a failed registration.
 func (w *watcher) humanLabel(option string) string {
+	if w.harness == string(config.HostGrok) && config.ParseLabelOption(option) == config.LabelAccount {
+		return ""
+	}
 	return config.LabelFor(config.ParseLabelOption(option), func() string {
 		email, err := account.Email(w.environ)
 		if err != nil {

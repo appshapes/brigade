@@ -1054,22 +1054,39 @@ Every item below is a known limit that this version ships with, on purpose.
   a process holding the session's `CLAUDE_PID` ran — not that Claude is alive — and can revive a session whose
   lease had expired but which was never closed; it adds nothing the accepted local attacker lacks.
 
-## 17. Experimental Grok Build foundation
+## 17. Grok Build monitor sessions
 
-The Grok package is source scaffolding, not supported delivery. Its hook entry points stop before reading
-configuration, registering a session or starting a watcher. A watcher refuses a Grok map before creating its
-inbound pipeline, and the injector independently refuses a Grok route before any sink or socket write.
-Neither a successful resume of saved history nor a shared leader's PID establishes a live receiver or native
-admission. No Grok message is marked injected on those grounds.
+The Grok route serves normally installed/trusted main-session direct TUIs launched with `--no-leader`.
+A nonempty GROK_LEADER_SOCKET is refused before registration: a resident shared-leader actor can survive its
+terminal, so leader/session-info success is not a TUI liveness witness. No native prompt/resume ingress ships.
 
-`GROK_SESSION_ID` selects an isolated namespace; competing Claude/Muse/Codex markers fail closed before a
-session lookup. A by-host pointer must match the full native ID, host, Brigade session ID and state key in its
-private by-pid map. Grok resolves Brigade state and options from HOME alone, strips inherited Brigade/XDG
-values, and discards inherited Claude plugin options before file parsing. It never reads a Claude account for
-a Grok display label. These are synthetic unit-tested boundaries; hook/tool identity and environment agreement,
-normal native trust, session-specific liveness, transport admission, replay and permission-hold behavior still
-require the [live experiment gates](experiments/grok-participation.md).
+Hooks bind the full UUID/environment agreement, canonical workspace/cwd, actual TUI PID/kernel start token
+and a fresh new/load incarnation. Foreign host markers, mismatched aliases, subagents, unknown parent topology
+and malformed inputs fail closed. Only the exact current private by-host/map binding can inject or follow.
+The watcher checks actual TUI death/PID reuse independently of the short end hook; old cleanup leaves a
+replacement incarnation alone. It signals only its own watcher, never a TUI or shared leader.
 
-The shared bootstrap source is unchanged and still uses XDG for the cache and developer pointer. Missing
-release assets stop this scaffold before that lookup. HOME-only launcher agreement is not yet established;
-resolve it with the hook/tool environment contract before enabling a runnable package.
+The bootstrap and Go resolvers use HOME-only directories inside Grok and ignore inherited Brigade/XDG and
+Claude plugin options. No Claude account/settings or arbitrary Grok history is read. Unknown native metadata
+stays blank; the display name falls back to `grok`. Protocol v1 and its inbound policy are unchanged.
+
+Startup systemMessage is UI-only. Stop's measured block/reason continuation offers one monitor setup attempt
+per incarnation, guarded before emission and by stopHookActive. Only an exact native running task/command
+observation confirms arming; descriptions alone, banners and attempt state do not. Normal command permissions
+remain in force. Refusal/failure settles until explicit user retry. No broad trust or permission grant is made.
+
+Successful private sink append/close is local injection and may ACK before a monitor is armed, matching Muse.
+It is not model read, durable native admission or exactly-once processing. A read-only follower replays this
+incarnation's retained files in order, emitting only fixed body-free hints at most once per five seconds. Native
+monitor output truncates, so frame bodies are retrieved with incarnation-bound `inbox read` cursors in
+complete JSON pages capped at 2,048 UTF-8 bytes including the protocol envelope. Frame digests, byte offsets
+and completion markers are checked and pages joined before handling. The generated monitor command restores its missing native UUID; reads and follows require
+the exact map/incarnation, live TUI start token and process ancestry. Only this receiver's private injected
+sink files are read, never held bodies or arbitrary histories. One hint drains all retained rotations; a lost
+final hint can delay reads until another hint or explicit retry. Reader limits (4,096 generations, 64 MiB
+scanned per call, 1 MiB per record) fail explicitly without discarding records. Reads do not ACK. Restart may
+replay IDs; native truncation/drop/noise behavior, maximum payload, burst survival, 35-minute lifetime and
+resume/crash native acceptance remain distinct coordinator gates. Incomplete events must not be acted on.
+
+A new/load receiver does not adopt previous-incarnation sink files. Older locally ACKed unread records
+remain on disk but are not automatically redelivered; no unmeasured history/receiver adoption is performed.

@@ -9,8 +9,6 @@ description: >-
   session through the gateway. A teammate's session is addressed with the `team-messaging` skill; a person on email with `/brigade:email`.
 ---
 
-Experimental package: Grok registration and inbound delivery are gated. If this session is not registered, relay the refusal and stop; never resume a saved conversation, arm a monitor, or claim the receiver is live to work around it.
-
 # Message a person on Slack through the team's gateway
 
 A team may have a Slack gateway: a hosted member whose session (`slack-gateway`, harness `gateway-slack`) posts

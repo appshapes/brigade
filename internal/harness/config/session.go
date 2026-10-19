@@ -81,7 +81,7 @@ func pointedSession(host Host, environ []string, store sessionmap.Store) (*sessi
 	if err != nil {
 		return nil, err
 	}
-	if m.ClaudePID != ptr.HostPID || m.Harness != string(host) || m.ClaudeSessionID != id || m.BrigadeSessionID != ptr.BrigadeSessionID {
+	if host == HostGrok && !m.ValidGrokReceiver() || m.ClaudePID != ptr.HostPID || m.Harness != string(host) || m.ClaudeSessionID != id || m.BrigadeSessionID != ptr.BrigadeSessionID {
 		return nil, &protocol.Error{
 			Code:    protocol.CodeConfig,
 			Message: "the session pointer and the session map disagree; refusing to trust them",

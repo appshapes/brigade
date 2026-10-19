@@ -11,7 +11,7 @@ owner migrates when they like, and nothing has to be sequenced.
 | update Brigade in Muse Code | [Update in Muse Code](#update-in-muse-code) |
 | update Brigade in Codex CLI | [Update in Codex CLI](#update-in-codex-cli) |
 | know what an update can change about what your sessions share, and who is behind | [Know what an update changes](#know-what-an-update-changes) |
-| inspect experimental Grok Build update status | [Grok Build (experimental)](#grok-build-experimental) |
+| use Grok Build update status | [Grok Build](#grok-build) |
 
 ## Update in Claude Code
 
@@ -42,8 +42,8 @@ Details: [Update in Codex CLI](codex.md).
 
 Details: [Know what an update changes](what-an-update-changes.md).
 
-## Grok Build (experimental)
+## Grok Build
 
-Participation remains gated. Read the current source-package limits before an owned packaging experiment.
+Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
 
-Details: [Grok Build (experimental)](grok.md).
+Details: [Grok Build](grok.md).

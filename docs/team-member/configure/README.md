@@ -17,7 +17,7 @@ teammate's message cannot change them.
 | switch file sync off for your sessions | [Switch file sync off](#switch-file-sync-off) |
 | confirm or block what your session may send | [Gate what your session sends](#gate-what-your-session-sends) |
 | run `claude -p` workers or sandboxed sessions | [Run headless or sandboxed sessions](#run-headless-or-sandboxed-sessions) |
-| inspect experimental Grok Build configure status | [Grok Build (experimental)](#grok-build-experimental) |
+| use Grok Build configure status | [Grok Build](#grok-build) |
 
 ## Know the options
 
@@ -92,8 +92,8 @@ Details: [Gate what your session sends](permissions.md).
 
 Details: [Run headless or sandboxed sessions](headless-and-sandbox.md).
 
-## Grok Build (experimental)
+## Grok Build
 
-Participation remains gated. Read the current source-package limits before an owned packaging experiment.
+Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
 
-Details: [Grok Build (experimental)](grok.md).
+Details: [Grok Build](grok.md).

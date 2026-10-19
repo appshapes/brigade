@@ -530,14 +530,10 @@ passes. It is the guard for the failure that produced it: the P4-3 commit carrie
 fixtures that `.gitignore`'s bare `*.log` swallowed at `git add` time, so every local run passed against the
 files on disk while CI failed on a clean checkout that never had them (run `33915532579`).
 
-### Experimental Grok package (card 120)
+### Grok monitor package (card 120)
 
-`make grok-plugin-check` runs `grok-plugin-check.sh --source`: native manifest/catalog layout, three exact
-hook command declarations, seven reachable skills, file allowlist, no symlinks and canonical bootstrap source.
-Mutation tests reject missing/unreachable skills, alternate hosts/catalog paths, extra files and an oversized
-end-hook timeout. This explicitly checks scaffolding, not release or live participation readiness.
-
-`sh scripts/ci/grok-plugin-check.sh` is the strict release-asset gate. It requires all three canonical bin assets
-and a matching manifest version; it currently fails because VERSION/checksums are intentionally absent. Only
-`scripts/release-prep.sh` produces these pins after its reproducible-build sequence. `release.yml` runs the
-strict check before publishing. The [package status](../../grok/brigade/README.md) explains the runtime gates.
+`make grok-plugin-check` is strict: native manifest/catalog, four exact exec hook commands, seven reachable
+skills, no symlinks/stray files and all three bin assets equal to `plugin/bin`. Mutation tests exercise source
+checks; `--source` is a diagnostic subset and never CI/release readiness. Canonical VERSION/checksum copies
+are existing release-produced assets; only the normal release sequence changes their contents. The package's
+[monitor contract](../../grok/brigade/README.md) separates local-injection ACK from native/model receipt.

@@ -68,6 +68,8 @@ const (
 // the config dir as an absolute path, the adapter as the argv prefix
 // ResolveAdapter produced — never a raw option value and never the token.
 type ByPID struct {
+	// Grok binds monitor state to one direct TUI incarnation; absent on other hosts.
+	Grok *GrokReceiver `json:"grok,omitzero"`
 	// ClaudePID is the Claude Code process id; it is also the file name.
 	ClaudePID int `json:"claude_pid"`
 	// ClaudeSessionID is the native session id from the hook's stdin; it

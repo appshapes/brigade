@@ -38,6 +38,10 @@ import (
 // them with the stored start token, and a caller diagnosing a stale
 // pidfile wants to say WHICH condition failed.
 type Info struct {
+	// Command is the kernel process name, never its argv.
+	Command string
+	// ParentPID is the kernel parent, used only for bounded ancestry checks.
+	ParentPID int
 	// PID is the pid that was looked up, echoed so a caller holding
 	// several Infos cannot confuse them.
 	PID int
@@ -112,12 +116,16 @@ func Lookup(pid int) (Info, error) {
 	}
 	info.Zombie = st.zombie
 	info.StartToken = st.token
+	info.Command = st.command
+	info.ParentPID = st.parent
 	return info, nil
 }
 
 // state is what the per-OS query returns: whether the process is a zombie
 // and its start token.
 type state struct {
-	zombie bool
-	token  string
+	command string
+	parent  int
+	zombie  bool
+	token   string
 }

@@ -59,6 +59,9 @@ func (r *run) prompt() int {
 		r.log.Warn("prompt: the session map cannot be trusted; nothing done", log.Err(err))
 		return 0
 	}
+	if f.host == config.HostGrok && !r.grokMatches(m, in) {
+		return 0
+	}
 	changed := false
 	if in.PermissionMode != "" && in.PermissionMode != m.PermissionMode {
 		m.PermissionMode = in.PermissionMode
@@ -480,6 +483,9 @@ func (r *run) printNotice(f facts) {
 // only the printed ones are acknowledged, and the rest stay stamped in the
 // pending file for the next prompt.
 func (r *run) poll(ctx context.Context, f facts, m *sessionmap.ByPID) {
+	if f.host == config.HostGrok {
+		return
+	} // Native prompt hook stdout is discarded, never injection.
 	opts, err := r.options()
 	if err != nil {
 		r.log.Warn("prompt: options unreadable; no poll", log.Err(err))

@@ -36,7 +36,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `muse-digest` | Rewrite marketplace.json's digest and version from muse/brigade/ with Muse (card 115): after any change under muse/brigade/, and by make release |
 | `codex-plugin-check` | Static checks of codex/brigade/, the Codex CLI package (card 107): allowlist, native manifest, the three hook commands, the marketplace file, assets equal to plugin/bin's (CI) |
 | `docs-check` | The documentation gate (card 110): README and persona shapes, links and anchors, orphans, harness pages, options, the make-target page, the changelog section (CI) |
-| `grok-plugin-check` | Validate experimental Grok package source scaffolding; release assets and live participation are separate gates (CI) |
+| `grok-plugin-check` | Validate Grok native package, four hooks, seven skills and canonical release assets (CI) |
 | `docs-generate` | Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines (docs-check fails when it is stale) |
 | `plugin-validate` | claude plugin validate on the marketplace and the plugin root |
 | `plugin-dev-pointer` | Write the dev-binary pointer (honours XDG_CONFIG_HOME) without launching anything; a prerequisite of plugin-dev and the manual step of docs/experiments/E3-interactive.md |

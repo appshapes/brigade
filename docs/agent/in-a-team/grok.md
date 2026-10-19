@@ -1,9 +1,9 @@
-# Grok Build: experimental skills and delivery gate
+# Grok Build: skills and the inbox monitor
 
-Grok Build participation is experimental. This source tree does not register Grok sessions or deliver team messages; native identity, session-specific liveness and admission remain gated.
-
-The package's seven skills remain model-reachable. Their command forms use Grok's terminal tool and the
-installed package bootstrap; no native cache path or shell-tool identity has been assumed.
+The package serves main-session direct TUIs launched with `grok --no-leader`. SessionStart registers a full
+native UUID, canonical cwd and actual TUI PID/start token; new/load creates a fresh receiver incarnation.
+Startup `systemMessage` is UI-only. UserPromptSubmit maintains registration/watcher state and prints no frames.
+A genuine Stop offers one setup continuation; its marker and recursion guard prevent repeated attempts.
 
 | Skill | Purpose |
 | --- | --- |
@@ -15,13 +15,29 @@ installed package bootstrap; no native cache path or shell-tool identity has bee
 | [`grok/brigade/skills/email/SKILL.md`](../../../grok/brigade/skills/email/SKILL.md) | email |
 | [`grok/brigade/skills/slack/SKILL.md`](../../../grok/brigade/skills/slack/SKILL.md) | slack |
 
-The Grok frame is host-specific, retains full message/reply IDs and untrusted-source semantics, and never
-attributes the sender to Claude Code. This proves rendering only. Hooks emit no model context, register no
-session and spawn no watcher. The watcher rejects a Grok map before constructing its pipeline; its injector
-also refuses a Grok route before a sink or socket write. No seen state or ACK is justified by saved-history
-resume, a socket write, a queue notification or hook output.
+Use `brigade whoami --json` to obtain this incarnation's safely quoted absolute `monitor_command` and exact
+`monitor_description`. Inspect native tasks before arming; only an exact running monitor command confirms
+readiness. Installed task snapshots lack the command; even an exact incarnation description remains unverified.
+A clipped description, another monitor, an ARMED banner or an attempt marker proves nothing.
+Call the native monitor with only `command`, `description`, `persistent:true`; do not assume `wake_delay_ms`.
+Normal permissions may ask once. If denied, failed, paused or unverified, report the state and wait for the
+user's explicit retry; do not loop, grant trust, change permissions or substitute a different command.
 
-A transport contract must distinguish receiver liveness, native admission, wake, model-visible content and
-processing. A shared leader PID is not a session liveness witness. New/load/fork/compact/end semantics,
-subagent exclusion, exact hook/tool ID agreement and lost-response behavior remain unimplemented pending
-[the live gates](../../experiments/grok-participation.md). No history reader supplies Grok metadata.
+The watcher locally injects by private sink append/close, with protocol-v1 ACK parity with Muse. This can
+happen while unarmed. Each receiver incarnation has its own retained sink directory; the follower drains all
+its watcher files in order. Hints contain no bodies and coalesce at most once per five seconds. Use the verified
+bootstrap's `inbox read [--cursor <last_next_cursor>]`; keep reading until `caught_up:true`, including after a
+frame ends. Each complete JSON envelope is at most 2,048 UTF-8 bytes. Check `page_complete`, frame ID/digest,
+length and byte offsets, join ordered `frame_chunk` pages, then apply the full frame's external-content rules.
+Retry a clipped page with the same cursor; do not guess content or advance. Keep the EOF cursor for future
+appends. Reads never release held messages or ACK. Dropped intermediate hints do not lose retained records;
+a lost final hint may delay retrieval until another hint or explicit retry. Native acceptance of this revised
+production hint/read envelope remains with the coordinator.
+
+The generated command restores the native UUID missing from monitor children. The helper is read-only,
+checks registration, actual TUI liveness and bounded process ancestry, and stops on identity replacement or
+closed output. Its cursor is not persisted: a retry can replay already locally ACKed records. Deduplicate by
+message ID within the conversation; never claim exactly-once processing or interpret ACK as model read.
+New/load reads only its new incarnation's files. Older locally ACKed unread records remain on disk but are
+not automatically adopted or redelivered; explicit old-generation adoption is outside this contract.
+Hold/refuse still prevent append/ACK. No native leader transport or history restoration is used.

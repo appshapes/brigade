@@ -9,10 +9,15 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/inbound"
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -43,7 +48,7 @@ const (
 
 // inboxFollow implements `brigade inbox follow`.
 func inboxFollow(inv Invocation, args []string) error {
-	if len(args) > 0 {
+	if len(args) > 0 && config.HostOf(inv.Environ) != config.HostGrok {
 		return usage("inbox follow takes no arguments")
 	}
 	if !config.InSession(inv.Environ) {
@@ -57,8 +62,20 @@ func inboxFollow(inv Invocation, args []string) error {
 	if err != nil {
 		return err
 	}
-	f := &follower{inv: inv, stateDir: stateDir, sessionID: m.BrigadeSessionID}
-	return f.run()
+	f := &follower{inv: inv, stateDir: stateDir, sessionID: m.BrigadeSessionID, binding: m}
+	if m.Harness == string(config.HostGrok) {
+		if len(args) != 2 || args[0] != "--incarnation" || !m.ValidGrokReceiver() || args[1] != m.Grok.Incarnation {
+			return usage("Grok inbox follow requires the exact --incarnation from this session's monitor command")
+		}
+		if !f.receiverValid() {
+			return notRegisteredFollow()
+		}
+	}
+	err = f.run()
+	if errors.Is(err, errFollowConsumerClosed) {
+		return nil
+	}
+	return err
 }
 
 // A follower tails one session's inbox sinks.
@@ -66,6 +83,7 @@ type follower struct {
 	inv       Invocation
 	stateDir  string
 	sessionID string
+	binding   *sessionmap.ByPID
 
 	path   string   // the sink being followed, "" before the first
 	file   *os.File // open on path
@@ -78,6 +96,9 @@ type follower struct {
 // run is the follower's life: find the sink, replay it, follow it, switch
 // to a newer one, stop when the session is gone or stdout is closed.
 func (f *follower) run() error {
+	if f.grok() {
+		return f.runGrokFollow()
+	}
 	defer f.closeFile()
 	lastMapCheck := time.Now()
 	for {
@@ -101,7 +122,10 @@ func (f *follower) run() error {
 		}
 		if time.Since(lastMapCheck) >= followMapCheck {
 			lastMapCheck = time.Now()
-			if _, err := config.Session(f.inv.Environ, f.stateDir); err != nil {
+			if current, err := config.Session(f.inv.Environ, f.stateDir); err != nil || !sessionmap.SameReceiver(f.binding, current) {
+				if err == nil {
+					return f.write(FollowEndedLine + "\n")
+				}
 				var perr *protocol.Error
 				if errors.As(err, &perr) && perr.Details["reason"] == config.ReasonNotRegistered {
 					return f.write(FollowEndedLine + "\n")
@@ -118,12 +142,28 @@ func (f *follower) run() error {
 // open starts following path from its beginning.
 func (f *follower) open(path string) error {
 	f.closeFile()
-	file, err := os.Open(path) //nolint:gosec // the path is Brigade's own, under its state directory
+	flags := os.O_RDONLY
+	if f.grok() {
+		flags |= unix.O_NOFOLLOW
+	}
+	file, err := os.OpenFile(path, flags, 0) //nolint:gosec // the path is Brigade's own, under its state directory
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		return &protocol.Error{Code: protocol.CodeConfig, Message: "the inbox sink could not be opened", Details: map[string]string{"reason": "sink_unreadable"}}
+	}
+	if f.grok() {
+		info, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return errors.New("inbox sink metadata could not be read")
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || !ok || int64(stat.Uid) != int64(os.Getuid()) {
+			_ = file.Close()
+			return errors.New("inbox sink is not private")
+		}
 	}
 	f.path, f.file, f.reader, f.partial = path, file, bufio.NewReaderSize(file, 64<<10), nil
 	return nil
@@ -203,8 +243,106 @@ func (f *follower) write(text string) error {
 	if f.inv.Out == nil {
 		return nil
 	}
-	if _, err := io.WriteString(f.inv.Out, text); err != nil {
-		return nil //nolint:nilerr // a reader that went away is the end of the follow, not a failure
+	if n, err := io.WriteString(f.inv.Out, text); err != nil || n != len(text) {
+		return errFollowConsumerClosed
 	}
 	return nil
+}
+
+var errFollowConsumerClosed = errors.New("inbox consumer closed")
+
+func (f *follower) grok() bool {
+	return f.binding != nil && f.binding.Harness == string(config.HostGrok)
+}
+func (f *follower) receiverValid() bool {
+	current, err := config.Session(f.inv.Environ, f.stateDir)
+	if err != nil || !sessionmap.SameReceiver(f.binding, current) {
+		return false
+	}
+	lookup := f.inv.Deps.Lookup
+	if lookup == nil {
+		lookup = procutil.Lookup
+	}
+	if !current.GrokAlive(lookup) {
+		return false
+	}
+	ppid := os.Getppid()
+	if f.inv.Deps.Getppid != nil {
+		ppid = f.inv.Deps.Getppid()
+	}
+	seen := map[int]bool{}
+	for range 32 {
+		if ppid == current.ClaudePID {
+			return true
+		}
+		if ppid <= 1 || seen[ppid] {
+			return false
+		}
+		seen[ppid] = true
+		info, err := lookup(ppid)
+		if err != nil || !info.Exists || info.Foreign || info.Zombie {
+			return false
+		}
+		ppid = info.ParentPID
+	}
+	return false
+}
+func notRegisteredFollow() error {
+	return &protocol.Error{Code: protocol.CodeConfig, Message: "Grok monitor receiver is no longer live or bound", Details: map[string]string{"reason": config.ReasonNotRegistered}}
+}
+
+// Native monitor output is a body-free, bounded coalescible hint only.
+func renderGrokRecord(_ []byte) string {
+	return "{\"brigade_inbox_changed\":true,\"action\":\"drain the local inbox using /brigade:team-messaging\"}\n"
+}
+
+// Observe only this incarnation's sink metadata. A dropped hint cannot consume
+// records: a later hint/read drains the stream using a validated cursor.
+func (f *follower) runGrokFollow() error {
+	previous := ""
+	last := time.Time{}
+	for {
+		if !f.receiverValid() {
+			return f.write("{\"brigade_status\":\"receiver_ended\"}\n")
+		}
+		dir := inbound.GrokSinkDir(f.stateDir, f.sessionID, f.binding.Grok.Incarnation)
+		entries, err := os.ReadDir(dir)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return errors.New("inbox directory could not be read; follower paused")
+		}
+		if len(entries) > 4096 {
+			return errors.New("inbox generation limit exceeded; follower paused")
+		}
+		var snapshot strings.Builder
+		for _, e := range entries {
+			if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".ndjson") {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				return errors.New("inbox metadata unavailable; follower paused")
+			}
+			if info.Size() == 0 {
+				continue
+			}
+			snapshot.WriteString(e.Name())
+			snapshot.WriteByte(':')
+			snapshot.WriteString(strconv.FormatInt(info.Size(), 10))
+			snapshot.WriteByte(':')
+			snapshot.WriteString(strconv.FormatInt(info.ModTime().UnixNano(), 10))
+			snapshot.WriteByte('\n')
+		}
+		current := snapshot.String()
+		if current != previous && (last.IsZero() || time.Since(last) >= 5*time.Second) {
+			if !f.receiverValid() {
+				continue
+			}
+			if err := f.write(renderGrokRecord(nil)); err != nil {
+				return err
+			}
+			previous = current
+			last = time.Now()
+		}
+		time.Sleep(FollowPoll)
+	}
 }

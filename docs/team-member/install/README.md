@@ -11,7 +11,7 @@ downloads one pinned, checksum-verified binary on first use.
 | install Brigade in Muse Code | [Install in Muse Code](#install-in-muse-code) |
 | install Brigade in Codex CLI | [Install in Codex CLI](#install-in-codex-cli) |
 | run `brigade` in your own terminal, or build it from source | [Use brigade in a terminal](#use-brigade-in-a-terminal) |
-| inspect experimental Grok Build install status | [Grok Build (experimental)](#grok-build-experimental) |
+| use Grok Build install status | [Grok Build](#grok-build) |
 
 ## Install in Claude Code
 
@@ -51,8 +51,8 @@ Details: [Install in Codex CLI](codex.md).
 
 Details: [Use brigade in a terminal](terminal.md).
 
-## Grok Build (experimental)
+## Grok Build
 
-Participation remains gated. Read the current source-package limits before an owned packaging experiment.
+Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
 
-Details: [Grok Build (experimental)](grok.md).
+Details: [Grok Build](grok.md).

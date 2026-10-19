@@ -1,13 +1,13 @@
 {
   "name": "brigade",
-  "description": "Brigade experimental Grok Build package",
+  "description": "Brigade for Grok Build",
   "owner": {
     "name": "appshapes"
   },
   "plugins": [
     {
       "name": "brigade",
-      "description": "Experimental Grok Build package scaffolding. Native session registration and delivery remain gated pending measured contracts.",
+      "description": "Team messaging through a persistent inbox monitor in Grok --no-leader sessions.",
       "source": {
         "type": "local",
         "path": "./grok/brigade"

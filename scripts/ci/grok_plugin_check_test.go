@@ -118,17 +118,17 @@ func checkGrokSource(root string) error {
 	if err := json.Unmarshal(data, &hooks); err != nil {
 		return err
 	}
-	if len(hooks.Hooks) != 3 {
-		return errors.New("expected exactly three native lifecycle hooks")
+	if len(hooks.Hooks) != 4 {
+		return errors.New("expected exactly four native lifecycle hooks")
 	}
-	for event, sub := range map[string]string{"SessionStart": "session-start", "UserPromptSubmit": "prompt", "SessionEnd": "session-end"} {
+	for event, sub := range map[string]string{"SessionStart": "session-start", "UserPromptSubmit": "prompt", "SessionEnd": "session-end", "Stop": "stop"} {
 		groups := hooks.Hooks[event]
 		if len(groups) != 1 || len(groups[0].Hooks) != 1 {
 			return fmt.Errorf("invalid %s handlers", event)
 		}
 		h := groups[0].Hooks[0]
-		want := `"${GROK_PLUGIN_ROOT}/bin/brigade" hook ` + sub + ` --host grok --plugin-root "${GROK_PLUGIN_ROOT}"`
-		if h.Type != "command" || h.Command != want || h.Timeout <= 0 || h.Timeout > 5 || event == "SessionEnd" && h.Timeout > 1 {
+		want := `exec "${GROK_PLUGIN_ROOT}/bin/brigade" hook ` + sub + ` --host grok --plugin-root "${GROK_PLUGIN_ROOT}"`
+		if h.Type != "command" || h.Command != want || h.Timeout <= 0 || (event == "SessionStart" && h.Timeout > 15 || event != "SessionStart" && h.Timeout > 5) || event == "SessionEnd" && h.Timeout > 1 {
 			return fmt.Errorf("invalid %s command/timeout", event)
 		}
 	}
@@ -191,7 +191,7 @@ func TestGrokPackageSourceRejectsDrift(t *testing.T) {
 				if !bytes.Contains(b, []byte(from)) {
 					t.Fatalf("mutation anchor missing: %s", from)
 				}
-				if err := os.WriteFile(path, bytes.Replace(b, []byte(from), []byte(to), 1), 0600); err != nil {
+				if err := os.WriteFile(path, bytes.Replace(b, []byte(from), []byte(to), 1), 0600); err != nil { //nolint:gosec // allowlisted package copy under t.TempDir only
 					t.Fatal(err)
 				}
 			}

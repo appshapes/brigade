@@ -1,24 +1,28 @@
-# Configure status for Grok Build
+# Configure in Grok Build
 
-Grok Build participation is experimental. This source tree does not register Grok sessions or deliver team messages; native identity, session-specific liveness and admission remain gated.
+Grok options come from one JSON file, independently of other harness packages:
 
-The foundation selects `~/.config/brigade/grok-options.json`, independently of `muse-options.json` and
-`codex-options.json`. Grok uses the HOME-only Brigade namespace; inherited `BRIGADE_*`, `XDG_*`, and Claude
-plugin options cannot select its credential store or override file defaults. Hook/tool HOME agreement remains
-a live acceptance gate. The current hook gate runs before reading this file.
+```
+~/.config/brigade/grok-options.json
+```
 
-When lifecycle registration is enabled, its parser accepts the [common option names](options.md):
+Keys are the [common option names](options.md); values are strings, booleans or numbers:
 
 ```json
 { "team_inbound": "hold", "label": "none", "config_dir": "/absolute/brigade-persona" }
 ```
 
-A missing file gives defaults; malformed or oversized input gives a fixed warning without echoing content.
-Unknown keys and nested values are ignored. `config_dir` relocates credentials after the options file has
-been found. `claude_inbound_setting` has no Grok meaning. No Claude account is read for a Grok session;
-unknown name/model/context sources stay omitted until measured. A parser test is not a live-host promise.
+The Go resolvers and the shared bootstrap use HOME-only Brigade directories inside Grok. Inherited
+`BRIGADE_*`, `XDG_*` and Claude plugin options cannot relocate Grok's store or supply its option defaults.
+`config_dir` relocates credentials only after this options file is found. Missing files give defaults;
+malformed/oversized files produce a fixed warning; unknown keys and nested values are ignored.
 
-The shared bootstrap source still resolves its binary cache and developer pointer through XDG. Its VERSION
-and checksum files are absent, so this scaffold stops before those paths. Launcher directory agreement must
-be resolved with the measured hook/tool environment before release assets make the package runnable; the
-Go resolver tests alone do not establish that launcher contract.
+`team_inbound` controls local injection: accept appends to the private sink, hold retains server-side pending
+messages until the human releases them, and refuse injects/ACKs nothing. `poll_on_prompt` does not deliver on
+Grok: native UserPromptSubmit stdout is discarded. `claude_inbound_setting` has no meaning. No Claude settings,
+account or arbitrary Grok history is read. Name falls back to `grok`; unknown model/context stay blank.
+
+Run `brigade whoami` to see watcher connection and the last native monitor observation. States include
+`unarmed`, `arming-attempted`, `unverified`, `paused` and `armed`. Armed is an exact native task/command
+observation, not a message-processing receipt. Setup denial is not retried automatically; request the
+team-messaging skill's monitor setup explicitly. A restarted helper can replay local messages by ID.

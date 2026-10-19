@@ -7,8 +7,6 @@ description: >-
   the path of the secret file they saved — never with a path you chose or a file you wrote.
 ---
 
-Experimental package: Grok registration and inbound delivery are gated. If this session is not registered, relay the refusal and stop; never resume a saved conversation, arm a monitor, or claim the receiver is live to work around it.
-
 # Join the team
 
 `$ARGUMENTS` is the path of the secret file the user saved, or empty: typed by them after `/brigade:join`, or

@@ -213,3 +213,17 @@ Legend: `done` · `todo` · `blocked (<reason>)` · `wip` · `won't do (<date>)`
 | P47-1 | **Grok Build first-class participation feasibility** (card 120; 2026-10-18). Two independent workers mapped installed CLI/upstream ingress candidates and Brigade identity, lifecycle and ACK seams. Coordinator measured Grok 1.0.62 ACP initialization and addressed `_x.ai/interject` missing-target rejection; initial auth blocker resolved after normal login. Explicit leader-backed TUIs then displayed addressed idle and queued busy replies, with sibling isolation and a 75-second quiet hold; socket-only launches failed the original-TUI witness. Reproducible sanitized probe, experiment record and conditional implementation plan added. | wip — bounded leader-mode proof passed; hooks, lifetime, lifecycle and ACK contract pending; no production integration | Codex | `docs/experiments/grok-participation.md`; `.context/plans/grok-build-participation.md`; this row's commit |
 
 | P47-2 | **Grok foundation checkpoint** (card 120; 2026-10-18). Added isolated Grok identity/options, pointer checks, frame, native package/docs/check scaffolding. Runtime remains deliberately gated pending monitor contract and live acceptance. Focused race/build/docs/dependency/schema checks passed; coordinator must rerun sandbox-blocked full gates. | wip — checkpoint only, not releasable | Codex / Sol | `.context/plans/grok-build-participation.md`; this row's commit |
+
+## Card 120 — Grok direct-TUI monitor checkpoint (2026-10-18)
+
+| Work | Status | Next | Model |
+| --- | --- | --- | --- |
+| Monitor-first runtime, exact receiver binding, bounded Stop setup, sink/follower lifecycle, native package and docs | implemented locally; native acceptance/release pending | coordinator finishes long-idle/busy/lifecycle/payload/burst and preference gates, runs unavailable external checks, obtains Rjae Fable report-only review before PR/auto-merge | Sol/high implementation; Astra contract review |
+
+Leader ingress is excluded after the owned ghost-actor negative. ACK stays successful local sink injection,
+not model read. No Git/external-state publication is part of this implementation checkpoint. Canonical existing
+release pins are copied unchanged; next release remains the coordinator's action.
+
+Card 120 follow-up in this checkpoint: native truncation invalidated full-frame monitor stdout, and native monitor children omit GROK_SESSION_ID. The follower emits fixed body-free hints at most once per five seconds; incarnation-bound `inbox read` cursors drain retained generations through lossless pages capped at 2,048 serialized UTF-8 bytes. The quoted command supplies the exact UUID, and read/follow validates TUI ancestry. Native task snapshots omit command, so matching descriptions remain unverified. Coordinator must validate this revised production hint/read envelope/command, not count the earlier generic monitor pilot as final acceptance.
+
+Checkpoint validation: final full race suites for config/sessionmap/account/frame/hook/inbound/commands/cli/procutil passed with bounded test concurrency; focused Grok watcher/bootstrap race tests, Darwin/Linux+mutant lint, strict four-package checks, build/vet/deps/schema/tidy/docs and Linux build passed. Filesystem conformance: 48 passed, 0 failed, 1 skipped. Full CI-script tests hit denied tcp6 [::1]:0 bind; vuln DNS and pinned Docker ShellCheck remain blocked. Coordinator native hint/read acceptance and Rjae Fable review remain outstanding. Consolidated local report: `.ignored/card120/monitor-implementation-report.txt`.

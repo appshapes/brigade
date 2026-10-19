@@ -75,13 +75,14 @@ func TestGrokIdentityAndOptionsIsolation(t *testing.T) {
 
 func TestGrokPointersBindFullIdentity(t *testing.T) {
 	t.Parallel()
-	for _, mutation := range []string{"none", "native", "host", "brigade", "missing", "malformed", "private", "other namespace"} {
+	for _, mutation := range []string{"none", "native", "host", "brigade", "missing", "malformed", "private", "other namespace", "leader process"} {
 		t.Run(mutation, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			store := sessionmap.Store{StateDir: dir}
 			m := sampleMap(777)
 			m.Harness = "grok"
+			m.Grok = &sessionmap.GrokReceiver{Cwd: "/synthetic", ProcessStart: "start", Incarnation: strings.Repeat("a", 32), MonitorState: "unarmed"}
 			m.ClaudeSessionID = grokID
 			m.SocketPath = ""
 			ptr := sessionmap.ByHost{HostPID: 777, BrigadeSessionID: m.BrigadeSessionID}
@@ -90,6 +91,8 @@ func TestGrokPointersBindFullIdentity(t *testing.T) {
 				m.ClaudeSessionID = "other"
 			case "host":
 				m.Harness = "codex"
+			case "leader process":
+				m.HostProcessPID = 42
 			case "brigade":
 				m.BrigadeSessionID = "other"
 			}
@@ -149,8 +152,9 @@ func TestGrokSiblingPointersAreIndependent(t *testing.T) {
 	for i, id := range []string{grokID, "02000000-0000-7000-8000-000000000002"} {
 		m := sampleMap(777 + i)
 		m.Harness = "grok"
+		m.Grok = &sessionmap.GrokReceiver{Cwd: "/synthetic", ProcessStart: "start", Incarnation: strings.Repeat("a", 32), MonitorState: "unarmed"}
 		m.ClaudeSessionID = id
-		m.HostProcessPID = 42
+		m.HostProcessPID = 0
 		m.SocketPath = ""
 		m.BrigadeSessionID += id
 		writeMap(t, dir, m)
@@ -167,7 +171,7 @@ func TestGrokSiblingPointersAreIndependent(t *testing.T) {
 	}
 	env := []string{config.GrokSessionIDVar + "=02000000-0000-7000-8000-000000000002"}
 	m, err := config.Session(env, dir)
-	if err != nil || m.ClaudePID != 778 || m.HostProcessPID != 42 {
+	if err != nil || m.ClaudePID != 778 || m.HostProcessPID != 0 {
 		t.Fatalf("sibling %+v %v", m, err)
 	}
 }

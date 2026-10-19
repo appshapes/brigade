@@ -1,10 +1,18 @@
-# Update status for Grok Build
+# Update in Grok Build
 
-Grok Build participation is experimental. This source tree does not register Grok sessions or deliver team messages; native identity, session-specific liveness and admission remain gated.
+In your own terminal:
 
-No released Grok participation package exists in this source tree. For an existing experimental installation,
-the native source guide describes `grok plugin marketplace update brigade`, then `grok plugin update brigade`.
-Reload through the Plugins tab or start a new session as the host instructs; updating cannot establish the
-missing runtime contract. Do not edit trust stores or claim a running watcher has been replaced.
+```sh
+grok plugin marketplace update brigade
+grok plugin update brigade
+```
 
-The seven skills and release asset requirements are listed in the [package page](../../../grok/brigade/README.md).
+Reload through Grok's Plugins tab or start a new `grok --no-leader` TUI. Native new/load hooks create a new
+receiver incarnation; do not keep an old incarnation's monitor command. A prompt can replace an outdated
+watcher while retaining this incarnation's local backlog. The next completed turn checks native monitor
+state; there is at most one automatic setup attempt per incarnation, with explicit user retry available.
+A new/load incarnation does not adopt old sink files: locally ACKed unread records from the previous
+incarnation stay on disk and are not automatically redelivered.
+
+No update changes trust or permissions. The [package](../../../grok/brigade/README.md) lists the native hooks
+and canonical assets; the current implementation still awaits coordinator native acceptance and release.

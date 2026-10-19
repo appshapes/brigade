@@ -1,19 +1,35 @@
-# Install status for Grok Build
+# Install in Grok Build
 
-Grok Build participation is experimental. This source tree does not register Grok sessions or deliver team messages; native identity, session-specific liveness and admission remain gated.
+This source implements monitor participation for Grok Build direct TUIs launched with `--no-leader`. Final native acceptance and the next release remain coordinator gates; the current release pins are unchanged.
 
-The native package is `grok/brigade/`; `.grok-plugin/marketplace.json` points to it. Release assets are absent,
-so the bootstrap cannot download a release. There is no minimum supported Grok version yet.
+The measured host is Grok Build 1.0.62 (`1474f9cbdd91`). Later versions must preserve the native hook and
+monitor contracts. Leader mode is unsupported: its shared process does not identify a live terminal receiver.
 
-For a coordinator-owned packaging experiment after release assets have been generated, the source guide's
-native flow is `grok plugin marketplace add <owned-checkout>`, then `grok plugin install brigade --trust`.
-Trust is a host decision made through the normal install flow. Do not change trust files, disable trust or
-borrow a Claude package install. Confirm the native manifest, all seven skills, and three hooks in that owned
-installation. No such live install validation has passed for this package.
+After a monitor-enabled release, use Grok's normal marketplace and trust flow in your own terminal:
 
-`GROK_SESSION_ID` is recognized as an isolated host marker; an environment containing another host's marker
-is refused before pointer resolution. The planned shell command is the installed package's `bin/brigade`,
-with the exact path learned from the host, rather than an assumed cache path. Hook stdout is not delivery.
+```sh
+grok plugin marketplace add appshapes/brigade
+grok plugin install brigade --trust
+grok plugin enable brigade
+grok --no-leader
+```
 
-See [feasibility evidence](../../experiments/grok-participation.md),
-[configuration](../configure/grok.md), [security limits](../../security.md#17-experimental-grok-build-foundation) and [package status](../../../grok/brigade/README.md).
+Join the project's team as [the joining page](../join/grok.md) describes. Type an ordinary prompt in the direct
+TUI. SessionStart registers it and shows a UI-only notice; after the first completed turn, Stop offers one
+model-visible instruction to arm the persistent inbox monitor. Normal permissions may ask you to approve that
+one command. A denial/failure settles without automatic retries; explicitly request monitor setup through
+`/brigade:team-messaging` when ready.
+
+Four native hooks run: SessionStart, UserPromptSubmit, Stop and SessionEnd. They use `exec` so the verified
+parent is the TUI itself. Resume through Grok's normal session picker in a `grok --no-leader` TUI; a native
+`load` starts a fresh receiver incarnation and gets one setup opportunity. Compaction alone does not rearm.
+Native leader socket presence, an unknown parent, conflicting host markers or mismatched UUID/workspace
+refuse registration. Do not change host trust files or permissions to work around a refusal.
+
+`grok plugin details brigade` locates the installed package. The command is its absolute `bin/brigade`, or
+bare `brigade` when your PATH already names it. `brigade whoami --json` supplies the exact quoted
+`monitor_command` and `monitor_description` for this incarnation; use those values rather than guessing a
+cache path. [Configuration](../configure/grok.md), [monitor status and skills](../../agent/in-a-team/grok.md),
+[security limits](../../security.md#17-grok-build-monitor-sessions),
+[measured evidence](../../experiments/grok-participation.md) and
+[package](../../../grok/brigade/README.md).

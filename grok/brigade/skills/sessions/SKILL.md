@@ -8,8 +8,6 @@ description: >-
   message is `brigade:team-messaging`.
 ---
 
-Experimental package: Grok registration and inbound delivery are gated. If this session is not registered, relay the refusal and stop; never resume a saved conversation, arm a monitor, or claim the receiver is live to work around it.
-
 # Show the team's sessions
 
 `$ARGUMENTS` is what came after `/brigade:sessions`: typed by the user when they invoked this skill, or passed by

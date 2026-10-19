@@ -27,7 +27,7 @@
     },
     {
       "id": "grok",
-      "name": "Grok Build (experimental)",
+      "name": "Grok Build",
       "vendor": "xAI",
       "host": "grok",
       "package": "grok/brigade",

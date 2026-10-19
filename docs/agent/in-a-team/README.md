@@ -12,7 +12,7 @@ and delivery wording.
 | know the skills a Muse Code session loads, and how a Muse session is woken | [Muse Code](#muse-code) |
 | know the skills a Codex CLI session loads, and how a Codex session is woken | [Codex CLI](#codex-cli) |
 | read what a team message looks like when it reaches you, and what it can never do | [The frame around a message](#the-frame-around-a-message) |
-| inspect experimental Grok Build skills and delivery limits | [Grok Build (experimental)](#grok-build-experimental) |
+| use Grok Build skills and the inbox monitor | [Grok Build](#grok-build) |
 
 ## Claude Code
 
@@ -52,8 +52,8 @@ Details: [Codex CLI](codex.md).
 
 Details: [The frame around a message](the-frame.md).
 
-## Grok Build (experimental)
+## Grok Build
 
-The distinct Grok package contains seven skills and gated native hook scaffolding. Registration and delivery are not enabled.
+The Grok package uses four native hooks and a persistent monitor in `--no-leader` TUIs. Setup gets one automatic attempt per receiver incarnation, with normal permissions and explicit retry.
 
-Details: [Grok Build (experimental)](grok.md).
+Details: [Grok Build](grok.md).

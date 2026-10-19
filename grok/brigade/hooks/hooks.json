@@ -1,13 +1,13 @@
 {
-  "description": "Experimental native hooks: runtime fails closed until hook identity, liveness and ingress contracts are measured.",
+  "description": "Register direct Grok TUI sessions, maintain the local inbox watcher, offer one monitor setup attempt after a completed turn, and retire the receiver on exit.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "\"${GROK_PLUGIN_ROOT}/bin/brigade\" hook session-start --host grok --plugin-root \"${GROK_PLUGIN_ROOT}\"",
-            "timeout": 5
+            "command": "exec \"${GROK_PLUGIN_ROOT}/bin/brigade\" hook session-start --host grok --plugin-root \"${GROK_PLUGIN_ROOT}\"",
+            "timeout": 15
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${GROK_PLUGIN_ROOT}/bin/brigade\" hook prompt --host grok --plugin-root \"${GROK_PLUGIN_ROOT}\"",
+            "command": "exec \"${GROK_PLUGIN_ROOT}/bin/brigade\" hook prompt --host grok --plugin-root \"${GROK_PLUGIN_ROOT}\"",
             "timeout": 5
           }
         ]
@@ -28,8 +28,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${GROK_PLUGIN_ROOT}/bin/brigade\" hook session-end --host grok --plugin-root \"${GROK_PLUGIN_ROOT}\"",
+            "command": "exec \"${GROK_PLUGIN_ROOT}/bin/brigade\" hook session-end --host grok --plugin-root \"${GROK_PLUGIN_ROOT}\"",
             "timeout": 1
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec \"${GROK_PLUGIN_ROOT}/bin/brigade\" hook stop --host grok --plugin-root \"${GROK_PLUGIN_ROOT}\"",
+            "timeout": 5
           }
         ]
       }

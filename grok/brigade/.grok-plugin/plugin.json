@@ -1,7 +1,7 @@
 {
   "name": "brigade",
-  "version": "0.0.0",
-  "description": "Experimental Grok Build package scaffolding. Native session registration and delivery remain gated pending measured contracts.",
+  "version": "0.34.1",
+  "description": "Team messaging for Grok Build direct TUIs (--no-leader), using a persistent native inbox monitor and the shared Brigade adapter protocol.",
   "author": {
     "name": "appshapes"
   },
