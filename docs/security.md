@@ -1097,7 +1097,8 @@ resume/crash native acceptance remain distinct coordinator gates. Incomplete eve
 
 A load, or a replacement that is no longer the same live binding, mints a fresh incarnation so the monitor
 can re-arm. When that registration resumes the same Brigade session, the previous incarnation's private sink
-files move into the new directory before the new binding is published. A move that fails leaves the previous
-binding in place. A new Brigade session id leaves the old directory where it is. An old-incarnation cursor
+files move into the new directory before the new binding is published. A move that fails puts back every file it
+had already moved and leaves the previous binding in place, so a retained record stays readable under the old
+incarnation; a restore that itself fails is logged. A new Brigade session id leaves the old directory where it is. An old-incarnation cursor
 stays rejected, so a resumed read starts again and may replay frames already shown. A lookup that fails is
 not TUI death: the watcher keeps injecting and does not delete the receiver until the process is proven gone.

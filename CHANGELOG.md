@@ -11,7 +11,7 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Fixed
 
-- **Grok resume no longer drops a locally ACKed backlog, and a process lookup failure is not treated as the TUI exiting** (card 120). A fresh incarnation still re-arms the monitor. When the same Brigade session resumes, its private sink files move with the incarnation; a failed move does not publish the new binding. A torn sink tail no longer aborts `inbox read` or gets concatenated onto by the next append. The shared bootstrap strips `XDG_*` and `BRIGADE_*` only when Grok is the host, and a cold `hook stop` exits instead of downloading. `checksums-check` compares the Grok package pin with the Muse and Codex packages.
+- **Grok resume no longer drops a locally ACKed backlog, and a process lookup failure is not treated as the TUI exiting** (card 120). A fresh incarnation still re-arms the monitor. When the same Brigade session resumes, its private sink files move with the incarnation; a failed move puts back every file it had already moved and does not publish the new binding. A torn sink tail no longer aborts `inbox read` or gets concatenated onto by the next append. The shared bootstrap strips `XDG_*` and `BRIGADE_*` only when Grok is the host, and a cold `hook stop` exits instead of downloading. `checksums-check` compares the Grok package pin with the Muse and Codex packages.
 
 ### Added
 

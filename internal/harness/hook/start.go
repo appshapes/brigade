@@ -322,9 +322,12 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		m.RegisteredAt = existing.RegisteredAt
 	}
 	if err := r.adoptGrokBacklog(f.stateDir, prior, m); err != nil {
-		if prior != nil {
-			_ = res.store.WriteByPID(prior)
-		}
+		// The move renames one file at a time and stops at the first
+		// failure, so the error can arrive with part of the backlog already
+		// in the new directory — which this path never publishes. Move it
+		// back before restoring the previous map, or those records would
+		// sit in a directory no reader resolves.
+		r.restoreGrokBacklog(f.stateDir, res.store, prior, m)
 		r.fail("session-start: grok backlog not moved", err, notConnected(protocol.CodeConfig))
 		return
 	}
@@ -366,8 +369,11 @@ func (r *run) adoptGrokBacklog(stateDir string, prior, next *sessionmap.ByPID) e
 	return inbound.AdoptGrokSink(stateDir, prior.BrigadeSessionID, prior.Grok.Incarnation, next.Grok.Incarnation)
 }
 
-// restoreGrokBacklog puts a moved backlog back when the new binding cannot
-// be published, and writes the previous map so the next attempt can retry.
+// restoreGrokBacklog puts a moved backlog back when the move itself failed
+// partway or the new binding cannot be published, and writes the previous
+// map so the next attempt can retry. The reverse move is the same one: every
+// file the forward pass renamed goes back under the previous incarnation,
+// and the unpublished directory is removed once it is empty.
 func (r *run) restoreGrokBacklog(stateDir string, store sessionmap.Store, prior, next *sessionmap.ByPID) {
 	if prior == nil || next == nil || next.Grok == nil || !prior.ValidGrokReceiver() || prior.BrigadeSessionID != next.BrigadeSessionID || prior.Grok.Incarnation == next.Grok.Incarnation {
 		return

@@ -157,6 +157,54 @@ func TestGrokLifecycleAndBoundedStop(t *testing.T) {
 		t.Fatalf("end stdout %q map %v", out, f.mapExists())
 	}
 }
+
+// A move that fails partway must not strand the files it already renamed
+// under an incarnation no reader resolves: they go back, and the previous
+// map comes back with them.
+func TestGrokFailedBacklogAdoptionRestoresTheOldDirectory(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	if code, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil)); code != 0 {
+		t.Fatalf("hook exit %d: %s", code, errOut)
+	}
+	m := f.mustMap()
+	oldDir := inbound.GrokSinkDir(f.stateDir, m.BrigadeSessionID, m.Grok.Incarnation)
+	if err := os.MkdirAll(oldDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	kept := []byte("{\"message_id\":\"kept\"}\n")
+	// The first entry moves; the second cannot, so the adoption fails with
+	// one file already sitting under the new incarnation.
+	if err := os.WriteFile(filepath.Join(oldDir, "00000000000000000001.ndjson"), kept, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(t.TempDir(), "elsewhere"), filepath.Join(oldDir, "00000000000000000002.ndjson")); err != nil {
+		t.Fatal(err)
+	}
+	f.spawner.watcherPID = testutil.NewSleeper(t)
+	_, out, _ := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "load", nil))
+	if !strings.Contains(out, "not connected (config)") {
+		t.Fatalf("failed adoption stdout %q", out)
+	}
+	back, err := os.ReadFile(filepath.Join(oldDir, "00000000000000000001.ndjson"))
+	if err != nil || string(back) != string(kept) {
+		t.Fatalf("restored backlog %q %v", back, err)
+	}
+	still := f.mustMap()
+	if !still.ValidGrokReceiver() || still.Grok.Incarnation != m.Grok.Incarnation {
+		t.Fatalf("map %+v, want incarnation %s", still, m.Grok.Incarnation)
+	}
+	entries, err := os.ReadDir(inbound.SinkDir(f.stateDir, m.BrigadeSessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != "grok-"+m.Grok.Incarnation {
+			t.Fatalf("directory %q of an unpublished incarnation remained", e.Name())
+		}
+	}
+}
+
 func TestGrokClaimDoesNotStealOnLookupError(t *testing.T) {
 	t.Parallel()
 	f := grokFixture(t)
