@@ -166,3 +166,140 @@ Current schema 2 exports the failed fresh 2-KiB tail case and the passed native
 tool-busy wake separately. Full-frame delivery must use the
 [wake/read contract](../../../docs/experiments/grok-participation-contract.md#delivery-correction-wake-notices-plus-local-retrieval);
 this short-line fixture is only a bootstrap/wake probe, not a payload proof.
+
+## Actual native package acceptance preparation
+
+[prepare_native.py](prepare_native.py) creates a fresh 0700 temporary fixture,
+using explicit **coordinator-built** native Brigade and fs-adapter binaries. It
+executes only local CLI setup; it never starts Grok, installs/trusts a plugin,
+changes normal configuration, reads the supplied GROK_HOME, copies authentication,
+or invents a receiver map/native ID. Its only credential material is created by
+the test-only fs adapter in the new scratch HOME; the preparer never opens those
+credential files or the synthetic join-secret contents. The secret is outside
+both the checkout and the synthetic workspace. Never export this private root.
+
+Build the two binaries from Sol's implementation checkout into explicit temporary
+output paths using the normal sandbox/toolchain. The coordinator owns that build;
+this worker does not redirect a denied Go cache or relax permissions. Supply the
+actual `grok/brigade` package path, not a replacement plugin or bootstrap binary:
+
+```sh
+python3 scripts/experiments/grok-participation/prepare_native.py prepare \
+  --dev-bin <compiled-brigade> --fs-bin <compiled-brigade-adapter-fs> \
+  --package-root <implementation-checkout>/grok/brigade \
+  --grok-home <existing-normal-grok-home>
+python3 scripts/experiments/grok-participation/prepare_native.py instructions \
+  --root <printed-private-root>
+```
+
+`prepare` writes the scratch adapter registry (fixed executable plus private
+`--root`), dev-binary pointer and `grok-options.json` with `team_inbound: accept`.
+It then runs the current production CLI's `team create --adapter fs` with a
+placeholder public backend pair. The fixed fs adapter never contacts that URL.
+The CLI writes `.brigade.json`, the real synthetic team binding and per-checkout
+consent; the preparer does not fabricate them. A `.git` directory marker follows
+`commands/teamsetup_test.go`'s `mkCheckout` constructor; no Git command is run.
+This is sufficient for Brigade discovery, not proof of native Grok workspace
+handling. There are no production receiver hooks, maps or watchers until the
+coordinator launches the native package. `harness-smoke.sh` is obsolete and must
+not be used as a setup recipe (it still calls removed `brigade profile`).
+
+Operator sequence, all actual native actions owned by the coordinator:
+
+1. Treat HOME separation as an **unproven prerequisite**. The installed guide
+   documents GROK_HOME as Grok's config-directory override, but that alone does
+   not prove plugin storage, normal authentication and hook/model-shell HOME
+   behavior under this split. From the printed workspace, use the printed launch
+   environment: `env -i`, scratch HOME/TMPDIR, supplied existing GROK_HOME, normal
+   executable PATH, default permissions, `--no-leader`, no inherited harness/XDG
+   markers or API-key environment. Before installing Brigade, verify normal login
+   still works and inspect only environment **field values** from an ordinary
+   approved shell command: HOME, GROK_HOME, GROK_SESSION_ID, GROK_LEADER_SOCKET.
+   Keep those paths/IDs private. Do not open auth/config files. If login requires
+   copying credentials, HOME is rewritten, or isolation cannot be verified, stop
+   and report this gate blocked; do not fall back to normal HOME or trust bypass.
+2. Inspect the native plugin inventory using its normal UI. If a Brigade package
+   already exists there and is not owned by this test, stop rather than replace
+   or uninstall it. Exit the preflight TUI. The printed install command is for the
+   actual package via `grok plugin install <package> --trust`, in the split
+   environment. It is a recommendation only; the script never executes it. Check
+   installation goes to the expected native plugin store before proceeding.
+3. Open a **fresh** native TUI in the printed workspace with the printed launch
+   command. Native hooks must create the receiver map and watcher normally, using
+   the scratch dev pointer. Confirm their actual PID/start identity, native UUID,
+   canonical workspace, scratch config/state and private fs adapter binding from
+   owned metadata. Do not manually create or repair maps. Invoke the package's
+   real skills/`whoami` to obtain the receiver's Brigade ID; no guessed UUID.
+   Verify the expected synthetic team, not any real team.
+4. Complete an initial user turn and approve only the actual monitor command if
+   requested. Record the native task and one-shot arming behavior. New coordinator
+   evidence says Stop `backgroundTasks` has ID/type/status/description but **no
+   command field**: a guard requiring command remains unverified. Do not patch
+   task metadata or mark ready from a banner to pass acceptance. The measured
+   0.34-second native monitor exit after `/exit` is not production watcher proof.
+5. Send only to that observed receiver using the private fixture:
+
+   ```sh
+   python3 scripts/experiments/grok-participation/prepare_native.py send \
+     --root <printed-private-root> --receiver-id <observed-own-brigade-id> \
+     --body-file <printed-private-root>/messages/short.txt
+   ```
+
+   This checks the exact receiver in the private fs roster, registers an ordinary
+   synthetic shell sender through BAP/1, and sends the body on stdin. It never
+   registers a native receiver or calls `message ack`. It returns a message ID,
+   sender ID and a 600-second sender lease; adapter acceptance is explicitly
+   distinct from local injection and model delivery. A mismatched/offline/non-Grok
+   receiver refuses before registering the sender. If Sol's harness spelling
+   differs from `grok`/`grok-build`, stop and reconcile it, not impersonate one.
+6. Require the real watcher/pipeline to append to the receiver's local sink and
+   ACK. Check the **owned fs backend receipt** without consuming or acknowledging:
+
+   ```sh
+   python3 scripts/experiments/grok-participation/prepare_native.py receipt \
+     --root <printed-private-root> --receiver-id <observed-own-brigade-id> \
+     --message-id <returned-message-id>
+   ```
+
+   `receipt` reads only this fixture's documented fs `acked` record for a message
+   the helper sent to that receiver. It reports a boolean, never the body.
+   Require a complete sink record plus this ACK evidence; `message send` success
+   alone is insufficient. Separately require body-free native wake, real
+   `brigade inbox read` pagination and generated NATIVE_WAKE_120 in the original
+   TUI. The helper does not provide fake read responses or fake a sink/ACK.
+7. Repeat with `messages/16k.txt`: exactly 16,384 UTF-8 bytes and fresh independent
+   BEGIN/MIDDLE/END values. Keep `expected-private.json` out of the prompt/tool
+   instructions and inspect it only in the operator's terminal after the reply;
+   never tell the model to open it. Confirm every production read page is complete
+   and the original TUI returns all three values in order. The model's sandbox is
+   not assumed to prevent reading sibling files; if it reads the expected file,
+   void the test. Offline byte-exact frame/page tests remain necessary. Add burst,
+   held/refused and rotation cases only through normal production policy paths.
+8. Close only each returned synthetic sender using the printed `adapter_prefix`
+   plus `session close --session <returned-sender-id>`. For longer reply tests,
+   heartbeat that sender within its lease using BAP/1; do not invent a map. Exit
+   the owned TUI normally, verify its watcher/follower retirement against the
+   recorded incarnation, and separately run the owned crash gate. Bound waits
+   (candidate ten seconds), report survivors, and never kill by name/shared leader.
+   Uninstall only the package this run installed using normal Grok CLI in the
+   same split environment. Remove the printed private root only after owned
+   processes stop; never remove normal GROK_HOME, histories or login material.
+
+`instructions` also prints the exact adapter argv prefix and scratch state path
+for private inspection. Manually driving protocol samples means sending JSON on
+stdin, e.g. `session heartbeat --session <sender>` with
+`{"activity":"idle","lease_seconds":600}`. Native receiver registration remains
+exclusively the production hook's job. The script has a 20-second timeout per local
+CLI command and checks binary hashes before follow-up commands; a rebuild requires
+a fresh fixture. Failed preparation leaves only its private temporary root for
+inspection, not a normal configuration change.
+
+Validation at this checkpoint: three new offline orchestration tests use fake CLI
+results to check isolated argv/environment, CLI-owned consent, no receiver-map or
+Grok action, 16-KiB generation, receiver/path refusal, stdin bodies, ACK observation
+without ACK mutation, and binary/bootstrap rejection. These do **not** prove the
+real CLI setup or the native pipeline. No supplied compiled development binaries
+were available to this worker, so actual fs setup/send is pending coordinator
+execution; HOME separation, actual hook registration, task readiness and native
+full-frame delivery remain live gates. No privileged sockets/network or Go-cache
+workaround was attempted.
