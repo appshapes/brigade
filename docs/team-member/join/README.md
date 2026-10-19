@@ -12,6 +12,7 @@ secret your administrator sent you, saved outside the repository, lets you in. Y
 | join from a Codex CLI session | [Join in Codex CLI](#join-in-codex-cli) |
 | join a second clone, or another repository of the same team | [Join another checkout](#join-another-checkout) |
 | choose the label teammates see beside your sessions | [Choose your label](#choose-your-label) |
+| use Grok Build join status | [Grok Build](#grok-build) |
 
 ## Join in Claude Code
 
@@ -53,3 +54,9 @@ Details: [Join another checkout](another-checkout.md).
    the same for that one command.
 
 Details: [Choose your label](your-label.md).
+
+## Grok Build
+
+Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
+
+Details: [Grok Build](grok.md).

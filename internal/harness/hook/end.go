@@ -48,6 +48,9 @@ func (r *run) sessionEnd() int {
 		r.log.Debug("session-end: no usable session map", log.Err(merr))
 		m = nil
 	}
+	if f.host == config.HostGrok && !r.grokMatches(m, in) {
+		return 0
+	}
 	path := pidfile.Path(f.stateDir, f.pid)
 	v, cerr := pidfile.Check(path, r.deps.Lookup)
 	switch {
@@ -73,13 +76,27 @@ func (r *run) sessionEnd() int {
 	}
 	if f.pointed() {
 		if m != nil {
-			if derr := store.DeleteByHost(string(f.host), m.ClaudeSessionID); derr != nil {
-				r.log.Debug("session-end: session pointer not removed", log.Err(derr))
+			owned := true
+			if f.host == config.HostGrok {
+				p, err := store.ReadByHost("grok", m.ClaudeSessionID)
+				owned = err == nil && p.HostPID == m.ClaudePID && p.BrigadeSessionID == m.BrigadeSessionID
+			}
+			if owned {
+				if derr := store.DeleteByHost(string(f.host), m.ClaudeSessionID); derr != nil {
+					r.log.Debug("session-end: session pointer not removed", log.Err(derr))
+				}
 			}
 		}
 		if in.SessionID != "" {
-			if derr := store.DeleteStartPointer(string(f.host), in.SessionID); derr != nil {
-				r.log.Debug("session-end: start pointer not removed", log.Err(derr))
+			owned := true
+			if f.host == config.HostGrok {
+				key, err := store.ReadStartPointer("grok", in.SessionID)
+				owned = err == nil && key == f.pid
+			}
+			if owned {
+				if derr := store.DeleteStartPointer(string(f.host), in.SessionID); derr != nil {
+					r.log.Debug("session-end: start pointer not removed", log.Err(derr))
+				}
 			}
 		}
 	}

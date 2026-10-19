@@ -1,8 +1,8 @@
 # In a team
 
-Each harness Brigade supports — Claude Code, Muse Code, Codex CLI — ships the same seven skills, worded for that harness. The model-facing one is
-`team-messaging`; the rest are slash commands a person types. The frame around every team message is the same on
-every harness but for one sentence.
+Each harness Brigade supports — Claude Code, Muse Code, Codex CLI, Grok Build — ships the same seven skills, worded for that harness. The model-facing one is
+`team-messaging`; the rest are slash commands a person types. The frame keeps the same structure and trust rules, with host-specific tool
+and delivery wording.
 
 ## If you want to
 
@@ -12,6 +12,7 @@ every harness but for one sentence.
 | know the skills a Muse Code session loads, and how a Muse session is woken | [Muse Code](#muse-code) |
 | know the skills a Codex CLI session loads, and how a Codex session is woken | [Codex CLI](#codex-cli) |
 | read what a team message looks like when it reaches you, and what it can never do | [The frame around a message](#the-frame-around-a-message) |
+| use Grok Build skills and the inbox monitor | [Grok Build](#grok-build) |
 
 ## Claude Code
 
@@ -50,3 +51,9 @@ Details: [Codex CLI](codex.md).
    acknowledgement.
 
 Details: [The frame around a message](the-frame.md).
+
+## Grok Build
+
+The Grok package uses four native hooks and a persistent monitor in `--no-leader` TUIs. Setup gets one automatic attempt per receiver incarnation, with normal permissions and explicit retry.
+
+Details: [Grok Build](grok.md).

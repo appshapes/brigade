@@ -17,6 +17,7 @@ teammate's message cannot change them.
 | switch file sync off for your sessions | [Switch file sync off](#switch-file-sync-off) |
 | confirm or block what your session may send | [Gate what your session sends](#gate-what-your-session-sends) |
 | run `claude -p` workers or sandboxed sessions | [Run headless or sandboxed sessions](#run-headless-or-sandboxed-sessions) |
+| use Grok Build configure status | [Grok Build](#grok-build) |
 
 ## Know the options
 
@@ -90,3 +91,9 @@ Details: [Gate what your session sends](permissions.md).
 3. A body over about 8 KB goes through `brigade send --body-file <path>`.
 
 Details: [Run headless or sandboxed sessions](headless-and-sandbox.md).
+
+## Grok Build
+
+Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
+
+Details: [Grok Build](grok.md).

@@ -1053,3 +1053,46 @@ Every item below is a known limit that this version ships with, on purpose.
   the invariant the read-only-home proof protects. Its heartbeat also renews the session's lease, which proves that
   a process holding the session's `CLAUDE_PID` ran — not that Claude is alive — and can revive a session whose
   lease had expired but which was never closed; it adds nothing the accepted local attacker lacks.
+
+## 17. Grok Build monitor sessions
+
+The Grok route serves normally installed/trusted main-session direct TUIs launched with `--no-leader`.
+A nonempty GROK_LEADER_SOCKET is refused before registration: a resident shared-leader actor can survive its
+terminal, so leader/session-info success is not a TUI liveness witness. No native prompt/resume ingress ships.
+
+Hooks bind the full UUID/environment agreement, canonical workspace/cwd, actual TUI PID/kernel start token
+and a fresh new/load incarnation. Foreign host markers, mismatched aliases, subagents, unknown parent topology
+and malformed inputs fail closed. `GROK_SESSION_ID` is LAST in the host precedence, after `CLAUDE_PID`,
+`MUSE_SESSION_ID` and `CODEX_THREAD_ID`: a Grok terminal tool exports it, so a session of an older host started
+from one inherits it, and relabelling that session would leave it unregistered and silent. The Grok direction of
+the same leak is refused rather than resolved, with one visible line and no registration.
+Only the exact current private by-host/map binding can inject or follow.
+The watcher checks actual TUI death/PID reuse independently of the short end hook; old cleanup leaves a
+replacement incarnation alone. It signals only its own watcher, never a TUI or shared leader.
+
+The bootstrap and Go resolvers use HOME-only directories inside Grok and ignore inherited Brigade/XDG and
+Claude plugin options. No Claude account/settings or arbitrary Grok history is read. Unknown native metadata
+stays blank; the display name falls back to `grok`. Protocol v1 and its inbound policy are unchanged.
+
+Startup systemMessage is UI-only. Stop's measured block/reason continuation offers one monitor setup attempt
+per incarnation, guarded before emission and by stopHookActive. Only an exact native running task/command
+observation confirms arming; descriptions alone, banners and attempt state do not. Normal command permissions
+remain in force. Refusal/failure settles until explicit user retry. No broad trust or permission grant is made.
+
+Successful private sink append/close is local injection and may ACK before a monitor is armed, matching Muse.
+It is not model read, durable native admission or exactly-once processing. A read-only follower replays this
+incarnation's retained files in order, emitting only fixed body-free hints at most once per five seconds. Native
+monitor output truncates, so frame bodies are retrieved with incarnation-bound `inbox read` cursors in
+complete JSON pages capped at 1,800 UTF-8 bytes for the whole serialized response, envelope and newline
+included: the proposed 2,048-byte cap was measured to corrupt escaped JSON at the native shell's 2,000-column
+hard wrap, so the shipped cap keeps a margin below it. Frame digests, byte offsets
+and completion markers are checked and pages joined before handling. The generated monitor command restores its missing native UUID; reads and follows require
+the exact map/incarnation, live TUI start token and process ancestry. Only this receiver's private injected
+sink files are read, never held bodies or arbitrary histories. One hint drains all retained rotations; a lost
+final hint can delay reads until another hint or explicit retry. Reader limits (4,096 generations, 64 MiB
+scanned per call, 1 MiB per record) fail explicitly without discarding records. Reads do not ACK. Restart may
+replay IDs; native truncation/drop/noise behavior, maximum payload, burst survival, 35-minute lifetime and
+resume/crash native acceptance remain distinct coordinator gates. Incomplete events must not be acted on.
+
+A new/load receiver does not adopt previous-incarnation sink files. Older locally ACKed unread records
+remain on disk but are not automatically redelivered; no unmeasured history/receiver adoption is performed.

@@ -72,7 +72,7 @@ func hostHistoryRoot(host config.Host, environ []string) string {
 		return ""
 	}
 	switch host {
-	case config.HostClaude:
+	case config.HostClaude, config.HostGrok:
 		return ""
 	case config.HostCodex:
 		return filepath.Join(home, ".codex")

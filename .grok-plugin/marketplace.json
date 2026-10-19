@@ -1,0 +1,17 @@
+{
+  "name": "brigade",
+  "description": "Brigade for Grok Build",
+  "owner": {
+    "name": "appshapes"
+  },
+  "plugins": [
+    {
+      "name": "brigade",
+      "description": "Team messaging through a persistent inbox monitor in Grok --no-leader sessions.",
+      "source": {
+        "type": "local",
+        "path": "./grok/brigade"
+      }
+    }
+  ]
+}

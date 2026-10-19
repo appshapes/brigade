@@ -529,3 +529,11 @@ Then, if the case was cut from a real run, run `make test` and confirm `TestFixt
 passes. It is the guard for the failure that produced it: the P4-3 commit carried seventeen `stdin-writes.log`
 fixtures that `.gitignore`'s bare `*.log` swallowed at `git add` time, so every local run passed against the
 files on disk while CI failed on a clean checkout that never had them (run `33915532579`).
+
+### Grok monitor package (card 120)
+
+`make grok-plugin-check` is strict: native manifest/catalog, four exact exec hook commands, seven reachable
+skills, no symlinks/stray files and all three bin assets equal to `plugin/bin`. Mutation tests exercise source
+checks; `--source` is a diagnostic subset and never CI/release readiness. Canonical VERSION/checksum copies
+are existing release-produced assets; only the normal release sequence changes their contents. The package's
+[monitor contract](../../grok/brigade/README.md) separates local-injection ACK from native/model receipt.

@@ -85,7 +85,7 @@ var memberTopics = []string{"install", "join", "update", "configure", "leave"}
 
 // manifestDirs name a harness package by the manifest directory it carries;
 // a package found this way must be in the registry.
-var manifestDirs = []string{".claude-plugin", ".muse-plugin", ".codex-plugin"}
+var manifestDirs = []string{".claude-plugin", ".muse-plugin", ".codex-plugin", ".grok-plugin"}
 
 // Harness is one entry of docs/harnesses.json.
 type Harness struct {

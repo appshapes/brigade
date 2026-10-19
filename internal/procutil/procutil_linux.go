@@ -46,7 +46,9 @@ func query(pid int) (state, error) {
 		return state{}, fmt.Errorf("procutil: /proc/%d/stat names pid %d", pid, st.pid)
 	}
 	return state{
-		zombie: st.state == 'Z',
-		token:  st.startTicks,
+		parent:  st.parent,
+		command: st.command,
+		zombie:  st.state == 'Z',
+		token:   st.startTicks,
 	}, nil
 }

@@ -176,6 +176,10 @@ var docsMutations = []struct {
 		t.Helper()
 		docsWrite(t, root, "other/.claude-plugin/plugin.json", "{}\n")
 	}},
+	{"harness: an unlisted native Grok package", "harness", func(t *testing.T, root string) {
+		t.Helper()
+		docsWrite(t, root, "other/.grok-plugin/plugin.json", "{}\n")
+	}},
 	{"harness: a skill missing from the agent page", "harness", func(t *testing.T, root string) {
 		t.Helper()
 		docsWrite(t, root, "plugin/skills/extra/SKILL.md", "---\nname: extra\n---\n")

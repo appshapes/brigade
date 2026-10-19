@@ -37,7 +37,9 @@ func query(pid int) (state, error) {
 	}
 	tv := kp.Proc.P_starttime
 	return state{
-		zombie: kp.Proc.P_stat == szomb,
-		token:  fmt.Sprintf("%d.%06d", tv.Sec, tv.Usec),
+		command: unix.ByteSliceToString(kp.Proc.P_comm[:]),
+		parent:  int(kp.Eproc.Ppid),
+		zombie:  kp.Proc.P_stat == szomb,
+		token:   fmt.Sprintf("%d.%06d", tv.Sec, tv.Usec),
 	}, nil
 }

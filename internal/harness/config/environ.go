@@ -31,8 +31,7 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// The two Claude Code variables this package reads directly, the one Muse
-// Code variable (card 88) and the one Codex CLI variable (card 107).
+// Native host markers and the Claude config-directory override.
 const (
 	// ClaudePIDVar is set in hooks and in the Bash tool (6.5); its
 	// presence is what "inside a Claude Code session" means.
@@ -56,17 +55,21 @@ const (
 	// session_id, which it adopts into its environment under this name.
 	// As strong as CLAUDE_PID and no stronger (docs/security.md §16).
 	CodexThreadIDVar = "CODEX_THREAD_ID"
+	// GrokSessionIDVar names the native Grok conversation, never its leader.
+	// Recognition isolates configuration; it does not enable delivery.
+	GrokSessionIDVar = "GROK_SESSION_ID"
 )
 
 // A Host is the coding harness a session runs in: the value the
 // registration's `harness` member carries (protocol.SessionRegistration).
 type Host string
 
-// The three hosts Brigade knows. The empty Host means "not in a session".
+// The hosts Brigade recognizes. The empty Host means "not in a session".
 const (
 	HostClaude Host = "claude-code"
 	HostMuse   Host = "muse"
 	HostCodex  Host = "codex"
+	HostGrok   Host = "grok"
 )
 
 // Name is the host's product name for a line a person reads.
@@ -78,13 +81,15 @@ func (h Host) Name() string {
 		return "Muse Code"
 	case HostCodex:
 		return "Codex CLI"
+	case HostGrok:
+		return "Grok Build"
 	}
 	return string(h)
 }
 
 // NativeIDVar is the environment variable that carries the host's native
 // session id in the model's shell: MUSE_SESSION_ID on Muse Code,
-// CODEX_THREAD_ID on Codex CLI, "" for Claude Code (whose shell carries
+// CODEX_THREAD_ID on Codex CLI, GROK_SESSION_ID on Grok Build, "" for Claude Code (whose shell carries
 // CLAUDE_PID instead) and for a terminal.
 func (h Host) NativeIDVar() string {
 	switch h {
@@ -92,6 +97,8 @@ func (h Host) NativeIDVar() string {
 		return MuseSessionIDVar
 	case HostCodex:
 		return CodexThreadIDVar
+	case HostGrok:
+		return GrokSessionIDVar
 	case HostClaude:
 		return ""
 	}
@@ -101,12 +108,19 @@ func (h Host) NativeIDVar() string {
 // Pointed reports whether a session of this host is found through the
 // by-host pointer (sessionmap.ByHost): the hosts whose shell knows the
 // native id and not the pid.
-func (h Host) Pointed() bool { return h == HostMuse || h == HostCodex }
+func (h Host) Pointed() bool { return h == HostMuse || h == HostCodex || h == HostGrok }
 
 // HostOf names the host environ belongs to: Claude Code when CLAUDE_PID is
 // set (it wins, so another host's variable leaking into a Claude session
-// changes nothing), Muse Code when MUSE_SESSION_ID is set, Codex CLI when
-// CODEX_THREAD_ID is set, else "" — a terminal.
+// changes nothing), then Muse Code, then Codex CLI, then Grok Build, then
+// a terminal. Grok is LAST for the same reason Claude is first: a
+// GROK_SESSION_ID a Grok terminal tool exports is inherited by every
+// session started from it, and relabelling such a session would route its
+// hooks into the Grok path, where they register nothing and receive
+// nothing. The Grok direction of the same leak is REFUSED rather than
+// resolved: NativeID(HostGrok, …) answers ambiguous_host when a competing
+// marker is set, and the Grok hooks — which name their host with
+// --host grok and so do not depend on this function — fail closed there.
 func HostOf(environ []string) Host {
 	switch {
 	case adapterkit.Getenv(environ, ClaudePIDVar) != "":
@@ -115,6 +129,8 @@ func HostOf(environ []string) Host {
 		return HostMuse
 	case adapterkit.Getenv(environ, CodexThreadIDVar) != "":
 		return HostCodex
+	case adapterkit.Getenv(environ, GrokSessionIDVar) != "":
+		return HostGrok
 	}
 	return ""
 }
@@ -147,10 +163,12 @@ const (
 	// CODEX_THREAD_ID) is set but is not a value that can name a session
 	// (cards 88, 107).
 	ReasonInvalidNativeID = "invalid_native_id"
+	// ReasonAmbiguousHost refuses competing host markers in a Grok shell.
+	ReasonAmbiguousHost = "ambiguous_host"
 )
 
 // InSession reports whether environ belongs to a session of any host:
-// CLAUDE_PID, MUSE_SESSION_ID or CODEX_THREAD_ID is set and non-empty. The
+// CLAUDE_PID, MUSE_SESSION_ID, CODEX_THREAD_ID or GROK_SESSION_ID is non-empty. The
 // value is not parsed here (ClaudePID and NativeID do that) because the
 // strip rule must apply even to a malformed one.
 func InSession(environ []string) bool {
@@ -167,10 +185,21 @@ func CodexThreadID(environ []string) (string, error) { return NativeID(HostCodex
 
 // NativeID reads the host's native id variable (Host.NativeIDVar) as a
 // session id usable as a path component (sessionmap.CheckNativeID's rules;
-// both hosts' ids are UUIDs). Unset is `config` with details.reason
+// native ids are never abbreviated). Unset is `config` with details.reason
 // not_in_session; a value that is not a safe id is `config` with
 // invalid_native_id. The value is never echoed.
 func NativeID(host Host, environ []string) (string, error) {
+	if host == HostGrok {
+		for _, variable := range []string{ClaudePIDVar, MuseSessionIDVar, CodexThreadIDVar} {
+			if adapterkit.Getenv(environ, variable) != "" {
+				return "", &protocol.Error{
+					Code:    protocol.CodeConfig,
+					Message: "competing host markers in a Grok Build environment; refusing to select a session",
+					Details: map[string]string{"reason": ReasonAmbiguousHost},
+				}
+			}
+		}
+	}
 	variable := host.NativeIDVar()
 	raw := adapterkit.Getenv(environ, variable)
 	if variable == "" || raw == "" {
@@ -216,10 +245,12 @@ func Strip(environ []string) []string {
 // `config_dir` option of muse-options.json. A Codex session has the same
 // rule for the same reason (card 107): its hooks inherit the TUI's
 // environment and its shell the app-server daemon's, two environments that
-// need not agree on XDG_*, and HOME is what they share.
+// need not agree on XDG_*, and HOME is what they share. Grok uses the
+// same HOME-only namespace so its options and pointers have one location;
+// hook/tool environment agreement remains a live-host acceptance gate.
 func Trusted(environ []string) []string {
 	switch HostOf(environ) {
-	case HostMuse, HostCodex:
+	case HostMuse, HostCodex, HostGrok:
 		return stripXDG(Strip(environ))
 	case HostClaude:
 		return Strip(environ)

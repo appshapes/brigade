@@ -1,0 +1,151 @@
+{
+  "schema": 3,
+  "build": "1.0.62 (1474f9cbdd91) [stable]",
+  "scope": "owned synthetic sessions; allowlisted assertions only",
+  "sources": [
+    "direct-report.json",
+    "rejected-report.json",
+    "liveness-normal-report.json",
+    "monitor-summary.json",
+    "monitor-tool-busy-report.json",
+    "monitor-random-tail-report.json",
+    "monitor-lifetime-report.json",
+    "monitor-environment-report.json",
+    "monitor-native-normal-exit.json",
+    "monitor-native-resume.json",
+    "monitor-native-compaction.json",
+    "monitor-native-crash.json",
+    "home-probe-report.json",
+    "monitor-lifetime-supplement.json"
+  ],
+  "production_package_acceptance": "not_established",
+  "monitor_long_idle": {
+    "status": "fail",
+    "hold_seconds": 2100,
+    "checks": {
+      "auto_initial_wake": true,
+      "control_initial_wake": true,
+      "auto_quiet": true,
+      "control_quiet": true,
+      "long_idle_wake": false
+    },
+    "completion_seconds": 128.13,
+    "scope": "raw screen scorer; viewport false-negative retained"
+  },
+  "monitor_long_idle_supplement": {
+    "status": "pass",
+    "scope": "native-only; supplemental evidence, not rerun",
+    "hold_seconds": 2100,
+    "checks": {
+      "raw_screen_failure_retained": true,
+      "both_quiet_during_hold": true,
+      "ingress_after_hold": true,
+      "turn_native_id_matches": true,
+      "turn_completed": true,
+      "assistant_export_exact_nonce": true,
+      "original_tui_after_scroll_nonce_visible": true,
+      "only_scroll_keys_after_observation_window": true,
+      "control_export_has_no_long_nonce": true
+    },
+    "turn_started_seconds": 0.258,
+    "turn_completed_seconds": 2.489
+  },
+  "monitor_environment": {
+    "home_equals_hook": true,
+    "native_id_present": false,
+    "grok_variable_names": [
+      "GROK_AGENT"
+    ],
+    "ancestor_kernel_names": [
+      "Python",
+      "bash",
+      "grok-macos-aarch",
+      "tmux"
+    ]
+  },
+  "native_lifecycle": {
+    "scope": "native child only; not production watcher acceptance",
+    "normal_exit": {
+      "monitor_exited": true,
+      "elapsed_seconds": 0.34
+    },
+    "resume_explicit_rearm": {
+      "same_native_id": true,
+      "generated_nonce_visible": true,
+      "monitor_count_text_one": true
+    },
+    "compaction": {
+      "compaction_completed": true,
+      "generated_nonce_visible": true,
+      "monitor_count_text_one": true,
+      "elapsed_seconds": 2.6
+    },
+    "crash": {
+      "monitor_exited_within_10s": false,
+      "elapsed_seconds": 10.59,
+      "owned_orphan_cleanup_sent": true
+    }
+  },
+  "home_split": {
+    "normal_auth_model_reply": true,
+    "shell_home_matches_scratch": true,
+    "shell_native_id_matches": true,
+    "grok_home_matches_normal": true
+  },
+  "direct_transport": {
+    "live_info_present": true,
+    "missing_info_empty": true,
+    "stop_reason": "end_turn",
+    "exact_generated_nonce": true,
+    "response_ids_agree": true,
+    "agent_chunks_correlated": true
+  },
+  "rejected_prompt": {
+    "stop_reason": "cancelled",
+    "cancellation_category": "HookDenied",
+    "model_calls": 1,
+    "usage_matches_preceding_turn": true,
+    "user_echo_present": false,
+    "agent_content_present": false,
+    "generated_text_empty": true
+  },
+  "normal_exit": {
+    "before_present": true,
+    "after_exit_present": true,
+    "ghost_prompt_rpc_succeeded": true,
+    "ghost_stop_reason": "end_turn",
+    "ghost_reply_observed": true
+  },
+  "monitor_tool_busy": {
+    "tool_in_flight": true,
+    "tool_completed": true,
+    "nonce_observed": true,
+    "completion_seconds": 18.23,
+    "status": "pass"
+  },
+  "direct_monitor_payload": {
+    "previous_reused_tail_cases": "invalidated",
+    "full_body_delivery_established": false,
+    "fresh_random_tail_2048": {
+      "status": "fail",
+      "body_bytes": 2048,
+      "tail_reply_observed": false,
+      "completion_seconds": 121.95
+    }
+  },
+  "monitor_source_reference": {
+    "git_commit": "2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8",
+    "matches_installed_binary": false,
+    "line_truncation_constant": 500,
+    "batch_truncation_constant": 3000,
+    "rate_bucket_capacity": 10,
+    "refill_interval_ms": 2000,
+    "basis": "pinned public source; not installed-runtime limit measurement"
+  },
+  "nonleader_monitor": {
+    "hook_parent_equals_tui": true,
+    "socket_env_present": false,
+    "native_identity_matches": true,
+    "auto_nonce_visible": true
+  }
+}

@@ -1,0 +1,228 @@
+{
+  "schema": 1,
+  "date": "2026-10-18",
+  "runtime_head": "d9279cd3547c16cf9aed647d20bde022fc801e80",
+  "provenance": "allowlisted coordinator-sanitized production-checkpoint-input.json plus coordinator-supplied page-cap correction; raw artifacts not read by documentation worker",
+  "platform": "macOS arm64",
+  "native_grok_version": "1.0.62 (1474f9cbdd91) stable",
+  "scope": "explicit --no-leader; normally trusted installed package; own isolated fs team and scratch HOME; copied development binaries SHA256-pinned",
+  "permissions": "default permissions; exact-command approvals for monitor, page reads and own synthetic replies; no always-approve or unattended bypass",
+  "acceptance": "runtime and native package acceptance complete within measured scope; independent review, PR and release pending",
+  "case_sources": {
+    "round3": "4ce55d2",
+    "round5": "7bf519a",
+    "round6": "6421256",
+    "round7": "d9279cd"
+  },
+  "final_serialized_page_cap_bytes": 1800,
+  "superseded_page_cap": {
+    "bytes": 2048,
+    "native_wrap_column": 2000,
+    "result": "raw newline insertion corrupted escaped JSON"
+  },
+  "coordinator_reported_checks": {
+    "acceptance_gate": "pass at d9279cd; GOMAXPROCS=4 make typecheck lint build test vuln deps-check schema-check tidy-check docs-check",
+    "package_checks": {
+      "passed": 4,
+      "includes_shellcheck_and_no_secrets": true
+    },
+    "pinned_shellcheck": {
+      "version": "0.9.0",
+      "source": "2746e55",
+      "pass": true,
+      "shell_bootstrap_diff_since_empty": true
+    },
+    "experiment_tests_passed": 18,
+    "conformance": {
+      "passed": 48,
+      "failed": 0,
+      "skipped": "C-14 slow default"
+    },
+    "source_and_binary_vulnerabilities_found": false
+  },
+  "cases": {
+    "native-product-round3-report.json": {
+      "installed_package": true,
+      "native_registration_ui": true,
+      "initial_watcher_rejected_binding": true,
+      "replacement_watcher_closed_map_mismatch": true,
+      "adapter_roster_live_receiver_count": 0,
+      "native_monitor_approved": true,
+      "native_model_claimed_armed": true,
+      "status": "failed; no live receiver, no message sent"
+    },
+    "native-product-round5-report.json": {
+      "stable_registration": true,
+      "prearm_local_ack": true,
+      "denial_cancelled_turn_no_auto_retry": true,
+      "explicit_retry_retrieved_backlog": true,
+      "idle_monitor_wake_16k": true,
+      "complete_frame_model_visibility_16k": "not_proven; marker extraction is insufficient",
+      "owned_adapter_reply_checks": {
+        "short": true,
+        "16k": true
+      }
+    },
+    "native-round5-crash-report.json": {
+      "owned_tui_sigkill": true,
+      "seconds_until_observed": 1.655,
+      "adapter_session_closed": true,
+      "map_retired": true,
+      "remaining_owned_brigade_process_count": 0
+    },
+    "native-round6-normal-exit-report.json": {
+      "normal_exit": true,
+      "seconds": 0.638,
+      "adapter_session_closed": true,
+      "map_retired": true,
+      "remaining_owned_brigade_process_count": 0
+    },
+    "native-round6-large-reply-report.json": {
+      "ascii": true,
+      "utf8": true
+    },
+    "native-round6-burst-reply-report.json": {
+      "send_span_seconds": 0.137,
+      "verified_replies": [
+        true,
+        true,
+        true
+      ]
+    },
+    "native-round7-escaped-reply-report.json": {
+      "verified": true
+    },
+    "native-round7-cursor-report.json": {
+      "repeat_pages_identical": true,
+      "invalid_cursor_usage_exit2": true
+    },
+    "native-round7-resume-report.json": {
+      "same_native_uuid": true,
+      "fresh_incarnation": true,
+      "stale_cursor_rejected_usage_exit2": true,
+      "fresh_idle_message_reply_verified": true
+    },
+    "native-round7-retention-report.json": {
+      "watcher_replaced": true,
+      "incarnation_preserved": true,
+      "prior_frame_replayed": true,
+      "digest_matches": true,
+      "caught_up": true,
+      "policy": "hold",
+      "new_empty_sink_materialized": false,
+      "scope": "old sink readable after watcher replacement in the same incarnation"
+    },
+    "native-round5-compaction": {
+      "native_compact_completed": true,
+      "monitor_persisted": true,
+      "fresh_short_message_woke_and_replied": true
+    },
+    "native-round6-ascii-page-report.json": {
+      "page_results": 18,
+      "unique_offsets": 18,
+      "max_serialized_page_bytes": 1680,
+      "contiguous": true,
+      "retry_consistent": true,
+      "frame_complete_seen": true,
+      "caught_up_after_record": true,
+      "reassembled_bytes": 17547,
+      "reported_frame_bytes": 17547,
+      "length_matches": true,
+      "digest_matches": true,
+      "sibling_has_target_message": false,
+      "first_turn_delay_seconds": 0.279
+    },
+    "native-round6-utf8-page-report.json": {
+      "page_results": 18,
+      "unique_offsets": 18,
+      "max_serialized_page_bytes": 1771,
+      "contiguous": true,
+      "retry_consistent": true,
+      "frame_complete_seen": true,
+      "caught_up_after_record": true,
+      "reassembled_bytes": 17547,
+      "reported_frame_bytes": 17547,
+      "length_matches": true,
+      "digest_matches": true,
+      "sibling_has_target_message": false,
+      "first_turn_delay_seconds": 0.218
+    },
+    "native-round7-escaped-page-report.json": {
+      "page_results": 24,
+      "unique_offsets": 24,
+      "max_serialized_page_bytes": 1800,
+      "contiguous": true,
+      "retry_consistent": true,
+      "frame_complete_seen": true,
+      "caught_up_after_record": true,
+      "reassembled_bytes": 17547,
+      "reported_frame_bytes": 17547,
+      "length_matches": true,
+      "digest_matches": true,
+      "sibling_has_target_message": null,
+      "first_turn_delay_seconds": 0.289
+    },
+    "native-round7-resume-page-report.json": {
+      "page_results": 2,
+      "unique_offsets": 2,
+      "max_serialized_page_bytes": 1679,
+      "contiguous": true,
+      "retry_consistent": true,
+      "frame_complete_seen": true,
+      "caught_up_after_record": true,
+      "reassembled_bytes": 1227,
+      "reported_frame_bytes": 1227,
+      "length_matches": true,
+      "digest_matches": true,
+      "sibling_has_target_message": null,
+      "first_turn_delay_seconds": 0.404
+    },
+    "native-round6-policy-report.json": {
+      "hold": {
+        "local_ack": false,
+        "native_body_exposed": false
+      },
+      "refuse": {
+        "local_ack": false,
+        "native_body_exposed": false
+      },
+      "last_native_inbox_read": {
+        "caught_up": true,
+        "frame_chunk_empty": true
+      }
+    },
+    "native-round6-hints-report.json": {
+      "notice_count": 4,
+      "max_notice_bytes": 94,
+      "keys": [
+        [
+          "action",
+          "brigade_inbox_changed"
+        ],
+        [
+          "action",
+          "brigade_inbox_changed"
+        ],
+        [
+          "action",
+          "brigade_inbox_changed"
+        ],
+        [
+          "brigade_status"
+        ]
+      ]
+    }
+  },
+  "limits": {
+    "linux_native": "unmeasured; lint/build/unit coverage only",
+    "full_package_35_minute_hold": "unmeasured; native-only supplemental PASS and raw viewport FAIL remain separate",
+    "task_readiness": "unverified; native Stop omits command, descriptions/status alone insufficient",
+    "ack": "local permitted append/write/Close, not model receipt or exactly-once processing",
+    "leader_acp": "unsupported; ghost actor lifetime",
+    "burst_scope": "three verified replies over 0.137 seconds; broader rate/loss envelope not established",
+    "retention_scope": "same-incarnation watcher replacement only; no new empty sink materialized under hold",
+    "escaped_and_resume_sibling_witness": "unmeasured; null is not false",
+    "compaction_scope": "short-message production route; full-size remeasurement not claimed",
+    "release_status": "Rjae Fable review, PR and release pending; not released"
+  }
+}

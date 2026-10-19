@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "scope": "standalone ACP; not proof of existing TUI delivery",
+  "live": {
+    "status": "pass",
+    "expected_reply_observed": true,
+    "stop_reason": "end_turn",
+    "error_code": null
+  },
+  "version": "1.0.62",
+  "capabilities": {
+    "loadSession": true,
+    "sessionOperations": [
+      "list",
+      "resume",
+      "close"
+    ],
+    "hooks": {
+      "blockingEvents": [
+        "pre_tool_use",
+        "stop",
+        "subagent_stop"
+      ],
+      "decisions": [
+        "deny",
+        "block"
+      ],
+      "stopSignals": [
+        "continue",
+        "stopReason",
+        "additionalContext"
+      ]
+    }
+  },
+  "default_auth_method_present": true,
+  "auth_method_ids": [
+    "cached_token",
+    "grok.com"
+  ],
+  "negative_routing": {
+    "x.ai/interject": {
+      "error_code": -32601
+    },
+    "_x.ai/interject": {
+      "error_code": -32602
+    }
+  },
+  "session_close_ok": true,
+  "cleanup": {
+    "reaped": true,
+    "forced_kill": false,
+    "readers_stopped": true
+  }
+}

@@ -55,6 +55,10 @@ import (
 
 // InboxOptions are the flags of `brigade inbox` and `brigade inbox release`.
 type InboxOptions struct {
+	// Incarnation binds a Grok monitor follower to this receiver, never listing/release.
+	Incarnation string
+	// Cursor selects a validated page in this Grok receiver's local stream.
+	Cursor string
 	// Session narrows the listing or the release to one Brigade session
 	// id (terminal only).
 	Session string
@@ -90,6 +94,18 @@ const (
 // release [--session <id>] [--all | <message_id>…]`: the verb is the first
 // positional argument.
 func Inbox(inv Invocation, opts InboxOptions) error {
+	if len(inv.Args) > 0 && inv.Args[0] == "read" {
+		if opts.Session != "" || opts.All || opts.Incarnation != "" {
+			return usage("inbox read takes only --cursor")
+		}
+		return inboxReadGrok(inv, inv.Args[1:], opts.Cursor)
+	}
+	if opts.Cursor != "" {
+		return usage("--cursor belongs to inbox read")
+	}
+	if opts.Incarnation != "" && (len(inv.Args) == 0 || inv.Args[0] != "follow") {
+		return usage("--incarnation is only valid for inbox follow")
+	}
 	if len(inv.Args) > 0 && inv.Args[0] == "release" {
 		return inboxRelease(inv, opts, inv.Args[1:])
 	}
@@ -97,7 +113,11 @@ func Inbox(inv Invocation, opts InboxOptions) error {
 		if opts.Session != "" || opts.All {
 			return usage("inbox follow takes no flags: brigade inbox follow")
 		}
-		return inboxFollow(inv, inv.Args[1:])
+		args := inv.Args[1:]
+		if opts.Incarnation != "" {
+			args = append(append([]string{}, args...), "--incarnation", opts.Incarnation)
+		}
+		return inboxFollow(inv, args)
 	}
 	if len(inv.Args) > 0 {
 		return usage("inbox takes no arguments other than the release and follow verbs: brigade inbox [release] [--session <id>] [--all | <message_id>…] | brigade inbox follow")

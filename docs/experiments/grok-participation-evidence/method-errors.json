@@ -1,0 +1,28 @@
+{
+  "x.ai/interject": {
+    "code": -32601,
+    "message": "Method not found"
+  },
+  "_x.ai/interject": {
+    "code": -32602,
+    "message": "Invalid params",
+    "data": "session not found: 00000000-0000-4000-8000-000000000120"
+  },
+  "x.ai/queue/enqueue": {
+    "code": -32601,
+    "message": "Method not found"
+  },
+  "_x.ai/queue/enqueue": {
+    "code": -32601,
+    "message": "Method not found",
+    "data": "unknown ACP extension method: x.ai/queue/enqueue"
+  },
+  "session/resume": {
+    "code": -32603,
+    "message": "Path not found.",
+    "data": {
+      "detail": "No such file or directory (os error 2)",
+      "code": "FS_NOT_FOUND"
+    }
+  }
+}

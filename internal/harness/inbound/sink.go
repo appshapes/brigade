@@ -72,3 +72,14 @@ func NewestSink(stateDir, brigadeSessionID string) string {
 	sort.Strings(names)
 	return filepath.Join(SinkDir(stateDir, brigadeSessionID), names[len(names)-1])
 }
+
+// GrokSinkDir isolates a direct receiver incarnation's retained local backlog.
+func GrokSinkDir(stateDir, sessionID, incarnation string) string {
+	return filepath.Join(SinkDir(stateDir, sessionID), "grok-"+incarnation)
+}
+
+// GrokSinkPath keeps each replacement watcher's append file separate while
+// allowing the incarnation's follower to drain all files in order.
+func GrokSinkPath(stateDir, sessionID, incarnation string, now time.Time) string {
+	return filepath.Join(GrokSinkDir(stateDir, sessionID, incarnation), filepath.Base(NewSinkPath(stateDir, sessionID, now)))
+}

@@ -629,6 +629,7 @@ type watcher struct {
 	// the map's harness ("" reads as claude-code) and model the map's
 	// model, the host-named one a heartbeat carries when no transcript
 	// supplies it (card 88).
+	grokReceiver   *sessionmap.ByPID
 	harnessVersion string
 	harness        string
 	model          string
@@ -701,6 +702,9 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 	case err != nil:
 		return nil, codeOf(err).Exit(), err
 	}
+	if m.Harness == string(config.HostGrok) && (!m.GrokAlive(d.Lookup) || filepath.Dir(rc.sink) != inbound.GrokSinkDir(rc.env.StateDir, m.BrigadeSessionID, m.Grok.Incarnation)) {
+		return nil, protocol.CodeConfig.Exit(), &protocol.Error{Code: protocol.CodeConfig, Message: "Grok monitor receiver or private sink binding is invalid", Details: map[string]string{"reason": "grok_receiver_invalid"}}
+	}
 	if m.TeamKey != rc.env.Profile {
 		return nil, protocol.CodeConfig.Exit(), &protocol.Error{
 			Code:    protocol.CodeConfig,
@@ -762,16 +766,17 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		Spawn:     d.Spawn,
 	}
 	w := &watcher{
-		deps:      d,
-		rc:        rc,
-		environ:   environ,
-		log:       lg,
-		client:    client,
-		store:     store,
-		sessionID: m.BrigadeSessionID,
-		teamRef:   m.TeamRef,
-		hostPID:   m.LivenessPID(),
-		pipeline:  pipe,
+		deps:         d,
+		rc:           rc,
+		environ:      environ,
+		log:          lg,
+		client:       client,
+		store:        store,
+		sessionID:    m.BrigadeSessionID,
+		teamRef:      m.TeamRef,
+		hostPID:      m.LivenessPID(),
+		grokReceiver: m,
+		pipeline:     pipe,
 		harnessVersion: func() string {
 			if m.HarnessVersion != "" {
 				return m.HarnessVersion
@@ -838,6 +843,9 @@ func (w *watcher) run() int {
 
 	if info, err := w.deps.Lookup(w.hostPID); err == nil {
 		w.claudeStart = info.StartToken
+		if w.grokReceiver != nil && w.grokReceiver.Grok != nil {
+			w.claudeStart = w.grokReceiver.Grok.ProcessStart
+		}
 	}
 	w.armIdleClose()
 
@@ -846,6 +854,7 @@ func (w *watcher) run() int {
 		return code
 	}
 	defer w.release()
+	defer w.retireGrokReceiver()
 	w.ensureSinkDir()
 
 	w.injector = newInjector(w)

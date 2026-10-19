@@ -120,17 +120,19 @@ func init() {
 		},
 		{
 			Name:    "inbox",
-			Args:    "[release] [--session <id>] [--all | <message_id>…] | follow",
-			Summary: "show and release held messages; follow prints each team message as it lands (a Muse Code monitor's command)",
+			Args:    "[release] [--session <id>] [--all | <message_id>…] | follow [--incarnation <token>] | read [--cursor <token>]",
+			Summary: "show and release held messages; follow prints each team message as it lands (a native inbox monitor's command)",
 			Flags: func(fs *flag.FlagSet) {
 				fs.String("session", "", "the Brigade session to list or release for (terminal only)")
+				fs.String("cursor", "", "validated continuation from the previous Grok inbox read page")
+				fs.String("incarnation", "", "the exact Grok receiver incarnation (follow only)")
 				fs.Bool("all", false, "release every held message of the selected sessions")
 			},
 			Run: runInbox,
 		},
 		{
 			Name:      "hook",
-			Args:      "session-start|prompt|session-end [--host codex --plugin-root <dir>]",
+			Args:      "session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>]",
 			Summary:   "harness lifecycle hook entrypoint (Claude Code, Muse Code, Codex CLI)",
 			Hidden:    true,
 			MultiCall: true,
@@ -299,8 +301,10 @@ func runDoing(cx *Context, args []string) error {
 // the entry is not Raw).
 func runInbox(cx *Context, args []string) error {
 	return harnesscmd.Inbox(invocation(cx, args), harnesscmd.InboxOptions{
-		Session: stringFlag(cx, "session"),
-		All:     cx.Bool("all"),
+		Session:     stringFlag(cx, "session"),
+		Incarnation: stringFlag(cx, "incarnation"),
+		All:         cx.Bool("all"),
+		Cursor:      stringFlag(cx, "cursor"),
 	})
 }
 

@@ -39,7 +39,7 @@ func Session(environ []string, stateDir string) (*sessionmap.ByPID, error) {
 // foreign-uid refusal that no test can create for real.
 func SessionIn(environ []string, store sessionmap.Store) (*sessionmap.ByPID, error) {
 	switch host := HostOf(environ); host {
-	case HostMuse, HostCodex:
+	case HostMuse, HostCodex, HostGrok:
 		return pointedSession(host, environ, store)
 	case HostClaude, "":
 		// Claude Code, or a terminal: ClaudePID's own not_in_session error
@@ -81,7 +81,7 @@ func pointedSession(host Host, environ []string, store sessionmap.Store) (*sessi
 	if err != nil {
 		return nil, err
 	}
-	if m.Harness != string(host) || m.ClaudeSessionID != id || m.BrigadeSessionID != ptr.BrigadeSessionID {
+	if host == HostGrok && !m.ValidGrokReceiver() || m.ClaudePID != ptr.HostPID || m.Harness != string(host) || m.ClaudeSessionID != id || m.BrigadeSessionID != ptr.BrigadeSessionID {
 		return nil, &protocol.Error{
 			Code:    protocol.CodeConfig,
 			Message: "the session pointer and the session map disagree; refusing to trust them",
@@ -103,7 +103,7 @@ func pointedSession(host Host, environ []string, store sessionmap.Store) (*sessi
 func StateKey(environ []string, store sessionmap.Store) (int, error) {
 	host := HostOf(environ)
 	switch host {
-	case HostMuse, HostCodex:
+	case HostMuse, HostCodex, HostGrok:
 	case HostClaude, "":
 		return ClaudePID(environ)
 	}
@@ -111,7 +111,21 @@ func StateKey(environ []string, store sessionmap.Store) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if ptr, perr := store.ReadByHost(string(host), id); perr == nil {
+	if host == HostGrok {
+		// An attached Grok pointer must bind the full native/Brigade/host
+		// identity before a command uses its state key. A broken attached
+		// pointer must never be hidden by a stale start pointer.
+		if _, perr := store.ReadByHost(string(host), id); !errors.Is(perr, fs.ErrNotExist) {
+			if perr != nil {
+				return 0, perr
+			}
+			m, merr := pointedSession(host, environ, store)
+			if merr != nil {
+				return 0, merr
+			}
+			return m.ClaudePID, nil
+		}
+	} else if ptr, perr := store.ReadByHost(string(host), id); perr == nil {
 		return ptr.HostPID, nil
 	}
 	key, err := store.ReadStartPointer(string(host), id)

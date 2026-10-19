@@ -86,6 +86,8 @@ type Invocation struct {
 // Deps are the side effects a test injects. Every member is optional; a
 // nil member means the real thing.
 type Deps struct {
+	// Getppid supplies the monitor ancestry starting point; nil uses os.Getppid.
+	Getppid func() int
 	// Now is the clock the idempotency key of D11 is derived from.
 	Now func() time.Time
 	// Spawn is the request/response spawn seam (adapterclient.Client.Spawn):

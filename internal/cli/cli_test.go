@@ -34,6 +34,16 @@ func dispatch(t *testing.T, args ...string) result {
 	return result{exit: exit, stdout: out.String(), stderr: errb.String()}
 }
 
+func TestGrokInboxFlagsReachSessionValidation(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"inbox", "follow", "--incarnation", strings.Repeat("a", 32)}, {"inbox", "read", "--cursor", strings.Repeat("a", 64)}} {
+		got := dispatch(t, args...)
+		if strings.Contains(got.stderr, "flag provided but not defined") || strings.Contains(got.stderr, "unknown flag") || got.exit == 0 {
+			t.Fatalf("%v: %+v", args, got)
+		}
+	}
+}
+
 func TestVersionHumanOutputIsTheBareVersion(t *testing.T) {
 	t.Parallel()
 	// The Makefile and CI assert `bin/brigade version` byte-for-byte, so

@@ -12,6 +12,14 @@
 # time), and `hook prompt` reports the worker's final failure once, from the marker the worker leaves.
 set -u
 
+# Grok hooks and model tools share HOME. Ignore inherited repository options
+# before resolving the cache/developer pointer as the Go resolvers do.
+if [ -n "${GROK_SESSION_ID:-}" ]; then
+  for brigade_env_name in $(env | sed -nE 's/^((BRIGADE_|XDG_)[A-Za-z0-9_]*)=.*/\1/p'); do
+    unset "$brigade_env_name"
+  done
+fi
+
 fail() { printf 'brigade: %s\n' "$2" >&2; exit "$1"; }   # 9 = unavailable (network); 11 = config (pins, platform, integrity)
 
 # ---- where am I (follow symlinks, e.g. ~/.local/bin/brigade -> plugin/bin/brigade) ------------------------------
@@ -122,7 +130,11 @@ if [ $# -ge 2 ] && [ "$1" = hook ] && [ "$2" = session-start ]; then
     install_verified "$tmp"
     trap - EXIT HUP INT TERM
   ) </dev/null >/dev/null 2>&1 &
+  if [ -n "${GROK_SESSION_ID:-}" ]; then
+    printf '%s\n' '{"systemMessage":"Brigade: installing the binary in the background; the next prompt retries registration. Monitor setup follows a completed turn."}'
+  else
   printf 'Brigade: installing the brigade binary in the background; team messaging becomes available on your next prompt\n'
+  fi
   exit 0
 fi
 

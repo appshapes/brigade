@@ -129,6 +129,14 @@ func (s *shared) takeFlip() bool {
 // name, the activity and the socket path. A missing socket is NOT an exit
 // condition (E0-5 defect 2). It returns the stop reason, "" to go on.
 func (w *watcher) checkLiveness() string {
+	if w.harness == string(config.HostGrok) {
+		if !w.grokReceiver.GrokAlive(w.deps.Lookup) {
+			return "claude_gone"
+		}
+		if err := w.checkGrokReceiver(); err != nil {
+			return "map_mismatch"
+		}
+	}
 	// The texts and the attribute keep their Claude Code wording: the proof
 	// scripts and the tests key on them, and the pid is the host process's
 	// — CLAUDE_PID, the Muse process, or a Codex session's host_process_pid.

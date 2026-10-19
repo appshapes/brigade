@@ -23,6 +23,7 @@ import (
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 )
@@ -130,6 +131,9 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 		return false
 	}
 	sink := r.sinkFor(f, m.BrigadeSessionID)
+	if f.host == config.HostGrok && m.ValidGrokReceiver() {
+		sink = inbound.GrokSinkPath(f.stateDir, m.BrigadeSessionID, m.Grok.Incarnation, r.deps.Now())
+	}
 	adapter, err := config.AdapterFromArgv(m.AdapterCommand)
 	if err != nil {
 		r.log.Warn("watcher not started: adapter command", log.Err(err))

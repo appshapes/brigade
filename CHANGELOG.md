@@ -9,6 +9,13 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **Grok Build direct-TUI monitor integration** (card 120). Native hooks register an incarnation-bound receiver,
+  offer one persistent monitor setup attempt with normal permissions, retain local backlog and retire on TUI
+  death. Leader mode is refused. Local-injection ACK semantics match Muse; model receipt and native long-idle,
+  payload/burst and lifecycle acceptance remain separate coordinator gates. [Install](docs/team-member/install/grok.md).
+
 ## [0.34.1] — 2026-10-18
 
 ### Fixed

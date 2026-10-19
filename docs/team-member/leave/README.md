@@ -11,6 +11,7 @@ second, remove the package last.
 | remove Brigade from Claude Code | [Uninstall from Claude Code](#uninstall-from-claude-code) |
 | remove Brigade from Muse Code | [Uninstall from Muse Code](#uninstall-from-muse-code) |
 | remove Brigade from Codex CLI | [Uninstall from Codex CLI](#uninstall-from-codex-cli) |
+| use Grok Build leave status | [Grok Build](#grok-build) |
 
 ## Leave the team
 
@@ -43,3 +44,9 @@ Details: [Uninstall from Muse Code](muse-code.md).
 3. `rm -rf ~/.local/state/brigade ~/.local/share/brigade`, then `rm -rf ~/.config/brigade`.
 
 Details: [Uninstall from Codex CLI](codex.md).
+
+## Grok Build
+
+Use a normally installed/trusted package in `grok --no-leader`; the inbox monitor starts through normal command permission.
+
+Details: [Grok Build](grok.md).
