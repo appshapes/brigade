@@ -13,7 +13,10 @@ from pathlib import Path
 
 
 class Client:
-    def __init__(self):
+    def __init__(self, *, passive=False):
+        # A shared-TUI producer must never answer interactions owned by the TUI.
+        # Standalone probes retain their own deny-by-default permission handling.
+        self.passive = passive
         self.proc = None
         self.reader = None
         self.err_reader = None
@@ -24,7 +27,8 @@ class Client:
 
     async def start(self, cwd, args=None):
         env = {k: v for k, v in os.environ.items()
-               if not k.startswith(('CLAUDE', 'CODEX', 'MUSE', 'BRIGADE')) and k != 'AI_AGENT'}
+               if not k.startswith(('CLAUDE', 'CODEX', 'MUSE', 'BRIGADE')
+                                   + (('GROK',) if self.passive else ())) and k != 'AI_AGENT'}
         self.proc = await asyncio.create_subprocess_exec(
             'grok', 'agent', *(args or ['--no-leader']), 'stdio', cwd=cwd, env=env,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -49,6 +53,8 @@ class Client:
             except ValueError:
                 continue
             if 'method' in msg and 'id' in msg:
+                if self.passive:
+                    continue
                 if msg['method'] == 'session/request_permission':
                     result = {'outcome': {'outcome': 'cancelled'}}
                     await self.send({'jsonrpc': '2.0', 'id': msg['id'], 'result': result})
@@ -69,9 +75,10 @@ class Client:
         await self.send({'jsonrpc': '2.0', 'id': self.seq, 'method': method, 'params': params})
         return await asyncio.wait_for(future, timeout)
 
-    def text(self, sid):
+    def text(self, sid, prompt_id=None):
         return ''.join(p.get('update', {}).get('content', {}).get('text', '')
                        for p in self.updates if p.get('sessionId') == sid
+                       and (prompt_id is None or p.get('_meta', {}).get('promptId') == prompt_id)
                        and p.get('update', {}).get('sessionUpdate') == 'agent_message_chunk')
 
     async def close(self):
