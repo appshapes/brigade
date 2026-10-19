@@ -9,16 +9,23 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Grok resume no longer drops a locally ACKed backlog, and a process lookup failure is not treated as the TUI exiting** (card 120). A fresh incarnation still re-arms the monitor. When the same Brigade session resumes, its private sink files move with the incarnation; a failed move puts back every file it had already moved and does not publish the new binding. A torn sink tail no longer aborts `inbox read` or gets concatenated onto by the next append. The shared bootstrap strips `XDG_*` and `BRIGADE_*` only when Grok is the host, and a cold `hook stop` exits instead of downloading. `checksums-check` compares the Grok package pin with the Muse and Codex packages.
+## [0.35.0] — 2026-10-19
 
 ### Added
 
-- **Grok Build direct-TUI monitor integration** (card 120). Native hooks register an incarnation-bound receiver,
-  offer one persistent monitor setup attempt with normal permissions, retain local backlog and retire on TUI
-  death. Leader mode is refused. Local-injection ACK semantics match Muse; model receipt and native long-idle,
-  payload/burst and lifecycle acceptance remain separate coordinator gates. [Install](docs/team-member/install/grok.md).
+- **Grok Build sessions take part in a Brigade team** (card 120). A fourth package, `grok/brigade/`, with the same
+  seven skills as the others, serves direct TUIs launched with `grok --no-leader`. Leader mode is refused: native
+  tests found that its shared agent can outlive the TUI. Four native hooks bind the receiver to the session's native
+  UUID, canonical working directory and TUI process, and retire it when the TUI dies. After the first completed
+  turn, Stop offers one attempt to arm a persistent inbox monitor, under normal permissions. A denial is not
+  retried; the user asks for the retry. The monitor wakes the session with body-free hints, at most one per five
+  seconds. The model reads each message in full through `brigade inbox read`, one bounded page per tool call, each
+  page at most 1,800 serialized bytes (2,048 broke escaped JSON at the native shell's 2,000-column wrap). ACK means
+  the message was appended to the session's local inbox, as on Muse Code, not that the model has read it. A resumed
+  session keeps the backlog its earlier incarnation had ACKed, and a failed process lookup is not taken for the TUI
+  exiting. Native acceptance was measured with Grok Build 1.0.62 on macOS arm64. Linux and a full-package
+  35-minute idle hold are not measured ([evidence](docs/experiments/grok-participation.md)).
+  [Install in Grok Build](docs/team-member/install/grok.md).
 
 ## [0.34.1] — 2026-10-18
 
