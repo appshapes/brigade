@@ -41,7 +41,7 @@ func (m *ByPID) GrokAlive(lookup func(int) (procutil.Info, error)) bool {
 		return false
 	}
 	info, err := lookup(m.ClaudePID)
-	return err == nil && info.Exists && !info.Foreign && !info.Zombie && info.Command == "grok" && info.StartToken == m.Grok.ProcessStart
+	return err == nil && procutil.IsGrokProcess(info) && info.StartToken == m.Grok.ProcessStart
 }
 
 // MonitorCommand is shell text for the native monitor tool, not a subprocess spawn.

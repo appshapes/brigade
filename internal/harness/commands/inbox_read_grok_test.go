@@ -14,6 +14,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/procutil"
+	"github.com/appshapes/brigade/internal/testutil"
 )
 
 func TestGrokReadPagesOwnedRecordAndRefusesOtherReceivers(t *testing.T) {
@@ -150,9 +151,7 @@ func TestGrokMonitorCommandRestoresMissingNativeIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := filepath.Join(dir, "brigade")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$GROK_SESSION_ID\" \"$@\"\n"), 0700); err != nil { //nolint:gosec // owned executable fixture, not user configuration
-		t.Fatal(err)
-	}
+	testutil.WriteExecutable(t, bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$GROK_SESSION_ID\" \"$@\"\n"))
 	m := &sessionmap.ByPID{Harness: "grok", ClaudeSessionID: "02000000-0000-7000-8000-000000000001", PluginBin: bin, Grok: &sessionmap.GrokReceiver{Cwd: dir, ProcessStart: "start", Incarnation: strings.Repeat("a", 32)}}
 	cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", m.MonitorCommand()) //nolint:gosec // only the generated command from this owned fixture is executed
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}

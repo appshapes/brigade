@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -23,6 +24,9 @@ func grokFixture(t *testing.T) *fixture {
 		info, err := base(pid)
 		if pid == f.pid {
 			info.Command = "grok"
+			if runtime.GOOS == "darwin" {
+				info.Command = "grok-macos-aarch"
+			}
 		}
 		return info, err
 	}
@@ -73,8 +77,18 @@ func TestGrokLifecycleAndBoundedStop(t *testing.T) {
 	stop := grokDoc(f, "stop", "", map[string]any{"stopReason": "end_turn"})
 	_, out, _ = grokRun(f, "stop", stop)
 	var block map[string]string
-	if json.Unmarshal([]byte(out), &block) != nil || block["decision"] != "block" || !strings.Contains(block["reason"], m.MonitorCommand()) || strings.Contains(block["reason"], "wake_delay_ms 0") {
+	if json.Unmarshal([]byte(out), &block) != nil || block["decision"] != "block" || !strings.Contains(block["reason"], m.MonitorCommand()) {
 		t.Fatalf("Stop %q", out)
+	}
+	for _, want := range []string{"installed /brigade:team-messaging skill", "every page and every record until caught_up:true", "including after frame_complete:true", "cannot verify the command or readiness"} {
+		if !strings.Contains(block["reason"], want) {
+			t.Fatalf("Stop omitted %q: %q", want, out)
+		}
+	}
+	for _, obsolete := range []string{"wake_delay_ms 0", "opaque wake token"} {
+		if strings.Contains(block["reason"], obsolete) {
+			t.Fatalf("Stop retained obsolete %q: %q", obsolete, out)
+		}
 	}
 	for i := 0; i < 3; i++ {
 		_, out, _ = grokRun(f, "stop", stop)

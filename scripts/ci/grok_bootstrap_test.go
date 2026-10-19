@@ -38,13 +38,9 @@ func TestGrokBootstrapUsesHomeAndStripsOverrides(t *testing.T) {
 	}
 	target := filepath.Join(home, ".local/share/brigade/bin", "brigade-"+strings.TrimSpace(string(v))+"-"+runtime.GOOS+"-"+runtime.GOARCH)
 	body := []byte("#!/bin/sh\n[ -z \"${XDG_CONFIG_HOME:-}${XDG_DATA_HOME:-}${BRIGADE_PROFILE:-}${BRIGADE_RELEASE_BASE_URL:-}\" ] || exit 4\nprintf 'home-only\\n'\n")
-	if err := os.WriteFile(target, body, 0700); err != nil { //nolint:gosec // executable under the owned temporary cache only
-		t.Fatal(err)
-	}
+	testutil.WriteExecutable(t, target, body)
 	hostile := filepath.Join(root, "hostile")
-	if err := os.WriteFile(hostile, []byte("#!/bin/sh\nprintf 'wrong-store\\n'\n"), 0700); err != nil { //nolint:gosec // poisoned executable fixture under t.TempDir only
-		t.Fatal(err)
-	}
+	testutil.WriteExecutable(t, hostile, []byte("#!/bin/sh\nprintf 'wrong-store\\n'\n"))
 	if err := os.WriteFile(filepath.Join(evil, "brigade/dev-binary"), []byte(hostile+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
