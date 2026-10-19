@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -896,5 +897,69 @@ func TestSessionBoundCommandsOutsideASessionFailCleanly(t *testing.T) {
 		if got.stdout != "" {
 			t.Errorf("%v: stdout = %q, want empty", args, got.stdout)
 		}
+	}
+}
+
+// TestReferenceViewMatchesHelp pins the documentation's view of the command table (card 112) to what the
+// binary prints: the generated command page is rendered from Commands, UsageAll, UsageCommand and OwnFlags,
+// so each must be the help text itself, not a second rendering of it.
+func TestReferenceViewMatchesHelp(t *testing.T) {
+	t.Parallel()
+
+	all := dispatch(t, "help", "--all")
+	if all.exit != ExitOK || all.stdout != UsageAll(true) {
+		t.Errorf("UsageAll(true) differs from `help --all`:\n%s\n---\n%s", UsageAll(true), all.stdout)
+	}
+	plain := dispatch(t, "help")
+	if plain.exit != ExitOK || plain.stdout != UsageAll(false) {
+		t.Errorf("UsageAll(false) differs from `help`")
+	}
+
+	cmds := Commands()
+	if len(cmds) != len(commands) {
+		t.Fatalf("Commands() has %d entries, the table %d", len(cmds), len(commands))
+	}
+	cmds[0].Name = "mutated"
+	if commands[0].Name == "mutated" {
+		t.Fatal("Commands() returned the table itself, not a copy")
+	}
+	last := -1
+	for _, c := range Commands() {
+		one := dispatch(t, "help", c.Name)
+		if one.exit != ExitOK || one.stdout != UsageCommand(c) {
+			t.Errorf("UsageCommand(%s) differs from `help %s`:\n%s\n---\n%s", c.Name, c.Name, UsageCommand(c), one.stdout)
+		}
+		if i := strings.Index(all.stdout, "\n  "+c.Name+" "); i < 0 && !strings.Contains(all.stdout, "\n  "+c.Name+"\n") {
+			t.Errorf("`help --all` does not list %s", c.Name)
+		} else if i < last {
+			t.Errorf("Commands() lists %s out of `help --all`'s order", c.Name)
+		} else if i >= 0 {
+			last = i
+		}
+	}
+
+	send, _ := Lookup("send")
+	var names []string
+	for _, f := range send.OwnFlags() {
+		if f.Bool || f.Default != "" || f.Usage == "" {
+			t.Errorf("send's flag %+v: want a string flag with an empty default and a usage line", f)
+		}
+		names = append(names, f.Name)
+	}
+	if got, want := strings.Join(names, ","), "body-file,member,reply-to,summary"; got != want {
+		t.Errorf("send.OwnFlags() = %s, want %s", got, want)
+	}
+	for _, name := range []string{"json", "log-level", PoisonFlag} {
+		if slices.Contains(names, name) {
+			t.Errorf("send.OwnFlags() lists the global flag %s", name)
+		}
+	}
+	doing, _ := Lookup("doing")
+	if flags := doing.OwnFlags(); len(flags) != 1 || flags[0].Name != "clear" || !flags[0].Bool || flags[0].Default != "false" {
+		t.Errorf("doing.OwnFlags() = %+v, want one bool flag `clear`", flags)
+	}
+	team, _ := Lookup("team")
+	if flags := team.OwnFlags(); flags != nil {
+		t.Errorf("team.OwnFlags() = %+v, want none: a Raw command's grammar is its own", flags)
 	}
 }

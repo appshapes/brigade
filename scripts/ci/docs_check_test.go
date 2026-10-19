@@ -28,7 +28,7 @@ func TestDocsGatePassesOnTheRepository(t *testing.T) {
 	if len(findings) == 0 {
 		t.Logf("docs-check: %s, ok", sum)
 	}
-	if sum.Harnesses < 2 || sum.Targets == 0 || sum.Pages == 0 {
+	if sum.Harnesses < 2 || sum.Targets == 0 || sum.Pages == 0 || sum.Commands == 0 {
 		t.Errorf("the summary looks empty: %s", sum)
 	}
 }
@@ -111,6 +111,42 @@ func docsReplace(t *testing.T, root, rel, old, replacement string) {
 func docsAppend(t *testing.T, root, rel, text string) {
 	t.Helper()
 	docsWrite(t, root, rel, docsRead(t, root, rel)+text)
+}
+
+// docsReplaceEverywhere rewrites every occurrence of old in every markdown file of the copy except the generated
+// command reference (so the one planted violation is the coverage gap, not a stale page), and fails loudly when
+// no file carried old.
+func docsReplaceEverywhere(t *testing.T, root, old, replacement string) {
+	t.Helper()
+	hits := 0
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(p, ".md") || filepath.ToSlash(rel) == docscheck.CommandsPage {
+			return nil
+		}
+		data, err := os.ReadFile(p) //nolint:gosec // G304: a path under t.TempDir()
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(data), old) {
+			return nil
+		}
+		hits++
+		//nolint:gosec // G703, G122: a path WalkDir found under t.TempDir(), the copy this test owns
+		return os.WriteFile(p, []byte(strings.ReplaceAll(string(data), old, replacement)), 0o600)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hits == 0 {
+		t.Fatalf("no page of the copy carries %q, so the mutation would prove nothing", old)
+	}
 }
 
 var docsMutations = []struct {
@@ -196,6 +232,14 @@ var docsMutations = []struct {
 	{"make: a stale make-targets page", "make", func(t *testing.T, root string) {
 		t.Helper()
 		docsAppend(t, root, docscheck.MakeTargetsPage, "| `imaginary` | a target the Makefile does not have |\n")
+	}},
+	{"commands: a stale commands page", "commands", func(t *testing.T, root string) {
+		t.Helper()
+		docsAppend(t, root, docscheck.CommandsPage, "\n## brigade imaginary\n\n```text\nUsage: brigade imaginary\n```\n")
+	}},
+	{"coverage: a command named on no page", "coverage", func(t *testing.T, root string) {
+		t.Helper()
+		docsReplaceEverywhere(t, root, "brigade whoami", "brigade who-am-i")
 	}},
 	{"changelog: a pinned version with no section", "changelog", func(t *testing.T, root string) {
 		t.Helper()

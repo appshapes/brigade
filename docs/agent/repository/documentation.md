@@ -33,9 +33,15 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   every experiment report is in its index; the six pages of every harness; the rule files' imports; every
   `userConfig` option of `plugin/.claude-plugin/plugin.json` named in `docs/team-member/configure/options.md`;
   `docs/developer/reference/make-targets.md` equal to what `make docs-generate` writes from the Makefile's `##`
-  help lines; and a `## [<version>]` changelog section for the version `plugin/bin/VERSION` pins. External links
-  are never checked: a site going down is not a bug in this repository.
-- **When you change** a `make` target's help line, run `make docs-generate`. When you add a plugin option,
+  help lines; `docs/developer/reference/commands.md` equal to what it writes from `internal/cli`'s command table
+  (card 112; the generator calls `cli.Commands`, `cli.UsageAll`, `cli.UsageCommand` and `Command.OwnFlags`, so
+  the gate needs no built binary); every command `brigade help --all` lists named as `brigade <name>` on at least
+  one page of the tree other than the generated reference, `CHANGELOG.md` and the experiment reports (the skill
+  files and the research pages the reachability walk follows do not count); and a `## [<version>]` changelog
+  section for the version `plugin/bin/VERSION` pins. External links are never checked: a site going down is not
+  a bug in this repository.
+- **When you change** a `make` target's help line or a `brigade` command's table entry (name, arguments, summary
+  or flags), run `make docs-generate`; a new command also needs a persona's page that names it. When you add a plugin option,
   document it in `options.md`. When you add a page, name it from a `Details:` line. When you add a harness, add
   the registry entry and the six pages. When a procedure changes, change the leaf and the TL;DR together, and
   the three setup copies (`scripts/ci/setup_docs_test.go` joins the commands across them).

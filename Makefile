@@ -311,7 +311,7 @@ codex-plugin-check: ## Static checks of codex/brigade/, the Codex CLI package (c
 	sh scripts/ci/codex-plugin-check.sh
 
 .PHONY: docs-check
-docs-check: ## The documentation gate (card 110): README and persona shapes, links and anchors, orphans, harness pages, options, the make-target page, the changelog section (CI)
+docs-check: ## The documentation gate (cards 110, 112): README and persona shapes, links and anchors, orphans, harness pages, options, the generated make-target and command pages, a page for every command, the changelog section (CI)
 	go run ./cmd/brigade-docs check
 
 .PHONY: grok-plugin-check
@@ -319,7 +319,7 @@ grok-plugin-check: ## Validate Grok native package, four hooks, seven skills and
 	sh scripts/ci/grok-plugin-check.sh
 
 .PHONY: docs-generate
-docs-generate: ## Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines (docs-check fails when it is stale)
+docs-generate: ## Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines and commands.md from internal/cli's command table (docs-check fails when either is stale)
 	go run ./cmd/brigade-docs generate
 
 .PHONY: plugin-validate

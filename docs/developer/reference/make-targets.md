@@ -35,9 +35,9 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `muse-plugin-check` | Static checks of muse/brigade/, the Muse Code package (card 88): allowlist, native manifest, one wrapper per hook, assets equal to plugin/bin's, the marketplace catalog (CI) |
 | `muse-digest` | Rewrite marketplace.json's digest and version from muse/brigade/ with Muse (card 115): after any change under muse/brigade/, and by make release |
 | `codex-plugin-check` | Static checks of codex/brigade/, the Codex CLI package (card 107): allowlist, native manifest, the three hook commands, the marketplace file, assets equal to plugin/bin's (CI) |
-| `docs-check` | The documentation gate (card 110): README and persona shapes, links and anchors, orphans, harness pages, options, the make-target page, the changelog section (CI) |
+| `docs-check` | The documentation gate (cards 110, 112): README and persona shapes, links and anchors, orphans, harness pages, options, the generated make-target and command pages, a page for every command, the changelog section (CI) |
 | `grok-plugin-check` | Validate Grok native package, four hooks, seven skills and canonical release assets (CI) |
-| `docs-generate` | Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines (docs-check fails when it is stale) |
+| `docs-generate` | Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines and commands.md from internal/cli's command table (docs-check fails when either is stale) |
 | `plugin-validate` | claude plugin validate on the marketplace and the plugin root |
 | `plugin-dev-pointer` | Write the dev-binary pointer (honours XDG_CONFIG_HOME) without launching anything; a prerequisite of plugin-dev and the manual step of docs/experiments/E3-interactive.md |
 | `plugin-dev` | Start Claude Code with the local plugin (usage: make plugin-dev [adapter=fs] [config_dir=<dir>] [mode=default]) |

@@ -35,8 +35,9 @@ Stay where code, scripts and migrations name them and are reached from the tree:
 whole), `docs/protocol-v1.md` and `.schema.json` (frozen), `docs/adapter-authors.md`, `docs/sync-adapters.md`,
 `docs/mail-connectors.md`, `docs/email/README.md`, `docs/experiments/` (indexed in its README), `docs/research/`,
 `scripts/ci/README.md`, `internal/adapters/fs/README.md`, the package pages `plugin/README.md`,
-`muse/brigade/README.md` and `codex/brigade/README.md`, and the generated `docs/developer/reference/make-targets.md`. A directory under a persona
-that holds reference pages rather than a topic is registered in the gate's `referenceDirs`.
+`muse/brigade/README.md` and `codex/brigade/README.md`, and the generated `docs/developer/reference/make-targets.md` and
+`docs/developer/reference/commands.md`. A directory under a persona that holds reference pages rather than a topic is
+registered in the gate's `referenceDirs`.
 
 ## Style
 

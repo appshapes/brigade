@@ -9,6 +9,14 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **The `brigade` command reference is generated, and the documentation gate pins it** (card 112).
+  `make docs-generate` writes [`docs/developer/reference/commands.md`](docs/developer/reference/commands.md) from
+  `internal/cli`'s command table: the `brigade help --all` block, then each command's usage and the flags it
+  registers. `make docs-check` fails when that page is stale, and when a command is named on no page of the tree
+  other than the generated reference, this changelog and the experiment reports. Nothing the binary prints changes.
+
 ## [0.35.0] — 2026-10-19
 
 ### Added

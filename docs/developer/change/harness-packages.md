@@ -23,7 +23,8 @@ worded for the harness, a `README.md`, and `bin/` copies of `plugin/bin`'s boots
 - `internal/harness/hook`: what the session-start, prompt and session-end hooks print and cap for the host; the
   options source when the harness runs no plugin settings.
 - `internal/harness/frame`: the frame variant, pinned by a golden file; one sentence may differ per host.
-- `internal/harness/watch`: delivery (socket, sink file, `codex queue`) and what the watcher owns when the hooks cannot.
+- `internal/harness/watch`: the detached watcher (`brigade watch`): delivery (socket, sink file, `codex queue`) and what the
+  watcher owns when the hooks cannot.
 - `internal/harness/sessionmap`: the by-host pointer from the native id to the by-pid map.
 
 ## The checks and the release

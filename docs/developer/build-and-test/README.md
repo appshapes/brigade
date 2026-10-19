@@ -9,6 +9,7 @@
 | run the proof scripts against real sessions | [Run the proofs](#run-the-proofs) |
 | know what each CI job and script does | [Know the CI](#know-the-ci) |
 | see every make target with its help line | [See every make target](#see-every-make-target) |
+| see every brigade command with its usage and flags | [See every brigade command](#see-every-brigade-command) |
 
 ## Run the gate
 
@@ -44,3 +45,9 @@ Details: [Know the CI](ci.md).
 1. `make help`, or the generated page.
 
 Details: [make targets](../reference/make-targets.md).
+
+## See every brigade command
+
+1. `brigade help --all`, or the generated page; `make docs-generate` rewrites it from `internal/cli`'s table.
+
+Details: [brigade commands](../reference/commands.md).

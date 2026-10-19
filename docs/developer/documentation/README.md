@@ -22,7 +22,7 @@ Details: [Know the structure](structure.md).
 
 ## Run the gate
 
-1. `make docs-check`; `make docs-generate` after a Makefile help line changes.
+1. `make docs-check`; `make docs-generate` after a Makefile help line or a `brigade` command's usage changes.
 2. It runs in `make test`, CI's `fast` job, `scripts/release-prep.sh` and `release.yml`.
 
 Details: [Run the gate](gate.md).
