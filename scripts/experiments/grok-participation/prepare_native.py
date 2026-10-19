@@ -160,9 +160,10 @@ def send(root, receiver, body_file, *, runner=run_local):
     if not 1 <= len(body.encode()) <= 16384:
         raise FixtureError('body outside the protocol 16-KiB test limit')
     roster = runner(adapter_args(root, state, 'session', 'list', '--session', receiver), root=root)
-    entries = roster.get('sessions', [])
+    # --session identifies the caller; the adapter still returns the team roster.
+    entries = [entry for entry in roster.get('sessions', [])
+               if entry.get('session_id') == receiver]
     if (roster.get('team_ref') != state['team_ref'] or len(entries) != 1
-            or entries[0].get('session_id') != receiver
             or entries[0].get('harness') not in ('grok', 'grok-build')
             or entries[0].get('state') not in ('active', 'idle')):
         raise FixtureError('receiver is not a live Grok session in this private fixture')

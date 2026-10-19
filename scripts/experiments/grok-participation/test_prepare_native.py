@@ -23,6 +23,9 @@ class PrepareTests(unittest.TestCase):
             path.chmod(0o700)
             bins.append(path)
         self.calls = []
+        self.roster = {'team_ref': 'synthetic-team', 'sessions': [
+            {'session_id': 'own-receiver', 'harness': 'grok-build', 'state': 'idle'}]}
+        self.sent_count = 0
         def runner(argv, *, root, document=None, protocol=True):
             self.calls.append((argv, document))
             if 'create' in argv:
@@ -33,12 +36,14 @@ class PrepareTests(unittest.TestCase):
                 native.private_write(root/'home/.config/brigade/projects.json', {
                     'projects':{str(root/'workspace'):{'team_ref':'synthetic-team'}}})
             elif 'list' in argv:
-                return {'team_ref':'synthetic-team','sessions':[{
-                    'session_id':'own-receiver','harness':'grok-build','state':'idle'}]}
+                return self.roster
             elif 'register' in argv:
+                self.roster['sessions'].append({
+                    'session_id': 'own-sender', 'harness': 'shell', 'state': 'active'})
                 return {'session_id':'own-sender'}
             elif 'send' in argv:
-                return {'message_id':'own-message'}
+                self.sent_count += 1
+                return {'message_id': 'own-message' if self.sent_count == 1 else f'own-message-{self.sent_count}'}
             elif 'close' in argv:
                 return {'state':'offline'}
             else:
@@ -107,6 +112,45 @@ class PrepareTests(unittest.TestCase):
             shell.write_text('#!/bin/sh\nexit 0\n'); shell.chmod(0o700)
             with self.assertRaises(native.FixtureError):
                 native.native_binary(shell)
+
+    def test_repeat_send_selects_exact_receiver_among_sender_and_siblings(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root, runner = self.run_fixture(Path(scratch))
+            self.roster['sessions'].insert(0, {
+                'session_id': 'sibling', 'harness': 'grok-build', 'state': 'offline'})
+            first = native.send(root, 'own-receiver', root/'messages/short.txt', runner=runner)
+            # The first call registered a synthetic sender, now present in the roster.
+            self.assertEqual(len(self.roster['sessions']), 3)
+            self.roster['sessions'][1].update(harness='grok', state='active')
+            second = native.send(root, 'own-receiver', root/'messages/short.txt', runner=runner)
+            self.assertNotEqual(first['message_id'], second['message_id'])
+            payloads = [doc for args, doc in self.calls if 'send' in args]
+            self.assertEqual(len(payloads), 2)
+            self.assertTrue(all(doc['recipient_session_id'] == 'own-receiver' for doc in payloads))
+            self.assertTrue(first['accepted_by_adapter'] and second['accepted_by_adapter'])
+
+    def test_receiver_refusals_precede_registration_or_send(self):
+        receiver = {'session_id': 'own-receiver', 'harness': 'grok-build', 'state': 'active'}
+        sibling = {'session_id': 'sibling', 'harness': 'grok-build', 'state': 'idle'}
+        cases = (
+            ('missing', 'synthetic-team', [sibling]),
+            ('duplicate', 'synthetic-team', [receiver, sibling, dict(receiver)]),
+            ('duplicate-invalid', 'synthetic-team', [receiver, {**receiver, 'state': 'offline'}]),
+            ('wrong-state', 'synthetic-team', [sibling, {**receiver, 'state': 'offline'}]),
+            ('wrong-harness', 'synthetic-team', [sibling, {**receiver, 'harness': 'shell'}]),
+            ('wrong-team', 'other-team', [sibling, receiver]),
+        )
+        with tempfile.TemporaryDirectory() as scratch:
+            root, runner = self.run_fixture(Path(scratch))
+            for name, team, entries in cases:
+                with self.subTest(name=name):
+                    self.roster = {'team_ref': team, 'sessions': entries}
+                    before = len(self.calls)
+                    with self.assertRaises(native.FixtureError):
+                        native.send(root, 'own-receiver', root/'messages/short.txt', runner=runner)
+                    self.assertEqual(len(self.calls), before+1)
+                    self.assertIn('list', self.calls[-1][0])
+                    self.assertFalse((root/'sent').exists())
 
 
 if __name__ == '__main__':
