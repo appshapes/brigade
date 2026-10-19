@@ -415,12 +415,13 @@ func parseArgs(args []string) (hookArgs, string) {
 
 // A run is one hook invocation.
 type run struct {
-	deps     Deps
-	streams  cli.Streams
-	environ  []string
-	logLevel string
-	redactor *log.Redactor
-	log      *slog.Logger
+	grokDeadline time.Time
+	deps         Deps
+	streams      cli.Streams
+	environ      []string
+	logLevel     string
+	redactor     *log.Redactor
+	log          *slog.Logger
 	// written counts the code points written to stdout so far, against
 	// OutputCap; writtenBytes the bytes, against byteCap (0: no byte cap).
 	written      int

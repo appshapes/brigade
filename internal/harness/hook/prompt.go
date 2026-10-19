@@ -44,7 +44,7 @@ func (r *run) prompt() int {
 		r.log.Warn("prompt: session facts", log.Err(err))
 		return 0
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), r.deps.PromptBudget)
+	ctx, cancel := r.hookContext(r.deps.PromptBudget)
 	defer cancel()
 
 	store := sessionmap.Store{StateDir: f.stateDir}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
@@ -41,6 +42,22 @@ func (r *run) runGrok() int {
 		r.log.Warn("Grok leader mode refused; use --no-leader")
 		return 0
 	}
+	// Count lock waiting inside the native timeout, rather than adding it to
+	// the shared Claude 55-second startup budget. Grok's hook allows 15s.
+	budget := r.deps.PromptBudget
+	if r.args.sub == SubSessionStart {
+		budget = 12 * time.Second
+	}
+	if r.args.sub == SubSessionEnd {
+		budget = 500 * time.Millisecond
+	}
+	r.grokDeadline = time.Now().Add(budget)
+	release, err := r.lockGrokHook()
+	if err != nil {
+		r.log.Warn("Grok hook deferred", adlog.Err(err))
+		return 0
+	}
+	defer release()
 	var ui bytes.Buffer
 	r.streams.Out = &ui
 	if r.args.sub == "stop" {

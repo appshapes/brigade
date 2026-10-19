@@ -52,7 +52,7 @@ func (r *run) sessionStart() int {
 		r.zeroDoingStamp(f)
 		return 0
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), startBudget)
+	ctx, cancel := r.hookContext(startBudget)
 	defer cancel()
 	r.connect(ctx, f, in, r.deps.PidfileWait)
 	return 0
@@ -168,9 +168,11 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	}
 	res.workspaceLabel = workspaceLabel(res.opts, in.Cwd)
 	existing := r.existingMap(res.store, f.pid)
-	if f.host == config.HostGrok && existing != nil && (in.Source == "new" || in.Source == "load" || !r.grokMatches(existing, in)) {
-		// Start/load creates a receiver incarnation even if the PID/native
-		// UUID recurs. Retire its watcher before publishing the replacement.
+	sameGrok := f.host == config.HostGrok && existing != nil && r.grokMatches(existing, in) && existing.TeamKey == res.teamKey && existing.ConfigDir == res.opts.ConfigDir && slices.Equal(existing.AdapterCommand, res.argv)
+	if f.host == config.HostGrok && existing != nil && (in.Source == "load" || !sameGrok) {
+		// A load creates a fresh receiver even if the PID/native UUID
+		// recurs. Repeated new hooks for the same live receiver are idempotent.
+		// Retire the old watcher before publishing a replacement.
 		v := r.checkPidfile(f)
 		if v.Found && v.Alive {
 			r.stopWatcher(v.Entry, f)
@@ -190,7 +192,9 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	// Idempotent per CLAUDE_PID (E0-8: SessionStart re-fires on /clear;
 	// D9): a live watcher for this pid that serves the session the map
 	// names means the session continues.
-	if existing != nil && verdict.Found && verdict.Alive && verdict.Entry.BrigadeSessionID == existing.BrigadeSessionID {
+	watcherLive := existing != nil && verdict.Found && verdict.Alive && verdict.Entry.BrigadeSessionID == existing.BrigadeSessionID
+	continueGrok := existing != nil && sameGrok
+	if existing != nil && (watcherLive || continueGrok) {
 		// The continue path has no describe, so the capability half of
 		// the doing mode is the existing map's — unsupported stays
 		// unsupported, absent stays absent until the prompt hook's
@@ -202,6 +206,9 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		res.doingMode = continuedDoingMode(existing.DoingMode, res.opts, res.doingRules)
 		blank := blankDoingLine(in, existing, res.doingMode)
 		reason := respawnReason(verdict.Entry, f)
+		if !watcherLive {
+			reason = "not running"
+		}
 		if reason == "" && !res.sync.frozenIn(existing) {
 			// The watcher reads the sync members once, when it starts its
 			// sync adapter (folder-sync plan §4.3): an edited `sync` member or
@@ -213,18 +220,24 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 			// its intervals once, when it starts.
 			reason = "polling changed"
 		}
-		watcherRuns := true // the live watcher stays unless replaced
+		watcherRuns := watcherLive
 		if reason != "" {
 			r.log.Info("watcher "+reason+"; respawning", slog.Int("watcher_pid", verdict.Entry.PID),
 				slog.String("watcher_version", verdict.Entry.Version))
-			r.stopWatcher(verdict.Entry, f)
-			m := r.buildMap(f, in, res, existing.BrigadeSessionID, existing.TeamRef, existing.TeamName, existing.RegisteredAt, now)
+			if verdict.Found && verdict.Alive {
+				r.stopWatcher(verdict.Entry, f)
+			}
+			m := r.continueMap(f, in, res, existing, now)
 			// The replacement reads the map once, when it starts: this
 			// SessionStart's map is written first, as the register path
 			// does, or a "sync changed" respawn would run the OLD sync
 			// members while the line below announces the new ones.
 			// finish() writes it again, harmlessly.
-			if err := res.store.WriteByPID(m); err != nil {
+			if f.host == config.HostGrok {
+				if !r.publishGrok(res.store, m, now) {
+					return
+				}
+			} else if err := res.store.WriteByPID(m); err != nil {
 				r.log.Warn("session map not written before the respawn", log.Err(err))
 			}
 			watcherRuns = r.spawnWatcher(ctx, f, m, pidfileWait)
@@ -234,7 +247,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 			if hbErr != nil {
 				r.log.Warn("heartbeat failed; the watcher keeps trying", log.Err(hbErr))
 			}
-			m := r.buildMap(f, in, res, existing.BrigadeSessionID, existing.TeamRef, existing.TeamName, existing.RegisteredAt, now)
+			m := r.continueMap(f, in, res, existing, now)
 			r.finish(f, in, res, m, now, watcherRuns)
 			return
 		}
@@ -298,12 +311,40 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	if existing != nil && existing.BrigadeSessionID == m.BrigadeSessionID && !existing.RegisteredAt.IsZero() {
 		m.RegisteredAt = existing.RegisteredAt
 	}
-	if err := res.store.WriteByPID(m); err != nil {
+	if f.host == config.HostGrok {
+		if !r.publishGrok(res.store, m, now) {
+			return
+		}
+	} else if err := res.store.WriteByPID(m); err != nil {
 		r.fail("session-start: session map not written", err, notConnected(protocol.CodeConfig))
 		return
 	}
 	spawned := r.spawnWatcher(ctx, f, m, pidfileWait)
 	r.finish(f, in, res, m, now, spawned)
+}
+
+func (r *run) continueMap(f facts, in input, res resolved, existing *sessionmap.ByPID, now time.Time) *sessionmap.ByPID {
+	m := r.buildMap(f, in, res, existing.BrigadeSessionID, existing.TeamRef, existing.TeamName, existing.RegisteredAt, now)
+	if f.host == config.HostGrok && existing.ValidGrokReceiver() {
+		g := *existing.Grok
+		m.Grok = &g
+	}
+	return m
+}
+
+// Publish both sides before starting the watcher, whose first injection/tick
+// validates the exact pointer. The hook transaction keeps finish/Stop/prompt
+// from replacing this binding while the child is being admitted.
+func (r *run) publishGrok(store sessionmap.Store, m *sessionmap.ByPID, now time.Time) bool {
+	if err := store.WriteByPID(m); err != nil {
+		r.log.Warn("Grok receiver map not published", log.Err(err))
+		return false
+	}
+	if err := store.WriteByHost("grok", m.ClaudeSessionID, &sessionmap.ByHost{HostPID: m.ClaudePID, BrigadeSessionID: m.BrigadeSessionID, UpdatedAt: now}); err != nil {
+		r.log.Warn("Grok receiver pointer not published", log.Err(err))
+		return false
+	}
+	return true
 }
 
 // respawnReason says why a live watcher serving this session must be
@@ -1169,7 +1210,14 @@ func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now t
 	r.say(startLine(m.SessionName, m.BrigadeSessionID, m.TeamName, m.Inbound))
 	switch {
 	case f.host == config.HostGrok:
-		r.say("Brigade: monitor unarmed. Setup follows the first completed turn; use /brigade:team-messaging to retry. Startup notices are UI-only. Local backlog is retained and may already be locally ACKed before arming.")
+		state := "unverified"
+		if m.Grok != nil {
+			switch m.Grok.MonitorState {
+			case "unarmed", "arming-attempted", "unverified", "paused", "armed":
+				state = m.Grok.MonitorState
+			}
+		}
+		r.say("Brigade: monitor " + state + " (last local observation). If unarmed, setup follows the first completed turn; use /brigade:team-messaging for status or explicit retry. Startup notices are UI-only. Local backlog may already be locally ACKed.")
 	case f.muse():
 		// The monitor is what makes a Muse session a peer (card 88): the
 		// arming line follows the context line on every SessionStart but

@@ -1,7 +1,9 @@
 # Grok Build: skills and the inbox monitor
 
 The package serves main-session direct TUIs launched with `grok --no-leader`. SessionStart registers a full
-native UUID, canonical cwd and actual TUI PID/start token; new/load creates a fresh receiver incarnation.
+native UUID, canonical cwd and actual TUI PID/start token. A new native session or load creates a fresh
+receiver incarnation; repeated new hooks and watcher-only replacement keep the same receiver and monitor state.
+Grok hook transactions are serialized by actual TUI PID and native UUID, including initial prompt retry.
 Startup `systemMessage` is UI-only. UserPromptSubmit maintains registration/watcher state and prints no frames.
 A genuine Stop offers one setup continuation; its marker and recursion guard prevent repeated attempts.
 
