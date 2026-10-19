@@ -8,23 +8,27 @@ Read with the [measured probes](grok-participation.md),
 
 ## Recommendation for implementation
 
-Implement a reversible **native monitor route for explicitly nonleader Grok
-TUIs**, using body-free monitor wake notices plus bounded local sink retrieval.
+The implemented **native monitor route for explicitly nonleader Grok TUIs** uses
+body-free monitor wake notices plus bounded local sink retrieval. Coordinator
+runtime/native acceptance is complete within the measured macOS scope at
+`d9279cd`; independent Rjae Fable review, PR and release remain pending. See the
+[production checkpoint](grok-participation.md#installed-package-acceptance-checkpoint).
 Keep the existing sink and protocol-v1 local-injection ACK.
 Bootstrap once through the measured Stop block/reason continuation; retain an
 explicit skill retry. Leader-backed delivery remains unsupported. The coordinator
 selected explicit `--no-leader` scope as a reasonable implementation choice; the
 unanswered preference question is not user approval or an indefinite gate. The
 35-minute native hold now has a supplemental PASS from correlated events/export
-and scroll-only original-TUI witness; retain the raw viewport FAIL. Actual package
-technical gates remain mandatory before merge-ready acceptance.
+and scroll-only original-TUI witness; retain the raw viewport FAIL. A full-package
+35-minute hold and Linux native execution remain unmeasured, not inherited passes.
 
 Stop-assisted arming, short idle and native tool-busy wake have passed coordinator-owned
 synthetic pilots under normal plugin trust and command-specific permission.
 They establish bounded feasibility only. Native explicit-rearm resume and
 compaction also passed; native crash cleanup failed. Long-idle supplemental
 evidence corrected a screen-only false-negative. None is
-actual production package acceptance or unrestricted launch-mode support. No durable native receipt or
+a substitute for the separately recorded production package acceptance or
+unrestricted launch-mode support. No durable native receipt or
 exactly-once model processing is claimed or required by this contract.
 
 ## Evidence and provenance
@@ -89,8 +93,9 @@ before calling `truncate_str`; do not turn comments saying characters into an
 installed UTF-8 byte guarantee. `tool.rs` processes output through those stages
 before notification. This pin still differs from binary `1474f9cbdd91`.
 The 10,000-character monitor tool-result constant and 10-MiB output-file cap are
-not terminal read-response budgets. No verified native terminal output budget
-was found in the inspected material.
+not terminal read-response budgets. The later installed-package test, rather
+than that source, found shell newline insertion at column 2,000; the revised
+1,800-byte serialized cap is validated in round 7.
 
 Sol's implementable correction, retaining the nonleader identity/arming contract:
 
@@ -128,7 +133,8 @@ Sol's implementable correction, retaining the nonleader identity/arming contract
    insertion at shell output column 2,000, corrupting JSON escapes. The revised
    cap is **1,800 UTF-8 bytes for the entire serialized stdout response**, including
    metadata, escaping and newline, with margin below that measured boundary.
-   Native validation of the revised cap and tool-wrapper behavior remains pending.
+   Round 7 validates the revised cap on installed macOS Grok: 24 escaped/multiline
+   pages, maximum 1,800 bytes, contiguous complete-frame length/digest and reply.
    Return one complete record or a code-produced lossless
    UTF-8 slice with message UUID, frame byte length, SHA-256 of the whole stored
    frame, byte offset, next offset, `frame_complete`, `next_cursor` and explicit
@@ -144,7 +150,10 @@ Sol's implementable correction, retaining the nonleader identity/arming contract
    not stop because `frame_complete` is true. Recheck the current high-water mark
    before caught-up so coalesced/intermediate hints are unnecessary. Retain a
    valid EOF cursor for later appends; a new hint continues there. Every part is
-   explicitly untrusted data; process/reply only after all ordered parts of the
+   explicitly untrusted data. Return one complete unfiltered page per native tool
+   call into model context before fetching the next. Do not batch pages in a
+   subprocess or replace them with extracted markers/metadata. Process/reply only
+   after all ordered parts of the
    original frame and its message ID have arrived. Code guarantees byte-exact
    slicing; the model must not guess a missing part. Missing/truncated JSON or
    page marker means retry that page, not advance. Reading is not consuming or
@@ -168,8 +177,11 @@ intermediate hints, rotate sinks, interrupt/retry a page, tamper cursor/UUID and
 hold/refuse a message; all accepted bodies remain retrievable only by their own
 current binding and held bodies stay inaccessible. Observe native tool output
 truncation indicators/end markers for every page under default permissions.
-These end-to-end retrieval tests are pending coordinator runs after Sol implements;
-a short monitor nonce or familiar tail cannot substitute.
+Coordinator rounds 6/7 establish complete visible ASCII/UTF-8/escaped frame pages
+and replies within the measured scope. Round 5 marker extraction remains an
+insufficient full-visibility result. Same-incarnation watcher replacement proved
+old-sink readability under hold, not a populated new rotation. Larger bursts and
+deliberate hint loss are not claimed; see the scope matrix below.
 
 ## ACK parity: reuse is justified, with explicit limits
 
@@ -221,7 +233,7 @@ approval. The
 [fixture and operator steps](../../scripts/experiments/grok-participation/README.md)
 reproduce the bootstrap without automating trust or touching unrelated sessions.
 
-Read-only seam check of Sol's current implementation: `MonitorCommand` supplies
+Historical read-only seam check of Sol's implementation: `MonitorCommand` supplies
 hook-bound GROK_SESSION_ID and incarnation explicitly; `grokStop` keeps an exact
 native description-only match unverified, and suppresses repeat automatic arming.
 `inboxReadGrok` resolves the current receiver and local sink, binds cursors to its
@@ -229,25 +241,28 @@ identity and record, and initially used a proposed 2,048-byte serialized page bu
 (now reduced to 1,800 after the measured native wrap failure above). These are code
 observations only, not a review verdict or executed production/native tests. The
 actual native Stop lacks command evidence, so readiness remains unverified under
-that code path. Installed command execution, ancestry checks, complete pages,
-ACK behavior and watcher retirement require coordinator acceptance.
+that code path. Later coordinator package acceptance is reported separately;
+these code observations alone did not prove execution, model visibility or cleanup.
 
 ## Remaining finite coordinator gates
 
-All numbers here are proposed test budgets, not measured Grok defaults. Freeze
-bounds before each run and record local append/ACK, helper output, native event
-and generated model output separately. Use only disposable owned sessions and
-synthetic frames; no broader permission grants.
+The initial finite matrix proposed 64 B/2 KiB/8 KiB/maximum payloads, 1/10/50
+frames at 1 per second, a 10-frame burst, 30/120-second wake/content budgets and
+10-second retirement. Those were test budgets, not native defaults or a measured
+supported envelope. The completed package scope is narrower and explicit below;
+unmeasured extensions do not become PASS. All live cases were coordinator-owned,
+synthetic, under default permissions and exact command approvals.
 
-| Gate | Finite next experiment and pass criterion |
+| Area | Completed evidence and remaining limit |
 | --- | --- |
-| Payload/latency | Direct full-frame monitor output rejected; implemented wake/read retrieval proof pending. Isolated 64 B, 2 KiB, 8 KiB and actual protocol-maximum body, each with single-line and multiline content. Include UTF-8 and split writes. Require complete ID/body/end marker and generated split-nonce reply; candidate wake/content budgets 30/120 seconds. Measure encoded record/frame expansion; do not invent a new wire cap. |
-| Burst/drop/batching | Count hints separately from retrieved records; drop/coalesce hints deliberately. Send 1, 10 and 50 numbered frames at 1 frame/s, then a bounded 10-frame burst. Count all four boundaries and native task survival. Measure batching delay and missing/partial frames; repeat with proposed pacing. Freeze a supported envelope only after zero unexplained losses within it; installed monitor rate/retention limits remain unverified. |
-| Long idle | Native supplemental PASS: 2,100-second quiet hold, exact own-session assistant export, correlated 2.489-second completion and scroll-only original-TUI witness. Raw 128.13-second screen FAIL retained as viewport false-negative. Actual package long-idle acceptance still required; leader whole run failed replay scoring. |
-| Resume and task guards | New/load, same UUID/new TUI incarnation, compaction, helper failure and explicit retry. Exactly one bound live monitor; one automatic attempt per incarnation. Deny the initial command permission: no ready state or repeated automatic continuation; later explicit retry works. Native explicit-rearm resume and compaction passed only. Actual Stop lacks command; verify binding without claiming description-only evidence is ready. |
-| Ownership/cleanup | Native /exit child exit 0.34 seconds; SIGKILL child survived 10.59 seconds (owned orphan cleaned). Production normal /exit and owned TUI crash, same-cwd sibling, stale pointer/PID and receiver replacement. Candidate local retirement bound: 10 seconds (two current map-check intervals), measured from TUI death. No post-retirement append/ACK by stale watcher, surviving ready binding or model wake. Distinguish an already accepted local append from a new stale-target injection. |
-| Local ACK regressions | Synthetic sink write/close failure, hold/refusal, pre-arm backlog, watcher/helper restart, output closure and partial record. Only successful permitted local injection ACKs; replay is tolerated. Check native loss separately, without claiming ACK is model receipt. |
-| Trusted environment | Native scratch HOME/existing GROK_HOME preflight passed without auth reads/copies; actual package hook isolation still pending. Normal installed/trusted plugin, default permissions, native UUID/canonical cwd/actual TUI parent, isolated synthetic HOME/path tests and poisoned XDG/BRIGADE inputs. No credential access or global configuration changes. |
+| Payload/latency | Rounds 6/7: maximum 16-KiB ASCII/UTF-8/escaped bodies, complete 17,547-byte frames, ordered visible pages, matching length/digest, stable retry/caught-up and verified replies. Final whole-response cap 1,800 bytes; former 2,048 cap corrupted native JSON at column 2,000. First-turn delays 0.279/0.218/0.289 s are not full completion latency. |
+| Burst/drop/batching | Three replies over a 0.137-second send span; four observed notices at most 94 bytes. Larger 10/50-frame envelopes, deliberate drops and indefinite retention remain unmeasured; no broad throughput promise. |
+| Long idle | Native-only 2,100-second supplemental PASS retains raw viewport FAIL. Full installed-package 35-minute hold remains unmeasured. Leader whole run still failed replay scoring. |
+| Resume/task guards | Package denial cancelled the turn with no automatic retry; explicit retry retrieved pre-arm backlog. Resume kept native UUID with fresh incarnation, rejected stale cursor and delivered a fresh idle message. Compaction passed short-message wake only. Native Stop lacks command, so local task readiness remains unverified; no new evidence is inferred from an ARMED banner. |
+| Ownership/cleanup | Production SIGKILL cleanup observed at 1.655 s and normal exit at 0.638 s: no owned Brigade processes, adapter closed, map retired. Generic native monitor SIGKILL orphaning remains a separate historical negative. ASCII/UTF-8 sibling absence measured; escaped/resume sibling checks are null, not passed. |
+| ACK/policy/retention | Pre-arm local ACK and later retrieval; hold/refuse expose no body and do not ACK. Watcher replacement within one incarnation preserves the readable old sink and digest under hold; no new empty sink materialized. This does not prove cross-incarnation adoption or populated-generation rotation. |
+| Environment/platform | Normally trusted installed package in isolated scratch HOME/fs team with SHA256-pinned development binaries; default permissions and exact-command page/reply approvals. No always-approve or unattended bypass. Linux native remains unmeasured. |
+| Review/shipping | Coordinator full gate and all four package checks passed at d9279cd. Rjae Fable independent review, PR and release remain pending. No blanket all-green or released claim. |
 
 ## Scope choice and validation status
 
@@ -261,27 +276,21 @@ proven TUI ownership; the resident direct transport is not a substitute.
 Installed `20-background-tasks.md:90–140` documents persistent monitor lifetime
 and merged stdout/stderr; binary tool-help strings document batching, dropping
 and noise termination. Coordinator subsequently retrieved pinned monitor source successfully; its
-constants are recorded above. Installed-runtime rate/batch/retention and native
-terminal-output limits remain unverified. Earlier worker fetch failures do not
+constants are recorded above. Installed-runtime general rate/batch/retention limits remain unverified. The
+measured native column-2,000 wrap and successful 1,800-byte package pages are
+reported separately; neither establishes every terminal-output limit. Earlier worker fetch failures do not
 mean the source is still unavailable. Guide/source claims and coordinator runtime
 measurements remain distinct.
 
-The evidence checkpoint updates the experiment, plan, research execution-log row
-and isolated experimental scripts; production files are unchanged. No live Grok
-sessions, instruction files, host trust/configuration, credentials, real
-transcripts, Git operations or team messages were touched by this worker.
-Task-start lessons had no matching evidence-packaging guidance; the test-count
-follow-up reinforced checking each mutation's discriminating value. Coordinator
-owns shared external state and any subsequent lesson capture.
+The production evidence update changes only documentation and sanitized evidence.
+This worker read the coordinator-sanitized checkpoint, not raw fixture/session/auth
+artifacts, and performed no native run, runtime edit or external mutation.
+Historical [schema-3 evidence](grok-participation-evidence/coordinator-checkpoint.json)
+remains unchanged; [production evidence](grok-participation-evidence/production-checkpoint.json)
+uses a separate allowlist and keeps per-round revisions and failed attempts.
 
-Validation: sixteen offline tests cover passive interactions, replay/correlation,
-30 invalid field mutations, 11 missing-check cases, private-data exclusion and
-fixture scope/one-shot/lifecycle guards, plus rejection of invalidated payload
-passes, completed long-idle status/duration/required checks and lifecycle/environment
-export boundaries, plus every supplemental witness and timing guard. No production pagination or end-to-end retrieval test is claimed. Python
-syntax, supplied synthetic-summary
-assertions, local relative links/anchors, whitespace and `git diff --check` are
-checked separately. The final `make docs-check` passed (169 pages, 665 links); the earlier protected
-Go-cache denial remains historical, with no permission/cache workaround used. No
-production/live tests were run by this worker. Coordinator may import the scoped
-checkpoint; actual package gates still block acceptance.
+The coordinator reports 18 offline experiment tests and the full acceptance gate
+passed at `d9279cd`; this worker reruns only the existing offline experiment tests
+and docs-check for this documentation checkpoint. Earlier protected Go-cache
+denials remain historical and are never bypassed. Independent review and shipping
+are coordinator-owned; the measured runtime acceptance does not complete the card.

@@ -1,10 +1,11 @@
 # Grok Build participation — card 120
 
-Date: 2026-10-18. Status: monitor-first contract accepted for reversible
-implementation targeting explicit `--no-leader` by coordinator scope choice;
-35-minute native monitor supplemental PASS retains the raw viewport FAIL.
-Actual production package gates remain pending before merge-ready acceptance. Direct full-frame monitor output is superseded by bounded
-wake notices and local sink retrieval.
+Date: 2026-10-18. Status: runtime and installed-package native acceptance complete
+within measured macOS arm64, explicit `--no-leader` scope at `d9279cd`.
+Independent Rjae Fable review, PR and release pending. Full-package 35-minute hold
+and Linux native execution remain unmeasured; historical native-only supplemental
+PASS and raw viewport FAIL stay separate. Full-frame monitor output is superseded
+by bounded wake notices and local sink retrieval with a final 1,800-byte page cap.
 [Card](https://trello.com/c/sTkdphju/120-make-grok-build-a-first-class-brigade-participant).
 [Measured experiment](../../docs/experiments/grok-participation.md).
 [Contract](../../docs/experiments/grok-participation-contract.md).
@@ -14,11 +15,11 @@ Implementation base: `70111d68bde3532dbf7d5ac98345864a6cff0fc3`; measured Grok B
 ## Objective and decision
 
 Make Grok a Brigade peer with correct identity, seven skills, busy/idle receiving,
-resume and bounded cleanup. Implement the reversible **explicit --no-leader native
-monitor route** while Sol owns production code and coordinator owns Git and live
+resume and bounded cleanup. The reversible **explicit --no-leader native
+monitor route** is implemented; Sol owns production code and coordinator owns Git and live
 external state. The coordinator selected this initial scope after the optional
 preference question received no answer; this is not claimed user approval.
-General support remains technically gated. Shared-leader delivery is unsupported
+Acceptance covers only the measured topology, workload and permission flow. Shared-leader delivery is unsupported
 until independent TUI ownership is proven.
 
 Preserve the prior leader idle/busy/isolation successes as transport pilots.
@@ -37,24 +38,23 @@ from the public source revision that differs from the installed executable.
 
 ## Gate ledger
 
-| Gate | Current evidence | Remaining before support |
+| Gate | Current evidence | Scope still unmeasured or pending |
 | --- | --- | --- |
-| G0: version/protocol | PASS: standalone ACP and version captured | Version drift/package checks |
-| G1: normal authentication/trust | PASS: existing login, normal local plugin install --trust, one command approval | No bypass or blanket permission; denied-arming case |
-| G2: identity/routing | Leader sibling isolation passed; nonleader hook parent/native ID match | Nonleader sibling/duplicate-title and poisoned XDG/BRIGADE tests; same pointed binding in actual package shell/monitor. Native scratch HOME/existing GROK_HOME authenticated preflight passed without auth access; package hook isolation pending |
-| G3: busy/idle | Leader producer-originated busy/idle pilot passed; nonleader short idle and Stop bootstrap passed | Native 12-second tool-busy pilot PASS (18.23-second nonce completion); full retrieval still pending; raw replay-contaminated scorer run is not a whole-run pass |
-| G4: lifetime | Native supplemental PASS: 2,100-second quiet hold, correlated turn completes 2.489 seconds after ingress, own-session exact assistant export and scroll-only original-TUI witness. Raw 128.13-second viewport FAIL retained | Actual production package long-idle acceptance; do not count stale viewport alone as delivery failure or process survival as success. Leader longhold controls passed individually, whole run failed replay scoring |
-| G5: hooks/arming | Normal new/load/end observed; Stop one-shot continuation and nonleader parent measured | Native Stop has no command field; production task binding, denial/retry, no duplicate on resume/compact; Python startup timeouts are not hook passes |
-| G6: local injection | Muse parity selected: sink append + close -> Pipeline.Done -> ACK | Grok failure/hold/refusal/restart regressions; native drop/batch counts separate from ACK |
-| G7: lifecycle/payload | Native /exit child stops in 0.34 s; SIGKILL child survives 10.59 s (owned orphan cleaned); explicit-rearm resume and compaction nonce pass. Direct full-body monitor rejected; fresh 2-KiB tail failed | Actual package exit/crash/stale binding/replacement, full wake/read retrieval, burst/retention and bounded follower retirement; native-only is not production acceptance |
+| G0: version/protocol | Runtime d9279cd; Grok 1.0.62 (1474f9cbdd91), macOS arm64; full acceptance and four package checks passed | Linux native execution/version drift; public source still differs from installed binary |
+| G1: authentication/trust | Normally trusted installed package, isolated scratch HOME/fs team, copied SHA256-pinned dev binaries, default permissions; denial cancelled turn without auto-retry and explicit retry retrieved backlog | No always-approve/unattended permission claim; exact page/reply command approvals were required |
+| G2: identity/routing | Stable package registration after historical round-3 failure; ASCII/UTF-8 sibling absence; resumed same native UUID with fresh incarnation and stale-cursor rejection | Escaped/resume sibling witness null; no blanket topology/environment coverage |
+| G3: busy/idle | Package idle short and maximum ASCII/UTF-8/escaped body replies, full visible pages; three-message burst over 0.137 s | Native-only 12-second busy pilot remains separate; larger bursts, deliberate hint loss and general rate envelope unmeasured |
+| G4: lifetime | Native-only 2,100-second quiet hold supplemental PASS with correlated completion/export/scroll-only TUI witness; raw viewport FAIL retained | Full installed-package 35-minute hold not repeated; leader whole run remains failed due replay contamination |
+| G5: hooks/arming | Stable registration, pre-arm backlog/retry, fresh-incarnation resume and short-message compaction delivery | Stop has no command field; task status remains unverified rather than claiming armed; no full-size compaction remeasurement |
+| G6: local injection | Local ACK parity preserved; hold/refuse no ACK/body exposure. Same-incarnation watcher replacement retains readable old sink under hold | No new empty sink materialized; populated new rotation and cross-incarnation adoption not proved. ACK is not model receipt |
+| G7: lifecycle/payload | Production SIGKILL cleanup observed at 1.655 s; normal exit 0.638 s; no owned Brigade processes, adapter closed/map retired. Complete 17,547-byte frames and digest/offset/retry proof; final escaped pages at most 1,800 bytes | Generic native orphan, invalid reused-tail passes, marker-only round 5 and failed 2,048-byte native cap remain historical negatives; independent review/PR/release pending |
 
 Live tests are coordinator-owned, synthetic and limited to owned sessions. No
 credentials, real transcripts, global config edits or auto-trust plugin-dir route.
-Use the [finite numeric matrix](../../docs/experiments/grok-participation-contract.md#remaining-finite-coordinator-gates):
-64 B, 2 KiB, 8 KiB and protocol-maximum bodies; 1/10/50 frames at 1 per second and a
-10-frame burst; proposed 30/120-second wake/content budgets; 2,100-second idle;
-proposed 10-second local retirement bound. These are test budgets, not native
-defaults. No unknown rate/retention value becomes a promise by inference.
+The [scope matrix](../../docs/experiments/grok-participation-contract.md#remaining-finite-coordinator-gates)
+and [production checkpoint](../../docs/experiments/grok-participation.md#installed-package-acceptance-checkpoint)
+separate original proposed budgets from measured acceptance. The proposed 10/50
+frame envelope and full-package 2,100-second hold are not passes by inference.
 
 ## Selected monitor contract
 
@@ -114,7 +114,8 @@ defaults. No unknown rate/retention value becomes a promise by inference.
    model's ARMED text, description substring or attempt marker is not readiness.
    Where command/task binding cannot be proven, keep status unverified and expose
    retry/diagnosis rather than claiming ready or issuing repeated auto-arms.
-   Exact production task correlation still needs the synthetic probe below.
+   Native acceptance measured delivery while this status remained unverified;
+   descriptions/status alone still cannot establish exact command readiness.
 6. **Sink and lifecycle.** Reuse the private per-watcher sink and local ACK path
    above. Let the watcher own bounded retirement on actual TUI death, with
    SessionEnd as a prompt signal, not the sole proof. Compare incarnation before
@@ -161,23 +162,25 @@ serialized response**, with record ID, whole-frame length/digest, exact offsets,
 completion markers and continuation cursor, including escaping and the newline.
 The initial proposed 2,048-byte cap failed native escaped/multiline retrieval:
 the shell inserted raw newlines at column 2,000, corrupting JSON escapes. The
-1,800-byte cap leaves margin below that measured boundary; native validation of
-the revised cap remains pending. The skill fetches every page before treating the original
+1,800-byte cap leaves margin below that measured boundary; round 7 validates it
+with 24 escaped/multiline pages, exact complete-frame length/digest and reply. The skill exposes each entire page in model context in a separate native tool
+call, without subprocess batching or marker extraction, before treating the original
 untrusted frame as complete, continues through records until caught-up, and never
 infers missing text. Read/notice emission never deletes, consumes, marks processed
 or ACKs. Cursor loss permits replay; lost/coalesced hints do not discard bodies.
 
-New release gate: production hint -> read -> all pages -> original-TUI proof for
+Completed measured payload gate: production hint -> read -> all pages -> reply for
 16-KiB ASCII/UTF-8/escaped/multiline bodies with fresh hidden independent random
 beginning/middle/end sentinels. Unit tests reassemble exact bytes and verify encoded
-page budgets; live tests verify native output is complete, burst/coalescing,
-rotation, cursor retry/tampering and hold/refusal isolation. Prior END120 tail
+page budgets. Coordinator rounds 6/7 verify complete native pages, a three-message
+burst, cursor retry/rejection and hold/refusal isolation; old-sink retention was
+measured after same-incarnation watcher replacement, not a populated new rotation. Prior END120 tail
 reuse invalidates the entire earlier size-pilot success claim. Fresh random-tail
 2-KiB direct-monitor visibility failed at 121.95 seconds; 16-KiB escaped case had
 no reply within 120 seconds. Native tool-busy wake passed at 18.23 seconds, while
 the completed 35-minute hold has a supplemental native PASS at 2.489 seconds
 (raw viewport FAIL retained). These native successes and lifecycle negatives are
-not production retrieval passes.
+not substitutes for the separately scoped production retrieval evidence.
 
 ## Implementation, tests and packaging
 
@@ -193,14 +196,21 @@ package check/CI and shared release assets through normal tooling. Do not invent
 release pins. Follow [harness documentation](../../docs/developer/documentation/add-a-harness.md).
 Use isolated owned adapter fixtures for send/reply, never unsolicited team sends.
 
-Run appropriate focused tests plus the repository acceptance gate:
+Coordinator reports the full acceptance gate passed at `d9279cd` with
+`GOMAXPROCS=4`:
 
 ```sh
 make typecheck lint build test vuln deps-check schema-check tidy-check docs-check
 ```
 
-The final research checkpoint passed `make docs-check` (169 pages, 665 links);
-the earlier Go-cache denial was not bypassed. Coordinator owns full acceptance. Run existing/new package checks and pinned shellcheck if
-shell files change. Independent review by Rjae Fable follows runtime work; the
-coordinator owns subsequent Git/PR/auto-merge authorization. This research
-checkpoint is not card completion, shipping, review approval or a live-gate pass.
+All four package checks passed, 18 experiment tests passed, conformance was
+48 PASS / 0 FAIL / C-14 slow default SKIP, and source/binary vulnerability scans
+found none. Pinned ShellCheck 0.9.0 passed at `2746e55`, with no shell/bootstrap
+diff afterward per coordinator. These are reported checks, not this documentation
+worker repeating the runtime gate. See the [sanitized production evidence](../../docs/experiments/grok-participation-evidence/production-checkpoint.json).
+
+Next: independent Rjae Fable report-only review, then coordinator-owned PR and
+shipping steps. Linux native behavior and the full-package 35-minute hold remain
+unmeasured limitations. This is no blanket all-green, review approval, release or
+card-completion claim. Historical failure records and per-case revisions remain
+intact; no raw fixture/auth/session artifacts are part of this update.

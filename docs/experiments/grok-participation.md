@@ -6,19 +6,19 @@ Installed Grok: `1.0.62 (1474f9cbdd91) [stable]`, macOS arm64.
 
 ## Verdict
 
-**Native nonleader monitor feasibility now includes a supplemental 35-minute
-PASS; actual production package acceptance remains open. Shared-leader delivery
-is unsupported.** The coordinator measured a normally installed/trusted
-Stop hook bootstrapping a native monitor in a fresh `--no-leader` TUI, with one
-normal command permission and generated content after idle external ingress.
-The [contract](grok-participation-contract.md) is accepted as implementation
-guidance for explicit `--no-leader` integration, chosen by the coordinator as a
-reasonable implementation scope, not user approval of the unanswered preference
-question. The raw long-idle screen FAIL is retained: subsequent correlated native
-events, same-session assistant export and scroll-only TUI witness establish a
-viewport false-negative, not a native wake failure.
-Actual production package acceptance, full-body wake/read retrieval and bounded
-crash cleanup remain open; this checkpoint is not merge-ready.
+**Runtime and installed-package native acceptance are complete within the
+measured macOS arm64, explicit `--no-leader` scope at `d9279cd`.** Independent
+Rjae Fable review, PR and release remain pending; this is not a released or
+unrestricted compatibility claim. See the [production checkpoint](#installed-package-acceptance-checkpoint)
+and its [sanitized evidence](grok-participation-evidence/production-checkpoint.json).
+
+The coordinator used normal plugin trust, default permissions and exact command
+approvals in an owned isolated fs team with scratch HOME and SHA256-pinned copied
+development binaries. Page reads and synthetic replies were approved explicitly;
+this does not establish unattended permission bypass. Shared-leader delivery is
+unsupported. Linux native behavior and the full package's 35-minute hold remain
+unmeasured. The prior native-only 35-minute supplemental PASS remains separate,
+with its original viewport FAIL preserved.
 
 Earlier leader results below remain bounded **transport pilots**. A later normal
 TUI exit left the subscribed native actor resident and direct ghost prompts still
@@ -27,7 +27,7 @@ modelCalls=1. Thus resident lookup, RPC completion and usage cannot establish
 live TUI ownership or native admission. These negatives supersede the earlier
 leader-first recommendation without erasing its successful original-TUI evidence.
 
-Both TUIs must explicitly use `--leader` in this experiment. Merely selecting
+Both TUIs used explicit `--leader` in the historical transport experiment. Merely selecting
 `--leader-socket` yielded successful ACP model replies but **no reply in either
 original TUI**. This negative control prevents mistaking a restored copy of saved
 history for delivery into a live conversation. On macOS, canonical cwd was also
@@ -39,7 +39,7 @@ After normal login, initialization advertised `cached_token` and `grok.com`, a
 default auth method existed, and `session/new` worked without explicit authenticate.
 No credential files were read or copied.
 
-## Measured results
+## Historical feasibility results
 
 | Probe | Result | What it establishes |
 | --- | --- | --- |
@@ -68,8 +68,8 @@ No credential files were read or copied.
 | Native SIGKILL | FAIL native cleanup | Child remained after 10.59 seconds; coordinator cleaned its owned orphan |
 | Native resume | PASS explicit rearm pilot | Same native ID, source load, fresh joined nonce; not automatic production rearm proof |
 | Native compaction | PASS bounded pilot | Child survived a 25-second compaction; subsequent nonce visible in 2.6 seconds |
-| Isolated HOME / existing GROK_HOME | PASS native preflight | Normal authenticated model reply and ordinary shell HOME/native ID matched; actual package hook isolation still pending |
-| Full retrieval/burst, production lifecycle, names/model/context | OPEN | No inferred compatibility claims |
+| Isolated HOME / existing GROK_HOME | PASS native preflight | Normal authenticated model reply and ordinary shell HOME/native ID matched; package acceptance was still pending at this pilot |
+| Full retrieval/burst and production lifecycle at this pilot | OPEN at pilot checkpoint | Later measured package results below supersede this status; names/model/context compatibility is not inferred |
 
 The initial reproduction driver is [probe.py](../../scripts/experiments/grok-participation/probe.py).
 Its [README](../../scripts/experiments/grok-participation/README.md) describes scope and cleanup.
@@ -175,8 +175,8 @@ Earlier size claims using the same END120 tail are invalid: the model could infe
 that tail from the smallest case. Fresh 2-KiB tail visibility failed. Use the
 [bounded local read contract](grok-participation-contract.md#delivery-correction-wake-notices-plus-local-retrieval)
 to retrieve complete original sink frames through validated pages. Existing
-in-session held-body privacy stays intact; full 16-KiB retrieval proof awaits
-production implementation and coordinator measurement.
+in-session held-body privacy stays intact; later production rounds below establish
+16-KiB retrieval within the measured page and permission limits.
 
 ACK follows [protocol v1](../protocol-v1.md): existing Muse sink append/write/Close
 is local injection and permits ACK. Grok may reuse it without requiring model
@@ -186,9 +186,9 @@ pinned-source constants, and no exactly-once processing or durable monitor recei
 
 The [plan gate ledger](../../.context/plans/grok-build-participation.md#gate-ledger)
 and [finite test matrix](grok-participation-contract.md#remaining-finite-coordinator-gates)
-carry the passed tool-busy wake, supplemental native 35-minute PASS and pending
-production wake/read retrieval, payload, burst, resume,
-denied-arming, sibling, stale binding and crash cleanup controls.
+separate historical pilots, completed package cases and unmeasured scope. The
+12-second tool-busy pilot and 35-minute hold remain native-only evidence; neither
+is silently promoted into a full-package long-duration or throughput guarantee.
 The [operator fixture](../../scripts/experiments/grok-participation/README.md#nonleader-monitor-bootstrap)
 prepares an inert scratch plugin; only the coordinator performs normal install,
 trust, launch, approval and cleanup. This worker ran only offline scorer/fixture
@@ -208,9 +208,8 @@ Two PageDown keys only after the observation window revealed the reply in the
 original TUI; no prompt or model nudge was sent. This is supplemental evidence of
 the same run, not a rerun or a silent rewrite of the failed screen score. Together
 these witnesses establish native long-idle PASS. A process/trigger remaining
-present alone never established that pass. Production receiving still requires
-the actual package gates below; do not infer native runtime correctness from the
-source or model receipt from local ACK.
+present alone never established that pass. The later package acceptance below
+does not repeat this full-duration hold; do not infer model receipt from local ACK.
 The later leader 35-minute individual controls passed, but that whole run failed
 its replay-contaminated short-idle check; it is not an overall PASS or a substitute.
 
@@ -225,14 +224,67 @@ native watcher-count text nor a model's ARMED banner establishes readiness.
 Normal exit, explicit-rearm resume, compaction and HOME-split observations above
 are native-only. SIGKILL survival requires production watcher/follower retirement;
 a native child lifetime promise is insufficient. No auth file was read/copied and
-no global configuration changed in the HOME preflight. Actual package hooks,
-local sink/ACK, pagination and cleanup still need coordinator acceptance.
+no global configuration changed in the HOME preflight. Later package results
+are recorded separately below, including bounded Brigade cleanup after SIGKILL;
+they do not erase the generic native child orphaning failure.
+
+## Installed-package acceptance checkpoint
+
+The coordinator supplied `production-checkpoint-input.json`, already sanitized;
+this documentation update reads no raw fixture, session or authentication files.
+The [allowlisted production JSON](grok-participation-evidence/production-checkpoint.json)
+retains case-specific source revisions: round 3 `4ce55d2`, round 5 `7bf519a`,
+round 6 `6421256`, round 7/final runtime `d9279cd`. Results at earlier revisions
+are not relabelled as reruns at the final head.
+
+Three failures changed the implementation and acceptance procedure:
+
+- Round 3 displayed registration and an ARMED claim, but watchers rejected the
+  binding/closed on map mismatch and the live receiver count was zero. No message
+  was sent; delivery acceptance failed. The later lifecycle correction stabilized
+  registration; banners never constituted readiness.
+- Round 5 proved local ACK, denied arming without automatic retry, explicit retry
+  of backlog, and short/16-KiB replies, but the model batched pages into Python and
+  extracted markers. Complete-frame model visibility was **not proven**. The
+  corrected receiving instructions require each complete page visibly returned
+  in model context before continuing; marker extraction is not an equivalent.
+- The original 2,048-byte serialized page cap allowed native shell newline
+  insertion at column 2,000, corrupting escaped JSON. The final cap is **1,800
+  UTF-8 bytes for the entire serialized response**, including escaping, metadata
+  and trailing newline. Round 7 validates the revised cap with escaped/multiline
+  input. This is measured native behavior, separate from mismatched public source.
+
+| Installed-package case | Coordinator evidence and limit |
+| --- | --- |
+| Maximum 16-KiB ASCII and UTF-8 bodies, round 6 | 18 individually visible pages each; complete frame 17,547 bytes, contiguous offsets, matching length/digest, stable retry, frame-complete then caught-up. Largest serialized pages 1,680/1,771 bytes; first-turn delays 0.279/0.218 s; verified replies and sibling absence. |
+| Maximum escaped/multiline body, round 7 | 24 pages, largest exactly 1,800 bytes; complete 17,547-byte frame, matching length/digest, contiguous offsets, retry and caught-up; verified reply. First-turn delay 0.289 s; sibling witness unmeasured (null). |
+| Burst and hints, round 6 | Three replies verified for sends spanning 0.137 s. Four observed notices, maximum 94 bytes: three change notices and one status notice. No broad rate envelope or deliberate hint-loss proof inferred. |
+| Hold/refuse, round 6 | Neither local ACK nor native body exposure; last read caught-up with empty frame chunk. Already injected records remain a separate local-read boundary. |
+| Cursor/retry, round 7 | Repeated pages identical; invalid cursor exits with usage status 2. |
+| Resume, round 7 | Same native UUID, fresh incarnation; stale cursor rejected with status 2; fresh idle reply verified. Two pages, complete 1,227-byte frame, matching length/digest; no cross-incarnation backlog adoption proved. |
+| Retention, round 7 | Watcher replaced with incarnation preserved under hold; old frame replayed with matching digest and caught-up. **No new empty sink generation materialized under hold**; this is old-sink readability, not a populated-rotation test. |
+| Compaction, round 5 | Native compaction completed, monitor persisted and a fresh short message woke/replied. Full-size bodies were not remeasured through compaction. |
+| Production cleanup | Round 5 SIGKILL: no owned Brigade processes remained, adapter session closed and map retired when observed at 1.655 s. Round 6 normal exit: same checks at 0.638 s. These are production cleanup measurements, distinct from the generic native monitor orphan. |
+
+The coordinator reports the full acceptance gate passed at `d9279cd` with
+`GOMAXPROCS=4`, all four package checks passed (including shellcheck/no-secrets),
+18 experiment tests passed, conformance 48 PASS / 0 FAIL / C-14 slow default SKIP,
+and source/binary vulnerability scans found none. Pinned ShellCheck 0.9.0 passed
+at `2746e55`; the coordinator verified no shell/bootstrap diff afterward. This
+worker does not repeat those runtime gates or claim an independent code review.
+
+Native Stop still omits a command field. Task descriptions/status do not prove
+command readiness; local status remains unverified despite observed delivery.
+ACK still means permitted local append/write/Close, not model receipt or
+exactly-once processing. Source-version mismatch, direct-monitor truncation,
+invalid reused-tail size claims and leader ghost lifetime remain recorded.
 
 ## Limits and next decision
 
-This investigation creates no backend team and sends no messages to teammates.
+This documentation update creates no team or message; coordinator acceptance used
+only its own synthetic fs team and sessions.
 No normal Grok leader was killed. In the completed historical pilots, owned
-probe clients, TUI windows and leaders were stopped; follow-up diagnosis remains
+probe clients, TUI windows and leaders were stopped; all live state remains
 coordinator-owned. Grok may retain synthetic histories; no real transcript was read.
 Temporary TUI workspaces remain outside the repository for inspection. This
 checkpoint changes no production files, release pins or configuration.
@@ -241,4 +293,8 @@ The [implementation plan](../../.context/plans/grok-build-participation.md)
 selects reversible nonleader monitor implementation with explicit release gates.
 The measured Stop continuation supplies bootstrap after an initial turn; it is
 not launch-time model context or a replacement for long-lived idle monitoring.
-The card remains open through implementation and release.
+Runtime/native acceptance is complete within the measured scope; independent
+Rjae Fable review, PR and release remain pending. Linux native execution and the
+full-package 35-minute hold are unmeasured. Broader burst/loss envelopes and
+cross-incarnation backlog recovery are not claimed; this checkpoint does not
+close or release the card.
