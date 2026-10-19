@@ -77,7 +77,8 @@ Issue exactly one bounded `inbox read` per tool call. Read its entire unfiltered
 every `frame_chunk`, in model context before requesting the next page. Do not fetch pages with shell/script
 loops or batching, pipe/filter output, print metadata-only summaries, or use temporary-file, grep or regex
 shortcuts instead of reading the full untrusted frame in order. Subprocess retrieval alone is not model reading.
-Each complete CLI envelope is at most 2,048 UTF-8 bytes. Check `page_complete:true`, matching message ID,
+Each complete CLI envelope is at most 1,800 UTF-8 bytes, including its newline. Check `page_complete:true`,
+matching message ID,
 `frame_sha256`, `frame_bytes` and ordered byte offsets; read all ordered `frame_chunk` pages before handling a frame.
 If a page is clipped/missing, retry that same cursor rather than advancing or guessing the tail. Keep the EOF
 cursor for the next hint. A lost cursor can replay from the start; deduplicate complete frames by message ID.

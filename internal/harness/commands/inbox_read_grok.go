@@ -17,7 +17,9 @@ import (
 	"github.com/appshapes/brigade/internal/harness/inbound"
 )
 
-const grokReadBudget = 2048
+// Include the full serialized envelope and newline, with margin below the
+// native shell's measured 2,000-column hard wrap that can corrupt JSON escapes.
+const grokReadBudget = 1800
 
 // Cursors select a location, never grant access. Every call resolves the exact
 // receiver again and verifies the complete stored record before returning data.

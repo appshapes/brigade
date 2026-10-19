@@ -123,10 +123,12 @@ Sol's implementable correction, retaining the nonleader identity/arming contract
    lost generations. A resumed receiver needs explicit authorized adoption of old
    sink generations before they can be read. Do not delete them merely because a
    watcher rotates or emits a hint.
-4. **Page the actual output, losslessly.** Initial conservative CLI budget:
-   **2,048 UTF-8 bytes for the entire serialized stdout response**, including
-   metadata, escaping and newline. This is a proposed implementation bound, not
-   a proven host limit; native tool-wrapper overhead also needs live validation.
+4. **Page the actual output, losslessly.** The initial proposed CLI budget was
+   2,048 UTF-8 bytes. Native escaped/multiline retrieval exposed raw newline
+   insertion at shell output column 2,000, corrupting JSON escapes. The revised
+   cap is **1,800 UTF-8 bytes for the entire serialized stdout response**, including
+   metadata, escaping and newline, with margin below that measured boundary.
+   Native validation of the revised cap and tool-wrapper behavior remains pending.
    Return one complete record or a code-produced lossless
    UTF-8 slice with message UUID, frame byte length, SHA-256 of the whole stored
    frame, byte offset, next offset, `frame_complete`, `next_cursor` and explicit
@@ -223,7 +225,8 @@ Read-only seam check of Sol's current implementation: `MonitorCommand` supplies
 hook-bound GROK_SESSION_ID and incarnation explicitly; `grokStop` keeps an exact
 native description-only match unverified, and suppresses repeat automatic arming.
 `inboxReadGrok` resolves the current receiver and local sink, binds cursors to its
-identity and record, and uses a 2,048-byte serialized page budget. These are code
+identity and record, and initially used a proposed 2,048-byte serialized page budget
+(now reduced to 1,800 after the measured native wrap failure above). These are code
 observations only, not a review verdict or executed production/native tests. The
 actual native Stop lacks command evidence, so readiness remains unverified under
 that code path. Installed command execution, ancestry checks, complete pages,

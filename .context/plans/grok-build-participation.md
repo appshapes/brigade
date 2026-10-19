@@ -156,10 +156,13 @@ release policy from read.
 Resolve/validate native UUID, actual TUI incarnation and Brigade UUID at each read;
 reject caller session/path selection, malformed/cross-binding cursor, symlink or
 file substitution. Include retained authorized sink generations, not just newest.
-Use bounded lossless pages, initially at most 2,048 UTF-8 bytes for the **entire
+Use bounded lossless pages, at most 1,800 UTF-8 bytes for the **entire
 serialized response**, with record ID, whole-frame length/digest, exact offsets,
-completion markers and continuation cursor. This is a proposed CLI budget, not
-a measured host limit. The skill fetches every page before treating the original
+completion markers and continuation cursor, including escaping and the newline.
+The initial proposed 2,048-byte cap failed native escaped/multiline retrieval:
+the shell inserted raw newlines at column 2,000, corrupting JSON escapes. The
+1,800-byte cap leaves margin below that measured boundary; native validation of
+the revised cap remains pending. The skill fetches every page before treating the original
 untrusted frame as complete, continues through records until caught-up, and never
 infers missing text. Read/notice emission never deletes, consumes, marks processed
 or ACKs. Cursor loss permits replay; lost/coalesced hints do not discard bodies.

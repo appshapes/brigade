@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
@@ -29,7 +30,9 @@ func TestGrokReadPagesOwnedRecordAndRefusesOtherReceivers(t *testing.T) {
 	if err := store.WriteByHost("grok", m.ClaudeSessionID, &sessionmap.ByHost{HostPID: 4242, BrigadeSessionID: "s"}); err != nil {
 		t.Fatal(err)
 	}
-	frame := strings.Repeat("λ🙂\n\"$(never)", 1000) + "unique tail"
+	// Dense escaped multiline content must fit after JSON encoding, while
+	// multibyte characters must survive every page boundary unchanged.
+	frame := strings.Repeat("λ🙂\n\"\\\t\r\x01$(never)", 1000) + "unique tail"
 	line, _ := json.Marshal(inbound.SinkRecord{MessageID: "m", Frame: frame})
 	line = append(line, '\n')
 	path := inbound.GrokSinkPath(state, "s", m.Grok.Incarnation, time.Unix(1, 0))
@@ -52,8 +55,13 @@ func TestGrokReadPagesOwnedRecordAndRefusesOtherReceivers(t *testing.T) {
 		if err := inboxReadGrok(inv, nil, token); err != nil {
 			t.Fatal(err)
 		}
-		if out.Len() > 2048 {
+		// Pin the public budget independently of the production constant so
+		// reverting to 2,048 fails even if the encoder remains lossless.
+		if out.Len() > 1800 {
 			t.Fatalf("serialized page budget: %d", out.Len())
+		}
+		if !utf8.Valid(out.Bytes()) || utf8.RuneCount(out.Bytes()) >= 2000 || bytes.Count(out.Bytes(), []byte{'\n'}) != 1 || !bytes.HasSuffix(out.Bytes(), []byte{'\n'}) {
+			t.Fatal("page must be valid UTF-8 with only its trailing newline, below the native 2,000-column wrap")
 		}
 		var env struct {
 			Result grokReadPage `json:"result"`
