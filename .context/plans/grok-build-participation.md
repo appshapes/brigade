@@ -1,199 +1,192 @@
 # Grok Build participation — card 120
 
-Date: 2026-10-18. Status: feasibility in progress; implementation phases conditional.
+Date: 2026-10-18. Status: monitor-first contract accepted for reversible
+implementation; user launch-mode scope preference and live gates pending. Direct full-frame monitor output is superseded by bounded
+wake notices and local sink retrieval.
 [Card](https://trello.com/c/sTkdphju/120-make-grok-build-a-first-class-brigade-participant).
 [Measured experiment](../../docs/experiments/grok-participation.md).
-Base: `a7abf85136f61835a8c3db00c76fb68347317e3f`; Grok Build 1.0.62.
+[Contract](../../docs/experiments/grok-participation-contract.md).
+Implementation base: `70111d68bde3532dbf7d5ac98345864a6cff0fc3`; measured Grok Build
+`1.0.62 (1474f9cbdd91) [stable]`.
 
-## Objective and current decision
+## Objective and decision
 
-Make a normal Grok Build conversation a first-class Brigade peer: join the same
-team, appear with the correct identity, send/reply through skills, receive while
-busy and idle, recover on resume, and close without harming sibling sessions.
-This work first establishes feasibility, then chooses the integration contract.
+Make Grok a Brigade peer with correct identity, seven skills, busy/idle receiving,
+resume and bounded cleanup. Implement the reversible **explicit --no-leader native
+monitor route** while Sol owns production code and coordinator owns Git and live
+external state. General support remains gated; the user's monitor-first versus
+require-leader preference is pending. If leader support is required, independent
+TUI ownership remains an unresolved blocker, not a monitor acceptance by default.
 
-**Conditional feasibility demonstrated for explicit leader-backed TUIs.** After
-normal login, standalone ACP completes a model turn. Two TUIs launched with
-`grok --leader --leader-socket <owned socket>` receive addressed `session/prompt`
-turns from a secondary ACP client through `session/resume`. Joined nonce replies
-appear in the original windows while idle and after queued busy work; siblings
-remain quiet. A 75-second no-send hold passes. Socket selection alone did not
-produce TUI-visible replies: do not restore disk history and call it live delivery.
-This is a transport candidate, not a production GO. G4–G7 still gate implementation.
+Preserve the prior leader idle/busy/isolation successes as transport pilots.
+Later direct prompt without load/resume succeeded in the original TUI, but normal
+TUI exit left a subscribed actor resident and a ghost prompt succeeded. Rejection
+returned cancelled/HookDenied with stale preceding usage.modelCalls=1 and no
+user echo or agent content. Resident handles, completion and usage do not prove
+live ownership/admission. Do not ship that direct route.
 
-## Phase 0 — prove the host contract
+The normally trusted nonleader Stop bootstrap passed: one block/reason after the
+first turn caused one native monitor call, one ordinary command permission,
+AUTO_MONITOR_ARMED, then generated AUTO_WAKE_120 after idle external ingress.
+Hook parent equaled the actual TUI, native UUID matched, leader socket was absent.
+SessionStart systemMessage was UI-only. These are runtime observations, separate
+from the public source revision that differs from the installed executable.
 
-Use the committed probe as a baseline and extend it with coordinator-owned,
-synthetic test sessions. Do not attach to existing user conversations or print
-credentials. Resolve the difference between normal TUI login and standalone ACP
-login through supported host behavior; do not copy auth files or bypass trust.
+## Gate ledger
 
-| Gate | Required evidence | Current state |
+| Gate | Current evidence | Remaining before support |
 | --- | --- | --- |
-| G0: version and protocol | Exact executable version; initialized capabilities; bounded cleanup | PASS for standalone ACP |
-| G1: authentication | A synthetic session completes a fixed response with the existing login | PASS after normal login |
-| G2: exact routing | Independent producer addresses A; B with same directory/title remains untouched | PARTIAL: same-directory A/B isolated; duplicate titles not tested |
-| G3: idle and busy | Same live TUI consumes split nonce after idle and during/after busy work, no typed nudge or cancellation | PASS for explicit leader mode; busy turn initiated by producer |
-| G4: lifetime | 35-minute idle hold plus matched no-send control; repeat short cases in three independent sessions | NOT RUN |
-| G5: hook and identity | Normal installed/trusted hook payloads, tool env, shared-parent behavior and session-specific liveness | NOT RUN |
-| G6: admission and recovery | Wrong/closed IDs, disconnects, lost response, backpressure, native permission hold and replay behavior | NOT RUN |
-| G7: lifecycle and size | New/fork/resume/compact/exit/crash, leader survives receiver exit; frame sizes up to production cap | NOT RUN |
+| G0: version/protocol | PASS: standalone ACP and version captured | Version drift/package checks |
+| G1: normal authentication/trust | PASS: existing login, normal local plugin install --trust, one command approval | No bypass or blanket permission; denied-arming case |
+| G2: identity/routing | Leader sibling isolation passed; nonleader hook parent/native ID match | Nonleader sibling/duplicate-title and poisoned XDG/BRIGADE tests; same pointed binding in shell |
+| G3: busy/idle | Leader producer-originated busy/idle pilot passed; nonleader short idle and Stop bootstrap passed | Native 12-second tool-busy pilot PASS (18.23-second nonce completion); full retrieval still pending; raw replay-contaminated scorer run is not a whole-run pass |
+| G4: lifetime | 75-second leader pilot only | 2,100-second monitor idle/no-send test ongoing, not passed; independent receivers |
+| G5: hooks/arming | Normal new/load/end observed; Stop one-shot continuation and nonleader parent measured | Production native task/command correlation, denial/retry, no duplicate on resume/compact; Python startup timeouts are not hook passes |
+| G6: local injection | Muse parity selected: sink append + close -> Pipeline.Done -> ACK | Grok failure/hold/refusal/restart regressions; native drop/batch counts separate from ACK |
+| G7: lifecycle/payload | Ghost actor/rejection negatives; direct monitor body transport rejected, reused-tail size passes invalidated; fresh 2-KiB tail failed | Nonleader exit/crash/stale pointer/PID/replacement, wake/read full-body proof, payload/rate/retention limits and follower termination |
 
-Use measured `session/prompt` through a secondary shared-leader client as the
-leading candidate. Canonicalize cwd before attachment (`/tmp` and `/private/tmp`
-were not interchangeable on macOS). Require an already-live session; a successful
-resume alone can restore saved history into a different backend. Compare `session/load` and `session/resume`
-only after inspecting their attachment and ownership effects. `_x.ai/interject`
-is a separate busy-delivery candidate; its recognized method alone proves nothing
-about idle wake. Do not invent a `queue/enqueue` command: the installed probe
-rejected it. Avoid a new prompt process resuming saved history concurrently with
-the real receiver, since that could be a different execution owner.
+Live tests are coordinator-owned, synthetic and limited to owned sessions. No
+credentials, real transcripts, global config edits or auto-trust plugin-dir route.
+Use the [finite numeric matrix](../../docs/experiments/grok-participation-contract.md#remaining-finite-coordinator-gates):
+64 B, 2 KiB, 8 KiB and protocol-maximum bodies; 1/10/50 frames at 1 per second and a
+10-frame burst; proposed 30/120-second wake/content budgets; 2,100-second idle;
+proposed 10-second local retirement bound. These are test budgets, not native
+defaults. No unknown rate/retention value becomes a promise by inference.
 
-Keep transport acceptance, wake, model-visible content and completed action as
-separate milestones. Pilot budgets proposed before a run: wake within 30 seconds
-of idle ingress (or of the busy receiver becoming runnable), completed content
-within 120 seconds. Provider/auth failure is BLOCKED, not proof of transport
-failure. Score an assistant-produced joined nonce that is absent from input;
-mutating the target, completion marker or nonce must fail the scorer.
+## Selected monitor contract
 
-Decision after G1–G7:
+1. **Identity and nonleader gate.** Support the explicitly documented
+   `grok --no-leader` topology. Refuse a populated GROK_LEADER_SOCKET and unknown
+   parent topology; an absent variable alone is insufficient proof. Bind the
+   native GROK_SESSION_ID to the actual hook-parent TUI PID plus process start
+   identity, canonical workspace and Brigade session. Use a pointed map resolved
+   from the native identity for later model shell commands, not their shell
+   PPID. Execute hook entrypoints without an intervening long-lived wrapper
+   process that changes PPID. Never adopt a leader PID or resurrect saved history.
+   Validate stale PID/reuse, sibling, pointer replacement and mismatched cwd.
+2. **Options and package boundaries.** Add Grok's host identity and
+   `grok-options.json` through the shared options/parser and harness contracts,
+   following Muse's typed options and HOME-based trusted discovery. Preserve
+   existing consent, hold/refusal, notification and state-path semantics. Native
+   shell identity uses GROK_SESSION_ID; GROK_PLUGIN_ROOT is a hook installation
+   locator, not permission to trust arbitrary environment paths. Do not inherit
+   Claude socket credentials/settings or use GROK_LEADER_SOCKET as delivery.
+   Test poisoned XDG/BRIGADE overrides separately; this pilot did not do so.
+3. **Startup and hook data.** Package native SessionStart, UserPromptSubmit,
+   Stop and SessionEnd hooks with the measured native field spellings. Handle
+   new/load explicitly. SessionStart can return exit-0 JSON such as
+   `{"systemMessage":"Brigade: monitor setup follows the first completed turn; use the Brigade skill to retry if needed."}`.
+   This is UI-only. Hooks must emit only protocol JSON on stdout, consume bounded
+   input, avoid transcript reads and finish within their native timeout.
+4. **One Stop bootstrap per incarnation.** For main-session genuine `end_turn`
+   only, current registered binding, no matching live native monitor task,
+   `stopHookActive != true`, and no previous automatic attempt, atomically mark
+   attempt-issued then emit exit-0 JSON:
 
-- **GO:** same existing session receives busy and idle; isolation, long idle,
-  lifecycle and a defensible local injection boundary all pass under normal trust.
-- **CONDITIONAL:** only a measured topology or explicit arming step works. State
-  the limitation and obtain product acceptance before presenting it as support.
-- **NO-GO:** only next-user-prompt polling, destructive interruption, a replacement
-  worker, unsupported history writes, credential copying or trust bypass works.
-- **BLOCKED:** required auth, API or instrumentation is unavailable; preserve the
-  evidence and identify the precise next action. Do not substitute assumptions.
+   ```json
+   {"decision":"block","reason":"Arm this session's Brigade inbox monitor once using the Brigade skill and normal permission flow, then finish. If permission is denied or arming fails, report how to retry; do not keep trying."}
+   ```
 
-## Phase 1 — freeze the selected contract
+   Installed `~/.grok/docs/user-guide/10-hooks.md:549–570` documents that reason
+   becomes a user message continuing the same turn. Do not add `continue:false`
+   (it overrides blocking), depend on exit-2 stderr fallback, or use the host's
+   eight-continuation cap as Brigade's guard. Exclude subagents, teardown,
+   cancellation and failure. Do not reset the attempt on every prompt or Stop.
+   A failed/crashed attempt remains discoverable as needs-user-action; explicit
+   skill retry is available. Resume with a new incarnation may get one new
+   opportunity, after checking for an already matching native task. Compaction
+   alone must not create another monitor.
+5. **Native task evidence and permission.** Arm the fixed installed
+   `brigade inbox follow` command using native `monitor` with `persistent:true`;
+   keep ordinary permissions and exact command approval. Track native task ID,
+   monitor type/live status and binding to the expected command/incarnation via
+   supported hook task evidence. The installed guide exposes `backgroundTasks`
+   with ID/type/status and optional command; descriptions can be clipped. A
+   model's ARMED text, description substring or attempt marker is not readiness.
+   Where command/task binding cannot be proven, keep status unverified and expose
+   retry/diagnosis rather than claiming ready or issuing repeated auto-arms.
+   Exact production task correlation still needs the synthetic probe below.
+6. **Sink and lifecycle.** Reuse the private per-watcher sink and local ACK path
+   above. Let the watcher own bounded retirement on actual TUI death, with
+   SessionEnd as a prompt signal, not the sole proof. Compare incarnation before
+   removing pointers so an old watcher cannot retire a resumed receiver. Keep
+   SessionEnd short: its documented default/plugin cap is 1.5 seconds; do not
+   await network cleanup there. Stop the bound follower on lost registration,
+   changed identity or closed consumer. Do not kill the TUI/shared processes.
+   Native monitor merges stdout **and stderr** into events, so emit only body-free
+   wake notices under 400 UTF-8 bytes, coalesced at most once per five seconds; no
+   heartbeats or debug stream. Keep diagnostics in the existing local logging path. The
+   follower stays read-only; do not require it to write protected state from the
+   model sandbox. Do not copy Muse's `wake_delay_ms:0` into Grok's tool call.
+7. **Skills and launch documentation.** Provide all seven native skills: email,
+   setup, join, slack, team-messaging, sessions and update. Preserve their command
+   contracts. Add exact normal-trust installation and `--no-leader` launch/resume
+   instructions, permission expectation, first-turn bootstrap timing, manual
+   arming/retry and status meaning. The receiving skill must recognize complete
+   framed messages and handle replay by message ID without claiming exactly once.
+   Document unsupported leader launch and unarmed/backlog behavior plainly.
 
-Write a short host contract after the proof: minimum measured Grok build and modes;
-full native ID; identity source for hooks and model shell; endpoint discovery;
-client/session ownership; session-specific liveness; trust/permission semantics;
-payload cap; request response and retry behavior; cleanup on client disconnect.
-Private extension methods require an explicit version/capability gate and a drift
-test, not an unbounded promise of compatibility.
+## Inbound and ACK contract
 
-Prefer a native addressed transport over a monitor if both work. A monitor remains
-an alternative only after proving idle wake, readiness, re-arm, sink lifetime and
-failure semantics. Do not ship a separate MCP server or add a runtime dependency
-without revisiting the repository's all-Go CLI design and dependency allowlist.
+Reuse the existing frame, pipeline validation/policy/dedupe and per-watcher sink.
+Successful permitted append/write/Close is local injection and permits ACK,
+exactly as Muse; no fsync or native/model receipt is implied. Held/refused messages
+are not appended/ACKed; sink errors do not mark seen. Pre-arm backlog may already
+be locally injected while receiving is unarmed; document that distinction and
+explicit retry. Native arming denial does not retroactively undo a local append.
+Do not change frozen protocol v1 or claim exactly-once model processing.
 
-## Phase 2 — identity, configuration and lifecycle
+Grok must not put full bodies/frames on the monitor. Implement the
+[corrected delivery contract](../../docs/experiments/grok-participation-contract.md#delivery-correction-wake-notices-plus-local-retrieval):
+body-free hints under 400 UTF-8 bytes, at most one per five seconds; a read-only
+`brigade inbox read [--cursor <token>]` over only this binding's own already
+locally injected sink records. Preserve bare inbox's in-session held-body privacy,
+Muse follower semantics and ACK timing. Never fetch backend pending bodies or
+release policy from read.
 
-Existing seams to extend narrowly, after the contract is known:
+Resolve/validate native UUID, actual TUI incarnation and Brigade UUID at each read;
+reject caller session/path selection, malformed/cross-binding cursor, symlink or
+file substitution. Include retained authorized sink generations, not just newest.
+Use bounded lossless pages, initially at most 2,048 UTF-8 bytes for the **entire
+serialized response**, with record ID, whole-frame length/digest, exact offsets,
+completion markers and continuation cursor. This is a proposed CLI budget, not
+a measured host limit. The skill fetches every page before treating the original
+untrusted frame as complete, continues through records until caught-up, and never
+infers missing text. Read/notice emission never deletes, consumes, marks processed
+or ACKs. Cursor loss permits replay; lost/coalesced hints do not discard bodies.
 
-- `internal/harness/config/environ.go` (`Host`, `HostOf`, `Pointed`) and
-  `config/session.go` (`pointedSession`): recognize Grok explicitly and validate
-  by-host pointers against the full native/Brigade/host binding. Do not fall into
-  Claude's credential or configuration lookup.
-- `internal/harness/hook/hook.go` (`adoptHost`, `facts`) and `hook/start.go`
-  (`buildMap`, `sessionStart`, `resumeHint`, `retirePointer`): obtain measured
-  native identity and separate it from the real process/liveness witness.
-- `sessionmap`, `hook/prompt.go`, `hook/end.go`, and `watch/lifecycle.go`: register,
-  retry, compact, resume and close using the measured lifecycle. A shared leader
-  PID alone cannot represent the lifetime of one conversation.
+New release gate: production hint -> read -> all pages -> original-TUI proof for
+16-KiB ASCII/UTF-8/escaped/multiline bodies with fresh hidden independent random
+beginning/middle/end sentinels. Unit tests reassemble exact bytes and verify encoded
+page budgets; live tests verify native output is complete, burst/coalescing,
+rotation, cursor retry/tampering and hold/refusal isolation. Prior END120 tail
+reuse invalidates the entire earlier size-pilot success claim. Fresh random-tail
+2-KiB direct-monitor visibility failed at 121.95 seconds; 16-KiB escaped case had
+no reply within 120 seconds. Native tool-busy wake passed at 18.23 seconds, while
+35-minute idle remains ongoing. These are not retrieval passes.
 
-Tests: two sessions under one leader do not overwrite maps; same CWD/title is not
-identity; invalid/missing/mismatched pointers fail closed; inherited host variables
-do not select another peer; new/fork/compact/resume transitions are explicit;
-receiver crash or missing end hook yields bounded close/lease expiry without
-terminating the shared leader. Keep old Claude/Muse/Codex maps compatible.
+## Implementation, tests and packaging
 
-## Phase 3 — inbound delivery and acknowledgments
+Extend shared harness/config/hook/sessionmap/watch seams narrowly, with Grok
+options and pointed lookup; keep Claude, Muse and Codex compatibility. Start with
+proven name/version/model sources and omit unknown usage/context. No host-history
+reader based solely on unverified source/schema. No new runtime dependency or
+separate MCP server. Follow [harness package boundaries](../../docs/developer/change/harness-packages.md).
 
-Add one host-specific route at `internal/harness/watch/inject.go` after identity is
-sound. Reuse `internal/harness/inbound/pipeline.go` (`Offer`, `Done`) for validation,
-policy, dedupe, limits and pending state. Use the established external-message
-frame and untrusted-source semantics in `internal/harness/frame`.
+Package a distinct native `grok/brigade/`, seven reachable skills and native hooks.
+Add registry/six persona pages, package README, install/update/leave instructions,
+package check/CI and shared release assets through normal tooling. Do not invent
+release pins. Follow [harness documentation](../../docs/developer/documentation/add-a-harness.md).
+Use isolated owned adapter fixtures for send/reply, never unsolicited team sends.
 
-Brigade's ACK denotes successful local injection, not model processing. Determine
-what the Grok transport guarantees before returning success to `Pipeline.Done`.
-A queue notification or socket write alone may not establish native admission.
-A rejected, permission-held or nonexistent target must not be marked seen/ACKed.
-A lost response after accepted ingress is uncertain, not safely retryable by
-assumption. Measure native message IDs/dedupe or document the at-least-once window;
-never claim exactly-once processing.
-
-Tests: failures before admission, accepted request with lost response, watcher
-crash before backend ACK, producer disconnect, receiver closing while leader
-lives, stalled busy session, full queue, malformed/oversized frame, hold/refuse,
-concurrent siblings and identity change. Preserve `watch/attempt.go` ACK retries
-and frozen protocol v1. No direct dependency on Supabase implementation.
-
-## Phase 4 — skills, presence and metadata
-
-Port team messaging, sessions, join and gateway skills to the measured Grok
-package conventions. Confirm tool-shell resolution uses the same map as hooks,
-without assuming Claude-compatible discovery implies compatible runtime inputs.
-Verify send/reply against a local scratch adapter or owned test sessions before
-messaging any actual teammate. No unsolicited Slack/email test sends.
-
-Watcher heartbeat remains independent of user prompts. Start with proven name,
-model and version sources; unknown context stays omitted. Add bounded, exact-ID
-host-history readers only after real successful usage evidence establishes the
-counting semantics. Test rename and child/cumulative usage exclusions. Presence
-must distinguish watcher alive, receiver ready and last injection; none proves a
-message was processed by the model.
-
-## Phase 5 — native packaging, documentation and regression
-
-Once runtime participation passes, add the host package with manifest, hooks,
-reachable skills, bootstrap and canonical assets. Extend `docs/harnesses.json`,
-the six required persona pages, the package README and install/update/leave
-instructions. Add a package check beside the existing three host checks and wire
-it into CI. Do not generate VERSION/checksum pins by hand; release tooling must
-produce all package assets together.
-
-Run the repository acceptance gate:
+Run appropriate focused tests plus the repository acceptance gate:
 
 ```sh
 make typecheck lint build test vuln deps-check schema-check tidy-check docs-check
 ```
 
-Run existing and new package checks and the normal installed/trusted live-host
-matrix. If shell files change, verify with pinned shellcheck 0.9.0 as well as the
-local version. Preserve all existing hosts, protocol v1, stdout discipline and
-secret redaction. Record limitations and minimum build in the changelog and
-security documentation before release. Card completion requires shipping and
-meeting its criteria, not this research plan alone.
-
-## Work ownership and artifacts
-
-The coordinator owns live processes and external state. Sol researched Grok's
-installed CLI and upstream surfaces; Astra independently mapped Brigade seams and
-proof requirements. Workers use isolated worktrees, do not read credentials, and
-cannot expand scope through their reports. The retained local reports provide
-additional file/function references; the public experiment record contains only
-sanitized, reproducible observations.
-
-Next action: validate normally installed/trusted hooks and session identity, then
-endpoint discovery, admission/ACK semantics, longer idle and lifecycle cases.
-Keep monitor-based inbox following as an alternative for non-leader sessions;
-measure its idle wake, arming and lifetime before choosing it. Do not implement
-`internal/harness/watch` delivery on a hook-output assumption.
-
-## Grok-session guidance supplied by the user
-
-The following are useful guide-derived claims, **not yet live measurements**.
-Follow [harness package changes](../../docs/developer/change/harness-packages.md)
-and [harness documentation](../../docs/developer/documentation/add-a-harness.md).
-
-- Plan a distinct `grok/brigade/` package and `.grok-plugin/marketplace.json`, seven
-  skills, native hooks, and the shared POSIX bootstrap/release assets. Test normal
-  `grok plugin marketplace add` / `grok plugin install --trust`; hooks require trust.
-- Confirm options-file behavior; proposed path is `~/.config/brigade/grok-options.json`
-  because the guide describes no plugin `userConfig`.
-- Measure `GROK_SESSION_ID` in both hooks and model shell, `GROK_PLUGIN_ROOT`, and
-  agreement of HOME/XDG directories. Validate camelCase payloads and aliases.
-- Measure SessionStart `new`/`load`, subagent exclusion and lack of compaction
-  startup; plan watcher-owned close around the reportedly short SessionEnd budget
-  (about 1.5 seconds; observe hooks default about 5 seconds).
-- Treat allowing UserPromptSubmit stdout/additionalContext as discarded unless
-  measured otherwise. Do not use `poll_on_prompt` stdout as delivery. A top-level
-  SessionStart `systemMessage` is not proven model context either.
-- Monitor stdout events are the alternate wake candidate. Prove an idle model
-  consumes the line and that arming survives lifecycle changes; do not infer this
-  from a Muse-compatible tool name.
+Coordinator owns the docs gate denied by this worker's Go-cache sandbox; no cache
+or permission bypass. Run existing/new package checks and pinned shellcheck if
+shell files change. Independent review by Rjae Fable follows runtime work; the
+coordinator owns subsequent Git/PR/auto-merge authorization. This research
+checkpoint is not card completion, shipping, review approval or a live-gate pass.

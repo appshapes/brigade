@@ -28,8 +28,8 @@ async def main(report_path, scratch):
     owned = []
     clients = []
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(('CLAUDE', 'CODEX', 'MUSE', 'BRIGADE')) and k != 'AI_AGENT'}
-    report = {'version': subprocess.check_output(['grok','--version'],text=True).strip(), 'topology': 'two TUIs plus independent ACP producer on an owned leader', 'checks': []}
+           if not k.startswith(('CLAUDE', 'CODEX', 'MUSE', 'BRIGADE', 'GROK')) and k != 'AI_AGENT'}
+    report = {'scorer_schema': 2, 'version': subprocess.check_output(['grok','--version'],text=True).strip(), 'topology': 'two TUIs plus independent ACP producer on an owned leader', 'checks': []}
     ids = {label: str(uuid.uuid4()) for label in ('A', 'B')}
     scratch.mkdir(parents=True, exist_ok=True)
     paths = {'root': str(root), 'socket': str(sock), 'ids': ids}
@@ -54,7 +54,7 @@ async def main(report_path, scratch):
                     '--permission-mode', 'default', '--no-subagents', '--reasoning-effort', 'low', '--rules',
                     'This is a disposable integration test. Do not call tools or delegate. Keep replies short unless the prompt requests a busy test.',
                     'Remember your test label is '+label+'. Reply exactly READY_'+label+'. Do not call tools.']
-            launch.write_text('import os\ne={k:v for k,v in os.environ.items() if not k.startswith(("CLAUDE","CODEX","MUSE","BRIGADE")) and k!="AI_AGENT"}\nos.execvpe("grok",'+repr(args)+',e)\n')
+            launch.write_text('import os\ne={k:v for k,v in os.environ.items() if not k.startswith(("CLAUDE","CODEX","MUSE","BRIGADE","GROK")) and k!="AI_AGENT"}\nos.execvpe("grok",'+repr(args)+',e)\n')
             tmux('new-session','-d','-s',name,'-x','140','-y','45','-c',str(cwd), shlex.join(['python3',str(launch)]))
             owned.append(name)
             record('launch_'+label, created=True)
@@ -72,7 +72,7 @@ async def main(report_path, scratch):
             if not ready:
                 (scratch / ('screen-'+label+'.txt')).write_text(screen)
                 raise RuntimeError('TUI readiness not observed; inspect owned screen')
-        c = probe.Client(); clients.append(c)
+        c = probe.Client(passive=True); clients.append(c)
         init = await c.start(str(cwd), ['--leader','--leader-socket',str(sock)])
         record('producer_initialize', ok='result' in init)
         for label,sid in ids.items():
@@ -81,28 +81,47 @@ async def main(report_path, scratch):
             if 'error' in response:
                 for tag,name in zip(ids,owned): (scratch / ('screen-'+tag+'.txt')).write_text(tmux('capture-pane','-p','-S','-200','-t',name))
                 raise RuntimeError('attach failed')
-        c.updates.clear()
+        # Replay may arrive after resume returns. Drain before the no-send window;
+        # prompt-ID correlation below remains mandatory even after this quiet wait.
         await asyncio.sleep(5)
-        start=time.monotonic()
-        response=await c.call('session/prompt',{'sessionId':ids['A'],'prompt':[{'type':'text','text':'Do not call tools. Join these two pieces with no separator and reply only with the result: GROK120_ and IDLE_A.'}]},timeout=120)
-        text=c.text(ids['A'])
-        record('idle_A', ok='result' in response and text.strip()=='GROK120_IDLE_A',stop=response.get('result',{}).get('stopReason'),elapsed_seconds=round(time.monotonic()-start,2),sibling_agent_text=bool(c.text(ids['B'])),reply=text[:300],tui_witness='GROK120_IDLE_A' in tmux('capture-pane','-p','-S','-200','-t',owned[0]))
         c.updates.clear()
-        busy=asyncio.create_task(c.call('session/prompt',{'sessionId':ids['A'],'prompt':[{'type':'text','text':'Do not call tools. This is a bounded busy test. Write the numbers 1 through 180, one per line, then finish with ORIGINAL_DONE.'}]},timeout=120))
+        idle_id, busy_id, follow_id, hold_id = [str(uuid.uuid4()) for _ in range(4)]
+        start=time.monotonic()
+        response=await c.call('session/prompt', prompt_params(ids['A'], idle_id,
+            'Do not call tools. Join these two pieces with no separator and reply only with the result: GROK120_ and IDLE_A.'), timeout=120)
+        text=c.text(ids['A'], idle_id).strip()
+        record('idle_A', ok=completed(response, idle_id) and text=='GROK120_IDLE_A',
+               correlated=completed(response, idle_id), stop=response.get('result',{}).get('stopReason'),
+               elapsed_seconds=round(time.monotonic()-start,2), sibling_agent_text=bool(c.text(ids['B'])),
+               reply=text[:300], tui_witness='GROK120_IDLE_A' in tmux('capture-pane','-p','-S','-200','-t',owned[0]))
+        c.updates.clear()
+        busy=asyncio.create_task(c.call('session/prompt',prompt_params(ids['A'],busy_id,
+            'Do not call tools. This is a bounded busy test. Write the numbers 1 through 180, one per line, then finish with ORIGINAL_DONE.'),timeout=120))
         for _ in range(300):
-            if c.text(ids['A']) or busy.done(): break
+            if c.text(ids['A'], busy_id) or busy.done(): break
             await asyncio.sleep(.05)
         was_busy=not busy.done()
-        response=await c.call('session/prompt',{'sessionId':ids['A'],'prompt':[{'type':'text','text':'Do not call tools. Reply only with the joined pieces: GROK120_ and BUSY_A.'}]},timeout=120)
+        response=await c.call('session/prompt',prompt_params(ids['A'],follow_id,
+            'Do not call tools. Reply only with the joined pieces: GROK120_ and BUSY_A.'),timeout=120)
         original=await busy
-        text=c.text(ids['A'])
-        record('busy_A', request_in_flight=was_busy,original_completed='ORIGINAL_DONE' in text,nonce_observed='GROK120_BUSY_A' in text,original_stop=original.get('result',{}).get('stopReason'),followup_stop=response.get('result',{}).get('stopReason'),tui_witness='GROK120_BUSY_A' in tmux('capture-pane','-p','-S','-300','-t',owned[0]),sibling_agent_text=bool(c.text(ids['B'])))
+        text=c.text(ids['A'], follow_id).strip()
+        record('busy_A', request_in_flight=was_busy,
+               correlated=completed(original,busy_id) and completed(response,follow_id),
+               original_completed=c.text(ids['A'],busy_id).rstrip().endswith('ORIGINAL_DONE'),
+               nonce_observed=text=='GROK120_BUSY_A', reply=text[:300],
+               original_stop=original.get('result',{}).get('stopReason'), followup_stop=response.get('result',{}).get('stopReason'),
+               tui_witness='GROK120_BUSY_A' in tmux('capture-pane','-p','-S','-300','-t',owned[0]), sibling_agent_text=bool(c.text(ids['B'])))
         c.updates.clear()
         record('idle_hold_start', seconds=75)
         await asyncio.sleep(75)
         record('no_send_control', quiet=not c.text(ids['A']) and not c.text(ids['B']))
-        response=await c.call('session/prompt',{'sessionId':ids['B'],'prompt':[{'type':'text','text':'Do not call tools. Reply only with the joined pieces: GROK120_ and IDLE_B.'}]},timeout=120)
-        record('idle_B_after_hold',ok='result' in response and c.text(ids['B']).strip()=='GROK120_IDLE_B',sibling_agent_text=bool(c.text(ids['A'])),reply=c.text(ids['B'])[:300],tui_witness='GROK120_IDLE_B' in tmux('capture-pane','-p','-S','-200','-t',owned[1]))
+        response=await c.call('session/prompt',prompt_params(ids['B'],hold_id,
+            'Do not call tools. Reply only with the joined pieces: GROK120_ and IDLE_B.'),timeout=120)
+        text=c.text(ids['B'],hold_id).strip()
+        record('idle_B_after_hold',ok=completed(response,hold_id) and text=='GROK120_IDLE_B',
+               correlated=completed(response,hold_id), stop=response.get('result',{}).get('stopReason'),
+               sibling_agent_text=bool(c.text(ids['A'])),reply=text[:300],
+               tui_witness='GROK120_IDLE_B' in tmux('capture-pane','-p','-S','-200','-t',owned[1]))
         await c.close(); clients.remove(c)
         record('producer_disconnect',tuis_alive=all(tmux('display-message','-p','-t',n,'#{pane_dead}')=='0' for n in owned))
     except Exception as error:
@@ -124,17 +143,30 @@ async def main(report_path, scratch):
     return 0 if report['status']=='pass' else 1
 
 
+def prompt_params(sid, prompt_id, text):
+    return {'sessionId': sid, '_meta': {'promptId': prompt_id},
+            'prompt': [{'type': 'text', 'text': text}]}
+
+
+def completed(response, prompt_id):
+    result = response.get('result', {})
+    meta = result.get('_meta', {})
+    return ('error' not in response and result.get('stopReason') == 'end_turn'
+            and meta.get('promptId') == prompt_id
+            and not meta.get('cancellationCategory'))
+
+
 def score(report):
     checks = {c['name']: c for c in report['checks']}
     required = {
         'tui_readiness_A': ['observed'], 'tui_readiness_B': ['observed'],
         'producer_initialize': ['ok'], 'attach_A': ['ok'], 'attach_B': ['ok'],
-        'idle_A': ['ok', 'tui_witness'],
-        'busy_A': ['request_in_flight', 'original_completed', 'nonce_observed', 'tui_witness'],
-        'no_send_control': ['quiet'], 'idle_B_after_hold': ['ok', 'tui_witness'],
+        'idle_A': ['ok', 'correlated', 'tui_witness'],
+        'busy_A': ['correlated', 'request_in_flight', 'original_completed', 'nonce_observed', 'tui_witness'],
+        'no_send_control': ['quiet'], 'idle_B_after_hold': ['ok', 'correlated', 'tui_witness'],
         'producer_disconnect': ['tuis_alive'], 'cleanup': ['owned_tuis_closed', 'leader_reaped'],
     }
-    if 'probe_error' in checks:
+    if report.get('scorer_schema') != 2 or 'probe_error' in checks:
         return False
     if not all(checks.get(name, {}).get(key) is True for name, keys in required.items() for key in keys):
         return False
@@ -142,6 +174,9 @@ def score(report):
         return False
     return (checks['idle_A'].get('reply') == 'GROK120_IDLE_A'
             and checks['idle_B_after_hold'].get('reply') == 'GROK120_IDLE_B'
+            and checks['busy_A'].get('reply') == 'GROK120_BUSY_A'
+            and checks['idle_A'].get('stop') == 'end_turn'
+            and checks['idle_B_after_hold'].get('stop') == 'end_turn'
             and checks['busy_A'].get('original_stop') == 'end_turn'
             and checks['busy_A'].get('followup_stop') == 'end_turn')
 
