@@ -80,7 +80,7 @@ const WhoamiNote = "identity read from this session's map and the adapter's desc
 // The human form carries a second line, `terminal: <plugin binary>`, when
 // the map knows the path: it is the human-facing home of the plugin
 // binary's location after finding F1 took it out of the SessionStart
-// context line, and what docs/team-member/install/terminal.md tells the human to symlink from
+// context line, and the path docs/team-member/install/terminal.md tells the human to run in a terminal
 // `~/.local/bin/brigade`. It stays OUT of `--json`, the form the model
 // reads, because a path in front of the model is the finding. The same
 // reasoning, with a sharper edge, keeps the frame level (P5-12) to one

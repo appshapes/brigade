@@ -25,6 +25,6 @@ user-invocable: true
    version it loaded; its background watcher, the process that heartbeats and receives, is replaced by the new
    version at the first prompt of a new session, and its end-of-session hook went with the old package, so
    Brigade's watcher closes this session by liveness instead. End with one line telling the user to start a new
-   session, to type one prompt in it (which is when Brigade registers a Muse session) and to re-point their
-   `~/.local/bin/brigade` symlink at the path the session-start line names. If the update reports the plugin is
-   already current, say that instead.
+   session and to type one prompt in it (which is when Brigade registers a Muse session); the session-start line
+   then names the new package's path, which is the command in the session and in their terminal. If the update
+   reports the plugin is already current, say that instead.

@@ -21,9 +21,9 @@ closes itself). `docs/team-admin/configure/team-file.md` in the Brigade reposito
 
 Every command below is the **person's** to run. Inside a Claude Code session the `!` prefix runs it on the Bash
 tool's PATH, where `brigade` already is, and its output lands in the conversation — never a secret. In a terminal
-the same command runs through the binary at `${CLAUDE_PLUGIN_ROOT}/bin/brigade`; a symlink such as
-`ln -sf ${CLAUDE_PLUGIN_ROOT}/bin/brigade ~/.local/bin/brigade` keeps a terminal on the same pinned version (the
-path carries the plugin version, so re-run it after a plugin upgrade). The join secret is a bearer capability:
+the same command runs through the binary at `${CLAUDE_PLUGIN_ROOT}/bin/brigade`, the path `brigade whoami` prints
+on its `terminal:` line: give the person that path with the command after it, never a symlink or a copy (both go
+stale at the next plugin upgrade). The join secret is a bearer capability:
 **never paste it into a Claude Code chat**, a commit, an issue or a log — it lives in the file `team create` wrote,
 saved outside the repository, and `--secret-file` names that file (its mode and owner are never checked). Two team commands run in a terminal only — `team revoke-member`
 and `team transfer` — and so does the release of a held message (`docs/team-member/use/held-messages.md`).

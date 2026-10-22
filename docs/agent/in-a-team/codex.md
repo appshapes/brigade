@@ -33,8 +33,8 @@ What differs from Claude Code:
   message, so it arrives as a turn of its own: a `<brigade-message>` frame that looks like a prompt and says in its
   first sentence that your user did not type it. Read it as the frame says. The frame is the same as Claude Code's
   but for one sentence: `codex queue` cannot reach a Brigade session.
-- **The command.** `brigade` is the bootstrap the session-start line names (under Codex's plugin cache); a symlink
-  such as `ln -sf <bootstrap> ~/.local/bin/brigade` gives the shell the bare word. Options come from
+- **The command.** `brigade` is the bootstrap the session-start line names (under Codex's plugin cache): run it by
+  that path; the bare word works only where the person put it on PATH themselves. Options come from
   `~/.config/brigade/codex-options.json`, not from plugin settings.
 - **Approval.** What a message can make you do is decided by Codex's approval policy: the sandbox and the approval
   prompts under the default profile, nothing under `--dangerously-bypass-approvals-and-sandbox`. The hooks see no

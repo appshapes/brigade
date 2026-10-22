@@ -32,7 +32,7 @@ Details: [Uninstall from Claude Code](claude-code.md).
 ## Uninstall from Muse Code
 
 1. Steps 1 and 2 of Leave the team, for each team.
-2. `muse plugins remove brigade`; optionally `muse plugins marketplace remove brigade`; remove the `~/.local/bin/brigade` symlink.
+2. `muse plugins remove brigade`; optionally `muse plugins marketplace remove brigade`; remove a `~/.local/bin/brigade` symlink if you made one.
 3. `rm -rf ~/.local/state/brigade ~/.local/share/brigade`, then `rm -rf ~/.config/brigade`.
 
 Details: [Uninstall from Muse Code](muse-code.md).
@@ -40,7 +40,7 @@ Details: [Uninstall from Muse Code](muse-code.md).
 ## Uninstall from Codex CLI
 
 1. Steps 1 and 2 of Leave the team, for each team.
-2. `codex plugin remove brigade@brigade`; optionally `codex plugin marketplace remove brigade`; remove the `~/.local/bin/brigade` symlink.
+2. `codex plugin remove brigade@brigade`; optionally `codex plugin marketplace remove brigade`; remove a `~/.local/bin/brigade` symlink if you made one.
 3. `rm -rf ~/.local/state/brigade ~/.local/share/brigade`, then `rm -rf ~/.config/brigade`.
 
 Details: [Uninstall from Codex CLI](codex.md).

@@ -11,6 +11,8 @@ brigade inbox release <message_id>…    # deliver only these
 brigade inbox --session <id>           # another session of yours on this machine
 ```
 
+- `brigade` in your terminal is the path `brigade whoami` prints on its `terminal:` line
+  ([Use brigade in a terminal](../install/terminal.md)).
 - Nothing is stored on your machine and nothing is acknowledged by looking.
 - `brigade inbox release` refuses to run inside a session, so no model can release its own reading; inside a
   session `brigade inbox` shows only the count and the sender names.

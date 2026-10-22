@@ -31,15 +31,13 @@ that should take part in a team: any of them puts Codex in embedded mode, where 
 of a few seconds instead of starting a turn at once. Options go in `config.toml`; hooks are trusted once in
 `/hooks`.
 
-## Put brigade on your PATH
+## Where brigade is
 
 Codex does not put a plugin's binaries on the shell's PATH. The bootstrap is under Codex's plugin cache
-(`~/.codex/plugins/cache/brigade/brigade/<version>/bin/brigade`); the session-start line names its path. A symlink
-gives your terminal and the session the bare word:
-
-```sh
-ln -sf <that path> ~/.local/bin/brigade
-```
+(`~/.codex/plugins/cache/brigade/brigade/<version>/bin/brigade`); the session-start line names its path, and that
+path is the command, in the session and in your terminal. It carries the version, so the next session's start line
+names the new one after an update. No symlink and no copy: both go stale at the next update
+([Use brigade in a terminal](terminal.md)).
 
 ## Join, then take part
 

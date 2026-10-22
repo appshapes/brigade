@@ -34,17 +34,13 @@ muse plugins approve brigade
 A package installed this way follows the clone: `git pull`, then `muse plugins update brigade`.
 `muse plugins validate ./muse/brigade` checks the package before installing it.
 
-## Put brigade on your PATH
+## Where brigade is
 
 Muse does not put a plugin's binaries on the shell's PATH. The bootstrap is `bin/brigade` under the installed
-package in Muse's plugin cache; the session-start line names its path. A symlink gives your terminal and the session
-the bare word:
-
-```sh
-ln -sf <that path> ~/.local/bin/brigade
-```
-
-The path carries the package's digest, so re-point the symlink after an update.
+package in Muse's plugin cache; the session-start line names its path, and that path is the command, in the
+session and in your terminal. It carries the package's digest, so it changes with every update, and the next
+session's start line names the new one. No symlink and no copy: both go stale at the next update
+([Use brigade in a terminal](terminal.md)).
 
 ## Join, then take part
 

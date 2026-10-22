@@ -32,8 +32,8 @@ What differs from Claude Code:
   and `brigade inbox follow` prints each record between a `Brigade: team message <id> follows` line and a
   `Brigade: end of message <id>` line. The monitor wakes the session about 0.2 s after a record lands. The frame is
   the same as Claude Code's but for one sentence: Muse's own session messaging cannot reach a Brigade session.
-- **The command.** `brigade` is the bootstrap the session-start line names (under Muse's plugin cache); a symlink
-  such as `ln -sf <bootstrap> ~/.local/bin/brigade` gives the shell the bare word. Options come from
+- **The command.** `brigade` is the bootstrap the session-start line names (under Muse's plugin cache): run it by
+  that path; the bare word works only where the person put it on PATH themselves. Options come from
   `~/.config/brigade/muse-options.json`, not from plugin settings.
 - **Approval.** What a message can make you do is decided by Muse's approval policy: the approval judge and the
   sandbox under the default profile, nothing under `--yolo`. The hooks see no Claude settings, so the

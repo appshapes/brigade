@@ -9,6 +9,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **The terminal route is the path, not a symlink** (card 121). `brigade whoami`'s `terminal:` line names the
+  plugin's bootstrap, and running that path in your terminal runs the version the session runs. The pages and setup
+  skills that prescribed `ln -sf … ~/.local/bin/brigade` no longer do: a link goes stale at every upgrade and keeps
+  running the old version, silently inside a session that was already running when the plugin moved on, and where
+  several Claude Code configuration directories each hold an install, one link can agree with at most one of them.
+  If you made one, remove it. The shadowing warning is unchanged. Nothing the binary prints changes.
+
 ## [0.36.0] — 2026-10-22
 
 ### Added

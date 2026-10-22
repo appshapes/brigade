@@ -45,7 +45,8 @@ Details: [Install in Codex CLI](codex.md).
 ## Use brigade in a terminal
 
 1. In a session, `brigade whoami`; copy its `terminal:` line.
-2. `ln -sf <that path> ~/.local/bin/brigade`; repeat after a plugin upgrade, because the path carries the version.
+2. Run that path in your terminal with the command after it, such as `<that path> inbox release --all`. No
+   symlink and no copy: both go stale at the next upgrade.
 3. `go install github.com/appshapes/brigade/cmd/brigade@latest` builds the command-line tool alone: no hooks, no
    watcher, no session integration.
 

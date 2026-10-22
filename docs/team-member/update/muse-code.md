@@ -21,6 +21,7 @@ tabs in that order.
 A package installed from a clone (`muse plugins inspect brigade` says provenance `native-local`) follows the clone
 instead: `git pull` there, then `muse plugins update brigade`.
 
-The symlink from `~/.local/bin/brigade` points at the bootstrap under Muse's plugin cache, whose path carries the
-package digest, so re-point it after the reinstall: the session-start line of the new session names the new path.
-`brigade version` afterwards confirms the new pin.
+The bootstrap under Muse's plugin cache carries the package digest in its path, so the path your terminal runs changes
+with every update: run `brigade whoami` in a new session and copy its `terminal:` line
+([Use brigade in a terminal](../install/terminal.md)). A `~/.local/bin/brigade` symlink from an earlier release
+points at the old version; remove it. `brigade version` afterwards confirms the new pin.

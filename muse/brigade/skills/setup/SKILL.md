@@ -20,8 +20,8 @@ inside a plan's request budget, and how long a session the VS Code extension sta
 closes itself). `docs/team-admin/configure/team-file.md` in the Brigade repository describes each.
 
 Every command below is the **person's** to run, in their own terminal, through the package's bootstrap: the
-`bin/brigade` under Muse's plugin cache for `brigade` (the session-start line names its path), and a symlink such
-as `ln -sf <that path> ~/.local/bin/brigade` gives the terminal and this session the bare word. This is a Muse
+`bin/brigade` under Muse's plugin cache for `brigade` (the session-start line names its path): give the person
+that path with the command after it, never a symlink or a copy (both go stale at the next update). This is a Muse
 Code session: it has no `!` prefix that runs a command on the person's behalf, so when the person wants to run one
 of these, give them the command to paste into their terminal. The join secret is a bearer capability:
 **never paste it into a Muse Code chat**, a commit, an issue or a log — it lives in the file `team create` wrote,

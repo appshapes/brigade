@@ -20,5 +20,6 @@ machine with several accounts (`CLAUDE_CONFIG_DIR`) updates once per account.
 
 ## After an update
 
-The symlink in your own terminal points at the old version's directory: [Use brigade in a terminal](../install/terminal.md)
-says how to re-point it.
+Your terminal runs the path `brigade whoami` prints on its `terminal:` line, which now names the new version
+([Use brigade in a terminal](../install/terminal.md)). A `~/.local/bin/brigade` symlink from an earlier release
+points at the old version; remove it.
