@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.36.1] — 2026-10-22
+
 ### Changed
 
 - **The terminal route is the path, not a symlink** (card 121). `brigade whoami`'s `terminal:` line names the
