@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.37.0] — 2026-10-22
+
 ### Added
 
 - **Several teams on one Slack gateway** (card 128). One Slack app now serves every team of a Supabase project.
