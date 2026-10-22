@@ -732,14 +732,11 @@ its API key stays in its `config.xml` there, never on a command line and never i
 Brigade: another `brigade` at <path> shadows the plugin's; remove it or the wrong version runs
 ```
 
-The fix is to point your terminal at the plugin's own program with a **symlink, not a copy**:
-
-```sh
-ln -s "${CLAUDE_PLUGIN_ROOT}/bin/brigade" ~/.local/bin/brigade
-```
-
-A copy goes stale at the next upgrade. A symlink that resolves to the plugin's own bootstrap is correctly not
-reported as a shadow; that was measured.
+The fix is to remove it and run the plugin's own program by its path, the one `brigade whoami` prints on its
+`terminal:` line (owner ruling 2026-10-22, card 121; until 0.36.1 this section prescribed a symlink at
+`~/.local/bin/brigade`). A copy goes stale at the next upgrade, and so does a symlink: it keeps running the old
+version until the next session start reports it. A symlink that resolves to the plugin's own bootstrap is
+correctly not reported as a shadow; that was measured.
 
 **The Bash sandbox.** Hooks and the background watcher run **outside** the sandbox. Only the commands the model
 runs, and their children, are inside it. Add your project's host, `<ref>.supabase.co`, to
