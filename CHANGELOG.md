@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.36.0] — 2026-10-22
+
 ### Added
 
 - **One of your sessions can go quiet** (card 126). `/brigade:quiet` makes the session it is typed in hold its
