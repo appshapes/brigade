@@ -36,6 +36,7 @@ Details: [Choose who may write](mail-senders.md).
 2. Create the app from that manifest at api.slack.com, install it, put its bot token and signing secret in a file.
 3. `SLACK_SECRETS_FILE=~/brigade-slack.env make slack-gateway-install project=<ref> team_file=<path>/.brigade.json`;
    commit the changed `.brigade.json`.
+4. Another team on the same project: run step 3 again with that team's `team_file=`. One app serves them all.
 
 Details: [Install the Slack gateway](slack-gateway.md).
 

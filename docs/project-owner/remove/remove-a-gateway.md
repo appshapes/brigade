@@ -20,5 +20,5 @@ dashboard or the Supabase CLI does what the installers did.
 6. **The rows** in the `brigade_gateway` schema (`gateways`, `threads`, `received`) are inert once the functions are
    gone; delete the team's row from `brigade_gateway.gateways` if you want the schema clean.
 
-Several teams share the connector and the tick: remove a team's gateway member and its `gateways` row, and leave
-the functions and the job while another team still uses them.
+Several teams share the connector, the Slack app, the secrets and the tick: remove a team's gateway member and its
+`gateways` row, and leave the functions, the job, the secrets and the Slack app while another team still uses them.

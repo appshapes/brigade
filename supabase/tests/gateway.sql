@@ -4,7 +4,7 @@
 -- pin in full; this file pins the new schema the same way, so a later migration cannot quietly expose it.
 begin;
 \ir helpers/auth.sql
-select plan(39);
+select plan(41);
 
 -- 1. The schema and its three tables.
 select has_schema('brigade_gateway', 'the brigade_gateway schema exists');
@@ -69,6 +69,22 @@ select lives_ok(format($$insert into brigade_gateway.gateways (team_id, user_id,
                 'a slack gateway beside the email one');
 select throws_ok(format($$insert into brigade_gateway.gateways (team_id, user_id, session_id, kind) values (%L, %L, %L, 'sms')$$, :'team', :'gw', :'sid'),
                  '23514', null, 'kind is email or slack');
+-- Several teams' Slack gateways in one project (card 128): one Slack app serves them all, each team with a gateway
+-- member and row of its own. The schema needed nothing for it; this pins that a second team's row stands beside
+-- the first, which is what slack-in and slack-out read (listSlackGateways).
+select pg_temp.new_user() as creator2 \gset
+select pg_temp.new_user() as gw2 \gset
+select pg_temp.login(:'creator2');
+select (brigade.create_team('gw-test-2', 'creator2')->>'team_id') as team2 \gset
+select pg_temp.logout();
+insert into brigade.memberships (team_id, user_id, human_label, joined_secret_version) values (:'team2', :'gw2', 'slack gateway', 1);
+select pg_temp.as_user(:'gw2');
+select (brigade.register_session(:'team2', 'slack-gateway', 'slack gateway: test', 'idle', 'accept', 'gateway-slack', '0.1.0', null, 600, null)->>'session_id') as sid2 \gset
+select pg_temp.logout();
+select lives_ok(format($$insert into brigade_gateway.gateways (team_id, user_id, session_id, kind) values (%L, %L, %L, 'slack')$$, :'team2', :'gw2', :'sid2'),
+                'a second team''s slack gateway in the same project');
+select is((select count(*) from brigade_gateway.gateways g join brigade.teams t on t.id = g.team_id where g.kind = 'slack'), 2::bigint,
+          'two teams'' slack gateways in one project, each with its own member and session');
 select lives_ok(format($$insert into brigade_gateway.threads (brigade_message_id, team_id, direction, session_id, address, mail_message_id, kind, actor)
                         values (gen_random_uuid(), %L, 'out', %L, 'C0123ABCD', '1759500000.000100', 'slack', 'U0123ABCD')$$, :'team', :'sid'),
                 'a slack thread row: channel, root ts and the person');

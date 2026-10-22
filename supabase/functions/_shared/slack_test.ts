@@ -596,12 +596,55 @@ Deno.test("slackRoster leaves the gateways out and the description fits the cap"
     principal_ref: "p5",
     state: "offline",
   };
-  const t = slackRoster("brigade", [...sessions, offline], [GW], "brigade");
+  const t = slackRoster([{ teamName: "brigade", sessions: [...sessions, offline] }], [GW], "brigade");
+  assertStringIncludes(t, "Sessions on Brigade team *brigade* right now");
   assertStringIncludes(t, "`3f9a2`  frank-reviewer  _idle_ · sam@example.com (unverified)");
   assertStringIncludes(t, "or a member's label");
   assertEquals(t.includes("gateway"), false);
   assertEquals(t.includes("gone-home"), false);
   assertEquals(Array.from(slackDescription("brigade", "appshapes.slack.com")).length <= 256, true);
+});
+
+Deno.test("slackRoster groups several teams by name, online sessions only, (none) under a team with nobody online", () => {
+  const frank: SessionRecord = {
+    session_id: S1,
+    session_name: "frank-reviewer",
+    principal_ref: "p1",
+    human_label: "sam@example.com",
+    state: "idle",
+  };
+  const cola: SessionRecord = {
+    session_id: "bbbbbbbb-0000-4000-8000-0000000000bb",
+    session_name: "cola-bot",
+    principal_ref: "p9",
+    state: "active",
+  };
+  const gone: SessionRecord = {
+    ...cola,
+    session_id: "dddddddd-0000-4000-8000-0000000000dd",
+    session_name: "gone-home",
+    state: "offline",
+  };
+  const t = slackRoster(
+    [
+      { teamName: "Zulu", sessions: [cola] },
+      { teamName: "Alpha <b>", sessions: [frank] },
+      { teamName: "Mike", sessions: [gone] },
+    ],
+    [GW],
+    "brigade",
+  );
+  assertStringIncludes(t, "Sessions on the 3 Brigade teams this gateway serves right now");
+  const [a, m, z] = ["*Alpha &lt;b&gt;*", "*Mike*", "*Zulu*"].map((h) => t.indexOf(h));
+  assertEquals(a >= 0 && a < m && m < z, true, "teams in name order");
+  assertStringIncludes(
+    t,
+    "*Alpha &lt;b&gt;*\n• `3f9a2`  frank-reviewer  _idle_ · sam@example.com (unverified)",
+  );
+  assertStringIncludes(t, "*Mike*\n  (none)");
+  assertStringIncludes(t, "*Zulu*\n• `000bb`  cola-bot  _active_");
+  assertEquals(t.includes("gone-home"), false);
+  assertStringIncludes(t, "To write to one: message @brigade");
 });
 
 Deno.test("a mention or DM that says only sessions, with or without brigade in front, is the command", async () => {

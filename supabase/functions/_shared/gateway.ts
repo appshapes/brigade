@@ -158,13 +158,7 @@ export function resolveRecipient(arg: string, sessions: SessionRecord[]): Recipi
     how = "principal";
     mine = sessions.filter((s) => s.principal_ref.toLowerCase().startsWith(a));
   }
-  if (mine.length === 0) {
-    return {
-      error: a.length < 5
-        ? `"${raw}" is too short to name a session (give at least the last five characters of its id), and no member has that label`
-        : `no session ends with "${raw}", and no member has that label`,
-    };
-  }
+  if (mine.length === 0) return { error: nobodyNamed(raw) };
   const principals = [...new Set(mine.map((s) => s.principal_ref))];
   if (principals.length > 1) {
     return {
@@ -177,6 +171,85 @@ export function resolveRecipient(arg: string, sessions: SessionRecord[]): Recipi
   const eligible = mine.filter((s) => !isGatewaySession(s) && s.inbound !== "refuse").sort(bySuitability);
   if (eligible.length === 0) return { error: `no session of ${raw} can receive a message` };
   return { session: eligible[0], how, who: raw, others: eligible.slice(1) };
+}
+
+function nobodyNamed(raw: string): string {
+  return raw.length < 5
+    ? `"${raw}" is too short to name a session (give at least the last five characters of its id), and no member has that label`
+    : `no session ends with "${raw}", and no member has that label`;
+}
+
+/** namesMember says whether a lowercased argument names a session's member: their label, the whole string, or
+ * the first eight or more characters of their principal reference (the two member rules of resolveRecipient). */
+function namesMember(a: string, s: SessionRecord): boolean {
+  if ((s.human_label ?? "").trim().toLowerCase() === a) return true;
+  return a.length >= 8 && /^[0-9a-f-]+$/.test(a) && s.principal_ref.toLowerCase().startsWith(a);
+}
+
+export interface TeamSessions {
+  teamId: string;
+  teamName: string;
+  /** The team's roster, its own gateway session left out. */
+  sessions: SessionRecord[];
+}
+
+export type TeamRecipient =
+  | (Exclude<Recipient, { error: string }> & { teamId: string; teamName: string })
+  | { error: string };
+
+/** resolveRecipientAcross is resolveRecipient over several teams' rosters, for a gateway that serves them all
+ * (card 128). A session id is unique across the project, so the id and tail rules run on the union exactly as
+ * they run inside one team. A label or a principal prefix names a member, and a member is per team (a credential
+ * is per team per machine, so one person is one principal per team): when exactly one team has such a member,
+ * that team's rules decide as today; when several do, the answer lists each team's candidates, the best three,
+ * by the five characters that end their ids, which always go through. The gateway never picks a team for the
+ * person. */
+export function resolveRecipientAcross(arg: string, teams: TeamSessions[]): TeamRecipient {
+  const raw = arg.trim();
+  const a = raw.toLowerCase();
+  if (!a) return { error: "no session or member was named" };
+  const all = teams.flatMap((t) => t.sessions.map((s) => ({ s, t })));
+  const found = (x: { s: SessionRecord; t: TeamSessions }, how: "id" | "tail"): TeamRecipient => ({
+    session: x.s,
+    how,
+    who: null,
+    others: [],
+    teamId: x.t.teamId,
+    teamName: x.t.teamName,
+  });
+  const exact = all.find((x) => x.s.session_id.toLowerCase() === a);
+  if (exact) return found(exact, "id");
+  if (a.length >= 5) {
+    const tails = all.filter((x) => x.s.session_id.toLowerCase().endsWith(a));
+    if (tails.length === 1) return found(tails[0], "tail");
+    if (tails.length > 1) {
+      return {
+        error: `these characters end ${tails.length} session ids; use one of them in full: ${
+          tails.map((x) => x.s.session_id).join(", ")
+        }`,
+      };
+    }
+  }
+  const matching = teams.filter((t) => t.sessions.some((s) => namesMember(a, s)));
+  if (matching.length === 0) return { error: nobodyNamed(raw) };
+  if (matching.length === 1) {
+    const r = resolveRecipient(raw, matching[0].sessions);
+    return "error" in r ? r : { ...r, teamId: matching[0].teamId, teamName: matching[0].teamName };
+  }
+  const lines = matching.map((t) => {
+    const best = t.sessions
+      .filter((s) => namesMember(a, s) && !isGatewaySession(s) && s.inbound !== "refuse")
+      .sort(bySuitability)
+      .slice(0, 3)
+      .map((s) => `${s.session_id.slice(-5)} ${s.session_name} (${s.state})`);
+    return `${t.teamName}: ${best.join(", ") || "no session can receive a message"}`;
+  });
+  return {
+    error:
+      `"${raw}" is a member of ${matching.length} teams; name one session by the five characters that end its id: ${
+        lines.join("; ")
+      }`,
+  };
 }
 
 const STATE_RANK: Record<string, number> = { active: 0, idle: 1, offline: 2 };

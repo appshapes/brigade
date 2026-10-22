@@ -1,23 +1,29 @@
 // slack-in: Slack's Events API and slash-command endpoint. Answers the URL verification challenge, verifies every
 // other request's signature, reads a person's DM, mention, reply in a Brigade thread or /brigade command, decides
-// where it goes and sends it into the team as a Brigade message from the gateway session. What cannot be routed
-// is answered where the person is: in the DM, ephemerally in the channel, or in the slash command's own reply. A
-// channel reply that did not mention the bot and is not in a Brigade thread is not the gateway's, and is dropped
-// without a word.
+// where it goes and sends it into the team as a Brigade message from that team's gateway session. One Slack app
+// may serve several teams of the project (card 128): the target is resolved across every served team's roster,
+// and an ambiguous one is answered with the candidates by team. What cannot be routed is answered where the
+// person is: in the DM, ephemerally in the channel, or in the slash command's own reply. A channel reply that did
+// not mention the bot and is not in a Brigade thread is not the gateway's, and is dropped without a word.
 
 import { slackApi } from "../_shared/providers/slack.ts";
 import {
   asMember,
   connect,
   listSessions,
-  loadGateway,
+  listSlackGateways,
   markReceived,
   recordThread,
   RpcError,
   sendMessage,
   threadBySlack,
 } from "../_shared/db.ts";
-import { resolveRecipient, type SessionRecord } from "../_shared/gateway.ts";
+import {
+  resolveRecipientAcross,
+  type SessionRecord,
+  type TeamRecipient,
+  type TeamSessions,
+} from "../_shared/gateway.ts";
 import {
   escapeMrkdwn,
   parseCommandRequest,
@@ -34,11 +40,12 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-/** sentNote says where a person's message went: the session, and, when they named a member, why that one and
- * which other sessions of theirs are online. */
-function sentNote(r: Exclude<ReturnType<typeof resolveRecipient>, { error: string }>): string {
+/** sentNote says where a person's message went: the session (and its team, when the gateway serves several),
+ * and, when they named a member, why that one and which other sessions of theirs are online. */
+function sentNote(r: Exclude<TeamRecipient, { error: string }>, teamName: string | null): string {
   const name = (s: SessionRecord) => `*${escapeMrkdwn(s.session_name)}* (\`…${s.session_id.slice(-5)}\`)`;
   let text = `Sent to ${name(r.session)}`;
+  if (teamName !== null) text += ` on team *${escapeMrkdwn(teamName)}*`;
   if (r.who !== null) {
     const seen = r.session.state === "offline"
       ? "offline; the message waits for it"
@@ -92,7 +99,6 @@ Deno.serve(async (req) => {
   const m = parsed.message;
   const isCommand = parsed.kind === "command";
 
-  const teamRef = env("BRIGADE_TEAM_REF");
   const botHandle = env("BRIGADE_SLACK_BOT_HANDLE") || "brigade";
   const sql = connect();
   try {
@@ -101,10 +107,23 @@ Deno.serve(async (req) => {
     const resolution = await resolveSlackInbound(m, { byThread: (c, t) => threadBySlack(sql, c, t) });
     if (resolution.kind === "ignore") return json(200, { ignored: resolution.reason });
     if (!(await markReceived(sql, `slack:${m.eventId}`))) return json(200, { duplicate: true });
-    const gw = await loadGateway(sql, teamRef, "slack");
-    const roster = await asMember(sql, gw.userId, (tx) => listSessions(tx, gw.teamId, true));
-    const sessions = roster.sessions as SessionRecord[];
-    const rosterNote = slackRoster(gw.teamName, sessions, [gw.sessionId], botHandle);
+    const gateways = await listSlackGateways(sql);
+    if (gateways.length === 0) {
+      throw new Error(
+        "the slack gateway is not installed for any team of this project: run its install target",
+      );
+    }
+    // Every served team's roster, read as that team's gateway member, its own gateway session left out.
+    const teams: TeamSessions[] = [];
+    for (const g of gateways) {
+      const roster = await asMember(sql, g.userId, (tx) => listSessions(tx, g.teamId, true));
+      teams.push({
+        teamId: g.teamId,
+        teamName: g.teamName,
+        sessions: (roster.sessions as SessionRecord[]).filter((s) => s.session_id !== g.sessionId),
+      });
+    }
+    const rosterNote = slackRoster(teams, gateways.map((g) => g.sessionId), botHandle);
 
     // tell answers the person where they are. A slash command is answered in its own HTTP response (visible to
     // them only); a DM in the DM; a channel mention ephemerally, so the channel is not told twice.
@@ -134,8 +153,14 @@ Deno.serve(async (req) => {
         return await tell(text);
       }
       case "message": {
-        const r = resolveRecipient(resolution.target, sessions.filter((s) => s.session_id !== gw.sessionId));
-        if ("error" in r) return await tell(`The message was not sent: ${r.error}.\n\n${rosterNote}`);
+        // A thread reply's target is the full id of the session the thread belongs to, so it resolves like any
+        // other id; the refusal may name sessions and teams, so it is escaped like every other untrusted text.
+        const r = resolveRecipientAcross(resolution.target, teams);
+        if ("error" in r) {
+          return await tell(`The message was not sent: ${escapeMrkdwn(r.error)}.\n\n${rosterNote}`);
+        }
+        const gw = gateways.find((g) => g.teamId === r.teamId);
+        if (!gw) throw new Error(`team ${r.teamName} has no slack gateway row`);
         let userName: string | null = null;
         let channelName: string | null = null;
         let permalink: string | null = null;
@@ -185,12 +210,13 @@ Deno.serve(async (req) => {
         if (m.ts) await api.addReaction(m.channel, m.ts, "eyes").catch(() => {});
         // A person who named a member is told which of their sessions got the message, and which others could
         // have, so a wrong pick is corrected by resending to one of those; a person who named a session is not.
-        const note = sentNote(r);
+        const note = sentNote(r, teams.length > 1 ? r.teamName : null);
         if (isCommand) return json(200, { response_type: "ephemeral", text: note });
         if (r.who !== null) await tell(note);
         return json(200, {
           message_id: sent.message_id,
           to: r.session.session_id,
+          team: gw.teamName,
           source: resolution.source,
           duplicate: sent.duplicate,
         });

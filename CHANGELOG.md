@@ -9,6 +9,19 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **Several teams on one Slack gateway** (card 128). One Slack app now serves every team of a Supabase project.
+  `slack-out` heartbeats and drains every team's gateway in turn, as `mail-out` does for mail, and `slack-in`
+  resolves a person's `to:` line across every served team: a session id or its five characters is unique across
+  the project; a member's label on one team goes through as before; a label on several teams (a person on two
+  teams is a member of each) is answered with that member's sessions on each team, by the five characters, so
+  the next attempt goes through. `/brigade sessions` lists every served team, grouped by name, online sessions
+  only. Run `make slack-gateway-install` once per team with that team's `team_file=` and the same secrets file;
+  no migration, no new secret. Until now a project served one team and a second team's install took the gateway
+  from the first. Redeploying the functions is the whole upgrade: every team's gateway comes back online at the
+  first tick.
+
 ## [0.36.1] — 2026-10-22
 
 ### Changed

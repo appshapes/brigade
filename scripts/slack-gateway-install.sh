@@ -24,6 +24,10 @@
 #   schedules the per-minute tick (pg_net + pg_cron), writes `gateway.slack` into .brigade.json (workspace and
 #   bot handle, public text) and runs one tick so the roster shows the gateway at once.
 #
+#   Several teams in one project (card 128): one Slack app serves every team's gateway, so the second run is
+#   repeated once per team with that team's --team-file and the same secrets file. The functions serve every
+#   gateways row of kind slack; the secrets are the project's and a later team's run rewrites the same values.
+#
 # Nothing here prints a token or a secret; every bearer credential reaches curl through a 0600 header file.
 set -eu
 
@@ -260,11 +264,12 @@ end \$\$"
   say "gateway session $session is registered as slack-gateway"
 fi
 
-# secrets
+# secrets: the project's, shared by every team's Slack gateway. No team ref: the functions serve every gateways
+# row of kind slack (BRIGADE_TEAM_REF stays the mail installer's, which names the one team whose mail settings
+# predate 20261005090000). The tick token is rotated on every run; there is one job per project, so that is fine.
 tick=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
 if [ -z "$dry" ]; then
   {
-    printf 'BRIGADE_TEAM_REF=%s\n' "$team_ref"
     printf 'BRIGADE_SLACK_BOT_TOKEN=%s\n' "$bot_token"
     printf 'BRIGADE_SLACK_SIGNING_SECRET=%s\n' "$signing_secret"
     printf 'BRIGADE_SLACK_TICK_TOKEN=%s\n' "$tick"
@@ -272,9 +277,9 @@ if [ -z "$dry" ]; then
     printf 'BRIGADE_SLACK_WORKSPACE=%s\n' "$workspace"
   } > "$work/secrets.env"
   $supabase_cmd secrets set --project-ref "$ref" --env-file "$work/secrets.env" >/dev/null
-  say "6 function secrets set"
+  say "5 function secrets set"
 else
-  say "would set 6 function secrets: BRIGADE_TEAM_REF, BRIGADE_SLACK_BOT_TOKEN, BRIGADE_SLACK_SIGNING_SECRET, BRIGADE_SLACK_TICK_TOKEN, BRIGADE_SLACK_BOT_HANDLE, BRIGADE_SLACK_WORKSPACE"
+  say "would set 5 function secrets: BRIGADE_SLACK_BOT_TOKEN, BRIGADE_SLACK_SIGNING_SECRET, BRIGADE_SLACK_TICK_TOKEN, BRIGADE_SLACK_BOT_HANDLE, BRIGADE_SLACK_WORKSPACE"
 fi
 
 # the tick
@@ -307,6 +312,7 @@ echo "  sessions:           brigade send <slack-gateway> with a first line \"to:
 echo "  functions:          $fn_base/slack-in, $fn_base/slack-out"
 if [ -z "$dry" ]; then
   echo "next: git add $team_file && git commit && git push (it carries only public values)"
+  echo "      another team on this project: run this second pass again with its team_file= and the same secrets file"
 else
   echo "(dry run: nothing was changed)"
 fi

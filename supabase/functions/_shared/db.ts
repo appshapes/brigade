@@ -63,16 +63,22 @@ export interface Gateway {
   kind: GatewayKind;
 }
 
-export async function loadGateway(sql: Sql, teamRef: string, kind: GatewayKind): Promise<Gateway> {
+/** listSlackGateways returns every Slack gateway of the project with its team, oldest first. One Slack app serves
+ * them all (card 128): the bot token, signing secret, handle and workspace are the project's, and nothing per
+ * team is read from the environment. */
+export async function listSlackGateways(sql: Sql): Promise<Gateway[]> {
   const rows = await sql`
     select g.team_id, t.name as team_name, g.user_id, g.session_id
       from brigade_gateway.gateways g join brigade.teams t on t.id = g.team_id
-     where g.team_id = ${teamRef}::uuid and g.kind = ${kind}`;
-  if (rows.length === 0) {
-    throw new Error(`the ${kind} gateway is not installed for this team: run its install target`);
-  }
-  const r = rows[0];
-  return { teamId: r.team_id, teamName: r.team_name, userId: r.user_id, sessionId: r.session_id, kind };
+     where g.kind = 'slack'
+     order by g.created_at`;
+  return rows.map((r: Record<string, string>) => ({
+    teamId: r.team_id,
+    teamName: r.team_name,
+    userId: r.user_id,
+    sessionId: r.session_id,
+    kind: "slack" as const,
+  }));
 }
 
 /** MailSettings is what differs between two teams' mail gateways in one project: public values kept in the

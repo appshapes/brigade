@@ -474,33 +474,52 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** slackRoster lists the sessions a person can write to: the ones online now, the gateways left out. */
-export function slackRoster(
-  teamName: string,
-  sessions: SessionRecord[],
-  gatewayIds: string[],
-  botHandle: string,
-): string {
-  const rows = sessions.filter((s) =>
-    !gatewayIds.includes(s.session_id) && !isGatewaySession(s) && s.state !== "offline"
-  );
-  const lines = [
-    `Sessions on Brigade team *${
-      escapeMrkdwn(teamName)
-    }* right now (names and labels are their owners' own words):`,
-    "",
-  ];
-  if (rows.length === 0) lines.push("  (none)");
-  for (const s of rows) {
-    const label = s.human_label ? ` · ${escapeMrkdwn(s.human_label)} (unverified)` : "";
-    lines.push(`• \`${s.session_id.slice(-5)}\`  ${escapeMrkdwn(s.session_name)}  _${s.state}_${label}`);
-    if (s.session_description) lines.push(`      ↳ ${escapeMrkdwn(oneLine(s.session_description))}`);
+export interface RosterTeam {
+  teamName: string;
+  sessions: SessionRecord[];
+}
+
+/** slackRoster lists the sessions a person can write to: the ones online now, the gateways left out. A gateway
+ * that serves several teams (card 128) lists them grouped by team, in name order, "(none)" under a team with
+ * nobody online; with one team the text is what it always was. */
+export function slackRoster(teams: RosterTeam[], gatewayIds: string[], botHandle: string): string {
+  const sorted = [...teams].sort((x, y) => x.teamName.localeCompare(y.teamName));
+  const lines: string[] = [];
+  if (sorted.length === 1) {
+    lines.push(
+      `Sessions on Brigade team *${
+        escapeMrkdwn(sorted[0].teamName)
+      }* right now (names and labels are their owners' own words):`,
+      "",
+      ...rosterRows(sorted[0].sessions, gatewayIds),
+    );
+  } else {
+    lines.push(
+      `Sessions on the ${sorted.length} Brigade teams this gateway serves right now (names and labels are their owners' own words):`,
+    );
+    for (const t of sorted) {
+      lines.push("", `*${escapeMrkdwn(t.teamName)}*`, ...rosterRows(t.sessions, gatewayIds));
+    }
   }
   lines.push(
     "",
     `To write to one: message @${botHandle} with a first line \`to: <the five characters, or a member's label>\`, or \`/brigade send <five characters or label> <text>\`.`,
   );
   return lines.join("\n");
+}
+
+function rosterRows(sessions: SessionRecord[], gatewayIds: string[]): string[] {
+  const rows = sessions.filter((s) =>
+    !gatewayIds.includes(s.session_id) && !isGatewaySession(s) && s.state !== "offline"
+  );
+  if (rows.length === 0) return ["  (none)"];
+  const lines: string[] = [];
+  for (const s of rows) {
+    const label = s.human_label ? ` · ${escapeMrkdwn(s.human_label)} (unverified)` : "";
+    lines.push(`• \`${s.session_id.slice(-5)}\`  ${escapeMrkdwn(s.session_name)}  _${s.state}_${label}`);
+    if (s.session_description) lines.push(`      ↳ ${escapeMrkdwn(oneLine(s.session_description))}`);
+  }
+  return lines;
 }
 
 function oneLine(s: string): string {

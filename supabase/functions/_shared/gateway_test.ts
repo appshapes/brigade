@@ -11,10 +11,12 @@ import {
   resolveInbound,
   resolveOutbound,
   resolveRecipient,
+  resolveRecipientAcross,
   rosterText,
   senderAllowed,
   type SessionRecord,
   tagOf,
+  type TeamSessions,
   type ThreadRow,
 } from "./gateway.ts";
 import type { InboundMail } from "./mail.ts";
@@ -167,6 +169,115 @@ Deno.test("resolveRecipient: eight or more characters of a principal reference n
   assertStringIncludes(errOf(resolveRecipient("9f3c1a2", [one])), "no session ends");
   // A session's name is never an address.
   assertStringIncludes(errOf(resolveRecipient("frank-reviewer", sessions)), "no member has that label");
+});
+
+// Several teams on one gateway (card 128). Alpha carries the shared fixture's two people; Beta carries Sam under
+// the second principal, as a person on two teams is (one credential per team, so one principal per team).
+const alpha: TeamSessions = { teamId: "t-alpha", teamName: "Alpha", sessions: sessions.slice(0, 2) };
+const bob = sam({ human_label: "bob@example.com", principal_ref: "b0b0b0b0-bbbb-4bbb-8bbb-bbbbbbbbbbbb" });
+
+function pickAcross(r: ReturnType<typeof resolveRecipientAcross>) {
+  if ("error" in r) throw new Error(r.error);
+  return {
+    id: r.session.session_id,
+    how: r.how,
+    team: r.teamName,
+    others: r.others.map((s) => s.session_id),
+  };
+}
+
+Deno.test("resolveRecipientAcross: an id or a tail is found on whichever team has it; a label on one team is that team's", () => {
+  const beta: TeamSessions = { teamId: "t-beta", teamName: "Beta", sessions: [bob] };
+  assertEquals(pickAcross(resolveRecipientAcross(S1, [alpha, beta])), {
+    id: S1,
+    how: "id",
+    team: "Alpha",
+    others: [],
+  });
+  assertEquals(pickAcross(resolveRecipientAcross("3F9A2", [alpha, beta])), {
+    id: S1,
+    how: "tail",
+    team: "Alpha",
+    others: [],
+  });
+  assertEquals(pickAcross(resolveRecipientAcross("000c1", [alpha, beta])), {
+    id: bob.session_id,
+    how: "tail",
+    team: "Beta",
+    others: [],
+  });
+  assertEquals(pickAcross(resolveRecipientAcross("Bob@Example.com", [alpha, beta])), {
+    id: bob.session_id,
+    how: "label",
+    team: "Beta",
+    others: [],
+  });
+  assertEquals(pickAcross(resolveRecipientAcross("b0b0b0b0", [alpha, beta])), {
+    id: bob.session_id,
+    how: "principal",
+    team: "Beta",
+    others: [],
+  });
+  // A tail that ends an id on each team is refused with both ids, as inside one team.
+  const twin = { ...sessions[2], session_id: "aaaaaaaa-0000-4000-8000-00000009c9c9" };
+  const amb = resolveRecipientAcross("9c9c9", [{ ...alpha, sessions: [sessions[2]] }, {
+    ...beta,
+    sessions: [twin],
+  }]);
+  assertStringIncludes(errOf(amb), "2 session ids");
+  assertStringIncludes(errOf(amb), twin.session_id);
+  // Nobody of that name, anywhere.
+  assertStringIncludes(errOf(resolveRecipientAcross("zzzzz", [alpha, beta])), "no session ends");
+  assertStringIncludes(errOf(resolveRecipientAcross("3f9", [alpha, beta])), "too short");
+  assertStringIncludes(errOf(resolveRecipientAcross("", [alpha, beta])), "no session or member");
+  assertStringIncludes(
+    errOf(resolveRecipientAcross("frank-reviewer", [alpha, beta])),
+    "no member has that label",
+  );
+});
+
+Deno.test("resolveRecipientAcross: a label on two teams is answered with each team's best sessions by tail; inside one team the rules are unchanged", () => {
+  const beta: TeamSessions = {
+    teamId: "t-beta",
+    teamName: "Beta",
+    sessions: [
+      sam({ state: "active" }),
+      sam({ session_id: "cccccccc-0000-4000-8000-0000000000c2", session_name: "sam-two", state: "offline" }),
+      sam({ session_id: "cccccccc-0000-4000-8000-0000000000c3", session_name: "sam-three", state: "idle" }),
+      sam({ session_id: "cccccccc-0000-4000-8000-0000000000c4", session_name: "sam-four", state: "offline" }),
+      sam({
+        session_id: "cccccccc-0000-4000-8000-0000000000c5",
+        session_name: "sam-quiet",
+        inbound: "refuse",
+      }),
+    ],
+  };
+  // Alpha's frank-reviewer carries the label under principal p1; Beta's Sam under another: two teams, the person
+  // picks by tail. The best three of a team are listed, state first; a refusing session is not a candidate.
+  const two = errOf(resolveRecipientAcross("sam@example.com", [beta, alpha]));
+  assertStringIncludes(two, '"sam@example.com" is a member of 2 teams');
+  assertStringIncludes(two, "Alpha: 3f9a2 frank-reviewer (idle)");
+  assertStringIncludes(two, "Beta: 000c1 sam-one (active), 000c3 sam-three (idle), 000c2 sam-two (offline)");
+  assertEquals(two.includes("sam-four"), false);
+  assertEquals(two.includes("sam-quiet"), false);
+  // A team whose member cannot receive is still named, so the person knows where the label lives.
+  const quiet = errOf(
+    resolveRecipientAcross("sam@example.com", [alpha, { ...beta, sessions: [beta.sessions[4]] }]),
+  );
+  assertStringIncludes(quiet, "Beta: no session can receive a message");
+  // On one team, the member's best session with the others, and the team carried.
+  const delta: TeamSessions = { teamId: "t-delta", teamName: "Delta", sessions: [sessions[1]] };
+  assertEquals(pickAcross(resolveRecipientAcross("sam@example.com", [beta, delta])), {
+    id: beta.sessions[0].session_id,
+    how: "label",
+    team: "Beta",
+    others: [beta.sessions[2].session_id, beta.sessions[1].session_id, beta.sessions[3].session_id],
+  });
+  // Two principals sharing a label inside one team: refused with the principal prefixes, as before.
+  const gamma: TeamSessions = { teamId: "t-gamma", teamName: "Gamma", sessions: [sessions[0], sam({})] };
+  const shared = errOf(resolveRecipientAcross("sam@example.com", [gamma, delta]));
+  assertStringIncludes(shared, "2 members");
+  assertStringIncludes(shared, "p1, 9f3c1a20");
 });
 
 Deno.test("addressedToInbox accepts the inbox and its tags, refuses another team's inbox on the same account", () => {

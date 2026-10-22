@@ -915,8 +915,11 @@ turn email or Slack messages into Brigade messages and back. First mail, then wh
 
 **What Slack changes.** Slack authenticates the person: the user id a session is told (`from: U0123…`) is a
 verified identity in that workspace, and only the workspace's members and guests can reach the bot, so the
-unguarded-address problem of mail does not arise. The display name beside it is still unverified text. Every
-request is checked against the app's signing secret; the URL verification challenge alone is answered unsigned,
+unguarded-address problem of mail does not arise. One app may serve several teams of the project (0.37.0): every
+member and guest of the workspace can then write to the sessions of every served team through the one bot, which
+the owner who installs a second team's gateway on the project accepts. The display name beside it is still
+unverified text. Every request is checked against the app's signing secret; the URL verification challenge alone
+is answered unsigned,
 because it carries nothing but a nonce. Slack, Inc. and the workspace's administrators can read everything that
 goes through the gateway. The app's manifest asks for the channel-history scopes (`channels:history`,
 `groups:history`), so that a reply in a channel thread reaches the gateway without the bot being mentioned: with

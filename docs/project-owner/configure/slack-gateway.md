@@ -6,9 +6,9 @@ verified identity. You run one command twice, with a step at Slack in between.
 
 ## What you need
 
-A Slack workspace where you may create and install an app (one Slack gateway per Supabase project: a second
-team's install takes it over); the personal access token you used for `make backend-install`; `curl`, `jq` and
-Node. No public URL of your own, no Socket Mode, no DNS.
+A Slack workspace where you may create and install an app (one app per Supabase project, serving every team on
+it: [Several teams](#several-teams)); the personal access token you used for `make backend-install`; `curl`, `jq`
+and Node. No public URL of your own, no Socket Mode, no DNS.
 
 ## The two passes
 
@@ -68,6 +68,17 @@ If people cannot message the bot: Slack refuses direct messages to a bot whose M
 turns it on; for an app created from an older manifest, open App Home and turn on **Messages Tab** and **Allow
 users to send Slash commands and messages from the messages tab**.
 
+## Several teams
+
+One Slack app serves every team of the project. Run the second pass once per team, each with its own `team_file=`
+and the same secrets file. Each team gets a gateway member and a `slack-gateway` session of its own; the app, its
+token and signing secret, and the tick are shared. People then reach every served team through the one bot:
+`/brigade sessions` lists the teams, grouped by name, and a `to:` line is resolved across them. A session's five
+characters are unique across the project. A member's label is per team, so a person on two teams has it twice; the
+gateway answers with that member's sessions on each team, by their five characters, and the person sends again to
+one of those. One project serves one Slack workspace: a team whose people are in another workspace needs a project
+of its own. Anyone in the workspace can write to the sessions of every served team.
+
 ## How it works
 
 ```
@@ -79,10 +90,10 @@ users to send Slash commands and messages from the messages tab**.
 An ordinary member, exactly as the mail gateway, sharing the `brigade_gateway` schema with a `kind` column; a team
 may have both. `slack-in` answers the URL verification challenge unsigned (a nonce only), verifies every other
 request's signature, ignores edits, bot messages and its own, dedupes by event id, and finds the target in the
-`to:` line or the thread table; a channel message that mentioned nobody is carried only when it is a reply in a
-thread the table knows. `slack-out`, the tick, drains the gateway's inbox, resolves `to:` (`@name`, `#channel`, an
-email, an id), turns `@handle` into a mention, posts, records the thread and acknowledges only after Slack accepted
-the post.
+`to:` line or the thread table, across every team the project serves; a channel message that mentioned nobody is
+carried only when it is a reply in a thread the table knows. `slack-out`, the tick, drains each team's gateway
+inbox in turn, resolves `to:` (`@name`, `#channel`, an email, an id), turns `@handle` into a mention, posts,
+records the thread and acknowledges only after Slack accepted the post.
 
 ## Limits
 

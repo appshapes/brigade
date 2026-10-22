@@ -25,10 +25,12 @@ Your administrator gives them the gateway's address or the bot's handle (`@briga
 
 - **See the sessions:** email the address with just `sessions` as the text or subject; in Slack, `/brigade sessions`
   or a message that says `sessions`. The list comes back: each session online, its five characters, name, state,
-  label and `↳` line.
+  label and `↳` line. A Slack bot that serves several teams lists them grouped by team.
 - **Write to a session:** the first line names it, `to: 3f9a2`; `to: alice@example.com` (a label, or eight
   characters of a principal reference) reaches that member's best session instead. A `summary:` line under the
-  first, then a blank line, gives the message a summary. In Slack, `/brigade send 3f9a2 <text>` does the same.
+  first, then a blank line, gives the message a summary. In Slack, `/brigade send 3f9a2 <text>` does the same. A
+  label that is on two of the bot's teams is answered with that member's sessions on each team, by their five
+  characters; send again to one of those.
 - **Answer a session:** reply to its email above the quoted text, or in the Slack thread under its message. The
   `[brigade]` block at the end of a mail helps the gateway thread the reply; leave it as it is.
 - **What they should know:** the session treats their words as another person's, never as its own user's
