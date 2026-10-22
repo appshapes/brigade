@@ -509,7 +509,7 @@ func TestCommandTableIsWellFormed(t *testing.T) {
 			t.Errorf("%s: multi-call entrypoints are hidden from `help`", c.Name)
 		}
 	}
-	for _, want := range []string{"version", "help", "sessions", "send", "whoami", "doing", "team", "inbox", "hook", "watch", "adapter"} {
+	for _, want := range []string{"version", "help", "sessions", "send", "whoami", "doing", "inbound", "team", "inbox", "hook", "watch", "adapter"} {
 		if !seen[want] {
 			t.Errorf("the 6.4 command %q is missing from the table", want)
 		}
@@ -527,7 +527,7 @@ func TestCommandTableIsWellFormed(t *testing.T) {
 func TestLookupIsExactNotAPrefix(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"version", "help", "sessions", "send", "doing", "team", "hook", "watch", "adapter"} {
+	for _, name := range []string{"version", "help", "sessions", "send", "doing", "inbound", "team", "hook", "watch", "adapter"} {
 		cmd, ok := Lookup(name)
 		if !ok {
 			t.Errorf("Lookup(%q) = false, want the table entry", name)
@@ -765,7 +765,7 @@ func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
 			t.Errorf("%s: not Raw; the adapter flags it forwards would be usage errors", raw)
 		}
 	}
-	for _, typed := range []string{"sessions", "send", "whoami", "doing", "inbox"} {
+	for _, typed := range []string{"sessions", "send", "whoami", "doing", "inbound", "inbox"} {
 		if cmd, _ := Lookup(typed); cmd.Raw {
 			t.Errorf("%s: Raw; its flags are the table's", typed)
 		}
@@ -775,7 +775,7 @@ func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
 		t.Errorf("help still carries a placeholder block:\n%s", got.stdout)
 	}
 	commandsBlock := got.stdout[strings.Index(got.stdout, "Commands:"):strings.Index(got.stdout, "Global flags:")]
-	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "doing [--clear]", "team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer", "inbox [release]"} {
+	for _, want := range []string{"sessions [--all]", "send <session_id>", "whoami", "doing [--clear]", "inbound [accept|hold|refuse]", "team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer", "inbox [release]"} {
 		if !strings.Contains(commandsBlock, want) {
 			t.Errorf("help's Commands block lacks %q:\n%s", want, commandsBlock)
 		}

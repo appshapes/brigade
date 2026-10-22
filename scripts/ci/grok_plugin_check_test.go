@@ -15,7 +15,7 @@ import (
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
-var grokSkills = []string{"email", "join", "sessions", "setup", "slack", "team-messaging", "update"}
+var grokSkills = []string{"email", "join", "quiet", "sessions", "setup", "slack", "team-messaging", "update"}
 
 // Source validation deliberately makes no live-host or release-readiness claim.
 // The shell check's strict mode separately requires release-produced pins.
@@ -53,7 +53,7 @@ func checkGrokSource(root string) error {
 		names = append(names, entry.Name())
 	}
 	if !slices.Equal(names, grokSkills) {
-		return fmt.Errorf("expected exactly seven skills, got %v", names)
+		return fmt.Errorf("expected exactly eight skills, got %v", names)
 	}
 	for _, name := range grokSkills {
 		data, err := read(pkg + "/skills/" + name + "/SKILL.md")

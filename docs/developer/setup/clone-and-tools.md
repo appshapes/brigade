@@ -7,7 +7,7 @@ make setup
 
 `make setup` downloads the modules, installs the pinned golangci-lint and goreleaser into `./bin`, shellcheck
 (Homebrew on macOS), writes `.env` from `.env.example` and sets `push.autoSetupRemote`. It stops if `gh` is missing
-or logged out, or if Docker is not running. Go 1.27.2 is pinned in `go.mod` with no `toolchain` line: the release
+or logged out, or if Docker is not running. Go 1.27.3 is pinned in `go.mod` with no `toolchain` line: the release
 job rebuilds from the tag with that toolchain and diffs against the committed checksums.
 
 | For | You also need |

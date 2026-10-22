@@ -117,9 +117,25 @@ type ByPID struct {
 	// NonInteractive is true for a `claude -p` session (CLAUDE_CODE_ENTRYPOINT
 	// sdk-cli, 6.5); diagnostics only.
 	NonInteractive bool `json:"non_interactive"`
-	// Inbound is the EFFECTIVE policy the hook chose: accept, hold or
-	// refuse (6.8).
+	// Inbound is the EFFECTIVE policy the session runs under: accept, hold
+	// or refuse (6.8) — the stronger of InboundDecided and InboundRequest
+	// (card 126). It is the one member the watcher, the prompt hook's poll,
+	// `inbox` and `whoami` read; nothing reads the other two to decide.
 	Inbound string `json:"inbound"`
+	// InboundDecided is the policy the hook decided (policy.Decide: the
+	// team_inbound option, the native scan, the parity rule) — the
+	// CEILING a runtime request can tighten below and return to, never
+	// rise above (card 126). The SessionStart hook writes it and the
+	// prompt hook rewrites it at every re-decision. Absent (omitzero) in a
+	// map from before the member existed, where Decided reads Inbound.
+	InboundDecided string `json:"inbound_decided,omitzero"`
+	// InboundRequest is the runtime request `brigade inbound hold|refuse`
+	// recorded for this one session (card 126): "" for none, else hold or
+	// refuse. It is never accept — `brigade inbound accept` clears it —
+	// so a request can only tighten. It lasts for the session's process:
+	// the continue path of SessionStart (/clear) and the compact refresh
+	// carry it, a fresh registration starts without one.
+	InboundRequest string `json:"inbound_request,omitzero"`
 	// FrameLevel is the instruction paragraph the frame carries: open,
 	// guarded, strict, or custom for a user-supplied clause (P5-12). The
 	// hook resolves it ONCE at SessionStart and freezes it here, so the
@@ -242,7 +258,10 @@ type ByPID struct {
 // Validate checks the members every by-pid map must carry before it is
 // written or trusted: a positive pid, a Brigade session id, a valid
 // profile name, an absolute config dir, an inbound value this harness
-// implements (accept, hold or refuse), a well-formed adapter argv, an
+// implements (accept, hold or refuse) — with, when the decided policy is
+// present, the effective value equal to the stronger of it and the request,
+// so a map can neither loosen a request nor carry a request of accept
+// (card 126) — a well-formed adapter argv, an
 // absolute or empty socket path, an absolute or empty transcript path (the
 // watcher opens it; a relative one would name a file relative to whatever
 // its cwd is), an absent or valid doing mode (one of the five words of
@@ -263,6 +282,12 @@ func (m *ByPID) Validate() error {
 	case !filepath.IsAbs(m.ConfigDir):
 		return errInvalid("config_dir")
 	case m.Inbound != protocol.InboundAccept && m.Inbound != protocol.InboundHold && m.Inbound != protocol.InboundRefuse:
+		return errInvalid("inbound")
+	case m.InboundDecided != "" && m.InboundDecided != protocol.InboundAccept && m.InboundDecided != protocol.InboundHold && m.InboundDecided != protocol.InboundRefuse:
+		return errInvalid("inbound_decided")
+	case m.InboundRequest != "" && m.InboundRequest != protocol.InboundHold && m.InboundRequest != protocol.InboundRefuse:
+		return errInvalid("inbound_request")
+	case m.InboundDecided != "" && m.Inbound != TightenInbound(m.InboundDecided, m.InboundRequest):
 		return errInvalid("inbound")
 	case CheckAdapterCommand(m.AdapterCommand) != nil:
 		return errInvalid("adapter_command")

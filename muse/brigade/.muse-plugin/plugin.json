@@ -35,7 +35,8 @@
       { "id": "join", "path": "skills/join/SKILL.md" },
       { "id": "update", "path": "skills/update/SKILL.md" },
       { "id": "email", "path": "skills/email/SKILL.md" },
-      { "id": "slack", "path": "skills/slack/SKILL.md" }
+      { "id": "slack", "path": "skills/slack/SKILL.md" },
+      { "id": "quiet", "path": "skills/quiet/SKILL.md" }
     ]
   }
 }

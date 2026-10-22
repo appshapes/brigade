@@ -3,7 +3,7 @@
 This directory is the Codex CLI package of Brigade: team messaging between the coding sessions of different people
 and machines, with a Codex session taking part beside Claude Code and Muse Code ones. It ships the same bootstrap,
 version pin and checksums as the Claude Code package (`plugin/`), a native Codex manifest, a `hooks/hooks.json`
-whose three commands run that bootstrap, and the seven skills worded for Codex. The repository root's
+whose three commands run that bootstrap, and the eight skills worded for Codex. The repository root's
 `.agents/plugins/marketplace.json` is the marketplace that names it. One Brigade team, one backend, three kinds of
 session.
 
@@ -23,8 +23,8 @@ The procedures are in the documentation tree: [install](../../docs/team-member/i
   argv and the thread id comes from the hook's document.
 - **`bin/`**: copies of `plugin/bin`'s bootstrap, `VERSION` and `checksums.txt`, kept equal by the release sequence
   and checked by `make codex-plugin-check` and the release workflow.
-- **The skills**, under `skills/`: the same seven as the Claude Code package, worded for Codex (`$brigade:sessions`, `$brigade:join`,
-  `$brigade:update`, `$brigade:setup`, `$brigade:email`, `$brigade:slack`, and `team-messaging`, which the model loads itself).
+- **The skills**, under `skills/`: the same eight as the Claude Code package, worded for Codex (`$brigade:sessions`, `$brigade:join`,
+  `$brigade:update`, `$brigade:setup`, `$brigade:email`, `$brigade:slack`, `$brigade:quiet`, and `team-messaging`, which the model loads itself).
 
 ## What is different from the Claude Code package, and why
 

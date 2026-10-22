@@ -40,7 +40,7 @@ jobs:
         with: {fetch-depth: 0}            # P1-8's checksums-check needs tags and the release listing
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod         # 1.27.2 from the `go` line (no toolchain line, 7.2)
+          go-version-file: go.mod         # 1.27.3 from the `go` line (no toolchain line, 7.2)
           cache-dependency-path: |
             go.sum
             tools.sum

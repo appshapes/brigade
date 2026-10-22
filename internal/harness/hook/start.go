@@ -252,7 +252,12 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 			}
 			watcherRuns = r.spawnWatcher(ctx, f, m, pidfileWait)
 		}
-		hbErr := r.heartbeat(ctx, res, existing.BrigadeSessionID, blank)
+		// The heartbeat carries the policy the session runs under: the
+		// decision tightened by the request the session continues with
+		// (card 126), never the bare decision, or the roster would show a
+		// quiet session as accepting until the watcher's next heartbeat.
+		effective := sessionmap.TightenInbound(res.dec.Policy.String(), existing.InboundRequest)
+		hbErr := r.heartbeat(ctx, res, existing.BrigadeSessionID, effective, blank)
 		if hbErr == nil || !isCode(hbErr, protocol.CodeConflict, protocol.CodeNotFound) {
 			if hbErr != nil {
 				r.log.Warn("heartbeat failed; the watcher keeps trying", log.Err(hbErr))
@@ -346,6 +351,13 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 
 func (r *run) continueMap(f facts, in input, res resolved, existing *sessionmap.ByPID, now time.Time) *sessionmap.ByPID {
 	m := r.buildMap(f, in, res, existing.BrigadeSessionID, existing.TeamRef, existing.TeamName, existing.RegisteredAt, now)
+	// The session continues, so the runtime request `brigade inbound`
+	// recorded in it continues too (card 126): /clear keeps a quiet
+	// session quiet. The decision is this SessionStart's; the effective
+	// policy is derived from both.
+	if existing.InboundRequest != "" {
+		m.SetInboundRequest(existing.InboundRequest)
+	}
 	if f.host == config.HostGrok && existing.ValidGrokReceiver() {
 		g := *existing.Grok
 		m.Grok = &g
@@ -1066,10 +1078,10 @@ func (r *run) checkPidfile(f facts) pidfile.Verdict {
 // opt-out retract the doing line (card 25, plan 5.3). The verdict is
 // connect's (blankDoingLine): this function sees neither the document nor
 // the existing map, and the member is otherwise absent, never "".
-func (r *run) heartbeat(ctx context.Context, res resolved, sessionID string, blankDoing bool) error {
+func (r *run) heartbeat(ctx context.Context, res resolved, sessionID, inbound string, blankDoing bool) error {
 	hctx, cancel := context.WithTimeout(ctx, adapterclient.WatchRequestTimeout)
 	defer cancel()
-	name, activity, inbound := res.id.name, res.id.activity, res.dec.Policy.String()
+	name, activity := res.id.name, res.id.activity
 	// brigade_version rides this heartbeat too (C-46): a session that
 	// continues is exactly the case a plugin update produces — the hook is
 	// the first process of the new binary to reach the backend, before the
@@ -1198,6 +1210,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		PermissionMode:         in.PermissionMode,
 		NonInteractive:         res.id.nonInteractive,
 		Inbound:                res.dec.Policy.String(),
+		InboundDecided:         res.dec.Policy.String(),
 		FrameLevel:             string(res.instruction.Level),
 		FrameText:              res.instruction.Custom,
 		SocketPath:             f.socket,

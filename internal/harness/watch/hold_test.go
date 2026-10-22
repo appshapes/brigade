@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
 )
@@ -253,5 +254,68 @@ func TestBodyGrepBites(t *testing.T) {
 	}
 	if hits := tokenHits(t, body, fx.dirs.BrigadeState); len(hits) != 0 {
 		t.Fatalf("hits in an untouched fixture = %v", hits)
+	}
+}
+
+// TestRuntimeHoldThroughTheMap is card 126's enforcement: a session that
+// ran under accept has `brigade inbound hold` recorded in its map (the
+// request beside the decision); within a liveness tick the watcher runs
+// under hold — the next message is held, not posted, not acked — and a
+// release delivers it as a configured hold would. Lifting the request
+// (accept) delivers what arrives afterwards and leaves the held one held.
+func TestRuntimeHoldThroughTheMap(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{inbound: protocol.InboundAccept})
+	fx.useFS()
+	fx.writeMap()
+	r := fx.start(fx.deps())
+	open := fx.send("delivered under accept 9a8b")
+	if frames := fx.sock.WaitFrames(1, waitShort); len(frames) != 1 || !strings.Contains(frames[0], "delivered under accept 9a8b") {
+		t.Fatalf("frames = %q", frames)
+	}
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return slices.Equal(fx.ackedIDs(), []string{open}) })
+
+	// `brigade inbound hold`: the request recorded, the decision kept.
+	fx.writeMapWith(func(m *sessionmap.ByPID) { m.SetInboundRequest(protocol.InboundHold) })
+	fx.waitLog("inbound policy changed", map[string]any{"inbound": "hold"})
+	fx.forbidBody("held by request c7d8")
+	held := fx.send("held by request c7d8")
+	waitHeld(t, fx, held)
+	// Held is a terminal outcome for the message, so once the pending
+	// file names it no frame can follow: the count is read, not awaited.
+	if frames := fx.sock.Frames(); len(frames) != 1 {
+		t.Fatalf("frames after the request = %d, want the one from before", len(frames))
+	}
+	if got := fx.ackedIDs(); !slices.Equal(got, []string{open}) {
+		t.Fatalf("acked = %v, want only the message delivered under accept", got)
+	}
+
+	// `brigade inbound accept`: the request lifted; the held message stays
+	// held until a release names it, the next message is delivered.
+	fx.writeMapWith(func(m *sessionmap.ByPID) { m.SetInboundRequest("") })
+	fx.waitLog("inbound policy changed", map[string]any{"inbound": "accept"})
+	after := fx.send("delivered after the lift e1f2")
+	frames := fx.sock.WaitFrames(2, waitShort)
+	if len(frames) != 2 || !strings.Contains(frames[1], "delivered after the lift e1f2") {
+		t.Fatalf("frames after the lift = %q", frames)
+	}
+	wantAcked := []string{open, after}
+	slices.Sort(wantAcked)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		got := fx.ackedIDs()
+		slices.Sort(got)
+		return slices.Equal(got, wantAcked)
+	})
+	if got := fx.pendingIDs(); !slices.Equal(got, []string{held}) {
+		t.Fatalf("pending after the lift = %v, want %v still held", got, []string{held})
+	}
+	fx.writeRelease(fx.sessionID, held)
+	frames = fx.sock.WaitFrames(3, waitShort)
+	if len(frames) != 3 || !strings.Contains(frames[2], "held by request c7d8") {
+		t.Fatalf("frames after the release = %d", len(frames))
+	}
+	testutil.Eventually(t, waitShort, pollEvery, func() bool { return len(fx.ackedIDs()) == 3 })
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
 	}
 }

@@ -15,6 +15,7 @@ they arrive. You ask in words; these are the things to ask for and what comes ba
 | check whether your session is receiving | [Check that your session is receiving](#check-that-your-session-is-receiving) |
 | know what happens when the network drops | [Ride out a network drop](#ride-out-a-network-drop) |
 | read and release the messages a `hold` session kept | [Read and release held messages](#read-and-release-held-messages) |
+| keep one of your sessions out of the team's traffic for a while | [Make one session quiet](#make-one-session-quiet) |
 
 ## See the team
 
@@ -73,3 +74,11 @@ Details: [Ride out a network drop](network-drops.md).
 2. Nothing is acknowledged by looking; `release` refuses to run inside a session.
 
 Details: [Read and release held messages](held-messages.md).
+
+## Make one session quiet
+
+1. `/brigade:quiet` in that session holds its team messages for you and says so on its roster line;
+   `--to <where>` names where teammates should write instead.
+2. `/brigade:quiet off` returns it to normal. Held messages wait for `brigade inbox release` in your terminal.
+
+Details: [Make one session quiet](quiet-session.md).

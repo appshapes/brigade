@@ -71,8 +71,9 @@ func (r *run) prompt() int {
 		m.TranscriptPath = p
 		changed = true
 	}
+	decidedBefore := m.InboundDecided
 	replaceWatcher := r.redecide(f, in, m)
-	if replaceWatcher {
+	if replaceWatcher || m.InboundDecided != decidedBefore {
 		changed = true
 	}
 	if changed {
@@ -355,6 +356,12 @@ func (r *run) retryConnect(ctx context.Context, f facts, in input) {
 // its environment. An unchanged policy prints nothing more: the warnings
 // were printed when it was decided. A document without permission_mode
 // decides nothing; neither does a hook whose options cannot be read.
+//
+// The decision is the ceiling (card 126): the map's effective policy is
+// the stronger of it and the runtime request `brigade inbound` recorded,
+// so a re-decision never lifts a hold or refuse the person asked for in
+// this session, and the decided member is rewritten whether or not the
+// effective policy moved (the caller writes the map when it did).
 func (r *run) redecide(f facts, in input, m *sessionmap.ByPID) bool {
 	if in.PermissionMode == "" {
 		return false
@@ -381,7 +388,8 @@ func (r *run) redecide(f facts, in input, m *sessionmap.ByPID) bool {
 		NonInteractive: m.NonInteractive,
 		Entrypoint:     f.entrypoint,
 	})
-	next := dec.Policy.String()
+	m.InboundDecided = dec.Policy.String()
+	next := policy.Tighten(dec.Policy, m.InboundRequest).String()
 	if next == m.Inbound {
 		return false
 	}
@@ -394,10 +402,13 @@ func (r *run) redecide(f facts, in input, m *sessionmap.ByPID) bool {
 				r.say(w)
 			}
 		}
-	case ensureLine != "":
+	case ensureLine != "" && next == dec.Policy.String():
 		// The write's line already says messages are delivered.
 	default:
-		if line := policyNowLine(dec.Policy); r.fits(line) {
+		// The effective policy is accept or hold here: refuse needs the
+		// decision or the request to be refuse, and a request of refuse
+		// made the map refuse the moment it was recorded.
+		if line := policyNowLine(policy.Policy(next)); r.fits(line) {
 			r.say(line)
 		}
 	}

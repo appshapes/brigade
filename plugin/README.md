@@ -30,11 +30,13 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
   conversation is closed and fires no hook; its next prompt re-opens it. Before the binary is installed, the
   prompt and session-end hooks return at once and print nothing, and an install that fails for good is reported
   once, on the next prompt, as a hook error beginning `Brigade: not installed:`.
-- **Seven skills** under `skills/`: `team-messaging` (model-facing: the command surface, the sending rules, the
+- **Eight skills** under `skills/`: `team-messaging` (model-facing: the command surface, the sending rules, the
   inbound frame, the gateways, the roster line), `setup` (human-facing: create, join, leave, uninstall), `join`
   (`/brigade:join <path>`), `update` (`/brigade:update`), `sessions` (`/brigade:sessions`), `email`
-  (`/brigade:email <address> <text>`) and `slack` (`/brigade:slack <to> <text>`).
-- **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and seven skills; there is nothing else
+  (`/brigade:email <address> <text>`), `slack` (`/brigade:slack <to> <text>`) and `quiet` (`/brigade:quiet`, which
+  makes the one session it is typed in hold its team messages and say so on the roster; `/brigade:quiet off`
+  returns it).
+- **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and eight skills; there is nothing else
   in the tree, and `make plugin-check` enforces it.
 
 ## What leaves your machine, and where it goes

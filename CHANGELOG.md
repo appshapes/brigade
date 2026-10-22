@@ -9,6 +9,25 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **One of your sessions can go quiet** (card 126). `/brigade:quiet` makes the session it is typed in hold its
+  team messages for your `brigade inbox release`, say so on the roster (`Quiet working session; not taking team
+  requests.`, with `Message <where> instead.` after `--to <where>`), and report any message that still reaches
+  it in one line without acting on it; `--refuse` turns messages away instead; `/brigade:quiet off` returns the
+  session to normal and `/brigade:quiet status` says where it stands. Underneath is a new command,
+  `brigade inbound [accept|hold|refuse]`: a request recorded for one session that can only tighten the policy
+  the session started with and return to it. Nothing it does touches the `team_inbound` option, a settings file
+  or another session; `/clear` and `/compact` keep it, closing the session ends it. The skill ships in all four
+  packages. [Make one session quiet](docs/team-member/use/quiet-session.md).
+
+### Security
+
+- **Built with Go 1.27.3** (card 126). `govulncheck` reported GO-2026-6809 (`crypto/x509`: distrust compromised
+  intermediate certificates), fixed in go1.27.3 and reached through the standard library from the NDJSON reader.
+  The `go` line is the release-reproducibility pin, so the bump ships with this release. Nothing the binary prints
+  changes.
+
 ### Changed
 
 - **The `brigade` command reference is generated, and the documentation gate pins it** (card 112).

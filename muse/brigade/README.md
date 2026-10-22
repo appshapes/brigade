@@ -3,7 +3,7 @@
 This directory is the Muse Code package of Brigade: team messaging between the coding sessions of different people
 and machines, with a Muse Code session taking part beside Claude Code ones. It ships the same bootstrap, version pin
 and checksums as the Claude Code package (`plugin/`), a native Muse manifest with one wrapper per hook, and the
-seven skills worded for Muse. One Brigade team, one backend, two kinds of session.
+eight skills worded for Muse. One Brigade team, one backend, two kinds of session.
 
 The procedures are in the documentation tree: [install](../../docs/team-member/install/muse-code.md),
 [join](../../docs/team-member/join/muse-code.md), [update](../../docs/team-member/update/muse-code.md),
@@ -15,10 +15,10 @@ whole [Team Member](../../docs/team-member/README.md) tree; what the model reads
 
 - **`.muse-plugin/plugin.json`**, the native manifest: three hooks (session-start, prompt, session-end) as argument
   vectors with no shell, each its own one-line wrapper under `hooks/` that execs the bootstrap, because Muse refuses
-  two hooks that share one source file; and the seven skills.
+  two hooks that share one source file; and the eight skills.
 - **`bin/`**: copies of `plugin/bin`'s bootstrap, `VERSION` and `checksums.txt`, kept equal by the release sequence
   and checked by `make muse-plugin-check` and the release workflow.
-- **The skills**, under `skills/`: the same seven as the Claude Code package, worded for Muse.
+- **The skills**, under `skills/`: the same eight as the Claude Code package, worded for Muse.
 
 ## How it is installed
 

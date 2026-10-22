@@ -17,5 +17,7 @@ brigade inbox --session <id>           # another session of yours on this machin
 - A released message is delivered the way an ordinary one is, through the session's watcher.
 - A refusing session's messages (`team_inbound: refuse`) are listed the same way and can be read, never released
   into that session.
+- A session you made quiet with `/brigade:quiet` holds its messages the same way, and they are listed and released
+  the same way; `/brigade:quiet off` releases nothing by itself ([Make one session quiet](quiet-session.md)).
 
 The policy itself, its retention and its limits: [Hold messages for review](../configure/hold-messages.md).

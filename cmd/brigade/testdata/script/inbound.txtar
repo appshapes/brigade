@@ -1,0 +1,145 @@
+# `brigade inbound` through the real binary (card 126): the per-session
+# runtime switch. With no word it reports the policy in force from the
+# by-pid map and the pending file, spawning nothing. `hold` writes the
+# request and the effective policy into the map and sends exactly one
+# `session heartbeat` carrying `inbound` alone; a repeated `hold` sends
+# nothing; `accept` clears the request. A decided `refuse` (the hook's
+# own) is a ceiling no word can lift, said in the note. Outside a session
+# there is no session to speak for.
+
+# --- fixture: the by-pid map the SessionStart hook would have written ----
+# The `brigade` under test is the race-instrumented test binary too; without
+# this every exec spends TSan's 1 s atexit sleep (see fake.sh).
+env GORACE=atexit_sleep_ms=0
+env CLAUDE_PID=4343
+env HOME=$WORK/home
+mkdir $WORK/home
+mkdir $WORK/.brigade/xdg/state/brigade/sessions/by-pid
+expand map.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4343.json
+expand script.json.in script.json
+chmod 755 fake.sh
+# On macOS the FIRST exec of a freshly created executable is suspended
+# while the system assesses it (see doing.txtar); warm it once.
+exec $WORK/fake.sh --script warm.json describe
+
+# --- a bad word, or two, is usage before any spawn --------------------------
+status 2 brigade inbound quiet
+stderr 'brigade inbound failed \(usage\): inbound takes one word'
+! exists $WORK/dump.ndjson
+status 2 brigade inbound hold now
+! exists $WORK/dump.ndjson
+
+# --- the status form reads the map and spawns nothing ------------------------
+exec brigade inbound
+cmp stdout want-status-accept.txt
+! stderr .
+! exists $WORK/dump.ndjson
+exec brigade inbound --json
+json stdout .ok true
+json stdout .result.self_session_id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+json stdout .result.inbound accept
+json stdout .result.decided accept
+json stdout .result.requested ''
+json stdout .result.changed false
+json stdout .result.held 0
+json stdout .result.published false
+! exists $WORK/dump.ndjson
+
+# --- hold: the map, then one heartbeat carrying inbound alone ----------------
+exec brigade inbound hold
+cmp stdout want-hold.txt
+! stderr .
+grep '"inbound":"hold"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4343.json
+grep '"inbound_decided":"accept"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4343.json
+grep '"inbound_request":"hold"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4343.json
+# 18 bytes is exactly {"inbound":"hold"}: one member.
+grep '"verb":"heartbeat","args":\["--session","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\],"stdin_bytes":18' dump.ndjson
+grep -count=1 '"verb":"heartbeat"' dump.ndjson
+
+# A repeated hold is a status call: nothing sent.
+exec brigade inbound hold --json
+json stdout .result.changed false
+json stdout .result.published false
+json stdout .result.inbound hold
+json stdout .result.requested hold
+grep -count=1 '"verb":"heartbeat"' dump.ndjson
+
+# --- a held message is counted and its sender named ----------------------------
+mkdir $WORK/.brigade/xdg/state/brigade/state/pending
+expand pending.in $WORK/.brigade/xdg/state/brigade/state/pending/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json
+chmod 600 $WORK/.brigade/xdg/state/brigade/state/pending/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json
+exec brigade inbound
+stdout '^held: 1 \(from carol\)$'
+exec brigade inbound --json
+json stdout .result.held 1
+
+# --- accept clears the request; the roster is told; a lift is not a release ----
+exec brigade inbound accept
+cmp stdout want-accept-held.txt
+! grep '"inbound_request"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4343.json
+grep '"inbound":"accept"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4343.json
+grep -count=2 '"verb":"heartbeat"' dump.ndjson
+
+# --- refuse is the stronger form -------------------------------------------------
+exec brigade inbound refuse
+stdout '^inbound: refuse \(requested in this session; the session''s own policy is accept\)$'
+stdout '^nothing is delivered or acknowledged while the session refuses; brigade inbound accept returns to the session''s own policy$'
+grep -count=3 '"verb":"heartbeat"' dump.ndjson
+
+# --- a decided refuse is a ceiling: hold adds nothing, accept lifts nothing ----
+rm $WORK/dump.ndjson
+rm $WORK/.brigade/xdg/state/brigade/state/pending/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json
+expand map-refuse.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4343.json
+exec brigade inbound hold
+cmp stdout want-ceiling-hold.txt
+! grep heartbeat dump.ndjson
+grep '"inbound":"refuse"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4343.json
+grep '"inbound_request":"hold"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4343.json
+exec brigade inbound accept --json
+json stdout .result.inbound refuse
+json stdout .result.decided refuse
+json stdout .result.requested ''
+json stdout .result.changed false
+! grep heartbeat dump.ndjson
+
+# --- outside a session there is no self: config, nothing spawned ----------------
+env CLAUDE_PID=
+exec rm -f $WORK/dump.ndjson
+status 11 brigade inbound hold
+stderr 'brigade inbound failed \(config\)'
+! exists $WORK/dump.ndjson
+status 11 brigade inbound
+! exists $WORK/dump.ndjson
+
+-- map.in --
+{"claude_pid": 4343, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "permission_mode": "default", "non_interactive": false, "inbound": "accept", "inbound_decided": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "team_key": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
+-- map-refuse.in --
+{"claude_pid": 4343, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "permission_mode": "bypassPermissions", "non_interactive": false, "inbound": "refuse", "inbound_decided": "refuse", "frame_level": "open", "frame_text": "", "socket_path": "", "team_key": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/fake.sh", "--script", "$WORK/script.json"], "plugin_bin": "", "harness_version": "2.1.251", "registered_at": "2026-09-02T12:00:00Z", "updated_at": "2026-09-02T12:00:00Z"}
+-- pending.in --
+{"version": 1, "session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "entries": [{"message_id": "msg-1", "sender_session_id": "cccccccccccccccccccccccccccccccc", "sender_name": "carol", "sender_principal": "principal-carol", "summary": "the first", "received_at": "2026-09-02T12:00:31Z"}], "dropped_total": 0, "updated_at": "2026-09-02T12:00:31Z"}
+-- fake.sh --
+#!/bin/sh
+# The scripted fake adapter behind an absolute path (an adapter with a
+# shebang line; the harness execs it, never a shell of its own). GORACE:
+# see doing.txtar.
+GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
+-- script.json.in --
+{"dump_file": "$WORK/dump.ndjson", "responses": {"session heartbeat": [{"result": {"session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "active", "lease_until": "2026-09-02T12:02:00Z", "server_time": "2026-09-02T12:00:31Z"}}]}}
+-- want-status-accept.txt --
+inbound: accept (the session's own policy; no request in this session)
+held: 0
+team messages are delivered as they arrive; brigade inbound hold keeps them for your release, brigade inbound refuse turns them away
+-- want-accept-held.txt --
+inbound: accept (the session's own policy; no request in this session)
+held: 1 (from carol)
+team messages are delivered as they arrive; brigade inbound hold keeps them for your release, brigade inbound refuse turns them away
+-- want-hold.txt --
+inbound: hold (requested in this session; the session's own policy is accept)
+held: 0
+held messages: brigade inbox lists them and brigade inbox release delivers them, in your own terminal; brigade inbound accept lifts the hold
+-- want-ceiling-hold.txt --
+inbound: refuse (the session's own policy; the request for hold in this session adds nothing)
+held: 0
+the session's own policy is refuse — its team_inbound option, a crossSessionInbound hold or refuse in a Claude Code settings file, or a permission mode that bypasses prompts without a crossSessionInbound accept in the user settings file (the session-start context line names the file) — and brigade inbound cannot lift it
+-- warm.json --
+{}

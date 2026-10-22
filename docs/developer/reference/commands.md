@@ -22,6 +22,7 @@ Commands:
                                               send a message to another session, by its id or its SESSION characters, or to a member's best session (body on stdin)
   whoami                                      print this session's identity
   doing [--clear]                             publish one sentence about what this session is working on (on stdin)
+  inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
   team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags]
                                               create, join, leave and administer a team, and list its members
@@ -110,6 +111,14 @@ publish one sentence about what this session is working on (on stdin)
 | Flag | What it does |
 | --- | --- |
 | `--clear` | remove the sentence; nothing is read from stdin |
+
+## brigade inbound
+
+```text
+Usage: brigade inbound [accept|hold|refuse] [--json] [--log-level debug|info|warn|error]
+
+show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
+```
 
 ## brigade sync
 

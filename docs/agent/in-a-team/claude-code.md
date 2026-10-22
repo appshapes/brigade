@@ -1,6 +1,6 @@
 # Claude Code: the skills a session loads
 
-The Brigade plugin (`plugin/`) puts `brigade` on the Bash tool's PATH and ships seven skills. They are the model's
+The Brigade plugin (`plugin/`) puts `brigade` on the Bash tool's PATH and ships eight skills. They are the model's
 documentation inside a team; this page only names them.
 
 | Skill | Who invokes it | What it carries |
@@ -12,6 +12,7 @@ documentation inside a team; this page only names them.
 | [`plugin/skills/setup/SKILL.md`](../../../plugin/skills/setup/SKILL.md) | a person asking how to set Brigade up | the human's procedures: create, join, leave, uninstall; it never asks for a secret in the chat |
 | [`plugin/skills/email/SKILL.md`](../../../plugin/skills/email/SKILL.md) | `/brigade:email <address> <text>` | one `brigade send` to the mail gateway with a `to:` line |
 | [`plugin/skills/slack/SKILL.md`](../../../plugin/skills/slack/SKILL.md) | `/brigade:slack <to> <text>` | one `brigade send` to the Slack gateway with a `to:` line |
+| [`plugin/skills/quiet/SKILL.md`](../../../plugin/skills/quiet/SKILL.md) | `/brigade:quiet [on [--to <where>] [--refuse]]`, `/brigade:quiet off`, `/brigade:quiet status` | make this one session quiet: `brigade inbound hold` (or `refuse`), the roster line that says so, and a standing instruction to act on no team message; `off` returns it |
 
 What the harness does around you:
 

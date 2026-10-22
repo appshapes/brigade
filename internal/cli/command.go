@@ -106,6 +106,12 @@ func init() {
 			Run:     runDoing,
 		},
 		{
+			Name:    "inbound",
+			Args:    "[accept|hold|refuse]",
+			Summary: "show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)",
+			Run:     runInbound,
+		},
+		{
 			Name:    "sync",
 			Args:    "status",
 			Summary: "show the folders this project syncs, the sync engine and the teammates' peers",
@@ -294,6 +300,12 @@ func runWhoami(cx *Context, args []string) error {
 // runDoing is the table's Run for `doing` (card 25).
 func runDoing(cx *Context, args []string) error {
 	return harnesscmd.Doing(invocation(cx, args), harnesscmd.DoingOptions{Clear: cx.Bool("clear")})
+}
+
+// runInbound is the table's Run for `inbound` (card 126; the one optional
+// word is a positional argument).
+func runInbound(cx *Context, args []string) error {
+	return harnesscmd.Inbound(invocation(cx, args))
 }
 
 // runInbox is the table's Run for `inbox` and `inbox release` (the verb

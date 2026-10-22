@@ -10,7 +10,7 @@
 
 ## Set up a clone
 
-1. Go 1.27.2, `make`, `git`, `curl`; `gh` logged in; Docker running.
+1. Go 1.27.3, `make`, `git`, `curl`; `gh` logged in; Docker running.
 2. `make setup`: module downloads, pinned golangci-lint and goreleaser into `./bin`, shellcheck, `.env`, `push.autoSetupRemote`.
 3. `make test`: Docker-free, stack-free, a few minutes.
 

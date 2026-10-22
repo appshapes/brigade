@@ -31,6 +31,8 @@ The watcher delivers a released message the way an ordinary one is delivered, wi
   mode 0600 in your own state directory, and the model's shell runs as you, so it is not a sandbox against a model
   that goes looking for state files.
 - `refuse` delivers nothing and acknowledges nothing, ever; `brigade inbox` in your terminal still lists what waits.
+- To hold one session's messages for a while without changing the option, say `/brigade:quiet` in that session:
+  [Make one session quiet](../use/quiet-session.md).
 - In Claude Code, that harness's own `crossSessionInbound` setting is a second layer with rules of its own:
   [Configure in Claude Code](claude-code.md).
 

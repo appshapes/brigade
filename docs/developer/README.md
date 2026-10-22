@@ -17,7 +17,7 @@ protocol and a conformance suite, developed on `master` through one gate that ev
 
 ## Set up
 
-Go 1.27.2, `make`, `git`, `curl`, then `make setup`. [Set up](setup/README.md) adds the local Supabase stack and
+Go 1.27.3, `make`, `git`, `curl`, then `make setup`. [Set up](setup/README.md) adds the local Supabase stack and
 running the plugin from the checkout.
 
 ## Build and test
