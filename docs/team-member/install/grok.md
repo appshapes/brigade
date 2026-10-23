@@ -2,8 +2,9 @@
 
 This source implements monitor participation for Grok Build direct TUIs launched with `--no-leader`. Final native acceptance and the next release remain coordinator gates; the current release pins are unchanged.
 
-The measured host is Grok Build 1.0.62 (`1474f9cbdd91`). Later versions must preserve the native hook and
-monitor contracts. Leader mode is unsupported: its shared process does not identify a live terminal receiver.
+The measured hosts are Grok Build 1.0.62 (`1474f9cbdd91`, kernel name `grok-macos-aarch`) and 1.0.67
+(kernel name `grok-1.0.67-maco`). Later versions must preserve the native hook and monitor contracts.
+Leader mode is unsupported: its shared process does not identify a live terminal receiver.
 
 After a monitor-enabled release, use Grok's normal marketplace and trust flow in your own terminal:
 
