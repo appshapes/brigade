@@ -31,12 +31,35 @@ func TestGrokKernelCommandExactPlatformNames(t *testing.T) {
 				}
 			}
 			measured := map[string]string{"darwin": "grok-1.0.67-maco", "linux": "grok-1.0.67-lin"}
-			if !grokKernelCommand(tc.goos, measured[tc.goos]) {
-				t.Fatalf("rejected versioned kernel name %q", measured[tc.goos])
+			// The boundary: a five-character version cuts the field exactly on
+			// the platform tag's last byte, so the tag is whole and the field
+			// is one byte shorter than grok-<version>-<platform>-<arch>.
+			boundary := map[string]string{"darwin": "grok-1.1.0-macos", "linux": "grok-1.1.0-linu"}
+			for _, names := range []map[string]string{measured, boundary} {
+				if !grokKernelCommand(tc.goos, names[tc.goos]) {
+					t.Fatalf("rejected versioned kernel name %q", names[tc.goos])
+				}
+				for otherOS, name := range names {
+					if otherOS != tc.goos && grokKernelCommand(tc.goos, name) {
+						t.Fatalf("accepted other platform %q", name)
+					}
+				}
 			}
-			for otherOS, name := range measured {
-				if otherOS != tc.goos && grokKernelCommand(tc.goos, name) {
-					t.Fatalf("accepted other platform %q", name)
+			// Wherever the cut lands — inside the platform tag, exactly on its
+			// last byte, or past it in the architecture — the kernel field of
+			// an installer asset is accepted, and only a version long enough
+			// to leave fewer than three letters of the tag is refused.
+			platform := tc.binary[5:10]
+			for _, version := range []string{"1.0.67", "1.1.0", "1.2", "10.20.30"} {
+				for _, arch := range grokInstallerArches {
+					asset := "grok-" + version + "-" + platform + "-" + arch
+					if len(asset) < tc.width {
+						t.Fatalf("fixture %q is shorter than the kernel field", asset)
+					}
+					field, want := asset[:tc.width], len("grok-"+version+"-")+3 <= tc.width
+					if grokKernelCommand(tc.goos, field) != want {
+						t.Fatalf("kernel field %q of %q: accepted %v, want %v", field, asset, !want, want)
+					}
 				}
 			}
 			for _, other := range []string{"grok-macos-aarch", "grok-macos-x86_6", "grok-linux-aarc", "grok-linux-x86_"} {

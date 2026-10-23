@@ -34,27 +34,37 @@ func grokKernelCommand(goos, command string) bool {
 	}
 }
 
-// versionedGrokComm reports whether command is the kernel field of
-// grok-<version>-<platform>-<arch>, cut to width. The field must still show
-// at least three letters of the platform, so a longer version that crowds
-// the tag out fails closed. Both architectures share that prefix, which is
-// the same acceptance the unversioned names already give.
+// versionedGrokComm reports whether command is the first width bytes of
+// grok-<version>-<platform>-<arch> for either installed architecture. One
+// comparison covers both ends of the cut: wherever the kernel field ends —
+// inside the platform tag, exactly on its last byte, or past it in the
+// architecture — the whole name must still be that asset's prefix. The field
+// must also show at least three letters of the platform, so a longer version
+// that crowds the tag out fails closed. Both architectures are accepted, which
+// is the same acceptance the unversioned names already give.
 func versionedGrokComm(command, platform string, width int) bool {
 	if len(command) != width || !strings.HasPrefix(command, "grok-") {
 		return false
 	}
 	rest := strings.TrimPrefix(command, "grok-")
 	dash := strings.IndexByte(rest, '-')
-	if dash <= 0 || dash >= len(rest)-1 {
+	if dash <= 0 || !dottedVersion(rest[:dash]) {
 		return false
 	}
-	version, tail := rest[:dash], rest[dash+1:]
-	if len(tail) < 3 || !strings.HasPrefix(platform, tail) || !dottedVersion(version) {
+	head := "grok-" + rest[:dash] + "-"
+	if width < len(head)+3 {
 		return false
 	}
-	asset := "grok-" + version + "-" + platform
-	return len(asset) > len(command) && strings.HasPrefix(asset, command)
+	for _, arch := range grokInstallerArches {
+		if strings.HasPrefix(head+platform+"-"+arch, command) {
+			return true
+		}
+	}
+	return false
 }
+
+// The architectures https://x.ai/cli/install.sh downloads.
+var grokInstallerArches = [...]string{"aarch64", "x86_64"}
 
 func dottedVersion(version string) bool {
 	if !strings.Contains(version, ".") || strings.HasPrefix(version, ".") || strings.HasSuffix(version, ".") || strings.Contains(version, "..") {
