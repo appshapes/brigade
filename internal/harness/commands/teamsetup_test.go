@@ -158,6 +158,24 @@ func TestTeamCreateSecretFileRefusals(t *testing.T) { //nolint:tparallel // the 
 			t.Fatal("a relative --secret-file must refuse before any spawn")
 		}
 	})
+	t.Run("another user's tilde refuses before any work", func(t *testing.T) {
+		iv := f.inv(f.terminalEnv(), "", append(base, "--secret-file", "~someone/team.secret")...)
+		iv.Deps.Getwd = func() (string, error) { return top, nil }
+		before := f.rec.count()
+		wantCode(t, Team(iv), protocol.CodeUsage, "")
+		if f.rec.count() != before {
+			t.Fatal("a ~user/ --secret-file must refuse before any spawn")
+		}
+	})
+	t.Run("a tilde whose HOME is the toplevel refuses", func(t *testing.T) {
+		iv := f.inv(f.terminalEnv("HOME="+top), "", append(base, "--secret-file", "~/team.secret")...)
+		iv.Deps.Getwd = func() (string, error) { return top, nil }
+		before := f.rec.count()
+		wantCode(t, Team(iv), protocol.CodeUsage, "")
+		if f.rec.count() != before {
+			t.Fatal("a ~/ --secret-file inside the toplevel must refuse before any spawn")
+		}
+	})
 	t.Run("inside the toplevel refuses", func(t *testing.T) {
 		iv := f.inv(f.terminalEnv(), "", append(base, "--secret-file", filepath.Join(top, "sub", "team.secret"))...)
 		iv.Deps.Getwd = func() (string, error) { return top, nil }
@@ -177,6 +195,51 @@ func TestTeamCreateSecretFileRefusals(t *testing.T) { //nolint:tparallel // the 
 		iv.Deps.Getwd = func() (string, error) { return outside, nil }
 		wantCode(t, Team(iv), protocol.CodeConfig, "")
 	})
+}
+
+// TestTeamCreateTildeSecretFile: a `~/` --secret-file is HOME's file
+// (card 130), and the adapter gets the expanded path.
+func TestTeamCreateTildeSecretFile(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	f.rec.on("profile init", answer{result: `{"profile":"x","initialized":true}`})
+	f.rec.on("team create", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_1"}`})
+
+	iv := f.inv(f.terminalEnv(), "", "create", "--url", "https://abc.supabase.co",
+		"--key", "sb_publishable_x", "--name", "devs", "--secret-file", "~/team.secret")
+	iv.Deps.Getwd = func() (string, error) { return top, nil }
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	if got := argvOf(f.rec.spec(t, 1)); !strings.Contains(got, "--secret-file "+filepath.Join(f.dirs.Home, "team.secret")) {
+		t.Fatalf("team create argv = %s, want the ~/ path expanded against HOME", got)
+	}
+}
+
+func TestExpandHome(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ path, home, want string }{
+		{"~/team.secret", "/h", "/h/team.secret"},
+		{"~/team.secret", "/h/", "/h/team.secret"},
+		{"~/team.secret", "/", "/team.secret"},
+		// Never Cleaned: the `..` refusal must still see the component.
+		{"~/a/../team.secret", "/h", "/h/a/../team.secret"},
+		{"~/team.secret", "", "~/team.secret"},
+		{"~/team.secret", "h", "~/team.secret"},
+		{"~someone/team.secret", "/h", "~someone/team.secret"},
+		{"~", "/h", "~"},
+		{"/abs/team.secret", "/h", "/abs/team.secret"},
+		{"team.secret", "/h", "team.secret"},
+	} {
+		env := []string{"PATH=/usr/bin:/bin"}
+		if tc.home != "" {
+			env = append(env, "HOME="+tc.home)
+		}
+		if got := expandHome(tc.path, env); got != tc.want {
+			t.Errorf("expandHome(%q, HOME=%q) = %q, want %q", tc.path, tc.home, got, tc.want)
+		}
+	}
 }
 
 func TestTeamCreateConflictAndForce(t *testing.T) {

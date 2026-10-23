@@ -61,7 +61,7 @@ type createOptions struct {
 // teamCreate implements the rebuilt `brigade team create` (brief §2):
 // one command in the admin's terminal, cwd anywhere inside the checkout.
 func (inv Invocation) teamCreate(raw rawArgs) error {
-	opts, err := parseCreateFlags(raw.Rest)
+	opts, err := parseCreateFlags(raw.Rest, inv.Environ)
 	if err == nil && raw.Adapter != "" {
 		opts.adapter = raw.Adapter
 	}
@@ -106,8 +106,9 @@ func (inv Invocation) teamCreate(raw rawArgs) error {
 // parseCreateFlags parses `team create`'s flags; --secret-file is
 // mandatory (owner ruling 1) and never absolutized (the archived
 // DECISIVE finding: a relative path deposits a live secret inside the
-// repository, the one place it must never exist).
-func parseCreateFlags(args []string) (*createOptions, error) {
+// repository, the one place it must never exist). A leading `~/` is
+// HOME's, not the cwd's (card 130).
+func parseCreateFlags(args, environ []string) (*createOptions, error) {
 	var o createOptions
 	fs := flag.NewFlagSet("team create", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -127,10 +128,30 @@ func parseCreateFlags(args []string) (*createOptions, error) {
 	if o.secretFile == "" {
 		return nil, usage("team create needs --secret-file: the join secret goes to that file (0600), never to your terminal")
 	}
+	o.secretFile = expandHome(o.secretFile, environ)
 	if !filepath.IsAbs(o.secretFile) {
 		return nil, usage("--secret-file must be an absolute path outside this project (a relative path would land in the repository)")
 	}
 	return &o, nil
+}
+
+// expandHome spells a leading `~/` of a --secret-file as the HOME it
+// stands for (card 130). The join skill quotes the path it runs, so no
+// shell expands it, and `~/brigade-<team>.secret` is the form the
+// documentation gives. Only `~/` is expanded, never `~user/`, and only
+// against an absolute HOME; anything else comes back as it was and meets
+// the absolute-path refusal. The rest is appended, never Joined: Join
+// would Clean a `..` away before checkSecretFileOutside could refuse it.
+func expandHome(path string, environ []string) string {
+	rest, ok := strings.CutPrefix(path, "~/")
+	if !ok {
+		return path
+	}
+	home := adapterkit.Getenv(environ, "HOME")
+	if !filepath.IsAbs(home) {
+		return path
+	}
+	return strings.TrimRight(home, string(filepath.Separator)) + string(filepath.Separator) + rest
 }
 
 // checkSecretFileOutside refuses an absolute --secret-file that resolves
@@ -349,6 +370,7 @@ func (inv Invocation) teamJoin(args []string) error {
 		return err
 	}
 	if secretFile != "" {
+		secretFile = expandHome(secretFile, inv.Environ)
 		// Create's rules, unchanged: absolute, and never under the
 		// checkout in either spelling (P7-11). A join's file exists, so its
 		// real location is checked too: a symlink outside the checkout to
