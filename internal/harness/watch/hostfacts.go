@@ -65,29 +65,30 @@ func (w *watcher) pointedFacts(id string) localHostFacts {
 }
 
 func hostHistoryRoot(host config.Host, environ []string) string {
-	if host == config.HostGrok {
+	switch host {
+	case config.HostGrok:
 		return grokHistoryRoot(environ)
-	}
-	home := adapterkit.Getenv(environ, "HOME")
-	if host == config.HostCodex {
+	case config.HostClaude:
+		return ""
+	case config.HostCodex:
 		if dir := adapterkit.Getenv(environ, "CODEX_HOME"); dir != "" {
 			if filepath.IsAbs(dir) {
 				return filepath.Clean(dir)
 			}
 			return ""
 		}
-	}
-	if !filepath.IsAbs(home) {
-		return ""
-	}
-	switch host {
-	case config.HostClaude:
-		return ""
-	case config.HostCodex:
+		home := adapterkit.Getenv(environ, "HOME")
+		if !filepath.IsAbs(home) {
+			return ""
+		}
 		return filepath.Join(home, ".codex")
 	case config.HostMuse:
 		// Muse clears XDG_* from plugin hooks. As with Brigade's own
 		// pointed-host directories, never trust an inherited XDG override.
+		home := adapterkit.Getenv(environ, "HOME")
+		if !filepath.IsAbs(home) {
+			return ""
+		}
 		return filepath.Join(home, ".local", "share", "muse")
 	default:
 		return ""
