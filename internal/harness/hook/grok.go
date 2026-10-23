@@ -178,6 +178,7 @@ func (r *run) decodeGrok(data []byte, in *input) error {
 	if !filepath.IsAbs(in.Cwd) || !filepath.IsAbs(in.WorkspaceRoot) {
 		return errors.New("grok hook has no absolute workspace binding")
 	}
+	in.launchCwd = in.Cwd
 	cwd, err := filepath.EvalSymlinks(in.Cwd)
 	if err != nil {
 		return errors.New("grok cwd cannot be canonicalized")

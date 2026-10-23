@@ -28,8 +28,9 @@ then `git add .brigade.json && git commit && git push`.
 - `team create` creates the team, writes `.brigade.json` at the repository's top level and stores your credential
   locally, so your sessions attach at once. It runs only inside a git checkout; with no checkout of the project
   on this machine, run it in an empty `git init` directory and copy the file into each repository.
-- `--secret-file` is **required** and must be an absolute path outside the repository: the join secret is written
-  there, mode 0600, and never reaches your scrollback, the conversation or the repository.
+- `--secret-file` is **required** and must be an absolute path, or one that starts with `~/`, outside the
+  repository: the join secret is written there, mode 0600, and never reaches your scrollback, the conversation
+  or the repository.
 - Its output names the team, the file and the display label it sent for you (`sent your display label:
   alice@example.com (unverified) [9f3c1a20]`), never the secret. `--label` sets another label for this command;
   the option is [Choose your label](../../team-member/join/your-label.md).
