@@ -15,6 +15,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `team join` refused the form the join pages give as not absolute. `team create`, `team join` and
   `team rotate-secret` now read a leading `~/` in `--secret-file` as `$HOME`; `~someone/` and relative paths are
   still refused, and the expanded path still has to be outside the repository.
+- **Grok sessions show their name** (card 132). A Grok row on the roster was always `grok`.
+  The name is now that session's `generated_title` from its own `summary.json` — the title
+  `/resume` shows, including one set with `/rename` — sanitized like every other session name.
+  Registration reads it, and so does each heartbeat, so a title written after the session
+  starts shows on the next one. Chat history is not read. Model and context stay blank. With
+  no title yet, the name stays `grok`.
 
 ## [0.37.0] — 2026-10-22
 

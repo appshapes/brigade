@@ -14,6 +14,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/testutil"
 )
@@ -368,5 +369,65 @@ func TestGrokExplicitPluginRoot(t *testing.T) {
 	}
 	if m.PluginBin != filepath.Join(root, "bin", "brigade") {
 		t.Fatalf("plugin binary %q", m.PluginBin)
+	}
+}
+
+func TestGrokRegistersSummaryTitle(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	enc := watch.GrokEncodedCwd(f.cwd)
+	if enc == "" {
+		t.Fatal("fixture cwd did not encode")
+	}
+	dir := filepath.Join(f.dirs.Home, ".grok", "sessions", enc, f.nativeID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"info":{"id":"` + f.nativeID + `"},"generated_title":"payments-api","session_summary":"not the name","last_recap":"not the name"}`
+	if err := os.WriteFile(filepath.Join(dir, "summary.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	m := f.mustMap()
+	if m.Grok == nil {
+		t.Fatalf("no receiver: %+v", m)
+	}
+	if m.SessionName != "payments-api" || m.Grok.LaunchCwd != f.cwd {
+		t.Fatalf("name %q launch %q document %q", m.SessionName, m.Grok.LaunchCwd, f.cwd)
+	}
+}
+
+func TestGrokNameStaysGrokWithoutTitle(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	code, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	m := f.mustMap()
+	if m.SessionName != "grok" {
+		t.Fatalf("name %q", m.SessionName)
+	}
+}
+
+func TestGrokWatcherEnvCarriesAbsoluteGrokHome(t *testing.T) {
+	t.Parallel()
+	w := config.WatcherEnv{ClaudePID: 4064, Profile: "default", ConfigDir: "/home/u/.config/brigade", StateDir: "/home/u/.local/state/brigade",
+		Adapter: config.Adapter{Argv: []string{"/opt/adapter"}}, TeamInbound: config.InboundAccept}
+	base := []string{"PATH=/usr/bin", "HOME=/home/u"}
+	env, err := watcherEnviron(append(append([]string{}, base...), "GROK_HOME=/opt/grok"), w, "", "", "info", false, true)
+	if err != nil || envValue(env, "GROK_HOME") != "/opt/grok" {
+		t.Fatalf("%v %v", env, err)
+	}
+	env, err = watcherEnviron(append(append([]string{}, base...), "GROK_HOME=relative"), w, "", "", "info", false, true)
+	if err != nil || countEnv(env, "GROK_HOME") != 0 {
+		t.Fatalf("relative: %v %v", env, err)
+	}
+	env, err = watcherEnviron(append(append([]string{}, base...), "GROK_HOME=/opt/grok"), w, "", "", "info", false, false)
+	if err != nil || countEnv(env, "GROK_HOME") != 0 {
+		t.Fatalf("other host: %v %v", env, err)
 	}
 }

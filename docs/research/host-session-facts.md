@@ -74,18 +74,43 @@ records; the reader ignores it, as it contains neither fact. A future storage fo
 would need separate evidence and support. The read-only inspection did not rename or run a real Muse session;
 live host-to-roster verification remains an owner release check.
 
+## Grok Build
+
+Measured 2026-10-23 on Grok Build 1.0.67. A session's own metadata file is
+`$GROK_HOME/sessions/<encoded-cwd>/<session-id>/summary.json`. `GROK_HOME` defaults to
+`$HOME/.grok`. A relative `GROK_HOME` disables the read. The group directory name is the
+launch working directory with every byte outside RFC 3986 unreserved percent-encoded in
+uppercase hex, so `/` is `%2F`. That spelling is the hook document's `cwd` before symlink
+resolution. Every document measured reported the launch directory there; a document whose
+`cwd` were a strict subdirectory of it would derive a group that does not exist, and the
+name would simply stay `grok` — no other directory is tried and no path is
+guessed. `generated_title` is the title `/resume` shows, including one set with
+`/rename`. `info.id` must equal the native session id; a different id is not this session.
+`title_is_manual`, the recap and the summary are not names.
+
+When the encoded name would exceed 255 bytes, Grok uses a slug plus a hash and writes the
+original path in a `.cwd` file in the group. The reader matches that file and does not
+reimplement the hash. Two groups claiming the same path yield no name. No other file under
+the session is opened. The summary is read only up to 1 MiB and `.cwd` only up to 4096
+bytes. Only the sanitized title leaves the reader. Model and context stay blank.
+
 ## Bounds and failure behaviour
 
-Only the watcher reads these files, immediately before each heartbeat. A discovered path is cached. Discovery
-visits at most 8,192 directory entries under exactly the three date levels, newest names first, without following
-directory symlinks or searching subagent trees. Very large trees beyond that budget may remain undiscovered.
-Native IDs must be complete UUIDs, never prefixes, names or working-directory guesses.
+The watcher reads these files immediately before each heartbeat. Grok's `summary.json` is the one file the hook
+also reads, once per registration, so a roster row carries its name before the first heartbeat (card 132);
+nothing else described here is read outside the watcher. A discovered path is cached, for all three hosts, and
+dropped on a failed open so the next poll rediscovers it. Codex and Muse discovery visits at most 8,192
+directory entries under exactly the three date levels, newest names first, without following directory symlinks
+or searching subagent trees; Grok's long-cwd discovery spends that same budget on the single `sessions` level
+and takes a group only when exactly one `.cwd` claims the path. Very large trees beyond that budget may remain
+undiscovered. Native IDs must be complete UUIDs, never prefixes, names or working-directory guesses.
 
 Each changed journal reads at most its first 1 MiB and last 8 MiB; the title index reads its last 8 MiB. Files
 unchanged in identity, size and modification time are not reparsed. Lines over 1 MiB and partial boundary lines
 are skipped; malformed lines do not stop later records. Facts older than these windows can be unavailable on a
 fresh watcher. A live rename appended in the supported shape arrives on the next heartbeat. Missing files keep
-last known facts; truncation/replacement resets journal facts. Changing host, root or native ID clears the cache.
+last known facts; truncation/replacement resets journal facts. Changing host, root, native ID or — for Grok —
+launch working directory clears the cache.
 
 Every poll opens the configured host directory and checks its identity against the first successful poll.
 Replacing that root (including through a changed ancestor) keeps the last known facts until the original root

@@ -36,7 +36,7 @@ func TestWatcherEnvironFromScratch(t *testing.T) {
 	}
 	w := config.WatcherEnv{ClaudePID: 4064, Profile: "default", ConfigDir: "/home/u/.config/brigade", StateDir: "/home/u/.local/state/brigade",
 		Adapter: config.Adapter{Argv: []string{"/opt/adapter", "--root", "/x"}}, TeamInbound: config.InboundAccept}
-	env, err := watcherEnviron(hostile, w, "/new.sock", "new-token", "info", false)
+	env, err := watcherEnviron(hostile, w, "/new.sock", "new-token", "info", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestWatcherEnvironFromScratch(t *testing.T) {
 		t.Fatalf("round trip %+v %v", back, err)
 	}
 	// Without a socket or token neither variable is set at all.
-	env, err = watcherEnviron(hostile, w, "", "", "info", false)
+	env, err = watcherEnviron(hostile, w, "", "", "info", false, false)
 	if err != nil || countEnv(env, "CLAUDE_CODE_MESSAGING_SOCKET") != 0 || countEnv(env, "CLAUDE_CODE_MESSAGING_TOKEN") != 0 {
 		t.Fatalf("sinkless env carries socket variables: %v %v", env, err)
 	}

@@ -62,6 +62,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/registry"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -153,6 +154,10 @@ type input struct {
 	StopHookActive  bool       `json:"stopHookActive"`
 	BackgroundTasks []grokTask `json:"backgroundTasks"`
 	grokIncarnation string
+	// launchCwd is the hook document's cwd before symlink resolution. Grok
+	// names its session directory from that spelling. It is not a JSON
+	// field: a document cannot set it.
+	launchCwd string
 
 	SessionID      string `json:"session_id"`
 	Cwd            string `json:"cwd"`
@@ -1133,12 +1138,23 @@ type identity struct {
 }
 
 // identity resolves the display name (registry → session_title →
-// basename(cwd)), the activity (registry status → idle), the harness
-// version (registry version → unknown) and the entrypoint (environment →
-// registry; `kind` is ignored).
+// basename(cwd); Grok, its summary title, otherwise "grok"), the activity
+// (registry status → idle), the harness version (registry version →
+// unknown) and the entrypoint (environment → registry; `kind` is ignored).
 func (r *run) identity(f facts, in input) identity {
 	if f.host == config.HostGrok {
-		return identity{name: "grok", activity: protocol.ActivityIdle, harnessVersion: unknownVersion}
+		// The title is local metadata, not the hook document. SessionStart
+		// blanks session_title. With no title yet the roster keeps "grok"
+		// until a later heartbeat sees one.
+		name := "grok"
+		cwd := in.launchCwd
+		if cwd == "" {
+			cwd = in.Cwd
+		}
+		if title := watch.GrokSessionName(r.environ, cwd, in.SessionID); title != "" {
+			name = title
+		}
+		return identity{name: name, activity: protocol.ActivityIdle, harnessVersion: unknownVersion}
 	}
 	entry := r.registryEntry(f)
 	id := identity{

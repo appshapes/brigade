@@ -101,8 +101,10 @@ const envCodexHome = "CODEX_HOME"
 // inherited BRIGADE_* and CLAUDE_CODE_MESSAGING_* dropped), then the six
 // hook-built BRIGADE_* of config.WatcherEnv.Vars, BRIGADE_LOG_LEVEL, the
 // socket and token as the hook saw them, and — for a Codex session — the
-// user's CODEX_HOME. The token travels here and only here (T13.4).
-func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLevel string, codex bool) ([]string, error) {
+// user's CODEX_HOME, and — for a Grok session — an absolute GROK_HOME, so
+// the watcher reads the session title from the same tree the TUI writes.
+// The token travels here and only here (T13.4).
+func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLevel string, codex, grok bool) ([]string, error) {
 	vars, err := w.Vars()
 	if err != nil {
 		return nil, err
@@ -111,6 +113,9 @@ func watcherEnviron(environ []string, w config.WatcherEnv, socket, token, logLev
 	out = append(out, "BRIGADE_LOG_LEVEL="+logLevel)
 	if home := adapterkit.Getenv(environ, envCodexHome); codex && home != "" && filepath.IsAbs(home) {
 		out = append(out, envCodexHome+"="+home)
+	}
+	if home := adapterkit.Getenv(environ, "GROK_HOME"); grok && home != "" && filepath.IsAbs(home) {
+		out = append(out, "GROK_HOME="+home)
 	}
 	if socket != "" {
 		out = append(out, envMessagingSocket+"="+socket)
@@ -146,7 +151,7 @@ func (r *run) spawnWatcher(ctx context.Context, f facts, m *sessionmap.ByPID, pi
 		StateDir:    f.stateDir,
 		Adapter:     adapter,
 		TeamInbound: config.Inbound(m.Inbound),
-	}, f.socket, f.token, r.logLevel, f.codex())
+	}, f.socket, f.token, r.logLevel, f.codex(), f.host == config.HostGrok)
 	if err != nil {
 		r.log.Warn("watcher not started: environment", log.Err(err))
 		return false

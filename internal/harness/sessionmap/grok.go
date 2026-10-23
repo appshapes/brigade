@@ -9,7 +9,12 @@ import (
 
 // GrokReceiver is local state, never a protocol-v1 registration member.
 type GrokReceiver struct {
-	Cwd           string `json:"cwd"`
+	Cwd string `json:"cwd"`
+	// LaunchCwd is the hook document's cwd, with symlinks unresolved. Grok
+	// names the session directory from that spelling. Cwd stays the
+	// canonical path the receiver binding uses. Empty on a map written
+	// before it existed; the reader then uses Cwd.
+	LaunchCwd     string `json:"launch_cwd,omitzero"`
 	ProcessStart  string `json:"process_start"`
 	Incarnation   string `json:"incarnation"`
 	MonitorState  string `json:"monitor_state"`
