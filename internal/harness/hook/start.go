@@ -360,6 +360,9 @@ func (r *run) continueMap(f facts, in input, res resolved, existing *sessionmap.
 	}
 	if f.host == config.HostGrok && existing.ValidGrokReceiver() {
 		g := *existing.Grok
+		if g.LaunchCwd == "" {
+			g.LaunchCwd = in.launchCwd
+		}
 		m.Grok = &g
 	}
 	return m
@@ -1237,7 +1240,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 	if f.host == config.HostGrok {
 		info, _ := r.grokProcess()
 		m.Model, m.TranscriptPath = "", ""
-		m.Grok = &sessionmap.GrokReceiver{Cwd: in.Cwd, ProcessStart: info.StartToken, Incarnation: in.grokIncarnation, MonitorState: "unarmed"}
+		m.Grok = &sessionmap.GrokReceiver{Cwd: in.Cwd, LaunchCwd: in.launchCwd, ProcessStart: info.StartToken, Incarnation: in.grokIncarnation, MonitorState: "unarmed"}
 	}
 	return m
 }

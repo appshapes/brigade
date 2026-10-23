@@ -9,6 +9,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Grok sessions show their name** (card 132). A Grok row on the roster was always `grok`.
+  The name is now that session's `generated_title` from its own `summary.json` — the title
+  `/resume` shows, including one set with `/rename` — sanitized like every other session name.
+  Registration reads it, and so does each heartbeat, so a title written after the session
+  starts shows on the next one. Chat history is not read. Model and context stay blank. With
+  no title yet, the name stays `grok`.
+
 ## [0.37.0] — 2026-10-22
 
 ### Added

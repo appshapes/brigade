@@ -1,7 +1,9 @@
 package watch
 
 // Card 117: host history is a best-effort LOCAL source, never a hook input
-// or an adapter input. See docs/research/host-session-facts.md for the
+// or an adapter input. Grok's title is the one exception the hook also
+// reads, so a registration does not wipe a name the watcher already
+// published (card 132). See docs/research/host-session-facts.md for the
 // measured formats and limits. Only a sanitised name and a token count
 // escape this reader; neither paths, native IDs nor raw errors are logged.
 
@@ -38,7 +40,7 @@ type localHostFacts struct {
 
 type hostFactsReader struct {
 	host                         config.Host
-	root, id, path               string
+	root, id, path, cwd          string
 	facts                        localHostFacts
 	rootInfo, logInfo, indexInfo os.FileInfo
 	// The last run configuration is enough for the sequential foreground
@@ -51,14 +53,21 @@ func (w *watcher) pointedFacts(id string) localHostFacts {
 	defer w.transcriptMu.Unlock()
 	host := config.Host(w.harness)
 	root := hostHistoryRoot(host, w.environ)
+	cwd := ""
+	if host == config.HostGrok {
+		cwd = grokCwdOf(w.grokReceiver)
+	}
 	r := &w.hostFacts
-	if r.host != host || r.root != root || r.id != id {
-		*r = hostFactsReader{host: host, root: root, id: id}
+	if r.host != host || r.root != root || r.id != id || r.cwd != cwd {
+		*r = hostFactsReader{host: host, root: root, id: id, cwd: cwd}
 	}
 	return r.refresh()
 }
 
 func hostHistoryRoot(host config.Host, environ []string) string {
+	if host == config.HostGrok {
+		return grokHistoryRoot(environ)
+	}
 	home := adapterkit.Getenv(environ, "HOME")
 	if host == config.HostCodex {
 		if dir := adapterkit.Getenv(environ, "CODEX_HOME"); dir != "" {
@@ -72,7 +81,7 @@ func hostHistoryRoot(host config.Host, environ []string) string {
 		return ""
 	}
 	switch host {
-	case config.HostClaude, config.HostGrok:
+	case config.HostClaude:
 		return ""
 	case config.HostCodex:
 		return filepath.Join(home, ".codex")
@@ -88,6 +97,9 @@ func hostHistoryRoot(host config.Host, environ []string) string {
 func (r *hostFactsReader) refresh() localHostFacts {
 	if r.root == "" || !hostSessionID(r.id) {
 		return localHostFacts{}
+	}
+	if r.host == config.HostGrok {
+		return r.refreshGrokFacts()
 	}
 	if r.host != config.HostCodex && r.host != config.HostMuse {
 		return localHostFacts{}

@@ -74,6 +74,23 @@ records; the reader ignores it, as it contains neither fact. A future storage fo
 would need separate evidence and support. The read-only inspection did not rename or run a real Muse session;
 live host-to-roster verification remains an owner release check.
 
+## Grok Build
+
+Measured 2026-10-23 on Grok Build 1.0.67. A session's own metadata file is
+`$GROK_HOME/sessions/<encoded-cwd>/<session-id>/summary.json`. `GROK_HOME` defaults to
+`$HOME/.grok`. A relative `GROK_HOME` disables the read. The group directory name is the
+launch working directory with every byte outside RFC 3986 unreserved percent-encoded in
+uppercase hex, so `/` is `%2F`. That spelling is the hook document's `cwd` before symlink
+resolution. `generated_title` is the title `/resume` shows, including one set with
+`/rename`. `info.id` must equal the native session id; a different id is not this session.
+`title_is_manual`, the recap and the summary are not names.
+
+When the encoded name would exceed 255 bytes, Grok uses a slug plus a hash and writes the
+original path in a `.cwd` file in the group. The reader matches that file and does not
+reimplement the hash. Two groups claiming the same path yield no name. No other file under
+the session is opened. The summary is read only up to 1 MiB and `.cwd` only up to 4096
+bytes. Only the sanitized title leaves the reader. Model and context stay blank.
+
 ## Bounds and failure behaviour
 
 Only the watcher reads these files, immediately before each heartbeat. A discovered path is cached. Discovery
