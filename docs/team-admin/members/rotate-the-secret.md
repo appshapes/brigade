@@ -17,8 +17,8 @@ brigade team revoke-member --max-version <secret_version minus one>
   `--principal … --ban`. `brigade team members` does not show a member's version; running it before and after
   shows who was evicted.
 - **The new secret is written to the file and nowhere else.** It is never printed, `--secret-file` is mandatory
-  and must be an absolute path outside the repository, and if the file cannot be written after the rotation the
-  secret is gone and the only fix is to rotate again.
+  and must be an absolute path, or one that starts with `~/`, outside the repository, and if the file cannot be
+  written after the rotation the secret is gone and the only fix is to rotate again.
 - `rotate-secret` runs inside a session or in a terminal; the eviction runs in a terminal.
 
 Then [Hand out the secret](../create/hand-out-the-secret.md) again, to the members you kept.

@@ -11,9 +11,10 @@ Clone the project, save the secret file your administrator sent you outside the 
 
 That runs `brigade team join --secret-file ~/brigade-<team>.secret` and relays what it printed. `team join` reads
 the project's `.brigade.json`, prints one line naming the team and the backend host it is joining (invoking it is
-the consent), reads the secret from the file and joins. Its output names the team, never the secret. Brigade checks
-that the file is outside the repository and nothing else about it. Delete the file once every machine that needs it
-has joined, and never paste its contents into a chat.
+the consent), reads the secret from the file and joins. Its output names the team, never the secret. The path is
+absolute or starts with `~/`, which Brigade reads as your home directory; `~someone/` and relative paths are
+refused. Brigade checks that the file is outside the repository and nothing else about it. Delete the file once
+every machine that needs it has joined, and never paste its contents into a chat.
 
 There is no `--profile`, no `--url` and no `--key`: the project file supplies all of that.
 
