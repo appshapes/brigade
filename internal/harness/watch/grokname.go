@@ -161,9 +161,10 @@ func (r *hostFactsReader) grokSummaryPath(root *os.File) string {
 		r.path = filepath.Join("sessions", enc, r.id, "summary.json")
 		return r.path
 	}
-	if len(grokEncodeCwd(r.cwd)) <= 255 {
-		return ""
-	}
+	// An empty encoding here can only be the over-255-byte case: the caller
+	// has already established a usable launch cwd, and the encoding never
+	// contains "/". So fall through to the slug-plus-hash group, without
+	// encoding the path a second time to decide nothing.
 	if dir := r.grokLongGroup(root); dir != "" {
 		r.path = filepath.Join("sessions", dir, r.id, "summary.json")
 	}

@@ -348,17 +348,25 @@ func TestGrokSummaryTitle(t *testing.T) {
 	if got.name != oneLineName(hostile) || strings.ContainsAny(got.name, "\n\r<") {
 		t.Fatalf("hostile %q", got.name)
 	}
-	grokSummary(t, home, "nope")
 	// Wrong session in the right directory is not this session's title.
 	putFacts(t, filepath.Join(home, ".grok", "sessions", GrokEncodedCwd(cwd), factsID, "summary.json"),
 		`{"info":{"id":"`+otherFactsID+`"},"generated_title":"nope"}`)
 	if got := w.pointedFacts(factsID); got.name != "" {
 		t.Fatalf("mismatched id kept %q", got.name)
 	}
-	// History is not a title source.
+	// History is not a title source. The bait is beside the summary this
+	// session's path resolves to and names this session, and the summary
+	// names this session too but carries no title — so the id check passes
+	// and nothing clears the facts. "" is then reachable only by not opening
+	// chat_history.jsonl: a reader that opened it would answer "from
+	// history" here. (Planting the bait under a summary whose id belongs to
+	// another session proves nothing: the mismatch arm clears the facts
+	// afterwards and hides the read.)
 	putFacts(t, filepath.Join(home, ".grok", "sessions", GrokEncodedCwd(cwd), factsID, "chat_history.jsonl"),
-		`{"generated_title":"from history"}`)
-	if got := GrokSessionName(env, cwd, otherFactsID); got != "" {
+		`{"info":{"id":"`+factsID+`"},"generated_title":"from history"}`)
+	putFacts(t, filepath.Join(home, ".grok", "sessions", GrokEncodedCwd(cwd), factsID, "summary.json"),
+		`{"info":{"id":"`+factsID+`"}}`)
+	if got := GrokSessionName(env, cwd, factsID); got != "" {
 		t.Fatalf("history %q", got)
 	}
 	if GrokSessionName(append(env, "GROK_HOME=relative"), cwd, factsID) != "" {
