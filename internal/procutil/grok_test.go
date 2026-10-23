@@ -25,9 +25,18 @@ func TestGrokKernelCommandExactPlatformNames(t *testing.T) {
 					t.Fatalf("rejected exact kernel name %q", name)
 				}
 			}
-			for _, name := range []string{"", "sh", "tmux", "grok-agent", "grok-leader", "grok-malicious", "grok-macos", tc.short + "-evil", tc.short[:len(tc.short)-1], tc.binary, "/owned/grok", "Grok", "grok\x00"} {
+			for _, name := range []string{"", "sh", "tmux", "grok-agent", "grok-leader", "grok-malicious", "grok-macos", tc.short + "-evil", tc.short[:len(tc.short)-1], tc.binary, "/owned/grok", "Grok", "grok\x00", "grok-1.0.67-evil", "grok-1.0.67-mac", "grok-1"} {
 				if grokKernelCommand(tc.goos, name) {
 					t.Fatalf("accepted unrelated name %q", name)
+				}
+			}
+			measured := map[string]string{"darwin": "grok-1.0.67-maco", "linux": "grok-1.0.67-lin"}
+			if !grokKernelCommand(tc.goos, measured[tc.goos]) {
+				t.Fatalf("rejected versioned kernel name %q", measured[tc.goos])
+			}
+			for otherOS, name := range measured {
+				if otherOS != tc.goos && grokKernelCommand(tc.goos, name) {
+					t.Fatalf("accepted other platform %q", name)
 				}
 			}
 			for _, other := range []string{"grok-macos-aarch", "grok-macos-x86_6", "grok-linux-aarc", "grok-linux-x86_"} {

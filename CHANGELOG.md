@@ -9,6 +9,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Grok 1.0.67 sessions register again** (card 131). The installer binary is `grok-1.0.67-macos-aarch64`,
+  and the kernel name of that process is `grok-1.0.67-maco`. SessionStart treated any parent other than the
+  1.0.62 names as not a direct TUI and returned before writing the start pointer, so `brigade team join` and
+  `brigade sessions` failed with no session pointer. A versioned installer name is recognized from that
+  truncation when the field still shows the platform (`mac` / `lin`). The Linux truncation is the same asset
+  name at 15 bytes and is not a native measurement. Nothing else the binary prints changes.
+
 ## [0.37.0] — 2026-10-22
 
 ### Added

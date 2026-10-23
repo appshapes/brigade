@@ -240,6 +240,27 @@ func TestGrokClaimDoesNotStealOnLookupError(t *testing.T) {
 	}
 }
 
+func TestGrokAcceptsVersionedInstallerKernelName(t *testing.T) {
+	t.Parallel()
+	name := "grok-1.0.67-lin"
+	if runtime.GOOS == "darwin" {
+		name = "grok-1.0.67-maco"
+	}
+	f := grokFixture(t)
+	base := f.deps.Lookup
+	f.deps.Lookup = func(pid int) (procutil.Info, error) {
+		info, err := base(pid)
+		if pid == f.pid {
+			info.Command = name
+		}
+		return info, err
+	}
+	grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+	if !f.mapExists() {
+		t.Fatal("versioned kernel name did not register")
+	}
+}
+
 func TestGrokRefusesUnboundInputs(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"leader", "collision", "unknown source", "malformed", "alias conflict", "bad native", "subagent", "cwd mismatch", "unknown parent"} {

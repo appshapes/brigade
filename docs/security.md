@@ -1062,7 +1062,9 @@ terminal, so leader/session-info success is not a TUI liveness witness. No nativ
 
 Hooks bind the full UUID/environment agreement, canonical workspace/cwd, actual TUI PID/kernel start token
 and a fresh new/load incarnation. Foreign host markers, mismatched aliases, subagents, unknown parent topology
-and malformed inputs fail closed. `GROK_SESSION_ID` is LAST in the host precedence, after `CLAUDE_PID`,
+and malformed inputs fail closed. Grok 1.0.67's installer binary truncates to the kernel name
+`grok-1.0.67-maco` on macOS (measured 2026-10-23); that name, and the same versioned truncation on Linux,
+is a direct TUI, as `grok-macos-aarch` was on 1.0.62. `GROK_SESSION_ID` is LAST in the host precedence, after `CLAUDE_PID`,
 `MUSE_SESSION_ID` and `CODEX_THREAD_ID`: a Grok terminal tool exports it, so a session of an older host started
 from one inherits it, and relabelling that session would leave it unregistered and silent. The Grok direction of
 the same leak is refused rather than resolved, with one visible line and no registration.
