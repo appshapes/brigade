@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.37.1] — 2026-10-23
+
 ### Fixed
 
 - **`/brigade:join ~/<file>` joins** (card 130). The join skill quotes the path, so no shell expanded the `~`, and
