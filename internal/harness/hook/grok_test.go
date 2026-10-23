@@ -392,7 +392,10 @@ func TestGrokRegistersSummaryTitle(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 	m := f.mustMap()
-	if m.SessionName != "payments-api" || m.Grok == nil || m.Grok.LaunchCwd != f.cwd {
+	if m.Grok == nil {
+		t.Fatalf("no receiver: %+v", m)
+	}
+	if m.SessionName != "payments-api" || m.Grok.LaunchCwd != f.cwd {
 		t.Fatalf("name %q launch %q document %q", m.SessionName, m.Grok.LaunchCwd, f.cwd)
 	}
 }

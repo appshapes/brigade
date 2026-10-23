@@ -107,7 +107,10 @@ func (r *hostFactsReader) refreshGrokFacts() localHostFacts {
 	}
 	f, fi := openHostPath(root, path, false)
 	if f == nil {
-		r.logInfo = nil
+		// A restored summary may reuse the same inode, size and timestamp, and
+		// the group may have been renamed: require a fresh read and a fresh
+		// discovery, exactly as the journal reader does.
+		r.logInfo, r.path = nil, ""
 		return r.facts
 	}
 	defer func() { _ = f.Close() }()
@@ -146,18 +149,25 @@ func (r *hostFactsReader) refreshGrokFacts() localHostFacts {
 	return r.facts
 }
 
+// grokSummaryPath caches the resolved path in r.path, as the journal reader
+// does: the long-cwd arm walks every sessions child, which must not happen
+// once per heartbeat. The cache is per (root, id, cwd) and an open failure
+// drops it; info.id, not the path, is what proves the title is this session's.
 func (r *hostFactsReader) grokSummaryPath(root *os.File) string {
+	if r.path != "" {
+		return r.path
+	}
 	if enc := GrokEncodedCwd(r.cwd); enc != "" {
-		return filepath.Join("sessions", enc, r.id, "summary.json")
+		r.path = filepath.Join("sessions", enc, r.id, "summary.json")
+		return r.path
 	}
 	if len(grokEncodeCwd(r.cwd)) <= 255 {
 		return ""
 	}
-	dir := r.grokLongGroup(root)
-	if dir == "" {
-		return ""
+	if dir := r.grokLongGroup(root); dir != "" {
+		r.path = filepath.Join("sessions", dir, r.id, "summary.json")
 	}
-	return filepath.Join("sessions", dir, r.id, "summary.json")
+	return r.path
 }
 
 // grokLongGroup finds the one sessions child whose .cwd file is this cwd.
