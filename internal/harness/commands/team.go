@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -69,7 +70,7 @@ func Team(inv Invocation) error {
 			return refuseAdminInSession()
 		}
 	case "rotate-secret":
-		if err := inv.checkForwardedSecretFile(raw.Rest); err != nil {
+		if raw.Rest, err = inv.checkForwardedSecretFile(raw.Rest); err != nil {
 			return err
 		}
 	}
@@ -101,31 +102,39 @@ func Team(inv Invocation) error {
 // and nothing about the checkout — which inside a session is the cwd. The
 // flag is read here, never consumed; a relative path is left to the
 // adapter's own refusal, and outside any checkout there is nothing to be
-// inside of.
-func (inv Invocation) checkForwardedSecretFile(rest []string) error {
+// inside of. A leading `~/` is expanded against HOME (card 130) and the
+// expanded value is what it returns for forwarding, since the adapter
+// expands nothing.
+func (inv Invocation) checkForwardedSecretFile(rest []string) ([]string, error) {
+	rest = slices.Clone(rest)
 	value := ""
 	for i, arg := range rest {
 		switch {
 		case arg == "--secret-file" || arg == "-secret-file":
 			if i+1 < len(rest) {
+				rest[i+1] = expandHome(rest[i+1], inv.Environ)
 				value = rest[i+1]
 			}
 		case strings.HasPrefix(arg, "--secret-file=") || strings.HasPrefix(arg, "-secret-file="):
-			_, value, _ = strings.Cut(arg, "=")
+			name, v, _ := strings.Cut(arg, "=")
+			value = expandHome(v, inv.Environ)
+			rest[i] = name + "=" + value
 		}
 	}
 	if strings.HasPrefix(value, protocol.JoinSecretPrefix) {
 		// A join secret where a path should be would ride the child's argv
 		// (C-05); the value is never echoed.
-		return usage("join secrets must never be passed on the command line; --secret-file names a file, and the secret goes in it")
+		return nil, usage("join secrets must never be passed on the command line; --secret-file names a file, and the secret goes in it")
 	}
 	if value == "" || !filepath.IsAbs(value) {
-		return nil
+		return rest, nil
 	}
 	if top, ok := teamfile.Toplevel(inv.mustGetwd()); ok {
-		return checkSecretFileOutside(value, top)
+		if err := checkSecretFileOutside(value, top); err != nil {
+			return nil, err
+		}
 	}
-	return nil
+	return rest, nil
 }
 
 // members implements `brigade team members [--json]`: one line per member,

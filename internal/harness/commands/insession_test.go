@@ -139,6 +139,32 @@ func TestTeamJoinInSessionWithSecretFile(t *testing.T) {
 	}
 }
 
+// TestTeamJoinInSessionTildeSecretFile: the join skill quotes the path, so
+// `/brigade:join ~/join.secret` reaches the binary with the `~` intact; it
+// names HOME's file (card 130), and a HOME inside the checkout is still
+// inside it.
+func TestTeamJoinInSessionTildeSecretFile(t *testing.T) {
+	t.Parallel()
+	f, top := joinFixture(t)
+	unattach(t, f)
+	writeStartFacts(t, f, filepath.Join(f.dirs.Root, "persona-config"))
+	writeSecretFile(t, filepath.Join(f.dirs.Home, "join.secret"), setupSecret)
+
+	iv := sessionInv(t, f, top, "join", "--secret-file", "~/join.secret")
+	iv.Environ = append(iv.Environ, "HOME="+top)
+	perr := wantCodeErr(t, Team(iv), protocol.CodeUsage, "")
+	if !strings.Contains(perr.Message, "must not be inside this project") || f.rec.count() != 0 {
+		t.Fatalf("refusal = %q, spawns %d; want the inside-the-project refusal before any spawn", perr.Message, f.rec.count())
+	}
+
+	if err := Team(sessionInv(t, f, top, "join", "--secret-file", "~/join.secret")); err != nil {
+		t.Fatal(err)
+	}
+	if verbs := f.rec.verbs(); !slices.Equal(verbs, []string{"team join"}) {
+		t.Fatalf("spawns = %v, want the one join", verbs)
+	}
+}
+
 func TestTeamJoinInSessionNeedsTheSecretFile(t *testing.T) {
 	t.Parallel()
 	f, top := joinFixture(t)
@@ -173,10 +199,17 @@ func TestTeamJoinInSessionSecretFileRefusals(t *testing.T) { //nolint:tparallel 
 	if err := os.Symlink(filepath.Join(top, "sub"), filepath.Join(f.dirs.Root, "lnk")); err != nil {
 		t.Fatal(err)
 	}
+	// The same link under HOME, reached through a `~/` path (card 130).
+	if err := os.Symlink(filepath.Join(top, "sub"), filepath.Join(f.dirs.Home, "lnk")); err != nil {
+		t.Fatal(err)
+	}
 	// A symlink outside the checkout to a real secret file inside it: the
 	// file's real location is inside, so it is refused as inside.
 	writeSecretFile(t, filepath.Join(top, "real.secret"), setupSecret)
 	if err := os.Symlink(filepath.Join(top, "real.secret"), filepath.Join(f.dirs.Root, "sl.secret")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(top, "real.secret"), filepath.Join(f.dirs.Home, "sl.secret")); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -184,9 +217,12 @@ func TestTeamJoinInSessionSecretFileRefusals(t *testing.T) { //nolint:tparallel 
 		code       protocol.Code
 	}{
 		{"relative", "rel.secret", protocol.CodeUsage},
+		{"another user's tilde", "~someone/join.secret", protocol.CodeUsage},
 		{"inside the checkout", filepath.Join(top, "in.secret"), protocol.CodeUsage},
 		{"dot-dot through a symlink into the checkout", f.dirs.Root + "/lnk/../in.secret", protocol.CodeUsage},
+		{"tilde dot-dot through a symlink into the checkout", "~/lnk/../in.secret", protocol.CodeUsage},
 		{"symlink to a file inside the checkout", filepath.Join(f.dirs.Root, "sl.secret"), protocol.CodeUsage},
+		{"tilde symlink to a file inside the checkout", "~/sl.secret", protocol.CodeUsage},
 		{"missing", filepath.Join(f.dirs.Root, "missing.secret"), protocol.CodeConfig},
 		{"a directory", f.dirs.Root, protocol.CodeConfig},
 		{"too large to be a secret file", huge, protocol.CodeInvalidInput},
@@ -430,6 +466,59 @@ func TestTeamRotateSecretInSession(t *testing.T) {
 	perr = wantCodeErr(t, err, protocol.CodeUsage, "")
 	if strings.Contains(perr.Message, "brg1") || len(readDump(t, dump)) != 1 {
 		t.Fatalf("poison: %q, spawns %d", perr.Message, len(readDump(t, dump)))
+	}
+}
+
+// TestTeamRotateSecretInSessionTilde: rotate-secret forwards a `~/` path
+// expanded against HOME, in both flag spellings, because the adapter
+// expands nothing (card 130); the expanded path still meets the
+// outside-the-repository rule.
+func TestTeamRotateSecretInSessionTilde(t *testing.T) {
+	t.Parallel()
+	f, dump := passThroughFixture(t, fakeadapter.Script{
+		Responses: map[string][]fakeadapter.Response{
+			"team rotate-secret": {{Result: []byte(`{"team_ref":"t1","team_name":"x","secret_version":2}`)}},
+		},
+	})
+	m := f.byPID()
+	m.AdapterCommand = []string{fakeAdapterBin, "--script", filepath.Join(f.dirs.Root, "script.json")}
+	f.writeMap(t, m)
+	top := mkCheckout(t, f.dirs.Root)
+
+	iv := sessionInv(t, f, top, "rotate-secret", "--secret-file", "~/rotated.secret")
+	iv.Environ = append(iv.Environ, "HOME="+top)
+	wantCode(t, Team(iv), protocol.CodeUsage, "")
+	// A `..` behind a link under HOME that points into the checkout.
+	if err := os.Symlink(filepath.Join(top, "sub"), filepath.Join(f.dirs.Home, "lnk")); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, Team(sessionInv(t, f, top, "rotate-secret", "--secret-file", "~/lnk/../rotated.secret")), protocol.CodeUsage, "")
+	if _, err := os.Lstat(dump); err == nil {
+		t.Fatal("the adapter was spawned for a ~/ secret file inside the checkout")
+	}
+
+	want := filepath.Join(f.dirs.Home, "rotated.secret")
+	for _, args := range [][]string{
+		{"--secret-file", "~/rotated.secret"},
+		{"--secret-file=~/rotated.secret"},
+		{"-secret-file", "~/rotated.secret"},
+		{"-secret-file=~/rotated.secret"},
+	} {
+		if err := Team(sessionInv(t, f, top, append([]string{"rotate-secret"}, args...)...)); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	invs := readDump(t, dump)
+	wantArgs := [][]string{
+		{"--secret-file", want}, {"--secret-file=" + want}, {"-secret-file", want}, {"-secret-file=" + want},
+	}
+	if len(invs) != len(wantArgs) {
+		t.Fatalf("dump = %+v, want %d rotations", invs, len(wantArgs))
+	}
+	for i, inv := range invs {
+		if !slices.Equal(inv.Args, wantArgs[i]) {
+			t.Fatalf("rotation %d forwarded %v, want %v", i, inv.Args, wantArgs[i])
+		}
 	}
 }
 
