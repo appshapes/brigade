@@ -1,11 +1,12 @@
 package watch
 
 // Card 117: host history is a best-effort LOCAL source, never a hook input
-// or an adapter input. Grok's title is the one exception the hook also
-// reads, so a registration does not wipe a name the watcher already
-// published (card 132). See docs/research/host-session-facts.md for the
-// measured formats and limits. Only a sanitised name and a token count
-// escape this reader; neither paths, native IDs nor raw errors are logged.
+// or an adapter input. Grok's title and model are the exception the hook
+// also reads, so a registration carries the name and model the watcher
+// will keep publishing (cards 132 and 135). See
+// docs/research/host-session-facts.md for the measured formats and limits.
+// Only a sanitised name, Grok's sanitised model id and a token count escape
+// this reader; neither paths, native IDs nor raw errors are logged.
 
 import (
 	"bytes"
@@ -36,6 +37,9 @@ type localHostFacts struct {
 	name       string
 	tokens     int
 	hasContext bool
+	// model is Grok's current_model_id. Codex and Muse leave it empty:
+	// their model still comes from the hook-written map.
+	model string
 }
 
 type hostFactsReader struct {

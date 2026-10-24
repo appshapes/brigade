@@ -1074,7 +1074,7 @@ replacement incarnation alone. It signals only its own watcher, never a TUI or s
 
 The bootstrap and Go resolvers use HOME-only directories inside Grok and ignore inherited Brigade/XDG and
 Claude plugin options. A Claude, Muse or Codex session that merely inherited `GROK_SESSION_ID` keeps its own
-`XDG_*` and `BRIGADE_*` values; the strip runs only when Grok is the host. No Claude account/settings or arbitrary Grok history is read. The display name is `generated_title` from that session's own `summary.json`, sanitized; with no title it falls back to `grok`. Unknown model and context stay blank. Protocol v1 and its inbound policy are unchanged.
+`XDG_*` and `BRIGADE_*` values; the strip runs only when Grok is the host. No Claude account/settings or arbitrary Grok history is read. The display name is `generated_title` from that session's own `summary.json`, sanitized; with no title it falls back to `grok`. The model is that file's `current_model_id`, sanitized like every other model (2026-10-24); with none it stays blank. Context stays blank. Protocol v1 and its inbound policy are unchanged.
 
 Startup systemMessage is UI-only. Stop's measured block/reason continuation offers one monitor setup attempt
 per incarnation, guarded before emission and by stopHookActive. Only an exact native running task/command

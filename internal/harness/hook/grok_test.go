@@ -17,6 +17,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/testutil"
+	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
 )
 
 func grokFixture(t *testing.T) *fixture {
@@ -418,6 +419,48 @@ func TestGrokRegistersSummaryTitle(t *testing.T) {
 	}
 	if m.SessionName != "payments-api" || m.Grok.LaunchCwd != f.cwd {
 		t.Fatalf("name %q launch %q document %q", m.SessionName, m.Grok.LaunchCwd, f.cwd)
+	}
+}
+
+func TestGrokRegistersSummaryModel(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	enc := watch.GrokEncodedCwd(f.cwd)
+	if enc == "" {
+		t.Fatal("fixture cwd did not encode")
+	}
+	dir := filepath.Join(f.dirs.Home, ".grok", "sessions", enc, f.nativeID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"info":{"id":"` + f.nativeID + `"},"generated_title":"payments-api","current_model_id":"grok-4.7","session_summary":"not the model"}`
+	if err := os.WriteFile(filepath.Join(dir, "summary.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seam := f.useSeam(map[string][]fakeadapter.Response{
+		"session register":  {okResp(registerDoc("brigade-sess-1", "payments-api", false))},
+		"session heartbeat": {okResp(heartbeatDoc())},
+	})
+	code, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	calls := seam.callsFor("session register")
+	if len(calls) != 1 {
+		t.Fatalf("registrations %d", len(calls))
+	}
+	var reg struct {
+		Model             *string `json:"model"`
+		ContextUsedTokens *int    `json:"context_used_tokens"`
+	}
+	if err := json.Unmarshal(calls[0].Stdin, &reg); err != nil {
+		t.Fatal(err)
+	}
+	if reg.Model == nil || *reg.Model != "grok-4.7" || reg.ContextUsedTokens != nil {
+		t.Fatalf("registration model %+v context %+v", reg.Model, reg.ContextUsedTokens)
+	}
+	if m := f.mustMap(); m.Model != "" || m.SessionName != "payments-api" {
+		t.Fatalf("map model %q name %q", m.Model, m.SessionName)
 	}
 }
 

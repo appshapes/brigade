@@ -9,6 +9,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Grok sessions show their model** (card 135). A Grok row's Model cell was blank.
+  The model is `current_model_id` from that session's own `summary.json` — the same
+  file as the roster name — sanitized like every other model. Registration sends it,
+  and so does each heartbeat, so a model change shows on the next one. A re-opened
+  session keeps it. Chat history is not read. Context stays blank. With no model
+  yet, the cell stays blank.
+
 ## [0.37.1] — 2026-10-23
 
 ### Fixed

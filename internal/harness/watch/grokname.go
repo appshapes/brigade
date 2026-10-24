@@ -15,12 +15,21 @@ import (
 
 const grokSummaryBytes = 1 << 20
 
-// GrokSessionName is the sanitized title of one Grok session, or "" when
-// that session has no title yet. It reads generated_title from that
-// session's own summary.json. Chat history is not opened.
-func GrokSessionName(environ []string, cwd, id string) string {
+// GrokSessionFacts is the sanitized title and model of one Grok session.
+// The title is generated_title, or "" when that session has none yet. The
+// model is current_model_id, or "" when the summary names none. Both come
+// from that session's own summary.json. Chat history is not opened.
+func GrokSessionFacts(environ []string, cwd, id string) (name, model string) {
 	r := hostFactsReader{host: config.HostGrok, root: grokHistoryRoot(environ), id: id, cwd: cwd}
-	return r.refresh().name
+	facts := r.refresh()
+	return facts.name, facts.model
+}
+
+// GrokSessionName is the sanitized title of one Grok session, or "" when
+// that session has no title yet.
+func GrokSessionName(environ []string, cwd, id string) string {
+	name, _ := GrokSessionFacts(environ, cwd, id)
+	return name
 }
 
 // GrokEncodedCwd is the session-group directory name for a launch cwd whose
@@ -134,6 +143,7 @@ func (r *hostFactsReader) refreshGrokFacts() localHostFacts {
 			ID string `json:"id"`
 		} `json:"info"`
 		Title string `json:"generated_title"`
+		Model string `json:"current_model_id"`
 	}
 	if json.Unmarshal(buf[:n], &doc, hostJSON) != nil {
 		return r.facts
@@ -145,6 +155,11 @@ func (r *hostFactsReader) refreshGrokFacts() localHostFacts {
 	}
 	if name := oneLineName(doc.Title); name != "" {
 		r.facts.name = name
+	}
+	// An empty model leaves the last one. A summary that omits the field,
+	// or sanitises to nothing, is not a change of model.
+	if model := oneLineModel(doc.Model); model != "" {
+		r.facts.model = model
 	}
 	return r.facts
 }

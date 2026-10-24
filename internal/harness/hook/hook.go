@@ -1135,12 +1135,16 @@ type identity struct {
 	harnessVersion string
 	entrypoint     string
 	nonInteractive bool
+	// model is Grok's current_model_id, already sanitized. Other hosts
+	// leave it empty; their model arrives on the watcher's heartbeat.
+	model string
 }
 
 // identity resolves the display name (registry → session_title →
-// basename(cwd); Grok, its summary title, otherwise "grok"), the activity
-// (registry status → idle), the harness version (registry version →
-// unknown) and the entrypoint (environment → registry; `kind` is ignored).
+// basename(cwd); Grok, its summary title, otherwise "grok"), Grok's model
+// (summary current_model_id, otherwise empty), the activity (registry
+// status → idle), the harness version (registry version → unknown) and
+// the entrypoint (environment → registry; `kind` is ignored).
 func (r *run) identity(f facts, in input) identity {
 	if f.host == config.HostGrok {
 		// The title is local metadata, not the hook document. SessionStart
@@ -1151,10 +1155,11 @@ func (r *run) identity(f facts, in input) identity {
 		if cwd == "" {
 			cwd = in.Cwd
 		}
-		if title := watch.GrokSessionName(r.environ, cwd, in.SessionID); title != "" {
+		title, model := watch.GrokSessionFacts(r.environ, cwd, in.SessionID)
+		if title != "" {
 			name = title
 		}
-		return identity{name: name, activity: protocol.ActivityIdle, harnessVersion: unknownVersion}
+		return identity{name: name, activity: protocol.ActivityIdle, harnessVersion: unknownVersion, model: model}
 	}
 	entry := r.registryEntry(f)
 	id := identity{

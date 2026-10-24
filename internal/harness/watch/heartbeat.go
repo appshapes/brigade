@@ -47,6 +47,16 @@ func (w *watcher) heartbeat(s *session) {
 		if facts.hasContext && facts.tokens >= 0 && facts.tokens <= protocol.MaxContextUsedTokens {
 			tokens = &facts.tokens
 		}
+		// Grok's model is current_model_id from the same summary as its
+		// name. Codex and Muse leave facts.model empty and fall through
+		// to the hook-written value below.
+		if m := facts.model; m != "" {
+			if m != w.lastModel {
+				w.log.Info("model updated from the host record", slog.String("model", m))
+				w.lastModel = m
+			}
+			model = &m
+		}
 	} else {
 		model, tokens = w.transcriptFacts(snap.transcriptPath)
 	}

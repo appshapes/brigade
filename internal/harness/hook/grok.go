@@ -206,6 +206,8 @@ func (r *run) decodeGrok(data []byte, in *input) error {
 		}
 		in.grokIncarnation = hex.EncodeToString(token[:])
 	}
+	// The hook document is not a model source. current_model_id is read
+	// from this session's own summary.json.
 	in.Model, in.TranscriptPath, in.SessionTitle = "", "", ""
 	if in.StopReason == "" {
 		in.StopReason = in.Reason

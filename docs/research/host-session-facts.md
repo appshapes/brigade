@@ -86,13 +86,15 @@ resolution. Every document measured reported the launch directory there; a docum
 name would simply stay `grok` — no other directory is tried and no path is
 guessed. `generated_title` is the title `/resume` shows, including one set with
 `/rename`. `info.id` must equal the native session id; a different id is not this session.
-`title_is_manual`, the recap and the summary are not names.
+`title_is_manual`, the recap and the summary are not names. `current_model_id` is the
+model in use. It is sanitized with the same rules as every other roster model.
 
 When the encoded name would exceed 255 bytes, Grok uses a slug plus a hash and writes the
 original path in a `.cwd` file in the group. The reader matches that file and does not
 reimplement the hash. Two groups claiming the same path yield no name. No other file under
 the session is opened. The summary is read only up to 1 MiB and `.cwd` only up to 4096
-bytes. Only the sanitized title leaves the reader. Model and context stay blank.
+bytes. The sanitized title and, when present, the sanitized `current_model_id` leave
+the reader. Context stays blank. Chat history is not opened.
 
 ## Bounds and failure behaviour
 
@@ -125,5 +127,6 @@ JSON remains lenient on duplicate members and
 invalid Unicode, matching the Claude transcript reader. Negative/non-integer counters are rejected, integer
 overflow saturates, and counts beyond the wire's safe range are omitted so lease renewal still works. Names use
 the existing name sanitiser. No raw file bytes, paths, native IDs, timestamps, provider usage detail or filesystem
-errors are logged or sent. Only the sanitised roster name and derived token count leave the reader; the existing
-model path and Claude reader are unchanged (T10, U-22).
+errors are logged or sent. Only the sanitised roster name, Grok's sanitised model id and the derived token
+count leave the reader. Codex and Muse models still come from the hook-written map. The Claude transcript
+reader is unchanged (T10, U-22).

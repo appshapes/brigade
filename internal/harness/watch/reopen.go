@@ -191,6 +191,14 @@ func (w *watcher) reopen(s *session) {
 		name = harness
 	}
 	model, tokens := w.transcriptFacts(snap.transcriptPath)
+	if config.Host(w.harness).Pointed() {
+		// A resume registration replaces model. Grok's lives in
+		// summary.json, so omitting it here would clear the roster cell.
+		// Codex and Muse keep the hook-written model: their record has none.
+		if m := w.pointedFacts(snap.nativeID).model; m != "" {
+			model = &m
+		}
+	}
 	if model == nil && w.model != "" {
 		m := w.model
 		model = &m

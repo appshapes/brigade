@@ -306,6 +306,10 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		SyncPeer:       r.deps.SyncPeer(),
 		Resume:         r.resumeHint(f, in, res.store, existing),
 	}
+	if res.id.model != "" {
+		model := res.id.model
+		reg.Model = &model
+	}
 	if res.workspaceLabel != "" {
 		label := res.workspaceLabel
 		reg.WorkspaceLabel = &label

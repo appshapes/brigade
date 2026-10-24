@@ -40,8 +40,9 @@ and [section 5](../../security.md#5-sending-what-the-ask-and-deny-rules-stop-and
 The watcher reads local host records at each heartbeat. Claude Code supplies model and context from its
 transcript and the name from its session registry. Muse Code and Codex CLI supply names and context from their
 own history, matched by exact native session ID; their model still comes from the hook-written session map.
-Grok Build supplies the name from that session's `summary.json` title, matched by the same native session id
-and the working directory the session was launched in. Its model and context stay blank.
+Grok Build supplies the name from that session's `summary.json` title and the model from that file's
+`current_model_id`, matched by the same native session id and the working directory the session was launched
+in. Its context stays blank.
 Only the roster name and the two derived facts, model and context, are shared. File contents and paths stay local.
 
 | Host | Name changes | CONTEXT |
