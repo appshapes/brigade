@@ -1,16 +1,20 @@
 package webhook
 
 import (
+	"bytes"
 	"encoding/json/v2"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	adapterlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -20,6 +24,7 @@ type receiver struct {
 	mu       sync.Mutex
 	statuses []int
 	got      []OutboundPayload
+	headers  []http.Header
 	bad      int
 	now      func() time.Time
 }
@@ -40,6 +45,7 @@ func (rc *receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rc.got = append(rc.got, p)
+	rc.headers = append(rc.headers, r.Header.Clone())
 	status := http.StatusOK
 	if len(rc.statuses) > 0 {
 		status, rc.statuses = rc.statuses[0], rc.statuses[1:]
@@ -210,4 +216,110 @@ func postWith(t *testing.T, h http.Handler, ts int64, secret []byte, ctype, body
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+// A --header-file's headers ride on every POST beside the signature,
+// which still verifies: the receiver's own key (a Grok Bot routine's
+// Authorization header) is extra, never instead.
+func TestDeliverSendsTheExtraHeaders(t *testing.T) {
+	clk := &clock{now: time.Unix(1_800_000_000, 0)}
+	rc := &receiver{now: clk.Now}
+	srv := httptest.NewServer(rc)
+	t.Cleanup(srv.Close)
+	fb := newFake()
+	extra, err := parseHeaderFile([]byte("# the routine's key\nAuthorization: Bearer routine-key-0123456789\n\nx-routine-tag: brigade\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := New(Config{TargetURL: srv.URL, Secret: testSecret, ExtraHeaders: extra, MaxAttempts: 3, Now: clk.Now}, fb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	fb.deliver(message("m-1", "sess-alice"))
+	if n, err := g.Deliver(t.Context()); err != nil || n != 1 {
+		t.Fatalf("Deliver = %d, %v", n, err)
+	}
+	if rc.bad != 0 || len(rc.headers) != 1 {
+		t.Fatalf("bad %d, posts %d", rc.bad, len(rc.headers))
+	}
+	h := rc.headers[0]
+	if h.Get("Authorization") != "Bearer routine-key-0123456789" || h.Get("X-Routine-Tag") != "brigade" {
+		t.Fatalf("extra headers not sent: %v", h)
+	}
+	if h.Get("Content-Type") != "application/json" || h.Get(HeaderDelivery) != "m-1" {
+		t.Fatalf("the gateway's own headers changed: %v", h)
+	}
+}
+
+// The gateway's own headers can never come from the file, in any case:
+// not through the parser, and not through a Config built by hand.
+func TestExtraHeadersCannotOverrideTheGatewaysOwn(t *testing.T) {
+	for _, line := range []string{
+		"Content-Type: text/plain", "content-type: text/plain", "HOST: evil.example", "User-Agent: x",
+		"X-Brigade-Signature: v1=00", "x-brigade-timestamp: 1", "X-BRIGADE-DELIVERY: m-9", "X-Brigade-Anything: y",
+	} {
+		if _, err := parseHeaderFile([]byte(line + "\n")); err == nil {
+			t.Errorf("parseHeaderFile accepted %q", line)
+		}
+	}
+	for _, name := range []string{"Content-Type", "Host", "X-Brigade-Signature"} {
+		_, err := New(Config{TargetURL: "https://example.com/hook", Secret: testSecret,
+			ExtraHeaders: http.Header{name: {"x"}}}, newFake())
+		if err == nil {
+			t.Errorf("New accepted an extra %s header", name)
+		}
+	}
+}
+
+func TestParseHeaderFile(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		data string
+		ok   bool
+	}{
+		{"one header", "Authorization: Bearer k\n", true},
+		{"crlf and comments", "# key\r\nAuthorization: Bearer k\r\n\r\n", true},
+		{"value with a colon", "X-Key: a:b:c\n", true},
+		{"empty file", "", true},
+		{"no colon", "Authorization Bearer k\n", false},
+		{"empty name", ": k\n", false},
+		{"bad name", "Auth orization: k\n", false},
+		{"empty value", "Authorization:\n", false},
+		{"control character", "Authorization: Bearer \x00k\n", false},
+		{"duplicate, any case", "X-Key: a\nx-key: b\n", false},
+	} {
+		_, err := parseHeaderFile([]byte(c.data))
+		if (err == nil) != c.ok {
+			t.Errorf("%s: parseHeaderFile = %v, want ok=%v", c.name, err, c.ok)
+		}
+		if err != nil && strings.Contains(err.Error(), "Bearer") {
+			t.Errorf("%s: the refusal quotes the file: %v", c.name, err)
+		}
+	}
+	var many strings.Builder
+	for i := range maxExtraHeaders + 1 {
+		many.WriteString("X-H" + strconv.Itoa(i) + ": v\n")
+	}
+	if _, err := parseHeaderFile([]byte(many.String())); err == nil {
+		t.Errorf("parseHeaderFile accepted %d headers", maxExtraHeaders+1)
+	}
+}
+
+// Every value, and the credential inside an `Authorization: Bearer …`,
+// is an exact token to the redacting logger.
+func TestHeaderValuesAreRedacted(t *testing.T) {
+	extra, err := parseHeaderFile([]byte("Authorization: Bearer routine-key-0123456789\nX-Key: other-secret\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	redactor := adapterlog.NewRedactor()
+	redactor.Add(headerSecrets(extra)...)
+	adapterlog.New(&buf, slog.LevelDebug, redactor).Error("upstream said: token routine-key-0123456789 refused; other-secret too")
+	if out := buf.String(); strings.Contains(out, "routine-key-0123456789") || strings.Contains(out, "other-secret") {
+		t.Fatalf("a header value reached the log: %s", out)
+	}
 }

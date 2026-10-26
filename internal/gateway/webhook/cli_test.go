@@ -228,3 +228,32 @@ func TestGatewayDirsHonourTheBrigadeVariablesInsideASession(t *testing.T) {
 		t.Errorf("stripSession kept %v", kept)
 	}
 }
+
+// --header-file follows --secret-file's rules: absolute, outside the
+// team's checkout, and an owner-only file (adapterkit.ReadStrict).
+func TestRunRefusesAnUnsafeHeaderFile(t *testing.T) {
+	dir := t.TempDir()
+	loose := filepath.Join(dir, "headers")
+	if err := os.WriteFile(loose, []byte("Authorization: Bearer k\n"), 0o644); err != nil { //nolint:gosec // the point of the test
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, file, want string
+	}{
+		{"relative", "headers", "--header-file must be an absolute path"},
+		{"group-readable", loose, "cannot read the header file"},
+	} {
+		var out, errb bytes.Buffer
+		code := Run(t.Context(), []string{"--target-url", "https://example.com/hook", "--secret-file", writeSecret(t), "--header-file", c.file},
+			strings.NewReader(""), &out, &errb, []string{"BRIGADE_CONFIG_DIR=" + dir, "HOME=" + dir})
+		if code == 0 || !strings.Contains(errb.String(), c.want) {
+			t.Errorf("%s: Run = %d, stderr %q", c.name, code, errb.String())
+		}
+		if strings.Contains(errb.String(), "Bearer k") {
+			t.Errorf("%s: the header file reached stderr", c.name)
+		}
+	}
+	if err := checkPrivateFile("--header-file", dir+"/a/../h", ""); err == nil || !strings.Contains(err.Error(), "--header-file") {
+		t.Errorf("checkPrivateFile with a `..` = %v", err)
+	}
+}

@@ -55,6 +55,12 @@ type Config struct {
 	Poll         time.Duration
 	MaxAttempts  int
 	MaxSkew      time.Duration
+	// ExtraHeaders are set on every POST to TargetURL before the
+	// gateway's own headers (a receiver's credential, from
+	// --header-file). They authenticate nothing to Brigade; the
+	// signature still does. Names ParseHeaderFile refuses are refused
+	// here too.
+	ExtraHeaders http.Header
 	// StatePath is the local state file; "" keeps state in memory only.
 	StatePath  string
 	HTTPClient *http.Client
@@ -88,6 +94,11 @@ func New(cfg Config, be Backend) (*Gateway, error) {
 	}
 	if len(cfg.Secret) < MinSecretBytes {
 		return nil, errors.New("the shared secret must be at least 32 bytes")
+	}
+	for name := range cfg.ExtraHeaders {
+		if err := checkExtraHeaderName(name); err != nil {
+			return nil, err
+		}
 	}
 	if cfg.SessionName == "" {
 		cfg.SessionName = DefaultSessionName
@@ -366,6 +377,11 @@ func (g *Gateway) post(ctx context.Context, p *OutboundPayload) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.cfg.TargetURL, bytes.NewReader(body))
 	if err != nil {
 		return 0, err
+	}
+	for name, values := range g.cfg.ExtraHeaders {
+		for _, v := range values {
+			req.Header.Set(name, v)
+		}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "brigade-webhook-gateway/"+g.cfg.Version)

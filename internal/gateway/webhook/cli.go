@@ -66,6 +66,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		adapterSpec = fs.String("adapter", "", "adapter override: a registered name or a JSON argv array (default: the profile's)")
 		target      = fs.String("target-url", "", "URL every received message is POSTed to (https, or http on loopback)")
 		secretFile  = fs.String("secret-file", "", "0600 file holding the shared HMAC secret (32+ bytes)")
+		headerFile  = fs.String("header-file", "", "0600 file of `Name: value` lines sent on every POST to --target-url (a receiver's own key)")
 		listen      = fs.String("listen", DefaultListen, `inbound API address; "off" disables inbound`)
 		sessionName = fs.String("session-name", DefaultSessionName, "session name shown on the roster")
 		description = fs.String("description", "Forwards messages to a webhook and back", "session description shown on the roster")
@@ -119,6 +120,22 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	// The shared secret is an exact token from here on: a diagnostic that
 	// quotes a request or a header can never print it.
 	redactor.Add(string(secret))
+	var extra http.Header
+	if *headerFile != "" {
+		if err := checkPrivateFile("--header-file", *headerFile, *teamFile); err != nil {
+			return fail(err.Error(), nil)
+		}
+		hraw, herr := adapterkit.ReadStrict(*headerFile)
+		if herr != nil {
+			return fail("cannot read the header file", herr)
+		}
+		if extra, herr = parseHeaderFile(hraw); herr != nil {
+			return fail("invalid header file", herr)
+		}
+		// The values are a receiver's credential: exact tokens from here
+		// on, as the shared secret is.
+		redactor.Add(headerSecrets(extra)...)
+	}
 	if *profile == "" && *teamFile != "" {
 		f, ferr := teamfile.Parse(*teamFile)
 		if ferr != nil {
@@ -150,7 +167,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		Environ: environ, Logger: log,
 	}
 	gw, err := New(Config{
-		TargetURL: *target, Secret: secret, SessionName: *sessionName, Description: *description,
+		TargetURL: *target, Secret: secret, ExtraHeaders: extra, SessionName: *sessionName, Description: *description,
 		Version: buildinfo.String(), LeaseSeconds: *lease, Poll: *poll, MaxAttempts: *maxAttempts,
 		StatePath: filepath.Join(stateDir, "webhook-gateway", *profile+".json"), Logger: log,
 	}, client)
@@ -282,11 +299,18 @@ func hasAnyPrefix(s string, prefixes []string) bool {
 // still land inside. Mode, owner and symlinks on the file itself are
 // adapterkit.ReadStrict's job; this is only its location.
 func checkSecretFile(secretFile, teamFile string) error {
+	return checkPrivateFile("--secret-file", secretFile, teamFile)
+}
+
+// checkPrivateFile is checkSecretFile's rule for any file flag that holds
+// a credential (--secret-file, --header-file), naming that flag in its
+// refusals.
+func checkPrivateFile(flagName, secretFile, teamFile string) error {
 	if secretFile == "" || !filepath.IsAbs(secretFile) {
-		return errors.New("--secret-file must be an absolute path outside the team's checkout")
+		return errors.New(flagName + " must be an absolute path outside the team's checkout")
 	}
 	if slices.Contains(strings.Split(secretFile, string(filepath.Separator)), "..") {
-		return errors.New("--secret-file must not contain a `..` component; spell the path plainly")
+		return errors.New(flagName + " must not contain a `..` component; spell the path plainly")
 	}
 	if teamFile == "" {
 		return nil
@@ -309,8 +333,8 @@ func checkSecretFile(secretFile, teamFile string) error {
 	canonTop, terr := teamfile.Canonicalize(top)
 	canonDir, derr := teamfile.Canonicalize(dir)
 	if isUnder(dir, top) || (terr == nil && derr == nil && isUnder(canonDir, canonTop)) {
-		return errors.New("--secret-file must not be inside the team's checkout (" + top +
-			"): the gateway secret must never live under a repository")
+		return errors.New(flagName + " must not be inside the team's checkout (" + top +
+			"): a gateway credential must never live under a repository")
 	}
 	return nil
 }
