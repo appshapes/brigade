@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.39.0] — 2026-10-26
+
 ### Added
 
 - **A team with no backend: the syncthing adapter** (card 141).
