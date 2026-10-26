@@ -9,7 +9,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A self-hosted webhook gateway** (card 137).
+  `brigade-webhook-gateway` joins a team as one more session and relays it
+  to one outside service: each message it receives is POSTed, signed, to a
+  URL of yours and acknowledged on a 2xx; the service answers through a
+  loopback-only, signed `send`. Nothing is added to the project. Messages it
+  carries in are marked unverified and approve nothing.
+
 ### Fixed
+
+- **`--member` never picks a gateway** (card 137).
+  Every harness starting `gateway-` is skipped, so a gateway run as one of
+  a member's own sessions no longer takes messages meant for their harness.
+  The hosted gateways need their Edge Functions redeployed for the same.
 
 - **Grok sessions show their model** (card 135). A Grok row's Model cell was blank.
   The model is `current_model_id` from that session's own `summary.json` — the same

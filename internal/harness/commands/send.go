@@ -319,13 +319,16 @@ func ambiguousRecipient(matches []protocol.SessionRecord) *protocol.Error {
 	}
 }
 
-// The harness names of the two hosted gateways (docs/project-owner/configure/mail-gateway.md,
-// docs/project-owner/configure/slack-gateway.md). A --member message never goes to one: a gateway
-// forwards to people, and --member addresses a teammate's session.
-const (
-	harnessGatewayEmail = "gateway-email"
-	harnessGatewaySlack = "gateway-slack"
-)
+// Gateways register under a harness name starting "gateway-": the two
+// hosted ones (docs/project-owner/configure/mail-gateway.md,
+// docs/project-owner/configure/slack-gateway.md, "gateway-email" and
+// "gateway-slack") and the self-hosted webhook gateway
+// (docs/project-owner/configure/webhook-gateway.md, "gateway-webhook"). A
+// --member message never goes to one: a gateway forwards to people or to
+// an outside service, and --member addresses a teammate's session. A
+// gateway run under a member's own identity would otherwise often be that
+// member's freshest session and take messages meant for their harness.
+const harnessGatewayPrefix = "gateway-"
 
 // How a --member argument matched, in the --json `how` member.
 const (
@@ -334,7 +337,7 @@ const (
 )
 
 // isGatewayHarness reports whether a roster row is one of the gateways.
-func isGatewayHarness(h string) bool { return h == harnessGatewayEmail || h == harnessGatewaySlack }
+func isGatewayHarness(h string) bool { return strings.HasPrefix(h, harnessGatewayPrefix) }
 
 // memberPick is what --member resolved to (card 101): the session chosen,
 // how the argument matched, how many of the member's sessions could have

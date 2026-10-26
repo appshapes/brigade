@@ -148,6 +148,14 @@ Deno.test("resolveRecipient: refusing sessions and gateways are never picked; a 
   assertEquals(pick(resolveRecipient("sam@example.com", [refusing, holding])).id, holding.session_id);
   assertStringIncludes(errOf(resolveRecipient("sam@example.com", [refusing])), "can receive");
   assertStringIncludes(errOf(resolveRecipient("mail gateway", sessions)), "can receive");
+  // A webhook gateway run as one of sam's own sessions is active and the freshest, and still never the pick.
+  const webhook = sam({
+    session_id: "eeeeeeee-0000-4000-8000-0000000000e1",
+    state: "active",
+    harness: "gateway-webhook",
+  });
+  const idle = sam({ session_id: "eeeeeeee-0000-4000-8000-0000000000e2", state: "idle" });
+  assertEquals(pick(resolveRecipient("sam@example.com", [webhook, idle])).id, idle.session_id);
   const impostor = sam({
     session_id: "dddddddd-0000-4000-8000-0000000000d1",
     principal_ref: "0b0b0b0b-bbbb-4bbb-8bbb-bbbbbbbbbbbb",

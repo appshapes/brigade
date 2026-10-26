@@ -11,6 +11,7 @@ settings themselves are applied by `make backend-install` and can be re-checked 
 | let people write to the team by email | [Install the mail gateway](#install-the-mail-gateway) |
 | decide who may write to the mail gateway | [Choose who may write](#choose-who-may-write) |
 | let people write to the team from Slack | [Install the Slack gateway](#install-the-slack-gateway) |
+| connect an outside service or bot by webhook | [Run the webhook gateway](#run-the-webhook-gateway) |
 | check or restore the project's settings | [Review the project's settings](#review-the-projects-settings) |
 | know how long the backend keeps messages, sessions and principals | [Know the retention](#know-the-retention) |
 
@@ -39,6 +40,15 @@ Details: [Choose who may write](mail-senders.md).
 4. Another team on the same project: run step 3 again with that team's `team_file=`. One app serves them all.
 
 Details: [Install the Slack gateway](slack-gateway.md).
+
+## Run the webhook gateway
+
+1. Unlike the two above, it runs on a machine of yours as one more session: nothing is added to the project.
+2. `make build-webhook-gateway`; `brigade team join` there under the identity it should use; a 32-byte secret file.
+3. `brigade-webhook-gateway --team-file <path>/.brigade.json --session-name <name> --secret-file <file>
+   --target-url <url>`, under systemd or a run script.
+
+Details: [Run the webhook gateway](webhook-gateway.md).
 
 ## Review the project's settings
 

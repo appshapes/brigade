@@ -841,6 +841,9 @@ func memberRoster() string {
 		rec("ssssssssssssssssssssssssssss0001", "shared label", "34343434-ssss", protocol.SessionStateIdle, protocol.InboundAccept, time.Minute, ""),
 		rec("zzzzzzzzzzzzzzzzzzzzzzzzzzzz0001", "zed@example.com", "44444444-zed", protocol.SessionStateActive, protocol.InboundRefuse, time.Second, ""),
 		rec("gggggggggggggggggggggggggggg0001", "mail gateway", "55555555-gw", protocol.SessionStateIdle, protocol.InboundAccept, time.Second, "gateway-email"),
+		// A webhook gateway running as one of pat's own sessions: active and
+		// the freshest, and still never a --member pick.
+		rec("gggggggggggggggggggggggggggg0002", "pat@example.com", "11111111-pat", protocol.SessionStateActive, protocol.InboundAccept, time.Second, "gateway-webhook"),
 	)
 }
 
@@ -1026,5 +1029,17 @@ func TestResolveMember(t *testing.T) {
 	want := []string{"active-old", "idle-new", "idle-old", "hold", "offline-new", "odd-state"}
 	if !slices.Equal(got, want) || p.candidates != len(want) || p.how != matchedByLabel {
 		t.Errorf("order = %v (candidates %d, how %q), want %v", got, p.candidates, p.how, want)
+	}
+}
+
+func TestIsGatewayHarness(t *testing.T) {
+	t.Parallel()
+	for h, want := range map[string]bool{
+		"gateway-email": true, "gateway-slack": true, "gateway-webhook": true,
+		"claude-code": false, "codex": false, "": false, "my-gateway-": false,
+	} {
+		if got := isGatewayHarness(h); got != want {
+			t.Errorf("isGatewayHarness(%q) = %v, want %v", h, got, want)
+		}
 	}
 }

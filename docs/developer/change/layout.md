@@ -3,6 +3,7 @@
 | Path | What |
 | --- | --- |
 | `cmd/brigade` | the one shipped binary: the plugin harness, the bundled Supabase adapter, the Syncthing sync adapter |
+| `cmd/brigade-webhook-gateway`, `internal/gateway/webhook` | the self-hosted webhook gateway: one session that relays to an outside service, signed |
 | `cmd/brigade-adapter-fs`, `internal/adapters/fs` | the reference adapter (dev and test only) |
 | `cmd/brigade-conformance`, `internal/conformance` | the conformance suite (dev and test only) |
 | `cmd/brigade-schema`, `internal/protocol/schema` | the protocol's JSON Schema generator |

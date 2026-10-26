@@ -138,9 +138,13 @@ build: version-check ## Build bin/brigade plus the dev-only binaries for this ho
 	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-fake-adapter ./cmd/brigade-fake-adapter
 	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-conformance ./cmd/brigade-conformance
 
+.PHONY: build-webhook-gateway
+build-webhook-gateway: version-check ## Build bin/brigade-webhook-gateway, the self-hosted webhook gateway, with the release flags
+	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-webhook-gateway ./cmd/brigade-webhook-gateway
+
 .PHONY: clean
 clean: ## Remove build artifacts and local caches
-	rm -rf $(bin_dir)/brigade $(bin_dir)/brigade-adapter-fs $(bin_dir)/brigade-fake-adapter $(bin_dir)/brigade-conformance dist $(dist_cross) cover.out $(env_test) playwright-report test-results
+	rm -rf $(bin_dir)/brigade $(bin_dir)/brigade-adapter-fs $(bin_dir)/brigade-fake-adapter $(bin_dir)/brigade-conformance $(bin_dir)/brigade-webhook-gateway dist $(dist_cross) cover.out $(env_test) playwright-report test-results
 
 .PHONY: typecheck
 typecheck: ## go build ./... and go vet ./... (every package, including tests) (CI)
