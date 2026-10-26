@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.39.1] — 2026-10-26
+
 ### Added
 
 - **The webhook gateway can send the service's own key** (card 142).
