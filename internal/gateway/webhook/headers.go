@@ -65,17 +65,34 @@ func checkExtraHeaderName(name string) error {
 	return nil
 }
 
+// minRedactedHeaderValue is the length a header value must reach before
+// it becomes a redactor token. A token is a plain substring replaced
+// everywhere it occurs in every line, so a short value is a global
+// pattern over the gateway's whole log: `X-Api-Version: 1` would blank
+// every `1` in every timestamp, message id and attempt count, and a
+// seven-letter tag value such as `brigade` would blank it inside
+// `brigade-webhook-gateway/<version>`, inside the header file's own path
+// in a "cannot read" diagnostic and inside the adapter child's argv —
+// taking from the operator exactly the diagnostics a failure needs, with
+// nothing saying why. A credential is never that short; a tag or a
+// version value often is, and a tag is not what a header file is for.
+const minRedactedHeaderValue = 8
+
 // headerSecrets is what a header file adds to the log redactor: every
-// value whole and, for a value of the form `<scheme> <credential>`
-// (Authorization: Bearer …), the credential alone, which is what a
-// diagnostic quoting a token would print.
+// value long enough to be a credential, whole, and, for a value of the
+// form `<scheme> <credential>` (Authorization: Bearer …), the credential
+// alone, which is what a diagnostic quoting a token would print.
 func headerSecrets(h http.Header) []string {
 	var out []string
 	for _, values := range h {
 		for _, v := range values {
-			out = append(out, v)
-			if _, cred, ok := strings.Cut(v, " "); ok && len(strings.TrimSpace(cred)) >= 8 {
-				out = append(out, strings.TrimSpace(cred))
+			if len(v) >= minRedactedHeaderValue {
+				out = append(out, v)
+			}
+			if _, cred, ok := strings.Cut(v, " "); ok {
+				if cred = strings.TrimSpace(cred); len(cred) >= minRedactedHeaderValue {
+					out = append(out, cred)
+				}
 			}
 		}
 	}

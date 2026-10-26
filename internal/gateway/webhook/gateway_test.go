@@ -323,3 +323,25 @@ func TestHeaderValuesAreRedacted(t *testing.T) {
 		t.Fatalf("a header value reached the log: %s", out)
 	}
 }
+
+// A value shorter than minRedactedHeaderValue is never registered: a
+// redactor token is a plain substring replaced everywhere, so a tag or a
+// version value would blank the gateway's own diagnostics.
+func TestAShortHeaderValueIsNotRedacted(t *testing.T) {
+	extra, err := parseHeaderFile([]byte("X-Routine-Tag: brigade\nX-Api-Version: 1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secrets := headerSecrets(extra); len(secrets) != 0 {
+		t.Fatalf("headerSecrets registered a short value: %v", secrets)
+	}
+	var buf bytes.Buffer
+	redactor := adapterlog.NewRedactor()
+	redactor.Add(headerSecrets(extra)...)
+	adapterlog.New(&buf, slog.LevelDebug, redactor).
+		Error("post failed: brigade-webhook-gateway/0.38.0 attempt 1 of 24")
+	out := buf.String()
+	if !strings.Contains(out, "brigade-webhook-gateway/0.38.0") || !strings.Contains(out, "attempt 1 of 24") {
+		t.Fatalf("a short header value redacted the gateway's own diagnostics: %s", out)
+	}
+}

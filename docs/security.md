@@ -950,6 +950,21 @@ what leaves.
   `brigade team create` makes of an in-project join secret. Mode, owner and symlinks on the file itself are
   checked as every other secret file's are. It grants nothing on the backend: the team's join secret and the
   project's keys are not involved.
+- **A header file is a credential Brigade presents, never one it accepts.** A service may gate its own webhook URL
+  with a key of its own, as a Grok Bot routine's does
+  ([Send the service's own key](project-owner/configure/webhook-gateway.md#send-the-services-own-key)):
+  `--header-file` names a file of `Name: value` lines that ride on every POST to the target URL. It authenticates
+  nothing **to** Brigade — the signature above is still the only thing that authenticates either direction, and the
+  file can neither add a permitted caller nor stand in for the secret — but it does mean a second credential, a
+  third party's, on the gateway's machine, under the same rules as the first: absolute path, no `..` component,
+  outside the checkout `--team-file` names, a regular 0600 file owned by the gateway's user. The gateway's own
+  headers cannot be set from it — `Content-Type`, `Content-Length`, `Host`, `User-Agent` and every `X-Brigade-*`
+  are refused in any case, and the file's headers are set before the gateway's — so nothing in it can change what
+  is signed; at most 16 headers are accepted. Each value of eight characters or more, and the credential after a
+  scheme such as `Bearer`, is redacted from the gateway's logs, and no refusal quotes a name or a value; a shorter
+  value is not redacted, because a redacted string is blanked wherever it occurs and a tag or a version number
+  would erase the gateway's own diagnostics with it. Under `--allow-http` to a target that is not loopback, this
+  credential travels in the clear along with the body.
 - **The listener is loopback by default, and signed wherever it is bound.** It defaults to `127.0.0.1:8787`, so
   only a program on the gateway's machine can reach it, and `--listen off` removes it. Bound anywhere else — behind
   a reverse proxy that terminates TLS, say — the signature is still the only authentication, with a cap on
