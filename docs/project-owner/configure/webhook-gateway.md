@@ -28,7 +28,8 @@ teammate, never as an approval, a credential, or an instruction it must obey.
    otherwise, as `brigade team create` refuses an in-project join secret. A secret inside a checkout is one
    `git add` from a public repository.
 4. **The target URL** of the outside service: `https://`, or `http://` to a loopback address. A URL with
-   credentials in it is refused; the signature is the authentication.
+   credentials in it is refused; the signature is the authentication. If the service also wants a key of its own
+   in a header, put it in a [header file](#send-the-services-own-key).
 
 ## Build
 
@@ -93,6 +94,7 @@ brigade-webhook-gateway \
 | `--description` | `Forwards messages to a webhook and back` | the session's doing line |
 | `--listen` | `127.0.0.1:8787` | the local listener for `send`/`sessions`; `off` for none |
 | `--lease`, `--poll` | 600 s, 5 s | session lease (heartbeat every third of it), inbox poll interval |
+| `--header-file` | none | a 0600 file of `Name: value` lines sent on every POST to `--target-url` ([the service's own key](#send-the-services-own-key)) |
 | `--max-attempts` | 24 | POST attempts per message, with backoff, before the sender is told it was not delivered |
 | `--inbound-per-minute` | 60 | local sends accepted per minute (the backend's own send rate still applies) |
 | `--once`, `--log-level` | | one pass then exit; `debug`/`info`/`warn`/`error` |
@@ -100,6 +102,28 @@ brigade-webhook-gateway \
 The gateway remembers its session and its threads in `webhook-gateway/<profile>.json` under Brigade's state
 directory (`BRIGADE_STATE_DIR`, else `$XDG_STATE_HOME/brigade` or `~/.local/state/brigade`) and resumes the session
 after a restart; a session the backend has forgotten is replaced by a new one.
+
+### Send the service's own key
+
+Some services gate their webhook URL with a key of their own as well as checking the signature. A Grok Bot
+routine's webhook, for one, wants its sender key in an `Authorization` header. Put such headers in a file, one
+`Name: value` per line (blank lines and `#` comments are ignored), and pass `--header-file`:
+
+```sh
+(umask 077; printf 'Authorization: Bearer %s\n' "<the routine's sender key>" > ~/.config/brigade-webhook/headers)
+brigade-webhook-gateway … --header-file $HOME/.config/brigade-webhook/headers
+```
+
+The file follows `--secret-file`'s rules: an absolute path with no `..` component, outside the checkout
+`--team-file` names, a regular file owned by the gateway's user with mode 0600. At most 16 headers. The gateway's
+own headers cannot be set from it: `Content-Type`, `Content-Length`, `Host`, `User-Agent` and every `X-Brigade-*`
+name are refused, in any case, so the file can never change what is signed. Each value of eight characters or
+more, and the credential after a scheme such as `Bearer`, is redacted from the gateway's logs, and no refusal
+quotes the file; a shorter value is not, because a redacted string is blanked everywhere it occurs and a tag or a
+version number would take the gateway's own diagnostics with it. The signature is still sent and still
+authenticates the request; the extra header is only the service's own gate. It is a credential of the service's,
+so an `http://` target under `--allow-http` sends it in the clear along with the body. Restart the gateway after
+changing the file.
 
 ### As a systemd user service
 

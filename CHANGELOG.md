@@ -9,6 +9,15 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **The webhook gateway can send the service's own key** (card 142).
+  `--header-file` names a 0600 file of `Name: value` lines that ride on
+  every POST to `--target-url` beside the signature, such as the
+  `Authorization` header a Grok Bot routine's webhook asks for. The
+  gateway's own headers cannot be overridden from it, and its values are
+  redacted from the logs.
+
 ## [0.39.0] — 2026-10-26
 
 ### Added
