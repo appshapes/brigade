@@ -24,8 +24,8 @@ Commands:
   doing [--clear]                             publish one sentence about what this session is working on (on stdin)
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
-  team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags]
-                                              create, join, leave and administer a team, and list its members
+  team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|migrate [--team <ref-or-name>] [adapter flags]
+                                              create, join, leave and administer a team, list its members, or move it to the syncthing adapter
   inbox [release] [--session <id>] [--all | <message_id>…] | follow [--incarnation <token>] | read [--cursor <token>]
                                               show and release held messages; follow prints each team message as it lands (a native inbox monitor's command)
   hook session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>]
@@ -131,9 +131,9 @@ show the folders this project syncs, the sync engine and the teammates' peers
 ## brigade team
 
 ```text
-Usage: brigade team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags] [--json] [--log-level debug|info|warn|error]
+Usage: brigade team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|migrate [--team <ref-or-name>] [adapter flags] [--json] [--log-level debug|info|warn|error]
 
-create, join, leave and administer a team, and list its members
+create, join, leave and administer a team, list its members, or move it to the syncthing adapter
 ```
 
 ## brigade inbox

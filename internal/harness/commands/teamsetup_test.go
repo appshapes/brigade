@@ -983,3 +983,145 @@ func TestTeamJoinLiteralLabelOption(t *testing.T) {
 		t.Fatalf("team join sent human_label %q, want the option's literal", got)
 	}
 }
+
+const seedDevice = "MFZWI3D-BONSGYC-YLTMRWG-C43ENR5-QXGZDMM-FZWI3DP-BONSGYY-LTMRWAD"
+
+// TestTeamCreateOverSyncthingWritesTheSeed: `--adapter syncthing` takes no
+// backend pair, drives `profile init --force` and `team create`, reads
+// this machine's device id from `profile status`, and writes a team file
+// with `devices` and no url or key (card 141).
+func TestTeamCreateOverSyncthingWritesTheSeed(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	secretFile := filepath.Join(f.dirs.Root, "team.secret")
+	f.rec.on("profile init", answer{result: `{"name":"x","state":"not_member"}`})
+	f.rec.on("team create", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_1"}`})
+	f.rec.on("profile status", answer{result: `{"name":"x","state":"joined","device_id":"` + seedDevice + `","engine":"running","team_folder":"present","seeds":["` + seedDevice + `"]}`})
+
+	iv := f.inv(f.terminalEnv(), "", "create", "--adapter", "syncthing", "--name", "devs", "--secret-file", secretFile)
+	iv.Deps.Getwd = func() (string, error) { return top, nil }
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := teamfile.Parse(filepath.Join(top, teamfile.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Adapter != "syncthing" || parsed.URL != "" || parsed.PublishableKey != "" || !slices.Equal(parsed.Devices, []string{seedDevice}) || parsed.TeamRef != setupTeamRef {
+		t.Fatalf("team file = %+v", parsed)
+	}
+	if got := argvOf(f.rec.spec(t, 0)); !strings.Contains(got, "--force") || strings.Contains(got, "--url") {
+		t.Fatalf("profile init argv = %s, want --force and no backend pair", got)
+	}
+	key := teamstore.Key("syncthing", "", setupTeamRef)
+	if b, err := teamstore.LoadBinding(f.dirs.BrigadeConfig, key); err != nil || b.URL != "" || b.Adapter != "syncthing" {
+		t.Fatalf("binding = %+v, %v", b, err)
+	}
+	if out := f.out.String(); !strings.Contains(out, "seed device") || !strings.Contains(out, "git add "+teamfile.FileName) {
+		t.Fatalf("output %q lacks the seed line or the commit step", out)
+	}
+	// A backend pair with the syncthing adapter is a usage error.
+	bad := f.inv(f.terminalEnv(), "", "create", "--adapter", "syncthing", "--url", "https://x.co", "--key", "k", "--name", "devs", "--secret-file", secretFile)
+	bad.Deps.Getwd = func() (string, error) { return top, nil }
+	wantCode(t, Team(bad), protocol.CodeUsage, "")
+}
+
+// writeSyncthingCheckoutFile puts a syncthing team file at the toplevel.
+func writeSyncthingCheckoutFile(t *testing.T, top string) {
+	t.Helper()
+	doc := `{"version":1,"adapter":"syncthing","devices":["` + seedDevice + `"],"team_ref":"` + setupTeamRef + `","team_name":"devs"}`
+	//nolint:gosec // G306: a committed team file IS 0644
+	if err := os.WriteFile(filepath.Join(top, teamfile.FileName), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestTeamJoinOverSyncthingSendsTheSeeds: the join's backend member
+// carries the file's devices and team name, the gate names the seeds and
+// no host, and the binding has no backend pair.
+func TestTeamJoinOverSyncthingSendsTheSeeds(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	writeSyncthingCheckoutFile(t, top)
+	f.rec.on("profile init", answer{result: `{"name":"x","state":"not_member"}`})
+	f.rec.on("team join", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_2","rejoined":false}`})
+	var prompts []string
+	if err := Team(joinInv(f, top, setupSecret, true, &prompts)); err != nil {
+		t.Fatal(err)
+	}
+	if len(prompts) != 1 || !strings.Contains(prompts[0], "over syncthing (1 seed device(s)") || strings.Contains(prompts[0], " at ") {
+		t.Fatalf("confirm gate = %q", prompts)
+	}
+	var spec adapterkit.SpawnSpec
+	for i := range f.rec.count() {
+		if s := f.rec.spec(t, i); verbKey(s.Argv) == "team join" {
+			spec = s
+		}
+	}
+	var req struct {
+		Backend struct {
+			Devices  []string `json:"devices"`
+			TeamName string   `json:"team_name"`
+		} `json:"backend"`
+	}
+	if err := json.Unmarshal(spec.Stdin, &req); err != nil || !slices.Equal(req.Backend.Devices, []string{seedDevice}) || req.Backend.TeamName != "devs" {
+		t.Fatalf("join stdin = %s (%v)", spec.Stdin, err)
+	}
+	key := teamstore.Key("syncthing", "", setupTeamRef)
+	if _, err := teamstore.LoadBinding(f.dirs.BrigadeConfig, key); err != nil {
+		t.Fatalf("binding after join: %v", err)
+	}
+}
+
+// TestTeamMigrateKeepsTheReference: `team migrate` creates the team over
+// syncthing under the same reference and name, rewrites the file with the
+// seed and without the backend pair, keeps sync and polling, drops the
+// gateway with a line, and says what the members do next.
+func TestTeamMigrateKeepsTheReference(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	doc := `{"version":1,"adapter":"supabase","url":"https://abc.supabase.co","publishable_key":"sb_publishable_x","team_ref":"` + setupTeamRef + `","team_name":"devs","sync":{"folders":["docs"]},"gateway":{"email":"team@example.com"},"polling":{"roster_seconds":30}}`
+	//nolint:gosec // G306: a committed team file IS 0644
+	if err := os.WriteFile(filepath.Join(top, teamfile.FileName), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	secretFile := filepath.Join(f.dirs.Root, "new.secret")
+	f.rec.on("profile init", answer{result: `{"name":"x","state":"not_member"}`})
+	f.rec.on("team create", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_1"}`})
+	f.rec.on("profile status", answer{result: `{"name":"x","state":"joined","device_id":"` + seedDevice + `","engine":"running","team_folder":"present","seeds":[]}`})
+	iv := f.inv(f.terminalEnv(), "", "migrate", "--secret-file", secretFile)
+	iv.Deps.Getwd = func() (string, error) { return top, nil }
+	if err := Team(iv); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := teamfile.Parse(filepath.Join(top, teamfile.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Adapter != "syncthing" || parsed.TeamRef != setupTeamRef || parsed.TeamName != "devs" || !slices.Equal(parsed.Devices, []string{seedDevice}) ||
+		parsed.Sync == nil || !slices.Equal(parsed.Sync.Folders, []string{"docs"}) || parsed.Polling == nil || parsed.Polling.RosterSeconds != 30 || parsed.Gateway != nil {
+		t.Fatalf("team file after migrate = %+v", parsed)
+	}
+	var create string
+	for i := range f.rec.count() {
+		if s := f.rec.spec(t, i); verbKey(s.Argv) == "team create" {
+			create = argvOf(s)
+		}
+	}
+	if !strings.Contains(create, "--team-ref "+setupTeamRef) || !strings.Contains(create, "--secret-file "+secretFile) {
+		t.Fatalf("team create argv = %s, want the kept reference and the secret file", create)
+	}
+	out := f.out.String()
+	for _, want := range []string{"moved to the syncthing adapter from supabase", "gateway member was not carried", "every member pulls", "not carried over"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	// A second migrate: already over syncthing.
+	again := f.inv(f.terminalEnv(), "", "migrate", "--secret-file", secretFile)
+	again.Deps.Getwd = func() (string, error) { return top, nil }
+	wantCode(t, Team(again), protocol.CodeConflict, "already_syncthing")
+}

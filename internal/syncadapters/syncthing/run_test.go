@@ -7,7 +7,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"maps"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -15,186 +14,29 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/appshapes/brigade/internal/procutil"
+	engine "github.com/appshapes/brigade/internal/syncthing"
+	"github.com/appshapes/brigade/internal/syncthing/syncthingtest"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
-// testKey is the API key the fixtures write into config.xml. Every test
-// that runs a verb asserts it never reaches stdout or stderr.
-const testKey = "fixture-api-key-7f3a"
-
-// testID is the device id the fake REST API answers as myID.
-const testID = "SELFSEL-FSELFSE-LFSELFS-ELFSELF-SELFSEL-FSELFSE-LFSELFS-ELFSELF"
-
-// fakeAPI is an httptest stand-in for Syncthing's REST API: the endpoints
-// the adapter calls, keyed by X-API-Key, keeping what apply posts.
-type fakeAPI struct {
-	t *testing.T
-
-	mu          sync.Mutex
-	devices     []deviceConfig
-	devicePosts int
-	folders     []folderConfig
-	folderPosts int
-	pauses      int                // PATCHes that paused a folder
-	deletes     []string           // the folder ids DELETEd, in order
-	failDelete  bool               // DELETE answers 500
-	extra       []configuredFolder // folders "another project" holds
-	connected   map[string]bool
-	listen      []string // options.listenAddresses
-	listenSets  int
-	shutdowns   int
-	failStop    bool
-	onShutdown  func()
-	badKey      int
-}
-
-func newFakeAPI(t *testing.T) (*fakeAPI, *httptest.Server) {
-	t.Helper()
-	f := &fakeAPI{t: t, connected: map[string]bool{}}
-	srv := httptest.NewServer(http.HandlerFunc(f.serve))
-	t.Cleanup(srv.Close)
-	return f, srv
-}
-
-func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if r.Header.Get("X-API-Key") != testKey {
-		f.badKey++
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-	reply := func(v any) {
-		raw, err := json.Marshal(v)
-		if err != nil {
-			f.t.Errorf("fake API: marshal: %v", err)
-		}
-		_, _ = w.Write(raw)
-	}
-	switch r.Method + " " + r.URL.Path {
-	case "GET /rest/system/status":
-		reply(map[string]string{"myID": testID})
-	case "POST /rest/system/shutdown":
-		f.shutdowns++
-		if f.failStop {
-			http.Error(w, "nope", http.StatusInternalServerError)
-			return
-		}
-		if f.onShutdown != nil {
-			f.onShutdown()
-		}
-		reply(map[string]string{"ok": "shutting down"})
-	case "GET /rest/system/connections":
-		conns := map[string]map[string]bool{}
-		for _, d := range f.devices {
-			conns[d.DeviceID] = map[string]bool{"connected": f.connected[d.DeviceID]}
-		}
-		reply(map[string]any{"connections": conns})
-	case "GET /rest/config/devices":
-		out := []deviceConfig{{DeviceID: testID, Name: "self"}}
-		reply(append(out, f.devices...))
-	case "POST /rest/config/devices":
-		var d deviceConfig
-		if err := json.UnmarshalRead(r.Body, &d); err != nil || strings.HasPrefix(d.DeviceID, "BAD") {
-			http.Error(w, "invalid device", http.StatusBadRequest)
-			return
-		}
-		f.devicePosts++
-		f.devices = slices.DeleteFunc(f.devices, func(e deviceConfig) bool { return e.DeviceID == d.DeviceID })
-		f.devices = append(f.devices, d)
-	case "GET /rest/config/folders":
-		out := slices.Clone(f.extra)
-		for _, c := range f.folders {
-			out = append(out, configuredFolder{ID: c.ID, Label: c.Label, Path: c.Path, Paused: c.Paused, Devices: c.Devices})
-		}
-		reply(out)
-	case "POST /rest/config/folders":
-		var c folderConfig
-		if err := json.UnmarshalRead(r.Body, &c); err != nil {
-			http.Error(w, "invalid folder", http.StatusBadRequest)
-			return
-		}
-		f.folderPosts++
-		f.folders = slices.DeleteFunc(f.folders, func(e folderConfig) bool { return e.ID == c.ID })
-		f.folders = append(f.folders, c)
-	case "GET /rest/config/options":
-		// Syncthing's whole options object; the adapter reads one member.
-		reply(map[string]any{"listenAddresses": f.listen, "globalAnnounceEnabled": true, "relaysEnabled": true})
-	case "PATCH /rest/config/options":
-		var o map[string]any
-		if err := json.UnmarshalRead(r.Body, &o); err != nil || len(o) != 1 {
-			http.Error(w, "the patch must name listenAddresses alone", http.StatusBadRequest)
-			return
-		}
-		var lo listenOptions
-		raw, _ := json.Marshal(o)
-		if err := json.Unmarshal(raw, &lo); err != nil || lo.ListenAddresses == nil {
-			http.Error(w, "invalid options", http.StatusBadRequest)
-			return
-		}
-		f.listen = lo.ListenAddresses
-		f.listenSets++
-	case "GET /rest/db/status":
-		id := r.URL.Query().Get("folder")
-		for _, c := range f.folders {
-			if c.ID == id {
-				reply(map[string]string{"state": "idle"})
-				return
-			}
-		}
-		http.Error(w, "no such folder", http.StatusNotFound)
-	default:
-		id, ok := strings.CutPrefix(r.URL.Path, "/rest/config/folders/")
-		if ok && r.Method == http.MethodDelete {
-			if f.failDelete {
-				http.Error(w, "nope", http.StatusInternalServerError)
-				return
-			}
-			// Syncthing 2.1.5 answers 200 whether or not the id was
-			// configured (measured 2026-09-28).
-			f.deletes = append(f.deletes, id)
-			f.folders = slices.DeleteFunc(f.folders, func(e folderConfig) bool { return e.ID == id })
-			return
-		}
-		if r.Method != http.MethodPatch || !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		var patch map[string]any
-		if err := json.UnmarshalRead(r.Body, &patch); err != nil || len(patch) != 1 || patch["paused"] != true {
-			http.Error(w, "the patch must set paused alone", http.StatusBadRequest)
-			return
-		}
-		for i := range f.folders {
-			if f.folders[i].ID == id {
-				f.folders[i].Paused = true
-				f.pauses++
-				return
-			}
-		}
-		http.Error(w, "no such folder", http.StatusNotFound)
-	}
-}
-
 // testDeps points the adapter at srv and at the fake syncthing script (run
 // as /bin/sh <script>, the repository's fixture rule), with short waits.
-func testDeps(srv *httptest.Server, script string) deps {
-	return deps{
-		syncthing: func() ([]string, error) {
+func testDeps(srv *httptest.Server, script string) engine.Deps {
+	return engine.Deps{
+		Syncthing: func() ([]string, error) {
 			if script == "" {
 				return nil, exec.ErrNotFound
 			}
 			return []string{"/bin/sh", script}, nil
 		},
-		baseURL:   func(int) string { return srv.URL },
-		startWait: 5 * time.Second,
-		stopWait:  2 * time.Second,
+		BaseURL:   func(int) string { return srv.URL },
+		StartWait: 5 * time.Second,
+		StopWait:  2 * time.Second,
 	}
 }
 
@@ -213,12 +55,12 @@ type outcome struct {
 }
 
 // invoke runs one verb in-process with req on stdin.
-func invoke(t *testing.T, d deps, verb string, req any) outcome {
+func invoke(t *testing.T, d engine.Deps, verb string, req any) outcome {
 	t.Helper()
 	return invokeEnv(t, d, []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}, verb, req)
 }
 
-func invokeEnv(t *testing.T, d deps, environ []string, verb string, req any) outcome {
+func invokeEnv(t *testing.T, d engine.Deps, environ []string, verb string, req any) outcome {
 	t.Helper()
 	raw, err := json.Marshal(req)
 	if err != nil {
@@ -234,7 +76,7 @@ func invokeEnv(t *testing.T, d deps, environ []string, verb string, req any) out
 	if err := json.Unmarshal([]byte(o.stdout), &o.env); err != nil {
 		t.Fatalf("%s: stdout is not an envelope: %v (%q)", verb, err, o.stdout)
 	}
-	if strings.Contains(o.stdout+o.stderr, testKey) {
+	if strings.Contains(o.stdout+o.stderr, syncthingtest.Key) {
 		t.Errorf("%s: the API key reached stdout or stderr", verb)
 	}
 	return o
@@ -258,7 +100,7 @@ func runningHome(t *testing.T) (string, int) {
 	if err := os.MkdirAll(filepath.Join(home, "refs"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(home, "config.xml"), `<configuration version="37"><gui enabled="true"><address>127.0.0.1:1</address><apikey>`+testKey+`</apikey></gui></configuration>`)
+	writeFile(t, filepath.Join(home, "config.xml"), `<configuration version="37"><gui enabled="true"><address>127.0.0.1:1</address><apikey>`+syncthingtest.Key+`</apikey></gui></configuration>`)
 	writeFile(t, filepath.Join(home, "port"), "1\n")
 	pid := testutil.NewSleeper(t)
 	info, err := procutil.Lookup(pid)
@@ -278,7 +120,7 @@ func writeFile(t *testing.T, path, body string) {
 
 func TestDescribe(t *testing.T) {
 	t.Parallel()
-	_, srv := newFakeAPI(t)
+	_, srv := syncthingtest.New(t)
 	res := mustOK(t, invoke(t, testDeps(srv, ""), "describe", map[string]any{}), "describe")
 	if res["name"] != "syncthing" || res["protocol_version"] != "sync/1" || res["version"] == "" {
 		t.Errorf("describe = %v", res)
@@ -287,7 +129,7 @@ func TestDescribe(t *testing.T) {
 
 func TestUsageAndInputRefusals(t *testing.T) {
 	t.Parallel()
-	_, srv := newFakeAPI(t)
+	_, srv := syncthingtest.New(t)
 	d := testDeps(srv, "")
 	for _, args := range [][]string{nil, {"bogus"}, {"attach", "extra"}} {
 		var out, errb bytes.Buffer
@@ -309,7 +151,7 @@ func TestUsageAndInputRefusals(t *testing.T) {
 
 func TestStatusWithNoDaemon(t *testing.T) {
 	t.Parallel()
-	_, srv := newFakeAPI(t)
+	_, srv := syncthingtest.New(t)
 	res := mustOK(t, invoke(t, testDeps(srv, ""), "status", map[string]any{"state_dir": t.TempDir()}), "status")
 	if res["running"] != false || res["peer"] != "" || len(res["folders"].([]any)) != 0 || len(res["peers"].([]any)) != 0 {
 		t.Errorf("status = %v, want not running with empty lists", res)
@@ -318,13 +160,13 @@ func TestStatusWithNoDaemon(t *testing.T) {
 
 func TestApplyIntroducesPeersAndSharesFolders(t *testing.T) {
 	t.Parallel()
-	fake, srv := newFakeAPI(t)
+	fake, srv := syncthingtest.New(t)
 	d := testDeps(srv, "")
 	stateDir, _ := runningHome(t)
 	project := t.TempDir()
 	taken := filepath.Join(project, "taken")
-	fake.extra = []configuredFolder{{ID: "someone-else", Path: taken}}
-	fake.connected["PEERONE"] = true
+	fake.Extra = []engine.ConfiguredFolder{{ID: "someone-else", Path: taken}}
+	fake.Connected["PEERONE"] = true
 	req := map[string]any{
 		"state_dir":  stateDir,
 		"session_id": "s1",
@@ -354,23 +196,23 @@ func TestApplyIntroducesPeersAndSharesFolders(t *testing.T) {
 	if fi, err := os.Stat(filepath.Join(project, "docs", "shared")); err != nil || !fi.IsDir() {
 		t.Errorf("the folder was not created: %v", err)
 	}
-	fake.mu.Lock()
-	defer fake.mu.Unlock()
-	if len(fake.devices) != 2 || fake.devices[0].Name != "alice" || fake.devices[0].Addresses[0] != "dynamic" {
-		t.Errorf("devices = %+v", fake.devices)
+	fake.Mu.Lock()
+	defer fake.Mu.Unlock()
+	if len(fake.Devices) != 2 || fake.Devices[0].Name != "alice" || fake.Devices[0].Addresses[0] != "dynamic" {
+		t.Errorf("devices = %+v", fake.Devices)
 	}
-	if len(fake.folders) != 1 {
-		t.Fatalf("folders = %+v, want only the unconflicted one", fake.folders)
+	if len(fake.Folders) != 1 {
+		t.Fatalf("folders = %+v, want only the unconflicted one", fake.Folders)
 	}
-	f := fake.folders[0]
-	want := []deviceRef{{DeviceID: "PEERONE"}, {DeviceID: "PEERTWO"}}
+	f := fake.Folders[0]
+	want := []engine.DeviceRef{{DeviceID: "PEERONE"}, {DeviceID: "PEERTWO"}}
 	if f.ID != "brigade-aaaa-1111" || f.Label != "repo/docs/shared" || f.Type != "sendreceive" ||
 		!slices.Equal(f.Devices, want) || f.Versioning.Type != "trashcan" || f.Versioning.Params["cleanoutDays"] != "14" ||
 		!f.FSWatcherEnabled || f.RescanIntervalS != 60 {
 		t.Errorf("folder object = %+v", f)
 	}
-	if fake.badKey != 0 {
-		t.Errorf("%d calls carried the wrong API key", fake.badKey)
+	if fake.BadKey != 0 {
+		t.Errorf("%d calls carried the wrong API key", fake.BadKey)
 	}
 }
 
@@ -381,15 +223,15 @@ func TestApplyIntroducesPeersAndSharesFolders(t *testing.T) {
 // roster peer the instance already knows is not re-posted.
 func TestApplyKeepsWhatItDidNotAdd(t *testing.T) {
 	t.Parallel()
-	fake, srv := newFakeAPI(t)
+	fake, srv := syncthingtest.New(t)
 	d := testDeps(srv, "")
 	stateDir, _ := runningHome(t)
 	path := filepath.Join(t.TempDir(), "shared")
-	server := deviceConfig{DeviceID: "SERVER", Name: "the server", Addresses: []string{"tcp://server.example:22000"}}
-	fake.devices = []deviceConfig{server, {DeviceID: "PEERTWO", Name: "bob by hand", Addresses: []string{"tcp://bob.example:22000"}}}
-	fake.folders = []folderConfig{{
+	server := engine.DeviceConfig{DeviceID: "SERVER", Name: "the server", Addresses: []string{"tcp://server.example:22000"}}
+	fake.Devices = []engine.DeviceConfig{server, {DeviceID: "PEERTWO", Name: "bob by hand", Addresses: []string{"tcp://bob.example:22000"}}}
+	fake.Folders = []engine.FolderConfig{{
 		ID: "brigade-aaaa-1111", Path: path,
-		Devices: []deviceRef{{DeviceID: testID}, {DeviceID: "SERVER", EncryptionPassword: "server-folder-password"}},
+		Devices: []engine.DeviceRef{{DeviceID: syncthingtest.ID}, {DeviceID: "SERVER", EncryptionPassword: "server-folder-password"}},
 	}}
 	req := map[string]any{
 		"state_dir": stateDir,
@@ -402,17 +244,17 @@ func TestApplyKeepsWhatItDidNotAdd(t *testing.T) {
 			t.Fatalf("round %d: apply folders = %v", round, fs)
 		}
 	}
-	fake.mu.Lock()
-	defer fake.mu.Unlock()
-	want := []deviceRef{{DeviceID: testID}, {DeviceID: "SERVER", EncryptionPassword: "server-folder-password"}, {DeviceID: "PEERONE"}, {DeviceID: "PEERTWO"}}
-	if len(fake.folders) != 1 || !slices.Equal(fake.folders[0].Devices, want) {
-		t.Fatalf("folder devices = %+v, want %+v (the hand-added server kept, the peers added)", fake.folders, want)
+	fake.Mu.Lock()
+	defer fake.Mu.Unlock()
+	want := []engine.DeviceRef{{DeviceID: syncthingtest.ID}, {DeviceID: "SERVER", EncryptionPassword: "server-folder-password"}, {DeviceID: "PEERONE"}, {DeviceID: "PEERTWO"}}
+	if len(fake.Folders) != 1 || !slices.Equal(fake.Folders[0].Devices, want) {
+		t.Fatalf("folder devices = %+v, want %+v (the hand-added server kept, the peers added)", fake.Folders, want)
 	}
-	if fake.devicePosts != 1 {
-		t.Errorf("%d device posts, want 1: only PEERONE was unknown, and only in the first round", fake.devicePosts)
+	if fake.DevicePosts != 1 {
+		t.Errorf("%d device posts, want 1: only PEERONE was unknown, and only in the first round", fake.DevicePosts)
 	}
-	byID := map[string]deviceConfig{}
-	for _, dc := range fake.devices {
+	byID := map[string]engine.DeviceConfig{}
+	for _, dc := range fake.Devices {
 		byID[dc.DeviceID] = dc
 	}
 	if got := byID["SERVER"]; got.Name != server.Name || !slices.Equal(got.Addresses, server.Addresses) {
@@ -433,12 +275,12 @@ func TestApplyKeepsWhatItDidNotAdd(t *testing.T) {
 // The same path spelled through a symlink is not a conflict.
 func TestApplyLeavesAFolderHeldAtAnotherPath(t *testing.T) {
 	t.Parallel()
-	fake, srv := newFakeAPI(t)
+	fake, srv := syncthingtest.New(t)
 	d := testDeps(srv, "")
 	stateDir, _ := runningHome(t)
 	first := filepath.Join(t.TempDir(), "clone-1", "shared")
 	second := filepath.Join(t.TempDir(), "clone-2", "shared")
-	fake.folders = []folderConfig{{ID: "brigade-aaaa-1111", Path: first, Devices: []deviceRef{{DeviceID: testID}}}}
+	fake.Folders = []engine.FolderConfig{{ID: "brigade-aaaa-1111", Path: first, Devices: []engine.DeviceRef{{DeviceID: syncthingtest.ID}}}}
 	req := map[string]any{
 		"state_dir": stateDir,
 		"folders":   []map[string]string{{"id": "brigade-aaaa-1111", "path": second, "label": "repo/shared"}},
@@ -450,11 +292,11 @@ func TestApplyLeavesAFolderHeldAtAnotherPath(t *testing.T) {
 			t.Fatalf("apply folders = %v, want conflict_path", fs)
 		}
 	}
-	fake.mu.Lock()
-	if fake.folderPosts != 0 || fake.folders[0].Path != first {
-		t.Errorf("the held folder was re-posted (%d posts) or moved to %s", fake.folderPosts, fake.folders[0].Path)
+	fake.Mu.Lock()
+	if fake.FolderPosts != 0 || fake.Folders[0].Path != first {
+		t.Errorf("the held folder was re-posted (%d posts) or moved to %s", fake.FolderPosts, fake.Folders[0].Path)
 	}
-	fake.mu.Unlock()
+	fake.Mu.Unlock()
 	if _, err := os.Stat(second); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the conflicting checkout's folder was created: %v", err)
 	}
@@ -511,7 +353,7 @@ func TestApplyPausesAFolderTheProjectNoLongerLists(t *testing.T) {
 
 func testApplyPauses(t *testing.T, id func(ref, repository, folder string) string) {
 	t.Helper()
-	fake, srv := newFakeAPI(t)
+	fake, srv := syncthingtest.New(t)
 	d := testDeps(srv, "")
 	stateDir, _ := runningHome(t)
 	work := t.TempDir()
@@ -519,7 +361,7 @@ func testApplyPauses(t *testing.T, id func(ref, repository, folder string) strin
 	folder := func(name string) map[string]string {
 		return map[string]string{"id": id("6f0f2b41", "repo", name), "path": filepath.Join(root, name), "label": "repo/" + name}
 	}
-	untouched := []folderConfig{
+	untouched := []engine.FolderConfig{
 		// Another repository of the same team, beside this one.
 		{ID: id("6f0f2b41", "other", "notes"), Label: "other/notes", Path: filepath.Join(work, "other", "notes")},
 		// Under this team's prefix, but its label proves no folder name.
@@ -527,7 +369,7 @@ func testApplyPauses(t *testing.T, id func(ref, repository, folder string) strin
 		// Another team's folder at a path this checkout would use.
 		{ID: id("0a0b0c0d", "repo", "gone"), Label: "repo/gone", Path: filepath.Join(root, "gone")},
 	}
-	fake.folders = slices.Clone(untouched)
+	fake.Folders = slices.Clone(untouched)
 	all := []map[string]string{folder("docs"), folder("shared/deep"), folder("../beside")}
 	req := map[string]any{"state_dir": stateDir, "folders": all, "peers": []map[string]string{}}
 	states := func(res map[string]any) map[string]string {
@@ -548,19 +390,19 @@ func testApplyPauses(t *testing.T, id func(ref, repository, folder string) strin
 			t.Fatalf("round %d: apply folders = %v, want %v", round, got, want)
 		}
 	}
-	fake.mu.Lock()
-	if fake.pauses != 2 {
-		t.Errorf("%d pauses, want 2: each dropped folder is paused once", fake.pauses)
+	fake.Mu.Lock()
+	if fake.Pauses != 2 {
+		t.Errorf("%d pauses, want 2: each dropped folder is paused once", fake.Pauses)
 	}
-	for _, c := range fake.folders {
-		if slices.ContainsFunc(untouched, func(u folderConfig) bool { return u.ID == c.ID }) && c.Paused {
+	for _, c := range fake.Folders {
+		if slices.ContainsFunc(untouched, func(u engine.FolderConfig) bool { return u.ID == c.ID }) && c.Paused {
 			t.Errorf("folder %s (%s) is not this checkout's and was paused", c.ID, c.Label)
 		}
 	}
-	if len(fake.folders) != len(untouched)+3 || len(fake.deletes) != 0 {
-		t.Errorf("folders = %+v, deletes %v: a dropped folder's configuration was removed", fake.folders, fake.deletes)
+	if len(fake.Folders) != len(untouched)+3 || len(fake.Deletes) != 0 {
+		t.Errorf("folders = %+v, deletes %v: a dropped folder's configuration was removed", fake.Folders, fake.Deletes)
 	}
-	fake.mu.Unlock()
+	fake.Mu.Unlock()
 	for _, p := range []string{filepath.Join(root, "shared", "deep"), filepath.Join(work, "beside")} {
 		if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
 			t.Errorf("a paused folder's directory is gone: %v", err)
@@ -574,9 +416,9 @@ func testApplyPauses(t *testing.T, id func(ref, repository, folder string) strin
 			t.Errorf("listed again: %s = %q, want idle", f["label"], got[f["id"]])
 		}
 	}
-	fake.mu.Lock()
-	defer fake.mu.Unlock()
-	for _, c := range fake.folders {
+	fake.Mu.Lock()
+	defer fake.Mu.Unlock()
+	for _, c := range fake.Folders {
 		if c.Paused {
 			t.Errorf("folder %s is still paused after the project listed it again", c.Label)
 		}
@@ -623,7 +465,7 @@ func TestFolderNameIsProvenByTheID(t *testing.T) {
 // the moved folder is never taken for one the project dropped.
 func TestApplyMovesAFolderToItsNewID(t *testing.T) {
 	t.Parallel()
-	fake, srv := newFakeAPI(t)
+	fake, srv := syncthingtest.New(t)
 	d := testDeps(srv, "")
 	stateDir, _ := runningHome(t)
 	work := t.TempDir()
@@ -635,10 +477,10 @@ func TestApplyMovesAFolderToItsNewID(t *testing.T) {
 	writeFile(t, filepath.Join(path, "kept.md"), "a file the folder already holds\n")
 	legacy, scoped := testLegacyID("6f0f2b41", ".brigade"), testFolderID("6f0f2b41", "web", ".brigade")
 	otherLegacy := testLegacyID("6f0f2b41", "docs")
-	server := deviceRef{DeviceID: "SERVER", EncryptionPassword: "server-folder-password"}
-	fake.devices = []deviceConfig{{DeviceID: "SERVER", Name: "the server", Addresses: []string{"tcp://server.example:22000"}}}
-	fake.folders = []folderConfig{
-		{ID: legacy, Label: "web/.brigade", Path: path, Devices: []deviceRef{{DeviceID: testID}, server, {DeviceID: "PEERONE"}}},
+	server := engine.DeviceRef{DeviceID: "SERVER", EncryptionPassword: "server-folder-password"}
+	fake.Devices = []engine.DeviceConfig{{DeviceID: "SERVER", Name: "the server", Addresses: []string{"tcp://server.example:22000"}}}
+	fake.Folders = []engine.FolderConfig{
+		{ID: legacy, Label: "web/.brigade", Path: path, Devices: []engine.DeviceRef{{DeviceID: syncthingtest.ID}, server, {DeviceID: "PEERONE"}}},
 		// The earlier id of another folder, held by a second clone.
 		{ID: otherLegacy, Label: "web/docs", Path: filepath.Join(work, "web-second-clone", "docs")},
 	}
@@ -657,28 +499,28 @@ func TestApplyMovesAFolderToItsNewID(t *testing.T) {
 			t.Fatalf("round %d: apply folders = %v, want the two folders idle under their new ids and nothing paused", round, fs)
 		}
 	}
-	fake.mu.Lock()
-	defer fake.mu.Unlock()
-	if !slices.Equal(fake.deletes, []string{legacy}) {
-		t.Fatalf("deletes = %v, want the earlier id at this path, once", fake.deletes)
+	fake.Mu.Lock()
+	defer fake.Mu.Unlock()
+	if !slices.Equal(fake.Deletes, []string{legacy}) {
+		t.Fatalf("deletes = %v, want the earlier id at this path, once", fake.Deletes)
 	}
-	byID := map[string]folderConfig{}
-	for _, c := range fake.folders {
+	byID := map[string]engine.FolderConfig{}
+	for _, c := range fake.Folders {
 		byID[c.ID] = c
 	}
 	if _, still := byID[legacy]; still {
 		t.Error("the earlier id is still configured")
 	}
 	moved := byID[scoped]
-	want := []deviceRef{{DeviceID: testID}, server, {DeviceID: "PEERONE"}, {DeviceID: "PEERTWO"}}
+	want := []engine.DeviceRef{{DeviceID: syncthingtest.ID}, server, {DeviceID: "PEERONE"}, {DeviceID: "PEERTWO"}}
 	if moved.Path != path || moved.Label != "web/.brigade" || moved.Paused || !slices.Equal(moved.Devices, want) {
 		t.Errorf("the moved folder = %+v, want it at %s with devices %+v", moved, path, want)
 	}
 	if kept := byID[otherLegacy]; kept.Path != filepath.Join(work, "web-second-clone", "docs") || kept.Paused {
 		t.Errorf("the earlier id held at another path = %+v, want it as it was", kept)
 	}
-	if fake.pauses != 0 {
-		t.Errorf("%d pauses: a moved folder is not a dropped one", fake.pauses)
+	if fake.Pauses != 0 {
+		t.Errorf("%d pauses: a moved folder is not a dropped one", fake.Pauses)
 	}
 	if got := readFile(t, filepath.Join(path, "kept.md")); got != "a file the folder already holds\n" {
 		t.Errorf("the folder's file = %q", got)
@@ -698,50 +540,50 @@ func TestApplyMovesNothingItCannotPlace(t *testing.T) {
 	t.Parallel()
 	legacy, scoped := testLegacyID("6f0f2b41", "docs"), testFolderID("6f0f2b41", "repo", "docs")
 	for name, tc := range map[string]struct {
-		held       func(path, elsewhere string) []folderConfig
+		held       func(path, elsewhere string) []engine.FolderConfig
 		failDelete bool
 		state      string
 		posts      int
 	}{
 		"the new id is a second clone's": {
-			held: func(path, elsewhere string) []folderConfig {
-				return []folderConfig{{ID: legacy, Label: "repo/docs", Path: path}, {ID: scoped, Label: "repo/docs", Path: elsewhere}}
+			held: func(path, elsewhere string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: legacy, Label: "repo/docs", Path: path}, {ID: scoped, Label: "repo/docs", Path: elsewhere}}
 			},
 			state: "conflict_path",
 		},
 		"a third id holds the path": {
-			held: func(path, _ string) []folderConfig {
-				return []folderConfig{{ID: legacy, Label: "repo/docs", Path: path}, {ID: "by-hand", Label: "mine", Path: path}}
+			held: func(path, _ string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: legacy, Label: "repo/docs", Path: path}, {ID: "by-hand", Label: "mine", Path: path}}
 			},
 			state: "conflict_path",
 		},
 		"the removal is refused": {
-			held: func(path, _ string) []folderConfig {
-				return []folderConfig{{ID: legacy, Label: "repo/docs", Path: path}}
+			held: func(path, _ string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: legacy, Label: "repo/docs", Path: path}}
 			},
 			failDelete: true, state: "conflict_path",
 		},
 		"the earlier id is another checkout's": {
-			held: func(_, elsewhere string) []folderConfig {
-				return []folderConfig{{ID: legacy, Label: "other/docs", Path: elsewhere}}
+			held: func(_, elsewhere string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: legacy, Label: "other/docs", Path: elsewhere}}
 			},
 			state: "idle", posts: 1,
 		},
 		"no earlier folder": {
-			held:  func(_, _ string) []folderConfig { return nil },
+			held:  func(_, _ string) []engine.FolderConfig { return nil },
 			state: "idle", posts: 1,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			fake, srv := newFakeAPI(t)
+			fake, srv := syncthingtest.New(t)
 			d := testDeps(srv, "")
 			stateDir, _ := runningHome(t)
 			work := t.TempDir()
 			path, elsewhere := filepath.Join(work, "repo", "docs"), filepath.Join(work, "clone-2", "docs")
 			before := tc.held(path, elsewhere)
-			fake.folders = slices.Clone(before)
-			fake.failDelete = tc.failDelete
+			fake.Folders = slices.Clone(before)
+			fake.FailDelete = tc.failDelete
 			req := map[string]any{
 				"state_dir": stateDir,
 				"folders":   []map[string]string{{"id": scoped, "replaces": legacy, "path": path, "label": "repo/docs"}},
@@ -751,14 +593,14 @@ func TestApplyMovesNothingItCannotPlace(t *testing.T) {
 			if fs := res["folders"].([]any); len(fs) != 1 || fs[0].(map[string]any)["state"] != tc.state {
 				t.Fatalf("apply folders = %v, want %s", fs, tc.state)
 			}
-			fake.mu.Lock()
-			defer fake.mu.Unlock()
-			if len(fake.deletes) != 0 || fake.pauses != 0 || fake.folderPosts != tc.posts {
-				t.Errorf("deletes %v, pauses %d, posts %d; want none, none and %d", fake.deletes, fake.pauses, fake.folderPosts, tc.posts)
+			fake.Mu.Lock()
+			defer fake.Mu.Unlock()
+			if len(fake.Deletes) != 0 || fake.Pauses != 0 || fake.FolderPosts != tc.posts {
+				t.Errorf("deletes %v, pauses %d, posts %d; want none, none and %d", fake.Deletes, fake.Pauses, fake.FolderPosts, tc.posts)
 			}
 			for _, b := range before {
-				if !slices.ContainsFunc(fake.folders, func(c folderConfig) bool { return c.ID == b.ID && c.Path == b.Path && !c.Paused }) {
-					t.Errorf("folder %s at %s did not stay as it was: %+v", b.ID, b.Path, fake.folders)
+				if !slices.ContainsFunc(fake.Folders, func(c engine.FolderConfig) bool { return c.ID == b.ID && c.Path == b.Path && !c.Paused }) {
+					t.Errorf("folder %s at %s did not stay as it was: %+v", b.ID, b.Path, fake.Folders)
 				}
 			}
 		})
@@ -769,7 +611,7 @@ func TestApplyMovesNothingItCannotPlace(t *testing.T) {
 // be made is `rejected`, and the rest of the apply goes on.
 func TestApplyRejectsAFolderItCannotCreate(t *testing.T) {
 	t.Parallel()
-	fake, srv := newFakeAPI(t)
+	fake, srv := syncthingtest.New(t)
 	d := testDeps(srv, "")
 	stateDir, _ := runningHome(t)
 	root := t.TempDir()
@@ -787,10 +629,10 @@ func TestApplyRejectsAFolderItCannotCreate(t *testing.T) {
 	if len(fs) != 2 || fs[0].(map[string]any)["state"] != "rejected" || fs[1].(map[string]any)["state"] != "idle" {
 		t.Errorf("apply folders = %v, want rejected then idle", fs)
 	}
-	fake.mu.Lock()
-	defer fake.mu.Unlock()
-	if len(fake.folders) != 1 || fake.folders[0].ID != "brigade-aaaa-2222" {
-		t.Errorf("folders = %+v, want the creatable one alone", fake.folders)
+	fake.Mu.Lock()
+	defer fake.Mu.Unlock()
+	if len(fake.Folders) != 1 || fake.Folders[0].ID != "brigade-aaaa-2222" {
+		t.Errorf("folders = %+v, want the creatable one alone", fake.Folders)
 	}
 }
 
@@ -801,9 +643,9 @@ func TestApplyRejectsAFolderItCannotCreate(t *testing.T) {
 // holder's. The last live ref's detach then stops the instance.
 func TestAttachRecordsItsHolderAndPrunesDeadRefs(t *testing.T) {
 	t.Parallel()
-	fake, srv := newFakeAPI(t)
+	fake, srv := syncthingtest.New(t)
 	stateDir, daemon := runningHome(t)
-	fake.onShutdown = func() { _ = syscall.Kill(daemon, syscall.SIGTERM) }
+	fake.OnShutdown = func() { _ = syscall.Kill(daemon, syscall.SIGTERM) }
 	refs := filepath.Join(stateDir, "sync", "syncthing", "refs")
 	dead := exec.CommandContext(t.Context(), "/usr/bin/true")
 	if err := dead.Run(); err != nil {
@@ -853,7 +695,7 @@ func TestAttachRecordsItsHolderAndPrunesDeadRefs(t *testing.T) {
 	if err := syscall.Kill(live, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !alive(live, "") })
+	testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !engine.Alive(live, "") })
 	if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s1", "pid": os.Getpid()}), "detach"); res["stopped"] != false {
 		t.Fatalf("detach with pid-less refs left: %v", res)
 	}
@@ -872,9 +714,9 @@ func TestAttachRecordsItsHolderAndPrunesDeadRefs(t *testing.T) {
 // when they already match; a kept port survives the next attach.
 func TestAttachGivesTheInstanceItsOwnListenPort(t *testing.T) {
 	t.Parallel()
-	fake, srv := newFakeAPI(t)
+	fake, srv := syncthingtest.New(t)
 	stateDir, _ := runningHome(t)
-	fake.listen = []string{"default"}
+	fake.Listen = []string{"default"}
 	d := testDeps(srv, "")
 	mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
 	kept := strings.TrimSpace(readFile(t, filepath.Join(stateDir, "sync", "syncthing", "listen-port")))
@@ -885,10 +727,10 @@ func TestAttachGivesTheInstanceItsOwnListenPort(t *testing.T) {
 	want := []string{"tcp://0.0.0.0:" + kept, "quic://0.0.0.0:" + kept, "dynamic+https://relays.syncthing.net/endpoint"}
 	check := func(sets int) {
 		t.Helper()
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		if !slices.Equal(fake.listen, want) || fake.listenSets != sets {
-			t.Fatalf("listenAddresses = %v after %d PATCHes, want %v after %d", fake.listen, fake.listenSets, want, sets)
+		fake.Mu.Lock()
+		defer fake.Mu.Unlock()
+		if !slices.Equal(fake.Listen, want) || fake.ListenSets != sets {
+			t.Fatalf("listenAddresses = %v after %d PATCHes, want %v after %d", fake.Listen, fake.ListenSets, want, sets)
 		}
 	}
 	check(1)
@@ -898,16 +740,16 @@ func TestAttachGivesTheInstanceItsOwnListenPort(t *testing.T) {
 		t.Errorf("listen-port moved from %s to %s while the instance ran", kept, got)
 	}
 	// Someone changed it by hand: the next attach sets it back.
-	fake.mu.Lock()
-	fake.listen = []string{"default"}
-	fake.mu.Unlock()
+	fake.Mu.Lock()
+	fake.Listen = []string{"default"}
+	fake.Mu.Unlock()
 	mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
 	check(2)
 }
 
 func TestApplyAndStatusNeedARunningDaemon(t *testing.T) {
 	t.Parallel()
-	_, srv := newFakeAPI(t)
+	_, srv := syncthingtest.New(t)
 	o := invoke(t, testDeps(srv, ""), "apply", map[string]any{"state_dir": t.TempDir(), "folders": []any{}, "peers": []any{}})
 	if o.exit != 9 || o.env.Error.Details["reason"] != "not_running" {
 		t.Errorf("apply with no daemon: exit %d, stdout %q", o.exit, o.stdout)
@@ -916,13 +758,13 @@ func TestApplyAndStatusNeedARunningDaemon(t *testing.T) {
 
 func TestStatusReportsFoldersAndPeers(t *testing.T) {
 	t.Parallel()
-	fake, srv := newFakeAPI(t)
+	fake, srv := syncthingtest.New(t)
 	stateDir, _ := runningHome(t)
-	fake.devices = []deviceConfig{{DeviceID: "PEERONE"}}
-	fake.connected["PEERONE"] = true
-	fake.folders = []folderConfig{{ID: "brigade-x", Path: "/somewhere"}}
+	fake.Devices = []engine.DeviceConfig{{DeviceID: "PEERONE"}}
+	fake.Connected["PEERONE"] = true
+	fake.Folders = []engine.FolderConfig{{ID: "brigade-x", Path: "/somewhere"}}
 	res := mustOK(t, invoke(t, testDeps(srv, ""), "status", map[string]any{"state_dir": stateDir}), "status")
-	if res["running"] != true || res["peer"] != testID {
+	if res["running"] != true || res["peer"] != syncthingtest.ID {
 		t.Errorf("status = %v", res)
 	}
 	folders, peers := res["folders"].([]any), res["peers"].([]any)
@@ -937,32 +779,32 @@ func TestStatusReportsFoldersAndPeers(t *testing.T) {
 func TestDetachStopsOnlyWithTheLastSession(t *testing.T) {
 	t.Parallel()
 	for _, failStop := range []bool{false, true} {
-		fake, srv := newFakeAPI(t)
+		fake, srv := syncthingtest.New(t)
 		stateDir, pid := runningHome(t)
 		home := filepath.Join(stateDir, "sync", "syncthing")
 		writeFile(t, filepath.Join(home, "refs", "s1"), "")
 		writeFile(t, filepath.Join(home, "refs", "s2"), "")
-		fake.failStop = failStop
-		fake.onShutdown = func() { _ = syscall.Kill(pid, syscall.SIGTERM) }
+		fake.FailStop = failStop
+		fake.OnShutdown = func() { _ = syscall.Kill(pid, syscall.SIGTERM) }
 		d := testDeps(srv, "")
 		if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "detach"); res["stopped"] != false {
 			t.Errorf("detach with a session left: %v", res)
 		}
-		if !alive(pid, "") {
+		if !engine.Alive(pid, "") {
 			t.Fatal("the daemon died while a session still referenced it")
 		}
 		if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s2"}), "detach"); res["stopped"] != true {
 			t.Errorf("last detach: %v", res)
 		}
-		testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !alive(pid, "") })
+		testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !engine.Alive(pid, "") })
 		if _, err := os.Stat(filepath.Join(home, "daemon.pid")); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("daemon.pid survived the last detach: %v", err)
 		}
-		fake.mu.Lock()
-		if fake.shutdowns != 1 {
-			t.Errorf("failStop=%v: %d shutdown calls, want 1", failStop, fake.shutdowns)
+		fake.Mu.Lock()
+		if fake.Shutdowns != 1 {
+			t.Errorf("failStop=%v: %d shutdown calls, want 1", failStop, fake.Shutdowns)
 		}
-		fake.mu.Unlock()
+		fake.Mu.Unlock()
 		// Detaching again is harmless (idempotent).
 		if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s2"}), "detach"); res["stopped"] != true {
 			t.Errorf("repeat detach: %v", res)
@@ -998,7 +840,7 @@ if [ "` + mode + `" = child ]; then
 fi
 sleep 0.3
 if [ "` + mode + `" != noconfig ]; then
-  printf '<configuration version="37"><gui enabled="true"><address>%s</address><apikey>%s</apikey></gui></configuration>\n' "$gui" "` + testKey + `" > "$home/config.xml.tmp"
+  printf '<configuration version="37"><gui enabled="true"><address>%s</address><apikey>%s</apikey></gui></configuration>\n' "$gui" "` + syncthingtest.Key + `" > "$home/config.xml.tmp"
   mv "$home/config.xml.tmp" "$home/config.xml"
 fi
 exec sleep 300
@@ -1039,19 +881,19 @@ func daemonPID(t *testing.T, home string) int {
 
 func TestAttachStartsOneDaemonAndTheLastDetachStopsIt(t *testing.T) {
 	t.Parallel()
-	fake, srv := newFakeAPI(t)
+	fake, srv := syncthingtest.New(t)
 	stateDir := t.TempDir()
 	home := filepath.Join(stateDir, "sync", "syncthing")
 	killDaemon(t, home)
-	fake.onShutdown = func() { _ = syscall.Kill(daemonPID(t, home), syscall.SIGTERM) }
+	fake.OnShutdown = func() { _ = syscall.Kill(daemonPID(t, home), syscall.SIGTERM) }
 	d := testDeps(srv, fakeSyncthing(t, ""))
 
 	res := mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
-	if res["peer"] != testID {
+	if res["peer"] != syncthingtest.ID {
 		t.Errorf("attach peer = %v, want the fake myID", res["peer"])
 	}
 	first := daemonPID(t, home)
-	if !alive(first, "") {
+	if !engine.Alive(first, "") {
 		t.Fatal("the daemon is not running after attach")
 	}
 	fi, err := os.Stat(home)
@@ -1071,13 +913,13 @@ func TestAttachStartsOneDaemonAndTheLastDetachStopsIt(t *testing.T) {
 	if daemonPID(t, home) != first || strings.Count(readFile(t, filepath.Join(home, "starts")), "start") != 1 {
 		t.Error("a second attach started a second daemon")
 	}
-	if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "detach"); res["stopped"] != false || !alive(first, "") {
-		t.Errorf("first detach: %v, daemon alive %v", res, alive(first, ""))
+	if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "detach"); res["stopped"] != false || !engine.Alive(first, "") {
+		t.Errorf("first detach: %v, daemon alive %v", res, engine.Alive(first, ""))
 	}
 	if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s2"}), "detach"); res["stopped"] != true {
 		t.Errorf("last detach: %v", res)
 	}
-	if alive(first, "") {
+	if engine.Alive(first, "") {
 		t.Error("the daemon survived the last detach")
 	}
 
@@ -1096,8 +938,8 @@ func TestAttachStartsOneDaemonAndTheLastDetachStopsIt(t *testing.T) {
 // group, so a child holding the sockets stops with the monitor.
 func TestAFailedShutdownSignalsTheDaemonsProcessGroup(t *testing.T) {
 	t.Parallel()
-	fake, srv := newFakeAPI(t)
-	fake.failStop = true
+	fake, srv := syncthingtest.New(t)
+	fake.FailStop = true
 	stateDir := t.TempDir()
 	home := filepath.Join(stateDir, "sync", "syncthing")
 	killDaemon(t, home)
@@ -1105,7 +947,7 @@ func TestAFailedShutdownSignalsTheDaemonsProcessGroup(t *testing.T) {
 	mustOK(t, invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
 	daemon := daemonPID(t, home)
 	child, err := strconv.Atoi(strings.TrimSpace(readFile(t, filepath.Join(home, "child.pid"))))
-	if err != nil || !alive(child, "") {
+	if err != nil || !engine.Alive(child, "") {
 		t.Fatalf("the fake's child is not running (%v)", err)
 	}
 	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
@@ -1118,7 +960,7 @@ func TestAFailedShutdownSignalsTheDaemonsProcessGroup(t *testing.T) {
 	if res := mustOK(t, invoke(t, d, "detach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "detach"); res["stopped"] != true {
 		t.Errorf("last detach: %v", res)
 	}
-	testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !alive(daemon, "") && !alive(child, "") })
+	testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !engine.Alive(daemon, "") && !engine.Alive(child, "") })
 }
 
 func TestAttachReplacesAStalePidfile(t *testing.T) {
@@ -1143,7 +985,7 @@ func TestAttachReplacesAStalePidfile(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, srv := newFakeAPI(t)
+			_, srv := syncthingtest.New(t)
 			stateDir := t.TempDir()
 			home := filepath.Join(stateDir, "sync", "syncthing")
 			if err := os.MkdirAll(home, 0o700); err != nil {
@@ -1152,7 +994,7 @@ func TestAttachReplacesAStalePidfile(t *testing.T) {
 			writeFile(t, filepath.Join(home, "daemon.pid"), content(t))
 			killDaemon(t, home)
 			mustOK(t, invoke(t, testDeps(srv, fakeSyncthing(t, "")), "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
-			if !alive(daemonPID(t, home), "") || strings.Count(readFile(t, filepath.Join(home, "starts")), "start") != 1 {
+			if !engine.Alive(daemonPID(t, home), "") || strings.Count(readFile(t, filepath.Join(home, "starts")), "start") != 1 {
 				t.Error("a stale pidfile did not lead to exactly one fresh start")
 			}
 		})
@@ -1170,7 +1012,7 @@ func TestAttachFailures(t *testing.T) {
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			t.Parallel()
-			_, srv := newFakeAPI(t)
+			_, srv := syncthingtest.New(t)
 			stateDir := t.TempDir()
 			home := filepath.Join(stateDir, "sync", "syncthing")
 			killDaemon(t, home)
@@ -1179,7 +1021,7 @@ func TestAttachFailures(t *testing.T) {
 				script = fakeSyncthing(t, tc.mode)
 			}
 			d := testDeps(srv, script)
-			d.startWait = time.Second
+			d.StartWait = time.Second
 			o := invoke(t, d, "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"})
 			if o.exit != 9 || o.env.Error.Code != "unavailable" || o.env.Error.Details["reason"] != tc.reason {
 				t.Fatalf("exit %d, stdout %q, want unavailable/%s", o.exit, o.stdout, tc.reason)
@@ -1189,7 +1031,7 @@ func TestAttachFailures(t *testing.T) {
 			}
 			if tc.mode == "noconfig" {
 				pid := daemonPID(t, home)
-				testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !alive(pid, "") })
+				testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool { return !engine.Alive(pid, "") })
 			}
 		})
 	}
@@ -1197,13 +1039,13 @@ func TestAttachFailures(t *testing.T) {
 
 func TestAStartTruncatesAnOversizedLog(t *testing.T) {
 	t.Parallel()
-	_, srv := newFakeAPI(t)
+	_, srv := syncthingtest.New(t)
 	stateDir := t.TempDir()
 	home := filepath.Join(stateDir, "sync", "syncthing")
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(home, "syncthing.log"), strings.Repeat("x", maxLogBytes+1))
+	writeFile(t, filepath.Join(home, "syncthing.log"), strings.Repeat("x", engine.MaxLogBytes+1))
 	killDaemon(t, home)
 	mustOK(t, invoke(t, testDeps(srv, fakeSyncthing(t, "")), "attach", map[string]any{"state_dir": stateDir, "session_id": "s1"}), "attach")
 	if got := readFile(t, filepath.Join(home, "syncthing.log")); len(got) > 1024 || !strings.Contains(got, "fake syncthing starting") {

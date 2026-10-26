@@ -116,6 +116,10 @@ type File struct {
 	// PollingReasons token when the member is present but not usable.
 	Polling         *PollingConfig
 	PollingUnusable string
+	// Devices is the `devices` member — the seed devices of a team over
+	// Syncthing (AdapterSyncthing): validated device ids, deduplicated,
+	// in the file's order; nil for every other adapter.
+	Devices []string
 	// Ignored lists the member names this version does not define — top
 	// level as `name`, inside `sync` as `sync.name` (and so on for
 	// `gateway` and `polling`) — sorted, each reduced
@@ -139,10 +143,23 @@ var secretShape = regexp.MustCompile(`brg1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}`)
 // members is the schema this version reads. True means required; any
 // other member is ignored (card 32) and named in File.Ignored.
 var members = map[string]bool{
-	"version": true, "adapter": true, "url": true,
-	"publishable_key": true, "team_ref": true, "team_name": false,
-	"sync": false, "gateway": false, "polling": false,
+	"version": true, "adapter": true, "url": false,
+	"publishable_key": false, "team_ref": true, "team_name": false,
+	"sync": false, "gateway": false, "polling": false, "devices": false,
 }
+
+// AdapterSyncthing is the adapter name whose team file carries `devices`
+// — the Syncthing device ids of the team's seed machines — and no `url`
+// or `publishable_key` (card 141). Every other adapter's file requires
+// those two and ignores `devices`.
+const AdapterSyncthing = "syncthing"
+
+// MaxDevices caps the seed list.
+const MaxDevices = 32
+
+// deviceIDShape is a Syncthing device id: eight groups of seven base-32
+// characters.
+var deviceIDShape = regexp.MustCompile(`^[A-Z2-7]{7}(-[A-Z2-7]{7}){7}$`)
 
 // Parse reads and validates the team file at path. Every check runs on
 // the OPEN descriptor (the file cannot be swapped between check and
@@ -334,13 +351,36 @@ func validate(path string, raw map[string]jsontext.Value) (*File, error) {
 		}
 		return nil, refusal(path, ReasonUnsupportedVersion, "the team file names a version this build does not read")
 	}
-	for name, dst := range map[string]*string{
-		"adapter": &f.Adapter, "url": &f.URL,
-		"publishable_key": &f.PublishableKey, "team_ref": &f.TeamRef,
-	} {
+	for name, dst := range map[string]*string{"adapter": &f.Adapter, "team_ref": &f.TeamRef} {
 		if err := json.Unmarshal(raw[name], dst); err != nil || *dst == "" {
 			return nil, refusal(path, ReasonMalformed, "the team file's "+name+" member must be a non-empty string")
 		}
+	}
+	// url and publishable_key: required for every adapter but syncthing,
+	// whose backend is the members' machines; a syncthing file may carry
+	// them empty or not at all, and devices instead.
+	for name, dst := range map[string]*string{"url": &f.URL, "publishable_key": &f.PublishableKey} {
+		member, present := raw[name]
+		if !present {
+			if f.Adapter != AdapterSyncthing {
+				return nil, refusal(path, ReasonMalformed, "the team file is missing a required member: "+name)
+			}
+			continue
+		}
+		if err := json.Unmarshal(member, dst); err != nil || (*dst == "" && f.Adapter != AdapterSyncthing) {
+			return nil, refusal(path, ReasonMalformed, "the team file's "+name+" member must be a non-empty string")
+		}
+	}
+	if f.Adapter == AdapterSyncthing {
+		member, present := raw["devices"]
+		if !present {
+			return nil, refusal(path, ReasonMalformed, "the team file is missing a required member: devices")
+		}
+		devices, err := parseDevices(member)
+		if err != nil {
+			return nil, refusal(path, ReasonMalformed, err.Error())
+		}
+		f.Devices = devices
 	}
 	if name, ok := raw["team_name"]; ok {
 		var s string
@@ -355,10 +395,39 @@ func validate(path string, raw map[string]jsontext.Value) (*File, error) {
 	if strings.HasPrefix(f.PublishableKey, "sb_secret_") {
 		return nil, refusal(path, ReasonSecretKey, "the team file's publishable_key looks like a Supabase secret key; remove it and rotate that key in the dashboard")
 	}
-	if err := checkURL(path, f.URL); err != nil {
-		return nil, err
+	if f.URL != "" || f.Adapter != AdapterSyncthing {
+		if err := checkURL(path, f.URL); err != nil {
+			return nil, err
+		}
 	}
 	return &f, nil
+}
+
+// parseDevices reads the `devices` member: a non-empty array of at most
+// MaxDevices Syncthing device ids, deduplicated. The messages are fixed
+// text: a device id is public, but the member's VALUE is still
+// repository text and never echoed.
+func parseDevices(member jsontext.Value) ([]string, error) {
+	var ids []string
+	if member.Kind() != '[' || json.Unmarshal(member, &ids) != nil {
+		return nil, errors.New("the team file's devices member must be an array of Syncthing device ids")
+	}
+	if len(ids) == 0 {
+		return nil, errors.New("the team file's devices member must name at least one Syncthing device id")
+	}
+	if len(ids) > MaxDevices {
+		return nil, errors.New("the team file's devices member names too many devices")
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !deviceIDShape.MatchString(id) {
+			return nil, errors.New("the team file's devices member carries something that is not a Syncthing device id")
+		}
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }
 
 // checkURL mirrors the adapter's rule: https, or http only for a

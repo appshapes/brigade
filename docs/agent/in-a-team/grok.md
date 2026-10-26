@@ -17,6 +17,7 @@ A genuine Stop offers one setup continuation; its marker and recursion guard pre
 | [`grok/brigade/skills/email/SKILL.md`](../../../grok/brigade/skills/email/SKILL.md) | email |
 | [`grok/brigade/skills/slack/SKILL.md`](../../../grok/brigade/skills/slack/SKILL.md) | slack |
 | [`grok/brigade/skills/quiet/SKILL.md`](../../../grok/brigade/skills/quiet/SKILL.md) | quiet: make this one session quiet, and return it |
+| [`grok/brigade/skills/migrate/SKILL.md`](../../../grok/brigade/skills/migrate/SKILL.md) | migrate |
 
 Use `brigade whoami --json` to obtain this incarnation's safely quoted absolute `monitor_command` and exact
 `monitor_description`. Inspect native tasks before arming; only an exact running monitor command confirms

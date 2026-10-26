@@ -61,6 +61,10 @@ type Profile struct {
 	HumanLabel string `json:"human_label,omitzero"`
 	// SecretStore names where the credential lives; SecretStoreFile in v1.
 	SecretStore string `json:"secret_store,omitzero"`
+	// Devices is the syncthing adapter's seed devices (card 141): the
+	// Syncthing device ids of the team file's `devices` member, which a
+	// joining machine connects to first. Other adapters leave it empty.
+	Devices []string `json:"devices,omitzero"`
 	// CreatedAt is when the profile was first written (RFC 3339).
 	CreatedAt time.Time `json:"created_at,omitzero"`
 }

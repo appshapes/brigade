@@ -1148,3 +1148,52 @@ had already moved and leaves the previous binding in place, so a retained record
 incarnation; a restore that itself fails is logged. A new Brigade session id leaves the old directory where it is. An old-incarnation cursor
 stays rejected, so a resumed read starts again and may replay frames already shown. A lookup that fails is
 not TUI death: the watcher keeps injecting and does not delete the receiver until the process is proven gone.
+
+## 18. The Syncthing adapter
+
+A team may live in no project at all (card 141, 2026-10-26): the `syncthing` adapter keeps the team's messages,
+sessions and memberships as files in one folder per team under each member's Brigade state directory
+(`syncthing/teams/<team_ref>`, 0700), and the Syncthing instance of section 12 keeps that folder in step between
+the members' machines. The wire protocol, the frame, the inbound policy and everything a session does with a
+message are unchanged. What changes is who holds what and who vouches for whom.
+
+- **There is no backend and no one who runs it.** Section 2 does not apply: no third party and no administrator
+  of a project can read the team's messages. The join secret stays the one boundary (section 1).
+- **Every member's machine holds every message of the team**, on disk, for the adapter's retention — an
+  unacknowledged message 7 days, an acknowledged one 24 hours after the acknowledgement, a closed session 7 days.
+  A project's row policy lets a member read only the messages they sent or received; this adapter has no such
+  line, and a member who reads their own state directory reads the team. A member who copies the folder keeps
+  what it held.
+- **Identity has no authority** (the owner's ruling of 2026-10-26: no key pair in this version). A message's
+  sender members are stamped by the sender's own machine from its own files, and a member who edits the files by
+  hand can claim any sender; the frame still says every sender is unverified. The sending caps and rate limits of
+  the protocol are enforced by the sender's own machine over its copy of the folder; a member who writes files by
+  hand is bound by nothing but the retention sweep of the others. The response to either is the revoke.
+- **Joining is device acceptance.** A joining machine names its Syncthing device
+  `brigade1-<unix seconds>-<HMAC-SHA256 keyed by the SHA-256 of the join secret, over the device id and the
+  seconds>` and connects to the seeds the team file names. A member's running watch lists the pending device,
+  verifies the name against the digest the team file holds, and accepts it onto the folder; the folder then
+  reaches it, and the joining machine checks the digest again. The digest is in the folder, so every member can
+  verify a joiner and nobody who lacks the secret can forge one; it also means the digest doubles as the
+  acceptance key, so a member can let in any device that holds the secret, which is the join rule anyway. The
+  name is announced to every device the machine connects to and carries no secret.
+- **Seeds are public.** `devices` in `.brigade.json` are Syncthing device ids: the public half of each machine's
+  certificate, which Syncthing's own discovery publishes. Naming a machine there lets a joiner connect to it;
+  it grants nothing.
+- **Revocation is eventual, by design.** A revoke is a marker the creator writes into the folder. Every member's
+  machine filters on it the moment it arrives — the revoked member's own watch ends with `unauthorized` then —
+  and drops the revoked device from its engine once the marker is 15 seconds old, so the marker has reached it
+  first. Measured on one machine with two engines: the watch ended 7.5 s after the revoke and the device was
+  dropped 18.5 s after. A revoked machine that is off learns nothing until it next connects to a member; until
+  then it holds its copy of the folder. A rotation changes the digest, so a device joined with the old secret
+  cannot be accepted again. A ban is a marker that no rejoin removes.
+- **The clocks are the members' own.** A session's state is computed from its lease on each reading machine's
+  clock, and a message's order from its sequence number and the sender's clock. A machine whose clock is far off
+  sees the roster wrong and is seen wrong.
+- **What the network sees** is section 12's: device-to-device TLS, global discovery and relays with Syncthing's
+  defaults. The team folder's changes are announced within a second of a write and travel as any synced file.
+- **The hosted gateways need a project** and stay with it; a team over Syncthing has none.
+
+The store, the handshake and the engine round are documented beside the code,
+[`internal/adapters/syncthing/README.md`](../internal/adapters/syncthing/README.md); the administrator's page is
+[Create a team over Syncthing](team-admin/create/create-over-syncthing.md).
