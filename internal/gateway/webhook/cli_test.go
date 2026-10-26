@@ -120,6 +120,70 @@ func TestRunWithoutAJoinedTeamExplains(t *testing.T) {
 	}
 }
 
+// The gateway secret must live outside the team's checkout, which is
+// what docs/security.md 14.1 says of it and what `brigade team create`
+// already enforces for the join secret. The checkout is knowable
+// wherever --team-file names one, and the operator page tells the
+// gateway's machine to keep that checkout.
+func TestSecretFileMustBeOutsideTheTeamsCheckout(t *testing.T) {
+	base := t.TempDir()
+	checkout := filepath.Join(base, "checkout")
+	if err := os.MkdirAll(filepath.Join(checkout, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, ".git"), []byte("gitdir: elsewhere\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	teamFile := filepath.Join(checkout, ".brigade.json")
+	outside := filepath.Join(base, "secrets")
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A symlink out of the checkout into it: the literal spelling is
+	// outside, the resolved one is not.
+	link := filepath.Join(outside, "into-checkout")
+	if err := os.Symlink(checkout, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name       string
+		secretFile string
+		teamFile   string
+		ok         bool
+	}{
+		{"outside the checkout", filepath.Join(outside, "secret"), teamFile, true},
+		{"relative", "secret", teamFile, false},
+		{"empty", "", teamFile, false},
+		{"at the toplevel", filepath.Join(checkout, "secret"), teamFile, false},
+		{"under the checkout", filepath.Join(checkout, "sub", "secret"), teamFile, false},
+		{"through a symlink into the checkout", filepath.Join(link, "secret"), teamFile, false},
+		// Spelled by hand: filepath.Join would Clean the `..` away.
+		{"a `..` component", outside + "/../secrets/secret", teamFile, false},
+		// Without --team-file no project directory is knowable: only the
+		// absolute-path and `..` rules apply (the `send` client's case).
+		{"no team file, outside", filepath.Join(outside, "secret"), "", true},
+		{"no team file, relative", "secret", "", false},
+		{"no team file, `..`", outside + "/../secret", "", false},
+		// A team file outside any repository names only its own directory.
+		{"team file outside a repository", filepath.Join(outside, "secret"), filepath.Join(outside, ".brigade.json"), false},
+	} {
+		if err := checkSecretFile(c.secretFile, c.teamFile); (err == nil) != c.ok {
+			t.Errorf("%s: checkSecretFile(%q, %q) = %v, want ok=%v", c.name, c.secretFile, c.teamFile, err, c.ok)
+		}
+	}
+	// And the whole binary refuses it, before the secret is read.
+	var out, errb bytes.Buffer
+	secret := filepath.Join(checkout, "secret")
+	if err := os.WriteFile(secret, append(testSecret, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code := Run(t.Context(), []string{"--target-url", "https://example.com/hook", "--team-file", teamFile, "--secret-file", secret},
+		strings.NewReader(""), &out, &errb, []string{"BRIGADE_CONFIG_DIR=" + base, "HOME=" + base})
+	if code == 0 || !strings.Contains(errb.String(), "must not be inside the team's checkout") {
+		t.Fatalf("Run with an in-checkout secret = %d, stderr %q", code, errb.String())
+	}
+}
+
 // --log-level takes the four words of the repository's grammar, not
 // slog's "INFO" / "WARN-1" / "DEBUG+4".
 func TestRunRefusesALogLevelOutsideTheGrammar(t *testing.T) {

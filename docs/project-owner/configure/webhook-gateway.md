@@ -23,7 +23,10 @@ teammate, never as an approval, a credential, or an instruction it must obey.
    gateway's user can read ([Choose the identity](#choose-the-identity)). For a new member that needs the team's
    join secret file, handed over once, out of band.
 3. **A gateway secret**, shared with the outside service only: `(umask 077; openssl rand -hex 32 >
-   ~/.config/brigade-webhook/secret)`. At least 32 bytes. Without it, nothing is signed or accepted.
+   ~/.config/brigade-webhook/secret)`. At least 32 bytes. Without it, nothing is signed or accepted. The path
+   must be absolute, with no `..` component, and outside the checkout `--team-file` names: the gateway refuses it
+   otherwise, as `brigade team create` refuses an in-project join secret. A secret inside a checkout is one
+   `git add` from a public repository.
 4. **The target URL** of the outside service: `https://`, or `http://` to a loopback address. A URL with
    credentials in it is refused; the signature is the authentication.
 
@@ -61,7 +64,10 @@ more rotations behind is refused (`refresh_token_already_used`), after which Bri
 only cure is a new `team join`, which makes a new principal. Two machines holding one copy of `session.json` share
 one rotation chain: the always-on gateway refreshes every hour, so the copy on a laptop that slept overnight is soon
 two behind, and **the laptop's identity is lost** — for the team's creator, admin rights with it, permanently
-([security](../../security.md#141-the-self-hosted-webhook-gateway)). Copy it only if you accept that, and never run both copies at once.
+([security](../../security.md#141-the-self-hosted-webhook-gateway)). Copy it only if you accept that, and never run both copies at once:
+a second copy started by accident adopts the same remembered session rather than registering a new one, so both
+receive, POST and acknowledge it — which your endpoint sees as duplicate deliveries, deduplicated on
+`X-Brigade-Delivery` like any retry.
 Whoever can read the gateway machine's config directory can also act as that member on the team: read every
 message to any of its sessions, send as it, and (for an admin) run admin commands.
 
@@ -84,7 +90,7 @@ brigade-webhook-gateway \
 | --- | --- | --- |
 | `--team-file` / `--profile` | `default` profile | which binding (and so which team and member) to run as |
 | `--session-name` | `webhook-gateway` | the session name teammates see in `brigade sessions` |
-| `--description` | none | the session's doing line |
+| `--description` | `Forwards messages to a webhook and back` | the session's doing line |
 | `--listen` | `127.0.0.1:8787` | the local listener for `send`/`sessions`; `off` for none |
 | `--lease`, `--poll` | 600 s, 5 s | session lease (heartbeat every third of it), inbox poll interval |
 | `--max-attempts` | 24 | POST attempts per message, with backoff, before the sender is told it was not delivered |
@@ -163,7 +169,7 @@ done
 
 Verify before anything else: recompute the HMAC, compare in constant time, refuse a timestamp more than five
 minutes off. Answer 2xx once you have it; any other answer, or none in 15 seconds, is retried with backoff, and a
-4xx other than 408/429 is final (the sender is told). `thread` is present only on a reply to a message the service
+4xx other than 408, 425 and 429 is final (the sender is told). `thread` is present only on a reply to a message the service
 sent.
 
 ## What the service sends

@@ -944,8 +944,12 @@ what leaves.
   timestamp, before the body is parsed. There is no second credential, no list of permitted callers and no mutual
   TLS. Whoever holds that secret can put text in front of the team's sessions as the gateway, and, if they also
   know the target URL, can read what the gateway's session receives. It is 32 or more random bytes in a 0600 file
-  outside the repository, shared with the one service, rotated by restarting both sides. It grants nothing on the
-  backend: the team's join secret and the project's keys are not involved.
+  outside the repository, shared with the one service, rotated by restarting both sides. The location is enforced
+  where a project directory is knowable: `--secret-file` must be an absolute path with no `..` component, and must
+  not be inside the checkout `--team-file` names (literally or through a symlink) — the same refusal
+  `brigade team create` makes of an in-project join secret. Mode, owner and symlinks on the file itself are
+  checked as every other secret file's are. It grants nothing on the backend: the team's join secret and the
+  project's keys are not involved.
 - **The listener is loopback by default, and signed wherever it is bound.** It defaults to `127.0.0.1:8787`, so
   only a program on the gateway's machine can reach it, and `--listen off` removes it. Bound anywhere else — behind
   a reverse proxy that terminates TLS, say — the signature is still the only authentication, with a cap on

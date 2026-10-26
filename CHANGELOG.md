@@ -16,7 +16,9 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   to one outside service: each message it receives is POSTed, signed, to a
   URL of yours and acknowledged on a 2xx; the service answers through a
   loopback-only, signed `send`. Nothing is added to the project. Messages it
-  carries in are marked unverified and approve nothing.
+  carries in are marked unverified and approve nothing. Its secret file must be
+  an absolute path outside the checkout `--team-file` names, as a join secret
+  file must be outside the project.
 
 ### Fixed
 

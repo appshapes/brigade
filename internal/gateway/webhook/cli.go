@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -107,8 +108,8 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if err := checkTarget(*target, *allowHTTP); err != nil {
 		return fail("invalid --target-url", err)
 	}
-	if *secretFile == "" || !filepath.IsAbs(*secretFile) {
-		return fail("--secret-file must be an absolute path", nil)
+	if err := checkSecretFile(*secretFile, *teamFile); err != nil {
+		return fail(err.Error(), nil)
 	}
 	raw, err := adapterkit.ReadStrict(*secretFile)
 	if err != nil {
@@ -258,6 +259,65 @@ func hasAnyPrefix(s string, prefixes []string) bool {
 		}
 	}
 	return false
+}
+
+// checkSecretFile refuses a --secret-file the gateway must not read: a
+// relative path, a path with a `..` component, and — wherever a project
+// directory is knowable, which is wherever --team-file names one — a path
+// inside that checkout.
+//
+// The location is a rule, not advice (docs/security.md 14.1: a 0600 file
+// outside the repository), and the repository already enforces it for the
+// join secret in `brigade team create` and `team join`
+// (commands.checkSecretFileOutside). It matters more here than it reads:
+// the operator page tells the gateway's machine to keep the team's
+// checkout, so `--team-file /path/to/checkout/.brigade.json
+// --secret-file /path/to/checkout/secret` is a path a careless operator
+// can take, and that repository is as public as this one.
+//
+// A `..` component is refused outright rather than cleaned (the same
+// finding as P7-11): Dir and Clean collapse `lnk/..` lexically while the
+// kernel resolves the symlink first, so `<outside>/lnk/../x.secret` with
+// `lnk` pointing into the checkout would pass both spellings below and
+// still land inside. Mode, owner and symlinks on the file itself are
+// adapterkit.ReadStrict's job; this is only its location.
+func checkSecretFile(secretFile, teamFile string) error {
+	if secretFile == "" || !filepath.IsAbs(secretFile) {
+		return errors.New("--secret-file must be an absolute path outside the team's checkout")
+	}
+	if slices.Contains(strings.Split(secretFile, string(filepath.Separator)), "..") {
+		return errors.New("--secret-file must not contain a `..` component; spell the path plainly")
+	}
+	if teamFile == "" {
+		return nil
+	}
+	start := filepath.Dir(teamFile)
+	if abs, err := filepath.Abs(start); err == nil {
+		start = abs
+	}
+	// The checkout the team file sits in, or — outside a repository, where
+	// a plain path may name the team file — its own directory.
+	top, ok := teamfile.Toplevel(start)
+	if !ok {
+		top = start
+	}
+	top = filepath.Clean(top)
+	dir := filepath.Clean(filepath.Dir(secretFile))
+	// Both the literal spelling and the symlink-resolved one are checked,
+	// as the join secret's are: a path may be inside the checkout under
+	// either form and must not slip through the other.
+	canonTop, terr := teamfile.Canonicalize(top)
+	canonDir, derr := teamfile.Canonicalize(dir)
+	if isUnder(dir, top) || (terr == nil && derr == nil && isUnder(canonDir, canonTop)) {
+		return errors.New("--secret-file must not be inside the team's checkout (" + top +
+			"): the gateway secret must never live under a repository")
+	}
+	return nil
+}
+
+// isUnder reports whether dir equals top or sits beneath it.
+func isUnder(dir, top string) bool {
+	return dir == top || strings.HasPrefix(dir+string(filepath.Separator), top+string(filepath.Separator))
 }
 
 // checkTarget requires https, or http to a loopback host, unless allowHTTP.

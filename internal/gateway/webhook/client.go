@@ -8,7 +8,6 @@ import (
 	"flag"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -53,8 +52,11 @@ func runClient(ctx context.Context, verb string, args []string, stdin io.Reader,
 	if fs.NArg() != 0 {
 		return complain("unexpected arguments")
 	}
-	if *secretFile == "" || !filepath.IsAbs(*secretFile) {
-		return complain("--secret-file must be an absolute path")
+	// The same location rule as the gateway's own flag, minus the
+	// checkout check: `send` and `sessions` take no --team-file, so no
+	// project directory is knowable here.
+	if err := checkSecretFile(*secretFile, ""); err != nil {
+		return complain(err.Error())
 	}
 	raw, err := adapterkit.ReadStrict(*secretFile)
 	if err != nil {
