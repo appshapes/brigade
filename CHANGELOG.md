@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.38.0] — 2026-10-26
+
 ### Added
 
 - **A self-hosted webhook gateway** (card 137).
