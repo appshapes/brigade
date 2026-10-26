@@ -19,3 +19,8 @@ Grok options are in `~/.config/brigade/grok-options.json`. Set `label` to a lite
 no Claude account is borrowed. Membership joining and monitor readiness are separate. Refer to the member's
 `install/join/configure/update/leave/grok.md` pages for ordered procedures, status and retained local backlog.
 Transfer ownership before an administrator leaves; revoke membership before deleting credential copies.
+
+A team can also run with no Supabase project: `brigade team create --adapter syncthing --name <team> --secret-file
+<path>` keeps the team's messages in a folder Syncthing replicates between the members' machines (`syncthing` on
+every member's PATH). `docs/team-admin/create/create-over-syncthing.md` has the details; the `migrate` skill moves
+an existing team.

@@ -11,6 +11,7 @@ secret your administrator sent you, saved outside the repository, lets you in. Y
 | join from a Muse Code session | [Join in Muse Code](#join-in-muse-code) |
 | join from a Codex CLI session | [Join in Codex CLI](#join-in-codex-cli) |
 | join a second clone, or another repository of the same team | [Join another checkout](#join-another-checkout) |
+| join a team that runs over Syncthing, with no project | [Join a team over Syncthing](#join-a-team-over-syncthing) |
 | choose the label teammates see beside your sessions | [Choose your label](#choose-your-label) |
 | use Grok Build join status | [Grok Build](#grok-build) |
 
@@ -46,6 +47,14 @@ Details: [Join in Codex CLI](codex.md).
 2. It shows the team the file names; in a terminal you confirm. No secret: this machine already holds the credential.
 
 Details: [Join another checkout](another-checkout.md).
+
+## Join a team over Syncthing
+
+1. `brew install syncthing` or `sudo apt install syncthing`: the team's messages travel through Syncthing.
+2. Join as above, while a session of one of the team's seed machines is running.
+3. `brigade team status` says `team_folder: present` once the team has reached your machine, within seconds.
+
+Details: [Join a team over Syncthing](over-syncthing.md).
 
 ## Choose your label
 

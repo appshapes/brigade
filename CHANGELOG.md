@@ -18,6 +18,26 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   gateway's own headers cannot be overridden from it, and its values are
   redacted from the logs.
 
+## [0.39.0] — 2026-10-26
+
+### Added
+
+- **A team with no backend: the syncthing adapter** (card 141).
+  `brigade team create --adapter syncthing` creates a team whose messages,
+  sessions and memberships live in one folder per team that Syncthing keeps
+  in step between the members' machines: no project, no account, no egress
+  cap, nothing a third party can read. The team file names `devices`, the
+  team's seed machines, instead of a URL and a key; a member joins while a
+  seed's session runs, its device accepted on a name that proves it holds
+  the join secret, and the team folder reaches it within seconds. The three
+  `team.admin` verbs work; a revocation is eventual, by a marker and a
+  15-second grace, and every member's machine holds every message of the
+  team. `brigade team migrate --secret-file <path>` and `/brigade:migrate`
+  move an existing team off its Supabase project, keeping its reference and
+  name. The Syncthing engine the sync adapter runs is now the shared
+  package `internal/syncthing`. Measured on one machine with two engines: a
+  join through acceptance in 8 s, a message in 2 s.
+
 ## [0.38.0] — 2026-10-26
 
 ### Added

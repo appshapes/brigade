@@ -1,7 +1,6 @@
 package syncthing
 
 import (
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	engine "github.com/appshapes/brigade/internal/syncthing"
 	"github.com/appshapes/brigade/internal/testutil"
 )
 
@@ -40,7 +40,7 @@ func TestRealSyncthingIntegration(t *testing.T) {
 	stateDir := t.TempDir()
 	home := filepath.Join(stateDir, "sync", "syncthing")
 	killDaemon(t, home)
-	d := realDeps()
+	d := engine.RealDeps()
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
 	call := func(verb string, req any) map[string]any {
 		t.Helper()
@@ -75,7 +75,7 @@ func TestRealSyncthingIntegration(t *testing.T) {
 	})
 
 	// The instance listens on its own port, not 22000.
-	c, err := newInstance(stateDir, &adapter{d: d, http: &http.Client{Timeout: restTimeout}, log: slog.New(slog.DiscardHandler)}).api()
+	c, err := engine.New(stateDir, d, nil, nil).API()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,28 +83,28 @@ func TestRealSyncthingIntegration(t *testing.T) {
 	if err != nil || port == 22000 {
 		t.Fatalf("listen-port = %d (%v), want a port of the instance's own", port, err)
 	}
-	var opts listenOptions
-	if err := c.do(http.MethodGet, "/rest/config/options", nil, nil, &opts); err != nil {
+	var opts engine.ListenOptions
+	if err := c.Do(http.MethodGet, "/rest/config/options", nil, nil, &opts); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(opts.ListenAddresses, listenAddresses(port)) {
-		t.Errorf("listenAddresses = %v, want %v", opts.ListenAddresses, listenAddresses(port))
+	if !slices.Equal(opts.ListenAddresses, engine.ListenAddresses(port)) {
+		t.Errorf("listenAddresses = %v, want %v", opts.ListenAddresses, engine.ListenAddresses(port))
 	}
 	t.Logf("the instance listens on %v", opts.ListenAddresses)
 
 	// A server a person adds by hand — to the instance and to the folder —
 	// survives the next apply, with its own addresses.
 	const folderID = "brigade-test0000-000000000000"
-	server := deviceConfig{DeviceID: realServerPeer, Name: "server by hand", Addresses: []string{"tcp://192.0.2.1:22000"}}
-	if err := c.do(http.MethodPost, "/rest/config/devices", nil, server, nil); err != nil {
+	server := engine.DeviceConfig{DeviceID: realServerPeer, Name: "server by hand", Addresses: []string{"tcp://192.0.2.1:22000"}}
+	if err := c.Do(http.MethodPost, "/rest/config/devices", nil, server, nil); err != nil {
 		t.Fatalf("add the server device by hand: %v", err)
 	}
 	var fc map[string]any
-	if err := c.do(http.MethodGet, "/rest/config/folders/"+folderID, nil, nil, &fc); err != nil {
+	if err := c.Do(http.MethodGet, "/rest/config/folders/"+folderID, nil, nil, &fc); err != nil {
 		t.Fatal(err)
 	}
 	fc["devices"] = append(fc["devices"].([]any), map[string]any{"deviceID": realServerPeer})
-	if err := c.do(http.MethodPut, "/rest/config/folders/"+folderID, nil, fc, nil); err != nil {
+	if err := c.Do(http.MethodPut, "/rest/config/folders/"+folderID, nil, fc, nil); err != nil {
 		t.Fatalf("share the folder with the server by hand: %v", err)
 	}
 	applyReq := map[string]any{
@@ -114,8 +114,8 @@ func TestRealSyncthingIntegration(t *testing.T) {
 		"peers":      []map[string]string{{"peer": realTestPeer, "label": "nobody"}},
 	}
 	call("apply", applyReq)
-	var after configuredFolder
-	if err := c.do(http.MethodGet, "/rest/config/folders/"+folderID, nil, nil, &after); err != nil {
+	var after engine.ConfiguredFolder
+	if err := c.Do(http.MethodGet, "/rest/config/folders/"+folderID, nil, nil, &after); err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]bool{}
@@ -125,8 +125,8 @@ func TestRealSyncthingIntegration(t *testing.T) {
 	if !ids[realServerPeer] || !ids[realTestPeer] || !ids[id] {
 		t.Errorf("folder devices after apply = %+v, want the server, the peer and this device", after.Devices)
 	}
-	var dev deviceConfig
-	if err := c.do(http.MethodGet, "/rest/config/devices/"+realServerPeer, nil, nil, &dev); err != nil {
+	var dev engine.DeviceConfig
+	if err := c.Do(http.MethodGet, "/rest/config/devices/"+realServerPeer, nil, nil, &dev); err != nil {
 		t.Fatal(err)
 	}
 	if dev.Name != server.Name || !slices.Equal(dev.Addresses, server.Addresses) {
@@ -141,7 +141,7 @@ func TestRealSyncthingIntegration(t *testing.T) {
 	if fs := res["folders"].([]any); len(fs) != 1 || fs[0].(map[string]any)["state"] != "conflict_path" {
 		t.Errorf("apply from a second checkout: folders = %v, want conflict_path", fs)
 	}
-	if err := c.do(http.MethodGet, "/rest/config/folders/"+folderID, nil, nil, &after); err != nil || after.Path != folder {
+	if err := c.Do(http.MethodGet, "/rest/config/folders/"+folderID, nil, nil, &after); err != nil || after.Path != folder {
 		t.Errorf("the folder moved to %q (%v), want it held at %q", after.Path, err, folder)
 	}
 
@@ -168,8 +168,8 @@ func TestRealSyncthingIntegration(t *testing.T) {
 	notes := map[string]string{"id": testFolderID("test0000", "repo", "../notes"), "path": filepath.Join(filepath.Dir(repo), "notes"), "label": "repo/../notes"}
 	paused := func(id string) bool {
 		t.Helper()
-		var fc configuredFolder
-		if err := c.do(http.MethodGet, "/rest/config/folders/"+id, nil, nil, &fc); err != nil {
+		var fc engine.ConfiguredFolder
+		if err := c.Do(http.MethodGet, "/rest/config/folders/"+id, nil, nil, &fc); err != nil {
 			t.Fatal(err)
 		}
 		return fc.Paused
@@ -216,12 +216,12 @@ func TestRealSyncthingIntegration(t *testing.T) {
 		return err == nil
 	})
 	writeFile(t, filepath.Join(legacy["path"], "kept.md"), "a file the folder already holds\n")
-	if err := c.do(http.MethodGet, "/rest/config/folders/"+legacy["id"], nil, nil, &fc); err != nil {
+	if err := c.Do(http.MethodGet, "/rest/config/folders/"+legacy["id"], nil, nil, &fc); err != nil {
 		t.Fatal(err)
 	}
 	fc["devices"] = append(fc["devices"].([]any), map[string]any{"deviceID": realServerPeer})
 	fc["paused"] = false // the apply for the second clone's folder paused nothing here, and must not have
-	if err := c.do(http.MethodPut, "/rest/config/folders/"+legacy["id"], nil, fc, nil); err != nil {
+	if err := c.Do(http.MethodPut, "/rest/config/folders/"+legacy["id"], nil, fc, nil); err != nil {
 		t.Fatalf("share the earlier folder with the server by hand: %v", err)
 	}
 	scoped := map[string]string{"id": testFolderID("test0000", "web", ".brigade"), "replaces": legacy["id"], "path": legacy["path"], "label": "web/.brigade"}
@@ -233,11 +233,11 @@ func TestRealSyncthingIntegration(t *testing.T) {
 			t.Fatalf("round %d: apply with the new ids: folders = %v", round, fs)
 		}
 	}
-	var held []configuredFolder
-	if err := c.do(http.MethodGet, "/rest/config/folders", nil, nil, &held); err != nil {
+	var held []engine.ConfiguredFolder
+	if err := c.Do(http.MethodGet, "/rest/config/folders", nil, nil, &held); err != nil {
 		t.Fatal(err)
 	}
-	at := map[string]configuredFolder{}
+	at := map[string]engine.ConfiguredFolder{}
 	for _, h := range held {
 		at[h.ID] = h
 	}
@@ -260,7 +260,7 @@ func TestRealSyncthingIntegration(t *testing.T) {
 	}
 	testutil.Eventually(t, 30*time.Second, 100*time.Millisecond, func() bool {
 		_, err := os.Stat(marker)
-		return err == nil && c.folderState(scoped["id"]) == "idle"
+		return err == nil && c.FolderState(scoped["id"]) == "idle"
 	})
 	t.Log("the moved folder is idle under its new id, with its marker and its file")
 
@@ -268,7 +268,7 @@ func TestRealSyncthingIntegration(t *testing.T) {
 	if res["stopped"] != true {
 		t.Errorf("detach = %v", res)
 	}
-	if alive(pid, "") {
+	if engine.Alive(pid, "") {
 		t.Error("syncthing survived the last detach")
 	}
 }
@@ -286,7 +286,7 @@ type realSide struct {
 	folder   string
 	device   string
 	listen   string // the instance's own sync port (listen-port)
-	api      *api
+	api      *engine.API
 }
 
 // knows adds other to s's instance by hand, at other's loopback address,
@@ -297,8 +297,8 @@ type realSide struct {
 // nor on the public discovery servers.
 func (s *realSide) knows(t *testing.T, other *realSide) {
 	t.Helper()
-	dev := deviceConfig{DeviceID: other.device, Name: other.name, Addresses: []string{"tcp://127.0.0.1:" + other.listen}}
-	if err := s.api.do(http.MethodPost, "/rest/config/devices", nil, dev, nil); err != nil {
+	dev := engine.DeviceConfig{DeviceID: other.device, Name: other.name, Addresses: []string{"tcp://127.0.0.1:" + other.listen}}
+	if err := s.api.Do(http.MethodPost, "/rest/config/devices", nil, dev, nil); err != nil {
 		t.Fatalf("%s: add %s by hand: %v", s.name, other.name, err)
 	}
 }
@@ -321,7 +321,7 @@ func TestRealSyncthingMovesASharedFolder(t *testing.T) {
 	if os.Getenv(realSyncthingVar) != "1" {
 		t.Skip("set " + realSyncthingVar + "=1 to run against the syncthing on PATH")
 	}
-	d := realDeps()
+	d := engine.RealDeps()
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
 	call := func(verb string, req any) map[string]any {
 		t.Helper()
@@ -335,7 +335,7 @@ func TestRealSyncthingMovesASharedFolder(t *testing.T) {
 		if len(s.device) < 50 {
 			t.Fatalf("%s: attach peer = %q, want a Syncthing device id", name, s.device)
 		}
-		c, err := newInstance(s.stateDir, &adapter{d: d, http: &http.Client{Timeout: restTimeout}, log: slog.New(slog.DiscardHandler)}).api()
+		c, err := engine.New(s.stateDir, d, nil, nil).API()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -384,7 +384,7 @@ func TestRealSyncthingMovesASharedFolder(t *testing.T) {
 	}
 	holds := func(s *realSide) []string {
 		t.Helper()
-		fs, err := s.api.folders()
+		fs, err := s.api.Folders()
 		if err != nil {
 			t.Fatal(err)
 		}

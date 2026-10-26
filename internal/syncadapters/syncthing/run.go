@@ -4,17 +4,14 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net/http"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	adapterlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/protocol"
+	engine "github.com/appshapes/brigade/internal/syncthing"
 )
 
 // Name is the adapter's name: the `sync.adapter` value of .brigade.json
@@ -39,55 +36,6 @@ const (
 	verbDetach   = "detach"
 )
 
-// The waits of plan 4.4. startWait bounds how long attach waits for a
-// fresh daemon's config.xml and REST API (the harness gives the whole call
-// 20 s); stopWait is how long detach waits for the daemon to exit after
-// asking it to, and again after SIGTERM, before SIGKILL; restTimeout is
-// every REST call's own bound; lockWait bounds a second attach or detach
-// queued behind a start (a start holds the lock for at most startWait).
-const (
-	startWait   = 15 * time.Second
-	stopWait    = 5 * time.Second
-	restTimeout = 5 * time.Second
-	lockWait    = 16 * time.Second
-	pollEvery   = 100 * time.Millisecond
-)
-
-// deps are the seams a test replaces. Production values come from
-// realDeps; there is deliberately no environment variable for any of them
-// in shipped code.
-type deps struct {
-	// syncthing resolves the argv prefix that runs Syncthing:
-	// [exec.LookPath("syncthing")] in production. A test hands
-	// ["/bin/sh", <fixture script>] instead, because the repository's
-	// fixture rule (CLAUDE.md) launches a script fixture through /bin/sh,
-	// never exec'ing it directly.
-	syncthing func() ([]string, error)
-	// baseURL maps the instance's GUI port to its REST base URL:
-	// http://127.0.0.1:<port> in production (loopback only); a test points
-	// it at an httptest server.
-	baseURL func(port int) string
-	// startWait and stopWait default to the constants above; tests shorten
-	// them.
-	startWait time.Duration
-	stopWait  time.Duration
-}
-
-func realDeps() deps {
-	return deps{
-		syncthing: func() ([]string, error) {
-			path, err := exec.LookPath("syncthing")
-			if err != nil {
-				return nil, err
-			}
-			return []string{path}, nil
-		},
-		baseURL:   func(port int) string { return "http://127.0.0.1:" + strconv.Itoa(port) },
-		startWait: startWait,
-		stopWait:  stopWait,
-	}
-}
-
 // Run executes one verb and returns its 4.6 exit status. It is the seam
 // the `brigade sync-adapter syncthing` entry dispatches to: args are the
 // words after the adapter name (the verb), and the streams and the
@@ -95,27 +43,24 @@ func realDeps() deps {
 // stdin must be the real os.Stdin from an entry point, for
 // adapterkit.ReadInput's terminal refusal.
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []string) int {
-	return run(args, stdin, stdout, stderr, environ, realDeps())
+	return run(args, stdin, stdout, stderr, environ, engine.RealDeps())
 }
 
-// An adapter is one invocation.
+// An adapter is one invocation. d is the engine's seams (the syncthing
+// binary, the API base, the waits): engine.RealDeps in production, and
+// deliberately no environment variable for any of them in shipped code.
 type adapter struct {
-	d       deps
+	d       engine.Deps
 	stdout  io.Writer
 	stderr  io.Writer
 	environ []string
 	log     *slog.Logger
-	http    *http.Client
 }
 
-func run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []string, d deps) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []string, d engine.Deps) int {
 	a := &adapter{
 		d: d, stdout: stdout, stderr: stderr, environ: environ,
 		log: slog.New(slog.DiscardHandler),
-		// Proxy nil: the API is loopback-only, and an inherited
-		// HTTP_PROXY (ChildEnv keeps the proxy variables for the backend
-		// adapters) must never route it anywhere else.
-		http: &http.Client{Timeout: restTimeout, Transport: &http.Transport{Proxy: nil}},
 	}
 	levelName := adapterkit.Getenv(environ, "BRIGADE_LOG_LEVEL")
 	if levelName == "" {
@@ -332,15 +277,5 @@ func errInput(field, message string) error {
 		Code:    protocol.CodeInvalidInput,
 		Message: message,
 		Details: map[string]string{"field": field, "reason": "invalid_value"},
-	}
-}
-
-// errUnavailable is the 4.6 `unavailable` refusal with a reason the
-// harness can turn into its one session line.
-func errUnavailable(reason, message string) error {
-	return &protocol.Error{
-		Code:    protocol.CodeUnavailable,
-		Message: message,
-		Details: map[string]string{"reason": reason},
 	}
 }

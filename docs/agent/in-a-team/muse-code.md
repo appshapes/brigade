@@ -8,7 +8,7 @@ map. The reader uses `$HOME/.local/share/muse/sessions`: Muse strips `XDG_*` fro
 directories are unsupported. Missing/unsupported records preserve the last known name and leave unobserved
 context blank. See [format evidence, validation limits and read bounds](../../research/host-session-facts.md).
 
-The Muse Code package (`muse/brigade/`) ships the same eight skills, worded for Muse. They are the model's
+The Muse Code package (`muse/brigade/`) ships the same nine skills, worded for Muse. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 
 | Skill | Who invokes it | What it carries |
@@ -21,6 +21,7 @@ documentation inside a team; this page names them and says what differs from Cla
 | [`muse/brigade/skills/email/SKILL.md`](../../../muse/brigade/skills/email/SKILL.md) | the email command | one `brigade send` to the mail gateway |
 | [`muse/brigade/skills/slack/SKILL.md`](../../../muse/brigade/skills/slack/SKILL.md) | the slack command | one `brigade send` to the Slack gateway |
 | [`muse/brigade/skills/quiet/SKILL.md`](../../../muse/brigade/skills/quiet/SKILL.md) | the quiet command | make this one session quiet with `brigade inbound hold`, the roster line and a standing instruction; `off` returns it |
+| [`muse/brigade/skills/migrate/SKILL.md`](../../../muse/brigade/skills/migrate/SKILL.md) | the migrate command | run `brigade team migrate --secret-file <path>`: move the team onto the syncthing adapter, the new secret to the file the user named |
 
 What differs from Claude Code:
 

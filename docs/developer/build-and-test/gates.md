@@ -24,7 +24,7 @@ CI's `fast` job adds `checksums-check`, `plugin-check`, `muse-plugin-check`, `co
 `.golangci.yml`'s forbidigo rules are the stdout, exit, environment and spawn discipline: no `fmt.Print` or
 `os.Stdout` outside the protocol writers and `harness/commands`; `os.Exit` only in a `main`; `os.Getenv` only through
 `harness/config` and `adapterkit/env`; `exec.Command` only through the spawn helpers, the conformance suite and
-`internal/syncadapters/syncthing/instance.go`, the one place Brigade starts a long-running daemon (`syncthing
+`internal/syncthing/engine.go`, the one place Brigade starts a long-running daemon (`syncthing
 serve`, detached, argv array, allow-listed environment). depguard keeps `internal/harness` from importing the
 Supabase adapter. gosec pins file modes: directories 0700, files 0600.
 

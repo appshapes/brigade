@@ -33,7 +33,8 @@ func (tr *tree) museTree() {
 		"muse/brigade/hooks/session-start.sh", "muse/brigade/hooks/prompt.sh", "muse/brigade/hooks/session-end.sh",
 		"muse/brigade/skills/team-messaging/SKILL.md", "muse/brigade/skills/sessions/SKILL.md",
 		"muse/brigade/skills/setup/SKILL.md", "muse/brigade/skills/join/SKILL.md", "muse/brigade/skills/update/SKILL.md",
-		"muse/brigade/skills/email/SKILL.md", "muse/brigade/skills/slack/SKILL.md", "muse/brigade/skills/quiet/SKILL.md", "muse/brigade/README.md",
+		"muse/brigade/skills/email/SKILL.md", "muse/brigade/skills/slack/SKILL.md", "muse/brigade/skills/quiet/SKILL.md",
+		"muse/brigade/skills/migrate/SKILL.md", "muse/brigade/README.md",
 	} {
 		copyFile(rel)
 	}

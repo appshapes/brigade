@@ -237,3 +237,18 @@ func TestRunDispatchesTheBundledSyncAdapter(t *testing.T) {
 		}
 	}
 }
+
+// TestRunDispatchesTheSyncthingAdapter pins the second bundled seam (card
+// 141): `brigade adapter syncthing …` reaches the syncthing adapter's own
+// dispatcher, here a `describe` on an empty configuration directory.
+func TestRunDispatchesTheSyncthingAdapter(t *testing.T) {
+	t.Parallel()
+	env := []string{"HOME=" + t.TempDir(), "BRIGADE_CONFIG_DIR=" + t.TempDir(), "BRIGADE_STATE_DIR=" + t.TempDir()}
+	exit, stdout, stderr := run(t, env, "adapter", "syncthing", "describe")
+	if exit != 0 {
+		t.Fatalf("adapter syncthing describe: exit = %d, want 0 (stdout %q, stderr %q)", exit, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"ok":true`) || !strings.Contains(stdout, `"state":"unconfigured"`) || !strings.Contains(stdout, `"name":"brigade-adapter-syncthing"`) {
+		t.Errorf("adapter syncthing describe: stdout = %q, want an ok envelope from the syncthing adapter", stdout)
+	}
+}

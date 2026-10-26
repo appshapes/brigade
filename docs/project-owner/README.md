@@ -3,7 +3,9 @@
 You run the hosted backend: one single-purpose Supabase project that holds your organisation's teams and their
 messages. You create it, deploy Brigade into it with one command, keep a free-plan project awake, apply a
 release's migrations, and install the gateways that let people on email or Slack take part. Anyone who can read
-its database can read every message, so it holds nothing else.
+its database can read every message, so it holds nothing else. A team can also run with no project at all, over
+Syncthing ([Create a team over Syncthing](../team-admin/create/create-over-syncthing.md)); then there is nothing
+here to run.
 
 ## If you want to
 
