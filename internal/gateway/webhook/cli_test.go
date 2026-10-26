@@ -257,3 +257,23 @@ func TestRunRefusesAnUnsafeHeaderFile(t *testing.T) {
 		t.Errorf("checkPrivateFile with a `..` = %v", err)
 	}
 }
+
+// --help must say every credential flag takes a path. A back-quoted span
+// in a usage string is flag.UnquoteUsage's value name, not a literal, so
+// a usage reading "0600 file of <backquote>Name: value<backquote> lines"
+// makes --help print "-header-file Name: value", which invites a
+// receiver's key onto argv instead of into a file.
+func TestHelpSaysTheCredentialFlagsTakeAPath(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run(t.Context(), []string{"--help"}, strings.NewReader(""), &out, &errb, nil); code != 0 {
+		t.Fatalf("--help = %d, stderr %q", code, errb.String())
+	}
+	if out.Len() != 0 {
+		t.Errorf("--help wrote to stdout: %q", out.String())
+	}
+	for _, want := range []string{"-header-file string", "-secret-file string"} {
+		if !strings.Contains(errb.String(), want) {
+			t.Errorf("--help does not print %q:\n%s", want, errb.String())
+		}
+	}
+}

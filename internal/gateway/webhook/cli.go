@@ -66,7 +66,12 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		adapterSpec = fs.String("adapter", "", "adapter override: a registered name or a JSON argv array (default: the profile's)")
 		target      = fs.String("target-url", "", "URL every received message is POSTed to (https, or http on loopback)")
 		secretFile  = fs.String("secret-file", "", "0600 file holding the shared HMAC secret (32+ bytes)")
-		headerFile  = fs.String("header-file", "", "0600 file of `Name: value` lines sent on every POST to --target-url (a receiver's own key)")
+		// No back-quotes in this usage string. flag.UnquoteUsage takes the
+		// first back-quoted span as the flag's value name, so --help would
+		// print `-header-file Name: value` and tell the operator the
+		// argument is a header line — inviting a receiver's credential onto
+		// argv, where a credential must never be. The argument is a path.
+		headerFile  = fs.String("header-file", "", `0600 file of "Name: value" lines sent on every POST to --target-url (a receiver's own key)`)
 		listen      = fs.String("listen", DefaultListen, `inbound API address; "off" disables inbound`)
 		sessionName = fs.String("session-name", DefaultSessionName, "session name shown on the roster")
 		description = fs.String("description", "Forwards messages to a webhook and back", "session description shown on the roster")
@@ -278,10 +283,16 @@ func hasAnyPrefix(s string, prefixes []string) bool {
 	return false
 }
 
-// checkSecretFile refuses a --secret-file the gateway must not read: a
-// relative path, a path with a `..` component, and — wherever a project
-// directory is knowable, which is wherever --team-file names one — a path
-// inside that checkout.
+// checkSecretFile is checkPrivateFile's rule for --secret-file.
+func checkSecretFile(secretFile, teamFile string) error {
+	return checkPrivateFile("--secret-file", secretFile, teamFile)
+}
+
+// checkPrivateFile refuses a path a credential flag (--secret-file,
+// --header-file) must not name: a relative path, a path with a `..`
+// component, and — wherever a project directory is knowable, which is
+// wherever --team-file names one — a path inside that checkout. Every
+// refusal names the flag it was given.
 //
 // The location is a rule, not advice (docs/security.md 14.1: a 0600 file
 // outside the repository), and the repository already enforces it for the
@@ -298,18 +309,11 @@ func hasAnyPrefix(s string, prefixes []string) bool {
 // `lnk` pointing into the checkout would pass both spellings below and
 // still land inside. Mode, owner and symlinks on the file itself are
 // adapterkit.ReadStrict's job; this is only its location.
-func checkSecretFile(secretFile, teamFile string) error {
-	return checkPrivateFile("--secret-file", secretFile, teamFile)
-}
-
-// checkPrivateFile is checkSecretFile's rule for any file flag that holds
-// a credential (--secret-file, --header-file), naming that flag in its
-// refusals.
-func checkPrivateFile(flagName, secretFile, teamFile string) error {
-	if secretFile == "" || !filepath.IsAbs(secretFile) {
+func checkPrivateFile(flagName, file, teamFile string) error {
+	if file == "" || !filepath.IsAbs(file) {
 		return errors.New(flagName + " must be an absolute path outside the team's checkout")
 	}
-	if slices.Contains(strings.Split(secretFile, string(filepath.Separator)), "..") {
+	if slices.Contains(strings.Split(file, string(filepath.Separator)), "..") {
 		return errors.New(flagName + " must not contain a `..` component; spell the path plainly")
 	}
 	if teamFile == "" {
@@ -326,7 +330,7 @@ func checkPrivateFile(flagName, secretFile, teamFile string) error {
 		top = start
 	}
 	top = filepath.Clean(top)
-	dir := filepath.Clean(filepath.Dir(secretFile))
+	dir := filepath.Clean(filepath.Dir(file))
 	// Both the literal spelling and the symlink-resolved one are checked,
 	// as the join secret's are: a path may be inside the checkout under
 	// either form and must not slip through the other.

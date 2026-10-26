@@ -58,8 +58,8 @@ type Config struct {
 	// ExtraHeaders are set on every POST to TargetURL before the
 	// gateway's own headers (a receiver's credential, from
 	// --header-file). They authenticate nothing to Brigade; the
-	// signature still does. Names ParseHeaderFile refuses are refused
-	// here too.
+	// signature still does. The names parseHeaderFile refuses are
+	// refused here too.
 	ExtraHeaders http.Header
 	// StatePath is the local state file; "" keeps state in memory only.
 	StatePath  string
