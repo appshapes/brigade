@@ -453,10 +453,12 @@ export function renderOutbound(
   };
 }
 
-/** isGatewaySession reports whether a roster row is a gateway of either kind: a person cannot usefully write
- * to one, so every roster shown to a person leaves them out. */
+/** isGatewaySession reports whether a roster row is a gateway of any kind (a harness name starting "gateway-":
+ * email, Slack, or a self-hosted webhook gateway): a person cannot usefully write to one, so every roster shown
+ * to a person leaves them out, and a member's best session is never one. The Go side of the same rule is
+ * gateway.IsHarness (internal/gateway/harness.go); the prefix has to agree across the two languages. */
 export function isGatewaySession(s: SessionRecord): boolean {
-  return s.harness === HARNESS || s.harness === "gateway-slack";
+  return s.harness?.startsWith("gateway-") ?? false;
 }
 
 /** rosterText lists the sessions a person can write to: the ones online now, the gateways left out. An offline

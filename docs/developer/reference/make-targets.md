@@ -12,6 +12,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `setup-goreleaser` | Download the pinned goreleaser release binary into ./bin (release rehearsal only) |
 | `version-check` | Fail when the version stamp would be empty (missing or empty plugin/bin/VERSION) |
 | `build` | Build bin/brigade plus the dev-only binaries for this host with the release flags (version stamped `<version>-dev`; BRIGADE_COVER=1 adds -cover) (CI) |
+| `build-webhook-gateway` | Build bin/brigade-webhook-gateway, the self-hosted webhook gateway, with the release flags |
 | `clean` | Remove build artifacts and local caches |
 | `typecheck` | go build ./... and go vet ./... (every package, including tests) (CI) |
 | `fmt` | gofmt + goimports through golangci-lint |
