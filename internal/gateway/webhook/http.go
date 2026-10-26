@@ -43,7 +43,8 @@ type apiResponse struct {
 }
 
 // rosterLine is what GET /v1/sessions shows for one session: enough to
-// address it, nothing more. Names and labels are unverified.
+// address it, nothing more. Names, labels and harness names are
+// unverified session-reported text, so handleRoster sanitises them.
 type rosterLine struct {
 	SessionID   string `json:"session_id"`
 	SessionName string `json:"session_name"`
@@ -225,9 +226,16 @@ func (g *Gateway) handleRoster(ctx context.Context) (int, *apiResponse) {
 		if IsGatewayHarness(s.Harness) || s.Inbound == protocol.InboundRefuse {
 			continue
 		}
+		// harness is session-reported free text that Validate only requires to
+		// be non-empty UTF-8, so it is sanitised like every other display of it
+		// (commands.format's roster row does the same): the filter above is the
+		// one place that must keep reading the raw value. state and activity
+		// need nothing — activity is oneOf-validated at registration and state
+		// is the backend's own enum.
 		out.Sessions = append(out.Sessions, rosterLine{
 			SessionID: s.SessionID, SessionName: protocol.SanitizeName(s.SessionName),
-			HumanLabel: protocol.SanitizeLabel(s.HumanLabel), State: s.State, Activity: s.Activity, Harness: s.Harness,
+			HumanLabel: protocol.SanitizeLabel(s.HumanLabel), State: s.State, Activity: s.Activity,
+			Harness: protocol.SanitizeAttribute(s.Harness),
 		})
 	}
 	return http.StatusOK, out
