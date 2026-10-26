@@ -456,7 +456,7 @@ export function renderOutbound(
 /** isGatewaySession reports whether a roster row is a gateway of any kind (a harness name starting "gateway-":
  * email, Slack, or a self-hosted webhook gateway): a person cannot usefully write to one, so every roster shown
  * to a person leaves them out, and a member's best session is never one. The Go side of the same rule is
- * protocol.IsGatewayHarness (internal/protocol/session.go); the prefix has to agree across the two languages. */
+ * gateway.IsHarness (internal/gateway/harness.go); the prefix has to agree across the two languages. */
 export function isGatewaySession(s: SessionRecord): boolean {
   return s.harness?.startsWith("gateway-") ?? false;
 }

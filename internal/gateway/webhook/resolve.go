@@ -6,13 +6,14 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/appshapes/brigade/internal/gateway"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
 // HarnessName is the harness this gateway registers under. Every harness
-// named "gateway-*" is a gateway (protocol.HarnessGatewayPrefix): never a
+// named "gateway-*" is a gateway (gateway.HarnessPrefix): never a
 // --member target, never a recipient this gateway picks for a member.
-const HarnessName = protocol.HarnessGatewayPrefix + "webhook"
+const HarnessName = gateway.HarnessPrefix + "webhook"
 
 const (
 	minTailChars      = 5
@@ -20,8 +21,8 @@ const (
 )
 
 // IsGatewayHarness reports whether a roster row is a gateway. The prefix
-// itself is spelled once, in protocol.HarnessGatewayPrefix.
-func IsGatewayHarness(h string) bool { return protocol.IsGatewayHarness(h) }
+// itself is spelled once, in gateway.HarnessPrefix.
+func IsGatewayHarness(h string) bool { return gateway.IsHarness(h) }
 
 // resolveError is a recipient refusal: notFound selects 404 over 400.
 type resolveError struct {

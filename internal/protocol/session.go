@@ -1,24 +1,6 @@
 package protocol
 
-import (
-	"strings"
-	"time"
-)
-
-// HarnessGatewayPrefix marks a gateway's harness name: the hosted mail
-// and Slack gateways ("gateway-email", "gateway-slack") and the
-// self-hosted webhook gateway ("gateway-webhook"). It is not a wire rule
-// — `harness` is free text and Validate says nothing about this prefix —
-// but it is the single spelling every consumer agrees on, so that a
-// gateway is left off the rosters shown to people and is never the
-// session a `--member` message is routed to. The Edge Functions keep
-// their own copy of the prefix (supabase/functions/_shared/gateway.ts).
-const HarnessGatewayPrefix = "gateway-"
-
-// IsGatewayHarness reports whether a harness name is a gateway's.
-func IsGatewayHarness(harness string) bool {
-	return strings.HasPrefix(harness, HarnessGatewayPrefix)
-}
+import "time"
 
 // The `activity` values a harness reports (4.4.2, 4.5.8).
 const (
