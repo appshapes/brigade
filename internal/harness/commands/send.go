@@ -328,7 +328,7 @@ func ambiguousRecipient(matches []protocol.SessionRecord) *protocol.Error {
 // an outside service, and --member addresses a teammate's session. A
 // gateway run under a member's own identity would otherwise often be that
 // member's freshest session and take messages meant for their harness.
-const harnessGatewayPrefix = "gateway-"
+// The prefix itself is spelled once, in protocol.HarnessGatewayPrefix.
 
 // How a --member argument matched, in the --json `how` member.
 const (
@@ -337,7 +337,7 @@ const (
 )
 
 // isGatewayHarness reports whether a roster row is one of the gateways.
-func isGatewayHarness(h string) bool { return strings.HasPrefix(h, harnessGatewayPrefix) }
+func isGatewayHarness(h string) bool { return protocol.IsGatewayHarness(h) }
 
 // memberPick is what --member resolved to (card 101): the session chosen,
 // how the argument matched, how many of the member's sessions could have

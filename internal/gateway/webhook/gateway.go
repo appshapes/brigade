@@ -307,7 +307,16 @@ func (g *Gateway) deliverOne(ctx context.Context, self string, m *protocol.Messa
 		}
 		return true
 	case err == nil && !retryableStatus(status):
-		return g.giveUp(ctx, self, m, "the webhook endpoint refused it with HTTP "+strconv.Itoa(status))
+		if g.giveUp(ctx, self, m, "the webhook endpoint refused it with HTTP "+strconv.Itoa(status)) {
+			return true
+		}
+		// The notice itself hit a retryable backend error, so the message
+		// stays in the inbox. Take the backoff anyway: without it the next
+		// poll — every --poll, 5 s by default — re-POSTs the same message
+		// to an endpoint that has already refused it for good, for as long
+		// as the backend is unavailable.
+		g.backoff(m.MessageID)
+		return false
 	}
 	attempts := g.backoff(m.MessageID)
 	reason := "HTTP " + strconv.Itoa(status)

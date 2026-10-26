@@ -112,14 +112,25 @@ func TestDeliverGivesUpAtOnceOnA4xx(t *testing.T) {
 }
 
 func TestGiveUpKeepsTheMessageWhenTheNoticeHitsARetryableError(t *testing.T) {
-	fb, _, _, g := setup(t, http.StatusBadRequest)
+	fb, rc, clk, g := setup(t, http.StatusBadRequest, http.StatusBadRequest)
 	fb.sendErr = []error{perr(protocol.CodeUnavailable)}
 	fb.deliver(message("m-1", "sess-alice"))
 	if n, _ := g.Deliver(t.Context()); n != 0 {
 		t.Fatalf("acked %d while the sender was not told", n)
 	}
+	// The endpoint refused it for good, so the message is not posted again
+	// before the backoff is due — otherwise every poll would re-post it
+	// for as long as the backend stayed unavailable.
+	posted := len(rc.got)
+	if n, _ := g.Deliver(t.Context()); n != 0 || len(rc.got) != posted {
+		t.Fatalf("re-posted during the backoff: acked %d, %d posts became %d", n, posted, len(rc.got))
+	}
+	clk.advance(backoffCap)
 	if n, _ := g.Deliver(t.Context()); n != 1 {
-		t.Fatalf("second pass acked %d", n)
+		t.Fatalf("the second attempt at the notice acked %d", n)
+	}
+	if sent, _ := fb.snapshot(); len(sent) != 1 || sent[0].IdempotencyKey != "gw-err:m-1" {
+		t.Fatalf("notice = %+v", sent)
 	}
 }
 

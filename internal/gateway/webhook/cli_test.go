@@ -106,8 +106,61 @@ func TestRunWithoutAJoinedTeamExplains(t *testing.T) {
 	var out, errb bytes.Buffer
 	dir := t.TempDir()
 	code := Run(t.Context(), []string{"--target-url", "https://example.com/hook", "--secret-file", writeSecret(t)},
-		strings.NewReader(""), &out, &errb, []string{"BRIGADE_CONFIG_DIR=" + dir, "HOME=" + dir})
+		strings.NewReader(""), &out, &errb,
+		// Started from a coding session's shell, which is how an operator
+		// following the documentation first tries it.
+		[]string{"BRIGADE_CONFIG_DIR=" + dir, "HOME=" + dir, "CLAUDE_PID=1", "CLAUDECODE=1"})
 	if code == 0 || !strings.Contains(errb.String(), "brigade team join") {
 		t.Fatalf("Run = %d, stderr %q", code, errb.String())
+	}
+	// Diagnostics come from the redacting logger, which is a JSON handler;
+	// a bare slog.NewTextHandler would redact nothing.
+	if !strings.HasPrefix(strings.TrimSpace(errb.String()), "{") {
+		t.Errorf("diagnostics did not come from the redacting logger: %q", errb.String())
+	}
+}
+
+// --log-level takes the four words of the repository's grammar, not
+// slog's "INFO" / "WARN-1" / "DEBUG+4".
+func TestRunRefusesALogLevelOutsideTheGrammar(t *testing.T) {
+	for _, level := range []string{"INFO", "WARN-1", "DEBUG+4", "chatty"} {
+		var out, errb bytes.Buffer
+		code := Run(t.Context(), []string{"--log-level", level, "--target-url", "https://example.com/hook", "--secret-file", writeSecret(t)},
+			strings.NewReader(""), &out, &errb, nil)
+		if code != 2 || strings.Contains(errb.String(), level) {
+			t.Errorf("--log-level %q: exit %d, stderr %q", level, code, errb.String())
+		}
+	}
+}
+
+// The gateway is never inside a coding session, so BRIGADE_CONFIG_DIR and
+// BRIGADE_STATE_DIR are its identity even when a session's variables are
+// inherited: the harness's rules, which drop every BRIGADE_* (and XDG_*
+// for the pointed hosts) because a by-pid map decides identity there, must
+// not reach this binary, which has no such map.
+func TestGatewayDirsHonourTheBrigadeVariablesInsideASession(t *testing.T) {
+	configDir, stateDir := t.TempDir(), t.TempDir()
+	base := []string{
+		"BRIGADE_CONFIG_DIR=" + configDir, "BRIGADE_STATE_DIR=" + stateDir,
+		"HOME=/home/someone-else", "XDG_CONFIG_HOME=/xdg/config", "XDG_STATE_HOME=/xdg/state",
+		"CLAUDE_CONFIG_DIR=/home/someone-else/.claude",
+	}
+	for _, session := range []string{
+		"", "CLAUDE_PID=1", "CLAUDECODE=1", "CLAUDE_CODE_BRIDGE_SESSION_ID=x",
+		"MUSE_SESSION_ID=6f1a", "CODEX_THREAD_ID=6f1a", "GROK_SESSION_ID=6f1a", "AI_AGENT=1",
+	} {
+		env := base
+		if session != "" {
+			env = append(append([]string{}, base...), session)
+		}
+		gotConfig, gotState, err := gatewayDirs(env)
+		if err != nil || gotConfig != configDir || gotState != stateDir {
+			t.Errorf("with %q: gatewayDirs = %q, %q, %v; want %q, %q", session, gotConfig, gotState, err, configDir, stateDir)
+		}
+	}
+	// CLAUDE_CONFIG_DIR is the one session-shaped variable that survives.
+	if kept := stripSession([]string{"CLAUDE_CONFIG_DIR=/c", "CLAUDE_PID=1", "PATH=/bin"}); len(kept) != 2 ||
+		kept[0] != "CLAUDE_CONFIG_DIR=/c" || kept[1] != "PATH=/bin" {
+		t.Errorf("stripSession kept %v", kept)
 	}
 }

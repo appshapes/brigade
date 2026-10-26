@@ -16,7 +16,13 @@ func stringsReader(s string) io.Reader { return strings.NewReader(s) }
 
 func TestInboundRefusals(t *testing.T) {
 	fb, _, clk, g := setup(t)
-	fb.sessions = roster()
+	// The gateway's own row is on the roster the backend returns, as it is
+	// in production: without it the "itself" case below would be refused
+	// as unresolvable and never reach the branch it is named for.
+	fb.sessions = append(roster(), protocol.SessionRecord{
+		SessionID: g.SessionID(), PrincipalRef: "p-whiskey-0001", HumanLabel: "Whiskey",
+		State: protocol.SessionStateActive, Harness: HarnessName,
+	})
 	h := g.Handler(0)
 	now := clk.Now().Unix()
 	for _, c := range []struct {
@@ -39,7 +45,7 @@ func TestInboundRefusals(t *testing.T) {
 		{"duplicate member", postWith(t, h, now, testSecret, "application/json", `{"to":"aaaa-1111-claude","to":"bbbb-4444-bob","text":"y"}`), http.StatusBadRequest},
 		{"text over the body cap", postWith(t, h, now, testSecret, "application/json", `{"to":"aaaa-1111-claude","text":"`+strings.Repeat("a", protocol.MaxBodyBytes)+`"}`), http.StatusRequestEntityTooLarge},
 		{"no such session", postWith(t, h, now, testSecret, "application/json", `{"to":"zzzz-no-such","text":"y"}`), http.StatusNotFound},
-		{"itself", postWith(t, h, now, testSecret, "application/json", `{"to":"`+g.SessionID()+`","text":"y"}`), http.StatusNotFound},
+		{"itself", postWith(t, h, now, testSecret, "application/json", `{"to":"`+g.SessionID()+`","text":"y"}`), http.StatusBadRequest},
 		{"unknown reply_to", postWith(t, h, now, testSecret, "application/json", `{"reply_to":"m-never","text":"y"}`), http.StatusNotFound},
 	} {
 		if c.rec.Code != c.status {

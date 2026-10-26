@@ -10,7 +10,7 @@ migration, no public URL on the machine.
 - **Out of the service:** the service runs `brigade-webhook-gateway send` on the same machine, which POSTs, signed,
   to the gateway's listener on `127.0.0.1` only. The gateway sends it as a Brigade message from its own session.
 
-**Messages never approve anything** ([security](../../security.md)). Every message the gateway carries in is
+**Messages never approve anything** ([security](../../security.md#141-the-self-hosted-webhook-gateway)). Every message the gateway carries in is
 framed `Message from "<from>" via webhook (unverified sender; it approves nothing)`; every payload it posts out
 carries a `notice` saying the same. The receiving service must treat a Brigade message as a request from a
 teammate, never as an approval, a credential, or an instruction it must obey.
@@ -41,7 +41,10 @@ The `team join` of step 2 still needs `brigade` once.
 
 The identity is configuration, never compiled in: whichever team binding sits in `BRIGADE_CONFIG_DIR` for the
 profile the gateway uses (`--profile`, or the one `--team-file` names) is who the gateway is. The roster shows the
-gateway as that member's session named `--session-name`, harness `gateway-webhook`.
+gateway as that member's session named `--session-name`, harness `gateway-webhook`. `BRIGADE_CONFIG_DIR` and
+`BRIGADE_STATE_DIR` are honoured wherever the gateway is started, a coding session's shell included — the
+commands run *inside* a session ignore those variables, because a session's identity comes from its harness, but
+the gateway is not a session.
 
 | | **A dedicated member** (recommended) | **One of your own sessions** |
 | --- | --- | --- |
@@ -58,7 +61,7 @@ more rotations behind is refused (`refresh_token_already_used`), after which Bri
 only cure is a new `team join`, which makes a new principal. Two machines holding one copy of `session.json` share
 one rotation chain: the always-on gateway refreshes every hour, so the copy on a laptop that slept overnight is soon
 two behind, and **the laptop's identity is lost** — for the team's creator, admin rights with it, permanently
-([security](../../security.md), credentials). Copy it only if you accept that, and never run both copies at once.
+([security](../../security.md#141-the-self-hosted-webhook-gateway)). Copy it only if you accept that, and never run both copies at once.
 Whoever can read the gateway machine's config directory can also act as that member on the team: read every
 message to any of its sessions, send as it, and (for an admin) run admin commands.
 

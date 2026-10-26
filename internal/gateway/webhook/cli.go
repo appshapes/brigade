@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	adapterlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/adapters/supabase"
 	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
@@ -81,12 +82,21 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		return 2
 	}
-	var level slog.Level
-	if err := level.UnmarshalText([]byte(*logLevel)); err != nil {
-		_, _ = io.WriteString(stderr, "brigade-webhook-gateway: invalid --log-level\n")
+	// ParseLevel is the repository's grammar for this flag — the four
+	// words and nothing else — and never echoes the value, which could be
+	// a mis-pasted secret.
+	level, err := adapterlog.ParseLevel(*logLevel)
+	if err != nil {
+		_, _ = io.WriteString(stderr, "brigade-webhook-gateway: --log-level must be one of: error, warn, info, debug\n")
 		return 2
 	}
-	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
+	// Diagnostics go to stderr through the REDACTING logger, like every
+	// other logger in the tree: this one carries an adapter child's error
+	// text (adapterclient logs it, and fail() below prints it), which a
+	// Supabase auth failure can fill with a JWT or an Authorization
+	// header, and under the documented systemd unit stderr is journald.
+	redactor := adapterlog.NewRedactor()
+	log := adapterlog.New(stderr, level, redactor)
 	fail := func(msg string, err error) int {
 		if err != nil {
 			msg += ": " + err.Error()
@@ -105,6 +115,9 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return fail("cannot read the secret file", err)
 	}
 	secret := []byte(strings.TrimSpace(string(raw)))
+	// The shared secret is an exact token from here on: a diagnostic that
+	// quotes a request or a header can never print it.
+	redactor.Add(string(secret))
 	if *profile == "" && *teamFile != "" {
 		f, ferr := teamfile.Parse(*teamFile)
 		if ferr != nil {
@@ -118,13 +131,9 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if err := adapterkit.CheckProfileName(*profile); err != nil {
 		return fail("invalid --profile", err)
 	}
-	configDir, err := config.BrigadeConfigDir(environ)
+	configDir, stateDir, err := gatewayDirs(environ)
 	if err != nil {
-		return fail("cannot resolve the Brigade config directory", err)
-	}
-	stateDir, err := config.BrigadeStateDir(environ)
-	if err != nil {
-		return fail("cannot resolve the Brigade state directory", err)
+		return fail("cannot resolve the Brigade directories", err)
 	}
 	p, err := adapterkit.LoadProfile(configDir, *profile)
 	if err != nil {
@@ -190,6 +199,65 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return fail("gateway stopped", err)
 	}
 	return 0
+}
+
+// sessionVarPrefixes are the coding-session markers this binary must not
+// be seen to carry. They are matched by PREFIX, never by a name list:
+// "CLAUDE" with no underscore covers CLAUDECODE as well as CLAUDE_*, and
+// the next release of a harness may add names no list would have.
+var sessionVarPrefixes = []string{"CLAUDE", "MUSE_", "CODEX_", "GROK_", "AI_AGENT"}
+
+// gatewayDirs resolves the config and state directories the gateway's
+// identity lives in.
+//
+// It strips the inherited session environment by prefix first and then
+// resolves exactly as adapterkit does, rather than going through
+// config.BrigadeConfigDir/BrigadeStateDir: those drop every BRIGADE_*
+// variable when a session marker is set, because inside a harness the
+// by-pid map decides identity and a repository's env block must not. This
+// binary is the opposite case — it has no by-pid map, it is never inside a
+// session, and BRIGADE_CONFIG_DIR *is* its identity. Started from a
+// session's shell (the first thing anyone will try, and all an agent
+// following the documentation can do) the harness rules would silently
+// discard the variable, resolve the operator's own ~/.config/brigade, and
+// bring the always-on gateway up on the operator's own credentials —
+// which is the credential-sharing hazard the page warns against, with no
+// error to show for it. Only CLAUDE_CONFIG_DIR survives the strip, as it
+// does for every other out-of-session process (gates rule); the adapter
+// child's environment is allow-listed separately by adapterkit.ChildEnv,
+// so no session variable reaches it either way.
+func gatewayDirs(environ []string) (configDir, stateDir string, err error) {
+	environ = stripSession(environ)
+	if configDir, err = adapterkit.ConfigDir(environ); err != nil {
+		return "", "", err
+	}
+	if stateDir, err = adapterkit.StateDir(environ); err != nil {
+		return "", "", err
+	}
+	return configDir, stateDir, nil
+}
+
+// stripSession returns environ without any variable whose name begins
+// with one of sessionVarPrefixes, keeping CLAUDE_CONFIG_DIR.
+func stripSession(environ []string) []string {
+	out := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		name, _, _ := strings.Cut(entry, "=")
+		if name != config.ClaudeConfigDirVar && hasAnyPrefix(name, sessionVarPrefixes) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // checkTarget requires https, or http to a loopback host, unless allowHTTP.

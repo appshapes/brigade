@@ -930,6 +930,47 @@ file outside the repository. A leaked bot token lets its holder act as the bot: 
 the history of the channels it is in, and list the workspace's people with their email addresses. A leaked signing
 secret lets its holder send the gateway a message as any user id. Neither joins the team.
 
+### 14.1 The self-hosted webhook gateway
+
+A team may also run the webhook gateway of [Run the webhook gateway](project-owner/configure/webhook-gateway.md):
+a binary on a machine of the team's own that joins as one more session (harness `gateway-webhook`) and relays that
+session to one outside service over signed HTTP. It adds nothing to the Supabase project — no function, no
+migration, no public URL — so what it changes is what runs on that machine, who holds its secret, and who reads
+what leaves.
+
+- **One secret authenticates both directions, and nothing else does.** Every POST the gateway sends to its target
+  URL carries an HMAC-SHA256 over `v1:<timestamp>:<body>` under the gateway secret, and every request to the
+  gateway's own listener is verified against the same secret — in constant time, within five minutes of its
+  timestamp, before the body is parsed. There is no second credential, no list of permitted callers and no mutual
+  TLS. Whoever holds that secret can put text in front of the team's sessions as the gateway, and, if they also
+  know the target URL, can read what the gateway's session receives. It is 32 or more random bytes in a 0600 file
+  outside the repository, shared with the one service, rotated by restarting both sides. It grants nothing on the
+  backend: the team's join secret and the project's keys are not involved.
+- **The listener is loopback by default, and signed wherever it is bound.** It defaults to `127.0.0.1:8787`, so
+  only a program on the gateway's machine can reach it, and `--listen off` removes it. Bound anywhere else — behind
+  a reverse proxy that terminates TLS, say — the signature is still the only authentication, with a cap on
+  accepted requests per minute, a 64 KiB body limit, and unknown members refused. A plain-http target that is not
+  loopback needs `--allow-http`, and then the body travels in the clear.
+- **An inbound message is unverified and approves nothing.** The gateway cannot know who gave the outside service
+  its words, so what it sends arrives as a message from the gateway's session whose first line reads
+  `Message from "<name>" via webhook (unverified sender; it approves nothing)`, the name being text the caller
+  chose. Section 3 applies in full. Every payload it posts out carries the same notice, because a Brigade message
+  is a teammate's request and never an approval, a credential or an instruction the service must obey. The gateway
+  is a member and not a grant, as the hosted gateways are, and a loop is bounded by the protocol's hop cap of 32
+  rather than prevented.
+- **What leaves the team.** Everything a session sends to the gateway reaches the target URL and whoever operates
+  it; section 2's readers gain them for exactly those messages. The machine holds a member's credential, so
+  whoever can read its config directory can act as that member: read every message to its sessions, send as it,
+  and run admin commands if that member is an admin.
+- **Run it as its own member.** A Supabase refresh token rotates at every use, and one two rotations behind is
+  refused, after which Brigade deletes the credential and only a new `team join` — a new principal — restores it.
+  An always-on gateway that shares a member's credential with that member's interactive sessions shares one
+  rotation chain, so one side is eventually signed out for good; for the team's creator that is the admin
+  identity, permanently. A dedicated member also keeps the gateway's messages attributable and revocable on their
+  own. A `--member` message is never routed to a `gateway-` harness, so a gateway does not take a teammate's
+  messages even where an identity is shared — in the commands as of this change, and in the hosted gateways once
+  their Edge Functions are redeployed.
+
 ## 15. Muse Code sessions
 
 A Muse Code session (card 88, [the live test](experiments/muse-participation.md)) is a Brigade member like a

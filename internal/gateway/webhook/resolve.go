@@ -10,17 +10,18 @@ import (
 )
 
 // HarnessName is the harness this gateway registers under. Every harness
-// named "gateway-*" is a gateway: never a --member target, never a
-// recipient this gateway picks for a member.
-const HarnessName = "gateway-webhook"
+// named "gateway-*" is a gateway (protocol.HarnessGatewayPrefix): never a
+// --member target, never a recipient this gateway picks for a member.
+const HarnessName = protocol.HarnessGatewayPrefix + "webhook"
 
 const (
 	minTailChars      = 5
 	minPrincipalChars = 8
 )
 
-// IsGatewayHarness reports whether a roster row is a gateway.
-func IsGatewayHarness(h string) bool { return strings.HasPrefix(h, "gateway-") }
+// IsGatewayHarness reports whether a roster row is a gateway. The prefix
+// itself is spelled once, in protocol.HarnessGatewayPrefix.
+func IsGatewayHarness(h string) bool { return protocol.IsGatewayHarness(h) }
 
 // resolveError is a recipient refusal: notFound selects 404 over 400.
 type resolveError struct {
