@@ -18,6 +18,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   table is complete and pinned to the binary by a test; the header-file
   example keeps the service's key off the command line; `docs/security.md`
   §14.1 says which checks the gateway's files get.
+- **The webhook gateway page documents one identity** (card 150). The "One of
+  your own sessions" column is gone: the dedicated member is the identity, and
+  two sentences say never to copy your own credential directory to the gateway
+  machine and what that costs.
 
 ## [0.40.0] — 2026-10-27
 

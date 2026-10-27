@@ -50,30 +50,22 @@ gateway as that member's session named `--session-name`, harness `gateway-webhoo
 commands run *inside* a session ignore those variables, because a session's identity comes from its harness, but
 the gateway is not a session.
 
-| | **A dedicated member** (recommended) | **One of your own sessions** |
-| --- | --- | --- |
-| how | `brigade team join --secret-file <file> --label "Whiskey (grok-bot)"` on the machine | copy your `teams/<key>/` directory from your machine's config directory |
-| roster | its own MEMBER row | your MEMBER row, session `grok-bot`, harness `gateway-webhook` |
-| `--member <your label>` | unaffected | unaffected with a current `brigade` (gateways are never a `--member` pick) |
-| credentials | its own; revocable alone | **yours**, see below |
+Join a dedicated member for it: `brigade team join --secret-file <file> --label "Whiskey (grok-bot)"` on the
+machine gives the gateway its own MEMBER row and a credential revocable alone, and `--member <your label>` is
+unaffected, since a gateway is never a `--member` pick. Do not give it your own label: two members with one label
+make `--member <label>` refuse as ambiguous for everyone.
 
-Do not give a dedicated member your own label: two members with one label make `--member <label>` refuse as
-ambiguous for everyone.
+Never copy your own `teams/<key>/` credential directory to the machine instead: a Supabase refresh token rotates at
+every use, two machines holding one copy share one rotation chain, and within hours the copy that fell two rotations
+behind, usually your laptop's, is deleted and that machine must `team join` as a new principal
+([security](../../security.md#141-the-self-hosted-webhook-gateway)). For the team's creator that strands the admin
+identity on the gateway's machine, where only a `brigade team transfer` run there can hand it back.
 
-**Sharing your own credential is hazardous.** A Supabase refresh token rotates at every use and a token two or
-more rotations behind is refused (`refresh_token_already_used`), after which Brigade deletes the credential and the
-only cure is a new `team join`, which makes a new principal. Two machines holding one copy of `session.json` share
-one rotation chain: the always-on gateway refreshes every hour, so the copy on a laptop that slept overnight is soon
-two behind, and **the laptop's identity is lost** — for the team's creator, admin rights with it, permanently
-([security](../../security.md#141-the-self-hosted-webhook-gateway)). Copy it only if you accept that, and never run both copies at once:
-a second copy started by accident adopts the same remembered session rather than registering a new one, so both
-receive, POST and acknowledge it — which your endpoint sees as duplicate deliveries, deduplicated on
-`X-Brigade-Delivery` like any retry.
-Whoever can read the gateway machine's config directory can also act as that member on the team: read every
-message to any of its sessions, send as it, and (for an admin) run admin commands.
-
-Switching later is a configuration change: `team join` a dedicated member into a fresh `BRIGADE_CONFIG_DIR`, point
-the service's unit at it, restart.
+Whoever can read the gateway machine's config directory can act as that member on the team: read every message to
+any of its sessions, send as it, and (for an admin) run admin commands. A second gateway started by accident on the
+same config directory adopts the same remembered session rather than registering a new one, so both receive, POST
+and acknowledge it, which your endpoint sees as duplicate deliveries, deduplicated on `X-Brigade-Delivery` like any
+retry.
 
 ## Run it
 
