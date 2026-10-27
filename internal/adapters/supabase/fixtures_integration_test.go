@@ -1,3 +1,5 @@
+//go:build !windows
+
 package supabase
 
 // The fixtures of plan 9.4 that only direct SQL can build: a session

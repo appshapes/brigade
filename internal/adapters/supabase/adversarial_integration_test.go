@@ -1,3 +1,5 @@
+//go:build !windows
+
 package supabase
 
 // The live checks of the P2-6..P2-10 adversarial pass, kept as
