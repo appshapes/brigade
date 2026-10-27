@@ -1,0 +1,108 @@
+# Step 0 of the native Windows plan (Trello card 133, .context/plans/native-windows.md): the go/no-go
+# experiment the plan rests on. Dispatched by hand, never on push. It copies plugin/ as it ships -- hooks.json
+# untouched -- onto a Windows runner, puts the probe program (scripts/experiments/windows-hook-probe) beside the
+# POSIX bootstrap as bin/brigade.exe, installs Claude Code natively, runs ONE headless session with the plugin,
+# and reads the probe's log: a `hook session-start` block in it means Claude Code resolved the extensionless
+# exec-form command `${CLAUDE_PLUGIN_ROOT}/bin/brigade` to the .exe beside it, so native Windows can ship with
+# the hooks file every platform already uses (zero impact on macOS and Linux, the card's one condition).
+# The same run records what the Bash tool sees on Windows (Git Bash, PATH, the environment) and whether a
+# hook child can write into the session's named pipe. Report: docs/experiments/E10-windows-hook-resolution.md.
+name: experiment-windows-hooks
+on:
+  workflow_dispatch: {}
+permissions: {contents: read}
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 20                   # install ~1 min, one -p session ~2 min; the rest is slack
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools.sum
+
+      - name: Runner image inventory
+        shell: pwsh
+        run: |
+          "OS: $([System.Environment]::OSVersion.VersionString)"
+          "Arch: $env:PROCESSOR_ARCHITECTURE"
+          "git: $(git --version)"
+          "bash: $(& 'C:\Program Files\Git\bin\bash.exe' --version | Select-Object -First 1)"
+          "curl: $(& "$env:SystemRoot\System32\curl.exe" --version | Select-Object -First 1)"
+          "pwsh: $($PSVersionTable.PSVersion)"
+
+      - name: Build the probe
+        shell: pwsh
+        run: go build -o "$env:RUNNER_TEMP\probe.exe" ./scripts/experiments/windows-hook-probe
+
+      - name: Assemble the plugin with the probe as bin/brigade.exe
+        shell: pwsh
+        run: |
+          $dir = "$env:RUNNER_TEMP\plugin"
+          Copy-Item -Recurse plugin $dir
+          Copy-Item "$env:RUNNER_TEMP\probe.exe" "$dir\bin\brigade.exe"
+          Get-ChildItem -Recurse $dir | ForEach-Object { $_.FullName }
+          "---- hooks.json as shipped:"
+          Get-Content "$dir\hooks\hooks.json"
+
+      - name: Install Claude Code natively
+        shell: pwsh
+        run: |
+          irm https://claude.ai/install.ps1 | iex
+          "$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Claude Code version and plugin validation
+        shell: pwsh
+        run: |
+          claude --version
+          claude plugin validate "$env:RUNNER_TEMP\plugin"
+
+      - name: One headless session with the plugin
+        shell: pwsh
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          $prompt = @'
+          You are a measurement probe. Run exactly these commands with the Bash tool, one command per tool call, in this order, and then reply with the complete raw output of every command verbatim under a numbered heading per step. Do not summarise, do not interpret, do not fix anything, do not run anything else.
+          1. uname -sm; echo "shell=$0"; echo "pwd=$(pwd)"
+          2. which -a brigade brigade.exe; echo "exit=$?"
+          3. brigade --probe-bash; echo "exit=$?"
+          4. brigade.exe --probe-bash-exe; echo "exit=$?"
+          5. env | grep -E '^(CLAUDE|BRIGADE|HOME|USERPROFILE|TEMP|TMP)' | grep -v -E -i 'TOKEN|KEY|SECRET|PASSWORD|AUTH' | sort
+          6. echo "$PATH" | tr ':;' '\n\n' | grep -i -E 'plugin|brigade'
+          7. ls -la "$CLAUDE_CODE_MESSAGING_SOCKET" 2>&1; echo "exit=$?"
+          After the seven headings, add one last line: either "PEER MESSAGE: <the text of any message another session sent you during this turn>" or "PEER MESSAGE: none".
+          '@
+          claude -p $prompt --plugin-dir "$env:RUNNER_TEMP\plugin" --permission-mode bypassPermissions --max-turns 12 --output-format json 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\session-output.json"
+
+      - name: Probe log
+        if: always()
+        shell: pwsh
+        run: |
+          $log = "$env:RUNNER_TEMP\hook-probe.log"
+          if (Test-Path $log) { Get-Content $log } else { "no probe log: no invocation reached brigade.exe" }
+
+      - name: Verdict
+        if: always()
+        shell: pwsh
+        run: |
+          $log = "$env:RUNNER_TEMP\hook-probe.log"
+          if ((Test-Path $log) -and (Select-String -Path $log -Pattern 'argv: .*hook session-start' -Quiet)) {
+            "GO: the SessionStart hook ran bin/brigade.exe through the extensionless exec-form command"
+          } else {
+            "NO-GO: no SessionStart invocation reached bin/brigade.exe"
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-hook-probe
+          path: |
+            ${{ runner.temp }}/hook-probe.log
+            ${{ runner.temp }}/session-output.json
+          if-no-files-found: ignore
