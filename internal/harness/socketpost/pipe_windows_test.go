@@ -30,9 +30,13 @@ func servePipe(t *testing.T) (path string, lines <-chan []string) {
 		t.Fatal(err)
 	}
 	out := make(chan []string, 1)
+	listening := make(chan struct{})
 	go func() {
 		defer func() { _ = windows.CloseHandle(h) }()
-		if err := windows.ConnectNamedPipe(h, nil); err != nil && !errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
+		close(listening)
+		// A client that connected, wrote and closed before this call answers ERROR_NO_DATA ("the pipe is
+		// being closed"), with its bytes still in the pipe; ERROR_PIPE_CONNECTED is a client already there.
+		if err := windows.ConnectNamedPipe(h, nil); err != nil && !errors.Is(err, windows.ERROR_PIPE_CONNECTED) && !errors.Is(err, windows.ERROR_NO_DATA) {
 			out <- []string{"connect: " + err.Error()}
 			return
 		}
@@ -44,6 +48,8 @@ func servePipe(t *testing.T) (path string, lines <-chan []string) {
 		}
 		out <- got
 	}()
+	<-listening
+	time.Sleep(50 * time.Millisecond) // let the goroutine reach ConnectNamedPipe before the client arrives
 	return path, out
 }
 
