@@ -66,8 +66,11 @@ TerminateProcess: the session was closed first.
 
 - The Claude Desktop Code tab on Windows and the model's reaction to a delivered frame: a person signs in at
   the VM window and runs the install and join; E11 covered the harness's side of the pipe.
-- The launcher's download path: no release carried a Windows asset yet, so the developer pointer stood in.
-  The release of 0.41.0 and the marketplace install in the VM measure it.
+- ~~The launcher's download path~~: measured after 0.41.0 was published, with the pointer removed and the
+  cache empty: `plugin\bin\brigade.exe version` printed `brigade: first use: downloading brigade 0.41.0 for
+  windows/arm64 from https://github.com/appshapes/brigade/releases/download` and then `0.41.0`, **4.6 s** in
+  all; the cached `brigade-0.41.0-windows-arm64.exe` (9,183,232 bytes) has the sha256 of the committed line;
+  the warm cache answers in **0.3 s**; the Git Bash bootstrap prints `0.41.0` through the same cache.
 - Windows on x64: the VM is ARM64 (the amd64 launcher ran under emulation for E11's probe on a GitHub runner,
   and the arm64 binary ran natively here). The CI `windows` job runs the suite on x64.
 - Folder sync: Syncthing was not installed in the VM; the engine's Windows code is covered by its unit tests
