@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.41.0] — 2026-10-27
+
 ### Added
 
 - **Native Windows** (card 133). Brigade runs in Claude Desktop's Code tab and
