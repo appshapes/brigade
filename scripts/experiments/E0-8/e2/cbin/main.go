@@ -57,21 +57,21 @@ type Session struct {
 }
 
 type Diag struct {
-	Command      string            `json:"command"`
-	OK           bool              `json:"ok"`
-	Steps        []Step            `json:"steps"`
-	Refreshed    bool              `json:"refreshed"`
-	Persisted    *bool             `json:"persisted"`
-	PersistError string            `json:"persist_error,omitempty"`
-	Env          map[string]string `json:"env"`
-	HomeWritable bool              `json:"home_writable"`
-	ProfileDir   string            `json:"profile_dir"`
-	Result       json.RawMessage   `json:"result,omitempty"`
-	Error        string            `json:"error,omitempty"`
-	TokenExpiry  string            `json:"token_expiry"`
-	ProbeWriteProfile string       `json:"probe_write_profile_dir,omitempty"`
-	ProbeWriteCwd     string       `json:"probe_write_cwd,omitempty"`
-	SecondsLeft  int64             `json:"token_seconds_left"`
+	Command           string            `json:"command"`
+	OK                bool              `json:"ok"`
+	Steps             []Step            `json:"steps"`
+	Refreshed         bool              `json:"refreshed"`
+	Persisted         *bool             `json:"persisted"`
+	PersistError      string            `json:"persist_error,omitempty"`
+	Env               map[string]string `json:"env"`
+	HomeWritable      bool              `json:"home_writable"`
+	ProfileDir        string            `json:"profile_dir"`
+	Result            json.RawMessage   `json:"result,omitempty"`
+	Error             string            `json:"error,omitempty"`
+	TokenExpiry       string            `json:"token_expiry"`
+	ProbeWriteProfile string            `json:"probe_write_profile_dir,omitempty"`
+	ProbeWriteCwd     string            `json:"probe_write_cwd,omitempty"`
+	SecondsLeft       int64             `json:"token_seconds_left"`
 }
 
 type Step struct {

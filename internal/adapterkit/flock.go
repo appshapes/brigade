@@ -1,17 +1,13 @@
-// Advisory file locking uses flock(2), which exists on the two supported
-// platforms only (D33): the build constraint makes go vet on a third OS
-// fail loudly instead of compiling a binary whose locks do nothing.
-
-//go:build darwin || linux
+// Advisory file locking: flock(2) on macOS and Linux (flock_unix.go),
+// LockFileEx on Windows (flock_windows.go, card 133). This file is the
+// shared retry loop; the three primitives it calls are the platform's.
 
 package adapterkit
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/appshapes/brigade/internal/protocol"
@@ -57,11 +53,11 @@ func LockFile(path string, timeout time.Duration) (*FileLock, error) {
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err := tryLock(f)
 		if err == nil {
 			return &FileLock{f: f}, nil
 		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+		if !lockWouldBlock(err) {
 			_ = f.Close()
 			return nil, fmt.Errorf("adapterkit: flock %s: %w", path, err)
 		}
@@ -89,10 +85,20 @@ func (l *FileLock) Unlock() error {
 	}
 	f := l.f
 	l.f = nil
-	ferr := syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	ferr := unlock(f)
 	cerr := f.Close()
 	if ferr != nil {
 		return fmt.Errorf("adapterkit: funlock: %w", ferr)
 	}
 	return cerr
 }
+
+// TryLockFile takes an exclusive, non-blocking lock on an already open
+// file, for a caller that opened it with its own flags and checks (the
+// Grok hook lock). LockWouldBlock tells a contended attempt from a
+// failure; the lock is released by closing the file.
+func TryLockFile(f *os.File) error { return tryLock(f) }
+
+// LockWouldBlock reports whether a TryLockFile error means the lock is
+// held by someone else.
+func LockWouldBlock(err error) bool { return lockWouldBlock(err) }

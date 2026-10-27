@@ -1,9 +1,8 @@
-// The spawn helper reaps children with syscall.WaitStatus and signals
-// them with SIGTERM, both of which exist on the two supported platforms
-// only (D33): the build constraint makes go vet on a third OS fail loudly
-// instead of compiling a binary that cannot supervise its adapter.
-
-//go:build darwin || linux
+// The spawn helper cancels a child with SIGTERM and reads a signal death
+// from its wait status on macOS and Linux (spawn_unix.go); on Windows a
+// cancel is TerminateProcess and no child dies of a signal
+// (spawn_windows.go, card 133). Everything else here is the same on every
+// platform.
 
 package adapterkit
 
@@ -15,9 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/appshapes/brigade/internal/protocol"
@@ -156,7 +153,7 @@ func Spawn(ctx context.Context, spec SpawnSpec) (*SpawnResult, error) {
 	cmd.Cancel = func() error {
 		// SIGTERM first so the adapter can flush; WaitDelay escalates to
 		// SIGKILL and closes the pipes (plan 7.3).
-		return cmd.Process.Signal(syscall.SIGTERM)
+		return cancelProcess(cmd.Process)
 	}
 	cmd.WaitDelay = spec.WaitDelay
 	if cmd.WaitDelay <= 0 {
@@ -223,11 +220,11 @@ func Spawn(ctx context.Context, spec SpawnSpec) (*SpawnResult, error) {
 
 	var exitErr *exec.ExitError
 	if errors.As(runErr, &exitErr) {
-		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		if sig, ok := signalDeath(exitErr); ok {
 			return nil, &protocol.Error{
 				Code:    protocol.CodeUnavailable,
 				Message: "adapter was killed by a signal",
-				Details: map[string]string{spawnDetailSignalKey: signalName(ws.Signal())},
+				Details: map[string]string{spawnDetailSignalKey: sig},
 			}
 		}
 		// The child exited non-zero on its own: its envelope carries the
@@ -345,11 +342,28 @@ func ChildEnv(environ []string, computed ...string) []string {
 		if !ok || value == "" {
 			continue
 		}
-		if childEnvExact[name] || hasChildEnvPrefix(name) {
+		if childEnvAllowed(name) {
 			out = append(out, entry)
 		}
 	}
 	return append(out, computed...)
+}
+
+// childEnvAllowed is the allow-list test: the shared exact names, the
+// platform's own (spawn_unix.go, spawn_windows.go) and the prefix
+// families, compared as the platform compares variable names.
+func childEnvAllowed(name string) bool {
+	for allowed := range childEnvExact {
+		if envNameEqual(name, allowed) {
+			return true
+		}
+	}
+	for allowed := range childEnvPlatform {
+		if envNameEqual(name, allowed) {
+			return true
+		}
+	}
+	return hasChildEnvPrefix(name)
 }
 
 func hasChildEnvPrefix(name string) bool {
@@ -359,36 +373,6 @@ func hasChildEnvPrefix(name string) bool {
 		}
 	}
 	return false
-}
-
-// signalNames maps the signals an adapter child plausibly dies from to
-// their conventional names for details.signal. The map is used instead of
-// Signal.String(), whose "terminated"/"killed" prose is ambiguous across
-// platforms, and instead of a switch, which the exhaustive linter would
-// demand cover every signal the platform defines.
-var signalNames = map[syscall.Signal]string{
-	syscall.SIGHUP:  "SIGHUP",
-	syscall.SIGINT:  "SIGINT",
-	syscall.SIGQUIT: "SIGQUIT",
-	syscall.SIGILL:  "SIGILL",
-	syscall.SIGTRAP: "SIGTRAP",
-	syscall.SIGABRT: "SIGABRT",
-	syscall.SIGBUS:  "SIGBUS",
-	syscall.SIGFPE:  "SIGFPE",
-	syscall.SIGKILL: "SIGKILL",
-	syscall.SIGUSR1: "SIGUSR1",
-	syscall.SIGSEGV: "SIGSEGV",
-	syscall.SIGUSR2: "SIGUSR2",
-	syscall.SIGPIPE: "SIGPIPE",
-	syscall.SIGALRM: "SIGALRM",
-	syscall.SIGTERM: "SIGTERM",
-}
-
-func signalName(sig syscall.Signal) string {
-	if name, ok := signalNames[sig]; ok {
-		return name
-	}
-	return "signal " + strconv.Itoa(int(sig))
 }
 
 // A QuietSpec describes one child run for its side effect alone — the
@@ -421,10 +405,15 @@ func RunQuiet(ctx context.Context, spec QuietSpec) error {
 	cmd.Env = append(make([]string, 0, len(spec.Env)), spec.Env...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.Cancel = func() error { return cancelProcess(cmd.Process) }
 	cmd.WaitDelay = spec.WaitDelay
 	if cmd.WaitDelay <= 0 {
 		cmd.WaitDelay = DefaultWaitDelay
 	}
 	return cmd.Run()
 }
+
+// CancelProcess is what a context cancel does to a long-running child
+// another package supervises (the adapter's `message watch` child in
+// adapterclient): SIGTERM on unix, TerminateProcess on Windows.
+func CancelProcess(p *os.Process) error { return cancelProcess(p) }

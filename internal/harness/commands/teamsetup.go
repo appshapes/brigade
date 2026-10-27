@@ -147,8 +147,8 @@ func expandHome(path string, environ []string) string {
 	if !ok {
 		return path
 	}
-	home := adapterkit.Getenv(environ, "HOME")
-	if !filepath.IsAbs(home) {
+	home := adapterkit.HomeDir(environ)
+	if home == "" {
 		return path
 	}
 	return strings.TrimRight(home, string(filepath.Separator)) + string(filepath.Separator) + rest

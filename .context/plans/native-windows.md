@@ -109,10 +109,10 @@ native-Windows proof report.
 | --- | --- | --- |
 | P61-1 | Step 0: the hook-resolution experiment on a Windows runner; report E11 | done 2026-10-27: GO (run 40571499492, Claude Code 2.1.311) |
 | P61-2 | The launcher (`cmd/brigade-launcher`), its reproducibility check, the bootstrap's Git Bash arm | done 2026-10-27 |
-| P61-3 | `procutil`, `adapterkit` and the thirteen checks on Windows | |
-| P61-4 | The harness on Windows: delivery through the named pipe, spawns, watcher, sink, session map | |
-| P61-5 | The Syncthing engine on Windows | |
-| P61-6 | Build, lint and the Windows CI job | |
+| P61-3 | `procutil`, `adapterkit` and the thirteen checks on Windows | done 2026-10-27 (one commit, P61-3 row) |
+| P61-4 | The harness on Windows: delivery through the named pipe, spawns, watcher, sink, session map | done 2026-10-27 (one commit, P61-3 row) |
+| P61-5 | The Syncthing engine on Windows | done 2026-10-27 (one commit, P61-3 row) |
+| P61-6 | Build, lint and the Windows CI job | done 2026-10-27 (one commit, P61-3 row) |
 | P61-7 | Release targets, package checks, documentation, skills | |
 | P61-8 | The Windows VM proof of the Claude Desktop Code tab; report | |
 | P61-9 | Release 0.41.0; card closed | |

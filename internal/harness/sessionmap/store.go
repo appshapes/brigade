@@ -237,11 +237,9 @@ func (s Store) readStrict(path string) ([]byte, error) {
 	switch {
 	case !fi.Mode().IsRegular():
 		return nil, errNotPrivate(path, "not_regular")
-	case fi.Mode().Perm()&0o077 != 0:
+	case adapterkit.InsecureMode(fi):
 		return nil, errNotPrivate(path, "insecure_mode")
-	}
-	uid, ok := ownerUID(fi)
-	if !ok || uid != os.Getuid() {
+	case adapterkit.ForeignOwner(fi):
 		return nil, errNotPrivate(path, "foreign_owner")
 	}
 	data, err := io.ReadAll(io.LimitReader(f, MaxMapBytes+1))

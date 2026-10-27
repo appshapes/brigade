@@ -180,13 +180,13 @@ func readNDJSON(r io.Reader, fn func(line []byte)) (accepted, dropped int, err e
 func cmdNDJSON() error {
 	var in bytes.Buffer
 	in.WriteString(`{"n":1}` + "\n")
-	in.WriteString(strings.Repeat("x", 2<<20) + "\n")       // 2 MiB: dropped
-	in.WriteString(`{"n":2}` + "\n")                          //
-	in.WriteString(strings.Repeat("y", (1<<20)-1) + "\n")     // 1 MiB - 1: kept
-	in.WriteString(`{"n":3}` + "\n")                          //
-	in.WriteString(strings.Repeat("z", (1<<20)+1) + "\n")     // 1 MiB + 1: dropped
-	in.WriteString(strings.Repeat("w", 1<<20) + "\n")         // exactly 1 MiB: kept
-	in.WriteString(`{"n":4}`)                                 // no trailing newline: kept
+	in.WriteString(strings.Repeat("x", 2<<20) + "\n")     // 2 MiB: dropped
+	in.WriteString(`{"n":2}` + "\n")                      //
+	in.WriteString(strings.Repeat("y", (1<<20)-1) + "\n") // 1 MiB - 1: kept
+	in.WriteString(`{"n":3}` + "\n")                      //
+	in.WriteString(strings.Repeat("z", (1<<20)+1) + "\n") // 1 MiB + 1: dropped
+	in.WriteString(strings.Repeat("w", 1<<20) + "\n")     // exactly 1 MiB: kept
+	in.WriteString(`{"n":4}`)                             // no trailing newline: kept
 	data := in.Bytes()
 
 	acc, drop, err := readNDJSON(bytes.NewReader(data), func(line []byte) {

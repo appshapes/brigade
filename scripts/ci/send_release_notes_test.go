@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The release-notes email (card 43): scripts/ci/send-release-notes.sh, the three deterministic steps of
 // .github/workflows/send-release-notes.yml.
 //

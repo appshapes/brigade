@@ -1,3 +1,5 @@
+//go:build !windows
+
 // This file is the test of scripts/release-prep.sh, the release sequence of plan 7.7. It lives beside
 // checks_test.go and borrows its vocabulary (result, baseEnv, wantPass, wantFail): the script is shell, and the
 // only property a release script really has is that each of its refusals FIRES.

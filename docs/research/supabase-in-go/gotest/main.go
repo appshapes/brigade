@@ -317,7 +317,9 @@ func expRealtime(ctx context.Context, env Env) {
 
 	section("(e3) client-side broadcast push on the private topic (no insert policy): with ack requested")
 	ref, _ := p.push(ctx, &joinRefA, topicA, "broadcast", map[string]any{"type": "broadcast", "event": "message_accepted", "payload": map[string]any{"message_id": "forged"}})
-	if m, ok := p.waitFor(3*time.Second, func(m Msg) bool { return m.Ref != nil && *m.Ref == ref || m.Event == "broadcast" || m.Event == "system" }); ok {
+	if m, ok := p.waitFor(3*time.Second, func(m Msg) bool {
+		return m.Ref != nil && *m.Ref == ref || m.Event == "broadcast" || m.Event == "system"
+	}); ok {
 		fmt.Printf("client broadcast result: %s\n", m.String())
 	} else {
 		fmt.Println("client broadcast: no reply, no echo, no system message within 3 s (ack:false join)")
@@ -326,7 +328,9 @@ func expRealtime(ctx context.Context, env Env) {
 	section("(e4) access_token push with a refreshed JWT")
 	a2, _ := refresh(ctx, env, env.PublishableKey, a.RefreshToken, "refresh A to get a new access token")
 	ref, _ = p.push(ctx, &joinRefA, topicA, "access_token", map[string]any{"access_token": a2.AccessToken})
-	if m, ok := p.waitFor(3*time.Second, func(m Msg) bool { return (m.Ref != nil && *m.Ref == ref) || m.Event == "system" || m.Event == "phx_close" || m.Event == "phx_error" }); ok {
+	if m, ok := p.waitFor(3*time.Second, func(m Msg) bool {
+		return (m.Ref != nil && *m.Ref == ref) || m.Event == "system" || m.Event == "phx_close" || m.Event == "phx_error"
+	}); ok {
 		fmt.Printf("access_token push result: %s\n", m.String())
 	} else {
 		fmt.Println("access_token push: no reply/system message within 3 s (fire-and-forget)")

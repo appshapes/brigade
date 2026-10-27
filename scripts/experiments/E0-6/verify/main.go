@@ -603,7 +603,7 @@ func modeRacer(env Env, lockPath, sessPath string, rounds int, tag, out string) 
 			"tag": tag, "seq": i, "pid": os.Getpid(),
 			"wait_us": o.LockWait.Microseconds(), "tries": o.LockTries,
 			"hold_ms": float64(time.Since(t0).Microseconds()) / 1000,
-			"status": o.Status, "sent_rt": o.SentRT, "got_rt": o.GotRT,
+			"status":  o.Status, "sent_rt": o.SentRT, "got_rt": o.GotRT,
 			"refresh_ms": float64(o.Elapsed.Microseconds()) / 1000,
 			"skipped":    o.Skipped, "persisted": o.Persisted, "error_code": o.ErrorCode,
 			"lock_err": o.LockErr, "t": time.Now().UTC().Format(time.RFC3339Nano),

@@ -2,10 +2,10 @@
 // folder-sync 4.4): the home directory, the per-session refs, the pidfile,
 // the GUI port, and the start and stop of the daemon. It is the ONE place
 // Brigade starts a long-running daemon (the .golangci.yml exec carve-out
-// names this file), and it carries the darwin || linux constraint (D33)
-// because Setsid and procutil are unix-only.
-
-//go:build darwin || linux
+// names this file). The detached start and the signals are the
+// platform's (procutil.DetachAttr; engine_unix.go, engine_windows.go,
+// card 133: Syncthing ships Windows builds, and the REST shutdown is the
+// graceful stop on every platform).
 
 package syncthing
 
@@ -412,7 +412,7 @@ func (e *Engine) start() (int, error) {
 	cmd.Stderr = logf
 	cmd.Dir = e.home
 	cmd.Env = adapterkit.ChildEnv(e.environ)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = procutil.DetachAttr()
 	if err := cmd.Start(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
 			return 0, ErrUnavailable(ReasonNotFound, "syncthing is not on PATH; install it to sync folders")
@@ -540,33 +540,12 @@ func (e *Engine) stop(pid int) {
 			e.log.Warn("syncthing shutdown over the API failed; signalling", adapterlog.Err(err))
 		}
 	}
-	if err := signalDaemon(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := signalDaemon(pid, syscall.SIGTERM); err != nil && !notRunning(err) {
 		e.log.Warn("SIGTERM to syncthing", adapterlog.Err(err), slog.Int("daemon_pid", pid))
 	}
 	if !e.waitGroupGone(pid) {
 		e.kill(pid)
 	}
-}
-
-// signalDaemon sends sig to the daemon's process group and to the daemon
-// itself (a daemon that is not a group leader — one a test planted — has
-// no group of its id). It answers nil when either reached a process.
-func signalDaemon(pid int, sig syscall.Signal) error {
-	gerr := syscall.Kill(-pid, sig)
-	var perr error = syscall.ESRCH
-	if alive(pid, "") {
-		perr = syscall.Kill(pid, sig)
-	}
-	if gerr == nil || perr == nil {
-		return nil
-	}
-	return perr
-}
-
-// groupAlive reports whether a process group of id pid still has a member
-// this user can signal: the daemon's children outlive it for a moment.
-func groupAlive(pid int) bool {
-	return syscall.Kill(-pid, 0) == nil
 }
 
 // kill SIGKILLs the daemon's process group, and pid itself when it is

@@ -1,11 +1,8 @@
 // spawn.go holds the ONE exec.CommandContext in the harness (plan 7.3,
 // 6.6): the long-running `message watch` child, which needs stdin/stdout
-// pipes the request/response path does not. It uses syscall.SIGTERM to
-// cancel, so it carries the darwin || linux constraint (D33) that makes a
-// third OS fail to build rather than link a watcher that cannot stop its
-// child.
-
-//go:build darwin || linux
+// pipes the request/response path does not. A cancel is
+// adapterkit.CancelProcess: SIGTERM on unix, TerminateProcess on Windows
+// (card 133), then the pipes close after watchWaitDelay.
 
 package adapterclient
 
@@ -18,9 +15,9 @@ import (
 	"os"
 	"os/exec"
 	"sync"
-	"syscall"
 	"time"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -98,7 +95,7 @@ func (c *Client) StartWatch(ctx context.Context, sessionID string) (*Watch, erro
 	//nolint:forbidigo // adapterclient/spawn.go IS the one watch-spawn seam the 7.3 rule allows (6.6)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Env = c.childEnv()
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.Cancel = func() error { return adapterkit.CancelProcess(cmd.Process) }
 	cmd.WaitDelay = watchWaitDelay
 
 	// The child's stderr goes to the adapter log, never a surfaced stream
@@ -363,7 +360,7 @@ func (c *Client) PassThrough(ctx context.Context, group, verb string, args []str
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.Cancel = func() error { return adapterkit.CancelProcess(cmd.Process) }
 	cmd.WaitDelay = watchWaitDelay
 
 	runErr := cmd.Run()

@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The Docker-free, model-free half of scripts/proof-idle-wake.sh (P4-3).
 //
 // The live script spends real `claude -p` sessions and never runs in CI; what this file owns is the part of it

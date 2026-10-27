@@ -1,3 +1,5 @@
+//go:build !windows
+
 package supabase
 
 // The two Realtime guarantees of plan 5.6 that the adapter's own happy

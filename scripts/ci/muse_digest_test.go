@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The test of scripts/muse-digest.sh (card 115): the digest Muse computes over the Muse Code package, obtained by
 // having Muse install the package into a throwaway root, then printed, written into marketplace.json or compared
 // with it. A `muse` STUB on PATH stands in for Muse here: it records the environment and the arguments it is

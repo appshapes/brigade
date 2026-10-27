@@ -13,7 +13,8 @@ import (
 	"flag"
 	"io"
 	"strconv"
-	"strings"
+
+	"github.com/appshapes/brigade/internal/adapterkit"
 
 	harnesscmd "github.com/appshapes/brigade/internal/harness/commands"
 )
@@ -47,18 +48,13 @@ type Context struct {
 // Getenv returns the value of name in the context's environment, or "" when
 // it is unset. This is the only environment accessor commands may use.
 func (cx *Context) Getenv(name string) string {
-	prefix := name + "="
 	// Last occurrence wins. This deliberately does NOT match os.Getenv: Go and libc both resolve the
 	// FIRST occurrence (syscall/env_unix.go records "first mention of key" and blanks later duplicates,
 	// calling unshadowing "a security problem"). It matches os/exec's dedupEnv, which keeps the last, so
 	// a value a caller appends when building a child environment overrides an earlier one -- which is
-	// exactly how testutil.Env is documented to work.
-	for i := len(cx.Environ) - 1; i >= 0; i-- {
-		if strings.HasPrefix(cx.Environ[i], prefix) {
-			return cx.Environ[i][len(prefix):]
-		}
-	}
-	return ""
+	// exactly how testutil.Env is documented to work. adapterkit.Getenv is that lookup, and on Windows
+	// it compares names as Windows does, ignoring case (card 133).
+	return adapterkit.Getenv(cx.Environ, name)
 }
 
 // Bool reports the value of a boolean flag registered by the command.

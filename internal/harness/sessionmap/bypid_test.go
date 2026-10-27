@@ -56,7 +56,7 @@ func asProtocol(t *testing.T, err error) *protocol.Error {
 // assertConfig checks the shape every refusal in this package shares — the
 // config code, exit 11, the reason detail, no echo of the marker — and
 // returns the details for the caller to inspect further.
-func assertConfig(t *testing.T, err error, reason string) map[string]string {
+func assertConfig(t *testing.T, err error, reason string) map[string]string { //nolint:unparam // on Windows the other reasons' callers are tagged out
 	t.Helper()
 	perr := asProtocol(t, err)
 	if perr.Code != protocol.CodeConfig {

@@ -26,6 +26,7 @@ package socketpost
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -54,8 +55,17 @@ const (
 	DefaultWriteTimeout = 5 * time.Second
 )
 
-// Network is the address family of the inbox socket.
+// Network is the address family of the inbox socket on macOS and Linux;
+// on Windows the inbox is a named pipe, opened as a file (dial_windows.go).
 const Network = "unix"
+
+// conn is what dial returns: the socket or the pipe, written and closed
+// under one write deadline.
+type conn interface {
+	io.Writer
+	io.Closer
+	SetWriteDeadline(time.Time) error
+}
 
 // The fixed reason tokens of the dial and write steps.
 const (
@@ -129,8 +139,9 @@ type userMessage struct {
 
 // Post writes content to the target's inbox socket and closes.
 //
-// Sequence: the pre-checks of precheck (no dial on refusal); a dial with
-// net.Dialer{Timeout}.DialContext; one write deadline covering both
+// Sequence: the pre-checks of precheck (no dial on refusal); a dial
+// (net.Dialer{Timeout}.DialContext on unix, the pipe opened as a file on
+// Windows); one write deadline covering both
 // lines (the earlier of now+WriteTimeout and the context's deadline; a
 // context cancelled after the dial does not interrupt a write in flight,
 // the deadline bounds it); the auth line, then the user line, each
@@ -153,8 +164,7 @@ func Post(ctx context.Context, target Target, content string, opts Options) erro
 		return logged(logger, target.Path, newError(KindTimeout, reasonContext, err))
 	}
 
-	dialer := net.Dialer{Timeout: cfg.dialTimeout}
-	conn, err := dialer.DialContext(ctx, Network, target.Path)
+	conn, err := dial(ctx, target.Path, cfg.dialTimeout)
 	if err != nil {
 		return logged(logger, target.Path, classifyDial(ctx, err))
 	}
@@ -229,7 +239,7 @@ func classifyDial(ctx context.Context, err error) *Error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return newError(KindTimeout, reasonContext, err)
 	}
-	if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
 		return newError(KindSocketGone, reasonDial, err)
 	}
 	var netErr net.Error
@@ -250,13 +260,12 @@ func classifyWrite(ctx context.Context, err error) *Error {
 		return newError(KindTimeout, reasonWriteTimeout, err)
 	case ctx.Err() != nil:
 		return newError(KindTimeout, reasonContext, err)
-	case errors.Is(err, syscall.EPIPE):
+	case isBrokenPipe(err):
 		return newError(KindWrite, reasonEPIPE, err)
-	case errors.Is(err, syscall.ECONNRESET):
+	case isReset(err):
 		return newError(KindWrite, reasonReset, err)
 	}
-	var opErr *net.OpError
-	if !errors.As(err, &opErr) {
+	if !isTransportError(err) {
 		return newError(KindWrite, reasonEncode, err)
 	}
 	return newError(KindWrite, reasonWrite, err)

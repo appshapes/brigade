@@ -130,7 +130,7 @@ func shortLivedTokenFor(env Env, s Session, ttl time.Duration) string {
 		"aud": "authenticated", "role": "authenticated", "sub": s.User.ID,
 		"iss": c["iss"], "iat": now, "exp": now + int64(ttl.Seconds()),
 		"is_anonymous": true, "session_id": c["session_id"], "aal": "aal1",
-		"amr": []map[string]any{{"method": "anonymous", "timestamp": now}},
+		"amr":          []map[string]any{{"method": "anonymous", "timestamp": now}},
 		"app_metadata": map[string]any{}, "user_metadata": map[string]any{},
 	}
 	return mintJWT(env.JWTSecret, claims)

@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/appshapes/brigade/internal/adapterkit"
 )
 
 // The interval between two sounds, or two banners, for one session — a
@@ -188,7 +190,7 @@ func LookPath(pathVar, name string) (string, bool) {
 		}
 		p := filepath.Join(dir, name)
 		fi, err := os.Stat(p)
-		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
+		if err != nil || !adapterkit.IsExecutable(fi) {
 			continue
 		}
 		return p, true

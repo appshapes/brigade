@@ -20,13 +20,13 @@ type Frame struct {
 }
 
 type Server struct {
-	Path string
-	ln   net.Listener
-	mu   sync.Mutex
+	Path  string
+	ln    net.Listener
+	mu    sync.Mutex
 	conns []Connection
 	stall bool
 	held  []net.Conn // stalled connections, closed on shutdown
-	wg   sync.WaitGroup
+	wg    sync.WaitGroup
 }
 
 // Connection is everything one client connection sent, in order.

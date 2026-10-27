@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -45,7 +44,7 @@ func (r *run) lockGrokHook() (func(), error) {
 		}
 	}
 	for _, name := range []string{"grok-pid-" + strconv.Itoa(r.deps.Getppid()), "grok-native-" + id} {
-		file, err := os.OpenFile(filepath.Join(dir, name+".lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0600)
+		file, err := adapterkit.OpenNoFollow(filepath.Join(dir, name+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
 			release()
 			return nil, err
@@ -56,17 +55,16 @@ func (r *run) lockGrokHook() (func(), error) {
 			release()
 			return nil, err
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || !ok || int64(stat.Uid) != int64(os.Getuid()) {
+		if !info.Mode().IsRegular() || !adapterkit.IsPrivate(info) {
 			release()
 			return nil, errors.New("grok hook lock is not private")
 		}
 		for {
-			err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			err := adapterkit.TryLockFile(file)
 			if err == nil {
 				break
 			}
-			if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+			if !adapterkit.LockWouldBlock(err) {
 				release()
 				return nil, err
 			}

@@ -1,3 +1,10 @@
+//go:build !windows
+
+// The testscript suite's fixtures are #!/bin/sh programs (17 of the 21
+// scripts), so it stays off Windows until a Windows subset exists
+// (card 133 follow-up); the Windows CI job runs the Go tests that do
+// not need a POSIX shell.
+
 package main
 
 import (

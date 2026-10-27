@@ -51,6 +51,8 @@ import (
 	"syscall"
 	"unicode/utf8"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
+
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -184,10 +186,12 @@ func secretLike(s string) bool {
 // descriptor before reading a byte.
 func readCapped(path string) ([]byte, error) {
 	// O_NONBLOCK keeps a FIFO at the path from hanging the open; once
-	// Stat confirms a regular file it has no effect on the read.
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	// Stat confirms a regular file it has no effect on the read
+	// (adapterkit.OpenNoFollow: O_NOFOLLOW|O_NONBLOCK on unix, the
+	// reparse point itself on Windows).
+	f, err := adapterkit.OpenNoFollow(path, os.O_RDONLY, 0)
 	if err != nil {
-		if errors0(err, syscall.ELOOP, syscall.EMLINK) {
+		if adapterkit.IsSymlinkRefusal(err) {
 			return nil, refusal(path, ReasonNotRegularFile, "the team file must be a regular file, not a symbolic link")
 		}
 		// A socket or device refuses the open itself: EOPNOTSUPP (darwin
@@ -205,7 +209,7 @@ func readCapped(path string) ([]byte, error) {
 	if !fi.Mode().IsRegular() {
 		return nil, refusal(path, ReasonNotRegularFile, "the team file must be a regular file")
 	}
-	if fi.Mode().Perm()&0o002 != 0 {
+	if adapterkit.WorldWritable(fi) {
 		return nil, refusal(path, ReasonWorldWritable, "the team file is world-writable; anyone on this machine could repoint the team (chmod o-w it)")
 	}
 	if fi.Size() > MaxBytes {

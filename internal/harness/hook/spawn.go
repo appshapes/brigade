@@ -1,23 +1,20 @@
 // spawn.go holds the ONE watcher spawn of the harness (plan 6.6, 7.3): the
 // detached `brigade watch` child the SessionStart and prompt hooks start.
 // It is the second exec.CommandContext the forbidigo rule allows (the
-// other is adapterclient/spawn.go, the `message watch` adapter child), and
-// it carries the darwin || linux constraint (D33) because Setsid is a unix
-// process attribute.
-
-//go:build darwin || linux
+// other is adapterclient/spawn.go, the `message watch` adapter child).
+// The detached start and the stop are the platform's through procutil:
+// Setsid and SIGTERM on unix, a detached windowless process and the stop
+// event on Windows (card 133).
 
 package hook
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -26,6 +23,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/procutil"
 )
 
 // A SpawnSpec is everything the watcher child is started with. The
@@ -74,7 +72,7 @@ func (RealSpawner) Spawn(ctx context.Context, spec SpawnSpec) (int, error) {
 	cmd.Stderr = logf
 	cmd.Dir = spec.Dir
 	cmd.Env = spec.Env
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = procutil.DetachAttr()
 	if err := cmd.Start(); err != nil {
 		return 0, err
 	}
@@ -211,7 +209,7 @@ const pidfilePollInterval = 25 * time.Millisecond
 // so the replacement's O_EXCL create does not collide with a live holder
 // (6.3, D9).
 func (r *run) stopWatcher(e pidfile.Entry, f facts) {
-	if err := syscall.Kill(e.PID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := procutil.Terminate(e.PID); err != nil && !procutil.IsNotRunning(err) {
 		r.log.Debug("SIGTERM to the watcher", log.Err(err), slog.Int("watcher_pid", e.PID))
 	}
 	path := pidfile.Path(f.stateDir, f.pid)

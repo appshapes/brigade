@@ -9,11 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 	"unicode/utf8"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	adlog "github.com/appshapes/brigade/internal/adapterkit/log"
@@ -253,16 +250,16 @@ func (in *injector) appendSink(item inbound.Item) error {
 	if err != nil {
 		return err
 	}
-	flags := os.O_CREATE | os.O_WRONLY
+	var f *os.File
 	if in.w.harness == string(config.HostGrok) {
 		// Read-write, not O_APPEND: repairing a torn tail reads the end of
 		// the file, and ReadAt fails on a write-only or append-only
-		// descriptor. This watcher is the only writer.
-		flags = os.O_CREATE | os.O_RDWR | unix.O_NOFOLLOW
+		// descriptor. This watcher is the only writer. No symlink is
+		// followed (adapterkit.OpenNoFollow).
+		f, err = adapterkit.OpenNoFollow(in.w.rc.sink, os.O_CREATE|os.O_RDWR, 0o600)
 	} else {
-		flags |= os.O_APPEND
+		f, err = os.OpenFile(in.w.rc.sink, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // 0600; the path is the test harness's argv flag
 	}
-	f, err := os.OpenFile(in.w.rc.sink, flags, 0o600) //nolint:gosec // 0600; the path is the test harness's argv flag
 	if err != nil {
 		return err
 	}
@@ -272,8 +269,7 @@ func (in *injector) appendSink(item inbound.Item) error {
 			_ = f.Close()
 			return serr
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || !ok || int64(stat.Uid) != int64(os.Getuid()) {
+		if !info.Mode().IsRegular() || !adapterkit.IsPrivate(info) {
 			_ = f.Close()
 			return errors.New("watch: inbox sink is not private")
 		}

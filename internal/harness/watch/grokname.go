@@ -55,8 +55,8 @@ func grokHistoryRoot(environ []string) string {
 		// other tree. The same rule as CODEX_HOME.
 		return ""
 	}
-	home := adapterkit.Getenv(environ, "HOME")
-	if !filepath.IsAbs(home) {
+	home := adapterkit.HomeDir(environ)
+	if home == "" {
 		return ""
 	}
 	return filepath.Join(home, ".grok")

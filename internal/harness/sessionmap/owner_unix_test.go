@@ -1,47 +1,16 @@
-//go:build darwin || linux
+//go:build (darwin || linux) && !windows
 
 package sessionmap
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
-// noSys is a FileInfo from no unix filesystem: Sys is nil.
-type noSys struct{}
-
-func (noSys) Name() string       { return "x" }
-func (noSys) Size() int64        { return 0 }
-func (noSys) Mode() fs.FileMode  { return 0o600 }
-func (noSys) ModTime() time.Time { return time.Time{} }
-func (noSys) IsDir() bool        { return false }
-func (noSys) Sys() any           { return nil }
-
-func TestOwnerUIDOfARealFileIsTheCurrentUser(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "f")
-	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fi, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	uid, ok := ownerUID(fi)
-	if !ok || uid != os.Getuid() {
-		t.Fatalf("ownerUID = %d, %v; want %d, true", uid, ok, os.Getuid())
-	}
-}
-
-func TestOwnerUIDWithoutAUnixStatIsUnknown(t *testing.T) {
-	t.Parallel()
-	if uid, ok := ownerUID(noSys{}); ok {
-		t.Fatalf("ownerUID(noSys) = %d, true; want ok=false (unprovable ownership must be refused)", uid)
-	}
-}
+// The owner and mode facts are adapterkit's now (private_unix.go,
+// private_windows.go; card 133) and tested there; this file keeps the
+// symlink refusal, which needs a symlink the test can make.
 
 func TestOpenNoFollowRefusesASymlinkAndOpensARegularFile(t *testing.T) {
 	t.Parallel()

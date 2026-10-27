@@ -1,7 +1,8 @@
 # .goreleaser.yaml — plan 7.7. Pinned binary: goreleaser v2.18.0 (`make setup-goreleaser`).
-# The four D33 targets only, until the binary builds for Windows (card 133, plan §3.3: then `windows` joins goos
-# here and the Makefile's `targets` together). The bytes must be reproducible from `make cross` with the same
-# flags, so nothing here may depend on the release commit (no .Commit, no .Date in the ldflags).
+# The four D33 targets plus the two Windows ones card 133 added (2026-10-27). The bytes must be reproducible
+# from `make cross` with the same flags, so nothing here may depend on the release commit (no .Commit, no
+# .Date in the ldflags). With `formats: [binary]` the Windows uploads carry the binary's own `.exe` after the
+# name_template, which `make cross` appends too, so the two checksum files name the same six assets.
 version: 2
 project_name: brigade
 before:
@@ -12,8 +13,8 @@ builds:
     main: ./cmd/brigade
     binary: brigade
     env: [CGO_ENABLED=0]
-    goos: [darwin, linux]
-    goarch: [amd64, arm64]                          # the four D33 targets, nothing else
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]                          # the four D33 targets and the two of card 133, nothing else
     flags: [-trimpath, -buildvcs=false]             # both REQUIRED for reproducibility: VCS stamping changes the bytes per commit and
                                                     # with a dirty tree, and -trimpath alone does not give cross-path reproducibility
     ldflags:

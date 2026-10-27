@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The keep-alive gate (P5-0): scripts/ci/keepalive.sh, the only step of .github/workflows/keepalive.yml.
 //
 // The script's job is to make the hosted Supabase project answer a few database requests every day so the

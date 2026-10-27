@@ -9,10 +9,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
-	"golang.org/x/sys/unix"
+	"github.com/appshapes/brigade/internal/adapterkit"
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/inbound"
@@ -142,11 +141,13 @@ func (f *follower) run() error {
 // open starts following path from its beginning.
 func (f *follower) open(path string) error {
 	f.closeFile()
-	flags := os.O_RDONLY
+	var file *os.File
+	var err error
 	if f.grok() {
-		flags |= unix.O_NOFOLLOW
+		file, err = adapterkit.OpenNoFollow(path, os.O_RDONLY, 0)
+	} else {
+		file, err = os.OpenFile(path, os.O_RDONLY, 0) //nolint:gosec // the path is Brigade's own, under its state directory
 	}
-	file, err := os.OpenFile(path, flags, 0) //nolint:gosec // the path is Brigade's own, under its state directory
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
@@ -159,8 +160,7 @@ func (f *follower) open(path string) error {
 			_ = file.Close()
 			return errors.New("inbox sink metadata could not be read")
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || !ok || int64(stat.Uid) != int64(os.Getuid()) {
+		if !info.Mode().IsRegular() || !adapterkit.IsPrivate(info) {
 			_ = file.Close()
 			return errors.New("inbox sink is not private")
 		}

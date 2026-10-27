@@ -1,3 +1,5 @@
+//go:build !windows
+
 package supabase
 
 import (
@@ -22,6 +24,13 @@ import (
 
 	"github.com/appshapes/brigade/internal/protocol"
 	"github.com/appshapes/brigade/internal/testutil"
+)
+
+// The broadcast events the migrations write on a session's topic (see
+// realtime.go): named here because only these tests tell them apart.
+const (
+	broadcastMessage = "message_accepted"
+	broadcastRevoked = "membership_revoked"
 )
 
 // The watch's unit tests: a fake Phoenix server (join ok, a scripted

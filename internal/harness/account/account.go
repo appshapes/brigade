@@ -92,7 +92,7 @@ func Paths(environ []string) []string {
 	if dir, err := config.ClaudeConfigDir(environ); err == nil {
 		paths = append(paths, filepath.Join(dir, FileName))
 	}
-	if home := adapterkit.Getenv(environ, "HOME"); filepath.IsAbs(home) {
+	if home := adapterkit.HomeDir(environ); home != "" {
 		if p := filepath.Join(filepath.Clean(home), FileName); !slices.Contains(paths, p) {
 			paths = append(paths, p)
 		}

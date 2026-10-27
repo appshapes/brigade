@@ -262,16 +262,23 @@ type Deps struct {
 	LogRotateBytes   int64
 }
 
+// stopRequests is the platform's out-of-band stop (procutil.StopRequests):
+// nil on unix, where SIGTERM is the stop; on Windows the named event a
+// hook's or another watcher's procutil.Terminate sets, read once per
+// process because the event is this process's own.
+var stopRequests, _ = procutil.StopRequests()
+
 // RealDeps are the production dependencies.
 func RealDeps() Deps {
 	return Deps{
 		Lookup:           procutil.Lookup,
-		Signal:           syscall.Kill,
+		Signal:           realSignal,
 		Clock:            time.Now,
 		Registry:         registry.Dir,
 		Post:             socketpost.Post,
 		Announce:         runQuiet,
 		Signals:          []os.Signal{syscall.SIGTERM, syscall.SIGINT},
+		Stop:             stopRequests,
 		PollInterval:     DefaultPollInterval,
 		ReadyTimeout:     DefaultReadyTimeout,
 		FatalExitGrace:   DefaultFatalExitGrace,

@@ -314,7 +314,8 @@ func ClaudePID(environ []string) (int, error) {
 
 // ClaudeConfigDir resolves Claude Code's own config directory, the parent
 // of the session registry (6.5): CLAUDE_CONFIG_DIR when set (it must be
-// absolute; a relative value is `config`), else HOME/.claude. It is read
+// absolute; a relative value is `config`), else HOME/.claude
+// (%USERPROFILE%\.claude on Windows, E11). It is read
 // from the environment in every context — hooks and the Bash tool inherit
 // it from the user's shell — and is not a BRIGADE_* variable, so the
 // session strip rule does not touch it.
@@ -329,12 +330,12 @@ func ClaudeConfigDir(environ []string) (string, error) {
 		}
 		return filepath.Clean(v), nil
 	}
-	home := adapterkit.Getenv(environ, "HOME")
-	if home == "" || !filepath.IsAbs(home) {
+	home := adapterkit.HomeDir(environ)
+	if home == "" {
 		return "", &protocol.Error{
 			Code:    protocol.CodeConfig,
-			Message: "HOME is unset or not an absolute path; cannot resolve the Claude Code config directory",
-			Details: map[string]string{"reason": ReasonUnresolvable, "variable": "HOME"},
+			Message: adapterkit.HomeVar + " is unset or not an absolute path; cannot resolve the Claude Code config directory",
+			Details: map[string]string{"reason": ReasonUnresolvable, "variable": adapterkit.HomeVar},
 		}
 	}
 	return filepath.Join(home, claudeConfigDefaultDir), nil

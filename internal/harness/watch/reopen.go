@@ -83,7 +83,7 @@ func (w *watcher) ownDoingLine() (string, bool) {
 	case !listed:
 		w.log.Debug("doing line not carried", slog.String("reason", reasonNotListed))
 	default:
-		text, reason := doing.Clean(raw, adapterkit.Getenv(w.environ, "HOME"), w.rc.token)
+		text, reason := doing.Clean(raw, adapterkit.HomeDir(w.environ), w.rc.token)
 		if text != "" {
 			return text, true
 		}

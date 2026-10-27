@@ -1,3 +1,5 @@
+//go:build !windows
+
 package pidfile_test
 
 import (

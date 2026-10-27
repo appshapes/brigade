@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The webhook gateway's flag table (card 147). docs/project-owner/configure/webhook-gateway.md carries
 // brigade-webhook-gateway's flags in a hand-written table. brigade's own commands and the make targets are
 // generated from the code and compared by docs-check; the gateway is a second operator binary with no generator,

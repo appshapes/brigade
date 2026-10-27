@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The documentation gate (card 110). internal/docscheck holds the rules; this file is what proves each of them can
 // FAIL, which is the only property a check really has: the gate runs against the repository itself (and must pass),
 // and against a copy of the tree with one violation planted at a time (and must name it). `make test` runs both, so

@@ -1,5 +1,3 @@
-//go:build darwin || linux
-
 // Package procutil answers one question about a process id — is the
 // process alive, and which incarnation of the pid is it — for the watcher's
 // single-instance guard (plan 6.6, corrected by E0-5; package tree 7.1).
@@ -19,16 +17,16 @@
 // darwin, where the token carries microseconds.
 //
 // The package spawns nothing and reads nothing but the kernel's own
-// process table. Its two implementation files carry `//go:build darwin`
-// and `//go:build linux` so a third operating system fails to build
-// instead of compiling a guard that cannot see process state (D33).
+// process table. Its implementation files carry `//go:build darwin`,
+// `//go:build linux` and `//go:build windows` (card 133: OpenProcess,
+// GetExitCodeProcess and the process creation time), and it also carries
+// the one process-stopping seam the harness uses — Terminate, Kill,
+// IsNotRunning, DetachAttr and StopRequests — because how a process is
+// asked to stop is the same platform fact as how it is seen.
 package procutil
 
 import (
 	"errors"
-	"fmt"
-
-	"golang.org/x/sys/unix"
 )
 
 // Info is what the guard needs to know about a pid at one instant.
@@ -96,17 +94,15 @@ func Lookup(pid int) (Info, error) {
 		return Info{}, ErrInvalidPID
 	}
 	info := Info{PID: pid}
-	switch err := unix.Kill(pid, 0); {
-	case err == nil:
-		info.Exists = true
-	case errors.Is(err, unix.EPERM):
-		info.Exists = true
-		info.Foreign = true
-	case errors.Is(err, unix.ESRCH):
-		return info, nil
-	default:
-		return info, fmt.Errorf("procutil: kill(%d, 0): %w", pid, err)
+	exists, foreign, err := probe(pid)
+	if err != nil {
+		return info, err
 	}
+	if !exists {
+		return info, nil
+	}
+	info.Exists = true
+	info.Foreign = foreign
 	st, err := query(pid)
 	if err != nil {
 		if errors.Is(err, errGone) {

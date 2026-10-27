@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
@@ -162,23 +161,24 @@ func hexIncarnation(s string) bool {
 	return len(s) == 32 && strings.Trim(s, "0123456789abcdef") == ""
 }
 
+// privateDir and privateRegular read the mode and owner facts through
+// adapterkit (card 133: a unix and a windows implementation each).
 func privateDir(info os.FileInfo) error {
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || adapterkit.InsecureMode(info) {
 		return errors.New("grok sink directory is not private")
 	}
 	return ownedByUser(info)
 }
 
 func privateRegular(info os.FileInfo) error {
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+	if !info.Mode().IsRegular() || adapterkit.InsecureMode(info) {
 		return errors.New("grok sink file is not a private regular file")
 	}
 	return ownedByUser(info)
 }
 
 func ownedByUser(info os.FileInfo) error {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int64(stat.Uid) != int64(os.Getuid()) {
+	if adapterkit.ForeignOwner(info) {
 		return errors.New("grok sink is not owned by this user")
 	}
 	return nil

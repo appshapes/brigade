@@ -6,13 +6,13 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"syscall"
 
 	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/procutil"
 )
 
 // sessionEnd is `brigade hook session-end` (6.3, 3.8): for `clear` and
@@ -58,7 +58,7 @@ func (r *run) sessionEnd() int {
 		r.log.Warn("session-end: watcher pidfile unreadable", log.Err(cerr))
 	case v.Found:
 		if v.Alive {
-			if kerr := syscall.Kill(v.Entry.PID, syscall.SIGTERM); kerr != nil {
+			if kerr := procutil.Terminate(v.Entry.PID); kerr != nil {
 				r.log.Debug("session-end: SIGTERM", log.Err(kerr), slog.Int("watcher_pid", v.Entry.PID))
 			}
 		}

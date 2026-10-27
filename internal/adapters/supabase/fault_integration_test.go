@@ -1,3 +1,5 @@
+//go:build !windows
+
 package supabase
 
 // The two Docker fault tests of plan 9.4, gated by BRIGADE_TEST_DOCKER=1

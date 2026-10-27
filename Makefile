@@ -61,7 +61,7 @@ supabase           ?= npx --yes supabase@2.116.0
 deno               ?= npx --yes deno@2.6.2
 supabase_exclude   := studio,postgres-meta,imgproxy,storage-api,edge-runtime,mailpit,logflare,vector,supavisor
 tag                := $(shell git log -1 --pretty=format:"%H")
-targets            := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64   # windows/amd64 windows/arm64 join when the binary builds for Windows (card 133, plan §3.3)
+targets            := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64   # the four D33 targets and card 133's two
 # The Windows launcher (card 133, .context/plans/native-windows.md §3.1): plugin/bin/brigade.exe is COMMITTED,
 # built once from cmd/brigade-launcher with the release flags and no version stamp (it reads VERSION and
 # checksums.txt beside itself at run time), so it changes only when its source or the toolchain does.
@@ -191,7 +191,7 @@ fmt: ## gofmt + goimports through golangci-lint
 # so the REAL ack, list and send implementations were never linted (measured in P1-5 with an unused function
 # planted in each twin: 0 issues from the config-tagged run, 1 from each of these).
 .PHONY: lint
-lint: ## golangci-lint for darwin AND linux (config verify + run, formatters included) and a plain gofmt check (CI)
+lint: ## golangci-lint for darwin, linux AND windows (config verify + run, formatters included) and a plain gofmt check (CI)
 	$(golangci_lint) config verify
 	@files=$$(go list -f '{{$$d:=.Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}' ./...) || exit 1; \
 	  test -n "$$files" || { echo "gofmt check: go list produced no Go files" >&2; exit 1; }; \
@@ -200,6 +200,7 @@ lint: ## golangci-lint for darwin AND linux (config verify + run, formatters inc
 	  test -z "$$out" || { echo "$$out"; exit 1; }
 	GOOS=darwin $(golangci_lint) run ./...
 	GOOS=linux $(golangci_lint) run ./...
+	GOOS=windows $(golangci_lint) run ./...
 	@for t in $(mutant_tags); do \
 	  echo "$(golangci_lint) run --build-tags $$t ./internal/adapters/fs/..."; \
 	  $(golangci_lint) run --build-tags $$t ./internal/adapters/fs/... || exit 1; \

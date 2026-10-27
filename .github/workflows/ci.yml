@@ -136,6 +136,42 @@ jobs:
       - uses: actions/upload-artifact@v7
         with: {name: checksums-macos, path: dist-cross/checksums.txt, if-no-files-found: error}
 
+  # Native Windows (card 133, .context/plans/native-windows.md): the binary builds, vets and tests on a GitHub-hosted
+  # Windows runner (the Blacksmith fleet has no Windows image; a public repository's GitHub-hosted minutes are free).
+  # `go test` here is the suite minus the files tagged `!windows` -- the POSIX-shell fixtures, the unix signals and
+  # stats, the testscript suite -- plus the Windows-only tests of the platform files (adapterkit, procutil,
+  # socketpost's named pipe, the launcher). No make: the image has no GNU make, and nothing here needs one.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20                   # first runs: measure, then pin at 2x the p90 like the others
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools.sum
+      - name: Runner image inventory
+        shell: pwsh
+        run: |
+          "OS: $([System.Environment]::OSVersion.VersionString) $env:PROCESSOR_ARCHITECTURE"
+          go version
+          "git: $(git --version)"
+          "bash: $(& 'C:\Program Files\Git\bin\bash.exe' --version | Select-Object -First 1)"
+      - name: Build, vet and test on Windows
+        shell: pwsh
+        env:
+          GOTOOLCHAIN: local
+          CGO_ENABLED: "0"
+        run: |
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -shuffle=on -count=1 -timeout 15m ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   # (d) P1-1's cross-host reproducibility criterion, as an assertion rather than as two job summaries a human
   #     is trusted to compare. `cat >> $GITHUB_STEP_SUMMARY` in the two jobs above cannot go red however far
   #     the ubuntu and macOS builds diverge, so on its own it is evidence, not a gate. The two files are

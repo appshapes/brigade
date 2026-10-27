@@ -593,7 +593,7 @@ func (r *run) facts() (facts, error) {
 		socket:         adapterkit.Getenv(r.environ, envMessagingSocket),
 		token:          adapterkit.Getenv(r.environ, envMessagingToken),
 		entrypoint:     adapterkit.Getenv(r.environ, envEntrypoint),
-		home:           adapterkit.Getenv(r.environ, "HOME"),
+		home:           adapterkit.HomeDir(r.environ),
 	}
 	if !filepath.IsAbs(f.socket) {
 		// The map requires an absolute socket path or none; a relative
@@ -661,10 +661,11 @@ func (f facts) codex() bool { return f.host == config.HostCodex }
 // Claude settings, no registry, no inbox socket, no Claude account.
 func (f facts) pointed() bool { return f.host.Pointed() }
 
-// pluginBin is ${CLAUDE_PLUGIN_ROOT}/bin/brigade resolved through symlinks
+// pluginBin is ${CLAUDE_PLUGIN_ROOT}/bin/brigade (bin/brigade.exe on
+// Windows, the launcher: bootstrap_windows.go) resolved through symlinks
 // best effort (3.2: the map's plugin_bin is the bootstrap's realpath).
 func pluginBin(root string) string {
-	p := filepath.Join(root, "bin", "brigade")
+	p := filepath.Join(root, "bin", bootstrapName)
 	if resolved, err := filepath.EvalSymlinks(p); err == nil {
 		return resolved
 	}

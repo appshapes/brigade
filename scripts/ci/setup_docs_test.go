@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The setup drift join. Plan 6.9 says the setup skill and the documentation "carry the same text" for the same
 // procedures, and until now nothing checked it. Several copies is a deliberate decision, not an accident: a skill
 // body cannot follow a link, and each harness ships its own skill. What each copy carries differs (the persona

@@ -104,7 +104,7 @@ func Doing(inv Invocation, opts DoingOptions) error {
 		// adapterkit.Getenv, as account.go reads HOME (forbidigo bans
 		// os.Getenv); the token is the one exact value the credential rule
 		// knows besides its prefix formats.
-		cleaned, reason := doing.Clean(raw, adapterkit.Getenv(inv.Environ, "HOME"), adapterkit.Getenv(inv.Environ, envMessagingToken))
+		cleaned, reason := doing.Clean(raw, adapterkit.HomeDir(inv.Environ), adapterkit.Getenv(inv.Environ, envMessagingToken))
 		if reason != "" {
 			return doingError(reason)
 		}

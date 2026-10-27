@@ -22,18 +22,29 @@ import (
 // counts as unset, as with os.Getenv. Exported so other adapterkit files
 // (the spawn helper's allow-list construction) share one lookup.
 func Getenv(environ []string, name string) string {
-	prefix := name + "="
 	for i := len(environ) - 1; i >= 0; i-- {
-		if len(environ[i]) > len(prefix) && environ[i][:len(prefix)] == prefix {
-			return environ[i][len(prefix):]
+		e := environ[i]
+		if len(e) > len(name)+1 && e[len(name)] == '=' && envNameEqual(e[:len(name)], name) {
+			return e[len(name)+1:]
 		}
 	}
 	return ""
 }
 
+// HomeDir is the user's home directory as the environment names it: an
+// absolute HOME on macOS and Linux, an absolute USERPROFILE on Windows
+// (HomeVar), or "" when it is unset or relative.
+func HomeDir(environ []string) string {
+	home := Getenv(environ, HomeVar)
+	if home == "" || !filepath.IsAbs(home) {
+		return ""
+	}
+	return home
+}
+
 // ConfigDir resolves the Brigade configuration directory (3.2):
 // $BRIGADE_CONFIG_DIR, else $XDG_CONFIG_HOME/brigade, else
-// $HOME/.config/brigade.
+// $HOME/.config/brigade; on Windows %APPDATA%\brigade (card 133).
 //
 // A relative XDG_CONFIG_HOME is IGNORED (the XDG spec requires it, and 6.2
 // explains why it matters here: hooks run with cwd = project directory, so
@@ -45,15 +56,15 @@ func Getenv(environ []string, name string) string {
 // a different directory than the user named. os.UserConfigDir is not used
 // because it answers ~/Library/Application Support on macOS.
 func ConfigDir(environ []string) (string, error) {
-	return baseDir(environ, "BRIGADE_CONFIG_DIR", "XDG_CONFIG_HOME", ".config")
+	return baseDir(environ, "BRIGADE_CONFIG_DIR", defaultConfigDir)
 }
 
 // StateDir resolves the Brigade state directory (3.2):
 // $BRIGADE_STATE_DIR, else $XDG_STATE_HOME/brigade, else
-// $HOME/.local/state/brigade. The same absolute-only rules as ConfigDir
-// apply.
+// $HOME/.local/state/brigade; on Windows %LOCALAPPDATA%\brigade\state. The
+// same absolute-only rules as ConfigDir apply.
 func StateDir(environ []string) (string, error) {
-	return baseDir(environ, "BRIGADE_STATE_DIR", "XDG_STATE_HOME", ".local", "state")
+	return baseDir(environ, "BRIGADE_STATE_DIR", defaultStateDir)
 }
 
 // ProfileName resolves the profile a command acts on when no --profile
@@ -66,10 +77,10 @@ func ProfileName(environ []string) string {
 	return DefaultProfileName
 }
 
-// baseDir implements the shared BRIGADE_* → absolute XDG_* → $HOME chain.
-// homeParts are the path elements between $HOME and the trailing
-// "brigade".
-func baseDir(environ []string, brigadeVar, xdgVar string, homeParts ...string) (string, error) {
+// baseDir implements the shared BRIGADE_* → platform default chain: on
+// macOS and Linux the default is the absolute-XDG_*-else-$HOME chain
+// (env_unix.go), on Windows the profile directories (env_windows.go).
+func baseDir(environ []string, brigadeVar string, platformDefault func([]string) (string, error)) (string, error) {
 	if v := Getenv(environ, brigadeVar); v != "" {
 		if !filepath.IsAbs(v) {
 			return "", &protocol.Error{
@@ -80,18 +91,13 @@ func baseDir(environ []string, brigadeVar, xdgVar string, homeParts ...string) (
 		}
 		return filepath.Clean(v), nil
 	}
-	if v := Getenv(environ, xdgVar); v != "" && filepath.IsAbs(v) {
-		return filepath.Join(v, "brigade"), nil
+	return platformDefault(environ)
+}
+
+func errUnresolvable(variable, message string) error {
+	return &protocol.Error{
+		Code:    protocol.CodeConfig,
+		Message: message,
+		Details: map[string]string{"variable": variable, "reason": "unresolvable"},
 	}
-	home := Getenv(environ, "HOME")
-	if home == "" || !filepath.IsAbs(home) {
-		return "", &protocol.Error{
-			Code:    protocol.CodeConfig,
-			Message: "HOME is unset or not an absolute path; cannot resolve the brigade directories",
-			Details: map[string]string{"variable": "HOME", "reason": "unresolvable"},
-		}
-	}
-	parts := append([]string{home}, homeParts...)
-	parts = append(parts, "brigade")
-	return filepath.Join(parts...), nil
 }

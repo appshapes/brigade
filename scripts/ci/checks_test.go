@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Package ci_test is the test of the four POSIX-sh gates in scripts/ci/. It holds no non-test code: the gates
 // are shell, and this file is the thing that proves each of them can FAIL, which is the only property a check
 // really has. Every case builds its own fixture tree under t.TempDir() — with its own `git init` where the

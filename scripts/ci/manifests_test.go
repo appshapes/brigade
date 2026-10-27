@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The manifest gate. `scripts/ci/plugin-check.sh` is textual by design (no jq on every host) and
 // `claude plugin validate` never runs in CI, because CI has no `claude` binary — so nothing else parses
 // plugin/.claude-plugin/plugin.json, plugin/hooks/hooks.json and .claude-plugin/marketplace.json as JSON and

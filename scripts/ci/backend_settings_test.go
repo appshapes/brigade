@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The hosted-settings gate (P5-1): scripts/backend-settings.sh, the step `make backend-install` runs after
 // `db push` and the reason `supabase config push` is no longer in that chain.
 //

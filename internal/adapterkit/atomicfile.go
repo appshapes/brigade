@@ -70,19 +70,9 @@ func WriteAtomicMode(path string, data []byte, mode os.FileMode) error {
 	// fsync the directory so the rename itself is durable (5.1). The file
 	// is already in place; a failure here is reported because the write's
 	// durability claim would otherwise be silently weaker than documented.
-	d, err := os.Open(dir)
-	if err != nil {
-		return fmt.Errorf("adapterkit: atomic write open dir: %w", err)
-	}
-	serr := d.Sync()
-	cerr := d.Close()
-	if serr != nil {
-		return fmt.Errorf("adapterkit: atomic write fsync dir: %w", serr)
-	}
-	if cerr != nil {
-		return fmt.Errorf("adapterkit: atomic write close dir: %w", cerr)
-	}
-	return nil
+	// (fsync_unix.go; on Windows the directory cannot be flushed and the
+	// step is a no-op, fsync_windows.go.)
+	return syncDir(dir)
 }
 
 // MaxStrictBytes caps what ReadStrict will read: every private file it
@@ -123,11 +113,11 @@ func ReadStrict(path string) ([]byte, error) {
 	if !fi.Mode().IsRegular() {
 		return nil, strictRefusal(path, "not_regular", "expected a regular file")
 	}
-	if fi.Mode().Perm()&0o077 != 0 {
+	if InsecureMode(fi) {
 		return nil, strictRefusal(path, "insecure_mode",
 			"file mode grants group or other access; it must be 0600 (chmod 600 it, and check what else read it)")
 	}
-	if uid, ok := fileOwnerUID(fi); !ok || uid != os.Getuid() {
+	if ForeignOwner(fi) {
 		return nil, strictRefusal(path, "foreign_owner", "file is not owned by the current user; refusing to trust it")
 	}
 	data, err := io.ReadAll(io.LimitReader(f, MaxStrictBytes+1))

@@ -919,14 +919,10 @@ func notifier(pathVar string) ([]string, string) {
 	return notify.Banner(runtime.GOOS, func(name string) (string, bool) { return notify.LookPath(pathVar, name) })
 }
 
-// pathValue is the PATH value of environ, last occurrence winning.
+// pathValue is the PATH value of environ, last occurrence winning (and
+// whichever case Windows spelt it in).
 func pathValue(environ []string) string {
-	for i := len(environ) - 1; i >= 0; i-- {
-		if v, ok := strings.CutPrefix(environ[i], "PATH="); ok {
-			return v
-		}
-	}
-	return ""
+	return adapterkit.Getenv(environ, "PATH")
 }
 
 // resolveTeam runs steps 1-3: discovery, the pin gate, the binding gate.
@@ -1435,7 +1431,7 @@ func lookPath(pathVar, name string) (string, bool) {
 		}
 		p := filepath.Join(dir, name)
 		fi, err := os.Stat(p)
-		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
+		if err != nil || !adapterkit.IsExecutable(fi) {
 			continue
 		}
 		if abs, aerr := filepath.Abs(p); aerr == nil {

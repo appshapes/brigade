@@ -81,16 +81,16 @@ func hostHistoryRoot(host config.Host, environ []string) string {
 			}
 			return ""
 		}
-		home := adapterkit.Getenv(environ, "HOME")
-		if !filepath.IsAbs(home) {
+		home := adapterkit.HomeDir(environ)
+		if home == "" {
 			return ""
 		}
 		return filepath.Join(home, ".codex")
 	case config.HostMuse:
 		// Muse clears XDG_* from plugin hooks. As with Brigade's own
 		// pointed-host directories, never trust an inherited XDG override.
-		home := adapterkit.Getenv(environ, "HOME")
-		if !filepath.IsAbs(home) {
+		home := adapterkit.HomeDir(environ)
+		if home == "" {
 			return ""
 		}
 		return filepath.Join(home, ".local", "share", "muse")

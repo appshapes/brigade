@@ -16,7 +16,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `clean` | Remove build artifacts and local caches |
 | `typecheck` | go build ./... and go vet ./... (every package, including tests) (CI) |
 | `fmt` | gofmt + goimports through golangci-lint |
-| `lint` | golangci-lint for darwin AND linux (config verify + run, formatters included) and a plain gofmt check (CI) |
+| `lint` | golangci-lint for darwin, linux AND windows (config verify + run, formatters included) and a plain gofmt check (CI) |
 | `lint-fix` | golangci-lint --fix and fmt |
 | `test` | Unit + testscript + harness + conformance(fs) with -race; no Docker and no local stack (what `make commit` runs) (CI) |
 | `vuln` | govulncheck on the source tree and on the built binary (pinned in tools.mod) (CI) |

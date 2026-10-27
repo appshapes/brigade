@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The Docker-free, model-free half of scripts/proof-crash-resume.sh (P4-4).
 //
 // The live script SIGKILLs a real `claude -p` receiver, sends five messages while it is down, resumes it with

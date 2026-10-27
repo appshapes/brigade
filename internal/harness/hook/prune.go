@@ -87,15 +87,7 @@ func currentVersion(root string) string {
 // XDG_DATA_HOME, else HOME/.local/share, then brigade/bin (6.2 applies the
 // same absolute-only rule).
 func cacheBinDir(environ []string) (string, bool) {
-	base := adapterkit.Getenv(environ, "XDG_DATA_HOME")
-	if base == "" || !filepath.IsAbs(base) {
-		home := adapterkit.Getenv(environ, "HOME")
-		if home == "" || !filepath.IsAbs(home) {
-			return "", false
-		}
-		base = filepath.Join(home, ".local", "share")
-	}
-	return filepath.Join(base, "brigade", "bin"), true
+	return adapterkit.CacheBinDir(environ)
 }
 
 // pruneDir removes the eligible binaries in dir and reports how many.
@@ -138,6 +130,7 @@ func cachedVersion(name string) (string, bool) {
 	if !ok || rest == "" {
 		return "", false
 	}
+	rest = strings.TrimSuffix(rest, ".exe") // the launcher's cache names end in .exe (card 133)
 	parts := strings.Split(rest, "-")
 	if len(parts) < 3 {
 		return "", false

@@ -54,15 +54,11 @@ const (
 )
 
 // The broadcast events the finished migrations write on a session's
-// topic: message_accepted from notify_message_inserted on every accepted
+// topic — message_accepted from notify_message_inserted on every accepted
 // message, membership_revoked from leave_team on each of the leaver's open
-// sessions before they close. hintFor does not tell them apart — any
-// broadcast on the topic means "drain now" and the RPC decides what the
-// drain finds — so these names serve the tests and the reader.
-const (
-	broadcastMessage = "message_accepted"
-	broadcastRevoked = "membership_revoked"
-)
+// sessions before they close — are named in watch_test.go: hintFor does
+// not tell them apart, any broadcast on the topic means "drain now" and
+// the RPC decides what the drain finds.
 
 // The fixed reason tokens a link reports and the watch puts in a
 // `status` event's detail. They are this adapter's words: the server's

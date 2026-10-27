@@ -106,7 +106,7 @@ func Promote(configDir, tempKey, key string) error {
 	}
 	// Renaming onto an existing directory answers EEXIST or ENOTEMPTY
 	// depending on platform and emptiness; both mean the same conflict.
-	if errors.Is(err, fs.ErrExist) || errors.Is(err, syscall.ENOTEMPTY) {
+	if errors.Is(err, fs.ErrExist) || errors.Is(err, syscall.ENOTEMPTY) || dirNotEmpty(err) {
 		return &protocol.Error{
 			Code:    protocol.CodeConflict,
 			Message: "a credential directory for this team already exists; remove it with `brigade team reset` if it is stale",

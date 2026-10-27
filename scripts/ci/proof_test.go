@@ -1,3 +1,5 @@
+//go:build !windows
+
 // The drift join for scripts/proof.sh (P4-1).
 //
 // `make test` is Docker-free and stack-free, so this file cannot drive a real proof run — the run itself is
