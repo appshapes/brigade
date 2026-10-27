@@ -49,7 +49,9 @@ no change at all. **Step 0 measures exactly this** (`.github/workflows/experimen
 `scripts/experiments/windows-hook-probe`): plugin/ copied as it ships, the probe as `bin/brigade.exe`, Claude
 Code installed natively on a Windows runner, one `claude -p` session. A `hook session-start` block in the probe's
 log is GO; nothing is NO-GO, and NO-GO ends the card with D33 kept, because every alternative changes the hook
-path on all three platforms.
+path on all three platforms. **Measured 2026-10-27: GO** (`docs/experiments/E11-windows-hook-resolution.md`), and
+the same run showed a plain `os.OpenFile` of the named pipe with the auth line first is delivered as a user turn,
+the Bash tool is Git Bash with `bin/` on PATH, and the hook environment has `USERPROFILE` and no `HOME`.
 
 The launcher is a small Go program (`cmd/brigade-launcher`, windows-only): it reads the committed
 `plugin/bin/VERSION` and `checksums.txt` beside itself, downloads `brigade_<version>_windows_<arch>.exe` with
@@ -98,19 +100,19 @@ two-implementation helper.
 Install, join, update, configure and leave pages: a Windows section each, or one Windows page named from a
 `Details:` line, with "Git for Windows; Syncthing on PATH if the project syncs folders"; `docs/security.md`: the
 Windows paragraph (the profile-directory ruling); the setup and join skills: one line each so a session can tell
-a Windows user; the changelog section; `docs/experiments/E10-windows-hook-resolution.md` (step 0) and the
+a Windows user; the changelog section; `docs/experiments/E11-windows-hook-resolution.md` (step 0) and the
 native-Windows proof report.
 
-## 4. Work breakdown (execution-log rows P59-*)
+## 4. Work breakdown (execution-log rows P61-*)
 
 | Id | Work | State |
 | --- | --- | --- |
-| P59-1 | Step 0: the hook-resolution experiment on a Windows runner; report E10 | in progress 2026-10-27 |
-| P59-2 | The launcher (`cmd/brigade-launcher`), its reproducibility check, the bootstrap's Git Bash arm | |
-| P59-3 | `procutil`, `adapterkit` and the thirteen checks on Windows | |
-| P59-4 | The harness on Windows: delivery through the named pipe, spawns, watcher, sink, session map | |
-| P59-5 | The Syncthing engine on Windows | |
-| P59-6 | Build, lint and the Windows CI job | |
-| P59-7 | Release targets, package checks, documentation, skills | |
-| P59-8 | The Windows VM proof of the Claude Desktop Code tab; report | |
-| P59-9 | Release 0.41.0; card closed | |
+| P61-1 | Step 0: the hook-resolution experiment on a Windows runner; report E11 | done 2026-10-27: GO (run 40571499492, Claude Code 2.1.311) |
+| P61-2 | The launcher (`cmd/brigade-launcher`), its reproducibility check, the bootstrap's Git Bash arm | |
+| P61-3 | `procutil`, `adapterkit` and the thirteen checks on Windows | |
+| P61-4 | The harness on Windows: delivery through the named pipe, spawns, watcher, sink, session map | |
+| P61-5 | The Syncthing engine on Windows | |
+| P61-6 | Build, lint and the Windows CI job | |
+| P61-7 | Release targets, package checks, documentation, skills | |
+| P61-8 | The Windows VM proof of the Claude Desktop Code tab; report | |
+| P61-9 | Release 0.41.0; card closed | |

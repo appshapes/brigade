@@ -12,6 +12,10 @@
 // registry's file names, and, from the UserPromptSubmit hook, the result of writing the auth frame and one user
 // frame into CLAUDE_CODE_MESSAGING_SOCKET (a named pipe on Windows), which measures delivery. It prints nothing
 // to stdout: a hook's stdout is Claude Code's, and the probe has nothing to say there. It always exits 0.
+//
+// Measured 2026-10-27 (docs/experiments/E11-windows-hook-resolution.md): GO, and every post was delivered as a
+// new user turn, which fired the prompt hook again, which posted again, for 19 minutes. The probe now posts only
+// from a prompt that does not carry its own marker.
 package main
 
 import (
@@ -32,6 +36,7 @@ const (
 	logName    = "hook-probe.log"
 	socketVar  = "CLAUDE_CODE_MESSAGING_SOCKET"
 	tokenVar   = "CLAUDE_CODE_MESSAGING_TOKEN" //nolint:gosec // G101: the NAME of the variable, not a credential
+	marker     = "PROBE-DELIVERED"
 )
 
 var secretName = regexp.MustCompile(`(?i)token|secret|key|password|auth|credential`)
@@ -47,7 +52,8 @@ func main() {
 	if exe, err := os.Executable(); err == nil {
 		fmt.Fprintf(&b, "executable: %s\n", exe)
 	}
-	fmt.Fprintf(&b, "stdin: %s\n", readStdin())
+	stdin := readStdin()
+	fmt.Fprintf(&b, "stdin: %s\n", stdin)
 	writeEnv(&b, env)
 	listSessions(&b, env)
 	if sock := env[socketVar]; sock != "" {
@@ -56,7 +62,11 @@ func main() {
 		} else {
 			fmt.Fprintf(&b, "socket stat: %v\n", err)
 		}
-		if isPromptHook() {
+		switch {
+		case !isPromptHook():
+		case strings.Contains(stdin, marker):
+			b.WriteString("post: skipped (this prompt is the probe's own delivered frame)\n")
+		default:
 			fmt.Fprintf(&b, "post: %s\n", post(sock, env[tokenVar]))
 		}
 	} else {
@@ -175,7 +185,7 @@ func post(path, token string) string {
 	}
 	user, err := json.Marshal(map[string]any{
 		"type":    "user",
-		"message": map[string]string{"role": "user", "content": "PROBE-DELIVERED " + time.Now().UTC().Format(time.RFC3339)},
+		"message": map[string]string{"role": "user", "content": marker + " " + time.Now().UTC().Format(time.RFC3339)},
 	})
 	if err != nil {
 		return "marshal: " + err.Error()

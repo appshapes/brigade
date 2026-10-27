@@ -79,6 +79,12 @@ P5-1 (2026-09-05); Rjae waived E0-10 for 0.1.0 on 2026-09-05 with the daily keep
 TLS as the mitigation. It stays a candidate for after 0.1.0. Per the plan's own Phase 0
 table, nothing in Phases 1–4 depends on it.
 
+## Native Windows (card 133, 2026-10-27)
+
+| File | What it settled |
+| --- | --- |
+| [E11-windows-hook-resolution.md](E11-windows-hook-resolution.md) | Card 133, step 0 of `.context/plans/native-windows.md`. **GO: Claude Code 2.1.311 on native Windows ran the SessionStart hook through `bin/brigade.exe` from the hooks file as it ships**, resolving the extensionless exec-form command to the `.exe` beside it, so native Windows can ship with no change to the hooks on any platform. Also measured: the inbox socket is the named pipe `\\.\pipe\LOCAL\cc-msg-<hex>`, and a hook child's plain file open with the auth line first was delivered as a new user turn every time (the probe looped on its own posts for 19 minutes); the Bash tool is Git Bash (UCRT64) with the plugin's `bin/` on PATH; the hook environment has `USERPROFILE` and no `HOME`. Not proven: the Desktop Code tab, a detached poster, ARM. |
+
 ## Codex (card 107; the gate of 2026-09-08 and the reassessment of 2026-10-17)
 
 | File | What it settled |

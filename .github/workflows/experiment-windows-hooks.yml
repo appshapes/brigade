@@ -6,7 +6,9 @@
 # exec-form command `${CLAUDE_PLUGIN_ROOT}/bin/brigade` to the .exe beside it, so native Windows can ship with
 # the hooks file every platform already uses (zero impact on macOS and Linux, the card's one condition).
 # The same run records what the Bash tool sees on Windows (Git Bash, PATH, the environment) and whether a
-# hook child can write into the session's named pipe. Report: docs/experiments/E10-windows-hook-resolution.md.
+# hook child can write into the session's named pipe. Report: docs/experiments/E11-windows-hook-resolution.md
+# (run 40571499492, 2026-10-27: GO; the session looped on the probe's own posts until the job timeout, so the
+# headless step now carries its own bound).
 name: experiment-windows-hooks
 on:
   workflow_dispatch: {}
@@ -63,6 +65,7 @@ jobs:
 
       - name: One headless session with the plugin
         shell: pwsh
+        timeout-minutes: 6
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
