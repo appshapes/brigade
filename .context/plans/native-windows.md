@@ -114,5 +114,5 @@ native-Windows proof report.
 | P61-5 | The Syncthing engine on Windows | done 2026-10-27 (one commit, P61-3 row) |
 | P61-6 | Build, lint and the Windows CI job | done 2026-10-27 (one commit, P61-3 row) |
 | P61-7 | Release targets, package checks, documentation, skills | |
-| P61-8 | The Windows VM proof of the Claude Desktop Code tab; report | |
+| P61-8 | The Windows VM proof of the Claude Desktop Code tab; report | CLI half done 2026-10-27 (E12); the Code tab waits for Rjae at the VM window |
 | P61-9 | Release 0.41.0; card closed | |
