@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.40.0] — 2026-10-27
+
 ### Removed
 
 - **The syncthing message adapter** (card 148). 0.39.0's `brigade team create
