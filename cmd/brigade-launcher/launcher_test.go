@@ -329,3 +329,26 @@ func TestEnvironMapLastValueWins(t *testing.T) {
 		t.Fatalf("env %v", env)
 	}
 }
+
+func TestTheDeveloperPointerRunsOnAPlatformTheReleaseDoesNotShip(t *testing.T) {
+	// Measured in the proof VM (Windows on ARM, a checksums file from before Windows): the launcher must honour
+	// the pointer before it asks the checksums file anything, as the bootstrap does.
+	r := newRig(t)
+	r.l.Arch = func() (string, error) { return "arm64", nil }
+	dev := filepath.Join(t.TempDir(), "brigade-dev.exe")
+	must(t, os.WriteFile(dev, []byte("dev build"), 0o600))
+	must(t, os.MkdirAll(filepath.Join(r.appdata, "brigade"), 0o700))
+	must(t, os.WriteFile(filepath.Join(r.appdata, "brigade", pointerFile), []byte(dev+"\n"), 0o600))
+	if code := r.l.Main([]string{"version"}); code != 42 {
+		t.Fatalf("exit %d; stderr %q", code, r.stderr.String())
+	}
+	if len(r.ran) != 1 || r.ran[0][0] != dev {
+		t.Fatalf("ran %v, want the pointer's %s", r.ran, dev)
+	}
+	// And the prompt hook on a cold cache stays silent there too: it never downloads, so no line to miss.
+	r = newRig(t)
+	r.l.Arch = func() (string, error) { return "arm64", nil }
+	if code := r.l.Main([]string{"hook", "prompt"}); code != exitOK || r.stderr.Len() != 0 {
+		t.Fatalf("prompt: exit %d, stderr %q", code, r.stderr.String())
+	}
+}

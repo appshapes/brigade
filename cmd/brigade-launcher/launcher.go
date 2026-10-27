@@ -95,20 +95,23 @@ func (l *Launcher) Main(args []string) int {
 	if isRegular(p.target) {
 		return l.run(p.target, args)
 	}
-	if len(args) >= 2 && args[0] == "hook" {
-		switch args[1] {
-		case "session-start":
-			_ = os.Remove(p.failed) // a new session start is a new attempt: the previous verdict is void
-			if err := l.Detach(l.Self, []string{workerFlag}, l.Environ); err != nil {
-				return l.fail(exitConfig, "cannot start the download worker: "+err.Error())
-			}
-			fmt.Fprintln(l.Stdout, "Brigade: installing the brigade binary in the background; team messaging becomes available on your next prompt")
-			return exitOK
-		case "prompt", "stop":
-			return l.reportMarker(p.failed)
-		case "session-end":
+	if len(args) >= 2 && args[0] == "hook" && (args[1] == "prompt" || args[1] == "stop" || args[1] == "session-end") {
+		// These never download (P5-18), so a missing checksum line is not theirs to report.
+		if args[1] == "session-end" {
 			return exitOK
 		}
+		return l.reportMarker(p.failed)
+	}
+	if code := l.release(&p); code != exitOK {
+		return code
+	}
+	if len(args) >= 2 && args[0] == "hook" && args[1] == "session-start" {
+		_ = os.Remove(p.failed) // a new session start is a new attempt: the previous verdict is void
+		if err := l.Detach(l.Self, []string{workerFlag}, l.Environ); err != nil {
+			return l.fail(exitConfig, "cannot start the download worker: "+err.Error())
+		}
+		fmt.Fprintln(l.Stdout, "Brigade: installing the brigade binary in the background; team messaging becomes available on your next prompt")
+		return exitOK
 	}
 	fmt.Fprintf(l.Stderr, "brigade: first use: downloading brigade %s for %s/%s from %s\n", p.version, goos, p.arch, p.base)
 	if code := l.install(p); code != exitOK {
@@ -120,17 +123,18 @@ func (l *Launcher) Main(args []string) int {
 // plan is everything the launcher derives from the committed pins and the environment before any file is
 // touched: a failure here is a configuration failure for every invocation.
 type plan struct {
-	version  string
-	arch     string
-	dev      string // the developer pointer's executable, or ""
-	cacheDir string
-	target   string
-	failed   string
-	asset    string
-	expected string
-	base     string
-	proto    string
-	url      string
+	version   string
+	arch      string
+	dev       string // the developer pointer's executable, or ""
+	cacheDir  string
+	target    string
+	failed    string
+	asset     string
+	checksums string
+	expected  string // set by release
+	base      string
+	proto     string
+	url       string
 }
 
 func (l *Launcher) plan() (plan, int) {
@@ -162,21 +166,31 @@ func (l *Launcher) plan() (plan, int) {
 	p.target = filepath.Join(p.cacheDir, "brigade-"+version+"-"+goos+"-"+arch+".exe")
 	p.failed = p.target + ".failed"
 	p.asset = "brigade_" + version + "_" + goos + "_" + arch + ".exe"
-	expected, err := expectedSum(checksums, p.asset)
+	p.checksums = checksums
+	return p, exitOK
+}
+
+// release resolves what a download needs, and only then: the committed
+// sha256 for this platform's asset and the release base. The bootstrap
+// reads the checksum line after the developer pointer and the cache have
+// had their say, so a developer's build runs on a platform the pinned
+// version ships no binary for (measured in the proof VM, card 133).
+func (l *Launcher) release(p *plan) int {
+	expected, err := expectedSum(p.checksums, p.asset)
 	if err != nil {
-		return p, l.fail(exitConfig, err.Error())
+		return l.fail(exitConfig, err.Error())
 	}
 	if expected == "" {
-		return p, l.fail(exitConfig, fmt.Sprintf("no sha256 for %s in %s: plugin version %s ships no binary for %s/%s (developers: make plugin-dev)", p.asset, checksums, version, goos, arch))
+		return l.fail(exitConfig, fmt.Sprintf("no sha256 for %s in %s: plugin version %s ships no binary for %s/%s (developers: make plugin-dev)", p.asset, p.checksums, p.version, goos, p.arch))
 	}
 	p.expected = expected
 	base, proto, err := releaseBase(l.Env[baseVar])
 	if err != nil {
-		return p, l.fail(exitConfig, err.Error())
+		return l.fail(exitConfig, err.Error())
 	}
 	p.base, p.proto = base, proto
-	p.url = base + "/v" + version + "/" + p.asset
-	return p, exitOK
+	p.url = base + "/v" + p.version + "/" + p.asset
+	return exitOK
 }
 
 // worker is the detached SessionStart download (E0-8 correction 1): a failure goes to the marker, not to a
@@ -187,8 +201,11 @@ func (l *Launcher) worker(p plan) int {
 		return exitOK
 	}
 	var sink strings.Builder
-	w := &Launcher{Stderr: &sink, Fetch: l.Fetch}
-	code := w.install(p)
+	w := &Launcher{Stderr: &sink, Fetch: l.Fetch, Env: l.Env}
+	code := w.release(&p)
+	if code == exitOK {
+		code = w.install(p)
+	}
 	if code == exitOK {
 		return exitOK
 	}
