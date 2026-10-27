@@ -1,3 +1,5 @@
+//go:build !windows
+
 package supabase
 
 // The bounded live-socket waits the integration tests in this package

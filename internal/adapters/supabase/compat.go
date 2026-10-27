@@ -127,10 +127,6 @@ var sessionAppendedMigrations = []sessionAppendedMigration{
 // the older signatures.
 var sessionAppendedParams = appendedParamsFrom(0)
 
-// sessionAppendedCapabilities are every 4.7 capability those parameters
-// implement.
-var sessionAppendedCapabilities = appendedCapsFrom(0)
-
 // appendedParamsFrom is the parameters the migrations from level on
 // appended: exactly what a backend believed to be at that level cannot
 // accept, and so what a call made at that level omits.

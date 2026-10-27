@@ -15,6 +15,11 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
+// sessionAppendedCapabilities are every 4.7 capability the appended
+// parameters implement (compat.go: sessionAppendedParams); only these
+// tests enumerate them.
+var sessionAppendedCapabilities = appendedCapsFrom(0)
+
 // Schema compatibility (P10-5): the adapter against a backend that lacks
 // an appending migration — the case nobody controls, because members
 // update the plugin and administrators apply migrations on their own
