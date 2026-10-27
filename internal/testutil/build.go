@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -14,6 +15,15 @@ import (
 // and the Makefile's -ldflags cannot drift apart silently: if the symbol
 // moves, TestBuiltBinaryReportsTheStampedVersion in cmd/brigade goes red.
 const VersionLDFlagTarget = ModulePath + "/internal/buildinfo.Version"
+
+// exeSuffix is ".exe" on Windows, where a program is found by its
+// extension, and "" elsewhere.
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
 
 // Build compiles a package of this repository into a directory belonging to
 // the test and returns the absolute path of the binary.
@@ -43,7 +53,7 @@ func Build(tb testing.TB, pkg string) string {
 // in the binary's build info.
 func BuildStamped(tb testing.TB, pkg, version string) string {
 	tb.Helper()
-	out := filepath.Join(tb.TempDir(), path.Base(pkg))
+	out := filepath.Join(tb.TempDir(), path.Base(pkg)+exeSuffix())
 	args := []string{"build", "-trimpath", "-o", out}
 	// Coverage across the process boundary (plan 9.4). BRIGADE_COVER=1
 	// instruments the child so that a `go tool covdata` run over GOCOVERDIR

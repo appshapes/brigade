@@ -61,7 +61,7 @@ func ConfigDir(environ []string) (string, error) {
 
 // StateDir resolves the Brigade state directory (3.2):
 // $BRIGADE_STATE_DIR, else $XDG_STATE_HOME/brigade, else
-// $HOME/.local/state/brigade; on Windows %LOCALAPPDATA%\brigade\state. The
+// $HOME/.local/state/brigade; on Windows %LOCALAPPDATA%\brigade. The
 // same absolute-only rules as ConfigDir apply.
 func StateDir(environ []string) (string, error) {
 	return baseDir(environ, "BRIGADE_STATE_DIR", defaultStateDir)

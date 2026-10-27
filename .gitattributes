@@ -1,0 +1,5 @@
+# Byte-exact checkouts everywhere (card 133): the golden files, the frozen protocol document and the
+# testscript fixtures are compared byte for byte, and a Windows checkout with core.autocrlf on would
+# rewrite every line ending. -text turns the conversion off for every path; the diff and merge
+# attributes are untouched.
+* -text

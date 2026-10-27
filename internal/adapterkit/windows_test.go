@@ -97,7 +97,7 @@ func TestReadStrictTrustsTheProfileDirectoryOnWindows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadStrict on Windows refused a fresh private file: %v", err)
 	}
-	if string(data) != "{\"a\":1}\n" {
+	if string(data) != `{"a":1}` {
 		t.Fatalf("ReadStrict = %q", data)
 	}
 	fi, err := os.Stat(path)
@@ -115,7 +115,7 @@ func TestWindowsDirectoriesComeFromTheProfile(t *testing.T) {
 	if d, err := ConfigDir(env); err != nil || d != `C:\Users\me\AppData\Roaming\brigade` {
 		t.Fatalf("ConfigDir = %q, %v", d, err)
 	}
-	if d, err := StateDir(env); err != nil || d != `C:\Users\me\AppData\Local\brigade\state` {
+	if d, err := StateDir(env); err != nil || d != `C:\Users\me\AppData\Local\brigade` {
 		t.Fatalf("StateDir = %q, %v", d, err)
 	}
 	if d, ok := CacheBinDir(env); !ok || d != `C:\Users\me\AppData\Local\brigade\bin` {

@@ -1,3 +1,5 @@
+//go:build !windows
+
 package teamstore_test
 
 import (

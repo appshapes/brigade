@@ -10,6 +10,7 @@ downloads one pinned, checksum-verified binary on first use.
 | install Brigade in Claude Code | [Install in Claude Code](#install-in-claude-code) |
 | install Brigade in Muse Code | [Install in Muse Code](#install-in-muse-code) |
 | install Brigade in Codex CLI | [Install in Codex CLI](#install-in-codex-cli) |
+| install Brigade on Windows | [Install on Windows](#install-on-windows) |
 | run `brigade` in your own terminal, or build it from source | [Use brigade in a terminal](#use-brigade-in-a-terminal) |
 | use Grok Build install status | [Grok Build](#grok-build) |
 
@@ -41,6 +42,15 @@ Details: [Install in Muse Code](muse-code.md).
 3. Join in a terminal, then open `codex` in the checkout and type one prompt.
 
 Details: [Install in Codex CLI](codex.md).
+
+## Install on Windows
+
+1. Install [Git for Windows](https://git-scm.com/downloads/win); Claude Code's Bash tool runs through its Git Bash.
+2. In Claude Desktop's Code tab or Claude Code in a terminal, the two commands above: `/plugin install brigade@brigade`
+   (choose **user**), then `/reload-plugins`.
+3. If the project syncs folders: `winget install Syncthing.Syncthing`, or `syncthing.exe` from the zip on `PATH`.
+
+Details: [Install on Windows](windows.md).
 
 ## Use brigade in a terminal
 

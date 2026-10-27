@@ -22,6 +22,18 @@
   its hooks with no `CODEX_*` variable: the package's `hooks/hooks.json` passes `--host codex --plugin-root`, and
   its three command strings keep the exact quoted form `make codex-plugin-check` pins (Codex runs them through its
   shell; Brigade itself still spawns nothing with one).
+- **Windows** (card 133, 0.41.0). Platform code lives in `_unix.go` (`darwin || linux`) and `_windows.go` files;
+  shared code reads no mode bit, uid, signal or `HOME`: the privacy facts are `adapterkit.InsecureMode`,
+  `ForeignOwner`, `IsPrivate`, `WorldWritable` and `IsExecutable` (on Windows they trust the profile directory,
+  owner ruling 2026-10-27), a symlink-refusing open is `adapterkit.OpenNoFollow`, a lock is `adapterkit.LockFile`
+  or `TryLockFile`, the home is `adapterkit.HomeDir` (HOME, USERPROFILE on Windows), the directories are
+  `ConfigDir`/`StateDir`/`CacheBinDir` (`%APPDATA%\brigade`, `%LOCALAPPDATA%\brigade` and its `bin\`), and a
+  process is stopped through `procutil.Terminate`/`Kill`/`IsNotRunning` and started detached with
+  `procutil.DetachAttr` (a long-running process listens on `procutil.StopRequests`). `make lint` runs for
+  windows too; CI's `windows` job runs the suite minus the files tagged `!windows` (POSIX-shell fixtures, unix
+  signals and stats, the testscript suite, `scripts/ci`), so a test that needs one of those carries the tag, and a
+  new platform file gets a `_windows_test.go`. The committed `plugin/bin/brigade.exe` is rebuilt only by
+  `make launcher` (gates.md).
 - **Package boundaries.** `internal/harness` must not import `internal/adapters/supabase` (depguard): the plugin
   talks only the adapter protocol and spawns the bundled adapter as a child process (`brigade adapter supabase …`).
 - **Dependencies.** The shipped binary links only the modules in `docs/allowed-deps.txt` (`make deps-check`);

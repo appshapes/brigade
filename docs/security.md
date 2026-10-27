@@ -724,6 +724,19 @@ trash can and its conflict copies inside them (section 12). The Syncthing instan
 files under `~/.local/state/brigade/sync/syncthing`, 0700, and serves its REST API and web GUI on 127.0.0.1 only;
 its API key stays in its `config.xml` there, never on a command line and never in a log.
 
+**Windows (card 133, 0.41.0).** On Windows the same files live under `%LOCALAPPDATA%\brigade` (state, with the
+cached binary in its `bin\`) and `%APPDATA%\brigade` (profiles and credentials). Windows has no mode bits: Go reports every writable file
+as 0666 and no owner uid, so the thirteen "regular file, 0600, owned by me" checks of this section and §8 cannot
+run there. Owner ruling (Rjae, 2026-10-27): Brigade trusts the user profile directories above as Windows sets
+them up, with a private ACL per user, and refuses a symbolic link or a junction where it refuses a symlink
+elsewhere; verifying the DACL itself is a later card. The inbox is a named pipe in the session-local namespace
+(`\\.\pipe\LOCAL\…`), which no other logon session can open, and the first line on it is the messaging token
+(required on Windows), so the pre-check is the pipe name's shape, not a stat. The watcher is stopped through a
+named event of its own pid, the Windows reading of SIGTERM, and a process that has none is terminated outright.
+The plugin's `bin\brigade.exe` is the launcher: committed, reproducible from source and checked in CI, never
+version-stamped; it downloads the release binary with Windows' own `curl.exe` by absolute path and verifies the
+sha256 before anything runs, as the bootstrap does.
+
 **The shadowing warning.** The plugin adds its own `bin/` to the end of the Bash tool's PATH, so another
 `brigade` earlier on your PATH would run instead — and since P7-11 that includes an in-session `team create`,
 `team join` or `team rotate-secret`. Brigade checks for that at session start and says so:

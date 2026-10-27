@@ -21,7 +21,9 @@ Run that path in your terminal, with the command after it:
 ```
 
 It is the bootstrap the session runs, and it runs the version it pins, so what your terminal runs is what the
-session runs. The path carries the version: after a plugin upgrade, `brigade whoami` prints the new one.
+session runs. The path carries the version: after a plugin upgrade, `brigade whoami` prints the new one. On
+Windows the line names `…\bin\brigade.exe`, the launcher, which PowerShell and Git Bash both run
+([Install on Windows](windows.md)).
 
 - **Not a symlink, not a copy.** A `~/.local/bin/brigade` link or a copy goes stale at the next upgrade and keeps
   running the old version, silently inside a session that was already running when the plugin moved on. Where

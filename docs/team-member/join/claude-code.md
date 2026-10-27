@@ -31,6 +31,9 @@ There is no `--profile`, no `--url` and no `--key`: the project file supplies al
   says file sync is off.
 - A backend other than the bundled Supabase adapter is named in the file's `adapter` field and resolves to a
   command through your own `adapters.json` ([docs/adapter-authors.md](../../adapter-authors.md)).
+- On Windows the command is the same, in Claude Desktop's Code tab or Claude Code with Git for Windows:
+  `~/brigade-<team>.secret` is `C:\Users\<you>\brigade-<team>.secret`, outside the repository
+  ([Install on Windows](../install/windows.md)).
 
 ## You know it worked
 

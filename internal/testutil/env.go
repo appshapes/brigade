@@ -3,6 +3,7 @@ package testutil
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -80,7 +81,7 @@ func (d Dirs) Mkdir() error {
 // sets its own HOME=/no-home so that any ~ resolution inside a script fails
 // loudly, and a caller building script variables must not overwrite that.
 func (d Dirs) Vars() []string {
-	return []string{
+	vars := []string{
 		"CLAUDE_CONFIG_DIR=" + d.ClaudeConfig,
 		"CLAUDE_PLUGIN_ROOT=" + d.PluginRoot,
 		"XDG_CONFIG_HOME=" + d.XDGConfig,
@@ -90,6 +91,14 @@ func (d Dirs) Vars() []string {
 		"BRIGADE_STATE_DIR=" + d.BrigadeState,
 		"BRIGADE_FS_ROOT=" + d.FSRoot,
 	}
+	if runtime.GOOS == "windows" {
+		// The Windows resolvers read the profile directories where the
+		// unix ones read XDG (card 133): APPDATA\brigade and
+		// LOCALAPPDATA\brigade are the same shapes as the XDG ones, so a
+		// test's expectations hold on both.
+		vars = append(vars, "APPDATA="+d.XDGConfig, "LOCALAPPDATA="+d.XDGState)
+	}
+	return vars
 }
 
 // Env builds the environment for a child process from scratch and returns

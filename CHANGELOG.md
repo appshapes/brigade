@@ -9,6 +9,24 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **Native Windows** (card 133). Brigade runs in Claude Desktop's Code tab and
+  in Claude Code on Windows, with Git for Windows for the Bash tool: the
+  release carries `windows/amd64` and `windows/arm64` binaries in the
+  reproducible checksums, and the plugin carries `bin\brigade.exe`, a small
+  committed launcher that Claude Code resolves the hooks' extensionless
+  command to (measured, E11), which downloads the binary with Windows' own
+  `curl.exe` and verifies the sha256 as the bootstrap does. The hooks file and
+  the macOS and Linux bootstrap are unchanged. Delivery goes through the
+  session's named pipe with the auth line first; the watcher is stopped
+  through a named event; folder sync runs Syncthing's Windows build. Brigade's
+  files live under `%APPDATA%\brigade` and `%LOCALAPPDATA%\brigade`. On Windows
+  the private-file checks trust the profile directory (`docs/security.md` §10,
+  owner ruling 2026-10-27); the message sound and the desktop notification are
+  inert; the Muse, Codex and Grok packages stay macOS and Linux. Pages:
+  [Install on Windows](docs/team-member/install/windows.md).
+
 ### Changed
 
 - **The webhook gateway's documentation follows the tree's patterns** (card

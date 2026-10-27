@@ -125,8 +125,13 @@ Either way the secret never reaches your scrollback, your shell history or a cha
   span several repositories: commit the same `.brigade.json` in each and join each checkout once; a different
   `.brigade.json` is a different team. Either way, `cd` between checkouts — nothing is shared or switched.
 - A project that syncs folders (its `.brigade.json` has a `sync` member) needs Syncthing on your `PATH`:
-  `brew install syncthing` on macOS, `sudo apt install syncthing` on Debian or Ubuntu. Without it the session
-  joins all the same and says file sync is off.
+  `brew install syncthing` on macOS, `sudo apt install syncthing` on Debian or Ubuntu, `winget install
+  Syncthing.Syncthing` on Windows. Without it the session joins all the same and says file sync is off.
+- On Windows, Brigade runs natively in Claude Desktop's Code tab and in Claude Code, with Git for Windows
+  installed (the Bash tool runs through its Git Bash; without it the commands in these skills do not run). Its
+  files live under `%APPDATA%\brigade` and `%LOCALAPPDATA%\brigade`; the secret file path is
+  `C:\Users\<you>\brigade-<team>.secret`, which Git Bash spells `~/brigade-<team>.secret`. No message sound and
+  no desktop notification on Windows.
 - A backend other than the bundled Supabase adapter is named in the project file's `adapter` field, and the name
   resolves to a command through your own `adapters.json` (an absolute path or a JSON array);
   `docs/adapter-authors.md` in the Brigade repository explains the forms. `brigade team status`, run in the

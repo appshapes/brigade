@@ -23,10 +23,11 @@ func defaultConfigDir(environ []string) (string, error) {
 	return profileDir(environ, "APPDATA", "brigade")
 }
 
-// defaultStateDir is %LOCALAPPDATA%\brigade\state: machine-local, beside
-// the launcher's binary cache.
+// defaultStateDir is %LOCALAPPDATA%\brigade: machine-local, the same shape
+// as $XDG_STATE_HOME/brigade, holding the launcher's binary cache in its
+// bin\ as well.
 func defaultStateDir(environ []string) (string, error) {
-	return profileDir(environ, "LOCALAPPDATA", "brigade", "state")
+	return profileDir(environ, "LOCALAPPDATA", "brigade")
 }
 
 // CacheBinDir is the launcher's binary cache, %LOCALAPPDATA%\brigade\bin

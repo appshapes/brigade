@@ -63,7 +63,7 @@ func WriteAtomicMode(path string, data []byte, mode os.FileMode) error {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("adapterkit: atomic write close: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := renameInto(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("adapterkit: atomic write rename: %w", err)
 	}
