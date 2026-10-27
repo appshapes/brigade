@@ -40,10 +40,22 @@ func CacheBinDir(environ []string) (string, bool) {
 	return dir, true
 }
 
+// profileDir joins parts onto the profile variable. A real Windows session
+// always has APPDATA and LOCALAPPDATA; an environment built from scratch
+// without them (the test environment, a bare service account) falls back
+// to the XDG variable the unix resolver reads for the same directory, so
+// the same test expectations hold on both platforms.
 func profileDir(environ []string, variable string, parts ...string) (string, error) {
 	base := Getenv(environ, variable)
 	if base == "" || !filepath.IsAbs(base) {
+		if xdg := Getenv(environ, xdgFallback[variable]); xdg != "" && filepath.IsAbs(xdg) {
+			return filepath.Join(append([]string{xdg}, parts...)...), nil
+		}
 		return "", errUnresolvable(variable, variable+" is unset or not an absolute path; cannot resolve the brigade directories")
 	}
 	return filepath.Join(append([]string{base}, parts...)...), nil
 }
+
+// xdgFallback pairs each profile variable with the XDG variable of the
+// same directory on unix.
+var xdgFallback = map[string]string{"APPDATA": "XDG_CONFIG_HOME", "LOCALAPPDATA": "XDG_STATE_HOME"}

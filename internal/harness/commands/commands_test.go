@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -44,6 +45,9 @@ func TestMain(m *testing.M) {
 
 // mustBuild compiles a repository binary the way `make build` does.
 func mustBuild(dir, name, pkg string) string {
+	if runtime.GOOS == "windows" {
+		name += ".exe" // a program is found by its extension there (card 133)
+	}
 	out := filepath.Join(dir, name)
 	//nolint:gosec // G204: the package path is a constant; no shell is involved
 	cmd := exec.CommandContext(context.Background(), "go", "build", "-trimpath", "-o", out, pkg)

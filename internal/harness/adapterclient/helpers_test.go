@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/appshapes/brigade/internal/harness/config"
@@ -40,6 +41,9 @@ func TestMain(m *testing.M) {
 // (CGO_ENABLED=0, no -race: the child is not race-instrumented, matching
 // testutil.Build's contract).
 func mustBuild(dir, name, pkg string) string {
+	if runtime.GOOS == "windows" {
+		name += ".exe" // a program is found by its extension there (card 133)
+	}
 	out := filepath.Join(dir, name)
 	//nolint:gosec // G204: the package path is a constant; no shell is involved
 	cmd := exec.CommandContext(context.Background(), "go", "build", "-trimpath", "-o", out, pkg)
