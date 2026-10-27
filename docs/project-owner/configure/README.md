@@ -1,8 +1,9 @@
 # Configure
 
 The gateways let people without a session take part: one more member each, hosted in your project, that turn a
-person's email or Slack message into a Brigade message and back. Nothing runs on anyone's machine. The project's
-settings themselves are applied by `make backend-install` and can be re-checked at any time.
+person's email or Slack message into a Brigade message and back, with nothing of theirs on anyone's machine. The
+webhook gateway connects an outside service the same way and is the one you run yourself. The project's settings
+themselves are applied by `make backend-install` and can be re-checked at any time.
 
 ## If you want to
 
@@ -43,10 +44,12 @@ Details: [Install the Slack gateway](slack-gateway.md).
 
 ## Run the webhook gateway
 
-1. Unlike the two above, it runs on a machine of yours as one more session: nothing is added to the project.
-2. `make build-webhook-gateway`; `brigade team join` there under the identity it should use; a 32-byte secret file.
-3. `brigade-webhook-gateway --team-file <path>/.brigade.json --session-name <name> --secret-file <file>
-   --target-url <url>`, under systemd or a run script.
+1. On an always-on machine of yours: `make build-webhook-gateway`, then `brigade team join --secret-file <join
+   secret> --label "<name>"` with `BRIGADE_CONFIG_DIR` set to a directory only that user can read.
+2. `(umask 077; openssl rand -hex 32 > ~/.config/brigade-webhook/secret)`; the outside service gets this secret and
+   nothing else.
+3. `brigade-webhook-gateway --team-file <path>/.brigade.json --session-name <name> --secret-file
+   ~/.config/brigade-webhook/secret --target-url <url>`, under systemd or a run script. Nothing is added to the project.
 
 Details: [Run the webhook gateway](webhook-gateway.md).
 

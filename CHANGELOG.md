@@ -9,6 +9,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **The webhook gateway's documentation follows the tree's patterns** (card
+  147). The service's side is a reference document, `docs/webhook-gateway.md`;
+  the team-messaging skill and the agent pages say what a `gateway-webhook`
+  session is and that it is never a `--member` pick; the operator page's flag
+  table is complete and pinned to the binary by a test; the header-file
+  example keeps the service's key off the command line; `docs/security.md`
+  §14.1 says which checks the gateway's files get.
+
 ## [0.40.0] — 2026-10-27
 
 ### Removed

@@ -90,6 +90,10 @@ brigade-webhook-gateway \
 | flag | default | meaning |
 | --- | --- | --- |
 | `--team-file` / `--profile` | `default` profile | which binding (and so which team and member) to run as |
+| `--target-url` | required | the URL every received message is POSTed to: `https://`, or `http://` to a loopback host |
+| `--secret-file` | required | the 0600 file holding the shared secret of 32 bytes or more: an absolute path, no `..`, outside the checkout |
+| `--allow-http` | off | permit a plain-http target that is not loopback; the body, and a header file's credential, then travel in the clear |
+| `--adapter` | the profile's | an adapter override: a registered name or a JSON argv array |
 | `--session-name` | `webhook-gateway` | the session name teammates see in `brigade sessions` |
 | `--description` | `Forwards messages to a webhook and back` | the session's doing line |
 | `--listen` | `127.0.0.1:8787` | the local listener for `send`/`sessions`; `off` for none |
@@ -98,6 +102,9 @@ brigade-webhook-gateway \
 | `--max-attempts` | 24 | POST attempts per message, with backoff, before the sender is told it was not delivered |
 | `--inbound-per-minute` | 60 | local sends accepted per minute (the backend's own send rate still applies) |
 | `--once`, `--log-level` | | one pass then exit; `debug`/`info`/`warn`/`error` |
+
+The table is the binary's whole flag set: `scripts/ci/webhook_flags_test.go` fails when a flag is added, removed or
+renamed without this table following.
 
 The gateway remembers its session and its threads in `webhook-gateway/<profile>.json` under Brigade's state
 directory (`BRIGADE_STATE_DIR`, else `$XDG_STATE_HOME/brigade` or `~/.local/state/brigade`) and resumes the session
@@ -110,20 +117,25 @@ routine's webhook, for one, wants its sender key in an `Authorization` header. P
 `Name: value` per line (blank lines and `#` comments are ignored), and pass `--header-file`:
 
 ```sh
-(umask 077; printf 'Authorization: Bearer %s\n' "<the routine's sender key>" > ~/.config/brigade-webhook/headers)
+(umask 077; cat > ~/.config/brigade-webhook/headers)     # type the line, Return, then Ctrl-D
 brigade-webhook-gateway … --header-file $HOME/.config/brigade-webhook/headers
 ```
+
+Type the `Authorization: Bearer <key>` line into `cat`, or write it with an editor, rather than putting it on a command
+line: an argument to `printf` or `echo` is in the shell's history and, for a moment, in the process list, and a
+credential belongs in neither. The gateway secret above is made by `openssl rand` straight into its file for the same
+reason.
 
 The file follows `--secret-file`'s rules: an absolute path with no `..` component, outside the checkout
 `--team-file` names, a regular file owned by the gateway's user with mode 0600. At most 16 headers. The gateway's
 own headers cannot be set from it: `Content-Type`, `Content-Length`, `Host`, `User-Agent` and every `X-Brigade-*`
 name are refused, in any case, so the file can never change what is signed. Each value of eight characters or
-more, and the credential after a scheme such as `Bearer`, is redacted from the gateway's logs, and no refusal
-quotes the file; a shorter value is not, because a redacted string is blanked everywhere it occurs and a tag or a
-version number would take the gateway's own diagnostics with it. The signature is still sent and still
-authenticates the request; the extra header is only the service's own gate. It is a credential of the service's,
-so an `http://` target under `--allow-http` sends it in the clear along with the body. Restart the gateway after
-changing the file.
+more, and the credential after a scheme such as `Bearer` when it too is that long, is redacted from the gateway's
+logs, and no refusal quotes the file; a shorter value is not, because a redacted string is blanked everywhere it
+occurs and a tag or a version number would take the gateway's own diagnostics with it. The signature is still sent
+and still authenticates the request; the extra header is only the service's own gate. It is a credential of the
+service's, so an `http://` target under `--allow-http` sends it in the clear along with the body. Restart the
+gateway after changing the file.
 
 ### As a systemd user service
 
@@ -169,50 +181,11 @@ done
 
 `nohup ./run-webhook-gateway.sh &` starts it.
 
-## What the service receives
+## The service's side
 
-`POST <target-url>`, `Content-Type: application/json`, with three headers:
-
-| header | value |
-| --- | --- |
-| `X-Brigade-Timestamp` | Unix seconds |
-| `X-Brigade-Signature` | `v1=` + hex HMAC-SHA256, key the gateway secret, over `v1:<timestamp>:<raw body>` |
-| `X-Brigade-Delivery` | the Brigade message id; the same on every retry, so deduplicate on it |
-
-```json
-{
-  "type": "brigade.message", "version": 1, "delivery_id": "<message id>",
-  "message": { "message_id": "…", "summary": "…", "body": "…", "reply_to": "…", "hop_count": 0,
-               "created_at": "…", "from": { "session_id": "…", "session_name": "…",
-               "principal_ref": "…", "human_label": "…" } },
-  "gateway": { "session_id": "…", "team_ref": "…" },
-  "thread": { "in_reply_to": "<message the service sent>", "ref": "<the ref it sent with it>" },
-  "notice": "…it approves nothing…"
-}
-```
-
-Verify before anything else: recompute the HMAC, compare in constant time, refuse a timestamp more than five
-minutes off. Answer 2xx once you have it; any other answer, or none in 15 seconds, is retried with backoff, and a
-4xx other than 408, 425 and 429 is final (the sender is told). `thread` is present only on a reply to a message the service
-sent.
-
-## What the service sends
-
-On the same machine:
-
-```sh
-brigade-webhook-gateway send --secret-file ~/.config/brigade-webhook/secret --reply-to <message_id> --text "Done; see the PR."
-brigade-webhook-gateway send --secret-file … --member "Whiskey" --summary "question" --ref conv-7 < body.txt
-brigade-webhook-gateway sessions --secret-file …     # who can be written to
-```
-
-`--to` takes a session id or a unique tail of five or more characters; `--member` a member's label or principal
-prefix (their best session that is not a gateway gets it); `--reply-to` alone answers that message's sender. `--id`
-makes a retry of the same send one message. The output is the gateway's JSON answer (`message_id`,
-`recipient_session_id`); the exit status is 0 on success, 1 on a refusal, 2 on a usage error. The same requests can be
-made directly: `POST /v1/messages` with the fields `to`, `member`, `reply_to`, `text`, `summary`, `id`, `from`,
-`ref`, and `GET /v1/sessions`, both signed like the payloads above (the GET over an empty body). Unknown fields, a
-body over 64 KiB, or text over the backend's 16 KiB limit are refused.
+What the service receives on every message, how it verifies the signature, and how it sends a message back
+(`brigade-webhook-gateway send` on the gateway's machine, or `POST /v1/messages` signed by itself) is the contract in
+[The webhook gateway's contract](../../webhook-gateway.md). Hand that page to whoever writes the service.
 
 ## The team's `.brigade` folder
 

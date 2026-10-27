@@ -15,7 +15,8 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   the TL;DR. It may link to a reference document instead of repeating it.
 - **Reference documents stay where code names them** and are reached from the tree: `docs/security.md` (argued;
   its sentences carry owner rulings, so summarise it and never rewrite it), `docs/protocol-v1.md` (frozen),
-  `docs/adapter-authors.md`, `docs/sync-adapters.md`, `docs/mail-connectors.md`, `docs/email/README.md`,
+  `docs/adapter-authors.md`, `docs/sync-adapters.md`, `docs/mail-connectors.md`, `docs/webhook-gateway.md`,
+  `docs/email/README.md`,
   `docs/experiments/`, `docs/research/`, `scripts/ci/README.md`, `internal/adapters/fs/README.md`, and the
   package pages `plugin/README.md` and `muse/brigade/README.md`.
 - **Agents enter at `CLAUDE.md`**, whose `@docs/agent/repository/<file>.md` imports load every rule file; a rule

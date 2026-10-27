@@ -938,18 +938,19 @@ session to one outside service over signed HTTP. It adds nothing to the Supabase
 migration, no public URL — so what it changes is what runs on that machine, who holds its secret, and who reads
 what leaves.
 
-- **One secret authenticates both directions, and nothing else does.** Every POST the gateway sends to its target
-  URL carries an HMAC-SHA256 over `v1:<timestamp>:<body>` under the gateway secret, and every request to the
-  gateway's own listener is verified against the same secret — in constant time, within five minutes of its
-  timestamp, before the body is parsed. There is no second credential, no list of permitted callers and no mutual
-  TLS. Whoever holds that secret can put text in front of the team's sessions as the gateway, and, if they also
-  know the target URL, can read what the gateway's session receives. It is 32 or more random bytes in a 0600 file
-  outside the repository, shared with the one service, rotated by restarting both sides. The location is enforced
-  where a project directory is knowable: `--secret-file` must be an absolute path with no `..` component, and must
-  not be inside the checkout `--team-file` names (literally or through a symlink) — the same refusal
-  `brigade team create` makes of an in-project join secret. Mode, owner and symlinks on the file itself are
-  checked as every other secret file's are. It grants nothing on the backend: the team's join secret and the
-  project's keys are not involved.
+- **One secret authenticates both directions, and nothing else does.** Every POST the gateway sends to its target URL
+  carries an HMAC-SHA256 over `v1:<timestamp>:<body>` under the gateway secret, and every request to the gateway's own
+  listener is verified against the same secret — in constant time, within five minutes of its timestamp, before the
+  body is parsed. There is no second credential that Brigade accepts, no list of permitted callers and no mutual TLS.
+  Whoever holds that secret can put text in front of the team's sessions as the gateway, and, if they also know the
+  target URL, can read what the gateway's session receives. It is 32 or more random bytes in a 0600 file outside the
+  repository, shared with the one service, rotated by restarting both sides. The location is enforced where a project
+  directory is knowable: `--secret-file` must be an absolute path with no `..` component, and must not be inside the
+  checkout `--team-file` names (literally or through a symlink) — the same refusal `brigade team create` makes of an
+  in-project join secret. Mode, owner and symlinks on the file itself are checked as well: a symbolic link, a file
+  that is not regular, a mode the group or others can read, another user's file or one over 1 MiB is refused (the join
+  secret file is the one secret file whose mode and owner Brigade does not check, owner ruling 4, 2026-09-08). It
+  grants nothing on the backend: the team's join secret and the project's keys are not involved.
 - **A header file is a credential Brigade presents, never one it accepts.** A service may gate its own webhook URL
   with a key of its own, as a Grok Bot routine's does
   ([Send the service's own key](project-owner/configure/webhook-gateway.md#send-the-services-own-key)):
@@ -961,10 +962,10 @@ what leaves.
   headers cannot be set from it — `Content-Type`, `Content-Length`, `Host`, `User-Agent` and every `X-Brigade-*`
   are refused in any case, and the file's headers are set before the gateway's — so nothing in it can change what
   is signed; at most 16 headers are accepted. Each value of eight characters or more, and the credential after a
-  scheme such as `Bearer`, is redacted from the gateway's logs, and no refusal quotes a name or a value; a shorter
-  value is not redacted, because a redacted string is blanked wherever it occurs and a tag or a version number
-  would erase the gateway's own diagnostics with it. Under `--allow-http` to a target that is not loopback, this
-  credential travels in the clear along with the body.
+  scheme such as `Bearer` when it too is that long, is redacted from the gateway's logs, and no refusal quotes a name
+  or a value; a shorter value is not redacted, because a redacted string is blanked wherever it occurs and a tag or
+  a version number would erase the gateway's own diagnostics with it. Under `--allow-http` to a target that is not
+  loopback, this credential travels in the clear along with the body.
 - **The listener is loopback by default, and signed wherever it is bound.** It defaults to `127.0.0.1:8787`, so
   only a program on the gateway's machine can reach it, and `--listen off` removes it. Bound anywhere else — behind
   a reverse proxy that terminates TLS, say — the signature is still the only authentication, with a cap on
