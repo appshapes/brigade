@@ -1,11 +1,9 @@
 // Package syncthing is the one Syncthing instance Brigade runs on a machine
-// (plan folder-sync 4.4; card 141): its home under the Brigade state
-// directory, the lifecycle of the `syncthing serve` daemon (attach, detach,
-// the per-session references, the pidfile, the GUI and listen ports) and
-// the REST client the two adapters that drive it share — the sync adapter
-// (internal/syncadapters/syncthing), which keeps a project's folders in
-// step, and the message adapter (internal/adapters/syncthing), whose
-// backend is a team folder the same instance replicates.
+// (plan folder-sync 4.4): its home under the Brigade state directory, the
+// lifecycle of the `syncthing serve` daemon (attach, detach, the
+// per-session references, the pidfile, the GUI and listen ports) and the
+// REST client the sync adapter (internal/syncadapters/syncthing) drives to
+// keep a project's folders in step.
 //
 // This package is the ONE place Brigade starts a long-running daemon, which
 // is why engine.go has its own exec carve-out in .golangci.yml. The daemon
@@ -16,6 +14,6 @@
 // logged either.
 //
 // Nothing here imports internal/harness or internal/adapters: the harness
-// reaches the engine only across a process boundary, through the two
-// adapters' protocols.
+// reaches the engine only across a process boundary, through the sync
+// adapter's protocol.
 package syncthing

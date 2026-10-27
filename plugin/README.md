@@ -43,10 +43,8 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
 
 - **Fetched:** on first use, the release binary that `bin/VERSION` names, from this repository's GitHub Releases,
   checked against the sha256 in `bin/checksums.txt`. Nothing else is downloaded.
-- **Sent, and to where:** everything goes to the backend named in the project's `.brigade.json`: a Supabase project
-  your team's Project Owner owns, or, for a team over Syncthing (`"adapter": "syncthing"`), the machines of the
-  team's other members, through Syncthing's own device-to-device TLS, where every member's machine then holds
-  every message of the team. Nothing goes to AppShapes or to Anthropic. What is sent: the messages you send
+- **Sent, and to where:** everything goes to the backend named in the project's `.brigade.json`, a Supabase project
+  your team's Project Owner owns. Nothing goes to AppShapes or to Anthropic. What is sent: the messages you send
   and the replies, as plain text; and with each session's registration and heartbeat, the session name, the
   repository name, the session state, the one-sentence roster line the model writes with `brigade doing` (the
   option `share_doing` stops it), the model identity and the context occupancy in tokens (two values read from the
@@ -63,8 +61,7 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
   `claude_inbound_setting` set to `false` stops it.
 - **Run:** the hooks run `bin/brigade` and nothing else. Two optional programs are started only by an option that
   is off by default (the system's sound player for `message_sound`, its notification program for
-  `message_notification`), and `syncthing` only for a project whose `.brigade.json` lists folders to sync or names
-  the syncthing adapter.
+  `message_notification`), and `syncthing` only for a project whose `.brigade.json` lists folders to sync.
 - **Kept for how long:** the backend keeps an unacknowledged message for at least 7 days, may delete an
   acknowledged one 24 hours after the acknowledgement, and removes a closed session and its messages after 7 days.
 

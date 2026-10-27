@@ -5,8 +5,7 @@
 //
 // It drives a DEDICATED Syncthing instance per machine, never the user's
 // own — the engine of internal/syncthing, whose home is
-// <state_dir>/sync/syncthing (0700) and which the message adapter of card
-// 141 (internal/adapters/syncthing) shares. The first attach starts
+// <state_dir>/sync/syncthing (0700). The first attach starts
 // `syncthing serve` detached in its own session; the last detach shuts it
 // down, so sync runs only while a session is active (plan section 1).
 // Everything else — discovery, relays, transfer, conflicts, deletions, the

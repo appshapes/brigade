@@ -11,12 +11,7 @@ Everything you need is in this repository, in this order:
    omits `team.join` (section 4.7).
 3. **`internal/adapters/fs/`**, the reference adapter: a complete BAP/1 implementation over a directory on disk,
    insecure and test-only by design. [Its README](../../../internal/adapters/fs/README.md) documents the store
-   layout; it is the worked example the guide walks through. **`internal/adapters/syncthing/`** is the same
-   layout shipped (card 141): one folder per team that the engine of `internal/syncthing` — shared with the sync
-   adapter — replicates between the members' machines, with one writer per path, a join by device acceptance and
-   the three `team.admin` verbs. [Its README](../../../internal/adapters/syncthing/README.md) has the differences.
-   The binary bundles two adapters, `brigade adapter supabase` and `brigade adapter syncthing`; both run the suite
-   in `make test`, the second in its local mode.
+   layout; it is the worked example the guide walks through.
 4. **`brigade-conformance`**, the arbiter. `make build`, then
    `bin/brigade-conformance --adapter /abs/path/to/your-adapter` (`--shared-env <VAR>` if your backend is a
    directory every test principal must share, `--setup <cmd>` if principals are provisioned out of band). 49

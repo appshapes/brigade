@@ -1,5 +1,14 @@
 # The Syncthing message adapter: Brigade with no backend
 
+**Withdrawn 2026-10-27 (Trello card 148, rows P57-7 and P57-8).** Shipped in 0.39.0, removed in 0.40.0. Rjae's
+goal, stated after the release: no loss of functionality and no action other than `brigade:update` for the migrate
+scenario — every gateway remains, members do not rejoin — and no device ids in the team file. Shape 1 cannot meet
+the three together: the mail and Slack gateways are Edge Functions that need a hosted project; a member's project
+credential cannot become a device acceptance without a channel both sides already trust, which is the project
+itself; a joiner with only a secret cannot find a peer without a seed list. Every shape that meets them puts a
+hosted component back (the project, or a hub). The engine extraction of P57-1 (`internal/syncthing`) stays, trimmed
+to what folder sync uses. The rest of this page is the design as built, kept for the record.
+
 Trello card: see the execution log rows P57-*. Owner rulings (Rjae, 2026-10-26): "I recommend Shape 1, with some
 changes: we keep the test adapter, so this would become the third adapter; no key pair (we may follow with key pair
 support, but not needed yet); understood, identity will have no authority." Then: create a card, proceed
@@ -88,7 +97,8 @@ expectations are pinned); the new package is `internal/adapters/syncthing`.
 | P57-3 (done 2026-10-26) | Harness: `teamfile` `devices` and the optional URL/key for `syncthing`; a second bundled name in `config`/`app`; `team create --adapter syncthing` (device id from `profile status`); the join's `backend`; `team migrate`; `commands.md` regenerated. |
 | P57-4 (done 2026-10-26) | The two-engine real test (`BRIGADE_TEST_SYNCTHING=1`): create, join through acceptance, roster, a message across engines, revoke drops the device. |
 | P57-5 (done 2026-10-26) | Skills (`migrate` in four packages, the setup skills' Syncthing route), package checks, Muse digest; docs: admin create and move pages, team-file, members pages, member join page, `security.md` §18, `plugin/README.md`, developer adapters page, agent pages, CHANGELOG. |
-| P57-6 | Release 0.38.0; CI green; card closed. |
+| P57-6 (done 2026-10-26) | Release 0.39.0; CI green; card closed. |
+| P57-7 (done 2026-10-27) | Withdrawn (card 148): the adapter, `team migrate`, the `migrate` skills, the team file's `devices` and every page removed; the engine package trimmed; released as 0.40.0. |
 
 ## 5. Out of scope, on purpose
 

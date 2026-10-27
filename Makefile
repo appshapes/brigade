@@ -204,10 +204,9 @@ lint-fix: ## golangci-lint --fix and fmt
 	$(golangci_lint) fmt ./...
 
 .PHONY: test
-test: build ## Unit + testscript + harness + conformance(fs, syncthing) with -race; no Docker and no local stack (what `make commit` runs) (CI)
+test: build ## Unit + testscript + harness + conformance(fs) with -race; no Docker and no local stack (what `make commit` runs) (CI)
 	go test $(go_test_flags) -covermode=atomic -coverprofile=cover.out ./...
 	$(bin_dir)/brigade-conformance --shared-env BRIGADE_FS_ROOT $(cover_env) --adapter $(bin_dir)/brigade-adapter-fs
-	$(bin_dir)/brigade-conformance --shared-env BRIGADE_SYNCTHING_STORE $(cover_env) --adapter $(bin_dir)/brigade -- adapter syncthing
 
 .PHONY: vuln
 vuln: build ## govulncheck on the source tree and on the built binary (pinned in tools.mod) (CI)
@@ -320,7 +319,7 @@ docs-check: ## The documentation gate (cards 110, 112): README and persona shape
 	go run ./cmd/brigade-docs check
 
 .PHONY: grok-plugin-check
-grok-plugin-check: ## Validate Grok native package, four hooks, nine skills and canonical release assets (CI)
+grok-plugin-check: ## Validate Grok native package, four hooks, eight skills and canonical release assets (CI)
 	sh scripts/ci/grok-plugin-check.sh
 
 .PHONY: docs-generate

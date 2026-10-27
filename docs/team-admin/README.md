@@ -2,8 +2,7 @@
 
 You create a team and you are its only administrator: the credential `team create` left on your machine is the
 one that rotates the secret, revokes a member and hands the team over. A team belongs to a project, through the
-committed `.brigade.json`, and you decide what else that file makes the project's checkouts share. A team can
-also live in no project at all, in a folder Syncthing keeps in step between the members' machines.
+committed `.brigade.json`, and you decide what else that file makes the project's checkouts share.
 
 ## If you want to
 
@@ -17,8 +16,7 @@ also live in no project at all, in a folder Syncthing keeps in step between the 
 ## Create
 
 One command in the project checkout creates the team, writes `.brigade.json` and the secret file, and stores your
-credential. [Create](create/README.md) also covers a team over Syncthing with no project, the move of a team off
-its project, handing out the secret, adding a repository and the backup.
+credential. [Create](create/README.md) also covers handing out the secret, adding a repository and the backup.
 
 ## Configure
 

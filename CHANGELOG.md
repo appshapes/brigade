@@ -9,6 +9,24 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Removed
+
+- **The syncthing message adapter** (card 148). 0.39.0's `brigade team create
+  --adapter syncthing`, `brigade team migrate`, `/brigade:migrate` and the
+  team file's `devices` member are gone, with their pages. The goal was a
+  move off the Supabase project with no loss of functionality and no member
+  action beyond `/brigade:update`: every gateway stays, nobody rejoins, and
+  no device ids in the team file. A team with no backend cannot meet it: the
+  mail and Slack gateways are Edge Functions that need a hosted project, a
+  member's project credential cannot become a device acceptance without a
+  channel both sides already trust, and a joiner with only a secret cannot
+  find a peer without a seed list; every shape that meets the goal puts a
+  hosted component back. A team that ran `team migrate` restores its
+  `.brigade.json` from git: the project was never changed, and every
+  member's credential still opens it. The Syncthing engine stays the shared
+  package `internal/syncthing`, which folder sync runs on; the calls only the
+  message adapter used are gone with it.
+
 ## [0.39.1] — 2026-10-26
 
 ### Added

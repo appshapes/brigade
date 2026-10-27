@@ -18,7 +18,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `fmt` | gofmt + goimports through golangci-lint |
 | `lint` | golangci-lint for darwin AND linux (config verify + run, formatters included) and a plain gofmt check (CI) |
 | `lint-fix` | golangci-lint --fix and fmt |
-| `test` | Unit + testscript + harness + conformance(fs, syncthing) with -race; no Docker and no local stack (what `make commit` runs) (CI) |
+| `test` | Unit + testscript + harness + conformance(fs) with -race; no Docker and no local stack (what `make commit` runs) (CI) |
 | `vuln` | govulncheck on the source tree and on the built binary (pinned in tools.mod) (CI) |
 | `tidy-check` | Fail if go.mod/go.sum would change (CI) |
 | `deps-check` | Fail unless bin/brigade links exactly the modules in docs/allowed-deps.txt (subset, then equality) (CI) |
@@ -37,7 +37,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `muse-digest` | Rewrite marketplace.json's digest and version from muse/brigade/ with Muse (card 115): after any change under muse/brigade/, and by make release |
 | `codex-plugin-check` | Static checks of codex/brigade/, the Codex CLI package (card 107): allowlist, native manifest, the three hook commands, the marketplace file, assets equal to plugin/bin's (CI) |
 | `docs-check` | The documentation gate (cards 110, 112): README and persona shapes, links and anchors, orphans, harness pages, options, the generated make-target and command pages, a page for every command, the changelog section (CI) |
-| `grok-plugin-check` | Validate Grok native package, four hooks, nine skills and canonical release assets (CI) |
+| `grok-plugin-check` | Validate Grok native package, four hooks, eight skills and canonical release assets (CI) |
 | `docs-generate` | Regenerate docs/developer/reference/make-targets.md from this Makefile's help lines and commands.md from internal/cli's command table (docs-check fails when either is stale) |
 | `plugin-validate` | claude plugin validate on the marketplace and the plugin root |
 | `plugin-dev-pointer` | Write the dev-binary pointer (honours XDG_CONFIG_HOME) without launching anything; a prerequisite of plugin-dev and the manual step of docs/experiments/E3-interactive.md |

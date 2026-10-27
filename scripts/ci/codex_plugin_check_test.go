@@ -39,7 +39,6 @@ func (tr *tree) codexTree() {
 		"codex/brigade/skills/team-messaging/SKILL.md", "codex/brigade/skills/sessions/SKILL.md",
 		"codex/brigade/skills/setup/SKILL.md", "codex/brigade/skills/join/SKILL.md", "codex/brigade/skills/update/SKILL.md",
 		"codex/brigade/skills/email/SKILL.md", "codex/brigade/skills/slack/SKILL.md", "codex/brigade/skills/quiet/SKILL.md",
-		"codex/brigade/skills/migrate/SKILL.md",
 	} {
 		copyFile(rel)
 	}

@@ -12,8 +12,8 @@
 | `internal/protocol`, `internal/adapterkit` | the wire types with `Validate()`, and the shared adapter plumbing |
 | `internal/harness/*` | the plugin side: config, hooks, the watcher, inbound pipeline, frame, commands, session map, folder sync |
 | `internal/adapters/supabase` | the bundled adapter, a child process of the harness |
-| `internal/syncadapters/syncthing`, `internal/harness/foldersync` | the Syncthing adapter and the harness side of the sync protocol |
-| `plugin/` | the Claude Code package: manifest, hooks, seven skills, the sh bootstrap and the release pins |
+| `internal/syncthing`, `internal/syncadapters/syncthing`, `internal/harness/foldersync` | the Syncthing engine (the one daemon Brigade runs), the sync adapter's policy over it, and the harness side of the sync protocol |
+| `plugin/` | the Claude Code package: manifest, hooks, eight skills, the sh bootstrap and the release pins |
 | `muse/brigade/` | the Muse Code package: native manifest, one wrapper per hook, the skills, copies of the pins |
 | `codex/brigade/`, `.agents/plugins/` | the Codex CLI package (native manifest, `hooks/hooks.json`, the skills, copies of the pins) and the marketplace file that names it |
 | `supabase/` | migrations, pgTAP tests, Edge Functions (the mail core, two connectors, the Slack pair), local stack config |

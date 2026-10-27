@@ -15,7 +15,7 @@ import (
 
 // The verbs of `brigade team`: the four of 6.4 and the three
 // administrative pass-throughs of P5-2 (capability team.admin).
-var teamVerbs = []string{"create", "join", "leave", "members", "rotate-secret", "revoke-member", "transfer", "status", "reset", "revoke-credentials", "list", "migrate"}
+var teamVerbs = []string{"create", "join", "leave", "members", "rotate-secret", "revoke-member", "transfer", "status", "reset", "revoke-credentials", "list"}
 
 // MembersNote is the note member of the `team members --json` result.
 const MembersNote = "human_label is unverified text chosen by the member; principal_ref is the only stable identity"
@@ -82,8 +82,6 @@ func Team(inv Invocation) error {
 	switch verb {
 	case "create":
 		return inv.teamCreate(raw)
-	case "migrate":
-		return inv.teamMigrate(raw)
 	case "join":
 		if inv.Deps.isTerminal(inv.In) || inv.inSession() {
 			return inv.teamJoin(raw.Rest)

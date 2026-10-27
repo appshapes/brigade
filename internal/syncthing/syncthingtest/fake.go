@@ -29,12 +29,7 @@ type Fake struct {
 	Mu          sync.Mutex
 	Devices     []syncthing.DeviceConfig
 	DevicePosts int
-	// DeviceDeletes is the device ids DELETEd, in order.
-	DeviceDeletes []string
-	// Names is the name PATCHed per device id (the instance's own id
-	// included).
-	Names   map[string]string
-	Folders []syncthing.FolderConfig
+	Folders     []syncthing.FolderConfig
 	// FolderPosts counts POST /rest/config/folders.
 	FolderPosts int
 	// Pauses counts the PATCHes that paused a folder.
@@ -53,16 +48,12 @@ type Fake struct {
 	FailStop   bool
 	OnShutdown func()
 	BadKey     int
-	// Pending is what /rest/cluster/pending/devices answers; Dismissed
-	// the ids DELETEd from it.
-	Pending   map[string]syncthing.PendingDevice
-	Dismissed []string
 }
 
 // New starts the fake and closes it with the test.
 func New(t *testing.T) (*Fake, *httptest.Server) {
 	t.Helper()
-	f := &Fake{T: t, Connected: map[string]bool{}, Names: map[string]string{}, Pending: map[string]syncthing.PendingDevice{}}
+	f := &Fake{T: t, Connected: map[string]bool{}}
 	srv := httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(srv.Close)
 	return f, srv
@@ -131,7 +122,7 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(map[string]any{"connections": conns})
 	case "GET /rest/config/devices":
-		out := []syncthing.DeviceConfig{{DeviceID: ID, Name: f.selfName()}}
+		out := []syncthing.DeviceConfig{{DeviceID: ID, Name: "self"}}
 		reply(append(out, f.Devices...))
 	case "POST /rest/config/devices":
 		var d syncthing.DeviceConfig
@@ -183,57 +174,13 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		http.Error(w, "no such folder", http.StatusNotFound)
-	case "GET /rest/cluster/pending/devices":
-		reply(f.Pending)
-	case "DELETE /rest/cluster/pending/devices":
-		id := r.URL.Query().Get("device")
-		f.Dismissed = append(f.Dismissed, id)
-		delete(f.Pending, id)
 	default:
 		f.serveByID(w, r, reply)
 	}
 }
 
-// selfName is the instance's own name: what a PATCH set, else "self".
-func (f *Fake) selfName() string {
-	if n, ok := f.Names[ID]; ok {
-		return n
-	}
-	return "self"
-}
-
 // serveByID handles the /rest/config/{folders,devices}/<id> routes.
 func (f *Fake) serveByID(w http.ResponseWriter, r *http.Request, _ func(any)) {
-	if id, ok := strings.CutPrefix(r.URL.Path, "/rest/config/devices/"); ok {
-		switch r.Method {
-		case http.MethodDelete:
-			f.DeviceDeletes = append(f.DeviceDeletes, id)
-			f.Devices = slices.DeleteFunc(f.Devices, func(e syncthing.DeviceConfig) bool { return e.DeviceID == id })
-			for i := range f.Folders {
-				f.Folders[i].Devices = slices.DeleteFunc(f.Folders[i].Devices, func(d syncthing.DeviceRef) bool { return d.DeviceID == id })
-			}
-		case http.MethodPatch:
-			var patch map[string]any
-			if err := json.UnmarshalRead(r.Body, &patch); err != nil || len(patch) != 1 {
-				http.Error(w, "the patch must set name alone", http.StatusBadRequest)
-				return
-			}
-			name, isString := patch["name"].(string)
-			if !isString {
-				http.Error(w, "the patch must set name alone", http.StatusBadRequest)
-				return
-			}
-			f.Names[id] = name
-			for i := range f.Devices {
-				if f.Devices[i].DeviceID == id {
-					f.Devices[i].Name = name
-				}
-			}
-		default:
-			http.Error(w, "not found", http.StatusNotFound)
-		}
-		return
-	}
 	id, ok := strings.CutPrefix(r.URL.Path, "/rest/config/folders/")
 	if ok && r.Method == http.MethodDelete {
 		if f.FailDelete {

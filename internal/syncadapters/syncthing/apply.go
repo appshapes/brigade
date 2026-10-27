@@ -320,9 +320,7 @@ func formerFolders(existing []engine.ConfiguredFolder, folders []folderSpec) []e
 }
 
 // teamPrefix is a Brigade folder id's team part, "brigade-<ref8>-", or
-// false for an id of another shape. The message adapter's team folder
-// (internal/adapters/syncthing) has four dash-separated parts on purpose,
-// so it is never read as a checkout folder here.
+// false for an id of another shape.
 func teamPrefix(id string) (string, bool) {
 	parts := strings.Split(id, "-")
 	if len(parts) != 3 || parts[0] != "brigade" || parts[1] == "" || parts[2] == "" {

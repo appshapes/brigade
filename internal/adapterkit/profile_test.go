@@ -3,7 +3,6 @@ package adapterkit_test
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -43,7 +42,7 @@ func TestProfileSaveLoadRoundTrip(t *testing.T) {
 	}
 	gotNoTime, wantNoTime := *got, *want
 	gotNoTime.CreatedAt, wantNoTime.CreatedAt = time.Time{}, time.Time{}
-	if !reflect.DeepEqual(gotNoTime, wantNoTime) {
+	if gotNoTime != wantNoTime {
 		t.Fatalf("round trip changed the profile:\ngot  %+v\nwant %+v", got, want)
 	}
 

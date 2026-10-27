@@ -21,8 +21,4 @@ brigade team revoke-member --max-version <secret_version minus one>
   written after the rotation the secret is gone and the only fix is to rotate again.
 - `rotate-secret` runs inside a session or in a terminal; the eviction runs in a terminal.
 
-- **Over Syncthing** the secret's digest in the team folder is also the key a joining machine proves itself with,
-  so the rotation reaches every member's machine before a device joined with the old secret can be accepted
-  again; evict as above.
-
 Then [Hand out the secret](../create/hand-out-the-secret.md) again, to the members you kept.

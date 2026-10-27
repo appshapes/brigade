@@ -15,10 +15,6 @@ There is no `brigade team delete`. A team row stays in the backend's `brigade.te
 5. **Tell the Project Owner.** The gateways, if the team had any, keep their functions and their cron job in the
    project until the owner removes them ([Remove a gateway](../../project-owner/remove/remove-a-gateway.md)).
 
-A team over Syncthing has no backend to tell: once every member has left, each may delete the team's folder under
-their Brigade state directory (`syncthing/teams/<team_ref>`), which their engine stops sharing with the last
-session.
-
 What the backend then does on its own: a closed or expired session and its messages are removed after 7 days;
 anonymous principals that hold no membership row are deleted once they are 7 days old. Membership rows and the
 team row remain, inert. Deleting the project itself is the owner's [Delete the project](../../project-owner/delete/delete-the-project.md).

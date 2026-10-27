@@ -24,11 +24,5 @@ brigade team revoke-member --principal <ref> --ban      # also blocks a rejoin w
   then `brigade team join`).
 - You cannot revoke or ban yourself; leaving is `brigade team leave`, reversible by a rejoin.
 - The response to a hostile teammate who floods the team within the rate limits is this command.
-- **Over Syncthing** ([Create a team over Syncthing](../create/create-over-syncthing.md)) a revoke is a marker your
-  machine writes into the team folder. Every member's machine filters on it the moment it arrives, the revoked
-  member's own watch ends then with the same `unauthorized`, and every member's engine drops their device after
-  a 15-second grace. Measured on one machine, two engines: the watch ended 7.5 s after the revoke, the device was
-  dropped 18.5 s after. A revoked machine that is off learns of it when it next connects to a member. A rejoin
-  with the current secret, or the revoked machine's own `team join` with it, removes a marker that is not a ban.
 
 The security discussion: [docs/security.md, section 9](../../security.md#9-running-a-team-and-losing-the-ability-to).

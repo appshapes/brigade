@@ -88,25 +88,6 @@ rotate the secret or administer the team. Rotating the join secret runs in a ses
 transferring the team are terminal-only administrative commands that refuse inside a session. The procedure is in
 `docs/team-admin/members/README.md` in the Brigade repository.
 
-### A team with no project: Syncthing
-
-A team can run with **no Supabase project at all**: the `syncthing` adapter keeps the team's messages in a folder
-that Syncthing replicates between the members' machines, the same engine that syncs a project's folders. What it
-needs is `syncthing` on every member's PATH (`brew install syncthing`, `sudo apt install syncthing`) and nothing
-else: no account, no URL, no key. In the project checkout:
-
-```sh
-brigade team create --adapter syncthing --name <team> --secret-file ~/brigade-<team>.secret
-```
-
-then `git add .brigade.json && git commit && git push`. The file carries the team's reference and name and
-`devices`: the Syncthing device id of this machine, the team's **seed**. A member joins while a session of a seed
-is running (any member can add their own device id to `devices` by hand to be a seed too), and the team's folder
-reaches them within seconds of the join. Every member's machine then holds every message of the team, and a
-revocation reaches a member's engine within seconds and drops their device after a short grace.
-`docs/team-admin/create/create-over-syncthing.md` in the Brigade repository has the details; a team that already
-lives in a Supabase project moves with the `migrate` skill (`docs/team-admin/create/move-to-syncthing.md`).
-
 ## 2. Member: join
 
 Clone the project, save the secret file your administrator sent you outside the repository, open a Muse Code

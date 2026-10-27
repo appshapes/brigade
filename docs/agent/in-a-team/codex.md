@@ -7,7 +7,7 @@ hook-written session map. The observed 0.163.0 paginated history retains these e
 Missing/unsupported records leave context blank and the name at its last known value. Reads are bounded;
 page-only or database-only storage is unsupported. See [format evidence and limits](../../research/host-session-facts.md).
 
-The Codex CLI package (`codex/brigade/`) ships the same nine skills, worded for Codex. They are the model's
+The Codex CLI package (`codex/brigade/`) ships the same eight skills, worded for Codex. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 
 | Skill | Who invokes it | What it carries |
@@ -20,7 +20,6 @@ documentation inside a team; this page names them and says what differs from Cla
 | [`codex/brigade/skills/email/SKILL.md`](../../../codex/brigade/skills/email/SKILL.md) | `$brigade:email <address> <text>` | one `brigade send` to the mail gateway |
 | [`codex/brigade/skills/slack/SKILL.md`](../../../codex/brigade/skills/slack/SKILL.md) | `$brigade:slack <to> <text>` | one `brigade send` to the Slack gateway |
 | [`codex/brigade/skills/quiet/SKILL.md`](../../../codex/brigade/skills/quiet/SKILL.md) | `$brigade:quiet [on [--to <where>] [--refuse]]`, `$brigade:quiet off`, `$brigade:quiet status` | make this one session quiet with `brigade inbound hold`, the roster line and a standing instruction; `off` returns it |
-| [`codex/brigade/skills/migrate/SKILL.md`](../../../codex/brigade/skills/migrate/SKILL.md) | `$brigade:migrate <path>` | run `brigade team migrate --secret-file <path>`: move the team onto the syncthing adapter, the new secret to the file the user named |
 
 What differs from Claude Code:
 

@@ -12,7 +12,6 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"time"
 
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -296,11 +295,7 @@ type FolderConfig struct {
 	Devices          []DeviceRef      `json:"devices"`
 	Versioning       VersioningConfig `json:"versioning"`
 	FSWatcherEnabled bool             `json:"fsWatcherEnabled"`
-	// FSWatcherDelayS is the change-detection delay; absent keeps
-	// Syncthing's default (10 s). The message adapter sets 1 on the team
-	// folder, so a message is announced within a second of its write.
-	FSWatcherDelayS int `json:"fsWatcherDelayS,omitzero"`
-	RescanIntervalS int `json:"rescanIntervalS"`
+	RescanIntervalS  int              `json:"rescanIntervalS"`
 	// Paused is always sent, false: a folder the project lists again
 	// after the sync adapter paused it syncs again.
 	Paused bool `json:"paused"`
@@ -318,25 +313,6 @@ func (c *API) SetDevice(d DeviceConfig) error {
 	return c.Do(http.MethodPost, "/rest/config/devices", nil, d, nil)
 }
 
-// RemoveDevice is DELETE /rest/config/devices/<id>: the device leaves the
-// configuration and every folder's device list with it.
-func (c *API) RemoveDevice(id string) error {
-	return c.Do(http.MethodDelete, "/rest/config/devices/"+url.PathEscape(id), nil, nil, nil)
-}
-
-// NamePatch is the one member PatchDeviceName sends.
-type NamePatch struct {
-	Name string `json:"name"`
-}
-
-// PatchDeviceName is PATCH /rest/config/devices/<id> with the name alone.
-// On the instance's own id it is the name the instance announces to a
-// peer it connects to, which is how a joining member carries its proof
-// (internal/adapters/syncthing).
-func (c *API) PatchDeviceName(id, name string) error {
-	return c.Do(http.MethodPatch, "/rest/config/devices/"+url.PathEscape(id), nil, NamePatch{Name: name}, nil)
-}
-
 // SetFolder is POST /rest/config/folders: replace-or-add by id.
 func (c *API) SetFolder(f FolderConfig) error {
 	return c.Do(http.MethodPost, "/rest/config/folders", nil, f, nil)
@@ -351,32 +327,4 @@ func (c *API) RemoveFolder(id string) error {
 // PauseFolder is PATCH /rest/config/folders/<id> with paused alone.
 func (c *API) PauseFolder(id string, paused bool) error {
 	return c.Do(http.MethodPatch, "/rest/config/folders/"+url.PathEscape(id), nil, PausePatch{Paused: paused}, nil)
-}
-
-// A PendingDevice is one device that connected to this instance and was
-// not accepted (GET /rest/cluster/pending/devices): when it last tried,
-// the name it announced, and its address.
-type PendingDevice struct {
-	Time    time.Time `json:"time"`
-	Name    string    `json:"name"`
-	Address string    `json:"address"`
-}
-
-// PendingDevices lists the devices waiting for acceptance, by id.
-func (c *API) PendingDevices() (map[string]PendingDevice, error) {
-	var out map[string]PendingDevice
-	if err := c.Do(http.MethodGet, "/rest/cluster/pending/devices", nil, nil, &out); err != nil {
-		return nil, err
-	}
-	if out == nil {
-		out = map[string]PendingDevice{}
-	}
-	return out, nil
-}
-
-// DismissPendingDevice forgets one pending device (DELETE
-// /rest/cluster/pending/devices?device=<id>); it is listed again the
-// next time it connects.
-func (c *API) DismissPendingDevice(id string) error {
-	return c.Do(http.MethodDelete, "/rest/cluster/pending/devices", url.Values{"device": {id}}, nil, nil)
 }

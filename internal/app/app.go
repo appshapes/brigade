@@ -14,7 +14,6 @@ import (
 	"io"
 
 	"github.com/appshapes/brigade/internal/adapters/supabase"
-	syncthingadapter "github.com/appshapes/brigade/internal/adapters/syncthing"
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/hook"
 	"github.com/appshapes/brigade/internal/harness/watch"
@@ -79,15 +78,11 @@ const (
 	syncAdapterEntry = "sync-adapter"
 )
 
-// The two bundled adapter names: the Supabase adapter of v1, and the
-// syncthing adapter of card 141.
-const (
-	bundledSupabase  = "supabase"
-	bundledSyncthing = "syncthing"
-)
+// bundledSupabase is the one bundled adapter name of v1.
+const bundledSupabase = "supabase"
 
-// runAdapter hands `brigade adapter supabase …` or `brigade adapter
-// syncthing …` to that bundled adapter's Run seam with the REAL process streams — stdin included, because
+// runAdapter hands `brigade adapter supabase …` to the bundled adapter's
+// Run seam with the REAL process streams — stdin included, because
 // adapterkit.ReadInput's terminal refusal and the team commands' --prompt
 // path both test the descriptor — and the environment as given. The
 // adapter speaks BAP/1 on stdout from here on: its own poison scan, flag
@@ -95,19 +90,14 @@ const (
 // missing or unknown adapter name is `usage` through the table's own
 // reporter, so nothing here ever names os.Stdout.
 func runAdapter(cmd cli.Command, rest []string, stdin io.Reader, stdout, stderr io.Writer, environ []string) int {
-	if len(rest) > 0 {
-		switch rest[0] {
-		case bundledSupabase:
-			return supabase.Run(rest[1:], stdin, stdout, stderr, environ)
-		case bundledSyncthing:
-			return syncthingadapter.Run(rest[1:], stdin, stdout, stderr, environ)
-		}
+	if len(rest) > 0 && rest[0] == bundledSupabase {
+		return supabase.Run(rest[1:], stdin, stdout, stderr, environ)
 	}
 	streams := cli.Streams{In: stdin, Out: stdout, Err: stderr}
 	if len(rest) == 0 {
-		return cli.Usage(cmd, rest, streams, "adapter needs a name; the bundled adapters are `supabase` and `syncthing`")
+		return cli.Usage(cmd, rest, streams, "adapter needs a name; the bundled adapter is `supabase`")
 	}
-	return cli.Usage(cmd, rest, streams, "unknown adapter name; the bundled adapters are `supabase` and `syncthing`")
+	return cli.Usage(cmd, rest, streams, "unknown adapter name; the bundled adapter is `supabase`")
 }
 
 // runSyncAdapter hands `brigade sync-adapter <name> <verb>` to the bundled

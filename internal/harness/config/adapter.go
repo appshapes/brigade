@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -19,19 +18,6 @@ import (
 // A registry entry of that name is ignored — the developer override for a
 // local build is the dev-binary pointer (D35), not a registry rebind.
 const BundledAdapterName = "supabase"
-
-// BundledSyncthingName is the second bundled adapter (card 141): the
-// syncthing message adapter, `brigade adapter syncthing …`. It resolves
-// to the absolute argv of this executable, so every consumer of a
-// resolved adapter — the by-pid map, the watcher's environment, the
-// commands — carries it as an ordinary argv adapter and needs no second
-// "bundled" spelling beside the Supabase adapter's `[]`.
-const BundledSyncthingName = "syncthing"
-
-// IsBundled reports whether name is one of the two bundled adapters.
-func IsBundled(name string) bool {
-	return name == BundledAdapterName || name == BundledSyncthingName
-}
 
 // The two harness-owned files of D36 (3.2).
 const (
@@ -190,28 +176,10 @@ func ResolveAdapter(opts Options, configDir, adapterName string) (Adapter, error
 	if opts.AdapterCommand != "" {
 		return parseSpec(opts.AdapterCommand, configDir, SourceOption)
 	}
-	if adapterName == BundledSyncthingName {
-		return bundledSyncthing(SourceBundled)
-	}
 	if adapterName != "" && adapterName != BundledAdapterName {
 		return parseSpec(adapterName, configDir, SourceProfile)
 	}
 	return Adapter{Bundled: true, Source: SourceBundled}, nil
-}
-
-// bundledSyncthing is the syncthing adapter's resolved argv: this
-// executable, `adapter syncthing`. The path is resolved once here, at
-// session start or at the terminal command, and carried from then on.
-func bundledSyncthing(source string) (Adapter, error) {
-	self, err := os.Executable()
-	if err != nil {
-		return Adapter{}, &protocol.Error{
-			Code:    protocol.CodeInternal,
-			Message: "cannot resolve this executable for the bundled syncthing adapter",
-			Details: map[string]string{"reason": "executable_unresolved", "source": source},
-		}
-	}
-	return Adapter{Argv: []string{self, "adapter", BundledSyncthingName}, Source: source}, nil
 }
 
 // parseSpec interprets one adapter value in the three accepted forms.
@@ -245,9 +213,6 @@ func parseSpec(value, configDir, source string) (Adapter, error) {
 	case CheckAdapterName(v) == nil:
 		if v == BundledAdapterName {
 			return Adapter{Bundled: true, Source: source}, nil
-		}
-		if v == BundledSyncthingName {
-			return bundledSyncthing(source)
 		}
 		return lookupRegistry(v, configDir, source)
 	case looksLikePath(v):
@@ -368,8 +333,8 @@ const SourceRegistry = "registry"
 // broken or world-readable file is never silently replaced; every other
 // entry is kept verbatim. The file is written atomically, 0600.
 func RegisterAdapter(configDir, name string, argv []string) error {
-	if CheckAdapterName(name) != nil || IsBundled(name) {
-		return errAdapter(ReasonAdapterMalformed, SourceRegistry, "the adapter name must be 1-64 characters from letters, digits, dash and underscore, and not a bundled name")
+	if CheckAdapterName(name) != nil || name == BundledAdapterName {
+		return errAdapter(ReasonAdapterMalformed, SourceRegistry, "the adapter name must be 1-64 characters from letters, digits, dash and underscore, and not the bundled name")
 	}
 	switch {
 	case len(argv) == 0:

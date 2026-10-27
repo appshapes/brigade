@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -50,25 +49,22 @@ const orphanMaxAge = time.Hour
 // when nothing was dropped).
 type createOptions struct {
 	url, key, name, label, adapter, secretFile string
-	// teamRef, set by `team migrate` alone, keeps a team's reference when
-	// it moves to the syncthing adapter (the adapter's own --team-ref).
-	teamRef string
-	// migrated is the adapter the team moved from (`team migrate`), for
-	// the report; "" for a create.
-	migrated          string
-	force             bool
-	carriedSync       *teamfile.SyncConfig
-	syncNotCarried    string
-	carriedGateway    *teamfile.GatewayConfig
-	gatewayNotCarried string
-	carriedPolling    *teamfile.PollingConfig
-	pollingNotCarried string
+	force                                      bool
+	carriedSync                                *teamfile.SyncConfig
+	syncNotCarried                             string
+	carriedGateway                             *teamfile.GatewayConfig
+	gatewayNotCarried                          string
+	carriedPolling                             *teamfile.PollingConfig
+	pollingNotCarried                          string
 }
 
 // teamCreate implements the rebuilt `brigade team create` (brief §2):
 // one command in the admin's terminal, cwd anywhere inside the checkout.
 func (inv Invocation) teamCreate(raw rawArgs) error {
-	opts, err := parseCreateFlags(raw.Rest, raw.Adapter, inv.Environ)
+	opts, err := parseCreateFlags(raw.Rest, inv.Environ)
+	if err == nil && raw.Adapter != "" {
+		opts.adapter = raw.Adapter
+	}
 	if err != nil {
 		return err
 	}
@@ -112,7 +108,7 @@ func (inv Invocation) teamCreate(raw rawArgs) error {
 // DECISIVE finding: a relative path deposits a live secret inside the
 // repository, the one place it must never exist). A leading `~/` is
 // HOME's, not the cwd's (card 130).
-func parseCreateFlags(args []string, adapterOverride string, environ []string) (*createOptions, error) {
+func parseCreateFlags(args, environ []string) (*createOptions, error) {
 	var o createOptions
 	fs := flag.NewFlagSet("team create", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -126,16 +122,8 @@ func parseCreateFlags(args []string, adapterOverride string, environ []string) (
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return nil, usage("team create takes --url, --key, --name, --label, --adapter, --secret-file and --force")
 	}
-	if adapterOverride != "" {
-		o.adapter = adapterOverride
-	}
-	if o.adapter == config.BundledSyncthingName {
-		// The team's backend is the members' machines: no URL, no key.
-		if o.url != "" || o.key != "" {
-			return nil, usage("team create --adapter syncthing takes no --url or --key: the team's backend is the members' machines")
-		}
-	} else if o.url == "" || o.key == "" {
-		return nil, usage("team create needs --url and --key (the backend the team will live in), or --adapter syncthing for a team with no backend")
+	if o.url == "" || o.key == "" {
+		return nil, usage("team create needs --url and --key (the backend the team will live in)")
 	}
 	if o.secretFile == "" {
 		return nil, usage("team create needs --secret-file: the join secret goes to that file (0600), never to your terminal")
@@ -261,11 +249,7 @@ func (inv Invocation) driveCreate(opts *createOptions, req *protocol.TeamCreateR
 	if _, err := t.client.Call(context.Background(), "profile", "init", initFlags, nil); err != nil {
 		return nil, "", nil, err
 	}
-	createFlags := []string{"--secret-file", opts.secretFile}
-	if opts.teamRef != "" {
-		createFlags = append(createFlags, "--team-ref", opts.teamRef)
-	}
-	env, err := t.client.Call(context.Background(), "team", "create", createFlags, req)
+	env, err := t.client.Call(context.Background(), "team", "create", []string{"--secret-file", opts.secretFile}, req)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -328,25 +312,6 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 		"publishable_key": opts.key, "team_ref": answer.TeamRef,
 		"team_name": protocol.SanitizeName(answer.TeamName),
 	}
-	var seedLine string
-	if opts.adapter == config.BundledSyncthingName {
-		// A team over Syncthing names its seed devices instead of a
-		// backend: this machine's, which the adapter learned when it
-		// attached the engine (profile status, device_id).
-		device, err := inv.deviceID(t)
-		if err != nil {
-			return err
-		}
-		delete(members, "url")
-		delete(members, "publishable_key")
-		members["devices"] = []string{device}
-		seedLine = "this machine is the team's seed device (" + attrLine(device) + "): teammates join while a session of yours runs; add more seeds to " + teamfile.FileName + "'s devices member by hand"
-		// The hosted gateways live in a Supabase project; a team with no
-		// project has none, so the member is dropped with a line.
-		if opts.carriedGateway != nil {
-			opts.carriedGateway, opts.gatewayNotCarried = nil, "no_project"
-		}
-	}
 	if opts.carriedSync != nil {
 		members["sync"] = opts.carriedSync
 	}
@@ -363,17 +328,10 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 	if err := adapterkit.WriteAtomicMode(filePath, append(doc, '\n'), 0o644); err != nil {
 		return err
 	}
-	did := "created"
-	if opts.migrated != "" {
-		did = "moved to the " + attrLine(opts.adapter) + " adapter from " + attrLine(opts.migrated) + ":"
-	}
 	lines := []string{
-		did + " team \"" + protocol.SanitizeName(answer.TeamName) + "\" (" + sanitizeID(answer.TeamRef) + ")",
+		"created team \"" + protocol.SanitizeName(answer.TeamName) + "\" (" + sanitizeID(answer.TeamRef) + ")",
 		labelSent(req.HumanLabel, answer.PrincipalRef),
 		"wrote " + teamfile.FileName + " at the repository toplevel",
-	}
-	if seedLine != "" {
-		lines = append(lines, seedLine)
 	}
 	if opts.syncNotCarried != "" {
 		// A fixed sentence and a token from the closed lists, never file
@@ -382,9 +340,7 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 		lines = append(lines, "the previous "+teamfile.FileName+"'s sync member was not carried into the new file ("+
 			opts.syncNotCarried+"); add it again if this project syncs folders")
 	}
-	if opts.gatewayNotCarried == "no_project" {
-		lines = append(lines, "the previous "+teamfile.FileName+"'s gateway member was not carried into the new file: the hosted mail and Slack gateways live in the Supabase project, and a team over Syncthing has none")
-	} else if opts.gatewayNotCarried != "" {
+	if opts.gatewayNotCarried != "" {
 		lines = append(lines, "the previous "+teamfile.FileName+"'s gateway member was not carried into the new file ("+
 			opts.gatewayNotCarried+"); run make gateway-install again if this team has a mail gateway")
 	}
@@ -392,110 +348,10 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 		lines = append(lines, "the previous "+teamfile.FileName+"'s polling member was not carried into the new file ("+
 			opts.pollingNotCarried+"); add it again if this team tunes its intervals")
 	}
-	lines = append(lines, "the join secret is in "+opts.secretFile+" (0600); share it over a password-grade channel only")
-	if opts.migrated != "" {
-		lines = append(lines,
-			"next: git add "+teamfile.FileName+" && git commit && git push — the file carries only public values",
-			"then every member pulls and runs /brigade:join <path> with the new secret file; their sessions move at their next start",
-			"messages on the old backend are not carried over; its hosted gateways stay with the Supabase project")
-		return writeLines(inv.Out, lines...)
-	}
 	return writeLines(inv.Out, append(lines,
+		"the join secret is in "+opts.secretFile+" (0600); share it over a password-grade channel only",
 		"next: git add "+teamfile.FileName+" && git commit && git push — the file carries only public values",
 	)...)
-}
-
-// deviceID asks the syncthing adapter's `profile status` for this
-// machine's device id: the seed `team create` writes into the team file.
-func (inv Invocation) deviceID(t *target) (string, error) {
-	env, err := t.client.Call(context.Background(), "profile", "status", nil, nil)
-	if err != nil {
-		return "", err
-	}
-	var status struct {
-		DeviceID string `json:"device_id"`
-	}
-	if uerr := json.Unmarshal(env.Result, &status); uerr != nil || status.DeviceID == "" {
-		return "", &protocol.Error{
-			Code:    protocol.CodeUnavailable,
-			Message: "the syncthing adapter reported no device id for this machine; is syncthing installed and on PATH?",
-			Details: map[string]string{"reason": "no_device_id"},
-		}
-	}
-	return status.DeviceID, nil
-}
-
-// teamMigrate moves this project's team from its current adapter to the
-// syncthing adapter (card 141): a `team create` over syncthing under the
-// SAME team reference and name, so the folder ids the project already
-// syncs stay what they are, with a fresh join secret, and a rewritten
-// team file that carries the project's sync and polling members. Every
-// member then pulls and joins with the new secret; messages on the old
-// backend are not carried over.
-func (inv Invocation) teamMigrate(raw rawArgs) error {
-	var secretFile, label string
-	fs := flag.NewFlagSet("team migrate", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	fs.StringVar(&secretFile, "secret-file", "", "")
-	fs.StringVar(&label, "label", "", "")
-	if err := fs.Parse(raw.Rest); err != nil || fs.NArg() > 0 {
-		return usage("team migrate takes --secret-file and --label")
-	}
-	if secretFile == "" {
-		return usage("team migrate needs --secret-file: the team's new join secret goes to that file (0600), never to your terminal")
-	}
-	secretFile = expandHome(secretFile, inv.Environ)
-	if !filepath.IsAbs(secretFile) {
-		return usage("--secret-file must be an absolute path outside this project (a relative path would land in the repository)")
-	}
-	top, err := inv.requireToplevel("team migrate")
-	if err != nil {
-		return err
-	}
-	if err := checkSecretFileOutside(secretFile, top); err != nil {
-		return err
-	}
-	path, ok := teamfile.Discover(inv.mustGetwd())
-	if !ok {
-		return &protocol.Error{
-			Code:    protocol.CodeConfig,
-			Message: "this project has no " + teamfile.FileName + " to move; create the team with `brigade team create --adapter syncthing`",
-			Details: map[string]string{"reason": "team_file_missing"},
-		}
-	}
-	f, err := teamfile.Parse(path)
-	if err != nil {
-		return err
-	}
-	if f.Adapter == config.BundledSyncthingName {
-		return &protocol.Error{
-			Code:    protocol.CodeConflict,
-			Message: "this team already runs over the syncthing adapter; nothing to move",
-			Details: map[string]string{"reason": "already_syncthing"},
-		}
-	}
-	if f.TeamName == "" {
-		return usage("the team file carries no team_name; add it and run team migrate again")
-	}
-	opts := &createOptions{
-		adapter: config.BundledSyncthingName, name: f.TeamName, label: label,
-		secretFile: secretFile, teamRef: f.TeamRef, migrated: f.Adapter, force: true,
-	}
-	opts.carriedSync, opts.syncNotCarried = teamfile.CarriedSync(path)
-	opts.carriedGateway, opts.gatewayNotCarried = teamfile.CarriedGateway(path)
-	opts.carriedPolling, opts.pollingNotCarried = teamfile.CarriedPolling(path)
-	req, err := inv.createRequest(opts)
-	if err != nil {
-		return err
-	}
-	answer, tmpKey, t, err := inv.driveCreate(opts, req)
-	if err != nil {
-		return err
-	}
-	if answer.TeamRef != f.TeamRef {
-		return protocolMismatch("team create did not keep the team's reference")
-	}
-	return inv.finishCreate(opts, top, filepath.Join(top, teamfile.FileName), req, answer, tmpKey, t)
 }
 
 // teamJoin implements the rebuilt parameterless `brigade team join`
@@ -654,14 +510,9 @@ func bindingMissing(err error) bool {
 // typed — host, name and ref from the file, the adapter named whenever
 // it is not the bundled one (review low fix 6).
 func (inv Invocation) confirmGate(f *teamfile.File, action string) error {
-	line := action + " team \"" + nameLine(f.TeamName) + "\" (" + sanitizeID(f.TeamRef) + ")"
-	switch f.Adapter {
-	case config.BundledSyncthingName:
-		line += " over syncthing (" + strconv.Itoa(len(f.Devices)) + " seed device(s), no backend)"
-	case config.BundledAdapterName:
-		line += " at " + attrLine(hostOf(f.URL))
-	default:
-		line += " at " + attrLine(hostOf(f.URL)) + " via adapter \"" + attrLine(f.Adapter) + "\""
+	line := action + " team \"" + nameLine(f.TeamName) + "\" (" + sanitizeID(f.TeamRef) + ") at " + attrLine(hostOf(f.URL))
+	if f.Adapter != config.BundledAdapterName {
+		line += " via adapter \"" + attrLine(f.Adapter) + "\""
 	}
 	if inv.inSession() {
 		// No terminal to ask on — stdin is /dev/null — so the invocation
@@ -718,9 +569,9 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 			return err
 		}
 	}
-	backend, err := joinBackend(f)
+	backend, err := json.Marshal(map[string]string{"url": f.URL, "publishable_key": f.PublishableKey})
 	if err != nil {
-		return err
+		return fmt.Errorf("commands: marshal backend: %w", err)
 	}
 	req := &protocol.TeamJoinRequest{JoinSecret: secret, HumanLabel: label, Backend: backend}
 	env, err := t.client.Call(context.Background(), "team", "join", nil, req)
@@ -741,22 +592,6 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 // checkJoinSecret is the local half of a join, before any network (review
 // medium fix 4 — no existence oracle): the secret parses, and its
 // embedded team ref is the file's.
-// joinBackend is the adapter-defined `backend` member of the join
-// request (4.4.10): the Supabase pair, or — over syncthing — the team
-// file's seed devices and the team's name, which the adapter answers
-// before the team folder has reached the machine.
-func joinBackend(f *teamfile.File) ([]byte, error) {
-	var doc any = map[string]string{"url": f.URL, "publishable_key": f.PublishableKey}
-	if f.Adapter == config.BundledSyncthingName {
-		doc = map[string]any{"devices": f.Devices, "team_name": f.TeamName}
-	}
-	backend, err := json.Marshal(doc)
-	if err != nil {
-		return nil, fmt.Errorf("commands: marshal backend: %w", err)
-	}
-	return backend, nil
-}
-
 func checkJoinSecret(secret string, f *teamfile.File) error {
 	parsed, err := protocol.ParseJoinSecret(secret)
 	if err != nil {
