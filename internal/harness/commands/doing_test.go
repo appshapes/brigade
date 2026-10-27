@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -62,6 +63,9 @@ func heartbeatDoc(t *testing.T, f *fixture) map[string]any {
 // terminal on stdin — is answered before a child is spawned, not even the
 // describe; the happy path at the end is the positive control.
 func TestDoingRefusesInputBeforeAnySpawn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the home-directory refusal compares unix paths")
+	}
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
@@ -433,6 +437,9 @@ func TestDoingIgnoresHostileEnvironment(t *testing.T) {
 // dir at 0500, the Bash sandbox's shape) proves the publish still
 // succeeds there.
 func TestDoingWritesNothingLocally(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only directory is not read-only on Windows")
+	}
 	t.Parallel()
 	t.Run("writable", func(t *testing.T) {
 		t.Parallel()

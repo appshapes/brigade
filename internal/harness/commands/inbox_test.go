@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -295,6 +296,9 @@ func TestInboxTerminalListsARefuseSessionAndAnAcceptSessionWithLeftovers(t *test
 }
 
 func TestInboxReleaseWritesTheReleaseFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the release file mode is a unix fact")
+	}
 	t.Parallel()
 	f := holdFixture(t)
 	dead := func(pid int) (procutil.Info, error) { return procutil.Info{PID: pid}, nil }
