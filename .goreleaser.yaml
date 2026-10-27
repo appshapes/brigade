@@ -1,6 +1,7 @@
 # .goreleaser.yaml — plan 7.7. Pinned binary: goreleaser v2.18.0 (`make setup-goreleaser`).
-# The four D33 targets only. The bytes must be reproducible from `make cross` with the same flags,
-# so nothing here may depend on the release commit (no .Commit, no .Date in the ldflags).
+# The four D33 targets only, until the binary builds for Windows (card 133, plan §3.3: then `windows` joins goos
+# here and the Makefile's `targets` together). The bytes must be reproducible from `make cross` with the same
+# flags, so nothing here may depend on the release commit (no .Commit, no .Date in the ldflags).
 version: 2
 project_name: brigade
 before:

@@ -92,6 +92,7 @@ jobs:
       # channels, exec-form hooks whose commands exist, sh/bash/zsh syntax, shellcheck (a hard failure here
       # because CI is set), and the secret scan.
       - run: make plugin-check
+      - run: make launcher-check        # the committed Windows launcher plugin/bin/brigade.exe reproduces from cmd/brigade-launcher (card 133)
       - run: make muse-plugin-check     # the Muse Code package, card 88: muse/brigade/ against the same pins
       - run: make codex-plugin-check    # the Codex CLI package, card 107: codex/brigade/ and the marketplace file against the same pins
       - run: make grok-plugin-check     # Grok native monitor package and canonical release assets

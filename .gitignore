@@ -237,3 +237,6 @@ reviews.db
 
 # playwright-cli writes page snapshots here; they can hold whatever the browser showed
 .playwright-cli/
+
+# The committed Windows launcher (card 133): the Go template above ignores *.exe
+!plugin/bin/brigade.exe

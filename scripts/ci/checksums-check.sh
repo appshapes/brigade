@@ -8,9 +8,11 @@
 #       (b) can never hold against an empty file, and no release exists to back it.
 #   (a) VERSION equals plugin/.claude-plugin/plugin.json's "version" (a real version needs a manifest, so a
 #       missing plugin.json is a failure once VERSION is not 0.0.0).
-#   (b) plugin/bin/checksums.txt is exactly four `<sha256>  <asset>` lines naming
-#       brigade_<VERSION>_{darwin,linux}_{amd64,arm64}.
-#   (c) the fresh file's four lines equal the committed file's, OR the published release v<VERSION> carries a
+#   (b) plugin/bin/checksums.txt is `<sha256>  <asset>` lines naming brigade_<VERSION>_{darwin,linux}_{amd64,arm64},
+#       one each, and the two Windows assets brigade_<VERSION>_windows_{amd64,arm64}.exe (card 133) either both
+#       present or both absent -- absent only while the committed file is a release from before Windows
+#       (0.40.0 and earlier) -- and nothing else.
+#   (c) the fresh file's lines equal the committed file's, OR the published release v<VERSION> carries a
 #       checksums.txt equal to the committed one (`gh release download`, authenticated with GH_TOKEN because the
 #       repository is private). Otherwise: the checksums are stale and nothing backs them.
 set -eu
@@ -73,17 +75,31 @@ if [ -f "$grok_json" ]; then
 fi
 printf 'checksums-check: (a) %s == %s == %s\n' "$version_file" "$plugin_json" "$version"
 
-# ---- (b) exactly the four assets for this version ---------------------------------------------------------------
+# ---- (b) exactly the assets for this version: the four D33 ones, and the two Windows ones together or not at all ----
+count_asset() {
+  # The asset name carries the version's dots; escape them so the ERE is literal.
+  pattern=$(printf '%s' "$1" | sed 's/[.]/\\./g')
+  grep -cE "^[0-9a-f]{64}  ${pattern}\$" "$committed" || true
+}
+windows=0
+for t in windows_amd64 windows_arm64; do
+  n=$(count_asset "brigade_${version}_${t}.exe")
+  case $n in
+    0) ;;
+    1) windows=$((windows + 1)) ;;
+    *) die "(b) $committed has $n well-formed '<sha256>  brigade_${version}_${t}.exe' line(s), expected at most 1" ;;
+  esac
+done
+[ "$windows" = 0 ] || [ "$windows" = 2 ] || die "(b) $committed names only one of the two Windows assets: a release carries both or neither"
+expected_lines=$((4 + windows))
 lines=$(awk 'END {print NR}' "$committed")
-[ "$lines" = 4 ] || die "(b) $committed has $lines line(s), expected exactly 4"
+[ "$lines" = "$expected_lines" ] || die "(b) $committed has $lines line(s), expected exactly $expected_lines"
 for t in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
   asset=brigade_${version}_${t}
-  # The asset name carries the version's dots; escape them so the ERE below is literal.
-  pattern=$(printf '%s' "$asset" | sed 's/[.]/\\./g')
-  n=$(grep -cE "^[0-9a-f]{64}  ${pattern}\$" "$committed" || true)
+  n=$(count_asset "$asset")
   [ "$n" = 1 ] || die "(b) $committed has $n well-formed '<sha256>  $asset' line(s), expected exactly 1"
 done
-printf 'checksums-check: (b) %s names the four v%s assets in <sha256>  <asset> form\n' "$committed" "$version"
+printf 'checksums-check: (b) %s names the %s v%s assets in <sha256>  <asset> form\n' "$committed" "$expected_lines" "$version"
 
 # ---- (c) a fresh build or the published release backs the committed file ------------------------------------------
 if diff -u "$committed" "$fresh" >/dev/null 2>&1; then

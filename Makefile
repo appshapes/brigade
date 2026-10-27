@@ -61,7 +61,14 @@ supabase           ?= npx --yes supabase@2.116.0
 deno               ?= npx --yes deno@2.6.2
 supabase_exclude   := studio,postgres-meta,imgproxy,storage-api,edge-runtime,mailpit,logflare,vector,supavisor
 tag                := $(shell git log -1 --pretty=format:"%H")
-targets            := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
+targets            := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64   # windows/amd64 windows/arm64 join when the binary builds for Windows (card 133, plan §3.3)
+# The Windows launcher (card 133, .context/plans/native-windows.md §3.1): plugin/bin/brigade.exe is COMMITTED,
+# built once from cmd/brigade-launcher with the release flags and no version stamp (it reads VERSION and
+# checksums.txt beside itself at run time), so it changes only when its source or the toolchain does.
+# `make launcher-check` (CI) rebuilds it and diffs; `make launcher` rewrites it to commit.
+launcher_src       := ./cmd/brigade-launcher
+launcher_exe       := plugin/bin/brigade.exe
+launcher_build      = $(go_build_env) GOOS=windows GOARCH=amd64 go build $(go_flags) -ldflags '-s -w' -o
 tools_mod          := tools.mod
 version            ?= $(plugin_version)
 
@@ -394,14 +401,29 @@ print-version: ## Print the version pinned in plugin/bin/VERSION
 cross: version-check ## Build dist-cross/brigade_$(version)_<os>_<arch> for every target with the exact release flags, plus checksums.txt (CI)
 	rm -rf $(dist_cross) && mkdir -p $(dist_cross)
 	for t in $(targets); do \
+	  ext=; case $$t in windows/*) ext=.exe ;; esac; \
 	  $(go_build_env) GOOS=$${t%/*} GOARCH=$${t#*/} go build $(go_flags) -ldflags '$(ld_flags)' \
-	    -o $(dist_cross)/brigade_$(version)_$${t%/*}_$${t#*/} ./cmd/brigade || exit 1; \
+	    -o $(dist_cross)/brigade_$(version)_$${t%/*}_$${t#*/}$$ext ./cmd/brigade || exit 1; \
 	done
 	cd $(dist_cross) && $(sha256) brigade_* > checksums.txt
 
 .PHONY: checksums-check
 checksums-check: cross ## Fail if plugin/bin/{VERSION,checksums.txt} disagree with plugin.json, a fresh build, or the published release (CI)
 	scripts/ci/checksums-check.sh $(dist_cross)/checksums.txt
+
+.PHONY: launcher
+launcher: ## Rebuild plugin/bin/brigade.exe, the committed Windows launcher, with the release flags (commit it when cmd/brigade-launcher or the toolchain changes)
+	$(launcher_build) $(launcher_exe) $(launcher_src)
+
+.PHONY: launcher-check
+launcher-check: ## Fail unless a fresh build of cmd/brigade-launcher reproduces the committed plugin/bin/brigade.exe byte for byte (CI)
+	@tmp=$$(mktemp -t brigade-launcher.XXXXXX) || exit 1; \
+	  $(launcher_build) "$$tmp" $(launcher_src) || { rm -f "$$tmp"; exit 1; }; \
+	  if cmp -s "$$tmp" $(launcher_exe); then \
+	    rm -f "$$tmp"; echo "launcher-check: $(launcher_exe) reproduces from $(launcher_src) ($$(wc -c < $(launcher_exe) | tr -d ' ') bytes)"; \
+	  else \
+	    rm -f "$$tmp"; echo "launcher-check: $(launcher_exe) does not reproduce from $(launcher_src) under $(go_toolchain): run 'make launcher' and commit the result" >&2; exit 1; \
+	  fi
 
 .PHONY: release
 release: ## Pin the plugin to $(version), commit through the push chain as `$(card): Release $(version)`, tag v$(version) and push the tag (usage: make release version=0.1.0 card=<n> [branch=<throwaway>] — branch only for the P2-12 rehearsal)

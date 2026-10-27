@@ -44,10 +44,20 @@ case $version in ''|*[!0-9A-Za-z.+-]*) fail 11 "invalid version in $bindir/VERSI
 checksums=$bindir/checksums.txt
 [ -r "$checksums" ] || fail 11 "missing $checksums"
 
-# ---- platform (D33: macOS and Linux only; WSL 2 is Linux) ----------------------------------------------------------
+# ---- platform (D33: macOS and Linux here, WSL 2 is Linux; card 133: native Windows runs the launcher) ------------
 sys=$(uname -sm 2>/dev/null) || fail 11 "uname failed"
 os=${sys%% *}; arch=${sys##* }
-case $os in Darwin) os=darwin ;; Linux) os=linux ;; *) fail 11 "unsupported OS '$os' (supported: macOS, Linux, WSL 2)" ;; esac
+case $os in
+  Darwin) os=darwin ;;
+  Linux) os=linux ;;
+  MINGW*|MSYS*|CYGWIN*)
+    # Git Bash on native Windows: the Bash tool's bare `brigade` and a human's terminal land here (E11). The
+    # hooks never do -- Claude Code resolves their extensionless command to brigade.exe itself -- so the
+    # launcher beside this script is the bootstrap on Windows, with the same argv and stdin.
+    [ -f "$bindir/brigade.exe" ] || fail 11 "no brigade.exe beside this script: native Windows needs the launcher (card 133)"
+    exec "$bindir/brigade.exe" "$@" ;;
+  *) fail 11 "unsupported OS '$os' (supported: macOS, Linux, WSL 2, Windows)" ;;
+esac
 case $arch in arm64|aarch64) arch=arm64 ;; x86_64|amd64) arch=amd64 ;; *) fail 11 "unsupported CPU architecture '$arch'" ;; esac
 
 # ---- home and XDG paths: absolute values only (the XDG rule; also stops a repository settings `env` block

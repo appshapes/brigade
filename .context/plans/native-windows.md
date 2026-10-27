@@ -108,7 +108,7 @@ native-Windows proof report.
 | Id | Work | State |
 | --- | --- | --- |
 | P61-1 | Step 0: the hook-resolution experiment on a Windows runner; report E11 | done 2026-10-27: GO (run 40571499492, Claude Code 2.1.311) |
-| P61-2 | The launcher (`cmd/brigade-launcher`), its reproducibility check, the bootstrap's Git Bash arm | |
+| P61-2 | The launcher (`cmd/brigade-launcher`), its reproducibility check, the bootstrap's Git Bash arm | done 2026-10-27 |
 | P61-3 | `procutil`, `adapterkit` and the thirteen checks on Windows | |
 | P61-4 | The harness on Windows: delivery through the named pipe, spawns, watcher, sink, session map | |
 | P61-5 | The Syncthing engine on Windows | |

@@ -64,7 +64,7 @@ count=$(grep -c . "$tmp" || true)
 hits=0
 while IFS= read -r f; do
   case $f in
-    dist-cross/*|bin/brigade*)
+    dist-cross/*|bin/brigade*|plugin/bin/brigade.exe)   # the committed Windows launcher is a binary too (card 133)
       if grep -aHn -e "$jwt" -e "$sbsecret" "$f" >&2; then hits=$((hits + 1)); fi ;;
     *)
       if grep -aHn -e "$jwt" -e "$sbsecret" -e "$brg1" "$f" >&2; then hits=$((hits + 1)); fi ;;
