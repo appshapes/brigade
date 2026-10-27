@@ -496,10 +496,10 @@ func TestExitStatusIsAnError(t *testing.T) {
 // is spawned for it (the positive control is every other test, which
 // reads a 0600 map).
 func TestResolveSessionRefusesAnUnprivateMap(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("a mode of 0644 is not insecure on Windows (the profile-directory ruling)")
 	}
-	t.Parallel()
 	f := newFixture(t)
 	path, err := (sessionmap.Store{StateDir: f.stateDir}).ByPIDPath(fixturePID)
 	if err != nil {
@@ -535,10 +535,10 @@ func TestNotRegisteredMessage(t *testing.T) {
 // still succeed — the map is only read, the adapter log falls back to
 // discard, and nothing is written.
 func TestReadOnlyHomeStillListsAndSends(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("a read-only directory is not read-only on Windows (Chmod only sets the read-only attribute)")
 	}
-	t.Parallel()
 	if os.Getuid() == 0 {
 		t.Skip("root ignores directory modes")
 	}

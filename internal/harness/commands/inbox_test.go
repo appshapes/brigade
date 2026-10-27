@@ -296,10 +296,10 @@ func TestInboxTerminalListsARefuseSessionAndAnAcceptSessionWithLeftovers(t *test
 }
 
 func TestInboxReleaseWritesTheReleaseFile(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the release file mode is a unix fact")
 	}
-	t.Parallel()
 	f := holdFixture(t)
 	dead := func(pid int) (procutil.Info, error) { return procutil.Info{PID: pid}, nil }
 	inv := f.inv(f.terminalEnv("XDG_STATE_HOME="+f.dirs.XDGState), "", "release", "msg-1")

@@ -63,10 +63,10 @@ func mustProtocolError(t *testing.T, err error) *protocol.Error {
 // no child, and the child sees exactly the allow-list plus the four
 // computed BRIGADE_* — no more, no less.
 func TestChildEnvironmentIsExactlyTheAllowList(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the Windows child environment carries the platform names too (adapterkit.childEnvPlatform)")
 	}
-	t.Parallel()
 	dir := t.TempDir()
 	dumpPath := filepath.Join(dir, "dump.ndjson")
 	scriptPath := writeFakeScript(t, fakeadapter.Script{DumpFile: dumpPath})
@@ -250,10 +250,10 @@ func TestSpawnBrokeReturnsNilEnvelope(t *testing.T) {
 // arrive as Spawn returns them (unavailable/internal, with a nil
 // envelope).
 func TestSpawnMappedErrors(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("no child dies of a signal on Windows; an exit 137 is an exit there")
 	}
-	t.Parallel()
 
 	t.Run("timeout", func(t *testing.T) {
 		t.Parallel()
