@@ -99,7 +99,11 @@ message to the macOS session and had its reply within two minutes; its user conf
 terminal window appeared on its own after the first prompt, so the corrected flags hold where the window had
 appeared. One observation for Claude Code's side, not investigated: the first `/reload-plugins` in that session
 reported 0 hooks and the session was not registered; a second reported 3 hooks and the registration went
-through.
+through. Then the first fix, live (15:05Z): from that session's Bash tool, Git Bash, with `LOCALAPPDATA` pointed
+at a scratch directory (the running watcher holds the real cached binary), the plugin's launcher printed
+`brigade: first use: downloading brigade 0.41.1 for windows/amd64 from
+https://github.com/appshapes/brigade/releases/download` and then `0.41.1`, a clean exit: the download that
+0.41.0 refused with "Could not resolve host" under that spelling of the variables.
 
 ## What this run does not prove
 
