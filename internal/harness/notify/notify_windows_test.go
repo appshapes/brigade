@@ -31,7 +31,7 @@ func TestTheWindowsCallsResolve(t *testing.T) {
 	t.Parallel()
 	for _, p := range []interface{ Find() error }{procRegisterClassExW, procCreateWindowExW, procDefWindowProcW,
 		procDestroyWindow, procPeekMessageW, procTranslateMessage, procDispatchMessageW, procLoadIconW,
-		procShellNotifyIconW, procGetModuleHandleW, procPlaySoundW, procWaveOutSetVolume} {
+		procShellNotifyIconW, procSetProcessAUMID, procGetModuleHandleW, procPlaySoundW, procWaveOutSetVolume} {
 		if err := p.Find(); err != nil {
 			t.Error(err)
 		}

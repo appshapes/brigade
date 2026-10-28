@@ -22,10 +22,15 @@ import (
 // notification is a notification-area balloon: a message-only window on
 // a thread of this process owns an icon, and each showing is NIM_MODIFY
 // with NIF_INFO, which Windows 10 and 11 render as a toast that respects
-// quiet hours. The icon is added for the first balloon and removed
-// iconLinger after the last, so a session nobody messages shows nothing
-// in the notification area; a watcher stopping cleanly removes it at
-// once (Close).
+// quiet hours. Measured on Windows 11 25H2 (E13): the toast shows for
+// six to eight seconds and is never kept in the notification centre,
+// deleting the icon early cuts nothing short, and the toast's header is
+// the exe's file name unless the process names an AppUserModelID, in
+// which case it is that string; so the thread names "Brigade" before it
+// creates the window, and the icon is added for a showing and removed
+// iconLinger later, so a session nobody messages shows nothing in the
+// notification area; a watcher stopping cleanly removes it at once
+// (Close).
 
 var (
 	user32  = windows.NewLazySystemDLL("user32.dll")
@@ -41,6 +46,7 @@ var (
 	procDispatchMessageW = user32.NewProc("DispatchMessageW")
 	procLoadIconW        = user32.NewProc("LoadIconW")
 	procShellNotifyIconW = shell32.NewProc("Shell_NotifyIconW")
+	procSetProcessAUMID  = shell32.NewProc("SetCurrentProcessExplicitAppUserModelID")
 	procGetModuleHandleW = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetModuleHandleW")
 	procPlaySoundW       = winmm.NewProc("PlaySoundW")
 	procWaveOutSetVolume = winmm.NewProc("waveOutSetVolume")
@@ -48,12 +54,14 @@ var (
 
 // The sound: the notification event of the user's sound scheme
 // (HKCU\AppEvents\Schemes\Apps\.Default\Notification.Default), and the
-// file Windows ships for it when the scheme has none; the volume is of
-// 0xFFFF per channel, about a quarter, as afplay's -v 0.25.
+// file Windows ships for it when the scheme has none. The volume is of
+// 0xFFFF per channel on waveOut's tapered scale: 0x4000 measured 42 % of
+// the full amplitude (E13), so a quarter, afplay's -v 0.25, is near
+// 0x2000.
 const (
 	soundAlias  = "Notification.Default"
 	soundFile   = `Media\Windows Notify System Generic.wav`
-	soundVolume = 0x4000
+	soundVolume = 0x2000
 
 	sndAsync     = 0x00000001
 	sndNoDefault = 0x00000002
@@ -87,9 +95,13 @@ const (
 
 	balloonTitleMax = 63  // szInfoTitle holds 64 UTF-16 units with the terminator
 	balloonTextMax  = 255 // szInfo holds 256
-	iconLinger      = 20 * time.Second
+	iconLinger      = 2 * time.Second
 	trayPoll        = 100 * time.Millisecond
 	className       = "BrigadeNotify"
+	// appUserModelID is what the toast's header reads: a process without
+	// one is named by its exe's file name, the cached
+	// brigade-<version>-windows-<arch>.exe here (E13).
+	appUserModelID = "Brigade"
 )
 
 // notifyIconData is NOTIFYICONDATAW for a 64-bit process: 976 bytes.
@@ -309,6 +321,9 @@ func trayThread() {
 // trayWindow registers the class once and creates the message-only
 // window the icon belongs to, and loads the stock information icon.
 func trayWindow() (hwnd, icon uintptr, err error) {
+	if id, err := windows.UTF16PtrFromString(appUserModelID); err == nil {
+		_, _, _ = procSetProcessAUMID.Call(uintptr(unsafe.Pointer(id))) //nolint:gosec // G103: a Win32 call takes the string's address
+	}
 	hInstance, _, _ := procGetModuleHandleW.Call(0)
 	name, err := windows.UTF16PtrFromString(className)
 	if err != nil {

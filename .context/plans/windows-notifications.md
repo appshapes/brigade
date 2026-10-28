@@ -32,6 +32,6 @@ count, nothing from the message, once per interval. No new option; the defaults 
 
 | Step | What | State |
 | --- | --- | --- |
-| P62-1 | Measurements on the Windows machine: PowerShell balloon first, then the Go probe `scripts/experiments/windows-notify-probe` (E13) | started 2026-10-28 |
+| P62-1 | Measurements on the Windows machine: PowerShell balloon first, then the Go probe `scripts/experiments/windows-notify-probe` (E13) | done 2026-10-28: header = exe name or the AUMID string; toast 6-8 s, never in the centre; icon deletion harmless; 0x4000 = 42 % amplitude |
 | P62-2 | `notify_windows.go` (sound, balloon), the in-process seam in `watch/announce.go`, tests (`notify_test.go` windows cases, `notify_windows_test.go`), docs (options.md rows, install/windows.md, security.md sentence, changelog) | |
 | P62-3 | Live test of the dev build by 153-collaborator (developer pointer), then release 0.42.0 and confirm on the release build; close the card | |

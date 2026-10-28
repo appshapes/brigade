@@ -18,11 +18,12 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   and Linux, and start no program: the watcher plays the sound scheme's
   notification event through Windows' own sound library at about a quarter
   volume, and shows the notification as a notification-area balloon, which
-  Windows presents as a toast and keeps in the notification centre, with
-  Brigade's title, the session's own name and the count as data. The icon
-  appears while a balloon is recent and goes again a few seconds later; a
-  watcher stopping cleanly removes it. Measured on a Windows 11 machine
-  (`docs/experiments/E13-windows-notifications.md`). The defaults stay off.
+  Windows presents as a toast headed "Brigade" for about six seconds, with
+  Brigade's title, the session's own name and the count as data; it is not
+  kept in the notification centre. The icon appears for the showing and goes
+  again two seconds later; a watcher stopping cleanly removes it. Measured on
+  a Windows 11 machine (`docs/experiments/E13-windows-notifications.md`). The
+  defaults stay off.
 
 ## [0.41.1] — 2026-10-28
 

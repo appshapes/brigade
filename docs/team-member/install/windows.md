@@ -54,9 +54,9 @@ the same three.
 
 - **The sound and the notification are Windows' own.** `message_sound: on` plays the notification sound of your
   sound scheme at about a quarter volume, from the watcher itself; `message_notification: on` shows a
-  notification-area balloon, which Windows presents as a toast and keeps in the notification centre. Nothing is
-  started for either. Focus assist, do not disturb and the per-app notification settings apply to the toast as to
-  any other.
+  notification-area balloon, which Windows presents as a toast headed "Brigade" for about six seconds (it is not
+  kept in the notification centre). Nothing is started for either. Focus assist and do not disturb apply to the
+  toast as to any other.
 - **The Muse Code, Codex CLI and Grok Build packages** are macOS and Linux only; on Windows, Brigade is the
   Claude Code plugin.
 - **Private files.** On macOS and Linux Brigade refuses a credential or a session map that any other user could
