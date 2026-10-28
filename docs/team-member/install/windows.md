@@ -52,8 +52,11 @@ the same three.
 
 ## What differs
 
-- **No sound and no desktop notification** on a message: the `message_sound` and `message_notification` options
-  are accepted and do nothing on Windows.
+- **The sound and the notification are Windows' own.** `message_sound: on` plays the notification sound of your
+  sound scheme at about a quarter volume, from the watcher itself; `message_notification: on` shows a
+  notification-area balloon, which Windows presents as a toast and keeps in the notification centre. Nothing is
+  started for either. Focus assist, do not disturb and the per-app notification settings apply to the toast as to
+  any other.
 - **The Muse Code, Codex CLI and Grok Build packages** are macOS and Linux only; on Windows, Brigade is the
   Claude Code plugin.
 - **Private files.** On macOS and Linux Brigade refuses a credential or a session map that any other user could

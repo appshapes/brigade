@@ -38,7 +38,7 @@ func TestSound(t *testing.T) {
 		"linux, no paplay":    {"linux", missing, yes, nil, notify.WhyNoPlayerLinux},
 		"linux, no file":      {"linux", found, no, nil, notify.WhyNoFile},
 		"another system":      {"plan9", found, yes, nil, notify.WhyUnknownOS},
-		"windows is not ours": {"windows", found, yes, nil, notify.WhyUnknownOS},
+		"windows, in process": {"windows", missing, no, []string{notify.WindowsSound}, ""},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -78,6 +78,7 @@ func TestBanner(t *testing.T) {
 		"linux":                       {"linux", only("notify-send"), []string{"/opt/bin/notify-send"}, ""},
 		"linux without notify-send":   {"linux", only("osascript"), nil, notify.WhyNoNotifierLinux},
 		"another system":              {"plan9", all, nil, notify.WhyUnknownOS},
+		"windows, in process":         {"windows", none, []string{notify.WindowsBanner}, ""},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -115,6 +116,8 @@ func TestBannerArgv(t *testing.T) {
 			[]string{"/usr/bin/notify-send", "--app-name=Brigade", "Brigade", `A message arrived for x\\074b\\076\\n.`}},
 		"an unknown notifier gets notify-send's shape": {[]string{"/nonexistent/brigade-test-notifier"}, "", 1,
 			[]string{"/nonexistent/brigade-test-notifier", "--app-name=Brigade", "Brigade", "A message arrived for this session."}},
+		"the windows descriptor gets the title and the text, unescaped": {[]string{notify.WindowsBanner}, hostile, 2,
+			[]string{notify.WindowsBanner, "Brigade", "2 messages arrived for " + hostile + "."}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -203,6 +206,26 @@ func TestOsascriptScriptCompiles(t *testing.T) {
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("osacompile: %v\n%s", err, b)
 	}
+}
+
+// TestInProcessIsWindowsAlone (card 153): the two descriptors are
+// recognised wherever they appear, and running one anywhere but Windows
+// (this file's build constraint) is an error, never a spawn.
+func TestInProcessIsWindowsAlone(t *testing.T) {
+	t.Parallel()
+	if !notify.InProcess([]string{notify.WindowsSound}) || !notify.InProcess([]string{notify.WindowsBanner, "Brigade", "x"}) {
+		t.Fatal("a descriptor is not recognised")
+	}
+	for _, argv := range [][]string{nil, {}, {"/opt/bin/afplay", "-v", "0.25", "x"}, {"winmm.dll"}} {
+		if notify.InProcess(argv) {
+			t.Fatalf("%q taken for a descriptor", argv)
+		}
+	}
+	err := notify.RunInProcess(t.Context(), []string{notify.WindowsSound}) // this file is !windows
+	if err == nil || !strings.Contains(err.Error(), "Windows only") {
+		t.Fatalf("RunInProcess off Windows = %v; want the Windows-only error", err)
+	}
+	notify.Close()
 }
 
 func TestExists(t *testing.T) {

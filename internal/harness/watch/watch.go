@@ -64,6 +64,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/notice"
+	"github.com/appshapes/brigade/internal/harness/notify"
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/polling"
@@ -899,6 +900,7 @@ func (w *watcher) run() int {
 	pcancel()
 	w.sound.join()
 	w.banner.join()
+	notify.Close() // Windows: the notification-area icon, if one was added
 	// Nothing may still be writing under the state directory when Run
 	// returns: the join comes before the exit line and before the deferred
 	// pidfile release (P14-6, writers.go).

@@ -169,14 +169,21 @@ func (a *announcer) arrived() {
 }
 
 // run runs the program once, bounded by notify.Timeout, with the
-// from-scratch child environment every Brigade child gets. The first
-// failure of a streak is a warning, the rest debug lines, so a machine
-// whose program broke does not fill the log at every arrival.
+// from-scratch child environment every Brigade child gets; a Windows
+// descriptor (notify.InProcess) is run in this process instead, and
+// nothing is spawned. The first failure of a streak is a warning, the
+// rest debug lines, so a machine whose program broke does not fill the
+// log at every arrival.
 func (a *announcer) run(parent context.Context, argv []string) {
 	defer a.wg.Done()
 	ctx, cancel := context.WithTimeout(parent, notify.Timeout)
 	defer cancel()
-	err := a.w.deps.Announce(ctx, argv, adapterkit.ChildEnv(a.w.environ))
+	var err error
+	if notify.InProcess(argv) {
+		err = notify.RunInProcess(ctx, argv)
+	} else {
+		err = a.w.deps.Announce(ctx, argv, adapterkit.ChildEnv(a.w.environ))
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.running = false

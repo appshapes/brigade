@@ -25,5 +25,11 @@ burst replaces), else `osascript` (macOS attributes the banner to Script Editor 
 nothing from the message: the sound's argument list is fixed; the notification gets the title, the text and the
 count as arguments, never spliced into a script, so a session name is data whatever it holds.
 
+On Windows nothing is started (0.42.0): the watcher plays your sound scheme's notification event through
+Windows' own sound library at about a quarter volume, and shows the notification as a notification-area balloon,
+which Windows presents as a toast and keeps in the notification centre; an icon appears in the notification
+area while a balloon is recent and goes again a few seconds later. Focus assist and do not disturb hold the toast
+back as they hold any other.
+
 If an option is on and the machine cannot play or notify, session start prints `Brigade: message sound off (<why>).`
 or `Brigade: message notification off (<why>).` once; a session with no watcher prints the same.

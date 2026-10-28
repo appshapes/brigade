@@ -3,6 +3,7 @@ package watch
 import (
 	"context"
 	"log/slog"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -300,4 +301,34 @@ func TestAnnouncerHonoursTheConfiguredInterval(t *testing.T) {
 	s.arrived()
 	eventuallyRuns(t, g, 3)
 	s.join()
+}
+
+// TestADescriptorIsRunInProcessNeverSpawned (card 153): an announcer
+// whose program is a Windows descriptor never reaches the spawn seam;
+// off Windows the in-process run is the Windows-only error, logged as a
+// failure, and the announcer is free again for the next arrival.
+func TestADescriptorIsRunInProcessNeverSpawned(t *testing.T) {
+	t.Parallel()
+	g := &gatedProgram{gate: make(chan struct{})}
+	close(g.gate)
+	clk := &settableClock{now: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)}
+	w := testWatcher(g, clk, []string{notify.WindowsSound}, []string{notify.WindowsBanner})
+	for _, a := range []*announcer{newSoundAnnouncer(w), newBannerAnnouncer(w)} {
+		a.bind(t.Context())
+		a.apply(true, notify.DefaultInterval)
+		a.arrived()
+		a.join()
+		if g.count() != 0 {
+			t.Fatalf("%s: the spawn seam ran %d times for a descriptor", a.kind, g.count())
+		}
+		a.mu.Lock()
+		running, failed := a.running, a.failed
+		a.mu.Unlock()
+		if running {
+			t.Fatalf("%s: still running after the in-process run returned", a.kind)
+		}
+		if runtime.GOOS != "windows" && !failed {
+			t.Fatalf("%s: the Windows-only error was not recorded as a failure", a.kind)
+		}
+	}
 }

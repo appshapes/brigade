@@ -9,6 +9,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.42.0] — 2026-10-28
+
+### Added
+
+- **Windows-native notifications** (card 153). The `message_sound` and
+  `message_notification` options work on native Windows as they do on macOS
+  and Linux, and start no program: the watcher plays the sound scheme's
+  notification event through Windows' own sound library at about a quarter
+  volume, and shows the notification as a notification-area balloon, which
+  Windows presents as a toast and keeps in the notification centre, with
+  Brigade's title, the session's own name and the count as data. The icon
+  appears while a balloon is recent and goes again a few seconds later; a
+  watcher stopping cleanly removes it. Measured on a Windows 11 machine
+  (`docs/experiments/E13-windows-notifications.md`). The defaults stay off.
+
 ## [0.41.1] — 2026-10-28
 
 ### Fixed

@@ -205,7 +205,9 @@ including the sender's summary, was written by the sender.**
   message steers any of them: the player is told the sound file's name and nothing else; the notifier is told
   Brigade's title, your own session's name and a count, each as an argument — osascript reads them from its run
   handler's argv, notify-send gets them with markup and backslashes escaped — and never the message's text or
-  its sender; and the message decides only whether the sound plays or the banner shows at all. The limit: it hands
+  its sender; and the message decides only whether the sound plays or the banner shows at all. On Windows
+  (card 153, 0.42.0) neither is a program: the watcher calls Windows' own sound and notification-area libraries in
+  its own process, with the same title, name and count as data. The limit: it hands
   the text to a model that can run commands and edit files.
 
 **What was measured.** A set of 26 test messages, hostile and benign, was run against real Claude Code sessions

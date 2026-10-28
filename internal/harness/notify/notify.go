@@ -7,7 +7,12 @@
 // the banner's carries Brigade's own title and text, and the session's
 // own name and a count, as arguments — never spliced into script code.
 // The hook uses the resolvers to say at session start when the machine
-// cannot; the watcher uses them to run.
+// cannot; the watcher uses them to run. On Windows neither is a program
+// (card 153): the sound is winmm's PlaySound and the notification a
+// notification-area balloon through Shell_NotifyIcon, both called in the
+// watcher's own process, so the resolvers answer with a descriptor
+// (WindowsSound, WindowsBanner) that InProcess recognises and
+// RunInProcess runs, and nothing is spawned.
 package notify
 
 import (
@@ -64,6 +69,20 @@ const (
 	linuxNotifier  = "notify-send"
 )
 
+// The Windows descriptors (card 153): what Sound and Banner answer on
+// Windows in place of a program's path, naming the DLL call RunInProcess
+// makes. Neither is ever spawned; the announcer asks InProcess first.
+const (
+	WindowsSound  = "winmm.dll:PlaySound"
+	WindowsBanner = "shell32.dll:Shell_NotifyIcon"
+)
+
+// InProcess reports whether argv is a Windows descriptor: nothing to
+// spawn, RunInProcess runs it.
+func InProcess(argv []string) bool {
+	return len(argv) > 0 && (argv[0] == WindowsSound || argv[0] == WindowsBanner)
+}
+
 // The reasons Sound and Banner give for a machine that cannot: fixed
 // text, safe on a session-start line, naming what to install.
 const (
@@ -100,6 +119,8 @@ func Sound(goos string, lookPath func(name string) (string, bool), exists func(p
 			return nil, WhyNoFile
 		}
 		return []string{p, linuxVolume, linuxFile}, ""
+	case "windows":
+		return []string{WindowsSound}, "" // winmm is part of Windows: nothing to look for
 	default:
 		return nil, WhyUnknownOS
 	}
@@ -123,6 +144,8 @@ func Banner(goos string, lookPath func(name string) (string, bool)) ([]string, s
 			return []string{p}, ""
 		}
 		return nil, WhyNoNotifierLinux
+	case "windows":
+		return []string{WindowsBanner}, "" // shell32 is part of Windows: nothing to look for
 	default:
 		return nil, WhyUnknownOS
 	}
@@ -137,13 +160,18 @@ func Banner(goos string, lookPath func(name string) (string, bool)) ([]string, s
 // data; notify-send takes the summary and the body as arguments, the
 // body's markup characters escaped because a daemon may parse it, and
 // its backslashes doubled because notify-send decodes backslash escapes
-// (g_strcompress) before the daemon sees the text. An
-// argv whose program is none of the three is given notify-send's shape:
-// a test seam, or a notifier the member put on PATH under another name,
-// is treated as the plainest of them.
+// (g_strcompress) before the daemon sees the text. The Windows
+// descriptor gets the title and the text as the two arguments
+// RunInProcess reads, nothing else. An argv whose program is none of
+// these is given notify-send's shape: a test seam, or a notifier the
+// member put on PATH under another name, is treated as the plainest of
+// them.
 func BannerArgv(base []string, sessionID, name string, count int) []string {
 	text := Text(name, count)
 	argv := slices.Clone(base)
+	if base[0] == WindowsBanner {
+		return append(argv, Title, text)
+	}
 	switch filepath.Base(base[0]) {
 	case darwinNotifier:
 		return append(argv, "-title", Title, "-message", text, "-group", "brigade-"+sessionID)
