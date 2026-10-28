@@ -169,13 +169,20 @@ func TestAnnouncerCoalescesAndNeverOverlaps(t *testing.T) {
 		t.Fatalf("runs = %d after the option went off, want 2", n)
 	}
 
-	// No program on PATH: on resolves to nothing and runs nothing.
+	// No program on PATH: on resolves to nothing and runs nothing. On
+	// Windows there is no program to look for (card 153): the sound is
+	// the in-process descriptor, which never reaches the spawn seam.
 	none := &gatedProgram{gate: make(chan struct{})}
 	quiet := newSoundAnnouncer(testWatcher(none, clk, nil, nil))
 	quiet.apply(true, notify.DefaultInterval)
 	quiet.arrived()
-	if n := none.count(); n != 0 || quiet.base != nil {
-		t.Fatalf("runs = %d, base = %q with no program on PATH; want none", n, quiet.base)
+	quiet.join()
+	var want []string
+	if runtime.GOOS == "windows" {
+		want = []string{notify.WindowsSound}
+	}
+	if n := none.count(); n != 0 || !slices.Equal(quiet.base, want) {
+		t.Fatalf("runs = %d, base = %q with no program on PATH; want 0 and %q", n, quiet.base, want)
 	}
 }
 
