@@ -93,10 +93,18 @@ fixed in 0.41.1:
    `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`: the watcher, the Syncthing daemon and the launcher's download
    worker own a hidden console that their children inherit.
 
+**Claude Desktop's Code tab, the same machine, on 0.41.1 (14:54Z).** With 0.41.1 published, a second session of
+that machine, in Claude Desktop's Code tab with the plugin at 0.41.1 (the roster's version cell), sent a
+message to the macOS session and had its reply within two minutes; its user confirmed that no console or
+terminal window appeared on its own after the first prompt, so the corrected flags hold where the window had
+appeared. One observation for Claude Code's side, not investigated: the first `/reload-plugins` in that session
+reported 0 hooks and the session was not registered; a second reported 3 hooks and the registration went
+through.
+
 ## What this run does not prove
 
-- The Claude Desktop Code tab on Windows: the real machine above ran Claude Code in a terminal, which proves
-  the model's reaction to a delivered frame on native Windows; E11 covered the harness's side of the pipe.
+- ~~The Claude Desktop Code tab on Windows~~: proven on the real machine above, in a terminal and in the Code
+  tab, with the model reacting to each delivered frame.
 - ~~The launcher's download path~~: measured after 0.41.0 was published, with the pointer removed and the
   cache empty: `plugin\bin\brigade.exe version` printed `brigade: first use: downloading brigade 0.41.0 for
   windows/arm64 from https://github.com/appshapes/brigade/releases/download` and then `0.41.0`, **4.6 s** in
