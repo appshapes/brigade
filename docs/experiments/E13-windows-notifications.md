@@ -103,9 +103,40 @@ last banner, this one included, and it is true: the person had not been told of 
 no new message at the end of an interval is what the interval exists to avoid. The notifications page said "when
 several came inside one interval"; it now says "since the last notification". No behaviour changed.
 
+## The release build, 0.42.0 (17:19Z to 17:25Z)
+
+With the developer pointer removed and the plugin updated from the marketplace (0.41.1 to 0.42.0, user scope), a
+fresh session `brigade-d2` on the 0.42.0 binary, both options on, the same sequence. One observation on the way:
+the first session after the update, on a cold cache, did not register until its next prompt, which is the
+launcher's documented rule (the SessionStart hook starts the download in a detached worker and returns; the
+binary landed three seconds later, and the next prompt attaches); the session was ended before that prompt and
+the next one registered within a second.
+
+- **Message 1 (17:19:36Z), alone.** The log, now at info: `ack sent` 36.401, `message notification shown` 36.428,
+  `message sound played` 36.492, no `failed` line. The toast at 0.4 s: **header "Brigade" with no header icon**
+  (the AppUserModelID), the large blue circled-i, "Brigade", "A message arrived for brigade-d2."; on screen at
+  5.3 s, gone by 9.4 s; the listener at 5 s lists it with an empty app and AUMID, at 14 s nothing. The sound:
+  **peak 0.084**, against 0.199 at 0x4000 and 0.475 at full: 0x2000 is 17.7 % of the full amplitude (−15 dB),
+  one more step of the 0.42 taper, a little under the quarter aimed at, and clearly quiet.
+- **Message 2 (17:20:42Z), the first of a burst.** `message sound played`, `ack sent`, `message notification
+  shown` within 15 ms; the toast at 0.4 s, "A message arrived for brigade-d2." (message 1 had been shown, so the
+  count was 1); peak 0.084.
+- **Message 3, 3.4 s later.** `ack sent` and nothing else: no sound, no toast, as the interval says; its count is
+  held for the next showing.
+- **The icon.** Absent from the hidden-icons flyout at 6 s and at 24 s after every arrival (the flyout listed the
+  machine's other icons and no Brigade), so the 2 s linger removes it. On one more message (17:24:33Z), with the
+  flyout held open and sampled every 100 ms: "Brigade", the stock information icon, listed **within 0.17 s** of
+  the showing and **gone 2.15 s** after it, the linger plus one poll; absent on every later sample.
+- **The sound's envelope**, at 50 ms on that message: 0.006 at 0.2 s, the peak 0.084 at 0.5 s, then the wav's own
+  decay (0.058, 0.029, 0.018, 0.008, 0.003) to **exact zero at 1.4 s** and silence for the rest of the watch: the
+  wave device the asynchronous play leaves open is not audible, there is no floor and no tail. (An earlier
+  reading of a 9 s "burst" was the monitor's own artefact: its tray checks blocked its sampling loop and the
+  loopback drain then returned stale buffered packets.) The toast on that message read "2 messages arrived for
+  brigade-d2.", the burst's held third message plus this one: the "since the last notification" rule.
+
 ## What this run does not prove
 
-- ~~The watcher itself showing and playing on a message~~: above, on the dev build; the release build's round
-  (the "Brigade" header, the 2 s icon, the 0x2000 volume) follows the 0.42.0 publish.
+- ~~The watcher itself showing and playing on a message~~: above, on the dev build and on the 0.42.0 release
+  build, with the "Brigade" header, the 2 s icon and the 0x2000 volume.
 - Windows 10, and Windows on ARM: measured on Windows 11 25H2 x64 only; the calls are the same.
 - A person's ear: "heard" here is a loopback capture; the live test asks the person at the machine.
