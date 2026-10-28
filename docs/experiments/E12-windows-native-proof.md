@@ -5,9 +5,9 @@ Card 133, plan §1 "the proof". Run 2026-10-27 on a Windows 11 Pro ARM64 virtual
 signed in), driven from the macOS release machine over SSH. Binary: a development build of this tree at
 `650b1b2` for `windows/arm64` (`brigade-dev.exe`, version `0.41.0-dev`), run through the committed launcher
 `plugin/bin/brigade.exe` by the developer pointer, against the real appshapes Supabase project in a test
-team, `win133`. Drivers: `.ignored/windows-vm/proof-win3.ps1`, `proof-win4.ps1`, `proof-win5.ps1`,
-`pipe-server.ps1` (the Windows side), `proof-mac.sh` (the Mac side), all in the shape of `scripts/proof.sh`:
-a sleeper process as `CLAUDE_PID`, the real hooks, the real detached watcher, no model.
+team, `win133`. Drivers: `scripts/experiments/windows-native-proof/` (`proof-win3.ps1`, `proof-win4.ps1`,
+`proof-win5.ps1` and `pipe-server.ps1` on the Windows side, `proof-mac.sh` on the Mac side), all in the shape of
+`scripts/proof.sh`: a sleeper process as `CLAUDE_PID`, the real hooks, the real detached watcher, no model.
 
 ## Why
 
