@@ -863,8 +863,27 @@ func (fx *fixture) writeRelease(sessionID string, ids ...string) {
 	}
 }
 
+// completeLines is data's newline-terminated lines: a watcher appends
+// each NDJSON record in one write, so a reader racing it can see at most
+// a prefix of the last record, which has no newline yet and is left for
+// the next read (the callers poll).
+func completeLines(data []byte) [][]byte {
+	if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+		data = data[:i+1]
+	} else {
+		return nil
+	}
+	var lines [][]byte
+	for line := range bytes.SplitSeq(data, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) != 0 {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
 // logLines parses the watcher log (NDJSON) into maps; a missing log is
-// empty.
+// empty, and a record still being written is not yet a line.
 func (fx *fixture) logLines() []map[string]any {
 	fx.t.Helper()
 	data, err := os.ReadFile(fx.logPath())
@@ -872,10 +891,7 @@ func (fx *fixture) logLines() []map[string]any {
 		return nil
 	}
 	var out []map[string]any
-	for line := range bytes.SplitSeq(data, []byte("\n")) {
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
-		}
+	for _, line := range completeLines(data) {
 		var m map[string]any
 		if err := json.Unmarshal(line, &m); err != nil {
 			fx.t.Fatalf("log line is not JSON: %q", line)
@@ -932,10 +948,7 @@ func (fx *fixture) sinkRecords() []sinkRecord {
 		return nil
 	}
 	var out []sinkRecord
-	for line := range bytes.SplitSeq(data, []byte("\n")) {
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
-		}
+	for _, line := range completeLines(data) {
 		var r sinkRecord
 		if err := json.Unmarshal(line, &r); err != nil {
 			fx.t.Fatalf("sink line is not JSON: %q", line)
