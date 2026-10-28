@@ -49,32 +49,22 @@ func hexWord(v uint16) string {
 	return "0x" + string([]byte{digits[v>>12&0xf], digits[v>>8&0xf], digits[v>>4&0xf], digits[v&0xf]})
 }
 
-// envValue is one variable from os.Environ (os.Getenv is forbidden by the repository's rules).
+// envValue is one variable from os.Environ (os.Getenv is forbidden by the repository's rules), matched
+// without regard to case as Windows itself matches.
 func envValue(name string) string {
-	return environMap(os.Environ())[name]
+	return lookupEnv(os.Environ(), name)
 }
 
 // curlFetch downloads with the curl.exe Windows 10 1803 and later ship in System32, named by its absolute
 // path so a curl earlier on PATH is never run: an argv array, no shell, the user's curlrc disabled, and only
-// the variables curl needs (the system root and the proxy settings, which curl honours itself; a proxy URL can
-// carry a password that has no place in a hook error, so nothing here reads them).
-func curlFetch(env map[string]string) func(url, tmp, proto string) error {
+// the variables curlEnvironment picks out of environ.
+func curlFetch(environ []string) func(url, tmp, proto string) error {
 	return func(url, tmp, proto string) error {
-		root := env["SystemRoot"]
-		if root == "" {
-			root = `C:\Windows`
-		}
+		root, childEnv := curlEnvironment(environ)
 		curl := filepath.Join(root, "System32", "curl.exe")
 		argv := []string{curl, "--disable", "--fail", "--silent", "--show-error", "--location",
 			"--proto", proto, "--retry", "3", "--retry-delay", "1", "--retry-connrefused",
 			"--connect-timeout", "10", "--max-time", "45", "--output", tmp, url}
-		var childEnv []string
-		for _, name := range []string{"SystemRoot", "windir", "TEMP", "TMP",
-			"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "no_proxy", "all_proxy"} {
-			if v, ok := env[name]; ok {
-				childEnv = append(childEnv, name+"="+v)
-			}
-		}
 		null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 		if err != nil {
 			return err
@@ -146,8 +136,10 @@ func runWith(stdin, stdout, stderr *os.File) func(path string, args []string, en
 	}
 }
 
-// detach starts the download worker the way the bootstrap backgrounds its subshell: no console window, its
-// own process group, every stream NUL, and no wait, so the SessionStart hook returns in milliseconds.
+// detach starts the download worker the way the bootstrap backgrounds its subshell: a hidden console of its
+// own, its own process group, every stream NUL, and no wait, so the SessionStart hook returns in
+// milliseconds. CREATE_NO_WINDOW and not DETACHED_PROCESS: Windows ignores the first beside the second, and a
+// process with no console at all gives the curl.exe it starts a fresh, visible window (card 133, 0.41.1).
 func detach(path string, args []string, environ []string) error {
 	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
@@ -158,7 +150,7 @@ func detach(path string, args []string, environ []string) error {
 		Env:   environ,
 		Files: []*os.File{null, null, null},
 		Sys: &syscall.SysProcAttr{
-			CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW,
+			CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW,
 		},
 	})
 	if err != nil {

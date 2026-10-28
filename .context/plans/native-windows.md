@@ -69,7 +69,7 @@ two-implementation helper.
 
 - Delivery: `socketpost` dials the named pipe and writes the auth frame first.
 - `procutil`: liveness, start time and command name through the Windows process API.
-- `adapterkit`: file lock (`LockFileEx`), detached spawn (`CREATE_NEW_PROCESS_GROUP`, `DETACHED_PROCESS`),
+- `adapterkit`: file lock (`LockFileEx`), detached spawn (`CREATE_NEW_PROCESS_GROUP`, `DETACHED_PROCESS`; 0.41.1 replaced the latter with `CREATE_NO_WINDOW`, P61-11),
   strict read.
 - `harness`: adapter and watcher spawn, hook end, session-map owner, inbound sink, watch guard and host files
   and inject, inbox follow, grok lock (Grok is out of scope: Windows reports "not Grok").

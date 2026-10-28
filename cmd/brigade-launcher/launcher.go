@@ -391,13 +391,66 @@ func isRegular(path string) bool {
 	return err == nil && fi.Mode().IsRegular()
 }
 
-// environMap is os.Environ as a map: the last value wins, as Windows' own lookup does.
+// environMap is os.Environ as a map keyed by the upper-cased name: Windows names are case-insensitive and
+// a parent spells them as it likes, and the last value wins, as Windows' own lookup does.
 func environMap(environ []string) map[string]string {
 	env := make(map[string]string, len(environ))
 	for _, kv := range environ {
 		if k, v, ok := strings.Cut(kv, "="); ok && k != "" {
-			env[k] = v
+			env[strings.ToUpper(k)] = v
 		}
 	}
 	return env
+}
+
+// lookupEnv is one variable of environ by name, matched without regard to case as Windows' own lookup is,
+// the last spelling winning; "" when absent.
+func lookupEnv(environ []string, name string) string {
+	var value string
+	for _, kv := range environ {
+		if k, v, ok := strings.Cut(kv, "="); ok && strings.EqualFold(k, name) {
+			value = v
+		}
+	}
+	return value
+}
+
+// curlVariables are the only variables the download's curl.exe receives: the system root (without it
+// Windows' own curl cannot resolve a host), the temporary directory, and the proxy settings curl honours
+// itself (a proxy URL can carry a password that has no place in a hook error, so nothing here reads them).
+var curlVariables = []string{"SystemRoot", "windir", "TEMP", "TMP", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "ALL_PROXY"}
+
+// curlEnvironment picks curl's variables out of environ. Windows names are case-insensitive and a parent
+// spells them as it likes (Git Bash: SYSTEMROOT, WINDIR; measured on a Windows 11 session, card 133, 0.41.1),
+// so the match folds case, each variable goes to the child under the parent's spelling, the last spelling
+// wins as Windows' own lookup does, and an empty value counts as absent. The system root is returned with
+// them: C:\Windows when the parent has none, in which case the child is told so too.
+func curlEnvironment(environ []string) (root string, childEnv []string) {
+	picked := make(map[string]string, len(curlVariables)) // upper-cased name -> the parent's "name=value"
+	for _, kv := range environ {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k == "" || v == "" {
+			continue
+		}
+		upper := strings.ToUpper(k)
+		for _, name := range curlVariables {
+			if strings.ToUpper(name) == upper {
+				picked[upper] = kv
+				break
+			}
+		}
+	}
+	for _, name := range curlVariables {
+		if kv, ok := picked[strings.ToUpper(name)]; ok {
+			childEnv = append(childEnv, kv)
+		}
+	}
+	if kv, ok := picked["SYSTEMROOT"]; ok {
+		_, root, _ = strings.Cut(kv, "=")
+	}
+	if root == "" {
+		root = `C:\Windows`
+		childEnv = append(childEnv, "SystemRoot="+root)
+	}
+	return root, childEnv
 }

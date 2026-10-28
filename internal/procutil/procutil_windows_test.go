@@ -8,7 +8,20 @@ import (
 	"os/exec"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
+
+func TestDetachAttrGivesAHiddenConsoleNotNone(t *testing.T) {
+	t.Parallel()
+	flags := DetachAttr().CreationFlags
+	if flags&windows.DETACHED_PROCESS != 0 {
+		t.Fatalf("CreationFlags %#x carry DETACHED_PROCESS: Windows then ignores CREATE_NO_WINDOW, and the console-less watcher's adapter child opens a visible console window (card 133, 0.41.1)", flags)
+	}
+	if flags&windows.CREATE_NO_WINDOW == 0 || flags&windows.CREATE_NEW_PROCESS_GROUP == 0 {
+		t.Fatalf("CreationFlags %#x: want CREATE_NO_WINDOW and CREATE_NEW_PROCESS_GROUP", flags)
+	}
+}
 
 func TestLookupSeesThisProcess(t *testing.T) {
 	t.Parallel()

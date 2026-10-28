@@ -324,9 +324,30 @@ func TestProfileDirectoriesMustBeAbsolute(t *testing.T) {
 }
 
 func TestEnvironMapLastValueWins(t *testing.T) {
-	env := environMap([]string{"A=1", "=ignored", "B", "A=2", "C=x=y"})
+	env := environMap([]string{"A=1", "=ignored", "B", "a=2", "C=x=y"})
 	if env["A"] != "2" || env["C"] != "x=y" || len(env) != 2 {
 		t.Fatalf("env %v", env)
+	}
+}
+
+func TestCurlGetsItsVariablesWhateverTheParentsSpelling(t *testing.T) {
+	// Measured on a Windows 11 session started from Git Bash, which spells SYSTEMROOT and WINDIR in capitals:
+	// matched by exact case, curl.exe got no system root and could resolve no host (card 133, 0.41.1).
+	root, env := curlEnvironment([]string{`SYSTEMROOT=C:\WINDOWS`, `WINDIR=C:\WINDOWS`, `Temp=C:\t`, "TMP=",
+		"https_proxy=first", "HTTPS_PROXY=second", `PATH=C:\x`, "HOME=/c/u", "=odd", "bare"})
+	if root != `C:\WINDOWS` {
+		t.Fatalf("root %q", root)
+	}
+	want := []string{`SYSTEMROOT=C:\WINDOWS`, `WINDIR=C:\WINDOWS`, `Temp=C:\t`, "HTTPS_PROXY=second"}
+	if strings.Join(env, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("env %q, want %q", env, want)
+	}
+	root, env = curlEnvironment([]string{`TEMP=C:\t`})
+	if root != `C:\Windows` || strings.Join(env, "\n") != `TEMP=C:\t`+"\n"+`SystemRoot=C:\Windows` {
+		t.Fatalf("root %q env %q", root, env)
+	}
+	if lookupEnv([]string{"processor_architecture=x86", "PROCESSOR_ARCHITECTURE=AMD64"}, "Processor_Architecture") != "AMD64" {
+		t.Fatal("lookupEnv is not case-insensitive, last spelling winning")
 	}
 }
 

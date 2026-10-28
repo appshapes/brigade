@@ -141,11 +141,15 @@ func IsNotRunning(err error) bool {
 }
 
 // DetachAttr is the SysProcAttr of a child that must outlive its parent
-// with no console: detached, its own process group (so a console Ctrl-C
-// never reaches it), no window.
+// unseen: its own process group (so a console Ctrl-C never reaches it)
+// and a hidden console of its own, which its children inherit.
+// CREATE_NO_WINDOW and not DETACHED_PROCESS: Windows ignores the first
+// beside the second, and a process with no console at all gives every
+// console child it starts (the watcher's adapter, Syncthing's own child)
+// a fresh, visible window; seen on a Windows 11 session (card 133, 0.41.1).
 func DetachAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{
-		CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW,
+		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW,
 	}
 }
 

@@ -9,6 +9,29 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.41.1] — 2026-10-28
+
+### Fixed
+
+- **Windows: the first download from a session started in Git Bash** (card
+  133). The launcher matched the variables it hands to `curl.exe` by exact
+  case, so when the parent spells them `SYSTEMROOT` and `WINDIR`, as Git Bash
+  does, curl got no system root and could resolve no host: the first
+  `brigade team join` from the Bash tool failed with "Could not resolve host:
+  github.com", and the SessionStart hook's own download the same way, leaving
+  the session without start facts until the next `/reload-plugins`. The names
+  now match without regard to case and reach curl under the parent's spelling,
+  and `SystemRoot` is supplied when the parent has none; `plugin/bin/brigade.exe`
+  rebuilt.
+- **Windows: a console window from the watcher** (card 133). The watcher
+  started with `DETACHED_PROCESS`, beside which Windows ignores
+  `CREATE_NO_WINDOW`, so the console-less watcher's adapter child opened a
+  visible console window titled with the binary's path, and closing that
+  window ended the adapter. The watcher, the Syncthing daemon and the
+  launcher's download worker now start with a hidden console of their own,
+  which their children inherit. Both reported by the first native Windows
+  session of the brigade team, reproduced and pinned to the lines.
+
 ## [0.41.0] — 2026-10-27
 
 ### Added

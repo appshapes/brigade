@@ -27,7 +27,7 @@ func main() {
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
 		Arch:    nativeArch,
-		Fetch:   curlFetch(environMap(environ)),
+		Fetch:   curlFetch(environ),
 		Run:     runWith(os.Stdin, os.Stdout, os.Stderr),
 		Detach:  detach,
 	}
