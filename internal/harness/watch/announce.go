@@ -171,9 +171,11 @@ func (a *announcer) arrived() {
 // run runs the program once, bounded by notify.Timeout, with the
 // from-scratch child environment every Brigade child gets; a Windows
 // descriptor (notify.InProcess) is run in this process instead, and
-// nothing is spawned. The first failure of a streak is a warning, the
-// rest debug lines, so a machine whose program broke does not fill the
-// log at every arrival.
+// nothing is spawned. A run that returned is one info line (the
+// interval bounds it to one per announcer per interval, and it is what
+// a live log can show, card 153). The first failure of a streak is a
+// warning, the rest debug lines, so a machine whose program broke does
+// not fill the log at every arrival.
 func (a *announcer) run(parent context.Context, argv []string) {
 	defer a.wg.Done()
 	ctx, cancel := context.WithTimeout(parent, notify.Timeout)
@@ -190,7 +192,7 @@ func (a *announcer) run(parent context.Context, argv []string) {
 	switch {
 	case err == nil:
 		a.failed = false
-		a.w.log.Debug("message " + a.kind + " " + a.done)
+		a.w.log.Info("message " + a.kind + " " + a.done)
 	case !a.failed:
 		a.failed = true
 		a.w.log.Warn("message "+a.kind+" failed", adlog.Err(err))

@@ -6,7 +6,7 @@ change to take effect. The options combine freely.
 - `message_sound: on` plays one quiet system sound when a teammate's message reaches this session: delivered into
   it, or held for your release under `team_inbound: hold`.
 - `message_notification: on` shows a desktop notification: the title `Brigade` and `A message arrived for <this
-  session's name>.`, or `3 messages arrived for …` when several came inside one interval.
+  session's name>.`, or `3 messages arrived for …` when several arrived since the last notification.
 - `message_interval` is the least seconds between two sounds, or two notifications: 30 by default, 5 to 3600, so a
   burst of messages is one sound and one banner.
 

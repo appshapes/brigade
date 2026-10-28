@@ -75,9 +75,37 @@ confirms it by ear.
 - The notifications page says the toast shows for about six seconds and is not kept in the notification
   centre, which is what this build does.
 
+## The watcher itself, live (the dev build of `177e39a` through the developer pointer)
+
+The same session then ran the real thing: `brigade-dev.exe` named by `%APPDATA%\brigade\dev-binary`, both
+options on for the user, a fresh session `brigade-a7` whose watcher log opened with `message sound on` and
+`message notification on`, and the macOS session sending one message, then after about a minute two messages
+three seconds apart, twice over. Recorded at every arrival (the watcher's `ack sent` line as the clock):
+
+- **Round 1 (16:34:49Z, 16:35:54Z, 16:35:58Z).** Message 1: the sound 0.3 s after the ack, peak 0.199, 1.2 s,
+  the same amplitude as the probe at 0x4000: in process, on the watcher's own thread. Message 2: the sound
+  again. Message 3, 3.4 s later: nothing, as the 30 s interval says. No `failed` line. The toast went
+  unrecorded: the monitor keyed on the done lines, which `announce.go` logged at debug while the hook starts the
+  watcher at info; the done line is info from 0.42.0, one per announcer per interval.
+- **Round 2 (16:38:36Z, 16:39:42Z, 16:39:46Z).** Message 1, alone, 158 s after round 1: the sound (peak 0.199,
+  1.25 s) and a toast at 0.3 s, bottom right of the primary display: **header "brigade-dev.exe"** with the small
+  blue circled-i (no AppUserModelID in that build), the large blue circled-i, "Brigade", **"2 messages arrived
+  for brigade-a7."**; on screen at 0.3, 3.7 and 6.1 s, gone at 8.1 s; listed by the notification listener at
+  3.5 s, not at 14 s. The hidden-icons flyout at 1.5 s listed "Brigade" among the icons. Message 2: the sound,
+  and a toast "A message arrived for brigade-a7." at 0.3 s, gone by 8.1 s. Message 3, 3.4 s later: no sound,
+  no toast, message 2's still on screen. No `failed` line anywhere. The unattended session's model read the
+  messages and did not reply.
+
+**The count.** Round 2's first toast said "2 messages arrived" for a message that arrived alone, minutes after
+anything: round 1's message 3 had arrived inside message 2's interval, after its showing, and was never
+announced, so it was still in the count. That is card 36's design on every platform, the arrivals since the
+last banner, this one included, and it is true: the person had not been told of that message, and a banner with
+no new message at the end of an interval is what the interval exists to avoid. The notifications page said "when
+several came inside one interval"; it now says "since the last notification". No behaviour changed.
+
 ## What this run does not prove
 
-- The watcher itself showing and playing on a message: the live test of the dev build through the developer
-  pointer, with both options on, follows (P62-3), then the release build.
+- ~~The watcher itself showing and playing on a message~~: above, on the dev build; the release build's round
+  (the "Brigade" header, the 2 s icon, the 0x2000 volume) follows the 0.42.0 publish.
 - Windows 10, and Windows on ARM: measured on Windows 11 25H2 x64 only; the calls are the same.
 - A person's ear: "heard" here is a loopback capture; the live test asks the person at the machine.
