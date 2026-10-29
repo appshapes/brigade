@@ -1,13 +1,14 @@
-// Package digest assembles the manager digest from the team's state
-// folder (card 162, .context/plans/manager-digest.md §5.4): the decisions
-// waiting on the manager and the meaningful contributions since the last
-// digest, as plain text with a stable label at the start of every line
-// and the caps that keep the body under the wire's 16 KiB. It reads the
-// folder and the roster only, never git: the entries carry their commits.
-// The producing watcher (internal/harness/watch) and `brigade report
-// show|send` (internal/harness/commands) build the same text from the
-// same inputs; the period, the marker and the idempotency key of a send
-// live here too, so the two agree.
+// Package digest assembles the digest from the team's state folder
+// (card 162, .context/plans/manager-digest.md §5.4; card 167 sends it to
+// every subscriber): the decisions waiting on a person and the meaningful
+// contributions since the last digest, as plain text with a stable label
+// at the start of every line and the caps that keep the body under the
+// wire's 16 KiB. It reads the folder and the roster only, never git: the
+// entries carry their commits. The producing watcher
+// (internal/harness/watch) and `brigade report show|send`
+// (internal/harness/commands) build the same text from the same inputs;
+// the period, the per-subscriber marker and the idempotency key of a
+// send live here too, so the two agree.
 package digest
 
 import (
@@ -15,6 +16,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,19 +40,22 @@ const (
 	NoteChars    = 200
 	ShippedLines = 40
 	SessionLines = 30
-	// MarkerFile is the producer's marker in the folder's digests
-	// directory.
-	MarkerFile = "last.json"
+	// LegacyMarkerFile is the one marker of 0.43, `digests/last.json`:
+	// read for the subscriber a version-1 reports file names until they
+	// have their own, and carried over by the first write.
+	LegacyMarkerFile = "last.json"
 	// dateLayout and timeLayout are the digest's spellings.
 	dateLayout = "2006-01-02"
 	timeLayout = "2006-01-02 15:04 UTC"
 )
 
-// A Marker is `digests/last.json`: when the last digest was produced, by
-// which session, and its counts. The producers read it to know the
+// A Marker is `digests/<stem>.json`, one per subscriber (the stem is
+// state.LabelStem of their label): when their last digest was produced,
+// by which session, and its counts. The producers read it to know the
 // period has elapsed and to stand down when another produced first.
 type Marker struct {
 	Version       int       `json:"version"`
+	Label         string    `json:"label,omitzero"`
 	ProducedAt    time.Time `json:"produced_at"`
 	SessionID     string    `json:"session_id"`
 	SessionName   string    `json:"session_name"`
@@ -59,13 +64,60 @@ type Marker struct {
 	Active        int       `json:"active"`
 }
 
-// MarkerPath is <folder>/digests/last.json.
-func MarkerPath(folder string) string { return filepath.Join(folder, state.DigestsDir, MarkerFile) }
+// MarkerPath is <folder>/digests/<stem>.json for the subscriber of the
+// label.
+func MarkerPath(folder, label string) string {
+	return filepath.Join(folder, state.DigestsDir, state.LabelStem(label)+".json")
+}
 
-// ReadMarker reads the folder's marker, a teammate's text: capped and
+// LegacyMarkerPath is <folder>/digests/last.json.
+func LegacyMarkerPath(folder string) string {
+	return filepath.Join(folder, state.DigestsDir, LegacyMarkerFile)
+}
+
+// ReadMarker reads the subscriber's marker, a teammate's text: capped and
 // checked. A missing one satisfies errors.Is(err, fs.ErrNotExist).
-func ReadMarker(folder string) (*Marker, error) {
-	data, err := state.ReadFolderFile(MarkerPath(folder))
+func ReadMarker(folder, label string) (*Marker, error) {
+	return readMarker(MarkerPath(folder, label))
+}
+
+// MarkerOf is the marker the producer judges the subscriber by: their
+// own, else — for the one subscriber of a version-1 file — the legacy
+// marker. A missing one satisfies errors.Is(err, fs.ErrNotExist).
+func MarkerOf(folder string, reports *state.Reports, s *state.Subscriber) (*Marker, error) {
+	m, err := ReadMarker(folder, s.Label)
+	if errors.Is(err, fs.ErrNotExist) && reports != nil && reports.Legacy {
+		return readMarker(LegacyMarkerPath(folder))
+	}
+	return m, err
+}
+
+// AdoptLegacyMarker moves the legacy marker to the subscriber's own, with
+// the label set, when the subscriber has none and the legacy one is
+// there: the first write of a version-2 file calls it for the subscriber
+// the version-1 file named, so their period runs on. Nothing to do is
+// not an error.
+func AdoptLegacyMarker(folder, label string) error {
+	if _, err := ReadMarker(folder, label); err == nil {
+		return nil
+	}
+	m, err := readMarker(LegacyMarkerPath(folder))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	m.Label = label
+	if err := WriteMarker(folder, m); err != nil {
+		return err
+	}
+	return os.Remove(LegacyMarkerPath(folder))
+}
+
+// readMarker reads one marker file within the folder rules.
+func readMarker(path string) (*Marker, error) {
+	data, err := state.ReadFolderFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -77,53 +129,56 @@ func ReadMarker(folder string) (*Marker, error) {
 		return nil, errors.New("digest: the marker's version is not this package's")
 	}
 	m.SessionName = protocol.SanitizeName(strings.Join(strings.Fields(protocol.Sanitize(m.SessionName)), " "))
+	m.Label = protocol.SanitizeLabel(strings.Join(strings.Fields(protocol.Sanitize(m.Label)), " "))
 	if state.CheckID(m.SessionID) != nil {
 		m.SessionID = ""
 	}
 	return &m, nil
 }
 
-// WriteMarker writes the marker into the folder, atomically.
+// WriteMarker writes the subscriber's marker — the one of m.Label —
+// into the folder, atomically.
 func WriteMarker(folder string, m *Marker) error {
 	m.Version = state.Version
 	data, err := state.Marshal(m)
 	if err != nil {
 		return err
 	}
-	path := MarkerPath(folder)
+	path := MarkerPath(folder, m.Label)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { //nolint:gosec // G301: a checkout tree is an ordinary directory
 		return err
 	}
 	return adapterkit.WriteAtomic(path, data)
 }
 
-// Due reports whether a digest is due at now under the manager's
-// settings: with `at` set, a daily digest at that time in `tz` — due once
-// today's `at` has passed and the marker predates it; otherwise every
-// `every` (the default a day) since the marker. No marker is due.
-func Due(r *state.Reports, m *Marker, now time.Time) bool {
+// Due reports whether the subscriber's digest is due at now: with `at`
+// set, a daily digest at that time in `tz` — due once today's `at` has
+// passed and the marker predates it; otherwise every `every` (the
+// default a day) since the marker. No marker is due.
+func Due(s *state.Subscriber, m *Marker, now time.Time) bool {
 	if m == nil || m.ProducedAt.IsZero() {
 		return true
 	}
-	if at, ok := dailyAt(r, now); ok {
+	if at, ok := dailyAt(s, now); ok {
 		return !now.Before(at) && m.ProducedAt.Before(at)
 	}
-	return now.Sub(m.ProducedAt) >= r.Period()
+	return now.Sub(m.ProducedAt) >= s.Period()
 }
 
-// dailyAt is today's `at` in `tz` as an instant, when the settings name a
-// usable one: HH:MM, and a zone time.LoadLocation knows (UTC when none).
-func dailyAt(r *state.Reports, now time.Time) (time.Time, bool) {
-	if r.At == "" {
+// dailyAt is today's `at` in `tz` as an instant, when the subscriber
+// names a usable one: HH:MM, and a zone time.LoadLocation knows (UTC
+// when none).
+func dailyAt(s *state.Subscriber, now time.Time) (time.Time, bool) {
+	if s.At == "" {
 		return time.Time{}, false
 	}
-	hm, err := time.Parse("15:04", r.At)
+	hm, err := time.Parse("15:04", s.At)
 	if err != nil {
 		return time.Time{}, false
 	}
 	loc := time.UTC
-	if r.TZ != "" {
-		l, err := time.LoadLocation(r.TZ)
+	if s.TZ != "" {
+		l, err := time.LoadLocation(s.TZ)
 		if err != nil {
 			return time.Time{}, false
 		}
@@ -193,13 +248,17 @@ func Rank(self, label string, sessions []protocol.SessionRecord) int {
 type Input struct {
 	// Team and Repository name the header; Producer is the producing
 	// session's name; Now the production time; Since the period's start
-	// (the last marker's time, zero for the first digest).
+	// (the subscriber's last marker's time, zero for their first digest).
 	Team, Repository, Producer string
 	Now, Since                 time.Time
 	Entries                    []*state.Entry
 	Decisions                  []*state.Decision
 	// Roster is the team's online sessions as the backend lists them.
 	Roster []protocol.SessionRecord
+	// For is the subscriber's label and Only their filter: with
+	// state.OnlyMine the decision sections list only the decisions
+	// addressed to For; the contribution sections stay the team's.
+	For, Only string
 }
 
 // Output is the digest: the body, the summary carrying the counts, and
@@ -223,17 +282,21 @@ func Build(in Input) Output {
 	}
 	lines := []string{"Brigade digest: team " + in.Team + ", repository " + in.Repository + ", " + period + ", produced " + in.Now.UTC().Format(timeLayout) + " by session " + in.Producer}
 
-	open, closed := splitDecisions(in.Decisions, since)
+	decisions, whose := in.Decisions, ""
+	if in.Only == state.OnlyMine && in.For != "" {
+		decisions, whose = decisionsFor(in.Decisions, in.For), " for "+in.For
+	}
+	open, closed := splitDecisions(decisions, since)
 	out.DecisionsOpen = len(open)
 	if len(open) > 0 {
-		lines = append(lines, "", "Decisions open ("+strconv.Itoa(len(open))+"):")
+		lines = append(lines, "", "Decisions open"+whose+" ("+strconv.Itoa(len(open))+"):")
 		for _, d := range open {
 			lines = append(lines, d.Lines()...)
 			lines = append(lines, "  open for "+ageOf(in.Now, d.CreatedAt))
 		}
 	}
 	if len(closed) > 0 {
-		lines = append(lines, "", "Decisions closed in the period ("+strconv.Itoa(len(closed))+"):")
+		lines = append(lines, "", "Decisions closed in the period"+whose+" ("+strconv.Itoa(len(closed))+"):")
 		for _, d := range closed {
 			lines = append(lines, d.Lines()...)
 		}
@@ -332,6 +395,18 @@ func Build(in Input) Output {
 	out.Body = capBody(strings.Join(lines, "\n"))
 	out.Summary = protocol.TruncateRunes("Brigade digest "+in.Repository+": "+strconv.Itoa(out.DecisionsOpen)+" decisions open, "+
 		strconv.Itoa(out.Commits)+" commits, "+strconv.Itoa(out.Active)+" sessions active", protocol.MaxSummaryChars)
+	return out
+}
+
+// decisionsFor is the decisions addressed to the label, compared without
+// case; a 0.43 decision, which names nobody, is for nobody here.
+func decisionsFor(decisions []*state.Decision, label string) []*state.Decision {
+	var out []*state.Decision
+	for _, d := range decisions {
+		if d.To != "" && strings.EqualFold(d.To, label) {
+			out = append(out, d)
+		}
+	}
 	return out
 }
 
@@ -491,11 +566,11 @@ func ageOf(now, at time.Time) string {
 	return strconv.Itoa(int(d/(24*time.Hour))) + " d"
 }
 
-// ManagerSession picks the manager's best session on the roster by their
-// label, the way the gateways and `send --member` do: the gateways and
-// the sessions that refuse left out, active before idle before offline,
-// the most recently seen first; "" when they have none.
-func ManagerSession(label string, sessions []protocol.SessionRecord) string {
+// SessionOf picks a member's best session on the roster by their label,
+// the way the gateways and `send --member` do: the gateways and the
+// sessions that refuse left out, active before idle before offline, the
+// most recently seen first; "" when they have none.
+func SessionOf(label string, sessions []protocol.SessionRecord) string {
 	var best *protocol.SessionRecord
 	for i := range sessions {
 		s := &sessions[i]
@@ -539,7 +614,7 @@ func IdempotencyKey(sender, recipient, body string, now time.Time) string {
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
-// Delivery is how a digest or a decision reached the manager: through
+// Delivery is how a digest or a decision reached a subscriber: through
 // which gateway or session, to whom, and the message id.
 type Delivery struct {
 	How       string
@@ -548,18 +623,18 @@ type Delivery struct {
 	MessageID string
 }
 
-// Deliver sends body to the manager (plan §5.5): through the first of the
-// recipients whose gateway is on the roster and not offline, under the
-// gateway's `to:` first line — Slack before email when the file lists
-// them so — else to the manager's own best session as a plain team
+// Deliver sends body to the subscriber (plan §5.5): through the first of
+// their recipients whose gateway is on the roster and not offline, under
+// the gateway's `to:` first line — Slack before email whatever the
+// recipient's shape — else to their own best session as a plain team
 // message. ErrNoRecipient when neither is there. The key is the
 // digest's, so a retry inside the minute is one message.
-func Deliver(ctx context.Context, client Sender, self string, reports *state.Reports, roster []protocol.SessionRecord, body, summary string, now time.Time) (Delivery, error) {
+func Deliver(ctx context.Context, client Sender, self string, s *state.Subscriber, roster []protocol.SessionRecord, body, summary string, now time.Time) (Delivery, error) {
 	var d Delivery
-	if gw, ok := state.PickGateway(reports.Recipients, roster); ok {
+	if gw, ok := state.PickGateway(s.Recipients, roster); ok {
 		d = Delivery{How: gw.Kind, To: gw.To, SessionID: gw.SessionID}
 		body = "to: " + gw.To + "\n\n" + body
-	} else if id := ManagerSession(reports.Manager, roster); id != "" {
+	} else if id := SessionOf(s.Label, roster); id != "" {
 		d = Delivery{How: state.SentSession, To: id, SessionID: id}
 	} else {
 		return Delivery{}, ErrNoRecipient
@@ -576,8 +651,8 @@ func Deliver(ctx context.Context, client Sender, self string, reports *state.Rep
 }
 
 // ErrNoRecipient is Deliver's answer when no recipient's gateway and no
-// session of the manager is on the roster.
-var ErrNoRecipient = errors.New("digest: no gateway of the recipients and no session of the manager is on the roster")
+// session of the subscriber is on the roster.
+var ErrNoRecipient = errors.New("digest: no gateway of the recipients and no session of the subscriber is on the roster")
 
 // A Sender sends one message: adapterclient.Client's Send.
 type Sender interface {

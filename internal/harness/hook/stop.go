@@ -6,9 +6,9 @@
 // answer, whose reason is the model's next instruction. Three gates, each
 // its own sentence of the ask: the turn made a commit and no note
 // followed (a note), the doing line is older than ten minutes after a
-// turn that ran longer than a minute (a refreshed line), and a manager
-// is configured for the project after such a turn (a decision, if the
-// model waits on one). The cost rules of ruling 8 hold whatever fires: at
+// turn that ran longer than a minute (a refreshed line), and anyone is
+// subscribed to the project's digest after such a turn (a decision, if
+// the model waits on one; card 167). The cost rules of ruling 8 hold whatever fires: at
 // most one ask per ten minutes, never twice in a row, never on the Stop
 // that follows an ask (stop_hook_active), never in a quiet session, never
 // where the permission rules would make the call a dialog (the doing
@@ -68,7 +68,7 @@ const (
 	stopAskOpen     = "Brigade state (one ask, then finish): "
 	stopAskNote     = "this turn made a commit and no note followed; record one line with `brigade note <<'EOF'`, the line, `EOF`, starting Done: (what shipped), Next: (what comes next) or Blocked: (what you wait on)."
 	stopAskDoing    = "your roster line is older than ten minutes and this turn ran long; if the work changed, set it with `brigade doing <<'EOF'`, one short sentence, `EOF`."
-	stopAskDecision = "if you are waiting on your manager for a decision, record it with `brigade decision --options \"a | b\" <<'EOF'`, the question, `EOF`, so it reaches them."
+	stopAskDecision = "if you are waiting on a person for a decision, record it with `brigade decision --to <their roster label> --options \"a | b\" <<'EOF'`, the question, `EOF`, so it reaches them."
 	stopAskClose    = " No secrets, local paths or customer names. Subagents leave it alone. If a command is refused, do not run it another way; the work is done."
 )
 
@@ -169,7 +169,7 @@ func (r *run) emitBlock(reason string) {
 
 // stopAsk judges the gates and answers the ask, or "". It reads the
 // options for `status`, the stamp for the cadence, the entry for the
-// facts and reports.json for the manager; it writes the stamp on every
+// facts and reports.json for the subscribers; it writes the stamp on every
 // judged Stop — asked or quiet — so "never twice in a row" has a record
 // to read, and only when it could be written is an ask answered.
 func (r *run) stopAsk(ctx context.Context, f facts, in input, m *sessionmap.ByPID, e *state.Entry) string {
@@ -212,7 +212,7 @@ func (r *run) stopAsk(ctx context.Context, f facts, in input, m *sessionmap.ByPI
 // stopSentences is the three gates, each its sentence when it holds: a
 // commit newer than the last ask with no note after it; after a turn
 // longer than stopLongTurn, a doing line older than stopDoingStale (or
-// none ever) and, with a manager configured for the project, the
+// none ever) and, with anyone subscribed to the project's digest, the
 // decision.
 func stopSentences(e *state.Entry, m *sessionmap.ByPID, stamp stopStamp, now time.Time) []string {
 	var out []string
@@ -235,7 +235,7 @@ func stopSentences(e *state.Entry, m *sessionmap.ByPID, stamp stopStamp, now tim
 		if lastDoing.IsZero() || now.Sub(lastDoing) >= stopDoingStale {
 			out = append(out, stopAskDoing)
 		}
-		if reports, err := state.ReadReports(m.StateFolder); err == nil && reports.Manager != "" {
+		if reports, err := state.ReadReports(m.StateFolder); err == nil && len(reports.Subscribers) > 0 {
 			out = append(out, stopAskDecision)
 		}
 	}

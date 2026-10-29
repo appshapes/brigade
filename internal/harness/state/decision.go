@@ -1,8 +1,8 @@
-// decision.go is the decision file of the manager digest (card 162, plan
-// §5.1 and §5.2): the question a session asks its manager, written by
-// `brigade decision`, sent at once through a gateway, listed by every
-// digest while it is open, and closed — by the asking session or another
-// of its member's — with the outcome. Like an entry it has a canonical
+// decision.go is the decision file of the digest (card 162, plan §5.1
+// and §5.2; card 167 gives it an addressee): the question a session puts
+// to a teammate, written by `brigade decision`, sent at once to that
+// person, listed by every digest while it is open, and closed — by the
+// asking session or another of its member's — with the outcome. Like an entry it has a canonical
 // copy under the private state directory and a projection in the folder,
 // and a folder copy is a teammate's text to the readers here.
 
@@ -41,7 +41,7 @@ const (
 )
 
 // The ways a decision's ask went out, Decision.Sent: through the Slack or
-// the mail gateway, to the manager's own session when no gateway was on
+// the mail gateway, to the addressee's own session when no gateway was on
 // the roster, or not at all.
 const (
 	SentSlack   = "slack"
@@ -49,13 +49,16 @@ const (
 	SentSession = "session"
 )
 
-// A Decision is one question put to the manager.
+// A Decision is one question put to a teammate.
 type Decision struct {
 	Version  int    `json:"version"`
 	ID       string `json:"id"`
 	Question string `json:"question"`
+	// To is the roster label of the person the question is for (card
+	// 167; absent in a 0.43 decision, which was the manager's).
+	To string `json:"to,omitzero"`
 	// Options are the answers offered, Default the one taken when the
-	// manager says nothing, By the date an answer is needed by
+	// addressee says nothing, By the date an answer is needed by
 	// (YYYY-MM-DD), Card the card the question belongs to; each optional.
 	Options []string `json:"options"`
 	Default string   `json:"default,omitzero"`
@@ -66,7 +69,7 @@ type Decision struct {
 	SessionName string `json:"session_name"`
 	SessionID   string `json:"session_id"`
 	Repository  string `json:"repository,omitzero"`
-	// Sent is how the ask reached the manager (SentSlack, SentEmail,
+	// Sent is how the ask reached the addressee (SentSlack, SentEmail,
 	// SentSession), "" when it did not and the next digest carries it;
 	// SentTo the recipient it went to (a Slack handle or channel, an
 	// address, a session id).
@@ -152,6 +155,7 @@ func (d *Decision) Sanitize() {
 	if d.Card < 0 || d.Card > 999999 {
 		d.Card = 0
 	}
+	d.To = protocol.SanitizeLabel(line(d.To))
 	d.Member = protocol.SanitizeLabel(line(d.Member))
 	d.SessionName = protocol.SanitizeName(line(d.SessionName))
 	d.Repository = protocol.SanitizeLabel(line(d.Repository))
@@ -185,12 +189,16 @@ func containsString(list []string, s string) bool {
 
 // Lines is the labelled shape of a decision, the same in the ask the
 // gateway carries and in the digest (plan §5.2): the id and the question
-// first, then who asked and when, the options, the default, the date,
-// the card; for a closed one the close and its outcome. Plain text, a
-// stable label at the start of each line, nothing a reader has to parse.
+// first, then whom it is for, who asked and when, the options, the
+// default, the date, the card; for a closed one the close and its
+// outcome. Plain text, a stable label at the start of each line, nothing
+// a reader has to parse.
 func (d *Decision) Lines() []string {
 	lines := []string{"Decision " + d.ID + ": " + d.Question}
 	who := "asked " + d.CreatedAt.UTC().Format(dateLayout)
+	if d.To != "" {
+		who = "for " + d.To + ", " + who
+	}
 	if d.Member != "" {
 		who += " by " + d.Member
 	}

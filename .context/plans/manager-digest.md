@@ -1,6 +1,6 @@
 # Manager digest: decisions and contributions, from the team's synced folder
 
-**Status.** **v2, in build**, 2026-10-29, Trello card **162**, owner Rjae. The nine rulings of 2026-10-29 are
+**Status.** **v3, in build**, 2026-10-29, Trello cards **162** (shipped 0.43.0 and 0.43.1) and **167** (digests for any member who opts in, which folds in card 166), owner Rjae. Card 167 strips the manager role: §5.5 is rewritten as a list of subscribers, each the writer of their own entry, and the rows are the **P66** series (§6). The nine rulings of 2026-10-29 are
 in §7 and settle the carrier, the sender, the state entry and the digest; the rows are the **P65** series of the
 execution log (§6); P65-1 to P65-7 landed 2026-10-29 with the deviations §5.1, §5.3 and §5.4 note in place; the live
 proof is `docs/experiments/E14-manager-digest.md`. **No
@@ -36,8 +36,9 @@ of waiting till we determine the **best** solution."
 - **Whichever session is active produces the digest.** The watcher of the first online session in roster order
   writes a facts-only digest when the period has elapsed and something changed, after a delay set by its rank;
   a marker file in the folder stops the others. No manager node: when the team is quiet there is nothing to say.
-- **Delivery is the gateways the team already has**, Slack first, email second, as a DM to the manager; a
-  decision goes out the moment it is created, the digest on the period. The manager's assistant (Claude Duet,
+- **Delivery is the gateways the team already has**, Slack first, email second, as a DM to each subscriber (card
+  167: anyone who opts in, the manager being one; the 0.43 file named one manager); a decision goes out the moment
+  it is created, to the person it names, the digest on the period. The manager's assistant (Claude Duet,
   Grok Bot, or none) reads Slack or email as it already does; Brigade integrates with no assistant directly.
 - **The manager acts however they wish.** Sessions act on the answers, close their decisions, and that informs the
   next digest. Nothing is built for the manager's responses (ruling 4).
@@ -196,23 +197,52 @@ each omitted when empty, caps keeping the body under 16 KiB (ruling 3):
 Notes are cut at 200 characters with a mark; a capped section ends with how many more. Plain text, a stable
 label at the start of each line. The summary carries the counts: decisions open, commits, sessions active.
 
-### 5.5 Delivery and settings
+### 5.5 Delivery and subscriptions (v2, card 167, 2026-10-29)
 
-`reports.json` (one per repository, written by `brigade report configure`):
+`reports.json` (one per repository) is a list of **subscribers**, each entry written by the subscriber's own session:
 
 ```json
-{"version": 1, "manager": "Rjae", "recipients": ["@rjae", "<address>"], "every": "24h", "at": "08:00", "tz": "America/Los_Angeles"}
+{"version": 2, "subscribers": [
+  {"label": "rjae@example.com", "recipients": ["@rjae", "rjae@example.com"], "every": "24h", "only": "mine"},
+  {"label": "Frank", "recipients": ["#eng-digests"], "at": "08:00", "tz": "America/New_York"}
+]}
 ```
 
-`manager` is a roster label. Recipients are typed by shape: a Slack handle or channel goes through the Slack
-gateway; an address goes through the Slack gateway too when the team has one (it finds the person by their
-email, as `/brigade:slack <address>` does) and through the mail gateway otherwise (P65-9 deviation, owner
-2026-10-29: a manager's roster label is an address by default, and 0.43.0's "an address means mail" sent the
-proof's asks by mail with the Slack gateway on the roster); the producer walks the list and sends to the first a
-gateway on the roster can carry (found by its harness id), with the body's first line the gateway's existing
-`to:` convention, so no gateway changes. Without any gateway, a plain Brigade message to the manager's best session and a roster
-notice. The address rule (ruling 3): a Slack handle is fine in the folder; an address is written only after
-`git check-ignore` confirms the folder is ignored, and nowhere else.
+- **A subscriber** is their roster `label` (the key, compared without case), their `recipients` in precedence
+  (a Slack handle, a `#channel`, an address; the rules of 0.43.1: an address goes through the Slack gateway when
+  the team has one, which finds the person by their email, and through the mail gateway otherwise, so Slack comes
+  before email whatever the shape; an empty list and a label that is an address means the label), their period
+  (`every`, or `at` in `tz`), and `only`: absent for everything, `mine` for a digest whose decision sections list
+  only the decisions addressed to them, the contribution sections staying the team's (a convenience, not a
+  boundary: every member reads the folder).
+- **The 0.43 shape** (`version` 1, `manager`, `recipients`, the period) reads as one subscriber, and its marker
+  `digests/last.json` serves that subscriber until they have their own; the first write rewrites the file as
+  version 2 and carries that marker over.
+- **A subscription is the person's own act** (owner ruling 2026-10-29): `brigade report subscribe
+  [--recipients …] [--every … | --at … --tz …] [--only mine]`, inside a session, writes the caller's entry under
+  the label the session's entry carries (the roster label the hook registered; a session with none cannot
+  subscribe); `brigade report unsubscribe` removes it. Nobody writes another's entry; the `/brigade:subscribe`
+  skill is the one-line form. The address rule stands: an address is written only where `git check-ignore` says
+  the folder is ignored.
+- **The marker is per subscriber**, `digests/<stem>.json`, the stem the label's safe slug plus six hex digits of
+  its hash (`state.LabelStem`), carrying the label. "Due" and "changed since" are judged per subscriber against
+  their marker.
+- **The producer fans out.** On a tick with a subscriber due and something changed since their marker, the rank
+  and the delay are taken once for the batch (the roster read once, as before); at production the folder is
+  read once and, for each due subscriber whose marker has not moved meanwhile, the body is built with their
+  period start and their filter, sent through their recipients' first gateway on the roster — else to their own
+  best session as a team message — and their marker written. A failure for one never stops the others; the log
+  and the notice say who got it and who did not.
+- **`brigade report send [--to <label>]`** sends to that subscriber now, or to every subscriber without the flag,
+  each marker written; **`brigade report show [--to <label>]`** prints that subscriber's digest, and without the
+  flag the caller's own when subscribed, else everything since the start.
+- **A decision has an addressee**: `brigade decision --to <label>` is required, and no `--to` is an
+  `invalid_input` error naming the flag (owner ruling 2026-10-29: agents run this; the omission is an edge
+  case, so an error, not a guess). The ask goes at creation to that person's recipients when they are
+  subscribed, else to their best session as a team message (the member resolver of `send --member`: a label
+  shared by two members is ambiguous, and the decision is recorded unsent); the preamble and the digest say whom
+  it is for; `--close` stays the asking member's.
+- **The Stop hook's third gate** reads "anyone is subscribed" instead of "a manager is configured".
 
 ### 5.6 Skills and documentation
 
@@ -225,7 +255,7 @@ notice. The address rule (ruling 3): a Slack handle is fine in the folder; an ad
   leaves the machine (entries to every teammate's machine; the digest and decisions to Slack or email and from
   there to whatever assistant reads them), `CHANGELOG.md`.
 
-## 6. Rows (the P65 series of the execution log)
+## 6. Rows (the P65 and P66 series of the execution log)
 
 | Row | Work | State |
 | --- | --- | --- |
@@ -237,6 +267,11 @@ notice. The address rule (ruling 3): a Slack handle is fine in the folder; an ad
 | P65-6 | Skills, pages, security.md, changelog | done 2026-10-29 |
 | P65-7 | Proof (§8) and release | E14 done 2026-10-29; release 0.43.0 |
 | P65-9 | An address recipient through the Slack gateway when the team has one; recipients default to the manager's label | done 2026-10-29; release 0.43.1 |
+| P66-1 | Card 167: the subscriber list (`reports.json` v2 with the v1 reader), `report subscribe\|unsubscribe\|show\|send [--to]`, `decision --to` and its error, the producer per subscriber with per-subscriber markers, the Stop gate, the fan-out tests | |
+| P66-2 | The `/brigade:subscribe` skill in the four packages, the skills' wording (a decision is "a question only the person you name can answer"), the agent pages, the package checks (nine skills) | |
+| P66-3 | Pages ("Set up the digests", "Subscribe to the digest"), security.md §18, options.md, the generated reference, changelog | |
+| P66-4 | Proof: two subscribers, one decision addressed to each (E15) | |
+| P66-5 | Release 0.44.0 | |
 
 ## 7. Owner rulings, 2026-10-29
 

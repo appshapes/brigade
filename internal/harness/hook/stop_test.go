@@ -172,8 +172,8 @@ func TestStopAsksForANoteAfterACommit(t *testing.T) {
 }
 
 // TestStopAsksAfterALongTurn (gates 2 and 3): after a turn longer than a
-// minute with no doing line published, the doing sentence; with a
-// manager configured, the decision sentence too; a turn under a minute
+// minute with no doing line published, the doing sentence; with anyone
+// subscribed to the digest, the decision sentence too; a turn under a minute
 // asks neither; a fresh doing line silences the doing sentence.
 func TestStopAsksAfterALongTurn(t *testing.T) {
 	t.Parallel()
@@ -188,8 +188,8 @@ func TestStopAsksAfterALongTurn(t *testing.T) {
 	if got := blockReason(t, out); got != stopAskOpen+stopAskDoing+stopAskClose {
 		t.Fatalf("reason = %q", got)
 	}
-	// A manager configured, and the ask interval passed.
-	if err := os.WriteFile(state.ReportsPath(s.Folder), []byte(`{"version":1,"manager":"rjae@example.com","recipients":["@rjae"]}`), 0o600); err != nil {
+	// Someone subscribed to the digest, and the ask interval passed.
+	if err := os.WriteFile(state.ReportsPath(s.Folder), []byte(`{"version":2,"subscribers":[{"label":"rjae@example.com","recipients":["@rjae"]}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	f.now = fixedTime.Add(23 * time.Minute)

@@ -18,9 +18,12 @@ import (
 
 // DecisionOptions are the flags of `brigade decision`.
 type DecisionOptions struct {
-	// Options are the answers offered, separated by `|`; Default the one
-	// taken when the manager says nothing; By the date an answer is
-	// needed by (YYYY-MM-DD); Card the card the question belongs to.
+	// To is the person the decision is for, by their roster label
+	// (required for an ask); Options are the answers offered, separated
+	// by `|`; Default the one taken when they say nothing; By the date an
+	// answer is needed by (YYYY-MM-DD); Card the card the question
+	// belongs to.
+	To      string
 	Options string
 	Default string
 	By      string
@@ -53,15 +56,15 @@ type decisionSent struct {
 // The fixed texts of `brigade decision` (card 162, plan §5.2).
 const (
 	// DecisionUsage is the whole `usage` message for positional arguments.
-	DecisionUsage = "decision takes no arguments: the question travels on stdin in a quoted heredoc (<<'EOF'); --options, --default, --by and --card describe it, --close <id> closes one with the outcome on stdin"
+	DecisionUsage = "decision takes no arguments: the question travels on stdin in a quoted heredoc (<<'EOF'); --to names the person it is for by their roster label; --options, --default, --by and --card describe it; --close <id> closes one with the outcome on stdin"
 	// DecisionNote is the note of a --json result for an ask;
 	// DecisionClosedNote for a close.
-	DecisionNote       = "recorded in the project's state folder and sent to the manager through the first gateway of reports.json's recipients that is on the roster; the manager answers however they wish, and brigade decision --close records the outcome"
+	DecisionNote       = "recorded in the project's state folder and sent to the person it is for: through the first gateway of their subscription's recipients that is on the roster, else to their best session as a team message; they answer however they wish, and brigade decision --close records the outcome"
 	DecisionClosedNote = "closed in the project's state folder; the next digest lists it under the decisions closed"
-	// DecisionNoManager is the `config` message of a project whose
-	// reports.json names no manager.
-	DecisionNoManager = "no manager is configured for this project: brigade report configure writes reports.json in the state folder"
-	ReasonNoManager   = "no_manager"
+	// DecisionNoTo is the `invalid_input` message of an ask with no --to
+	// (owner ruling 2026-10-29: an error, not a guess).
+	DecisionNoTo   = "--to names the person the decision is for, by their label as the roster shows it: brigade decision --to <label> <<'EOF' … EOF"
+	ReasonToNeeded = "to_needed"
 	// DecisionNotSentSuffix closes the line of an ask that was recorded
 	// but reached nobody.
 	DecisionNotSentSuffix = "; the next digest carries it"
@@ -74,18 +77,20 @@ const (
 	ReasonNotTheAsker      = "not_the_asker"
 )
 
-// Decision implements `brigade decision [--options <a | b>] [--default
-// <option>] [--by <date>] [--card <n>] [--json]` and `brigade decision
-// --close <id> [--json]` (card 162, plan §5.2). An ask writes
-// `decisions/<id>.json` — the canonical copy under the state directory,
-// the projection in the folder — and sends it at once, in the labelled
-// shape the digest uses, through the first gateway of reports.json's
-// recipients that is on the roster (Slack before email when the file
-// lists them so); with no gateway there, to the manager's own best
-// session; with neither, it is recorded and the line says so, and the
-// next digest carries it. A close records the outcome and who closed it:
-// the asking session, or another session of the member who asked. Every
-// text is cleaned as a doing line is, before anything is resolved.
+// Decision implements `brigade decision --to <label> [--options <a | b>]
+// [--default <option>] [--by <date>] [--card <n>] [--json]` and `brigade
+// decision --close <id> [--json]` (card 162, plan §5.2; card 167, the
+// addressee). An ask writes `decisions/<id>.json` — the canonical copy
+// under the state directory, the projection in the folder — and sends it
+// at once, in the labelled shape the digest uses, to the person --to
+// names: through the first gateway of their subscription's recipients
+// that is on the roster (Slack before email whatever the shape); with no
+// subscription or no gateway there, to their own best session as a team
+// message; with neither, it is recorded and the line says so, and the
+// next digest carries it. No --to is an error, never a guess (owner
+// ruling 2026-10-29). A close records the outcome and who closed it: the
+// asking session, or another session of the member who asked. Every text
+// is cleaned as a doing line is, before anything is resolved.
 func Decision(inv Invocation, opts DecisionOptions) error {
 	if len(inv.Args) != 0 {
 		return usage(DecisionUsage)
@@ -94,6 +99,14 @@ func Decision(inv Invocation, opts DecisionOptions) error {
 		return closeDecision(inv, opts.Close)
 	}
 	home, token := adapterkit.HomeDir(inv.Environ), adapterkit.Getenv(inv.Environ, envMessagingToken)
+	to, reason := doing.CleanText(opts.To, home, protocol.MaxHumanLabelChars, token)
+	if reason == doing.ReasonEmpty {
+		return &protocol.Error{Code: protocol.CodeInvalidInput, Message: DecisionNoTo, Details: map[string]string{"field": "to", "reason": ReasonToNeeded}}
+	}
+	if reason != "" {
+		return textError("to", reason, protocol.MaxHumanLabelChars)
+	}
+	to = protocol.SanitizeLabel(to)
 	options, err := decisionOptions(opts.Options, home, token)
 	if err != nil {
 		return err
@@ -134,10 +147,11 @@ func Decision(inv Invocation, opts DecisionOptions) error {
 	}
 	reports, err := state.ReadReports(m.StateFolder)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		inv.logger().Warn("decision: reports.json unreadable", log.Err(err))
+		inv.logger().Warn("decision: reports.json unreadable; the ask goes to the person's session", log.Err(err))
 	}
-	if reports == nil || reports.Manager == "" {
-		return &protocol.Error{Code: protocol.CodeConfig, Message: DecisionNoManager, Details: map[string]string{"reason": ReasonNoManager}}
+	var sub *state.Subscriber
+	if reports != nil {
+		sub = reports.Subscriber(to)
 	}
 	now := inv.Deps.now()
 	id, err := state.NewDecisionID(now)
@@ -145,7 +159,7 @@ func Decision(inv Invocation, opts DecisionOptions) error {
 		return &protocol.Error{Code: protocol.CodeInternal, Message: "a decision id could not be made"}
 	}
 	d := &state.Decision{
-		Version: state.Version, ID: id, Question: question, Options: options, Default: def, By: by, Card: opts.Card,
+		Version: state.Version, ID: id, Question: question, To: to, Options: options, Default: def, By: by, Card: opts.Card,
 		SessionName: m.SessionName, SessionID: m.BrigadeSessionID, Repository: m.SyncScope,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -159,7 +173,7 @@ func Decision(inv Invocation, opts DecisionOptions) error {
 		return &protocol.Error{Code: protocol.CodeInternal, Message: "the decision could not be written to the state folder"}
 	}
 
-	sent, notSent := inv.sendDecision(t, reports, d)
+	sent, notSent := inv.sendDecision(t, sub, d)
 	if sent != nil {
 		d.Sent, d.SentTo, d.UpdatedAt = sent.How, sent.To, inv.Deps.now()
 		if err := s.SaveDecision(d); err != nil {
@@ -172,9 +186,9 @@ func Decision(inv Invocation, opts DecisionOptions) error {
 	lines := []string{"recorded: decision " + d.ID}
 	switch {
 	case sent != nil && sent.How == state.SentSession:
-		lines = append(lines, "sent: to the manager's session "+shortSession(sent.SessionID)+" as a team message (no gateway on the roster), message "+idLine(sent.MessageID))
+		lines = append(lines, "sent: to "+d.To+" at their session "+shortSession(sent.SessionID)+" as a team message (not subscribed, or no gateway of their recipients on the roster), message "+idLine(sent.MessageID))
 	case sent != nil:
-		lines = append(lines, "sent: to "+sent.To+" through the "+sent.How+" gateway, message "+idLine(sent.MessageID))
+		lines = append(lines, "sent: to "+d.To+" at "+sent.To+" through the "+sent.How+" gateway, message "+idLine(sent.MessageID))
 	default:
 		lines = append(lines, "not sent: "+notSent+DecisionNotSentSuffix)
 	}
@@ -213,15 +227,17 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// sendDecision sends the ask: the roster is read once; the first
-// gateway of the recipients that is on it takes the labelled lines under
-// a `to:` first line (the gateway's own convention); with none, the
-// manager's best session as a plain team message (resolveMember, the
-// gateways left out). It answers what was sent, or why nothing was —
-// the roster unreadable, no gateway and no session of the manager, the
-// send refused — in one sentence for the line. A failed send is never an
-// error of the command: the decision is recorded, and the digest lists it.
-func (inv Invocation) sendDecision(t *target, reports *state.Reports, d *state.Decision) (*decisionSent, string) {
+// sendDecision sends the ask to the person it is for: the roster is read
+// once; with a subscription, the first gateway of its recipients that is
+// on the roster takes the labelled lines under a `to:` first line (the
+// gateway's own convention); with none, their best session as a plain
+// team message (resolveMember, the gateways left out; a label two
+// members share is ambiguous and reaches nobody). It answers what was
+// sent, or why nothing was — the roster unreadable, no gateway and no
+// session of theirs, the send refused — in one sentence for the line. A
+// failed send is never an error of the command: the decision is
+// recorded, and the digest lists it.
+func (inv Invocation) sendDecision(t *target, sub *state.Subscriber, d *state.Decision) (*decisionSent, string) {
 	list, err := callWithin(RosterTimeout, func(ctx context.Context) (*adapterclient.ListResult, error) {
 		return t.client.ListSessions(ctx, false)
 	})
@@ -232,17 +248,25 @@ func (inv Invocation) sendDecision(t *target, reports *state.Reports, d *state.D
 	body := strings.Join(d.Lines(), "\n")
 	summary := protocol.TruncateRunes("Decision "+d.ID+": "+d.Question, protocol.MaxSummaryChars)
 	var sent decisionSent
-	if gw, ok := state.PickGateway(reports.Recipients, list.Sessions); ok {
+	var recipients []string
+	if sub != nil {
+		recipients = sub.Recipients
+	}
+	if gw, ok := state.PickGateway(recipients, list.Sessions); ok {
 		sent = decisionSent{How: gw.Kind, To: gw.To, SessionID: gw.SessionID}
-		body = "to: " + gw.To + "\n\n" + askPreamble(t, reports) + body
+		body = "to: " + gw.To + "\n\n" + askPreamble(t, d.To) + body
 	} else {
-		pick, merr := resolveMember(reports.Manager, list.Sessions)
+		pick, merr := resolveMember(d.To, list.Sessions)
 		if merr != nil {
-			inv.logger().Info("decision: no gateway on the roster and no session of the manager", log.Err(merr))
-			return nil, "no gateway of the recipients is on the roster, and the manager has no session that can receive a message"
+			inv.logger().Info("decision: no gateway of the recipients on the roster and no session of the person", log.Err(merr))
+			why := "no gateway of their recipients is on the roster, and they have no session that can receive a message"
+			if isReason(merr, "ambiguous") {
+				why = "the label names more than one member, and nobody was picked"
+			}
+			return nil, why
 		}
 		sent = decisionSent{How: state.SentSession, To: pick.session.SessionID, SessionID: pick.session.SessionID}
-		body = askPreamble(t, reports) + body
+		body = askPreamble(t, d.To) + body
 	}
 	req := &protocol.SendRequest{
 		SenderSessionID: t.selfSessionID(), RecipientSessionID: sent.SessionID, Body: body, Summary: summary,
@@ -261,14 +285,14 @@ func (inv Invocation) sendDecision(t *target, reports *state.Reports, d *state.D
 	return &sent, ""
 }
 
-// askPreamble is the line before a decision's lines in the ask: the team,
-// and what the manager may do with it.
-func askPreamble(t *target, reports *state.Reports) string {
+// askPreamble is the line before a decision's lines in the ask: whom it
+// is for, the team, and what they may do with it.
+func askPreamble(t *target, to string) string {
 	team := ""
 	if t.session != nil {
 		team = nameLine(t.session.TeamName)
 	}
-	return "Brigade decision for " + oneLine(reports.Manager) + " from team " + team + ". Answer however you wish; the session acts on your answer and closes the decision.\n"
+	return "Brigade decision for " + oneLine(to) + " from team " + team + ". Answer however you wish; the session acts on your answer and closes the decision.\n"
 }
 
 // codeOf is the protocol code of an error, `internal` for any other.

@@ -172,13 +172,23 @@ func TestReadDecisionsIsStrict(t *testing.T) {
 	}
 }
 
-// TestReportsAndGateways: reports.json is read and sanitised — the
-// recipients typed by shape, the ones of no kind dropped, the list capped
-// — the period parsed with its default, and PickGateway walks the
-// recipients in order for a gateway that is on the roster and online.
+// TestReportsAndGateways: reports.json is read and sanitised — each
+// subscriber's recipients typed by shape, the ones of no kind dropped,
+// the list capped, an unlabelled or a duplicate subscriber dropped, a
+// filter of another word none — a version-1 file reads as one subscriber
+// with Legacy set, the period parsed with its default, the file written
+// back as version 2, the label's stem passes CheckID, and PickGateway
+// walks the recipients in order for a gateway that is on the roster and
+// online.
 func TestReportsAndGateways(t *testing.T) {
 	t.Parallel()
 	folder := t.TempDir()
+	write := func(doc string) {
+		t.Helper()
+		if err := os.WriteFile(state.ReportsPath(folder), []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := state.ReadReports(folder); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("missing: %v", err)
 	}
@@ -186,49 +196,88 @@ func TestReportsAndGateways(t *testing.T) {
 	for i := range 12 {
 		many = append(many, `"@u`+string(rune('a'+i))+`"`)
 	}
-	doc := `{"version":1,"manager":"Rjae <manager>","recipients":["@rjae","rjae@example.com","#digests","nobody","bad address@","rjae@localhost",` + strings.Join(many, ",") + `],"every":"4h","at":"08:00","tz":"America/Los_Angeles"}`
-	if err := os.WriteFile(state.ReportsPath(folder), []byte(doc), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(`{"version":2,"subscribers":[{"label":"Rjae <manager>","recipients":["@rjae","rjae@example.com","#digests","nobody","bad address@","rjae@localhost",` + strings.Join(many, ",") + `],"every":"4h","at":"08:00","tz":"America/Los_Angeles","only":"mine"},` +
+		`{"label":"frank@example.com"},{"label":"  "},{"label":"FRANK@example.com","recipients":["@frank"]},{"label":"Carol","only":"theirs"}]}`)
 	r, err := state.ReadReports(folder)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Manager != "Rjae <manager>" || r.Period() != 4*time.Hour || r.At != "08:00" || r.TZ != "America/Los_Angeles" {
-		t.Fatalf("reports = %+v", *r)
+	if r.Legacy || len(r.Subscribers) != 3 {
+		t.Fatalf("subscribers = %+v", r.Subscribers)
 	}
-	if len(r.Recipients) != state.MaxRecipients || !slices.Equal(r.Recipients[:3], []string{"@rjae", "rjae@example.com", "#digests"}) || slices.Contains(r.Recipients, "nobody") || slices.Contains(r.Recipients, "rjae@localhost") {
-		t.Fatalf("recipients = %q", r.Recipients)
+	s := r.Subscribers[0]
+	if s.Label != "Rjae <manager>" || s.Period() != 4*time.Hour || s.At != "08:00" || s.TZ != "America/Los_Angeles" || s.Only != state.OnlyMine {
+		t.Fatalf("subscriber = %+v", s)
+	}
+	if len(s.Recipients) != state.MaxRecipients || !slices.Equal(s.Recipients[:3], []string{"@rjae", "rjae@example.com", "#digests"}) || slices.Contains(s.Recipients, "nobody") || slices.Contains(s.Recipients, "rjae@localhost") {
+		t.Fatalf("recipients = %q", s.Recipients)
+	}
+	// An address label fills an empty list; the duplicate (case apart) was
+	// dropped; a label that is no address gets no recipient; a filter of
+	// another word is none; the lookup is case-blind.
+	if f := r.Subscriber("FRANK@EXAMPLE.COM"); f == nil || f.Label != "frank@example.com" || !slices.Equal(f.Recipients, []string{"frank@example.com"}) {
+		t.Fatalf("frank = %+v", f)
+	}
+	if c := r.Subscriber("carol"); c == nil || len(c.Recipients) != 0 || c.Only != "" {
+		t.Fatalf("carol = %+v", c)
+	}
+	if r.Subscriber("nobody") != nil {
+		t.Fatal("nobody is subscribed")
+	}
+	// Subscribe replaces by label or appends; Unsubscribe removes.
+	r.Subscribe(state.Subscriber{Label: "carol", Recipients: []string{"#carol"}})
+	if len(r.Subscribers) != 3 || r.Subscribers[2].Label != "carol" || !slices.Equal(r.Subscribers[2].Recipients, []string{"#carol"}) {
+		t.Fatalf("after a resubscribe: %+v", r.Subscribers)
+	}
+	r.Subscribe(state.Subscriber{Label: "dave", Every: "90m"})
+	if len(r.Subscribers) != 4 || !r.Unsubscribe("CAROL") || r.Unsubscribe("carol") || len(r.Subscribers) != 3 || r.Subscribers[2].Label != "dave" {
+		t.Fatalf("after subscribe and unsubscribe: %+v", r.Subscribers)
+	}
+	if err := state.WriteReports(folder, r); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(state.ReportsPath(folder)); !strings.Contains(string(data), `"version":2`) || strings.Contains(string(data), `"manager":`) {
+		t.Fatalf("written file: %s", data)
+	}
+	if r2, err := state.ReadReports(folder); err != nil || len(r2.Subscribers) != 3 || r2.Subscribers[2].Label != "dave" || r2.Subscribers[2].Period() != 90*time.Minute {
+		t.Fatalf("read back = %+v, %v", r2, err)
 	}
 	for in, want := range map[string]string{"@rjae": "slack", "#chan": "slack", "a@b.co": "email", "@": "", "a@b": "", "a b@c.d": "", "": ""} {
 		if got := state.RecipientKind(in); got != want {
 			t.Errorf("RecipientKind(%q) = %q, want %q", in, got, want)
 		}
 	}
-	// A file with no recipients: the manager's label is the recipient when
-	// it is an address, and nothing when it is not.
-	if err := os.WriteFile(state.ReportsPath(folder), []byte(`{"version":1,"manager":"rjae@example.com"}`), 0o600); err != nil {
-		t.Fatal(err)
+	// The 0.43 shape: one subscriber, Legacy; the manager's label the
+	// recipient when it is an address, nothing when it is not; no
+	// manager, nobody.
+	write(`{"version":1,"manager":"rjae@example.com","recipients":[],"every":"4h"}`)
+	if r, err := state.ReadReports(folder); err != nil || !r.Legacy || len(r.Subscribers) != 1 || r.Subscribers[0].Label != "rjae@example.com" || !slices.Equal(r.Subscribers[0].Recipients, []string{"rjae@example.com"}) || r.Subscribers[0].Period() != 4*time.Hour {
+		t.Fatalf("ReadReports of the 0.43 shape = %+v, %v", r, err)
 	}
-	if r, err := state.ReadReports(folder); err != nil || !slices.Equal(r.Recipients, []string{"rjae@example.com"}) {
-		t.Fatalf("ReadReports with the manager alone = %+v, %v", r, err)
-	}
-	if err := os.WriteFile(state.ReportsPath(folder), []byte(`{"version":1,"manager":"Rjae"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if r, err := state.ReadReports(folder); err != nil || len(r.Recipients) != 0 {
+	write(`{"version":1,"manager":"Rjae"}`)
+	if r, err := state.ReadReports(folder); err != nil || len(r.Subscribers) != 1 || len(r.Subscribers[0].Recipients) != 0 {
 		t.Fatalf("ReadReports with a label that is no address = %+v, %v", r, err)
 	}
-	if (&state.Reports{}).Period() != state.DefaultEvery || (&state.Reports{Every: "10s"}).Period() != state.DefaultEvery || (&state.Reports{Every: "90m"}).Period() != 90*time.Minute {
+	write(`{"version":1,"manager":""}`)
+	if r, err := state.ReadReports(folder); err != nil || !r.Legacy || len(r.Subscribers) != 0 {
+		t.Fatalf("ReadReports with no manager = %+v, %v", r, err)
+	}
+	if (&state.Subscriber{}).Period() != state.DefaultEvery || (&state.Subscriber{Every: "10s"}).Period() != state.DefaultEvery || (&state.Subscriber{Every: "90m"}).Period() != 90*time.Minute {
 		t.Fatal("Period")
 	}
-	for name, doc := range map[string]string{"another version": `{"version":2,"manager":"x"}`, "not json": `{`} {
-		if err := os.WriteFile(state.ReportsPath(folder), []byte(doc), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	for name, doc := range map[string]string{"another version": `{"version":3,"subscribers":[]}`, "not json": `{`} {
+		write(doc)
 		if _, err := state.ReadReports(folder); err == nil {
 			t.Fatalf("%s accepted", name)
 		}
+	}
+	for label, want := range map[string]string{"rjae@example.com": "rjae-example-com-", "Rjae": "rjae-", "  ": "", "a.b@x": "a-b-x-", strings.Repeat("x", 60) + "@y": strings.Repeat("x", 40) + "-"} {
+		if stem := state.LabelStem(label); !strings.HasPrefix(stem, want) || len(stem) != len(want)+6 || state.CheckID(stem) != nil {
+			t.Errorf("LabelStem(%q) = %q", label, stem)
+		}
+	}
+	if state.LabelStem("Rjae") != state.LabelStem("rjae") || state.LabelStem("a.b@x") == state.LabelStem("a-b@x") {
+		t.Error("the stem is case-blind, and two labels that slug alike stay apart")
 	}
 	slack := protocol.SessionRecord{SessionID: "slack-1", Harness: "gateway-slack", State: protocol.SessionStateIdle}
 	mail := protocol.SessionRecord{SessionID: "mail-1", Harness: "gateway-email", State: protocol.SessionStateActive}

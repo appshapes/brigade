@@ -23,10 +23,10 @@ Commands:
   whoami                                      print this session's identity
   doing [--clear]                             publish one sentence about what this session is working on (on stdin)
   note                                        record one line about the work for the manager digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)
-  decision [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id>
-                                              ask the project's manager for a decision (the question on stdin), sent at once through a gateway, or close one with its outcome
-  report configure --manager <label> [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] | show | send
-                                              set up the manager digest (reports.json in the state folder), print the digest the producer would send now, or send one now
+  decision --to <label> [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id>
+                                              ask a teammate for a decision (the question on stdin), sent at once to their digest recipients or their session, or close one with its outcome
+  report subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] | unsubscribe | show [--to <label>] | send [--to <label>]
+                                              subscribe this session's member to the digest (reports.json in the state folder) or unsubscribe, print the digest a subscriber would get now, or send one now
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
   team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags]
@@ -128,9 +128,9 @@ record one line about the work for the manager digest — Done:, Next: or Blocke
 ## brigade decision
 
 ```text
-Usage: brigade decision [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id> [--json] [--log-level debug|info|warn|error]
+Usage: brigade decision --to <label> [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id> [--json] [--log-level debug|info|warn|error]
 
-ask the project's manager for a decision (the question on stdin), sent at once through a gateway, or close one with its outcome
+ask a teammate for a decision (the question on stdin), sent at once to their digest recipients or their session, or close one with its outcome
 ```
 
 | Flag | What it does |
@@ -138,23 +138,25 @@ ask the project's manager for a decision (the question on stdin), sent at once t
 | `--by <value>` | the date an answer is needed by, YYYY-MM-DD |
 | `--card <value>` | the card the question belongs to (default `0`) |
 | `--close <value>` | close the decision with this id; the outcome travels on stdin |
-| `--default <value>` | the option taken when the manager says nothing (one of --options) |
+| `--default <value>` | the option taken when the person says nothing (one of --options) |
 | `--options <value>` | the answers offered, separated by \| |
+| `--to <value>` | the person the decision is for, by their label as the roster shows it (required) |
 
 ## brigade report
 
 ```text
-Usage: brigade report configure --manager <label> [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] | show | send [--json] [--log-level debug|info|warn|error]
+Usage: brigade report subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] | unsubscribe | show [--to <label>] | send [--to <label>] [--json] [--log-level debug|info|warn|error]
 
-set up the manager digest (reports.json in the state folder), print the digest the producer would send now, or send one now
+subscribe this session's member to the digest (reports.json in the state folder) or unsubscribe, print the digest a subscriber would get now, or send one now
 ```
 
 | Flag | What it does |
 | --- | --- |
 | `--at <value>` | a daily digest's time of day, HH:MM |
 | `--every <value>` | the period between two digests, a duration such as 24h or 4h (24h when unset) |
-| `--manager <value>` | the manager's label as the roster shows it |
-| `--recipients <value>` | where the digest and the decisions go, in order of precedence, separated by \|: a Slack handle or channel, an email address (the manager's label when left out and it is an address) |
+| `--only <value>` | mine: list only the decisions addressed to you; the contributions stay the team's |
+| `--recipients <value>` | where your digest and the decisions for you go, in order of precedence, separated by \|: a Slack handle or channel, an email address (your label when left out and it is an address) |
+| `--to <value>` | the subscriber a show or a send is for, by their label (show: your own subscription when left out; send: every subscriber) |
 | `--tz <value>` | the zone of --at, an IANA name such as America/Los_Angeles (UTC when unset) |
 
 ## brigade inbound

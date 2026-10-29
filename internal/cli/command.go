@@ -112,11 +112,12 @@ func init() {
 		},
 		{
 			Name:    "decision",
-			Args:    "[--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id>",
-			Summary: "ask the project's manager for a decision (the question on stdin), sent at once through a gateway, or close one with its outcome",
+			Args:    "--to <label> [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id>",
+			Summary: "ask a teammate for a decision (the question on stdin), sent at once to their digest recipients or their session, or close one with its outcome",
 			Flags: func(fs *flag.FlagSet) {
+				fs.String("to", "", "the person the decision is for, by their label as the roster shows it (required)")
 				fs.String("options", "", "the answers offered, separated by |")
-				fs.String("default", "", "the option taken when the manager says nothing (one of --options)")
+				fs.String("default", "", "the option taken when the person says nothing (one of --options)")
 				fs.String("by", "", "the date an answer is needed by, YYYY-MM-DD")
 				fs.Int("card", 0, "the card the question belongs to")
 				fs.String("close", "", "close the decision with this id; the outcome travels on stdin")
@@ -125,14 +126,15 @@ func init() {
 		},
 		{
 			Name:    "report",
-			Args:    "configure --manager <label> [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] | show | send",
-			Summary: "set up the manager digest (reports.json in the state folder), print the digest the producer would send now, or send one now",
+			Args:    "subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] | unsubscribe | show [--to <label>] | send [--to <label>]",
+			Summary: "subscribe this session's member to the digest (reports.json in the state folder) or unsubscribe, print the digest a subscriber would get now, or send one now",
 			Flags: func(fs *flag.FlagSet) {
-				fs.String("manager", "", "the manager's label as the roster shows it")
-				fs.String("recipients", "", "where the digest and the decisions go, in order of precedence, separated by |: a Slack handle or channel, an email address (the manager's label when left out and it is an address)")
+				fs.String("recipients", "", "where your digest and the decisions for you go, in order of precedence, separated by |: a Slack handle or channel, an email address (your label when left out and it is an address)")
 				fs.String("every", "", "the period between two digests, a duration such as 24h or 4h (24h when unset)")
 				fs.String("at", "", "a daily digest's time of day, HH:MM")
 				fs.String("tz", "", "the zone of --at, an IANA name such as America/Los_Angeles (UTC when unset)")
+				fs.String("only", "", "mine: list only the decisions addressed to you; the contributions stay the team's")
+				fs.String("to", "", "the subscriber a show or a send is for, by their label (show: your own subscription when left out; send: every subscriber)")
 			},
 			Run: runReport,
 		},
@@ -341,6 +343,7 @@ func runNote(cx *Context, args []string) error {
 // runDecision is the table's Run for `decision` (card 162).
 func runDecision(cx *Context, args []string) error {
 	return harnesscmd.Decision(invocation(cx, args), harnesscmd.DecisionOptions{
+		To:      stringFlag(cx, "to"),
 		Options: stringFlag(cx, "options"),
 		Default: stringFlag(cx, "default"),
 		By:      stringFlag(cx, "by"),
@@ -353,11 +356,12 @@ func runDecision(cx *Context, args []string) error {
 // one positional argument).
 func runReport(cx *Context, args []string) error {
 	return harnesscmd.Report(invocation(cx, args), harnesscmd.ReportOptions{
-		Manager:    stringFlag(cx, "manager"),
 		Recipients: stringFlag(cx, "recipients"),
 		Every:      stringFlag(cx, "every"),
 		At:         stringFlag(cx, "at"),
 		TZ:         stringFlag(cx, "tz"),
+		Only:       stringFlag(cx, "only"),
+		To:         stringFlag(cx, "to"),
 	})
 }
 

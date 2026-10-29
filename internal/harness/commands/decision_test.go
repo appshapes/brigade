@@ -20,7 +20,7 @@ const (
 )
 
 // rosterWith is a canned `session list` result: the session itself, bob
-// (the manager, idle) and the gateways asked for.
+// (the person decisions are put to, idle) and the gateways asked for.
 func rosterWith(slack, mail bool) string {
 	rec := func(id, name, label, harness, state string) map[string]any {
 		return map[string]any{
@@ -57,7 +57,8 @@ func writeReports(t *testing.T, folder, doc string) {
 	}
 }
 
-const reportsDoc = `{"version":1,"manager":"bob@example.com","recipients":["@bob","bob@example.com"],"every":"24h"}`
+// reportsDoc subscribes bob with his recipients.
+const reportsDoc = `{"version":2,"subscribers":[{"label":"bob@example.com","recipients":["@bob","bob@example.com"],"every":"24h"}]}`
 
 // sendDoc decodes the one `message send` the recorder saw.
 func sendDoc(t *testing.T, f *fixture) map[string]any {
@@ -74,9 +75,10 @@ func sendDoc(t *testing.T, f *fixture) map[string]any {
 }
 
 // TestDecisionAsksThroughTheSlackGateway: an ask writes the decision to
-// both copies with the asker's facts, sends it once to the Slack gateway
-// under a `to:` first line in the labelled shape, records how it went,
-// and says so.
+// both copies with the asker's facts and the addressee, sends it once to
+// the Slack gateway — the first of the addressee's recipients a gateway
+// carries — under a `to:` first line in the labelled shape, records how
+// it went, and says so.
 func TestDecisionAsksThroughTheSlackGateway(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -86,14 +88,14 @@ func TestDecisionAsksThroughTheSlackGateway(t *testing.T) {
 	f.rec.on("session list", okAnswer(rosterWith(true, true)))
 	f.rec.on("message send", okAnswer(sendResultTo("msg-1", slackGatewayID, false)))
 	inv := f.inv(f.sessionEnv(), "Ship 0.43.0 now,\nor wait for the Stop hook?\n")
-	if err := Decision(inv, DecisionOptions{Options: " ship now | wait ", Default: "wait", By: "2026-10-31", Card: 162}); err != nil {
+	if err := Decision(inv, DecisionOptions{To: " BOB@example.com ", Options: " ship now | wait ", Default: "wait", By: "2026-10-31", Card: 162}); err != nil {
 		t.Fatalf("decision: %v", err)
 	}
 	if got := f.rec.verbs(); !slices.Equal(got, []string{"describe", "session list", "message send"}) {
 		t.Fatalf("verbs %v", got)
 	}
 	lines := strings.Split(strings.TrimSpace(f.out.String()), "\n")
-	if len(lines) != 2 || !strings.HasPrefix(lines[0], "recorded: decision d-20260902-") || !strings.HasPrefix(lines[1], "sent: to @bob through the slack gateway, message msg-1") {
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "recorded: decision d-20260902-") || !strings.HasPrefix(lines[1], "sent: to BOB@example.com at @bob through the slack gateway, message msg-1") {
 		t.Fatalf("stdout %q", f.out.String())
 	}
 	id := strings.TrimPrefix(lines[0], "recorded: decision ")
@@ -101,7 +103,7 @@ func TestDecisionAsksThroughTheSlackGateway(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Question != "Ship 0.43.0 now, or wait for the Stop hook?" || !slices.Equal(d.Options, []string{"ship now", "wait"}) || d.Default != "wait" || d.By != "2026-10-31" || d.Card != 162 ||
+	if d.Question != "Ship 0.43.0 now, or wait for the Stop hook?" || d.To != "BOB@example.com" || !slices.Equal(d.Options, []string{"ship now", "wait"}) || d.Default != "wait" || d.By != "2026-10-31" || d.Card != 162 ||
 		d.Member != "alice@example.com" || d.SessionName != selfSessionName || d.SessionID != selfSessionID || d.Repository != "payments" ||
 		d.Sent != state.SentSlack || d.SentTo != "@bob" || !d.Open() || !d.CreatedAt.Equal(fixtureNow) {
 		t.Fatalf("decision %+v", *d)
@@ -114,24 +116,25 @@ func TestDecisionAsksThroughTheSlackGateway(t *testing.T) {
 	if doc["recipient_session_id"] != slackGatewayID || doc["sender_session_id"] != selfSessionID || !strings.HasPrefix(doc["summary"].(string), "Decision "+id+": Ship 0.43.0 now") {
 		t.Fatalf("send %v", doc)
 	}
-	want := "to: @bob\n\nBrigade decision for bob@example.com from team ops. Answer however you wish; the session acts on your answer and closes the decision.\n" +
+	want := "to: @bob\n\nBrigade decision for BOB@example.com from team ops. Answer however you wish; the session acts on your answer and closes the decision.\n" +
 		strings.Join(d.Lines(), "\n")
 	if body != want {
 		t.Fatalf("body = %q\nwant %q", body, want)
 	}
-	if !strings.Contains(body, "options: ship now | wait") || !strings.Contains(body, "asked 2026-09-02 by alice@example.com (session payments-api), repository payments, card 162, answer by 2026-10-31") {
+	if !strings.Contains(body, "options: ship now | wait") || !strings.Contains(body, "  for BOB@example.com, asked 2026-09-02 by alice@example.com (session payments-api), repository payments, card 162, answer by 2026-10-31") {
 		t.Fatalf("body %q", body)
 	}
 }
 
-// TestDecisionFallsBackToTheManagersSession: with no gateway of the
-// recipients on the roster, the ask goes to the manager's own best
-// session as a plain team message, no `to:` line; with the roster
-// unreadable, or no session of the manager either, it is recorded and
-// the line says why it was not sent.
-func TestDecisionFallsBackToTheManagersSession(t *testing.T) {
+// TestDecisionFallsBackToTheirSession: with no gateway of the addressee's
+// recipients on the roster, or no subscription of theirs at all, the
+// ask goes to their own best session as a plain team message, no `to:`
+// line; with the roster unreadable, no session of theirs either, or a
+// label two members share, it is recorded and the line says why it was
+// not sent.
+func TestDecisionFallsBackToTheirSession(t *testing.T) {
 	t.Parallel()
-	t.Run("the manager's session", func(t *testing.T) {
+	t.Run("subscribed, no gateway on the roster", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t)
 		folder := f.withStateFolder(t)
@@ -141,7 +144,7 @@ func TestDecisionFallsBackToTheManagersSession(t *testing.T) {
 		f.rec.on("message send", okAnswer(sendResultTo("msg-2", bobSessionID, false)))
 		inv := f.inv(f.sessionEnv(), "Which backend?")
 		inv.JSON = true
-		if err := Decision(inv, DecisionOptions{}); err != nil {
+		if err := Decision(inv, DecisionOptions{To: "bob@example.com"}); err != nil {
 			t.Fatal(err)
 		}
 		ok, result := envelopeOf(t, f.out.String())
@@ -157,17 +160,35 @@ func TestDecisionFallsBackToTheManagersSession(t *testing.T) {
 			t.Fatalf("folder %+v", got)
 		}
 	})
+	t.Run("not subscribed, no reports.json at all", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		folder := f.withStateFolder(t)
+		f.seedEntry(t, folder)
+		f.rec.on("session list", okAnswer(rosterWith(true, true)))
+		f.rec.on("message send", okAnswer(sendResultTo("msg-4", bobSessionID, false)))
+		if err := Decision(f.inv(f.sessionEnv(), "Which backend?"), DecisionOptions{To: "bob@example.com"}); err != nil {
+			t.Fatal(err)
+		}
+		if lines := strings.Split(strings.TrimSpace(f.out.String()), "\n"); len(lines) != 2 || !strings.HasPrefix(lines[1], "sent: to bob@example.com at their session "+bobSessionID[:5]+" as a team message (not subscribed, or no gateway of their recipients on the roster), message msg-4") {
+			t.Fatalf("stdout %q", f.out.String())
+		}
+		doc := sendDoc(t, f)
+		if doc["recipient_session_id"] != bobSessionID || !strings.HasPrefix(doc["body"].(string), "Brigade decision for bob@example.com from team ops.") {
+			t.Fatalf("send %v", doc)
+		}
+	})
 	t.Run("nobody to send to", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t)
 		folder := f.withStateFolder(t)
 		f.seedEntry(t, folder)
-		writeReports(t, folder, `{"version":1,"manager":"nobody@example.com","recipients":["@nobody"]}`)
+		writeReports(t, folder, `{"version":2,"subscribers":[{"label":"nobody@example.com","recipients":["@nobody"]}]}`)
 		f.rec.on("session list", okAnswer(rosterWith(false, false)))
-		if err := Decision(f.inv(f.sessionEnv(), "Which backend?"), DecisionOptions{}); err != nil {
+		if err := Decision(f.inv(f.sessionEnv(), "Which backend?"), DecisionOptions{To: "nobody@example.com"}); err != nil {
 			t.Fatal(err)
 		}
-		if lines := strings.Split(strings.TrimSpace(f.out.String()), "\n"); len(lines) != 2 || lines[1] != "not sent: no gateway of the recipients is on the roster, and the manager has no session that can receive a message"+DecisionNotSentSuffix {
+		if lines := strings.Split(strings.TrimSpace(f.out.String()), "\n"); len(lines) != 2 || lines[1] != "not sent: no gateway of their recipients is on the roster, and they have no session that can receive a message"+DecisionNotSentSuffix {
 			t.Fatalf("stdout %q", f.out.String())
 		}
 		if len(f.rec.specsOf("message send")) != 0 {
@@ -183,7 +204,7 @@ func TestDecisionFallsBackToTheManagersSession(t *testing.T) {
 		folder := f.withStateFolder(t)
 		writeReports(t, folder, reportsDoc)
 		f.rec.on("session list", failAnswer(protocol.CodeUnavailable, "down"))
-		if err := Decision(f.inv(f.sessionEnv(), "Which backend?"), DecisionOptions{}); err != nil {
+		if err := Decision(f.inv(f.sessionEnv(), "Which backend?"), DecisionOptions{To: "bob@example.com"}); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(f.out.String(), "not sent: the roster could not be read (unavailable)"+DecisionNotSentSuffix) {
@@ -197,11 +218,14 @@ func TestDecisionFallsBackToTheManagersSession(t *testing.T) {
 }
 
 // TestDecisionRefusals: the flags' and the text's refusals come before
-// anything is resolved and spawn nothing; a project with no state folder
-// or no manager refuses after the map is read, with the describe alone.
+// anything is resolved and spawn nothing — an ask with no --to first of
+// all (owner ruling 2026-10-29: an error, not a guess); a project with
+// no state folder refuses after the map is read, with the describe
+// alone.
 func TestDecisionRefusals(t *testing.T) {
 	t.Parallel()
 	eleven := strings.Repeat("o|", state.MaxOptions) + "o"
+	bob := "bob@example.com"
 	for _, tc := range []struct {
 		name   string
 		stdin  string
@@ -212,21 +236,19 @@ func TestDecisionRefusals(t *testing.T) {
 		reason string
 		spawns int
 	}{
-		{"an argument", "q", []string{"x"}, DecisionOptions{}, nil, protocol.CodeUsage, "", 0},
-		{"too many options", "q", nil, DecisionOptions{Options: eleven}, nil, protocol.CodeInvalidInput, ReasonTooManyOptions, 0},
-		{"an option with a credential", "q", nil, DecisionOptions{Options: "a | sbp_0123456789abcdef"}, nil, protocol.CodeInvalidInput, doing.ReasonSecretShaped, 0},
-		{"a default that is no option", "q", nil, DecisionOptions{Options: "a | b", Default: "c"}, nil, protocol.CodeInvalidInput, ReasonDefaultNotOption, 0},
-		{"a default with no options", "q", nil, DecisionOptions{Default: "c"}, nil, protocol.CodeInvalidInput, ReasonDefaultNotOption, 0},
-		{"a by that is no date", "q", nil, DecisionOptions{By: "Friday"}, nil, protocol.CodeInvalidInput, ReasonByNotADate, 0},
-		{"a negative card", "q", nil, DecisionOptions{Card: -1}, nil, protocol.CodeInvalidInput, ReasonCardNegative, 0},
-		{"an empty question", "\n", nil, DecisionOptions{}, nil, protocol.CodeInvalidInput, doing.ReasonEmpty, 0},
-		{"a question over the cap", strings.Repeat("q", state.MaxQuestionChars+1), nil, DecisionOptions{}, nil, protocol.CodeInvalidInput, doing.ReasonTooLong, 0},
-		{"no state folder", "q", nil, DecisionOptions{}, nil, protocol.CodeConfig, ReasonNoStateFolder, 1},
-		{"no reports.json", "q", nil, DecisionOptions{}, func(t *testing.T, f *fixture) { t.Helper(); f.withStateFolder(t) }, protocol.CodeConfig, ReasonNoManager, 1},
-		{"no manager", "q", nil, DecisionOptions{}, func(t *testing.T, f *fixture) {
-			t.Helper()
-			writeReports(t, f.withStateFolder(t), `{"version":1,"manager":"","recipients":["@bob"]}`)
-		}, protocol.CodeConfig, ReasonNoManager, 1},
+		{"an argument", "q", []string{"x"}, DecisionOptions{To: bob}, nil, protocol.CodeUsage, "", 0},
+		{"no --to", "q", nil, DecisionOptions{Options: "a | b"}, nil, protocol.CodeInvalidInput, ReasonToNeeded, 0},
+		{"a blank --to", "q", nil, DecisionOptions{To: "  "}, nil, protocol.CodeInvalidInput, ReasonToNeeded, 0},
+		{"a --to with a credential", "q", nil, DecisionOptions{To: "sbp_0123456789abcdef"}, nil, protocol.CodeInvalidInput, doing.ReasonSecretShaped, 0},
+		{"too many options", "q", nil, DecisionOptions{To: bob, Options: eleven}, nil, protocol.CodeInvalidInput, ReasonTooManyOptions, 0},
+		{"an option with a credential", "q", nil, DecisionOptions{To: bob, Options: "a | sbp_0123456789abcdef"}, nil, protocol.CodeInvalidInput, doing.ReasonSecretShaped, 0},
+		{"a default that is no option", "q", nil, DecisionOptions{To: bob, Options: "a | b", Default: "c"}, nil, protocol.CodeInvalidInput, ReasonDefaultNotOption, 0},
+		{"a default with no options", "q", nil, DecisionOptions{To: bob, Default: "c"}, nil, protocol.CodeInvalidInput, ReasonDefaultNotOption, 0},
+		{"a by that is no date", "q", nil, DecisionOptions{To: bob, By: "Friday"}, nil, protocol.CodeInvalidInput, ReasonByNotADate, 0},
+		{"a negative card", "q", nil, DecisionOptions{To: bob, Card: -1}, nil, protocol.CodeInvalidInput, ReasonCardNegative, 0},
+		{"an empty question", "\n", nil, DecisionOptions{To: bob}, nil, protocol.CodeInvalidInput, doing.ReasonEmpty, 0},
+		{"a question over the cap", strings.Repeat("q", state.MaxQuestionChars+1), nil, DecisionOptions{To: bob}, nil, protocol.CodeInvalidInput, doing.ReasonTooLong, 0},
+		{"no state folder", "q", nil, DecisionOptions{To: bob}, nil, protocol.CodeConfig, ReasonNoStateFolder, 1},
 		{"a close with a bad id", "done", nil, DecisionOptions{Close: "../x"}, nil, protocol.CodeInvalidInput, "invalid_id", 0},
 		{"a close of an unknown id", "done", nil, DecisionOptions{Close: "d-20260902-ffffff"}, func(t *testing.T, f *fixture) { t.Helper(); f.withStateFolder(t) }, protocol.CodeNotFound, "no_match", 0},
 	} {
@@ -248,7 +270,7 @@ func TestDecisionRefusals(t *testing.T) {
 	t.Run("outside a session", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t)
-		wantCode(t, Decision(f.inv(f.terminalEnv(), "q"), DecisionOptions{}), protocol.CodeConfig, "not_in_session")
+		wantCode(t, Decision(f.inv(f.terminalEnv(), "q"), DecisionOptions{To: "bob@example.com"}), protocol.CodeConfig, "not_in_session")
 		wantCode(t, Decision(f.inv(f.terminalEnv(), "done"), DecisionOptions{Close: "d-1"}), protocol.CodeConfig, "not_in_session")
 	})
 }

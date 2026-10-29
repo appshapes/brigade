@@ -687,6 +687,9 @@ type watcher struct {
 	teamName      string
 	produceAt     time.Time
 	produceRoster []protocol.SessionRecord
+	// produceRetry holds, by lower-cased label, the time before which a
+	// subscriber whose digest could not be sent is not tried again.
+	produceRetry map[string]time.Time
 	// sound plays the message-arrival sound and banner shows the desktop
 	// notification (announce.go, cards 35 and 36).
 	sound  *announcer

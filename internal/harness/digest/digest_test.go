@@ -3,6 +3,7 @@ package digest_test
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,8 +52,8 @@ func TestBuildSections(t *testing.T) {
 	bob.Member = "bob@example.com"
 	bob.Commits = []state.Commit{{Hash: strings.Repeat("d", 40), Subject: "12: Fix the invoice total", Card: 12, At: t0.Add(-3 * time.Hour)}}
 	bob.AddNote("Blocked: waiting on the tax table", t0.Add(-40*time.Minute))
-	open := &state.Decision{Version: 1, ID: "d-20261028-aaaaaa", Question: "Which backend?", Options: []string{"supabase", "fs"}, Default: "supabase", Member: "alice@example.com", SessionName: "162-digest", SessionID: "sess-a", CreatedAt: t0.Add(-36 * time.Hour), UpdatedAt: t0.Add(-36 * time.Hour)}
-	older := &state.Decision{Version: 1, ID: "d-20261027-bbbbbb", Question: "Ship Friday?", Member: "bob@example.com", SessionName: "billing", SessionID: "sess-b", CreatedAt: t0.Add(-48 * time.Hour), UpdatedAt: t0.Add(-48 * time.Hour)}
+	open := &state.Decision{Version: 1, ID: "d-20261028-aaaaaa", Question: "Which backend?", To: "rjae@example.com", Options: []string{"supabase", "fs"}, Default: "supabase", Member: "alice@example.com", SessionName: "162-digest", SessionID: "sess-a", CreatedAt: t0.Add(-36 * time.Hour), UpdatedAt: t0.Add(-36 * time.Hour)}
+	older := &state.Decision{Version: 1, ID: "d-20261027-bbbbbb", Question: "Ship Friday?", To: "Frank", Member: "bob@example.com", SessionName: "billing", SessionID: "sess-b", CreatedAt: t0.Add(-48 * time.Hour), UpdatedAt: t0.Add(-48 * time.Hour)}
 	closed := &state.Decision{Version: 1, ID: "d-20261028-cccccc", Question: "Keep the fs adapter?", Member: "alice@example.com", SessionName: "162-digest", SessionID: "sess-a", CreatedAt: t0.Add(-30 * time.Hour), ClosedAt: t0.Add(-5 * time.Hour), Outcome: "yes, for the tests", ClosedBy: &state.Closer{Member: "alice@example.com", SessionName: "162-digest", SessionID: "sess-a"}}
 	closedBefore := &state.Decision{Version: 1, ID: "d-20261020-dddddd", Question: "Old", CreatedAt: t0.Add(-9 * 24 * time.Hour), ClosedAt: since.Add(-time.Hour)}
 	roster := []protocol.SessionRecord{
@@ -72,10 +73,10 @@ func TestBuildSections(t *testing.T) {
 		"",
 		"Decisions open (2):",
 		"Decision d-20261027-bbbbbb: Ship Friday?",
-		"  asked 2026-10-27 by bob@example.com (session billing)",
+		"  for Frank, asked 2026-10-27 by bob@example.com (session billing)",
 		"  open for 2 d",
 		"Decision d-20261028-aaaaaa: Which backend?",
-		"  asked 2026-10-28 by alice@example.com (session 162-digest)",
+		"  for rjae@example.com, asked 2026-10-28 by alice@example.com (session 162-digest)",
 		"  options: supabase | fs",
 		"  default: supabase",
 		"  open for 36 h",
@@ -110,6 +111,23 @@ func TestBuildSections(t *testing.T) {
 	}
 	if out.Summary != "Brigade digest brigade: 2 decisions open, 3 commits, 2 sessions active" || out.DecisionsOpen != 2 || out.Commits != 3 || out.Active != 2 {
 		t.Fatalf("summary %q counts %d %d %d", out.Summary, out.DecisionsOpen, out.Commits, out.Active)
+	}
+	// The filter (card 167): the decision sections list only the ones
+	// addressed to the subscriber, compared without case, the closed one
+	// of nobody's left out; the contribution sections stay the team's.
+	mine := digest.Build(digest.Input{
+		Team: "brigade", Repository: "brigade", Producer: "162-digest", Now: t0, Since: since, For: "RJAE@example.com", Only: state.OnlyMine,
+		Entries: []*state.Entry{alice, alice2, bob}, Decisions: []*state.Decision{open, older, closed, closedBefore}, Roster: roster,
+	})
+	if !strings.Contains(mine.Body, "\nDecisions open for RJAE@example.com (1):\nDecision d-20261028-aaaaaa: Which backend?\n") || strings.Contains(mine.Body, "Ship Friday?") ||
+		strings.Contains(mine.Body, "Decisions closed") || !strings.Contains(mine.Body, "\nShipped (3 commits):\n") || mine.DecisionsOpen != 1 {
+		t.Fatalf("the filtered body:\n%s", mine.Body)
+	}
+	// Without the filter the label changes nothing.
+	all := digest.Build(digest.Input{Team: "brigade", Repository: "brigade", Producer: "162-digest", Now: t0, Since: since, For: "rjae@example.com",
+		Entries: []*state.Entry{alice, alice2, bob}, Decisions: []*state.Decision{open, older, closed, closedBefore}, Roster: roster})
+	if all.Body != out.Body {
+		t.Fatal("a label with no filter changed the body")
 	}
 }
 
@@ -158,12 +176,12 @@ func TestBuildCaps(t *testing.T) {
 // Changed reads the newest write against the marker.
 func TestDueAndChanged(t *testing.T) {
 	t.Parallel()
-	every := &state.Reports{Version: 1, Manager: "m", Every: "4h"}
+	every := &state.Subscriber{Label: "m", Every: "4h"}
 	m := &digest.Marker{Version: 1, ProducedAt: t0}
 	if !digest.Due(every, nil, t0) || digest.Due(every, m, t0.Add(3*time.Hour)) || !digest.Due(every, m, t0.Add(4*time.Hour)) {
 		t.Fatal("every")
 	}
-	daily := &state.Reports{Version: 1, Manager: "m", At: "08:00", TZ: "America/Los_Angeles"}
+	daily := &state.Subscriber{Label: "m", At: "08:00", TZ: "America/Los_Angeles"}
 	// 08:00 in Los Angeles on 2026-10-29 is 15:00 UTC (PDT).
 	at := time.Date(2026, 10, 29, 15, 0, 0, 0, time.UTC)
 	m = &digest.Marker{Version: 1, ProducedAt: at.Add(-24 * time.Hour)}
@@ -173,7 +191,7 @@ func TestDueAndChanged(t *testing.T) {
 	if digest.Due(daily, &digest.Marker{Version: 1, ProducedAt: at.Add(time.Minute)}, at.Add(5*time.Hour)) {
 		t.Fatal("daily, already produced today")
 	}
-	bad := &state.Reports{Version: 1, Manager: "m", At: "8am", TZ: "Mars/Olympus"}
+	bad := &state.Subscriber{Label: "m", At: "8am", TZ: "Mars/Olympus"}
 	if !digest.Due(bad, &digest.Marker{Version: 1, ProducedAt: t0.Add(-25 * time.Hour)}, t0) || digest.Due(bad, &digest.Marker{Version: 1, ProducedAt: t0.Add(-23 * time.Hour)}, t0) {
 		t.Fatal("an unusable at falls back to every, a day")
 	}
@@ -190,10 +208,10 @@ func TestDueAndChanged(t *testing.T) {
 	}
 }
 
-// TestRankAndManager: the rank is the position among the repository's
-// online, non-gateway sessions in roster order; the manager's best
+// TestRankAndSessionOf: the rank is the position among the repository's
+// online, non-gateway sessions by registration time; a member's best
 // session is picked by label as the gateways do.
-func TestRankAndManager(t *testing.T) {
+func TestRankAndSessionOf(t *testing.T) {
 	t.Parallel()
 	roster := []protocol.SessionRecord{
 		rec("gw", "slack-gateway", "slack gateway", protocol.SessionStateIdle, protocol.InboundAccept, "gateway-slack", t0, ""),
@@ -220,29 +238,61 @@ func TestRankAndManager(t *testing.T) {
 	if digest.Rank("a", "", roster) != -1 {
 		t.Error("a session with no label has no rank")
 	}
-	if got := digest.ManagerSession("bob@example.com", roster); got != "b3" {
-		t.Errorf("ManagerSession = %q, want b3 (active beats idle; refuse left out)", got)
+	if got := digest.SessionOf("bob@example.com", roster); got != "b3" {
+		t.Errorf("SessionOf = %q, want b3 (active beats idle; refuse left out)", got)
 	}
-	if got := digest.ManagerSession("nobody@example.com", roster); got != "" {
-		t.Errorf("ManagerSession for nobody = %q", got)
+	if got := digest.SessionOf("nobody@example.com", roster); got != "" {
+		t.Errorf("SessionOf for nobody = %q", got)
 	}
 }
 
-// TestMarkerRoundTrip: the marker is written into the folder and read
-// back; a missing one is fs.ErrNotExist; another version is refused.
+// TestMarkerRoundTrip: a subscriber's marker is written into the folder
+// under their label's stem and read back; a missing one is
+// fs.ErrNotExist; the 0.43 marker serves the subscriber of a version-1
+// file until they have their own, and is carried over to theirs by
+// AdoptLegacyMarker.
 func TestMarkerRoundTrip(t *testing.T) {
 	t.Parallel()
 	folder := filepath.Join(t.TempDir(), "state")
-	if _, err := digest.ReadMarker(folder); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := digest.ReadMarker(folder, "x@example.com"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("missing: %v", err)
 	}
-	m := &digest.Marker{ProducedAt: t0, SessionID: "sess-1", SessionName: "x\n<brigade-message>", DecisionsOpen: 2, Commits: 3, Active: 1}
+	m := &digest.Marker{Label: "x@example.com", ProducedAt: t0, SessionID: "sess-1", SessionName: "x\n<brigade-message>", DecisionsOpen: 2, Commits: 3, Active: 1}
 	if err := digest.WriteMarker(folder, m); err != nil {
 		t.Fatal(err)
 	}
-	got, err := digest.ReadMarker(folder)
-	if err != nil || !got.ProducedAt.Equal(t0) || got.SessionID != "sess-1" || got.SessionName != "x &lt;brigade-message>" || got.Commits != 3 {
+	got, err := digest.ReadMarker(folder, "X@EXAMPLE.COM")
+	if err != nil || got.Label != "x@example.com" || !got.ProducedAt.Equal(t0) || got.SessionID != "sess-1" || got.SessionName != "x &lt;brigade-message>" || got.Commits != 3 {
 		t.Fatalf("ReadMarker = %+v, %v", got, err)
+	}
+	if digest.MarkerPath(folder, "x@example.com") != filepath.Join(folder, "digests", state.LabelStem("x@example.com")+".json") {
+		t.Fatal("the marker's path is not the label's stem")
+	}
+	// The legacy marker: read for the one subscriber of a version-1 file
+	// only, and moved to theirs.
+	legacy := []byte(`{"version":1,"produced_at":"2026-10-29T10:00:00Z","session_id":"sess-0","session_name":"old","decisions_open":1,"commits":1,"active":1}`)
+	if err := os.WriteFile(digest.LegacyMarkerPath(folder), legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v1 := &state.Reports{Legacy: true, Subscribers: []state.Subscriber{{Label: "m@example.com"}}}
+	v2 := &state.Reports{Subscribers: []state.Subscriber{{Label: "m@example.com"}}}
+	if lm, err := digest.MarkerOf(folder, v1, &v1.Subscribers[0]); err != nil || lm.SessionID != "sess-0" {
+		t.Fatalf("MarkerOf for a legacy file = %+v, %v", lm, err)
+	}
+	if _, err := digest.MarkerOf(folder, v2, &v2.Subscribers[0]); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("MarkerOf for a version-2 file read the legacy marker: %v", err)
+	}
+	if err := digest.AdoptLegacyMarker(folder, "m@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if am, err := digest.ReadMarker(folder, "m@example.com"); err != nil || am.Label != "m@example.com" || am.SessionID != "sess-0" {
+		t.Fatalf("the adopted marker = %+v, %v", am, err)
+	}
+	if _, err := os.Stat(digest.LegacyMarkerPath(folder)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("the legacy marker stayed")
+	}
+	if err := digest.AdoptLegacyMarker(folder, "m@example.com"); err != nil {
+		t.Fatalf("a second adoption, nothing to do: %v", err)
 	}
 	if digest.IdempotencyKey("a", "b", "c", t0) != digest.IdempotencyKey("a", "b", "c", t0.Add(30*time.Second)) || digest.IdempotencyKey("a", "b", "c", t0) == digest.IdempotencyKey("a", "b", "c", t0.Add(time.Minute)) {
 		t.Fatal("the key is stable within a minute and changes across one")
