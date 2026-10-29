@@ -22,6 +22,9 @@ Commands:
                                               send a message to another session, by its id or its SESSION characters, or to a member's best session (body on stdin)
   whoami                                      print this session's identity
   doing [--clear]                             publish one sentence about what this session is working on (on stdin)
+  note                                        record one line about the work for the manager digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)
+  decision [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id>
+                                              ask the project's manager for a decision (the question on stdin), sent at once through a gateway, or close one with its outcome
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
   team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags]
@@ -111,6 +114,30 @@ publish one sentence about what this session is working on (on stdin)
 | Flag | What it does |
 | --- | --- |
 | `--clear` | remove the sentence; nothing is read from stdin |
+
+## brigade note
+
+```text
+Usage: brigade note [--json] [--log-level debug|info|warn|error]
+
+record one line about the work for the manager digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)
+```
+
+## brigade decision
+
+```text
+Usage: brigade decision [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id> [--json] [--log-level debug|info|warn|error]
+
+ask the project's manager for a decision (the question on stdin), sent at once through a gateway, or close one with its outcome
+```
+
+| Flag | What it does |
+| --- | --- |
+| `--by <value>` | the date an answer is needed by, YYYY-MM-DD |
+| `--card <value>` | the card the question belongs to (default `0`) |
+| `--close <value>` | close the decision with this id; the outcome travels on stdin |
+| `--default <value>` | the option taken when the manager says nothing (one of --options) |
+| `--options <value>` | the answers offered, separated by \| |
 
 ## brigade inbound
 

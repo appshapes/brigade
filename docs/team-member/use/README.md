@@ -12,6 +12,7 @@ they arrive. You ask in words; these are the things to ask for and what comes ba
 | know what teammates see about your session, and how to stop it | [Know what teammates see about your session](#know-what-teammates-see-about-your-session) |
 | write to people on email or Slack, and read what they send | [Write to people on email or Slack](#write-to-people-on-email-or-slack) |
 | keep folders in step with teammates' checkouts | [Sync folders](#sync-folders) |
+| record what your session did, or ask the project's manager for a decision | [Record notes and ask for decisions](#record-notes-and-ask-for-decisions) |
 | check whether your session is receiving | [Check that your session is receiving](#check-that-your-session-is-receiving) |
 | know what happens when the network drops | [Ride out a network drop](#ride-out-a-network-drop) |
 | read and release the messages a `hold` session kept | [Read and release held messages](#read-and-release-held-messages) |
@@ -53,6 +54,14 @@ Details: [Write to people on email or Slack](people-on-email-and-slack.md).
 2. Session start says `Brigade: file sync on: 2 folder(s) through syncthing.`; `brigade sync status` shows the rest.
 
 Details: [Sync folders](sync-folders.md).
+
+## Record notes and ask for decisions
+
+1. `brigade note <<'EOF' … EOF` records one `Done:`, `Next:` or `Blocked:` line in the session's state entry.
+2. `brigade decision --options "a | b" --default a --by 2026-10-31 <<'EOF' … EOF` asks the manager through the
+   team's Slack or mail gateway; `brigade decision --close <id> <<'EOF' … EOF` records the outcome.
+
+Details: [Record notes and ask for decisions](notes-and-decisions.md).
 
 ## Check that your session is receiving
 

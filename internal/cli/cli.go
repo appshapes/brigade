@@ -74,6 +74,24 @@ func (cx *Context) Bool(name string) bool {
 	return err == nil && b
 }
 
+// Int reports the value of an integer flag registered by the command, 0
+// when it is absent or not an integer (the flag package refused it
+// before the command ran).
+func (cx *Context) Int(name string) int {
+	if cx.Flags == nil {
+		return 0
+	}
+	f := cx.Flags.Lookup(name)
+	if f == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(f.Value.String())
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // Dispatch runs one `brigade` invocation and returns its exit status. args
 // excludes the program name.
 func Dispatch(args []string, s Streams, environ []string) int {

@@ -33,6 +33,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   session start and any session's watcher prunes the folder hourly. A
   `state` that names no listed folder makes the `sync` member unusable
   (`state_not_listed`, `state_invalid`), as any other broken rule does.
+- **`brigade note` and `brigade decision`** (card 162, the second piece). A
+  session's model records one `Done:`, `Next:` or `Blocked:` line in the
+  session's state entry with `brigade note` (on stdin, at most 1,000
+  characters, cleaned as a doing line is, sent to no backend; the entry
+  keeps the last 20), and the doing lines it publishes are kept there too
+  (the last 50). `brigade decision` puts a question to the project's
+  manager: `--options "a | b"`, `--default`, `--by YYYY-MM-DD` and `--card`
+  describe it; it is written to `decisions/<id>.json` in the state folder
+  and sent at once, in the labelled shape the digest uses, through the
+  first of `reports.json`'s recipients whose gateway is on the roster
+  (Slack before email when the file lists them so), else to the manager's
+  own best session, else recorded for the next digest. `brigade decision
+  --close <id>` records the outcome and who closed it: the asking session
+  or another session of the member who asked. A closed decision is kept 30
+  days; an open one for good.
 
 ## [0.42.0] — 2026-10-28
 

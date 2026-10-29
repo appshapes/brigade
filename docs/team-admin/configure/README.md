@@ -8,6 +8,7 @@ of every checkout reads it at start, and a member can only switch things off on 
 | If you want to | Go to |
 | --- | --- |
 | keep folders in step between teammates' checkouts | [Set the folders to sync](#set-the-folders-to-sync) |
+| have the team's sessions keep state for a manager digest | [Set up the manager digest](#set-up-the-manager-digest) |
 | slow the timers for a backend plan with a request cap, or change when an idle VS Code session closes | [Set the timers](#set-the-timers) |
 | tell people without a session how to reach the team | [Name the gateways](#name-the-gateways) |
 | know what the file carries, and what every member's plugin must be first | [Know the team file](#know-the-team-file) |
@@ -18,6 +19,14 @@ of every checkout reads it at start, and a member can only switch things off on 
 2. Every member's plugin must be 0.11.0 or later first; each machine needs `syncthing` on its PATH.
 
 Details: [Set the folders to sync](sync-folders.md).
+
+## Set up the manager digest
+
+1. Add `"state": ".brigade/state"` to the `sync` member, naming one of its listed folders, and ignore the folder
+   in `.gitignore`.
+2. Every session then keeps its state entry there; `brigade note` and `brigade decision` add to it.
+
+Details: [Set up the manager digest](manager-digest.md).
 
 ## Set the timers
 

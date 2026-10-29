@@ -14,5 +14,14 @@ import "strings"
 // copy of the prefix (supabase/functions/_shared/gateway.ts).
 const HarnessPrefix = "gateway-"
 
+// The harness names of the gateways Brigade knows: the two hosted ones and
+// the self-hosted webhook gateway. The manager digest (card 162) finds the
+// Slack and mail gateways on the roster by these.
+const (
+	HarnessSlack   = HarnessPrefix + "slack"
+	HarnessEmail   = HarnessPrefix + "email"
+	HarnessWebhook = HarnessPrefix + "webhook"
+)
+
 // IsHarness reports whether a harness name is a gateway's.
 func IsHarness(harness string) bool { return strings.HasPrefix(harness, HarnessPrefix) }

@@ -106,6 +106,24 @@ func init() {
 			Run:     runDoing,
 		},
 		{
+			Name:    "note",
+			Summary: "record one line about the work for the manager digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)",
+			Run:     runNote,
+		},
+		{
+			Name:    "decision",
+			Args:    "[--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id>",
+			Summary: "ask the project's manager for a decision (the question on stdin), sent at once through a gateway, or close one with its outcome",
+			Flags: func(fs *flag.FlagSet) {
+				fs.String("options", "", "the answers offered, separated by |")
+				fs.String("default", "", "the option taken when the manager says nothing (one of --options)")
+				fs.String("by", "", "the date an answer is needed by, YYYY-MM-DD")
+				fs.Int("card", 0, "the card the question belongs to")
+				fs.String("close", "", "close the decision with this id; the outcome travels on stdin")
+			},
+			Run: runDecision,
+		},
+		{
 			Name:    "inbound",
 			Args:    "[accept|hold|refuse]",
 			Summary: "show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)",
@@ -300,6 +318,22 @@ func runWhoami(cx *Context, args []string) error {
 // runDoing is the table's Run for `doing` (card 25).
 func runDoing(cx *Context, args []string) error {
 	return harnesscmd.Doing(invocation(cx, args), harnesscmd.DoingOptions{Clear: cx.Bool("clear")})
+}
+
+// runNote is the table's Run for `note` (card 162).
+func runNote(cx *Context, args []string) error {
+	return harnesscmd.Note(invocation(cx, args))
+}
+
+// runDecision is the table's Run for `decision` (card 162).
+func runDecision(cx *Context, args []string) error {
+	return harnesscmd.Decision(invocation(cx, args), harnesscmd.DecisionOptions{
+		Options: stringFlag(cx, "options"),
+		Default: stringFlag(cx, "default"),
+		By:      stringFlag(cx, "by"),
+		Card:    cx.Int("card"),
+		Close:   stringFlag(cx, "close"),
+	})
 }
 
 // runInbound is the table's Run for `inbound` (card 126; the one optional

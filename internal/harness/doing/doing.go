@@ -102,6 +102,14 @@ var localPath = regexp.MustCompile(`(^|\s)(~|/)[^\s/]*/[^\s/]+`)
 // home when it is longer than one character, then localPath — refuse.
 // The text is the model's own words and is never logged by any caller.
 func Clean(raw, home string, secrets ...string) (text, reason string) {
+	return CleanText(raw, home, MaxChars, secrets...)
+}
+
+// CleanText is Clean with the cap a parameter: the same rules for the
+// longer lines the manager digest takes on purpose (card 162) — a note,
+// a decision's question, its options and its outcome — whose caps are
+// package state's.
+func CleanText(raw, home string, maxChars int, secrets ...string) (text, reason string) {
 	if !utf8.ValidString(raw) {
 		return "", ReasonNotUTF8
 	}
@@ -109,7 +117,7 @@ func Clean(raw, home string, secrets ...string) (text, reason string) {
 	if text == "" {
 		return "", ReasonEmpty
 	}
-	if utf8.RuneCountInString(text) > MaxChars {
+	if utf8.RuneCountInString(text) > maxChars {
 		return "", ReasonTooLong
 	}
 	if log.SecretShaped(text) {

@@ -336,11 +336,10 @@ func (s Store) Save(e *Entry) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.Marshal(e)
+	data, err := marshal(e)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
 	if err := adapterkit.MkdirPrivate(filepath.Dir(canonical)); err != nil {
 		return err
 	}
@@ -401,20 +400,12 @@ func (s Store) Remove(id string) error {
 	return nil
 }
 
-// PruneOwn removes every canonical entry past its term at now, with its
-// projection, and reports how many. Best effort: an entry that cannot be
-// read or removed is left for the next time.
+// PruneOwn removes every canonical entry and decision past its term at
+// now, with its projection, and reports how many. Best effort: a file
+// that cannot be read or removed is left for the next time.
 func (s Store) PruneOwn(now time.Time) int {
-	entries, err := os.ReadDir(s.CanonicalDir())
-	if err != nil {
-		return 0
-	}
 	removed := 0
-	for _, d := range entries {
-		id, ok := strings.CutSuffix(d.Name(), ".json")
-		if !ok || d.IsDir() || CheckID(id) != nil {
-			continue
-		}
+	for _, id := range idsIn(s.CanonicalDir()) {
 		e, err := s.Load(id)
 		if err != nil || !e.Expired(now) {
 			continue
@@ -423,7 +414,35 @@ func (s Store) PruneOwn(now time.Time) int {
 			removed++
 		}
 	}
+	for _, id := range idsIn(s.DecisionsDir()) {
+		d, err := s.LoadDecision(id)
+		if err != nil || !d.Expired(now) {
+			continue
+		}
+		if s.RemoveDecision(id) == nil {
+			removed++
+		}
+	}
 	return removed
+}
+
+// idsIn lists the ids of the `<id>.json` files in dir that CheckID
+// accepts, in the directory's order; none for a directory that is not
+// there.
+func idsIn(dir string) []string {
+	list, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var ids []string
+	for _, d := range list {
+		id, ok := strings.CutSuffix(d.Name(), ".json")
+		if !ok || d.IsDir() || CheckID(id) != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // ReadFolder reads every entry in the folder's sessions directory, each
@@ -452,9 +471,10 @@ func ReadFolder(folder string) []*Entry {
 	return out
 }
 
-// PruneFolder removes every folder entry past its term at now and
-// reports how many: a teammate's machine that never came back to end its
-// session, or to prune its own, is covered by whichever watcher runs.
+// PruneFolder removes every folder entry and decision past its term at
+// now and reports how many: a teammate's machine that never came back to
+// end its session, or to prune its own, is covered by whichever watcher
+// runs.
 func PruneFolder(folder string, now time.Time) int {
 	removed := 0
 	for _, e := range ReadFolder(folder) {
@@ -465,12 +485,30 @@ func PruneFolder(folder string, now time.Time) int {
 			removed++
 		}
 	}
+	for _, d := range ReadDecisions(folder) {
+		if !d.Expired(now) {
+			continue
+		}
+		if err := os.Remove(DecisionPath(folder, d.ID)); err == nil {
+			removed++
+		}
+	}
 	return removed
 }
 
-// readFolderEntry reads one folder file: a regular file (no symlink
-// followed) within MaxEntryBytes.
+// readFolderEntry reads one folder file as an entry.
 func readFolderEntry(path string) (*Entry, error) {
+	data, err := readFolderFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return decode(data)
+}
+
+// readFolderFile reads one file of the folder — a teammate's — within
+// the rules every folder read keeps: a regular file, no symlink followed,
+// at most MaxEntryBytes.
+func readFolderFile(path string) ([]byte, error) {
 	f, err := adapterkit.OpenNoFollow(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
@@ -481,14 +519,25 @@ func readFolderEntry(path string) (*Entry, error) {
 		return nil, err
 	}
 	if !fi.Mode().IsRegular() || fi.Size() > MaxEntryBytes {
-		return nil, errors.New("state: not an entry file")
+		return nil, errors.New("state: not a state file")
 	}
 	data, err := io.ReadAll(io.LimitReader(f, MaxEntryBytes+1))
 	if err != nil {
 		return nil, err
 	}
-	return decode(data)
+	return data, nil
 }
+
+// marshal and unmarshal are the one JSON spelling of every file here.
+func marshal(v any) ([]byte, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
+func unmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }
 
 // decode parses an entry and refuses another version or a size past the
 // cap; the lists are never nil afterwards.

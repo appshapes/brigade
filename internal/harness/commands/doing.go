@@ -7,8 +7,10 @@ import (
 	"strconv"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
+	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/doing"
+	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -138,6 +140,9 @@ func Doing(inv Invocation, opts DoingOptions) error {
 		return doingFailure(err)
 	}
 	inv.logger().Debug("doing line sent", slog.Bool("described", text != ""))
+	if !opts.Clear {
+		inv.recordDoing(t, text)
+	}
 
 	if inv.JSON {
 		note := DoingNote
@@ -153,6 +158,28 @@ func Doing(inv Invocation, opts DoingOptions) error {
 		return writeLines(inv.Out, DoingClearedLine)
 	}
 	return writeLines(inv.Out, "published: "+text)
+}
+
+// recordDoing appends the published sentence to the session's state entry
+// (card 162, plan §5.2: the doing-line history the digest reads) when the
+// project shares a state folder and the entry is there. Best effort and
+// silent: the roster has the line already, and the entry is housekeeping.
+func (inv Invocation) recordDoing(t *target, text string) {
+	if t.session == nil || t.session.StateFolder == "" {
+		return
+	}
+	s := state.Store{StateDir: t.stateDir, Folder: t.session.StateFolder}
+	e, err := s.Load(t.session.BrigadeSessionID)
+	if err != nil {
+		inv.logger().Debug("doing: no state entry to record the line in", log.Err(err))
+		return
+	}
+	now := inv.Deps.now()
+	e.AddDoing(text, now)
+	e.UpdatedAt = now
+	if err := s.Save(e); err != nil {
+		inv.logger().Debug("doing: the line was not recorded in the state entry", log.Err(err))
+	}
 }
 
 // doingRefusal answers the --json reason for which the mode publishes
