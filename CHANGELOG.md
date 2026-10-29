@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.43.0] — 2026-10-29
+
 ### Added
 
 - **The session state entry in the team's synced folder** (card 162, the
