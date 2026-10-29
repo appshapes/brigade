@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -44,7 +45,8 @@ func TestSaveWritesBothCopies(t *testing.T) {
 	}
 	canonical, _ := s.CanonicalPath("sess-1")
 	fi, err := os.Stat(canonical)
-	if err != nil || fi.Mode().Perm() != 0o600 {
+	if err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
+		// Windows has no mode bits (invariants.md): the file's existence is the check there.
 		t.Fatalf("canonical copy: %v %v", fi, err)
 	}
 	projected, _ := s.FolderPath("sess-1")

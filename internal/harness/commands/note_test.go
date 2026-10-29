@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,9 @@ func TestNoteRefusals(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			if tc.reason == doing.ReasonLocalPath && runtime.GOOS == "windows" {
+				t.Skip("the local-path refusal compares unix paths (as the doing tests skip it)")
+			}
 			f := newFixture(t)
 			env := f.sessionEnv("HOME=" + home)
 			if tc.setup != nil {
