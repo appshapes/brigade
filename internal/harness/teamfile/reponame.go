@@ -64,39 +64,51 @@ func originURL(top string) (string, bool) {
 	return "", false
 }
 
-// resolveGitDir finds the directory holding git's config for top: `.git`
-// itself in a plain clone; in a linked worktree the directory the `.git`
-// file's `gitdir:` line names, then the main repository's `.git` that its
-// `commondir` file names (the config lives there). Lstat, as Toplevel
-// does, so a symlinked `.git` is not followed.
+// resolveGitDir finds the directory holding git's config for top: the
+// common directory of GitDirs.
 func resolveGitDir(top string) (string, bool) {
+	_, common, ok := GitDirs(top)
+	return common, ok
+}
+
+// GitDirs finds git's two directories for the checkout at top: the
+// repository directory, where HEAD lives — `.git` itself in a plain
+// clone, in a linked worktree the directory the `.git` file's `gitdir:`
+// line names — and the common directory, where the config, the refs and
+// packed-refs live: the same directory in a plain clone, the main
+// repository's `.git` that the worktree's `commondir` file names
+// otherwise. Lstat, as Toplevel does, so a symlinked `.git` is not
+// followed; false when top has no usable `.git` entry. Only git's own
+// files are read, each capped at maxGitFileBytes.
+func GitDirs(top string) (gitDir, commonDir string, ok bool) {
 	entry := filepath.Join(top, ".git")
 	fi, err := os.Lstat(entry)
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 	dir := entry
 	switch {
 	case fi.Mode().IsRegular():
 		data, err := readGitFile(entry)
 		if err != nil {
-			return "", false
+			return "", "", false
 		}
 		first, _, _ := strings.Cut(string(data), "\n")
 		p, ok := strings.CutPrefix(strings.TrimSpace(first), "gitdir:")
 		if !ok || strings.TrimSpace(p) == "" {
-			return "", false
+			return "", "", false
 		}
 		dir = relativeTo(top, strings.TrimSpace(p))
 	case !fi.IsDir():
-		return "", false
+		return "", "", false
 	}
+	common := dir
 	if data, err := readGitFile(filepath.Join(dir, "commondir")); err == nil {
 		if c := strings.TrimSpace(string(data)); c != "" {
-			dir = relativeTo(dir, c)
+			common = relativeTo(dir, c)
 		}
 	}
-	return dir, true
+	return dir, common, true
 }
 
 // relativeTo resolves p against base unless p is already absolute.

@@ -1,7 +1,8 @@
 # Manager digest: decisions and contributions, from the team's synced folder
 
-**Status.** Draft **v1**, 2026-10-29, Trello card **162**, owner Rjae. The seven rulings of 2026-10-29 are
-in §7 and settle the carrier, the sender, the state entry and the digest; what remains is the build. **No
+**Status.** **v2, in build**, 2026-10-29, Trello card **162**, owner Rjae. The nine rulings of 2026-10-29 are
+in §7 and settle the carrier, the sender, the state entry and the digest; the rows are the **P65** series of the
+execution log (§6), P65-1 landed 2026-10-29 with the deviations §5.1 and §5.3 note in place. **No
 wire-shape change, no Supabase migration, no new dependency.** New: one hook event in the Claude Code package
 (`Stop`), three commands (`brigade note`, `brigade decision`, `brigade report`), a settings file in the synced
 folder, and a digest producer in the watcher. Folder sync ([folder-sync.md](folder-sync.md), released 0.11.0,
@@ -95,9 +96,12 @@ of waiting till we determine the **best** solution."
 
 ### 5.1 The folder and its files (`internal/harness/foldersync`, `internal/harness/teamfile`, new `internal/harness/state`)
 
-`.brigade.json`'s `sync` member gains an optional `state` string naming one of its listed folders, say
-`"sync": {"folders": [".brigade/state"], "state": ".brigade/state"}`. Without it, nothing here runs. The team
-file is the project's committed configuration, not wire protocol. Inside the folder:
+`.brigade.json`'s `sync` member gains an optional `state` string naming one of its listed folders, as listed, say
+`"sync": {"folders": [".brigade/state"], "state": ".brigade/state"}`. Without it, nothing here runs; a `state`
+that is not a string or names no listed folder makes the member unusable (`state_invalid`, `state_not_listed`),
+as every other broken rule does. The team file is the project's committed configuration, not wire protocol. The
+hook freezes the folder's absolute path into the by-pid map (`state_folder`) under the same conditions as the
+sync members, so `sync: off` shares no state. Inside the folder:
 
 | Path | Writer | Content |
 | --- | --- | --- |
@@ -108,11 +112,13 @@ file is the project's committed configuration, not wire protocol. Inside the fol
 
 The entry: `member`, `session_name`, `session_id`, `repository`, `branch`, `harness`, `started_at`,
 `last_prompt_at`, `ended_at`, `end_reason`, `inbound` (accept, hold, refuse, with the "write instead" text),
-`start_head`, `commits[]` (hash, subject, time; the card number parsed from the subject), `doing[]` (text, time;
-last 50), `notes[]` (text with the three labels, time; last 20), `updated_at`. No model id, no token count,
-nothing from the transcript. The canonical copy lives under `<state dir>/state/<team key>/<repository>/`, and
-every write projects it into the folder, so a deletion in the folder is healed on the next hook. One writer per
-file, so Syncthing produces no conflict copy. Retention (ruling 2): a live entry while it lives, an ended entry
+`start_head`, `head`, `commits[]` (hash, subject, time; the card number parsed from the subject; last 100, by
+the checkout's git author — P65-1 deviation: a `git pull` brings teammates' commits into `start_head..HEAD`,
+and the author filter keeps them out of this session's list), `doing[]` (text, time; last 50), `notes[]` (text
+with the three labels, time; last 20), `updated_at`. No model id, no token count, nothing from the transcript.
+The canonical copy lives under `<state dir>/state/entries/<session id>.json` (P65-1: keyed by the session id, which
+is unique, rather than by team and repository), and every write projects it into the folder, so a deletion in
+the folder is healed on the next hook. One writer per file, so Syncthing produces no conflict copy. Retention (ruling 2): a live entry while it lives, an ended entry
 14 days, a decision 30 days after close and indefinitely while open; the writer prunes its own, any watcher
 prunes an entry past its term whose machine never returned.
 
@@ -134,10 +140,13 @@ Each is a row in the command table, so `make docs-generate` and a persona page n
 
 ### 5.3 The hooks: the facts layer and the Stop ask (`internal/harness/hook`)
 
-- **session-start**: records `start_head` (`git rev-parse HEAD`, an argument array, allow-listed environment)
-  and creates the entry. **prompt**: `last_prompt_at`, `git log <start_head>..HEAD` into `commits[]`, rewrite.
-  **session-end**: `ended_at`, `end_reason`, final commits. A hook's budget is seconds; every git call has a
-  short timeout and a failure leaves the fields as they were.
+- **session-start**: records `start_head` and the branch — read from git's own files (`.git/HEAD`, the ref,
+  `packed-refs`; worktrees followed), no process (P65-1 deviation from `git rev-parse`) — and creates the entry,
+  or refreshes it on the continue path. **prompt**: `last_prompt_at`, the registry's name, and only when HEAD
+  moved `git log <start_head>..HEAD` by the checkout's `user.email` into `commits[]` (the one process, an
+  argument array, the allow-listed environment, git from the hook's own PATH), rewrite. **session-end**:
+  `ended_at`, `end_reason`, final commits. A hook's budget is seconds; every git call has a short timeout (1.5 s
+  at start, 1 s at a prompt, 0.3 s at the end) and a failure leaves the fields as they were.
 - **stop** (new for the Claude Code host; Grok's existing `hook stop` gains the same ask): the gates of ruling 2.
 
 | Gate | Checked how | Asks for |
@@ -207,17 +216,17 @@ notice. The address rule (ruling 3): a Slack handle is fine in the folder; an ad
   leaves the machine (entries to every teammate's machine; the digest and decisions to Slack or email and from
   there to whatever assistant reads them), `CHANGELOG.md`.
 
-## 6. Rows (planned; the series number is the next free one when the first lands)
+## 6. Rows (the P65 series of the execution log)
 
-| Row | Work |
-| --- | --- |
-| Pn-1 | The state folder, the entry, the facts layer in the three hooks, retention |
-| Pn-2 | `brigade note`, `brigade decision`, `brigade doing` history |
-| Pn-3 | The Stop hook for the Claude Code package and the ask in Grok's; the `status` option; prompt-hook parity |
-| Pn-4 | The producer in the watcher: period, rank, marker, digest assembly |
-| Pn-5 | `brigade report configure|show|send`, `reports.json`, delivery precedence, the address rule |
-| Pn-6 | Skills, pages, security.md, changelog |
-| Pn-7 | Proof (§8) and release |
+| Row | Work | State |
+| --- | --- | --- |
+| P65-1 | The state folder, the entry, the facts layer in the three hooks, retention | done 2026-10-29 |
+| P65-2 | `brigade note`, `brigade decision`, `brigade doing` history | |
+| P65-3 | The Stop hook for the Claude Code package and the ask in Grok's; the `status` option; prompt-hook parity | |
+| P65-4 | The producer in the watcher: period, rank, marker, digest assembly | |
+| P65-5 | `brigade report configure|show|send`, `reports.json`, delivery precedence, the address rule | |
+| P65-6 | Skills, pages, security.md, changelog | |
+| P65-7 | Proof (§8) and release | |
 
 ## 7. Owner rulings, 2026-10-29
 

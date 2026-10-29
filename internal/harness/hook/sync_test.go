@@ -246,6 +246,8 @@ func TestSyncChangeRespawnsTheWatcher(t *testing.T) {
 		// The folders' ids carry the repository's name (card 42): a
 		// checkout that gains a remote derives other ids.
 		{"the repository named by a remote", `,"sync":{"folders":["docs"]}`, "", "git@github.com:example/renamed.git", true, []string{"docs"}},
+		// The state folder (card 162) is read by the watcher once too.
+		{"a state folder named", `,"sync":{"folders":["docs"],"state":"docs"}`, "", "", true, []string{"docs"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

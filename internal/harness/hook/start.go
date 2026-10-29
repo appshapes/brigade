@@ -263,7 +263,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 				r.log.Warn("heartbeat failed; the watcher keeps trying", log.Err(hbErr))
 			}
 			m := r.continueMap(f, in, res, existing, now)
-			r.finish(f, in, res, m, now, watcherRuns)
+			r.finish(ctx, f, in, res, m, now, watcherRuns)
 			return
 		}
 		// The server no longer has the session (closed or expired and
@@ -350,7 +350,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 		return
 	}
 	spawned := r.spawnWatcher(ctx, f, m, pidfileWait)
-	r.finish(f, in, res, m, now, spawned)
+	r.finish(ctx, f, in, res, m, now, spawned)
 }
 
 func (r *run) continueMap(f facts, in input, res resolved, existing *sessionmap.ByPID, now time.Time) *sessionmap.ByPID {
@@ -716,6 +716,9 @@ type frozenSync struct {
 	folders []string
 	root    string
 	scope   string
+	// stateFolder is the absolute path of the listed folder the team
+	// file's `sync.state` names (card 162), "" when it names none.
+	stateFolder string
 }
 
 // frozenIn reports whether m already carries exactly this configuration:
@@ -723,7 +726,7 @@ type frozenSync struct {
 // watcher reads these members once, when it starts its sync goroutine.
 func (s frozenSync) frozenIn(m *sessionmap.ByPID) bool {
 	return m.SyncAdapter == s.adapter && m.SyncRoot == s.root && m.SyncScope == s.scope &&
-		slices.Equal(m.SyncFolders, s.folders)
+		m.StateFolder == s.stateFolder && slices.Equal(m.SyncFolders, s.folders)
 }
 
 // frozenPolling is the team file's `polling` member as SessionStart
@@ -810,8 +813,14 @@ func (r *run) resolveSync(opts config.Options, tf *teamfile.File, cwd string) (f
 		r.log.Warn("session-start: sync root unresolved; file sync is off")
 		return frozenSync{}, syncOffLine(syncOffUnresolved)
 	}
-	return frozenSync{adapter: tf.Sync.Adapter, folders: slices.Clone(tf.Sync.Folders), root: root, scope: syncScope(cwd)},
-		syncOnLine(len(tf.Sync.Folders), tf.Sync.Adapter)
+	sync := frozenSync{adapter: tf.Sync.Adapter, folders: slices.Clone(tf.Sync.Folders), root: root, scope: syncScope(cwd)}
+	if tf.Sync.State != "" {
+		// The state folder is one of the listed folders (the parser saw
+		// to it), so its path is the one the sync adapter is handed
+		// (foldersync.Folders): the root and the folder as written.
+		sync.stateFolder = filepath.Join(root, tf.Sync.State)
+	}
+	return sync, syncOnLine(len(tf.Sync.Folders), tf.Sync.Adapter)
 }
 
 // syncScope is the repository's name for the folder ids (card 42):
@@ -1226,6 +1235,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		SyncFolders:            res.sync.folders,
 		SyncRoot:               res.sync.root,
 		SyncScope:              res.sync.scope,
+		StateFolder:            res.sync.stateFolder,
 		MessageSound:           res.messageSound,
 		MessageNotification:    res.messageNotification,
 		MessageIntervalSeconds: int(res.opts.MessageInterval / time.Second),
@@ -1251,13 +1261,16 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 // watcherRuns says whether a watcher serves the session now — spawned by
 // this SessionStart, or live and kept — because file sync runs in the
 // watcher: without one the sync line says off, whatever was resolved.
-func (r *run) finish(f facts, in input, res resolved, m *sessionmap.ByPID, now time.Time, watcherRuns bool) {
+func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *sessionmap.ByPID, now time.Time, watcherRuns bool) {
 	if err := res.store.WriteByPID(m); err != nil {
 		r.fail("session-start: session map not written", err, notConnected(protocol.CodeConfig))
 		return
 	}
 	r.writeByNative(res.store, in.SessionID, m, now)
 	r.writeByHost(f, res.store, in.SessionID, m, now)
+	// The session's state entry (card 162): written once the map is, so
+	// a command run in the session finds the folder the map names.
+	r.stateStart(ctx, f, res.opts, m, now)
 	warnings := append([]string{}, res.dec.Warnings...)
 	if r.optionsWarning != "" {
 		warnings = append(warnings, r.optionsWarning)

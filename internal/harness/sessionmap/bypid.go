@@ -189,6 +189,15 @@ type ByPID struct {
 	// a checkout with no name to derive — then the folders keep the ids
 	// of 0.11.0 to 0.15.0 (foldersync.LegacyFolderID).
 	SyncScope string `json:"sync_scope,omitzero"`
+	// StateFolder is the absolute path of the project's state folder
+	// (card 162, manager-digest plan §5.1): the listed folder the team
+	// file's `sync.state` names, under SyncRoot, where this session's
+	// state entry is projected and where the watcher reads the team's.
+	// Frozen beside the sync members and under the same conditions (sync
+	// on, the member usable, the root resolved); absent (omitzero) for a
+	// project that shares no state, with sync off, and in a map from
+	// before it existed. The watcher reads it once, when it starts.
+	StateFolder string `json:"state_folder,omitzero"`
 	// MessageSound is the `message_sound` option as the hook resolved it
 	// (card 35): true when this session's watcher plays one quiet sound
 	// as a message arrives. The watcher re-reads it on every liveness
@@ -380,12 +389,13 @@ var syncAdapterName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
 // validateSync checks the sync members as one: all absent, or an
 // adapter name, a clean absolute root and at least one folder, each a
-// clean relative path that stays under the root, and a scope that is
-// absent or a repository name. Only what the watcher needs to build a
+// clean relative path that stays under the root, a scope that is absent
+// or a repository name, and a state folder that is absent or a clean
+// absolute path (card 162). Only what the watcher needs to build a
 // folder path and id it can hand an adapter: the team file's parser
 // applied its own rules before the hook froze these.
 func (m *ByPID) validateSync() error {
-	if m.SyncAdapter == "" && len(m.SyncFolders) == 0 && m.SyncRoot == "" && m.SyncScope == "" {
+	if m.SyncAdapter == "" && len(m.SyncFolders) == 0 && m.SyncRoot == "" && m.SyncScope == "" && m.StateFolder == "" {
 		return nil
 	}
 	switch {
@@ -397,6 +407,8 @@ func (m *ByPID) validateSync() error {
 		return errInvalid("sync_folders")
 	case m.SyncScope != "" && !ValidSyncScope(m.SyncScope):
 		return errInvalid("sync_scope")
+	case m.StateFolder != "" && (!filepath.IsAbs(m.StateFolder) || filepath.Clean(m.StateFolder) != m.StateFolder):
+		return errInvalid("state_folder")
 	}
 	// The folder rule is the team file's (internal/harness/teamfile/sync.go
 	// checkFolder) and nothing more: relative, path.Clean-unchanged, not ".".

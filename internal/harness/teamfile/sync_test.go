@@ -60,6 +60,9 @@ func TestSyncRules(t *testing.T) {
 		{"duplicates and nesting", `{"folders":["docs","docs","Docs","docs/shared"]}`, "", "syncthing", []string{"docs", "docs", "Docs", "docs/shared"}},
 		{"unicode letters are fine", `{"folders":["notas/café"]}`, "", "syncthing", []string{"notas/café"}},
 		{"backslash, quote, control and format characters", `{"folders":["a\\b","a\"b","a\nb","a\u202eb"]}`, "", "syncthing", []string{"a\\b", "a\"b", "a\nb", "a\u202eb"}},
+		// The state folder (card 162): one of the listed folders, as listed.
+		{"a state folder among the listed", `{"folders":[".context/plans",".brigade/state"],"state":".brigade/state"}`, "", "syncthing", []string{".context/plans", ".brigade/state"}},
+		{"a state folder above the checkout", `{"folders":["../state"],"state":"../state"}`, "", "syncthing", []string{"../state"}},
 		// Unusable, one per token.
 		{"sync is an array", `["docs"]`, teamfile.SyncNotObject, "", nil},
 		{"sync is a string", `"docs"`, teamfile.SyncNotObject, "", nil},
@@ -85,6 +88,13 @@ func TestSyncRules(t *testing.T) {
 		{"a .. that cleans away", `{"folders":["a/../b"]}`, teamfile.SyncFolderNotClean, "", nil},
 		{"the whole checkout", `{"folders":["."]}`, teamfile.SyncFolderRoot, "", nil},
 		{"one bad entry spoils the member", `{"folders":["good","/bad"]}`, teamfile.SyncFolderNotRelative, "", nil},
+		{"state is a number", `{"folders":["a"],"state":1}`, teamfile.SyncStateInvalid, "", nil},
+		{"state is null", `{"folders":["a"],"state":null}`, teamfile.SyncStateInvalid, "", nil},
+		{"state is empty", `{"folders":["a"],"state":""}`, teamfile.SyncStateInvalid, "", nil},
+		{"state names an unlisted folder", `{"folders":["a"],"state":"b"}`, teamfile.SyncStateNotListed, "", nil},
+		{"state spelled otherwise than the list", `{"folders":["a/b"],"state":"a/b/"}`, teamfile.SyncStateNotListed, "", nil},
+		{"state with no folders", `{"state":"a"}`, teamfile.SyncStateNotListed, "", nil},
+		{"the folder rules come first", `{"folders":["/abs"],"state":"/abs"}`, teamfile.SyncFolderNotRelative, "", nil},
 	}
 	covered := map[string]bool{}
 	for _, c := range cases {
@@ -106,6 +116,9 @@ func TestSyncRules(t *testing.T) {
 				}
 				if f.Sync.Adapter != c.adapter || (c.folders != nil && !slices.Equal(f.Sync.Folders, c.folders)) {
 					t.Fatalf("sync = %+v, want adapter %q folders %q", f.Sync, c.adapter, c.folders)
+				}
+				if f.Sync.State != "" && !slices.Contains(f.Sync.Folders, f.Sync.State) {
+					t.Fatalf("sync = %+v: an accepted state folder is not among the folders", f.Sync)
 				}
 			}
 			// The team is the team, sync or no sync.
@@ -141,6 +154,7 @@ func TestSyncReasonsListIsClosed(t *testing.T) {
 	want := []string{
 		"not_object", "adapter_invalid", "folders_invalid", "too_many_folders",
 		"folder_too_long", "folder_not_relative", "folder_not_clean", "folder_root",
+		"state_invalid", "state_not_listed",
 	}
 	if got := teamfile.SyncReasons(); !slices.Equal(got, want) {
 		t.Fatalf("SyncReasons() = %q\nwant %q: the list is closed and every change needs a test", got, want)
@@ -248,6 +262,10 @@ func TestCarriedSync(t *testing.T) {
 			withSync(`{"folders":["b","a"],"future":true}`), false,
 			&teamfile.SyncConfig{Adapter: "syncthing", Folders: []string{"b", "a"}}, "",
 		},
+		"a usable member with a state folder": {
+			withSync(`{"folders":["b","a"],"state":"a"}`), false,
+			&teamfile.SyncConfig{Adapter: "syncthing", Folders: []string{"b", "a"}, State: "a"}, "",
+		},
 		"a refused file with no sync": {"not json", false, nil, ""},
 		"an unusable member":          {withSync(`{"folders":["/x"]}`), false, nil, teamfile.SyncFolderNotRelative},
 		"a refused file that declares sync": {
@@ -306,5 +324,8 @@ func assertSyncInvariants(t *testing.T, f *teamfile.File) {
 			path.Clean(folder) != folder || folder == "." {
 			t.Fatalf("an accepted folder %q breaks a rule", folder)
 		}
+	}
+	if f.Sync.State != "" && !slices.Contains(f.Sync.Folders, f.Sync.State) {
+		t.Fatalf("an accepted state folder %q is not listed", f.Sync.State)
 	}
 }

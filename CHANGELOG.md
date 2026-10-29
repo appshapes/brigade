@@ -9,6 +9,31 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **The session state entry in the team's synced folder** (card 162, the
+  first piece of the manager digest). A project that names one of its
+  synced folders as its state folder — `"sync": {"folders":
+  [".brigade/state"], "state": ".brigade/state"}` in `.brigade.json` —
+  has every session of its checkouts keep one entry there,
+  `sessions/<session id>.json`: the member's label, the session's name,
+  the repository and branch, the host, when it started, last prompted and
+  ended, its inbound policy, the commits its author made since it started
+  (hash, subject, the card number the subject starts with, time), and
+  room for the doing lines and notes the next pieces add. The hooks write
+  it: SessionStart creates it, each prompt stamps it and lists new commits
+  when HEAD moved (the one `git log` Brigade runs, an argument array under
+  a short budget; HEAD itself is read from git's own files, no process),
+  SessionEnd records the end. Nothing from the transcript reaches it. The
+  canonical copy lives under Brigade's private state directory and every
+  write projects it into the folder, so an entry a teammate's machine
+  deleted comes back at the next hook, and one writer per file means no
+  conflict copies. An ended entry is kept 14 days, one whose machine never
+  came back 14 days after its last write; the writer prunes its own at
+  session start and any session's watcher prunes the folder hourly. A
+  `state` that names no listed folder makes the `sync` member unusable
+  (`state_not_listed`, `state_invalid`), as any other broken rule does.
+
 ## [0.42.0] — 2026-10-28
 
 ### Added

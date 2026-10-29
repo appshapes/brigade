@@ -97,6 +97,10 @@ func (r *run) prompt() int {
 	}
 	r.poll(ctx, f, m)
 	r.heldNotice(f, m)
+	// The state entry's prompt stamp and commits (card 162), last: its
+	// one possible process, a `git log` after a commit, must not take the
+	// poll's share of the budget.
+	r.statePrompt(ctx, f, m, r.deps.Now())
 	return 0
 }
 

@@ -51,6 +51,9 @@ func (r *run) sessionEnd() int {
 	if f.host == config.HostGrok && !r.grokMatches(m, in) {
 		return 0
 	}
+	// The state entry's end (card 162), before the map goes: the last
+	// write this machine makes for the session.
+	r.stateEnd(ctx, f, m, in.Reason, r.deps.Now())
 	path := pidfile.Path(f.stateDir, f.pid)
 	v, cerr := pidfile.Check(path, r.deps.Lookup)
 	switch {

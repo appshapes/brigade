@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/appshapes/brigade/internal/protocol"
@@ -17,11 +18,16 @@ import (
 // strictly user-side (§4.3: `syncthing` is the bundled one; any other is
 // `brigade-sync-<name>` on the user's PATH), never a path or a command.
 // Folders are clean relative paths from the repository toplevel, in the
-// file's order. The json tags are the member's own shape, so `team create
-// --force` writes a carried SyncConfig back unchanged in meaning.
+// file's order. State, optional, is the one listed folder the team's
+// sessions write their state entries into for the manager digest (card
+// 162, manager-digest plan §5.1): exactly one of Folders, as written
+// there, or "" when the project shares no state. The json tags are the
+// member's own shape, so `team create --force` writes a carried
+// SyncConfig back unchanged in meaning.
 type SyncConfig struct {
 	Adapter string   `json:"adapter"`
 	Folders []string `json:"folders"`
+	State   string   `json:"state,omitzero"`
 }
 
 // DefaultSyncAdapter is the adapter a `sync` member without one names.
@@ -50,6 +56,8 @@ const (
 	SyncFolderNotRelative = "folder_not_relative" // an entry starting with `/`
 	SyncFolderNotClean    = "folder_not_clean"    // path.Clean would change it (empty, `a/`, `./a`, `a//b`, `a/./b`)
 	SyncFolderRoot        = "folder_root"         // `.`, the whole checkout
+	SyncStateInvalid      = "state_invalid"       // state is not a non-empty string
+	SyncStateNotListed    = "state_not_listed"    // state names no entry of folders
 )
 
 // SyncReasons is the closed unusable-sync token list, in check order.
@@ -57,12 +65,13 @@ func SyncReasons() []string {
 	return []string{
 		SyncNotObject, SyncAdapterInvalid, SyncFoldersInvalid, SyncTooManyFolders,
 		SyncFolderTooLong, SyncFolderNotRelative, SyncFolderNotClean, SyncFolderRoot,
+		SyncStateInvalid, SyncStateNotListed,
 	}
 }
 
 // syncMembers is what this version reads inside `sync`; any other inner
 // member is ignored and named `sync.<name>`.
-var syncMembers = map[string]bool{"adapter": true, "folders": true}
+var syncMembers = map[string]bool{"adapter": true, "folders": true, "state": true}
 
 // parseSync validates the `sync` member. It never refuses: an unusable
 // member is (nil, ignored, token). The secret walk over the whole
@@ -94,6 +103,18 @@ func parseSync(member jsontext.Value) (*SyncConfig, []string, string) {
 	}
 	if reason := checkFolders(cfg.Folders); reason != "" {
 		return nil, ignored, reason
+	}
+	// The state folder (card 162) is one of the listed folders, named
+	// exactly as the list writes it: the entries ride the same sync the
+	// folder already has, so a folder that is not listed syncs nothing
+	// and cannot carry them.
+	if v, ok := obj["state"]; ok {
+		if v.Kind() != '"' || json.Unmarshal(v, &cfg.State) != nil || cfg.State == "" {
+			return nil, ignored, SyncStateInvalid
+		}
+		if !slices.Contains(cfg.Folders, cfg.State) {
+			return nil, ignored, SyncStateNotListed
+		}
 	}
 	return cfg, ignored, ""
 }

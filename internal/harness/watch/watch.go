@@ -216,6 +216,12 @@ type Deps struct {
 	// DefaultSyncListInterval); a test sets its own.
 	SyncInterval     time.Duration
 	SyncListInterval time.Duration
+	// StatePruneDelay is how long after its start the state goroutine
+	// first prunes the state folder (card 162, state.go), and
+	// StatePruneInterval how often after that; zero means the production
+	// cadence, a test sets its own.
+	StatePruneDelay    time.Duration
+	StatePruneInterval time.Duration
 	// Announce runs a program that speaks no protocol to completion: the
 	// message-arrival sound player or desktop notifier (cards 35 and 36,
 	// announce.go) and, in a Codex CLI session, `codex queue` (card 107,
@@ -272,29 +278,31 @@ var stopRequests, _ = procutil.StopRequests()
 // RealDeps are the production dependencies.
 func RealDeps() Deps {
 	return Deps{
-		Lookup:           procutil.Lookup,
-		Signal:           realSignal,
-		Clock:            time.Now,
-		Registry:         registry.Dir,
-		Post:             socketpost.Post,
-		Announce:         runQuiet,
-		Signals:          []os.Signal{syscall.SIGTERM, syscall.SIGINT},
-		Stop:             stopRequests,
-		PollInterval:     DefaultPollInterval,
-		ReadyTimeout:     DefaultReadyTimeout,
-		FatalExitGrace:   DefaultFatalExitGrace,
-		ReplaceWait:      DefaultReplaceWait,
-		CloseWaitClean:   DefaultCloseWaitClean,
-		CloseWaitDeath:   DefaultCloseWaitDeath,
-		RestartSchedule:  func() *backoff.Schedule { return backoff.WatchRestart(nil) },
-		SlowSchedule:     func() *backoff.Schedule { return backoff.WatchSlow(nil) },
-		InjectSchedule:   func() *backoff.Schedule { return backoff.AdapterError(nil) },
-		GiveUpFailures:   DefaultGiveUpFailures,
-		GiveUpWindow:     DefaultGiveUpWindow,
-		HealthyAfter:     DefaultHealthyAfter,
-		ActivityRetryGap: DefaultActivityRetryGap,
-		LogRotateBytes:   DefaultLogRotateBytes,
-		SyncInterval:     DefaultSyncInterval,
+		Lookup:             procutil.Lookup,
+		Signal:             realSignal,
+		Clock:              time.Now,
+		Registry:           registry.Dir,
+		Post:               socketpost.Post,
+		Announce:           runQuiet,
+		Signals:            []os.Signal{syscall.SIGTERM, syscall.SIGINT},
+		Stop:               stopRequests,
+		PollInterval:       DefaultPollInterval,
+		ReadyTimeout:       DefaultReadyTimeout,
+		FatalExitGrace:     DefaultFatalExitGrace,
+		ReplaceWait:        DefaultReplaceWait,
+		CloseWaitClean:     DefaultCloseWaitClean,
+		CloseWaitDeath:     DefaultCloseWaitDeath,
+		RestartSchedule:    func() *backoff.Schedule { return backoff.WatchRestart(nil) },
+		SlowSchedule:       func() *backoff.Schedule { return backoff.WatchSlow(nil) },
+		InjectSchedule:     func() *backoff.Schedule { return backoff.AdapterError(nil) },
+		GiveUpFailures:     DefaultGiveUpFailures,
+		GiveUpWindow:       DefaultGiveUpWindow,
+		HealthyAfter:       DefaultHealthyAfter,
+		ActivityRetryGap:   DefaultActivityRetryGap,
+		LogRotateBytes:     DefaultLogRotateBytes,
+		SyncInterval:       DefaultSyncInterval,
+		StatePruneDelay:    DefaultStatePruneDelay,
+		StatePruneInterval: DefaultStatePruneInterval,
 	}
 }
 
@@ -381,6 +389,12 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.SyncInterval <= 0 {
 		d.SyncInterval = prod.SyncInterval
+	}
+	if d.StatePruneDelay <= 0 {
+		d.StatePruneDelay = prod.StatePruneDelay
+	}
+	if d.StatePruneInterval <= 0 {
+		d.StatePruneInterval = prod.StatePruneInterval
 	}
 	return d
 }
@@ -656,8 +670,10 @@ type watcher struct {
 	// plan folder-sync.md 4.3) is not the one that heartbeats.
 	syncPeer atomic.Pointer[string]
 	// sync is the file-sync configuration the map froze (sync.go); the
-	// zero value runs no sync goroutine.
-	sync syncSetup
+	// zero value runs no sync goroutine. stateFolder is the state folder
+	// the map names (card 162, state.go), "" for none.
+	sync        syncSetup
+	stateFolder string
 	// sound plays the message-arrival sound and banner shows the desktop
 	// notification (announce.go, cards 35 and 36).
 	sound  *announcer
@@ -802,8 +818,9 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		releasePath:    inbound.ReleasePath(rc.env.StateDir, m.BrigadeSessionID),
 		state: newShared(socketpost.Target{Path: rc.socketPath, Token: rc.token},
 			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath, m.ClaudeSessionID),
-		sync:      syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin},
-		idleClose: m.IdleClose(),
+		sync:        syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin},
+		stateFolder: m.StateFolder,
+		idleClose:   m.IdleClose(),
 	}
 	w.sound = newSoundAnnouncer(w)
 	w.banner = newBannerAnnouncer(w)
@@ -885,6 +902,16 @@ func (w *watcher) run() int {
 		w.goWriter("sync", func() { w.runSync(sctx) })
 	}
 	defer scancel()
+	// The state goroutine (state.go, card 162) prunes the state folder the
+	// map names; it writes in the checkout, not the state directory, and
+	// is joined like the rest so nothing of it outlives the exit line.
+	stcancel := func() {}
+	if w.stateFolder != "" {
+		var stctx context.Context
+		stctx, stcancel = context.WithCancel(base)
+		w.goWriter("state", func() { w.runState(stctx) })
+	}
+	defer stcancel()
 	// The sound player and the notifier run under their own context so
 	// the exit can end one in progress and wait for it (bounded by the
 	// seam's SIGTERM-then-SIGKILL) before the pidfile is released.
@@ -897,6 +924,7 @@ func (w *watcher) run() int {
 	w.clearStatus()
 	icancel()
 	scancel()
+	stcancel()
 	pcancel()
 	w.sound.join()
 	w.banner.join()

@@ -209,6 +209,21 @@ func TestByPIDValidate(t *testing.T) {
 			withSync(m)
 			m.SyncScope = "repo\x1b[31m" + evilMarker
 		}, wantField: "sync_scope"},
+		// The state folder (card 162): absent, or a clean absolute path,
+		// and never without the sync members it rides on.
+		{name: "sync with a state folder is valid", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.StateFolder = "/home/u/work/repo/.brigade/state"
+		}},
+		{name: "state folder without the rest", mutate: func(m *sessionmap.ByPID) { m.StateFolder = "/home/u/work/repo/.brigade/state" }, wantField: "sync_adapter"},
+		{name: "state folder relative", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.StateFolder = ".brigade/" + evilMarker
+		}, wantField: "state_folder"},
+		{name: "state folder not clean", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.StateFolder = "/home/u/work/repo/.brigade/state/"
+		}, wantField: "state_folder"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
