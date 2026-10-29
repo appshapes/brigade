@@ -23,6 +23,11 @@ The arguments are: $ARGUMENTS
   description. Trello descriptions render markdown.
 - Never put a join secret, a Supabase key, a personal access token or any other credential on a
   card: a card is as public as the board.
+- The description ends with the session stamp of `docs/agent/repository/conventions.md`:
+  `Session stamp: <team>/<session name>, <YYYY-MM-DD>`, where the team is `team_name` and the
+  session name is the `session_name` of the row whose `session_id` equals `self_session_id` in
+  `brigade sessions --here --json` (not `brigade whoami`, which keeps the name the session started
+  with). When that command fails or no row matches, this is not a Brigade session: no stamp.
 
 ## Steps
 
@@ -32,7 +37,8 @@ The arguments are: $ARGUMENTS
    `trello auth:token <token>`, never echo them.
 2. If any command says `no such table: boards`, run `trello sync` once (it caches boards and
    lists locally) and retry.
-3. Create the card. Pass the description through a file to avoid shell quoting problems:
+3. Create the card. Append the stamp line to the description, as its own last paragraph, then pass
+   the description through a file to avoid shell quoting problems:
    ```
    trello card:create --board "AppShapes" --list "Wanting" --label "Brigade" --name "<title>" \
        --description "$(sed '1{/^# /d;}' card.md)" --format json

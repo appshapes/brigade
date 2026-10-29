@@ -17,7 +17,11 @@
   carries it; a research or decision card when its answer is on the card) and nothing on it is open. Then run
   `/trello-done <card>` without being asked. When something is still open, say what it is and leave the card;
   never report a card as done without having run it. Never put a secret, a credential or a recipient's address
-  on a card: the board is as public as the repository.
+  on a card: the board is as public as the repository. Every description and comment a session writes on a card
+  ends with the line `Session stamp: <team>/<session name>, <YYYY-MM-DD>`, so the card says which session was
+  last involved (card 163): the team is `team_name` and the session name the `session_name` of the row whose
+  `session_id` equals `self_session_id` in `brigade sessions --here --json` (the roster carries a renamed
+  session's new name; `brigade whoami` does not). Outside a Brigade session there is no stamp.
 - **Skills of this repository** live in `.claude/skills/`: `commit`, `trello-create`, `trello-read`, `trello-done`,
   `playwright-cli`. The Brigade plugin's own skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`)
   are the product.
