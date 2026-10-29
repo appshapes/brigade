@@ -53,8 +53,11 @@ wrote: `{"version":1,"produced_at":"2026-10-29T16:55:28…","session_id":"9465a3
 - The model's response to the Stop hook's ask (§8.2's first half): the hook asked once after the commit, asked
   nothing on the continuation and nothing twice in a row; whether the model records the note is the next live
   session's to observe, as E10 did for the doing line.
-- The Slack road (§8.3 names Slack): the proof's manager is an email address, so the ask and the digests went
-  through the mail gateway; the Slack gateway's road is the same `to:` first line and the same send, picked first
-  when the recipients list a handle before an address (`state.PickGateway`, unit-tested).
+- The Slack road (§8.3 names Slack): the proof's manager is an email address, and 0.43.0 sent an address through
+  the mail gateway only, so the ask and the digests went by mail. 0.43.1 routes an address through the Slack
+  gateway when the team has one, and a second check the same day (E14b, by hand on the dev build after 0.43.1:
+  one session, `brigade report configure --manager <address>` with the recipients defaulting to the label, one
+  `brigade decision`) answered `sent: to <address> through the slack gateway, message f695573f…` and closed the
+  decision; whether the DM landed in the manager's Slack is the manager's to confirm.
 - Two machines: two engines on one, as folder-sync's proof did.
 - §8.7, the body under 16 KiB with the caps hit: `digest.TestBuildCaps`.
