@@ -9,6 +9,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.43.1] — 2026-10-29
+
+### Fixed
+
+- **An address recipient reaches the manager on Slack** (card 162). The
+  digest and a decision's ask go through the Slack gateway for an email
+  address too, when the team has one: the gateway finds the person by
+  their email, as `/brigade:slack <address>` does. 0.43.0 sent an address
+  through the mail gateway only, so a manager known by their roster label
+  (an email address by default) got mail with the Slack gateway on the
+  roster. The mail gateway is the road when the team has no Slack gateway.
+
 ## [0.43.0] — 2026-10-29
 
 ### Added

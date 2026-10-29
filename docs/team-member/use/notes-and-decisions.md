@@ -37,9 +37,10 @@ EOF
 The question travels on stdin; the four flags are optional: the options offered (at most 8, separated by `|`),
 the one taken when the manager says nothing (one of the options), the date an answer is needed by
 (`YYYY-MM-DD`), the card. The command writes `decisions/<id>.json` into the state folder and sends the ask at
-once, in the labelled shape the digest uses, through the first of `reports.json`'s recipients whose gateway is on
-the roster: a Slack handle or channel through the Slack gateway, an address through the mail gateway, in the
-file's order. With no gateway there it goes to the manager's own best session as a plain team message; with
+once, in the labelled shape the digest uses, through the first of `reports.json`'s recipients a gateway on the
+roster can carry: a Slack handle, channel or address through the Slack gateway (it finds a person by their
+email), an address through the mail gateway when the team has no Slack gateway, in the file's order. With no
+gateway there it goes to the manager's own best session as a plain team message; with
 neither it is recorded and the output says so, and the next digest carries it. The output names the decision
 and how it went:
 

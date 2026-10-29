@@ -138,7 +138,8 @@ func TestReportShowAndSend(t *testing.T) {
 	}
 	wantCode(t, Report(f.inv(f.sessionEnv(), "", "show"), ReportOptions{}), protocol.CodeConfig, ReasonNoManager)
 	writeReports(t, folder, reportsDoc)
-	f.rec.on("session list", okAnswer(rosterWith(true, false)))
+	// Both gateways on the roster: the address goes through Slack.
+	f.rec.on("session list", okAnswer(rosterWith(true, true)))
 	f.rec.on("message send", okAnswer(sendResultTo("msg-9", slackGatewayID, false)))
 	if err := Report(f.inv(f.sessionEnv(), "", "show"), ReportOptions{}); err != nil {
 		t.Fatalf("show: %v", err)

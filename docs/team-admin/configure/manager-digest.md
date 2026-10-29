@@ -35,9 +35,12 @@ brigade report configure --manager "Rjae" --recipients "#eng-digests" --at 08:00
 
 `brigade report configure`, run inside a session of the project, writes `reports.json` into the state folder: the
 manager's label as the roster shows it, the recipients in order of precedence, and the period. A recipient is a
-Slack handle or channel (through the team's Slack gateway) or an email address (through its mail gateway); the
-digest and every decision go to the first recipient whose gateway is on the roster, Slack before email when the
-file lists them so. With no gateway on the roster they go to the manager's own best session as a team message.
+Slack handle or channel, or an email address. The digest and every decision go to the first recipient a gateway on
+the roster can carry: a handle or channel through the team's Slack gateway; an address through the Slack gateway
+too when the team has one, which finds the person by their email, and through the mail gateway otherwise. So
+Slack comes before email whatever the recipient's shape, and a manager's roster label, an email address by
+default, reaches them on Slack. With no gateway on the roster they go to the manager's own best session as a team
+message.
 `--every` is a duration (`24h` when unset); `--at` with `--tz` makes it daily at that time instead. **The address
 rule:** an email address is written only when `git check-ignore` says the folder is ignored (`brigade report
 configure` refuses otherwise); a Slack handle or channel is written either way.

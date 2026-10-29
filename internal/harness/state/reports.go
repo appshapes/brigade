@@ -28,9 +28,11 @@ const (
 )
 
 // Reports is the file: the manager's roster label, the recipients in
-// precedence (a Slack handle or channel first, an address after, each
-// typed by its shape), and the period — `every` as a Go duration ("24h",
-// "4h"), and for a daily digest `at` ("08:00") in `tz` (an IANA zone).
+// precedence (a Slack handle or channel, or an address; each goes
+// through the Slack gateway when the team has one, an address through
+// the mail gateway otherwise), and the period — `every` as a Go duration
+// ("24h", "4h"), and for a daily digest `at` ("08:00") in `tz` (an IANA
+// zone).
 type Reports struct {
 	Version    int      `json:"version"`
 	Manager    string   `json:"manager"`
@@ -134,23 +136,40 @@ type Gateway struct {
 	Kind      string
 }
 
-// PickGateway walks the recipients in order and picks the first whose
-// gateway is on the roster and not offline — the Slack gateway for a
-// handle or a channel, the mail gateway for an address — so Slack comes
-// before email when the file lists them so (ruling 5). false when no
-// recipient's gateway is there.
+// PickGateway walks the recipients in order and picks the first that a
+// gateway on the roster (not offline) can carry: a handle or a channel
+// through the Slack gateway; an address through the Slack gateway too
+// when the team has one — it finds the person by their email, as
+// `/brigade:slack <address>` does — and else through the mail gateway.
+// So Slack comes before email whatever shape the recipient has (ruling
+// 5; owner 2026-10-29: a manager's roster label is an address, and that
+// must not mean mail). Kind says the road taken. false when no recipient
+// can be carried.
 func PickGateway(recipients []string, sessions []protocol.SessionRecord) (Gateway, bool) {
 	for _, to := range recipients {
 		kind := RecipientKind(to)
-		harness := map[string]string{RecipientSlack: gateway.HarnessSlack, RecipientEmail: gateway.HarnessEmail}[kind]
-		if harness == "" {
+		if kind == "" {
 			continue
 		}
-		for i := range sessions {
-			if sessions[i].Harness == harness && sessions[i].State != protocol.SessionStateOffline {
-				return Gateway{SessionID: sessions[i].SessionID, To: to, Kind: kind}, true
+		if id := onlineGateway(gateway.HarnessSlack, sessions); id != "" {
+			return Gateway{SessionID: id, To: to, Kind: RecipientSlack}, true
+		}
+		if kind == RecipientEmail {
+			if id := onlineGateway(gateway.HarnessEmail, sessions); id != "" {
+				return Gateway{SessionID: id, To: to, Kind: RecipientEmail}, true
 			}
 		}
 	}
 	return Gateway{}, false
+}
+
+// onlineGateway is the id of the first roster session of the harness
+// that is not offline, "" for none.
+func onlineGateway(harness string, sessions []protocol.SessionRecord) string {
+	for i := range sessions {
+		if sessions[i].Harness == harness && sessions[i].State != protocol.SessionStateOffline {
+			return sessions[i].SessionID
+		}
+	}
+	return ""
 }

@@ -227,8 +227,9 @@ func TestReportsAndGateways(t *testing.T) {
 	}{
 		"slack first":                       {[]string{"@rjae", "rjae@example.com"}, []protocol.SessionRecord{mail, slack}, state.Gateway{SessionID: "slack-1", To: "@rjae", Kind: "slack"}, true},
 		"slack gateway offline, mail":       {[]string{"@rjae", "rjae@example.com"}, []protocol.SessionRecord{offline, mail}, state.Gateway{SessionID: "mail-1", To: "rjae@example.com", Kind: "email"}, true},
-		"the file's order wins":             {[]string{"rjae@example.com", "@rjae"}, []protocol.SessionRecord{slack, mail}, state.Gateway{SessionID: "mail-1", To: "rjae@example.com", Kind: "email"}, true},
-		"no gateway on the roster":          {[]string{"@rjae"}, []protocol.SessionRecord{mail}, state.Gateway{}, false},
+		"an address goes through slack":     {[]string{"rjae@example.com"}, []protocol.SessionRecord{mail, slack}, state.Gateway{SessionID: "slack-1", To: "rjae@example.com", Kind: "slack"}, true},
+		"an address with no slack gateway":  {[]string{"rjae@example.com", "@rjae"}, []protocol.SessionRecord{mail}, state.Gateway{SessionID: "mail-1", To: "rjae@example.com", Kind: "email"}, true},
+		"a handle never goes by mail":       {[]string{"@rjae"}, []protocol.SessionRecord{mail}, state.Gateway{}, false},
 		"a recipient of no kind is skipped": {[]string{"nobody", "#digests"}, []protocol.SessionRecord{slack}, state.Gateway{SessionID: "slack-1", To: "#digests", Kind: "slack"}, true},
 	} {
 		got, ok := state.PickGateway(tc.recipients, tc.sessions)

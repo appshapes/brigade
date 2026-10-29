@@ -205,9 +205,12 @@ label at the start of each line. The summary carries the counts: decisions open,
 ```
 
 `manager` is a roster label. Recipients are typed by shape: a Slack handle or channel goes through the Slack
-gateway, an address through the mail gateway; the producer walks the list and sends to the first whose gateway
-is on the roster (found by its harness id), with the body's first line the gateway's existing `to:` convention,
-so no gateway changes. Without any gateway, a plain Brigade message to the manager's best session and a roster
+gateway; an address goes through the Slack gateway too when the team has one (it finds the person by their
+email, as `/brigade:slack <address>` does) and through the mail gateway otherwise (P65-9 deviation, owner
+2026-10-29: a manager's roster label is an address by default, and 0.43.0's "an address means mail" sent the
+proof's asks by mail with the Slack gateway on the roster); the producer walks the list and sends to the first a
+gateway on the roster can carry (found by its harness id), with the body's first line the gateway's existing
+`to:` convention, so no gateway changes. Without any gateway, a plain Brigade message to the manager's best session and a roster
 notice. The address rule (ruling 3): a Slack handle is fine in the folder; an address is written only after
 `git check-ignore` confirms the folder is ignored, and nowhere else.
 
@@ -233,6 +236,7 @@ notice. The address rule (ruling 3): a Slack handle is fine in the folder; an ad
 | P65-5 | `brigade report configure|show|send`, `reports.json`, delivery precedence, the address rule | done 2026-10-29 |
 | P65-6 | Skills, pages, security.md, changelog | done 2026-10-29 |
 | P65-7 | Proof (§8) and release | E14 done 2026-10-29; release 0.43.0 |
+| P65-9 | An address recipient through the Slack gateway when the team has one | done 2026-10-29; release 0.43.1 |
 
 ## 7. Owner rulings, 2026-10-29
 
