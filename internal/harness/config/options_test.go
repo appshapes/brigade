@@ -21,7 +21,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOptions: %v", err)
 	}
-	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, ClaudeInboundSetting: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true, MessageInterval: notify.DefaultInterval}
+	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, ClaudeInboundSetting: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true, MessageInterval: notify.DefaultInterval, Status: true}
 	if got != want {
 		t.Fatalf("defaults =\n %+v\nwant\n %+v", got, want)
 	}
@@ -54,6 +54,8 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		config.OptionMessageSound+"=on",
 		config.OptionMessageNotification+"=on",
 		config.OptionMessageInterval+"=120",
+		// `off` rather than `on`: the default is on (card 162).
+		config.OptionStatus+"=off",
 	)
 	got, err := config.ParseOptions(env)
 	if err != nil {
@@ -76,9 +78,42 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		MessageSound:         true,
 		MessageNotification:  true,
 		MessageInterval:      2 * time.Minute,
+		Status:               false,
 	}
 	if got != want {
 		t.Fatalf("options =\n %+v\nwant\n %+v", got, want)
+	}
+}
+
+// TestParseStatus pins the status grammar (card 162): unset and on are on;
+// off is off; anything else is off with the one fixed warning, which never
+// echoes the value; and ParseOptions carries it.
+func TestParseStatus(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		raw  string
+		on   bool
+		warn string
+	}{
+		{"", true, ""}, {"on", true, ""}, {" on ", true, ""}, {"off", false, ""},
+		{"ON", false, config.WarnStatusInvalid}, {"yes", false, config.WarnStatusInvalid}, {"EVIL-value", false, config.WarnStatusInvalid},
+	} {
+		on, warn := config.ParseStatus(tc.raw)
+		if on != tc.on || warn != tc.warn {
+			t.Errorf("ParseStatus(%q) = %v, %q; want %v, %q", tc.raw, on, warn, tc.on, tc.warn)
+		}
+		if strings.Contains(warn, "EVIL") {
+			t.Errorf("the warning echoes the value: %q", warn)
+		}
+	}
+	d := newDirs(t)
+	got, err := config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionStatus+"=off"))
+	if err != nil || got.Status || got.StatusWarning != "" {
+		t.Fatalf("ParseOptions with status=off: %+v, %v", got, err)
+	}
+	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionStatus+"=sometimes"))
+	if err != nil || got.Status || got.StatusWarning != config.WarnStatusInvalid {
+		t.Fatalf("ParseOptions with status=sometimes: %+v, %v", got, err)
 	}
 }
 

@@ -148,12 +148,16 @@ const (
 // the file (T10); `prompt` stays absent from the type — never read,
 // stored or sent.
 type input struct {
-	WorkspaceRoot   string     `json:"workspaceRoot"`
-	SubagentType    string     `json:"subagentType"`
-	StopReason      string     `json:"stopReason"`
-	StopHookActive  bool       `json:"stopHookActive"`
-	BackgroundTasks []grokTask `json:"backgroundTasks"`
-	grokIncarnation string
+	WorkspaceRoot  string `json:"workspaceRoot"`
+	SubagentType   string `json:"subagentType"`
+	StopReason     string `json:"stopReason"`
+	StopHookActive bool   `json:"stopHookActive"`
+	// StopHookActiveSnake is Claude Code's own spelling of the Stop
+	// document's flag (card 162): true when the turn is already continuing
+	// because of a stop hook, so an ask would loop.
+	StopHookActiveSnake bool       `json:"stop_hook_active"`
+	BackgroundTasks     []grokTask `json:"backgroundTasks"`
+	grokIncarnation     string
 	// launchCwd is the hook document's cwd before symlink resolution. Grok
 	// names its session directory from that spelling. It is not a JSON
 	// field: a document cannot set it.
@@ -347,14 +351,13 @@ func Run(args []string, streams cli.Streams, environ []string, deps Deps) int {
 	if a.host == config.HostGrok || config.HostOf(environ) == config.HostGrok {
 		return r.runGrok()
 	}
-	if a.sub == SubStop {
-		return 0
-	}
 	switch a.sub {
 	case SubSessionStart:
 		return r.sessionStart()
 	case SubPrompt:
 		return r.prompt()
+	case SubStop:
+		return r.stop()
 	default:
 		return r.sessionEnd()
 	}
@@ -380,11 +383,11 @@ type hookArgs struct {
 func parseArgs(args []string) (hookArgs, string) {
 	a := hookArgs{level: "info"}
 	if len(args) == 0 {
-		return a, "hook needs one of session-start, prompt, session-end"
+		return a, "hook needs one of session-start, prompt, stop, session-end"
 	}
 	a.sub = args[0]
 	if a.sub != SubSessionStart && a.sub != SubPrompt && a.sub != SubSessionEnd && a.sub != SubStop {
-		return a, "unknown hook; the hooks are session-start, prompt and session-end"
+		return a, "unknown hook; the hooks are session-start, prompt, stop and session-end"
 	}
 	rest := args[1:]
 	for i := 0; i < len(rest); i++ {

@@ -94,10 +94,10 @@ func (r *run) newStateEntry(f facts, opts config.Options, m *sessionmap.ByPID, n
 // HEAD and the commits. A session with no canonical entry — one that was
 // running when the project gained its state folder, or whose entry was
 // pruned — gets a fresh one here, as SessionStart would have written it.
-func (r *run) statePrompt(ctx context.Context, f facts, m *sessionmap.ByPID, now time.Time) {
+func (r *run) statePrompt(ctx context.Context, f facts, m *sessionmap.ByPID, now time.Time) *state.Entry {
 	s, ok := stateStore(f, m)
 	if !ok {
-		return
+		return nil
 	}
 	e, err := s.Load(m.BrigadeSessionID)
 	if err != nil {
@@ -107,18 +107,24 @@ func (r *run) statePrompt(ctx context.Context, f facts, m *sessionmap.ByPID, now
 		opts, oerr := r.options()
 		if oerr != nil {
 			r.log.Debug("state: options unreadable; no entry written", log.Err(oerr))
-			return
+			return nil
 		}
 		e = r.newStateEntry(f, opts, m, now)
 	}
 	if name := registeredName(r.registryEntry(f).Name); name != "" {
 		e.SessionName = name
 	}
+	// The parity ask (stop.go) judges the turn that ENDED at this prompt,
+	// so it reads the previous prompt's stamp: the entry is handed over
+	// as it was, the new stamp written after.
+	judged := *e
 	e.LastPromptAt = now
 	e.Inbound = m.Inbound
 	r.stateRefreshGit(ctx, m, e, stateGitBudgetPrompt)
 	e.UpdatedAt = now
 	r.stateSave(s, e)
+	judged.Commits, judged.Head, judged.Branch = e.Commits, e.Head, e.Branch
+	return &judged
 }
 
 // stateEnd records the session's end and its final commits. A session

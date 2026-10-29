@@ -1,6 +1,6 @@
 # Know the options
 
-Fifteen options, all optional, all with working defaults. The names and meanings are the same in every harness;
+Sixteen options, all optional, all with working defaults. The names and meanings are the same in every harness;
 how to set them is [Configure in Claude Code](claude-code.md), [Configure in Muse Code](muse-code.md) and
 [Configure in Codex CLI](codex.md). Option
 values are read from your own settings only, never from a project.
@@ -22,6 +22,7 @@ values are read from your own settings only, never from a project.
 | `message_sound` | `off` | `on` plays one quiet system sound when a teammate's message reaches this session, then nothing more for `message_interval` ([Be told when a message arrives](notifications.md)) |
 | `message_notification` | `off` | `on` shows one desktop notification naming this session and how many messages arrived, nothing from the message, then nothing more for `message_interval` |
 | `message_interval` | `30` | the least seconds between two sounds, or two notifications, for one session: never under `5`, never over `3600`; anything else keeps the default and says so once at session start |
+| `status` | `on` | in a project that shares a state folder for the manager digest, let Brigade ask the model at the end of a turn to record one line about its work — a note after a commit, a fresh roster line after a long turn, a decision it waits on — at most once per ten minutes, never twice in a row, never in a quiet session and only where the call will neither prompt nor be denied. `off` asks nothing; the hooks still keep the state entry ([Record notes and ask for decisions](../use/notes-and-decisions.md)) |
 
 Where an option is read in Claude Code: your user settings, `--settings` and managed settings. In Muse Code:
 `~/.config/brigade/muse-options.json`; in Codex CLI: `~/.config/brigade/codex-options.json`. A value Brigade cannot use is named in one line at session start and the

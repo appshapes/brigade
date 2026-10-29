@@ -22,10 +22,13 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
   its sha256 for each platform. On first use the bootstrap downloads that exact binary, verifies it against the
   committed checksum and caches it under your data directory. Nothing else is built, compiled or installed, and the
   plugin version pins the binary version.
-- **Three lifecycle hooks** (`hooks/hooks.json`, exec form, no shell): `SessionStart` registers the session with
+- **Four lifecycle hooks** (`hooks/hooks.json`, exec form, no shell): `SessionStart` registers the session with
   the team and starts the detached inbound watcher; `UserPromptSubmit` keeps that watcher alive, surfaces any
   pending notice and, where your permission settings allow it, reminds the model to keep its one-sentence roster
-  line current; `SessionEnd` closes the session. A session the VS Code extension started also closes itself after
+  line current; `Stop`, in a project that shares a state folder for the manager digest, refreshes the session's
+  state entry and, under the same permission rule, at most once per ten minutes, asks the model to record a note
+  after a commit, refresh a stale roster line after a long turn, or record a decision it waits on (the `status`
+  option switches the ask off); `SessionEnd` closes the session. A session the VS Code extension started also closes itself after
   the team's `idle_close_hours` without activity, because the extension keeps the `claude` process after a
   conversation is closed and fires no hook; its next prompt re-opens it. Before the binary is installed, the
   prompt and session-end hooks return at once and print nothing, and an install that fails for good is reported
@@ -36,7 +39,7 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
   (`/brigade:email <address> <text>`), `slack` (`/brigade:slack <to> <text>`) and `quiet` (`/brigade:quiet`, which
   makes the one session it is typed in hold its team messages and say so on the roster; `/brigade:quiet off`
   returns it).
-- **No MCP server and no channel wiring.** The plugin is a CLI, three hooks and eight skills; there is nothing else
+- **No MCP server and no channel wiring.** The plugin is a CLI, four hooks and eight skills; there is nothing else
   in the tree, and `make plugin-check` enforces it.
 
 ## What leaves your machine, and where it goes

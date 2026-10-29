@@ -1,5 +1,5 @@
 {
-  "description": "Registers this Claude Code session with its Brigade team, keeps the inbound watcher alive on each prompt, and closes the session on exit.",
+  "description": "Registers this Claude Code session with its Brigade team, keeps the inbound watcher alive on each prompt, asks for the session's state at the end of a turn where the project shares one, and closes the session on exit.",
   "hooks": {
     "SessionStart": [
       {
@@ -21,6 +21,18 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade",
             "args": ["hook", "prompt"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/brigade",
+            "args": ["hook", "stop"],
             "timeout": 5
           }
         ]

@@ -31,6 +31,7 @@ const (
 	OptionMessageNotification  = "CLAUDE_PLUGIN_OPTION_MESSAGE_NOTIFICATION"
 	OptionMessageInterval      = "CLAUDE_PLUGIN_OPTION_MESSAGE_INTERVAL"
 	OptionClaudeInboundSetting = "CLAUDE_PLUGIN_OPTION_CLAUDE_INBOUND_SETTING"
+	OptionStatus               = "CLAUDE_PLUGIN_OPTION_STATUS"
 )
 
 // The BRIGADE_* variables that stand in for three options OUTSIDE a
@@ -111,6 +112,9 @@ const (
 	// number of seconds within notify's bounds (card 38); the default
 	// applies.
 	WarnMessageIntervalInvalid = "Brigade: message_interval must be a whole number of seconds from 5 to 3600; the value set is not, so the default of 30 seconds applies for this session."
+	// WarnStatusInvalid: the status option is neither on nor off (card
+	// 162); the session's Stop hook asks nothing and says so once.
+	WarnStatusInvalid = `Brigade: status must be "on" or "off"; the value set is neither, so this session is not asked for its state at the end of a turn.`
 )
 
 // The two words the sync option takes (folder-sync plan §4.3).
@@ -142,6 +146,24 @@ const (
 	MessageSoundOn  = "on"
 	MessageSoundOff = "off"
 )
+
+// ParseStatus maps a status value to whether the session's Stop hook may
+// ask the model for its end-of-turn state — a note after a commit, a
+// doing line after a long turn, a decision it waits on (card 162,
+// manager-digest plan §5.3): "" (unset — the default is on) or "on" →
+// true; "off" → false; anything else → false with WarnStatusInvalid. The
+// grammar is ParseSync's, and there is no BRIGADE_* fallback: the hook is
+// a session's.
+func ParseStatus(raw string) (bool, string) {
+	switch strings.TrimSpace(raw) {
+	case "", SyncOn:
+		return true, ""
+	case SyncOff:
+		return false, ""
+	default:
+		return false, WarnStatusInvalid
+	}
+}
 
 // ParseMessageSound maps a message_sound value to whether the session's
 // watcher plays a sound as a message arrives (card 35): "" (unset — the
@@ -373,6 +395,12 @@ type Options struct {
 	// WarnMessageIntervalInvalid when it gives something else.
 	MessageInterval        time.Duration
 	MessageIntervalWarning string
+	// Status is on unless the option says off (card 162): the Stop hook
+	// may then ask the model for its end-of-turn state under the gates of
+	// the manager-digest plan §5.3. StatusWarning carries
+	// WarnStatusInvalid when the option was neither word.
+	Status        bool
+	StatusWarning string
 }
 
 // ParseOptions resolves Options from environ. Only CLAUDE_PLUGIN_OPTION_*
@@ -470,6 +498,7 @@ func ParseOptions(environ []string) (Options, error) {
 	o.MessageSound, o.MessageSoundWarning = ParseMessageSound(opt(OptionMessageSound))
 	o.MessageNotification, o.MessageNotificationWarning = ParseMessageNotification(opt(OptionMessageNotification))
 	o.MessageInterval, o.MessageIntervalWarning = ParseMessageInterval(opt(OptionMessageInterval))
+	o.Status, o.StatusWarning = ParseStatus(opt(OptionStatus))
 	return o, nil
 }
 

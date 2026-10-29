@@ -492,7 +492,7 @@ func TestHookSubcommandListMatchesTheGoConstants(t *testing.T) {
 	}
 	got := strings.Fields(m[1])
 	slices.Sort(got)
-	want := []string{hook.SubSessionStart, hook.SubPrompt, hook.SubSessionEnd}
+	want := []string{hook.SubSessionStart, hook.SubPrompt, hook.SubStop, hook.SubSessionEnd}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Errorf("plugin-check.sh hook_subcommands = %v, want the hook package's subcommands %v", got, want)

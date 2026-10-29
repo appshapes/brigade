@@ -99,8 +99,10 @@ func (r *run) prompt() int {
 	r.heldNotice(f, m)
 	// The state entry's prompt stamp and commits (card 162), last: its
 	// one possible process, a `git log` after a commit, must not take the
-	// poll's share of the budget.
-	r.statePrompt(ctx, f, m, r.deps.Now())
+	// poll's share of the budget. On a host with no Stop hook the same
+	// prompt carries the end-of-turn ask (stop.go, the parity rule).
+	e := r.statePrompt(ctx, f, m, r.deps.Now())
+	r.promptStateAsk(ctx, f, in, m, e)
 	return 0
 }
 

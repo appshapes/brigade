@@ -48,6 +48,23 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   --close <id>` records the outcome and who closed it: the asking session
   or another session of the member who asked. A closed decision is kept 30
   days; an open one for good.
+- **The Stop hook asks for the session's state** (card 162, the third
+  piece). The Claude Code package gains a `Stop` hook (its fourth; exec
+  form, timeout 5 s). In a project that shares a state folder it refreshes
+  the session's entry at the end of every turn, and asks the model, as the
+  hook's block answer `Brigade state (one ask, then finish): …`, when a
+  condition it can see itself holds: the turn made a commit and no note
+  followed (a note), the turn ran longer than a minute and the roster line
+  is older than ten minutes or was never published (a refreshed line), and
+  after such a turn where `reports.json` names a manager, a decision the
+  model waits on. At most one ask per ten minutes, never twice in a row,
+  never on the Stop that follows an ask, never for the same commit twice,
+  never in a quiet session, never in a non-interactive one, and only where
+  the doing line's own permission gate says the call will neither prompt
+  nor be denied. Grok Build's Stop hook asks the same once its monitor is
+  armed; on Muse Code and Codex CLI, which have no Stop hook, the next
+  prompt carries the ask as a context line. The new `status` option
+  (`on` by default; `off` asks nothing) switches it off.
 
 ## [0.42.0] — 2026-10-28
 

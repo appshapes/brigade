@@ -16,9 +16,11 @@ documentation inside a team; this page only names them.
 
 What the harness does around you:
 
-- **Three hooks.** `SessionStart` registers the session and starts the detached watcher; `UserPromptSubmit`
+- **Four hooks.** `SessionStart` registers the session and starts the detached watcher; `UserPromptSubmit`
   keeps the watcher alive, surfaces its notices and, where your user's permission settings let Brigade ask, prints
-  the `Brigade doing:` reminder; `SessionEnd` closes the session.
+  the `Brigade doing:` reminder; `Stop`, in a project that shares a state folder, keeps the session's state entry
+  current and may ask once, as `Brigade state:`, for a note after a commit, a fresh roster line after a long turn,
+  or a decision you wait on — one ask, then finish; `SessionEnd` closes the session.
 - **Delivery** is Claude Code's inbox socket: the watcher posts each frame, Claude Code wraps it as a message from
   another session, and your turn starts with it. Claude Code's own preamble and Brigade's frame both say it is
   untrusted text.

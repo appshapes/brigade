@@ -139,9 +139,9 @@ fi
 # (E0-8 (g) measured it blind to a missing binary, let alone a wrong argument) and to check 5, which only proves
 # the COMMAND exists: the session would start, the hook would exit 2 `usage`, and Brigade would simply never
 # connect. The list below is the authority the script compares against; scripts/ci/checks_test.go asserts it is
-# exactly {hook.SubSessionStart, hook.SubPrompt, hook.SubSessionEnd}, so a subcommand renamed in Go fails the Go
-# test rather than silently widening this list.
-hook_subcommands="prompt session-end session-start"
+# exactly {hook.SubSessionStart, hook.SubPrompt, hook.SubStop, hook.SubSessionEnd}, so a subcommand renamed in Go
+# fails the Go test rather than silently widening this list.
+hook_subcommands="prompt session-end session-start stop"
 if [ -f "$hooks_json" ]; then
   # One `args` array per match, wherever it sits; the pair is its first two elements.
   grep -oE '"args"[[:space:]]*:[[:space:]]*\[[^]]*\]' "$hooks_json" |

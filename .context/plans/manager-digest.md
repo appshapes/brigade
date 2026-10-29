@@ -2,7 +2,7 @@
 
 **Status.** **v2, in build**, 2026-10-29, Trello card **162**, owner Rjae. The nine rulings of 2026-10-29 are
 in §7 and settle the carrier, the sender, the state entry and the digest; the rows are the **P65** series of the
-execution log (§6); P65-1 and P65-2 landed 2026-10-29 with the deviations §5.1 and §5.3 note in place. **No
+execution log (§6); P65-1 to P65-3 landed 2026-10-29 with the deviations §5.1 and §5.3 note in place. **No
 wire-shape change, no Supabase migration, no new dependency.** New: one hook event in the Claude Code package
 (`Stop`), three commands (`brigade note`, `brigade decision`, `brigade report`), a settings file in the synced
 folder, and a digest producer in the watcher. Folder sync ([folder-sync.md](folder-sync.md), released 0.11.0,
@@ -156,10 +156,12 @@ Each is a row in the command table, so `make docs-generate` and a persona page n
 | A manager is configured for the team | `reports.json` present with `manager` | a decision, if the model is waiting on one |
 
   The ask is the hook's `{"decision":"block","reason":"<instruction>"}`; the next Stop event carries the active
-  flag and is let through. Further gates: at most one ask per ten minutes (the reminder's stamp), none in a quiet
-  session, none where the permission rules would turn `brigade doing` into a dialog (the reminder's gate,
-  session-doing.md §5.4), none when the plugin option `status` is `off`. `plugin/hooks/hooks.json` gains the
-  `Stop` entry in exec form, timeout 5; `make plugin-check` sees one more exec-form hook.
+  flag and is let through. Further gates: at most one ask per ten minutes (a stamp of the Stop hook's own,
+  `<pid>.stop-ask`, which also records whether the last judged Stop asked, so "never twice in a row" is literal;
+  P65-3), the same commit never asked twice, none in a quiet session, none where the permission rules would turn
+  `brigade doing` into a dialog (the reminder's gate, session-doing.md §5.4), none when the plugin option `status`
+  is `off`. The doing-line and decision gates open only after a turn longer than a minute. `plugin/hooks/hooks.json`
+  gains the `Stop` entry in exec form, timeout 5; `make plugin-check` sees one more exec-form hook.
 - **Harness parity**: where a harness has no Stop hook (Codex, Muse), the prompt hook carries the same ask at
   the next prompt. Codex's three pinned hook commands are unchanged.
 
@@ -222,7 +224,7 @@ notice. The address rule (ruling 3): a Slack handle is fine in the folder; an ad
 | --- | --- | --- |
 | P65-1 | The state folder, the entry, the facts layer in the three hooks, retention | done 2026-10-29 |
 | P65-2 | `brigade note`, `brigade decision`, `brigade doing` history | done 2026-10-29 |
-| P65-3 | The Stop hook for the Claude Code package and the ask in Grok's; the `status` option; prompt-hook parity | |
+| P65-3 | The Stop hook for the Claude Code package and the ask in Grok's; the `status` option; prompt-hook parity | done 2026-10-29 |
 | P65-4 | The producer in the watcher: period, rank, marker, digest assembly | |
 | P65-5 | `brigade report configure|show|send`, `reports.json`, delivery precedence, the address rule | |
 | P65-6 | Skills, pages, security.md, changelog | |
