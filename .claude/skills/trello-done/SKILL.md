@@ -28,9 +28,11 @@ open, do not run this: say what is open and leave the card.
    and report it; the card stays.
 
 3. **Comment.** `trello card:comment --id <id> --text "<comment>"`: one short paragraph saying what
-   shipped, the version or commit, the date, and anything left out on purpose and the card it went to.
-   No secrets, no email addresses, no local paths, no customer names. Pass a long comment through a file:
-   `--text "$(cat comment.md)"`.
+   shipped, the version or commit, the date, and anything left out on purpose and the card it went to,
+   then the session stamp as the last line: `Session stamp: <team>/<session name>, <YYYY-MM-DD>`, the
+   team and name read from `brigade sessions --here --json` as the `trello-create` skill describes (no
+   stamp outside a Brigade session). No secrets, no email addresses, no local paths, no customer names.
+   Pass a long comment through a file: `--text "$(cat comment.md)"`.
 
 4. **Mark complete and archive**, one call: `python3 -I "<base directory>/close.py" <id>`, where the
    base directory is the one shown at the top of this skill. It reads the CLI's credentials from
