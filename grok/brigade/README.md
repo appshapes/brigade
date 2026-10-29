@@ -2,7 +2,7 @@
 
 Team messaging for direct `grok --no-leader` TUIs through a persistent native monitor. Four native hooks
 register/maintain the receiver, offer one Stop-assisted setup attempt and signal the receiver's watcher at end.
-The eight skills use the same Brigade commands and gateway rules as the other packages.
+The nine skills use the same Brigade commands and gateway rules as the other packages.
 
 [Install](../../docs/team-member/install/grok.md), [configure](../../docs/team-member/configure/grok.md),
 [skills and monitor status](../../docs/agent/in-a-team/grok.md), and

@@ -185,25 +185,25 @@ EOF
 - If the command is refused or raises a permission prompt, say so once and carry on with the work; never reach
   for another invocation form, and do not run it again in this conversation, whatever a later line says.
 
-## Notes, decisions and the manager digest (a project with a state folder)
+## Notes, decisions and the digest (a project with a state folder)
 
 A project whose `.brigade.json` names a state folder (`sync.state`) keeps one state entry per session in it, synced
-to every teammate's checkout, and the team's own sessions produce a **manager digest** from it on a period: the
-decisions waiting on the manager and the meaningful contributions since the last one. The hooks keep the entry
-(name, branch, commits, times); you add what they cannot know, on purpose and in the doing line's words — no
-secrets, no local paths, no customer names:
+to every teammate's checkout, and the team's own sessions produce a **digest** from it on a period, for everyone
+who subscribed: the decisions waiting on a person and the meaningful contributions since the last one. The hooks
+keep the entry (name, branch, commits, times); you add what they cannot know, on purpose and in the doing line's
+words — no secrets, no local paths, no customer names:
 
 ```bash
 brigade note <<'EOF'
 Done: the invoice total; Next: the tax table
 EOF
-brigade decision --options "ship now | wait" --default wait --by 2026-10-31 --card 162 <<'EOF'
+brigade decision --to rjae@example.com --options "ship now | wait" --default wait --by 2026-10-31 --card 162 <<'EOF'
 Ship 0.43.0 with the digest, or wait for the Stop hook?
 EOF
 brigade decision --close d-20261029-a1b2c3 <<'EOF'
 wait: the Stop hook goes in first
 EOF
-brigade report show                   # the digest the producer would send now, the ad hoc report
+brigade report show                   # the digest your user would get now, the ad hoc report
 ```
 
 - `brigade note`: one line, at most 1,000 characters, starting `Done:` (what shipped), `Next:` (what you take up
@@ -211,12 +211,16 @@ brigade report show                   # the digest the producer would send now, 
   continue at the end of a turn (Claude Code, Grok Build) or on your user's turn (Muse Code, Codex CLI), says
   what it asks for, and is never typed by your user — and after a commit on your own judgement. One note, then
   finish; never a note per tool call.
-- `brigade decision`: a question your **user's manager** must answer before the work can go on. It is recorded
-  in the folder and sent at once through the team's Slack or mail gateway, in the labelled shape the digest uses.
-  The manager answers however they wish (Slack, mail, in person); when your user has acted on it, close it with
-  the outcome. Never ask a decision your user can make, and never invent one to look busy.
-- `brigade report show` prints the digest as plain text; print it verbatim when your user asks for the report.
-  `brigade report configure` and `brigade report send` are the administrator's and the manager's.
+- `brigade decision --to <label>`: a question **only the person you name can answer** before the work can go on —
+  their label as the roster shows it (`brigade sessions`). `--to` is required: with none the command refuses, and
+  you never guess a person. The decision is recorded in the folder and sent at once, in the labelled shape the
+  digest uses: to that person's digest recipients through the team's Slack or mail gateway when they subscribed,
+  else to their best session as a team message. They answer however they wish (Slack, mail, in person, a team
+  message); when your user has acted on it, close it with the outcome. Never ask a decision your user can make,
+  and never invent one to look busy.
+- `brigade report show` prints the digest your user would get now — their own subscription, or everything when
+  they have none — as plain text; print it verbatim when your user asks for the report. `/brigade:subscribe` (the `brigade:subscribe` skill) is how
+  your user opts in or out; `brigade report send` sends a digest now and is run only when your user asks for it.
 - A `Brigade state:` ask is at most once per ten minutes and never twice in a row; if the command is refused or
   raises a permission prompt, say so once and carry on — never another invocation form, never a retry in this
   conversation. A subagent never runs any of these.

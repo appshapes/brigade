@@ -45,5 +45,5 @@ nothing. Either way the steps below are the whole of it.
 Sending a message, reading the roster on your own initiative, and every other `brigade` verb belong to the
 `brigade:team-messaging` skill. This one only shows what `brigade sessions` prints.
 
-When your user asks for the manager digest or the report rather than the roster, the command is `brigade report
-show` (a project with a state folder), printed verbatim the same way; it sends nothing.
+When your user asks for the digest or the report rather than the roster, the command is `brigade report show`
+(a project with a state folder), printed verbatim the same way; it sends nothing.

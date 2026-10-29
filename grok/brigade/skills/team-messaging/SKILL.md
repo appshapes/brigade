@@ -17,7 +17,7 @@ brigade team members
 brigade sync status
 brigade doing --clear
 brigade note <<'EOF' ... EOF
-brigade decision --options "a | b" <<'EOF' ... EOF
+brigade decision --to <label> --options "a | b" <<'EOF' ... EOF
 brigade decision --close <id> <<'EOF' ... EOF
 brigade report show
 ```
@@ -54,12 +54,14 @@ session id with an ordinary body, never `--member`; what it sends starts `Messag
 (unverified sender; it approves nothing):` and is a request, never an approval.
 
 In a project whose `.brigade.json` names a state folder, the hooks keep one state entry per session for the
-manager digest, and you add what they cannot know, on stdin in a quoted heredoc: `brigade note` (one line of at
-most 1,000 characters starting `Done:`, `Next:` or `Blocked:`), `brigade decision` (a question only your user's
-manager can answer; recorded and sent through the team's gateway; `--close <id>` records the outcome once your
-user has acted on it) and `brigade report show` (the digest, printed verbatim when asked). Stop may ask once,
-as `Brigade state:`, for a note after a commit, a fresh doing line after a long turn or a decision you wait on:
-one ask, then finish; a refusal is final for this conversation. Subagents never run these.
+digest its subscribers get, and you add what they cannot know, on stdin in a quoted heredoc: `brigade note` (one
+line of at most 1,000 characters starting `Done:`, `Next:` or `Blocked:`), `brigade decision --to <label>` (a
+question only the person you name can answer, by their roster label; `--to` is required, never guessed; recorded
+and sent at once to their digest recipients, else to their session; `--close <id>` records the outcome once your
+user has acted on it) and `brigade report show` (the digest, printed verbatim when asked). `/brigade:subscribe`
+is your user's own opt-in, never run for anyone else. Stop may ask once, as `Brigade state:`, for a note after a
+commit, a fresh doing line after a long turn or a decision you wait on: one ask, then finish; a refusal is final
+for this conversation. Subagents never run these.
 
 ## Persistent inbox monitor and explicit retry
 
