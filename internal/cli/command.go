@@ -124,6 +124,19 @@ func init() {
 			Run: runDecision,
 		},
 		{
+			Name:    "report",
+			Args:    "configure --manager <label> --recipients <@name | #channel | address> [--every <duration>] [--at <HH:MM>] [--tz <zone>] | show | send",
+			Summary: "set up the manager digest (reports.json in the state folder), print the digest the producer would send now, or send one now",
+			Flags: func(fs *flag.FlagSet) {
+				fs.String("manager", "", "the manager's label as the roster shows it")
+				fs.String("recipients", "", "where the digest and the decisions go, in order of precedence, separated by |: a Slack handle or channel, an email address")
+				fs.String("every", "", "the period between two digests, a duration such as 24h or 4h (24h when unset)")
+				fs.String("at", "", "a daily digest's time of day, HH:MM")
+				fs.String("tz", "", "the zone of --at, an IANA name such as America/Los_Angeles (UTC when unset)")
+			},
+			Run: runReport,
+		},
+		{
 			Name:    "inbound",
 			Args:    "[accept|hold|refuse]",
 			Summary: "show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)",
@@ -333,6 +346,18 @@ func runDecision(cx *Context, args []string) error {
 		By:      stringFlag(cx, "by"),
 		Card:    cx.Int("card"),
 		Close:   stringFlag(cx, "close"),
+	})
+}
+
+// runReport is the table's Run for `report` (card 162; the verb is the
+// one positional argument).
+func runReport(cx *Context, args []string) error {
+	return harnesscmd.Report(invocation(cx, args), harnesscmd.ReportOptions{
+		Manager:    stringFlag(cx, "manager"),
+		Recipients: stringFlag(cx, "recipients"),
+		Every:      stringFlag(cx, "every"),
+		At:         stringFlag(cx, "at"),
+		TZ:         stringFlag(cx, "tz"),
 	})
 }
 

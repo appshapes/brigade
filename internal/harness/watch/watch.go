@@ -218,10 +218,13 @@ type Deps struct {
 	SyncListInterval time.Duration
 	// StatePruneDelay is how long after its start the state goroutine
 	// first prunes the state folder (card 162, state.go), and
-	// StatePruneInterval how often after that; zero means the production
-	// cadence, a test sets its own.
+	// StatePruneInterval how often after that; StateCheckInterval is how
+	// often the producer looks at the folder, and the unit of a
+	// producer's rank delay; zero means the production cadence, a test
+	// sets its own.
 	StatePruneDelay    time.Duration
 	StatePruneInterval time.Duration
+	StateCheckInterval time.Duration
 	// Announce runs a program that speaks no protocol to completion: the
 	// message-arrival sound player or desktop notifier (cards 35 and 36,
 	// announce.go) and, in a Codex CLI session, `codex queue` (card 107,
@@ -303,6 +306,7 @@ func RealDeps() Deps {
 		SyncInterval:       DefaultSyncInterval,
 		StatePruneDelay:    DefaultStatePruneDelay,
 		StatePruneInterval: DefaultStatePruneInterval,
+		StateCheckInterval: DefaultStateCheckInterval,
 	}
 }
 
@@ -395,6 +399,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.StatePruneInterval <= 0 {
 		d.StatePruneInterval = prod.StatePruneInterval
+	}
+	if d.StateCheckInterval <= 0 {
+		d.StateCheckInterval = prod.StateCheckInterval
 	}
 	return d
 }
@@ -671,9 +678,15 @@ type watcher struct {
 	syncPeer atomic.Pointer[string]
 	// sync is the file-sync configuration the map froze (sync.go); the
 	// zero value runs no sync goroutine. stateFolder is the state folder
-	// the map names (card 162, state.go), "" for none.
-	sync        syncSetup
-	stateFolder string
+	// the map names (card 162, state.go), "" for none; teamName the map's
+	// team name for the digest's header; produceAt and produceRoster are
+	// the producer's: when this session produces the due digest and the
+	// roster it ranked itself on, the state goroutine's alone.
+	sync          syncSetup
+	stateFolder   string
+	teamName      string
+	produceAt     time.Time
+	produceRoster []protocol.SessionRecord
 	// sound plays the message-arrival sound and banner shows the desktop
 	// notification (announce.go, cards 35 and 36).
 	sound  *announcer
@@ -820,6 +833,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 			m.SessionName, m.Inbound, m.WorkspaceLabel, m.LabelOption, m.DoingMode, m.TranscriptPath, m.ClaudeSessionID),
 		sync:        syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin},
 		stateFolder: m.StateFolder,
+		teamName:    m.TeamName,
 		idleClose:   m.IdleClose(),
 	}
 	w.sound = newSoundAnnouncer(w)

@@ -3,8 +3,6 @@ package commands
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"io"
 	"maps"
 	"os"
@@ -18,6 +16,7 @@ import (
 	"github.com/appshapes/brigade/internal/gateway"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/digest"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -625,17 +624,11 @@ func bodyError(reason string, actual int) *protocol.Error {
 
 // IdempotencyKey derives D11's key: base64url, unpadded, of
 // sha256(sender + "\0" + recipient + "\0" + body + "\0" + floor(unix
-// seconds / 60)). Stable within a minute, different across minutes.
+// seconds / 60)). Stable within a minute, different across minutes. The
+// derivation lives in internal/harness/digest, whose producer sends with
+// the same key (card 162).
 func IdempotencyKey(sender, recipient, body string, now time.Time) string {
-	h := sha256.New()
-	h.Write([]byte(sender))
-	h.Write([]byte{0})
-	h.Write([]byte(recipient))
-	h.Write([]byte{0})
-	h.Write([]byte(body))
-	h.Write([]byte{0})
-	h.Write([]byte(strconv.FormatInt(now.Unix()/60, 10)))
-	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	return digest.IdempotencyKey(sender, recipient, body, now)
 }
 
 // withRetryAfter appends "retry after <n> s" to a rate_limited failure so

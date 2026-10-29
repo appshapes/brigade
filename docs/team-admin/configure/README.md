@@ -24,7 +24,8 @@ Details: [Set the folders to sync](sync-folders.md).
 
 1. Add `"state": ".brigade/state"` to the `sync` member, naming one of its listed folders, and ignore the folder
    in `.gitignore`.
-2. Every session then keeps its state entry there; `brigade note` and `brigade decision` add to it.
+2. Every session then keeps its state entry there; `brigade report configure --manager <label> --recipients
+   "@name | address"` names the manager, and the sessions' watchers produce the digest on the period.
 
 Details: [Set up the manager digest](manager-digest.md).
 

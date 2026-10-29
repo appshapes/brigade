@@ -7,10 +7,12 @@ package state
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/gateway"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -68,12 +70,12 @@ func ReportsPath(folder string) string { return filepath.Join(folder, ReportsFil
 // file satisfies errors.Is(err, fs.ErrNotExist); a file of another
 // version or shape is an error.
 func ReadReports(folder string) (*Reports, error) {
-	data, err := readFolderFile(ReportsPath(folder))
+	data, err := ReadFolderFile(ReportsPath(folder))
 	if err != nil {
 		return nil, err
 	}
 	var r Reports
-	if err := unmarshal(data, &r); err != nil {
+	if err := Unmarshal(data, &r); err != nil {
 		return nil, errors.New("state: reports.json is not a JSON document of the expected shape")
 	}
 	if r.Version != Version {
@@ -81,6 +83,21 @@ func ReadReports(folder string) (*Reports, error) {
 	}
 	r.Sanitize()
 	return &r, nil
+}
+
+// WriteReports writes the file into the folder, atomically, after
+// Sanitize: `brigade report configure` is its one writer.
+func WriteReports(folder string, r *Reports) error {
+	r.Version = Version
+	r.Sanitize()
+	data, err := Marshal(r)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(folder, 0o750); err != nil { //nolint:gosec // G301: a checkout tree is an ordinary directory
+		return err
+	}
+	return adapterkit.WriteAtomic(ReportsPath(folder), data)
 }
 
 // Sanitize applies the file's rules in place.

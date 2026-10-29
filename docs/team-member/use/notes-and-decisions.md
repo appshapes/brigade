@@ -64,6 +64,15 @@ the asking session, or another session of the member who asked, closes a decisio
 that is none of the options, a `--by` that is not a date, more than 8 options, or a question that breaks a
 note's rules.
 
+## The digest itself
+
+`brigade report show`, inside a session, prints the digest the producer would send now — the ad hoc report — as
+plain text with a stable label at the start of every line: the header (team, repository, period, producer), the
+decisions open (oldest first, with their age) and closed in the period, the commits shipped (one per hash, the
+carded ones first, at most 40), the sessions blocked, active (at most 30), ended in the period, held or quiet,
+and the sessions on the roster with no entry. Ask for it in words; your session prints it verbatim. The period's
+digest is produced by whichever session is active ([Set up the manager digest](../../team-admin/configure/manager-digest.md)).
+
 ## What leaves your machine
 
 A note and a decision go into the project's state folder, which folder sync carries to every teammate's checkout;

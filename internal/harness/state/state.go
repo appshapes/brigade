@@ -336,7 +336,7 @@ func (s Store) Save(e *Entry) error {
 	if err != nil {
 		return err
 	}
-	data, err := marshal(e)
+	data, err := Marshal(e)
 	if err != nil {
 		return err
 	}
@@ -498,17 +498,17 @@ func PruneFolder(folder string, now time.Time) int {
 
 // readFolderEntry reads one folder file as an entry.
 func readFolderEntry(path string) (*Entry, error) {
-	data, err := readFolderFile(path)
+	data, err := ReadFolderFile(path)
 	if err != nil {
 		return nil, err
 	}
 	return decode(data)
 }
 
-// readFolderFile reads one file of the folder — a teammate's — within
+// ReadFolderFile reads one file of the folder — a teammate's — within
 // the rules every folder read keeps: a regular file, no symlink followed,
-// at most MaxEntryBytes.
-func readFolderFile(path string) ([]byte, error) {
+// at most MaxEntryBytes. The digest's marker is read through it too.
+func ReadFolderFile(path string) ([]byte, error) {
 	f, err := adapterkit.OpenNoFollow(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
@@ -528,8 +528,9 @@ func readFolderFile(path string) ([]byte, error) {
 	return data, nil
 }
 
-// marshal and unmarshal are the one JSON spelling of every file here.
-func marshal(v any) ([]byte, error) {
+// Marshal and Unmarshal are the one JSON spelling of every file of the
+// folder, the digest's marker included.
+func Marshal(v any) ([]byte, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return nil, err
@@ -537,7 +538,8 @@ func marshal(v any) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-func unmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }
+// Unmarshal decodes what Marshal wrote.
+func Unmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }
 
 // decode parses an entry and refuses another version or a size past the
 // cap; the lists are never nil afterwards.
@@ -546,7 +548,7 @@ func decode(data []byte) (*Entry, error) {
 		return nil, errors.New("state: the entry is larger than an entry can be")
 	}
 	var e Entry
-	if err := json.Unmarshal(data, &e); err != nil {
+	if err := Unmarshal(data, &e); err != nil {
 		return nil, errors.New("state: the entry is not a JSON document of the expected shape")
 	}
 	if e.Version != Version {

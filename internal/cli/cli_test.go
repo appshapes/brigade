@@ -765,7 +765,7 @@ func TestFilledCommandsAreNoLongerPlaceholders(t *testing.T) {
 			t.Errorf("%s: not Raw; the adapter flags it forwards would be usage errors", raw)
 		}
 	}
-	for _, typed := range []string{"sessions", "send", "whoami", "doing", "inbound", "inbox", "note", "decision"} {
+	for _, typed := range []string{"sessions", "send", "whoami", "doing", "inbound", "inbox", "note", "decision", "report"} {
 		if cmd, _ := Lookup(typed); cmd.Raw {
 			t.Errorf("%s: Raw; its flags are the table's", typed)
 		}
@@ -889,7 +889,7 @@ func TestSessionBoundCommandsOutsideASessionFailCleanly(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{
 		{"sessions"}, {"send", "x"}, {"whoami"}, {"doing", "--clear"}, {"team", "members"}, {"team", "status"},
-		{"note"}, {"decision", "--close", "d-20260101-aaaaaa"},
+		{"note"}, {"decision", "--close", "d-20260101-aaaaaa"}, {"report", "show"},
 	} {
 		got := dispatch(t, args...)
 		if got.exit == ExitOK || got.exit == CodeInternal.Exit() {

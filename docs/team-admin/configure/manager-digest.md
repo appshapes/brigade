@@ -26,6 +26,26 @@ delivered through the team's Slack or mail gateway. No manager node runs anywher
   back to end it 14 days after its last write; a decision 30 days after its close, and for good while open. Each
   machine prunes its own at session start, and any session's watcher prunes the folder hourly.
 
+## The manager and the recipients
+
+```
+brigade report configure --manager "Rjae" --recipients "@rjae | rjae@example.com" --every 24h
+brigade report configure --manager "Rjae" --recipients "#eng-digests" --at 08:00 --tz America/Los_Angeles
+```
+
+`brigade report configure`, run inside a session of the project, writes `reports.json` into the state folder: the
+manager's label as the roster shows it, the recipients in order of precedence, and the period. A recipient is a
+Slack handle or channel (through the team's Slack gateway) or an email address (through its mail gateway); the
+digest and every decision go to the first recipient whose gateway is on the roster, Slack before email when the
+file lists them so. With no gateway on the roster they go to the manager's own best session as a team message.
+`--every` is a duration (`24h` when unset); `--at` with `--tz` makes it daily at that time instead. **The address
+rule:** an email address is written only when `git check-ignore` says the folder is ignored (`brigade report
+configure` refuses otherwise); a Slack handle or channel is written either way.
+
+`brigade report show`, inside a session, prints the digest the producer would send now: the ad hoc report.
+`brigade report send` produces and sends one now, and the period starts afresh from it. What a digest holds and
+how it is produced: [Record notes and ask for decisions](../../team-member/use/notes-and-decisions.md).
+
 ## What each machine writes
 
 The hooks write the entry: session start creates it (and refreshes it on `/clear` and a resume), each prompt

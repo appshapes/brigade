@@ -303,7 +303,7 @@ func (s Store) SaveDecision(d *Decision) error {
 	if err != nil {
 		return err
 	}
-	data, err := marshal(d)
+	data, err := Marshal(d)
 	if err != nil {
 		return err
 	}
@@ -385,7 +385,7 @@ func ReadDecisions(folder string) []*Decision {
 
 // readFolderDecision reads one folder file within the entry rules.
 func readFolderDecision(path string) (*Decision, error) {
-	data, err := readFolderFile(path)
+	data, err := ReadFolderFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +399,7 @@ func decodeDecision(data []byte) (*Decision, error) {
 		return nil, errors.New("state: the decision is larger than one can be")
 	}
 	var d Decision
-	if err := unmarshal(data, &d); err != nil {
+	if err := Unmarshal(data, &d); err != nil {
 		return nil, errors.New("state: the decision is not a JSON document of the expected shape")
 	}
 	if d.Version != Version {

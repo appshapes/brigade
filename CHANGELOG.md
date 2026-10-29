@@ -65,6 +65,35 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   armed; on Muse Code and Codex CLI, which have no Stop hook, the next
   prompt carries the ask as a context line. The new `status` option
   (`on` by default; `off` asks nothing) switches it off.
+- **The digest producer** (card 162, the fourth piece). Whichever session
+  is active produces the manager digest: in a project whose state folder
+  holds a `reports.json` naming a manager, every session's watcher looks
+  at the folder every 20 seconds and, when the period has elapsed since
+  the last digest (`every`, a day by default; or a daily `at` in `tz`) and
+  an entry or a decision was written since, reads the roster once, ranks
+  itself among the repository's online sessions by registration time (the
+  oldest first), waits one interval per rank, reads the marker again and — when nobody produced
+  meanwhile — builds the digest, sends it and writes `digests/last.json`.
+  A quiet team reports nothing; no manager node runs anywhere. The digest
+  is plain text with a stable label at the start of every line: the
+  header (team, repository, period, producer), the decisions open (oldest
+  first, with their age) and closed in the period, the commits shipped
+  (one per hash, carded first, both sessions named when two list one, at
+  most 40 lines), the sessions blocked, active (at most 30), ended in the
+  period (at most 30), held or quiet, and the roster-only ones; a note is
+  cut at 200 characters and the body stays under 16 KiB. It goes through
+  the first of the recipients whose gateway is on the roster, with the
+  gateway's `to:` first line, else to the manager's own best session; the
+  summary carries the counts.
+- **`brigade report configure|show|send`** (card 162, the fifth piece).
+  `configure --manager <label> --recipients "@name | address" [--every
+  24h] [--at 08:00 --tz <zone>]` writes `reports.json` into the state
+  folder, the manager's settings the producers and `brigade decision`
+  read; an email address is written only when `git check-ignore` says the
+  folder is ignored (the address rule), a Slack handle or channel either
+  way. `show` prints the digest the producer would send now, the ad hoc
+  report, and sends nothing; `send` produces and sends one now and writes
+  the marker, so the period starts afresh.
 
 ## [0.42.0] — 2026-10-28
 

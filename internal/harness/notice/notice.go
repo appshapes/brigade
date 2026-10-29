@@ -43,6 +43,9 @@ const (
 	// TopicSync is folder sync: the summary of what syncs, or why it is
 	// off.
 	TopicSync = "sync"
+	// TopicState is the manager digest (card 162): one line when this
+	// session's watcher produced and sent one.
+	TopicState = "state"
 )
 
 const (
