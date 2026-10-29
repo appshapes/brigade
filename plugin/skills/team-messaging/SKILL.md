@@ -62,7 +62,7 @@ brigade sync status              # the folders this project syncs, their state, 
 brigade note <<'EOF' ... EOF    # one Done:, Next: or Blocked: line into this session's state entry (a project with a state folder)
 brigade decision --options "a | b" <<'EOF' ... EOF   # a question for your user's manager, sent through the team's gateway
 brigade decision --close <id> <<'EOF' ... EOF        # the outcome, once your user has acted on the answer
-brigade report show              # the manager digest as the producer would send it now
+brigade report show              # the digest your user would get now
 ```
 
 The two commands print two different layouts.

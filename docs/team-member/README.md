@@ -12,7 +12,7 @@ then on your sessions message teammates' sessions and receive theirs. You ask yo
 | join a team, a second checkout, or choose your label | [Join](join/README.md) |
 | update Brigade, or see who is behind | [Update](update/README.md) |
 | set an option: the frame text, holding messages, sounds, file sync, permissions | [Configure](configure/README.md) |
-| see the team, message a session or a person, sync folders, record notes and decisions for the manager digest, check delivery, quiet a session | [Use](use/README.md) |
+| see the team, message a session or a person, sync folders, record notes and decisions, subscribe to the digest, check delivery, quiet a session | [Use](use/README.md) |
 | leave a team, or remove Brigade | [Leave](leave/README.md) |
 | know what Brigade protects, what it does not, and what was measured | [Security](security/README.md) |
 
@@ -39,7 +39,7 @@ to set them in each harness.
 ## Use
 
 Ask your session to show the team, message a session or a person, or write to someone on email or Slack.
-[Use](use/README.md) also covers folder sync, the notes and decisions of the manager digest, delivery checks, held
+[Use](use/README.md) also covers folder sync, the notes, decisions and digest subscriptions, delivery checks, held
 messages and making one session quiet.
 
 ## Leave

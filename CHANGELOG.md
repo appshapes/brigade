@@ -9,6 +9,51 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.44.0] — 2026-10-29
+
+### Added
+
+- **Subscribe to the digest** (card 167, which folds in card 166). Any member
+  opts in from their own session: `brigade report subscribe` — or the
+  `/brigade:subscribe` skill, the ninth skill of each package — writes their
+  entry into `reports.json` in the state folder under their roster label,
+  with their recipients in precedence (`--recipients "@name | #channel |
+  address"`; none means their label when it is an address), their period
+  (`--every 24h`, or `--at 08:00 --tz <zone>`), and `--only mine` for a
+  digest whose decision sections list only the decisions addressed to them;
+  `brigade report unsubscribe` removes it. Nobody writes anyone else's
+  entry: there is no administrator's verb. The address rule of 0.43 stands.
+- **A decision names the person it is for.** `brigade decision --to
+  <label>` is required: a decision with no addressee is an `invalid_input`
+  error naming the flag, never a guess (owner ruling 2026-10-29). The ask
+  goes at once to that person's digest recipients when they subscribed,
+  else to their best session as a team message; the ask and the digest say
+  whom each decision is for.
+
+### Changed
+
+- **The digest goes to every subscriber, each by their own precedence.** The
+  producer judges "due" and "changed since" per subscriber against a marker
+  per subscriber (`digests/<stem>.json`), builds each one's digest with
+  their period start and their filter, and sends it Slack first (by handle
+  or by email), else mail, else their own session; a failure for one never
+  stops the others, and the log and the notice say who got it and who did
+  not. `brigade report send [--to <label>]` sends to one subscriber or to
+  all; `brigade report show [--to <label>]` prints a subscriber's view, by
+  default your own. The Stop hook asks for a decision when anyone is
+  subscribed. A 0.43 `reports.json` (one manager) keeps reading as one
+  subscriber, judged by its 0.43 marker until the first subscribe rewrites
+  the file as version 2 and carries that marker over.
+
+### Removed
+
+- **The manager role.** `brigade report configure --manager` is gone, and
+  with it the "no manager configured" refusals of `brigade decision` and
+  `brigade report`: the person a decision is for is named on the decision,
+  and the people who get the digest subscribe themselves. The pages are
+  [Set up the digests](docs/team-admin/configure/digests.md) and
+  [Record notes and ask for decisions](docs/team-member/use/notes-and-decisions.md).
+
 ## [0.43.1] — 2026-10-29
 
 ### Fixed

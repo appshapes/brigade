@@ -28,7 +28,7 @@ const (
 	// NoteUsage is the whole `usage` message for positional arguments.
 	NoteUsage = "note takes no arguments: the line travels on stdin in a quoted heredoc (<<'EOF'), starting Done:, Next: or Blocked:"
 	// NoteNote is the note of a --json result.
-	NoteNote = "recorded in this session's state entry in the project's state folder, which syncs to every teammate's checkout and feeds the manager digest; nothing was sent to the backend"
+	NoteNote = "recorded in this session's state entry in the project's state folder, which syncs to every teammate's checkout and feeds the digest; nothing was sent to the backend"
 	// NoteNoStateFolder is the `config` message of a project that shares
 	// no state; NoteNoEntry that of a session whose entry is not there yet.
 	NoteNoStateFolder = "this project shares no state folder, so there is nothing to record a note in: the team file's sync.state names one"

@@ -1183,36 +1183,45 @@ incarnation; a restore that itself fails is logged. A new Brigade session id lea
 stays rejected, so a resumed read starts again and may replay frames already shown. A lookup that fails is
 not TUI death: the watcher keeps injecting and does not delete the receiver until the process is proven gone.
 
-## 18. The manager digest and the state folder
+## 18. The digests and the state folder
 
-A project can name one of its synced folders as its **state folder** (`sync.state`, card 162; [Set up the manager
-digest](team-admin/configure/manager-digest.md)). Every session of its checkouts then keeps one state entry there,
-and the team's own active sessions produce a digest from it for the project's manager. This section says what that
-opens; it adds no control beyond the `sync` option (the folder rides on folder sync, section 12) and the `status`
-option (the end-of-turn ask).
+A project can name one of its synced folders as its **state folder** (`sync.state`, card 162; [Set up the
+digests](team-admin/configure/digests.md)). Every session of its checkouts then keeps one state entry there, and
+the team's own active sessions produce a digest from it for every member who subscribed (card 167: anyone who opts
+in, from their own session; 0.43's one manager reads as one subscriber). This section says what that opens; it
+adds no control beyond the `sync` option (the folder rides on folder sync, section 12) and the `status` option
+(the end-of-turn ask).
 
 - **What leaves your machine, and to whom.** The entry: your label, the session's name, the repository and
   branch, the host, when it started, last prompted and ended, its inbound policy, the hashes and subjects of the
   commits your git author made since it started, the doing lines it published and the notes and decisions its model
-  recorded. It goes into the folder, which folder sync carries to **every teammate's machine**; and from there the
-  digest and each decision's ask go to the manager through the team's Slack or mail gateway (section 14), and
-  **from Slack or a mail provider to whatever assistant the manager lets read them**. Nothing from a prompt, an
-  answer, a tool call or a transcript: the hooks read git's own files and the roster, and the model writes a note or
-  a decision on purpose, under the doing line's refusals (a credential shape, a local path) and the same judgement
-  for the rest (a hostname, a person's or a customer's name).
+  recorded. It goes into the folder, which folder sync carries to **every teammate's machine**; and from there each
+  subscriber's digest, and each decision's ask, go to that person through the team's Slack or mail gateway
+  (section 14) or to their own session as a team message, and **from Slack or a mail provider to whatever
+  assistant that person lets read them**. Nothing from a prompt, an answer, a tool call or a transcript: the hooks
+  read git's own files and the roster, and the model writes a note or a decision on purpose, under the doing line's
+  refusals (a credential shape, a local path) and the same judgement for the rest (a hostname, a person's or a
+  customer's name).
 - **A folder entry is a teammate's text.** Any member's machine can write, overwrite or delete any entry,
   decision, marker or `reports.json` in the folder, as it can any synced file; every reader caps and sanitises what
   it reads and trusts none of it as a fact. An entry says `member:`; nothing signs it (owner ruling 1, 2026-10-29:
-  not authenticated identity now). A forged note reaches the manager with the forger's chosen label, the trust a
-  synced plans folder has today.
-- **The manager's address.** `reports.json` carries the manager's label and recipients. A Slack handle or channel
-  is public to the team already; an email address is written only when `git check-ignore` says the folder is
-  ignored, so it is never committed by mistake (owner ruling 9, 2026-10-29), and it still reaches every teammate's
-  machine through the folder. The join secret is the boundary, as for messages.
+  not authenticated identity now). A forged note reaches every subscriber with the forger's chosen label, the trust
+  a synced plans folder has today; a forged subscription sends a digest where the forger chose, by the gateways
+  the team already trusts.
+- **A subscriber's address.** `reports.json` carries each subscriber's label and recipients, written by their own
+  session and by no administrator (owner ruling 2026-10-29: there is no verb for another's entry). A Slack handle or
+  channel is public to the team already; an email address is written only when `git check-ignore` says the folder
+  is ignored, so it is never committed by mistake (owner ruling 9, 2026-10-29), and it still reaches every
+  teammate's machine through the folder. The join secret is the boundary, as for messages. A decision names its
+  addressee by roster label, unverified text: the ask reaches whoever the roster shows under that label, and
+  nobody when two members share it.
 - **The end-of-turn ask.** With `status` on, the Stop hook may ask the model, at most once per ten minutes and
   only where the doing line's permission gate holds (section 5), to record a note, refresh its roster line or
-  record a decision. It costs one model turn each time; `status: off` stops it, and the entry is kept all the same.
+  record a decision for a named person. It costs one model turn each time; `status: off` stops it, and the entry is
+  kept all the same.
 - **The producer.** Whichever session's watcher is first by registration time among the repository's online
-  sessions produces the digest once per period; the others wait their rank and stand down on its marker. Two
-  decisions inside the sync engine's propagation gap cost the manager one duplicate, accepted. A quiet team — no
-  entry or decision written since the last digest — reports nothing: there is no manager node and no cron.
+  sessions produces each due subscriber's digest once per their period; the others wait their rank and stand down
+  on that subscriber's marker. Two decisions inside the sync engine's propagation gap cost a subscriber one
+  duplicate, accepted. A subscriber nobody can reach is held for five minutes rather than tried every tick. A quiet
+  team — no entry or decision written since a subscriber's last digest — sends them nothing: there is no manager
+  node and no cron.

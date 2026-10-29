@@ -16,8 +16,10 @@ The VERSION column of `brigade sessions` shows each session's plugin version. Tw
   `Brigade: not connected (config: team_file_unknown_field): fix .brigade.json.` and connect to nothing until that
   member updates.
 - **Before a project names a state folder** (`sync.state`, 0.43.0), members on an older plugin still connect and
-  sync the folder, but keep no state entry and are listed roster-only in the manager digest; 0.43.1 is the first
-  release whose digest reaches a manager on Slack by their email address.
+  sync the folder, but keep no state entry and are listed roster-only in the digest; 0.43.1 is the first
+  release whose digest reaches a person on Slack by their email address, and 0.44.0 the first where anyone
+  subscribes to it from their own session (`brigade report subscribe`; the 0.43 file with one manager keeps
+  reading, and `brigade report configure` is gone).
 - **Around 0.16.0**, which changed how a synced folder's id is made: members on either side of it do not exchange
   files until the last one has updated ([Sync folders](../use/sync-folders.md)).
 

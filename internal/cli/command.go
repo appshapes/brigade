@@ -107,7 +107,7 @@ func init() {
 		},
 		{
 			Name:    "note",
-			Summary: "record one line about the work for the manager digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)",
+			Summary: "record one line about the work for the digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)",
 			Run:     runNote,
 		},
 		{

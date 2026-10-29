@@ -25,7 +25,7 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
 - **Four lifecycle hooks** (`hooks/hooks.json`, exec form, no shell): `SessionStart` registers the session with
   the team and starts the detached inbound watcher; `UserPromptSubmit` keeps that watcher alive, surfaces any
   pending notice and, where your permission settings allow it, reminds the model to keep its one-sentence roster
-  line current; `Stop`, in a project that shares a state folder for the manager digest, refreshes the session's
+  line current; `Stop`, in a project that shares a state folder for the digests, refreshes the session's
   state entry and, under the same permission rule, at most once per ten minutes, asks the model to record a note
   after a commit, refresh a stale roster line after a long turn, or record a decision it waits on (the `status`
   option switches the ask off); `SessionEnd` closes the session. A session the VS Code extension started also closes itself after

@@ -111,7 +111,7 @@
     "status": {
       "type": "string",
       "title": "Ask the model for its state at the end of a turn",
-      "description": "on (the default) lets Brigade, in a project that shares a state folder for the manager digest, ask the model at the end of a turn to record one line about its work: after a commit no note followed, after a long turn with a stale roster line, and, where a manager is configured, for a decision it waits on; at most once per ten minutes, never twice in a row, never in a quiet session and only where your permission settings say the call will neither prompt nor be denied. off asks nothing; the hooks still keep the session's state entry.",
+      "description": "on (the default) lets Brigade, in a project that shares a state folder for the digests, ask the model at the end of a turn to record one line about its work: after a commit no note followed, after a long turn with a stale roster line, and, where anyone is subscribed to the digest, for a decision it waits on; at most once per ten minutes, never twice in a row, never in a quiet session and only where your permission settings say the call will neither prompt nor be denied. off asks nothing; the hooks still keep the session's state entry.",
       "default": "on"
     }
   }

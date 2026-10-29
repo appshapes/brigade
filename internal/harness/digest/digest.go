@@ -24,7 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	_ "time/tzdata" // the manager's `tz` must resolve on a machine with no zoneinfo (Windows)
+	_ "time/tzdata" // a subscriber's `tz` must resolve on a machine with no zoneinfo (Windows)
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/gateway"

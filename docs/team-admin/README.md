@@ -9,7 +9,7 @@ committed `.brigade.json`, and you decide what else that file makes the project'
 | If you want to | Go to |
 | --- | --- |
 | create a team, hand out its secret, add a repository, back up the credential | [Create](create/README.md) |
-| decide what the project's checkouts sync, set up the manager digest, how often sessions check in, how people without a session reach the team | [Configure](configure/README.md) |
+| decide what the project's checkouts sync, set up the digests, how often sessions check in, how people without a session reach the team | [Configure](configure/README.md) |
 | revoke or ban a member, rotate a leaked secret, transfer the team | [Members](members/README.md) |
 | end a team | [Delete](delete/README.md) |
 
