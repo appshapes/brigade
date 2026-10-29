@@ -206,7 +206,14 @@ func reportConfigure(inv Invocation, opts ReportOptions) error {
 		recipients = append(recipients, r)
 	}
 	if len(recipients) == 0 {
-		return &protocol.Error{Code: protocol.CodeInvalidInput, Message: "--recipients names at least one recipient, separated by |", Details: map[string]string{"field": "recipients", "reason": ReasonNoRecipient}}
+		// The manager's label is a recipient when it has a recipient's shape
+		// — an email address, as a roster label is by default (owner
+		// 2026-10-29) — so naming the manager is enough.
+		if state.RecipientKind(manager) == "" {
+			return &protocol.Error{Code: protocol.CodeInvalidInput, Message: "--recipients names at least one recipient, separated by |; it may be left out only when --manager is an email address, which is then the recipient", Details: map[string]string{"field": "recipients", "reason": ReasonNoRecipient}}
+		}
+		recipients = []string{manager}
+		hasAddress = state.RecipientKind(manager) == state.RecipientEmail
 	}
 	if len(recipients) > state.MaxRecipients {
 		return &protocol.Error{Code: protocol.CodeInvalidInput, Message: "at most " + itoa(state.MaxRecipients) + " recipients", Details: map[string]string{"field": "recipients", "reason": "too_many_recipients"}}

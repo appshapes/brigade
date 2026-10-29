@@ -125,11 +125,11 @@ func init() {
 		},
 		{
 			Name:    "report",
-			Args:    "configure --manager <label> --recipients <@name | #channel | address> [--every <duration>] [--at <HH:MM>] [--tz <zone>] | show | send",
+			Args:    "configure --manager <label> [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] | show | send",
 			Summary: "set up the manager digest (reports.json in the state folder), print the digest the producer would send now, or send one now",
 			Flags: func(fs *flag.FlagSet) {
 				fs.String("manager", "", "the manager's label as the roster shows it")
-				fs.String("recipients", "", "where the digest and the decisions go, in order of precedence, separated by |: a Slack handle or channel, an email address")
+				fs.String("recipients", "", "where the digest and the decisions go, in order of precedence, separated by |: a Slack handle or channel, an email address (the manager's label when left out and it is an address)")
 				fs.String("every", "", "the period between two digests, a duration such as 24h or 4h (24h when unset)")
 				fs.String("at", "", "a daily digest's time of day, HH:MM")
 				fs.String("tz", "", "the zone of --at, an IANA name such as America/Los_Angeles (UTC when unset)")

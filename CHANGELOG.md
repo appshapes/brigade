@@ -20,6 +20,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   through the mail gateway only, so a manager known by their roster label
   (an email address by default) got mail with the Slack gateway on the
   roster. The mail gateway is the road when the team has no Slack gateway.
+  And `--recipients` may be left out of `brigade report configure` when
+  the manager's label is an email address, which a roster label is by
+  default: the label is then the recipient, and a `reports.json` with
+  no recipients reads the same way.
 
 ## [0.43.0] — 2026-10-29
 

@@ -55,6 +55,19 @@ func TestReportConfigureWritesTheFile(t *testing.T) {
 		if err := Report(f.inv(f.sessionEnv(path), "", "configure"), ReportOptions{Manager: " Rjae ", Recipients: "@rjae | rjae@example.com", Every: "4h"}); err != nil {
 			t.Fatalf("configure: %v", err)
 		}
+		// Only the manager, an address: it is the recipient.
+		g := newFixture(t)
+		gfolder := g.withStateFolder(t)
+		if err := os.MkdirAll(gfolder, 0o750); err != nil { //nolint:gosec // G301: a checkout tree
+			t.Fatal(err)
+		}
+		gpath := gitInit(t, filepath.Dir(filepath.Dir(gfolder)), true)
+		if err := Report(g.inv(g.sessionEnv(gpath), "", "configure"), ReportOptions{Manager: "rjae@example.com"}); err != nil {
+			t.Fatalf("configure with the manager alone: %v", err)
+		}
+		if r, err := state.ReadReports(gfolder); err != nil || strings.Join(r.Recipients, "|") != "rjae@example.com" {
+			t.Fatalf("reports with the manager alone: %+v %v", r, err)
+		}
 		if f.out.String() != "configured: manager Rjae, recipients @rjae | rjae@example.com, every 4h0m0s\n" || f.rec.count() != 0 {
 			t.Fatalf("stdout %q spawns %d", f.out.String(), f.rec.count())
 		}
@@ -75,6 +88,9 @@ func TestReportConfigureWritesTheFile(t *testing.T) {
 		if _, err := state.ReadReports(folder); err == nil {
 			t.Fatal("reports.json was written despite the address rule")
 		}
+		// The manager's label as the one recipient: an address, so the
+		// address rule applies and refuses here too.
+		wantCode(t, Report(f.inv(f.sessionEnv(path), "", "configure"), ReportOptions{Manager: "rjae@example.com"}), protocol.CodeConfig, ReasonNotIgnored)
 		inv := f.inv(f.sessionEnv(path), "", "configure")
 		inv.JSON = true
 		if err := Report(inv, ReportOptions{Manager: "Rjae", Recipients: "#digests", At: "08:00", TZ: "America/Los_Angeles"}); err != nil {
@@ -94,17 +110,17 @@ func TestReportConfigureWritesTheFile(t *testing.T) {
 			code   protocol.Code
 			reason string
 		}{
-			"no verb":           {nil, ReportOptions{}, protocol.CodeUsage, ""},
-			"a bad verb":        {[]string{"wipe"}, ReportOptions{}, protocol.CodeUsage, ""},
-			"no manager":        {[]string{"configure"}, ReportOptions{Recipients: "@x"}, protocol.CodeInvalidInput, ReasonManagerNeeded},
-			"no recipients":     {[]string{"configure"}, ReportOptions{Manager: "m"}, protocol.CodeInvalidInput, ReasonNoRecipient},
-			"a recipient shape": {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x | nobody"}, protocol.CodeInvalidInput, "recipient_shape"},
-			"a bad every":       {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x", Every: "daily"}, protocol.CodeInvalidInput, ReasonBadEvery},
-			"every too short":   {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x", Every: "10s"}, protocol.CodeInvalidInput, ReasonBadEvery},
-			"a bad at":          {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x", At: "8am"}, protocol.CodeInvalidInput, ReasonBadAt},
-			"a bad tz":          {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x", TZ: "Mars/Olympus"}, protocol.CodeInvalidInput, ReasonBadTZ},
-			"no state folder":   {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x"}, protocol.CodeConfig, ReasonNoStateFolder},
-			"show, no folder":   {[]string{"show"}, ReportOptions{}, protocol.CodeConfig, ReasonNoStateFolder},
+			"no verb":    {nil, ReportOptions{}, protocol.CodeUsage, ""},
+			"a bad verb": {[]string{"wipe"}, ReportOptions{}, protocol.CodeUsage, ""},
+			"no manager": {[]string{"configure"}, ReportOptions{Recipients: "@x"}, protocol.CodeInvalidInput, ReasonManagerNeeded},
+			"no recipients, a manager that is no address": {[]string{"configure"}, ReportOptions{Manager: "Rjae"}, protocol.CodeInvalidInput, ReasonNoRecipient},
+			"a recipient shape":                           {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x | nobody"}, protocol.CodeInvalidInput, "recipient_shape"},
+			"a bad every":                                 {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x", Every: "daily"}, protocol.CodeInvalidInput, ReasonBadEvery},
+			"every too short":                             {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x", Every: "10s"}, protocol.CodeInvalidInput, ReasonBadEvery},
+			"a bad at":                                    {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x", At: "8am"}, protocol.CodeInvalidInput, ReasonBadAt},
+			"a bad tz":                                    {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x", TZ: "Mars/Olympus"}, protocol.CodeInvalidInput, ReasonBadTZ},
+			"no state folder":                             {[]string{"configure"}, ReportOptions{Manager: "m", Recipients: "@x"}, protocol.CodeConfig, ReasonNoStateFolder},
+			"show, no folder":                             {[]string{"show"}, ReportOptions{}, protocol.CodeConfig, ReasonNoStateFolder},
 		} {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()

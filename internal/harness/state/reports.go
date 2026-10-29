@@ -84,7 +84,18 @@ func ReadReports(folder string) (*Reports, error) {
 		return nil, errors.New("state: reports.json's version is not this package's")
 	}
 	r.Sanitize()
+	r.DefaultRecipients()
 	return &r, nil
+}
+
+// DefaultRecipients fills an empty recipients list with the manager's
+// label when that label is itself a recipient — an email address, which
+// a roster label is by default (owner 2026-10-29): naming the manager
+// is then enough, and the Slack gateway finds them by it.
+func (r *Reports) DefaultRecipients() {
+	if len(r.Recipients) == 0 && RecipientKind(r.Manager) != "" {
+		r.Recipients = []string{r.Manager}
+	}
 }
 
 // WriteReports writes the file into the folder, atomically, after

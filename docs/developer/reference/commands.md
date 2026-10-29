@@ -25,7 +25,7 @@ Commands:
   note                                        record one line about the work for the manager digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)
   decision [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id>
                                               ask the project's manager for a decision (the question on stdin), sent at once through a gateway, or close one with its outcome
-  report configure --manager <label> --recipients <@name | #channel | address> [--every <duration>] [--at <HH:MM>] [--tz <zone>] | show | send
+  report configure --manager <label> [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] | show | send
                                               set up the manager digest (reports.json in the state folder), print the digest the producer would send now, or send one now
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
@@ -144,7 +144,7 @@ ask the project's manager for a decision (the question on stdin), sent at once t
 ## brigade report
 
 ```text
-Usage: brigade report configure --manager <label> --recipients <@name | #channel | address> [--every <duration>] [--at <HH:MM>] [--tz <zone>] | show | send [--json] [--log-level debug|info|warn|error]
+Usage: brigade report configure --manager <label> [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] | show | send [--json] [--log-level debug|info|warn|error]
 
 set up the manager digest (reports.json in the state folder), print the digest the producer would send now, or send one now
 ```
@@ -154,7 +154,7 @@ set up the manager digest (reports.json in the state folder), print the digest t
 | `--at <value>` | a daily digest's time of day, HH:MM |
 | `--every <value>` | the period between two digests, a duration such as 24h or 4h (24h when unset) |
 | `--manager <value>` | the manager's label as the roster shows it |
-| `--recipients <value>` | where the digest and the decisions go, in order of precedence, separated by \|: a Slack handle or channel, an email address |
+| `--recipients <value>` | where the digest and the decisions go, in order of precedence, separated by \|: a Slack handle or channel, an email address (the manager's label when left out and it is an address) |
 | `--tz <value>` | the zone of --at, an IANA name such as America/Los_Angeles (UTC when unset) |
 
 ## brigade inbound

@@ -236,7 +236,7 @@ notice. The address rule (ruling 3): a Slack handle is fine in the folder; an ad
 | P65-5 | `brigade report configure|show|send`, `reports.json`, delivery precedence, the address rule | done 2026-10-29 |
 | P65-6 | Skills, pages, security.md, changelog | done 2026-10-29 |
 | P65-7 | Proof (§8) and release | E14 done 2026-10-29; release 0.43.0 |
-| P65-9 | An address recipient through the Slack gateway when the team has one | done 2026-10-29; release 0.43.1 |
+| P65-9 | An address recipient through the Slack gateway when the team has one; recipients default to the manager's label | done 2026-10-29; release 0.43.1 |
 
 ## 7. Owner rulings, 2026-10-29
 

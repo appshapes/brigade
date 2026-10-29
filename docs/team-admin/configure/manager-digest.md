@@ -29,13 +29,15 @@ delivered through the team's Slack or mail gateway. No manager node runs anywher
 ## The manager and the recipients
 
 ```
-brigade report configure --manager "Rjae" --recipients "@rjae | rjae@example.com" --every 24h
+brigade report configure --manager rjae@example.com
+brigade report configure --manager rjae@example.com --recipients "@rjae | rjae@example.com" --every 24h
 brigade report configure --manager "Rjae" --recipients "#eng-digests" --at 08:00 --tz America/Los_Angeles
 ```
 
 `brigade report configure`, run inside a session of the project, writes `reports.json` into the state folder: the
 manager's label as the roster shows it, the recipients in order of precedence, and the period. A recipient is a
-Slack handle or channel, or an email address. The digest and every decision go to the first recipient a gateway on
+Slack handle or channel, or an email address; left out, the manager's label is the recipient when it is an
+address, as a roster label is by default. The digest and every decision go to the first recipient a gateway on
 the roster can carry: a handle or channel through the team's Slack gateway; an address through the Slack gateway
 too when the team has one, which finds the person by their email, and through the mail gateway otherwise. So
 Slack comes before email whatever the recipient's shape, and a manager's roster label, an email address by

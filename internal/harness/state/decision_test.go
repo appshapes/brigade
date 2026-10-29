@@ -205,6 +205,20 @@ func TestReportsAndGateways(t *testing.T) {
 			t.Errorf("RecipientKind(%q) = %q, want %q", in, got, want)
 		}
 	}
+	// A file with no recipients: the manager's label is the recipient when
+	// it is an address, and nothing when it is not.
+	if err := os.WriteFile(state.ReportsPath(folder), []byte(`{"version":1,"manager":"rjae@example.com"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := state.ReadReports(folder); err != nil || !slices.Equal(r.Recipients, []string{"rjae@example.com"}) {
+		t.Fatalf("ReadReports with the manager alone = %+v, %v", r, err)
+	}
+	if err := os.WriteFile(state.ReportsPath(folder), []byte(`{"version":1,"manager":"Rjae"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := state.ReadReports(folder); err != nil || len(r.Recipients) != 0 {
+		t.Fatalf("ReadReports with a label that is no address = %+v, %v", r, err)
+	}
 	if (&state.Reports{}).Period() != state.DefaultEvery || (&state.Reports{Every: "10s"}).Period() != state.DefaultEvery || (&state.Reports{Every: "90m"}).Period() != 90*time.Minute {
 		t.Fatal("Period")
 	}
