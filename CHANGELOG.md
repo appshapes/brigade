@@ -95,6 +95,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   report, and sends nothing; `send` produces and sends one now and writes
   the marker, so the period starts afresh.
 
+### Changed
+
+- **The skills teach the digest** (card 162). Every package's
+  `team-messaging` skill carries a section on notes, decisions and the
+  digest — the three labels, when to record a note, what a decision is
+  for and who answers it, the `Brigade state:` ask and its one-ask rule —
+  and its `sessions` skill names `brigade report show` as the verbatim
+  print of the digest. `docs/security.md` gains section 18 on what the
+  state folder opens: the entry's contents on every teammate's machine,
+  the digest and the decisions through the gateways and from there to
+  whatever assistant the manager lets read them, the unsigned entries,
+  the address rule, the end-of-turn ask's cost and the producer's one
+  accepted duplicate.
+
 ## [0.42.0] — 2026-10-28
 
 ### Added

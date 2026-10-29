@@ -12,7 +12,7 @@ documentation inside a team; this page names them and says what differs from Cla
 
 | Skill | Who invokes it | What it carries |
 | --- | --- | --- |
-| [`codex/brigade/skills/team-messaging/SKILL.md`](../../../codex/brigade/skills/team-messaging/SKILL.md) | the model, when a team message arrives or the user asks about teammates | the command surface, the sending rules, the inbound frame, the gateways, the roster line |
+| [`codex/brigade/skills/team-messaging/SKILL.md`](../../../codex/brigade/skills/team-messaging/SKILL.md) | the model, when a team message arrives or the user asks about teammates | the command surface, the sending rules, the inbound frame, the gateways, the roster line, the notes, decisions and digest of a project with a state folder |
 | [`codex/brigade/skills/sessions/SKILL.md`](../../../codex/brigade/skills/sessions/SKILL.md) | `$brigade:sessions` | print the roster verbatim |
 | [`codex/brigade/skills/join/SKILL.md`](../../../codex/brigade/skills/join/SKILL.md) | `$brigade:join <path>` | run `brigade team join --secret-file <path>` on the file the user named |
 | [`codex/brigade/skills/update/SKILL.md`](../../../codex/brigade/skills/update/SKILL.md) | `$brigade:update` | refresh the marketplace, install again, then a new session |

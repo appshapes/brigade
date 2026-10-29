@@ -2,7 +2,7 @@
 
 **Status.** **v2, in build**, 2026-10-29, Trello card **162**, owner Rjae. The nine rulings of 2026-10-29 are
 in §7 and settle the carrier, the sender, the state entry and the digest; the rows are the **P65** series of the
-execution log (§6); P65-1 to P65-5 landed 2026-10-29 with the deviations §5.1, §5.3 and §5.4 note in place. **No
+execution log (§6); P65-1 to P65-6 landed 2026-10-29 with the deviations §5.1, §5.3 and §5.4 note in place. **No
 wire-shape change, no Supabase migration, no new dependency.** New: one hook event in the Claude Code package
 (`Stop`), three commands (`brigade note`, `brigade decision`, `brigade report`), a settings file in the synced
 folder, and a digest producer in the watcher. Folder sync ([folder-sync.md](folder-sync.md), released 0.11.0,
@@ -230,7 +230,7 @@ notice. The address rule (ruling 3): a Slack handle is fine in the folder; an ad
 | P65-3 | The Stop hook for the Claude Code package and the ask in Grok's; the `status` option; prompt-hook parity | done 2026-10-29 |
 | P65-4 | The producer in the watcher: period, rank, marker, digest assembly | done 2026-10-29 |
 | P65-5 | `brigade report configure|show|send`, `reports.json`, delivery precedence, the address rule | done 2026-10-29 |
-| P65-6 | Skills, pages, security.md, changelog | |
+| P65-6 | Skills, pages, security.md, changelog | done 2026-10-29 |
 | P65-7 | Proof (§8) and release | |
 
 ## 7. Owner rulings, 2026-10-29

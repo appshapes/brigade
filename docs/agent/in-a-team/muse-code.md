@@ -13,7 +13,7 @@ documentation inside a team; this page names them and says what differs from Cla
 
 | Skill | Who invokes it | What it carries |
 | --- | --- | --- |
-| [`muse/brigade/skills/team-messaging/SKILL.md`](../../../muse/brigade/skills/team-messaging/SKILL.md) | the model, when a team message arrives or the user asks about teammates | the command surface, the sending rules, the inbound frame, the gateways, the roster line |
+| [`muse/brigade/skills/team-messaging/SKILL.md`](../../../muse/brigade/skills/team-messaging/SKILL.md) | the model, when a team message arrives or the user asks about teammates | the command surface, the sending rules, the inbound frame, the gateways, the roster line, the notes, decisions and digest of a project with a state folder |
 | [`muse/brigade/skills/sessions/SKILL.md`](../../../muse/brigade/skills/sessions/SKILL.md) | the sessions command | print the roster verbatim |
 | [`muse/brigade/skills/join/SKILL.md`](../../../muse/brigade/skills/join/SKILL.md) | the join command | run `brigade team join --secret-file <path>` on the file the user named |
 | [`muse/brigade/skills/update/SKILL.md`](../../../muse/brigade/skills/update/SKILL.md) | the update command | refresh the marketplace, remove and reinstall the package (the person approves the hooks), then a new session; a clone install pulls and updates |

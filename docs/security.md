@@ -1093,6 +1093,9 @@ Claude Code one, with these differences in what stands between a teammate's mess
 
 Every item below is a known limit that this version ships with, on purpose.
 
+- A state entry, a note, a decision and the digest's marker in a project's state folder are any teammate's text: nothing
+  signs them, and a member who holds the join secret can write or delete any of them (section 18).
+
 - No end-to-end encryption. The person who runs the backend project can read every message.
 - No verified human identity. Names and labels are free text and are shown as unverified.
 - Only a creator role. Losing the creator's credential ends rotation and revocation for that team, unless a
@@ -1179,3 +1182,37 @@ had already moved and leaves the previous binding in place, so a retained record
 incarnation; a restore that itself fails is logged. A new Brigade session id leaves the old directory where it is. An old-incarnation cursor
 stays rejected, so a resumed read starts again and may replay frames already shown. A lookup that fails is
 not TUI death: the watcher keeps injecting and does not delete the receiver until the process is proven gone.
+
+## 18. The manager digest and the state folder
+
+A project can name one of its synced folders as its **state folder** (`sync.state`, card 162; [Set up the manager
+digest](team-admin/configure/manager-digest.md)). Every session of its checkouts then keeps one state entry there,
+and the team's own active sessions produce a digest from it for the project's manager. This section says what that
+opens; it adds no control beyond the `sync` option (the folder rides on folder sync, section 12) and the `status`
+option (the end-of-turn ask).
+
+- **What leaves your machine, and to whom.** The entry: your label, the session's name, the repository and
+  branch, the host, when it started, last prompted and ended, its inbound policy, the hashes and subjects of the
+  commits your git author made since it started, the doing lines it published and the notes and decisions its model
+  recorded. It goes into the folder, which folder sync carries to **every teammate's machine**; and from there the
+  digest and each decision's ask go to the manager through the team's Slack or mail gateway (section 14), and
+  **from Slack or a mail provider to whatever assistant the manager lets read them**. Nothing from a prompt, an
+  answer, a tool call or a transcript: the hooks read git's own files and the roster, and the model writes a note or
+  a decision on purpose, under the doing line's refusals (a credential shape, a local path) and the same judgement
+  for the rest (a hostname, a person's or a customer's name).
+- **A folder entry is a teammate's text.** Any member's machine can write, overwrite or delete any entry,
+  decision, marker or `reports.json` in the folder, as it can any synced file; every reader caps and sanitises what
+  it reads and trusts none of it as a fact. An entry says `member:`; nothing signs it (owner ruling 1, 2026-10-29:
+  not authenticated identity now). A forged note reaches the manager with the forger's chosen label, the trust a
+  synced plans folder has today.
+- **The manager's address.** `reports.json` carries the manager's label and recipients. A Slack handle or channel
+  is public to the team already; an email address is written only when `git check-ignore` says the folder is
+  ignored, so it is never committed by mistake (owner ruling 9, 2026-10-29), and it still reaches every teammate's
+  machine through the folder. The join secret is the boundary, as for messages.
+- **The end-of-turn ask.** With `status` on, the Stop hook may ask the model, at most once per ten minutes and
+  only where the doing line's permission gate holds (section 5), to record a note, refresh its roster line or
+  record a decision. It costs one model turn each time; `status: off` stops it, and the entry is kept all the same.
+- **The producer.** Whichever session's watcher is first by registration time among the repository's online
+  sessions produces the digest once per period; the others wait their rank and stand down on its marker. Two
+  decisions inside the sync engine's propagation gap cost the manager one duplicate, accepted. A quiet team — no
+  entry or decision written since the last digest — reports nothing: there is no manager node and no cron.

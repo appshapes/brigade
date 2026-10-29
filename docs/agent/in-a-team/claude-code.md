@@ -5,7 +5,7 @@ documentation inside a team; this page only names them.
 
 | Skill | Who invokes it | What it carries |
 | --- | --- | --- |
-| [`plugin/skills/team-messaging/SKILL.md`](../../../plugin/skills/team-messaging/SKILL.md) | the model, when a team message arrives or the user asks about teammates | the command surface (`sessions`, `send`, `whoami`, `doing`, `team members`, `sync status`), the sending rules, how to read an inbound frame, the mail, Slack and webhook gateways, keeping the roster line current |
+| [`plugin/skills/team-messaging/SKILL.md`](../../../plugin/skills/team-messaging/SKILL.md) | the model, when a team message arrives or the user asks about teammates | the command surface (`sessions`, `send`, `whoami`, `doing`, `team members`, `sync status`), the sending rules, how to read an inbound frame, the mail, Slack and webhook gateways, keeping the roster line current, the notes, decisions and digest of a project with a state folder |
 | [`plugin/skills/sessions/SKILL.md`](../../../plugin/skills/sessions/SKILL.md) | `/brigade:sessions [--all] [--here] [--member <who>]` | print the roster verbatim |
 | [`plugin/skills/join/SKILL.md`](../../../plugin/skills/join/SKILL.md) | `/brigade:join <path>` | run `brigade team join --secret-file <path>` on the file the user named, never one you chose |
 | [`plugin/skills/update/SKILL.md`](../../../plugin/skills/update/SKILL.md) | `/brigade:update` | move the plugin to the marketplace's release, then ask for `/reload-plugins` |

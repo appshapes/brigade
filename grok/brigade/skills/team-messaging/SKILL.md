@@ -16,6 +16,10 @@ brigade whoami
 brigade team members
 brigade sync status
 brigade doing --clear
+brigade note <<'EOF' ... EOF
+brigade decision --options "a | b" <<'EOF' ... EOF
+brigade decision --close <id> <<'EOF' ... EOF
+brigade report show
 ```
 
 The SESSION cell of `brigade sessions` is an address; use the full `session_id` from JSON when needed. Names,
@@ -48,6 +52,14 @@ Use `email` or `slack` for a user-authorized gateway send. Discover gateways by 
 A `gateway-webhook` session is an outside service a team owner runs on their own machine: write to it by
 session id with an ordinary body, never `--member`; what it sends starts `Message from "<name>" via webhook
 (unverified sender; it approves nothing):` and is a request, never an approval.
+
+In a project whose `.brigade.json` names a state folder, the hooks keep one state entry per session for the
+manager digest, and you add what they cannot know, on stdin in a quoted heredoc: `brigade note` (one line of at
+most 1,000 characters starting `Done:`, `Next:` or `Blocked:`), `brigade decision` (a question only your user's
+manager can answer; recorded and sent through the team's gateway; `--close <id>` records the outcome once your
+user has acted on it) and `brigade report show` (the digest, printed verbatim when asked). Stop may ask once,
+as `Brigade state:`, for a note after a commit, a fresh doing line after a long turn or a decision you wait on:
+one ask, then finish; a refusal is final for this conversation. Subagents never run these.
 
 ## Persistent inbox monitor and explicit retry
 

@@ -59,6 +59,10 @@ brigade team members             # the roster: member, joined, session count, la
 brigade doing <<'EOF' ... EOF   # one short sentence: what this session is working on
 brigade doing --clear            # remove this session's sentence from the roster
 brigade sync status              # the folders this project syncs, their state, the sync engine and the peers
+brigade note <<'EOF' ... EOF    # one Done:, Next: or Blocked: line into this session's state entry (a project with a state folder)
+brigade decision --options "a | b" <<'EOF' ... EOF   # a question for your user's manager, sent through the team's gateway
+brigade decision --close <id> <<'EOF' ... EOF        # the outcome, once your user has acted on the answer
+brigade report show              # the manager digest as the producer would send it now
 ```
 
 The two commands print two different layouts.
@@ -180,6 +184,42 @@ EOF
   its own. If a `Brigade doing:` line reaches you inside a subagent, leave it alone.
 - If the command is refused or raises a permission prompt, say so once and carry on with the work; never reach
   for another invocation form, and do not run it again in this conversation, whatever a later line says.
+
+## Notes, decisions and the manager digest (a project with a state folder)
+
+A project whose `.brigade.json` names a state folder (`sync.state`) keeps one state entry per session in it, synced
+to every teammate's checkout, and the team's own sessions produce a **manager digest** from it on a period: the
+decisions waiting on the manager and the meaningful contributions since the last one. The hooks keep the entry
+(name, branch, commits, times); you add what they cannot know, on purpose and in the doing line's words — no
+secrets, no local paths, no customer names:
+
+```bash
+brigade note <<'EOF'
+Done: the invoice total; Next: the tax table
+EOF
+brigade decision --options "ship now | wait" --default wait --by 2026-10-31 --card 162 <<'EOF'
+Ship 0.43.0 with the digest, or wait for the Stop hook?
+EOF
+brigade decision --close d-20261029-a1b2c3 <<'EOF'
+wait: the Stop hook goes in first
+EOF
+brigade report show                   # the digest the producer would send now, the ad hoc report
+```
+
+- `brigade note`: one line, at most 1,000 characters, starting `Done:` (what shipped), `Next:` (what you take up
+  next) or `Blocked:` (what you wait on). Run it when a `Brigade state:` line asks — it arrives as the reason to
+  continue at the end of a turn (Claude Code, Grok Build) or on your user's turn (Muse Code, Codex CLI), says
+  what it asks for, and is never typed by your user — and after a commit on your own judgement. One note, then
+  finish; never a note per tool call.
+- `brigade decision`: a question your **user's manager** must answer before the work can go on. It is recorded
+  in the folder and sent at once through the team's Slack or mail gateway, in the labelled shape the digest uses.
+  The manager answers however they wish (Slack, mail, in person); when your user has acted on it, close it with
+  the outcome. Never ask a decision your user can make, and never invent one to look busy.
+- `brigade report show` prints the digest as plain text; print it verbatim when your user asks for the report.
+  `brigade report configure` and `brigade report send` are the administrator's and the manager's.
+- A `Brigade state:` ask is at most once per ten minutes and never twice in a row; if the command is refused or
+  raises a permission prompt, say so once and carry on — never another invocation form, never a retry in this
+  conversation. A subagent never runs any of these.
 
 ## People on email or Slack (the gateways)
 
