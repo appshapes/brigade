@@ -1,6 +1,6 @@
 # Manager digest: decisions and contributions, from the team's synced folder
 
-**Status.** **v3, in build**, 2026-10-29, Trello cards **162** (shipped 0.43.0 and 0.43.1) and **167** (digests for any member who opts in, which folds in card 166), owner Rjae. Card 167 strips the manager role: §5.5 is rewritten as a list of subscribers, each the writer of their own entry, and the rows are the **P66** series (§6). The nine rulings of 2026-10-29 are
+**Status.** **v3, shipped** (0.44.0, 2026-10-29), Trello cards **162** (shipped 0.43.0 and 0.43.1) and **167** (digests for any member who opts in, which folds in card 166), owner Rjae. Card 167 strips the manager role: §5.5 is rewritten as a list of subscribers, each the writer of their own entry, and the rows are the **P66** series (§6). The nine rulings of 2026-10-29 are
 in §7 and settle the carrier, the sender, the state entry and the digest; the rows are the **P65** series of the
 execution log (§6); P65-1 to P65-7 landed 2026-10-29 with the deviations §5.1, §5.3 and §5.4 note in place; the live
 proof is `docs/experiments/E14-manager-digest.md`. **No
@@ -267,11 +267,11 @@ label at the start of each line. The summary carries the counts: decisions open,
 | P65-6 | Skills, pages, security.md, changelog | done 2026-10-29 |
 | P65-7 | Proof (§8) and release | E14 done 2026-10-29; release 0.43.0 |
 | P65-9 | An address recipient through the Slack gateway when the team has one; recipients default to the manager's label | done 2026-10-29; release 0.43.1 |
-| P66-1 | Card 167: the subscriber list (`reports.json` v2 with the v1 reader), `report subscribe\|unsubscribe\|show\|send [--to]`, `decision --to` and its error, the producer per subscriber with per-subscriber markers, the Stop gate, the fan-out tests | |
-| P66-2 | The `/brigade:subscribe` skill in the four packages, the skills' wording (a decision is "a question only the person you name can answer"), the agent pages, the package checks (nine skills) | |
-| P66-3 | Pages ("Set up the digests", "Subscribe to the digest"), security.md §18, options.md, the generated reference, changelog | |
-| P66-4 | Proof: two subscribers, one decision addressed to each (E15) | |
-| P66-5 | Release 0.44.0 | |
+| P66-1 | Card 167: the subscriber list (`reports.json` v2 with the v1 reader), `report subscribe\|unsubscribe\|show\|send [--to]`, `decision --to` and its error, the producer per subscriber with per-subscriber markers, the Stop gate, the fan-out tests | done 2026-10-29 |
+| P66-2 | The `/brigade:subscribe` skill in the four packages, the skills' wording (a decision is "a question only the person you name can answer"), the agent pages, the package checks (nine skills) | done 2026-10-29 |
+| P66-3 | Pages ("Set up the digests", "Subscribe to the digest"), security.md §18, options.md, the generated reference, changelog | done 2026-10-29 |
+| P66-4 | Proof: two subscribers, one decision addressed to each (E15) | done 2026-10-29 (`docs/experiments/E15-digest-subscribers.md`) |
+| P66-5 | Release 0.44.0 | done 2026-10-29; release 0.44.0 |
 
 ## 7. Owner rulings, 2026-10-29
 
