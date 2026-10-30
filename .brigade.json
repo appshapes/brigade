@@ -8,5 +8,9 @@
   "gateway": {
     "email": "brigade-team@appshapes.com",
     "slack": "appshapes.slack.com: @brigade"
+  },
+  "sync": {
+    "folders": [".brigade/state"],
+    "state": ".brigade/state"
   }
 }
