@@ -24,7 +24,7 @@ import (
 const goodNotes = "Brigade 0.5.1 is a fix release.\n\n" +
 	"Update with `/brigade:update`, then run `/reload-plugins` and ask the session to run `brigade sessions`.\n\n" +
 	"```\nbrigade sessions --json\n```\n\n" +
-	"## Assets\n\n- brigade_0.5.1_darwin_arm64\n- brigade_0.5.1_linux_amd64\n- checksums.txt\n"
+	"## Assets\n\n- brigade_0.5.1_darwin_arm64\n- brigade_0.5.1_linux_amd64\n- brigade_0.5.1_windows_amd64.exe\n- checksums.txt\n"
 
 // lint runs the script on one release's notes with the given lists and
 // returns exit status and combined output.
@@ -79,7 +79,7 @@ func lintWith(t *testing.T, kind, notes, commands, assets, skills string, env ..
 
 const (
 	commands = "version help sessions send whoami team inbox"
-	assets   = "brigade_0.5.1_darwin_arm64 brigade_0.5.1_linux_amd64 checksums.txt"
+	assets   = "brigade_0.5.1_darwin_arm64 brigade_0.5.1_linux_amd64 brigade_0.5.1_windows_amd64.exe checksums.txt"
 	skills   = "join sessions setup team-messaging update"
 )
 
@@ -89,7 +89,7 @@ func TestReleaseNotesLintPassesGoodNotes(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "release-notes-lint: clean") {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	for _, want := range []string{"ok: /brigade:update exists", "ok: brigade sessions is a command", "ok: asset checksums.txt shipped", "ok: the notes name 0.5.1"} {
+	for _, want := range []string{"ok: /brigade:update exists", "ok: brigade sessions is a command", "ok: asset checksums.txt shipped", "ok: asset brigade_0.5.1_windows_amd64.exe shipped", "ok: the notes name 0.5.1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -108,7 +108,8 @@ func TestReleaseNotesLintRefusals(t *testing.T) {
 		{"a skill that does not exist", strings.Replace(goodNotes, "`/brigade:update`", "`/brigade:update`, then `/brigade:no-such-skill`", 1), commands, assets, "FAIL: /brigade:no-such-skill is not a skill"},
 		{"a CLI command that does not exist", strings.Replace(goodNotes, "`brigade sessions`", "`brigade roster`", 1), commands, assets, "FAIL: brigade roster is not a command"},
 		{"a fenced command that does not exist", strings.Replace(goodNotes, "brigade sessions --json", "brigade roster --json", 1), commands, assets, "FAIL: brigade roster is not a command"},
-		{"an asset that did not ship", strings.Replace(goodNotes, "- checksums.txt\n", "- checksums.txt\n- brigade_0.5.1_windows_amd64\n", 1), commands, assets, "FAIL: asset brigade_0.5.1_windows_amd64 is named but did not ship"},
+		{"an asset that did not ship", strings.Replace(goodNotes, "- checksums.txt\n", "- checksums.txt\n- brigade_0.5.1_windows_arm64.exe\n", 1), commands, assets, "FAIL: asset brigade_0.5.1_windows_arm64.exe is named but did not ship"},
+		{"a Windows asset named without its .exe", strings.Replace(goodNotes, "- brigade_0.5.1_windows_amd64.exe\n", "- brigade_0.5.1_windows_amd64\n", 1), commands, assets, "FAIL: asset brigade_0.5.1_windows_amd64 is named but did not ship"},
 		{"a shipped asset left unnamed", goodNotes, commands, assets + " brigade_0.5.1_linux_arm64", "FAIL: shipped asset brigade_0.5.1_linux_arm64 is not named"},
 		{"the wrong version", strings.ReplaceAll(goodNotes, "0.5.1", "0.5.0"), commands, strings.ReplaceAll(assets, "0.5.1", "0.5.0"), "FAIL: the notes never name version 0.5.1"},
 		{"Unreleased", strings.Replace(goodNotes, "fix release", "fix release (Unreleased)", 1), commands, assets, "FAIL: the notes say Unreleased"},

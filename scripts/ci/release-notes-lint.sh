@@ -83,7 +83,10 @@ done
 if [ "$kind" = notes ]; then
   assets=${BRIGADE_NOTES_ASSETS:-}
   [ -n "$assets" ] || fail "BRIGADE_NOTES_ASSETS is unset: the release's asset list is required"
-  tokens=$(grep -o -E 'brigade_[0-9][A-Za-z0-9.+-]*_[a-z0-9]+_[a-z0-9]+|checksums\.txt' "$notes" | sort -u)
+  # A Windows binary ships as `brigade_<version>_windows_<arch>.exe` (card 133), so the token keeps its `.exe`:
+  # without it, every release since 0.41.0 failed this check on its two Windows assets (runs 40600290134 to
+  # 40977763342), the stem being named while the suffixed name shipped, and no notes were published.
+  tokens=$(grep -o -E 'brigade_[0-9][A-Za-z0-9.+-]*_[a-z0-9]+_[a-z0-9]+(\.exe)?|checksums\.txt' "$notes" | sort -u)
   for token in $tokens; do
     if has_word "$token" "$assets"; then ok "asset $token shipped"; else fail "asset $token is named but did not ship (have: $assets)"; fi
   done
