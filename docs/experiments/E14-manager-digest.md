@@ -5,6 +5,10 @@ on the dev build `0.42.0-dev`. **Plan** `.context/plans/manager-digest.md` §8. 
 Syncthing 2.1.5 on PATH, the real binding of the team `brigade` (copied into a throwaway config dir; the real store
 never written), the real backend, the real mail gateway as the manager's road.
 
+**Superseded in part by [E15](E15-digest-subscribers.md)** (card 167, 0.44.0): `brigade report configure` and the manager
+role are gone, so the §8.6 and §8.3 steps of this driver no longer run as written; the entries, the Stop hook's note
+ask, the rank and the hand-over it proved are unchanged.
+
 ## What ran
 
 Two sessions of this machine's member, `digest-proof-a` and `digest-proof-b`, in two throwaway checkouts of one
