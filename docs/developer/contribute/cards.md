@@ -1,12 +1,13 @@
 # Work a card
 
-A ticket is a card on the AppShapes Trello board, and its number is the commit prefix. Three skills in Claude Code
+A ticket is a card on the AppShapes Trello board, and its number is the commit prefix. Four skills in Claude Code
 use [mheap/trello-cli](https://github.com/mheap/trello-cli):
 
 | Skill | Does |
 | --- | --- |
 | `/trello-read <number \| title \| id>` | the card's description, comments, checklists, attachments; search lags for a card created in the last hour, so the skill falls back to listing the board |
 | `/trello-create <title> [--board] [--list] [--label] [--from file.md]` | a card; defaults: board AppShapes, list Wanting, label Brigade. Every card carries exactly one project label, one of the board's. Plain titles; Trello assigns the number. `--from file.md` takes the title from the first heading and the description from the rest |
+| `/trello-start <number> [<collaborator session>]` | one card from reading it to Testing: the card read, the scope and approach agreed with you, the card moved to Doing, the work built under the rule files and proven against each done criterion (a green build alone proves nothing), reviewed, pushed to `master` with `ci.yml` green (what "deployed to development" means here: Brigade has no development environment, and a release is not part of it), the landing comment on the card, the card moved to Testing. A second argument names another of your sessions that this one leads over Brigade. It asks before inventing: a list the board lacks, a hosted-project change you need to test, a reading of the card that changes the work |
 | `/trello-done <number \| id>` | the closing comment (what shipped, the version or commit, the date, what was left out and where it went), the complete check, the archive |
 
 **When a card is done.** Its done criteria are met and shipped (released, or merged when no release carries it; a
@@ -34,4 +35,13 @@ the chat.
 2.  work, in conversation             plans in .context/plans/, scratch in .ignored/, make test
 3.  /commit 110                       commit and push to master
 4.  /trello-done 110                  when every criterion is met and shipped
+```
+
+Or hand the card to the session: `/trello-start 110` runs steps 1 to 3 on its own (asking you only where the card
+leaves a real choice), comments on the card and moves it to Testing; step 4 follows your test and the release.
+
+```
+1.  /trello-start 110                 read, agree the scope, Doing, build, prove, review, push, CI, comment, Testing
+2.  your test                         against the release that carries it
+3.  /trello-done 110                  when every criterion is met and shipped
 ```

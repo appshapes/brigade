@@ -12,9 +12,11 @@
   labelled `maintenance` is exempt, owner ruling 2026-09-09).
 - **Cards.** `/trello-read <number | title | id>` reads a card, `/trello-create <title> [--board] [--list]
   [--label] [--from file.md]` creates one (defaults: board AppShapes, list Wanting, label Brigade; every card
-  carries exactly one project label; plain titles, Trello assigns the number), `/trello-done <number | id>`
-  closes one. A card is done when its done criteria are met and shipped (released, or merged when no release
-  carries it; a research or decision card when its answer is on the card) and nothing on it is open. Then run
+  carries exactly one project label; plain titles, Trello assigns the number), `/trello-start <number>
+  [<collaborator session>]` takes one from reading it, through Doing, to Testing (built, proven, on `master`
+  with CI green, the landing comment on the card), and `/trello-done <number | id>` closes one. A card is done
+  when its done criteria are met and shipped (released, or merged when no release carries it; a research or
+  decision card when its answer is on the card) and nothing on it is open. Then run
   `/trello-done <card>` without being asked. When something is still open, say what it is and leave the card;
   never report a card as done without having run it. Never put a secret, a credential or a recipient's address
   on a card: the board is as public as the repository. Every description and comment a session writes on a card
@@ -22,8 +24,8 @@
   last involved (card 163): the team is `team_name` and the session name the `session_name` of the row whose
   `session_id` equals `self_session_id` in `brigade sessions --here --json` (the roster carries a renamed
   session's new name; `brigade whoami` does not). Outside a Brigade session there is no stamp.
-- **Skills of this repository** live in `.claude/skills/`: `commit`, `trello-create`, `trello-read`, `trello-done`,
-  `playwright-cli`. The Brigade plugin's own skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`)
+- **Skills of this repository** live in `.claude/skills/`: `commit`, `trello-create`, `trello-read`, `trello-start`,
+  `trello-done`, `playwright-cli`. The Brigade plugin's own skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`)
   are the product.
 - **Dates** in plans and logs are absolute (`2026-10-17`), never relative.
 - **Wording.** Say "the 26 test messages" or "the injection test set", never "corpus".

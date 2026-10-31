@@ -5,7 +5,7 @@
 | If you want to | Go to |
 | --- | --- |
 | commit and push a change | [Commit and push](#commit-and-push) |
-| read, create or close the Trello card the work belongs to | [Work a card](#work-a-card) |
+| read, start, create or close the Trello card the work belongs to | [Work a card](#work-a-card) |
 | hand a piece of work to the repository's agents | [Use the agentic loop](#use-the-agentic-loop) |
 
 ## Commit and push
@@ -18,7 +18,8 @@ Details: [Commit and push](commits.md).
 ## Work a card
 
 1. The number in a commit message is an AppShapes Trello card; `/trello-read <n>`, `/trello-create <title>`, `/trello-done <n>`.
-2. A card is done when shipped and nothing on it is open; then close it, unasked.
+2. `/trello-start <n>` takes a card from reading it, through Doing, to Testing: scope agreed, built, proven, on `master` with CI green.
+3. A card is done when shipped and nothing on it is open; then close it, unasked.
 
 Details: [Work a card](cards.md).
 

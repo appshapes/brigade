@@ -8,7 +8,7 @@ one subject and is the only place its rules live.
 
 | If you want to | Go to |
 | --- | --- |
-| commit, push, open or close a card, place a plan or a scratch file | [Follow the conventions](#follow-the-conventions) |
+| commit, push, open, start or close a card, place a plan or a scratch file | [Follow the conventions](#follow-the-conventions) |
 | touch the protocol, stdout, a secret, a configuration directory or a dependency | [Keep the invariants](#keep-the-invariants) |
 | know what must pass before a push and before a release | [Pass the gates](#pass-the-gates) |
 | add or change a page, a harness's pages, or the documentation gate | [Write documentation](#write-documentation) |
