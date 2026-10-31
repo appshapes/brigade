@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.46.0] — 2026-10-31
+
 ### Added
 
 - **A session names itself** (card 174). `brigade rename` takes one line on
