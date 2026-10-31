@@ -302,7 +302,8 @@ func Build(in Input) Output {
 		}
 	}
 
-	shipped := shippedCommits(in.Entries, since)
+	made := madeByAny(in.Entries)
+	shipped := shippedCommits(in.Entries, since, made)
 	out.Commits = len(shipped)
 	if len(shipped) > 0 {
 		lines = append(lines, "", "Shipped ("+strconv.Itoa(len(shipped))+" commits):")
@@ -375,7 +376,7 @@ func Build(in Input) Output {
 		if e.EndedAt.IsZero() || !e.EndedAt.After(since) {
 			continue
 		}
-		line := "  " + who(e) + ": ended " + e.EndedAt.UTC().Format(timeLayout) + ", " + strconv.Itoa(len(e.Commits)) + " commits"
+		line := "  " + who(e) + ": ended " + e.EndedAt.UTC().Format(timeLayout) + ", " + strconv.Itoa(creditedCount(e, made)) + " commits"
 		if n := latestNote(e); n != nil {
 			line += "; last note: " + cutNote(n.Text)
 		}
@@ -445,15 +446,49 @@ func (c shippedCommit) line() string {
 	return card + " | " + hash + " | " + c.Subject + " | " + strings.Join(c.who, ", ")
 }
 
+// madeByAny is the hashes some entry marks made in its own checkout
+// (card 172).
+func madeByAny(entries []*state.Entry) map[string]bool {
+	made := map[string]bool{}
+	for _, e := range entries {
+		for _, c := range e.Commits {
+			if c.Made {
+				made[c.Hash] = true
+			}
+		}
+	}
+	return made
+}
+
+// credited reports whether the entry listing c is credited with it: it
+// made c, or no entry did (an entry before 0.45.1, a reflog that could not
+// be read, a pull request merged on the forge), and then every entry that
+// lists c is, as before card 172. A commit made in one checkout and
+// pulled into another is the first one's alone.
+func credited(c state.Commit, made map[string]bool) bool {
+	return c.Made || !made[c.Hash]
+}
+
+// creditedCount is how many of the entry's commits it is credited with.
+func creditedCount(e *state.Entry, made map[string]bool) int {
+	n := 0
+	for _, c := range e.Commits {
+		if credited(c, made) {
+			n++
+		}
+	}
+	return n
+}
+
 // shippedCommits is every commit of the period across the entries, one
-// per hash, the carded ones first by card then time, the no-card ones
-// last by time.
-func shippedCommits(entries []*state.Entry, since time.Time) []shippedCommit {
+// per hash, each with the sessions credited with it, the carded ones
+// first by card then time, the no-card ones last by time.
+func shippedCommits(entries []*state.Entry, since time.Time, made map[string]bool) []shippedCommit {
 	byHash := map[string]*shippedCommit{}
 	var order []string
 	for _, e := range entries {
 		for _, c := range e.Commits {
-			if !c.At.After(since) {
+			if !c.At.After(since) || !credited(c, made) {
 				continue
 			}
 			s, ok := byHash[c.Hash]

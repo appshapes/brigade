@@ -118,6 +118,43 @@ func TestReportSubscribeWritesTheFile(t *testing.T) {
 			t.Fatalf("stdout %q", f.out.String())
 		}
 	})
+	t.Run("a linked folder, an address", func(t *testing.T) {
+		// Card 172: a second checkout links its synced folder to the first
+		// one's; git refuses a path beyond the link, so the rule asks about
+		// the link, which `.brigade` ignores and `.brigade/` does not.
+		t.Parallel()
+		for pattern, ignored := range map[string]bool{".brigade\n": true, ".brigade/\n": false} {
+			f := newFixture(t)
+			folder := f.withStateFolder(t)
+			root := filepath.Dir(filepath.Dir(folder))
+			shared := filepath.Join(t.TempDir(), ".brigade")
+			if err := os.MkdirAll(shared, 0o750); err != nil { //nolint:gosec // G301: a checkout tree
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(root, 0o750); err != nil { //nolint:gosec // G301: a checkout tree
+				t.Fatal(err)
+			}
+			if err := os.Symlink(shared, filepath.Join(root, ".brigade")); err != nil {
+				t.Skipf("no symbolic links here: %v", err)
+			}
+			f.seedEntry(t, folder)
+			path := gitInit(t, root, false)
+			if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(pattern), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err := Report(f.inv(f.sessionEnv(path), "", "subscribe"), ReportOptions{Recipients: "alice@example.com"})
+			if !ignored {
+				wantCode(t, err, protocol.CodeConfig, ReasonNotIgnored)
+				continue
+			}
+			if err != nil {
+				t.Fatalf("pattern %q: subscribe: %v", pattern, err)
+			}
+			if r := mustReports(t, filepath.Join(shared, "state")); len(r.Subscribers) != 1 || r.Subscribers[0].Label != "alice@example.com" {
+				t.Fatalf("reports in the linked folder %+v", r.Subscribers)
+			}
+		}
+	})
 	t.Run("a label that is no address needs no git", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t)

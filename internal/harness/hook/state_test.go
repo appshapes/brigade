@@ -284,7 +284,8 @@ func (f *fixture) gitIn(args ...string) string {
 // TestStateCommitsSinceStart: with a real repository, SessionStart
 // records the start head and the branch; a prompt after commits lists
 // the session author's commits since the start, newest first, with the
-// card parsed, and not a teammate's; a prompt with HEAD unmoved starts
+// card parsed, each marked made here (card 172: the reflog says
+// `commit`), and not a teammate's; a prompt with HEAD unmoved starts
 // no git and keeps the list; SessionEnd lists the last commit too.
 func TestStateCommitsSinceStart(t *testing.T) {
 	t.Parallel()
@@ -316,7 +317,8 @@ func TestStateCommitsSinceStart(t *testing.T) {
 	}
 	e = f.mustEntry(t)
 	if e.Head != second || len(e.Commits) != 2 || e.Commits[0].Hash != second || e.Commits[1].Hash != first ||
-		e.Commits[1].Card != 162 || e.Commits[1].Subject != "162: Add the state folder" || e.Commits[0].Card != 0 || e.Commits[0].At.IsZero() {
+		e.Commits[1].Card != 162 || e.Commits[1].Subject != "162: Add the state folder" || e.Commits[0].Card != 0 || e.Commits[0].At.IsZero() ||
+		!e.Commits[0].Made || !e.Commits[1].Made {
 		t.Fatalf("entry after the prompt: %+v", *e)
 	}
 	// HEAD unmoved: no git on PATH is no loss, the list stays.

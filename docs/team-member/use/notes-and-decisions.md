@@ -95,7 +95,8 @@ decision addressed to you reaches the same recipients at once.
 everything since the start when you have none; `--to <label>` another subscriber's — as plain text with a stable
 label at the start of every line: the header (team, repository, period, producer), the decisions open (oldest
 first, with whom each is for and its age) and closed in the period — under `--only mine`, only the ones addressed
-to you — the commits shipped (one per hash, the carded ones first, at most 40), the sessions blocked, active (at
+to you — the commits shipped (one per hash, the carded ones first, at most 40, each under the session whose
+checkout made it), the sessions blocked, active (at
 most 30), ended in the period, held or quiet, and the sessions on the roster with no entry. Ask for it in words;
 your session prints it verbatim. The period's digest is produced by whichever session is active, once per
 subscriber ([Set up the digests](../../team-admin/configure/digests.md)).

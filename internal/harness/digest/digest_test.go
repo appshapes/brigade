@@ -131,6 +131,49 @@ func TestBuildSections(t *testing.T) {
 	}
 }
 
+// TestBuildCreditsTheMaker (card 172): two checkouts of one repository,
+// one author; each pulls the other's commit. A commit some entry made is
+// that entry's alone, in Shipped and in its "ended" count; a commit no
+// entry made (merged on the forge, or an entry before 0.45.1) stays
+// credited to every entry that lists it.
+func TestBuildCreditsTheMaker(t *testing.T) {
+	t.Parallel()
+	since := t0.Add(-24 * time.Hour)
+	x, y, z := strings.Repeat("a", 40), strings.Repeat("b", 40), strings.Repeat("c", 40)
+	fix := state.New("sess-f", "fix", since.Add(-time.Hour))
+	fix.Member = "alice@example.com"
+	fix.Commits = []state.Commit{
+		{Hash: y, Subject: "172: made in main", Card: 172, At: t0.Add(-time.Hour)},
+		{Hash: x, Subject: "172: made in fix", Card: 172, At: t0.Add(-2 * time.Hour), Made: true},
+		{Hash: z, Subject: "172: merged on the forge", Card: 172, At: t0.Add(-3 * time.Hour)},
+	}
+	fix.EndedAt, fix.EndReason = t0.Add(-10*time.Minute), "other"
+	main := state.New("sess-m", "main", since.Add(-time.Hour))
+	main.Member = "alice@example.com"
+	main.Commits = []state.Commit{
+		{Hash: y, Subject: "172: made in main", Card: 172, At: t0.Add(-time.Hour), Made: true},
+		{Hash: x, Subject: "172: made in fix", Card: 172, At: t0.Add(-2 * time.Hour)},
+		{Hash: z, Subject: "172: merged on the forge", Card: 172, At: t0.Add(-3 * time.Hour)},
+	}
+	main.EndedAt, main.EndReason = t0.Add(-5*time.Minute), "other"
+	out := digest.Build(digest.Input{Team: "brigade", Repository: "brigade", Producer: "main", Now: t0, Since: since, Entries: []*state.Entry{fix, main}})
+	for _, want := range []string{
+		"Shipped (3 commits):",
+		"  card 172 | ccccccc | 172: merged on the forge | alice@example.com (session fix), alice@example.com (session main)\n",
+		"  card 172 | aaaaaaa | 172: made in fix | alice@example.com (session fix)\n",
+		"  card 172 | bbbbbbb | 172: made in main | alice@example.com (session main)\n",
+		"  alice@example.com (session fix): ended 2026-10-29 11:50 UTC, 2 commits",
+		"  alice@example.com (session main): ended 2026-10-29 11:55 UTC, 2 commits",
+	} {
+		if !strings.Contains(out.Body, want) {
+			t.Fatalf("missing %q in:\n%s", want, out.Body)
+		}
+	}
+	if out.Commits != 3 {
+		t.Fatalf("commits %d", out.Commits)
+	}
+}
+
 // TestBuildCaps: the shipped section stops at ShippedLines and counts the
 // rest, the active section at SessionLines, a note is cut at NoteChars,
 // and the body stays under the message cap with the mark.

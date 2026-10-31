@@ -69,7 +69,11 @@ sees all of it: a tracked folder syncs like any other, so list folders the repos
 ## Limits
 
 - One clone of a repository per machine syncs a folder; the second shows `conflict_path` and
-  `1 folder is held by another checkout`. Remove the folder from the instance in its web GUI to move it.
+  `1 folder is held by another checkout`. To have both, link the second clone's folder to the first one's before a
+  session starts there (macOS and Linux, from the second clone: `ln -s ../<first clone>/.brigade .brigade`) and
+  ignore it as `.brigade`, without the trailing slash: `.brigade/` matches only a directory, never the link. Both
+  clones' sessions then write into the one folder, and a state folder in it gives one digest, not two. To move the
+  folder instead, remove it from the instance in its web GUI.
 - Two repositories with the same name share their ids; a checkout whose name differs (a fork, a different
   directory name with no remote) syncs with nobody.
 - A folder the project stops listing is paused, its files stay; remove it in the web GUI to be rid of it.

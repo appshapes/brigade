@@ -124,11 +124,18 @@ type Entry struct {
 
 // A Commit is one commit the session made: its hash, its subject, the
 // card number the subject starts with (0 for none) and its time.
+//
+// Made says HEAD's reflog in the session's own checkout shows the commit
+// made there (card 172), not pulled in: the same author's commit reaches
+// every checkout that pulls it, and the digest credits a commit some
+// entry made to that entry alone. False when the reflog says otherwise
+// or could not be read, and in every entry before 0.45.1.
 type Commit struct {
 	Hash    string    `json:"hash"`
 	Subject string    `json:"subject"`
 	Card    int       `json:"card,omitzero"`
 	At      time.Time `json:"at"`
+	Made    bool      `json:"made,omitzero"`
 }
 
 // A Stamped is one line the model published, and when.

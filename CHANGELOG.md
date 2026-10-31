@@ -9,6 +9,27 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.45.1] — 2026-10-30
+
+### Fixed
+
+- **Several checkouts of one repository on one machine** (card 172). Syncthing
+  takes one folder per repository name per machine, so a second clone links
+  its synced folder to the first one's (`ln -s ../<first clone>/.brigade
+  .brigade`); the sync-folders page now says so, and that the ignore rule is
+  `.brigade` with no trailing slash, which matches the link as `.brigade/`
+  does not. Two things broke in such a clone:
+  - `brigade report subscribe` with an email address was refused (`no_git`):
+    git refuses a path beyond a symbolic link, so the address rule now asks
+    git about the link itself, the path it would commit.
+  - A commit made in one clone and pulled into the other while both had a
+    session was credited to both in the digest's Shipped section and "ended"
+    counts. Each entry now marks the commits HEAD's reflog in its own
+    checkout shows were made there (`"made": true`); a commit some entry made
+    is credited to that entry alone, and one no entry made (merged on the
+    forge, or listed by a member before 0.45.1) to every entry that lists it,
+    as before.
+
 ## [0.45.0] — 2026-10-30
 
 ### Changed

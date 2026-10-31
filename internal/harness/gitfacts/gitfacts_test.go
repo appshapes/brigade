@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -214,6 +215,148 @@ func TestIgnoredAsksGit(t *testing.T) {
 		if err != nil || got != want {
 			t.Fatalf("Ignored(%q) = %v, %v; want %v", path, got, err, want)
 		}
+	}
+}
+
+// TestIgnoredAsksAboutTheLink (card 172): a second checkout on one
+// machine links its synced folder to the first one's, and git refuses a
+// path beyond a link (exit 128). Ignored asks about the link instead,
+// whether the path is absolute or relative: `.brigade` ignores the link,
+// `.brigade/` (a directory pattern) does not.
+func TestIgnoredAsksAboutTheLink(t *testing.T) {
+	t.Parallel()
+	git := gitOrSkip(t)
+	env := environ(t)
+	first := filepath.Join(t.TempDir(), ".brigade")
+	if err := os.MkdirAll(filepath.Join(first, "state", "sessions"), 0o750); err != nil { //nolint:gosec // G301: a checkout tree
+		t.Fatal(err)
+	}
+	for pattern, want := range map[string]bool{".brigade\n": true, ".brigade/\n": false} {
+		top := t.TempDir()
+		gitRun(t, git, top, env, "init", "-q", "-b", "master")
+		if err := os.Symlink(first, filepath.Join(top, ".brigade")); err != nil {
+			t.Skipf("no symbolic links here: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(top, ".gitignore"), []byte(pattern), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		r := gitfacts.Runner{Top: top, Environ: env}
+		for _, path := range []string{".brigade/state", filepath.Join(top, ".brigade", "state"), filepath.Join(top, ".brigade", "state", "sessions", "x.json")} {
+			got, err := r.Ignored(t.Context(), path)
+			if err != nil || got != want {
+				t.Fatalf("pattern %q: Ignored(%q) = %v, %v; want %v", pattern, path, got, err, want)
+			}
+		}
+	}
+}
+
+// TestMadeReadsTheReflog (card 172): the reflog entries that wrote the
+// commit they moved HEAD to are the made ones; a fast-forward, a
+// checkout, a reset and a rebase's start or finish are not; an entry
+// before since is not looked at; a missing reflog is nil; a reflog over
+// the read cap keeps its newest entries.
+func TestMadeReadsTheReflog(t *testing.T) {
+	t.Parallel()
+	since := time.Unix(1_800_000_000, 0)
+	hash := func(i int) string {
+		return strings.Repeat(string(rune('a'+i%6)), 8) + strings.Repeat("0", 31) + string(rune('0'+i%10))
+	}
+	entries := []struct {
+		msg  string
+		made bool
+	}{
+		{"commit: 172: a fix", true},
+		{"commit (initial): first", true},
+		{"commit (amend): 172: a fix, again", true},
+		{"commit (merge): Merge branch 'master'", true},
+		{"cherry-pick: a picked fix", true},
+		{"revert: Revert \"a fix\"", true},
+		{"am: a mailed patch", true},
+		{"rebase (pick): a replayed fix", true},
+		{"pull --rebase (pick): a replayed fix", true},
+		{"pull --no-edit -q: Merge made by the 'ort' strategy.", true},
+		{"merge feature: Merge made by the 'ort' strategy.", true},
+		{"pull: Fast-forward", false},
+		{"pull --no-edit: Fast-forward", false},
+		{"merge origin/master: Fast-forward", false},
+		{"checkout: moving from master to feature", false},
+		{"reset: moving to HEAD~1", false},
+		{"pull --rebase (start): checkout origin/master", false},
+		{"rebase (finish): returning to refs/heads/master", false},
+	}
+	var reflog strings.Builder
+	line := func(newHash string, at time.Time, msg string) {
+		reflog.WriteString(hashA + " " + newHash + " Me <me@example.com> " + strconv.FormatInt(at.Unix(), 10) + " +0000\t" + msg + "\n")
+	}
+	line(hashB, since.Add(-time.Second), "commit: before the session")
+	for i, e := range entries {
+		line(hash(i), since.Add(time.Duration(i)*time.Second), e.msg)
+	}
+	top := t.TempDir()
+	writeGit(t, top, map[string]string{"HEAD": "ref: refs/heads/master\n", "logs/HEAD": reflog.String()})
+	made := gitfacts.Made(top, since)
+	for i, e := range entries {
+		if made[hash(i)] != e.made {
+			t.Errorf("%q: made = %v, want %v", e.msg, made[hash(i)], e.made)
+		}
+	}
+	if made[hashB] {
+		t.Error("an entry before since was looked at")
+	}
+	if got := gitfacts.Made(t.TempDir(), since); got != nil {
+		t.Errorf("no reflog: %v, want nil", got)
+	}
+
+	// Over the cap: a megabyte and more of checkouts, then one commit.
+	var long strings.Builder
+	for long.Len() < 1<<20+4096 {
+		long.WriteString(hashA + " " + hashB + " Me <me@example.com> " + strconv.FormatInt(since.Unix(), 10) + " +0000\tcheckout: moving from a to b\n")
+	}
+	long.WriteString(hashB + " " + hashA + " Me <me@example.com> " + strconv.FormatInt(since.Unix(), 10) + " +0000\tcommit: the newest\n")
+	big := t.TempDir()
+	writeGit(t, big, map[string]string{"HEAD": "ref: refs/heads/master\n", "logs/HEAD": long.String()})
+	if got := gitfacts.Made(big, since); !got[hashA] || got[hashB] {
+		t.Errorf("over the cap: %v", got)
+	}
+}
+
+// TestMadeAcrossTwoClones (card 172): with git itself, a commit made in
+// one clone is made there and not in the clone that fast-forwards to it;
+// the merge commit a `pull` makes is made in the clone that pulled.
+func TestMadeAcrossTwoClones(t *testing.T) {
+	t.Parallel()
+	git := gitOrSkip(t)
+	env := environ(t)
+	base := t.TempDir()
+	remote, a, b := filepath.Join(base, "remote.git"), filepath.Join(base, "a"), filepath.Join(base, "b")
+	gitRun(t, git, base, env, "init", "-q", "--bare", "-b", "master", remote)
+	since := time.Now().Add(-time.Minute)
+	for _, dir := range []string{a, b} {
+		gitRun(t, git, base, env, "clone", "-q", remote, dir)
+		gitRun(t, git, dir, env, "config", "user.email", "me@example.com")
+		gitRun(t, git, dir, env, "config", "user.name", "Me")
+	}
+	head := func(dir string) string { return gitRun(t, git, dir, env, "rev-parse", "HEAD") }
+	gitRun(t, git, a, env, "commit", "-q", "--allow-empty", "-m", "172: first, in a")
+	gitRun(t, git, a, env, "push", "-q", "origin", "master")
+	x := head(a)
+	gitRun(t, git, b, env, "pull", "-q", "--no-edit", "origin", "master")
+	if head(b) != x {
+		t.Fatal("b did not fast-forward to a's commit")
+	}
+	gitRun(t, git, a, env, "commit", "-q", "--allow-empty", "-m", "172: second, in a")
+	gitRun(t, git, a, env, "push", "-q", "origin", "master")
+	z := head(a)
+	gitRun(t, git, b, env, "commit", "-q", "--allow-empty", "-m", "172: in b")
+	y := head(b)
+	gitRun(t, git, b, env, "pull", "-q", "--no-edit", "--no-rebase", "origin", "master")
+	m := head(b)
+	madeA, madeB := gitfacts.Made(a, since), gitfacts.Made(b, since)
+	if !madeA[x] || !madeA[z] || madeA[y] || madeA[m] {
+		t.Errorf("a's made = %v; want x and z only", madeA)
+	}
+	if madeB[x] || madeB[z] || !madeB[y] || !madeB[m] {
+		t.Errorf("b's made = %v; want y and the merge only", madeB)
 	}
 }
 

@@ -21,7 +21,9 @@ The VERSION column of `brigade sessions` shows each session's plugin version. Tw
   subscribes to it from their own session (`brigade report subscribe`; the 0.43 file with one manager keeps
   reading, and `brigade report configure` is gone), and 0.45.0 the first that accepts a state folder inside a
   synced folder (`"folders": [".brigade"], "state": ".brigade/state"`): an earlier plugin reads that shape as
-  `state_not_listed` and syncs nothing, not even the folder, until that member updates.
+  `state_not_listed` and syncs nothing, not even the folder, until that member updates; 0.45.1 is the first that
+  marks the commits a session made in its own checkout, so a commit pulled into another is credited to the maker
+  alone, while an earlier member's commits are credited to every session that lists them, as before.
 - **Around 0.16.0**, which changed how a synced folder's id is made: members on either side of it do not exchange
   files until the last one has updated ([Sync folders](../use/sync-folders.md)).
 

@@ -154,6 +154,97 @@ func readSmall(path string) (string, error) {
 	return string(data), nil
 }
 
+// Made is the commits HEAD's reflog in the checkout shows were made there
+// at or after since (card 172), read from git's own file with no process
+// started: the new side of each entry a commit, an amend, a cherry-pick,
+// a revert, `am`, a rebase step that writes a commit, or a merge that
+// made a merge commit (a `pull` or `merge` entry that is not a
+// fast-forward). A fast-forward, a checkout and a reset only move HEAD to
+// commits made elsewhere. Nil when the reflog cannot be read (git writes
+// none when core.logAllRefUpdates is off): nothing is then known made.
+// Only the newest maxOutputBytes of the file are read; a session that
+// moved HEAD more often than that keeps the newest moves.
+func Made(top string, since time.Time) map[string]bool {
+	gitDir, _, ok := teamfile.GitDirs(top)
+	if !ok {
+		return nil
+	}
+	data, err := readTail(filepath.Join(gitDir, "logs", "HEAD"), maxOutputBytes)
+	if err != nil {
+		return nil
+	}
+	made := map[string]bool{}
+	cutoff := since.Unix()
+	for line := range strings.SplitSeq(data, "\n") {
+		head, msg, ok := strings.Cut(line, "\t")
+		fields := strings.Fields(head)
+		if !ok || len(fields) < 4 || !hexHash.MatchString(fields[1]) {
+			continue
+		}
+		secs, err := strconv.ParseInt(fields[len(fields)-2], 10, 64)
+		if err != nil || secs < cutoff {
+			continue
+		}
+		action, text, _ := strings.Cut(msg, ": ")
+		if madeBy(action, text) {
+			made[fields[1]] = true
+		}
+	}
+	return made
+}
+
+// madeBy reports whether a reflog entry with this action (the
+// GIT_REFLOG_ACTION part before the first ": ") and text wrote the commit
+// it moved HEAD to.
+func madeBy(action, text string) bool {
+	switch {
+	case action == "commit" || strings.HasPrefix(action, "commit ("):
+		return true // commit, (initial), (amend), (merge)
+	case action == "cherry-pick" || action == "revert" || action == "am":
+		return true
+	}
+	for _, step := range []string{"(pick)", "(reword)", "(edit)", "(squash)", "(fixup)", "(continue)"} {
+		if strings.HasSuffix(action, step) {
+			return true
+		}
+	}
+	if strings.Contains(action, "(") {
+		return false // a rebase's start, finish or abort
+	}
+	if action == "pull" || strings.HasPrefix(action, "pull ") || strings.HasPrefix(action, "merge ") {
+		return strings.TrimSpace(text) != "Fast-forward"
+	}
+	return false
+}
+
+// readTail reads the last limit bytes of a file, dropping the first line
+// when the read starts inside one.
+func readTail(path string, limit int64) (string, error) {
+	f, err := os.Open(path) //nolint:gosec // G304: git's own metadata under the discovered toplevel
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	start := max(info.Size()-limit, 0)
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return "", err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, limit))
+	if err != nil {
+		return "", err
+	}
+	if start > 0 {
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			data = data[i+1:]
+		}
+	}
+	return string(data), nil
+}
+
 // A Runner runs git in one checkout: the toplevel, the environment the
 // child's allow-listed one is built from (the hook's or the command's
 // own, in os.Environ form) and the deadline each call gets. Git is found
@@ -223,8 +314,13 @@ func (r Runner) AuthorEmail(ctx context.Context) (string, error) {
 
 // Ignored reports whether git ignores path in the checkout — the answer
 // `git check-ignore` gives (exit 0 ignored, 1 not), with the path given
-// after `--` so it is never read as an option.
+// after `--` so it is never read as an option. When path lies beyond a
+// symbolic link inside the checkout (card 172: a second checkout on one
+// machine links its synced folder to the first one's), git refuses the
+// path itself (`beyond a symbolic link`, exit 128) and would commit only
+// the link, so the link is the path asked about.
 func (r Runner) Ignored(ctx context.Context, path string) (bool, error) {
+	path = firstLink(r.Top, path)
 	_, err := r.run(ctx, "check-ignore", "--quiet", "--", path)
 	if err == nil {
 		return true, nil
@@ -234,6 +330,42 @@ func (r Runner) Ignored(ctx context.Context, path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+// firstLink is the first symbolic link on the way from top down to path,
+// spelled as path is (absolute, or relative to top), or path itself when
+// there is none, when a step does not exist yet, or when path is not
+// under top. Only the steps below top are looked at: top's own spelling
+// (macOS's /var is a link) is the checkout's.
+func firstLink(top, path string) string {
+	rel := path
+	if filepath.IsAbs(path) {
+		r, err := filepath.Rel(top, path)
+		if err != nil {
+			return path
+		}
+		rel = r
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	cur := top
+	for i, part := range parts {
+		cur = filepath.Join(cur, part)
+		info, err := os.Lstat(cur)
+		if err != nil {
+			return path
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if filepath.IsAbs(path) {
+				return cur
+			}
+			return filepath.Join(parts[:i+1]...)
+		}
+	}
+	return path
 }
 
 // run starts git with args in the checkout and returns its stdout. The

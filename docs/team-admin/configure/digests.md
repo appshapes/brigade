@@ -29,6 +29,11 @@ reports nothing.
   ([What an update changes](../../team-member/update/what-an-update-changes.md)).
 - The folder is a directory of the checkout: list it, or the synced folder it is in, in `.gitignore`. The entries are a few KiB each; a session's
   entry keeps the last 100 commits, 50 doing lines and 20 notes.
+- **Several clones on one machine** share the folder through a link
+  ([Sync folders, limits](../../team-member/use/sync-folders.md#limits)), ignored as `.brigade` with no trailing
+  slash. A commit made in one clone and pulled into another is credited to the session whose clone made it, as
+  HEAD's reflog there shows; one no session made (a pull request merged on the forge, or an entry from a plugin
+  before 0.45.1) to every session that lists it.
 - A member whose `sync` option is off shares no entry: the digest lists their sessions from the roster alone.
 - **Retention.** A live entry stays while its session lives; an ended one 14 days; one whose machine never came
   back to end it 14 days after its last write; a decision 30 days after its close, and for good while open. Each
@@ -54,8 +59,8 @@ Slack comes before email whatever the recipient's shape. With no gateway on the 
 they go to the member's own best session as a team message. `every` is a duration (`24h` when unset); `at` with
 `tz` makes it daily at that time instead. `only: "mine"` lists only the decisions addressed to the member; the
 contributions stay the team's. **The address rule:** an email address is written only when `git check-ignore`
-says the folder is ignored (`brigade report subscribe` refuses otherwise); a Slack handle or channel is written
-either way.
+says the folder is ignored (`brigade report subscribe` refuses otherwise), or, for a folder under a link, the link;
+a Slack handle or channel is written either way.
 
 A `reports.json` written by 0.43 (`"version": 1`, one `manager` with the recipients and the period) keeps
 reading as one subscriber; the first `subscribe` or `unsubscribe` rewrites it as version 2 and carries that

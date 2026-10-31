@@ -148,9 +148,10 @@ func (r *run) stateEnd(ctx context.Context, f facts, m *sessionmap.ByPID, reason
 // stateRefreshGit reads HEAD and its branch from git's own files (no
 // process) and, when HEAD moved since the entry's last write, lists the
 // commits the session's author made since the start head through one
-// `git log`, each call under budget. An unreadable HEAD, no git on PATH
-// and a call that fails or times out all leave the entry's git facts as
-// they were, and the next hook tries again.
+// `git log`, each call under budget, marking the ones HEAD's reflog shows
+// this checkout made (card 172). An unreadable HEAD, no git on PATH and a
+// call that fails or times out all leave the entry's git facts as they
+// were, and the next hook tries again.
 func (r *run) stateRefreshGit(ctx context.Context, m *sessionmap.ByPID, e *state.Entry, budget time.Duration) {
 	hash, branch := gitfacts.Head(m.SyncRoot)
 	if hash == "" {
@@ -176,9 +177,10 @@ func (r *run) stateRefreshGit(ctx context.Context, m *sessionmap.ByPID, e *state
 		r.log.Debug("state: git log failed; commits not refreshed", log.Err(err))
 		return
 	}
+	made := gitfacts.Made(m.SyncRoot, e.StartedAt)
 	e.Commits = make([]state.Commit, 0, len(commits))
 	for _, c := range commits {
-		e.Commits = append(e.Commits, state.Commit{Hash: c.Hash, Subject: c.Subject, Card: c.Card, At: c.At})
+		e.Commits = append(e.Commits, state.Commit{Hash: c.Hash, Subject: c.Subject, Card: c.Card, At: c.At, Made: made[c.Hash]})
 	}
 	e.Head = hash
 }
