@@ -58,6 +58,7 @@ brigade whoami                   # this session's Brigade session_id, name and t
 brigade team members             # the roster: member, joined, session count, last seen
 brigade doing <<'EOF' ... EOF   # one short sentence: what this session is working on
 brigade doing --clear            # remove this session's sentence from the roster
+brigade rename <<'EOF' ... EOF  # name this session (applied at your user's next prompt; the roster follows)
 brigade sync status              # the folders this project syncs, their state, the sync engine and the peers
 brigade note <<'EOF' ... EOF    # one Done:, Next: or Blocked: line into this session's state entry (a project with a state folder)
 brigade decision --options "a | b" <<'EOF' ... EOF   # a question for your user's manager, sent through the team's gateway
@@ -184,6 +185,21 @@ EOF
   its own. If a `Brigade doing:` line reaches you inside a subagent, leave it alone.
 - If the command is refused or raises a permission prompt, say so once and carry on with the work; never reach
   for another invocation form, and do not run it again in this conversation, whatever a later line says.
+
+## Naming your session
+
+`brigade rename` names the session the way your user's `/rename` does: one line on stdin in a quoted heredoc, at
+most 200 characters, no secrets, paths, hostnames, usernames or customer names. The prompt hook hands it to Claude
+Code the next time your user submits a prompt; until then the session keeps its name, and `brigade rename --clear`
+drops a pending one. Use it when the work has a name of its own, a ticket's number and slug, and the session still
+carries a derived one such as `payments-3`. A subagent never runs it, and a refusal or a permission prompt is
+answered as for `brigade doing`: say so once and carry on.
+
+```bash
+brigade rename <<'EOF'
+174-let-a-session-rename-itself
+EOF
+```
 
 ## Notes, decisions and the digest (a project with a state folder)
 

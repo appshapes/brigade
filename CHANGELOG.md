@@ -9,6 +9,23 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A session names itself** (card 174). `brigade rename` takes one line on
+  stdin and records it as a pending name; the next `brigade hook prompt`
+  hands it to Claude Code as its output's `sessionTitle`, the effect of the
+  user typing `/rename`, so a session that takes a card can carry the
+  card's number and slug on the team roster instead of a derived name such
+  as `brigade-63`. The name is applied when the user next submits a prompt
+  (a hook runs then, not before); the session registry then carries it and
+  the roster follows at the next heartbeat. At most 200 characters, Claude
+  Code's own cap; refused when empty, not UTF-8, shaped like a credential
+  or naming a local path; `--clear` drops a pending name. Muse Code, Codex
+  CLI and Grok Build record nothing and say so: their hooks have no field
+  that sets a title. While a name is pending, the prompt hook's other
+  lines travel inside the same JSON document as `additionalContext`, which
+  Claude Code injects as it injects plain output.
+
 ## [0.45.1] — 2026-10-30
 
 ### Fixed

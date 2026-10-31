@@ -22,6 +22,7 @@ Commands:
                                               send a message to another session, by its id or its SESSION characters, or to a member's best session (body on stdin)
   whoami                                      print this session's identity
   doing [--clear]                             publish one sentence about what this session is working on (on stdin)
+  rename [--clear]                            name this Claude Code session (the name on stdin): the prompt hook applies it at the user's next prompt, and the team roster follows
   note                                        record one line about the work for the digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)
   decision --to <label> [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id>
                                               ask a teammate for a decision (the question on stdin), sent at once to their digest recipients or their session, or close one with its outcome
@@ -116,6 +117,18 @@ publish one sentence about what this session is working on (on stdin)
 | Flag | What it does |
 | --- | --- |
 | `--clear` | remove the sentence; nothing is read from stdin |
+
+## brigade rename
+
+```text
+Usage: brigade rename [--clear] [--json] [--log-level debug|info|warn|error]
+
+name this Claude Code session (the name on stdin): the prompt hook applies it at the user's next prompt, and the team roster follows
+```
+
+| Flag | What it does |
+| --- | --- |
+| `--clear` | drop a pending name; nothing is read from stdin |
 
 ## brigade note
 

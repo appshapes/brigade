@@ -106,6 +106,13 @@ func init() {
 			Run:     runDoing,
 		},
 		{
+			Name:    "rename",
+			Args:    "[--clear]",
+			Summary: "name this Claude Code session (the name on stdin): the prompt hook applies it at the user's next prompt, and the team roster follows",
+			Flags:   func(fs *flag.FlagSet) { fs.Bool("clear", false, "drop a pending name; nothing is read from stdin") },
+			Run:     runRename,
+		},
+		{
 			Name:    "note",
 			Summary: "record one line about the work for the digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)",
 			Run:     runNote,
@@ -333,6 +340,11 @@ func runWhoami(cx *Context, args []string) error {
 // runDoing is the table's Run for `doing` (card 25).
 func runDoing(cx *Context, args []string) error {
 	return harnesscmd.Doing(invocation(cx, args), harnesscmd.DoingOptions{Clear: cx.Bool("clear")})
+}
+
+// runRename is the table's Run for `rename` (card 174).
+func runRename(cx *Context, args []string) error {
+	return harnesscmd.Rename(invocation(cx, args), harnesscmd.RenameOptions{Clear: cx.Bool("clear")})
 }
 
 // runNote is the table's Run for `note` (card 162).

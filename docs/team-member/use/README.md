@@ -38,6 +38,7 @@ Details: [Message a session or a member](message-a-session.md).
 1. Its name, state, your label, its model and context, its Brigade version, and one sentence its model publishes
    with `brigade doing` under its row.
 2. `share_doing: false` stops the sentence; `share_workspace_label: false` withholds the repository name.
+3. `brigade rename` lets the model name the session; Claude Code applies it at your next prompt, as `/rename` would.
 
 Details: [Know what teammates see about your session](your-session-on-the-roster.md).
 

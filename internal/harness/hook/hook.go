@@ -436,6 +436,12 @@ type run struct {
 	written      int
 	writtenBytes int
 	byteCap      int
+	// collecting, set by the prompt hook while a pending name is applied
+	// (card 174), makes say gather its lines in collected instead of
+	// writing them: they ride inside the one JSON document the prompt
+	// ends with, as additionalContext. The caps count them all the same.
+	collecting bool
+	collected  []string
 	// optionsEnv is the environment ParseOptions reads: environ itself on
 	// Claude Code; on a host with an options file (Muse Code, Codex CLI)
 	// environ plus the entries the file supplies (config.OptionsEnviron),
@@ -712,7 +718,11 @@ func (r *run) say(line string) {
 	if r.streams.Out == nil {
 		return
 	}
-	_, _ = io.WriteString(r.streams.Out, line+"\n")
+	if r.collecting {
+		r.collected = append(r.collected, line)
+	} else {
+		_, _ = io.WriteString(r.streams.Out, line+"\n")
+	}
 	r.written += utf8.RuneCountInString(line) + 1
 	r.writtenBytes += len(line) + 1
 }

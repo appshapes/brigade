@@ -62,6 +62,13 @@ func (r *run) prompt() int {
 	if f.host == config.HostGrok && !r.grokMatches(m, in) {
 		return 0
 	}
+	// A pending name (card 174) is taken before anything prints: the title
+	// travels in the hook's one JSON document, and every line this prompt
+	// says then rides inside it as additionalContext.
+	if name := r.takeRename(f, in); name != "" {
+		r.collecting = true
+		defer r.emitPromptJSON(name)
+	}
 	changed := false
 	if in.PermissionMode != "" && in.PermissionMode != m.PermissionMode {
 		m.PermissionMode = in.PermissionMode

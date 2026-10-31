@@ -18,7 +18,7 @@ and delivery wording.
 
 1. The plugin puts `brigade` on the Bash tool's PATH and loads nine skills from `plugin/skills/`.
 2. `brigade:team-messaging` is the surface: `brigade sessions`, `brigade send`, `brigade whoami`, `brigade doing`,
-   `brigade team members`, `brigade sync status`, and the rules for an inbound frame.
+   `brigade rename`, `brigade team members`, `brigade sync status`, and the rules for an inbound frame.
 3. A message arrives through Claude Code's inbox socket as a message from another session, wrapped in Brigade's frame.
 
 Details: [Claude Code](claude-code.md).

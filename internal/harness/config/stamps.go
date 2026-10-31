@@ -27,3 +27,17 @@ func RegisterRetryStamp(stateDir string, pid int) string {
 func DoingNudgeStamp(stateDir string, pid int) string {
 	return filepath.Join(stateDir, "state", strconv.Itoa(pid)+".doing-nudge")
 }
+
+// MaxSessionNameChars caps the name `brigade rename` records and the
+// prompt hook applies (card 174): Claude Code's own cap on a /rename name.
+const MaxSessionNameChars = 200
+
+// RenameStamp is the pending session name `brigade rename` leaves for the
+// prompt hook (card 174): one line, `<claude_session_id> <name>`, written
+// by the command and taken — read and removed — by the next prompt hook,
+// which answers Claude Code with the name as its output's sessionTitle.
+// Here for the same reason as the stamps above: both packages need the
+// path and neither imports the other.
+func RenameStamp(stateDir string, pid int) string {
+	return filepath.Join(stateDir, "state", strconv.Itoa(pid)+".rename")
+}

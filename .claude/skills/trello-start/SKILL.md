@@ -36,7 +36,10 @@ and the Collaborating section below does not apply:
    attachments, and the cards or pages it links to. Read what the card points at (a plan in
    `.context/plans/`, an experiment report, a research digest, a changelog section) where the card's
    words are not enough. Keep the long id, board and list you resolved: the later steps need them.
-   Set this session's roster line: `brigade doing` with one sentence naming the card.
+   Set this session's roster line: `brigade doing` with one sentence naming the card. Name the session after the
+   card: `brigade rename <<'EOF'`, then `<number>-<slug>` as the card's URL spells it
+   (`173-add-a-trello-start-skill`), then `EOF`; Claude Code applies it at the user's next prompt, usually their
+   answer in step 2, and the roster follows.
 2. **Review it.** Say in a few lines what the card asks for, how it will be built and in which parts of
    the repository (the binary, a package under `plugin/`, `muse/brigade/` or `codex/brigade/`,
    `supabase/`, the documentation), what is decided for now and what is still to confirm. Then

@@ -59,6 +59,18 @@ Codex 0.163.0's paginated mode still writes the supported rollout events; page-o
 unsupported. Muse custom data directories are unsupported because its plugin hooks do not receive the original
 XDG data setting. Details: [Muse](../../agent/in-a-team/muse-code.md), [Codex](../../agent/in-a-team/codex.md).
 
+## Naming your session from inside it
+
+A Claude Code session is named by you: `/rename <name>` while it runs, or `claude -n <name>` when you start it. Its
+model can ask for a name too. `brigade rename` takes one line on stdin, at most 200 characters (Claude Code's own
+cap), refused when empty, not UTF-8, longer than that, shaped like a credential or naming a path on your machine,
+and records it as a pending name; the prompt hook hands it to Claude Code as its `sessionTitle` the next time you
+submit a prompt, with the same effect as `/rename`. Nothing changes before that prompt, and `brigade rename
+--clear` drops a pending name. The registry then carries the new name and the roster follows at the next
+heartbeat, as it does after `/rename`. The name is the model's own words, under the rules of the sentence under
+your row: no secrets, no paths, no customer names. On Muse Code, Codex CLI and Grok Build the command records
+nothing and says so: their hooks have no field that sets a title.
+
 ## The repository name
 
 `share_workspace_label: true` sends the checkout's `origin` remote's name (else its directory's), never the
