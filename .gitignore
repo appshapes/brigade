@@ -244,5 +244,7 @@ reviews.db
 # The team's synced folder (`sync.folders` in .brigade.json, cards 162, 167 and 171): what the team keeps in step
 # between checkouts through Syncthing, and in its `state/` the sessions' state entries, the decisions, reports.json
 # and the digest markers; never committed. The state folder must be ignored: `brigade report subscribe` writes an
-# email address only into an ignored folder.
-.brigade/
+# email address only into an ignored folder. No trailing slash: a second checkout on this machine links its
+# `.brigade` to this one's (Syncthing takes one folder per repository name per machine), and `.brigade/` would
+# match only a directory, never that link.
+.brigade
