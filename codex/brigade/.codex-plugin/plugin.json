@@ -1,6 +1,6 @@
 {
   "name": "brigade",
-  "version": "0.46.0",
+  "version": "0.47.0",
   "description": "Team messaging between the coding sessions of different people and machines: Codex CLI sessions beside Claude Code and Muse Code ones, through a pluggable adapter CLI (Supabase adapter bundled).",
   "author": {
     "name": "appshapes",

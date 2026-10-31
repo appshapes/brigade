@@ -4,13 +4,13 @@
   "plugins": [
     {
       "name": "brigade",
-      "version": "0.46.0",
+      "version": "0.47.0",
       "install": {
         "transport": "local-path",
         "source": "muse/brigade"
       },
       "integrity": {
-        "digest": "sha256:ad6b3a53574f855c02a38ffb3e57a2028669c6768aedfacf20ff02a500c49201"
+        "digest": "sha256:ced14d11264f0cd24162c9fe7802d15d66d6cde8a405c74567f5e2328ed4eb3e"
       },
       "availability": {
         "status": "available"
