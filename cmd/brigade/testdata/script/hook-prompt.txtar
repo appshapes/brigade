@@ -59,6 +59,30 @@ grep '"permission_mode":"plan"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid
 ! exists $WORK/.brigade/xdg/state/brigade/watchers
 ! grep '"verb":"receive"' dump.ndjson
 
+# --- the session's name follows the registry (card 164) ----------------------
+# Claude Code writes a /rename to its session registry; the watcher reads
+# it within a tick and heartbeats it, so the roster shows the new name. The
+# prompt hook brings the map level at the next prompt — the map is what
+# `brigade whoami` reads, never the registry — so `whoami` names the session
+# as `brigade sessions` does, in both forms, from that prompt on. The same
+# registry at a later prompt leaves the name standing.
+mkdir $WORK/.brigade/claude-config/sessions
+expand registry-renamed.in $WORK/.brigade/claude-config/sessions/$SLEEPER_PID.json
+stdin prompt-plan.json
+exec brigade hook prompt
+! stdout .
+grep '"session_name":"164-brigade-whoami-reports-the-start-name-after-a-rename"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+exec brigade whoami
+stdout '^session brigade-sess-1 "164-brigade-whoami-reports-the-start-name-after-a-rename" in team "ops" \(adapter fake-adapter 0.0.0-fake\); inbound: accept$'
+! stderr .
+exec brigade whoami --json
+json stdout .result.session_name 164-brigade-whoami-reports-the-start-name-after-a-rename
+stdin prompt-plan.json
+exec brigade hook prompt
+! stdout .
+grep '"session_name":"164-brigade-whoami-reports-the-start-name-after-a-rename"' $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+rm $WORK/.brigade/claude-config/sessions/$SLEEPER_PID.json
+
 # --- the watcher's notice is printed once, sanitised, then removed -----------
 mkdir $WORK/.brigade/xdg/state/brigade/state
 expand notice.in $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.notice
@@ -268,6 +292,8 @@ exec brigade hook prompt
 ! stdout .
 stderr 'session facts'
 
+-- registry-renamed.in --
+{"pid":$SLEEPER_PID,"sessionId":"native-1","cwd":"/work/project","version":"2.1.259","kind":"interactive","entrypoint":"cli","name":"164-brigade-whoami-reports-the-start-name-after-a-rename","nameSource":"user","status":"idle"}
 -- fake.sh --
 #!/bin/sh
 # The scripted fake adapter behind an absolute path (an adapter with a

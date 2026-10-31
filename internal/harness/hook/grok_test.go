@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/cli"
 	"github.com/appshapes/brigade/internal/harness/config"
@@ -476,6 +477,51 @@ func TestGrokNameStaysGrokWithoutTitle(t *testing.T) {
 	m := f.mustMap()
 	if m.SessionName != "grok" {
 		t.Fatalf("name %q", m.SessionName)
+	}
+}
+
+// TestGrokPromptFollowsTheSummaryTitle (card 164): a Grok session that
+// started before its summary had a title is "grok" in the map; once the
+// summary names it — what the watcher heartbeats, so the roster shows it —
+// the next prompt writes the title into the map, so `brigade whoami` names
+// the session as the roster does; a prompt that finds the same title
+// rewrites nothing.
+func TestGrokPromptFollowsTheSummaryTitle(t *testing.T) {
+	t.Parallel()
+	f := grokFixture(t)
+	code, _, errOut := grokRun(f, SubSessionStart, grokDoc(f, "session_start", "new", nil))
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "grok" {
+		t.Fatalf("name at start %q", m.SessionName)
+	}
+	enc := watch.GrokEncodedCwd(f.cwd)
+	if enc == "" {
+		t.Fatal("fixture cwd did not encode")
+	}
+	dir := filepath.Join(f.dirs.Home, ".grok", "sessions", enc, f.nativeID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"info":{"id":"` + f.nativeID + `"},"generated_title":"164  the summary's\ttitle","session_summary":"not the name"}`
+	if err := os.WriteFile(filepath.Join(dir, "summary.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	titledAt := fixedTime.Add(time.Minute)
+	f.now = titledAt
+	if code, _, errOut := grokRun(f, SubPrompt, grokDoc(f, "user_prompt_submit", "", nil)); code != 0 {
+		t.Fatalf("prompt exit %d: %s", code, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "164 the summary's title" || !m.UpdatedAt.Equal(titledAt) {
+		t.Fatalf("map after the title: name %q, updated_at %v", m.SessionName, m.UpdatedAt)
+	}
+	f.now = fixedTime.Add(2 * time.Minute)
+	if code, _, errOut := grokRun(f, SubPrompt, grokDoc(f, "user_prompt_submit", "", nil)); code != 0 {
+		t.Fatalf("prompt exit %d: %s", code, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "164 the summary's title" || !m.UpdatedAt.Equal(titledAt) {
+		t.Fatalf("an unchanged title rewrote the map: name %q, updated_at %v", m.SessionName, m.UpdatedAt)
 	}
 }
 

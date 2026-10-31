@@ -65,11 +65,19 @@ func (r *run) prompt() int {
 	// A pending name (card 174) is taken before anything prints: the title
 	// travels in the hook's one JSON document, and every line this prompt
 	// says then rides inside it as additionalContext.
-	if name := r.takeRename(f, in); name != "" {
+	applied := r.takeRename(f, in)
+	if applied != "" {
 		r.collecting = true
-		defer r.emitPromptJSON(name)
+		defer r.emitPromptJSON(applied)
 	}
 	changed := false
+	if name := r.currentName(f, in, applied); name != "" && name != m.SessionName {
+		// Card 164: the map follows a rename, so every map reader —
+		// `whoami` first — names the session as the roster does.
+		r.log.Info("prompt: session name updated", slog.String("session_name", name))
+		m.SessionName = name
+		changed = true
+	}
 	if in.PermissionMode != "" && in.PermissionMode != m.PermissionMode {
 		m.PermissionMode = in.PermissionMode
 		changed = true
@@ -111,6 +119,32 @@ func (r *run) prompt() int {
 	e := r.statePrompt(ctx, f, m, r.deps.Now())
 	r.promptStateAsk(ctx, f, in, m, e)
 	return 0
+}
+
+// currentName is the name the map should carry as of this prompt (card
+// 164): the name this prompt applies for `brigade rename`, else what the
+// host says the session is called now — Grok's summary title, as at
+// SessionStart and compact; elsewhere titleOf, the registry's name (where
+// Claude Code writes a /rename, which the watcher reads within a tick and
+// heartbeats, so the roster showed the new name while the map — what
+// `whoami`, `decision`, `report` and `inbox` read — kept the name the
+// session started with) else the document's session_title. Every
+// candidate is folded as the heartbeat folds, so the map, `whoami` and the
+// roster hold one string. "" — the map's name stands — when the host says
+// nothing; the prompt never falls back to the directory's name as a
+// registration does. A name applied here is written before Claude Code
+// has written the registry, because the model may run `brigade whoami` in
+// the turn that follows; the registry confirms it at the next prompt — or
+// corrects it, should Claude Code not have applied the title.
+func (r *run) currentName(f facts, in input, applied string) string {
+	if applied != "" {
+		return registeredName(applied)
+	}
+	if f.host == config.HostGrok {
+		title, _ := r.grokFacts(in)
+		return title
+	}
+	return titleOf(r.registryEntry(f), in)
 }
 
 // resolveDoingMode is the prompt hook's one-time resolution of a by-pid

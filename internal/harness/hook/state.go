@@ -90,7 +90,8 @@ func (r *run) newStateEntry(f facts, opts config.Options, m *sessionmap.ByPID, n
 }
 
 // statePrompt stamps the prompt and refreshes what may have moved: the
-// session's name (the registry's, after a /rename), the inbound policy,
+// session's name (the map's, which prompt() brought level with the
+// registry — a /rename — before this runs, card 164), the inbound policy,
 // HEAD and the commits. A session with no canonical entry — one that was
 // running when the project gained its state folder, or whose entry was
 // pruned — gets a fresh one here, as SessionStart would have written it.
@@ -111,9 +112,7 @@ func (r *run) statePrompt(ctx context.Context, f facts, m *sessionmap.ByPID, now
 		}
 		e = r.newStateEntry(f, opts, m, now)
 	}
-	if name := registeredName(r.registryEntry(f).Name); name != "" {
-		e.SessionName = name
-	}
+	e.SessionName = m.SessionName
 	// The parity ask (stop.go) judges the turn that ENDED at this prompt,
 	// so it reads the previous prompt's stamp: the entry is handed over
 	// as it was, the new stamp written after.

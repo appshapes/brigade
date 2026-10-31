@@ -123,6 +123,15 @@ func SanitizeName(s string) string {
 	return TruncateRunes(Sanitize(s), MaxSessionNameCodepoints)
 }
 
+// OneLineName is SanitizeName with every run of whitespace folded to one
+// space: the one form a session name takes wherever Brigade writes it
+// down — the watcher's heartbeat, the hook's registration and the by-pid
+// map `brigade whoami` reads — so the roster and `whoami` print one
+// string (card 164).
+func OneLineName(s string) string {
+	return strings.Join(strings.Fields(SanitizeName(s)), " ")
+}
+
 // SanitizeLabel sanitises a human label: rules 1-3 with the
 // MaxHumanLabelChars code-point cap.
 func SanitizeLabel(s string) string {

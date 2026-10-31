@@ -487,6 +487,13 @@ func TestOneLineHelpers(t *testing.T) {
 	if got := oneLine(strings.Repeat("x", 20), 5); got != "xxxxx" {
 		t.Errorf("oneLine cap = %q", got)
 	}
+	// Card 164: registeredName folds as the watcher's heartbeat folds —
+	// every run of whitespace to one space, after the protocol's cap — so
+	// the map's name is the string the roster shows.
+	if got := registeredName("  164-whoami \n after \t\t a rename  "); got != "164-whoami after a rename" {
+		t.Errorf("registeredName = %q", got)
+	}
+
 	if got := ident("id\"<>\n" + strings.Repeat("a", 100)); got != "id"+strings.Repeat("a", 100) {
 		t.Errorf("ident = %q", got)
 	}

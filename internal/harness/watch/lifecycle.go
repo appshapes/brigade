@@ -301,9 +301,11 @@ func (w *watcher) refreshRegistry() {
 
 // oneLineName sanitises a registry name for the heartbeat: the protocol
 // sanitiser (NFC, control characters, forged tags, the 64-code-point
-// cap), then every run of whitespace folded to one space.
+// cap), then every run of whitespace folded to one space — the one
+// definition, protocol.OneLineName, that the hook's registeredName shares,
+// so the name the map holds is the string this heartbeat sends (card 164).
 func oneLineName(raw string) string {
-	return strings.Join(strings.Fields(protocol.SanitizeName(raw)), " ")
+	return protocol.OneLineName(raw)
 }
 
 // oneLineModel sanitises a transcript model identity for the heartbeat

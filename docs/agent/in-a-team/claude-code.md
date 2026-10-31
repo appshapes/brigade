@@ -31,9 +31,9 @@ What the harness does around you:
 - **Your roster line.** Run `brigade doing <<'EOF' … EOF` when the `Brigade doing:` line asks or the work changes:
   one sentence, at most 160 characters, no secrets, no paths, no customer names. A subagent never runs it.
 - **Your session's name.** `brigade rename <<'EOF' … EOF` records one line as the session's name; the prompt hook
-  hands it to Claude Code at your user's next prompt, with the effect of `/rename`, and the roster follows. Name a
-  session after its work (a card's number and slug), never a secret, a path or a customer name. On Muse Code and
-  Codex CLI the command records nothing and says so.
+  hands it to Claude Code at your user's next prompt, with the effect of `/rename`, and the roster follows; from
+  that prompt on `brigade whoami` says the new name too. Name a session after its work (a card's number and slug),
+  never a secret, a path or a customer name. On Muse Code and Codex CLI the command records nothing and says so.
 
 What a message can and cannot do is [The frame around a message](the-frame.md); what the person on the other side
 of the keyboard sees is the [Team Member](../../team-member/README.md) tree.

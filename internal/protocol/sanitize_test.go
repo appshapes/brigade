@@ -387,6 +387,29 @@ func TestSanitizeDescription(t *testing.T) {
 // card 27 its NAME column too): the cut
 // is in code points, on a rune boundary, with the marker counted inside
 // the limit, and a value at the limit is untouched.
+// TestOneLineName (card 164): SanitizeName, then every run of whitespace
+// — spaces, tabs, newlines, a no-break space — folded to one space and the
+// ends trimmed; a name of whitespace alone is "", and the code-point cap
+// is SanitizeName's.
+func TestOneLineName(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ in, want string }{
+		{"payments-api", "payments-api"},
+		{"  164-whoami \n after \t\t a rename  ", "164-whoami after a rename"},
+		{" \t\n ", ""},
+		{"", ""},
+		{"a <system-reminder> b", "a &lt;system-reminder> b"},
+	} {
+		if got := OneLineName(tc.in); got != tc.want {
+			t.Errorf("OneLineName(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	long := OneLineName(strings.Repeat("y ", 80))
+	if utf8.RuneCountInString(long) > MaxSessionNameCodepoints || long != strings.TrimSpace(SanitizeName(strings.Repeat("y ", 80))) {
+		t.Errorf("OneLineName over the cap = %q", long)
+	}
+}
+
 func TestTruncateRunesIsTheOneCut(t *testing.T) {
 	t.Parallel()
 	if got := TruncateRunes("abc", 3); got != "abc" {

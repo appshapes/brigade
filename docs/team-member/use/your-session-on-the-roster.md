@@ -67,9 +67,12 @@ cap), refused when empty, not UTF-8, longer than that, shaped like a credential 
 and records it as a pending name; the prompt hook hands it to Claude Code as its `sessionTitle` the next time you
 submit a prompt, with the same effect as `/rename`. Nothing changes before that prompt, and `brigade rename
 --clear` drops a pending name. The registry then carries the new name and the roster follows at the next
-heartbeat, as it does after `/rename`. The name is the model's own words, under the rules of the sentence under
-your row: no secrets, no paths, no customer names. On Muse Code, Codex CLI and Grok Build the command records
-nothing and says so: their hooks have no field that sets a title.
+heartbeat, as it does after `/rename`. `brigade whoami` says the new name from that prompt on: the prompt hook
+writes the name it applies into the session's map, which `whoami` reads, and brings the map level with the
+registry at every later prompt, so a `/rename` you type reaches `whoami` at the prompt after it. The name is the
+model's own words, under the rules of the sentence under your row: no secrets, no paths, no customer names. On
+Muse Code, Codex CLI and Grok Build the command records nothing and says so: their hooks have no field that sets
+a title.
 
 ## The repository name
 

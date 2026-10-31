@@ -25,7 +25,7 @@
   ends with the line `Session stamp: <team>/<session name>, <YYYY-MM-DD>`, so the card says which session was
   last involved (card 163): the team is `team_name` and the session name the `session_name` of the row whose
   `session_id` equals `self_session_id` in `brigade sessions --here --json` (the roster carries a renamed
-  session's new name; `brigade whoami` does not). Outside a Brigade session there is no stamp.
+  session's new name, and so does `brigade whoami` since card 164). Outside a Brigade session there is no stamp.
 - **Skills of this repository** live in `.claude/skills/`: `commit`, `trello-create`, `trello-read`, `trello-start`,
   `trello-done`, `playwright-cli`. The Brigade plugin's own skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`)
   are the product.

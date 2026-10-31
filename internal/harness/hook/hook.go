@@ -1137,9 +1137,11 @@ func oneLine(s string, limit int) string {
 }
 
 // registeredName folds a display name onto one line and caps it at the
-// wire limit before it is registered (C-16).
+// wire limit before it is registered (C-16): protocol.OneLineName, the one
+// definition the watcher's heartbeat uses too, so the name the map holds
+// and `whoami` prints is the string the roster shows (card 164).
 func registeredName(s string) string {
-	return oneLine(protocol.SanitizeName(s), protocol.MaxSessionNameCodepoints)
+	return protocol.OneLineName(s)
 }
 
 // identity is the 6.5 resolution.
@@ -1165,11 +1167,7 @@ func (r *run) identity(f facts, in input) identity {
 		// blanks session_title. With no title yet the roster keeps "grok"
 		// until a later heartbeat sees one.
 		name := "grok"
-		cwd := in.launchCwd
-		if cwd == "" {
-			cwd = in.Cwd
-		}
-		title, model := watch.GrokSessionFacts(r.environ, cwd, in.SessionID)
+		title, model := r.grokFacts(in)
 		if title != "" {
 			name = title
 		}
@@ -1188,16 +1186,42 @@ func (r *run) identity(f facts, in input) identity {
 		id.entrypoint = entry.Entrypoint
 	}
 	id.nonInteractive = id.entrypoint == entrypointSDK
-	for _, candidate := range []string{entry.Name, in.SessionTitle, cwdName(in.Cwd)} {
-		if name := registeredName(candidate); name != "" {
-			id.name = name
-			break
-		}
+	id.name = titleOf(entry, in)
+	if id.name == "" {
+		id.name = registeredName(cwdName(in.Cwd))
 	}
 	if id.name == "" {
 		id.name = string(f.host)
 	}
 	return id
+}
+
+// grokFacts is the title and model of the Grok session the document
+// names, from its own summary: the title is local metadata, never the
+// document's session_title (identity blanks it), and "" until the
+// summary has one.
+func (r *run) grokFacts(in input) (title, model string) {
+	cwd := in.launchCwd
+	if cwd == "" {
+		cwd = in.Cwd
+	}
+	return watch.GrokSessionFacts(r.environ, cwd, in.SessionID)
+}
+
+// titleOf is the name the host says the session has NOW, or "" when it
+// says nothing: the registry's name — where Claude Code writes a /rename —
+// else the document's session_title, each folded as every name is.
+// SessionStart's identity adds the fallbacks a registration needs (the
+// directory's base name, the host's name); the prompt hook adopts only
+// this (currentName, card 164): a fallback there would rename a session
+// whose registry is unreadable to its directory at every prompt.
+func titleOf(entry registry.Entry, in input) string {
+	for _, candidate := range []string{entry.Name, in.SessionTitle} {
+		if name := registeredName(candidate); name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 // cwdName is basename(cwd), or "" when cwd names no directory.

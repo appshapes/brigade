@@ -9,6 +9,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`brigade whoami` names a renamed session** (card 164). After `/rename`,
+  or a `brigade rename` the prompt hook applied, the roster showed the new
+  name while `whoami` kept the one the session started with, in the human
+  form and in `--json`'s `session_name`: the watcher reads a rename from
+  Claude Code's session registry and heartbeats it, but nothing wrote it
+  back into the by-pid map that `whoami` reads. The prompt hook now brings
+  the map's `session_name` level with the registry at every prompt, and
+  writes a name it applies itself at once, so `whoami`, `decision`,
+  `report` and `inbox` name the session as the roster does from the next
+  prompt on; on Grok Build the map follows the summary title the roster
+  shows the same way. The hook folds the name as the heartbeat does (every
+  run of whitespace to one space), so the two forms are one string.
+
 ## [0.47.0] — 2026-10-31
 
 ### Added

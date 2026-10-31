@@ -191,9 +191,10 @@ EOF
 `brigade rename` names the session the way your user's `/rename` does: one line on stdin in a quoted heredoc, at
 most 200 characters, no secrets, paths, hostnames, usernames or customer names. The prompt hook hands it to Claude
 Code the next time your user submits a prompt; until then the session keeps its name, and `brigade rename --clear`
-drops a pending one. Use it when the work has a name of its own, a ticket's number and slug, and the session still
-carries a derived one such as `payments-3`. A subagent never runs it, and a refusal or a permission prompt is
-answered as for `brigade doing`: say so once and carry on.
+drops a pending one. From that prompt on `brigade whoami` says the new name, as the roster does. Use it when the
+work has a name of its own, a ticket's number and slug, and the session still carries a derived one such as
+`payments-3`. A subagent never runs it, and a refusal or a permission prompt is answered as for `brigade doing`:
+say so once and carry on.
 
 ```bash
 brigade rename <<'EOF'

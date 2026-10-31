@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/testutil"
+	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
 
 // renameStamp is the fixture session's pending-name file (card 174).
@@ -72,6 +74,99 @@ func TestPromptAppliesAPendingName(t *testing.T) {
 	}
 	if got := f.readDoingStamp(t); got != f.stampOf(fixedTime) {
 		t.Fatalf("doing stamp %q, want %q", got, f.stampOf(fixedTime))
+	}
+	// Card 164: the map carries the applied name at once — before Claude
+	// Code has written its registry — so `brigade whoami` in the turn
+	// that follows names the session as the roster will; the next prompt,
+	// the registry now naming it as Claude Code wrote it, rewrites
+	// nothing.
+	if m := f.mustMap(); m.SessionName != "174-let-a-session-rename-itself" {
+		t.Fatalf("map after the apply names %q", m.SessionName)
+	}
+	f.registry = fakeregistry.New(t, map[int]string{f.pid: fakeregistry.Observed(f.pid, "174-let-a-session-rename-itself", "busy", f.socket)})
+	f.deps.Registry = f.registry
+	f.now = fixedTime.Add(time.Minute)
+	if exit, _, errOut := f.run(SubPrompt, f.promptDoc("bypassPermissions")); exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "174-let-a-session-rename-itself" || !m.UpdatedAt.Equal(fixedTime) {
+		t.Fatalf("the confirming prompt rewrote the map: name %q, updated_at %v", m.SessionName, m.UpdatedAt)
+	}
+}
+
+// TestPromptFollowsARenameIntoTheMap (card 164): the map's session_name
+// follows Claude Code's session registry — where /rename lands, and what
+// the watcher reads and heartbeats to the roster — at the next prompt,
+// folded as the heartbeat folds it and with a new updated_at, so `brigade
+// whoami`, which reads the map and never the registry, names the session
+// as `brigade sessions` does. A prompt that finds the registry unchanged
+// rewrites nothing, and a registry name that folds to nothing leaves the
+// map's name standing.
+func TestPromptFollowsARenameIntoTheMap(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.spawner.watcherPID = testutil.NewSleeper(t)
+	registered(t, f, nil)
+	// The first prompt settles the permission mode, which the SessionStart
+	// document did not carry, so the writes below are the name's alone.
+	if exit, out, errOut := f.run(SubPrompt, f.promptDoc("default")); exit != 0 || out != "" {
+		t.Fatalf("exit %d out %q: %s", exit, out, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "payments-api" || !m.UpdatedAt.Equal(fixedTime) {
+		t.Fatalf("map before the rename: name %q, updated_at %v", m.SessionName, m.UpdatedAt)
+	}
+	f.registry = fakeregistry.New(t, map[int]string{f.pid: fakeregistry.Observed(f.pid, "164-whoami  after\na\trename", "busy", f.socket)})
+	f.deps.Registry = f.registry
+	renamedAt := fixedTime.Add(time.Minute)
+	f.now = renamedAt
+	if exit, out, errOut := f.run(SubPrompt, f.promptDoc("default")); exit != 0 || out != "" {
+		t.Fatalf("exit %d out %q: %s", exit, out, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "164-whoami after a rename" || !m.UpdatedAt.Equal(renamedAt) {
+		t.Fatalf("map after the rename: name %q, updated_at %v", m.SessionName, m.UpdatedAt)
+	}
+	f.now = fixedTime.Add(2 * time.Minute)
+	if exit, _, errOut := f.run(SubPrompt, f.promptDoc("default")); exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "164-whoami after a rename" || !m.UpdatedAt.Equal(renamedAt) {
+		t.Fatalf("an unchanged registry rewrote the map: name %q, updated_at %v", m.SessionName, m.UpdatedAt)
+	}
+	f.registry = fakeregistry.New(t, map[int]string{f.pid: fakeregistry.Observed(f.pid, " \t\n ", "busy", f.socket)})
+	f.deps.Registry = f.registry
+	f.now = fixedTime.Add(3 * time.Minute)
+	if exit, _, errOut := f.run(SubPrompt, f.promptDoc("default")); exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "164-whoami after a rename" || !m.UpdatedAt.Equal(renamedAt) {
+		t.Fatalf("a blank registry name changed the map: name %q, updated_at %v", m.SessionName, m.UpdatedAt)
+	}
+	// With the registry saying nothing, the document's session_title is
+	// the host's word (titleOf); with the registry naming the session, the
+	// registry wins over the document; and the directory's name is never a
+	// prompt's fallback (the cwd is /work/project throughout).
+	titled := func(title string) string {
+		return f.doc(map[string]any{
+			"session_id": f.nativeID, "cwd": "/work/project", "hook_event_name": "UserPromptSubmit",
+			"permission_mode": "default", "prompt": "never read", "prompt_id": "p1", "session_title": title,
+		})
+	}
+	documentAt := fixedTime.Add(4 * time.Minute)
+	f.now = documentAt
+	if exit, _, errOut := f.run(SubPrompt, titled("164-from-the-document")); exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "164-from-the-document" || !m.UpdatedAt.Equal(documentAt) {
+		t.Fatalf("the document's title was not adopted: name %q, updated_at %v", m.SessionName, m.UpdatedAt)
+	}
+	f.registry = fakeregistry.New(t, map[int]string{f.pid: fakeregistry.Observed(f.pid, "164-from-the-registry", "busy", f.socket)})
+	f.deps.Registry = f.registry
+	f.now = fixedTime.Add(5 * time.Minute)
+	if exit, _, errOut := f.run(SubPrompt, titled("164-from-the-document")); exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	if m := f.mustMap(); m.SessionName != "164-from-the-registry" {
+		t.Fatalf("the registry did not win over the document: name %q", m.SessionName)
 	}
 }
 
