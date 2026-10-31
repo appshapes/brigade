@@ -1,6 +1,6 @@
 {
   "name": "brigade",
-  "version": "0.45.1",
+  "version": "0.46.0",
   "description": "Team messaging for Grok Build direct TUIs (--no-leader), using a persistent native inbox monitor and the shared Brigade adapter protocol.",
   "author": {
     "name": "appshapes"
