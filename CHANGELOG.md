@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.47.0] — 2026-10-31
+
 ### Added
 
 - **`brigade whoami` prints the short id** (card 157). Its second line,
