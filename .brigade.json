@@ -10,7 +10,7 @@
     "slack": "appshapes.slack.com: @brigade"
   },
   "sync": {
-    "folders": [".brigade/state"],
+    "folders": [".brigade"],
     "state": ".brigade/state"
   }
 }

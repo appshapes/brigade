@@ -1,11 +1,11 @@
 # Set up the digests
 
 ```json
-"sync": { "folders": [".brigade/state"], "state": ".brigade/state" }
+"sync": { "folders": [".brigade"], "state": ".brigade/state" }
 ```
 
-A project that names one of its synced folders as its **state folder** has every session of its checkouts keep
-one state entry there, `sessions/<session id>.json`, synced to every teammate's checkout by folder sync
+A project that names a **state folder** inside one of its synced folders, or the synced folder itself, has every
+session of its checkouts keep one state entry there, `sessions/<session id>.json`, synced to every teammate's checkout by folder sync
 ([Set the folders to sync](sync-folders.md)): who the member is, the session's name, repository, branch and host,
 when it started, last prompted and ended, its inbound policy, the commits its author made since it started (hash,
 subject, the card number the subject starts with, time), the doing lines it published, and the notes and decisions
@@ -19,10 +19,15 @@ reports nothing.
 
 ## The rules
 
-- `state` names one of `folders`, spelled exactly as the list spells it. A `state` that is not a string or
-  names no listed folder makes the whole `sync` member unusable (`state_invalid`, `state_not_listed`), as any
-  other broken rule does: the session connects, without file sync, and says why.
-- The folder is a directory of the checkout: list it in `.gitignore`. The entries are a few KiB each; a session's
+- `state` names one of `folders`, spelled exactly as the list spells it, or a clean relative path under one:
+  `.brigade/state` under a synced `.brigade` is the usual shape, the entries riding the sync the folder already
+  has beside whatever else the project keeps there. A `state` that is not a string, is empty, or is not a clean
+  relative path (`.brigade/state/`, `.brigade/../x`, `/srv/state`) makes the whole `sync` member unusable
+  (`state_invalid`); one that is neither a listed folder nor under one, too (`state_not_listed`): the session
+  connects, without file sync, and says why. A plugin before 0.45.0 reads a state under a listed folder as
+  `state_not_listed` and syncs nothing until that member updates
+  ([What an update changes](../../team-member/update/what-an-update-changes.md)).
+- The folder is a directory of the checkout: list it, or the synced folder it is in, in `.gitignore`. The entries are a few KiB each; a session's
   entry keeps the last 100 commits, 50 doing lines and 20 notes.
 - A member whose `sync` option is off shares no entry: the digest lists their sessions from the roster alone.
 - **Retention.** A live entry stays while its session lives; an ended one 14 days; one whose machine never came

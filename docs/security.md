@@ -1185,7 +1185,8 @@ not TUI death: the watcher keeps injecting and does not delete the receiver unti
 
 ## 18. The digests and the state folder
 
-A project can name one of its synced folders as its **state folder** (`sync.state`, card 162; [Set up the
+A project can name one of its synced folders, or a folder inside one, as its **state folder** (`sync.state`,
+cards 162 and 171; [Set up the
 digests](team-admin/configure/digests.md)). Every session of its checkouts then keeps one state entry there, and
 the team's own active sessions produce a digest from it for every member who subscribed (card 167: anyone who opts
 in, from their own session; 0.43's one manager reads as one subscriber). This section says what that opens; it

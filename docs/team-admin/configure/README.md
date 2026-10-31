@@ -22,8 +22,8 @@ Details: [Set the folders to sync](sync-folders.md).
 
 ## Set up the digests
 
-1. Add `"state": ".brigade/state"` to the `sync` member, naming one of its listed folders, and ignore the folder
-   in `.gitignore`.
+1. Add `"state": ".brigade/state"` to the `sync` member, naming one of its listed folders or a path under one
+   (`.brigade/state` under a synced `.brigade`), and ignore the folder in `.gitignore`.
 2. Every session then keeps its state entry there; each member who wants the digest runs `brigade report
    subscribe` (or `/brigade:subscribe`) from their own session, and the sessions' watchers produce it on their
    period. No administrator names anyone.

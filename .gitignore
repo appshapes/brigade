@@ -241,7 +241,8 @@ reviews.db
 # The committed Windows launcher (card 133): the Go template above ignores *.exe
 !plugin/bin/brigade.exe
 
-# The team's state folder (cards 162 and 167, `sync.state` in .brigade.json): every session's state entry,
-# the decisions, reports.json and the digest markers, synced between checkouts by Syncthing, never committed.
-# The folder must be ignored: `brigade report subscribe` writes an email address only into an ignored folder.
-.brigade/state/
+# The team's synced folder (`sync.folders` in .brigade.json, cards 162, 167 and 171): what the team keeps in step
+# between checkouts through Syncthing, and in its `state/` the sessions' state entries, the decisions, reports.json
+# and the digest markers; never committed. The state folder must be ignored: `brigade report subscribe` writes an
+# email address only into an ignored folder.
+.brigade/

@@ -18,9 +18,9 @@ import (
 	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
 
-// stateMember is the team file's sync member with a state folder (card
-// 162): the folder is listed, and `state` names it as listed.
-const stateMember = `,"sync":{"folders":[".brigade/state","docs/shared"],"state":".brigade/state"}`
+// stateMember is the team file's sync member with a state folder (cards
+// 162 and 171): `.brigade` is listed, and `state` names a folder under it.
+const stateMember = `,"sync":{"folders":[".brigade","docs/shared"],"state":".brigade/state"}`
 
 // stateStore is the fixture session's entry store, as the hooks build it
 // from the map.

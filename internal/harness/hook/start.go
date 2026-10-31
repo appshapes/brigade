@@ -815,9 +815,10 @@ func (r *run) resolveSync(opts config.Options, tf *teamfile.File, cwd string) (f
 	}
 	sync := frozenSync{adapter: tf.Sync.Adapter, folders: slices.Clone(tf.Sync.Folders), root: root, scope: syncScope(cwd)}
 	if tf.Sync.State != "" {
-		// The state folder is one of the listed folders (the parser saw
-		// to it), so its path is the one the sync adapter is handed
-		// (foldersync.Folders): the root and the folder as written.
+		// The state folder is one of the listed folders or a path under
+		// one (the parser saw to it), so it rides the sync of a folder the
+		// adapter is handed (foldersync.Folders): its path is the root and
+		// the state as written.
 		sync.stateFolder = filepath.Join(root, tf.Sync.State)
 	}
 	return sync, syncOnLine(len(tf.Sync.Folders), tf.Sync.Adapter)

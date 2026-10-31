@@ -99,8 +99,11 @@ of waiting till we determine the **best** solution."
 ### 5.1 The folder and its files (`internal/harness/foldersync`, `internal/harness/teamfile`, new `internal/harness/state`)
 
 `.brigade.json`'s `sync` member gains an optional `state` string naming one of its listed folders, as listed, say
-`"sync": {"folders": [".brigade/state"], "state": ".brigade/state"}`. Without it, nothing here runs; a `state`
-that is not a string or names no listed folder makes the member unusable (`state_invalid`, `state_not_listed`),
+`"sync": {"folders": [".brigade/state"], "state": ".brigade/state"}`; or, since card 171 (2026-10-30, 0.45.0),
+a clean relative path under a listed folder, `"sync": {"folders": [".brigade"], "state": ".brigade/state"}`, the
+owner's projects syncing `.brigade` whole with other things in it, the entries riding that folder's sync. Without
+it, nothing here runs; a `state` that is not a string, or not a clean relative path, or neither a listed folder
+nor under one, makes the member unusable (`state_invalid`, `state_not_listed`),
 as every other broken rule does. The team file is the project's committed configuration, not wire protocol. The
 hook freezes the folder's absolute path into the by-pid map (`state_folder`) under the same conditions as the
 sync members, so `sync: off` shares no state. Inside the folder:

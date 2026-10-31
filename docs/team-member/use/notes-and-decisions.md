@@ -1,6 +1,6 @@
 # Record notes and ask for decisions
 
-A project whose `.brigade.json` names a state folder (`"sync": {"folders": [".brigade/state"], "state":
+A project whose `.brigade.json` names a state folder (`"sync": {"folders": [".brigade"], "state":
 ".brigade/state"}`) keeps one state entry per session in it, synced to every teammate's checkout, and a digest
 is produced from it for every member who subscribes ([Set up the digests](../../team-admin/configure/digests.md)).
 Two commands let your session put into that entry what the hooks cannot know: what it did, what comes next, what

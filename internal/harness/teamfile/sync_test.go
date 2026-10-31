@@ -63,6 +63,10 @@ func TestSyncRules(t *testing.T) {
 		// The state folder (card 162): one of the listed folders, as listed.
 		{"a state folder among the listed", `{"folders":[".context/plans",".brigade/state"],"state":".brigade/state"}`, "", "syncthing", []string{".context/plans", ".brigade/state"}},
 		{"a state folder above the checkout", `{"folders":["../state"],"state":"../state"}`, "", "syncthing", []string{"../state"}},
+		// Or a path under a listed folder (card 171): the owner's projects sync `.brigade` whole.
+		{"a state folder under a listed one", `{"folders":[".brigade"],"state":".brigade/state"}`, "", "syncthing", []string{".brigade"}},
+		{"a state folder two levels under", `{"folders":["docs",".brigade"],"state":".brigade/team/state"}`, "", "syncthing", []string{"docs", ".brigade"}},
+		{"a state folder under a folder above the checkout", `{"folders":[".."],"state":"../state"}`, "", "syncthing", []string{".."}},
 		// Unusable, one per token.
 		{"sync is an array", `["docs"]`, teamfile.SyncNotObject, "", nil},
 		{"sync is a string", `"docs"`, teamfile.SyncNotObject, "", nil},
@@ -91,8 +95,14 @@ func TestSyncRules(t *testing.T) {
 		{"state is a number", `{"folders":["a"],"state":1}`, teamfile.SyncStateInvalid, "", nil},
 		{"state is null", `{"folders":["a"],"state":null}`, teamfile.SyncStateInvalid, "", nil},
 		{"state is empty", `{"folders":["a"],"state":""}`, teamfile.SyncStateInvalid, "", nil},
+		{"state is absolute", `{"folders":["a"],"state":"/a"}`, teamfile.SyncStateInvalid, "", nil},
+		{"state is not clean", `{"folders":["a/b"],"state":"a/b/"}`, teamfile.SyncStateInvalid, "", nil},
+		{"state leaves the folder it names", `{"folders":["a"],"state":"a/../b"}`, teamfile.SyncStateInvalid, "", nil},
+		{"state is the checkout", `{"folders":["a"],"state":"."}`, teamfile.SyncStateInvalid, "", nil},
 		{"state names an unlisted folder", `{"folders":["a"],"state":"b"}`, teamfile.SyncStateNotListed, "", nil},
-		{"state spelled otherwise than the list", `{"folders":["a/b"],"state":"a/b/"}`, teamfile.SyncStateNotListed, "", nil},
+		{"state beside a listed folder", `{"folders":["a"],"state":"ab/c"}`, teamfile.SyncStateNotListed, "", nil},
+		{"state above a listed folder", `{"folders":["a/b"],"state":"a"}`, teamfile.SyncStateNotListed, "", nil},
+		{"state in another case than the list", `{"folders":["a"],"state":"A/b"}`, teamfile.SyncStateNotListed, "", nil},
 		{"state with no folders", `{"state":"a"}`, teamfile.SyncStateNotListed, "", nil},
 		{"the folder rules come first", `{"folders":["/abs"],"state":"/abs"}`, teamfile.SyncFolderNotRelative, "", nil},
 	}
@@ -117,8 +127,8 @@ func TestSyncRules(t *testing.T) {
 				if f.Sync.Adapter != c.adapter || (c.folders != nil && !slices.Equal(f.Sync.Folders, c.folders)) {
 					t.Fatalf("sync = %+v, want adapter %q folders %q", f.Sync, c.adapter, c.folders)
 				}
-				if f.Sync.State != "" && !slices.Contains(f.Sync.Folders, f.Sync.State) {
-					t.Fatalf("sync = %+v: an accepted state folder is not among the folders", f.Sync)
+				if f.Sync.State != "" && !stateUnderListed(f.Sync) {
+					t.Fatalf("sync = %+v: an accepted state folder is neither among the folders nor under one", f.Sync)
 				}
 			}
 			// The team is the team, sync or no sync.
@@ -325,7 +335,15 @@ func assertSyncInvariants(t *testing.T, f *teamfile.File) {
 			t.Fatalf("an accepted folder %q breaks a rule", folder)
 		}
 	}
-	if f.Sync.State != "" && !slices.Contains(f.Sync.Folders, f.Sync.State) {
-		t.Fatalf("an accepted state folder %q is not listed", f.Sync.State)
+	if f.Sync.State != "" && !stateUnderListed(f.Sync) {
+		t.Fatalf("an accepted state folder %q is neither listed nor under a listed folder", f.Sync.State)
 	}
+}
+
+// stateUnderListed restates the state rule (card 171) for the checks
+// above: the state is a listed folder, or a clean path under one.
+func stateUnderListed(c *teamfile.SyncConfig) bool {
+	return slices.ContainsFunc(c.Folders, func(f string) bool {
+		return c.State == f || strings.HasPrefix(c.State, f+"/")
+	})
 }

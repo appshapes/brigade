@@ -17,8 +17,9 @@
 
 - **Public values only.** The backend URL, the publishable key, the team's reference and name; the join secret is
   never in it. `team create` writes the first four; `sync` and `polling` you add by hand; `gateway` the installers
-  write. `sync.state` names one of the listed folders as the state folder of the digests ([Set up the
-  digests](digests.md)); a plugin before 0.43.0 ignores it, syncs the folder and keeps no entry.
+  write. `sync.state` names the state folder of the digests, a listed folder or a path under one ([Set up the
+  digests](digests.md)); a plugin before 0.43.0 ignores it, syncs the folder and keeps no entry, and one before
+  0.45.0 refuses a state under a listed folder (`state_not_listed`) and syncs nothing.
 - **`adapter`** names a backend other than the bundled Supabase one; the name resolves to a command through each
   member's own `adapters.json` ([docs/adapter-authors.md](../../adapter-authors.md)).
 - **A member this version does not define** is ignored and named in one line at session start.

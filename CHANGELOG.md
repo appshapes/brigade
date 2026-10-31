@@ -9,6 +9,22 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.45.0] — 2026-10-30
+
+### Changed
+
+- **The state folder may sit inside a synced folder** (card 171). `sync.state`
+  names one of `folders` as before, or a clean relative path under one:
+  `"sync": {"folders": [".brigade"], "state": ".brigade/state"}` keeps the
+  entries, the decisions and the digest markers in `.brigade/state`, riding
+  the sync `.brigade` already has beside whatever else the project keeps
+  there. 0.43 and 0.44 read that shape as `state_not_listed` and made the
+  whole `sync` member unusable (file sync off, no entry, no digest), so a
+  member still on 0.44.0 or earlier syncs nothing in such a project until
+  they update. A `state` that is not a clean relative path
+  (`.brigade/state/`, `.brigade/../x`, `/srv/state`) is `state_invalid`;
+  one neither listed nor under a listed folder stays `state_not_listed`.
+
 ## [0.44.0] — 2026-10-29
 
 ### Added
