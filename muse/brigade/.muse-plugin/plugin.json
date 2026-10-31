@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "brigade",
-  "version": "0.45.0",
+  "version": "0.45.1",
   "description": "Team messaging between the coding sessions of different people and machines: Muse Code sessions beside Claude Code ones, through a pluggable adapter CLI (Supabase adapter bundled).",
   "compat": {
     "manifestDir": ".muse-plugin"
