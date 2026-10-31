@@ -1,7 +1,9 @@
 # `brigade whoami` through the real binary (P3-3, plan 6.4).
 #
 # The identity line from the map and the cached describe: exactly one
-# child (the describe), no network; the --json form; and the two refusals
+# child (the describe), no network; the short id line under it (card 157:
+# the roster's SESSION cell, in --json as short_session_id); the --json
+# form; and the two refusals
 # — outside a session, and with a session map that is not private.
 
 # --- fixture: the by-pid map the SessionStart hook would have written ----
@@ -38,6 +40,7 @@ json stdout .ok true
 json stdout .result.delivery.watcher none
 json stdout .result.delivery.held 0
 json stdout .result.session_id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+json stdout .result.short_session_id aaaaa
 json stdout .result.session_name payments-api
 json stdout .result.team_name ops
 ! stdout '"profile"'
@@ -50,7 +53,7 @@ json stdout .result.self_session_id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 status 2 brigade whoami extra
 
-# --- the plugin binary's path: the human form's second line, never --json ---
+# --- the plugin binary's path: the human form's third line, never --json ---
 # Finding F1 took the path out of the SessionStart context line, so `whoami`
 # is where a HUMAN reads it (docs/setup.md's symlink). The map above carries
 # an empty plugin_bin, which is why want-whoami.txt has no terminal line.
@@ -58,6 +61,7 @@ expand map-plugin-bin.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.j
 expand want-whoami-terminal.in want-whoami-terminal.txt
 exec brigade whoami
 stdout '^session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" \(adapter fake-adapter 0.0.0-fake\); inbound: accept$'
+stdout '^short id: aaaaa$'
 stdout '^terminal: .*/plugin-root/bin/brigade$'
 # The whole output, not two line patterns: the path is printed in FULL (the
 # human copies it into a symlink) and the lines after it are the frame
@@ -107,10 +111,12 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 {"dump_file": "$WORK/dump.ndjson"}
 -- want-whoami.txt --
 session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (adapter fake-adapter 0.0.0-fake); inbound: accept
+short id: aaaaa
 frame: open
 delivery: no watcher: this session has no inbox socket; no delivery recorded; 0 held
 -- want-whoami-terminal.in --
 session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (adapter fake-adapter 0.0.0-fake); inbound: accept
+short id: aaaaa
 terminal: $WORK/.brigade/plugin-root/bin/brigade
 frame: open
 delivery: no watcher: this session has no inbox socket; no delivery recorded; 0 held

@@ -21,10 +21,15 @@ import (
 
 // whoamiResult is the --json result of `brigade whoami`: the session's
 // identity from the by-pid map and the adapter from the cached describe.
+// ShortSessionID is the roster's SESSION cell and the address `brigade
+// send` takes: the last shortSessionChars characters of SessionID, taken
+// from the same sanitised string, so it is always a tail of that member;
+// "" when the id sanitises to nothing (card 157).
 type whoamiResult struct {
 	MonitorCommand     string   `json:"monitor_command,omitzero"`
 	MonitorDescription string   `json:"monitor_description,omitzero"`
 	SessionID          string   `json:"session_id"`
+	ShortSessionID     string   `json:"short_session_id"`
 	SessionName        string   `json:"session_name"`
 	WorkspaceLabel     string   `json:"workspace_label,omitzero"`
 	TeamRef            string   `json:"team_ref"`
@@ -77,7 +82,17 @@ const WhoamiNote = "identity read from this session's map and the adapter's desc
 // name, team, profile and adapter from the by-pid map and the cached
 // `describe`; no network (the describe is one local spawn).
 //
-// The human form carries a second line, `terminal: <plugin binary>`, when
+// The second line, `short id: <five characters>` (card 157), is the tail of
+// the id the roster shows in its SESSION column and `brigade send` takes as
+// an address: the id in full is on the line above, but nobody should
+// count five characters off the end of a UUID to learn how a teammate
+// reaches them. Each form takes the tail of the id as IT prints it
+// (shortTail), so the tail is always a suffix of the id beside it, and an
+// id that sanitises to nothing gets no line rather than the roster's "?"
+// (a placeholder `brigade send` would refuse). `--json` carries it as
+// short_session_id.
+//
+// The human form carries a line `terminal: <plugin binary>` when
 // the map knows the path: it is the human-facing home of the plugin
 // binary's location after finding F1 took it out of the SessionStart
 // context line, and the path docs/team-member/install/terminal.md tells the human to run in a terminal
@@ -106,10 +121,12 @@ func Whoami(inv Invocation) error {
 	m := t.session
 	d := inv.delivery(t)
 	if inv.JSON {
+		id := sanitizeID(m.BrigadeSessionID)
 		return writeJSON(inv.Out, whoamiResult{
 			MonitorCommand:     m.MonitorCommand(),
 			MonitorDescription: m.MonitorDescription(),
-			SessionID:          sanitizeID(m.BrigadeSessionID),
+			SessionID:          id,
+			ShortSessionID:     shortTail(id),
 			SessionName:        protocol.SanitizeName(m.SessionName),
 			WorkspaceLabel:     protocol.SanitizeLabel(m.WorkspaceLabel),
 			TeamRef:            sanitizeID(m.TeamRef),
@@ -122,14 +139,18 @@ func Whoami(inv Invocation) error {
 			PermissionMode:     protocol.SanitizeAttribute(m.PermissionMode),
 			NonInteractive:     m.NonInteractive,
 			Delivery:           d,
-			SelfSessionID:      sanitizeID(m.BrigadeSessionID),
+			SelfSessionID:      id,
 			Note:               WhoamiNote,
 		})
 	}
-	out := []string{"session " + idLine(m.BrigadeSessionID) + " \"" + nameLine(m.SessionName) + "\"" +
+	id := idLine(m.BrigadeSessionID)
+	out := []string{"session " + id + " \"" + nameLine(m.SessionName) + "\"" +
 		" in team \"" + nameLine(m.TeamName) + "\"" +
 		" (adapter " + attrLine(t.describe.Adapter.Name) + " " + attrLine(t.describe.Adapter.Version) + ")" +
 		"; inbound: " + enumLine(m.Inbound)}
+	if short := shortTail(id); short != "" {
+		out = append(out, "short id: "+short)
+	}
 	if repo := workspaceLine(m.WorkspaceLabel); repo != "" {
 		out = append(out, "repo: "+repo)
 	}

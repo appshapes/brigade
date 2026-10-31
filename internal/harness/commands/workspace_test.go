@@ -91,7 +91,7 @@ func TestWhoamiShowsTheRepository(t *testing.T) {
 		t.Fatalf("whoami: %v", err)
 	}
 	got := strings.Split(strings.TrimRight(f.out.String(), "\n"), "\n")
-	if len(got) != 4 || got[1] != "repo: thinktech-api" || got[2] != "frame: open" || got[3] != noWatcherLine {
+	if len(got) != 5 || got[1] != shortIDLine || got[2] != "repo: thinktech-api" || got[3] != "frame: open" || got[4] != noWatcherLine {
 		t.Fatalf("lines %q", got)
 	}
 	f.out.Reset()

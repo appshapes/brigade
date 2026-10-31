@@ -23,7 +23,8 @@ bbbbb    billing       idle    bob@example.com                               0.3
   blank for a plugin older than 0.10.0 or a backend without the migration that stores it.
 - **The `↳` line** is one sentence that session's model published about its work; see
   [Know what teammates see about your session](your-session-on-the-roster.md).
-- No row is marked as yours: `brigade whoami` names your session, and `--json` carries `self_session_id`.
+- No row is marked as yours: `brigade whoami` names your session and prints your SESSION cell on its `short id:`
+  line, and `--json` carries `self_session_id`.
 
 ## Only some of the team
 

@@ -12,6 +12,11 @@ import (
 // no inbox socket, nothing delivered and nothing held.
 const noWatcherLine = "delivery: no watcher: this session has no inbox socket; no delivery recorded; 0 held"
 
+// shortIDLine is the second line of every fixture's human form (card 157):
+// the last five characters of selfSessionID, as the roster's SESSION cell
+// shows them.
+const shortIDLine = "short id: aaaaa"
+
 // TestWhoamiLine pins the 6.4 layout from the map and the cached describe:
 // exactly one spawn (the describe), no network.
 func TestWhoamiLine(t *testing.T) {
@@ -21,7 +26,7 @@ func TestWhoamiLine(t *testing.T) {
 		t.Fatalf("whoami: %v", err)
 	}
 	want := "session " + selfSessionID + " \"payments-api\" in team \"ops\" (adapter " +
-		fakeadapter.AdapterName + " " + fakeadapter.AdapterVersion + "); inbound: accept\nframe: open\n" + noWatcherLine + "\n"
+		fakeadapter.AdapterName + " " + fakeadapter.AdapterVersion + "); inbound: accept\n" + shortIDLine + "\nframe: open\n" + noWatcherLine + "\n"
 	if f.out.String() != want {
 		t.Errorf("stdout:\n got %q\nwant %q", f.out.String(), want)
 	}
@@ -43,13 +48,13 @@ func TestWhoamiSanitisesTheMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := f.out.String()
-	if strings.Count(out, "\n") != 3 || strings.Contains(out, "<system-reminder>") || strings.Contains(out, "<cross-session-message>") {
+	if strings.Count(out, "\n") != 4 || strings.Contains(out, "<system-reminder>") || strings.Contains(out, "<cross-session-message>") {
 		t.Errorf("stdout = %q", out)
 	}
 }
 
 // TestWhoamiTerminalLine: the plugin binary's path is the human form's
-// second line and nothing else — absent when the map does not know it, and
+// line after the short id and nothing else — absent when the map does not know it, and
 // never in --json, the form the model reads (finding F1: the SessionStart
 // context line used to name the path and the model ran it).
 func TestWhoamiTerminalLine(t *testing.T) {
@@ -63,7 +68,7 @@ func TestWhoamiTerminalLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Split(strings.TrimSuffix(f.out.String(), "\n"), "\n")
-	if len(got) != 4 || got[1] != "terminal: /opt/plugins/brigade/bin/brigade" || got[2] != "frame: open" || got[3] != noWatcherLine {
+	if len(got) != 5 || got[1] != shortIDLine || got[2] != "terminal: /opt/plugins/brigade/bin/brigade" || got[3] != "frame: open" || got[4] != noWatcherLine {
 		t.Fatalf("stdout = %q", f.out.String())
 	}
 	f.out.Reset()
@@ -76,15 +81,69 @@ func TestWhoamiTerminalLine(t *testing.T) {
 		t.Errorf("--json names the plugin binary: %s", f.out.String())
 	}
 	// The absent direction, asserted here and not only by TestWhoamiLine's
-	// whole-output comparison: an empty plugin_bin prints no second line at
+	// whole-output comparison: an empty plugin_bin prints no terminal line at
 	// all, never an empty `terminal: `.
 	f.writeMap(t, f.byPID())
 	f.out.Reset()
 	if err := Whoami(f.inv(f.sessionEnv(), "")); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.out.String(); strings.Contains(got, "terminal:") || strings.Count(got, "\n") != 3 {
+	if got := f.out.String(); strings.Contains(got, "terminal:") || strings.Count(got, "\n") != 4 {
 		t.Errorf("an empty plugin_bin still printed a terminal line: %q", got)
+	}
+}
+
+// TestWhoamiShortIDIsATail (card 157): the short id is the tail of the id
+// as the same form prints it — the breakers dropped first, so a hostile id
+// cannot spend its five characters on them — the id whole when shorter,
+// and NO line (and "" in --json) for an id that sanitises to nothing:
+// never the roster's "?", which `brigade send` would refuse as an address.
+func TestWhoamiShortIDIsATail(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ id, wantLine, wantJSON string }{
+		{"9f3c1a20-5d4e-4a7b-8c11-aa0000000001", "short id: 00001", "00001"},
+		{"a\"<>bcdefghij", "short id: fghij", "fghij"},
+		{"\"xyz", "short id: xyz", "xyz"},
+		{"\"<>", "", ""},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			m := f.byPID()
+			m.BrigadeSessionID = tc.id
+			f.writeMap(t, m)
+			if err := Whoami(f.inv(f.sessionEnv(), "")); err != nil {
+				t.Fatal(err)
+			}
+			got := strings.Split(strings.TrimSuffix(f.out.String(), "\n"), "\n")
+			var lines []string
+			for _, l := range got {
+				if strings.HasPrefix(l, "short id:") {
+					lines = append(lines, l)
+				}
+			}
+			switch {
+			case tc.wantLine == "" && len(lines) != 0:
+				t.Fatalf("an id that sanitises to nothing printed %q", lines)
+			case tc.wantLine != "" && (len(lines) != 1 || lines[0] != tc.wantLine || got[1] != tc.wantLine):
+				t.Fatalf("stdout = %q, want the second line %q", f.out.String(), tc.wantLine)
+			}
+			if strings.Contains(f.out.String(), "?") {
+				t.Fatalf("the roster's placeholder reached whoami: %q", f.out.String())
+			}
+			f.out.Reset()
+			inv := f.inv(f.sessionEnv(), "")
+			inv.JSON = true
+			if err := Whoami(inv); err != nil {
+				t.Fatal(err)
+			}
+			_, result := envelopeOf(t, f.out.String())
+			full, _ := result["session_id"].(string)
+			short, _ := result["short_session_id"].(string)
+			if short != tc.wantJSON || !strings.HasSuffix(full, short) {
+				t.Fatalf("session_id %q, short_session_id %q, want %q and a suffix", full, short, tc.wantJSON)
+			}
+		})
 	}
 }
 
@@ -114,8 +173,8 @@ func TestWhoamiFrameLine(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := strings.Split(strings.TrimSuffix(f.out.String(), "\n"), "\n")
-			if len(got) != 3 || got[1] != tc.want || got[2] != noWatcherLine {
-				t.Fatalf("stdout = %q, want the second line %q", f.out.String(), tc.want)
+			if len(got) != 4 || got[1] != shortIDLine || got[2] != tc.want || got[3] != noWatcherLine {
+				t.Fatalf("stdout = %q, want the third line %q", f.out.String(), tc.want)
 			}
 			if tc.text != "" && strings.Contains(f.out.String(), strings.TrimSpace(tc.text)) {
 				t.Fatalf("the custom text reached the human output: %q", f.out.String())
@@ -156,7 +215,7 @@ func TestWhoamiJSON(t *testing.T) {
 	if !ok {
 		t.Fatalf("envelope not ok: %s", f.out.String())
 	}
-	if result["session_id"] != selfSessionID || result["self_session_id"] != selfSessionID ||
+	if result["session_id"] != selfSessionID || result["short_session_id"] != "aaaaa" || result["self_session_id"] != selfSessionID ||
 		result["team_name"] != fixtureTeamName || result["profile"] != nil ||
 		result["adapter_name"] != fakeadapter.AdapterName || result["inbound"] != "accept" || result["note"] != WhoamiNote {
 		t.Errorf("result = %v", result)

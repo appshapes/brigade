@@ -95,7 +95,9 @@ func shortPrincipal(s string) string {
 // the full id — a UUID-length column — widening the whole table past a
 // terminal or a chat window. It is also the shortest tail `brigade send`
 // resolves against the roster (card 34, resolveRecipient), so the cell is
-// an address as it stands; `--json` always carries the id in full.
+// an address as it stands; `--json` always carries the id in full. `brigade
+// whoami` prints the same tail as its `short id:` line (card 157), so a
+// session can say how it is addressed without its owner counting.
 const shortSessionChars = 5
 
 // shortSession renders the trailing characters of a sanitised session id
@@ -116,6 +118,17 @@ func shortSession(s string) string {
 	if id == "" {
 		return "?"
 	}
+	return shortTail(id)
+}
+
+// shortTail is the trailing shortSessionChars characters of an id ALREADY
+// sanitised for the form that prints it, the id whole when it is shorter,
+// and "" for "": a tail of exactly the string beside it, with no
+// placeholder. shortSession adds the roster's "?"; `brigade whoami` (card
+// 157) prints the tail as it stands and leaves the line out when there is
+// none, because a "?" on a labelled line would read as an address, and
+// `brigade send` refuses it.
+func shortTail(id string) string {
 	if r := []rune(id); len(r) > shortSessionChars {
 		return string(r[len(r)-shortSessionChars:])
 	}

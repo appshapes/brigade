@@ -54,7 +54,7 @@ brigade send <session_id> --summary "<one line>" <<'EOF' ... EOF
 brigade send <session_id> --reply-to <message_id> <<'EOF' ... EOF
 brigade send <session_id> --body-file <path>                    # body from a file instead of stdin
 brigade send --member '<who>' <<'EOF' ... EOF                   # a member's best session: their label, or 8+ characters of their principal_ref
-brigade whoami                   # this session's Brigade session_id, name and team, and whether it is receiving
+brigade whoami                   # this session's Brigade session_id and short id, name and team, and whether it is receiving
 brigade team members             # the roster: member, joined, session count, last seen
 brigade doing <<'EOF' ... EOF   # one short sentence: what this session is working on
 brigade doing --clear            # remove this session's sentence from the roster
@@ -72,7 +72,7 @@ The two commands print two different layouts.
 columns are `SESSION`, `NAME`, `STATE`, `MEMBER`, `SEEN` and, when at least one session in the result carries the
 fact, `REPO`, `MODEL`, `CONTEXT` and `VERSION` — the Brigade version that session's plugin reports, unverified
 like `MODEL`; blank for a plugin older than 0.10.0 or a backend that does not store it yet. No row is marked as
-your own: `self_session_id` in `--json`, or `brigade whoami`, says which session you are. A column is table-wide: a session that lacks the fact gets a **blank cell**,
+your own: `self_session_id` in `--json`, or `brigade whoami` (whose `short id:` line is your SESSION cell), says which session you are. A column is table-wide: a session that lacks the fact gets a **blank cell**,
 never a missing column. A session the VS Code extension started closes itself after six hours without activity
 (the team's `idle_close_hours`) and is offline until its owner's next prompt re-opens it; a message to it waits,
 as for any offline session. A session that has published a line about its work gets one extra line under its row,

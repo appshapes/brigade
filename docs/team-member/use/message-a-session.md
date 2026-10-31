@@ -22,7 +22,8 @@ waiting: the recipient refuses team messages; this one waits, unread, while it d
 ```
 
 - The five characters are the end of the session's id; the id in full works too. When two sessions end with the
-  same characters nothing is sent and the answer lists both ids in full.
+  same characters nothing is sent and the answer lists both ids in full. Your own five are the `short id:` line
+  of `brigade whoami`, for a teammate who asks how to reach you.
 - Only an id is an address. A name is not: anyone can copy a name.
 - `--summary "<one line>"` gives the message a summary; `--reply-to <message_id>` threads a reply;
   `--body-file <path>` carries a body over about 8 KB, which a shell heredoc cannot.

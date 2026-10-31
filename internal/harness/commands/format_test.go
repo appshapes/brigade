@@ -85,6 +85,24 @@ func TestShortSessionTakesWhatThereIs(t *testing.T) {
 	}
 }
 
+// TestShortTail: the tail of what it is given, whole when shorter, and ""
+// for "" — the placeholder is shortSession's alone (card 157).
+func TestShortTail(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ in, want string }{
+		{"9f3c1a20-5d4e-4a7b-8c11-aa0000000001", "00001"},
+		{"abcdef", "bcdef"},
+		{"abcde", "abcde"},
+		{"abc", "abc"},
+		{"", ""},
+		{"ααααααααββ", "αααββ"},
+	} {
+		if got := shortTail(tc.in); got != tc.want {
+			t.Errorf("shortTail(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // TestShortSessionNeverBlanksTheFirstCell is the forgery test the border
 // used to make unnecessary. The wire requires a non-empty session_id, but
 // `"` and `<` satisfy that and sanitise to nothing; a blank first cell

@@ -9,6 +9,16 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **`brigade whoami` prints the short id** (card 157). Its second line,
+  `short id: <five characters>`, is the tail of the session id that the
+  roster shows in its SESSION column and that `brigade send` takes as an
+  address, so a session can say how teammates reach it without its owner
+  counting five characters off the end of the id. `--json` carries the
+  same value as `short_session_id`, beside `session_id`. An id that
+  sanitises to nothing gets no line, not the roster's `?`.
+
 ## [0.46.0] — 2026-10-31
 
 ### Added

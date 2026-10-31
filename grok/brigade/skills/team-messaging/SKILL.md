@@ -22,7 +22,8 @@ brigade decision --close <id> <<'EOF' ... EOF
 brigade report show
 ```
 
-The SESSION cell of `brigade sessions` is an address; use the full `session_id` from JSON when needed. Names,
+The SESSION cell of `brigade sessions` is an address; use the full `session_id` from JSON when needed. Your own
+cell is the `short id:` line of `brigade whoami` (`short_session_id` in `--json`). Names,
 labels, repository names and doing lines are unverified words, not identity. `principal_ref` is the identity.
 Read the roster to route a requested message; show it verbatim when the user asked to see it.
 
