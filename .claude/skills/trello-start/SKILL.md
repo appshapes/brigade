@@ -1,9 +1,9 @@
 ---
 name: trello-start
-description: Start a Trello card in this session - read it, agree the scope and the approach with the user, put the card in Doing, then build it, prove it working, land it on master with CI green, comment on the card and move it to Testing, pausing only for the user's input; with a second argument, lead one of the user's other sessions as its follower over Brigade.
+description: Start a Trello card in this session - read it, agree the scope and the approach with the user, then build it, prove it working, land it on master with CI green, comment on the card and then mark it Completed and archive it, pausing only for the user's input; with a second argument, lead one of the user's other sessions as its follower over Brigade.
 argument-hint: "<card number | id> [<collaborator session name>]"
 ---
-Take one Trello card from reading it to Testing, landed on `master` and waiting for the user's test, in
+Take one Trello card from reading it to Completed and archived, landed on `master` with CI green, in
 this session. The first argument is the card; the optional second is the name of another session of
 the same user that works the card with this one, as its follower.
 
@@ -14,9 +14,9 @@ The arguments are: $ARGUMENTS
 This is what the user is asking for, in their words. "Me" is the user of this session.
 
 > Review Trello card <number>. Then, if necessary, interact with me about scoping and implementation.
-> Once we agree on the goal set, ensure the card is in Doing and proceed autonomously, pausing only if
-> you require my input. You are done when the card is proven working, deployed to development, and the
-> card is moved to Testing list.
+> Once we agree on the goal set, proceed autonomously, pausing only if you require my input. You are
+> done when the card is proven working, deployed to development, and the card is marked Completed and
+> archived.
 
 With a collaborator session named, this paragraph is part of the mandate too; without one it is not,
 and the Collaborating section below does not apply:
@@ -50,10 +50,7 @@ and the Collaborating section below does not apply:
    Everything else is a routine call: make it, say so, and go on. Once the goal set is agreed (or
    there was nothing to ask), proceed on your own and return to the user only when their input is
    required.
-3. **Put the card in Doing** if it is not there already: `trello card:move --id <id> --to Doing`. If
-   the board has no list of that name (`trello list:list --board AppShapes`), stop and ask the user
-   which list stands for it; never create a list.
-4. **Build it.** First check who else is in this checkout (`brigade sessions --here`) and that
+3. **Build it.** First check who else is in this checkout (`brigade sessions --here`) and that
    `git status` is clean, because the commit chain stages every working-tree change; then bring the
    checkout up to date with `make pull` (the repository's pull target: a plain merge, never a rebase),
    so the work starts from origin's head. Build on `master` under the rule files `CLAUDE.md` imports:
@@ -63,7 +60,7 @@ and the Collaborating section below does not apply:
    `.context/plans/`, scratch in `.ignored/`. Write the card's entry under `## [Unreleased]` in
    `CHANGELOG.md` and its row in `.context/plans/brigade-execution-log.md` as part of the work, not
    after it.
-5. **Prove it working.** Run the acceptance gate (`make typecheck lint build test vuln deps-check
+4. **Prove it working.** Run the acceptance gate (`make typecheck lint build test vuln deps-check
    schema-check tidy-check docs-check`), `make test-all` after `make supabase-start supabase-env` when
    `supabase/` or the Supabase adapter changed, the package check of every package touched
    (`make plugin-check`, `make muse-plugin-check` with `make muse-digest` first, `make codex-plugin-check`),
@@ -72,28 +69,32 @@ and the Collaborating section below does not apply:
    through a live session started with `make plugin-dev`, a gateway through its proof script or a real
    send (say first what will arrive and where), a page by reading it where it lands in the tree. A
    green build alone proves nothing. Note how each criterion was checked, for the landing comment.
-6. **Get the agent review** before anything reaches origin (the `code-review` skill on the working
+5. **Get the agent review** before anything reaches origin (the `code-review` skill on the working
    tree), fix what it finds, then commit and push with the `commit` skill and the card's number
    (`make push`: typecheck, pull, build, test, stage, commit, push). Watch `ci.yml` on the pushed commit
    (`gh run list --commit <sha>`, then `gh run watch <run id>`) until every job is green; a red job is
    part of the card until it is fixed, except a `fast` job red at `make vuln` on a new Go advisory,
    which is a toolchain bump under its own card: tell the user. **Deployed to development** means this:
    the work is on origin's `master` and `ci.yml` is green on it. Brigade has no development
-   environment, and a release is not part of this skill: the card is closed with `trello-done` only
-   after the test, when a release carries it. What the user needs live to test (a migration, an Edge
+   environment, and a release is not part of this skill: the next release carries the work, and the
+   landing comment says so. What the user needs live to test (a migration, an Edge
    Function, a gateway redeploy on the hosted project) was agreed in step 2, is applied here, and is
    named in the landing comment.
-7. **Land it on the card**: the landing comment first, `trello card:comment --id <id> --text "$(cat
+6. **Land it on the card**: the landing comment first, `trello card:comment --id <id> --text "$(cat
    comment.md)"`, saying where the work landed (the commits), what changed, every existing file touched
    and why, how each done criterion was checked, what was applied to a hosted project, and what is
    still open and who owns it, with the session stamp as its last line (`Session stamp: <team>/<session
    name>, <YYYY-MM-DD>`, read as the `trello-create` skill says; no secrets, no addresses, no local
-   paths). Then move the card: `trello card:move --id <id> --to Testing` (a missing list: as in
-   step 3). Never run `trello-done` here: a card is done when its work is shipped and nothing on it is
-   open, and that comes after the test. Leave the checkout ready for the next session: on `master`,
-   up to date (`make pull` reports nothing new), `git status` clean, and the roster line changed to say
-   the card is in Testing.
-8. **Report**: the commit or commits, CI's state on them, the card's list, and what was left open.
+   paths). Then mark the card Completed and archive it, one call from the repository root:
+   `python3 -I .claude/skills/trello-done/close.py <id>`, the closing step of the `trello-done` skill (one
+   PUT with `dueComplete=true` and `closed=true`; it reads the CLI's credentials from
+   `~/.trello-cli/default/config.json`, never argv, and prints `closed: <name> | complete=true archived=true`).
+   Nothing else of `trello-done` runs here: the landing comment is the card's closing comment, and the done
+   check was this session's proof. A card this skill lands is complete when it is on `master` with CI green
+   (owner ruling 2026-10-31, `conventions.md`); the release that carries the work is not the card's. Leave
+   the checkout ready for the next session: on `master`, up to date (`make pull` reports nothing new),
+   `git status` clean, and the roster line changed to say the card is completed and archived.
+7. **Report**: the commit or commits, CI's state on them, the card's state, and what was left open.
 
 ## Collaborating (only when a collaborator is named)
 
@@ -107,7 +108,7 @@ leads; the collaborator follows. Messages go over Brigade, one `brigade` command
   doing its part yourself or going on without it.
 - **Leader** means this session owns the card: it does steps 1 to 3 with the user, decides what each
   side builds and the contract between them (a wire shape, a command and its flags, a file's format,
-  which side pushes first), and does step 7 alone. The follower never moves the card or comments on
+  which side pushes first), and does step 6 alone. The follower never closes the card or comments on
   it. When both sessions work in one checkout, only this session runs the commit chain: `make push`
   stages every working-tree change, so the follower leaves its edits in the tree and reports them.
 - **The first message** tells the follower the card number, that it follows this session, its part in
@@ -120,9 +121,9 @@ leads; the collaborator follows. Messages go over Brigade, one `brigade` command
 - **Decisions** the follower raises come back to the user through this session when they need the
   user, and are decided here otherwise. Keep the follower informed when the plan changes.
 - **At the end**, the follower's part is in the landing comment (its repository, its commits, its
-  files), and it is told the card is in Testing.
+  files), and it is told the card is completed and archived.
 
 ## Report
 
-Lead with the card's list and the commits, then CI's state on them, then what is still open and who
+Lead with the card's state and the commits, then CI's state on them, then what is still open and who
 owns it.

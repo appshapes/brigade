@@ -18,7 +18,7 @@ Details: [Commit and push](commits.md).
 ## Work a card
 
 1. The number in a commit message is an AppShapes Trello card; `/trello-read <n>`, `/trello-create <title>`, `/trello-done <n>`.
-2. `/trello-start <n>` takes a card from reading it, through Doing, to Testing: scope agreed, built, proven, on `master` with CI green.
+2. `/trello-start <n>` takes a card from reading it to Completed and archived: scope agreed, built, proven, on `master` with CI green, the landing comment on it.
 3. A card is done when shipped and nothing on it is open; then close it, unasked.
 
 Details: [Work a card](cards.md).

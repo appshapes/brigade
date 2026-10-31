@@ -13,11 +13,13 @@
 - **Cards.** `/trello-read <number | title | id>` reads a card, `/trello-create <title> [--board] [--list]
   [--label] [--from file.md]` creates one (defaults: board AppShapes, list Wanting, label Brigade; every card
   carries exactly one project label; plain titles, Trello assigns the number), `/trello-start <number>
-  [<collaborator session>]` takes one from reading it, through Doing, to Testing (built, proven, on `master`
-  with CI green, the landing comment on the card), and `/trello-done <number | id>` closes one. A card is done
-  when its done criteria are met and shipped (released, or merged when no release carries it; a research or
-  decision card when its answer is on the card) and nothing on it is open. Then run
-  `/trello-done <card>` without being asked. When something is still open, say what it is and leave the card;
+  [<collaborator session>]` takes one from reading it to Completed and archived (built, proven, on `master`
+  with CI green, the landing comment on the card, then the `trello-done` skill's `close.py`; the board has no
+  Doing or Testing list, owner ruling 2026-10-31), and `/trello-done <number | id>` closes any other card. A
+  card is done when its done criteria are met and shipped (landed on `master` with CI green through
+  `/trello-start`; otherwise released, or merged when no release carries it; a research or decision card when
+  its answer is on the card) and nothing on it is open. Then run `/trello-done <card>` without being asked.
+  When something is still open, say what it is and leave the card;
   never report a card as done without having run it. Never put a secret, a credential or a recipient's address
   on a card: the board is as public as the repository. Every description and comment a session writes on a card
   ends with the line `Session stamp: <team>/<session name>, <YYYY-MM-DD>`, so the card says which session was

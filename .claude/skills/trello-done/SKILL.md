@@ -11,7 +11,9 @@ The arguments are: $ARGUMENTS
 ## When
 
 Only when the card's done criteria are met and nothing on it is open: the work shipped (released, or
-merged when no release carries it), or a research or decision card whose answer is on the card. The
+merged when no release carries it), or a research or decision card whose answer is on the card. A card
+`/trello-start` landed is already complete and archived: that skill's step 6 runs this skill's `close.py` after
+its landing comment (owner ruling 2026-10-31), so this skill is for every other card. The
 project rule in `CLAUDE.md` says this runs without being asked once that is true. When something is still
 open, do not run this: say what is open and leave the card.
 

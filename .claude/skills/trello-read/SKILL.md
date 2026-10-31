@@ -23,8 +23,8 @@ field. Resolve in this order:
 2. **Long id** (24 hex chars): `trello card:get-by-id --id <id> --format json`.
 3. **Title**: `trello card:show --board "<board>" --list "<list>" --card "<title>" --format json`;
    both board and list are required for name lookups (board defaults to `AppShapes`; ask for the
-   list, or iterate the lists from `trello list:list --board "<board>"` — Wanting, Doing,
-   Completing, Pinning).
+   list, or iterate the lists from `trello list:list --board "<board>"`; on AppShapes in 2026-10 they
+   were Hibernating, Wanting, Brigade, Cavalry, Website and Canary, no Doing and no Testing).
 
 If a command says `no such table: boards`, run `trello sync` once and retry. If it reports a
 missing key or token, see the `trello-create` skill for where they live.
