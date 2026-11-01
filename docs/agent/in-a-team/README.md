@@ -11,8 +11,8 @@ and delivery wording.
 | know the skills a Claude Code session loads | [Claude Code](#claude-code) |
 | know the skills a Muse Code session loads, and how a Muse session is woken | [Muse Code](#muse-code) |
 | know the skills a Codex CLI session loads, and how a Codex session is woken | [Codex CLI](#codex-cli) |
+| know the skills a Grok Build session loads, and how its inbox monitor is armed | [Grok Build](#grok-build) |
 | read what a team message looks like when it reaches you, and what it can never do | [The frame around a message](#the-frame-around-a-message) |
-| use Grok Build skills and the inbox monitor | [Grok Build](#grok-build) |
 
 ## Claude Code
 
@@ -41,6 +41,16 @@ Details: [Muse Code](muse-code.md).
 
 Details: [Codex CLI](codex.md).
 
+## Grok Build
+
+1. The package loads the same nine skills from `grok/brigade/skills/`, worded for Grok.
+2. Four native hooks serve a direct TUI launched with `grok --no-leader`: SessionStart registers the session,
+   UserPromptSubmit keeps the watcher, Stop offers setup, SessionEnd retires the receiver.
+3. Brigade offers one setup attempt per receiver incarnation: arm the native monitor with the `monitor_command`
+   that `brigade whoami --json` prints, under normal permissions, and retry only when the user asks.
+
+Details: [Grok Build](grok.md).
+
 ## The frame around a message
 
 1. One `<brigade-message>` block: a tag line with the ids, the sender's principal, name and label; Brigade's own
@@ -51,9 +61,3 @@ Details: [Codex CLI](codex.md).
    acknowledgement.
 
 Details: [The frame around a message](the-frame.md).
-
-## Grok Build
-
-The Grok package uses four native hooks and a persistent monitor in `--no-leader` TUIs. Setup gets one automatic attempt per receiver incarnation, with normal permissions and explicit retry.
-
-Details: [Grok Build](grok.md).

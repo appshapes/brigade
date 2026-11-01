@@ -18,7 +18,8 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   `docs/adapter-authors.md`, `docs/sync-adapters.md`, `docs/mail-connectors.md`, `docs/webhook-gateway.md`,
   `docs/email/README.md`,
   `docs/experiments/`, `docs/research/`, `scripts/ci/README.md`, `internal/adapters/fs/README.md`, and the
-  package pages `plugin/README.md` and `muse/brigade/README.md`.
+  package page of every registered harness (`plugin/README.md`, `muse/brigade/README.md`,
+  `codex/brigade/README.md`, `grok/brigade/README.md`).
 - **Agents enter at `CLAUDE.md`**, whose `@docs/agent/repository/<file>.md` imports load every rule file; a rule
   belongs in one of those files, never in `CLAUDE.md` itself, and every file under `docs/agent/repository/` must
   be imported there and linked from `AGENTS.md`. Inside a team, a Brigade skill is the agent's documentation:
@@ -26,7 +27,8 @@ The documentation is one tree for humans and one for agents (card 110, `.context
 - **A harness** is one entry in `docs/harnesses.json` (id, name, vendor, host, package, skills) and six pages:
   `docs/team-member/{install,join,update,configure,leave}/<id>.md` and `docs/agent/in-a-team/<id>.md`, each
   linked from its topic root, plus a `<package>/README.md` that links to the install page. A directory carrying a
-  plugin manifest (`.claude-plugin/`, `.muse-plugin/`, `.codex-plugin/`) that the registry does not list fails the gate.
+  plugin manifest (`.claude-plugin/`, `.muse-plugin/`, `.codex-plugin/`, `.grok-plugin/`) that the registry does
+  not list fails the gate.
 - **The gate** is `make docs-check` (`internal/docscheck`, `cmd/brigade-docs`, `scripts/ci/docs_check_test.go`),
   offline, in `make test`, CI's `fast` job, `scripts/release-prep.sh` and `release.yml`. Its rules: the README
   shape; the persona and topic shapes above; every relative link and `#anchor` in the tree, the changelog and the
