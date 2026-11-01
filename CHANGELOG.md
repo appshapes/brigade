@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.47.1] — 2026-11-01
+
 ### Fixed
 
 - **The end-of-turn ask is hook feedback, not a hook error** (card 186).
