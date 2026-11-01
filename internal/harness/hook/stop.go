@@ -2,8 +2,11 @@
 // .context/plans/manager-digest.md §5.3): at the end of a turn, in a
 // project that shares a state folder, the hook refreshes the session's
 // entry and — when a condition it can see itself holds — asks the model
-// once for its end-of-turn state, through the hook's `decision: block`
-// answer, whose reason is the model's next instruction. Three gates, each
+// once for its end-of-turn state, as the model's next instruction: on
+// Claude Code 2.1.163 or later through `hookSpecificOutput.additionalContext`,
+// which Claude Code shows as hook feedback (card 186); on an older or
+// unknown Claude Code, and on Grok Build, through the `decision: block`
+// answer, which Claude Code shows as a hook error. Three gates, each
 // its own sentence of the ask: the turn made a commit and no note
 // followed (a note), the doing line is older than ten minutes after a
 // turn that ran longer than a minute (a refreshed line), and anyone is
@@ -54,6 +57,15 @@ const (
 	// stamped and written (the P5-18 shape, as the doing reminder's).
 	stopMinBudget = time.Second
 )
+
+// stopFeedbackSince is the first Claude Code whose Stop hook takes
+// `hookSpecificOutput.additionalContext` as feedback that keeps the turn
+// going without the hook-error label (its 2.1.163 changelog; measured on
+// 2.1.316, card 186). An older Claude Code's handling of that document is
+// undocumented, so it keeps the block answer. The version compared is
+// the session map's harness_version, which SessionStart took from the
+// registry, else the registry read at the Stop.
+var stopFeedbackSince = [3]int{2, 1, 163}
 
 // The two verdicts a stop stamp records.
 const (
@@ -123,7 +135,10 @@ func (r *run) writeStopStamp(path string, at time.Time, sessionID, verdict strin
 
 // stop is `brigade hook stop` on Claude Code (card 162): the entry's
 // git facts refreshed, then the ask when its gates hold. Exit 0 whatever
-// happens; the one stdout document is the block answer.
+// happens; the one stdout document is the ask, as feedback when the
+// version — the session map's harness_version, which SessionStart took
+// from the registry, else the registry read at the Stop — is
+// stopFeedbackSince or later and as the block answer otherwise (card 186).
 func (r *run) stop() int {
 	in, err := r.readInput()
 	if err != nil {
@@ -148,23 +163,74 @@ func (r *run) stop() int {
 		m.PermissionMode = in.PermissionMode
 	}
 	e := r.stateStop(ctx, f, m, r.deps.Now())
-	if reason := r.stopAsk(ctx, f, in, m, e); reason != "" {
+	reason := r.stopAsk(ctx, f, in, m, e)
+	if reason == "" {
+		return 0
+	}
+	version := m.HarnessVersion
+	if version == "" || version == unknownVersion {
+		version = r.registryEntry(f).Version
+	}
+	if versionAtLeast(version, stopFeedbackSince) {
+		r.emitFeedback(reason)
+	} else {
 		r.emitBlock(reason)
 	}
 	return 0
 }
 
 // emitBlock writes the Stop hook's block answer: the one JSON document on
-// stdout, which Claude Code reads as the reason to continue.
+// stdout, which Claude Code reads as the reason to continue and shows as
+// a hook error, and Grok Build as its continuation.
 func (r *run) emitBlock(reason string) {
+	r.emitStopAnswer(marshalBlock(reason))
+}
+
+// emitFeedback writes the Stop hook's feedback answer: the one JSON
+// document on stdout, which Claude Code 2.1.163+ hands the model as
+// additional context, keeping the turn going, and shows as hook feedback.
+func (r *run) emitFeedback(text string) {
+	r.emitStopAnswer(marshalFeedback(text))
+}
+
+// emitStopAnswer writes one Stop answer document and its newline.
+func (r *run) emitStopAnswer(b []byte, err error) {
+	if err != nil {
+		r.log.Warn("stop: the answer could not be encoded; nothing asked", log.Err(err))
+		return
+	}
 	if r.streams.Out == nil {
 		return
 	}
-	b, err := marshalBlock(reason)
-	if err != nil {
-		return
-	}
 	_, _ = io.WriteString(r.streams.Out, string(b)+"\n")
+}
+
+// versionAtLeast reports whether v, a version of exactly three dot-separated
+// runs of decimal digits ("2.1.316"), is floor or later. Anything else — "",
+// "unknown", a sign, a space, a suffix, a fourth part — is false: the caller
+// keeps its older behaviour for a version it cannot read.
+func versionAtLeast(v string, floor [3]int) bool {
+	parts := strings.Split(v, ".")
+	if len(parts) != len(floor) {
+		return false
+	}
+	var got [3]int
+	for i, part := range parts {
+		if strings.Trim(part, "0123456789") != "" {
+			return false
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return false
+		}
+		got[i] = n
+	}
+	for i := range got {
+		if got[i] != floor[i] {
+			return got[i] > floor[i]
+		}
+	}
+	return true
 }
 
 // stopAsk judges the gates and answers the ask, or "". It reads the
@@ -290,4 +356,16 @@ func marshalBlock(reason string) ([]byte, error) {
 		Decision string `json:"decision"`
 		Reason   string `json:"reason"`
 	}{"block", reason})
+}
+
+// marshalFeedback is the feedback answer's JSON:
+// {"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":…}}.
+func marshalFeedback(text string) ([]byte, error) {
+	type specific struct {
+		HookEventName     string `json:"hookEventName"`
+		AdditionalContext string `json:"additionalContext"`
+	}
+	return json.Marshal(struct {
+		HookSpecificOutput specific `json:"hookSpecificOutput"`
+	}{specific{"Stop", text}})
 }

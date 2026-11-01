@@ -11,6 +11,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Fixed
 
+- **The end-of-turn ask is hook feedback, not a hook error** (card 186).
+  On Claude Code 2.1.163 and later the Stop hook now hands its
+  `Brigade state (one ask, then finish): …` ask to the model as
+  `hookSpecificOutput.additionalContext`, which Claude Code shows in the
+  transcript as `Stop hook feedback: …`, with no "Stop hook error"
+  notification, and the model still continues and acts on it. Before, the
+  ask was a `decision: block` answer, which Claude Code files as a hook
+  error and paints red at nearly every stop of a long session. The text
+  and its gates are unchanged. A session whose registry gives no version,
+  or one older than 2.1.163, keeps the block answer, and so does Grok
+  Build; Muse Code and Codex CLI still get the ask as a context line at
+  the next prompt.
 - **`brigade whoami` names a renamed session** (card 164). After `/rename`,
   or a `brigade rename` the prompt hook applied, the roster showed the new
   name while `whoami` kept the one the session started with, in the human
