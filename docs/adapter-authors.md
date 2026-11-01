@@ -1153,7 +1153,7 @@ The fs adapter's choice, measured:
 
 Only the first two rows are yours: C-06 takes either answer for a profile that does not exist, and no case
 exercises a profile with no credential file. The third is pinned to `config` by C-08, as above. Pick one column and
-hold to it; a user reading `brigade doctor` output cares which. If you have no reason to differ, copy that column
+hold to it; a user reading `brigade team status` output cares which. If you have no reason to differ, copy that column
 verbatim — it is the one the reference adapter's own tests and the example scripts below show, and `details.reason`
 is free-form (4.3.1), so those three tokens cost you nothing.
 
@@ -2045,7 +2045,7 @@ The whole chain runs today: the plugin manifest and the `plugin/bin` bootstrap, 
 three lifecycle hooks and the detached watcher. A local build behind the dev pointer (`make plugin-dev`) drives your
 adapter from inside a live Claude Code session, and that is the sequence measured in `docs/experiments/E3-wiring.md`.
 The packaged release pins — `plugin/bin/VERSION` and `plugin/bin/checksums.txt`, written by `make release`, whose
-current release is `0.17.0` — name the binary a session downloads and the sha256 it is checked against. Which binary a
+current release is `0.47.0` — name the binary a session downloads and the sha256 it is checked against. Which binary a
 developer installs does not change how the harness runs your adapter. `brigade-conformance` and a shell
 remain the way to exercise your adapter on its own; the section below is everything the harness adds on top.
 

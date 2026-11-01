@@ -35,7 +35,7 @@ Details: [Run the proofs](proofs.md).
 
 ## Know the CI
 
-1. `ci.yml`: `fast` (Ubuntu), `macos`, `reproducibility`, `supabase`, `deploy-staging`; `release.yml` on a `v*` tag.
+1. `ci.yml`: `fast` (Ubuntu), `macos`, `windows`, `reproducibility`, `supabase`, `deploy-staging`; `release.yml` on a `v*` tag.
 2. [scripts/ci/README.md](../../../scripts/ci/README.md) says what every script does and what calls it.
 
 Details: [Know the CI](ci.md).
