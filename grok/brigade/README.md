@@ -17,7 +17,7 @@ incarnation's sink files; helper restart can replay it. Fixed body-free hints co
 and lossless pages capped at 1,800 serialized UTF-8 bytes — the proposed 2,048 corrupted escaped JSON at the
 native shell's measured 2,000-column wrap. Long-idle, payload/burst and lifecycle native acceptance remains coordinator-owned.
 
-`make grok-plugin-check` is strict: native manifest/catalog, four exact exec hook strings, eight reachable
+`make grok-plugin-check` is strict: native manifest/catalog, four exact exec hook strings, nine reachable
 skills, allowlist, no symlinks and the three bin assets equal to the canonical package. VERSION/checksums here
 are identical copies of the existing release-produced pins, not new hashes or a version bump. The next normal
 release rebuilds/pins all packages together; this source implementation is not in the already published binary.

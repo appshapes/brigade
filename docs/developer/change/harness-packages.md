@@ -4,16 +4,17 @@ A harness is a program that runs a model's session and gives Brigade three thing
 start and at a prompt, an environment variable that marks a session, and a way to put text in front of the model
 while it is idle. Claude Code has an inbox socket; Muse Code has a monitor tool that reads a file; Codex CLI has a
 command that queues a turn into a session from outside (`codex queue`); a harness with none of these is a mailbox
-until its next prompt (`poll_on_prompt`). A harness whose hooks carry no marker of their own (Codex) names itself
+until its next prompt (`poll_on_prompt`). A harness whose hooks carry no marker of their own (Codex, Grok Build)
+names itself
 on the hook's argv instead: `brigade hook <event> --host <name> --plugin-root <dir>`. The research question for a new harness is always
 the third: can anything outside the session wake it? Measure it first, as [the Muse live test](../../experiments/muse-participation.md)
 did, and record the answer under `docs/experiments/`.
 
 ## What a package is
 
-A directory beside `plugin/`, `muse/brigade/` and `codex/brigade/` holding the harness's native manifest, its hooks
-(one wrapper per hook that execs `bin/brigade hook <event>`, or hook commands that run it), the seven skills
-worded for the harness, a `README.md`, and `bin/` copies of `plugin/bin`'s bootstrap, `VERSION` and
+A directory beside `plugin/`, `muse/brigade/`, `codex/brigade/` and `grok/brigade/` holding the harness's native
+manifest, its hooks (one wrapper per hook that execs `bin/brigade hook <event>`, or hook commands that run it), the
+nine skills worded for the harness, a `README.md`, and `bin/` copies of `plugin/bin`'s bootstrap, `VERSION` and
 `checksums.txt`, which the release sequence keeps equal.
 
 ## The code

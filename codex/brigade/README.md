@@ -1,11 +1,11 @@
 # Brigade for Codex CLI
 
 This directory is the Codex CLI package of Brigade: team messaging between the coding sessions of different people
-and machines, with a Codex session taking part beside Claude Code and Muse Code ones. It ships the same bootstrap,
-version pin and checksums as the Claude Code package (`plugin/`), a native Codex manifest, a `hooks/hooks.json`
-whose three commands run that bootstrap, and the nine skills worded for Codex. The repository root's
-`.agents/plugins/marketplace.json` is the marketplace that names it. One Brigade team, one backend, three kinds of
-session.
+and machines, with a Codex session taking part beside Claude Code, Muse Code and Grok Build ones. It ships the same
+bootstrap, version pin and checksums as the Claude Code package (`plugin/`), a native Codex manifest, a
+`hooks/hooks.json` whose three commands run that bootstrap, and the nine skills worded for Codex. The repository
+root's `.agents/plugins/marketplace.json` is the marketplace that names it. One Brigade team, one backend, four
+kinds of session.
 
 The procedures are in the documentation tree: [install](../../docs/team-member/install/codex.md),
 [join](../../docs/team-member/join/codex.md), [update](../../docs/team-member/update/codex.md),

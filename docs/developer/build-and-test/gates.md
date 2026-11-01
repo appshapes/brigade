@@ -7,7 +7,7 @@ make typecheck lint build test vuln deps-check schema-check tidy-check docs-chec
 | Target | Holds |
 | --- | --- |
 | `typecheck` | `go build ./...` and `go vet ./...`, tests included |
-| `lint` | golangci-lint for darwin **and** linux (config verify, run, formatters) and a plain gofmt check |
+| `lint` | golangci-lint for darwin, linux **and** windows (config verify, run, formatters) and a plain gofmt check |
 | `build` | `bin/brigade` and the dev-only binaries with the release flags, version `<pin>-dev` |
 | `test` | unit, testscript, harness and conformance(fs) with `-race`, plus the drift tests in `scripts/ci/` and the documentation gate |
 | `vuln` | govulncheck on the source and on the built binary |
@@ -16,8 +16,9 @@ make typecheck lint build test vuln deps-check schema-check tidy-check docs-chec
 | `tidy-check` | `go.mod` and `go.sum` would not change |
 | `docs-check` | the documentation tree's shape, links, orphans, harness pages, options, the make-target page, the changelog section ([Run the gate](../documentation/gate.md)) |
 
-CI's `fast` job adds `checksums-check`, `plugin-check`, `muse-plugin-check`, `codex-plugin-check` and `functions-check`; the `macos`,
-`reproducibility` and `supabase` jobs the rest ([Know the CI](ci.md)).
+CI's `fast` job adds `checksums-check`, `plugin-check`, `launcher-check`, `muse-plugin-check`, `codex-plugin-check`,
+`grok-plugin-check` and `functions-check`; the `macos`, `windows`, `reproducibility` and `supabase` jobs the rest
+([Know the CI](ci.md)).
 
 ## What lint enforces, in one place
 

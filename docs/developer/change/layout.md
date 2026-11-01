@@ -16,6 +16,7 @@
 | `plugin/` | the Claude Code package: manifest, hooks, nine skills, the sh bootstrap and the release pins |
 | `muse/brigade/` | the Muse Code package: native manifest, one wrapper per hook, the skills, copies of the pins |
 | `codex/brigade/`, `.agents/plugins/` | the Codex CLI package (native manifest, `hooks/hooks.json`, the skills, copies of the pins) and the marketplace file that names it |
+| `grok/brigade/`, `.grok-plugin/` | the Grok Build package (native manifest, `hooks/hooks.json`'s four hooks, the skills, copies of the pins) and the marketplace file that names it |
 | `supabase/` | migrations, pgTAP tests, Edge Functions (the mail core, two connectors, the Slack pair), local stack config |
 | `scripts/` | the proof scripts, the headless smoke test, the release sequence, the gateway installers |
 | `scripts/ci/` | the CI checks, their fixtures and the Go drift tests ([scripts/ci/README.md](../../../scripts/ci/README.md)) |

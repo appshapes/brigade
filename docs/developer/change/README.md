@@ -42,7 +42,7 @@ Details: [Change the backend](backend.md).
 
 ## Add a harness
 
-1. A package directory with its manifest, wrappers, the seven skills and `bin/` copies of the pins.
+1. A package directory with its manifest, wrappers, the nine skills and `bin/` copies of the pins.
 2. An entry in `docs/harnesses.json`, six pages, a CI check, a release-prep step.
 
 Details: [Add a harness](harness-packages.md).

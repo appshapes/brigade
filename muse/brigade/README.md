@@ -1,9 +1,9 @@
 # Brigade for Muse Code
 
 This directory is the Muse Code package of Brigade: team messaging between the coding sessions of different people
-and machines, with a Muse Code session taking part beside Claude Code ones. It ships the same bootstrap, version pin
-and checksums as the Claude Code package (`plugin/`), a native Muse manifest with one wrapper per hook, and the
-nine skills worded for Muse. One Brigade team, one backend, two kinds of session.
+and machines, with a Muse Code session taking part beside Claude Code, Codex CLI and Grok Build ones. It ships the
+same bootstrap, version pin and checksums as the Claude Code package (`plugin/`), a native Muse manifest with one
+wrapper per hook, and the nine skills worded for Muse. One Brigade team, one backend, four kinds of session.
 
 The procedures are in the documentation tree: [install](../../docs/team-member/install/muse-code.md),
 [join](../../docs/team-member/join/muse-code.md), [update](../../docs/team-member/update/muse-code.md),
