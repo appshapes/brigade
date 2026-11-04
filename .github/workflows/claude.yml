@@ -198,7 +198,7 @@ jobs:
         # Re-resolve for the current `v1` whenever this pin is bumped —
         #   gh api repos/anthropics/claude-code-action/git/ref/tags/v1 --jq '.object.sha'
         #   (an annotated tag needs one more hop: gh api .../git/tags/<sha> --jq '.object.sha')
-        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
         with:
           # brake 2, second half. EXACTLY ONE login, explicit, never '*':
           #   claude — the Claude GitHub App, the actor of the fixer's own push (synchronize) and of the
@@ -273,6 +273,11 @@ jobs:
           #   plugin/bin/**        — VERSION and checksums.txt are produced ONLY by `make release` (CLAUDE.md).
           #                          An agent-written pin is a lie about what bytes ship. The deterministic
           #                          guard in review-pull-request.yml catches it if this is ever loosened.
+          #                          brigade.exe, the committed Windows launcher, is the one file there an agent
+          #                          legitimately moves — through `make launcher` (Bash, which this deny does not
+          #                          reach), never an edit — because it links golang.org/x/sys and the monthly
+          #                          bump changes its bytes; `make launcher-check` in ci.yml's `fast` job rebuilds
+          #                          and diffs it, so an agent-built launcher is verified, not trusted.
           #   .claude/**           — the agent must not rewrite its own operating instructions, and agent memory
           #                          lives under .context/, never .claude/ (Rjae, dropped `record-memory`).
           #   .github/workflows/** — neither GITHUB_TOKEN nor the Claude App's token can push a change there

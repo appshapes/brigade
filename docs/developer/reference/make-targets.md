@@ -46,7 +46,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `print-version` | Print the version pinned in plugin/bin/VERSION |
 | `cross` | Build dist-cross/brigade_$(version)_<os>_<arch> for every target with the exact release flags, plus checksums.txt (CI) |
 | `checksums-check` | Fail if plugin/bin/{VERSION,checksums.txt} disagree with plugin.json, a fresh build, or the published release (CI) |
-| `launcher` | Rebuild plugin/bin/brigade.exe, the committed Windows launcher, with the release flags (commit it when cmd/brigade-launcher or the toolchain changes) |
+| `launcher` | Rebuild plugin/bin/brigade.exe, the committed Windows launcher, with the release flags (commit it when cmd/brigade-launcher, the toolchain or golang.org/x/sys changes) |
 | `launcher-check` | Fail unless a fresh build of cmd/brigade-launcher reproduces the committed plugin/bin/brigade.exe byte for byte (CI) |
 | `release` | Pin the plugin to $(version), commit through the push chain as `$(card): Release $(version)`, tag v$(version) and push the tag (usage: make release version=0.1.0 card=<n> [branch=<throwaway>] — branch only for the P2-12 rehearsal) |
 | `release-dry-run` | goreleaser check + a local release without publishing (needs a clean tree and a tag on HEAD) |

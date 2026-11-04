@@ -19,7 +19,8 @@
   or `channels`, exec-form hooks whose command paths exist and are executable, `sh -n` and `shellcheck -s sh`, and
   the only secret scan (`scripts/ci/no-secrets.sh`). `plugin/bin/brigade.exe` is the committed Windows launcher
   (card 133, `cmd/brigade-launcher`): never hand-built, never version-stamped; `make launcher-check` (CI's `fast`
-  job) rebuilds it with the release flags and diffs, so a change to its source or a toolchain bump means
+  job) rebuilds it with the release flags and diffs, so a change to its source, a toolchain bump or a bump of
+  `golang.org/x/sys` (the one module it links; the monthly dependency agent does that one itself) means
   `make launcher` and committing the result in the same commit. `make muse-plugin-check` is the same for `muse/brigade/`:
   allowlist, native manifest, one wrapper per hook, assets equal to `plugin/bin`'s; `make codex-plugin-check` for
   `codex/brigade/`: allowlist, native manifest, the three exact hook commands, `.agents/plugins/marketplace.json`,

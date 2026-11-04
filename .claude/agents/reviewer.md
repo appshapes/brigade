@@ -72,7 +72,11 @@ your errand**: `go.mod`, `tools.mod` and the action pins belong to the dependenc
   push; no rewritten history. On a merge conflict the PR is handed back to a human, not resolved by rebase.
 - **Release pins.** `plugin/bin/VERSION` and `plugin/bin/checksums.txt` are produced only by `make release`.
   A PR that touches either is a blocker. (The workflow's guard step also fails the run — if you are reading a
-  diff that contains one, something upstream is wrong; say so.)
+  diff that contains one, something upstream is wrong; say so.) `plugin/bin/brigade.exe` is not a pin: the
+  committed Windows launcher moves with `cmd/brigade-launcher`, the toolchain or `golang.org/x/sys`, the one
+  module it links, so a dependency PR that bumps `x/sys` carries a rebuilt launcher, and `make launcher-check` in
+  CI's `fast` job — a fresh build, diffed byte for byte — is what verifies it, not you. The PR to flag is the one
+  that bumps `x/sys` *without* the launcher: it is red at `launcher-check` until it does.
 - **The `go` line.** `go.mod`'s `go` directive is a release-reproducibility pin. Never bumped in a PR.
 - **`docs/allowed-deps.txt`.** The shipped binary links exactly those five modules; `make deps-check` is the
   gate. A new module in the binary is a human decision, not a PR.

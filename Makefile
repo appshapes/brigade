@@ -413,7 +413,7 @@ checksums-check: cross ## Fail if plugin/bin/{VERSION,checksums.txt} disagree wi
 	scripts/ci/checksums-check.sh $(dist_cross)/checksums.txt
 
 .PHONY: launcher
-launcher: ## Rebuild plugin/bin/brigade.exe, the committed Windows launcher, with the release flags (commit it when cmd/brigade-launcher or the toolchain changes)
+launcher: ## Rebuild plugin/bin/brigade.exe, the committed Windows launcher, with the release flags (commit it when cmd/brigade-launcher, the toolchain or golang.org/x/sys changes)
 	$(launcher_build) $(launcher_exe) $(launcher_src)
 
 .PHONY: launcher-check

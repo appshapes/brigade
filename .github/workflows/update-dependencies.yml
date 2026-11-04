@@ -42,11 +42,15 @@ jobs:
       body: >-
         You are the implementing agent. Read `.claude/agents/developer.md` for your operating instructions and
         follow its **dependency update** mode exactly. Bring the direct modules in `go.mod` and the tools in
-        `tools.mod` up to date. You cannot edit `.github/workflows/`: REPORT in the PR body which action pins
-        are behind, including the re-resolved `claude-code-action` SHA for the current `v1`. Never bump `go.mod`'s `go` line —
+        `tools.mod` up to date. Your report is your closing comment on this issue: the workflow mints the PR's
+        body as `Closes #<n>` after your run ends, so nothing you write reaches it. You cannot edit
+        `.github/workflows/`: REPORT which action pins are behind, including the re-resolved `claude-code-action`
+        SHA for the current `v1`. Never bump `go.mod`'s `go` line —
         it is a release-reproducibility pin and only Rjae moves it. Keep `docs/allowed-deps.txt` zero-diff: if a
-        bump would pull a new module into the shipped binary, leave that module alone and say so in the PR body
+        bump would pull a new module into the shipped binary, leave that module alone and say so in your report
         rather than editing the allow-list. Majors are allowed, and adapting the call sites is part of the job.
-        Run `make typecheck tidy-check lint build test deps-check plugin-check` before you push. If nothing is
-        behind, change nothing and say so — the workflow closes this issue automatically when no branch is
-        pushed.
+        The committed Windows launcher `plugin/bin/brigade.exe` links `golang.org/x/sys`: when `make launcher-check`
+        fails after the bump, run `make launcher` and commit the result in the same commit as `go.mod`.
+        Run `make typecheck tidy-check lint build test deps-check plugin-check launcher-check` before you push. If
+        nothing is behind, change nothing and say so — the workflow closes this issue automatically when no branch
+        is pushed.
