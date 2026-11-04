@@ -125,7 +125,7 @@ jobs:
         # Re-resolve for the current `v1` whenever this pin is bumped —
         #   gh api repos/anthropics/claude-code-action/git/ref/tags/v1 --jq '.object.sha'
         #   (an annotated tag needs one more hop: gh api .../git/tags/<sha> --jq '.object.sha')
-        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
         with:
           # After the autonomous fixer pushes, the resulting `synchronize` run's ACTOR is a bot; without its
           # name the action rejects the run and the loop dead-ends unreviewed. MEASURED 2026-09-10 (PR #3, run
