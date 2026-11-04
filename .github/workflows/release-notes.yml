@@ -88,7 +88,7 @@ jobs:
       - name: Draft the notes
         id: draft1
         continue-on-error: true   # the file it wrote (or did not) is judged by the lint and the verdict step; the action also fails a step whose agent exceeded --max-turns after writing (run 34583310273)
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1 — pinned by SHA: the one action that runs a MODEL with repository write access
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1 — pinned by SHA: the one action that runs a MODEL with repository write access
         with:
           allowed_bots: "claude,github-actions"   # github-actions is release.yml's dispatch actor (run 34539842793 measured the refusal)
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -163,7 +163,7 @@ jobs:
       - name: Review the draft
         id: review1
         continue-on-error: true   # the file it wrote (or did not) is judged by the lint and the verdict step; the action also fails a step whose agent exceeded --max-turns after writing (run 34583310273)
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
         with:
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -245,7 +245,7 @@ jobs:
         id: draft2
         continue-on-error: true   # the file it wrote (or did not) is judged by the lint and the verdict step; the action also fails a step whose agent exceeded --max-turns after writing (run 34583310273)
         if: steps.lint1.outcome != 'success' || steps.verdict1.outputs.verdict != 'APPROVED'
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
         with:
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -308,7 +308,7 @@ jobs:
         id: review2
         continue-on-error: true   # the file it wrote (or did not) is judged by the lint and the verdict step; the action also fails a step whose agent exceeded --max-turns after writing (run 34583310273)
         if: steps.draft2.outcome == 'success'
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c   # v1
+        uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3   # v1
         with:
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -386,7 +386,7 @@ jobs:
           fi
       - name: Attach the draft, lint and review
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: release-notes-${{ inputs.tag }}
           path: |
