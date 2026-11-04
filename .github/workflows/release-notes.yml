@@ -98,7 +98,7 @@ jobs:
           # was denied twice as "outside the working directories for this session", the reviewer's verdict the
           # same, and nothing was published. Naming the directory as a working directory is what lets the
           # allow rules below apply to it. Every agent step in this file and in send-release-notes.yml carries it.
-          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
           show_full_output: false
           prompt: |
             Release ${{ inputs.tag }} of brigade has been published. DRAFT its release notes — write them to the
@@ -173,7 +173,7 @@ jobs:
         with:
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
           show_full_output: false
           prompt: |
             You are the reviewer of a DRAFT of the release notes for ${{ inputs.tag }} of brigade, at
@@ -255,7 +255,7 @@ jobs:
         with:
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
           show_full_output: false
           prompt: |
             Your draft of the release notes for ${{ inputs.tag }} of brigade, /tmp/brigade-notes/notes.md, was
@@ -318,7 +318,7 @@ jobs:
         with:
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-notes"
           show_full_output: false
           prompt: |
             You are the reviewer of the SECOND draft of the release notes for ${{ inputs.tag }} of brigade, at

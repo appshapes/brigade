@@ -224,7 +224,7 @@ jobs:
           # re-measure when a session passes 150. The other half of the money question is already answered and
           # needs nothing here — the OAuth token is on Rjae's Max plan and THAT PLAN'S LIMITS ARE THE CEILING
           # (§1.1.1 (i), §4.10 credentials (ii)); there is no second ceiling to set.
-          claude_args: "--model claude-opus-5 --max-turns 200"
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 200"
           # Public repository: run logs are world-readable. Keep the full agent output out of them.
           show_full_output: false
           # Lets the agent read its own workflow run logs when a gate fails in CI rather than locally.

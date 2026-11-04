@@ -189,7 +189,7 @@ jobs:
           # --add-dir: the email directory is outside the checkout, and the Claude Code the 2026-11-04 action pin runs
           # refuses a write outside the session's working directories whatever the Bash allow rules say
           # (release-notes.yml's Draft step has the measurement, run 41816544619); on every agent step here.
-          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-email"
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-email"
           show_full_output: false
           prompt: |
             You are the WRITER of brigade's release-notes email. Read `.claude/agents/release-notes-email.md` and
@@ -247,7 +247,7 @@ jobs:
         with:
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-email"
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-email"
           show_full_output: false
           prompt: |
             You are the REVIEWER of a DRAFT of brigade's release-notes email, at /tmp/brigade-email/notes.md. Read
@@ -312,7 +312,7 @@ jobs:
         with:
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-email"
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-email"
           show_full_output: false
           prompt: |
             You are the WRITER of brigade's release-notes email, and your draft, /tmp/brigade-email/notes.md, was
@@ -367,7 +367,7 @@ jobs:
         with:
           allowed_bots: "claude,github-actions"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-email"
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 50 --add-dir /tmp/brigade-email"
           show_full_output: false
           prompt: |
             You are the REVIEWER of the SECOND draft of brigade's release-notes email, at

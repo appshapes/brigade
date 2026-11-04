@@ -146,7 +146,7 @@ jobs:
           # up to the next ten — 1.5 × 42 = 63, so 70. Neither of the repository's other budgets (50 in
           # release-notes.yml, 60 in claude.yml) clears 63, which is why this one matches neither. Re-measure
           # when a session reaches 47 turns (70 / 1.5) or the action's pin moves.
-          claude_args: "--model claude-opus-5 --max-turns 70"
+          claude_args: "--model claude-opus-5-5 --effort xhigh --max-turns 70"
           show_full_output: false
           prompt: |
             You are the reviewer agent. Read `.claude/agents/reviewer.md` for your
