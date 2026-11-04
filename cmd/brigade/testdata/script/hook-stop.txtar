@@ -1,0 +1,93 @@
+# `brigade hook stop` through the real binary (card 186; the gates are the
+# unit tests' of card 162): the session map and the state entry of a
+# session in a project with a state folder, written directly as doing.txtar
+# writes its map — an entry whose last prompt is long past and which has no
+# doing line, so the doing sentence's gate holds at any Stop — and the
+# Claude Code session registry the hook reads for the version. Its map
+# says harness_version "unknown", so the registry decides every case
+# there. Claude Code 2.1.163 or later gets the ask as hook feedback
+# (hookSpecificOutput.additionalContext), which it shows as "Stop hook
+# feedback"; 2.1.162, a registry entry with no version and no registry entry
+# at all get the block answer, which it shows as a hook error. One text, two
+# envelopes. The stop stamp is removed between Stops, so each is judged
+# afresh rather than held by the ten-minute floor.
+
+# The `brigade` under test is the race-instrumented test binary too; without
+# this every exec spends TSan's 1 s atexit sleep (see doing.txtar).
+env GORACE=atexit_sleep_ms=0
+sleeper
+env CLAUDE_PID=$SLEEPER_PID
+env CLAUDE_CODE_SESSION_ID=native-1
+env CLAUDECODE=1
+mkdir $WORK/repo/.brigade/state
+mkdir $WORK/.brigade/xdg/state/brigade/sessions/by-pid
+expand map.in $WORK/.brigade/xdg/state/brigade/sessions/by-pid/$SLEEPER_PID.json
+mkdir $WORK/.brigade/xdg/state/brigade/state/entries
+expand entry.in $WORK/.brigade/xdg/state/brigade/state/entries/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json
+mkdir $WORK/.brigade/claude-config/sessions
+expand stop.json.in stop.json
+expand stop-active.json.in stop-active.json
+
+# --- 2.1.316, as measured on 2026-10-31: the feedback answer ----------------
+expand registry-2.1.316.in $WORK/.brigade/claude-config/sessions/$SLEEPER_PID.json
+stdin stop.json
+exec brigade hook stop
+cmp stdout want-feedback.json
+stderr -count=1 '"msg":"stop: state asked"'
+! stderr '"level":"(WARN|ERROR)"'
+grep ' native-1 asked$' $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.stop-ask
+# The Stop that follows the ask (stop_hook_active) answers nothing.
+stdin stop-active.json
+exec brigade hook stop
+! stdout .
+rm $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.stop-ask
+
+# --- 2.1.163, the first that takes the feedback answer ----------------------
+expand registry-2.1.163.in $WORK/.brigade/claude-config/sessions/$SLEEPER_PID.json
+stdin stop.json
+exec brigade hook stop
+cmp stdout want-feedback.json
+rm $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.stop-ask
+
+# --- 2.1.162, the last before it: the block answer --------------------------
+expand registry-2.1.162.in $WORK/.brigade/claude-config/sessions/$SLEEPER_PID.json
+stdin stop.json
+exec brigade hook stop
+cmp stdout want-block.json
+! stderr '"level":"(WARN|ERROR)"'
+rm $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.stop-ask
+
+# --- a registry entry with no version: the block answer ---------------------
+expand registry-no-version.in $WORK/.brigade/claude-config/sessions/$SLEEPER_PID.json
+stdin stop.json
+exec brigade hook stop
+cmp stdout want-block.json
+rm $WORK/.brigade/xdg/state/brigade/state/$SLEEPER_PID.stop-ask
+
+# --- no registry entry at all: the block answer -----------------------------
+rm $WORK/.brigade/claude-config/sessions/$SLEEPER_PID.json
+stdin stop.json
+exec brigade hook stop
+cmp stdout want-block.json
+! stderr '"level":"(WARN|ERROR)"'
+
+-- map.in --
+{"claude_pid": $SLEEPER_PID, "claude_session_id": "native-1", "brigade_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "team_ref": "team-1", "team_name": "ops", "session_name": "payments-api", "doing_mode": "quiet", "permission_mode": "bypassPermissions", "non_interactive": false, "inbound": "accept", "frame_level": "open", "frame_text": "", "socket_path": "", "team_key": "alpha", "config_dir": "$WORK/.brigade/brigade-config", "adapter_command": ["$WORK/never-run"], "plugin_bin": "", "sync_adapter": "syncthing", "sync_folders": [".brigade"], "sync_root": "$WORK/repo", "state_folder": "$WORK/repo/.brigade/state", "harness_version": "unknown", "registered_at": "2026-01-01T12:00:00Z", "updated_at": "2026-01-01T12:00:00Z"}
+-- entry.in --
+{"version": 1, "session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "session_name": "payments-api", "started_at": "2026-01-01T12:00:00Z", "last_prompt_at": "2026-01-01T12:00:00Z", "inbound": "accept", "commits": [], "doing": [], "notes": [], "updated_at": "2026-01-01T12:00:00Z"}
+-- stop.json.in --
+{"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "Stop", "permission_mode": "bypassPermissions", "stop_hook_active": false}
+-- stop-active.json.in --
+{"session_id": "native-1", "cwd": "$WORK/repo", "hook_event_name": "Stop", "permission_mode": "bypassPermissions", "stop_hook_active": true}
+-- registry-2.1.316.in --
+{"pid": $SLEEPER_PID, "sessionId": "native-1", "version": "2.1.316", "kind": "interactive", "entrypoint": "cli", "name": "payments-api", "status": "busy"}
+-- registry-2.1.163.in --
+{"pid": $SLEEPER_PID, "sessionId": "native-1", "version": "2.1.163", "kind": "interactive", "entrypoint": "cli", "name": "payments-api", "status": "busy"}
+-- registry-2.1.162.in --
+{"pid": $SLEEPER_PID, "sessionId": "native-1", "version": "2.1.162", "kind": "interactive", "entrypoint": "cli", "name": "payments-api", "status": "busy"}
+-- registry-no-version.in --
+{"pid": $SLEEPER_PID, "sessionId": "native-1", "kind": "interactive", "entrypoint": "cli", "name": "payments-api", "status": "busy"}
+-- want-feedback.json --
+{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"Brigade state (one ask, then finish): your roster line is older than ten minutes and this turn ran long; if the work changed, set it with `brigade doing <<'EOF'`, one short sentence, `EOF`. No secrets, local paths or customer names. Subagents leave it alone. If a command is refused, do not run it another way; the work is done."}}
+-- want-block.json --
+{"decision":"block","reason":"Brigade state (one ask, then finish): your roster line is older than ten minutes and this turn ran long; if the work changed, set it with `brigade doing <<'EOF'`, one short sentence, `EOF`. No secrets, local paths or customer names. Subagents leave it alone. If a command is refused, do not run it another way; the work is done."}

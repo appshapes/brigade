@@ -16,9 +16,10 @@
   `META_API_KEY`, never copy a harness's auth file, never run a harness's logout against a real configuration.
 - **Claude Code's configuration directory.** Never hardcode `~/.claude`; use `CLAUDE_CONFIG_DIR ?? ~/.claude`.
   Never read or copy `$CLAUDE_CONFIG_DIR/sessions/*.key`; the session registry JSON is read best-effort only and
-  never written. Inside a session (`CLAUDE_PID`, `MUSE_SESSION_ID` or `CODEX_THREAD_ID` set) the harness ignores
-  every inherited `BRIGADE_*` variable and reads its configuration from the hook-written by-pid map; a Muse or
-  Codex session also ignores `XDG_*` and resolves Brigade's directories from `HOME` alone (cards 88, 107). Codex runs
+  never written. Inside a session (`CLAUDE_PID`, `MUSE_SESSION_ID`, `CODEX_THREAD_ID` or `GROK_SESSION_ID` set) the
+  harness ignores every inherited `BRIGADE_*` variable and reads its configuration from the hook-written by-pid
+  map; a Muse, Codex or Grok session also ignores `XDG_*` and resolves Brigade's directories from `HOME` alone
+  (cards 88, 107, 120). Codex runs
   its hooks with no `CODEX_*` variable: the package's `hooks/hooks.json` passes `--host codex --plugin-root`, and
   its three command strings keep the exact quoted form `make codex-plugin-check` pins (Codex runs them through its
   shell; Brigade itself still spawns nothing with one).

@@ -27,7 +27,7 @@
   `session_id` equals `self_session_id` in `brigade sessions --here --json` (the roster carries a renamed
   session's new name, and so does `brigade whoami` since card 164). Outside a Brigade session there is no stamp.
 - **Skills of this repository** live in `.claude/skills/`: `commit`, `trello-create`, `trello-read`, `trello-start`,
-  `trello-done`, `playwright-cli`. The Brigade plugin's own skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`)
-  are the product.
+  `trello-done`, `playwright-cli`. The Brigade plugin's own skills (`plugin/skills/`, `muse/brigade/skills/`,
+  `codex/brigade/skills/`, `grok/brigade/skills/`) are the product.
 - **Dates** in plans and logs are absolute (`2026-10-17`), never relative.
 - **Wording.** Say "the 26 test messages" or "the injection test set", never "corpus".

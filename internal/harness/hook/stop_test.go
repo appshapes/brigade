@@ -16,6 +16,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
+	"github.com/appshapes/brigade/internal/testutil/fakeregistry"
 )
 
 // stopDoc is a Stop document (card 162): Claude Code's own spelling of
@@ -42,6 +43,25 @@ func blockReason(t *testing.T, out string) string {
 		t.Fatalf("stdout %q is not one block answer: %v", out, err)
 	}
 	return doc.Reason
+}
+
+// feedbackContext is the additionalContext of the feedback answer on
+// stdout (card 186), "" for no answer; anything else on stdout — the block
+// answer included — fails the test.
+func feedbackContext(t *testing.T, out string) string {
+	t.Helper()
+	if out == "" {
+		return ""
+	}
+	var doc map[string]map[string]string
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || len(doc) != 1 || strings.Count(out, "\n") != 1 {
+		t.Fatalf("stdout %q is not one feedback answer: %v", out, err)
+	}
+	specific := doc["hookSpecificOutput"]
+	if len(specific) != 2 || specific["hookEventName"] != "Stop" || specific["additionalContext"] == "" {
+		t.Fatalf("stdout %q is not one feedback answer", out)
+	}
+	return specific["additionalContext"]
 }
 
 // stateSession is a registered session in a project with a state folder,
@@ -75,7 +95,8 @@ func (f *fixture) stopStamp(t *testing.T) string {
 
 // TestStopAsksForANoteAfterACommit (card 162, plan §5.3 gate 1): a turn
 // that made a commit with no note after it is asked once for a note, in
-// the block answer with the constant's sentence; the Stop that follows
+// the feedback answer (the fixture's registry says 2.1.259) with the
+// constant's sentence; the Stop that follows
 // the ask (stop_hook_active) asks nothing; a Stop within ten minutes asks
 // nothing (never twice in a row, once per ten minutes); the same commit
 // is never asked twice; a commit with a note after it is not asked. The
@@ -122,7 +143,7 @@ func TestStopAsksForANoteAfterACommit(t *testing.T) {
 	f.gitIn("commit", "-q", "--allow-empty", "-m", "162: Add the Stop hook")
 	f.now = base.Add(40 * time.Second)
 	_, out, _ = f.run(SubStop, f.stopDoc("bypassPermissions", false), path)
-	if got := blockReason(t, out); got != stopAskOpen+stopAskNote+stopAskClose {
+	if got := feedbackContext(t, out); got != stopAskOpen+stopAskNote+stopAskClose {
 		t.Fatalf("reason = %q", got)
 	}
 	if got := f.stopStamp(t); got != f.now.Format(time.RFC3339Nano)+" "+f.nativeID+" asked" {
@@ -185,7 +206,7 @@ func TestStopAsksAfterALongTurn(t *testing.T) {
 	}
 	f.now = fixedTime.Add(12 * time.Minute)
 	_, out, _ := f.run(SubStop, f.stopDoc("bypassPermissions", false))
-	if got := blockReason(t, out); got != stopAskOpen+stopAskDoing+stopAskClose {
+	if got := feedbackContext(t, out); got != stopAskOpen+stopAskDoing+stopAskClose {
 		t.Fatalf("reason = %q", got)
 	}
 	// Someone subscribed to the digest, and the ask interval passed.
@@ -198,7 +219,7 @@ func TestStopAsksAfterALongTurn(t *testing.T) {
 	}
 	f.now = fixedTime.Add(24 * time.Minute)
 	_, out, _ = f.run(SubStop, f.stopDoc("bypassPermissions", false))
-	if got := blockReason(t, out); got != stopAskOpen+stopAskDoing+" "+stopAskDecision+stopAskClose {
+	if got := feedbackContext(t, out); got != stopAskOpen+stopAskDoing+" "+stopAskDecision+stopAskClose {
 		t.Fatalf("reason = %q", got)
 	}
 	// A fresh doing line: the decision alone.
@@ -211,7 +232,7 @@ func TestStopAsksAfterALongTurn(t *testing.T) {
 	f.run(SubStop, f.stopDoc("bypassPermissions", false)) // the quiet one between
 	f.now = fixedTime.Add(36 * time.Minute)
 	_, out, _ = f.run(SubStop, f.stopDoc("bypassPermissions", false))
-	if got := blockReason(t, out); got != stopAskOpen+stopAskDecision+stopAskClose {
+	if got := feedbackContext(t, out); got != stopAskOpen+stopAskDecision+stopAskClose {
 		t.Fatalf("reason = %q", got)
 	}
 }
@@ -293,7 +314,7 @@ func TestStopGates(t *testing.T) {
 		stateSession(t, f, "bypassPermissions")
 		f.now = fixedTime.Add(12 * time.Minute)
 		_, out, _ := f.run(SubStop, f.stopDoc("bypassPermissions", false))
-		if blockReason(t, out) == "" {
+		if feedbackContext(t, out) == "" {
 			t.Fatal("the control asked nothing")
 		}
 	})
@@ -317,7 +338,7 @@ func TestStopAllowedModePrintsInDefault(t *testing.T) {
 	f.setDoingMode(t, doing.ModeAllowed)
 	f.now = fixedTime.Add(12 * time.Minute)
 	_, out, _ := f.run(SubStop, f.stopDoc("default", false))
-	if got := blockReason(t, out); got != stopAskOpen+stopAskDoing+stopAskClose {
+	if got := feedbackContext(t, out); got != stopAskOpen+stopAskDoing+stopAskClose {
 		t.Fatalf("reason = %q", got)
 	}
 }
@@ -387,6 +408,9 @@ func TestGrokStopCarriesTheAsk(t *testing.T) {
 	if _, err := f.stateStore(t).Load("brigade-sess-1"); err != nil {
 		t.Fatalf("no entry after the Grok prompt: %v", err)
 	}
+	// Grok keeps the block answer for both asks (card 186), whatever a
+	// Claude Code session registry at its pid says: the fixture's says
+	// 2.1.259, a Claude Code that takes the feedback answer.
 	// The first completed turn arms the monitor; the state ask yields.
 	f.now = fixedTime.Add(12 * time.Minute)
 	_, out, _ := grokRun(f, SubStop, grokDoc(f, "stop", "", map[string]any{"permissionMode": "bypassPermissions"}))
@@ -406,5 +430,144 @@ func TestGrokStopCarriesTheAsk(t *testing.T) {
 	f.now = fixedTime.Add(14 * time.Minute)
 	if _, out, _ = grokRun(f, SubStop, grokDoc(f, "stop", "", map[string]any{"permissionMode": "bypassPermissions", "stopHookActive": true})); out != "" {
 		t.Fatalf("the active Stop asked: %q", out)
+	}
+}
+
+// TestStopAnswerFollowsTheVersion (card 186): the same ask, as the
+// feedback answer when the session registry's version is 2.1.163 or later,
+// and as the block answer when the version is older, unparsable, not a
+// string, absent from the entry, or the entry itself is missing.
+func TestStopAnswerFollowsTheVersion(t *testing.T) {
+	t.Parallel()
+	want := stopAskOpen + stopAskDoing + stopAskClose
+	for name, tc := range map[string]struct {
+		entry    func(f *fixture) string // "" for no registry entry at all
+		feedback bool
+	}{
+		"2.1.163, the first": {entry: versionEntry(`"2.1.163"`), feedback: true},
+		"2.1.316, measured":  {entry: versionEntry(`"2.1.316"`), feedback: true},
+		"2.2.0":              {entry: versionEntry(`"2.2.0"`), feedback: true},
+		"3.0.0":              {entry: versionEntry(`"3.0.0"`), feedback: true},
+		"2.1.162, the last":  {entry: versionEntry(`"2.1.162"`)},
+		"2.0.999":            {entry: versionEntry(`"2.0.999"`)},
+		"1.9.400":            {entry: versionEntry(`"1.9.400"`)},
+		"a suffix":           {entry: versionEntry(`"2.1.316-beta"`)},
+		"unknown":            {entry: versionEntry(`"unknown"`)},
+		"empty":              {entry: versionEntry(`""`)},
+		"not a string":       {entry: versionEntry(`2.1`)},
+		"no version member":  {entry: versionEntry("")},
+		"no registry entry":  {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			entries := map[int]string{}
+			if tc.entry != nil {
+				entries[f.pid] = tc.entry(f)
+			}
+			f.registry = fakeregistry.New(t, entries)
+			f.deps.Registry = f.registry
+			stateSession(t, f, "bypassPermissions")
+			f.now = fixedTime.Add(12 * time.Minute)
+			exit, out, errOut := f.run(SubStop, f.stopDoc("bypassPermissions", false))
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			got := ""
+			if tc.feedback {
+				got = feedbackContext(t, out)
+			} else {
+				got = blockReason(t, out)
+			}
+			if got != want {
+				t.Fatalf("the ask = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestStopAnswerReadsTheMapBeforeTheRegistry (card 186): the version
+// the answer follows is the session map's harness_version when the map
+// has one — enough on its own, and it wins over the registry — and the
+// registry read at the Stop only when the map has none ("unknown").
+func TestStopAnswerReadsTheMapBeforeTheRegistry(t *testing.T) {
+	t.Parallel()
+	want := stopAskOpen + stopAskDoing + stopAskClose
+	for name, tc := range map[string]struct {
+		mapVersion string
+		entry      func(f *fixture) string // "" for no registry entry at all
+		feedback   bool
+	}{
+		"the map is enough":  {mapVersion: "2.1.316", feedback: true},
+		"the map wins":       {mapVersion: "2.1.162", entry: versionEntry(`"2.1.316"`)},
+		"unknown falls back": {mapVersion: unknownVersion, entry: versionEntry(`"2.1.316"`), feedback: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			stateSession(t, f, "bypassPermissions")
+			m := f.mustMap()
+			m.HarnessVersion = tc.mapVersion
+			writeMapOf(t, f, m)
+			entries := map[int]string{}
+			if tc.entry != nil {
+				entries[f.pid] = tc.entry(f)
+			}
+			f.registry = fakeregistry.New(t, entries)
+			f.deps.Registry = f.registry
+			f.now = fixedTime.Add(12 * time.Minute)
+			exit, out, errOut := f.run(SubStop, f.stopDoc("bypassPermissions", false))
+			if exit != 0 {
+				t.Fatalf("exit %d: %s", exit, errOut)
+			}
+			got := ""
+			if tc.feedback {
+				got = feedbackContext(t, out)
+			} else {
+				got = blockReason(t, out)
+			}
+			if got != want {
+				t.Fatalf("the ask = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// versionEntry is the fixture's registry entry with its version member
+// replaced by raw (a JSON value), or dropped when raw is "".
+func versionEntry(raw string) func(f *fixture) string {
+	return func(f *fixture) string {
+		entry := fakeregistry.Observed(f.pid, "payments-api", "busy", f.socket)
+		member := `"version":"2.1.259",`
+		if !strings.Contains(entry, member) {
+			panic("versionEntry: the observed entry has no version member")
+		}
+		if raw == "" {
+			return strings.Replace(entry, member, "", 1)
+		}
+		return strings.Replace(entry, member, `"version":`+raw+`,`, 1)
+	}
+}
+
+// TestVersionAtLeast: three runs of decimal digits, compared part by part;
+// anything else is not a version and reads as older.
+func TestVersionAtLeast(t *testing.T) {
+	t.Parallel()
+	for v, want := range map[string]bool{
+		"2.1.163": true, "2.1.164": true, "2.1.316": true, "2.2.0": true, "3.0.0": true, "10.0.0": true,
+		"2.1.1630": true, "02.01.163": true,
+		"2.1.162": false, "2.0.999": false, "1.99.999": false, "0.0.0": false,
+		"": false, "unknown": false, "2.1": false, "2.1.163.1": false, "2.1.163-beta": false,
+		"v2.1.163": false, "+2.1.163": false, "2.+1.163": false, "2.1.-163": false,
+		"2..163": false, "2.1.": false, ".1.163": false, "2.1.99999999999999999999": false,
+	} {
+		if got := versionAtLeast(v, stopFeedbackSince); got != want {
+			t.Errorf("versionAtLeast(%q) = %v, want %v", v, got, want)
+		}
+	} // Whitespace around a version is not trimmed: it is not a version.
+	for _, v := range []string{" 2.1.163", "2.1.163 ", "2.1.163\n", "2. 1.163"} {
+		if versionAtLeast(v, stopFeedbackSince) {
+			t.Errorf("versionAtLeast(%q) = true, want false", v)
+		}
 	}
 }

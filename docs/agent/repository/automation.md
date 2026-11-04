@@ -1,6 +1,7 @@
 # Automation: the release-notes email, the agentic loop, pinned actions
 
-- **The release-notes email** (card 43, `.github/workflows/send-release-notes.yml`) goes to a list kept by hand in
+- **The release-notes email** (card 43, `.github/workflows/send-release-notes.yml`, whose writer and reviewer both
+  follow `.claude/agents/release-notes-email.md`) goes to a list kept by hand in
   the secret `RELEASE_NOTES_RECIPIENTS`. Never print, upload, commit or put on a card the address of a recipient:
   this repository is public, so the addresses are secrets, never variables and never a file, every reader is
   `bcc`, and the list is read after the last agent step. The send step's name is how the next run finds the last

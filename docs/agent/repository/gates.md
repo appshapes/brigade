@@ -23,7 +23,9 @@
   `make launcher` and committing the result in the same commit. `make muse-plugin-check` is the same for `muse/brigade/`:
   allowlist, native manifest, one wrapper per hook, assets equal to `plugin/bin`'s; `make codex-plugin-check` for
   `codex/brigade/`: allowlist, native manifest, the three exact hook commands, `.agents/plugins/marketplace.json`,
-  assets equal. A new harness package gets a check of its own in `scripts/ci/` and a job step in `ci.yml`.
+  assets equal; `make grok-plugin-check` for `grok/brigade/`: allowlist, native manifest, the four exact hook
+  commands, `.grok-plugin/marketplace.json`, assets equal. A new harness package gets a check of its own in
+  `scripts/ci/` and a job step in `ci.yml`.
 - **shellcheck is pinned.** CI's Ubuntu runner (Blacksmith's `blacksmith-4vcpu-ubuntu-2404` image since P5-17)
   has shellcheck **0.9.0**, printed by `ci.yml`'s `fast` job in its "Runner image inventory" step (run
   33998830833); this machine has 0.11, and versions disagree (0.10 reported SC2317 for a trap-invoked function's

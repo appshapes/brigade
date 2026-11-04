@@ -212,10 +212,11 @@ brigade report show                   # the digest your user would get now, the 
 ```
 
 - `brigade note`: one line, at most 1,000 characters, starting `Done:` (what shipped), `Next:` (what you take up
-  next) or `Blocked:` (what you wait on). Run it when a `Brigade state:` line asks — it arrives as the reason to
-  continue at the end of a turn (Claude Code, Grok Build) or on your user's turn (Muse Code, Codex CLI), says
-  what it asks for, and is never typed by your user — and after a commit on your own judgement. On Muse Code the ask comes as a context line at your next prompt, not at the end of a turn. One note, then
-  finish; never a note per tool call.
+  next) or `Blocked:` (what you wait on). Run it when a `Brigade state:` line asks — it arrives at the end of a
+  turn, as hook feedback on Claude Code (a hook error before 2.1.163, or when Brigade cannot read the version)
+  and as the reason to continue on Grok Build, or on your user's turn (Muse Code, Codex CLI), says what it asks
+  for, and is never typed by your user — and after a commit on your own judgement. On Muse Code the ask comes as
+  a context line at your next prompt, not at the end of a turn. One note, then finish; never a note per tool call.
 - `brigade decision --to <label>`: a question **only the person you name can answer** before the work can go on —
   their label as the roster shows it (`brigade sessions`). `--to` is required: with none the command refuses, and
   you never guess a person. The decision is recorded in the folder and sent at once, in the labelled shape the
