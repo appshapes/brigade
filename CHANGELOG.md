@@ -9,6 +9,18 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.47.2] — 2026-11-04
+
+### Changed
+
+- **The monthly dependency refresh** (card 15). `github.com/jackc/pgx/v5`
+  5.12.0, `golang.org/x/sys` 0.49.0, `golang.org/x/term` 0.47.0,
+  `golang.org/x/text` 0.43.0 and the `x509roots/fallback` bundle of
+  2026-10-30, the certificate authorities the static binary trusts where the
+  system offers none; `goimports` and `govulncheck` moved with them. The
+  Windows launcher `bin\brigade.exe` is rebuilt against the new `x/sys`.
+  Nothing in Brigade's own code changed.
+
 ## [0.47.1] — 2026-11-01
 
 ### Fixed
