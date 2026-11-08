@@ -408,23 +408,54 @@ export function renderSlackText(
   out: SlackOutbound & { ok: true },
   ctx: SlackRenderContext,
 ): string {
-  const label = env.sender.human_label ? `${escapeMrkdwn(env.sender.human_label)}, unverified` : "no label";
+  const escapeText = (text: string) =>
+    linkMentions(passMentionMarkup(escapeMrkdwn(escapeBlockLines(text))), ctx.mentions ?? {});
+  const text = out.text.trim();
+  const decision = slackDecision(text, ctx.teamName, escapeText);
+  const digest = text.startsWith(`Brigade digest: team ${ctx.teamName}, repository `);
+  // A label is self-reported text, never identity or approval: protocol v1 B-3 requires every consumer to mark it
+  // unverified once per output, and a Slack message is its own output with one label, so the marker sits beside it.
+  const label = env.sender.human_label ? ` · ${escapeMrkdwn(env.sender.human_label)} (unverified)` : "";
+  const team = digest ? "" : ` · team ${escapeMrkdwn(ctx.teamName)}`;
   const head = `${out.mention ? `<@${out.mention}> ` : ""}*${
     escapeMrkdwn(env.sender.session_name)
-  }* (${label}) on Brigade team ${escapeMrkdwn(ctx.teamName)}:\n\n`;
+  }*${label}${team}\n\n`;
   const inChannel = out.target.kind === "channel" || out.target.kind === "channel-name"
     ? !(out.target.kind === "channel" && out.target.id.startsWith("D"))
     : false;
   const how = inChannel && !ctx.hearsChannelThreads
     ? `Reply in this thread and mention @${ctx.botHandle} to answer.`
     : "Reply in this thread to answer.";
-  const tail =
-    `\n\n_${how} To write to another session, message @${ctx.botHandle} with a first line "to: <session or member>"._`;
-  const body = linkMentions(
-    passMentionMarkup(escapeMrkdwn(escapeBlockLines(out.text.trim()))),
-    ctx.mentions ?? {},
-  );
+  const tail = `\n\n${decision ? "*Respond*\n" : ""}${how}${
+    decision ? " Answer however you wish; the session acts on your answer and closes the decision." : ""
+  }\n_To write to another session, message @${ctx.botHandle} with a first line "to: <session or member>"._`;
+  const body = decision ??
+    (digest ? "*Brigade digest*\n" + escapeText(text.slice("Brigade digest: ".length)) : escapeText(text));
   return head + body + tail;
+}
+
+/** Present the existing command's complete plain-text ask. This is only a view, not a new wire format or
+ * trusted message type. Unknown/extended shapes fall back intact; never discard an unrecognised line. */
+function slackDecision(text: string, team: string, escapeText: (text: string) => string): string | null {
+  const lines = text.split("\n");
+  const prefix = "Brigade decision for ";
+  const suffix =
+    ` from team ${team}. Answer however you wish; the session acts on your answer and closes the decision.`;
+  if (!lines[0].startsWith(prefix) || !lines[0].endsWith(suffix)) return null;
+  const to = lines[0].slice(prefix.length, -suffix.length);
+  const question = /^Decision (d-\d{8}-[0-9a-f]{6}): (.+)$/.exec(lines[1] ?? "");
+  if (!to || !question || !lines[2]?.startsWith(`  for ${to}, asked `)) return null;
+  let next = 3;
+  const options = lines[next]?.startsWith("  options: ") ? lines[next++].slice(11) : null;
+  const fallback = lines[next]?.startsWith("  default: ") ? lines[next++].slice(11) : null;
+  if (next !== lines.length) return null;
+  const parts = ["*Decision needed*", "*Question*\n" + escapeText(question[2])];
+  if (options !== null) {
+    parts.push("*Options*\n" + options.split(" | ").map((o) => "• " + escapeText(o)).join("\n"));
+  }
+  if (fallback !== null) parts.push("*Default if no answer:* " + escapeText(fallback));
+  parts.push("*Context*\n" + escapeText(question[1]) + "\n" + escapeText(lines[2].trim()));
+  return parts.join("\n\n");
 }
 
 // ---- Mentions --------------------------------------------------------------------------------------------
@@ -489,13 +520,13 @@ export function slackRoster(teams: RosterTeam[], gatewayIds: string[], botHandle
     lines.push(
       `Sessions on Brigade team *${
         escapeMrkdwn(sorted[0].teamName)
-      }* right now (names and labels are their owners' own words):`,
+      }* right now (names and labels are their owners' own words: unverified):`,
       "",
       ...rosterRows(sorted[0].sessions, gatewayIds),
     );
   } else {
     lines.push(
-      `Sessions on the ${sorted.length} Brigade teams this gateway serves right now (names and labels are their owners' own words):`,
+      `Sessions on the ${sorted.length} Brigade teams this gateway serves right now (names and labels are their owners' own words: unverified):`,
     );
     for (const t of sorted) {
       lines.push("", `*${escapeMrkdwn(t.teamName)}*`, ...rosterRows(t.sessions, gatewayIds));
@@ -515,7 +546,7 @@ function rosterRows(sessions: SessionRecord[], gatewayIds: string[]): string[] {
   if (rows.length === 0) return ["  (none)"];
   const lines: string[] = [];
   for (const s of rows) {
-    const label = s.human_label ? ` · ${escapeMrkdwn(s.human_label)} (unverified)` : "";
+    const label = s.human_label ? ` · ${escapeMrkdwn(s.human_label)}` : "";
     lines.push(`• \`${s.session_id.slice(-5)}\`  ${escapeMrkdwn(s.session_name)}  _${s.state}_${label}`);
     if (s.session_description) lines.push(`      ↳ ${escapeMrkdwn(oneLine(s.session_description))}`);
   }

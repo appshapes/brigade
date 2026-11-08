@@ -38,8 +38,8 @@ The question travels on stdin. `--to` names the person it is for, by their label
 (`brigade sessions`), and is required: a decision with no addressee is refused (`invalid_input`, `to_needed`),
 never guessed. The four other flags are optional: the options offered (at most 8, separated by `|`), the one
 taken when the person says nothing (one of the options), the date an answer is needed by (`YYYY-MM-DD`), the
-card. The command writes `decisions/<id>.json` into the state folder and sends the ask at once, in the labelled
-shape the digest uses: when that person subscribed to the digest, through the first of their recipients a
+card. The command writes `decisions/<id>.json` into the state folder and sends the ask at once, with the same
+facts the digest uses: when that person subscribed to the digest, through the first of their recipients a
 gateway on the roster can carry (a Slack handle, channel or address through the Slack gateway, which finds a
 person by their email; an address through the mail gateway when the team has no Slack gateway); otherwise, or
 with no gateway there, to their own best session as a plain team message; with neither it is recorded and the
@@ -50,6 +50,11 @@ unsent. The output names the decision and how it went:
 recorded: decision d-20261029-a1b2c3
 sent: to rjae@example.com at @rjae through the slack gateway, message 7f3c…
 ```
+
+On Slack, the ask has separate question, options, default if no answer, context and response sections. The
+context keeps the decision id, addressee, date, asker and session, plus the repository, card and answer-by date
+when supplied. Missing optional fields have no section. Email, session messages and the digest's decision
+entries keep their labelled plain-text shape. Older or unfamiliar ask formats are shown intact on Slack.
 
 The person answers however they wish, on Slack, by mail, in person, or by a team message (ruling 4 of the design:
 nothing is built for the answer). When the session has acted on it:

@@ -9,6 +9,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Slack messages are easier to scan** (card 193). A compact sender line
+  keeps the session, the member label marked `(unverified)` once and the
+  team; a digest names its team only in its own header. Decision asks
+  separate the question, options, default if no answer, context and
+  response guidance. Slack's session list marks labels once, in its header
+  note, instead of on every row. Labels remain self-reported; identity,
+  trust, mentions and thread routing are unchanged, as are email messages. Hosted gateways pick up the presentation when redeployed
+  ([Install the Slack gateway](docs/project-owner/configure/slack-gateway.md#running-it-again)).
+
 ## [0.47.2] — 2026-11-04
 
 ### Changed

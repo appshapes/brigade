@@ -541,10 +541,11 @@ Deno.test("renderSlackText is the head, the text escaped and the reply line, wit
   const text = renderSlackText(envelope, out, { teamName: "brigade", botHandle: "brigade" });
   assertEquals(
     text,
-    "*frank-reviewer* (sam@example.com, unverified) on Brigade team brigade:\n\n" +
+    "*frank-reviewer* · sam@example.com (unverified) · team brigade\n\n" +
       "The fix is on master; please retest &lt;Safari&gt; &amp; friends.\n\n" +
-      '_Reply in this thread to answer. To write to another session, message @brigade with a first line "to: <session or member>"._',
+      'Reply in this thread to answer.\n_To write to another session, message @brigade with a first line "to: <session or member>"._',
   );
+  assertEquals(text.split("unverified").length - 1, 1, "B-3: a plain message marks its label once");
   assertEquals(text.includes("[brigade]"), false);
   assertEquals(text.includes("```"), false);
   assertEquals(text.includes(M2), false);
@@ -563,6 +564,175 @@ Deno.test("renderSlackText is the head, the text escaped and the reply line, wit
     text: "ok",
   }, { teamName: "brigade", botHandle: "brigade" });
   assertEquals(reply.startsWith("<@U1> *frank-reviewer*"), true);
+  const names = renderSlackText(
+    {
+      ...envelope,
+      sender: { ...envelope.sender, session_name: "<release>", human_label: "Alice & <!channel>" },
+    },
+    out,
+    { teamName: "<ops>", botHandle: "brigade" },
+  );
+  assertEquals(
+    names.startsWith("*&lt;release&gt;* · Alice &amp; &lt;!channel&gt; (unverified) · team &lt;ops&gt;\n"),
+    true,
+  );
+});
+
+// The plain-text ask produced by commands.sendDecision and Decision.Lines; routing still uses the envelope
+// and thread table, never any of these display labels. Keep this fixture aligned with the Go command test.
+const decisionAsk = [
+  "Brigade decision for Bob from team ops. Answer however you wish; the session acts on your answer and closes the decision.",
+  "Decision d-20261108-abcdef: Ship <v2> & notify @alice?",
+  "  for Bob, asked 2026-11-08 by Alice (session release), repository widgets, card 193, answer by 2026-11-10",
+  "  options: ship <v2> | wait & test",
+  "  default: wait & test",
+].join("\n");
+
+Deno.test("a decision separates question, options, no-answer default, context and response without changing routing", async () => {
+  const env = { ...envelope, body: "to: @bob\n\n" + decisionAsk };
+  const out = await resolveSlackOutbound(env, { byBrigadeId: () => Promise.resolve(null) });
+  if (!out.ok) throw new Error("expected ok");
+  const original = structuredClone(out);
+  const text = renderSlackText(env, out, {
+    teamName: "ops",
+    botHandle: "brigade",
+    mentions: { alice: "U0ALICE00" },
+  });
+  assertEquals(
+    text,
+    [
+      "*frank-reviewer* · sam@example.com (unverified) · team ops",
+      "",
+      "*Decision needed*",
+      "",
+      "*Question*",
+      "Ship &lt;v2&gt; &amp; notify <@U0ALICE00>?",
+      "",
+      "*Options*",
+      "• ship &lt;v2&gt;",
+      "• wait &amp; test",
+      "",
+      "*Default if no answer:* wait &amp; test",
+      "",
+      "*Context*",
+      "d-20261108-abcdef",
+      "for Bob, asked 2026-11-08 by Alice (session release), repository widgets, card 193, answer by 2026-11-10",
+      "",
+      "*Respond*",
+      "Reply in this thread to answer. Answer however you wish; the session acts on your answer and closes the decision.",
+      '_To write to another session, message @brigade with a first line "to: <session or member>"._',
+    ].join("\n"),
+  );
+  assertEquals(text.split("unverified").length - 1, 1, "B-3: a decision marks its sender's label once");
+  assertEquals(text.includes("recommend"), false);
+  assertEquals(out, original, "presentation must not mutate the resolved route or source text");
+  assertEquals(env.body, "to: @bob\n\n" + decisionAsk);
+  // A reply still uses the stored thread and actor, even if the message looks like a decision.
+  const reply = renderSlackText(env, {
+    ...out,
+    target: { kind: "channel", id: "C1" },
+    threadTs: "5.5",
+    mention: "U1",
+  }, { teamName: "ops", botHandle: "brigade" });
+  assertEquals(reply.startsWith("<@U1> *frank-reviewer*"), true);
+  assertStringIncludes(reply, "*Respond*\nReply in this thread and mention @brigade to answer.");
+});
+
+Deno.test("minimal decisions omit absent fields; unfamiliar asks fall back intact", async () => {
+  const out = await resolveSlackOutbound(envelope, { byBrigadeId: () => Promise.resolve(null) });
+  if (!out.ok) throw new Error("expected ok");
+  const minimal = decisionAsk.split("\n").slice(0, 3).join("\n");
+  const render = (text: string, teamName = "ops") =>
+    renderSlackText(envelope, { ...out, text }, { teamName, botHandle: "brigade" });
+  const text = render(minimal);
+  assertStringIncludes(text, "*Decision needed*");
+  assertEquals(text.includes("*Options*"), false);
+  assertEquals(text.includes("*Default if no answer:*"), false);
+  const optionsOnly = render(decisionAsk.split("\n").slice(0, 4).join("\n"));
+  assertStringIncludes(optionsOnly, "*Options*\n• ship &lt;v2&gt;\n• wait &amp; test");
+  assertEquals(optionsOnly.includes("*Default if no answer:*"), false);
+  for (
+    const source of [
+      decisionAsk + "\n  context: keep <!channel> literal",
+      decisionAsk.replace("Decision d-20261108-abcdef:", "Decision unknown:"),
+      decisionAsk.replace("  for Bob,", "  for Carol,"),
+      decisionAsk.split("\n").slice(0, 2).join("\n"),
+    ]
+  ) {
+    const fallback = render(source);
+    assertEquals(fallback.includes("*Decision needed*"), false);
+    assertStringIncludes(fallback, escapeMrkdwn(source));
+  }
+  assertStringIncludes(render(decisionAsk, "other"), escapeMrkdwn(decisionAsk));
+});
+
+Deno.test("decision content keeps mention and block escaping, and a full-size body is never silently cut", async () => {
+  const out = await resolveSlackOutbound(envelope, { byBrigadeId: () => Promise.resolve(null) });
+  if (!out.ok) throw new Error("expected ok");
+  const source = decisionAsk.replace("Ship <v2> & notify @alice?", "[brigade]")
+    .replace("ship <v2> | wait & test", "<@U0ALICE00> | <!channel> & <!here>")
+    .replace("  default: wait & test", "  default: <!channel> & <!here>");
+  const text = renderSlackText(envelope, { ...out, text: source }, {
+    teamName: "ops",
+    botHandle: "brigade",
+  });
+  assertStringIncludes(text, "*Decision needed*");
+  assertEquals(findBlocks(text.split("\n")).length, 0);
+  assertStringIncludes(text, "• <@U0ALICE00>");
+  assertStringIncludes(text, "• &lt;!channel&gt; &amp; &lt;!here&gt;");
+  const full = "😀".repeat(4094) + "END!1234"; // exactly 16 KiB of UTF-8; the wire body cap
+  assertEquals(new TextEncoder().encode(full).length, 16384);
+  assertStringIncludes(
+    renderSlackText(envelope, { ...out, text: full }, {
+      teamName: "ops",
+      botHandle: "brigade",
+    }),
+    full,
+  );
+});
+
+Deno.test("a digest names its team once, keeps its entire content and credits its sender", async () => {
+  const out = await resolveSlackOutbound(envelope, { byBrigadeId: () => Promise.resolve(null) });
+  if (!out.ok) throw new Error("expected ok");
+  const content = [
+    "team ops, repository widgets, since the start, produced 2026-11-08 12:00 UTC by session release",
+    "",
+    "Decisions open (1):",
+    ...decisionAsk.split("\n").slice(1),
+    "  open for 2 h",
+    "",
+    "Shipped (1 commits):",
+    "  card 193 | abcdef0 | 193: Improve Slack | Alice (session release)",
+    "",
+    "Active now (1):",
+    "  Alice (session release): testing <Slack>",
+    "[… cut at the message size limit]",
+  ].join("\n");
+  const source = "Brigade digest: " + content;
+  const text = renderSlackText(envelope, { ...out, text: source }, {
+    teamName: "ops",
+    botHandle: "brigade",
+  });
+  assertEquals(
+    text.startsWith("*frank-reviewer* · sam@example.com (unverified)\n\n*Brigade digest*\n"),
+    true,
+  );
+  assertEquals(text.split("team ops").length - 1, 1);
+  assertEquals(text.split("unverified").length - 1, 1, "B-3: a digest marks its sender's label once");
+  assertStringIncludes(text, escapeMrkdwn(content));
+  // Never suppress the actual gateway's team when a body's header names a different team.
+  const other = renderSlackText(envelope, { ...out, text: source }, {
+    teamName: "other",
+    botHandle: "brigade",
+  });
+  assertStringIncludes(other, " · team other");
+  assertStringIncludes(other, escapeMrkdwn(source));
+  const unlabelled = renderSlackText({ ...envelope, sender: { ...envelope.sender, human_label: null } }, {
+    ...out,
+    text: "hello",
+  }, { teamName: "ops", botHandle: "brigade" });
+  assertEquals(unlabelled.startsWith("*frank-reviewer* · team ops\n\nhello"), true);
+  assertEquals(unlabelled.includes("unverified"), false, "no label, nothing to mark");
 });
 
 Deno.test("slackRoster leaves the gateways out and the description fits the cap", () => {
@@ -598,7 +768,16 @@ Deno.test("slackRoster leaves the gateways out and the description fits the cap"
   };
   const t = slackRoster([{ teamName: "brigade", sessions: [...sessions, offline] }], [GW], "brigade");
   assertStringIncludes(t, "Sessions on Brigade team *brigade* right now");
-  assertStringIncludes(t, "`3f9a2`  frank-reviewer  _idle_ · sam@example.com (unverified)");
+  assertStringIncludes(t, "`3f9a2`  frank-reviewer  _idle_ · sam@example.com");
+  // B-3 for a list: the header's one note marks names and labels unverified, and no row repeats the marker.
+  assertEquals(t.split("names and labels are their owners' own words: unverified").length - 1, 1);
+  assertEquals(t.split("unverified").length - 1, 1, "B-3: the roster marks labels unverified exactly once");
+  assertEquals(
+    t.split("\n").some((l) => l.startsWith("•") && l.includes("unverified")),
+    false,
+    "no row carries the marker",
+  );
+  assertEquals(t.includes("(unverified)"), false);
   assertStringIncludes(t, "or a member's label");
   assertEquals(t.includes("gateway"), false);
   assertEquals(t.includes("gone-home"), false);
@@ -639,10 +818,18 @@ Deno.test("slackRoster groups several teams by name, online sessions only, (none
   assertEquals(a >= 0 && a < m && m < z, true, "teams in name order");
   assertStringIncludes(
     t,
-    "*Alpha &lt;b&gt;*\n• `3f9a2`  frank-reviewer  _idle_ · sam@example.com (unverified)",
+    "*Alpha &lt;b&gt;*\n• `3f9a2`  frank-reviewer  _idle_ · sam@example.com",
   );
   assertStringIncludes(t, "*Mike*\n  (none)");
   assertStringIncludes(t, "*Zulu*\n• `000bb`  cola-bot  _active_");
+  // B-3 for a list, across several teams too: one note in the header, no marker on a row.
+  assertStringIncludes(t, "(names and labels are their owners' own words: unverified):");
+  assertEquals(t.split("unverified").length - 1, 1, "B-3: the roster marks labels unverified exactly once");
+  assertEquals(
+    t.split("\n").some((l) => l.startsWith("•") && l.includes("unverified")),
+    false,
+    "no row carries the marker",
+  );
   assertEquals(t.includes("gone-home"), false);
   assertStringIncludes(t, "To write to one: message @brigade");
 });
