@@ -19,6 +19,13 @@ within a minute and sends one line back if it could not (no address, a name nobo
 `[brigade/<team>] <summary>` unless a `subject:` line sets it. In a Slack message, `@handle` in the text tags that
 person; `@here`, `@channel` and `@everyone` are never passed.
 
+Slack shows a compact attribution line: session name, member label when present, and team. A digest already
+names the team in its header, so the attribution does not repeat it. The session list and message attribution
+omit the `unverified` badge; names and labels are still their owners' own words, never proof of identity or
+approval. A decision ask separates its question, options, default if no answer and context, followed by how to
+respond. The default is the action taken if the person says nothing; it is not a separate recommendation.
+Reply in the thread as the message says; older app installations may still require mentioning the bot.
+
 ## What a person does
 
 Your administrator gives them the gateway's address or the bot's handle (`@brigade`).
