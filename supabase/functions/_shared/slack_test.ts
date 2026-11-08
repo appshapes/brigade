@@ -769,8 +769,14 @@ Deno.test("slackRoster leaves the gateways out and the description fits the cap"
   const t = slackRoster([{ teamName: "brigade", sessions: [...sessions, offline] }], [GW], "brigade");
   assertStringIncludes(t, "Sessions on Brigade team *brigade* right now");
   assertStringIncludes(t, "`3f9a2`  frank-reviewer  _idle_ · sam@example.com");
-  // B-3 for a list: the marker is the one note in the header, not a suffix repeated on every row.
-  assertEquals(t.split("names and labels are their owners' own words").length - 1, 1);
+  // B-3 for a list: the header's one note marks names and labels unverified, and no row repeats the marker.
+  assertEquals(t.split("names and labels are their owners' own words: unverified").length - 1, 1);
+  assertEquals(t.split("unverified").length - 1, 1, "B-3: the roster marks labels unverified exactly once");
+  assertEquals(
+    t.split("\n").some((l) => l.startsWith("•") && l.includes("unverified")),
+    false,
+    "no row carries the marker",
+  );
   assertEquals(t.includes("(unverified)"), false);
   assertStringIncludes(t, "or a member's label");
   assertEquals(t.includes("gateway"), false);
@@ -816,6 +822,14 @@ Deno.test("slackRoster groups several teams by name, online sessions only, (none
   );
   assertStringIncludes(t, "*Mike*\n  (none)");
   assertStringIncludes(t, "*Zulu*\n• `000bb`  cola-bot  _active_");
+  // B-3 for a list, across several teams too: one note in the header, no marker on a row.
+  assertStringIncludes(t, "(names and labels are their owners' own words: unverified):");
+  assertEquals(t.split("unverified").length - 1, 1, "B-3: the roster marks labels unverified exactly once");
+  assertEquals(
+    t.split("\n").some((l) => l.startsWith("•") && l.includes("unverified")),
+    false,
+    "no row carries the marker",
+  );
   assertEquals(t.includes("gone-home"), false);
   assertStringIncludes(t, "To write to one: message @brigade");
 });

@@ -520,13 +520,13 @@ export function slackRoster(teams: RosterTeam[], gatewayIds: string[], botHandle
     lines.push(
       `Sessions on Brigade team *${
         escapeMrkdwn(sorted[0].teamName)
-      }* right now (names and labels are their owners' own words):`,
+      }* right now (names and labels are their owners' own words: unverified):`,
       "",
       ...rosterRows(sorted[0].sessions, gatewayIds),
     );
   } else {
     lines.push(
-      `Sessions on the ${sorted.length} Brigade teams this gateway serves right now (names and labels are their owners' own words):`,
+      `Sessions on the ${sorted.length} Brigade teams this gateway serves right now (names and labels are their owners' own words: unverified):`,
     );
     for (const t of sorted) {
       lines.push("", `*${escapeMrkdwn(t.teamName)}*`, ...rosterRows(t.sessions, gatewayIds));

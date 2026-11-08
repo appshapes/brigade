@@ -22,7 +22,7 @@ person; `@here`, `@channel` and `@everyone` are never passed.
 Slack shows a compact attribution line: session name, member label when present, and team. A digest already
 names the team in its header, so the attribution does not repeat it. Names and labels are their owners' own
 words, never proof of identity or approval: a message marks its sender's label `(unverified)` once, beside the
-label, and the session list says so once in its header instead of on every row. A decision ask separates its question, options, default if no answer and context, followed by how to
+label, and the session list's header marks every name and label unverified once, instead of on every row. A decision ask separates its question, options, default if no answer and context, followed by how to
 respond. The default is the action taken if the person says nothing; it is not a separate recommendation.
 Reply in the thread as the message says; older app installations may still require mentioning the bot.
 
