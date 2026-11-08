@@ -413,8 +413,9 @@ export function renderSlackText(
   const text = out.text.trim();
   const decision = slackDecision(text, ctx.teamName, escapeText);
   const digest = text.startsWith(`Brigade digest: team ${ctx.teamName}, repository `);
-  // Labels remain self-reported text. This is attribution, never an identity or an approval check.
-  const label = env.sender.human_label ? ` · ${escapeMrkdwn(env.sender.human_label)}` : "";
+  // A label is self-reported text, never identity or approval: protocol v1 B-3 requires every consumer to mark it
+  // unverified once per output, and a Slack message is its own output with one label, so the marker sits beside it.
+  const label = env.sender.human_label ? ` · ${escapeMrkdwn(env.sender.human_label)} (unverified)` : "";
   const team = digest ? "" : ` · team ${escapeMrkdwn(ctx.teamName)}`;
   const head = `${out.mention ? `<@${out.mention}> ` : ""}*${
     escapeMrkdwn(env.sender.session_name)

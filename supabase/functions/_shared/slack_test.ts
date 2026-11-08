@@ -541,10 +541,11 @@ Deno.test("renderSlackText is the head, the text escaped and the reply line, wit
   const text = renderSlackText(envelope, out, { teamName: "brigade", botHandle: "brigade" });
   assertEquals(
     text,
-    "*frank-reviewer* · sam@example.com · team brigade\n\n" +
+    "*frank-reviewer* · sam@example.com (unverified) · team brigade\n\n" +
       "The fix is on master; please retest &lt;Safari&gt; &amp; friends.\n\n" +
       'Reply in this thread to answer.\n_To write to another session, message @brigade with a first line "to: <session or member>"._',
   );
+  assertEquals(text.split("unverified").length - 1, 1, "B-3: a plain message marks its label once");
   assertEquals(text.includes("[brigade]"), false);
   assertEquals(text.includes("```"), false);
   assertEquals(text.includes(M2), false);
@@ -572,7 +573,7 @@ Deno.test("renderSlackText is the head, the text escaped and the reply line, wit
     { teamName: "<ops>", botHandle: "brigade" },
   );
   assertEquals(
-    names.startsWith("*&lt;release&gt;* · Alice &amp; &lt;!channel&gt; · team &lt;ops&gt;\n"),
+    names.startsWith("*&lt;release&gt;* · Alice &amp; &lt;!channel&gt; (unverified) · team &lt;ops&gt;\n"),
     true,
   );
 });
@@ -600,7 +601,7 @@ Deno.test("a decision separates question, options, no-answer default, context an
   assertEquals(
     text,
     [
-      "*frank-reviewer* · sam@example.com · team ops",
+      "*frank-reviewer* · sam@example.com (unverified) · team ops",
       "",
       "*Decision needed*",
       "",
@@ -622,7 +623,7 @@ Deno.test("a decision separates question, options, no-answer default, context an
       '_To write to another session, message @brigade with a first line "to: <session or member>"._',
     ].join("\n"),
   );
-  assertEquals(text.includes("unverified"), false);
+  assertEquals(text.split("unverified").length - 1, 1, "B-3: a decision marks its sender's label once");
   assertEquals(text.includes("recommend"), false);
   assertEquals(out, original, "presentation must not mutate the resolved route or source text");
   assertEquals(env.body, "to: @bob\n\n" + decisionAsk);
@@ -712,8 +713,12 @@ Deno.test("a digest names its team once, keeps its entire content and credits it
     teamName: "ops",
     botHandle: "brigade",
   });
-  assertEquals(text.startsWith("*frank-reviewer* · sam@example.com\n\n*Brigade digest*\n"), true);
+  assertEquals(
+    text.startsWith("*frank-reviewer* · sam@example.com (unverified)\n\n*Brigade digest*\n"),
+    true,
+  );
   assertEquals(text.split("team ops").length - 1, 1);
+  assertEquals(text.split("unverified").length - 1, 1, "B-3: a digest marks its sender's label once");
   assertStringIncludes(text, escapeMrkdwn(content));
   // Never suppress the actual gateway's team when a body's header names a different team.
   const other = renderSlackText(envelope, { ...out, text: source }, {
@@ -727,6 +732,7 @@ Deno.test("a digest names its team once, keeps its entire content and credits it
     text: "hello",
   }, { teamName: "ops", botHandle: "brigade" });
   assertEquals(unlabelled.startsWith("*frank-reviewer* · team ops\n\nhello"), true);
+  assertEquals(unlabelled.includes("unverified"), false, "no label, nothing to mark");
 });
 
 Deno.test("slackRoster leaves the gateways out and the description fits the cap", () => {
@@ -763,7 +769,9 @@ Deno.test("slackRoster leaves the gateways out and the description fits the cap"
   const t = slackRoster([{ teamName: "brigade", sessions: [...sessions, offline] }], [GW], "brigade");
   assertStringIncludes(t, "Sessions on Brigade team *brigade* right now");
   assertStringIncludes(t, "`3f9a2`  frank-reviewer  _idle_ · sam@example.com");
-  assertEquals(t.includes("unverified"), false);
+  // B-3 for a list: the marker is the one note in the header, not a suffix repeated on every row.
+  assertEquals(t.split("names and labels are their owners' own words").length - 1, 1);
+  assertEquals(t.includes("(unverified)"), false);
   assertStringIncludes(t, "or a member's label");
   assertEquals(t.includes("gateway"), false);
   assertEquals(t.includes("gone-home"), false);
