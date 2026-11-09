@@ -51,10 +51,11 @@ recorded: decision d-20261029-a1b2c3
 sent: to rjae@example.com at @rjae through the slack gateway, message 7f3c…
 ```
 
-On Slack, the ask has separate question, options, default if no answer, context and response sections. The
-context keeps the decision id, addressee, date, asker and session, plus the repository, card and answer-by date
-when supplied. Missing optional fields have no section. Email, session messages and the digest's decision
-entries keep their labelled plain-text shape. Older or unfamiliar ask formats are shown intact on Slack.
+On Slack, the ask is the question, then the options as a list with the default marked `[default]`, then
+`Answer by <date>.` when a date was given; the sender line above it names the asking session and its member.
+The decision id, the addressee, the asker, the repository and the card are not shown there: the id is in this
+command's output and names the decision's file. By email and as a session message the ask keeps its labelled
+plain-text shape. Older or unfamiliar ask formats are shown intact on Slack.
 
 The person answers however they wish, on Slack, by mail, in person, or by a team message (ruling 4 of the design:
 nothing is built for the answer). When the session has acted on it:
@@ -97,14 +98,27 @@ decision addressed to you reaches the same recipients at once.
 ## The digest itself
 
 `brigade report show`, inside a session, prints the digest you would get now — your own subscription's view, or
-everything since the start when you have none; `--to <label>` another subscriber's — as plain text with a stable
-label at the start of every line: the header (team, repository, period, producer), the decisions open (oldest
-first, with whom each is for and its age) and closed in the period — under `--only mine`, only the ones addressed
-to you — the commits shipped (one per hash, the carded ones first, at most 40, each under the session whose
-checkout made it), the sessions blocked, active (at
-most 30), ended in the period, held or quiet, and the sessions on the roster with no entry. Ask for it in words;
-your session prints it verbatim. The period's digest is produced by whichever session is active, once per
-subscriber ([Set up the digests](../../team-admin/configure/digests.md)).
+everything since the start when you have none; `--to <label>` another subscriber's — as plain text: the header
+(team, repository, period, producer), then one section per heading.
+
+- **Decisions open** (oldest first) and **closed in the period**; under `--only mine`, only the ones addressed to
+  you. An open one is its question, its options one to a line with the default marked `[default]`, then one line
+  saying whom it is for, who asked, how long it has been open and the date an answer is needed by. A closed one is
+  its question, then who closed it and the outcome.
+- **Shipped**: the commits, one per hash, the carded ones first, at most 40, each under the session whose checkout
+  made it.
+- **Blocked**: every session whose latest note starts `Blocked:`.
+- **Active now**: one block per session, its name and member on the first line, then `doing:` and `note:` lines
+  for its doing line and its latest note, at most 30 sessions. The sessions that published neither are named
+  together on one last line.
+- **Ended in the period**: the same shape, with the commits credited to the session and its last note. A session
+  that ended with no commits and no note is counted on the last line and not listed.
+- **Held or quiet**, and the sessions on the roster with no entry.
+
+A session on the roster is named as the roster names it now, with its member's label. One that has ended keeps
+what its own entry recorded; an entry that recorded no member and only the repository's name reads `an unnamed
+<host> session`. Ask for the digest in words; your session prints it verbatim. The period's digest is produced by
+whichever session is active, once per subscriber ([Set up the digests](../../team-admin/configure/digests.md)).
 
 ## What leaves your machine
 

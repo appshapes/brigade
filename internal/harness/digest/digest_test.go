@@ -72,19 +72,16 @@ func TestBuildSections(t *testing.T) {
 		"Brigade digest: team brigade, repository brigade, since 2026-10-28 12:00 UTC, produced 2026-10-29 12:00 UTC by session 162-digest",
 		"",
 		"Decisions open (2):",
-		"Decision d-20261027-bbbbbb: Ship Friday?",
-		"  for Frank, asked 2026-10-27 by bob@example.com (session billing)",
-		"  open for 2 d",
-		"Decision d-20261028-aaaaaa: Which backend?",
-		"  for rjae@example.com, asked 2026-10-28 by alice@example.com (session 162-digest)",
-		"  options: supabase | fs",
-		"  default: supabase",
-		"  open for 36 h",
+		"  Ship Friday?",
+		"    for Frank, asked by bob@example.com (session billing), open for 2 d",
+		"  Which backend?",
+		"    - [default] supabase",
+		"    - fs",
+		"    for rjae@example.com, asked by alice@example.com (session 162-digest), open for 36 h",
 		"",
 		"Decisions closed in the period (1):",
-		"Decision d-20261028-cccccc: Keep the fs adapter?",
-		"  asked 2026-10-28 by alice@example.com (session 162-digest)",
-		"  closed 2026-10-29 by alice@example.com (session 162-digest): yes, for the tests",
+		"  Keep the fs adapter?",
+		"    closed 2026-10-29 by alice@example.com (session 162-digest): yes, for the tests",
 		"",
 		"Shipped (3 commits):",
 		"  card 12 | ddddddd | 12: Fix the invoice total | bob@example.com (session billing)",
@@ -92,14 +89,18 @@ func TestBuildSections(t *testing.T) {
 		"  no card | bbbbbbb | Merge branch 'master' | alice@example.com (session 162-digest)",
 		"",
 		"Blocked (1):",
-		"  bob@example.com (session billing): Blocked: waiting on the tax table (40 m)",
+		"  bob@example.com (session billing): waiting on the tax table (40 m)",
 		"",
 		"Active now (2):",
-		"  alice@example.com (session 162-digest): writing the digest, roster line; note: Next: the report command; seen 1 m ago",
-		"  bob@example.com (session billing); note: Blocked: waiting on the tax table; seen 5 m ago",
+		"  alice@example.com (session 162-digest)",
+		"    doing: writing the digest, roster line",
+		"    note: Next: the report command",
+		"  bob@example.com (session billing)",
+		"    note: Blocked: waiting on the tax table",
 		"",
 		"Ended in the period (1):",
-		"  alice@example.com (session 162-review): ended 2026-10-29 11:50 UTC, 1 commits; last note: Done: reviewed the digest",
+		"  alice@example.com (session 162-review): ended 2026-10-29 11:50 UTC, 1 commits",
+		"    last note: Done: reviewed the digest",
 		"",
 		"Held or quiet (1):",
 		"  carol@example.com (session quiet-one): hold; quiet until 3pm; write to billing",
@@ -119,7 +120,7 @@ func TestBuildSections(t *testing.T) {
 		Team: "brigade", Repository: "brigade", Producer: "162-digest", Now: t0, Since: since, For: "RJAE@example.com", Only: state.OnlyMine,
 		Entries: []*state.Entry{alice, alice2, bob}, Decisions: []*state.Decision{open, older, closed, closedBefore}, Roster: roster,
 	})
-	if !strings.Contains(mine.Body, "\nDecisions open for RJAE@example.com (1):\nDecision d-20261028-aaaaaa: Which backend?\n") || strings.Contains(mine.Body, "Ship Friday?") ||
+	if !strings.Contains(mine.Body, "\nDecisions open for RJAE@example.com (1):\n  Which backend?\n    - [default] supabase\n    - fs\n    asked by alice@example.com (session 162-digest), open for 36 h\n") || strings.Contains(mine.Body, "Ship Friday?") ||
 		strings.Contains(mine.Body, "Decisions closed") || !strings.Contains(mine.Body, "\nShipped (3 commits):\n") || mine.DecisionsOpen != 1 {
 		t.Fatalf("the filtered body:\n%s", mine.Body)
 	}
@@ -128,6 +129,91 @@ func TestBuildSections(t *testing.T) {
 		Entries: []*state.Entry{alice, alice2, bob}, Decisions: []*state.Decision{open, older, closed, closedBefore}, Roster: roster})
 	if all.Body != out.Body {
 		t.Fatal("a label with no filter changed the body")
+	}
+}
+
+// TestBuildNamesSessionsAndSkipsTheEmptyOnes (card 193): a session on the
+// roster is named as the roster names it, whatever its entry says, so a
+// host that wrote no member and the repository's name is still a session
+// a reader can find; one that is gone and was never named says so and
+// names its host; a session with no doing line and no note is not a line
+// of its own, and neither is one that ended with nothing to report.
+func TestBuildNamesSessionsAndSkipsTheEmptyOnes(t *testing.T) {
+	t.Parallel()
+	since := t0.Add(-24 * time.Hour)
+	entry := func(id, name, member, harness string) *state.Entry {
+		e := state.New(id, name, since.Add(-time.Hour))
+		e.Member, e.Repository, e.Harness = member, "brigade", harness
+		return e
+	}
+	// On the roster as frank's renamed session; the entry is a Codex one.
+	live := entry("sess-c", "brigade", "", "codex")
+	live.Commits = []state.Commit{{Hash: strings.Repeat("a", 40), Subject: "193: Improve Slack", Card: 193, At: t0.Add(-2 * time.Hour)}}
+	live.AddNote("Blocked: the release waits on a ruling", t0.Add(-3*time.Hour))
+	// On the roster, nothing published: two of them, one a Codex entry.
+	quiet := entry("sess-q", "brigade", "", "codex")
+	idle := entry("sess-i", "brigade-0a", "carol@example.com", "claude-code")
+	// Gone, and never named: one with a commit and a note, one with nothing.
+	gone := entry("sess-g", "brigade", "", "muse")
+	gone.Commits = []state.Commit{{Hash: strings.Repeat("b", 40), Subject: "12: Fix the total", Card: 12, At: t0.Add(-4 * time.Hour)}}
+	gone.AddNote("Done: the total", t0.Add(-4*time.Hour))
+	gone.EndedAt = t0.Add(-time.Hour)
+	empty := entry("sess-e", "brigade", "", "muse")
+	empty.EndedAt = t0.Add(-30 * time.Minute)
+	// Gone, no member, but a name of its own: still a session.
+	named := entry("sess-n", "payments-api", "", "grok")
+	named.AddNote("Done: the ledger", t0.Add(-5*time.Hour))
+	named.EndedAt = t0.Add(-2 * time.Hour)
+	roster := []protocol.SessionRecord{
+		rec("sess-c", "frank-193-slack", "frank@example.com", protocol.SessionStateActive, protocol.InboundAccept, "codex", t0, "releasing 0.47.3"),
+		rec("sess-q", "fix-tmux-panes", "frank@example.com", protocol.SessionStateIdle, protocol.InboundAccept, "codex", t0, ""),
+		rec("sess-i", "brigade-0a", "carol@example.com", protocol.SessionStateIdle, protocol.InboundAccept, "claude-code", t0, ""),
+	}
+	odd := &state.Decision{Version: 1, ID: "d-20261029-aaaaaa", Question: "Ship it?", To: "Frank", Options: []string{"yes", "no"}, Default: "later", By: "2026-10-31", CreatedAt: t0.Add(-time.Hour)}
+	shut := &state.Decision{Version: 1, ID: "d-20261029-bbbbbb", Question: "Keep it?", CreatedAt: t0.Add(-3 * time.Hour), ClosedAt: t0.Add(-time.Hour), ClosedBy: &state.Closer{SessionName: "billing"}}
+	out := digest.Build(digest.Input{
+		Team: "brigade", Repository: "brigade", Producer: "p", Now: t0, Since: since,
+		Entries: []*state.Entry{live, quiet, idle, gone, empty, named}, Decisions: []*state.Decision{odd, shut}, Roster: roster,
+	})
+	want := []string{
+		"Brigade digest: team brigade, repository brigade, since 2026-10-28 12:00 UTC, produced 2026-10-29 12:00 UTC by session p",
+		"",
+		"Decisions open (1):",
+		"  Ship it?",
+		"    - yes",
+		"    - no",
+		"    - [default] later",
+		"    for Frank, open for 1 h, answer by 2026-10-31",
+		"",
+		"Decisions closed in the period (1):",
+		"  Keep it?",
+		"    closed 2026-10-29 by session billing",
+		"",
+		"Shipped (2 commits):",
+		"  card 12 | bbbbbbb | 12: Fix the total | an unnamed muse session",
+		"  card 193 | aaaaaaa | 193: Improve Slack | frank@example.com (session frank-193-slack)",
+		"",
+		"Blocked (1):",
+		"  frank@example.com (session frank-193-slack): the release waits on a ruling (3 h)",
+		"",
+		"Active now (3):",
+		"  frank@example.com (session frank-193-slack)",
+		"    doing: releasing 0.47.3",
+		"    note: Blocked: the release waits on a ruling",
+		"  no doing line or note: frank@example.com (session fix-tmux-panes); carol@example.com (session brigade-0a)",
+		"",
+		"Ended in the period (3):",
+		"  an unnamed muse session: ended 2026-10-29 11:00 UTC, 1 commits",
+		"    last note: Done: the total",
+		"  session payments-api: ended 2026-10-29 10:00 UTC, 0 commits",
+		"    last note: Done: the ledger",
+		"  1 with no commits and no note",
+	}
+	if out.Body != strings.Join(want, "\n") {
+		t.Fatalf("body:\n%s\n\nwant:\n%s", out.Body, strings.Join(want, "\n"))
+	}
+	if out.Active != 3 || strings.Contains(out.Body, "session brigade:") || strings.Contains(out.Body, "| session brigade\n") || strings.Contains(out.Body, "seen ") {
+		t.Fatalf("active %d, or a session named by its repository, or a seen age:\n%s", out.Active, out.Body)
 	}
 }
 
@@ -194,10 +280,10 @@ func TestBuildCaps(t *testing.T) {
 	if !strings.Contains(out.Body, "\n  and 5 more\n") || strings.Count(out.Body, "card 1 |") != digest.ShippedLines {
 		t.Fatalf("shipped cap:\n%s", out.Body)
 	}
-	if !strings.Contains(out.Body, "Active now (45):") || strings.Count(out.Body, "; note: Next: ") != digest.SessionLines || !strings.Contains(out.Body, "  and 15 more") {
+	if !strings.Contains(out.Body, "Active now (45):") || strings.Count(out.Body, "\n    note: Next: ") != digest.SessionLines || !strings.Contains(out.Body, "  and 15 more") {
 		t.Fatalf("active cap:\n%s", out.Body)
 	}
-	if !strings.Contains(out.Body, "Next: "+strings.Repeat("n", digest.NoteChars-len("Next: ")-len([]rune(protocol.TruncationMarker)))+protocol.TruncationMarker+";") {
+	if !strings.Contains(out.Body, "Next: "+strings.Repeat("n", digest.NoteChars-len("Next: ")-len([]rune(protocol.TruncationMarker)))+protocol.TruncationMarker+"\n") {
 		t.Fatalf("notes are not cut at %d:\n%s", digest.NoteChars, out.Body)
 	}
 	if len(out.Body) > protocol.MaxBodyBytes {

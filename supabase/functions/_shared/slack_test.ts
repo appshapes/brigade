@@ -541,11 +541,12 @@ Deno.test("renderSlackText is the head, the text escaped and the reply line, wit
   const text = renderSlackText(envelope, out, { teamName: "brigade", botHandle: "brigade" });
   assertEquals(
     text,
-    "*frank-reviewer* · sam@example.com · team brigade\n\n" +
+    "*frank-reviewer* · sam@example.com\n\n" +
       "The fix is on master; please retest &lt;Safari&gt; &amp; friends.\n\n" +
       'Reply in this thread to answer.\n_To write to another session, message @brigade with a first line "to: <session or member>"._',
   );
   assertEquals(text.includes("unverified"), false, "a message a person reads shows the label alone");
+  assertEquals(text.includes("team brigade"), false, "the sender line is the session and its label, no team");
   assertEquals(text.includes("[brigade]"), false);
   assertEquals(text.includes("```"), false);
   assertEquals(text.includes(M2), false);
@@ -572,10 +573,8 @@ Deno.test("renderSlackText is the head, the text escaped and the reply line, wit
     out,
     { teamName: "<ops>", botHandle: "brigade" },
   );
-  assertEquals(
-    names.startsWith("*&lt;release&gt;* · Alice &amp; &lt;!channel&gt; · team &lt;ops&gt;\n"),
-    true,
-  );
+  assertEquals(names.startsWith("*&lt;release&gt;* · Alice &amp; &lt;!channel&gt;\n\n"), true);
+  assertEquals(names.includes("ops"), false);
 });
 
 // The plain-text ask produced by commands.sendDecision and Decision.Lines; routing still uses the envelope
@@ -588,7 +587,7 @@ const decisionAsk = [
   "  default: wait & test",
 ].join("\n");
 
-Deno.test("a decision separates question, options, no-answer default, context and response without changing routing", async () => {
+Deno.test("a decision is its question, its options as a list with the default marked and its answer-by date; routing is unchanged", async () => {
   const env = { ...envelope, body: "to: @bob\n\n" + decisionAsk };
   const out = await resolveSlackOutbound(env, { byBrigadeId: () => Promise.resolve(null) });
   if (!out.ok) throw new Error("expected ok");
@@ -601,30 +600,33 @@ Deno.test("a decision separates question, options, no-answer default, context an
   assertEquals(
     text,
     [
-      "*frank-reviewer* · sam@example.com · team ops",
+      "*frank-reviewer* · sam@example.com",
       "",
-      "*Decision needed*",
-      "",
-      "*Question*",
       "Ship &lt;v2&gt; &amp; notify <@U0ALICE00>?",
       "",
-      "*Options*",
-      "• ship &lt;v2&gt;",
-      "• wait &amp; test",
+      "- ship &lt;v2&gt;",
+      "- [default] wait &amp; test",
       "",
-      "*Default if no answer:* wait &amp; test",
+      "Answer by 2026-11-10.",
       "",
-      "*Context*",
-      "d-20261108-abcdef",
-      "for Bob, asked 2026-11-08 by Alice (session release), repository widgets, card 193, answer by 2026-11-10",
-      "",
-      "*Respond*",
-      "Reply in this thread to answer. Answer however you wish; the session acts on your answer and closes the decision.",
+      "Reply in this thread to answer.",
       '_To write to another session, message @brigade with a first line "to: <session or member>"._',
     ].join("\n"),
   );
   assertEquals(text.includes("unverified"), false, "a decision shows its sender's label alone");
   assertEquals(text.includes("recommend"), false);
+  // Owner ruling 2026-11-09 (card 193): the preamble, the decision id and the for/asked line are noise to the person.
+  for (
+    const gone of [
+      "Brigade decision for",
+      "d-20261108-abcdef",
+      "asked 2026-11-08",
+      "repository widgets",
+      "card 193",
+    ]
+  ) {
+    assertEquals(text.includes(gone), false, gone);
+  }
   assertEquals(out, original, "presentation must not mutate the resolved route or source text");
   assertEquals(env.body, "to: @bob\n\n" + decisionAsk);
   // A reply still uses the stored thread and actor, even if the message looks like a decision.
@@ -635,7 +637,7 @@ Deno.test("a decision separates question, options, no-answer default, context an
     mention: "U1",
   }, { teamName: "ops", botHandle: "brigade" });
   assertEquals(reply.startsWith("<@U1> *frank-reviewer*"), true);
-  assertStringIncludes(reply, "*Respond*\nReply in this thread and mention @brigade to answer.");
+  assertStringIncludes(reply, "\n\nReply in this thread and mention @brigade to answer.\n");
 });
 
 Deno.test("minimal decisions omit absent fields; unfamiliar asks fall back intact", async () => {
@@ -645,22 +647,30 @@ Deno.test("minimal decisions omit absent fields; unfamiliar asks fall back intac
   const render = (text: string, teamName = "ops") =>
     renderSlackText(envelope, { ...out, text }, { teamName, botHandle: "brigade" });
   const text = render(minimal);
-  assertStringIncludes(text, "*Decision needed*");
-  assertEquals(text.includes("*Options*"), false);
-  assertEquals(text.includes("*Default if no answer:*"), false);
+  assertStringIncludes(
+    text,
+    "\n\nShip &lt;v2&gt; &amp; notify @alice?\n\nAnswer by 2026-11-10.\n\nReply in this thread",
+  );
+  assertEquals(text.includes("\n- "), false);
+  assertEquals(text.includes("[default]"), false);
+  // No answer-by date, no line for one: the question stands alone above the reply line.
+  const undated = render(minimal.replace(", answer by 2026-11-10", ""));
+  assertStringIncludes(undated, "\n\nShip &lt;v2&gt; &amp; notify @alice?\n\nReply in this thread");
+  assertEquals(undated.includes("Answer by"), false);
   const optionsOnly = render(decisionAsk.split("\n").slice(0, 4).join("\n"));
-  assertStringIncludes(optionsOnly, "*Options*\n• ship &lt;v2&gt;\n• wait &amp; test");
-  assertEquals(optionsOnly.includes("*Default if no answer:*"), false);
+  assertStringIncludes(optionsOnly, "?\n\n- ship &lt;v2&gt;\n- wait &amp; test\n\nAnswer by");
+  assertEquals(optionsOnly.includes("[default]"), false);
   for (
     const source of [
       decisionAsk + "\n  context: keep <!channel> literal",
       decisionAsk.replace("Decision d-20261108-abcdef:", "Decision unknown:"),
       decisionAsk.replace("  for Bob,", "  for Carol,"),
+      decisionAsk.replace("  default: wait & test", "  default: neither"),
       decisionAsk.split("\n").slice(0, 2).join("\n"),
     ]
   ) {
     const fallback = render(source);
-    assertEquals(fallback.includes("*Decision needed*"), false);
+    assertEquals(fallback.includes("\n- "), false);
     assertStringIncludes(fallback, escapeMrkdwn(source));
   }
   assertStringIncludes(render(decisionAsk, "other"), escapeMrkdwn(decisionAsk));
@@ -676,10 +686,10 @@ Deno.test("decision content keeps mention and block escaping, and a full-size bo
     teamName: "ops",
     botHandle: "brigade",
   });
-  assertStringIncludes(text, "*Decision needed*");
+  assertEquals(text.includes("Brigade decision for"), false, "shown as a decision, not as the raw ask");
   assertEquals(findBlocks(text.split("\n")).length, 0);
-  assertStringIncludes(text, "• <@U0ALICE00>");
-  assertStringIncludes(text, "• &lt;!channel&gt; &amp; &lt;!here&gt;");
+  assertStringIncludes(text, "\n- <@U0ALICE00>\n");
+  assertStringIncludes(text, "\n- [default] &lt;!channel&gt; &amp; &lt;!here&gt;\n");
   const full = "😀".repeat(4094) + "END!1234"; // exactly 16 KiB of UTF-8; the wire body cap
   assertEquals(new TextEncoder().encode(full).length, 16384);
   assertStringIncludes(
@@ -720,18 +730,19 @@ Deno.test("a digest names its team once, keeps its entire content and credits it
   assertEquals(text.split("team ops").length - 1, 1);
   assertEquals(text.includes("unverified"), false, "a digest shows its sender's label alone");
   assertStringIncludes(text, escapeMrkdwn(content));
-  // Never suppress the actual gateway's team when a body's header names a different team.
+  // A body whose header names another team is not this gateway's digest: it is shown whole, as it was sent.
   const other = renderSlackText(envelope, { ...out, text: source }, {
     teamName: "other",
     botHandle: "brigade",
   });
-  assertStringIncludes(other, " · team other");
+  assertEquals(other.includes("team other"), false);
+  assertEquals(other.includes("*Brigade digest*"), false);
   assertStringIncludes(other, escapeMrkdwn(source));
   const unlabelled = renderSlackText({ ...envelope, sender: { ...envelope.sender, human_label: null } }, {
     ...out,
     text: "hello",
   }, { teamName: "ops", botHandle: "brigade" });
-  assertEquals(unlabelled.startsWith("*frank-reviewer* · team ops\n\nhello"), true);
+  assertEquals(unlabelled.startsWith("*frank-reviewer*\n\nhello"), true);
   assertEquals(unlabelled.includes("unverified"), false);
 });
 

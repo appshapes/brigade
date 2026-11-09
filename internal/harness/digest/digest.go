@@ -1,8 +1,9 @@
 // Package digest assembles the digest from the team's state folder
 // (card 162, .context/plans/manager-digest.md §5.4; card 167 sends it to
 // every subscriber): the decisions waiting on a person and the meaningful
-// contributions since the last digest, as plain text with a stable label
-// at the start of every line and the caps that keep the body under the
+// contributions since the last digest, as plain text under one heading a
+// section (card 193 gave a decision and a session a few short lines each
+// in place of one long one) and the caps that keep the body under the
 // wire's 16 KiB. It reads the folder and the roster only, never git: the
 // entries carry their commits. The producing watcher
 // (internal/harness/watch) and `brigade report show|send`
@@ -282,6 +283,24 @@ func Build(in Input) Output {
 	}
 	lines := []string{"Brigade digest: team " + in.Team + ", repository " + in.Repository + ", " + period + ", produced " + in.Now.UTC().Format(timeLayout) + " by session " + in.Producer}
 
+	// A session on the roster is named as the roster names it now: its
+	// name after a rename and the label its membership carries. An entry
+	// keeps what its own host wrote at the start, which on a host with no
+	// account and no session name of its own is no member and the
+	// repository's name (card 193).
+	online := map[string]*protocol.SessionRecord{}
+	for i := range in.Roster {
+		if s := &in.Roster[i]; s.State != protocol.SessionStateOffline && !gateway.IsHarness(s.Harness) {
+			online[s.SessionID] = s
+		}
+	}
+	name := func(e *state.Entry) string {
+		if s, ok := online[e.SessionID]; ok {
+			return rosterWho(s)
+		}
+		return who(e)
+	}
+
 	decisions, whose := in.Decisions, ""
 	if in.Only == state.OnlyMine && in.For != "" {
 		decisions, whose = decisionsFor(in.Decisions, in.For), " for "+in.For
@@ -291,19 +310,18 @@ func Build(in Input) Output {
 	if len(open) > 0 {
 		lines = append(lines, "", "Decisions open"+whose+" ("+strconv.Itoa(len(open))+"):")
 		for _, d := range open {
-			lines = append(lines, d.Lines()...)
-			lines = append(lines, "  open for "+ageOf(in.Now, d.CreatedAt))
+			lines = append(lines, decisionLines(d, in.Now, whose != "")...)
 		}
 	}
 	if len(closed) > 0 {
 		lines = append(lines, "", "Decisions closed in the period"+whose+" ("+strconv.Itoa(len(closed))+"):")
 		for _, d := range closed {
-			lines = append(lines, d.Lines()...)
+			lines = append(lines, decisionLines(d, in.Now, whose != "")...)
 		}
 	}
 
 	made := madeByAny(in.Entries)
-	shipped := shippedCommits(in.Entries, since, made)
+	shipped := shippedCommits(in.Entries, since, made, name)
 	out.Commits = len(shipped)
 	if len(shipped) > 0 {
 		lines = append(lines, "", "Shipped ("+strconv.Itoa(len(shipped))+" commits):")
@@ -323,7 +341,8 @@ func Build(in Input) Output {
 	var blocked []string
 	for _, e := range in.Entries {
 		if n := latestNote(e); n != nil && strings.HasPrefix(n.Text, "Blocked:") {
-			blocked = append(blocked, "  "+who(e)+": "+cutNote(n.Text)+" ("+ageOf(in.Now, n.At)+")")
+			// The section says "Blocked"; the note's own label is not repeated.
+			blocked = append(blocked, "  "+name(e)+": "+cutNote(strings.TrimPrefix(n.Text, "Blocked:"))+" ("+ageOf(in.Now, n.At)+")")
 		}
 	}
 	if len(blocked) > 0 {
@@ -331,14 +350,17 @@ func Build(in Input) Output {
 		lines = append(lines, blocked...)
 	}
 
-	online := map[string]*protocol.SessionRecord{}
-	var active, held, rosterOnly []string
+	// Active now: one block per session that has something to say, its
+	// doing line and its newest note each on a labelled line of their own;
+	// the sessions that published neither are named on one closing line,
+	// so the count above stays every active session (card 193).
+	var active [][]string
+	var silent, held, rosterOnly []string
 	for i := range in.Roster {
 		s := &in.Roster[i]
 		if s.State == protocol.SessionStateOffline || gateway.IsHarness(s.Harness) {
 			continue
 		}
-		online[s.SessionID] = s
 		if s.Inbound == protocol.InboundHold || s.Inbound == protocol.InboundRefuse {
 			line := "  " + rosterWho(s) + ": " + s.Inbound
 			if s.SessionDescription != nil && *s.SessionDescription != "" {
@@ -355,36 +377,56 @@ func Build(in Input) Output {
 		if !e.EndedAt.IsZero() {
 			continue
 		}
-		line := "  " + who(e)
-		if d := latestDoing(e, s); d != "" {
-			line += ": " + cutNote(d)
+		doing, note := latestDoing(e, s), latestNote(e)
+		if doing == "" && note == nil {
+			silent = append(silent, rosterWho(s))
+			continue
 		}
-		if n := latestNote(e); n != nil {
-			line += "; note: " + cutNote(n.Text)
+		block := []string{"  " + rosterWho(s)}
+		if doing != "" {
+			block = append(block, "    doing: "+cutNote(doing))
 		}
-		line += "; seen " + ageOf(in.Now, s.LastSeenAt) + " ago"
-		active = append(active, line)
+		if note != nil {
+			block = append(block, "    note: "+cutNote(note.Text))
+		}
+		active = append(active, block)
 	}
-	out.Active = len(active)
-	if len(active) > 0 {
-		lines = append(lines, "", "Active now ("+strconv.Itoa(len(active))+"):")
-		lines = append(lines, capLines(active, SessionLines)...)
+	out.Active = len(active) + len(silent)
+	if out.Active > 0 {
+		lines = append(lines, "", "Active now ("+strconv.Itoa(out.Active)+"):")
+		lines = append(lines, capBlocks(active, SessionLines)...)
+		if len(silent) > 0 {
+			lines = append(lines, "  no doing line or note: "+strings.Join(capLines(silent, SessionLines), "; "))
+		}
 	}
 
-	var ended []string
+	// Ended in the period: the same shape, and a session that ended with
+	// no commit credited to it and no note has nothing to report, so it is
+	// counted on the closing line and not listed.
+	var ended [][]string
+	endedCount, nothing := 0, 0
 	for _, e := range in.Entries {
 		if e.EndedAt.IsZero() || !e.EndedAt.After(since) {
 			continue
 		}
-		line := "  " + who(e) + ": ended " + e.EndedAt.UTC().Format(timeLayout) + ", " + strconv.Itoa(creditedCount(e, made)) + " commits"
-		if n := latestNote(e); n != nil {
-			line += "; last note: " + cutNote(n.Text)
+		endedCount++
+		commits, note := creditedCount(e, made), latestNote(e)
+		if commits == 0 && note == nil {
+			nothing++
+			continue
 		}
-		ended = append(ended, line)
+		block := []string{"  " + name(e) + ": ended " + e.EndedAt.UTC().Format(timeLayout) + ", " + strconv.Itoa(commits) + " commits"}
+		if note != nil {
+			block = append(block, "    last note: "+cutNote(note.Text))
+		}
+		ended = append(ended, block)
 	}
-	if len(ended) > 0 {
-		lines = append(lines, "", "Ended in the period ("+strconv.Itoa(len(ended))+"):")
-		lines = append(lines, capLines(ended, SessionLines)...)
+	if endedCount > 0 {
+		lines = append(lines, "", "Ended in the period ("+strconv.Itoa(endedCount)+"):")
+		lines = append(lines, capBlocks(ended, SessionLines)...)
+		if nothing > 0 {
+			lines = append(lines, "  "+strconv.Itoa(nothing)+" with no commits and no note")
+		}
 	}
 	if len(held) > 0 {
 		lines = append(lines, "", "Held or quiet ("+strconv.Itoa(len(held))+"):")
@@ -483,7 +525,7 @@ func creditedCount(e *state.Entry, made map[string]bool) int {
 // shippedCommits is every commit of the period across the entries, one
 // per hash, each with the sessions credited with it, the carded ones
 // first by card then time, the no-card ones last by time.
-func shippedCommits(entries []*state.Entry, since time.Time, made map[string]bool) []shippedCommit {
+func shippedCommits(entries []*state.Entry, since time.Time, made map[string]bool, name func(*state.Entry) string) []shippedCommit {
 	byHash := map[string]*shippedCommit{}
 	var order []string
 	for _, e := range entries {
@@ -497,7 +539,7 @@ func shippedCommits(entries []*state.Entry, since time.Time, made map[string]boo
 				byHash[c.Hash] = s
 				order = append(order, c.Hash)
 			}
-			if w := who(e); !slices.Contains(s.who, w) {
+			if w := name(e); !slices.Contains(s.who, w) {
 				s.who = append(s.who, w)
 			}
 		}
@@ -519,12 +561,80 @@ func shippedCommits(entries []*state.Entry, since time.Time, made map[string]boo
 	return out
 }
 
-// who names an entry's session: the member and the session name.
+// who names an entry's session when the roster no longer does: the
+// member and the session name. An entry with no member whose name is its
+// repository's own (what a host with no account and no session name of its
+// own writes) names no session a reader could find, so it says that and
+// the host instead of passing the repository off as a name (card 193).
 func who(e *state.Entry) string {
-	if e.Member == "" {
+	switch {
+	case e.Member != "":
+		return e.Member + " (session " + e.SessionName + ")"
+	case e.SessionName != "" && e.SessionName != e.Repository:
 		return "session " + e.SessionName
 	}
-	return e.Member + " (session " + e.SessionName + ")"
+	if h := protocol.SanitizeName(strings.Join(strings.Fields(protocol.Sanitize(e.Harness)), " ")); h != "" {
+		return "an unnamed " + h + " session"
+	}
+	return "an unnamed session"
+}
+
+// byWho is "member (session name)", either part alone, or "".
+func byWho(member, session string) string {
+	switch {
+	case member != "" && session != "":
+		return member + " (session " + session + ")"
+	case session != "":
+		return "session " + session
+	}
+	return member
+}
+
+// decisionLines is a decision as the digest shows it (card 193, owner
+// ruling 2026-11-09): the question; for an open one its options, one to a
+// line with the default marked, then one line of whom it waits on, who
+// asked, for how long and the date an answer is needed by; for a closed
+// one the close and its outcome. named is true under a heading that
+// already says whom the decisions are for. The id, the date asked, the
+// repository and the card are in the decision's file and not here;
+// state.Decision.Lines is still the ask a gateway carries, and is not this.
+func decisionLines(d *state.Decision, now time.Time, named bool) []string {
+	lines := []string{"  " + d.Question}
+	if !d.Open() {
+		closed := "closed " + d.ClosedAt.UTC().Format(dateLayout)
+		if d.ClosedBy != nil {
+			if by := byWho(d.ClosedBy.Member, d.ClosedBy.SessionName); by != "" {
+				closed += " by " + by
+			}
+		}
+		if d.Outcome != "" {
+			closed += ": " + d.Outcome
+		}
+		return append(lines, "    "+closed)
+	}
+	marked := false
+	for _, o := range d.Options {
+		mark := ""
+		if o == d.Default && !marked {
+			mark, marked = "[default] ", true
+		}
+		lines = append(lines, "    - "+mark+o)
+	}
+	if d.Default != "" && !marked {
+		lines = append(lines, "    - [default] "+d.Default)
+	}
+	var facts []string
+	if d.To != "" && !named {
+		facts = append(facts, "for "+d.To)
+	}
+	if by := byWho(d.Member, d.SessionName); by != "" {
+		facts = append(facts, "asked by "+by)
+	}
+	facts = append(facts, "open for "+ageOf(now, d.CreatedAt))
+	if d.By != "" {
+		facts = append(facts, "answer by "+d.By)
+	}
+	return append(lines, "    "+strings.Join(facts, ", "))
 }
 
 // rosterWho names a roster session the same way.
@@ -568,6 +678,19 @@ func capLines(lines []string, limit int) []string {
 		return lines
 	}
 	return append(lines[:limit:limit], "  and "+strconv.Itoa(len(lines)-limit)+" more")
+}
+
+// capBlocks is capLines for sessions that take several lines each: the
+// lines of the first limit blocks, then how many more sessions there were.
+func capBlocks(blocks [][]string, limit int) []string {
+	var lines []string
+	for i, b := range blocks {
+		if i == limit {
+			return append(lines, "  and "+strconv.Itoa(len(blocks)-limit)+" more")
+		}
+		lines = append(lines, b...)
+	}
+	return lines
 }
 
 // capBody keeps the body under the wire's cap, cutting at a line and

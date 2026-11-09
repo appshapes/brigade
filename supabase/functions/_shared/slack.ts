@@ -413,28 +413,31 @@ export function renderSlackText(
   const text = out.text.trim();
   const decision = slackDecision(text, ctx.teamName, escapeText);
   const digest = text.startsWith(`Brigade digest: team ${ctx.teamName}, repository `);
-  // The label stands alone: output a person reads carries no "unverified" marker (owner ruling 2026-11-09, card
-  // 193; protocol v1 B-3 keeps the marker for what a model is handed, the frame). It is still self-reported text.
+  // The sender line is the session and its label, nothing else (owner rulings 2026-11-09, card 193). No
+  // "unverified" marker: output a person reads shows the label alone, and protocol v1 B-3 keeps the marker for
+  // what a model is handed, the frame. No team: it told a reader in the team's own workspace little. The label is
+  // still self-reported text.
   const label = env.sender.human_label ? ` · ${escapeMrkdwn(env.sender.human_label)}` : "";
-  const team = digest ? "" : ` · team ${escapeMrkdwn(ctx.teamName)}`;
   const head = `${out.mention ? `<@${out.mention}> ` : ""}*${
     escapeMrkdwn(env.sender.session_name)
-  }*${label}${team}\n\n`;
+  }*${label}\n\n`;
   const inChannel = out.target.kind === "channel" || out.target.kind === "channel-name"
     ? !(out.target.kind === "channel" && out.target.id.startsWith("D"))
     : false;
   const how = inChannel && !ctx.hearsChannelThreads
     ? `Reply in this thread and mention @${ctx.botHandle} to answer.`
     : "Reply in this thread to answer.";
-  const tail = `\n\n${decision ? "*Respond*\n" : ""}${how}${
-    decision ? " Answer however you wish; the session acts on your answer and closes the decision." : ""
-  }\n_To write to another session, message @${ctx.botHandle} with a first line "to: <session or member>"._`;
+  const tail =
+    `\n\n${how}\n_To write to another session, message @${ctx.botHandle} with a first line "to: <session or member>"._`;
   const body = decision ??
     (digest ? "*Brigade digest*\n" + escapeText(text.slice("Brigade digest: ".length)) : escapeText(text));
   return head + body + tail;
 }
 
-/** Present the existing command's complete plain-text ask. This is only a view, not a new wire format or
+/** Present the existing command's plain-text ask the way a person reads it (owner ruling 2026-11-09, card 193):
+ * the question, then the options as a list with the default marked, then the answer-by date when the asker gave
+ * one. The preamble, the decision id and the rest of the "for …, asked …" line are left out: the sender line and
+ * the thread already say who asks and where the answer goes. This is only a view, not a new wire format or
  * trusted message type. Unknown/extended shapes fall back intact; never discard an unrecognised line. */
 function slackDecision(text: string, team: string, escapeText: (text: string) => string): string | null {
   const lines = text.split("\n");
@@ -443,18 +446,21 @@ function slackDecision(text: string, team: string, escapeText: (text: string) =>
     ` from team ${team}. Answer however you wish; the session acts on your answer and closes the decision.`;
   if (!lines[0].startsWith(prefix) || !lines[0].endsWith(suffix)) return null;
   const to = lines[0].slice(prefix.length, -suffix.length);
-  const question = /^Decision (d-\d{8}-[0-9a-f]{6}): (.+)$/.exec(lines[1] ?? "");
+  const question = /^Decision d-\d{8}-[0-9a-f]{6}: (.+)$/.exec(lines[1] ?? "");
   if (!to || !question || !lines[2]?.startsWith(`  for ${to}, asked `)) return null;
   let next = 3;
-  const options = lines[next]?.startsWith("  options: ") ? lines[next++].slice(11) : null;
+  const options = lines[next]?.startsWith("  options: ") ? lines[next++].slice(11).split(" | ") : [];
   const fallback = lines[next]?.startsWith("  default: ") ? lines[next++].slice(11) : null;
   if (next !== lines.length) return null;
-  const parts = ["*Decision needed*", "*Question*\n" + escapeText(question[2])];
-  if (options !== null) {
-    parts.push("*Options*\n" + options.split(" | ").map((o) => "• " + escapeText(o)).join("\n"));
+  // The command refuses a default that is none of the options; one that is not is a shape this view does not know.
+  const marked = fallback === null ? -1 : options.indexOf(fallback);
+  if (fallback !== null && marked < 0) return null;
+  const parts = [escapeText(question[1])];
+  if (options.length > 0) {
+    parts.push(options.map((o, i) => `- ${i === marked ? "[default] " : ""}${escapeText(o)}`).join("\n"));
   }
-  if (fallback !== null) parts.push("*Default if no answer:* " + escapeText(fallback));
-  parts.push("*Context*\n" + escapeText(question[1]) + "\n" + escapeText(lines[2].trim()));
+  const by = /, answer by (\d{4}-\d{2}-\d{2})$/.exec(lines[2]);
+  if (by) parts.push(`Answer by ${by[1]}.`);
   return parts.join("\n\n");
 }
 

@@ -19,13 +19,13 @@ within a minute and sends one line back if it could not (no address, a name nobo
 `[brigade/<team>] <summary>` unless a `subject:` line sets it. In a Slack message, `@handle` in the text tags that
 person; `@here`, `@channel` and `@everyone` are never passed.
 
-Slack shows a compact attribution line: session name, member label when present, and team
-(`frank-reviewer · sam@example.com · team ops`). A digest already names the team in its header, so the
-attribution does not repeat it. A mail begins `frank-reviewer · sam@example.com on Brigade team ops wrote:`.
-Names and labels are their owners' own words, never proof of identity or approval; the label is shown alone, and
-neither a message nor a session list marks it `(unverified)`. A decision ask separates its question, options,
-default if no answer and context, followed by how to respond. The default is the action taken if the person says
-nothing; it is not a separate recommendation.
+Slack shows a compact attribution line: session name, and member label when present
+(`frank-reviewer · sam@example.com`); it does not name the team. A mail begins
+`frank-reviewer · sam@example.com on Brigade team ops wrote:`. Names and labels are their owners' own words,
+never proof of identity or approval; the label is shown alone, and neither a message nor a session list marks it
+`(unverified)`. On Slack a decision ask is its question, then its options as a list with the default marked
+`[default]`, then the answer-by date when one was given; a digest lists its decisions the same way. The default
+is the action taken if the person says nothing; it is not a separate recommendation.
 Reply in the thread as the message says; older app installations may still require mentioning the bot.
 
 ## What a person does

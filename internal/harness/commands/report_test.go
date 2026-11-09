@@ -334,7 +334,7 @@ func TestReportShowAndSend(t *testing.T) {
 	}
 	body := f.out.String()
 	if !strings.HasPrefix(body, "Brigade digest: team ops, repository payments, since the start, produced 2026-09-02 12:00 UTC by session payments-api\n") ||
-		!strings.Contains(body, "Decisions open for alice@example.com (1):\nDecision d-20260901-bbbbbb: Alice's call?\n  for ALICE@example.com, asked 2026-09-02 by bob@example.com (session billing)") || strings.Contains(body, "Bob's call?") ||
+		!strings.Contains(body, "Decisions open for alice@example.com (1):\n  Alice's call?\n    asked by bob@example.com (session billing), open for 2 h\n") || strings.Contains(body, "Bob's call?") ||
 		!strings.Contains(body, "card 162 | aaaaaaa | 162: Add the report command | alice@example.com (session payments-api)") || !strings.Contains(body, "Active now (1):") {
 		t.Fatalf("show:\n%s", body)
 	}

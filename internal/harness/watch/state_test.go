@@ -137,7 +137,7 @@ func TestStateProducesTheDigest(t *testing.T) {
 		t.Fatalf("the gateway's inbox: %+v %v", got, err)
 	}
 	msg := got.Messages[0]
-	if !strings.HasPrefix(msg.Body, "to: @peer\n\nBrigade digest: team ops, repository brigade, since the start, produced ") || !strings.Contains(msg.Body, "Decision d-20261029-aaaaaa: Ship it?") ||
+	if !strings.HasPrefix(msg.Body, "to: @peer\n\nBrigade digest: team ops, repository brigade, since the start, produced ") || !strings.Contains(msg.Body, "Decisions open (1):\n  Ship it?\n    asked by owner@example.com (session receiver), open for ") ||
 		!strings.Contains(msg.Body, "card 162 | aaaaaaa | 162: Add the digest | owner@example.com (session receiver)") || !strings.Contains(msg.Body, "Active now (1):") {
 		t.Fatalf("digest body:\n%s", msg.Body)
 	}
@@ -321,7 +321,7 @@ func TestStateFansOut(t *testing.T) {
 	defer rcancel()
 	got, err := fx.peer.Receive(rctx, gw.SessionID, 10)
 	if err != nil || len(got.Messages) != 1 || !strings.HasPrefix(got.Messages[0].Body, "to: @peer\n\nBrigade digest: team ops, repository brigade, since the start") ||
-		!strings.Contains(got.Messages[0].Body, "Decisions open for peer@example.com (1):\nDecision d-20261029-bbbbbb: Peer's?") || strings.Contains(got.Messages[0].Body, "Nobody's?") {
+		!strings.Contains(got.Messages[0].Body, "Decisions open for peer@example.com (1):\n  Peer's?\n    asked by session receiver, open for ") || strings.Contains(got.Messages[0].Body, "Nobody's?") {
 		t.Fatalf("the gateway's inbox: %+v %v", got, err)
 	}
 	testutil.Eventually(t, waitShort, pollEvery, func() bool {

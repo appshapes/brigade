@@ -32,16 +32,41 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
-- **Slack messages are easier to scan** (card 193). A compact sender line
-  keeps the session, the member label and the team; a digest names its
-  team only in its own header. Decision asks separate the question,
-  options, default if no answer, context and response guidance. Labels
-  remain self-reported; identity, trust, mentions and thread routing are
-  unchanged. Hosted gateways pick up the presentation when redeployed
+- **Slack messages are easier to scan** (card 193). The sender line is the
+  session and its member label, `frank-reviewer · sam@example.com`,
+  without the team it used to end with. A decision ask is its question,
+  then its options as a list with the default marked `[default]`, then
+  `Answer by <date>.` when the asker gave a date. The line that
+  introduced it, the `Decision <id>:` label and the line naming the
+  addressee, the asker, the repository and the card are no longer shown
+  on Slack (owner ruling 2026-11-09); the id is in `brigade decision`'s
+  own output. By email and as a session message the ask keeps its
+  labelled shape, and an ask in a shape the gateway does not know is
+  shown whole. Labels remain self-reported; identity, trust, mentions and
+  thread routing are unchanged. Hosted gateways pick up the presentation
+  when redeployed
   ([Install the Slack gateway](docs/project-owner/configure/slack-gateway.md#running-it-again)).
+- **The digest is easier to read** (card 193; owner ruling 2026-11-09).
+  A decision is its question, its options one to a line with the default
+  marked `[default]`, then one line saying whom it is for, who asked, how
+  long it has been open and the date an answer is needed by; a closed one
+  is its question, who closed it and the outcome. The `Decision <id>:`
+  label, the date asked, the repository and the card are no longer
+  listed. Under **Active now** each session is a short block: its name
+  and member, then `doing:` and `note:` lines, without the `seen … ago`
+  that ended every line; the sessions that published neither are named
+  together on one last line. **Ended in the period** has the same shape,
+  and a session that ended with no commits and no note is counted, not
+  listed. A session on the roster is now named as the roster names it,
+  with its member's label, so a Codex or Muse session no longer appears
+  as `session <repository>` with no member; one that has ended and
+  recorded neither reads `an unnamed <host> session`. A line under
+  **Blocked** no longer repeats `Blocked:`. The header, **Shipped**,
+  **Held or quiet**, the counts in the summary and the caps are
+  unchanged ([The digest itself](docs/team-member/use/notes-and-decisions.md#the-digest-itself)).
 - **A member's label is shown alone, without `(unverified)`, in what a
   person reads** (card 193; owner ruling 2026-11-09). A Slack message
-  reads `frank-reviewer · sam@example.com · team ops` and a mail begins
+  reads `frank-reviewer · sam@example.com` and a mail begins
   `frank-reviewer · sam@example.com on Brigade team ops wrote:`, where
   both said `(sam@example.com, unverified)`; a sender with no label is
   named by its session alone, where a mail said `(no label)`. The Slack
