@@ -47,13 +47,17 @@ func TestTheShippedSoundFileExists(t *testing.T) {
 }
 
 // TestPlaySoundReturns: the sound descriptor runs without an error on a
-// machine with a sound device, and returns at once (asynchronous).
+// machine with a sound device, and returns rather than hanging. The
+// bound is a hang guard, not a proof of SND_ASYNC: the sound is 1.2 s of
+// audio (E13), so a synchronous play would pass too. On a CI runner with
+// no audio device PlaySound is slow to fail (2.05 s on 2026-11-09, run
+// 42705780567), so the bound is three seconds.
 func TestPlaySoundReturns(t *testing.T) {
 	t.Parallel()
 	start := time.Now()
 	err := RunInProcess(context.Background(), []string{WindowsSound})
-	if took := time.Since(start); took > 2*time.Second {
-		t.Fatalf("PlaySound took %s: not asynchronous", took)
+	if took := time.Since(start); took > 3*time.Second {
+		t.Fatalf("PlaySound took %s: it hung", took)
 	}
 	if err != nil {
 		t.Skipf("no sound on this machine: %v", err)
