@@ -7,8 +7,9 @@ make release version=0.32.0 card=110          # on a clean master, with bin/gore
 `scripts/release-prep.sh` does, in order:
 
 0. **Preconditions**: a version token, a clean tree (untracked files included: step 4 stages everything), the
-   expected branch, the manifests, `bin/goreleaser`, `muse` on PATH (Muse Code on the release machine: step 4
-   rewrites the Muse catalog's digest with it, owner ruling 2026-10-17; card 114 is the way without it), a
+   expected branch, the manifests, `bin/goreleaser`, the Muse catalog `marketplace.json` current
+   (`brigade-muse-digest check`) and no file git does not track under `muse/brigade/` (step 4 rewrites the
+   catalog's digest, which counts every file there; no Muse Code is needed since card 114), a
    selectable `go<go.mod line>` toolchain, a `## [<v>]` section in `CHANGELOG.md`, `make docs-check` green,
    `git pull --no-edit`.
 1. **Bump the pins**: `plugin/bin/VERSION`, `plugin/.claude-plugin/plugin.json`, `muse/brigade/.muse-plugin/plugin.json`,
@@ -19,15 +20,15 @@ make release version=0.32.0 card=110          # on a clean master, with bin/gore
 3. **Cross-check**: goreleaser's own build of the same six targets must produce an identical `checksums.txt`.
 4. **Commit**: `cp dist/checksums.txt plugin/bin/checksums.txt`, the same into `muse/brigade/bin/`,
    `codex/brigade/bin/` and `grok/brigade/bin/`,
-   `scripts/muse-digest.sh write` (the digest Muse computes over the final `muse/brigade/`, and the version, into
-   `marketplace.json`), then `make push message="<card>: Release <v>"` (typecheck, pull, build, test with the
+   `go run ./cmd/brigade-muse-digest write` (the digest Muse computes over the final `muse/brigade/`, and the
+   version, into `marketplace.json`), then `make push message="<card>: Release <v>"` (typecheck, pull, build, test with the
    documentation gate, commit, push).
 5. **Tag**: `git tag -a v<v> && git push origin v<v>`.
 
 `release.yml` then checks the tag is not already published, guards that the plugin pins this tag, the four
 manifests and the Muse catalog agree, the four `checksums.txt` are equal (`make grok-plugin-check` is what holds the
-Grok package's manifest and assets), the catalog's digest has its shape (its
-value is verified where Muse is installed), `make docs-check` passes and `make cross` reproduces the committed
+Grok package's manifest and assets), the catalog's digest is the package digest of `muse/brigade/` at the tag
+(`brigade-muse-digest check`), `make docs-check` passes and `make cross` reproduces the committed
 checksums; goreleaser builds a draft; `scripts/ci/release-verify.sh` compares its checksums with the committed
 file; the draft is published and the release-notes workflow dispatched. A failure deletes the draft and publishes
 nothing.

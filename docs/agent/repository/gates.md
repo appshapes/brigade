@@ -8,12 +8,18 @@
   `make release`; `muse/brigade/bin/` carries copies the release sequence writes. `make checksums-check` requires
   the committed file to be reproduced by a fresh cross-compile or backed by the published release (in the
   pre-release `0.0.0` state it requires the file to be empty and skips the rest).
-- **The Muse marketplace catalog** (card 115). `marketplace.json` at the repository root is what Muse reads first
-  in a checkout; its one entry carries the SHA-256 Muse computes over `muse/brigade/`, by a serialisation nobody has
-  reproduced (card 114). `make muse-digest` (`scripts/muse-digest.sh write`) rewrites it after any change under
-  `muse/brigade/`, `make release` rewrites it in step 4, and `make muse-plugin-check` verifies it where Muse is
-  installed and skips with a line where it is not, so **Muse Code is installed on the release machine** (owner ruling
-  2026-10-17). Never hand-edit the digest.
+- **The Muse marketplace catalog** (cards 115, 114). `marketplace.json` at the repository root is what Muse reads
+  first in a checkout; its one entry carries the package digest Muse computes over `muse/brigade/`, and Muse refuses
+  an install whose tree does not match it. `internal/musedigest` computes the same value without Muse (SHA-256
+  over each file's path, a zero byte, its bytes and 0xFF, in byte order of the paths; its tests pin the digests
+  Muse reported). `make muse-digest` (`go run ./cmd/brigade-muse-digest write`) rewrites the catalog after any
+  change under `muse/brigade/`, `make release` rewrites it in step 4, and `make muse-plugin-check`, `make test`
+  and `release.yml`'s guard verify it on every machine, so **no machine needs Muse Code**, the release machine
+  included (the owner ruling of 2026-10-17 put Muse there "for now"; card 114's done criterion ended that). Where `muse` is on PATH, `make test` also has Muse
+  install the package from the catalog in a throwaway root: the cross-check that the reproduction still is what
+  Muse computes. Every file under `muse/brigade/` counts, an ignored `.DS_Store` included, so
+  `muse-plugin-check.sh` and `release-prep.sh` refuse a file there that git does not track. Never hand-edit the
+  digest.
 - **Package checks.** `make plugin-check` carries the Claude Code plugin tree's checks: the `plugin/` file
   allowlist, mode 100755 in git for `plugin/bin/brigade`, `VERSION == plugin.json`, no `.mcp.json`, `mcpServers`
   or `channels`, exec-form hooks whose command paths exist and are executable, `sh -n` and `shellcheck -s sh`, and

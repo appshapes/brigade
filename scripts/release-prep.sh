@@ -15,7 +15,7 @@
 #   3  cross-check          goreleaser's own build of the same four targets; the two checksums.txt must be
 #                           identical, which is what stops .goreleaser.yaml and the Makefile drifting apart
 #   4  commit               cp dist/checksums.txt plugin/bin/checksums.txt (and the two copies), rewrite
-#                           marketplace.json's digest with Muse; make push message="<card>: Release <v>"
+#                           marketplace.json's digest; make push message="<card>: Release <v>"
 #   5  tag                  git tag -a v<v> && git push origin v<v>  ->  release.yml builds, verifies, publishes
 #
 # POSIX sh, no process substitution, `shellcheck -s sh` clean (plugin-check.sh check 7 enforces it). Never
@@ -113,13 +113,19 @@ branch=$(git branch --show-current)
 
 [ -x bin/goreleaser ] || die "bin/goreleaser is missing or not executable: run 'make setup-goreleaser'"
 
-# The Muse marketplace catalog (card 115): marketplace.json at the root carries the SHA-256 Muse computes over
-# muse/brigade/, which every release changes (step 1 and step 4 rewrite the package's bin/), and only Muse can
-# compute it (card 114 researches the way without it). So Muse Code must be installed on the release machine (owner
-# ruling 2026-10-17), checked here before anything is mutated; step 4 runs scripts/muse-digest.sh with it.
+# The Muse marketplace catalog (card 115): marketplace.json at the root carries the package digest Muse computes
+# over muse/brigade/, which every release changes (step 1 and step 4 rewrite the package's bin/). Step 4 rewrites it
+# with cmd/brigade-muse-digest, which computes the same value without Muse (card 114), so the release machine needs
+# no Muse Code. What step 4 needs is held here, before anything is mutated: the catalog exists; the package holds no
+# file git does not track (Muse and the digest count every file, an ignored .DS_Store included, and the clean-tree
+# check above does not see ignored files, so the release's digest would match no clone); and the catalog is
+# already what `brigade-muse-digest write` writes for this tree, which also proves the write can be done at all
+# (one "digest" line and one "version" line, a package Muse would accept).
 if [ -f "$muse_json" ]; then
-  command -v muse >/dev/null 2>&1 || die "muse is not on PATH: step 4 rewrites marketplace.json's digest with Muse (card 115, owner ruling 2026-10-17); install Muse Code on this machine"
   [ -f marketplace.json ] || die "marketplace.json is missing: the Muse marketplace catalog (card 115)"
+  stray=$(git ls-files --others -- muse/brigade) || die "git ls-files failed"
+  [ -z "$stray" ] || die "muse/brigade/ holds files git does not track, which would enter the Muse catalog's digest and exist in no clone: $(printf '%s' "$stray" | tr '\n' ' ')-- delete them first"
+  go run ./cmd/brigade-muse-digest check >/dev/null || die "marketplace.json is not what 'make muse-digest' writes for this tree: fix that on its own commit before releasing (step 4 rewrites the catalog for $v)"
 fi
 
 # The documentation gate (card 110) runs here, before anything is mutated, and again inside step 4's `make push`
@@ -198,7 +204,7 @@ say "3. goreleaser reproduces dist-cross/checksums.txt byte for byte"
 if [ "$dry_run" = 1 ]; then
   say "DRY_RUN=1: stopping before the commit. A real run would now:"
   say "  4. cp dist/checksums.txt $committed"
-  [ ! -f "$muse_json" ] || say "  4. MUSE_DIGEST_REQUIRE=1 sh scripts/muse-digest.sh write   (marketplace.json's digest and version)"
+  [ ! -f "$muse_json" ] || say "  4. go run ./cmd/brigade-muse-digest write   (marketplace.json's digest and version)"
   say "  4. make push message=\"$card: Release $v\""
   say "  5. git tag -a v$v -m v$v && git push origin v$v"
   exit 0
@@ -210,8 +216,9 @@ cp dist/checksums.txt "$committed"
 [ ! -f "$codex_json" ] || cp "$committed" "$codex_bin/checksums.txt"
 [ ! -f "$grok_json" ] || cp "$committed" "$grok_bin/checksums.txt"
 [ ! -f "$grok_json" ] || sh scripts/ci/grok-plugin-check.sh
-# The package's bin/ is final now, so the digest Muse computes over it is the release's (card 115).
-[ ! -f "$muse_json" ] || MUSE_DIGEST_REQUIRE=1 sh scripts/muse-digest.sh write
+# The package's bin/ is final now, so its digest is the release's (card 115); step 4's `make push` verifies the
+# written catalog again through `make test`.
+[ ! -f "$muse_json" ] || go run ./cmd/brigade-muse-digest write
 make push message="$card: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push
 say "4. committed $committed and marketplace.json"
 

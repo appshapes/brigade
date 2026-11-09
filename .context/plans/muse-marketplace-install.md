@@ -26,6 +26,12 @@ implement card 115 fully autonomously (including release)". Card 114 researches 
 
 ## 2. The design
 
+**Superseded in part by card 114 (2026-11-09).** The digest is no longer obtained from Muse: `internal/musedigest`
+computes it and `cmd/brigade-muse-digest` (`print`, `write`, `check`) replaced `scripts/muse-digest.sh`; no
+precondition asks for `muse` on PATH; `muse-plugin-check.sh` ends at check 10 and `make muse-plugin-check` runs
+`brigade-muse-digest check` after it; `release.yml`'s guard runs the same check. The bullets below and section 3's
+first limit are the design as built on 2026-10-17. The current state is `docs/agent/repository/gates.md`.
+
 - `marketplace.json` at the repository root: `schemaVersion` 1, one entry `brigade`, `install.source`
   `muse/brigade`, `integrity.digest`, `availability.status` `available`; `version` equals `plugin/bin/VERSION`.
 - `scripts/muse-digest.sh print|write|check`: Muse installs the package into a throwaway XDG root and reports

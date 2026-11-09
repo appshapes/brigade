@@ -57,6 +57,23 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   consumer rule B-3 is narrowed to say so (no wire shape and no
   conformance case changed), and [`docs/security.md`](docs/security.md)
   with it. Hosted gateways show it when redeployed.
+- **The Muse catalog's digest no longer needs Muse** (card 114).
+  `marketplace.json`'s `integrity.digest` is the package digest Muse Code
+  computes over `muse/brigade/`, and until now only Muse could compute it,
+  so a release needed Muse Code on the release machine and CI could check
+  the digest's shape only. The construction is now known: SHA-256 over
+  each file's path, a zero byte, the file's bytes and `0xFF`, in byte
+  order of the paths, with `.git`, `.hg` and `.svn` directories left out
+  and nothing else (no mode, size or directory entry) counted.
+  `internal/musedigest` computes it, with tests pinned to the digest Muse
+  reported for the 0.31.0 package and for nineteen probe packages, so
+  `make muse-digest` and `make release` write the catalog, and
+  `make muse-plugin-check`, `make test` and the release workflow verify
+  it, on a machine with or without Muse Code. `scripts/muse-digest.sh` is
+  replaced by `cmd/brigade-muse-digest` (`print`, `write`, `check`). Where
+  Muse is installed, `make test` also has Muse install the package from
+  the catalog in a throwaway root, so a Muse release that changed the
+  construction is noticed before a member's install fails.
 - **The release-notes email's subject is the app and its highest release**
   (card 189): `Brigade 0.47.2` in place of `Brigade 0.38.0 to 0.47.1: what's
   new`, the same shape as Cavalry's email. A preview still starts with

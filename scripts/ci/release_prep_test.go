@@ -222,7 +222,8 @@ mkdir -p dist
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // museFiles adds the Muse Code package's pins and the marketplace catalog (card 115) to the fixture, committed.
-// With them present the script requires `muse` on PATH and step 4 rewrites the catalog's digest with it.
+// With them present the script requires the catalog and step 4 rewrites its digest with cmd/brigade-muse-digest,
+// which needs no Muse (card 114).
 func (r *repo) museFiles() {
 	r.t.Helper()
 	r.write("plugin/bin/brigade", "#!/bin/sh\nexit 0\n", 0o700)
@@ -388,35 +389,78 @@ func TestReleasePrepRefusals(t *testing.T) {
 		}
 	})
 
-	t.Run("a Muse package with no muse on PATH is refused before anything is mutated", func(t *testing.T) {
+	t.Run("a Muse package with no catalog is refused before anything is mutated", func(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
 		r.museFiles()
-		// The developer's own PATH may carry a real Muse, so this run sees only the stubs and the tools the
-		// script needs before the refusal.
-		path := r.stubBin + string(os.PathListSeparator) + restrictedPath(t, r.home, "git", "sed", "grep", "head", "cp", "rm", "diff", "env", "mktemp") // under the ignored .home/, so the tree stays clean
-		res := r.run([]string{"DRY_RUN=1", "card=15", "PATH=" + path}, "0.1.0")
-		wantFail(t, res, "muse is not on PATH", "owner ruling 2026-10-17")
+		r.git("rm", "-q", "marketplace.json")
+		r.git("commit", "-qm", "the catalog is gone")
+		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
+		wantFail(t, res, "marketplace.json is missing")
 		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
-			t.Fatalf("the pins were bumped although muse is missing: %q", got)
+			t.Fatalf("the pins were bumped although the catalog is missing: %q", got)
 		}
 		if r.exists("dist-cross/checksums.txt") {
-			t.Fatal("the build ran although muse is missing")
+			t.Fatal("the build ran although the catalog is missing")
 		}
 	})
 
-	t.Run("the dry run announces the catalog write and leaves the catalog alone", func(t *testing.T) {
+	t.Run("a Muse package holding a file git does not track is refused before anything is mutated", func(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
 		r.museFiles()
-		stubMuse(t, r.stubBin, digestA)
+		// Ignored, so the clean-tree precondition does not see it; Muse and the digest would.
+		r.write(".gitignore", r.read(".gitignore")+".DS_Store\n", 0o600)
+		r.git("commit", "-qam", "ignore Finder's files")
+		r.write("muse/brigade/skills/join/.DS_Store", "junk\n", 0o600)
 		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
-		wantPass(t, res, "4. MUSE_DIGEST_REQUIRE=1 sh scripts/muse-digest.sh write", "stopping before the commit")
+		wantFail(t, res, "muse/brigade/ holds files git does not track", "muse/brigade/skills/join/.DS_Store")
+		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
+			t.Fatalf("the pins were bumped although the package holds an untracked file: %q", got)
+		}
+	})
+
+	t.Run("a catalog that is not current is refused before anything is mutated", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.museFiles()
+		// The stub `go` still answers the toolchain question, and fails the one command the precondition runs.
+		r.writeAbs(filepath.Join(r.stubBin, "go"), "#!/bin/sh\nif [ \"$*\" = 'run ./cmd/brigade-muse-digest check' ]; then echo 'muse-digest: the catalog'\\''s digest is stale' >&2; exit 1; fi\nprintf '%s\\n' "+shellQuote("go"+goLine)+"\n", 0o700)
+		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
+		wantFail(t, res, "marketplace.json is not what 'make muse-digest' writes for this tree", "the catalog's digest is stale")
+		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
+			t.Fatalf("the pins were bumped although the catalog is stale: %q", got)
+		}
+		if r.exists("dist-cross/checksums.txt") {
+			t.Fatal("the build ran although the catalog is stale")
+		}
+	})
+
+	// The dry run stops before step 4, so what it proves of the catalog is the precondition (the stub `go` is
+	// asked to check it), the announcement and that nothing was written; that step 4 itself runs
+	// `brigade-muse-digest write` and nothing of Muse is pinned by muse_digest_test.go's wiring test.
+	t.Run("the dry run checks the catalog first, announces its write and leaves it alone", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.museFiles()
+		r.writeAbs(filepath.Join(r.stubBin, "go"), "#!/bin/sh\nprintf 'go %s\\n' \"$*\" >> \"$HOME/go.log\"\nprintf '%s\\n' "+shellQuote("go"+goLine)+"\n", 0o700)
+		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
+		wantPass(t, res, "4. go run ./cmd/brigade-muse-digest write", "stopping before the commit")
 		if got := r.read("muse/brigade/bin/VERSION"); got != "0.1.0\n" {
 			t.Fatalf("the Muse package's pin was not bumped: %q", got)
 		}
 		if got := r.read("marketplace.json"); got != catalogJSON("0.0.0", digestZero) {
 			t.Fatalf("the dry run rewrote the catalog:\n%s", got)
+		}
+		asked, err := os.ReadFile(filepath.Join(r.home, "go.log"))
+		if err != nil {
+			t.Fatalf("the stub go recorded nothing: %v", err)
+		}
+		if !strings.Contains(string(asked), "go run ./cmd/brigade-muse-digest check\n") {
+			t.Fatalf("the precondition did not check the catalog:\n%s", asked)
+		}
+		if strings.Contains(string(asked), "brigade-muse-digest write") {
+			t.Fatalf("the dry run wrote the catalog:\n%s", asked)
 		}
 	})
 

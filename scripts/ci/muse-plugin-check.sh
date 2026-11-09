@@ -4,17 +4,23 @@
 # Static checks of the shipped Muse Code package, muse/brigade/ (card 88), the sibling of scripts/ci/plugin-check.sh
 # for plugin/. Exits non-zero on the FIRST failure. One `ok: …` line per check.
 #
-# 1  muse/brigade/ holds only allow-listed paths          6  every hook command is one argv element naming a
-# 2  the three pinned assets under bin/ are byte-equal       wrapper that exists, is executable and is tracked 100755
-#    to plugin/bin/'s (one canonical pin, two packages)   7  every wrapper execs `bin/brigade hook <subcommand>` with a
-# 3  the manifest's "version" equals bin/VERSION             subcommand the binary implements, and no two hooks share a
-# 4  the manifest is native (schemaVersion 1, a            source (Muse refuses that)
-#    `capabilities` member, no `args`, no `userConfig`)   8  sh -n / bash -n / zsh -n and shellcheck -s sh on the wrappers
-# 5  no symlink anywhere under muse/ (Muse refuses the    9  every skill the manifest names exists, and no skill declares
-#    package)                                                disable-model-invocation (card 28)
-# 10 marketplace.json, the Muse catalog at the root, names 11  the catalog's digest is what Muse computes over the
-#    brigade at muse/brigade, pins bin/VERSION, carries a     package (scripts/muse-digest.sh check: verified where
-#    sha256 digest and the available status (card 115)       Muse is installed, skipped with a line elsewhere)
+#  1  muse/brigade/ holds only allow-listed paths, and git tracks every one of them (Muse hashes every file of a
+#     package, so a file no clone holds would put a digest in the catalog that no clone reproduces)
+#  2  the three pinned assets under bin/ are byte-equal to plugin/bin/'s (one canonical pin, two packages)
+#  3  the manifest's "version" equals bin/VERSION
+#  4  the manifest is native (schemaVersion 1, a `capabilities` member, no `args`, no `userConfig`)
+#  5  no symlink anywhere under muse/ (Muse refuses the package)
+#  6  every hook command is one argv element naming a wrapper that exists, is executable and is tracked 100755
+#  7  every wrapper execs `bin/brigade hook <subcommand>` with a subcommand the binary implements, and no two hooks
+#     share a source (Muse refuses that)
+#  8  sh -n / bash -n / zsh -n and shellcheck -s sh on the wrappers
+#  9  every skill the manifest names exists, and no skill declares disable-model-invocation (card 28)
+# 10  marketplace.json, the Muse catalog at the root, names brigade at muse/brigade, pins bin/VERSION, carries a
+#     sha256 digest and the available status (card 115)
+#
+# The VALUE of the catalog's digest is not checked here: it is the package digest Muse computes, which
+# internal/musedigest reproduces (card 114), and `make muse-plugin-check` runs `brigade-muse-digest check` right after
+# this script, as `make test` does through scripts/ci/muse_digest_test.go. No machine needs Muse Code for it.
 #
 # The JSON checks are textual on purpose, as plugin-check.sh's are: the manifest is small and hand-written, and
 # `muse plugins validate` (run by a developer with Muse installed) covers the schema half.
@@ -38,7 +44,13 @@ find "$root" -type f -print | LC_ALL=C sort | while IFS= read -r f; do
     *) die "not allow-listed under $root/: $f" ;;
   esac
 done
-ok "$root/ contains only allow-listed paths"
+# Muse hashes every file of the package it is given, tracked or not, and so does `make muse-digest`: a file git does
+# not track (an ignored .DS_Store under skills/ passes the allowlist above) would enter the catalog's digest here
+# and exist in no clone, where Muse then refuses the install. `git ls-files --others` lists ignored files too.
+git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository: cannot tell which files under $root/ are tracked"
+stray=$(git ls-files --others -- "$root") || die "git ls-files failed"
+[ -z "$stray" ] || die "git does not track these under $root/, and Muse would hash them into the package digest: $(printf '%s' "$stray" | tr '\n' ' ')-- delete them, or add them to git and run 'make muse-digest'"
+ok "$root/ contains only allow-listed paths, each tracked by git"
 
 # ---- 2. the pinned assets are the Claude package's, byte for byte ------------------------------------------------
 for asset in brigade VERSION checksums.txt; do
@@ -142,8 +154,8 @@ ok "every skill the manifest names exists and none declares disable-model-invoca
 # ---- 10. the marketplace catalog (card 115) -----------------------------------------------------------------------
 # Muse reads marketplace.json at the repository root first (before the Codex and the Claude Code catalogs), so a
 # Muse member installs this package with `muse plugins install brigade@<marketplace>`. Its one entry must name this
-# package, pin the release and carry the digest only Muse computes (scripts/muse-digest.sh); the digest's value is
-# check 11's.
+# package, pin the release and carry the package digest (`make muse-digest` writes it); the digest's value is
+# `brigade-muse-digest check`'s, the make target's second step.
 catalog=marketplace.json
 [ -f "$catalog" ] || die "missing $catalog: the Muse marketplace catalog (card 115), what \`muse plugins marketplace add brigade appshapes/brigade\` reads"
 grep -qE '^[[:space:]]*"schemaVersion":[[:space:]]*1[[:space:]]*,?[[:space:]]*$' "$catalog" || die "$catalog declares no \"schemaVersion\": 1"
@@ -155,10 +167,5 @@ grep -qE '^[[:space:]]*"digest":[[:space:]]*"sha256:[0-9a-f]{64}"' "$catalog" ||
 catalog_version=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$catalog" | head -n 1)
 [ "$catalog_version" = "$version" ] || die "$catalog version '$catalog_version' != $root/bin/VERSION '$version' (make muse-digest rewrites both)"
 ok "$catalog names brigade at muse/brigade, pins $version and carries a sha256 digest"
-
-# ---- 11. the digest is what Muse computes, where Muse is installed ----------------------------------------------
-case $0 in */*) here=${0%/*} ;; *) here=. ;; esac
-sh "$here/../muse-digest.sh" check || die "$catalog's digest is stale: run 'make muse-digest' and commit the catalog"
-ok "$catalog's digest was checked by scripts/muse-digest.sh (verified where Muse is installed, skipped with a line elsewhere)"
 
 printf 'muse-plugin-check: all checks passed\n'

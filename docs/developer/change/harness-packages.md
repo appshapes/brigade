@@ -37,8 +37,10 @@ nine skills worded for the harness, a `README.md`, and `bin/` copies of `plugin/
   `checksums-check.sh` rule (a) and `release.yml`'s guard compare them.
 - A harness that installs from a catalog carries it at the repository root (`.claude-plugin/marketplace.json`,
   `.agents/plugins/marketplace.json`, `marketplace.json` for Muse). When the harness pins a package digest, as Muse
-  does, `scripts/muse-digest.sh` is the model: the harness computes it in a throwaway root, `make release` rewrites
-  it, the package check verifies it where the harness is installed.
+  does, `internal/musedigest` and `cmd/brigade-muse-digest` are the model: the repository computes the digest the
+  harness computes (tests pinned to digests the harness reported), `make release` rewrites it, the package check
+  and `make test` verify it on every machine, and where the harness is installed a test has it install from the
+  catalog.
 
 ## The documentation
 

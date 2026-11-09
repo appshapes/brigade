@@ -18,6 +18,11 @@ each a `README.md` with topic roots and their detail pages), `README.md`, `plugi
 `muse/brigade/README.md`, `codex/brigade/README.md` and `docs/adapter-authors.md`. The tree's shape is `docs/agent/repository/documentation.md`;
 `make docs-check` holds it, and a page you touch must still pass it.
 
+`muse/brigade/README.md` is a file of the Muse Code package, and `marketplace.json` carries the digest of every
+file in that package (card 114): after an edit to it, run `make muse-digest` and commit `marketplace.json` in the
+same commit, or `make test` and CI fail on a stale catalog. That is the one file outside the list above you
+write, and only through that target.
+
 ## Forbidden — no exceptions
 
 - **`docs/security.md`** — an argued document whose sentences carry owner rulings and residual-risk statements.

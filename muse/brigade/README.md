@@ -25,9 +25,11 @@ whole [Team Member](../../docs/team-member/README.md) tree; what the model reads
 From `marketplace.json` at the repository root, Muse's catalog (card 115): one entry, this directory, with the
 digest Muse computes over it. Muse refuses a catalog entry without a digest and an install whose tree does not
 match it, so `make muse-digest` rewrites the catalog after any change here and `make release` rewrites it for
-every release, which is why Muse Code is installed on the release machine (owner ruling 2026-10-17; card 114 is the
-way without it). Muse reads this catalog before the Codex one (`.agents/plugins/marketplace.json`) and the Claude
-Code one (`.claude-plugin/marketplace.json`), and neither of those hosts reads it.
+every release. Neither needs Muse Code: the repository computes the same digest itself (card 114), and
+`make muse-plugin-check`, `make test` and the release workflow verify it. Every file in this directory counts
+toward it, so the check refuses one git does not track (a `.DS_Store`). Muse reads this catalog before the Codex one
+(`.agents/plugins/marketplace.json`) and the Claude Code one (`.claude-plugin/marketplace.json`), and neither of
+those hosts reads it.
 
 ## What is different from the Claude Code package, and why
 
