@@ -43,8 +43,9 @@ Brigade is designed against seven kinds of attacker. Six of them are held off. T
 **What is not a boundary.** Display names and labels are free text. Any member can pick any of them, copy
 someone else's, and two members can have the same one. Brigade never treats a name as proof of anything. The
 only identity the server stamps is the `from-principal` value in each message, and the team roster is keyed on
-that same reference for every active member. `brigade team members`, which prints one line per member, marks
-each label `(unverified)` and puts the leading characters of the reference beside it, in brackets; those
+that same reference for every active member. `brigade team members`, which prints one line per member, puts the
+leading characters of the reference beside each label, in brackets (it also marked each label `(unverified)`
+until the owner ruling of 2026-11-09, card 193: what a person reads shows the label alone); those
 characters are the same on every line that member appears on, so you can recognise the same person across all of
 their sessions, and a reference that sanitises away to nothing prints as `[?]`, so a labelled line always
 carries the bracket. The session roster is a table, and a table has no width to repeat either on every row: from
@@ -1107,7 +1108,9 @@ Every item below is a known limit that this version ships with, on purpose.
   signs them, and a member who holds the join secret can write or delete any of them (section 18).
 
 - No end-to-end encryption. The person who runs the backend project can read every message.
-- No verified human identity. Names and labels are free text and are shown as unverified.
+- No verified human identity. Names and labels are free text. A message marks its sender's label `(unverified)`
+  for the model that receives it, and the session roster says so once under its table; what a person reads (a
+  command's member lines, a Slack message, a mail) shows the label alone (owner ruling 2026-11-09, card 193).
 - Only a creator role. Losing the creator's credential ends rotation and revocation for that team, unless a
   transfer was made before the loss.
 - Programs running as you, on your machine, can read your credential files, Brigade's session map and the cached

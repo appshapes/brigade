@@ -456,7 +456,7 @@ var proofMutations = []struct {
 	{
 		"the unverified suffix loses its space",
 		replaceInFile(proofScriptRel, "frame_unverified_suffix=' (unverified)'", "frame_unverified_suffix='(unverified)'"),
-		"every consumer presents human_label as unverified (B-3)",
+		"the frame presents human_label as unverified (B-3)",
 	},
 	{
 		"the summary prefix loses its label",

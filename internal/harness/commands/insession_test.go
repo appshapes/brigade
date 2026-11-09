@@ -415,7 +415,7 @@ func TestTeamCreateInSession(t *testing.T) {
 	if len(lines) != 5 || lines[2] != "wrote "+teamfile.FileName+" at the repository toplevel" {
 		t.Fatalf("stdout = %q", f.out.String())
 	}
-	if !strings.HasPrefix(lines[1], "sent your display label: "+accountEmail+" (unverified) [") {
+	if !strings.HasPrefix(lines[1], "sent your display label: "+accountEmail+" [") {
 		t.Fatalf("line 2 = %q, want the label this create sent", lines[1])
 	}
 	if strings.Contains(f.out.String(), top) {

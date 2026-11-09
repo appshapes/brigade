@@ -108,8 +108,8 @@ long roster, and they prove nothing: `--here` compares the `REPO` cell, which a 
 so. A header with no rows means nobody matched.
 
 `brigade team members` is **one line per member**, not a table: the member column first, then `joined <date>`
-and `<n> sessions, seen …`. A member with no label keeps the older shape — `principal=<ref>` followed by
-`(unverified)`.
+and `<n> sessions, seen …`. A member with no label keeps the older shape, led by `principal=<ref>`. No member
+line carries `(unverified)`; a label is still its owner's own words, never an identity.
 
 Either command's `--json` prints every `principal_ref` in full.
 

@@ -897,7 +897,7 @@ func TestTeamCreateReportsTheLabelItSent(t *testing.T) {
 	if err := Team(iv); err != nil {
 		t.Fatal(err)
 	}
-	want := "sent your display label: " + accountEmail + " (unverified) [p_1]"
+	want := "sent your display label: " + accountEmail + " [p_1]"
 	if out := f.out.String(); !strings.Contains(out, want) {
 		t.Fatalf("output %q lacks %q", out, want)
 	}

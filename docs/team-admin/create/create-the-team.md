@@ -32,7 +32,7 @@ then `git add .brigade.json && git commit && git push`.
   repository: the join secret is written there, mode 0600, and never reaches your scrollback, the conversation
   or the repository.
 - Its output names the team, the file and the display label it sent for you (`sent your display label:
-  alice@example.com (unverified) [9f3c1a20]`), never the secret. `--label` sets another label for this command;
+  alice@example.com [9f3c1a20]`), never the secret. `--label` sets another label for this command;
   the option is [Choose your label](../../team-member/join/your-label.md).
 - `--force` rewrites an existing `.brigade.json` and carries its `sync` member into the new file when it can.
 - `.brigade.json` carries only public values: the backend URL, the publishable key, the team's reference and name.

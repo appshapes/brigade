@@ -466,8 +466,8 @@ func renderSession(r inboxSessionResult, pending inbound.PendingFile, now time.T
 			age = "released " + ago(msg.ReleasedAt, now) + ", waiting for the watcher"
 		}
 		fields := []string{"  " + idLine(msg.MessageID), "from " + nameLine(msg.SenderName), "principal=" + idLine(msg.SenderPrincipal)}
-		if msg.OnServer {
-			fields = append(fields, labelLine(msg.HumanLabel))
+		if label := labelLine(msg.HumanLabel); msg.OnServer && label != "" {
+			fields = append(fields, label)
 		}
 		lines = append(lines, columns(append(fields, age)...))
 		if s := oneLine(msg.Summary); s != "" {

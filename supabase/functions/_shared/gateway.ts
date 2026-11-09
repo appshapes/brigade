@@ -417,8 +417,10 @@ export function renderOutbound(
   out: Outbound & { ok: true },
   ctx: RenderContext,
 ): OutboundMail {
-  const label = env.sender.human_label ? `${env.sender.human_label}, unverified` : "no label";
-  const head = `${env.sender.session_name} (${label}) on Brigade team ${ctx.teamName} wrote:\n\n`;
+  // The label stands alone, as on Slack: output a person reads carries no "unverified" marker (owner ruling
+  // 2026-11-09, card 193). A sender without a label is named by its session alone.
+  const label = env.sender.human_label ? ` · ${env.sender.human_label}` : "";
+  const head = `${env.sender.session_name}${label} on Brigade team ${ctx.teamName} wrote:\n\n`;
   const block = renderBlock([
     ["team", ctx.teamName],
     ["message", env.message_id],
@@ -479,7 +481,7 @@ export function rosterText(
   if (rows.length === 0) lines.push("  (none)");
   for (const s of rows) {
     const tail = s.session_id.slice(-5);
-    const label = s.human_label ? `${s.human_label} (unverified)` : "";
+    const label = s.human_label ?? "";
     lines.push(`  ${tail}  ${s.session_name}  ${s.state}  ${label}`.replace(/\s+$/, ""));
     if (s.session_description) lines.push(`         ↳ ${oneLine(s.session_description)}`);
   }

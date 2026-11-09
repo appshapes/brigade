@@ -89,7 +89,7 @@ mkdir $WORK/claude-profile
 cp claude-profile.json $WORK/claude-profile/.claude.json
 env CLAUDE_CONFIG_DIR=$WORK/claude-profile
 exec brigade whoami
-stdout '^label: carol@work.example \(unverified\), sent when this machine joined on 2026-10-06, read from the Claude account in /home/carol/.claude.json$'
+stdout '^label: carol@work.example, sent when this machine joined on 2026-10-06, read from the Claude account in /home/carol/.claude.json$'
 stdout '^account: this session''s Claude account is alice@example.com, not the label: every Claude profile that uses this machine''s credential store is this one member, '
 stdout 'config_dir'
 stdout '^delivery: '
@@ -111,7 +111,7 @@ stdout '^account: this session''s Claude account is the label$'
 # one) is not shown against this one.
 cp label-team-other.json $WORK/.brigade/brigade-config/teams/alpha/team.json
 exec brigade whoami
-stdout '^label: ops-bot \(unverified\), sent when this machine joined \(its credential for this team dates from 2026-10-06\); no record says where it came from$'
+stdout '^label: ops-bot, sent when this machine joined \(its credential for this team dates from 2026-10-06\); no record says where it came from$'
 rm $WORK/.brigade/brigade-config/teams/alpha
 env CLAUDE_CONFIG_DIR=$WORK/.brigade/claude-config
 

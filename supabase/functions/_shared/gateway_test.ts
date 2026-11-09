@@ -492,7 +492,18 @@ Deno.test("renderOutbound writes the mail with the block, the reply tag and the 
   assertEquals(m.headers["Message-ID"], undefined);
   assertEquals(m.headers["In-Reply-To"], undefined);
   assertEquals(m.headers["Auto-Submitted"], "auto-generated");
-  assertStringIncludes(m.text, "frank-reviewer (sam@example.com, unverified) on Brigade team brigade wrote:");
+  assertEquals(
+    m.text.startsWith("frank-reviewer · sam@example.com on Brigade team brigade wrote:\n\n"),
+    true,
+  );
+  assertEquals(m.text.includes("unverified"), false, "a mail a person reads shows the label alone");
+  const unlabelled = renderOutbound({ ...envelope, sender: { ...envelope.sender, human_label: null } }, r, {
+    teamName: "brigade",
+    from: "Brigade <brigade@appshapes.com>",
+    inbox: INBOX,
+    publicAddress: "brigade-team@appshapes.com",
+  });
+  assertEquals(unlabelled.text.startsWith("frank-reviewer on Brigade team brigade wrote:\n\n"), true);
   const b = lastBlock(m.text);
   assertEquals(b?.to, S1);
   assertEquals(b?.["reply-to"], M2);
@@ -510,7 +521,8 @@ Deno.test("rosterText shows the sessions online now: both gateways and offline s
   };
   const t = rosterText("brigade", [...sessions, offline], GW, INBOX);
   assertStringIncludes(t, "or a member's label");
-  assertStringIncludes(t, "3f9a2  frank-reviewer  idle  sam@example.com (unverified)");
+  assertStringIncludes(t, "  3f9a2  frank-reviewer  idle  sam@example.com\n");
+  assertEquals(t.includes("unverified"), false);
   assertStringIncludes(t, "↳ reviewing the login fix");
   assertEquals(t.includes("gateway"), false);
   assertEquals(t.includes("gone-home"), false);

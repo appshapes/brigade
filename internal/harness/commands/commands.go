@@ -23,9 +23,10 @@
 // Output discipline (6.4, 7.3): human output is stable, one item per line,
 // written to the Out stream the caller hands in — never os.Stdout — and
 // every remote string is sanitised (protocol.Sanitize*) before it is
-// printed; human_label is always shown as unverified (B-3) — beside each
-// label in the line layouts, and once per output in the roster, whose
-// table would otherwise repeat the marker on every row. With --json,
+// printed; human_label stands alone in the line layouts, with no
+// "unverified" marker beside it (owner ruling 2026-11-09, card 193; B-3's
+// marker is the frame's), and the roster keeps one note under its table.
+// With --json,
 // stdout carries exactly one 4.3 envelope whose result is the adapter's
 // result plus the harness members self_session_id and note. Failures are
 // returned as *protocol.Error values (the cli renders the one stderr line
@@ -142,11 +143,15 @@ const (
 	// AcceptedNote closes every successful `send` line and is the note of
 	// its --json result: 4.5.1 never says "delivered".
 	AcceptedNote = "Accepted means durably stored by the adapter, not read."
-	// UnverifiedSuffix follows every human_label in a LINE layout (B-3).
+	// UnverifiedSuffix follows the session name on `send`'s recipient
+	// line, so that a name written to look like a state has nothing after
+	// it to pass for one. It follows no human_label: a label a person
+	// reads stands alone (owner ruling 2026-11-09, card 193), and B-3's
+	// marker is the frame's from-label.
 	UnverifiedSuffix = " (unverified)"
-	// RosterUnverifiedNote is B-3's "once per output" form for a TABLE:
-	// `brigade sessions` prints it under the roster instead of repeating
-	// a suffix in every MEMBER cell, which is what card 27 took out. It
+	// RosterUnverifiedNote is the one caution `brigade sessions` prints
+	// under the roster, where card 27 took the suffix out of every MEMBER
+	// cell; a session reads the roster to route, so the note stays. It
 	// names the session name and the doing line beside the label, because
 	// all three are their owner's own words and none of them is marked in
 	// a cell either. It does NOT carry the doing arrow: a reader — and a

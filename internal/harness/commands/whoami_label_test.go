@@ -101,7 +101,7 @@ func TestWhoamiLabelFromAnotherProfile(t *testing.T) {
 
 	lines := whoamiLines(t, f)
 	labels, accounts := linesWith(lines, "label: "), linesWith(lines, "account: ")
-	wantLabel := "label: " + joinedLabel + " (unverified), sent when this machine joined on 2026-10-06, read from the Claude account in /home/carol/.claude.json"
+	wantLabel := "label: " + joinedLabel + ", sent when this machine joined on 2026-10-06, read from the Claude account in /home/carol/.claude.json"
 	if len(labels) != 1 || labels[0] != wantLabel {
 		t.Fatalf("label lines %q, want %q", labels, wantLabel)
 	}
@@ -137,7 +137,7 @@ func TestWhoamiLabelUnrecordedIsTheSessionAccount(t *testing.T) {
 
 	lines := whoamiLines(t, f)
 	want := []string{
-		"label: ALICE@example.com (unverified), sent when this machine joined (its credential for this team dates from 2026-09-08); no record says where it came from",
+		"label: ALICE@example.com, sent when this machine joined (its credential for this team dates from 2026-09-08); no record says where it came from",
 		"account: this session's Claude account is the label",
 	}
 	if got := append(linesWith(lines, "label: "), linesWith(lines, "account: ")...); len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
@@ -168,7 +168,7 @@ func TestWhoamiLabelSources(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := linesWith(whoamiLines(t, f), "label: ")
-			if len(got) != 1 || got[0] != "label: Alice of Ops (unverified), sent when this machine joined on 2026-09-02"+want {
+			if len(got) != 1 || got[0] != "label: Alice of Ops, sent when this machine joined on 2026-09-02"+want {
 				t.Fatalf("label line %q, want the suffix %q", got, want)
 			}
 		})
@@ -488,7 +488,7 @@ func TestWhoamiLabelIgnoresARecordOfAnotherLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := linesWith(whoamiLines(t, f), "label: ")
-	if len(got) != 1 || got[0] != "label: ops-bot (unverified), sent when this machine joined; no record says where it came from" {
+	if len(got) != 1 || got[0] != "label: ops-bot, sent when this machine joined; no record says where it came from" {
 		t.Fatalf("label lines %q", got)
 	}
 }

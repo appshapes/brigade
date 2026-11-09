@@ -41,6 +41,6 @@ shares none it shows everyone and says so). `--member` shows one member's, by th
 
 ## The members
 
-`brigade team members` is one line per member, not a table: the label marked `(unverified)` with the principal's
-first characters in brackets, when they joined, how many sessions and when last seen. `--json` prints every
+`brigade team members` is one line per member, not a table: the label with the principal's first characters in
+brackets, when they joined, how many sessions and when last seen. `--json` prints every
 principal reference in full; it is what the Team Admin reads before revoking or transferring.

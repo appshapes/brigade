@@ -138,9 +138,10 @@ func (inv Invocation) checkForwardedSecretFile(rest []string) ([]string, error) 
 }
 
 // members implements `brigade team members [--json]`: one line per member,
-// `<human_label> (unverified) [<short principal>]  joined <date>  <n>
-// sessions, seen <ago>` (card 24), falling back to the original
-// `principal=<ref>  (unverified)  …` for a member without a label. The
+// `<human_label> [<short principal>]  joined <date>  <n> sessions, seen
+// <ago>` (card 24), falling back to the original `principal=<ref>  …` for
+// a member without a label. No line carries an "unverified" marker (owner
+// ruling 2026-11-09, card 193). The
 // label is never the identity; the principal beside it is the anchor, and
 // MembersNote says so in the --json form. The capability (team.roster) is not pre-checked:
 // an adapter without it answers with its own error, which is reported as
@@ -186,7 +187,7 @@ func members(inv Invocation, teamFlag string) error {
 		if member := memberLine(m.HumanLabel, m.PrincipalRef); member != "" {
 			fields = append(fields, member)
 		} else {
-			fields = append(fields, "principal="+idLine(m.PrincipalRef), labelLine(m.HumanLabel))
+			fields = append(fields, "principal="+idLine(m.PrincipalRef))
 		}
 		lines = append(lines, columns(append(fields,
 			joined,

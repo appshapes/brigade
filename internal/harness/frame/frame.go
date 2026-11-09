@@ -53,8 +53,8 @@ const (
 	// SummaryPrefix labels the first line below the separator as the
 	// sender's summary.
 	SummaryPrefix = "Sender summary (untrusted): "
-	// UnverifiedSuffix follows every from-label (B-3: every consumer
-	// presents human_label as unverified).
+	// UnverifiedSuffix follows every from-label (B-3: a consumer presents
+	// human_label as unverified to a model, beside the label in a message).
 	UnverifiedSuffix = " (unverified)"
 	// ExcerptChars is how many code points of the sanitised body stand in
 	// for a summary the sender did not give (6.7).

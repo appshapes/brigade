@@ -70,9 +70,9 @@ exec $WORK/fake.sh --script warm.json describe
 # older than the member — reported nothing, which reads as a blank cell.
 # alice's record also carries a sync_peer (card 33, C-47), and the table
 # has no column for it: an opaque folder-sync peer id is --json's alone.
-# Under the table, before the hidden-count note, is B-3's one marker: the
-# line layouts put `(unverified)` beside every label, and a table would
-# repeat that on every row, so the roster says it once instead. A blank
+# Under the table, before the hidden-count note, is B-3's one marker for
+# the roster a session routes by: no cell carries `(unverified)`, and the
+# roster says it once instead. A blank
 # line closes every session (card 44) — after carol's and alice's doing
 # lines, after bob's bare row — and that last one is what keeps the notes
 # off bob's group; the header sits straight on carol's row.

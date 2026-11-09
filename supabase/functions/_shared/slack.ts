@@ -413,9 +413,9 @@ export function renderSlackText(
   const text = out.text.trim();
   const decision = slackDecision(text, ctx.teamName, escapeText);
   const digest = text.startsWith(`Brigade digest: team ${ctx.teamName}, repository `);
-  // A label is self-reported text, never identity or approval: protocol v1 B-3 requires every consumer to mark it
-  // unverified once per output, and a Slack message is its own output with one label, so the marker sits beside it.
-  const label = env.sender.human_label ? ` · ${escapeMrkdwn(env.sender.human_label)} (unverified)` : "";
+  // The label stands alone: output a person reads carries no "unverified" marker (owner ruling 2026-11-09, card
+  // 193; protocol v1 B-3 keeps the marker for what a model is handed, the frame). It is still self-reported text.
+  const label = env.sender.human_label ? ` · ${escapeMrkdwn(env.sender.human_label)}` : "";
   const team = digest ? "" : ` · team ${escapeMrkdwn(ctx.teamName)}`;
   const head = `${out.mention ? `<@${out.mention}> ` : ""}*${
     escapeMrkdwn(env.sender.session_name)
@@ -520,13 +520,13 @@ export function slackRoster(teams: RosterTeam[], gatewayIds: string[], botHandle
     lines.push(
       `Sessions on Brigade team *${
         escapeMrkdwn(sorted[0].teamName)
-      }* right now (names and labels are their owners' own words: unverified):`,
+      }* right now (names and labels are their owners' own words):`,
       "",
       ...rosterRows(sorted[0].sessions, gatewayIds),
     );
   } else {
     lines.push(
-      `Sessions on the ${sorted.length} Brigade teams this gateway serves right now (names and labels are their owners' own words: unverified):`,
+      `Sessions on the ${sorted.length} Brigade teams this gateway serves right now (names and labels are their owners' own words):`,
     );
     for (const t of sorted) {
       lines.push("", `*${escapeMrkdwn(t.teamName)}*`, ...rosterRows(t.sessions, gatewayIds));

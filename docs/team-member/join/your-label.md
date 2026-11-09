@@ -1,7 +1,7 @@
 # Choose your label
 
 Your sessions carry a display label. Teammates see it in the MEMBER column of `brigade sessions`, and
-`brigade team members` shows it beside your principal reference: `alice@example.com (unverified) [9f3c1a20]`.
+`brigade team members` shows it beside your principal reference: `alice@example.com [9f3c1a20]`.
 
 ## The default
 
@@ -60,5 +60,5 @@ and is not shown.
 
 A label proves nothing: anyone can pick any text, copy someone else's, or choose one that looks like the bracketed
 principal form an unlabelled session gets. The principal reference, which `brigade sessions --json` and
-`brigade team members --json` print in full, is the only identity; `brigade team members` marks every label
-`(unverified)`.
+`brigade team members --json` print in full, is the only identity. No line you read marks a label
+`(unverified)`: `brigade team members`, a Slack message and a mail show the label alone.

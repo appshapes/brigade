@@ -284,12 +284,11 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		// its group; a header with no rows has no blank line at all.
 		lines = append(lines, "")
 	}
-	// B-3's "once per output" form. A LINE layout marks every label where
-	// it stands (UnverifiedSuffix); a table would repeat that on every
-	// row, and card 27 took the width back precisely there — so the marker
-	// is here, once, under the table it describes, and it names the two
-	// other strings in the same position: the session name and the doing
-	// line, neither of which was ever marked in a cell either.
+	// B-3's form for a roster a session routes by: the marker is here,
+	// once, under the table it describes, and in no cell (card 27 took
+	// the width back there). It names the two other strings in the same
+	// position: the session name and the doing line, neither of which
+	// was ever marked in a cell either.
 	lines = append(lines, RosterUnverifiedNote)
 	lines = append(lines, filter.notes()...)
 	if hidden > 0 {

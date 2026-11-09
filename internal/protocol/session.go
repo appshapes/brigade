@@ -138,9 +138,9 @@ func (r *SessionRegistration) Validate() error {
 }
 
 // SessionRecord is one session as the adapter reports it (4.4.3,
-// adapter → harness). human_label is unverified and every consumer MUST
-// present it as such; it, session_name and model are untrusted input at
-// every layer (4.5.11). Model and ContextUsedTokens are as the owning
+// adapter → harness). human_label is unverified and a consumer MUST
+// present it as such to a model (B-3); it, session_name and model are
+// untrusted input at every layer (4.5.11). Model and ContextUsedTokens are as the owning
 // harness last reported them (4.4.2, 4.4.4; capabilities session.model
 // and session.context_used_tokens, C-44): harness-reported, unverified,
 // and absent when it never reported one or the adapter lacks the

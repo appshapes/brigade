@@ -541,11 +541,11 @@ Deno.test("renderSlackText is the head, the text escaped and the reply line, wit
   const text = renderSlackText(envelope, out, { teamName: "brigade", botHandle: "brigade" });
   assertEquals(
     text,
-    "*frank-reviewer* · sam@example.com (unverified) · team brigade\n\n" +
+    "*frank-reviewer* · sam@example.com · team brigade\n\n" +
       "The fix is on master; please retest &lt;Safari&gt; &amp; friends.\n\n" +
       'Reply in this thread to answer.\n_To write to another session, message @brigade with a first line "to: <session or member>"._',
   );
-  assertEquals(text.split("unverified").length - 1, 1, "B-3: a plain message marks its label once");
+  assertEquals(text.includes("unverified"), false, "a message a person reads shows the label alone");
   assertEquals(text.includes("[brigade]"), false);
   assertEquals(text.includes("```"), false);
   assertEquals(text.includes(M2), false);
@@ -573,7 +573,7 @@ Deno.test("renderSlackText is the head, the text escaped and the reply line, wit
     { teamName: "<ops>", botHandle: "brigade" },
   );
   assertEquals(
-    names.startsWith("*&lt;release&gt;* · Alice &amp; &lt;!channel&gt; (unverified) · team &lt;ops&gt;\n"),
+    names.startsWith("*&lt;release&gt;* · Alice &amp; &lt;!channel&gt; · team &lt;ops&gt;\n"),
     true,
   );
 });
@@ -601,7 +601,7 @@ Deno.test("a decision separates question, options, no-answer default, context an
   assertEquals(
     text,
     [
-      "*frank-reviewer* · sam@example.com (unverified) · team ops",
+      "*frank-reviewer* · sam@example.com · team ops",
       "",
       "*Decision needed*",
       "",
@@ -623,7 +623,7 @@ Deno.test("a decision separates question, options, no-answer default, context an
       '_To write to another session, message @brigade with a first line "to: <session or member>"._',
     ].join("\n"),
   );
-  assertEquals(text.split("unverified").length - 1, 1, "B-3: a decision marks its sender's label once");
+  assertEquals(text.includes("unverified"), false, "a decision shows its sender's label alone");
   assertEquals(text.includes("recommend"), false);
   assertEquals(out, original, "presentation must not mutate the resolved route or source text");
   assertEquals(env.body, "to: @bob\n\n" + decisionAsk);
@@ -714,11 +714,11 @@ Deno.test("a digest names its team once, keeps its entire content and credits it
     botHandle: "brigade",
   });
   assertEquals(
-    text.startsWith("*frank-reviewer* · sam@example.com (unverified)\n\n*Brigade digest*\n"),
+    text.startsWith("*frank-reviewer* · sam@example.com\n\n*Brigade digest*\n"),
     true,
   );
   assertEquals(text.split("team ops").length - 1, 1);
-  assertEquals(text.split("unverified").length - 1, 1, "B-3: a digest marks its sender's label once");
+  assertEquals(text.includes("unverified"), false, "a digest shows its sender's label alone");
   assertStringIncludes(text, escapeMrkdwn(content));
   // Never suppress the actual gateway's team when a body's header names a different team.
   const other = renderSlackText(envelope, { ...out, text: source }, {
@@ -732,7 +732,7 @@ Deno.test("a digest names its team once, keeps its entire content and credits it
     text: "hello",
   }, { teamName: "ops", botHandle: "brigade" });
   assertEquals(unlabelled.startsWith("*frank-reviewer* · team ops\n\nhello"), true);
-  assertEquals(unlabelled.includes("unverified"), false, "no label, nothing to mark");
+  assertEquals(unlabelled.includes("unverified"), false);
 });
 
 Deno.test("slackRoster leaves the gateways out and the description fits the cap", () => {
@@ -769,15 +769,10 @@ Deno.test("slackRoster leaves the gateways out and the description fits the cap"
   const t = slackRoster([{ teamName: "brigade", sessions: [...sessions, offline] }], [GW], "brigade");
   assertStringIncludes(t, "Sessions on Brigade team *brigade* right now");
   assertStringIncludes(t, "`3f9a2`  frank-reviewer  _idle_ · sam@example.com");
-  // B-3 for a list: the header's one note marks names and labels unverified, and no row repeats the marker.
-  assertEquals(t.split("names and labels are their owners' own words: unverified").length - 1, 1);
-  assertEquals(t.split("unverified").length - 1, 1, "B-3: the roster marks labels unverified exactly once");
-  assertEquals(
-    t.split("\n").some((l) => l.startsWith("•") && l.includes("unverified")),
-    false,
-    "no row carries the marker",
-  );
-  assertEquals(t.includes("(unverified)"), false);
+  // A list a person reads says once whose words it shows, and carries no "unverified" marker anywhere (owner
+  // ruling 2026-11-09, card 193).
+  assertEquals(t.split("(names and labels are their owners' own words):").length - 1, 1);
+  assertEquals(t.includes("unverified"), false);
   assertStringIncludes(t, "or a member's label");
   assertEquals(t.includes("gateway"), false);
   assertEquals(t.includes("gone-home"), false);
@@ -822,14 +817,9 @@ Deno.test("slackRoster groups several teams by name, online sessions only, (none
   );
   assertStringIncludes(t, "*Mike*\n  (none)");
   assertStringIncludes(t, "*Zulu*\n• `000bb`  cola-bot  _active_");
-  // B-3 for a list, across several teams too: one note in the header, no marker on a row.
-  assertStringIncludes(t, "(names and labels are their owners' own words: unverified):");
-  assertEquals(t.split("unverified").length - 1, 1, "B-3: the roster marks labels unverified exactly once");
-  assertEquals(
-    t.split("\n").some((l) => l.startsWith("•") && l.includes("unverified")),
-    false,
-    "no row carries the marker",
-  );
+  // Across several teams too: one note in the header, no "unverified" marker anywhere.
+  assertStringIncludes(t, "(names and labels are their owners' own words):");
+  assertEquals(t.includes("unverified"), false);
   assertEquals(t.includes("gone-home"), false);
   assertStringIncludes(t, "To write to one: message @brigade");
 });

@@ -14,10 +14,10 @@ import (
 // sanitised with the 6.7 sanitiser before it is printed and folded onto
 // ONE line (the layouts are one item per line, and a name carrying a
 // newline must not become two items). In the LINE layouts — `team
-// members`, `team join`, `inbox` — a human_label always carries the
-// unverified suffix (B-3); card 27 took it out of the roster's table,
-// where it cost every row width and said the same thing every time, and
-// `sessions --json`'s own `note` carries the warning instead. The --json
+// members`, `team join`, `inbox`, `whoami` — a human_label stands alone
+// (owner ruling 2026-11-09, card 193); card 27 had already taken the
+// unverified suffix out of the roster's table, whose one note under it
+// and `sessions --json`'s own `note` carry the warning instead. The --json
 // forms carry the sanitised strings unfolded: a JSON string escapes its
 // newlines itself.
 
@@ -62,15 +62,13 @@ func nameLine(s string) string { return oneLine(protocol.SanitizeName(s)) }
 // neither quote nor break its line.
 func pathLine(s string) string { return oneLine(sanitizeID(s)) }
 
-// labelLine sanitises a human label for the human form and appends the
-// unverified suffix; an empty label renders as the suffix alone, so the
-// column is never silently absent.
+// labelLine sanitises a human label for the human form. The label stands
+// alone: a line a person reads carries no "unverified" marker beside it
+// (owner ruling 2026-11-09, card 193; B-3 keeps the marker for the frame,
+// which is what a model is handed). An empty label renders as "", and the
+// caller leaves the field out.
 func labelLine(s string) string {
-	label := oneLine(protocol.SanitizeLabel(s))
-	if label == "" {
-		return strings.TrimSpace(UnverifiedSuffix)
-	}
-	return label + UnverifiedSuffix
+	return oneLine(protocol.SanitizeLabel(s))
 }
 
 // shortPrincipalChars is how much of a principal ref a member line prints
@@ -151,10 +149,11 @@ func tableName(s string) string {
 	return protocol.TruncateRunes(nameLine(s), tableNameChars)
 }
 
-// memberLine renders a member line: the label with the unverified suffix
-// (B-3) and a short principal beside it, so a reader sees who a session
-// belongs to and still has the stable anchor — the label is never an
-// identity, and two members may pick the same one. An empty label renders
+// memberLine renders a member line: the label and a short principal
+// beside it, so a reader sees who a session belongs to and still has the
+// stable anchor — the label is never an identity, and two members may
+// pick the same one; the bracket says so where " (unverified)" used to
+// (owner ruling 2026-11-09, card 193). An empty label renders
 // as "", and the caller falls back to the identity it printed before this
 // existed: `team members` — one line per member — its `principal=<ref>`
 // field. A ref that sanitises away renders as "[?]": a labelled line
@@ -162,9 +161,9 @@ func tableName(s string) string {
 // silently absent.
 //
 // The roster no longer calls this; card 27 gave it rosterMember below,
-// which drops the suffix and the anchor a TABLE has no width for. The
-// callers left are `team members` and `team join`, whose one-line-per-
-// member layout has room for both.
+// which drops the anchor a TABLE has no width for. The callers left are
+// `team members` and `team join`, whose one-line-per-member layout has
+// room for it.
 func memberLine(label, principalRef string) string {
 	l := oneLine(protocol.SanitizeLabel(label))
 	if l == "" {
@@ -174,13 +173,12 @@ func memberLine(label, principalRef string) string {
 	if short == "" {
 		short = "?"
 	}
-	return l + UnverifiedSuffix + " [" + short + "]"
+	return l + " [" + short + "]"
 }
 
 // rosterMember renders the roster's MEMBER column (card 27): memberLine's
-// shape without the two things a reader of a TABLE does not need beside a
-// label — the unverified suffix, which the roster no longer carries in any
-// cell, and the short principal, which `--json` carries in full for a
+// shape without the one thing a reader of a TABLE does not need beside a
+// label — the short principal, which `--json` carries in full for a
 // reader who has to tell two principals apart.
 //
 // A session with no label has no other identity, so it keeps the short
@@ -190,7 +188,7 @@ func memberLine(label, principalRef string) string {
 // session used to live in those, and now lives here.
 //
 // `team members` and `team join` keep memberLine: their layout is one line
-// per member, not a table, and it has room for the suffix and the anchor.
+// per member, not a table, and it has room for the anchor.
 func rosterMember(label, principalRef string) string {
 	if l := oneLine(protocol.SanitizeLabel(label)); l != "" {
 		return l

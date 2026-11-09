@@ -49,9 +49,8 @@ func TestSessionsHumanLayout(t *testing.T) {
 		"",
 		"bbbbb    billing                                             idle    bob@example.com                                         45s",
 		"",
-		// B-3's one marker for a table, under it: a LINE layout puts the
-		// suffix beside every label, which is exactly the width card 27
-		// took back here.
+		// B-3's one marker for the roster, under its table: no cell
+		// carries a suffix, which is the width card 27 took back here.
 		RosterUnverifiedNote,
 		"(1 offline sessions hidden; --all shows them)",
 	}
@@ -567,11 +566,10 @@ func TestSessionsDoingLineNeedsALine(t *testing.T) {
 	}
 }
 
-// TestSessionsCarriesTheUnverifiedMarkerOnce is B-3's case for a TABLE.
-// The line layouts — `team members`, `team join`, `inbox` — mark every
-// human_label where it stands, with UnverifiedSuffix. A table would
-// repeat that on every row, which is the single widest thing card 27 took
-// back, so the roster carries the marker ONCE instead: in a note under
+// TestSessionsCarriesTheUnverifiedMarkerOnce is B-3's case for the roster
+// a session routes by. The line layouts — `team members`, `team join`,
+// `inbox`, `whoami` — show a label alone (owner ruling 2026-11-09, card
+// 193). The roster carries the marker ONCE: in a note under
 // the table, in no cell, on every form of the command. The note names the
 // session name and the doing line beside the label, because those are
 // their owner's own words too and no cell marks them either.

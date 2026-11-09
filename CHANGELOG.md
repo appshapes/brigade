@@ -33,13 +33,30 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 ### Changed
 
 - **Slack messages are easier to scan** (card 193). A compact sender line
-  keeps the session, the member label marked `(unverified)` once and the
-  team; a digest names its team only in its own header. Decision asks
-  separate the question, options, default if no answer, context and
-  response guidance. Slack's session list marks labels once, in its header
-  note, instead of on every row. Labels remain self-reported; identity,
-  trust, mentions and thread routing are unchanged, as are email messages. Hosted gateways pick up the presentation when redeployed
+  keeps the session, the member label and the team; a digest names its
+  team only in its own header. Decision asks separate the question,
+  options, default if no answer, context and response guidance. Labels
+  remain self-reported; identity, trust, mentions and thread routing are
+  unchanged. Hosted gateways pick up the presentation when redeployed
   ([Install the Slack gateway](docs/project-owner/configure/slack-gateway.md#running-it-again)).
+- **A member's label is shown alone, without `(unverified)`, in what a
+  person reads** (card 193; owner ruling 2026-11-09). A Slack message
+  reads `frank-reviewer · sam@example.com · team ops` and a mail begins
+  `frank-reviewer · sam@example.com on Brigade team ops wrote:`, where
+  both said `(sam@example.com, unverified)`; a sender with no label is
+  named by its session alone, where a mail said `(no label)`. The Slack
+  and mail session lists carry no marker either. On the command line,
+  `brigade team members`, `team create`, `team join`, `inbox` and
+  `whoami` print the label alone (`alice@example.com [9f3c1a20]`), and a
+  member or sender with no label no longer gets a lone `(unverified)`
+  field. What a model is handed is unchanged: a message frame's
+  `from-label` still ends ` (unverified)`, `brigade sessions` keeps its
+  one note under the table, `brigade send` still marks the recipient's
+  session name, and a person's mail or Slack message still arrives as
+  `Email from … (unverified)` or `… unverified name`. Protocol v1's
+  consumer rule B-3 is narrowed to say so (no wire shape and no
+  conformance case changed), and [`docs/security.md`](docs/security.md)
+  with it. Hosted gateways show it when redeployed.
 - **The release-notes email's subject is the app and its highest release**
   (card 189): `Brigade 0.47.2` in place of `Brigade 0.38.0 to 0.47.1: what's
   new`, the same shape as Cavalry's email. A preview still starts with
