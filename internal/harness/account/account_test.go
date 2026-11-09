@@ -341,3 +341,55 @@ func listing(t *testing.T, root string) string {
 	}
 	return b.String()
 }
+
+// EmailFile names the file that answered (card 191): the config-directory
+// file when it has the email, the home file when only it has, and nothing
+// when neither does — the path is what `team join` records as the Claude
+// profile its label was read from.
+func TestEmailFileNamesTheFileThatAnswered(t *testing.T) {
+	claudeConfig, home := dirs(t)
+	homeFile := writeConfig(t, home, `{"oauthAccount":{"emailAddress":"home@example.com"}}`)
+	email, file, err := account.EmailFile(os.Environ())
+	if err != nil || email != "home@example.com" || file != homeFile {
+		t.Fatalf("home only: %q, %q, %v; want the home file", email, file, err)
+	}
+	configFile := writeConfig(t, claudeConfig, `{"oauthAccount":{"emailAddress":"profile@example.com"}}`)
+	email, file, err = account.EmailFile(os.Environ())
+	if err != nil || email != "profile@example.com" || file != configFile {
+		t.Fatalf("both: %q, %q, %v; want the config-directory file", email, file, err)
+	}
+	if err := os.Remove(homeFile); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(configFile); err != nil {
+		t.Fatal(err)
+	}
+	if email, file, err = account.EmailFile(os.Environ()); email != "" || file != "" || !errors.Is(err, account.ErrNoFile) {
+		t.Fatalf("neither: %q, %q, %v", email, file, err)
+	}
+}
+
+// OwnEmailFile stays inside the profile CLAUDE_CONFIG_DIR names (card
+// 191): with no account there it answers none, never the home file's,
+// which is the default profile's; without the variable the home file is
+// the session's own and is read as Email reads it.
+func TestOwnEmailFileNeverReadsAnotherProfile(t *testing.T) {
+	claudeConfig, home := dirs(t)
+	writeConfig(t, home, `{"oauthAccount":{"emailAddress":"default@example.com"}}`)
+	writeConfig(t, claudeConfig, `{"numStartups":1}`)
+	if email, file, err := account.OwnEmailFile(os.Environ()); email != "" || file != "" || !errors.Is(err, account.ErrNoEmail) {
+		t.Fatalf("profile without an account: %q, %q, %v; want none", email, file, err)
+	}
+	own := writeConfig(t, claudeConfig, `{"oauthAccount":{"emailAddress":"profile@example.com"}}`)
+	if email, file, err := account.OwnEmailFile(os.Environ()); email != "profile@example.com" || file != own || err != nil {
+		t.Fatalf("profile with an account: %q, %q, %v", email, file, err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	if email, file, err := account.OwnEmailFile(os.Environ()); email != "default@example.com" || file != filepath.Join(home, account.FileName) || err != nil {
+		t.Fatalf("default profile: %q, %q, %v; want the home file", email, file, err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", "relative/dir")
+	if email, _, err := account.OwnEmailFile(os.Environ()); email != "" || !errors.Is(err, account.ErrNoConfigDir) {
+		t.Fatalf("relative CLAUDE_CONFIG_DIR: %q, %v; want no directory, never the home file", email, err)
+	}
+}

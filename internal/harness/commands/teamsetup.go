@@ -92,7 +92,7 @@ func (inv Invocation) teamCreate(raw rawArgs) error {
 		opts.carriedGateway, opts.gatewayNotCarried = teamfile.CarriedGateway(filePath)
 		opts.carriedPolling, opts.pollingNotCarried = teamfile.CarriedPolling(filePath)
 	}
-	req, err := inv.createRequest(opts)
+	req, choice, err := inv.createRequest(opts)
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func (inv Invocation) teamCreate(raw rawArgs) error {
 	if err != nil {
 		return err
 	}
-	return inv.finishCreate(opts, top, filePath, req, answer, tmpKey, t)
+	return inv.finishCreate(opts, top, filePath, req, choice, answer, tmpKey, t)
 }
 
 // parseCreateFlags parses `team create`'s flags; --secret-file is
@@ -190,39 +190,43 @@ func isUnder(dir, top string) bool {
 // terminal create that also omitted --name. The documented invocation
 // passes --name, and an in-session one must, so most creates send the
 // default without asking; finishCreate names the label it sent in the
-// report, which is the disclosure on those paths.
-func (inv Invocation) createRequest(opts *createOptions) (*protocol.TeamCreateRequest, error) {
-	name, label := opts.name, opts.label
-	var byDefault string
-	if label == "" {
+// report, which is the disclosure on those paths. The labelChoice says
+// where the label came from, for the record finishCreate writes (card
+// 191).
+func (inv Invocation) createRequest(opts *createOptions) (*protocol.TeamCreateRequest, labelChoice, error) {
+	name := opts.name
+	choice := labelChoice{text: opts.label, source: teamstore.LabelFromFlag}
+	var byDefault labelChoice
+	if choice.text == "" {
 		byDefault = inv.defaultLabel()
 	}
 	if name == "" {
 		if !inv.Deps.isTerminal(inv.In) {
-			return nil, usage("team create needs --name when stdin is not a terminal")
+			return nil, labelChoice{}, usage("team create needs --name when stdin is not a terminal")
 		}
 		var err error
 		if name, err = inv.promptLine("team name: "); err != nil {
-			return nil, err
+			return nil, labelChoice{}, err
 		}
-		if label == "" {
+		if choice.text == "" {
 			prompt := "your display label (optional): "
-			if byDefault != "" {
-				prompt = "your display label [" + byDefault + "]: "
+			if byDefault.text != "" {
+				prompt = "your display label [" + byDefault.text + "]: "
 			}
-			if label, err = inv.promptLine(prompt); err != nil {
-				return nil, err
+			if choice.text, err = inv.promptLine(prompt); err != nil {
+				return nil, labelChoice{}, err
 			}
+			choice.source = teamstore.LabelFromPrompt
 		}
 	}
-	if label == "" {
-		label = byDefault
+	if choice.text == "" {
+		choice = byDefault
 	}
-	req := &protocol.TeamCreateRequest{TeamName: name, HumanLabel: label}
+	req := &protocol.TeamCreateRequest{TeamName: name, HumanLabel: choice.text}
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, labelChoice{}, err
 	}
-	return req, nil
+	return req, choice, nil
 }
 
 // driveCreate runs the adapter half of create under a temp key: the
@@ -288,7 +292,7 @@ type teamCreateAnswer struct {
 // prompt fires on one create path only, so this line is where every
 // other one — the documented `--name` invocation, and every in-session
 // create — says what was published about the person who ran it.
-func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, req *protocol.TeamCreateRequest, answer *teamCreateAnswer, tmpKey string, t *target) error {
+func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, req *protocol.TeamCreateRequest, choice labelChoice, answer *teamCreateAnswer, tmpKey string, t *target) error {
 	key := teamstore.Key(opts.adapter, opts.url, answer.TeamRef)
 	if err := write.EnsureBinding(t.configDir, tmpKey, opts.adapter, opts.url, opts.key,
 		answer.TeamRef, answer.TeamName, answer.PrincipalRef); err != nil {
@@ -297,6 +301,7 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 	if err := write.Promote(t.configDir, tmpKey, key); err != nil {
 		return err
 	}
+	inv.recordLabelOrigin(t.configDir, key, choice)
 	canon, err := teamfile.Canonicalize(top)
 	if err != nil {
 		return fmt.Errorf("commands: canonicalize checkout: %w", err)
@@ -400,14 +405,48 @@ func (inv Invocation) teamJoin(args []string) error {
 	if err != nil {
 		return err
 	}
+	choice := labelChoice{text: label, source: teamstore.LabelFromFlag}
 	if label == "" {
 		// The default is resolved here, on the one path that can actually
 		// join, and never inside firstJoin: reconsent calls that with an
-		// explicit "" for a re-point, and a re-consent must keep sending
+		// empty choice for a re-point, and a re-consent must keep sending
 		// what it always sent.
-		label = inv.defaultLabel()
+		choice = inv.defaultLabel()
 	}
-	return inv.joinWithFile(path, f, label, secretFile)
+	return inv.joinWithFile(path, f, choice, secretFile)
+}
+
+// labelChoice is the label a create or join sends and where it came from
+// (card 191): text is what goes on the wire, source is one of teamstore's
+// LabelFrom* words, and accountFile names the Claude Code config file the
+// account email was read from when source is LabelFromAccount. An empty
+// text sends no label and records nothing.
+type labelChoice struct {
+	text, source, accountFile string
+}
+
+// recordLabelOrigin writes the label.json record after a create or join
+// that sent a label (card 191). Best effort: the membership already
+// exists and carries the label, so a record that cannot be written is a
+// debug line and the removal of any earlier one, never a failed join;
+// whoami then says the origin was not recorded.
+func (inv Invocation) recordLabelOrigin(configDir, key string, c labelChoice) {
+	if c.text == "" {
+		return
+	}
+	o := teamstore.LabelOrigin{Source: c.source, SentAt: inv.Deps.now().UTC(), LabelSHA256: teamstore.LabelDigest(c.text)}
+	if c.source == teamstore.LabelFromAccount {
+		o.AccountFile = c.accountFile
+	}
+	if err := write.LabelOrigin(configDir, key, o); err != nil {
+		// An earlier record no longer describes the label just sent; its
+		// digest already says so, and removing it says so to an older
+		// reader too.
+		inv.logger().Debug("label record not written", adapterlog.Err(err))
+		if path, perr := teamstore.LabelOriginPath(configDir, key); perr == nil {
+			_ = os.Remove(path)
+		}
+	}
 }
 
 // defaultLabel is the label a create or join sends when --label named
@@ -418,17 +457,24 @@ func (inv Invocation) teamJoin(args []string) error {
 // it is a debug line and an empty label, never a refusal: a member whose
 // account cannot be read joins unlabelled, exactly as every member did
 // before this version.
-func (inv Invocation) defaultLabel() string {
-	return config.LabelFor(inv.labelOption(), func() string {
-		email, err := account.Email(inv.Environ)
+func (inv Invocation) defaultLabel() labelChoice {
+	option := inv.labelOption()
+	var file string
+	text := config.LabelFor(option, func() string {
+		email, path, err := account.EmailFile(inv.Environ)
 		if err != nil {
 			// Diagnostic only, and deliberately without the value: whether
 			// an email was found is a fact about the configuration; the
 			// email itself is the member's and belongs in no log line.
 			inv.logger().Debug("claude account email unavailable", adapterlog.Err(err))
 		}
+		file = path
 		return email
 	})
+	if option == config.LabelAccount {
+		return labelChoice{text: text, source: teamstore.LabelFromAccount, accountFile: file}
+	}
+	return labelChoice{text: text, source: teamstore.LabelFromOption}
 }
 
 // labelOption resolves the `label` option exactly the way this file
@@ -448,6 +494,12 @@ func (inv Invocation) labelOption() string {
 	if err != nil {
 		return config.LabelAccount
 	}
+	return inv.sessionLabelOption(stateDir)
+}
+
+// sessionLabelOption is labelOption inside a session whose state directory
+// the caller already resolved (whoami's target carries it, card 191).
+func (inv Invocation) sessionLabelOption(stateDir string) string {
 	facts, err := inv.startFacts(stateDir)
 	if err != nil {
 		return config.LabelAccount
@@ -476,7 +528,7 @@ func parseJoinFlags(args []string) (label, secretFile string, err error) {
 // or the re-consent path (brief §5 with the review's high fix: the
 // secret is required for any pin rewrite that changes adapter, url or
 // team_ref; only a publishable-key-only drift re-consents without one).
-func (inv Invocation) joinWithFile(path string, f *teamfile.File, label, secretFile string) error {
+func (inv Invocation) joinWithFile(path string, f *teamfile.File, label labelChoice, secretFile string) error {
 	t, err := inv.dialectTarget(f.Adapter, teamstore.Key(f.Adapter, f.URL, f.TeamRef))
 	if err != nil {
 		return err
@@ -541,7 +593,7 @@ func (inv Invocation) confirmGate(f *teamfile.File, action string) error {
 // the secret (no echo), check its embedded team ref against the file
 // BEFORE any network (review medium fix 4 — no existence oracle), then
 // the frozen stdin document to the adapter, then binding + pin.
-func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label, secretFile string) error {
+func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label labelChoice, secretFile string) error {
 	var secret string
 	var err error
 	if inv.inSession() {
@@ -573,7 +625,7 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 	if err != nil {
 		return fmt.Errorf("commands: marshal backend: %w", err)
 	}
-	req := &protocol.TeamJoinRequest{JoinSecret: secret, HumanLabel: label, Backend: backend}
+	req := &protocol.TeamJoinRequest{JoinSecret: secret, HumanLabel: label.text, Backend: backend}
 	env, err := t.client.Call(context.Background(), "team", "join", nil, req)
 	if err != nil {
 		return err
@@ -586,6 +638,7 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 		answer.TeamRef, answer.TeamName, answer.PrincipalRef); err != nil {
 		return err
 	}
+	inv.recordLabelOrigin(t.configDir, t.profile, label)
 	return inv.writePinAndReport(t, canon, f, "joined")
 }
 
@@ -623,7 +676,7 @@ func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, bindi
 	if _, err := t.client.ListSessions(context.Background(), false); err != nil {
 		// The credential no longer works (revoked server-side, or the
 		// key rotated under it): fall back to a normal secret join.
-		return inv.firstJoin(t, canon, f, "", secretFile)
+		return inv.firstJoin(t, canon, f, labelChoice{}, secretFile)
 	}
 	if pinned {
 		inv.printDiff(pin, f)
@@ -632,14 +685,14 @@ func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, bindi
 	if crossTeam && inv.inSession() {
 		// The membership-grade path prints its own consent line, after the
 		// secret file has been checked: no half-record on a refusal.
-		return inv.firstJoin(t, canon, f, "", secretFile)
+		return inv.firstJoin(t, canon, f, labelChoice{}, secretFile)
 	}
 	if err := inv.confirmGate(f, "re-consent to"); err != nil {
 		return err
 	}
 	if crossTeam {
 		// The high fix: a cross-team re-point is a membership-grade event.
-		return inv.firstJoin(t, canon, f, "", secretFile)
+		return inv.firstJoin(t, canon, f, labelChoice{}, secretFile)
 	}
 	if binding.PublishableKey != f.PublishableKey {
 		// Key-only drift: rewrite pin AND binding together, no secret.

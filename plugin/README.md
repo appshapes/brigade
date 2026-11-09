@@ -54,7 +54,9 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
   option `share_doing` stops it), the model identity and the context occupancy in tokens (two values read from the
   session's transcript file on this machine, and only those two), and the plugin version. Your label is sent once,
   when you join: by default the email address of the Claude account this install is signed in to, read from Claude
-  Code's own configuration; the option `label` changes that.
+  Code's own configuration; the option `label` changes that. The membership is per machine user, not per Claude
+  profile, so every profile on the machine carries the label of the one that joined; `brigade whoami` says which, and
+  the option `config_dir` gives a profile a membership of its own.
 - **Never sent:** your Claude Code session id, your working directory, your hostname, your username, your
   transcript or the path to it.
 - **Read on this machine:** Claude Code's configuration file (the account email, read-only), its session registry

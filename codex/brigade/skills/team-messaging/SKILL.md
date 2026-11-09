@@ -57,7 +57,7 @@ brigade send <session_id> --summary "<one line>" <<'EOF' ... EOF
 brigade send <session_id> --reply-to <message_id> <<'EOF' ... EOF
 brigade send <session_id> --body-file <path>                    # body from a file instead of stdin
 brigade send --member '<who>' <<'EOF' ... EOF                   # a member's best session: their label, or 8+ characters of their principal_ref
-brigade whoami                   # this session's Brigade session_id and short id, name and team, and whether it is receiving
+brigade whoami                   # this session's Brigade session_id and short id, name and team, its member label and where it came from, and whether it is receiving
 brigade team members             # the roster: member, joined, session count, last seen
 brigade doing <<'EOF' ... EOF   # one short sentence: what this session is working on
 brigade doing --clear            # remove this session's sentence from the roster

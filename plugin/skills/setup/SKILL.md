@@ -110,6 +110,14 @@ option **before you join**: `none` sends no label at all (your sessions are list
 alone), and any other text is used as your label instead. `--label <text>` on the command overrides the option for
 that one join. It is not prompted for, so choose it first.
 
+**One machine is one member, whatever the Claude profile.** The credential store is per machine user
+(`~/.config/brigade`), not per Claude profile: every profile on the machine, whatever `CLAUDE_CONFIG_DIR` it runs
+under, is the same member, and its sessions carry the label of the profile that joined, even when they are signed in
+to another account. `brigade whoami` in a session prints that label, when it was sent and where it was read from,
+and whether this session's own Claude account is it. To make a profile a member of its own, set its `config_dir`
+plugin option to a directory of its own before joining from it: it gets its own principal and its own label, and
+teammates see it as another member.
+
 In your own terminal,
 `brigade team join` alone shows what the file names, asks you to confirm, then reads the secret without echo.
 Either way the secret never reaches your scrollback, your shell history or a chat. There is no `--profile`, no

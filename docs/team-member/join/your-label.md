@@ -30,6 +30,32 @@ A member who joined before labels existed has an empty label, filled from the de
 after the backend has the matching migration, and only while the membership has none; a label you chose is never
 touched.
 
+## Several Claude profiles on one machine
+
+Brigade keeps one credential store per machine user (`~/.config/brigade`; `%APPDATA%\brigade` on Windows), not one
+per Claude profile. Every Claude profile on the machine, whatever `CLAUDE_CONFIG_DIR` it runs under, is therefore the
+same member, and its sessions carry the label of the profile that joined. A session signed in to another account
+still shows that label.
+
+To make a profile a member of its own, set its `config_dir` plugin option to a directory of its own, then join from
+a session of that profile: it gets its own principal and sends its own account's email. Teammates see it as another
+member.
+
+## Where your label came from
+
+`brigade whoami`, in a session, prints a `label:` line: the label this machine's membership carries, when it was
+sent and where it was read from (`read from the Claude account in <file>`, `from the label option`, `from --label`,
+or `typed at team create's prompt`). When the label came from an account, an `account:` line under it says whether
+this session's Claude account is that label, and when it is not, why: another profile joined, or this profile has
+signed in to another account since. It reads only this profile's own Claude Code config. A membership joined before
+Brigade recorded the source says `no record says where it came from` and the date this machine's credential for the
+team dates from. `brigade whoami --json` carries the same facts in its `label` member, without the file path.
+
+The source is recorded in `label.json` beside the membership's `team.json`, written by the `team create` or
+`team join` that sent the label. It holds the source, the Claude Code config file, the time and a SHA-256 of the
+label, never the label: a record whose digest does not match the label `team.json` holds is about an earlier label
+and is not shown.
+
 ## What a label is not
 
 A label proves nothing: anyone can pick any text, copy someone else's, or choose one that looks like the bracketed

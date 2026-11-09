@@ -3,8 +3,9 @@
 # The identity line from the map and the cached describe: exactly one
 # child (the describe), no network; the short id line under it (card 157:
 # the roster's SESSION cell, in --json as short_session_id); the --json
-# form; and the two refusals
-# — outside a session, and with a session map that is not private.
+# form; the label line (card 191: the membership's label, where it came
+# from, and whether this session's Claude account is it); and the two
+# refusals — outside a session, and with a session map that is not private.
 
 # --- fixture: the by-pid map the SessionStart hook would have written ----
 # CLAUDE_PID is set, so every command resolves everything from the map
@@ -65,13 +66,54 @@ stdout '^short id: aaaaa$'
 stdout '^terminal: .*/plugin-root/bin/brigade$'
 # The whole output, not two line patterns: the path is printed in FULL (the
 # human copies it into a symlink) and the lines after it are the frame
-# level (P5-12) and the delivery line (card 34): this session's map names
-# no inbox socket, so no watcher serves it.
+# level (P5-12), the label (card 191: none in this store) and the delivery
+# line (card 34): this session's map names no inbox socket, so no watcher
+# serves it.
 cmp stdout want-whoami-terminal.txt
 ! stderr .
 exec brigade whoami --json
 ! stdout 'plugin-root'
 ! stdout 'terminal'
+
+# --- the label (card 191): joined from one Claude profile, run in another ----
+# The membership's team.json carries the label the join sent, its label.json
+# where that came from; this session's CLAUDE_CONFIG_DIR is another profile,
+# signed in to another account. The human form says so and names the file
+# the label was read from; --json carries the facts and never the path.
+mkdir $WORK/.brigade/brigade-config/teams/alpha
+cp label-team.json $WORK/.brigade/brigade-config/teams/alpha/team.json
+chmod 600 $WORK/.brigade/brigade-config/teams/alpha/team.json
+cp label-origin.json $WORK/.brigade/brigade-config/teams/alpha/label.json
+chmod 600 $WORK/.brigade/brigade-config/teams/alpha/label.json
+mkdir $WORK/claude-profile
+cp claude-profile.json $WORK/claude-profile/.claude.json
+env CLAUDE_CONFIG_DIR=$WORK/claude-profile
+exec brigade whoami
+stdout '^label: carol@work.example \(unverified\), sent when this machine joined on 2026-10-06, read from the Claude account in /home/carol/.claude.json$'
+stdout '^account: this session''s Claude account is alice@example.com, not the label: every Claude profile that uses this machine''s credential store is this one member, '
+stdout 'config_dir'
+stdout '^delivery: '
+! stderr .
+exec brigade whoami --json
+json stdout .result.label.human_label carol@work.example
+json stdout .result.label.source account
+json stdout .result.label.sent_at 2026-10-06T21:16:00Z
+json stdout .result.label.credential_since 2026-10-06T21:15:55Z
+json stdout .result.label.session_account alice@example.com
+! stdout '/home/carol'
+! stdout 'claude-profile'
+! stderr .
+# This session's own account as the label: the account line says so.
+cp claude-profile-carol.json $WORK/claude-profile/.claude.json
+exec brigade whoami
+stdout '^account: this session''s Claude account is the label$'
+# A record about another label (a scripted join rewrote team.json without
+# one) is not shown against this one.
+cp label-team-other.json $WORK/.brigade/brigade-config/teams/alpha/team.json
+exec brigade whoami
+stdout '^label: ops-bot \(unverified\), sent when this machine joined \(its credential for this team dates from 2026-10-06\); no record says where it came from$'
+rm $WORK/.brigade/brigade-config/teams/alpha
+env CLAUDE_CONFIG_DIR=$WORK/.brigade/claude-config
 
 # --- a map that is not 0600 is refused: the E0-7 trust boundary --------------
 chmod 644 $WORK/.brigade/xdg/state/brigade/sessions/by-pid/4242.json
@@ -113,12 +155,24 @@ GORACE=atexit_sleep_ms=0 exec fake-adapter "$@"
 session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (adapter fake-adapter 0.0.0-fake); inbound: accept
 short id: aaaaa
 frame: open
+label: none recorded on this machine; the MEMBER column of brigade sessions shows the label the team holds, which a session start fills from its Claude account while there is none
 delivery: no watcher: this session has no inbox socket; no delivery recorded; 0 held
 -- want-whoami-terminal.in --
 session aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "payments-api" in team "ops" (adapter fake-adapter 0.0.0-fake); inbound: accept
 short id: aaaaa
 terminal: $WORK/.brigade/plugin-root/bin/brigade
 frame: open
+label: none recorded on this machine; the MEMBER column of brigade sessions shows the label the team holds, which a session start fills from its Claude account while there is none
 delivery: no watcher: this session has no inbox socket; no delivery recorded; 0 held
+-- label-team.json --
+{"version": 1, "adapter": "fake", "team_ref": "team-1", "team_name": "ops", "principal_ref": "p_1", "human_label": "carol@work.example", "created_at": "2026-10-06T21:15:55Z"}
+-- label-team-other.json --
+{"version": 1, "adapter": "fake", "team_ref": "team-1", "team_name": "ops", "principal_ref": "p_1", "human_label": "ops-bot", "created_at": "2026-10-06T21:15:55Z"}
+-- label-origin.json --
+{"version": 1, "source": "account", "account_file": "/home/carol/.claude.json", "sent_at": "2026-10-06T21:16:00Z", "label_sha256": "b283b9a1a5630ca5a6040d10a06cf4374d9860b8b0129549abdf2b86952c155c"}
+-- claude-profile.json --
+{"oauthAccount": {"emailAddress": "alice@example.com"}}
+-- claude-profile-carol.json --
+{"oauthAccount": {"emailAddress": "carol@work.example"}}
 -- warm.json --
 {}

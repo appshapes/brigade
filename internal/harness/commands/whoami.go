@@ -41,6 +41,9 @@ type whoamiResult struct {
 	AdapterSource      string   `json:"adapter_source"`
 	PermissionMode     string   `json:"permission_mode,omitzero"`
 	NonInteractive     bool     `json:"non_interactive"`
+	// Label is this machine's membership label, where it came from and
+	// this session's own Claude account (card 191).
+	Label whoamiLabel `json:"label"`
 	// Delivery is whether this session is receiving, from this machine's
 	// own files (card 34).
 	Delivery      whoamiDelivery `json:"delivery"`
@@ -76,7 +79,7 @@ const (
 )
 
 // WhoamiNote is the note member of the `whoami --json` result.
-const WhoamiNote = "identity read from this session's map and the adapter's describe, delivery from this machine's own state files; nothing was fetched from the backend"
+const WhoamiNote = "identity read from this session's map and the adapter's describe, the label from this machine's team store (unverified text, like every label) and the session's account from Claude Code's own config, delivery from this machine's own state files; nothing was fetched from the backend"
 
 // Whoami implements `brigade whoami [--json]` (6.4): the session's id,
 // name, team, profile and adapter from the by-pid map and the cached
@@ -104,6 +107,12 @@ const WhoamiNote = "identity read from this session's map and the adapter's desc
 // is might reason about it, which is not a conversation Brigade should
 // start; the model already reads the clause verbatim in every frame.
 //
+// The `label:` line, and the `account:` line under it, are card 191's:
+// one machine user has one credential store, so every Claude profile on
+// the machine is the same member, labelled by whichever profile joined.
+// They say which label this machine's membership carries, where it came
+// from and when, and whether this session's own Claude account is it.
+//
 // The last line, `delivery:`, is card 34's: "did the message get lost, or
 // is my session not receiving?" is the first question when a hand-off goes
 // quiet, and it is answered from this machine's own files (delivery).
@@ -120,6 +129,7 @@ func Whoami(inv Invocation) error {
 	}
 	m := t.session
 	d := inv.delivery(t)
+	label := inv.label(t)
 	if inv.JSON {
 		id := sanitizeID(m.BrigadeSessionID)
 		return writeJSON(inv.Out, whoamiResult{
@@ -138,6 +148,7 @@ func Whoami(inv Invocation) error {
 			AdapterSource:      t.adapter.Source,
 			PermissionMode:     protocol.SanitizeAttribute(m.PermissionMode),
 			NonInteractive:     m.NonInteractive,
+			Label:              label,
 			Delivery:           d,
 			SelfSessionID:      id,
 			Note:               WhoamiNote,
@@ -163,6 +174,7 @@ func Whoami(inv Invocation) error {
 		out = append(out, "terminal: "+p)
 	}
 	out = append(out, "frame: "+frameLevelLine(m.FrameLevel, m.FrameText))
+	out = append(out, label.lines()...)
 	out = append(out, "delivery: "+d.line(inv.Deps.now()))
 	return writeLines(inv.Out, out...)
 }

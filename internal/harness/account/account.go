@@ -10,7 +10,9 @@
 // `team join` sends when it was given no --label, so a roster reads as
 // people rather than as UUIDs (P15-1). The value is an ordinary unverified
 // label like any other and proves nothing; the server-stamped principal
-// remains the identity.
+// remains the identity. `brigade whoami` reads the same default to say
+// whether this session's account is the label its membership carries
+// (card 191): several Claude profiles on one machine share one membership.
 //
 // Best effort without exception. A missing file, an unreadable one,
 // malformed JSON, a missing `oauthAccount`, a missing, empty or
@@ -108,21 +110,58 @@ func Paths(environ []string) []string {
 // malformed second one still reports something useful. A "" answer with a
 // nil error cannot happen: every empty answer carries a reason.
 func Email(environ []string) (string, error) {
+	email, _, err := EmailFile(environ)
+	return email, err
+}
+
+// EmailFile is Email that also names the file the address was read from:
+// one of Paths, "" exactly when the email is "". Card 191: a machine with
+// several Claude profiles (a CLAUDE_CONFIG_DIR each) shares one Brigade
+// membership, so `team create` and `team join` record which profile's
+// file the label came from, and `brigade whoami` reports it. The path is
+// the member's own and goes only to that 0600 record and to whoami's
+// human form, never to a log line or to --json.
+func EmailFile(environ []string) (string, string, error) {
 	paths := Paths(environ)
 	if len(paths) == 0 {
-		return "", ErrNoConfigDir
+		return "", "", ErrNoConfigDir
 	}
 	var first error
 	for _, p := range paths {
 		email, err := emailFrom(p)
 		if email != "" {
-			return email, nil
+			return email, p, nil
 		}
 		if first == nil {
 			first = err
 		}
 	}
-	return "", first
+	return "", "", first
+}
+
+// OwnEmailFile is EmailFile confined to this session's own Claude profile
+// (card 191). When CLAUDE_CONFIG_DIR names a profile, only that profile's
+// file is read: the home file belongs to the default profile, whose account
+// is not this session's, and reading it would report the very confusion
+// `brigade whoami` exists to expose. Without the variable the session IS
+// the default profile, and EmailFile's two files are both its own. The
+// join default keeps EmailFile's fallback.
+func OwnEmailFile(environ []string) (string, string, error) {
+	if adapterkit.Getenv(environ, config.ClaudeConfigDirVar) == "" {
+		return EmailFile(environ)
+	}
+	dir, err := config.ClaudeConfigDir(environ)
+	if err != nil || config.HostOf(environ) == config.HostGrok {
+		// A relative CLAUDE_CONFIG_DIR names no profile Brigade can read,
+		// and never falls through to the home file.
+		return "", "", ErrNoConfigDir
+	}
+	path := filepath.Join(dir, FileName)
+	email, err := emailFrom(path)
+	if email == "" {
+		return "", "", err
+	}
+	return email, path, nil
 }
 
 // emailFrom reads one file. The decode is two steps so that a member of

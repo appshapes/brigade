@@ -131,3 +131,99 @@ func LookupPin(configDir, canonicalDir string) (*Pin, bool, error) {
 	}
 	return &p, true, nil
 }
+
+// The sources a LabelOrigin names: the words `brigade whoami --json`
+// prints as label.source, plus LabelUnrecorded there for a membership
+// with no record that describes its label.
+const (
+	// LabelFromAccount: the email of the Claude account in AccountFile
+	// (the `label` option's default, `account`).
+	LabelFromAccount = "account"
+	// LabelFromOption: the `label` option's literal text, or BRIGADE_LABEL
+	// standing in for it at a terminal.
+	LabelFromOption = "option"
+	// LabelFromFlag: --label on the command.
+	LabelFromFlag = "flag"
+	// LabelFromPrompt: typed at `team create`'s label prompt.
+	LabelFromPrompt = "prompt"
+	// LabelUnrecorded: no record describes the label team.json holds — the
+	// join predates card 191, or something other than a recorded create or
+	// join wrote the label since; never written to a file.
+	LabelUnrecorded = "unrecorded"
+)
+
+// LabelOriginFile is the record's name inside `teams/<key>/`.
+const LabelOriginFile = "label.json"
+
+// LabelOriginVersion is the label.json schema version this binary writes.
+const LabelOriginVersion = 1
+
+// A LabelOrigin records where the label a `team create` or `team join`
+// sent came from, and when (card 191). One machine user has one credential
+// store, so every Claude profile on the machine is the same member, and
+// the label is whichever profile's account was read at the join; without
+// the record, finding out which meant tracing transcripts and config
+// backups. It is written only when a label was sent, so a join that sent
+// none leaves the record of the label the team still holds. It never
+// holds the label itself: team.json does (the adapter writes it as
+// human_label), and the address is not copied to a second file. It holds
+// the label's SHA-256 instead, so a record that no longer describes the
+// label team.json holds — a scripted join, an adapter or a failed write
+// changed the label without it — is told apart and read as no record
+// rather than misattributed (Describes).
+type LabelOrigin struct {
+	Version int    `json:"version"`
+	Source  string `json:"source"`
+	// AccountFile is the Claude Code config file the account email was
+	// read from (account.EmailFile); set only when Source is
+	// LabelFromAccount.
+	AccountFile string    `json:"account_file,omitzero"`
+	SentAt      time.Time `json:"sent_at"`
+	// LabelSHA256 is LabelDigest of the label the create or join sent.
+	LabelSHA256 string `json:"label_sha256"`
+}
+
+// LabelDigest is the lowercase hex SHA-256 of a label's bytes.
+func LabelDigest(label string) string {
+	sum := sha256.Sum256([]byte(label))
+	return hex.EncodeToString(sum[:])
+}
+
+// Describes reports whether the record is about label: the label team.json
+// holds, as the adapter wrote it.
+func (o *LabelOrigin) Describes(label string) bool {
+	return label != "" && o.LabelSHA256 == LabelDigest(label)
+}
+
+// LabelOriginPath is `${configDir}/teams/<key>/label.json`.
+func LabelOriginPath(configDir, key string) (string, error) {
+	dir, err := adapterkit.ProfileDir(configDir, key)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, LabelOriginFile), nil
+}
+
+// LoadLabelOrigin reads the record. A missing record answers
+// fs.ErrNotExist; one that is not private, does not parse or names no
+// source is an error too, which the one reader (whoami) treats as no
+// record.
+func LoadLabelOrigin(configDir, key string) (*LabelOrigin, error) {
+	path, err := LabelOriginPath(configDir, key)
+	if err != nil {
+		return nil, err
+	}
+	data, err := adapterkit.ReadStrict(path)
+	if err != nil {
+		return nil, err
+	}
+	var o LabelOrigin
+	if err := json.Unmarshal(data, &o); err != nil || o.Version != LabelOriginVersion || o.Source == "" || o.LabelSHA256 == "" {
+		return nil, errLabelOriginMalformed
+	}
+	return &o, nil
+}
+
+// errLabelOriginMalformed is fixed text: the record's contents are the
+// member's, and the error is at most a debug line.
+var errLabelOriginMalformed = errors.New("teamstore: label.json is not a readable record")

@@ -249,3 +249,69 @@ func TestPatchSurvivesAdapterRewrite(t *testing.T) {
 		t.Fatalf("the patch lost the adapter's members: %+v", final)
 	}
 }
+
+// The label record (card 191) round-trips at 0600 with the version this
+// binary writes, replaces an earlier one, and refuses a key with no
+// credential directory rather than creating one.
+func TestLabelOriginRoundTrip(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := write.LabelOrigin(dir, "alpha", teamstore.LabelOrigin{Source: teamstore.LabelFromFlag, LabelSHA256: teamstore.LabelDigest("x")}); err == nil {
+		t.Fatal("a record was written with no credential directory")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "teams", "alpha")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the refused write created the directory: %v", err)
+	}
+	if _, err := teamstore.LoadLabelOrigin(dir, "alpha"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a missing record answered %v, want fs.ErrNotExist", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "teams", "alpha"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sent := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	for _, o := range []teamstore.LabelOrigin{
+		{Source: teamstore.LabelFromAccount, AccountFile: "/home/a/.claude.json", SentAt: sent.Add(-time.Hour), LabelSHA256: teamstore.LabelDigest("a@example.com")},
+		{Source: teamstore.LabelFromFlag, SentAt: sent, LabelSHA256: teamstore.LabelDigest("Alice of Ops")},
+	} {
+		if err := write.LabelOrigin(dir, "alpha", o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := teamstore.LoadLabelOrigin(dir, "alpha")
+	if err != nil || got.Version != teamstore.LabelOriginVersion || got.Source != teamstore.LabelFromFlag ||
+		got.AccountFile != "" || !got.SentAt.Equal(sent) || !got.Describes("Alice of Ops") || got.Describes("a@example.com") || got.Describes("") {
+		t.Fatalf("record = %+v, %v; want the second write, describing its own label alone", got, err)
+	}
+	path, err := teamstore.LabelOriginPath(dir, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(path); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("label.json mode = %v, %v; want 0600", fi, err)
+	}
+	if _, err := teamstore.LabelOriginPath(dir, "../escape"); err == nil {
+		t.Fatal("a traversing key named a path")
+	}
+}
+
+// A record that does not parse, carries another version, or names no
+// source or no digest reads as no record.
+func TestLabelOriginRefusesAMalformedRecord(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "teams", "alpha"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path, err := teamstore.LabelOriginPath(dir, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{"not json", `{"version":2,"source":"flag","label_sha256":"ab"}`, `{"version":1,"label_sha256":"ab"}`, `{"version":1,"source":"flag"}`} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if o, err := teamstore.LoadLabelOrigin(dir, "alpha"); err == nil {
+			t.Fatalf("%q read as %+v", body, o)
+		}
+	}
+}

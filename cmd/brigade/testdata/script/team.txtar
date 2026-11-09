@@ -38,6 +38,11 @@ stdout 'git add \.brigade\.json'
 ! stdout brg1
 exists $WORK/repo/.brigade.json
 exists $WORK/team.secret
+# Card 191: where the label came from is recorded beside the binding, as
+# its source and never as the label itself.
+exec grep -rl --include=label.json '"source":"flag"' $WORK/.brigade/brigade-config/teams
+stdout 'label\.json$'
+! exec grep -rl --include=label.json alice@example.com $WORK/.brigade/brigade-config/teams
 cd $WORK
 
 # --- a relative --secret-file refuses before any work (the archived
@@ -125,6 +130,8 @@ exists $WORK/repo2/.brigade.json
 exists $WORK/team2.secret
 exists $WORK/carol-config/projects.json
 ! exists $WORK/.brigade/xdg/config/brigade/projects.json
+exec grep -rl --include=label.json '"source":"flag"' $WORK/carol-config/teams
+stdout 'label\.json$'
 cd $WORK
 
 # dave's session: the start facts name HIS store. Without the file the
@@ -153,6 +160,9 @@ stdout '^joined team "ops2" \(.*\); this session attaches at your next prompt$'
 ! stderr brg1
 exists $WORK/dave-config/projects.json
 ! exists $WORK/.brigade/xdg/config/brigade/projects.json
+exec grep -rl --include=label.json '"source":"flag"' $WORK/dave-config/teams
+stdout 'label\.json$'
+! exec grep -rl --include=label.json dave@example.com $WORK/dave-config/teams
 # rotate-secret: create's outside-the-repository rule applies to the
 # forwarded --secret-file, before any spawn; a path outside reaches the
 # adapter (the fs adapter answers its own `usage` — the verb got there)

@@ -156,6 +156,28 @@ func EnsureBinding(configDir, key, adapter, url, publishableKey, teamRef, teamNa
 	return adapterkit.SaveProfile(configDir, key, p)
 }
 
+// LabelOrigin writes `teams/<key>/label.json` (card 191), 0600 through
+// WriteAtomic, replacing any earlier record: the caller writes one only
+// when its create or join sent a label, which is then the label the team
+// holds. The credential directory must already exist (the binding is
+// written first), so a key that names none refuses rather than creating
+// a directory beside the store's.
+func LabelOrigin(configDir, key string, o teamstore.LabelOrigin) error {
+	path, err := teamstore.LabelOriginPath(configDir, key)
+	if err != nil {
+		return err
+	}
+	if info, err := os.Stat(filepath.Dir(path)); err != nil || !info.IsDir() {
+		return errors.New("teamstore: no credential directory for the label record")
+	}
+	o.Version = teamstore.LabelOriginVersion
+	data, err := json.Marshal(o)
+	if err != nil {
+		return fmt.Errorf("teamstore: marshal label record: %w", err)
+	}
+	return adapterkit.WriteAtomic(path, append(data, '\n'))
+}
+
 // missingBinding matches both spellings of "no binding yet": the raw
 // fs.ErrNotExist and the kit's profile_missing config refusal.
 func missingBinding(err error) bool {

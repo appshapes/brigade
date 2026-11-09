@@ -9,6 +9,24 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **`brigade whoami` says where your member label came from** (card 191).
+  A `label:` line names the label this machine's membership carries, when
+  it was sent and where it was read from; when it came from an account, an
+  `account:` line says whether this session's Claude account is that label,
+  and why not when it is not. `--json` carries the same in a `label`
+  member, without paths. Every Claude profile on one machine is one
+  member, under the label of the profile that joined: the setup skill, the
+  plugin README and
+  [Choose your label](docs/team-member/join/your-label.md#several-claude-profiles-on-one-machine)
+  now say so, and how the `config_dir` option gives a profile a membership
+  of its own. `team create` and `team join` record the label's source in
+  `label.json` beside the membership (the source, the Claude Code config
+  file, the time and a SHA-256 of the label, never the label); a
+  membership joined before this version says no record says where its
+  label came from. Nothing sent to the backend changed.
+
 ### Changed
 
 - **Slack messages are easier to scan** (card 193). A compact sender line

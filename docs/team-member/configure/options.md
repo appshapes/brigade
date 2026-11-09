@@ -7,7 +7,7 @@ values are read from your own settings only, never from a project.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `config_dir` | *(empty)* | where Brigade's credential store lives; empty means `~/.config/brigade`. `BRIGADE_CONFIG_DIR` from the environment is ignored on purpose inside a session |
+| `config_dir` | *(empty)* | where Brigade's credential store lives; empty means `~/.config/brigade`. `BRIGADE_CONFIG_DIR` from the environment is ignored on purpose inside a session. Every Claude profile that leaves it empty is the same member, so a profile that sets its own joins as a member of its own ([Several Claude profiles on one machine](../join/your-label.md#several-claude-profiles-on-one-machine)) |
 | `label` | `account` | how teammates see you: `account` sends the email address of the Claude account this install is signed in to (read from Claude Code's configuration, never written); `none` sends nothing; any other text is sent as your label. `--label` on `brigade team create`/`join` wins over it ([Choose your label](../join/your-label.md)) |
 | `adapter_command` | *(empty)* | per-session override of the adapter the team's file names: an absolute path, a JSON array, or a name registered in `adapters.json`. Never a shell command |
 | `team_inbound` | `accept` | `accept` delivers every team message at once, in every permission mode; `refuse` never delivers and never acknowledges; `hold` records each message and waits for `brigade inbox release` in your own terminal ([Hold messages for review](hold-messages.md)) |
