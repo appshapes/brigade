@@ -242,11 +242,10 @@ window() {
   fi
   first=$(jq -r '.[0].tag_name' < "$tmp/window.json")
   last=$(jq -r '.[-1].tag_name' < "$tmp/window.json")
-  if [ "$count" -eq 1 ]; then
-    subject="Brigade ${last#v}: what's new"
-  else
-    subject="Brigade ${first#v} to ${last#v}: what's new"
-  fi
+  # The subject is the app and the highest release the email covers, the shape Cavalry's email uses too (card
+  # 189): highest by version, not newest by publish time, so a fix of an older line published later is not it.
+  latest=$(jq -r 'map(.tag_name | ltrimstr("v")) | sort_by(split(".") | map(tonumber)) | .[-1]' < "$tmp/window.json")
+  subject="Brigade $latest"
   output first "$first"
   output last "$last"
   output versions "$(jq -r '[.[].tag_name | ltrimstr("v")] | join(" ")' < "$tmp/window.json")"

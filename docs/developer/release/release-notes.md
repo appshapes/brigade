@@ -17,6 +17,8 @@ lints it.
   and the same bound: the 0.34.0 notes were refused twice before it, runs 39056525211 and 39057612358.
 - **The send step's name** is how the next run finds the last email: rename it in the workflow and in
   `scripts/ci/send-release-notes.sh` together.
+- **The subject** is `Brigade <the highest release the email covers>`, `Brigade 0.47.2`, the shape Cavalry's email
+  uses too (card 189); a preview's starts with `[preview]`. The email's own heading names every release it covers.
 - **Pictures.** A release may show one picture under a change a reader needs to see to recognise it; most need
   none. The person releasing makes it before `make release` with `make email-picture version=<v> slug=<s>` (a
   1040 px capture into `docs/email/`), and `make email-pictures-check` (in `make test`) holds the rules of

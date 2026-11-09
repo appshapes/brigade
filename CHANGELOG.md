@@ -19,6 +19,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   note, instead of on every row. Labels remain self-reported; identity,
   trust, mentions and thread routing are unchanged, as are email messages. Hosted gateways pick up the presentation when redeployed
   ([Install the Slack gateway](docs/project-owner/configure/slack-gateway.md#running-it-again)).
+- **The release-notes email's subject is the app and its highest release**
+  (card 189): `Brigade 0.47.2` in place of `Brigade 0.38.0 to 0.47.1: what's
+  new`, the same shape as Cavalry's email. A preview still starts with
+  `[preview]`, and the email's own heading still names every release it covers.
 
 ## [0.47.2] — 2026-11-04
 

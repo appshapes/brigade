@@ -252,7 +252,7 @@ func TestSendReleaseNotesWindowStartsWithTheTagAskedFor(t *testing.T) {
 			wantPass(t, run.result, "the window starts with v0.2.0, as asked")
 			run.wantOutputs(t, map[string]string{
 				"count": "2", "first": "v0.2.0", "last": "v0.3.0", "versions": "0.2.0 0.3.0",
-				"subject": "Brigade 0.2.0 to 0.3.0: what's new",
+				"subject": "Brigade 0.3.0",
 			})
 			if got := run.read(t, "window.txt"); got != "v0.2.0\nv0.3.0\n" {
 				t.Errorf("window.txt is %q", got)
@@ -296,7 +296,22 @@ func TestSendReleaseNotesWindowOfOneRelease(t *testing.T) {
 	ns.releases = threeReleases()
 	run := runNotesEmail(t, ns, "window", "BRIGADE_EMAIL_FROM=v0.3.0")
 	wantPass(t, run.result)
-	run.wantOutputs(t, map[string]string{"count": "1", "first": "v0.3.0", "last": "v0.3.0", "subject": "Brigade 0.3.0: what's new"})
+	run.wantOutputs(t, map[string]string{"count": "1", "first": "v0.3.0", "last": "v0.3.0", "subject": "Brigade 0.3.0"})
+}
+
+// The subject names the highest version, not the one published last nor the one that sorts last as text:
+// 0.9.1, a fix published after 0.10.0, is both of those.
+func TestSendReleaseNotesSubjectIsTheHighestVersion(t *testing.T) {
+	t.Parallel()
+	ns := newNotesEmailServer(t)
+	ns.releases = "[" + strings.Join([]string{
+		notesEmailRelease("v0.9.0", "2026-01-01T10:00:00Z", "Notes of 0.9.0.", false, false),
+		notesEmailRelease("v0.10.0", "2026-01-02T10:00:00Z", "Notes of 0.10.0.", false, false),
+		notesEmailRelease("v0.9.1", "2026-01-03T10:00:00Z", "Notes of 0.9.1.", false, false),
+	}, ",") + "]"
+	run := runNotesEmail(t, ns, "window", "BRIGADE_EMAIL_FROM=v0.10.0")
+	wantPass(t, run.result, `the subject is "Brigade 0.10.0"`)
+	run.wantOutputs(t, map[string]string{"count": "2", "first": "v0.10.0", "last": "v0.9.1", "subject": "Brigade 0.10.0"})
 }
 
 func TestSendReleaseNotesWindowRefusesATagThatWasNotReleased(t *testing.T) {
