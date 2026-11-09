@@ -25,7 +25,10 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   `label.json` beside the membership (the source, the Claude Code config
   file, the time and a SHA-256 of the label, never the label); a
   membership joined before this version says no record says where its
-  label came from. Nothing sent to the backend changed.
+  label came from. Nothing sent to the backend changed. The security page
+  ([`docs/security.md`](docs/security.md)) now says that `team.json` keeps
+  the label a join sent, which it always has, and that a profile with no
+  account of its own sends the default profile's address.
 
 ### Changed
 

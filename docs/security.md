@@ -59,8 +59,11 @@ the full reference is what `revoke-member` and `transfer` take, so an administra
 
 **Where the default label comes from.** A member who gives no `--label` is labelled with the email address of the
 Claude account their install is signed in to. Brigade reads that address from Claude Code's own configuration file
-(`oauthAccount.emailAddress` in `.claude.json`, under `CLAUDE_CONFIG_DIR` when it is set and in the home directory
-otherwise), read-only and best effort: a missing, unreadable or malformed file simply leaves the label empty. A failed read
+(`oauthAccount.emailAddress` in `.claude.json`: first the one under `CLAUDE_CONFIG_DIR` when it is set, or under
+Claude Code's default configuration directory otherwise, then the one in the home directory when the first names no
+account, so a Claude profile whose own file carries no account, such as one signed in with an API key, sends the
+default profile's address), read-only and best effort: a missing, unreadable or malformed file simply leaves the
+label empty. A failed read
 leaves one debug line on stderr saying that the account email was unavailable, and that line is fixed text — the
 address is never in it, and neither is the path, which would carry your home directory and your
 `CLAUDE_CONFIG_DIR`. Brigade **writes** exactly one thing under Claude Code's configuration directory — the
@@ -75,9 +78,16 @@ from the file sent, stored or logged; in a session that was
 already running when the plugin updated, whose session start never read it, the `permissions` read runs once
 more at the first prompt after the update that does not restart the watcher, retried until the adapter answers)
 and the registry entry for the session's own pid (`sessions/<pid>.json`) — never the 0600 `sessions/*.key` peer
-keys that live in that same `sessions/` directory. Nor does Brigade store the address
-itself: the label is sent once, with the `team join` (or the `team create`) that sends it, and what is kept
-locally is the *option*, not the value. So joining a team shares your account
+keys that live in that same `sessions/` directory. Brigade does keep the label it sent: the `team join` (or the
+`team create`) that makes you a member sends it, and the adapter records it as `human_label` in that membership's
+`team.json` in the credential directory (`~/.config/brigade/teams/<key>/`, mode 0600), which is the copy
+`brigade team status` and `brigade whoami` print. Beside it, `label.json` records where the label came from: its
+source, the Claude Code configuration file an account address was read from, the time and a SHA-256 of the label,
+never the label itself. The session map and the start facts the hooks leave keep only the *option*, and a session
+start reads the address again when it needs it, so no file under the state directory holds it. The credential
+directory is per machine user, not per Claude profile: every Claude profile on the machine is the same member,
+under the label of whichever profile joined, until a profile sets the plugin option `config_dir` to a store of its
+own and joins from it. So joining a team shares your account
 email with the members of that team, and with whoever runs its backend (section 2). To opt out, set the plugin
 option `label` to `none` before you join, or to any text you would rather be known by; `--label` on the join
 command does the same for that one command. Changing the option later changes what the next **first** join on this
