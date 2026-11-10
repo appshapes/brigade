@@ -332,8 +332,10 @@ same report: the same request as an ordinary message, with no sentence, was take
 down by a busy one. So the sentence did not change what a headless session decides. It gives the answer a form,
 `accept` or `decline` first, and it is where Brigade says that accepting approves nothing. An invitation that
 asked for a secret was stopped by the model provider's safety layer both times it was sent, and measures nothing.
-No interactive session was measured, and no Muse Code, Codex CLI or Grok Build session: they render the same
-sentence, and what their models do with it is unknown.
+After the release, one Codex CLI session on another member's machine accepted a benign invitation in 9 seconds and
+did its two parts: one run, of an idle session, with no control and no hostile invitation. No interactive session
+was measured, and no Muse Code or Grok Build session: they render the same sentence, and what their models do
+with it is unknown.
 
 **What the levels did under test** ([`docs/experiments/E5-frame-levels.md`](experiments/E5-frame-levels.md)).
 The 26 hostile and benign test messages were each sent to real sessions three times at the default. Ten of them

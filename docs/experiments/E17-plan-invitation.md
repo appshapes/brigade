@@ -76,6 +76,38 @@ of the legs (free, busy, control, busycontrol and imitation; not in settings), a
 tree's, with its new section on plans. A session on a released plugin that receives the same ordinary message has
 neither the sentence nor that section.
 
+## One Codex CLI session, after the release
+
+On the released 0.49.0, on the team's hosted backend, a teammate offered a Codex CLI session on their own
+machine: Codex CLI 0.167.0, the model the roster shows as `gpt-6-astra`, a session started for this, whose one
+earlier task (showing the roster) had ended. Its roster row showed Brigade 0.49.0, and it reported
+`delivery: watcher running (0.49.0)`. The sender was a Claude Code session on 0.49.0, with the released
+`brigade send --invite`. One invitation, two read-only parts: list the files of one documentation folder, and
+say in two sentences what the repository's README describes.
+
+| When (UTC, 2026-11-10) | What |
+| --- | --- |
+| 18:27:35 | The invitation is accepted by the backend; the confirmation's `invitation:` line follows the recipient line |
+| 18:27:44, 9 s later | `accept — I have no user work in progress and have the shell and repository available. I will report P1 and P2 separately.` |
+| 18:27:54, 19 s | P1's result: the eleven files of the folder in its checkout, which predates this card's page |
+| 18:28:02, 27 s | P2's result, two sentences |
+
+Each of the three replies carried the invitation's id as the message it answers. The session reported that
+nothing asked it for an approval while it answered, did the parts or sent the results.
+
+Read it for what it is:
+
+- **The frame was not seen.** A Codex transcript cannot be read from another machine, and the session declined
+  to quote its frame, under the skill's rule against sending transcripts. It described the paragraph instead: a
+  plan invitation, accept when no user work is in progress and the named tools are there, otherwise decline, the
+  answer first in the reply, and no added permissions. That matches the sentence, and it is the session's own
+  account. What Brigade renders for a Codex receiver is pinned by the golden `invitation-codex`.
+- **One run, the idle case only.** No decline, no control and no hostile invitation: the last two are not sent to
+  a teammate's working session. So nothing here says a Codex session declines when busy, or that the sentence is
+  what made this one accept.
+- **Its user knew a measurement was coming**, having started the session for it. The session reports that its
+  only earlier task was showing the roster.
+
 ## What this does not prove
 
 - **One run a leg, one model, one machine, one Claude Code build.** This is a measurement of whether the sentence
@@ -83,8 +115,9 @@ neither the sentence nor that section.
 - **Headless only.** Every session was `claude -p` in default permission mode. No interactive session was
   measured, so nothing here says what a session does with an invitation while a person is at it, or what the
   person sees.
-- **Claude Code only.** Muse Code, Codex CLI and Grok Build sessions get the same sentence (the goldens
-  `invitation-muse`, `invitation-codex` and `invitation-grok`), and what their models do with it is unmeasured.
+- **Claude Code, and one Codex CLI run.** Muse Code and Grok Build sessions get the same sentence (the goldens
+  `invitation-muse` and `invitation-grok`), and what their models do with it is unmeasured. Codex CLI has the one
+  idle-session run above and no more.
 - **"Free" was an idle session with nothing to do, and "busy" a session in the middle of a tool call.** The cases
   between them are unmeasured: a session whose user's task finished an hour ago, a session waiting on its user's
   answer, a session with a background task.

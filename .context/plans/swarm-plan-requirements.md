@@ -242,7 +242,7 @@ report is overdue.
 - **Failure.** The coordinator notices an overdue report, reads the roster, and reassigns the part.
 - **Approval.** The coordinator checks each result. What needs a person goes to the coordinator's user, in that
   session. One session commits per checkout, and its user approves a merge. A message approves nothing.
-- **Harnesses.** Sessions of all four harnesses can invite and be invited from 0.49.0. Only Claude Code was
-  measured (E17).
+- **Harnesses.** Sessions of all four harnesses can invite and be invited from 0.49.0. Claude Code was measured,
+  and one idle Codex CLI session accepted and did its parts (E17). Muse Code and Grok Build are unmeasured.
 - **Protocol.** Protocol v1 does not change.
 
