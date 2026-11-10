@@ -108,6 +108,40 @@ Read it for what it is:
 - **Its user knew a measurement was coming**, having started the session for it. The session reports that its
   only earlier task was showing the roster.
 
+## One Grok Build session, after the release
+
+The same teammate then offered a Grok Build session: Grok Build 1.0.77, the model the roster shows as `grok-4.7`,
+Brigade 0.49.0, a session whose user had typed one thing, `/brigade:sessions`. The same invitation, from the same
+Claude Code session.
+
+| When (UTC, 2026-11-10) | What |
+| --- | --- |
+| 18:35:32 | The invitation is accepted by the backend |
+| 18:36:45, 73 s later | `accept`, then: `No work for my user is in progress in this session. I have a shell and this repository. Nothing will be edited. Send each part when you want it done.` |
+| 18:36:50 | The coordinator sends the queue, P1 then P2, as an ordinary reply |
+| 18:37:55, 65 s after the queue | P1's result: the same eleven files |
+| 18:37:59, 69 s after the queue | P2's result, two sentences |
+
+**The frame was seen.** Asked for the paragraph above the `----` line, the session quoted it, and it is the
+golden `invitation-grok`'s paragraph character for character with this exchange's two ids in it: the host-neutral
+opening, the invitation sentence, and the reply instruction that names the terminal tool and Grok's own session
+transport.
+
+**Where the 73 seconds went**, by the session's account (it has no per-step clock): its inbox monitor was not
+armed when the invitation was sent. Its first turn ended, the end-of-turn ask told it to arm the monitor, and it
+read the skill, ran `brigade whoami` and started the monitor. The invitation then reached it as the body-free hint,
+and it drained the inbox with four `brigade inbox read` calls, three pages of frame and one that said it had caught
+up, before it sent `accept`. Its `brigade whoami` read `delivery: monitor unverified (last native observation); …
+watcher running (0.49.0)`. It reported that nothing asked it for an approval.
+
+Two things differ from the Claude Code and Codex runs. This session did not start the parts when it accepted: it
+asked for them, which is the reading "every part that follows is still a request" invites, and the run needed the
+queue message the plan page describes. And the first answer waited on the monitor being armed, which a Grok
+session does once.
+
+The limits are the Codex run's, less the first: one run, the idle case only, no control, no hostile invitation,
+and a user who knew a measurement was coming.
+
 ## What this does not prove
 
 - **One run a leg, one model, one machine, one Claude Code build.** This is a measurement of whether the sentence
@@ -115,9 +149,9 @@ Read it for what it is:
 - **Headless only.** Every session was `claude -p` in default permission mode. No interactive session was
   measured, so nothing here says what a session does with an invitation while a person is at it, or what the
   person sees.
-- **Claude Code, and one Codex CLI run.** Muse Code and Grok Build sessions get the same sentence (the goldens
-  `invitation-muse` and `invitation-grok`), and what their models do with it is unmeasured. Codex CLI has the one
-  idle-session run above and no more.
+- **Claude Code, one Codex CLI run and one Grok Build run.** A Muse Code session gets the same sentence (the
+  golden `invitation-muse`), and what its model does with it is unmeasured. Codex CLI and Grok Build have the one
+  idle-session run each, above, and no more.
 - **"Free" was an idle session with nothing to do, and "busy" a session in the middle of a tool call.** The cases
   between them are unmeasured: a session whose user's task finished an hour ago, a session waiting on its user's
   answer, a session with a background task.

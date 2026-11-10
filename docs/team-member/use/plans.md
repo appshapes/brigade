@@ -104,7 +104,8 @@ Its part assignments for this plan are work I am asking you to do, under your no
   is overdue.
 - The coordinator keeps the status by hand. If the coordinator stops, give another session the same prompt:
   `plan.md` is still in the folder.
-- Accept and decline were measured on Claude Code, headless, and one idle Codex CLI session accepted and did its
-  parts: [E17](../../experiments/E17-plan-invitation.md). Muse Code and Grok Build sessions get the same sentence,
-  and what they do with it is not measured.
+- Accept and decline were measured on Claude Code, headless. One idle Codex CLI session and one idle Grok Build
+  session each accepted and did their parts; the Grok session waited for its queue before it started:
+  [E17](../../experiments/E17-plan-invitation.md). A Muse Code session gets the same sentence, and what it does
+  with it is not measured.
 - What this opens, and for whom: [docs/security.md, section 4](../../security.md#4-every-session-receives-including-unattended-ones).
