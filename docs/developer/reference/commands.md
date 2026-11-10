@@ -18,7 +18,7 @@ Commands:
   help [command] [--all]                      print usage for the binary or for one command
   sessions [--all] [--here] [--member <who>] [--team <ref-or-name>]
                                               list the team's sessions
-  send <session_id> | --member <who> [--summary <text>] [--reply-to <message_id>] [--body-file <path>]
+  send <session_id> | --member <who> [--summary <text> | --invite <plan>] [--reply-to <message_id>] [--body-file <path>]
                                               send a message to another session, by its id or its SESSION characters, or to a member's best session (body on stdin)
   whoami                                      print this session's identity
   doing [--clear]                             publish one sentence about what this session is working on (on stdin)
@@ -86,7 +86,7 @@ list the team's sessions
 ## brigade send
 
 ```text
-Usage: brigade send <session_id> | --member <who> [--summary <text>] [--reply-to <message_id>] [--body-file <path>] [--json] [--log-level debug|info|warn|error]
+Usage: brigade send <session_id> | --member <who> [--summary <text> | --invite <plan>] [--reply-to <message_id>] [--body-file <path>] [--json] [--log-level debug|info|warn|error]
 
 send a message to another session, by its id or its SESSION characters, or to a member's best session (body on stdin)
 ```
@@ -94,6 +94,7 @@ send a message to another session, by its id or its SESSION characters, or to a 
 | Flag | What it does |
 | --- | --- |
 | `--body-file <value>` | read the body from this file instead of stdin |
+| `--invite <value>` | invite the recipient to work on the plan this names: the summary becomes "Plan invitation: <plan>", and the recipient answers for itself (not with --summary or --reply-to) |
 | `--member <value>` | address a member's best session instead of one session: their label as the MEMBER column shows it, or the first 8 or more characters of their principal reference |
 | `--reply-to <value>` | the message id this message answers |
 | `--summary <value>` | a one-line summary shown before the body (at most 200 characters) |

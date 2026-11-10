@@ -83,11 +83,12 @@ func init() {
 		},
 		{
 			Name:    "send",
-			Args:    "<session_id> | --member <who> [--summary <text>] [--reply-to <message_id>] [--body-file <path>]",
+			Args:    "<session_id> | --member <who> [--summary <text> | --invite <plan>] [--reply-to <message_id>] [--body-file <path>]",
 			Summary: "send a message to another session, by its id or its SESSION characters, or to a member's best session (body on stdin)",
 			Flags: func(fs *flag.FlagSet) {
 				fs.String("member", "", "address a member's best session instead of one session: their label as the MEMBER column shows it, or the first 8 or more characters of their principal reference")
 				fs.String("summary", "", "a one-line summary shown before the body (at most 200 characters)")
+				fs.String("invite", "", "invite the recipient to work on the plan this names: the summary becomes \"Plan invitation: <plan>\", and the recipient answers for itself (not with --summary or --reply-to)")
 				fs.String("reply-to", "", "the message id this message answers")
 				fs.String("body-file", "", "read the body from this file instead of stdin")
 			},
@@ -328,6 +329,7 @@ func runSend(cx *Context, args []string) error {
 	return harnesscmd.Send(invocation(cx, args), harnesscmd.SendOptions{
 		Member:   stringFlag(cx, "member"),
 		Summary:  stringFlag(cx, "summary"),
+		Invite:   stringFlag(cx, "invite"),
 		ReplyTo:  stringFlag(cx, "reply-to"),
 		BodyFile: stringFlag(cx, "body-file"),
 	})

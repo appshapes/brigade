@@ -1,6 +1,6 @@
 # Swarm plan: one plan, several team sessions (requirements)
 
-**Status.** Requirements draft, 2026-11-04, Trello card **202** (research spike). "Swarm plan" is a working name;
+**Status.** Closed 2026-11-10 with the outcome in §9: the function is not built as drafted. Was: requirements draft, 2026-11-04, Trello card **202** (research spike). "Swarm plan" is a working name;
 Frank's first name for it was "swarm topic" (open question 1). The requirements in §4 are Frank's decisions of
 2026-11-04, except where an item says "my call". Nothing here is an owner ruling yet. Ground truth was read at
 `origin/master` **cfecc49**.
@@ -196,3 +196,36 @@ A person can see the progress in four places:
 1. Rjae reviews this document, and makes the owner rulings for open questions 2, 3, 7 and 10.
 2. Compare designs for the open questions, and write a recommendation.
 3. Put the recommendation on card 202: build it (with follow-up cards), change the scope, or stop.
+
+## 9. Outcome (Rjae's review, 2026-11-10)
+
+Card 202's recommendation is **change the scope**. Brigade keeps no shared record of a plan, its parts or their
+holders, so §4.1 to §4.7 are not built. Two things replace them.
+
+1. **The prompt pattern.** Several sessions work one plan with a coordinator prompt, a plan file the coordinator
+   alone writes, one owner per part as an ordered queue per session, and ordinary messages. It needs no Brigade
+   function. The page is `docs/team-member/use/plans.md`.
+2. **Plan invitations (card 242).** A session answers a plan invitation for itself. The rulings, all of
+   2026-11-10:
+   1. A session may answer an invitation for itself. This overturns §4.2's "a session cannot accept for its
+      person".
+   2. Accepting gives the coordinator nothing: every part that follows is still a request under the session's own
+      permissions.
+   3. The default is "accept when free": no work for the session's own user in progress, and the tools the
+      invitation names. Otherwise decline with the reason. No setting. A quiet session never receives one.
+   4. The rule travels in the frame, in Brigade's own words. Protocol v1 does not change.
+   5. Measure the invitation variant only, on Claude Code headless, then release.
+   6. The name is "Plan invitation".
+   7. A message through a gateway (email, Slack, webhook) is never an invitation.
+
+**Why the scope changed.** The one run that motivated the card (the browser test of 2026-11-04) succeeded on
+today's Brigade. Goal by goal, the draft added little over a prompt: the format is a file template; a claim through
+the coordinator waits for its turn, which works against goal 3; and §4.4 itself says "only the coordinator writes"
+is a rule and not a lock. Meeting §4.5's "immediately" needed a change to how the roster reports presence, and two
+of the three claim routes of open question 3 needed the watcher to act on a teammate's input.
+
+**The open questions of §6.** Question 1 is answered: "plan", and "plan invitation". Questions 2, 4, 6, 7, 8 and 10
+fall away with the plan record: the plan is the coordinator's file. Question 3 falls away with claims: every part
+has one owner before work starts. Question 5 stays advice on the page: one session commits per checkout. Question
+9 is unchanged: a stopped holder shows as late as the roster shows it, and the coordinator learns of it when a
+report is overdue.

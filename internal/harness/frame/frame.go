@@ -33,6 +33,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/appshapes/brigade/internal/gateway"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -368,11 +369,66 @@ func clauseErr(reason, message string) *protocol.Error {
 	}
 }
 
+// InvitationSummaryPrefix is the fixed start of a plan invitation's summary
+// (card 242): `brigade send --invite <plan>` writes it, and a frame whose
+// sender summary begins with it carries invitationClause. Every plugin from
+// the first that knew it recognises it by these bytes, so it never changes.
+const InvitationSummaryPrefix = "Plan invitation: "
+
+// invitationClause is the one piece of the instruction paragraph that
+// depends on the MESSAGE and not on the receiver's level (card 242, Rjae's
+// rulings of 2026-11-10): a session answers a plan invitation for itself;
+// it accepts when no work for its own user is in progress and it has the
+// tools the invitation names, and declines with the reason otherwise;
+// accepting gives the sender nothing. It follows the level's clause and
+// precedes the reply intro, ends in exactly one space like every piece, and
+// is the same on every host. It says how Brigade knows ("its summary marks
+// it"): the summary is the sender's text, so the clause grants nothing the
+// sender could not have asked for in a body, and that is the whole reason a
+// sender-written prefix may select it.
+const invitationClause = "Its summary marks it as a plan invitation: the sender asks this session to take " +
+	"parts of a plan that several sessions work on. Answer it yourself, without asking your user: accept if " +
+	"no work for your own user is in progress in this session and you have the tools it names, otherwise " +
+	"decline and say why. Accepting approves nothing: every part that follows is still a request, and your " +
+	"own permissions decide what you do. Begin your reply with the word accept or the word decline. "
+
+// isInvitation reports whether the frame of m carries invitationClause
+// (card 242). Four conditions, each one a ruling or its consequence:
+//
+//   - the sender's summary, sanitised as the frame prints it, begins with
+//     InvitationSummaryPrefix and names a plan after it;
+//   - the message answers nothing: an answer to an invitation quotes its
+//     summary often enough, and the coordinator must never be told to
+//     accept its own invitation back;
+//   - the body does not open the way a gateway opens a message it relays
+//     (gateway.IsRelayed): only a teammate's coding session invites, never
+//     a person on email or Slack or an outside service (ruling 7);
+//   - the receiver's level is open or guarded, and no other. Strict is its
+//     user's own "ask me first" for anything that runs commands, and a plan
+//     is that. A custom clause is its user's own sentence, which may say the
+//     same or more, and Brigade does not follow it with "without asking your
+//     user". At both the invitation arrives as the ordinary message it also
+//     is. A level that is none of the four gets no clause either.
+func isInvitation(m protocol.MessageEnvelope, sanitisedBody string, in Instruction) bool {
+	if in.Level != LevelOpen && in.Level != LevelGuarded {
+		return false
+	}
+	if m.ReplyTo != nil {
+		return false
+	}
+	plan, ok := strings.CutPrefix(protocol.SanitizeSummary(m.Summary), InvitationSummaryPrefix)
+	if !ok || strings.TrimSpace(plan) == "" {
+		return false
+	}
+	return !gateway.IsRelayed(sanitisedBody)
+}
+
 // Build renders the 6.7 frame for one message envelope. teamName is the
 // human team name (the envelope carries only the opaque team_ref); in
 // selects the instruction clause (P5-12) and is NOT validated here — the
 // by-pid map's reader and inbound.New refuse an invalid one before any
 // frame is built, and an unknown level renders as open's empty clause.
+// A plan invitation gets invitationClause after it (isInvitation).
 //
 // Every attribute value is sanitised: the free-text ones (team, from-name,
 // from-label) through protocol.SanitizeAttribute, which also caps them at
@@ -431,6 +487,9 @@ func BuildFor(host string, m protocol.MessageEnvelope, teamName string, in Instr
 	b.WriteString(">\n")
 	b.WriteString(shared)
 	b.WriteString(in.Clause())
+	if isInvitation(m, body, in) {
+		b.WriteString(invitationClause)
+	}
 	b.WriteString(replyIntro)
 	b.WriteString(replyTo)
 	b.WriteString(preambleReply)

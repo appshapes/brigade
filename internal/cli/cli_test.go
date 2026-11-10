@@ -947,7 +947,7 @@ func TestReferenceViewMatchesHelp(t *testing.T) {
 		}
 		names = append(names, f.Name)
 	}
-	if got, want := strings.Join(names, ","), "body-file,member,reply-to,summary"; got != want {
+	if got, want := strings.Join(names, ","), "body-file,invite,member,reply-to,summary"; got != want {
 		t.Errorf("send.OwnFlags() = %s, want %s", got, want)
 	}
 	for _, name := range []string{"json", "log-level", PoisonFlag} {

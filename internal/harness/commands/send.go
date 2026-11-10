@@ -17,6 +17,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/digest"
+	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -36,6 +37,12 @@ type SendOptions struct {
 	// member's best session the way the gateways do (resolveMember), and
 	// the command takes no <session_id>.
 	Member string
+	// Invite names the plan this message invites its recipient to (card
+	// 242). The command then writes the summary itself,
+	// frame.InvitationSummaryPrefix and the name, which is what the
+	// recipient's Brigade recognises an invitation by; --summary and
+	// --reply-to cannot be combined with it.
+	Invite string
 }
 
 // sendResult is the --json result: the adapter's SendResponse plus the
@@ -43,9 +50,20 @@ type SendOptions struct {
 // or did not list the recipient.
 type sendResult struct {
 	protocol.SendResponse
-	SelfSessionID string         `json:"self_session_id"`
-	Recipient     *sendRecipient `json:"recipient,omitzero"`
-	Note          string         `json:"note"`
+	SelfSessionID string          `json:"self_session_id"`
+	Recipient     *sendRecipient  `json:"recipient,omitzero"`
+	Invitation    *sendInvitation `json:"invitation,omitzero"`
+	Note          string          `json:"note"`
+}
+
+// sendInvitation is the --json account of an --invite send (card 242): the
+// plan as the summary carries it, and the recipient's plugin version when
+// the roster shows one older than InvitationSince.
+type sendInvitation struct {
+	Plan        string `json:"plan"`
+	OlderPlugin string `json:"older_plugin,omitzero"`
+	Unchecked   bool   `json:"unchecked,omitzero"`
+	Note        string `json:"note"`
 }
 
 // sendRecipient is what the roster said about the recipient when the
@@ -96,6 +114,17 @@ const (
 	// MemberRosterHint follows the failure of the roster read that --member
 	// cannot do without.
 	MemberRosterHint = "; the roster could not be read, so --member could not be resolved: run the command again, or address the session by its id"
+	// InvitationNote is the note member of the --json invitation, and what
+	// the confirmation's `invitation:` line says after the plan (card 242).
+	InvitationNote = "the recipient answers for itself and begins its reply with accept or decline; accepting approves nothing, and no reply is a no"
+	// InvitationSince is the first release whose plugin recognises a plan
+	// invitation. A recipient the roster shows on an older one reads the
+	// message as an ordinary one, and the confirmation says so.
+	InvitationSince = "0.49.0"
+	// InvitationUnchecked is the confirmation's line for an invitation whose
+	// recipient the roster read did not show: the two things the command
+	// checks there went unchecked, and the sender is not left to assume them.
+	InvitationUnchecked = "the roster did not show the recipient, so nothing here says that it is a coding session whose plugin knows plan invitations"
 )
 
 // Send implements `brigade send <session_id> [--summary <text>]
@@ -122,6 +151,14 @@ const (
 //
 // The first line of the confirmation is unchanged — the proof scripts read
 // the two ids off it — and the recipient lines come after it.
+//
+// `--invite <plan>` (card 242) makes the message a plan invitation: the
+// command writes the summary, frame.InvitationSummaryPrefix and the plan's
+// name, and nothing else about the message differs — the recipient's own
+// Brigade recognises the summary and says in its frame how the session
+// answers. It is refused with --summary or --reply-to before anything is
+// spawned, and for a recipient the roster shows to be a gateway; an
+// `invitation:` line closes the confirmation.
 func Send(inv Invocation, opts SendOptions) error {
 	member := oneLine(opts.Member)
 	var recipient string
@@ -136,6 +173,31 @@ func Send(inv Invocation, opts SendOptions) error {
 			return usage("the recipient session id must not be empty")
 		}
 	}
+	// The plan's name is judged, and sent, in the form the recipient's frame
+	// reads it in: sanitised and on one line. A name that is nothing in that
+	// form would be confirmed here and be no invitation there.
+	invite := oneLine(protocol.Sanitize(opts.Invite))
+	if opts.Invite != "" {
+		limit := protocol.MaxSummaryChars - utf8.RuneCountInString(frame.InvitationSummaryPrefix)
+		switch n := utf8.RuneCountInString(invite); {
+		case opts.Summary != "":
+			return usage("--invite writes the summary itself: give --invite or --summary, not both")
+		case opts.ReplyTo != "":
+			return usage("an invitation answers nothing: --invite and --reply-to cannot be combined")
+		case invite == "":
+			return usage("--invite names the plan, on one line")
+		case n > limit:
+			return &protocol.Error{
+				Code:    protocol.CodeInvalidInput,
+				Message: "the plan's name is longer than the summary can carry after \"" + frame.InvitationSummaryPrefix + "\"",
+				Details: map[string]string{
+					"field": "invite", "reason": "too_long",
+					"limit": strconv.Itoa(limit), "actual": strconv.Itoa(n), "unit": "codepoints",
+				},
+			}
+		}
+		opts.Summary = frame.InvitationSummaryPrefix + invite
+	}
 	if n := utf8.RuneCountInString(opts.Summary); n > protocol.MaxSummaryChars {
 		return &protocol.Error{
 			Code:    protocol.CodeInvalidInput,
@@ -149,6 +211,15 @@ func Send(inv Invocation, opts SendOptions) error {
 	body, err := inv.readBody(opts.BodyFile)
 	if err != nil {
 		return err
+	}
+	if invite != "" && gateway.IsRelayed(protocol.SanitizeBody(body)) {
+		return &protocol.Error{
+			Code: protocol.CodeInvalidInput,
+			Message: "the body opens the way a gateway opens a message it relays (\"Email from \", \"Slack message from \", " +
+				"\"Message from \" and a quotation mark or \"a webhook caller\"), and the recipient's Brigade would not read " +
+				"that as an invitation: begin the body another way",
+			Details: map[string]string{"field": "body", "reason": "relayed_opening"},
+		}
 	}
 
 	if !inv.inSession() {
@@ -194,6 +265,13 @@ func Send(inv Invocation, opts SendOptions) error {
 			to, recipient = &found, found.SessionID
 		}
 	}
+	if invite != "" && to != nil && isGatewayHarness(to.Harness) {
+		return &protocol.Error{
+			Code:    protocol.CodeInvalidInput,
+			Message: "a gateway cannot be invited to a plan: it forwards to people or to an outside service, and only a coding session answers an invitation",
+			Details: map[string]string{"field": "invite", "reason": "gateway"},
+		}
+	}
 
 	req := &protocol.SendRequest{
 		SenderSessionID:    self,
@@ -233,6 +311,9 @@ func Send(inv Invocation, opts SendOptions) error {
 				out.Recipient.Member = pick.json()
 			}
 		}
+		if invite != "" {
+			out.Invitation = &sendInvitation{Plan: invite, OlderPlugin: olderPlugin(to), Unchecked: to == nil, Note: InvitationNote}
+		}
 		return writeJSON(inv.Out, out)
 	}
 	line := "accepted: message " + idLine(resp.MessageID) + " to " + idLine(resp.RecipientSessionID)
@@ -251,7 +332,56 @@ func Send(inv Invocation, opts SendOptions) error {
 			lines = append(lines, "waiting: "+w)
 		}
 	}
+	if invite != "" {
+		lines = append(lines, "invitation: plan \""+invite+"\"; "+InvitationNote)
+		if to == nil {
+			lines = append(lines, "invitation: "+InvitationUnchecked)
+		}
+		if v := olderPlugin(to); v != "" {
+			lines = append(lines, "invitation: the recipient's plugin reports "+v+", older than "+InvitationSince+
+				", the first with plan invitations; it reads this as an ordinary message")
+		}
+	}
 	return writeLines(inv.Out, lines...)
+}
+
+// olderPlugin is the Brigade version the roster shows for the recipient
+// when that version is a release older than InvitationSince, "" otherwise:
+// no roster row, no version reported, a version that is not three numbers
+// (a development build), or one new enough. The version is what the
+// recipient's harness said about itself, unverified like its name, so this
+// is a hint for the sender and never a gate.
+func olderPlugin(r *protocol.SessionRecord) string {
+	if r == nil || r.BrigadeVersion == nil {
+		return ""
+	}
+	v := attrLine(*r.BrigadeVersion)
+	have, ok := releaseNumbers(v)
+	if !ok {
+		return ""
+	}
+	since, _ := releaseNumbers(InvitationSince)
+	if slices.Compare(have[:], since[:]) < 0 {
+		return v
+	}
+	return ""
+}
+
+// releaseNumbers reads a release version, MAJOR.MINOR.PATCH with nothing
+// after it. Anything else is not a release this command compares.
+func releaseNumbers(v string) (n [3]int, ok bool) {
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return n, false
+	}
+	for i, p := range parts {
+		x, err := strconv.Atoi(p)
+		if err != nil || x < 0 || strconv.Itoa(x) != p {
+			return n, false
+		}
+		n[i] = x
+	}
+	return n, true
 }
 
 // resolveRecipient finds the session arg addresses in the roster: the

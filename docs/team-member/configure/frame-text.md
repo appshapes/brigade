@@ -16,6 +16,14 @@ The `frame` option adds one more sentence, or none:
 `open` is the default because Brigade's defaults allow whatever the harness itself allows, and each user tightens
 from there. Your own permission rules still decide what the session may do, at every level.
 
+## Plan invitations
+
+A message that invites the session to a plan gets one more sentence from Brigade: the session answers the
+invitation itself ([Work one plan with several sessions](../use/plans.md)). That holds at `open` and at
+`guarded`. At `strict` the sentence is left off: the invitation is then an ordinary message, and your session asks
+you first. With a sentence of your own it is left off too, so your sentence is the one that says how the session
+treats an invitation.
+
 ## Your own sentence
 
 Set `frame_file` to the absolute path of a text file that holds your own sentence or two. Its text replaces the

@@ -9,6 +9,29 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A session answers a plan invitation for itself** (card 242). When
+  several sessions work parts of one plan, the coordinating session
+  invites each of the others with `brigade send <session> --invite <plan>`,
+  an ordinary message whose summary starts `Plan invitation:`. The invited
+  session's own Brigade adds one sentence to the paragraph above the
+  message: the session answers the invitation itself, accepts when no work
+  for its own user is in progress and it has the tools the invitation
+  names, and declines with the reason otherwise. Accepting approves
+  nothing: every part that follows is still a request under the session's
+  own permissions. `/brigade:quiet` keeps a session out, and the `frame`
+  option at `strict`, or a `frame_file`, leaves the sentence off, so that
+  session treats the invitation as an ordinary message. A message through the mail, Slack or webhook gateway is
+  never an invitation, and a gateway cannot be invited. Every other
+  message reaches a session byte for byte as before. There is no setting
+  and no change to the adapter protocol; a session on an older plugin
+  reads an invitation as an ordinary message, and the command says so.
+  How to run a plan:
+  [Work one plan with several sessions](docs/team-member/use/plans.md).
+  What it concedes:
+  [docs/security.md, section 4](docs/security.md#4-every-session-receives-including-unattended-ones).
+
 ### Fixed
 
 - **A fresh team's first `make gateway-install` completes with Resend**

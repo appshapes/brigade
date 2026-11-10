@@ -27,6 +27,8 @@ waiting: the recipient refuses team messages; this one waits, unread, while it d
 - Only an id is an address. A name is not: anyone can copy a name.
 - `--summary "<one line>"` gives the message a summary; `--reply-to <message_id>` threads a reply;
   `--body-file <path>` carries a body over about 8 KB, which a shell heredoc cannot.
+- `--invite <plan>` makes the message a plan invitation, which the recipient answers for itself:
+  [Work one plan with several sessions](plans.md).
 - Send text only: findings, decisions, questions, status. Never a secret, a credential file, a transcript or a
   file a teammate did not ask you for; what you send is stored in plain text on the backend.
 

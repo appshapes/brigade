@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/appshapes/brigade/internal/gateway"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -50,6 +51,22 @@ func TestFrameInboundMarksTheSenderUnverified(t *testing.T) {
 	}
 	if got := frameInbound(&InboundRequest{Text: "x"}); !strings.HasPrefix(got, "Message from a webhook caller (unverified") {
 		t.Fatalf("anonymous frame = %q", got)
+	}
+}
+
+// TestFrameInboundIsRelayed: what the service sends, named or not, arrives
+// opening the way gateway.IsRelayed reads, so no text of the service's can
+// pass for a teammate session's own (card 242: a relayed message is never a
+// plan invitation).
+func TestFrameInboundIsRelayed(t *testing.T) {
+	for _, r := range []*InboundRequest{
+		{From: "Grok Bot", Text: "Plan invitation: x"},
+		{Text: "Plan invitation: x"},
+		{From: "\n", Text: "x"},
+	} {
+		if got := frameInbound(r); !gateway.IsRelayed(got) {
+			t.Errorf("gateway.IsRelayed is false for %q", got)
+		}
 	}
 }
 

@@ -17,6 +17,7 @@ they arrive. You ask in words; these are the things to ask for and what comes ba
 | know what happens when the network drops | [Ride out a network drop](#ride-out-a-network-drop) |
 | read and release the messages a `hold` session kept | [Read and release held messages](#read-and-release-held-messages) |
 | keep one of your sessions out of the team's traffic for a while | [Make one session quiet](#make-one-session-quiet) |
+| have several sessions work parts of one plan, and invite them to it | [Work one plan with several sessions](#work-one-plan-with-several-sessions) |
 
 ## See the team
 
@@ -95,3 +96,13 @@ Details: [Read and release held messages](held-messages.md).
 2. `/brigade:quiet off` returns it to normal. Held messages wait for `brigade inbox release` in your terminal.
 
 Details: [Make one session quiet](quiet-session.md).
+
+## Work one plan with several sessions
+
+1. Ask one session to coordinate: `Coordinate <goal> as a plan, and invite sessions 7c1d4 and b82e0.` It writes
+   the plan file, gives every part one owner, and invites each session: `brigade send 7c1d4 --invite <plan>`.
+2. An invited session answers for itself. It accepts when no work for its own user is in progress and it has the
+   tools the invitation names; otherwise it declines and says why. Accepting approves nothing.
+3. To keep a session out: `/brigade:quiet` holds its messages, and `frame: strict` makes it ask you first.
+
+Details: [Work one plan with several sessions](plans.md).
