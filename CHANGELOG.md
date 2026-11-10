@@ -45,6 +45,36 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **A session asks its own user in the conversation before Brigade
+  does** (card 236). A session that waited on its own user for a
+  decision used to send it to their Slack or mailbox at once, while they
+  sat in that conversation: the end-of-turn ask told it to. Now
+  `brigade decision --to <label>` holds the ask when the label is the
+  asking session's own member. The session asks in the conversation, the
+  host's own way, and the ask goes out, by the road it always took, only
+  when the member's wait has passed with no prompt in that conversation
+  and the decision still open. A prompt there ends the hold for good, and
+  so does a close. The wait is ten minutes, or what
+  `brigade report subscribe --wait <duration>` sets: `0` sends at once,
+  `24h` is the most. A decision for anyone else is sent at once, as
+  before.
+  The command prints `held:` with the time the ask would go out, and
+  `--json` carries a `held` member; the decision file gains `held_until`
+  and `hold_ended`, and a subscriber's entry `wait`. A digest leaves a
+  decision out while its hold runs and marks one that was never sent
+  `asked in the conversation`. The end-of-turn ask and the
+  `team-messaging` skill of every package say the session's own user is
+  asked in the conversation first.
+  What to know: a prompt is whatever starts a turn in that conversation,
+  a team message or a finished background task included, since Brigade
+  reads no prompt; a non-interactive session, or one whose watcher is not
+  running or is another version's, sends at once; an ask nothing can
+  carry when its wait ends is tried for fifteen minutes and then left to
+  the digest; and a plugin from before this version drops a member's
+  `wait` when it rewrites `reports.json`. The proof is
+  [E16](docs/experiments/E16-held-decision.md), and the page is
+  [Record notes and ask for decisions](docs/team-member/use/notes-and-decisions.md#a-decision-for-the-sessions-own-user).
+
 - **Slack messages and mails are easier to scan** (card 193; owner
   rulings 2026-11-09). The sender line of both is the session and its
   member label, `frank-reviewer · sam@example.com`, and nothing else: a

@@ -75,6 +75,14 @@ type Decision struct {
 	// address, a session id).
 	Sent   string `json:"sent,omitzero"`
 	SentTo string `json:"sent_to,omitzero"`
+	// HeldUntil is set on an ask for the asking session's own user (card
+	// 236, hold.go): they are asked in the conversation first, and the ask
+	// goes out at this time only when no prompt arrived there and the
+	// decision is still open. HoldEnded says how the hold ended without a
+	// send (HoldPrompt, HoldMissed, HoldUnsent), "" while it holds and once
+	// the ask went out, which Sent then records.
+	HeldUntil time.Time `json:"held_until,omitzero"`
+	HoldEnded string    `json:"hold_ended,omitzero"`
 	// CreatedAt is the ask; ClosedAt, Outcome and ClosedBy the close, zero
 	// and absent while open.
 	CreatedAt time.Time `json:"created_at"`
@@ -165,6 +173,16 @@ func (d *Decision) Sanitize() {
 		d.Sent = ""
 	}
 	d.SentTo = protocol.TruncateRunes(line(d.SentTo), protocol.MaxSyncPeerChars)
+	switch d.HoldEnded {
+	case HoldPrompt, HoldMissed, HoldUnsent:
+	default:
+		d.HoldEnded = ""
+	}
+	// A hold is never longer than the longest wait: a folder copy that
+	// says otherwise would keep its decision out of every digest.
+	if latest := d.CreatedAt.Add(MaxWait); d.HeldUntil.After(latest) {
+		d.HeldUntil = latest
+	}
 	d.Outcome = protocol.TruncateRunes(line(d.Outcome), MaxOutcomeChars)
 	if d.ClosedBy != nil {
 		d.ClosedBy.Member = protocol.SanitizeLabel(line(d.ClosedBy.Member))

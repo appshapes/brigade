@@ -61,7 +61,7 @@ brigade doing --clear            # remove this session's sentence from the roste
 brigade rename <<'EOF' ... EOF  # name this session (applied at your user's next prompt; the roster follows)
 brigade sync status              # the folders this project syncs, their state, the sync engine and the peers
 brigade note <<'EOF' ... EOF    # one Done:, Next: or Blocked: line into this session's state entry (a project with a state folder)
-brigade decision --options "a | b" <<'EOF' ... EOF   # a question for your user's manager, sent through the team's gateway
+brigade decision --to <label> --options "a | b" <<'EOF' ... EOF   # a question only that person can answer: sent at once, or held while your own user can answer here
 brigade decision --close <id> <<'EOF' ... EOF        # the outcome, once your user has acted on the answer
 brigade report show              # the digest your user would get now
 ```
@@ -236,7 +236,14 @@ brigade report show                   # the digest your user would get now, the 
   one to a line with the default marked `[default]`, and the date: to that person's digest recipients through the
   team's Slack or mail gateway when they subscribed, else to their best session as a team message. They answer
   however they wish (Slack, mail, in person, a team message); when your user has acted on it, close it with the
-  outcome. Never ask a decision your user can make, and never invent one to look busy.
+  outcome. Never put to someone else a decision your user can make, and never invent one to look busy.
+- **Your own user is asked in the conversation first.** When the person a decision waits on is your own user, ask
+  them here the way you would without Brigade — your host's own question dialog, or the question as your reply —
+  and record it with `brigade decision --to <their label>` as well. Brigade holds that one instead of sending it:
+  the output says `held:` and when it would go out, and it reaches them, by the same road, only if their wait
+  passes (ten minutes unless their subscription sets another) with no prompt in this conversation and the decision
+  still open. Close it with the outcome as soon as they answer here. A hold needs an interactive session whose
+  watcher runs; without one the decision is sent at once, as it is for anyone else.
 - `brigade report show` prints the digest your user would get now — their own subscription, or everything when
   they have none — as plain text; print it verbatim when your user asks for the report. `/brigade:subscribe` (the `brigade:subscribe` skill) is how
   your user opts in or out; `brigade report send` sends a digest now and is run only when your user asks for it.

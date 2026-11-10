@@ -46,6 +46,10 @@ const (
 	// TopicState is the manager digest (card 162): one line when this
 	// session's watcher produced and sent one.
 	TopicState = "state"
+	// TopicDecision is a held decision's ask (card 236): one line when
+	// this session's watcher sent one its user did not answer in the
+	// conversation, or could not.
+	TopicDecision = "decision"
 )
 
 const (

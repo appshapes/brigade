@@ -191,7 +191,8 @@ func dailyAt(s *state.Subscriber, now time.Time) (time.Time, bool) {
 
 // Changed reports whether any entry or decision was written since the
 // marker: a quiet team reports nothing (ruling 2). With no marker,
-// anything at all counts.
+// anything at all counts. The caller hands it the decisions a digest
+// shows (Asked).
 func Changed(entries []*state.Entry, decisions []*state.Decision, m *Marker) bool {
 	since := time.Time{}
 	if m != nil {
@@ -203,7 +204,9 @@ func Changed(entries []*state.Entry, decisions []*state.Decision, m *Marker) boo
 		}
 	}
 	for _, d := range decisions {
-		if d.UpdatedAt.After(since) || d.CreatedAt.After(since) {
+		// A held ask (card 236) comes into the list when its wait passes,
+		// with no write to say so: the end of the wait counts as one.
+		if d.UpdatedAt.After(since) || d.CreatedAt.After(since) || d.HeldUntil.After(since) {
 			return true
 		}
 	}
@@ -301,9 +304,9 @@ func Build(in Input) Output {
 		return who(e)
 	}
 
-	decisions, whose := in.Decisions, ""
+	decisions, whose := Asked(in.Decisions, in.Now), ""
 	if in.Only == state.OnlyMine && in.For != "" {
-		decisions, whose = decisionsFor(in.Decisions, in.For), " for "+in.For
+		decisions, whose = decisionsFor(decisions, in.For), " for "+in.For
 	}
 	open, closed := splitDecisions(decisions, since)
 	out.DecisionsOpen = len(open)
@@ -435,6 +438,21 @@ func Build(in Input) Output {
 	out.Body = capBody(strings.Join(lines, "\n"))
 	out.Summary = protocol.TruncateRunes("Brigade digest "+in.Repository+": "+strconv.Itoa(out.DecisionsOpen)+" decisions open, "+
 		strconv.Itoa(out.Commits)+" commits, "+strconv.Itoa(out.Active)+" sessions active", protocol.MaxSummaryChars)
+	return out
+}
+
+// Asked is the decisions a digest shows at now: every one but those whose
+// ask is still held (card 236) — a question for the asking session's own
+// user, being asked in that conversation, which no digest carries before
+// the wait has passed. The producer judges "anything written since the
+// marker" on the same list, so a held ask alone makes no digest due.
+func Asked(decisions []*state.Decision, now time.Time) []*state.Decision {
+	out := make([]*state.Decision, 0, len(decisions))
+	for _, d := range decisions {
+		if !d.Holding(now) {
+			out = append(out, d)
+		}
+	}
 	return out
 }
 
@@ -619,6 +637,11 @@ func decisionLines(d *state.Decision, now time.Time, named bool) []string {
 		facts = append(facts, "asked by "+by)
 	}
 	facts = append(facts, "open for "+ageOf(now, d.CreatedAt))
+	if !d.HeldUntil.IsZero() && d.Sent == "" {
+		// Card 236: held for the asker's own user and never sent — a prompt
+		// ended the hold, or nothing could carry it.
+		facts = append(facts, "asked in the conversation")
+	}
 	if d.By != "" {
 		facts = append(facts, "answer by "+d.By)
 	}
@@ -709,10 +732,19 @@ func ageOf(now, at time.Time) string {
 // sessions that refuse left out, active before idle before offline, the
 // most recently seen first; "" when they have none.
 func SessionOf(label string, sessions []protocol.SessionRecord) string {
+	return bestSession(sessions, func(s *protocol.SessionRecord) bool {
+		return strings.EqualFold(strings.TrimSpace(s.HumanLabel), strings.TrimSpace(label))
+	})
+}
+
+// bestSession is the best of the sessions keep accepts that can take a
+// team message — the gateways and the ones that refuse left out — active
+// before idle before offline, the most recently seen first; "" for none.
+func bestSession(sessions []protocol.SessionRecord, keep func(*protocol.SessionRecord) bool) string {
 	var best *protocol.SessionRecord
 	for i := range sessions {
 		s := &sessions[i]
-		if !strings.EqualFold(strings.TrimSpace(s.HumanLabel), strings.TrimSpace(label)) || gateway.IsHarness(s.Harness) || s.Inbound == protocol.InboundRefuse {
+		if gateway.IsHarness(s.Harness) || s.Inbound == protocol.InboundRefuse || !keep(s) {
 			continue
 		}
 		if best == nil || stateRank(s.State) < stateRank(best.State) || (stateRank(s.State) == stateRank(best.State) && s.LastSeenAt.After(best.LastSeenAt)) {
@@ -768,14 +800,12 @@ type Delivery struct {
 // message. ErrNoRecipient when neither is there. The key is the
 // digest's, so a retry inside the minute is one message.
 func Deliver(ctx context.Context, client Sender, self string, s *state.Subscriber, roster []protocol.SessionRecord, body, summary string, now time.Time) (Delivery, error) {
-	var d Delivery
-	if gw, ok := state.PickGateway(s.Recipients, roster); ok {
-		d = Delivery{How: gw.Kind, To: gw.To, SessionID: gw.SessionID}
-		body = "to: " + gw.To + "\n\n" + body
-	} else if id := SessionOf(s.Label, roster); id != "" {
-		d = Delivery{How: state.SentSession, To: id, SessionID: id}
-	} else {
+	d, ok := PickRoute(s.Recipients, SessionOf(s.Label, roster), roster)
+	if !ok {
 		return Delivery{}, ErrNoRecipient
+	}
+	if d.How != state.SentSession {
+		body = "to: " + d.To + "\n\n" + body
 	}
 	resp, err := client.Send(ctx, &protocol.SendRequest{
 		SenderSessionID: self, RecipientSessionID: d.SessionID, Body: body, Summary: summary,

@@ -225,6 +225,10 @@ type Deps struct {
 	StatePruneDelay    time.Duration
 	StatePruneInterval time.Duration
 	StateCheckInterval time.Duration
+	// HoldGiveUp is how long after its wait ended a held ask that cannot
+	// be sent is still tried before the hold ends unsent (card 236,
+	// askhold.go); zero means DefaultHoldGiveUp, a test sets its own.
+	HoldGiveUp time.Duration
 	// Announce runs a program that speaks no protocol to completion: the
 	// message-arrival sound player or desktop notifier (cards 35 and 36,
 	// announce.go) and, in a Codex CLI session, `codex queue` (card 107,
@@ -307,6 +311,7 @@ func RealDeps() Deps {
 		StatePruneDelay:    DefaultStatePruneDelay,
 		StatePruneInterval: DefaultStatePruneInterval,
 		StateCheckInterval: DefaultStateCheckInterval,
+		HoldGiveUp:         DefaultHoldGiveUp,
 	}
 }
 
@@ -402,6 +407,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.StateCheckInterval <= 0 {
 		d.StateCheckInterval = prod.StateCheckInterval
+	}
+	if d.HoldGiveUp <= 0 {
+		d.HoldGiveUp = prod.HoldGiveUp
 	}
 	return d
 }
@@ -690,6 +698,11 @@ type watcher struct {
 	// produceRetry holds, by lower-cased label, the time before which a
 	// subscriber whose digest could not be sent is not tried again.
 	produceRetry map[string]time.Time
+	// startedAt is when this watcher was made, and holdRetry, by decision
+	// id, the time before which a held ask that could not be sent is not
+	// tried again (askhold.go, card 236); the state goroutine's alone.
+	startedAt time.Time
+	holdRetry map[string]time.Time
 	// sound plays the message-arrival sound and banner shows the desktop
 	// notification (announce.go, cards 35 and 36).
 	sound  *announcer
@@ -837,6 +850,7 @@ func newWatcher(rc runConfig, environ []string, d Deps, lg *slog.Logger) (*watch
 		sync:        syncSetup{adapter: m.SyncAdapter, folders: m.SyncFolders, root: m.SyncRoot, scope: m.SyncScope, pluginBin: m.PluginBin},
 		stateFolder: m.StateFolder,
 		teamName:    m.TeamName,
+		startedAt:   d.Clock(),
 		idleClose:   m.IdleClose(),
 	}
 	w.sound = newSoundAnnouncer(w)

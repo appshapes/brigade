@@ -72,7 +72,7 @@ func TestReportSubscribeWritesTheFile(t *testing.T) {
 		if err := Report(f.inv(f.sessionEnv(path), "", "subscribe"), ReportOptions{Recipients: "@alice | alice@example.com", Every: "4h"}); err != nil {
 			t.Fatalf("subscribe: %v", err)
 		}
-		if f.out.String() != "subscribed: alice@example.com, recipients @alice | alice@example.com, every 4h0m0s\n" || f.rec.count() != 0 {
+		if f.out.String() != "subscribed: alice@example.com, recipients @alice | alice@example.com, every 4h0m0s, an ask from your own session held for 10m0s\n" || f.rec.count() != 0 {
 			t.Fatalf("stdout %q spawns %d", f.out.String(), f.rec.count())
 		}
 		r := mustReports(t, folder)
@@ -114,7 +114,7 @@ func TestReportSubscribeWritesTheFile(t *testing.T) {
 		if err := Report(f.inv(f.sessionEnv(path), "", "subscribe"), ReportOptions{Recipients: "#digests"}); err != nil {
 			t.Fatal(err)
 		}
-		if f.out.String() != "subscribed: alice@example.com, recipients #digests, every 24h0m0s\n" {
+		if f.out.String() != "subscribed: alice@example.com, recipients #digests, every 24h0m0s, an ask from your own session held for 10m0s\n" {
 			t.Fatalf("stdout %q", f.out.String())
 		}
 	})
@@ -167,8 +167,37 @@ func TestReportSubscribeWritesTheFile(t *testing.T) {
 		if err := Report(f.inv(f.sessionEnv(), "", "subscribe"), ReportOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		if f.out.String() != "subscribed: Alice, recipients your own session (no handle, channel or address), every 24h0m0s\n" {
+		if f.out.String() != "subscribed: Alice, recipients your own session (no handle, channel or address), every 24h0m0s, an ask from your own session held for 10m0s\n" {
 			t.Fatalf("stdout %q", f.out.String())
+		}
+	})
+	t.Run("the wait", func(t *testing.T) {
+		// Card 236: the wait is the subscriber's own, normalised as the
+		// period is; zero sends an ask from their own session at once; a
+		// subscribe that names none is the default again.
+		t.Parallel()
+		f := newFixture(t)
+		folder := f.withStateFolder(t)
+		f.seedEntry(t, folder)
+		for _, tc := range []struct {
+			wait, stored, line string
+			holdFor            time.Duration
+		}{
+			{"30m", "30m0s", "held for 30m0s", 30 * time.Minute},
+			{"0", "0s", "sent at once", 0},
+			{"", "", "held for 10m0s", state.DefaultWait},
+		} {
+			f.out.Reset()
+			if err := Report(f.inv(f.sessionEnv(), "", "subscribe"), ReportOptions{Recipients: "#digests", Wait: tc.wait}); err != nil {
+				t.Fatalf("subscribe --wait %q: %v", tc.wait, err)
+			}
+			if want := "subscribed: alice@example.com, recipients #digests, every 24h0m0s, an ask from your own session " + tc.line + "\n"; f.out.String() != want {
+				t.Fatalf("--wait %q: stdout %q, want %q", tc.wait, f.out.String(), want)
+			}
+			r := mustReports(t, folder)
+			if len(r.Subscribers) != 1 || r.Subscribers[0].Wait != tc.stored || r.Subscribers[0].HoldFor() != tc.holdFor {
+				t.Fatalf("--wait %q: reports %+v", tc.wait, r.Subscribers)
+			}
 		}
 	})
 	t.Run("a 0.43 file is carried over with its marker", func(t *testing.T) {
@@ -233,6 +262,9 @@ func TestReportSubscribeWritesTheFile(t *testing.T) {
 			"a bad at":             {[]string{"subscribe"}, ReportOptions{Recipients: "@x", At: "8am"}, protocol.CodeInvalidInput, ReasonBadAt},
 			"a bad tz":             {[]string{"subscribe"}, ReportOptions{Recipients: "@x", TZ: "Mars/Olympus"}, protocol.CodeInvalidInput, ReasonBadTZ},
 			"a bad only":           {[]string{"subscribe"}, ReportOptions{Recipients: "@x", Only: "theirs"}, protocol.CodeInvalidInput, ReasonBadOnly},
+			"a bad wait":           {[]string{"subscribe"}, ReportOptions{Recipients: "@x", Wait: "soon"}, protocol.CodeInvalidInput, ReasonBadWait},
+			"a negative wait":      {[]string{"subscribe"}, ReportOptions{Recipients: "@x", Wait: "-5m"}, protocol.CodeInvalidInput, ReasonBadWait},
+			"a wait too long":      {[]string{"subscribe"}, ReportOptions{Recipients: "@x", Wait: "48h"}, protocol.CodeInvalidInput, ReasonBadWait},
 			"no state folder":      {[]string{"subscribe"}, ReportOptions{Recipients: "@x"}, protocol.CodeConfig, ReasonNoStateFolder},
 			"unsubscribe, none":    {[]string{"unsubscribe"}, ReportOptions{}, protocol.CodeConfig, ReasonNoStateFolder},
 			"show, no folder":      {[]string{"show"}, ReportOptions{}, protocol.CodeConfig, ReasonNoStateFolder},
@@ -245,7 +277,7 @@ func TestReportSubscribeWritesTheFile(t *testing.T) {
 				t.Parallel()
 				f := newFixture(t)
 				perr := wantCodeErr(t, Report(f.inv(f.sessionEnv(), "", tc.args...), tc.opts), tc.code, tc.reason)
-				if strings.Contains(perr.Message, "Mars") || strings.Contains(perr.Message, "nobody") || strings.Contains(perr.Message, "theirs") {
+				if strings.Contains(perr.Message, "Mars") || strings.Contains(perr.Message, "nobody") || strings.Contains(perr.Message, "theirs") || strings.Contains(perr.Message, "soon") {
 					t.Errorf("the message echoes a value: %q", perr.Message)
 				}
 			})

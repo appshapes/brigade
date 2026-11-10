@@ -20,12 +20,15 @@ import (
 type ReportOptions struct {
 	// Recipients are the subscriber's recipients in precedence, separated
 	// by `|`; Every the period as a duration; At and TZ a daily digest's
-	// time and zone; Only the filter (`mine`): the flags of `subscribe`.
+	// time and zone; Only the filter (`mine`); Wait how long an ask from
+	// the subscriber's own session is held before it is sent (card 236):
+	// the flags of `subscribe`.
 	Recipients string
 	Every      string
 	At         string
 	TZ         string
 	Only       string
+	Wait       string
 	// To is the subscriber a `show` or a `send` is for, by their label.
 	To string
 }
@@ -72,9 +75,9 @@ type reportSent struct {
 // 167, the subscribers).
 const (
 	// ReportUsage is the whole `usage` message for a bad verb.
-	ReportUsage = "report takes one verb: subscribe (--recipients, --every, --at, --tz, --only mine), unsubscribe, show [--to <label>], or send [--to <label>]"
+	ReportUsage = "report takes one verb: subscribe (--recipients, --every, --at, --tz, --only mine, --wait), unsubscribe, show [--to <label>], or send [--to <label>]"
 	// The notes of the --json results.
-	ReportSubscribedNote   = "written to reports.json in the project's state folder, which syncs to every teammate's checkout; the sessions' watchers produce your digest on the period, and a brigade decision --to your label reaches these recipients at once"
+	ReportSubscribedNote   = "written to reports.json in the project's state folder, which syncs to every teammate's checkout; the sessions' watchers produce your digest on the period, and a brigade decision --to your label reaches these recipients at once — or, asked by one of your own sessions, after your wait and only when you did not answer in that conversation"
 	ReportUnsubscribedNote = "removed from reports.json in the project's state folder; no digest comes, and a decision --to your label goes to your best session as a team message"
 	ReportShowNote         = "the digest the producer would send now, built from the state folder and the roster; nothing was sent and no marker was written"
 	ReportSentNote         = "sent now and the marker written for each subscriber it reached; their next digest on the period starts from this one"
@@ -94,6 +97,7 @@ const (
 	ReasonBadAt         = "at_not_a_time"
 	ReasonBadTZ         = "tz_unknown"
 	ReasonBadOnly       = "only_unknown"
+	ReasonBadWait       = "wait_not_a_duration"
 	ReasonNoRecipient   = "no_recipient"
 	ReasonLabelNeeded   = "label_needed"
 	ReasonNoSubscriber  = "no_subscriber"
@@ -317,6 +321,14 @@ func reportSubscribe(inv Invocation, opts ReportOptions) error {
 	if only != "" && only != state.OnlyMine {
 		return &protocol.Error{Code: protocol.CodeInvalidInput, Message: "--only takes one value, mine: the digest's decision sections then list only the decisions addressed to you", Details: map[string]string{"field": "only", "reason": ReasonBadOnly}}
 	}
+	wait := strings.TrimSpace(opts.Wait)
+	if wait != "" {
+		d, err := time.ParseDuration(wait)
+		if err != nil || d < 0 || d > state.MaxWait {
+			return &protocol.Error{Code: protocol.CodeInvalidInput, Message: "--wait is a duration from 0 to 24h, such as 10m or 30m: how long a decision one of your own sessions asks you is held before it is sent (0 sends it at once)", Details: map[string]string{"field": "wait", "reason": ReasonBadWait}}
+		}
+		wait = d.String()
+	}
 	m, stateDir, err := inv.sessionMap()
 	if err != nil {
 		return err
@@ -351,7 +363,7 @@ func reportSubscribe(inv Invocation, opts ReportOptions) error {
 	if reports.Legacy && len(reports.Subscribers) == 1 {
 		legacy = reports.Subscribers[0].Label
 	}
-	sub := state.Subscriber{Label: label, Recipients: recipients, Every: every, At: at, TZ: tz, Only: only}
+	sub := state.Subscriber{Label: label, Recipients: recipients, Every: every, At: at, TZ: tz, Only: only, Wait: wait}
 	sub.Sanitize()
 	reports.Subscribe(sub)
 	if err := state.WriteReports(s.Folder, reports); err != nil {
@@ -453,6 +465,11 @@ func subscriberLine(s *state.Subscriber) string {
 	}
 	if s.Only == state.OnlyMine {
 		line += ", the decisions for you only"
+	}
+	if wait := s.HoldFor(); wait > 0 {
+		line += ", an ask from your own session held for " + wait.String()
+	} else {
+		line += ", an ask from your own session sent at once"
 	}
 	return line
 }

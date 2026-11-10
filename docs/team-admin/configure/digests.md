@@ -43,14 +43,14 @@ reports nothing.
 
 ```json
 {"version": 2, "subscribers": [
-  {"label": "rjae@example.com", "recipients": ["@rjae", "rjae@example.com"], "every": "24h", "only": "mine"},
+  {"label": "rjae@example.com", "recipients": ["@rjae", "rjae@example.com"], "every": "24h", "only": "mine", "wait": "30m0s"},
   {"label": "Frank", "recipients": ["#eng-digests"], "at": "08:00", "tz": "America/New_York"}
 ]}
 ```
 
 `reports.json` in the state folder is the list of subscribers, each entry written by its own member's session
 with `brigade report subscribe` and removed with `brigade report unsubscribe`: their roster label (the key),
-their recipients in order of precedence, their period, and their filter. A recipient is a Slack handle or
+their recipients in order of precedence, their period, their filter, and their wait. A recipient is a Slack handle or
 channel, or an email address; left out, the member's label is the recipient when it is an address, as a roster
 label is by default. Their digest and every decision addressed to them go to the first recipient a gateway on
 the roster can carry: a handle or channel through the team's Slack gateway; an address through the Slack gateway
@@ -58,7 +58,11 @@ too when the team has one, which finds the person by their email, and through th
 Slack comes before email whatever the recipient's shape. With no gateway on the roster, or no recipient at all,
 they go to the member's own best session as a team message. `every` is a duration (`24h` when unset); `at` with
 `tz` makes it daily at that time instead. `only: "mine"` lists only the decisions addressed to the member; the
-contributions stay the team's. **The address rule:** an email address is written only when `git check-ignore`
+contributions stay the team's. `wait` is how long a decision one of the member's own sessions asks them is held,
+while they can answer it in that conversation, before it goes to their recipients (`10m` when unset, `0s` for at
+once; [A decision for the session's own user](../../team-member/use/notes-and-decisions.md#a-decision-for-the-sessions-own-user)).
+A plugin older than the one that added `wait` drops it when that member's `subscribe` rewrites the file, and the
+ten minutes are in force again until the member sets it once more. **The address rule:** an email address is written only when `git check-ignore`
 says the folder is ignored (`brigade report subscribe` refuses otherwise), or, for a folder under a link, the link;
 a Slack handle or channel is written either way.
 

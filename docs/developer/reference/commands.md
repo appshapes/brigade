@@ -25,8 +25,8 @@ Commands:
   rename [--clear]                            name this Claude Code session (the name on stdin): the prompt hook applies it at the user's next prompt, and the team roster follows
   note                                        record one line about the work for the digest — Done:, Next: or Blocked: — in this session's state entry (on stdin)
   decision --to <label> [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id>
-                                              ask a teammate for a decision (the question on stdin), sent at once to their digest recipients or their session, or close one with its outcome
-  report subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] | unsubscribe | show [--to <label>] | send [--to <label>]
+                                              ask a person for a decision (the question on stdin), sent at once to their digest recipients or their session — held for their wait when they are this session's own user — or close one with its outcome
+  report subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] [--wait <duration>] | unsubscribe | show [--to <label>] | send [--to <label>]
                                               subscribe this session's member to the digest (reports.json in the state folder) or unsubscribe, print the digest a subscriber would get now, or send one now
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
@@ -143,7 +143,7 @@ record one line about the work for the digest — Done:, Next: or Blocked: — i
 ```text
 Usage: brigade decision --to <label> [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id> [--json] [--log-level debug|info|warn|error]
 
-ask a teammate for a decision (the question on stdin), sent at once to their digest recipients or their session, or close one with its outcome
+ask a person for a decision (the question on stdin), sent at once to their digest recipients or their session — held for their wait when they are this session's own user — or close one with its outcome
 ```
 
 | Flag | What it does |
@@ -158,7 +158,7 @@ ask a teammate for a decision (the question on stdin), sent at once to their dig
 ## brigade report
 
 ```text
-Usage: brigade report subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] | unsubscribe | show [--to <label>] | send [--to <label>] [--json] [--log-level debug|info|warn|error]
+Usage: brigade report subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] [--wait <duration>] | unsubscribe | show [--to <label>] | send [--to <label>] [--json] [--log-level debug|info|warn|error]
 
 subscribe this session's member to the digest (reports.json in the state folder) or unsubscribe, print the digest a subscriber would get now, or send one now
 ```
@@ -171,6 +171,7 @@ subscribe this session's member to the digest (reports.json in the state folder)
 | `--recipients <value>` | where your digest and the decisions for you go, in order of precedence, separated by \|: a Slack handle or channel, an email address (your label when left out and it is an address) |
 | `--to <value>` | the subscriber a show or a send is for, by their label (show: your own subscription when left out; send: every subscriber) |
 | `--tz <value>` | the zone of --at, an IANA name such as America/Los_Angeles (UTC when unset) |
+| `--wait <value>` | how long a decision one of your own sessions asks you is held, while you can answer it in that conversation, before it is sent: a duration such as 10m or 30m (10m when unset; 0 sends it at once) |
 
 ## brigade inbound
 

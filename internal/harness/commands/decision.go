@@ -11,6 +11,7 @@ import (
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/adapterkit/log"
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
+	"github.com/appshapes/brigade/internal/harness/digest"
 	"github.com/appshapes/brigade/internal/harness/doing"
 	"github.com/appshapes/brigade/internal/harness/state"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -42,7 +43,9 @@ type decisionResult struct {
 	Sent *decisionSent `json:"sent,omitzero"`
 	// NotSent says why nothing went out, "" otherwise.
 	NotSent string `json:"not_sent,omitzero"`
-	Note    string `json:"note"`
+	// Held is set for an ask held for the session's own user (card 236).
+	Held *decisionHeld `json:"held,omitzero"`
+	Note string        `json:"note"`
 }
 
 // decisionSent is the --json account of the ask's delivery.
@@ -169,11 +172,32 @@ func Decision(inv Invocation, opts DecisionOptions) error {
 	if e, lerr := s.Load(m.BrigadeSessionID); lerr == nil {
 		d.Member = e.Member
 	}
+	// The roster is read once, for the hold and for the send.
+	var sessions []protocol.SessionRecord
+	list, rosterErr := callWithin(RosterTimeout, func(ctx context.Context) (*adapterclient.ListResult, error) {
+		return t.client.ListSessions(ctx, false)
+	})
+	if rosterErr == nil {
+		sessions = list.Sessions
+	}
+	// Card 236: an ask for this session's own user is held — asked in the
+	// conversation, sent by the watcher only after their wait.
+	wait := inv.holdFor(t, sub, to, d.Member, sessions)
+	if wait > 0 {
+		d.Hold(now.Add(wait))
+	}
 	if err := s.SaveDecision(d); err != nil {
 		return &protocol.Error{Code: protocol.CodeInternal, Message: "the decision could not be written to the state folder"}
 	}
+	if wait > 0 {
+		inv.logger().Debug("decision held for the session's own user")
+		if inv.JSON {
+			return writeJSON(inv.Out, decisionResult{SelfSessionID: m.BrigadeSessionID, Decision: d, Held: &decisionHeld{Until: d.HeldUntil, Wait: wait.String()}, Note: DecisionHeldNote})
+		}
+		return writeLines(inv.Out, "recorded: decision "+d.ID, heldAskLine(d, wait))
+	}
 
-	sent, notSent := inv.sendDecision(t, sub, d)
+	sent, notSent := inv.sendDecision(t, sub, d, sessions, rosterErr)
 	if sent != nil {
 		d.Sent, d.SentTo, d.UpdatedAt = sent.How, sent.To, inv.Deps.now()
 		if err := s.SaveDecision(d); err != nil {
@@ -227,8 +251,8 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// sendDecision sends the ask to the person it is for: the roster is read
-// once; with a subscription, the first gateway of its recipients that is
+// sendDecision sends the ask to the person it is for, on the roster the
+// caller read: with a subscription, the first gateway of its recipients that is
 // on the roster takes the ask under a `to:` first line (the gateway's own
 // convention); with none, their best session as a plain team message
 // (resolveMember, the gateways left out; a label two members share is
@@ -237,31 +261,20 @@ func containsString(list []string, s string) bool {
 // session of theirs, the send refused — in one sentence for the line. A
 // failed send is never an error of the command: the decision is
 // recorded, and the digest lists it.
-func (inv Invocation) sendDecision(t *target, sub *state.Subscriber, d *state.Decision) (*decisionSent, string) {
-	list, err := callWithin(RosterTimeout, func(ctx context.Context) (*adapterclient.ListResult, error) {
-		return t.client.ListSessions(ctx, false)
-	})
-	if err != nil {
-		inv.logger().Warn("decision: the roster could not be read", log.Err(err))
-		return nil, "the roster could not be read (" + string(codeOf(err)) + ")"
+func (inv Invocation) sendDecision(t *target, sub *state.Subscriber, d *state.Decision, sessions []protocol.SessionRecord, rosterErr error) (*decisionSent, string) {
+	if rosterErr != nil {
+		inv.logger().Warn("decision: the roster could not be read", log.Err(rosterErr))
+		return nil, "the roster could not be read (" + string(codeOf(rosterErr)) + ")"
 	}
-	// The ask is the same text whichever way it goes (state.Decision.Ask).
-	// Through a gateway the summary is the question alone: it becomes a
-	// mail's subject. To a session it also says what the message is and
-	// whom it is for: a model reads the summary first, and the body no
-	// longer says either (owner rulings 2026-11-09, card 193).
-	body := d.Ask()
-	summary := d.Question
-	var sent decisionSent
 	var recipients []string
 	if sub != nil {
 		recipients = sub.Recipients
 	}
-	if gw, ok := state.PickGateway(recipients, list.Sessions); ok {
-		sent = decisionSent{How: gw.Kind, To: gw.To, SessionID: gw.SessionID}
-		body = "to: " + gw.To + "\n\n" + body
-	} else {
-		pick, merr := resolveMember(d.To, list.Sessions)
+	// The road and the text are the ones a held ask takes when the watcher
+	// sends it later (digest.PickRoute, digest.AskMessage; card 236).
+	route, ok := digest.PickRoute(recipients, "", sessions)
+	if !ok {
+		pick, merr := resolveMember(d.To, sessions)
 		if merr != nil {
 			inv.logger().Info("decision: no gateway of the recipients on the roster and no session of the person", log.Err(merr))
 			why := "no gateway of their recipients is on the roster, and they have no session that can receive a message"
@@ -270,10 +283,10 @@ func (inv Invocation) sendDecision(t *target, sub *state.Subscriber, d *state.De
 			}
 			return nil, why
 		}
-		sent = decisionSent{How: state.SentSession, To: pick.session.SessionID, SessionID: pick.session.SessionID}
-		summary = "Decision for " + oneLine(d.To) + ": " + summary
+		route, _ = digest.PickRoute(nil, pick.session.SessionID, sessions)
 	}
-	summary = protocol.TruncateRunes(summary, protocol.MaxSummaryChars)
+	body, summary := digest.AskMessage(d, route)
+	sent := decisionSent{How: route.How, To: route.To, SessionID: route.SessionID}
 	req := &protocol.SendRequest{
 		SenderSessionID: t.selfSessionID(), RecipientSessionID: sent.SessionID, Body: body, Summary: summary,
 		IdempotencyKey: IdempotencyKey(t.selfSessionID(), sent.SessionID, body, inv.Deps.now()),

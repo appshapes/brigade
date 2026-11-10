@@ -12,7 +12,6 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/inbound"
-	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/watchstate"
 	"github.com/appshapes/brigade/internal/procutil"
@@ -206,11 +205,10 @@ func (inv Invocation) delivery(t *target) whoamiDelivery {
 			d.Monitor = "paused"
 		}
 	}
-	v, err := pidfile.Check(pidfile.Path(t.stateDir, m.ClaudePID), lookup)
-	if err == nil && v.Found && v.Alive && v.Entry.BrigadeSessionID == m.BrigadeSessionID {
-		d.Watcher, d.WatcherVersion = WatcherRunning, protocol.SanitizeAttribute(v.Entry.Version)
+	if w, alive := inv.liveWatcher(t); alive {
+		d.Watcher, d.WatcherVersion = WatcherRunning, protocol.SanitizeAttribute(w.Version)
 		// The state file speaks for the watcher that wrote it and no other.
-		if s, serr := watchstate.Read(watchstate.Path(t.stateDir, m.ClaudePID)); serr == nil && s.PID == v.Entry.PID {
+		if s, serr := watchstate.Read(watchstate.Path(t.stateDir, m.ClaudePID)); serr == nil && s.PID == w.PID {
 			d.Connection, d.ConnectionSince = s.State, &s.Since
 		}
 	}

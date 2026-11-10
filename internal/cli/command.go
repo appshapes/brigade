@@ -120,7 +120,7 @@ func init() {
 		{
 			Name:    "decision",
 			Args:    "--to <label> [--options <a | b>] [--default <option>] [--by <YYYY-MM-DD>] [--card <n>] | --close <id>",
-			Summary: "ask a teammate for a decision (the question on stdin), sent at once to their digest recipients or their session, or close one with its outcome",
+			Summary: "ask a person for a decision (the question on stdin), sent at once to their digest recipients or their session — held for their wait when they are this session's own user — or close one with its outcome",
 			Flags: func(fs *flag.FlagSet) {
 				fs.String("to", "", "the person the decision is for, by their label as the roster shows it (required)")
 				fs.String("options", "", "the answers offered, separated by |")
@@ -133,7 +133,7 @@ func init() {
 		},
 		{
 			Name:    "report",
-			Args:    "subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] | unsubscribe | show [--to <label>] | send [--to <label>]",
+			Args:    "subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] [--wait <duration>] | unsubscribe | show [--to <label>] | send [--to <label>]",
 			Summary: "subscribe this session's member to the digest (reports.json in the state folder) or unsubscribe, print the digest a subscriber would get now, or send one now",
 			Flags: func(fs *flag.FlagSet) {
 				fs.String("recipients", "", "where your digest and the decisions for you go, in order of precedence, separated by |: a Slack handle or channel, an email address (your label when left out and it is an address)")
@@ -141,6 +141,7 @@ func init() {
 				fs.String("at", "", "a daily digest's time of day, HH:MM")
 				fs.String("tz", "", "the zone of --at, an IANA name such as America/Los_Angeles (UTC when unset)")
 				fs.String("only", "", "mine: list only the decisions addressed to you; the contributions stay the team's")
+				fs.String("wait", "", "how long a decision one of your own sessions asks you is held, while you can answer it in that conversation, before it is sent: a duration such as 10m or 30m (10m when unset; 0 sends it at once)")
 				fs.String("to", "", "the subscriber a show or a send is for, by their label (show: your own subscription when left out; send: every subscriber)")
 			},
 			Run: runReport,
@@ -373,6 +374,7 @@ func runReport(cx *Context, args []string) error {
 		At:         stringFlag(cx, "at"),
 		TZ:         stringFlag(cx, "tz"),
 		Only:       stringFlag(cx, "only"),
+		Wait:       stringFlag(cx, "wait"),
 		To:         stringFlag(cx, "to"),
 	})
 }

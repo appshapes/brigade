@@ -11,7 +11,9 @@
 // followed (a note), the doing line is older than ten minutes after a
 // turn that ran longer than a minute (a refreshed line), and anyone is
 // subscribed to the project's digest after such a turn (a decision, if
-// the model waits on one; card 167). The cost rules of ruling 8 hold whatever fires: at
+// the model waits on one; card 167 — and since card 236 the sentence says
+// the session's own user is asked in the conversation first, the recorded
+// ask held for their wait). The cost rules of ruling 8 hold whatever fires: at
 // most one ask per ten minutes, never twice in a row, never on the Stop
 // that follows an ask (stop_hook_active), never in a quiet session, never
 // where the permission rules would make the call a dialog (the doing
@@ -80,7 +82,7 @@ const (
 	stopAskOpen     = "Brigade state (one ask, then finish): "
 	stopAskNote     = "this turn made a commit and no note followed; record one line with `brigade note <<'EOF'`, the line, `EOF`, starting Done: (what shipped), Next: (what comes next) or Blocked: (what you wait on)."
 	stopAskDoing    = "your roster line is older than ten minutes and this turn ran long; if the work changed, set it with `brigade doing <<'EOF'`, one short sentence, `EOF`."
-	stopAskDecision = "if you are waiting on a person for a decision, record it with `brigade decision --to <their roster label> --options \"a | b\" <<'EOF'`, the question, `EOF`, so it reaches them."
+	stopAskDecision = "if you are waiting on a person for a decision, record it with `brigade decision --to <their roster label> --options \"a | b\" <<'EOF'`, the question, `EOF`: for anyone but your own user it is sent at once; your own user is asked here in the conversation first, and the recorded one is held and reaches them only if they have not answered here within their wait."
 	stopAskClose    = " No secrets, local paths or customer names. Subagents leave it alone. If a command is refused, do not run it another way; the work is done."
 )
 

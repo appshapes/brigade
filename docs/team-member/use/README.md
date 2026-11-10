@@ -60,10 +60,10 @@ Details: [Sync folders](sync-folders.md).
 
 1. `brigade note <<'EOF' … EOF` records one `Done:`, `Next:` or `Blocked:` line in the session's state entry.
 2. `brigade decision --to <label> --options "a | b" --default a --by 2026-10-31 <<'EOF' … EOF` asks that person,
-   through their digest recipients or their session; `brigade decision --close <id> <<'EOF' … EOF` records the
-   outcome.
-3. `brigade report subscribe [--recipients "<list>"] [--every 24h]` (or `/brigade:subscribe`) gets you the
-   digest on your period; `brigade report unsubscribe` stops it.
+   through their digest recipients or their session; one for the session's own user is asked in the conversation
+   and sent only after their wait. `brigade decision --close <id> <<'EOF' … EOF` records the outcome.
+3. `brigade report subscribe [--recipients "<list>"] [--every 24h] [--wait 10m]` (or `/brigade:subscribe`) gets
+   you the digest on your period; `brigade report unsubscribe` stops it.
 
 Details: [Record notes and ask for decisions](notes-and-decisions.md).
 

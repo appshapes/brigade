@@ -49,7 +49,8 @@ type dueSubscriber struct {
 
 // runState is the state goroutine, started when the map names a state
 // folder and ended by ctx with the session: the prune on its cadence,
-// and the producer's check on every tick.
+// and on every tick the check of this session's held asks (askhold.go,
+// card 236) and the producer's.
 func (w *watcher) runState(ctx context.Context) {
 	prune := time.NewTimer(w.deps.StatePruneDelay)
 	defer prune.Stop()
@@ -65,6 +66,7 @@ func (w *watcher) runState(ctx context.Context) {
 			}
 			prune.Reset(w.deps.StatePruneInterval)
 		case <-check.C:
+			w.holdCheck(ctx)
 			w.produceCheck(ctx)
 		}
 	}
@@ -93,7 +95,7 @@ func (w *watcher) produceCheck(ctx context.Context) {
 		return
 	}
 	entries := state.ReadFolder(w.stateFolder)
-	decisions := state.ReadDecisions(w.stateFolder)
+	decisions := digest.Asked(state.ReadDecisions(w.stateFolder), now)
 	due = slices.DeleteFunc(due, func(d dueSubscriber) bool { return !digest.Changed(entries, decisions, d.marker) })
 	if len(due) == 0 {
 		w.produceAt = time.Time{}

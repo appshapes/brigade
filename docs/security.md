@@ -1234,7 +1234,10 @@ adds no control beyond the `sync` option (the folder rides on folder sync, secti
 - **The end-of-turn ask.** With `status` on, the Stop hook may ask the model, at most once per ten minutes and
   only where the doing line's permission gate holds (section 5), to record a note, refresh its roster line or
   record a decision for a named person. It costs one model turn each time; `status: off` stops it, and the entry is
-  kept all the same.
+  kept all the same. A decision the model records for its own session's user is held: that person is asked in the
+  conversation, and the ask leaves the machine only when their wait has passed with no prompt there and the
+  decision still open, which Brigade judges from the time of the last prompt the entry already carries, reading
+  no prompt.
 - **The producer.** Whichever session's watcher is first by registration time among the repository's online
   sessions produces each due subscriber's digest once per their period; the others wait their rank and stand down
   on that subscriber's marker. Two decisions inside the sync engine's propagation gap cost a subscriber one

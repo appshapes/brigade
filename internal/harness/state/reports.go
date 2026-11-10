@@ -36,6 +36,11 @@ const (
 	MaxRecipientChars = 256
 	// DefaultEvery is the period when a subscriber sets none.
 	DefaultEvery = 24 * time.Hour
+	// DefaultWait is how long an ask is held for the asking session's own
+	// user when they set no wait, or are not subscribed (card 236);
+	// MaxWait the longest wait a subscriber may set.
+	DefaultWait = 10 * time.Minute
+	MaxWait     = 24 * time.Hour
 	// OnlyMine is the one filter: the digest's decision sections list
 	// only the decisions addressed to the subscriber; the contribution
 	// sections stay the team's.
@@ -49,8 +54,13 @@ const (
 // each goes through the Slack gateway when the team has one, an address
 // through the mail gateway otherwise; none means their own best
 // session), the period — `every` as a Go duration ("24h", "4h"), or for
-// a daily digest `at` ("08:00") in `tz` (an IANA zone) — and the filter,
-// "" or OnlyMine.
+// a daily digest `at` ("08:00") in `tz` (an IANA zone) — the filter, ""
+// or OnlyMine, and the wait (card 236): how long a decision one of their
+// own sessions asks them is held, while they can answer it in that
+// conversation, before it is sent to the recipients — a Go duration
+// ("10m", "30m"; "0s" sends at once), DefaultWait when absent. A binary
+// from before card 236 that rewrites the file (a teammate's `subscribe`)
+// drops the member, and the default is in force again.
 type Subscriber struct {
 	Label      string   `json:"label"`
 	Recipients []string `json:"recipients"`
@@ -58,6 +68,7 @@ type Subscriber struct {
 	At         string   `json:"at,omitzero"`
 	TZ         string   `json:"tz,omitzero"`
 	Only       string   `json:"only,omitzero"`
+	Wait       string   `json:"wait,omitzero"`
 }
 
 // Reports is the file: the subscribers, in the order they subscribed.
@@ -236,6 +247,7 @@ func (s *Subscriber) Sanitize() {
 	if s.Only != OnlyMine {
 		s.Only = ""
 	}
+	s.Wait = line(s.Wait)
 }
 
 // Period is the subscriber's period: `every` parsed, DefaultEvery when it
@@ -244,6 +256,21 @@ func (s *Subscriber) Period() time.Duration {
 	d, err := time.ParseDuration(s.Every)
 	if err != nil || d < time.Minute {
 		return DefaultEvery
+	}
+	return d
+}
+
+// HoldFor is how long an ask from one of the subscriber's own sessions is
+// held before it is sent (card 236): `wait` parsed, zero meaning at once;
+// DefaultWait when it is absent, not a duration, negative or over MaxWait,
+// and for nobody's entry — a member who is not subscribed.
+func (s *Subscriber) HoldFor() time.Duration {
+	if s == nil || s.Wait == "" {
+		return DefaultWait
+	}
+	d, err := time.ParseDuration(s.Wait)
+	if err != nil || d < 0 || d > MaxWait {
+		return DefaultWait
 	}
 	return d
 }

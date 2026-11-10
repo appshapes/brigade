@@ -69,8 +69,40 @@ file. A mail's subject is the question; a session message's summary is `Decision
 tells the receiving session's model whom to show it to. The gateways show an ask from a plugin of 0.47.2 or older,
 which still sends the labelled lines, in the same shape.
 
-The person answers however they wish, on Slack, by mail, in person, or by a team message (ruling 4 of the design:
-nothing is built for the answer). When the session has acted on it:
+### A decision for the session's own user
+
+When `--to` names the member the asking session belongs to, that person is the one in the conversation. The
+session asks them there, the host's own way, and the command records the decision without sending it:
+
+```
+recorded: decision d-20261110-a1b2c3
+held: rjae@example.com is this session's own user, so ask them here in the conversation; it is sent to them at 02:25 UTC (in 10m0s) only if no prompt arrives here and it is still open — close it with the outcome when they answer
+```
+
+The asking session's watcher ends the hold. A prompt in that conversation after the ask ends it for good with
+nothing sent; so does a close, from that session or from another session of the member. Otherwise, once the wait has passed, the ask goes out by the road above (the first
+gateway of the member's recipients on the roster, else another session of theirs, never the asking one), and the
+session is told at its next prompt. The wait is ten minutes, or what the member's subscription sets
+([`--wait`](#subscribe-to-the-digest)); a wait of `0` sends at once, as before.
+
+- **Whose user.** The label is the one the session's own entry carries, or one whose roster sessions all belong to
+  the asking session's member: one machine user is one member, whichever Claude profile is signed in. A label a
+  second member also carries is not held. A decision for anyone else is always sent at once: no conversation of
+  the asking session reaches them.
+- **A prompt** is whatever starts a turn in that conversation: one the user types, and also a team message or a
+  finished background task that wakes the session. Brigade reads no prompt, so it cannot tell them apart; a hold
+  such a turn ends is not sent, and the decision stays open.
+- **A hold needs a conversation and a watcher.** A non-interactive session, or one whose watcher is not running
+  or is another version's, sends at once.
+- **Nothing sent.** A session that is not running when the wait ends sends nothing. With no gateway of the
+  member's recipients and no other session of theirs on the roster, or a send that fails, the ask is tried again
+  for fifteen minutes after the wait and then given up, and the session is told. Either way the decision is open,
+  and the digest lists it.
+- **The digest** leaves a decision out while its hold runs, and afterwards marks one that was never sent `asked in
+  the conversation`.
+
+The person answers however they wish, on Slack, by mail, in person, by a team message, or in the conversation
+(ruling 4 of the design: nothing is built for the answer). When the session has acted on it:
 
 ```bash
 brigade decision --close d-20261029-a1b2c3 <<'EOF'
@@ -90,6 +122,7 @@ options, or a question that breaks a note's rules.
 brigade report subscribe
 brigade report subscribe --recipients "@rjae | rjae@example.com" --every 4h
 brigade report subscribe --recipients "#eng-digests" --at 08:00 --tz America/Los_Angeles --only mine
+brigade report subscribe --recipients "@rjae" --wait 30m
 brigade report unsubscribe
 ```
 
@@ -97,15 +130,18 @@ brigade report unsubscribe
 subscribe`, inside a session, writes your own entry into `reports.json` in the state folder, under the label your
 session's entry carries: your recipients in order of precedence (a Slack handle, a channel, an email address;
 none means your label when it is an address, which the Slack gateway finds you by, and else your own best
-session), your period (`--every`, `24h` when unset, or `--at` with `--tz` for a daily digest), and `--only mine`
-to list only the decisions addressed to you, the contributions staying the team's. A second `subscribe` replaces
-the first; `unsubscribe` removes it. Nobody writes anyone else's entry: there is no `--label`. **The address
+session), your period (`--every`, `24h` when unset, or `--at` with `--tz` for a daily digest), `--only mine`
+to list only the decisions addressed to you, the contributions staying the team's, and `--wait` for how long a
+decision one of your own sessions asks you is held before it is sent (`10m` when unset, `24h` at most, `0` for at
+once). A second `subscribe` replaces the first, every flag of it; `unsubscribe` removes it. Nobody writes anyone else's entry: there is no `--label`. **The address
 rule:** an email address, one you give or your label as the default, is written only when git ignores the
 folder; add it to `.gitignore` or name a Slack handle or channel. A session with no state entry yet
 (`no_state_entry`) or no roster label (`label_needed`) cannot subscribe.
 
 Your digest then comes from whichever teammate's session is active, on your period, by your precedence, and a
-decision addressed to you reaches the same recipients at once.
+decision addressed to you reaches the same recipients at once — or, when one of your own sessions asked it, after
+your wait and only if you did not answer in that conversation
+([A decision for the session's own user](#a-decision-for-the-sessions-own-user)).
 
 ## The digest itself
 
@@ -115,8 +151,9 @@ everything since the start when you have none; `--to <label>` another subscriber
 
 - **Decisions open** (oldest first) and **closed in the period**; under `--only mine`, only the ones addressed to
   you. An open one is its question, its options one to a line with the default marked `[default]`, then one line
-  saying whom it is for, who asked, how long it has been open and the date an answer is needed by. A closed one is
-  its question, then who closed it and the outcome.
+  saying whom it is for, who asked, how long it has been open, `asked in the conversation` when it was held for
+  the asker's own user and never sent, and the date an answer is needed by. A closed one is its question, then who
+  closed it and the outcome. A decision whose hold still runs is not listed.
 - **Shipped**: the commits, one per hash, the carded ones first, at most 40, each under the session whose checkout
   made it.
 - **Blocked**: every session whose latest note starts `Blocked:`.
@@ -136,6 +173,7 @@ whichever session is active, once per subscriber ([Set up the digests](../../tea
 
 A note and a decision go into the project's state folder, which folder sync carries to every teammate's checkout;
 a decision's ask goes to the person it names through the gateway their recipients name, and from there to Slack or
-a mail provider, or to their session as a team message. Your digest is the watcher's and goes the same way, by
+a mail provider, or to their session as a team message; one for the asking session's own user only after their
+wait. Your digest is the watcher's and goes the same way, by
 your recipients. What that opens: [docs/security.md, section 12](../../security.md#12-file-sync) and
 [section 14](../../security.md#14-the-mail-and-slack-gateways).

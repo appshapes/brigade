@@ -3,13 +3,13 @@ name: subscribe
 description: >-
   Subscribe the user to the project's Brigade digest, or unsubscribe: the `subscribe` skill (`brigade:subscribe`) runs `brigade report subscribe`
   for the user's own roster label, so the team's sessions send them the digest on the period and a
-  `brigade decision --to <their label>` reaches them at once; `--recipients "<@name | #channel | address>"`,
-  `--every <duration>` or `--at <HH:MM> --tz <zone>`, and `--only mine` are the only flags; `brigade:subscribe off` runs
+  `brigade decision --to <their label>` reaches them at once (one their own session asks, after their wait); `--recipients "<@name | #channel | address>"`,
+  `--every <duration>` or `--at <HH:MM> --tz <zone>`, `--only mine` and `--wait <duration>` are the only flags; `brigade:subscribe off` runs
   `brigade report unsubscribe`. Only the user's own entry changes: nobody subscribes anyone else. Use when the
   user asks to get, receive or stop the digest, the report or the decisions for them, or asks to subscribe or
   unsubscribe. A project with no state folder has no digest.
 user-invocable: true
-argument-hint: "[--recipients \"<@name | #channel | address>\"] [--every <duration> | --at <HH:MM> --tz <zone>] [--only mine] | off"
+argument-hint: "[--recipients \"<@name | #channel | address>\"] [--every <duration> | --at <HH:MM> --tz <zone>] [--only mine] [--wait <duration>] | off"
 ---
 
 # Subscribe to the digest, or unsubscribe
@@ -23,11 +23,12 @@ came after the skill's name, `brigade:subscribe`: typed by the user, or passed b
 
    | `$ARGUMENTS` | Meaning |
    | --- | --- |
-   | empty | subscribe with the defaults: the user's own label as the recipient (an email address, which the Slack gateway finds the person by, or the mail gateway carries), every 24 hours, every decision |
+   | empty | subscribe with the defaults: the user's own label as the recipient (an email address, which the Slack gateway finds the person by, or the mail gateway carries), every 24 hours, every decision, a ten-minute wait |
    | `--recipients "<list>"` | where the digest and the decisions for the user go, in order of precedence, separated by `\|`: a Slack handle (`@name`), a channel (`#name`), an email address |
    | `--every <duration>` | the period, such as `4h` or `24h` |
    | `--at <HH:MM> --tz <zone>` | a daily digest at that time in that IANA zone, instead of `--every` |
    | `--only mine` | the digest's decision sections list only the decisions addressed to the user; the contributions stay the team's |
+   | `--wait <duration>` | how long a decision one of the user's own sessions asks them is held, while they can answer it in that conversation, before it goes to the recipients: such as `10m` or `30m`, and `0` sends it at once |
    | `off` | unsubscribe |
 
    `<list>` and `<zone>` are the user's words, never ones you chose. For anything else, say which forms this
@@ -40,7 +41,7 @@ came after the skill's name, `brigade:subscribe`: typed by the user, or passed b
    ```
 
    Print what it printed, verbatim. Its one line names the label the entry was written under, the recipients,
-   the period and the filter. Then say, in one line, that the digest comes from whichever teammate's session is
+   the period, the filter and the wait. Then say, in one line, that the digest comes from whichever teammate's session is
    active, on the period, and that `brigade:subscribe off` undoes it.
 
 3. **`off`.** Run `brigade report unsubscribe` and print what it printed, verbatim.

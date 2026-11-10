@@ -58,8 +58,10 @@ In a project whose `.brigade.json` names a state folder, the hooks keep one stat
 digest its subscribers get, and you add what they cannot know, on stdin in a quoted heredoc: `brigade note` (one
 line of at most 1,000 characters starting `Done:`, `Next:` or `Blocked:`), `brigade decision --to <label>` (a
 question only the person you name can answer, by their roster label; `--to` is required, never guessed; recorded
-and sent at once to their digest recipients, else to their session; `--close <id>` records the outcome once your
-user has acted on it) and `brigade report show` (the digest, printed verbatim when asked). `/brigade:subscribe`
+and sent at once to their digest recipients, else to their session — except for your own user, who is asked in the
+conversation first: that decision is recorded too, held, and sent only if their wait, ten minutes by default,
+passes with no prompt here and it is still open; `--close <id>` records the outcome once your user has answered
+or acted on it) and `brigade report show` (the digest, printed verbatim when asked). `/brigade:subscribe`
 is your user's own opt-in, never run for anyone else. Stop may ask once, as `Brigade state:`, for a note after a
 commit, a fresh doing line after a long turn or a decision you wait on: one ask, then finish; a refusal is final
 for this conversation. Subagents never run these.
