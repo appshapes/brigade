@@ -25,7 +25,9 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `schema` | Regenerate docs/protocol-v1.schema.json from the Go wire types |
 | `schema-check` | Fail if docs/protocol-v1.schema.json is stale, empty or ungenerable (CI) |
 | `test-db` | pgTAP tests in supabase/tests against the running local stack (CI) |
-| `test-integration` | Adapter integration + conformance(supabase) against the local stack (reads $(env_test)) (CI) |
+| `test-integration` | Adapter integration + conformance(supabase) against the local stack (reads $(env_test)) |
+| `test-integration-adapter` | The Supabase adapter's live tests, the fault tests included, against the local stack (reads $(env_test)) (CI) |
+| `test-integration-conformance` | conformance(supabase) with --slow against the local stack (reads $(env_test)) (CI) |
 | `test-all` | Everything (requires `make supabase-start supabase-env`) |
 | `conformance` | Run the conformance suite against an adapter (usage: make conformance adapter=<executable> [args="-- fixed args"]) |
 | `e2e` | Phase 4 no-LLM proof in watcher sink mode against the local stack (CI) |

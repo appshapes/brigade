@@ -17,8 +17,8 @@ make typecheck lint build test vuln deps-check schema-check tidy-check docs-chec
 | `docs-check` | the documentation tree's shape, links, orphans, harness pages, options, the make-target page, the changelog section ([Run the gate](../documentation/gate.md)) |
 
 CI's `fast` job adds `checksums-check`, `plugin-check`, `launcher-check`, `muse-plugin-check`, `codex-plugin-check`,
-`grok-plugin-check` and `functions-check`; the `macos`, `windows`, `reproducibility` and `supabase` jobs the rest
-([Know the CI](ci.md)).
+`grok-plugin-check` and `functions-check`; `lint` runs in a job of its own, and the `windows`, `supabase` and `e2e`
+jobs run the rest ([Know the CI](ci.md)).
 
 ## What lint enforces, in one place
 

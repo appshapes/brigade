@@ -9,6 +9,29 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **A push's CI run takes under five minutes, from eleven** (card 245).
+  Nothing a member installs changes: this is the repository's own
+  `ci.yml`. Its two long jobs ran end to end, `supabase` waiting on
+  `fast`; now `fast`, `lint`, `windows`, `supabase` and `e2e` run side by
+  side, so a run is as long as its longest job. Lint is a job of its own,
+  the local-stack work is two jobs on two stacks (`supabase`: pgTAP, the
+  advisor lints and the adapter's live tests; `e2e`: conformance(supabase)
+  and `make e2e`), and `fast` runs its tests four packages at a time
+  (`make test go_test_p=4`; everywhere else the pin stays 2).
+  `make test-integration` still runs both halves and is now two targets,
+  `make test-integration-adapter` and `make test-integration-conformance`.
+  The `macos` job is gone, and the `reproducibility` job that compared its
+  cross-build with Ubuntu's went with it: in 497 runs `macos` never failed
+  on a macOS-only defect and `reproducibility` never failed. A person's
+  commit has passed `make push` on the developer's machine, a Mac today,
+  before it reaches origin, a release is still where the Linux rebuild
+  must reproduce the checksums `make release` pinned, and what is given up
+  is that a pull request written off a Mac meets macOS at the next
+  `make push` rather than before its merge. The `master` ruleset's
+  required checks are now `fast`, `lint`, `supabase` and `e2e`.
+
 ## [0.49.0] — 2026-11-10
 
 ### Added

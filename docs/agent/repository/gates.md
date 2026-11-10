@@ -2,8 +2,15 @@
 
 - **The acceptance gate** is `make typecheck lint build test vuln deps-check schema-check tidy-check docs-check`.
   `make test` is Docker-free and stack-free: the live Supabase tests are opt-in behind `BRIGADE_TEST_LIVE=1`, which
-  only `make test-integration` (and CI's `supabase` job through it) sets. Run `make supabase-start supabase-env`
-  once, then `make test-all`, before pushing anything that touches `supabase/` or `internal/adapters/supabase`.
+  only `make test-integration-adapter` sets (`make test-integration` runs it, and so does CI's `supabase` job).
+  Run `make supabase-start supabase-env` once, then `make test-all`, before pushing anything that touches
+  `supabase/` or `internal/adapters/supabase`.
+- **CI's shape** (card 245, owner rulings 2026-11-10). `ci.yml`'s `fast`, `lint`, `windows`, `supabase` and `e2e`
+  jobs run side by side, so a run is as long as its longest job: never make one of them wait on another, and keep
+  each under five minutes. The `master` ruleset (`master-pr-checks`) requires `fast`, `lint`, `supabase` and `e2e`
+  by job name: a job added or renamed in `ci.yml` changes the ruleset in the same piece of work, or it gates
+  nothing (or blocks every pull request). There is no macOS job and no cross-host `reproducibility` job; never
+  add one back without the owner. The `fast` job passes `go_test_p=4` to `make test`; everywhere else the pin is 2.
 - **Release pins.** Never commit a `plugin/bin/checksums.txt` or `plugin/bin/VERSION` you did not produce with
   `make release`; `muse/brigade/bin/` carries copies the release sequence writes. `make checksums-check` requires
   the committed file to be reproduced by a fresh cross-compile or backed by the published release (in the

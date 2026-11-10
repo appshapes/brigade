@@ -55,8 +55,8 @@ docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.9.0 -s sh <file>
 ```
 
 If you touched `supabase/` or `internal/adapters/supabase`, say so in your report: the live tests
-(`make test-all`) need a local stack, they are opt-in behind `BRIGADE_TEST_LIVE=1`, and CI's `supabase` job is
-what will actually run them on your PR.
+(`make test-all`) need a local stack, the adapter's are opt-in behind `BRIGADE_TEST_LIVE=1`, and CI's `supabase`
+and `e2e` jobs are what will actually run them on your PR.
 
 ## Committing and pushing
 

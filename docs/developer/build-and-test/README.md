@@ -14,7 +14,7 @@
 ## Run the gate
 
 1. `make typecheck lint build test vuln deps-check schema-check tidy-check docs-check`.
-2. `make push` runs typecheck, pull, build and test before it commits; CI's `fast` job runs the rest.
+2. `make push` runs typecheck, pull, build and test before it commits; CI's `fast` and `lint` jobs run the rest.
 
 Details: [Run the gate](gates.md).
 
@@ -35,7 +35,7 @@ Details: [Run the proofs](proofs.md).
 
 ## Know the CI
 
-1. `ci.yml`: `fast` (Ubuntu), `macos`, `windows`, `reproducibility`, `supabase`, `deploy-staging`; `release.yml` on a `v*` tag.
+1. `ci.yml`: `fast`, `lint`, `windows`, `supabase` and `e2e`, side by side, then `deploy-staging`; `release.yml` on a `v*` tag.
 2. [scripts/ci/README.md](../../../scripts/ci/README.md) says what every script does and what calls it.
 
 Details: [Know the CI](ci.md).

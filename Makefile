@@ -30,13 +30,20 @@ go_flags           := -trimpath -buildvcs=false
 #   -p 16 (the default)  6-7 failures across cmd/brigade, watch and e2e, varying per run
 #   -p 4                 2 failures under `make test`; green twice as a bare `go test` — not reliable
 #   -p 2                 green three runs for three, 206 s / 203 s / 203 s
-# CI's runner is 4 vCPU, so CI has always effectively run -p 4 and has stayed green; the budget is met there
-# because a 4 vCPU Linux box never reaches this machine's sixteen-way concurrency. The pin keeps local runs in
-# a regime the 3 s budget can actually meet instead of letting them scale with core count into one it cannot.
+# The pin keeps local runs in a regime the 3 s budget can actually meet instead of letting them scale with core
+# count into one it cannot.
+#
+# CI is the one caller that overrides it (card 245): `ci.yml`'s `fast` job passes `go_test_p=4` on its 4 vCPU
+# runner. Four packages on four cores is the load CI ran, green, before this pin existed (the default -p is
+# GOMAXPROCS, 4 there), it is lighter than the six on six cores the macOS job ran until that card removed it,
+# and it is nowhere near the sixteen-way concurrency measured above; at the pinned 2 the same runner spent
+# 193 s in `go test` for 283 s of package time (run 42871717045). `go_test_p` is CI's variable, not a local
+# knob, and it is a `:=` so that only a command line changes it, never an environment variable of that name.
 #
 # The budgets themselves (the 4.1 set in adapterclient) are deliberately frozen and are NOT the thing to widen
 # for a local test artefact; if this pin ever stops being enough, that is an owner decision, not a knob here.
-go_test_flags      := -p 2 -race -shuffle=on -count=1 -timeout 15m
+go_test_flags       = -p $(go_test_p) -race -shuffle=on -count=1 -timeout 15m
+go_test_p          := 2
 go_toolchain       := go$(shell sed -n 's/^go //p' go.mod)
 # Reproducible-build environment for `build` and `cross`. -trimpath, -buildvcs=false and a pinned
 # GOTOOLCHAIN are NOT sufficient on their own: GOAMD64, GOARM64 and GOFLAGS are read from whatever the
@@ -271,13 +278,28 @@ schema-check: ## Fail if docs/protocol-v1.schema.json is stale, empty or ungener
 test-db: ## pgTAP tests in supabase/tests against the running local stack (CI)
 	$(supabase) test db supabase/tests/*.sql
 
+# Two halves, each a target of its own, because CI runs them in two jobs on two stacks (card 245): the adapter's
+# live tests take 139 s and conformance(supabase) 77 s on CI's runner (run 42871717045), and the first half's
+# fault tests stop the realtime container and restart the whole stack, which nothing else may share. `make
+# test-integration` still runs both against the one local stack, as two recipe lines and not as two
+# prerequisites: `make -j` starts prerequisites together, and the stack would restart under the conformance suite.
+.PHONY: test-integration
+test-integration: ## Adapter integration + conformance(supabase) against the local stack (reads $(env_test))
+	$(MAKE) test-integration-adapter
+	$(MAKE) test-integration-conformance
+
+# No `build` prerequisite: these tests run the adapter in process, and the only things they spawn are `docker`
+# and `make supabase-stop`/`supabase-start` (the fault tests).
+.PHONY: test-integration-adapter
+test-integration-adapter: ## The Supabase adapter's live tests, the fault tests included, against the local stack (reads $(env_test)) (CI)
+	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 BRIGADE_TEST_DOCKER=1 go test -count=1 -timeout 20m -run 'Integration|Supabase' ./internal/adapters/supabase/...
+
 # No --setup on the conformance line: with the BRIGADE_SUPABASE_* pair in the environment, `team create`/`team join`
 # bind an empty profile themselves (4.1's rule for a human shell, and the suite is one), so the suite provisions its
 # own teams, learns the join secret and runs C-28/C-40 instead of skipping them; scripts/ci/conformance-setup-supabase.sh
 # stays as the documented out-of-band alternative for a backend whose principals are provisioned elsewhere.
-.PHONY: test-integration
-test-integration: build ## Adapter integration + conformance(supabase) against the local stack (reads $(env_test)) (CI)
-	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 BRIGADE_TEST_DOCKER=1 go test -count=1 -timeout 20m -run 'Integration|Supabase' ./internal/adapters/supabase/...
+.PHONY: test-integration-conformance
+test-integration-conformance: build ## conformance(supabase) with --slow against the local stack (reads $(env_test)) (CI)
 	set -a; . ./$(env_test); set +a; $(bin_dir)/brigade-conformance --slow --env BRIGADE_SUPABASE_URL=$$SUPABASE_URL --env BRIGADE_SUPABASE_PUBLISHABLE_KEY=$$SUPABASE_PUBLISHABLE_KEY $(cover_env) --adapter $(bin_dir)/brigade -- adapter supabase
 
 .PHONY: test-all

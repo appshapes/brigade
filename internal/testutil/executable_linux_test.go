@@ -19,7 +19,7 @@ import (
 // not pass by luck. It is not a timing bound; it asks whether ETXTBSY ever
 // happened. Linux only: macOS does not enforce ETXTBSY and assesses a
 // fresh executable on its first exec (~150 ms each), so 1,000 of them
-// would cost the macos job minutes for nothing.
+// would cost every `make test` on a Mac minutes for nothing.
 func TestWriteExecutableUnderConcurrentForks(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

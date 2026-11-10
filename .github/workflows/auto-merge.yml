@@ -1,6 +1,6 @@
 # Arms a merge when — and only when — the reviewer agent approved the CURRENT head of a PR that was labelled for
 # auto-merge at creation time. It does not merge: `--auto` hands the PR to GitHub, which merges it when the
-# branch ruleset's required checks (fast, macos, reproducibility, supabase) pass. The ruleset is what makes the
+# branch ruleset's required checks (fast, lint, supabase, e2e) pass. The ruleset is what makes the
 # word "auto" mean "when green" instead of "now" — see the brief's §1.2 blocker 3.
 #
 # READ §1.2 BLOCKER 3 BEFORE TRUSTING THAT SENTENCE. The merging identity here is GH_ACTIONS_TOKEN, a classic
@@ -34,8 +34,8 @@ jobs:
       github.event.review.commit_id == github.event.pull_request.head.sha
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5          # one API call; not a p90, a floor. Raise it if the contingency below is adopted:
-                                # `gh pr checks --watch` blocks for the length of a CI matrix (~10 min p90), so
-                                # 20 is the right bound there, not 5.
+                                # `gh pr checks --watch` blocks for the length of a CI matrix (under five
+                                # minutes since card 245, ~10 min p90 before it), so 20 is the right bound there.
     # The job's own GITHUB_TOKEN does nothing here: the merge authenticates with GH_ACTIONS_TOKEN below.
     # Declaring an empty block rather than inheriting the default is the point — the reference's
     # `contents: write` on this job is vestigial and misleading.
@@ -49,10 +49,10 @@ jobs:
       #
       # The `||` fallback is not defensive noise, it is the COMMON path. `--auto` calls GitHub's
       # enablePullRequestAutoMerge mutation, which ERRORS with "Pull request is in clean status" when the PR is
-      # already mergeable — and here it usually is: ci.yml's p90s are fast 5m16s, macos 3m02s, supabase 7m25s,
-      # while a reviewer session runs longer than that, so by the time the approval lands all four required
-      # checks are green. Without the fallback the everyday case is a red auto-merge job and a PR that never
-      # merges, while §5 (c)'s red-CI half passes and proves nothing about it. With it: arm if the PR is
+      # already mergeable — and here it usually is: ci.yml's jobs run side by side and the run ends in under five
+      # minutes (card 245), while a reviewer session runs longer than that, so by the time the approval lands all
+      # four required checks are green. Without the fallback the everyday case is a red auto-merge job and a PR
+      # that never merges, while §5 (c)'s red-CI half passes and proves nothing about it. With it: arm if the PR is
       # still waiting, merge outright if it is already green — the checks have been satisfied either way.
       # The fallback is GUARDED by `gh pr checks --required`: the PAT is a ruleset bypass actor, so a bare
       # plain merge would land past the four required checks on ANY `--auto` error — the one gate §1.2
@@ -71,7 +71,7 @@ jobs:
       # written out here, now, so that finding costs a two-line swap rather than a redesign at the worst moment.
       #
       # Replace the whole `run:` line above with the two commands below, in this order, and raise this job's
-      # `timeout-minutes` to 20 (a full CI matrix, p90 ~10 min, is now inside the job):
+      # `timeout-minutes` to 20 (a full CI matrix is now inside the job):
       #
       #   run: |
       #     set -euo pipefail

@@ -1,13 +1,47 @@
-# Plan 7.7. One deviation from the plan text remains, deliberate and marked below:
-#   (d) a `reproducibility` job diffs the `fast` and `macos` checksums instead of leaving the comparison to
-#       whoever reads the two job summaries — see the comment on that job. Keep (d).
+# Plan 7.7, in the shape card 245 gave it on 2026-11-10 to bring a push's run from eleven minutes to under five.
+# Across the 25 green runs on master before it, the run took 11.0 minutes at the median and 12.4 at the p90,
+# because it was two jobs END TO END: `fast` (4.5 median, 5.5 p90), then `supabase` (5.9, 6.6), which waited on
+# it. Three things changed, each a departure from the plan text and each deliberate:
 #
-# The other three are gone. Each was a step disabled by a constant-false `if:` until its deliverable existed:
-# P1-8 removed (b) (the `fast` job ran `make cross` in place of `make checksums-check`) and (c)
+#   (e) The test jobs run SIDE BY SIDE: no job below waits on another except `deploy-staging`. The run is now as
+#       long as its longest job instead of the sum of two. What that costs: a red `fast` no longer skips the
+#       stack jobs, so a commit that fails lint still pays for two local Supabase stacks.
+#   (f) Lint has a job of its own (`lint`), and the stack work is two jobs on two stacks: `supabase` (pgTAP, the
+#       advisor lints, the adapter's live tests) and `e2e` (conformance(supabase) and `make e2e`). Timed on run
+#       42871717045, the last before the change: `make lint` 60 s of `fast`'s 325 s; the adapter's live tests
+#       139 s, conformance(supabase) 77 s and `make e2e` 78 s of `supabase`'s 355 s. `fast` also runs its tests
+#       four packages at a time (`go_test_p=4`; the Makefile's comment on `go_test_flags` says why 2 is the pin
+#       everywhere else).
+#   (g) There is NO `macos` job, and so no `reproducibility` job, which diffed the ubuntu and macOS cross-builds
+#       (the former deviation (d)). Rjae, 2026-11-10: "we don't need a macOS runner". In the 497 runs of this
+#       workflow up to that day `macos` failed four times -- three beside `fast` on the same change, and once
+#       alone (run 33684780907: a timing race in a platform-neutral test of the Supabase adapter, fixed in the
+#       test) -- and `reproducibility` never failed. A person's commit has already passed `make push`
+#       (typecheck, pull, build, test with -race) on the developer's machine, a Mac today, before it reaches
+#       origin, and `make release` goes through the same chain; `fast` still cross-compiles both darwin targets
+#       (`make checksums-check`) and `lint` still loads the tree with GOOS=darwin. What is given up: a pull
+#       request written off a Mac (the agentic loop's, a dependency bump) meets macOS at the next `make push`
+#       rather than before its merge, and the byte-identical cross-host build is asserted when a release is cut
+#       (checksums-check rule (c) on the release commit, release.yml's guard on the tag: both rebuild on Linux
+#       what `make release` pinned) rather than on every push. Bringing either job back is the owner's decision.
+#
+# Each Linux job's setup-go names a DIFFERENT `cache-dependency-path` set, on purpose. setup-go derives its
+# cache key from the runner and the hash of those files and nothing else, and a key is written once: the first
+# job to finish saves, every later save is refused. Jobs that run side by side on one key would leave the Go
+# build cache of whichever finished first -- `lint`'s, without one -race object, for `fast` to restore until the
+# next dependency bump. So each job adds a file of its own to go.sum (`fast` tools.sum, `lint` .golangci.yml
+# as well, `supabase` supabase/config.toml, `e2e` scripts/proof.sh): the file is the job's, the key is its own.
+#
+# The master ruleset (`master-pr-checks`) names the required checks by JOB NAME: fast, lint, supabase and e2e.
+# A job added here is not required until the ruleset names it, and a required name no job reports blocks every
+# pull request: change the two together (scripts/ci/README.md, "Required GitHub configuration").
+#
+# The earlier departures are gone. Each was a step disabled by a constant-false `if:` until its deliverable
+# existed: P1-8 removed (b) (the `fast` job ran `make cross` in place of `make checksums-check`) and (c)
 # (`make plugin-check`), both because scripts/ci/*.sh did not exist yet; P2-1 removed (a) (the whole
 # `supabase` job, until the migrations existed); P2-11 removed the gates on `make test-integration` and on
-# the coverage summary that depends on it; P4-1 removed the LAST one, on the `supabase` job's `make e2e`
-# step, by landing scripts/proof.sh. No constant-false gate remains anywhere in this file, so every step runs
+# the coverage summary that depends on it; P4-1 removed the LAST one, on the `make e2e` step, by landing
+# scripts/proof.sh. No constant-false gate remains anywhere in this file, so every step runs
 # on every push and a green conclusion means every step passed. Do not reintroduce one: gate on a real
 # condition or do not add the step.
 #
@@ -15,15 +49,11 @@
 # concurrency group before anyone notices. The convention and its measured reason are the house's
 # (thinktech-web/.github/workflows/ci.yml:24-26 -- "Every job sets `timeout-minutes` well above its p90 because
 # the default is 360 min: six e2e jobs hung in the Playwright install step for six hours each in August 2026").
-# Each bound here is twice the p90 of TEN real green runs of this workflow, rounded up, and each comment names
-# the slowest of the ten. Those runs are 33908735238, 33910839825, 33912150864, 33916051347, 33918074768,
-# 33920933602, 33936887138, 33938576261, 33941694993 and 33942289055 (2026-09-04 and 2026-09-05). Re-measure
-# with `gh run list --workflow ci.yml --json databaseId` and `gh run view <id> --json jobs` before tightening
-# one: a bound under a job's real p90 turns a green matrix red for no reason. Every one of those ten runs was
-# measured on GITHUB-HOSTED hardware (`ubuntu-latest`, `macos-latest`), and since P5-17 these jobs run on
-# Blacksmith, whose first green run of this file (33996821598, 2026-09-05) was faster on all four -- fast 3m00s,
-# macos 2m50s, reproducibility 9s, supabase 6m03s -- so every bound below is LOOSE on the new hardware rather
-# than wrong: leave each one alone until ten Blacksmith runs give it a new p90.
+# The rule: twice the p90 of TEN real green runs, rounded up, the comment naming the slowest of the ten.
+# Re-measure with `gh run list --workflow ci.yml --json databaseId` and `gh run view <id> --json jobs` before
+# tightening one: a bound under a job's real p90 turns a green matrix red for no reason. The bounds on `fast`,
+# `supabase` and `e2e` are the ones the longer jobs of the earlier shape carried, so each is LOOSE here rather
+# than wrong: leave each one alone until ten runs of this shape give it a p90.
 name: ci
 on:
   push: {branches: [master]}
@@ -32,9 +62,9 @@ permissions: {contents: read}
 concurrency: {group: "ci-${{ github.ref }}", cancel-in-progress: true}
 
 jobs:
-  fast:                                   # no Docker; 4m28s-5m17s across the ten runs above
+  fast:                                   # no Docker: typecheck, the tests, the guards and the package checks
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 11                   # 2x the 5m16s p90; slowest observed 5m17s on run 33941694993
+    timeout-minutes: 11                   # the earlier shape's bound (2x its 5m16s p90), with lint still in the job
     steps:
       - uses: actions/checkout@v7
         with: {fetch-depth: 0}            # P1-8's checksums-check needs tags and the release listing
@@ -47,13 +77,13 @@ jobs:
       # What the IMAGE provides, printed. Four steps below depend on tools no workflow installs: `shellcheck`
       # (plugin-check.sh check 9, which DIES when CI is set), `curl` and `jq` (scripts/ci/keepalive.sh's preflight
       # -- keepalive.yml runs on the same label and has no CI coverage at all, so a missing tool there surfaces a
-      # day later by e-mail), `docker` (the `supabase` job) and `gh` (checksums-check.sh rule (c), release.yml's
-      # Publish step). GitHub publishes its image's contents and Blacksmith says its images carry "the same
-      # dependencies supported by GitHub's official runner image" -- neither is a measurement of the runner that
-      # actually ran, and CLAUDE.md's shellcheck sentence rests on a version this repository has never printed
-      # (inferred from SC2317 vs SC2329 on run 33753678522, on the old GitHub-hosted runner). So print it. This
-      # step never gates: each tool's real gate is where it is used. `go version` is setup-go's toolchain, not
-      # the image's.
+      # day later by e-mail), `docker` (the `supabase` and `e2e` jobs) and `gh` (checksums-check.sh rule (c),
+      # release.yml's Publish step). GitHub publishes its image's contents and Blacksmith says its images carry
+      # "the same dependencies supported by GitHub's official runner image" -- neither is a measurement of the
+      # runner that actually ran, and CLAUDE.md's shellcheck sentence rests on a version this repository has never
+      # printed (inferred from SC2317 vs SC2329 on run 33753678522, on the old GitHub-hosted runner). So print it.
+      # This step never gates: each tool's real gate is where it is used. `go version` is setup-go's toolchain,
+      # not the image's.
       - name: Runner image inventory
         run: |
           {
@@ -73,20 +103,21 @@ jobs:
             done
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      - run: make setup-lint              # golangci-lint via install.sh into ./bin (pinned)
       - run: make typecheck tidy-check
-      - run: make lint
-      - run: make build test              # unit + testscript + harness + conformance(fs), -race, coverage profile
+      # unit + testscript + harness + conformance(fs), -race, coverage profile. `go_test_p=4`: four packages at a
+      # time on this 4 vCPU runner (card 245). At the Makefile's pin of 2 the `go test` line took 193 s for 283 s
+      # of package time on run 42871717045, and it was the longest thing in this file.
+      - run: make build test go_test_p=4
       - run: go tool cover -func=cover.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
       - run: make vuln deps-check schema-check
-      # `checksums-check` depends on `cross`, so all four targets are still rebuilt with the release flags and
-      # dist-cross/checksums.txt still exists for the two steps below. GH_TOKEN is for rule (c)'s release
+      # `checksums-check` depends on `cross`, so all six targets are still rebuilt with the release flags and
+      # dist-cross/checksums.txt still exists for the step below. GH_TOKEN is for rule (c)'s release
       # fallback (`gh release download v$VERSION`); in the pre-release 0.0.0 state the script never reaches it.
       - run: make checksums-check         # plugin/bin pins vs a fresh cross-compile or the published release
         env: {GH_TOKEN: "${{ github.token }}"}
-      - run: cat dist-cross/checksums.txt >> "$GITHUB_STEP_SUMMARY"   # cross-host reproducibility evidence (P1-1)
-      - uses: actions/upload-artifact@v7
-        with: {name: checksums-ubuntu, path: dist-cross/checksums.txt, if-no-files-found: error}
+      # What this host built, for a reader to hold against a `make cross` of the same commit on another machine:
+      # since card 245 no job compares two hosts (the header's (g)).
+      - run: cat dist-cross/checksums.txt >> "$GITHUB_STEP_SUMMARY"
       # scripts/ci/plugin-check.sh then scripts/ci/no-secrets.sh: the plugin/ file allowlist, mode 100755 in
       # git for the bootstrap and 100644 for everything else, VERSION == plugin.json, no .mcp.json/mcpServers/
       # channels, exec-form hooks whose commands exist, sh/bash/zsh syntax, shellcheck (a hard failure here
@@ -103,38 +134,24 @@ jobs:
         with: {deno-version: v2.6.2}
       - run: make functions-check deno=deno
 
-  macos:                                  # the primary user platform: unix sockets, ps -o lstart, shasum paths
-    # Rjae, 2026-09-05: `blacksmith-6vcpu-macos-latest`, restoring the pre-migration `macos-latest` meaning — the
-    # current macOS major (26 today), the platform the developer and the users are on. The wizard had pinned
-    # `-macos-15` (macOS 15.7.4, one major behind); the "Runner image inventory" step below prints `sw_vers` on
-    # every run, so the version is a measurement, not this comment.
-    runs-on: blacksmith-6vcpu-macos-latest
-    timeout-minutes: 7                    # 2x the 3m02s p90; slowest observed 3m12s on run 33920933602
+  # golangci-lint for darwin, linux and windows, then once per mutant tag, and the plain gofmt check: seven
+  # golangci-lint runs that share nothing with the tests, so they are a job beside `fast` rather than a minute
+  # inside it (card 245; 60 s to 84 s as a step of `fast` on runs 42871717045, 42864136414 and 42854679565).
+  lint:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10                   # first runs: measure, then pin at 2x the p90 like the others. Loose until
+                                          # then: no run has timed this job alone, or on a cold Go build cache
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
-      # As in `fast`, and for the same reason: the macOS version is a fact about the runner, not about the tag.
-      # `make cross` below picks `sha256sum` or `shasum -a 256` by what is on PATH (the Makefile's `sha256`), so
-      # which one this image has is exactly what the `reproducibility` job's diff depends on. Run 33996821598
-      # already answered it once -- job 101388707813 echoed `cd dist-cross && sha256sum brigade_* > checksums.txt`
-      # -- so this step keeps a measured fact printed rather than settling an unknown.
-      - name: Runner image inventory
-        run: |
-          {
-            echo '### Runner image'
-            echo '```'
-            (sw_vers && uname -m) || echo 'sw_vers: FAILED'
-            go version || echo 'go: version check FAILED'
-            for t in sha256sum shasum; do
-              if command -v "$t" >/dev/null 2>&1; then echo "$t: $(command -v "$t")"; else echo "$t: ABSENT"; fi
-            done
-            echo '```'
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-      - run: make build && go test -race -shuffle=on -count=1 -timeout 15m ./...
-      - run: make cross && cat dist-cross/checksums.txt >> "$GITHUB_STEP_SUMMARY"   # must equal the fast job's and the developer's (P1-1)
-      - uses: actions/upload-artifact@v7
-        with: {name: checksums-macos, path: dist-cross/checksums.txt, if-no-files-found: error}
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |        # a key of this job's own: the header says why
+            go.sum
+            tools.sum
+            .golangci.yml
+      - run: make setup-lint              # golangci-lint via install.sh into ./bin (pinned)
+      - run: make lint
 
   # Native Windows (card 133, .context/plans/native-windows.md): the binary builds, vets and tests on a GitHub-hosted
   # Windows runner (the Blacksmith fleet has no Windows image; a public repository's GitHub-hosted minutes are free).
@@ -172,68 +189,67 @@ jobs:
           go test -shuffle=on -count=1 -timeout 15m ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-  # (d) P1-1's cross-host reproducibility criterion, as an assertion rather than as two job summaries a human
-  #     is trusted to compare. `cat >> $GITHUB_STEP_SUMMARY` in the two jobs above cannot go red however far
-  #     the ubuntu and macOS builds diverge, so on its own it is evidence, not a gate. The two files are
-  #     directly comparable: GNU `sha256sum` and Perl `shasum -a 256` emit byte-identical
-  #     "<hash>  <name>" lines [verified], both jobs read the same version from plugin/bin/VERSION, and
-  #     `make cross` pins GOTOOLCHAIN, CGO_ENABLED, GOFLAGS, GOAMD64 and GOARM64 (7.4).
-  reproducibility:
-    needs: [fast, macos]
+  # Docker, first half: the database's own tests and the adapter's live tests, on a local stack this job starts
+  # and no other job shares -- the fault tests stop the realtime container and restart the whole stack. In the
+  # earlier shape `make supabase-start` was 27 s to 30 s of this job (the ghcr.io image pulls inside it 34 s to
+  # 38 s on GitHub-hosted hardware, timed from the step logs of 33942289055 and 33941694993).
+  supabase:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # Two artifact downloads and a diff: 3s to 8s across the ten runs, slowest 8s on run 33936887138. Twice that
-    # p90 is under a minute, which is a bound set by network variance rather than by the job; 5 is the floor.
-    timeout-minutes: 5
-    steps:
-      - uses: actions/download-artifact@v8
-        with: {name: checksums-ubuntu, path: ubuntu}
-      - uses: actions/download-artifact@v8
-        with: {name: checksums-macos, path: macos}
-      - name: The ubuntu and macOS cross-builds must be byte-identical
-        run: |
-          diff ubuntu/checksums.txt macos/checksums.txt
-          {
-            echo '### Cross-host reproducibility: ubuntu == macOS'
-            echo '```'
-            cat ubuntu/checksums.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  supabase:                               # Docker; 6m53s-7m27s across the ten runs above, of which the
-                                          # `make supabase-start` step is 51s-1m10s and the ghcr.io image pulls
-                                          # inside it 34s-38s (timed from the step logs of 33942289055, 33941694993)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: fast
-    timeout-minutes: 25                   # unchanged and deliberately loose: 3x the 7m25s p90, slowest 7m27s on
-                                          # run 33942289055, because this job pulls images over the network
+    timeout-minutes: 25                   # the earlier shape's bound and deliberately loose: this job pulls images
+                                          # over the network
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |        # a key of this job's own: the header says why
+            go.sum
+            supabase/config.toml
       - uses: supabase/setup-cli@v3
         with: {version: 2.116.0}          # pinned explicitly; no lockfile exists any more to read it from
-      - run: make build
       - run: make supabase-start supabase=supabase   # `supabase ?=` in the Makefile: CI overrides the npx form with
       - run: make test-db supabase=supabase          # the setup-cli binary, so local and CI run the same recipes and
       - run: make supabase-env advisor-lints supabase=supabase   # the version is pinned in exactly one place per context
-      # go test (the self-skip of testutil.RequireSupabase is lifted by BRIGADE_TEST_LIVE=1 and .env.test) +
-      # conformance(supabase) --slow, both against the stack started above. BRIGADE_TEST_LIVE=1 and
-      # BRIGADE_TEST_DOCKER=1 both come from the Makefile recipe: the first is the opt-in EVERY live test waits
-      # on, so this job is the only place in CI that runs them (`fast` and `macos` have no stack and no
-      # .env.test and skipped them already); the second adds the fault tests that stop the realtime container
-      # and restart the whole stack.
-      # This step's gate used to name scripts/ci/conformance-setup-supabase.sh as P2-11's landing. The
+      # go test (the self-skip of testutil.RequireSupabase is lifted by BRIGADE_TEST_LIVE=1 and .env.test)
+      # against the stack started above. BRIGADE_TEST_LIVE=1 and BRIGADE_TEST_DOCKER=1 both come from the
+      # Makefile recipe: the first is the opt-in EVERY live test waits on, so this job is the only place in CI
+      # that runs them (`fast` has no stack and no .env.test and skipped them already); the second adds the
+      # fault tests that stop the realtime container and restart the whole stack. These tests run the adapter in
+      # process: the target builds no bin/brigade, and there is no coverage directory to make.
+      - run: make test-integration-adapter
+      - if: always()
+        run: make supabase-clean supabase=supabase
+
+  # Docker, second half: the conformance suite and the no-LLM proof, each driving the BUILT bin/brigade against a
+  # local stack of this job's own. Before card 245 these were the last two steps of `supabase`.
+  e2e:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 25                   # `supabase`'s bound, for the same reason: the image pulls
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |        # a key of this job's own: the header says why
+            go.sum
+            scripts/proof.sh
+      - uses: supabase/setup-cli@v3
+        with: {version: 2.116.0}          # the same pin as the `supabase` job's
+      - run: make supabase-start supabase-env supabase=supabase
+      # conformance(supabase) --slow against the stack started above. The step that ran `make test-integration`
+      # used to name scripts/ci/conformance-setup-supabase.sh as P2-11's landing. The
       # script exists (P2-6..P2-10 landed it) but the Makefile recipe no longer uses it: --setup was
       # dropped so the suite provisions its own teams through the BRIGADE_SUPABASE_* pair and RUNS C-28 and
       # C-40 instead of skipping them. It stays as the documented out-of-band alternative for a backend
-      # whose principals are provisioned elsewhere; the reasoning is on the `test-integration` recipe in
-      # the Makefile. GOCOVERDIR must EXIST before an instrumented child looks for it — Go's coverage runtime does
+      # whose principals are provisioned elsewhere; the reasoning is on the `test-integration-conformance` recipe
+      # in the Makefile. GOCOVERDIR must EXIST before an instrumented child looks for it — Go's coverage runtime does
       # not create it, it warns on stderr and writes nothing — and `covdata percent` on a missing directory
       # is an error, so the directory is made here rather than left to whichever step happens to run.
-      - name: integration suite and conformance(supabase), instrumented across the process boundary
+      # BRIGADE_COVER=1 is what instruments the build: the target's `build` prerequisite reads `cover_flags`.
+      - name: conformance(supabase), instrumented across the process boundary
         run: |
           mkdir -p "${{ runner.temp }}/cov"
-          make test-integration
+          make test-integration-conformance
         env: {BRIGADE_COVER: "1", GOCOVERDIR: "${{ runner.temp }}/cov"}
       # BRIGADE_COVER=1 matters as much as GOCOVERDIR here: `e2e: build` rebuilds bin/brigade and
       # `cover_flags` keys off BRIGADE_COVER, so without it this step would rebuild UNINSTRUMENTED and
@@ -251,7 +267,7 @@ jobs:
 
   deploy-staging:                         # Phase 5; only when a hosted staging project exists
     if: github.ref == 'refs/heads/master' && vars.BRIGADE_STAGING == 'true'
-    needs: [fast, supabase]
+    needs: [fast, lint, supabase, e2e]
     environment: staging
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # No observed run: `vars.BRIGADE_STAGING` has never been set, so this job has only ever been skipped. The
