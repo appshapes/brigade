@@ -53,7 +53,10 @@
 # Re-measure with `gh run list --workflow ci.yml --json databaseId` and `gh run view <id> --json jobs` before
 # tightening one: a bound under a job's real p90 turns a green matrix red for no reason. The bounds on `fast`,
 # `supabase` and `e2e` are the ones the longer jobs of the earlier shape carried, so each is LOOSE here rather
-# than wrong: leave each one alone until ten runs of this shape give it a p90.
+# than wrong: leave each one alone until ten runs of this shape give it a p90. Its first four (run 42890494351,
+# attempts 1 to 4, 2026-11-10, the first on cold caches for `lint`, `supabase` and `e2e`): the run 3m47s to
+# 4m19s; `fast` 2m38s to 3m42s, `lint` 1m06s to 1m22s, `windows` 1m51s to 2m01s, `supabase` 3m27s to 4m08s,
+# `e2e` 3m33s to 3m48s; no job waited more than 14 s for its runner.
 name: ci
 on:
   push: {branches: [master]}
@@ -106,7 +109,8 @@ jobs:
       - run: make typecheck tidy-check
       # unit + testscript + harness + conformance(fs), -race, coverage profile. `go_test_p=4`: four packages at a
       # time on this 4 vCPU runner (card 245). At the Makefile's pin of 2 the `go test` line took 193 s for 283 s
-      # of package time on run 42871717045, and it was the longest thing in this file.
+      # of package time on run 42871717045, and it was the longest thing in this file; at 4 it took 98 s to 141 s
+      # for 249 s to 330 s of package time on the four attempts of run 42890494351, every package green.
       - run: make build test go_test_p=4
       - run: go tool cover -func=cover.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
       - run: make vuln deps-check schema-check
@@ -192,7 +196,9 @@ jobs:
   # Docker, first half: the database's own tests and the adapter's live tests, on a local stack this job starts
   # and no other job shares -- the fault tests stop the realtime container and restart the whole stack. In the
   # earlier shape `make supabase-start` was 27 s to 30 s of this job (the ghcr.io image pulls inside it 34 s to
-  # 38 s on GitHub-hosted hardware, timed from the step logs of 33942289055 and 33941694993).
+  # 38 s on GitHub-hosted hardware, timed from the step logs of 33942289055 and 33941694993). This is the run's
+  # LONGEST job, and the adapter's live tests are why: `go test` reported 140 s to 173 s for the one package on
+  # the four attempts of run 42890494351, with a warm cache on three of them.
   supabase:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 25                   # the earlier shape's bound and deliberately loose: this job pulls images
