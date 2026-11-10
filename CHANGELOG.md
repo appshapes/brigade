@@ -29,6 +29,19 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   ([`docs/security.md`](docs/security.md)) now says that `team.json` keeps
   the label a join sent, which it always has, and that a profile with no
   account of its own sends the default profile's address.
+- **What Codex's terminal title adds to a session's name, measured** (card
+  190). A Codex session renamed to `reviewer` in a checkout folder
+  `brigade` is titled `reviewer | brigade` by Codex and listed as
+  `reviewer` on the roster. The suffix is Codex's own terminal title: the
+  thread's name, then the folder name of the git repository's root (not
+  the remote's name, not the working directory's inside a repository).
+  Codex stores the name alone and Brigade reads it from there, so the
+  roster was already right and no code changed. `/title` in Codex, or
+  `tui.terminal_title` in its configuration, chooses what the title
+  shows. [Know what teammates see about your session](docs/team-member/use/your-session-on-the-roster.md#names-models-and-context-by-host)
+  says so, and the evidence is in
+  [the terminal title experiment](docs/experiments/codex-terminal-title.md)
+  (Codex 0.166.0), with its driver in `scripts/experiments/codex-title/`.
 
 ### Changed
 

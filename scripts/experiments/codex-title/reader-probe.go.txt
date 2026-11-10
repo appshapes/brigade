@@ -1,0 +1,22 @@
+package watch
+
+// Card 190's reader probe: the shipped host-facts reader (the code the watcher runs before every heartbeat),
+// pointed at the operator's real Codex home and one thread id, prints the name Brigade would publish on the
+// roster for that thread. It lives outside the Go tree and is compiled into the package only through
+// `go test -overlay` (reader-probe.sh), so the checkout is never written.
+
+import (
+	"os"
+	"testing"
+
+	"github.com/appshapes/brigade/internal/harness/config"
+)
+
+func TestCard190ReaderProbe(t *testing.T) {
+	root, id := os.Getenv("CARD190_CODEX_HOME"), os.Getenv("CARD190_THREAD_ID")
+	if root == "" || id == "" {
+		t.Skip("set CARD190_CODEX_HOME and CARD190_THREAD_ID")
+	}
+	r := &hostFactsReader{host: config.HostCodex, root: root, id: id}
+	t.Logf("roster name from the reader: %q", r.refresh().name)
+}

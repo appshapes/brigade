@@ -59,6 +59,15 @@ Codex 0.163.0's paginated mode still writes the supported rollout events; page-o
 unsupported. Muse custom data directories are unsupported because its plugin hooks do not receive the original
 XDG data setting. Details: [Muse](../../agent/in-a-team/muse-code.md), [Codex](../../agent/in-a-team/codex.md).
 
+Codex CLI's terminal title is not the session's name. By default Codex titles the tab with the thread's name,
+then ` | ` and the folder name of the repository's root (of the working directory, outside a repository): a session
+renamed to `reviewer` in a checkout folder `brigade` is titled `reviewer | brigade` there and listed as `reviewer`
+here. Codex stores the name alone, and that is what the roster carries. The REPO column is Brigade's own label
+([below](#the-repository-name)), by default the `origin` remote's name, so it can differ from Codex's folder name
+in a checkout that is not named after its remote. `/title` in Codex, or `tui.terminal_title` in its
+`config.toml`, chooses what the title shows (`["thread-name"]` is the name alone); Brigade neither reads nor sets
+it. Measured in [the terminal title experiment](../../experiments/codex-terminal-title.md).
+
 ## Naming your session from inside it
 
 A Claude Code session is named by you: `/rename <name>` while it runs, or `claude -n <name>` when you start it. Its

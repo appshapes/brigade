@@ -6,6 +6,9 @@ including cached input once; it is neither cumulative usage nor window capacity.
 hook-written session map. The observed 0.163.0 paginated history retains these events, as classic JSONL does.
 Missing/unsupported records leave context blank and the name at its last known value. Reads are bounded;
 page-only or database-only storage is unsupported. See [format evidence and limits](../../research/host-session-facts.md).
+The ` | <folder>` Codex shows after that name in its terminal title is Codex's own display (the folder name of the
+repository's root), not part of the name and not on the roster
+([measured](../../experiments/codex-terminal-title.md), card 190).
 
 The Codex CLI package (`codex/brigade/`) ships the same nine skills, worded for Codex. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
