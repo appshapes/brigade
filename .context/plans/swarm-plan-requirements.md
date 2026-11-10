@@ -229,3 +229,20 @@ fall away with the plan record: the plan is the coordinator's file. Question 3 f
 has one owner before work starts. Question 5 stays advice on the page: one session commits per checkout. Question
 9 is unchanged: a stopped holder shows as late as the roster shows it, and the coordinator learns of it when a
 report is overdue.
+
+**The card's eight questions, answered.**
+
+- **Name.** "Plan", and "plan invitation". Not "swarm topic".
+- **Split.** Both. A part is a row of the plan file with an owner and an "after" column, so a plan can split by
+  stream of work, by role (implement, then review, then test), or by both. The coordinator decides.
+- **Claim.** There is none. The coordinator gives every part one owner before work starts, as an ordered queue per
+  session, and only the coordinator reassigns.
+- **Storage.** The coordinator's plan file, in a synced folder. A session in another repository gets its parts in
+  messages. Nothing in the backend.
+- **Failure.** The coordinator notices an overdue report, reads the roster, and reassigns the part.
+- **Approval.** The coordinator checks each result. What needs a person goes to the coordinator's user, in that
+  session. One session commits per checkout, and its user approves a merge. A message approves nothing.
+- **Harnesses.** Sessions of all four harnesses can invite and be invited from 0.49.0. Only Claude Code was
+  measured (E17).
+- **Protocol.** Protocol v1 does not change.
+
