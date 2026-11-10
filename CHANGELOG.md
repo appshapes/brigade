@@ -9,6 +9,20 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A fresh team's first `make gateway-install` completes with Resend**
+  (card 175). The installer read a new inbox's receiving address from
+  Resend's answer to the create, which carries the inbox's id and no
+  address, so a team's first run stopped after it had created the inbox
+  and only a second run finished. It now reads the new inbox back by its
+  id, as a re-run already did, and looks for it in Resend's list when the
+  answer to the create carries no id. An inbox that exists without a
+  receiving address is reported, never created a second time. When the
+  step fails, the error says what was checked and passes on Resend's own
+  reason (a plan with no inbox left, say) instead of guessing at the API
+  key and the dashboard. A dry run and a re-run are unchanged.
+
 ## [0.48.0] — 2026-11-10
 
 ### Added

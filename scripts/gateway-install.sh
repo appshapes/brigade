@@ -179,6 +179,18 @@ case "$provider" in
   resend)
     printf 'Authorization: Bearer %s\n' "$RESEND_API_KEY" > "$work/re.h"
     resend() { curl -sS -H @"$work/re.h" -H 'Content-Type: application/json' "$@"; }
+    # resend_said prints "; Resend said: <message>" for an answer of Resend's that carries a message (an error
+    # does: statusCode, message, name), on one line and at most 300 characters of it, and nothing for an answer
+    # that carries none or is not JSON.
+    resend_said() {
+      printf '%s' "$1" |
+        jq -r '(.message? // empty) | tostring | split("\n") | join(" ") | split("\r") | join(" ") | "; Resend said: " + .[0:300]' 2>/dev/null || true
+    }
+    # inbox_id_in prints the id of the inbox for the address $2 in the list answer $1, or nothing.
+    inbox_id_in() {
+      printf '%s' "$1" |
+        jq -r --arg a "$2" '(.data // [])[] | select(.email_address == $a) | .id // empty' 2>/dev/null | head -1
+    }
     ;;
   postmark)
     printf 'X-Postmark-Server-Token: %s\n' "$POSTMARK_SERVER_TOKEN" > "$work/pm.h"
@@ -249,13 +261,16 @@ case "$provider" in
   resend)
     send_url="$fn_base/mail-connector-resend/send"
     hook_url="$fn_base/mail-connector-resend/webhook"
+    # Resend's list carries no receiving address, and neither does its answer to a create (card 175): only an
+    # inbox read by its id does. So this step first settles WHICH inbox (inbox_id), then reads that one.
+    inbox_id=''
     if [ -z "$inbox" ]; then
-      # The list carries no receiving address; each inbox does. The one the installed gateway uses is the one
-      # whose receiving address hashes to the stored digest; failing that, the inbox for the --from address.
+      # The one the installed gateway uses is the one whose receiving address hashes to the stored digest;
+      # failing that, the inbox for the --from address.
       inboxes=$(resend "https://api.resend.com/inboxes")
       if [ -n "$inbox_digest" ]; then
-        for inbox_id in $(printf '%s' "$inboxes" | jq -r '(.data // [])[] | .id'); do
-          candidate=$(resend "https://api.resend.com/inboxes/$inbox_id" | jq -r '.receiving_address // empty')
+        for candidate_id in $(printf '%s' "$inboxes" | jq -r '(.data // [])[] | .id'); do
+          candidate=$(resend "https://api.resend.com/inboxes/$candidate_id" | jq -r '.receiving_address // empty' 2>/dev/null) || candidate=''
           if [ -n "$candidate" ] && [ "$(sha256 "$candidate")" = "$inbox_digest" ]; then
             inbox="$candidate"
             say "keeping the receiving address the installed gateway already uses"
@@ -263,25 +278,37 @@ case "$provider" in
           fi
         done
       fi
-      if [ -z "$inbox" ]; then
-        inbox_id=$(printf '%s' "$inboxes" |
-          jq -r --arg a "$from_addr" '(.data // [])[] | select(.email_address == $a) | .id // empty' | head -1)
-        if [ -n "$inbox_id" ]; then
-          inbox=$(resend "https://api.resend.com/inboxes/$inbox_id" | jq -r '.receiving_address // empty')
-        fi
+      [ -n "$inbox" ] || inbox_id=$(inbox_id_in "$inboxes" "$from_addr")
+    fi
+    if [ -z "$inbox" ] && [ -z "$inbox_id" ] && [ -z "$dry" ]; then
+      # No inbox for the --from address yet: create one. The answer to the create carries the new inbox's id;
+      # should it carry none, the list says whether the inbox was made all the same, so that an answer of
+      # another shape, or one lost on the way, does not leave a made inbox behind for a second run to find.
+      created=$(jq -n --arg a "$from_addr" '{email_address: $a, name: "Brigade mail gateway", from_name: "Brigade", forwarding: true}' |
+        resend -X POST "https://api.resend.com/inboxes" -d @-) || created=''
+      inbox_id=$(printf '%s' "$created" | jq -r '.id // empty' 2>/dev/null) || inbox_id=''
+      if [ -z "$inbox_id" ]; then
+        inboxes=$(resend "https://api.resend.com/inboxes") || inboxes=''
+        inbox_id=$(inbox_id_in "$inboxes" "$from_addr")
       fi
-    fi
-    if [ -z "$inbox" ] && [ -z "$dry" ]; then
-      inbox=$(jq -n --arg a "$from_addr" '{email_address: $a, name: "Brigade mail gateway", from_name: "Brigade", forwarding: true}' |
-        resend -X POST "https://api.resend.com/inboxes" -d @- | jq -r '.receiving_address // empty')
-    fi
-    if [ -z "$inbox" ]; then
-      if [ -n "$dry" ]; then
-        inbox="<a Resend-managed receiving address, created on the real run>"
-      else
-        echo "gateway-install: Resend did not provide a receiving address: the API key may lack full access, or receiving is off in the Resend dashboard (then pass --inbox <address>)" >&2
+      if [ -z "$inbox_id" ]; then
+        printf '%s\n' "gateway-install: Resend did not create an inbox for $from_addr: its answer to the create carries no id, and its list has no inbox for that address$(resend_said "$created") (or pass --inbox <address>)" >&2
         exit 1
       fi
+    fi
+    if [ -z "$inbox" ] && [ -n "$inbox_id" ]; then
+      # The inbox for the --from address, found above or just created. One that carries no receiving address is
+      # never a reason to create another: say so and stop.
+      read_back=$(resend "https://api.resend.com/inboxes/$inbox_id") || read_back=''
+      inbox=$(printf '%s' "$read_back" | jq -r '.receiving_address // empty' 2>/dev/null) || inbox=''
+      if [ -z "$inbox" ]; then
+        printf '%s\n' "gateway-install: the Resend inbox for $from_addr carries no receiving address when read by its id$(resend_said "$read_back"); run this again to read it once more, or pass --inbox <address>" >&2
+        exit 1
+      fi
+    fi
+    if [ -z "$inbox" ]; then
+      # Only a dry run with no inbox for the --from address gets here: a real run has an address or has stopped.
+      inbox="<a Resend-managed receiving address, created on the real run>"
     fi
     if [ -z "$dry" ]; then
       # Replace any webhook already pointed at the connector, or at the core's own endpoint (where the webhook
