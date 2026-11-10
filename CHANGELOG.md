@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.49.0] — 2026-11-10
+
 ### Added
 
 - **A session answers a plan invitation for itself** (card 242). When
