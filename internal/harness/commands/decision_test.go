@@ -77,8 +77,8 @@ func sendDoc(t *testing.T, f *fixture) map[string]any {
 // TestDecisionAsksThroughTheSlackGateway: an ask writes the decision to
 // both copies with the asker's facts and the addressee, sends it once to
 // the Slack gateway — the first of the addressee's recipients a gateway
-// carries — under a `to:` first line in the labelled shape, records how
-// it went, and says so.
+// carries — under a `to:` first line as the ask a person reads, records
+// how it went, and says so.
 func TestDecisionAsksThroughTheSlackGateway(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -113,16 +113,22 @@ func TestDecisionAsksThroughTheSlackGateway(t *testing.T) {
 	}
 	doc := sendDoc(t, f)
 	body, _ := doc["body"].(string)
-	if doc["recipient_session_id"] != slackGatewayID || doc["sender_session_id"] != selfSessionID || !strings.HasPrefix(doc["summary"].(string), "Decision "+id+": Ship 0.43.0 now") {
+	// Through a gateway the summary is the question alone (a mail's
+	// subject), and the body is the gateway's `to:` line, then the ask a
+	// person reads: the question, the options with the default marked,
+	// the date. No preamble, id, addressee, asker, repository or card
+	// (owner rulings 2026-11-09, card 193).
+	if doc["recipient_session_id"] != slackGatewayID || doc["sender_session_id"] != selfSessionID || doc["summary"] != "Ship 0.43.0 now, or wait for the Stop hook?" {
 		t.Fatalf("send %v", doc)
 	}
-	want := "to: @bob\n\nBrigade decision for BOB@example.com from team ops. Answer however you wish; the session acts on your answer and closes the decision.\n" +
-		strings.Join(d.Lines(), "\n")
-	if body != want {
+	want := "to: @bob\n\nShip 0.43.0 now, or wait for the Stop hook?\n\n- ship now\n- [default] wait\n\nAnswer by 2026-10-31."
+	if body != want || body != "to: @bob\n\n"+d.Ask() {
 		t.Fatalf("body = %q\nwant %q", body, want)
 	}
-	if !strings.Contains(body, "options: ship now | wait") || !strings.Contains(body, "  for BOB@example.com, asked 2026-09-02 by alice@example.com (session payments-api), repository payments, card 162, answer by 2026-10-31") {
-		t.Fatalf("body %q", body)
+	for _, gone := range []string{"Brigade decision for", id, "BOB@example.com", "alice@example.com", selfSessionName, "payments", "162", "options:", "default:"} {
+		if strings.Contains(body, gone) {
+			t.Fatalf("the ask carries %q: %q", gone, body)
+		}
 	}
 }
 
@@ -153,7 +159,7 @@ func TestDecisionFallsBackToTheirSession(t *testing.T) {
 			t.Fatalf("result %v", result)
 		}
 		doc := sendDoc(t, f)
-		if doc["recipient_session_id"] != bobSessionID || strings.HasPrefix(doc["body"].(string), "to:") {
+		if doc["recipient_session_id"] != bobSessionID || doc["body"] != "Which backend?" {
 			t.Fatalf("send %v", doc)
 		}
 		if got := state.ReadDecisions(folder); len(got) != 1 || got[0].Sent != state.SentSession || got[0].SentTo != bobSessionID || len(got[0].Options) != 0 {
@@ -173,8 +179,10 @@ func TestDecisionFallsBackToTheirSession(t *testing.T) {
 		if lines := strings.Split(strings.TrimSpace(f.out.String()), "\n"); len(lines) != 2 || !strings.HasPrefix(lines[1], "sent: to bob@example.com at their session "+bobSessionID[:5]+" as a team message (not subscribed, or no gateway of their recipients on the roster), message msg-4") {
 			t.Fatalf("stdout %q", f.out.String())
 		}
+		// To a session the body is the ask alone, and the summary, which a
+		// model reads first, says what it is and whom it is for.
 		doc := sendDoc(t, f)
-		if doc["recipient_session_id"] != bobSessionID || !strings.HasPrefix(doc["body"].(string), "Brigade decision for bob@example.com from team ops.") {
+		if doc["recipient_session_id"] != bobSessionID || doc["body"] != "Which backend?" || doc["summary"] != "Decision for bob@example.com: Which backend?" {
 			t.Fatalf("send %v", doc)
 		}
 	})

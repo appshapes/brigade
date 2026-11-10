@@ -281,23 +281,28 @@ func Sessions(inv Invocation, opts SessionsOptions) error {
 		// which row a line belonged to, and a long roster was one block.
 		// The header stays on the first row — it labels the columns — and
 		// the last session's blank line is what keeps the notes below off
-		// its group; a header with no rows has no blank line at all.
+		// its group (it goes when there is no note); a header with no rows
+		// has no blank line at all.
 		lines = append(lines, "")
 	}
-	// B-3's form for a roster a session routes by: the marker is here,
-	// once, under the table it describes, and in no cell (card 27 took
-	// the width back there). It names the two other strings in the same
-	// position: the session name and the doing line, neither of which
-	// was ever marked in a cell either.
-	lines = append(lines, RosterUnverifiedNote)
-	lines = append(lines, filter.notes()...)
+	// No caution under the table, and none in a cell (card 27 took it out
+	// of the cells; owner ruling 2026-11-09, card 193, took the note out):
+	// a person reads this table. That names, labels and doing lines are
+	// their owner's own words is what the team-messaging skill tells the
+	// model that routes by it.
+	notes := filter.notes()
 	if hidden > 0 {
-		lines = append(lines, "("+strconv.Itoa(hidden)+" offline sessions hidden; --all shows them)")
+		notes = append(notes, "("+strconv.Itoa(hidden)+" offline sessions hidden; --all shows them)")
 	}
 	if list.Truncated {
-		lines = append(lines, "(truncated: the adapter capped the list at its limit; some sessions are not shown)")
+		notes = append(notes, "(truncated: the adapter capped the list at its limit; some sessions are not shown)")
 	}
-	return writeLines(inv.Out, lines...)
+	// With no note to keep apart, the last session's blank line would only
+	// end the output with an empty line.
+	if len(notes) == 0 && len(lines) > 1 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return writeLines(inv.Out, append(lines, notes...)...)
 }
 
 // A rosterFilter is --here and --member resolved for one run, and the

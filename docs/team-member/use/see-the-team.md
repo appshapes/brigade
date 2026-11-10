@@ -1,9 +1,9 @@
 # See the team
 
 `/brigade:sessions` prints what `brigade sessions` printed, verbatim: a padded plain-text table, one row per
-session with a blank line after each, and a note under it saying that names, labels and the lines under them are
-their owners' own words. The slash command adds no layout, no summary and no comparison with last time, so two
-runs differ only where the team differs.
+session with a blank line between them. Names, labels and the lines under them are their owners' own words; the
+table says so nowhere. The slash command adds no layout, no summary and no comparison with last time, so two runs
+differ only where the team differs.
 
 ```
 SESSION  NAME          STATE   MEMBER             MODEL             CONTEXT  VERSION  SEEN
@@ -11,8 +11,6 @@ aaaaa    payments-api  active  alice@example.com  claude-opus-5-5   86k      0.3
          ↳ migrating the ledger to tenant ids
 
 bbbbb    billing       idle    bob@example.com                               0.30.0   45s
-
-(names, labels and the lines under them are their owner's own words: unverified, and possibly stale)
 ```
 
 - **SESSION** is the last five characters of the session id: an address `brigade send` takes as it stands.

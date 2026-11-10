@@ -356,6 +356,43 @@ export type Outbound =
   | { ok: true; address: string; subject: string; inReplyTo: string | null; text: string }
   | { ok: false; reason: string };
 
+/** decisionView reads a decision ask in the labelled shape `brigade decision` sent through 0.47.2 (a preamble line,
+ * a `Decision <id>:` line, a "for …, asked …" line, then `options:` and `default:` lines) and returns it as the
+ * command writes it now and a person reads it (owner rulings 2026-11-09, card 193): the question, then the options
+ * as a list with the default marked, then the answer-by date when the asker gave one. The preamble, the decision
+ * id and the rest of the "for …, asked …" line are left out: the sender line and the thread already say who asks
+ * and where the answer goes. This is only a view of an older plugin's text, on Slack and in a mail alike, not a
+ * wire format or a trusted message type: any other text, today's ask included, is null and is shown as it stands,
+ * and an unrecognised line is never discarded. escape is applied to each piece of the asker's text. */
+export function decisionView(
+  text: string,
+  team: string,
+  escape: (text: string) => string = (t) => t,
+): string | null {
+  const lines = text.split("\n");
+  const prefix = "Brigade decision for ";
+  const suffix =
+    ` from team ${team}. Answer however you wish; the session acts on your answer and closes the decision.`;
+  if (!lines[0].startsWith(prefix) || !lines[0].endsWith(suffix)) return null;
+  const to = lines[0].slice(prefix.length, -suffix.length);
+  const question = /^Decision d-\d{8}-[0-9a-f]{6}: (.+)$/.exec(lines[1] ?? "");
+  if (!to || !question || !lines[2]?.startsWith(`  for ${to}, asked `)) return null;
+  let next = 3;
+  const options = lines[next]?.startsWith("  options: ") ? lines[next++].slice(11).split(" | ") : [];
+  const fallback = lines[next]?.startsWith("  default: ") ? lines[next++].slice(11) : null;
+  if (next !== lines.length) return null;
+  // The command refuses a default that is none of the options; one that is not is a shape this view does not know.
+  const marked = fallback === null ? -1 : options.indexOf(fallback);
+  if (fallback !== null && marked < 0) return null;
+  const parts = [escape(question[1])];
+  if (options.length > 0) {
+    parts.push(options.map((o, i) => `- ${i === marked ? "[default] " : ""}${escape(o)}`).join("\n"));
+  }
+  const by = /, answer by (\d{4}-\d{2}-\d{2})$/.exec(lines[2]);
+  if (by) parts.push(`Answer by ${by[1]}.`);
+  return parts.join("\n\n");
+}
+
 /** resolveOutbound decides where a session's message to the gateway goes: a `to:` directive in its body, or
  * the thread of the mail it replies to. */
 export async function resolveOutbound(
@@ -371,17 +408,21 @@ export async function resolveOutbound(
     throw e;
   }
   const f = leading.fields ?? {};
-  const text = leading.rest;
+  // An older plugin's decision ask is mailed as today's reads. Its summary carries the decision id, so the subject
+  // is taken from the question instead.
+  const ask = decisionView(leading.rest.trim(), teamName);
+  const text = ask ?? leading.rest;
+  const about = ask ?? (env.summary || text);
   if (f.to) {
     const address = f.to.trim().toLowerCase();
     if (!isAddress(address)) return { ok: false, reason: `"to: ${f.to}" is not an email address` };
-    const subject = f.subject?.trim() || `[brigade/${teamName}] ${excerpt(env.summary || text)}`;
+    const subject = f.subject?.trim() || `[brigade/${teamName}] ${excerpt(about)}`;
     return { ok: true, address, subject: oneLine(subject), inReplyTo: null, text };
   }
   if (env.reply_to) {
     const row = await threads.byBrigadeId(env.reply_to);
     if (row && row.direction === "in") {
-      const base = row.subject?.trim() || `[brigade/${teamName}] ${excerpt(env.summary || text)}`;
+      const base = row.subject?.trim() || `[brigade/${teamName}] ${excerpt(about)}`;
       const subject = /^re:/i.test(base) ? base : `Re: ${base}`;
       return {
         ok: true,
@@ -417,10 +458,11 @@ export function renderOutbound(
   out: Outbound & { ok: true },
   ctx: RenderContext,
 ): OutboundMail {
-  // The label stands alone, as on Slack: output a person reads carries no "unverified" marker (owner ruling
-  // 2026-11-09, card 193). A sender without a label is named by its session alone.
+  // The sender line is the session and its label, nothing else, as on Slack (owner rulings 2026-11-09, card 193):
+  // no "unverified" marker in what a person reads, and no team, which the subject and the block below carry. A
+  // sender without a label is named by its session alone.
   const label = env.sender.human_label ? ` · ${env.sender.human_label}` : "";
-  const head = `${env.sender.session_name}${label} on Brigade team ${ctx.teamName} wrote:\n\n`;
+  const head = `${env.sender.session_name}${label}\n\n`;
   const block = renderBlock([
     ["team", ctx.teamName],
     ["message", env.message_id],

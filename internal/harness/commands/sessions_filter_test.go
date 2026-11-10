@@ -81,7 +81,6 @@ func TestSessionsHere(t *testing.T) {
 	for _, want := range []string{
 		"(2 sessions left out by --here; 1 of them share no repository name and may be here)\n",
 		"(1 offline sessions hidden; --all shows them)\n",
-		RosterUnverifiedNote + "\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)

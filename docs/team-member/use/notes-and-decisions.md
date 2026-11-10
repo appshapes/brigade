@@ -38,8 +38,8 @@ The question travels on stdin. `--to` names the person it is for, by their label
 (`brigade sessions`), and is required: a decision with no addressee is refused (`invalid_input`, `to_needed`),
 never guessed. The four other flags are optional: the options offered (at most 8, separated by `|`), the one
 taken when the person says nothing (one of the options), the date an answer is needed by (`YYYY-MM-DD`), the
-card. The command writes `decisions/<id>.json` into the state folder and sends the ask at once, with the same
-facts the digest uses: when that person subscribed to the digest, through the first of their recipients a
+card. The command writes `decisions/<id>.json` into the state folder and sends the ask at once: when that person
+subscribed to the digest, through the first of their recipients a
 gateway on the roster can carry (a Slack handle, channel or address through the Slack gateway, which finds a
 person by their email; an address through the mail gateway when the team has no Slack gateway); otherwise, or
 with no gateway there, to their own best session as a plain team message; with neither it is recorded and the
@@ -51,11 +51,23 @@ recorded: decision d-20261029-a1b2c3
 sent: to rjae@example.com at @rjae through the slack gateway, message 7f3c…
 ```
 
-On Slack, the ask is the question, then the options as a list with the default marked `[default]`, then
-`Answer by <date>.` when a date was given; the sender line above it names the asking session and its member.
-The decision id, the addressee, the asker, the repository and the card are not shown there: the id is in this
-command's output and names the decision's file. By email and as a session message the ask keeps its labelled
-plain-text shape. Older or unfamiliar ask formats are shown intact on Slack.
+The ask is the same text on Slack, by email and as a session message:
+
+```
+Ship 0.43.0 with the digest, or wait for the Stop hook?
+
+- ship now
+- [default] wait
+
+Answer by 2026-10-31.
+```
+
+The question, then the options one to a line with the default marked `[default]`, then `Answer by <date>.` when a
+date was given. The sender line above it names the asking session and its member. The decision id, the addressee,
+the asker, the repository and the card are not in it: the id is in this command's output and names the decision's
+file. A mail's subject is the question; a session message's summary is `Decision for <label>: <question>`, which
+tells the receiving session's model whom to show it to. The gateways show an ask from a plugin of 0.47.2 or older,
+which still sends the labelled lines, in the same shape.
 
 The person answers however they wish, on Slack, by mail, in person, or by a team message (ruling 4 of the design:
 nothing is built for the answer). When the session has acted on it:
@@ -109,8 +121,8 @@ everything since the start when you have none; `--to <label>` another subscriber
   made it.
 - **Blocked**: every session whose latest note starts `Blocked:`.
 - **Active now**: one block per session, its name and member on the first line, then `doing:` and `note:` lines
-  for its doing line and its latest note, at most 30 sessions. The sessions that published neither are named
-  together on one last line.
+  for its doing line and its latest note, at most 30 sessions. A session that published neither is left out and
+  not counted.
 - **Ended in the period**: the same shape, with the commits credited to the session and its last note. A session
   that ended with no commits and no note is counted on the last line and not listed.
 - **Held or quiet**, and the sessions on the roster with no entry.

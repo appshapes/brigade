@@ -16,8 +16,8 @@ import (
 
 // TestDecisionRoundTrip: a decision is saved to both copies, loaded back
 // from the canonical one and read from the folder by another store; its
-// id has the documented shape; Lines renders the open and the closed
-// shape.
+// id has the documented shape; Ask is the text a person reads; a close is
+// read back from the folder.
 func TestDecisionRoundTrip(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
@@ -46,14 +46,21 @@ func TestDecisionRoundTrip(t *testing.T) {
 	if err != nil || theirs.ID != id || theirs.Member != "rjae@example.com" {
 		t.Fatalf("ReadDecision = %+v, %v", theirs, err)
 	}
-	want := []string{
-		"Decision " + id + ": Ship 0.43.0 with the digest, or wait for the Stop hook?",
-		"  asked 2026-10-29 by rjae@example.com (session 162-digest), repository brigade, card 162, answer by 2026-10-31",
-		"  options: ship now | wait",
-		"  default: wait",
+	// The ask a person reads: the question, the options with the default
+	// marked, the date; no id, asker, repository or card (card 193).
+	want := "Ship 0.43.0 with the digest, or wait for the Stop hook?\n\n- ship now\n- [default] wait\n\nAnswer by 2026-10-31."
+	if ask := got.Ask(); ask != want {
+		t.Fatalf("Ask = %q\nwant %q", ask, want)
 	}
-	if lines := got.Lines(); !slices.Equal(lines, want) {
-		t.Fatalf("Lines = %q\nwant %q", lines, want)
+	bare := &state.Decision{Question: "Which backend?", Options: []string{}}
+	if ask := bare.Ask(); ask != "Which backend?" {
+		t.Fatalf("an ask with no options and no date = %q", ask)
+	}
+	// A default that is none of the options is a shape the command refuses
+	// and a folder copy may carry: it is listed last, marked.
+	odd := &state.Decision{Question: "Which?", Options: []string{"a", "b"}, Default: "c"}
+	if lines := odd.OptionLines(); !slices.Equal(lines, []string{"- a", "- b", "- [default] c"}) {
+		t.Fatalf("OptionLines = %q", lines)
 	}
 	theirs.ClosedAt, theirs.Outcome = t0.Add(26*time.Hour), "wait: the Stop hook goes in first"
 	theirs.ClosedBy = &state.Closer{Member: "rjae@example.com", SessionName: "162-digest-b", SessionID: "sess-2"}
@@ -64,9 +71,8 @@ func TestDecisionRoundTrip(t *testing.T) {
 	if len(closed) != 1 || closed[0].Open() || closed[0].ClosedBy == nil || closed[0].ClosedBy.SessionID != "sess-2" {
 		t.Fatalf("ReadDecisions after the close = %+v", closed)
 	}
-	last := closed[0].Lines()
-	if last[len(last)-1] != "  closed 2026-10-30 by rjae@example.com (session 162-digest-b): wait: the Stop hook goes in first" {
-		t.Fatalf("closed line = %q", last[len(last)-1])
+	if closed[0].Outcome != "wait: the Stop hook goes in first" || !closed[0].ClosedAt.Equal(t0.Add(26*time.Hour)) || closed[0].ClosedBy.Member != "rjae@example.com" || closed[0].ClosedBy.SessionName != "162-digest-b" {
+		t.Fatalf("the close as read back = %+v by %+v", closed[0], closed[0].ClosedBy)
 	}
 }
 

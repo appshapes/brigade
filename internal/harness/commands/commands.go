@@ -23,10 +23,9 @@
 // Output discipline (6.4, 7.3): human output is stable, one item per line,
 // written to the Out stream the caller hands in — never os.Stdout — and
 // every remote string is sanitised (protocol.Sanitize*) before it is
-// printed; human_label stands alone in the line layouts, with no
-// "unverified" marker beside it (owner ruling 2026-11-09, card 193; B-3's
-// marker is the frame's), and the roster keeps one note under its table.
-// With --json,
+// printed; human_label stands alone in the line layouts and in the
+// roster, with no "unverified" marker beside it or under the table (owner
+// rulings 2026-11-09, card 193; B-3's marker is the frame's). With --json,
 // stdout carries exactly one 4.3 envelope whose result is the adapter's
 // result plus the harness members self_session_id and note. Failures are
 // returned as *protocol.Error values (the cli renders the one stderr line
@@ -149,15 +148,6 @@ const (
 	// reads stands alone (owner ruling 2026-11-09, card 193), and B-3's
 	// marker is the frame's from-label.
 	UnverifiedSuffix = " (unverified)"
-	// RosterUnverifiedNote is the one caution `brigade sessions` prints
-	// under the roster, where card 27 took the suffix out of every MEMBER
-	// cell; a session reads the roster to route, so the note stays. It
-	// names the session name and the doing line beside the label, because
-	// all three are their owner's own words and none of them is marked in
-	// a cell either. It does NOT carry the doing arrow: a reader — and a
-	// test — tells a continuation line from anything else by that arrow,
-	// and a note carrying one would be the only other line that has it.
-	RosterUnverifiedNote = "(names, labels and the lines under them are their owner's own words: unverified, and possibly stale)"
 )
 
 // An ExitStatus is the error a pass-through command returns when the

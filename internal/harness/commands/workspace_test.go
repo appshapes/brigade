@@ -56,8 +56,6 @@ func TestSessionsShowsTheRepository(t *testing.T) {
 		shortSession(selfSessionID) + "    payments-api  thinktech-api  active  payments-api@example.com  5s",
 		"",
 		"bbbbb    billing                      active  billing@example.com       5s",
-		"",
-		RosterUnverifiedNote,
 	}
 	if len(lines) != len(want) {
 		t.Fatalf("got %d lines, want %d:\n%s", len(lines), len(want), f.out.String())

@@ -351,11 +351,12 @@ func Build(in Input) Output {
 	}
 
 	// Active now: one block per session that has something to say, its
-	// doing line and its newest note each on a labelled line of their own;
-	// the sessions that published neither are named on one closing line,
-	// so the count above stays every active session (card 193).
+	// doing line and its newest note each on a labelled line of their own.
+	// A session that published neither has nothing to report: it is left
+	// out, of the section and of its count (owner ruling 2026-11-09, card
+	// 193).
 	var active [][]string
-	var silent, held, rosterOnly []string
+	var held, rosterOnly []string
 	for i := range in.Roster {
 		s := &in.Roster[i]
 		if s.State == protocol.SessionStateOffline || gateway.IsHarness(s.Harness) {
@@ -379,7 +380,6 @@ func Build(in Input) Output {
 		}
 		doing, note := latestDoing(e, s), latestNote(e)
 		if doing == "" && note == nil {
-			silent = append(silent, rosterWho(s))
 			continue
 		}
 		block := []string{"  " + rosterWho(s)}
@@ -391,13 +391,10 @@ func Build(in Input) Output {
 		}
 		active = append(active, block)
 	}
-	out.Active = len(active) + len(silent)
+	out.Active = len(active)
 	if out.Active > 0 {
 		lines = append(lines, "", "Active now ("+strconv.Itoa(out.Active)+"):")
 		lines = append(lines, capBlocks(active, SessionLines)...)
-		if len(silent) > 0 {
-			lines = append(lines, "  no doing line or note: "+strings.Join(capLines(silent, SessionLines), "; "))
-		}
 	}
 
 	// Ended in the period: the same shape, and a session that ended with
@@ -596,8 +593,7 @@ func byWho(member, session string) string {
 // asked, for how long and the date an answer is needed by; for a closed
 // one the close and its outcome. named is true under a heading that
 // already says whom the decisions are for. The id, the date asked, the
-// repository and the card are in the decision's file and not here;
-// state.Decision.Lines is still the ask a gateway carries, and is not this.
+// repository and the card are in the decision's file and not here.
 func decisionLines(d *state.Decision, now time.Time, named bool) []string {
 	lines := []string{"  " + d.Question}
 	if !d.Open() {
@@ -612,16 +608,8 @@ func decisionLines(d *state.Decision, now time.Time, named bool) []string {
 		}
 		return append(lines, "    "+closed)
 	}
-	marked := false
-	for _, o := range d.Options {
-		mark := ""
-		if o == d.Default && !marked {
-			mark, marked = "[default] ", true
-		}
-		lines = append(lines, "    - "+mark+o)
-	}
-	if d.Default != "" && !marked {
-		lines = append(lines, "    - [default] "+d.Default)
+	for _, o := range d.OptionLines() {
+		lines = append(lines, "    "+o)
 	}
 	var facts []string
 	if d.To != "" && !named {
@@ -672,16 +660,8 @@ func cutNote(s string) string {
 	return protocol.TruncateRunes(strings.Join(strings.Fields(s), " "), NoteChars)
 }
 
-// capLines keeps the first limit lines and says how many more there were.
-func capLines(lines []string, limit int) []string {
-	if len(lines) <= limit {
-		return lines
-	}
-	return append(lines[:limit:limit], "  and "+strconv.Itoa(len(lines)-limit)+" more")
-}
-
-// capBlocks is capLines for sessions that take several lines each: the
-// lines of the first limit blocks, then how many more sessions there were.
+// capBlocks caps sessions that take several lines each: the lines of the
+// first limit blocks, then how many more sessions there were.
 func capBlocks(blocks [][]string, limit int) []string {
 	var lines []string
 	for i, b := range blocks {

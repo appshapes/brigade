@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import {
   addressedToInbox,
   brigadeBody,
+  decisionView,
   description,
   type Envelope,
   gatewayForMail,
@@ -492,23 +493,93 @@ Deno.test("renderOutbound writes the mail with the block, the reply tag and the 
   assertEquals(m.headers["Message-ID"], undefined);
   assertEquals(m.headers["In-Reply-To"], undefined);
   assertEquals(m.headers["Auto-Submitted"], "auto-generated");
+  // The sender line is the session and its label, nothing else, then the text.
   assertEquals(
-    m.text.startsWith("frank-reviewer · sam@example.com on Brigade team brigade wrote:\n\n"),
+    m.text.startsWith("frank-reviewer · sam@example.com\n\nThe fix is on master; please retest Safari.\n\n"),
     true,
   );
   assertEquals(m.text.includes("unverified"), false, "a mail a person reads shows the label alone");
+  assertEquals(m.text.includes("on Brigade team"), false, "the sender line names no team");
   const unlabelled = renderOutbound({ ...envelope, sender: { ...envelope.sender, human_label: null } }, r, {
     teamName: "brigade",
     from: "Brigade <brigade@appshapes.com>",
     inbox: INBOX,
     publicAddress: "brigade-team@appshapes.com",
   });
-  assertEquals(unlabelled.text.startsWith("frank-reviewer on Brigade team brigade wrote:\n\n"), true);
+  assertEquals(unlabelled.text.startsWith("frank-reviewer\n\nThe fix is on master"), true);
   const b = lastBlock(m.text);
   assertEquals(b?.to, S1);
   assertEquals(b?.["reply-to"], M2);
   assertEquals(b?.hops, "0");
   assertEquals(b?.["from-principal"], "p1");
+});
+
+const ask = [
+  "Ship 0.43.0 with the digest, or wait for the Stop hook?",
+  "",
+  "- ship now",
+  "- [default] wait",
+  "",
+  "Answer by 2026-10-31.",
+].join("\n");
+
+Deno.test("outbound: a decision ask is mailed as the command writes it, and its subject is the question", async () => {
+  const env = { ...envelope, summary: "Ship 0.43.0 with the digest, or wait for the Stop hook?" };
+  const r = await resolveOutbound(
+    { ...env, body: `to: alice@example.com\n\n${ask}` },
+    threads([]),
+    "brigade",
+  );
+  if (!r.ok) throw new Error("expected ok");
+  assertEquals(r.text, ask);
+  assertEquals(r.subject, "[brigade/brigade] Ship 0.43.0 with the digest, or wait for the Stop hook?");
+  const m = renderOutbound(env, r, {
+    teamName: "brigade",
+    from: "Brigade <brigade@appshapes.com>",
+    inbox: INBOX,
+    publicAddress: "brigade-team@appshapes.com",
+  });
+  assertEquals(m.text.startsWith(`frank-reviewer · sam@example.com\n\n${ask}\n\n`), true);
+});
+
+Deno.test("outbound: an older plugin's labelled ask is mailed in the same shape; an unknown shape stays intact", async () => {
+  const labelled = [
+    "Brigade decision for Alice from team brigade. Answer however you wish; the session acts on your answer and closes the decision.",
+    "Decision d-20261029-a1b2c3: Ship 0.43.0 with the digest, or wait for the Stop hook?",
+    "  for Alice, asked 2026-10-29 by sam@example.com (session frank-reviewer), repository brigade, card 162, answer by 2026-10-31",
+    "  options: ship now | wait",
+    "  default: wait",
+  ].join("\n");
+  const env = {
+    ...envelope,
+    summary: "Decision d-20261029-a1b2c3: Ship 0.43.0 with the digest, or wait for the Stop hook?",
+  };
+  const r = await resolveOutbound(
+    { ...env, body: `to: alice@example.com\n\n${labelled}` },
+    threads([]),
+    "brigade",
+  );
+  if (!r.ok) throw new Error("expected ok");
+  assertEquals(r.text, ask);
+  assertEquals(r.subject, "[brigade/brigade] Ship 0.43.0 with the digest, or wait for the Stop hook?");
+  assertEquals(decisionView(labelled, "brigade"), ask);
+  // Another team's name, a line this view does not know, a default that is none of the options: shown as sent.
+  for (
+    const other of [
+      labelled.replace("from team brigade.", "from team other."),
+      labelled + "\n  note: one more line",
+      labelled.replace("  default: wait", "  default: neither"),
+      ask,
+    ]
+  ) {
+    assertEquals(decisionView(other, "brigade"), null);
+    const kept = await resolveOutbound(
+      { ...env, body: `to: alice@example.com\n\n${other}` },
+      threads([]),
+      "brigade",
+    );
+    assertEquals(kept.ok && kept.text, other);
+  }
 });
 
 Deno.test("rosterText shows the sessions online now: both gateways and offline sessions left out", () => {

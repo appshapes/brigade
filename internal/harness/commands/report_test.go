@@ -404,9 +404,11 @@ func TestReportSendFansOut(t *testing.T) {
 		t.Fatalf("send: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(f.out.String()), "\n")
-	if len(lines) != 3 || !strings.HasPrefix(lines[0], "sent: Brigade digest payments: 0 decisions open, 0 commits, 1 sessions active to bob@example.com at their session "+bobSessionID[:5]) ||
+	// The one session with an entry has published no doing line and no
+	// note, so the digest counts no session as active (card 193).
+	if len(lines) != 3 || !strings.HasPrefix(lines[0], "sent: Brigade digest payments: 0 decisions open, 0 commits, 0 sessions active to bob@example.com at their session "+bobSessionID[:5]) ||
 		lines[1] != "not sent: Nobody: no gateway of their recipients is on the roster, and they have no session that can receive a message" ||
-		!strings.HasPrefix(lines[2], "sent: Brigade digest payments: 0 decisions open, 0 commits, 1 sessions active to alice@example.com at their session "+selfSessionID[:5]) {
+		!strings.HasPrefix(lines[2], "sent: Brigade digest payments: 0 decisions open, 0 commits, 0 sessions active to alice@example.com at their session "+selfSessionID[:5]) {
 		t.Fatalf("stdout:\n%s", f.out.String())
 	}
 	sends := f.rec.specsOf("message send")

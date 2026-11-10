@@ -99,7 +99,7 @@ application/json`:
   "to": "alice@example.com",
   "reply_to": "a1b2c3d4+1e1e1e1e-1e1e-4e1e-8e1e-1e1e1e1e1e1e@example.resend.app",
   "subject": "[brigade/team] Please retest",
-  "text": "frank-reviewer · sam@example.com on Brigade team team wrote:\n\n…",
+  "text": "frank-reviewer · sam@example.com\n\n…",
   "headers": { "Auto-Submitted": "auto-generated", "In-Reply-To": "<CA+abc@mail.example.com>" }
 }
 ```

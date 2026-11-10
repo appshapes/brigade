@@ -49,9 +49,8 @@ func TestSessionsHumanLayout(t *testing.T) {
 		"",
 		"bbbbb    billing                                             idle    bob@example.com                                         45s",
 		"",
-		// B-3's one marker for the roster, under its table: no cell
-		// carries a suffix, which is the width card 27 took back here.
-		RosterUnverifiedNote,
+		// No caution under the table and no suffix in a cell (cards 27
+		// and 193): the notes that follow are about what is shown.
 		"(1 offline sessions hidden; --all shows them)",
 	}
 	if len(lines) != len(want) {
@@ -119,8 +118,8 @@ func TestSessionsHumanLineCarriesTheHarnessFacts(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(f.out.String(), "\n"), "\n")
 	// header, three rows each closed by a blank line (card 44), the
-	// unverified note, the hidden-count note.
-	if len(lines) != 9 {
+	// hidden-count note.
+	if len(lines) != 8 {
 		t.Fatalf("got %d lines:\n%s", len(lines), f.out.String())
 	}
 	// line 0 is the header; carol (hostile model), alice (self) and bob
@@ -377,7 +376,6 @@ func TestSessionsDoingLineFollowsItsRowAndIsSanitised(t *testing.T) {
 		"",
 		"bbbbb    billing                                             idle    bob@example.com                                         45s",
 		"",
-		RosterUnverifiedNote,
 		"(1 offline sessions hidden; --all shows them)",
 	}
 	if len(lines) != len(want) {
@@ -443,9 +441,9 @@ func TestSessionsDoingLineFollowsItsRowAndIsSanitised(t *testing.T) {
 	}
 	all := strings.Split(strings.TrimRight(f.out.String(), "\n"), "\n")
 	// header, carol's row and line, alice's row and line, bob's row,
-	// dave's row and line, each session closed by its blank line, then
-	// the unverified note.
-	if len(all) != 13 {
+	// dave's row and line, each session but the last closed by its blank
+	// line: with no note under the table, the output ends on dave's line.
+	if len(all) != 11 {
 		t.Fatalf("--all: got %d lines:\n%s", len(all), f.out.String())
 	}
 	if w := "ddddd    gone                                                offline  [dddddddd]                                              3600s"; all[9] != w {
@@ -454,8 +452,8 @@ func TestSessionsDoingLineFollowsItsRowAndIsSanitised(t *testing.T) {
 	if w := "         ↳ was migrating the billing schema"; all[10] != w {
 		t.Errorf("dave's doing line under --all:\n got %q\nwant %q", all[10], w)
 	}
-	if all[11] != "" || all[12] != RosterUnverifiedNote {
-		t.Errorf("dave's group is not closed by a blank line before the note:\n%s", f.out.String())
+	if strings.HasSuffix(f.out.String(), "\n\n") || strings.Contains(f.out.String(), "(") && strings.Contains(f.out.String(), "own words") {
+		t.Errorf("--all, with nothing hidden, ends on a blank line or carries a note:\n%s", f.out.String())
 	}
 	if h := cells(all[0], all[0]); slices.Contains(h, "PRINCIPAL") || slices.Contains(h, "LABEL") {
 		t.Errorf("--all brought a retired column back: %q", h)
@@ -566,46 +564,28 @@ func TestSessionsDoingLineNeedsALine(t *testing.T) {
 	}
 }
 
-// TestSessionsCarriesTheUnverifiedMarkerOnce is B-3's case for the roster
-// a session routes by. The line layouts — `team members`, `team join`,
-// `inbox`, `whoami` — show a label alone (owner ruling 2026-11-09, card
-// 193). The roster carries the marker ONCE: in a note under
-// the table, in no cell, on every form of the command. The note names the
-// session name and the doing line beside the label, because those are
-// their owner's own words too and no cell marks them either.
-func TestSessionsCarriesTheUnverifiedMarkerOnce(t *testing.T) {
+// TestSessionsCarriesNoUnverifiedMarker: the roster a person reads says
+// "unverified" nowhere, in no cell (card 27) and in no note under the
+// table (owner ruling 2026-11-09, card 193), on every form of the
+// command, like the line layouts — `team members`, `team join`, `inbox`,
+// `whoami`. What a model is told is elsewhere: the --json note
+// (SessionsNote), the team-messaging skill, and the frame's from-label,
+// which is B-3's marker.
+func TestSessionsCarriesNoUnverifiedMarker(t *testing.T) {
 	t.Parallel()
-	const marker = "unverified"
-	if !strings.Contains(RosterUnverifiedNote, marker) {
-		t.Fatalf("the note no longer carries the word: %q", RosterUnverifiedNote)
-	}
 	for _, all := range []bool{false, true} {
 		f := newFixture(t)
 		f.rec.on("session list", okAnswer(listResult()))
 		if err := Sessions(f.inv(f.sessionEnv(), ""), SessionsOptions{All: all}); err != nil {
 			t.Fatalf("--all=%v: %v", all, err)
 		}
-		out := strings.TrimRight(f.out.String(), "\n")
-		lines := strings.Split(out, "\n")
-		carrying := 0
-		for _, l := range lines {
-			if !strings.Contains(l, marker) {
-				continue
-			}
-			carrying++
-			// A note, never a row and never a continuation line: both of
-			// those are per-item, which is what B-3 now lets a table skip.
-			if !strings.HasPrefix(l, "(") {
-				t.Errorf("--all=%v: the marker is on a row or a doing line, not a note: %q", all, l)
-			}
+		out := f.out.String()
+		if strings.Contains(out, "unverified") || strings.Contains(out, "own words") {
+			t.Errorf("--all=%v: the roster carries the marker or the note:\n%s", all, out)
 		}
-		if carrying != 1 {
-			t.Errorf("--all=%v: %d lines carry the marker, want exactly one:\n%s", all, carrying, out)
-		}
-		// And the cells really are bare: this is what card 27 changed.
-		if strings.Contains(strings.Join(lines[:len(lines)-1], "\n"), UnverifiedSuffix) {
-			t.Errorf("--all=%v: a cell still carries the suffix:\n%s", all, out)
-		}
+	}
+	if !strings.Contains(SessionsNote, "unverified") {
+		t.Errorf("the --json note no longer says the strings are unverified: %q", SessionsNote)
 	}
 }
 
@@ -778,8 +758,8 @@ func TestSessionsSanitisedInBothForms(t *testing.T) {
 	// must be exactly where the layout puts one: a value that broke its
 	// row on an EMPTY fragment would add a blank line in a row's place.
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) != 9 {
-		t.Fatalf("got %d lines, want a header, 3 rows with their blank lines and the two notes:\n%s", len(lines), out)
+	if len(lines) != 8 {
+		t.Fatalf("got %d lines, want a header, 3 rows with their blank lines and the hidden-count note:\n%s", len(lines), out)
 	}
 	for _, i := range []int{1, 3, 5} {
 		id, _, _ := strings.Cut(lines[i], " ")
@@ -792,10 +772,8 @@ func TestSessionsSanitisedInBothForms(t *testing.T) {
 			t.Errorf("line %d should be the blank line closing the session above it: %q", i, lines[i])
 		}
 	}
-	for _, i := range []int{7, 8} {
-		if !strings.HasPrefix(lines[i], "(") {
-			t.Errorf("line %d is not one of the trailing notes: %q", i, lines[i])
-		}
+	if !strings.HasPrefix(lines[7], "(") {
+		t.Errorf("line 7 is not the trailing note: %q", lines[7])
 	}
 }
 

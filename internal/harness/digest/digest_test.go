@@ -136,8 +136,9 @@ func TestBuildSections(t *testing.T) {
 // roster is named as the roster names it, whatever its entry says, so a
 // host that wrote no member and the repository's name is still a session
 // a reader can find; one that is gone and was never named says so and
-// names its host; a session with no doing line and no note is not a line
-// of its own, and neither is one that ended with nothing to report.
+// names its host; an active session with no doing line and no note is
+// left out, of the section and of its count, and one that ended with
+// nothing to report is counted and not listed.
 func TestBuildNamesSessionsAndSkipsTheEmptyOnes(t *testing.T) {
 	t.Parallel()
 	since := t0.Add(-24 * time.Hour)
@@ -196,11 +197,10 @@ func TestBuildNamesSessionsAndSkipsTheEmptyOnes(t *testing.T) {
 		"Blocked (1):",
 		"  frank@example.com (session frank-193-slack): the release waits on a ruling (3 h)",
 		"",
-		"Active now (3):",
+		"Active now (1):",
 		"  frank@example.com (session frank-193-slack)",
 		"    doing: releasing 0.47.3",
 		"    note: Blocked: the release waits on a ruling",
-		"  no doing line or note: frank@example.com (session fix-tmux-panes); carol@example.com (session brigade-0a)",
 		"",
 		"Ended in the period (3):",
 		"  an unnamed muse session: ended 2026-10-29 11:00 UTC, 1 commits",
@@ -212,8 +212,13 @@ func TestBuildNamesSessionsAndSkipsTheEmptyOnes(t *testing.T) {
 	if out.Body != strings.Join(want, "\n") {
 		t.Fatalf("body:\n%s\n\nwant:\n%s", out.Body, strings.Join(want, "\n"))
 	}
-	if out.Active != 3 || strings.Contains(out.Body, "session brigade:") || strings.Contains(out.Body, "| session brigade\n") || strings.Contains(out.Body, "seen ") {
+	if out.Active != 1 || strings.Contains(out.Body, "session brigade:") || strings.Contains(out.Body, "| session brigade\n") || strings.Contains(out.Body, "seen ") {
 		t.Fatalf("active %d, or a session named by its repository, or a seen age:\n%s", out.Active, out.Body)
+	}
+	// The two active sessions that published nothing are not in the digest
+	// at all (owner ruling 2026-11-09, card 193).
+	if strings.Contains(out.Body, "fix-tmux-panes") || strings.Contains(out.Body, "brigade-0a") || !strings.HasSuffix(out.Summary, "1 sessions active") {
+		t.Fatalf("a session with nothing to report is listed or counted (summary %q):\n%s", out.Summary, out.Body)
 	}
 }
 

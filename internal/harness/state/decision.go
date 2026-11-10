@@ -187,77 +187,41 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// Lines is the labelled shape of a decision, the same in the ask the
-// gateway carries and in the digest (plan §5.2): the id and the question
-// first, then whom it is for, who asked and when, the options, the
-// default, the date, the card; for a closed one the close and its
-// outcome. Plain text, a stable label at the start of each line, nothing
-// a reader has to parse.
-func (d *Decision) Lines() []string {
-	lines := []string{"Decision " + d.ID + ": " + d.Question}
-	who := "asked " + d.CreatedAt.UTC().Format(dateLayout)
-	if d.To != "" {
-		who = "for " + d.To + ", " + who
-	}
-	if d.Member != "" {
-		who += " by " + d.Member
-	}
-	if d.SessionName != "" {
-		who += " (session " + d.SessionName + ")"
-	}
-	if d.Repository != "" {
-		who += ", repository " + d.Repository
-	}
-	if d.Card > 0 {
-		who += ", card " + itoa(d.Card)
-	}
-	if d.By != "" {
-		who += ", answer by " + d.By
-	}
-	lines = append(lines, "  "+who)
-	if len(d.Options) > 0 {
-		lines = append(lines, "  options: "+strings.Join(d.Options, " | "))
-	}
-	if d.Default != "" {
-		lines = append(lines, "  default: "+d.Default)
-	}
-	if !d.Open() {
-		closed := "closed " + d.ClosedAt.UTC().Format(dateLayout)
-		if d.ClosedBy != nil && (d.ClosedBy.Member != "" || d.ClosedBy.SessionName != "") {
-			closed += " by " + d.ClosedBy.Member
-			if d.ClosedBy.SessionName != "" {
-				closed += " (session " + d.ClosedBy.SessionName + ")"
-			}
+// OptionLines is a decision's options as a person reads them, one to a
+// line, the default marked (owner ruling 2026-11-09, card 193). A default
+// that is none of the options is listed last, marked: the command refuses
+// one, and a teammate's folder copy is still read.
+func (d *Decision) OptionLines() []string {
+	lines := make([]string, 0, len(d.Options)+1)
+	marked := false
+	for _, o := range d.Options {
+		mark := ""
+		if o == d.Default && !marked {
+			mark, marked = "[default] ", true
 		}
-		if d.Outcome != "" {
-			closed += ": " + d.Outcome
-		}
-		lines = append(lines, "  "+closed)
+		lines = append(lines, "- "+mark+o)
+	}
+	if d.Default != "" && !marked {
+		lines = append(lines, "- [default] "+d.Default)
 	}
 	return lines
 }
 
-// itoa is strconv.Itoa without the import in this file's callers.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
+// Ask is a decision as the person it is for reads it, the same text on
+// Slack, by mail and as a session message (owner rulings 2026-11-09, card
+// 193): the question, the options, then the date an answer is needed by,
+// a blank line between them. The id, the addressee, the asker, the
+// repository and the card are in the decision's file and the digest, and
+// not here: the message's own sender line says who asks.
+func (d *Decision) Ask() string {
+	parts := []string{d.Question}
+	if options := d.OptionLines(); len(options) > 0 {
+		parts = append(parts, strings.Join(options, "\n"))
 	}
-	neg := n < 0
-	if neg {
-		n = -n
+	if d.By != "" {
+		parts = append(parts, "Answer by "+d.By+".")
 	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
+	return strings.Join(parts, "\n\n")
 }
 
 // DecisionsDir is ${stateDir}/state/decisions, the canonical copies.

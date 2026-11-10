@@ -82,12 +82,12 @@ const (
 // decision --close <id> [--json]` (card 162, plan §5.2; card 167, the
 // addressee). An ask writes `decisions/<id>.json` — the canonical copy
 // under the state directory, the projection in the folder — and sends it
-// at once, in the labelled shape the digest uses, to the person --to
-// names: through the first gateway of their subscription's recipients
-// that is on the roster (Slack before email whatever the shape); with no
-// subscription or no gateway there, to their own best session as a team
-// message; with neither, it is recorded and the line says so, and the
-// next digest carries it. No --to is an error, never a guess (owner
+// at once, as the question, its options and the date an answer is needed
+// by (state.Decision.Ask), to the person --to names: through the first
+// gateway of their subscription's recipients that is on the roster (Slack
+// before email whatever the shape); with no subscription or no gateway
+// there, to their own best session as a team message; with neither, it
+// is recorded and the line says so, and the next digest carries it. No --to is an error, never a guess (owner
 // ruling 2026-10-29). A close records the outcome and who closed it: the
 // asking session, or another session of the member who asked. Every text
 // is cleaned as a doing line is, before anything is resolved.
@@ -229,10 +229,10 @@ func containsString(list []string, s string) bool {
 
 // sendDecision sends the ask to the person it is for: the roster is read
 // once; with a subscription, the first gateway of its recipients that is
-// on the roster takes the labelled lines under a `to:` first line (the
-// gateway's own convention); with none, their best session as a plain
-// team message (resolveMember, the gateways left out; a label two
-// members share is ambiguous and reaches nobody). It answers what was
+// on the roster takes the ask under a `to:` first line (the gateway's own
+// convention); with none, their best session as a plain team message
+// (resolveMember, the gateways left out; a label two members share is
+// ambiguous and reaches nobody). It answers what was
 // sent, or why nothing was — the roster unreadable, no gateway and no
 // session of theirs, the send refused — in one sentence for the line. A
 // failed send is never an error of the command: the decision is
@@ -245,8 +245,13 @@ func (inv Invocation) sendDecision(t *target, sub *state.Subscriber, d *state.De
 		inv.logger().Warn("decision: the roster could not be read", log.Err(err))
 		return nil, "the roster could not be read (" + string(codeOf(err)) + ")"
 	}
-	body := strings.Join(d.Lines(), "\n")
-	summary := protocol.TruncateRunes("Decision "+d.ID+": "+d.Question, protocol.MaxSummaryChars)
+	// The ask is the same text whichever way it goes (state.Decision.Ask).
+	// Through a gateway the summary is the question alone: it becomes a
+	// mail's subject. To a session it also says what the message is and
+	// whom it is for: a model reads the summary first, and the body no
+	// longer says either (owner rulings 2026-11-09, card 193).
+	body := d.Ask()
+	summary := d.Question
 	var sent decisionSent
 	var recipients []string
 	if sub != nil {
@@ -254,7 +259,7 @@ func (inv Invocation) sendDecision(t *target, sub *state.Subscriber, d *state.De
 	}
 	if gw, ok := state.PickGateway(recipients, list.Sessions); ok {
 		sent = decisionSent{How: gw.Kind, To: gw.To, SessionID: gw.SessionID}
-		body = "to: " + gw.To + "\n\n" + askPreamble(t, d.To) + body
+		body = "to: " + gw.To + "\n\n" + body
 	} else {
 		pick, merr := resolveMember(d.To, list.Sessions)
 		if merr != nil {
@@ -266,8 +271,9 @@ func (inv Invocation) sendDecision(t *target, sub *state.Subscriber, d *state.De
 			return nil, why
 		}
 		sent = decisionSent{How: state.SentSession, To: pick.session.SessionID, SessionID: pick.session.SessionID}
-		body = askPreamble(t, d.To) + body
+		summary = "Decision for " + oneLine(d.To) + ": " + summary
 	}
+	summary = protocol.TruncateRunes(summary, protocol.MaxSummaryChars)
 	req := &protocol.SendRequest{
 		SenderSessionID: t.selfSessionID(), RecipientSessionID: sent.SessionID, Body: body, Summary: summary,
 		IdempotencyKey: IdempotencyKey(t.selfSessionID(), sent.SessionID, body, inv.Deps.now()),
@@ -283,16 +289,6 @@ func (inv Invocation) sendDecision(t *target, sub *state.Subscriber, d *state.De
 	}
 	sent.MessageID = sanitizeID(resp.MessageID)
 	return &sent, ""
-}
-
-// askPreamble is the line before a decision's lines in the ask: whom it
-// is for, the team, and what they may do with it.
-func askPreamble(t *target, to string) string {
-	team := ""
-	if t.session != nil {
-		team = nameLine(t.session.TeamName)
-	}
-	return "Brigade decision for " + oneLine(to) + " from team " + team + ". Answer however you wish; the session acts on your answer and closes the decision.\n"
 }
 
 // codeOf is the protocol code of an error, `internal` for any other.

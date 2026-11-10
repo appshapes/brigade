@@ -674,6 +674,11 @@ Deno.test("minimal decisions omit absent fields; unfamiliar asks fall back intac
     assertStringIncludes(fallback, escapeMrkdwn(source));
   }
   assertStringIncludes(render(decisionAsk, "other"), escapeMrkdwn(decisionAsk));
+  // The ask as the command writes it now needs no view: it is posted as sent, and reads as the view of the
+  // older shape does.
+  const written =
+    "Ship <v2> & notify @alice?\n\n- ship <v2>\n- [default] wait & test\n\nAnswer by 2026-11-10.";
+  assertEquals(render(written), render(decisionAsk));
 });
 
 Deno.test("decision content keeps mention and block escaping, and a full-size body is never silently cut", async () => {

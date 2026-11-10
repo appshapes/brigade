@@ -94,7 +94,8 @@ option `label` to `none` before you join, or to any text you would rather be kno
 command does the same for that one command. Changing the option later changes what the next **first** join on this
 machine sends; it does not rewrite the label the team already holds, and a re-consent (`team join` in a second
 checkout of a team you are already on) sends no label at all. The address is unverified text like every other
-label: `brigade team members` marks it so, and the session roster says so in the `note` of its `--json` form.
+label: a message marks it so for the model that receives it, and the session roster says so in the `note` of its
+`--json` form.
 
 **Existing members, whose label is empty.** A member who joined before this version has no label at all, and
 rejoining to get one is not something Brigade asks of anybody. From this version the registration every session
@@ -1109,8 +1110,9 @@ Every item below is a known limit that this version ships with, on purpose.
 
 - No end-to-end encryption. The person who runs the backend project can read every message.
 - No verified human identity. Names and labels are free text. A message marks its sender's label `(unverified)`
-  for the model that receives it, and the session roster says so once under its table; what a person reads (a
-  command's member lines, a Slack message, a mail) shows the label alone (owner ruling 2026-11-09, card 193).
+  for the model that receives it, and the team-messaging skill and the note of `brigade sessions --json` say so of
+  the session roster; what a person reads (the roster table, a command's member lines, a Slack message, a mail)
+  shows the label alone (owner rulings 2026-11-09, card 193).
 - Only a creator role. Losing the creator's credential ends rotation and revocation for that team, unless a
   transfer was made before the loss.
 - Programs running as you, on your machine, can read your credential files, Brigade's session map and the cached
