@@ -28,8 +28,8 @@ Commands:
                                               ask a person for a decision (the question on stdin), sent at once to their digest recipients or their session — held for their wait when they are this session's own user — or close one with its outcome
   report subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] [--wait <duration>] | unsubscribe | show [--to <label>] | send [--to <label>]
                                               subscribe this session's member to the digest (reports.json in the state folder) or unsubscribe, print the digest a subscriber would get now, or send one now
-  work-item list [--list <name>] [--to <label> | --mine | --nobody] [--label <name>] [--closed] | show <number> | add [--list <name>] [--to <label> | --mine] [--label <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | label <number> [<name>…] | comment <number> | close <number> | reopen <number> | lists [<name>…]
-                                              read and change the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, label, comment on, close or reopen one, and show or name the board's lists
+  work-item list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] | show <number> | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] | rename-list <list> <new name>
+                                              read and change the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists (a list is named by its key or its name)
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
   team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags]
@@ -179,18 +179,18 @@ subscribe this session's member to the digest (reports.json in the state folder)
 ## brigade work-item
 
 ```text
-Usage: brigade work-item list [--list <name>] [--to <label> | --mine | --nobody] [--label <name>] [--closed] | show <number> | add [--list <name>] [--to <label> | --mine] [--label <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | label <number> [<name>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] [--json] [--log-level debug|info|warn|error]
+Usage: brigade work-item list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] | show <number> | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] | rename-list <list> <new name> [--json] [--log-level debug|info|warn|error]
 
-read and change the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, label, comment on, close or reopen one, and show or name the board's lists
+read and change the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists (a list is named by its key or its name)
 ```
 
 | Flag | What it does |
 | --- | --- |
 | `--closed` | list: the closed work items instead of the open ones |
-| `--label <value>` | add: the new work item's labels, separated by commas; list: only the work items carrying this label |
-| `--list <value>` | add: the list the new work item goes into (the board's first when unset); list: only the work items in this list |
+| `--list <value>` | one of the board's lists, by its key or its name. add: the list the new work item goes into (the board's first when unset); list: only the work items in this list |
 | `--mine` | this session's own member, in place of --to |
 | `--nobody` | assign: assign the work item to nobody; list: only the work items assigned to nobody |
+| `--tag <value>` | add: the new work item's tags, separated by commas; list: only the work items carrying this tag |
 | `--to <value>` | a member, by their label as the roster shows it. add: the new work item's assignee; assign: the work item's; list: only the work items assigned to them |
 
 ## brigade inbound

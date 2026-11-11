@@ -264,8 +264,8 @@ case $board_folder in
   *) die "the observer's map carries no board folder under $state_dir/boards: '$board_folder'" ;;
 esac
 board list > "$out/board-0.json" || die "the observer cannot read the board"
-[ "$(jq '.items | length' "$out/board-0.json")" = 0 ] && [ "$(jq -r '.lists | join(",")' "$out/board-0.json")" = "Todo,Doing,Done" ] &&
-  ok "the board starts empty, with the lists Todo, Doing, Done" || bad "the board at the start: $(cat "$out/board-0.json")"
+[ "$(jq '.items | length' "$out/board-0.json")" = 0 ] && [ "$(jq -r '[.lists[] | .key + "=" + .name] | join(",")' "$out/board-0.json")" = "todo=Todo,doing=Doing,done=Done" ] &&
+  ok "the board starts empty, with the lists Todo, Doing, Done under the keys todo, doing, done" || bad "the board at the start: $(cat "$out/board-0.json")"
 
 # ---------------------------------------------------------------------------------------------------------------
 # 6. Leg A: /brigade:work-item add
@@ -282,7 +282,7 @@ grep -q '^brigade work-item add' "$out/add.commands.txt" &&
   bad "A: no \`brigade work-item add\` among the session's commands: $(cat "$out/add.commands.txt")"
 board list > "$out/board-a.json"
 [ "$(jq -r '[.items[] | select(.number == 1) | .title] | first // ""' "$out/board-a.json")" = "$title_a" ] &&
-  ok "A: the observer's board holds work item 1 \"$title_a\" in $(jq -r '.items[0].list' "$out/board-a.json")" ||
+  ok "A: the observer's board holds work item 1 \"$title_a\" in $(jq -r '.items[0].list_name' "$out/board-a.json")" ||
   bad "A: the board after the add: $(cat "$out/board-a.json")"
 grep -q 'added: 1' "$out/add.answer.txt" &&
   ok "A: the session's answer carries the command's own line: $(grep 'added: 1' "$out/add.answer.txt" | head -1)" ||
@@ -317,8 +317,9 @@ session start 'Skill,Read,Write,Edit,Glob,Bash(brigade:*),Bash(ls:*),Bash(cat:*)
 commands start > "$out/start.commands.txt"
 answer start > "$out/start.answer.txt"
 board show 2 > "$out/board-c.json"
-for want in 'brigade work-item show 2' 'brigade work-item assign 2 --mine' 'brigade work-item move 2 Doing' 'brigade work-item comment 2' 'brigade work-item move 2 Done'; do
-  grep -q "^$want" "$out/start.commands.txt" &&
+# A list is named by its key or its name: either spelling of the two moves counts.
+for want in 'brigade work-item show 2' 'brigade work-item assign 2 --mine' 'brigade work-item move 2 doing' 'brigade work-item comment 2' 'brigade work-item move 2 done'; do
+  grep -qi "^$want" "$out/start.commands.txt" &&
     ok "C: the session ran \`$want\`" || bad "C: the session did not run \`$want\`"
 done
 grep -q '^brigade doing' "$out/start.commands.txt" &&
@@ -326,7 +327,7 @@ grep -q '^brigade doing' "$out/start.commands.txt" &&
   bad "C: the session published no roster line"
 { [ -f "$proj/HELLO.md" ] && grep -qi 'hello' "$proj/HELLO.md"; } &&
   ok "C: the work was done: HELLO.md holds \"$(tr -d '\n' < "$proj/HELLO.md")\"" || bad "C: HELLO.md is not there, or does not say hello"
-[ "$(jq -r '.item.list' "$out/board-c.json")" = Done ] && [ "$(jq -r '.item.assignee' "$out/board-c.json")" = "$alice" ] &&
+[ "$(jq -r '.item.list' "$out/board-c.json")" = 'done' ] && [ "$(jq -r '.item.assignee' "$out/board-c.json")" = "$alice" ] &&
   [ "$(jq -r '.item.closed' "$out/board-c.json")" = false ] && [ "$(jq '.item.comments | length' "$out/board-c.json")" -ge 1 ] &&
   ok "C: work item 2 is in Done, assigned to $alice, open, with $(jq '.item.comments | length' "$out/board-c.json") comment(s)" ||
   bad "C: work item 2 after the run: $(jq -c '.item | {list, assignee, closed, comments: (.comments | length)}' "$out/board-c.json")"

@@ -10,9 +10,11 @@
 // small JSON file, written once under a name no other writer can pick
 // and never rewritten: `items/<id>/<seq>-<millis>-<random>.json` says
 // what one session set on one work item — its number, title, description,
-// list, assignee, labels, whether it is closed — or the comment it added,
+// list, assignee, tags, whether it is closed — or the comment it added,
 // and `lists/<seq>-<millis>-<random>.json` names the board's lists in
-// order. A work item is the fold of its changes: ordered by sequence,
+// order. A list is a state a work item can be in: it has a key that never
+// changes, which is what a work item carries, and a name the team calls
+// it by, which can change without a work item noticing. A work item is the fold of its changes: ordered by sequence,
 // then time, then file name, the last change that sets a field wins.
 // Two machines therefore never write one file, the sync engine never
 // makes a conflict copy, and two members who change one work item at the
@@ -72,12 +74,14 @@ const (
 	MaxTitleChars       = 200
 	MaxDescriptionChars = 8000
 	MaxCommentChars     = 4000
-	// MaxLists caps the board's lists and MaxListChars a list's name;
-	// MaxLabels a work item's labels and MaxLabelChars a label.
-	MaxLists      = 24
-	MaxListChars  = 64
-	MaxLabels     = 12
-	MaxLabelChars = 48
+	// MaxLists caps the board's lists, MaxListChars a list's name and
+	// MaxListKeyChars its key; MaxTags a work item's tags and MaxTagChars
+	// a tag.
+	MaxLists        = 24
+	MaxListChars    = 64
+	MaxListKeyChars = 32
+	MaxTags         = 12
+	MaxTagChars     = 48
 	// MaxItems caps the work items of a board and MaxChanges the changes
 	// of one work item (and of the lists). The writer refuses past either
 	// (ErrFull), so a change that is written is a change that is read; a
@@ -92,9 +96,6 @@ const (
 	MaxSeq    = 999_999_999
 	MaxNumber = 999_999_999
 )
-
-// DefaultLists is the lists of a board nobody has named lists for.
-func DefaultLists() []string { return []string{"Todo", "Doing", "Done"} }
 
 // idPattern is a work item's id, its directory's name: 16 hex digits.
 // changePattern is a change's file name: the sequence in nine digits, the
@@ -126,24 +127,28 @@ type Change struct {
 	By      string `json:"by,omitzero"`
 	Session string `json:"session,omitzero"`
 	// Set is the fields this change sets; Comment the comment it adds;
-	// Lists, in a change of the lists, the board's lists in order.
-	Set     *Fields  `json:"set,omitzero"`
-	Comment string   `json:"comment,omitzero"`
-	Lists   []string `json:"lists,omitzero"`
+	// Lists, in a change of the lists, the board's lists in order; and
+	// Rename, in another, the new name of the one list whose key it
+	// carries (lists.go says how the two fold).
+	Set     *Fields `json:"set,omitzero"`
+	Comment string  `json:"comment,omitzero"`
+	Lists   []List  `json:"lists,omitzero"`
+	Rename  *List   `json:"rename,omitzero"`
 
 	// name is the file's name, the last key of the fold's order.
 	name string
 }
 
 // Fields are the fields of a work item a change can set: a nil member is
-// left as it was. An empty Assignee is nobody; an empty Labels is none.
+// left as it was. List is a list's key. An empty Assignee is nobody; an
+// empty Tags is none.
 type Fields struct {
 	Number      *int      `json:"number,omitzero"`
 	Title       *string   `json:"title,omitzero"`
 	Description *string   `json:"description,omitzero"`
 	List        *string   `json:"list,omitzero"`
 	Assignee    *string   `json:"assignee,omitzero"`
-	Labels      *[]string `json:"labels,omitzero"`
+	Tags        *[]string `json:"tags,omitzero"`
 	Closed      *bool     `json:"closed,omitzero"`
 }
 
@@ -156,12 +161,15 @@ type Item struct {
 	Title  string `json:"title"`
 	// Description is free text, line breaks kept.
 	Description string `json:"description,omitzero"`
-	// List is the list the item is in, as its last move wrote it.
-	List string `json:"list"`
+	// List is the key of the list the item is in, as its last move
+	// wrote it; ListName that list's name on the board now, "" for a list
+	// the board no longer has.
+	List     string `json:"list"`
+	ListName string `json:"list_name,omitzero"`
 	// Assignee is the roster label of the member the item is assigned
 	// to, "" for nobody.
 	Assignee string   `json:"assignee,omitzero"`
-	Labels   []string `json:"labels"`
+	Tags     []string `json:"tags"`
 	// Closed is true for an item that is finished with: off the board's
 	// lists until it is reopened.
 	Closed bool `json:"closed"`
@@ -199,15 +207,20 @@ type Event struct {
 
 // A Board is the team's board as one machine holds it now.
 type Board struct {
-	// Lists is the board's lists in order: the latest change of the
-	// lists, or DefaultLists when nobody named any.
-	Lists []string
+	// Lists is the board's lists in order: those of the latest change
+	// that named them, or DefaultLists when nobody named any, each under
+	// the name it has now.
+	Lists []List
 	// Items is every work item, open and closed, by number.
 	Items []*Item
 	// Skipped counts what Read left out: a file or a directory in the
 	// folder that is not a change or a work item, or is past a cap.
 	Skipped int
 
+	// past is the lists the board had once and has no longer, each
+	// under its key and the last name it had: naming one again gives it
+	// its key back, and with the key the work items left in it.
+	past []List
 	// listsSeq is the highest sequence among the changes of the lists,
 	// and listsChanges how many of them were read.
 	listsSeq     int
@@ -226,7 +239,8 @@ func Read(folder string) (*Board, error) {
 		return nil, err
 	}
 	b.Skipped += skipped
-	b.Lists, b.listsSeq, b.listsChanges = foldLists(lists), 0, len(lists)
+	b.Lists, b.past = foldLists(lists)
+	b.listsChanges = len(lists)
 	for _, c := range lists {
 		b.listsSeq = max(b.listsSeq, c.Seq)
 	}
@@ -251,7 +265,7 @@ func Read(folder string) (*Board, error) {
 			return nil, err
 		}
 		b.Skipped += skipped
-		if it := fold(d.Name(), changes); it != nil {
+		if it := fold(d.Name(), changes, b.Lists); it != nil {
 			b.Items = append(b.Items, it)
 		}
 	}
@@ -263,8 +277,9 @@ func Read(folder string) (*Board, error) {
 
 // ReadItem folds the one work item with that id as the folder holds it
 // now, without reading the rest of the board: nil when the folder holds
-// no such work item.
-func ReadItem(folder, id string) (*Item, error) {
+// no such work item. lists is the board's lists, for the names the item's
+// list and its history read with.
+func ReadItem(folder, id string, lists []List) (*Item, error) {
 	if !ValidID(id) {
 		return nil, nil
 	}
@@ -276,7 +291,7 @@ func ReadItem(folder, id string) (*Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	return fold(id, changes), nil
+	return fold(id, changes, lists), nil
 }
 
 // readDir lists a directory of the board, which must be a real
@@ -383,7 +398,13 @@ func (c *Change) sanitize() {
 	c.By = protocol.SanitizeLabel(Line(c.By))
 	c.Session = protocol.OneLineName(c.Session)
 	c.Comment = protocol.TruncateRunes(Block(c.Comment), MaxCommentChars)
-	c.Lists = cleanNames(c.Lists, MaxLists, MaxListChars)
+	c.Lists = cleanLists(c.Lists)
+	if r := c.Rename; r != nil {
+		r.Name = protocol.TruncateRunes(Line(r.Name), MaxListChars)
+		if !ValidListKey(r.Key) || r.Name == "" {
+			c.Rename = nil
+		}
+	}
 	s := c.Set
 	if s == nil {
 		return
@@ -402,20 +423,16 @@ func (c *Change) sanitize() {
 		d := protocol.TruncateRunes(Block(*s.Description), MaxDescriptionChars)
 		s.Description = &d
 	}
-	if s.List != nil {
-		if l := protocol.TruncateRunes(Line(*s.List), MaxListChars); l != "" {
-			s.List = &l
-		} else {
-			s.List = nil
-		}
+	if s.List != nil && !ValidListKey(*s.List) {
+		s.List = nil
 	}
 	if s.Assignee != nil {
 		a := protocol.SanitizeLabel(Line(*s.Assignee))
 		s.Assignee = &a
 	}
-	if s.Labels != nil {
-		l := cleanNames(*s.Labels, MaxLabels, MaxLabelChars)
-		s.Labels = &l
+	if s.Tags != nil {
+		l := cleanNames(*s.Tags, MaxTags, MaxTagChars)
+		s.Tags = &l
 	}
 }
 
@@ -433,8 +450,8 @@ func Block(s string) string {
 	return strings.TrimSpace(protocol.Sanitize(s))
 }
 
-// cleanNames is a list of names — the board's lists, a work item's
-// labels — each on one sanitised line of at most chars code points, the
+// cleanNames is a list of names — a work item's tags — each on one
+// sanitised line of at most chars code points, the
 // empty ones and the repeats (compared without case) dropped, at most
 // limit of them. Never nil.
 func cleanNames(names []string, limit, chars int) []string {
@@ -449,39 +466,35 @@ func cleanNames(names []string, limit, chars int) []string {
 	return out
 }
 
-// foldLists is the board's lists: those of the last change that names
-// any, or DefaultLists.
-func foldLists(changes []*Change) []string {
-	lists := DefaultLists()
-	for _, c := range changes {
-		if len(c.Lists) > 0 {
-			lists = c.Lists
-		}
-	}
-	return lists
-}
-
 // fold is the work item its changes make, in the order readChanges gave
 // them, or nil while they make none: an item has a number, a title and a
 // list, which its first change sets, so one whose first change has not
-// reached this machine yet is not shown until it has.
-func fold(id string, changes []*Change) *Item {
+// reached this machine yet is not shown until it has. lists is the
+// board's lists: the item's list and its history read with the names
+// they have now, and with the key for a list the board no longer has.
+func fold(id string, changes []*Change, lists []List) *Item {
 	if len(changes) == 0 {
 		return nil
 	}
-	it := &Item{ID: id, Labels: []string{}, Comments: []Comment{}, History: []Event{}, changes: len(changes)}
+	shown := func(key string) string {
+		if l, ok := byKey(lists, key); ok {
+			return l.Name
+		}
+		return key
+	}
+	it := &Item{ID: id, Tags: []string{}, Comments: []Comment{}, History: []Event{}, changes: len(changes)}
 	it.CreatedAt, it.CreatedBy = changes[0].At, changes[0].By
 	for i, c := range changes {
 		it.seq = max(it.seq, c.Seq)
 		if c.At.After(it.UpdatedAt) {
 			it.UpdatedAt = c.At
 		}
-		what := it.apply(c.Set)
+		what := it.apply(c.Set, shown)
 		if i == 0 {
 			// The first change is the item's creation, whatever it set.
 			what = []string{"created"}
 			if it.List != "" {
-				what = []string{"created in " + it.List}
+				what = []string{"created in " + shown(it.List)}
 			}
 			if it.Assignee != "" {
 				what = append(what, "assigned to "+it.Assignee)
@@ -498,12 +511,16 @@ func fold(id string, changes []*Change) *Item {
 	if it.Number == 0 || it.Title == "" || it.List == "" {
 		return nil
 	}
+	if l, ok := byKey(lists, it.List); ok {
+		it.ListName = l.Name
+	}
 	return it
 }
 
 // apply sets on the item the fields s sets, and says what changed, each
 // in a few fixed words; a field set to the value it has says nothing.
-func (it *Item) apply(s *Fields) []string {
+// shown is a list's name, or its key when the board has no such list.
+func (it *Item) apply(s *Fields, shown func(key string) string) []string {
 	if s == nil {
 		return nil
 	}
@@ -525,7 +542,7 @@ func (it *Item) apply(s *Fields) []string {
 		it.Description = *s.Description
 	}
 	if s.List != nil && *s.List != it.List {
-		what = append(what, "moved to "+*s.List)
+		what = append(what, "moved to "+shown(*s.List))
 		it.List = *s.List
 	}
 	if s.Assignee != nil && *s.Assignee != it.Assignee {
@@ -536,13 +553,13 @@ func (it *Item) apply(s *Fields) []string {
 		}
 		it.Assignee = *s.Assignee
 	}
-	if s.Labels != nil && !slices.Equal(*s.Labels, it.Labels) {
-		if len(*s.Labels) == 0 {
-			what = append(what, "labels removed")
+	if s.Tags != nil && !slices.Equal(*s.Tags, it.Tags) {
+		if len(*s.Tags) == 0 {
+			what = append(what, "tags removed")
 		} else {
-			what = append(what, "labelled "+strings.Join(*s.Labels, ", "))
+			what = append(what, "tagged "+strings.Join(*s.Tags, ", "))
 		}
-		it.Labels = *s.Labels
+		it.Tags = *s.Tags
 	}
 	if s.Closed != nil && *s.Closed != it.Closed {
 		if *s.Closed {
@@ -553,6 +570,15 @@ func (it *Item) apply(s *Fields) []string {
 		it.Closed = *s.Closed
 	}
 	return what
+}
+
+// ListShown is the list a reader is shown the item in: the list's name,
+// or its key for a list the board no longer has.
+func (it *Item) ListShown() string {
+	if it.ListName != "" {
+		return it.ListName
+	}
+	return it.List
 }
 
 // ByID is the work item with that id, or nil.
@@ -585,18 +611,6 @@ func (b *Board) NextNumber() int {
 		highest = max(highest, it.Number)
 	}
 	return highest + 1
-}
-
-// List is the board's list that name names, compared without case, in
-// the board's own spelling; false when the board has no such list.
-func (b *Board) List(name string) (string, bool) {
-	name = Line(name)
-	for _, l := range b.Lists {
-		if strings.EqualFold(l, name) {
-			return l, true
-		}
-	}
-	return "", false
 }
 
 // Clashes is the work items that carry a number an older work item

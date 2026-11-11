@@ -17,8 +17,8 @@ harnesses name them their own way ([the skills, by harness](../../agent/in-a-tea
 
 | Command | What it does |
 | --- | --- |
-| `/brigade:work-items` | prints the board verbatim; `mine`, `nobody`, `closed`, `for <member>`, `label <name>` or a list's name narrows it, and `lists` prints the board's lists |
-| `/brigade:work-item <number>` | shows one work item; `add <title>`, and `<number> move <list>`, `assign me`, `comment <text>`, `label <names>`, `edit`, `close`, `reopen`, add one or change it |
+| `/brigade:work-items` | prints the board verbatim; `mine`, `nobody`, `closed`, `for <member>`, `tag <tag>` or a list narrows it, and `lists` prints the board's lists |
+| `/brigade:work-item <number>` | shows one work item; `add <title>`, and `<number> move <list>`, `assign me`, `comment <text>`, `tag <tags>`, `edit`, `close`, `reopen`, add one or change it |
 | `/brigade:work-item-start <number>` | has the session take the work item and work it through: it assigns it to you, moves it to the list for work in progress, does the work, comments what it did and moves it on |
 
 ## The commands
@@ -26,9 +26,9 @@ harnesses name them their own way ([the skills, by harness](../../agent/in-a-tea
 ```bash
 brigade work-item list                       # the open work items, by list
 brigade work-item list --mine                # yours; --to <label> a teammate's; --nobody the unassigned
-brigade work-item list --list Doing          # one list; --label bug one label; --closed the closed ones
+brigade work-item list --list Doing          # one list, by its name or its key; --tag bug one tag; --closed the closed ones
 brigade work-item show 41                    # one work item: fields, description, comments, history
-brigade work-item add --list Todo --mine --label bug,web <<'EOF'
+brigade work-item add --list Todo --mine --tag bug,web <<'EOF'
 Fix the login redirect
 
 Signing in from the invite link returns to the invite, not the dashboard.
@@ -41,14 +41,15 @@ Signing in from the invite link loops between the invite and the sign-in page.
 EOF
 brigade work-item move 41 Doing
 brigade work-item assign 41 --mine           # or --to <label>, or --nobody
-brigade work-item label 41 bug web           # exactly these; with none, no labels
+brigade work-item tag 41 bug web             # exactly these; with none, no tags
 brigade work-item comment 41 <<'EOF'
 Reproduced on staging with a fresh invite.
 EOF
 brigade work-item close 41                   # finished with: off the lists, still under list --closed
 brigade work-item reopen 41
-brigade work-item lists                      # the board's lists, in order
+brigade work-item lists                      # the board's lists, in order: each one's key and its name
 brigade work-item lists Backlog Doing Review Done   # names them anew: all of them, in order
+brigade work-item rename-list doing 'In progress'   # another name for a list; its key and its work items stay
 ```
 
 Every verb runs inside a session and takes `--json`. A title, a description and a comment travel on stdin; the
@@ -59,7 +60,7 @@ characters, a description 8,000 and a comment 4,000. A text that carries a crede
 still seen:
 
 ```
-LIST   NUMBER  TITLE                   ASSIGNED          LABELS
+LIST   NUMBER  TITLE                   ASSIGNED          TAGS
 Todo   43      Add a board             -                 -
 Doing  41      Fix the login redirect  rjae@example.com  bug, web
 open by list: Todo (1), Doing (1), Done (0)
@@ -70,15 +71,45 @@ open by list: Todo (1), Doing (1), Done (0)
 - **A number.** The highest number on the board plus one, closed work items counted. A commit that belongs to a
   work item can carry its number as other trackers' cards do (`41: Fix the redirect`).
 - **A title, a description, comments.** Free text, the description and the comments with their line breaks.
-- **A list.** One of the board's. The board starts with `Todo`, `Doing` and `Done`; `brigade work-item lists
-  <name>…` names the lists anew, as a whole and in order. A move to a list the board does not have is refused
-  with the lists there are. A work item in a list the board no longer names stays there, and the count line
-  names that list apart.
+- **A list.** One of the board's: the state the work item is in ([The board's lists](#the-boards-lists)). A
+  move to a list the board does not have is refused with the lists there are.
 - **An assignee.** A member, by their label as the roster shows it (`brigade sessions`), or nobody. `--mine` is
   your own label.
-- **Labels.** Up to twelve words of the team's own.
+- **Tags.** Up to twelve words of the team's own, made by using them: `bug`, `web`, a customer, a release.
 - **Open or closed.** Closing takes a work item off the lists; nothing deletes one.
 - **A history.** One line per change: who, from which session, when, and what changed.
+
+## The board's lists
+
+A list is a state a work item can be in, and the lists are the team's own. Each has two things:
+
+- **A key**, set when the list is made, from the name it was given then (`In progress` gives `in-progress`), and
+  never changed. It is what a work item carries.
+- **A name**, what the team calls the state. It can change, and changing it moves no work item.
+
+```
+$ brigade work-item lists
+KEY          NAME
+hibernating  Hibernating
+wanting      Wanting
+doing        Doing
+done         Done
+$ brigade work-item rename-list wanting 'Next up'
+renamed: wanting is now "Next up" (was "Wanting"); the work items in it stay in it
+```
+
+A board starts with `Todo`, `Doing` and `Done`. `brigade work-item lists <name>…` names the lists anew, as a
+whole and in order: a name or a key the board already has stays that list, under the name it has; any other
+name is a new list; and a list left out is dropped. A work item in a dropped list stays there, shown under the
+list's key and counted apart, and is back in its list when the list is named again, by the name it had or by
+its key.
+
+Every command that takes a list takes its key or its name, and looks among the keys first. So no two lists
+answer to one word: a list is not renamed to another's name or key, and a name that is another list's key is
+that list. After `rename-list todo Backlog`, `Todo` still means the list now called Backlog, by its key.
+
+A rename is a change of its own. If one machine renames a list while another names the lists anew, both stand
+once the two have exchanged: the lists are the ones named, and the list is called what the rename said.
 
 ## Two machines, one number
 
@@ -128,7 +159,8 @@ Where both set the same field, the later change wins.
 | `config`, `not_in_session` | the command was run outside a session |
 | `config`, `label_needed` | `--mine` in a session with no roster label: name the member with `--to` |
 | `not_found`, `no_such_work_item` | no work item carries that number |
-| `invalid_input`, `no_such_list` | the board has no such list; the message names the ones it has |
+| `invalid_input`, `no_such_list` | the board has no list of that name or key; the message names the ones it has |
+| `invalid_input`, `name_taken` | a list cannot take a name another list answers to |
 | `invalid_input`, `empty`, `too_long`, `not_utf8`, `secret_shaped` | the text: nothing there, past its cap, not UTF-8, or carrying a credential's shape |
 | `conflict`, `number_taken_twice` | two work items still carry one number: run the command again |
 | `conflict`, `board_full` | the work item, or the board, is at its limit and takes no further change |

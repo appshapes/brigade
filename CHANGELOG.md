@@ -14,11 +14,13 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 - **A team can keep its work in Brigade: a board of work items** (card
   263). A team that sets `"board": true` in the `sync` member of its
   `.brigade.json` has one board for all its repositories: work items,
-  each with a number, a title, a description, a list, an assignee, labels
+  each with a number, a title, a description, a list, an assignee, tags
   and comments, in lists the team names itself (`Todo`, `Doing` and
-  `Done` to start with). `brigade work-item` reads and changes it from
-  inside a session: `list`, `show`, `add`, `edit`, `move`, `assign`,
-  `label`, `comment`, `close`, `reopen` and `lists`. Three skills are the
+  `Done` to start with). A list is a state with a key that never changes
+  and a name that can: renaming one moves no work item. `brigade
+  work-item` reads and changes the board from inside a session: `list`,
+  `show`, `add`, `edit`, `move`, `assign`, `tag`, `comment`, `close`,
+  `reopen`, `lists` and `rename-list`. Three skills are the
   short forms in every package: `/brigade:work-items` prints the board,
   `/brigade:work-item` reads, adds or changes one work item, and
   `/brigade:work-item-start <number>` has the session take a work item,

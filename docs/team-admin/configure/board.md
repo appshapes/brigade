@@ -46,12 +46,16 @@ peers in `team_peers` and the checkout's toplevel in `root` ([Writing a sync ada
 
 ## The lists
 
-A board starts with `Todo`, `Doing` and `Done`. Any member names the lists anew, as a whole and in order:
+A board starts with `Todo`, `Doing` and `Done`. The lists are the team's own: any member names them anew, as a
+whole and in order, and renames one without moving a work item
+([The board's lists](../../team-member/use/work-items.md#the-boards-lists)):
 
 ```bash
 brigade work-item lists Backlog Doing Review Done
+brigade work-item rename-list review 'In review'
 ```
 
+A list is a state with a key, set once from its first name and never changed, and a name, which can change.
 Up to 24 lists, each name up to 64 characters. A work item in a list the new ones leave out stays where it is.
 A board holds 20,000 work items and a work item 2,000 changes; past either, `brigade work-item` refuses
 (`conflict`, `board_full`) rather than write what would not be read.

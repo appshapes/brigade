@@ -20,8 +20,8 @@ in `brigade:work-item`; one `brigade` command per call.
    your user whether to go on.
 2. **Take it.** Run `brigade work-item assign <number> --mine`, then move it to the board's list for work in
    progress with `brigade work-item move <number> <list>`. `brigade work-item lists` prints the board's lists
-   in order: `Doing` on a board with the lists it started with; on a team's own lists, the one whose name says
-   the work is under way. When no list clearly does, ask your user which. Then say what this session is working
+   in order, each one's key and its name: `doing` on a board with the lists it started with; on a team's own
+   lists, the one whose key or name says the work is under way. When no list clearly does, ask your user which. Then say what this session is working
    on, in one sentence that names the work item: `brigade doing <<'EOF'`, the sentence, `EOF`.
 3. **Agree the work.** Say in a few lines what the work item asks for, how you will do it and what would make
    it done. Ask your user only what the work item leaves open and you cannot settle from the project itself;
@@ -30,8 +30,8 @@ in `brigade:work-item`; one `brigade` command per call.
    Where the project prefixes a commit's subject with the number of the work it belongs to, this is that number.
 5. **Land it on the work item.** Add one comment with `brigade work-item comment <number>`: what was done,
    where it is (the commits or the branch, never a path on this machine), how it was checked, and what is
-   still open and whose it is. Then move the work item to the board's list for finished work (`Done` on a board
-   with the lists it started with; the last of a team's own, unless another's name says so), or, when something
+   still open and whose it is. Then move the work item to the board's list for finished work (`done` on a board
+   with the lists it started with; the last of a team's own, unless another's key or name says so), or, when something
    is still open, leave it where it is and say why. Close it
    with `brigade work-item close <number>` only when your user says it is finished with: closing takes it off
    the board.

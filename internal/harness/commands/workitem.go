@@ -31,9 +31,9 @@ type WorkItemOptions struct {
 	To     string
 	Mine   bool
 	Nobody bool
-	// Label is a new work item's labels, separated by commas, or the one
-	// label a listing shows.
-	Label string
+	// Tag is a new work item's tags, separated by commas, or the one tag
+	// a listing shows.
+	Tag string
 	// Closed makes a listing show the closed work items instead of the
 	// open ones.
 	Closed bool
@@ -44,8 +44,9 @@ type workItemResult struct {
 	SelfSessionID string `json:"self_session_id"`
 	// Verb is the verb that ran.
 	Verb string `json:"verb"`
-	// Lists is the board's lists in order: of `list` and `lists`.
-	Lists []string `json:"lists,omitzero"`
+	// Lists is the board's lists in order, each a key and a name: of
+	// `list`, `lists` and `rename-list`.
+	Lists []workitem.List `json:"lists,omitzero"`
 	// Items is a listing's work items, without their comments and
 	// history; Item the one work item every other verb acted on, whole.
 	Items []workItemRow  `json:"items,omitzero"`
@@ -61,12 +62,15 @@ type workItemResult struct {
 
 // workItemRow is one work item of a listing.
 type workItemRow struct {
-	ID        string    `json:"id"`
-	Number    int       `json:"number"`
-	Title     string    `json:"title"`
+	ID     string `json:"id"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	// List is the key of the item's list and ListName its name now, ""
+	// for a list the board no longer has.
 	List      string    `json:"list"`
+	ListName  string    `json:"list_name,omitzero"`
 	Assignee  string    `json:"assignee,omitzero"`
-	Labels    []string  `json:"labels"`
+	Tags      []string  `json:"tags"`
 	Closed    bool      `json:"closed"`
 	Comments  int       `json:"comments"`
 	CreatedAt time.Time `json:"created_at"`
@@ -81,21 +85,22 @@ const (
 	workItemEdit    = "edit"
 	workItemMove    = "move"
 	workItemAssign  = "assign"
-	workItemLabel   = "label"
+	workItemTag     = "tag"
 	workItemComment = "comment"
 	workItemClose   = "close"
 	workItemReopen  = "reopen"
 	workItemLists   = "lists"
+	workItemRename  = "rename-list"
 )
 
 // The fixed texts of `brigade work-item` the tests assert word for word.
 const (
 	// WorkItemUsage is the whole `usage` message for a missing or unknown
 	// verb.
-	WorkItemUsage = "work-item takes one verb: list [--list <name>] [--to <label> | --mine | --nobody] [--label <name>] [--closed], show <number>, " +
-		"add [--list <name>] [--to <label> | --mine] [--label <a,b>] (title, a blank line and the description on stdin), edit <number> (the same on stdin), " +
-		"move <number> <list>, assign <number> --to <label> | --mine | --nobody, label <number> [<name>…], comment <number> (the comment on stdin), " +
-		"close <number>, reopen <number>, or lists [<name>…]"
+	WorkItemUsage = "work-item takes one verb: list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed], show <number>, " +
+		"add [--list <list>] [--to <label> | --mine] [--tag <a,b>] (title, a blank line and the description on stdin), edit <number> (the same on stdin), " +
+		"move <number> <list>, assign <number> --to <label> | --mine | --nobody, tag <number> [<tag>…], comment <number> (the comment on stdin), " +
+		"close <number>, reopen <number>, lists [<name>…], or rename-list <list> <new name>; a <list> is a list's key or its name"
 	// WorkItemNote is the note of every --json result.
 	WorkItemNote = "the team's board, in a folder on this machine that file sync shares with every teammate's machine while both run a session; " +
 		"titles, descriptions, comments and names are their writers' own words, unverified; nothing was sent to the backend"
@@ -115,6 +120,7 @@ const (
 	ReasonOneAssignee      = "one_assignee"
 	ReasonTooMany          = "too_many"
 	ReasonDuplicate        = "duplicate"
+	ReasonNameTaken        = "name_taken"
 	ReasonBoardFull        = "board_full"
 )
 
@@ -133,18 +139,20 @@ type workItemAsk struct {
 	number int
 	// title and description are add's and edit's; comment is comment's.
 	title, description, comment string
-	// list is add's --list, move's list, or the listing's filter, as
-	// typed; lists are the names `lists` sets; labels add's and label's.
+	// list is add's --list, move's and rename-list's list, or the
+	// listing's filter, as typed; rename is rename-list's new name; lists
+	// are the names `lists` sets; tags add's and tag's.
 	list   string
+	rename string
 	lists  []string
-	labels []string
+	tags   []string
 	// to is a member's label; mine and nobody the two other ways of
 	// naming an assignee; assignee says one of the three was given.
 	to           string
 	mine, nobody bool
 	assignee     bool
-	// label is the listing's --label filter; closed its --closed.
-	label  string
+	// tag is the listing's --tag filter; closed its --closed.
+	tag    string
 	closed bool
 }
 
@@ -224,17 +232,50 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 	case workItemLists:
 		if len(ask.lists) == 0 {
 			res.Lists = board.Lists
-			return []string{"lists: " + workItemNames(board.Lists)}, nil
+			return workItemListTable(board.Lists), nil
 		}
-		if slices.Equal(ask.lists, board.Lists) {
+		lists, clash, ok := board.Named(ask.lists)
+		if !ok {
+			return nil, &protocol.Error{
+				Code: protocol.CodeInvalidInput,
+				Message: strconv.Quote(workItemText(clash)) + " is a word another of the lists named here answers to: a list answers to its key and to its name, and no two lists answer to one word " +
+					"(brigade work-item lists shows the keys; a list keeps its key when it is renamed)",
+				Details: map[string]string{"field": "lists", "reason": ReasonDuplicate},
+			}
+		}
+		if slices.Equal(lists, board.Lists) {
 			res.Lists = board.Lists
-			return []string{"unchanged: the board's lists are already " + workItemNames(board.Lists)}, nil
+			return append([]string{"unchanged: the board's lists are already these"}, workItemListTable(board.Lists)...), nil
 		}
-		if err := store.SetLists(board, ask.lists, who); err != nil {
+		if err := store.SetLists(board, lists, who); err != nil {
 			return nil, workItemWriteError(err)
 		}
-		res.Lists, res.Changed = ask.lists, true
-		return []string{"lists: " + workItemNames(ask.lists)}, nil
+		res.Lists, res.Changed = lists, true
+		return workItemListTable(lists), nil
+	case workItemRename:
+		was, renamed, found, taken := board.Renamed(ask.list, ask.rename)
+		switch {
+		case !found:
+			return nil, workItemNoSuchList(board)
+		case taken:
+			return nil, &protocol.Error{Code: protocol.CodeInvalidInput, Message: "another of the board's lists already answers to that name, as its name or as its key", Details: map[string]string{"field": "name", "reason": ReasonNameTaken}}
+		case was.Name == renamed.Name:
+			res.Lists = board.Lists
+			return []string{"unchanged: " + renamed.Key + " is already called " + strconv.Quote(workItemText(renamed.Name))}, nil
+		}
+		// A rename is a change of its own, not the lists named anew: it
+		// stands whatever another machine did to the lists meanwhile.
+		if err := store.RenameList(board, renamed, who); err != nil {
+			return nil, workItemWriteError(err)
+		}
+		res.Changed = true
+		for _, l := range board.Lists {
+			if l.Key == renamed.Key {
+				l = renamed
+			}
+			res.Lists = append(res.Lists, l)
+		}
+		return []string{"renamed: " + renamed.Key + " is now " + strconv.Quote(workItemText(renamed.Name)) + " (was " + strconv.Quote(workItemText(was.Name)) + "); the work items in it stay in it"}, nil
 	case workItemAdd:
 		return inv.addWorkItem(ask, store, board, who, res)
 	}
@@ -271,11 +312,11 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 		if err != nil {
 			return nil, err
 		}
-		if list != it.List {
-			set = &workitem.Fields{List: &list}
+		if list.Key != it.List {
+			set = &workitem.Fields{List: &list.Key}
 		}
-		done = "moved: " + name + " to " + workItemText(list)
-		same = "unchanged: " + name + " is already in " + workItemText(list)
+		done = "moved: " + name + " to " + workItemText(list.Name)
+		same = "unchanged: " + name + " is already in " + workItemText(list.Name)
 	case workItemAssign:
 		if !workitem.SameMember(ask.to, it.Assignee) && (ask.to != "" || it.Assignee != "") {
 			set = &workitem.Fields{Assignee: &ask.to}
@@ -285,14 +326,14 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 		} else {
 			done, same = "assigned: "+name+" to "+labelLine(ask.to), "unchanged: "+name+" is already assigned to "+labelLine(ask.to)
 		}
-	case workItemLabel:
-		if !slices.Equal(ask.labels, it.Labels) {
-			set = &workitem.Fields{Labels: &ask.labels}
+	case workItemTag:
+		if !slices.Equal(ask.tags, it.Tags) {
+			set = &workitem.Fields{Tags: &ask.tags}
 		}
-		if len(ask.labels) == 0 {
-			done, same = "labels removed: "+name, "unchanged: "+name+" has no labels"
+		if len(ask.tags) == 0 {
+			done, same = "tags removed: "+name, "unchanged: "+name+" has no tags"
 		} else {
-			done, same = "labelled: "+name+": "+workItemNames(ask.labels), "unchanged: "+name+" already carries "+workItemNames(ask.labels)
+			done, same = "tagged: "+name+": "+workItemNames(ask.tags), "unchanged: "+name+" already carries "+workItemNames(ask.tags)
 		}
 	case workItemComment:
 		comment = ask.comment
@@ -305,7 +346,7 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 		if closed {
 			done, same = "closed: "+name, "unchanged: "+name+" is already closed"
 		} else {
-			done, same = "reopened: "+name+" in "+workItemText(it.List), "unchanged: "+name+" is already open"
+			done, same = "reopened: "+name+" in "+workItemText(it.ListShown()), "unchanged: "+name+" is already open"
 		}
 	}
 	if set == nil && comment == "" {
@@ -318,7 +359,7 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 	res.Changed = true
 	// The item as the folder holds it now — this change and any that
 	// arrived while the command ran — read alone, not with the board.
-	if after, err := workitem.ReadItem(store.Folder, it.ID); err == nil && after != nil {
+	if after, err := workitem.ReadItem(store.Folder, it.ID, board.Lists); err == nil && after != nil {
 		it = after
 	}
 	res.Item = it
@@ -335,26 +376,26 @@ func (inv Invocation) addWorkItem(ask *workItemAsk, store workitem.Store, board 
 			return nil, err
 		}
 	}
-	set := workitem.Fields{Title: &ask.title, List: &list}
+	set := workitem.Fields{Title: &ask.title, List: &list.Key}
 	if ask.description != "" {
 		set.Description = &ask.description
 	}
 	if ask.to != "" {
 		set.Assignee = &ask.to
 	}
-	if len(ask.labels) > 0 {
-		set.Labels = &ask.labels
+	if len(ask.tags) > 0 {
+		set.Tags = &ask.tags
 	}
 	id, err := store.Add(board, set, who)
 	if err != nil {
 		return nil, workItemWriteError(err)
 	}
-	it, err := workitem.ReadItem(store.Folder, id)
+	it, err := workitem.ReadItem(store.Folder, id, board.Lists)
 	if err != nil || it == nil {
 		return nil, &protocol.Error{Code: protocol.CodeInternal, Message: "the work item was written and could not be read back"}
 	}
 	res.Item, res.Changed = it, true
-	line := "added: " + itoa(it.Number) + " " + strconv.Quote(workItemText(it.Title)) + " in " + workItemText(it.List)
+	line := "added: " + itoa(it.Number) + " " + strconv.Quote(workItemText(it.Title)) + " in " + workItemText(list.Name)
 	if it.Assignee != "" {
 		line += ", assigned to " + labelLine(it.Assignee)
 	}
@@ -365,17 +406,18 @@ func (inv Invocation) addWorkItem(ask *workItemAsk, store workitem.Store, board 
 // closed ones — that pass the filters, as one table in the order of the
 // board's lists, then by number; and one line that counts every list of
 // the board, so an empty list is still seen. A work item in a list the
-// board no longer names follows the board's, under its list's own name.
+// board no longer has follows the board's, under its list's key.
 func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult) ([]string, error) {
 	only := ""
 	if ask.list != "" {
-		var err error
-		if only, err = workItemListNamed(board, ask.list); err != nil {
+		list, err := workItemListNamed(board, ask.list)
+		if err != nil {
 			return nil, err
 		}
+		only = list.Key
 	}
-	rank := func(list string) int {
-		if i := slices.IndexFunc(board.Lists, func(l string) bool { return strings.EqualFold(l, list) }); i >= 0 {
+	rank := func(key string) int {
+		if i := slices.IndexFunc(board.Lists, func(l workitem.List) bool { return l.Key == key }); i >= 0 {
 			return i
 		}
 		return len(board.Lists)
@@ -393,10 +435,10 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 			elsewhere[it.List]++
 		}
 		switch {
-		case only != "" && !strings.EqualFold(it.List, only):
+		case only != "" && it.List != only:
 		case ask.nobody && it.Assignee != "":
 		case ask.to != "" && !workitem.SameMember(ask.to, it.Assignee):
-		case ask.label != "" && !slices.ContainsFunc(it.Labels, func(l string) bool { return strings.EqualFold(l, ask.label) }):
+		case ask.tag != "" && !slices.ContainsFunc(it.Tags, func(l string) bool { return strings.EqualFold(l, ask.tag) }):
 		default:
 			shown = append(shown, it)
 		}
@@ -405,20 +447,21 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 		return cmp.Or(cmp.Compare(rank(x.List), rank(y.List)), strings.Compare(x.List, y.List), cmp.Compare(x.Number, y.Number))
 	})
 	res.Lists, res.Items = board.Lists, make([]workItemRow, 0, len(shown))
-	rows := [][]string{{"LIST", "NUMBER", "TITLE", "ASSIGNED", "LABELS"}}
+	rows := [][]string{{"LIST", "NUMBER", "TITLE", "ASSIGNED", "TAGS"}}
 	for _, it := range shown {
 		res.Items = append(res.Items, workItemRow{
-			ID: it.ID, Number: it.Number, Title: it.Title, List: it.List, Assignee: it.Assignee, Labels: it.Labels,
+			ID: it.ID, Number: it.Number, Title: it.Title, List: it.List, ListName: it.ListName, Assignee: it.Assignee, Tags: it.Tags,
 			Closed: it.Closed, Comments: len(it.Comments), CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt,
 		})
-		assigned, labels := "-", "-"
+		assigned, tags := "-", "-"
 		if it.Assignee != "" {
 			assigned = labelLine(it.Assignee)
 		}
-		if len(it.Labels) > 0 {
-			labels = workItemNames(it.Labels)
+		if len(it.Tags) > 0 {
+			tags = workItemNames(it.Tags)
 		}
-		rows = append(rows, []string{workItemText(it.List), itoa(it.Number), protocol.TruncateRunes(workItemText(it.Title), workItemTitleCell), assigned, labels})
+		// A list's name; its key for a list the board no longer has.
+		rows = append(rows, []string{workItemText(it.ListShown()), itoa(it.Number), protocol.TruncateRunes(workItemText(it.Title), workItemTitleCell), assigned, tags})
 	}
 	kind := "open"
 	if ask.closed {
@@ -427,7 +470,7 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 	var out []string
 	if len(shown) == 0 {
 		out = append(out, "no "+kind+" work items match")
-		if only == "" && !ask.nobody && ask.to == "" && ask.label == "" {
+		if only == "" && !ask.nobody && ask.to == "" && ask.tag == "" {
 			out[0] = "no " + kind + " work items"
 		}
 	} else {
@@ -437,7 +480,7 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 	}
 	tally := make([]string, 0, len(board.Lists))
 	for i, l := range board.Lists {
-		tally = append(tally, workItemText(l)+" ("+itoa(counts[i])+")")
+		tally = append(tally, workItemText(l.Name)+" ("+itoa(counts[i])+")")
 	}
 	line := kind + " by list: " + strings.Join(tally, ", ")
 	if len(elsewhere) > 0 {
@@ -450,7 +493,7 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 		for _, l := range names {
 			others = append(others, workItemText(l)+" ("+itoa(elsewhere[l])+")")
 		}
-		line += "; in lists the board no longer names: " + strings.Join(others, ", ")
+		line += "; in lists the board no longer has: " + strings.Join(others, ", ")
 	}
 	return append(out, line), nil
 }
@@ -462,9 +505,14 @@ const workItemStamp = "2006-01-02 15:04 UTC"
 // description as written, its comments and its history.
 func showWorkItem(it *workitem.Item) []string {
 	out := []string{"work item " + itoa(it.Number) + ": " + workItemText(it.Title)}
-	state := workItemText(it.List)
+	// The list's name and its key, which is what stays when the name
+	// changes; the key alone for a list the board no longer has.
+	state := it.List + " (no longer one of the board's lists)"
+	if it.ListName != "" {
+		state = workItemText(it.ListName) + " (" + it.List + ")"
+	}
 	if it.Closed {
-		state += " (closed)"
+		state += ", closed"
 	}
 	out = append(out, "list: "+state)
 	if it.Assignee != "" {
@@ -472,8 +520,8 @@ func showWorkItem(it *workitem.Item) []string {
 	} else {
 		out = append(out, "assigned: nobody")
 	}
-	if len(it.Labels) > 0 {
-		out = append(out, "labels: "+workItemNames(it.Labels))
+	if len(it.Tags) > 0 {
+		out = append(out, "tags: "+workItemNames(it.Tags))
 	}
 	out = append(out, "created: "+it.CreatedAt.UTC().Format(workItemStamp)+workItemBy(it.CreatedBy, ""))
 	out = append(out, "updated: "+it.UpdatedAt.UTC().Format(workItemStamp))
@@ -525,7 +573,30 @@ func workItemBlock(text string) []string {
 // sanitised line of the human form.
 func workItemText(s string) string { return oneLine(protocol.Sanitize(s)) }
 
-// workItemNames joins lists' or labels' names for the human form.
+// workItemListTable is the board's lists for the human form: each list's
+// key, which never changes, and the name the team calls it by.
+func workItemListTable(lists []workitem.List) []string {
+	rows := [][]string{{"KEY", "NAME"}}
+	for _, l := range lists {
+		rows = append(rows, []string{l.Key, workItemText(l.Name)})
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range padTable(rows) {
+		out = append(out, tableRow(row))
+	}
+	return out
+}
+
+// workItemListNames joins the lists' names for a refusal.
+func workItemListNames(lists []workitem.List) string {
+	out := make([]string, 0, len(lists))
+	for _, l := range lists {
+		out = append(out, workItemText(l.Name))
+	}
+	return strings.Join(out, ", ")
+}
+
+// workItemNames joins tags for the human form.
 func workItemNames(names []string) string {
 	out := make([]string, 0, len(names))
 	for _, n := range names {
@@ -556,16 +627,22 @@ func workItemByNumber(board *workitem.Board, number int) (*workitem.Item, error)
 	}
 }
 
-// workItemListNamed is the board's list the caller named, in the board's
-// spelling, or the `invalid_input` refusal that names the lists there
+// workItemListNamed is the board's list the caller named, by its key or
+// by its name, or the `invalid_input` refusal that names the lists there
 // are: a list is made by `lists`, never by a typing slip in a move.
-func workItemListNamed(board *workitem.Board, name string) (string, error) {
+func workItemListNamed(board *workitem.Board, name string) (workitem.List, error) {
 	if list, ok := board.List(name); ok {
 		return list, nil
 	}
-	return "", &protocol.Error{
+	return workitem.List{}, workItemNoSuchList(board)
+}
+
+// workItemNoSuchList is the `invalid_input` refusal of a list the board
+// does not have, which names the ones it has.
+func workItemNoSuchList(board *workitem.Board) *protocol.Error {
+	return &protocol.Error{
 		Code:    protocol.CodeInvalidInput,
-		Message: "the board has no list by that name; its lists are: " + workItemNames(board.Lists) + " (brigade work-item lists <name>… names them anew)",
+		Message: "the board has no list by that name or key; its lists are: " + workItemListNames(board.Lists) + " (brigade work-item lists shows their keys, and brigade work-item lists <name>… names them anew)",
 		Details: map[string]string{"field": "list", "reason": ReasonNoSuchList},
 	}
 }
@@ -593,7 +670,7 @@ func workItemReadError(inv Invocation, err error) *protocol.Error {
 }
 
 // workItemWordError is textError for a text that travels on the command
-// line — a list's name, a label, a member — where "put the text on
+// line — a list, a tag, a member — where "put the text on
 // stdin" would send the caller the wrong way.
 func workItemWordError(field, reason string, limit int) *protocol.Error {
 	perr := textError(field, reason, limit)
@@ -652,7 +729,7 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 			on   bool
 		}{
 			{"list", opts.List != ""}, {"to", opts.To != ""}, {"mine", opts.Mine}, {"nobody", opts.Nobody},
-			{"label", opts.Label != ""}, {"closed", opts.Closed},
+			{"tag", opts.Tag != ""}, {"closed", opts.Closed},
 		}
 		for _, g := range given {
 			if g.on && !slices.Contains(flags, g.name) {
@@ -710,15 +787,15 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 		if len(args) != 0 {
 			return nil, usage("work-item list takes flags only; " + WorkItemUsage)
 		}
-		if err := cmp.Or(uses("list", "to", "mine", "nobody", "label", "closed"), assignee(), list()); err != nil {
+		if err := cmp.Or(uses("list", "to", "mine", "nobody", "tag", "closed"), assignee(), list()); err != nil {
 			return nil, err
 		}
-		if opts.Label != "" {
-			label, reason := workitem.CleanLine(opts.Label, workitem.MaxLabelChars, secret)
+		if opts.Tag != "" {
+			tag, reason := workitem.CleanLine(opts.Tag, workitem.MaxTagChars, secret)
 			if reason != "" {
-				return nil, workItemWordError("label", reason, workitem.MaxLabelChars)
+				return nil, workItemWordError("tag", reason, workitem.MaxTagChars)
 			}
-			ask.label = label
+			ask.tag = tag
 		}
 	case workItemShow, workItemClose, workItemReopen:
 		if err := cmp.Or(uses(), numbered(false)); err != nil {
@@ -728,14 +805,14 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 		if len(args) != 0 {
 			return nil, usage("work-item add takes flags only: the title, a blank line and the description travel on stdin; " + WorkItemUsage)
 		}
-		if err := cmp.Or(uses("list", "to", "mine", "label"), assignee(), list()); err != nil {
+		if err := cmp.Or(uses("list", "to", "mine", "tag"), assignee(), list()); err != nil {
 			return nil, err
 		}
-		labels, err := workItemLabels(strings.Split(opts.Label, ","), secret)
+		tags, err := workItemTags(strings.Split(opts.Tag, ","), secret)
 		if err != nil {
 			return nil, err
 		}
-		ask.labels = labels
+		ask.tags = tags
 		if ask.title, ask.description, err = inv.readWorkItemText(secret); err != nil {
 			return nil, err
 		}
@@ -768,15 +845,31 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 		if !ask.assignee {
 			return nil, &protocol.Error{Code: protocol.CodeInvalidInput, Message: "name the assignee: --to <label>, --mine for this session's member, or --nobody", Details: map[string]string{"field": "to", "reason": ReasonAssigneeNeeded}}
 		}
-	case workItemLabel:
+	case workItemTag:
 		if err := cmp.Or(uses(), numbered(true)); err != nil {
 			return nil, err
 		}
-		labels, err := workItemLabels(args, secret)
+		tags, err := workItemTags(args, secret)
 		if err != nil {
 			return nil, err
 		}
-		ask.labels = labels
+		ask.tags = tags
+	case workItemRename:
+		if err := uses(); err != nil {
+			return nil, err
+		}
+		if len(args) != 2 {
+			return nil, usage("work-item rename-list names one of the board's lists, by its key or its name, and then its new name, each as one word or in quotes; " + WorkItemUsage)
+		}
+		old, reason := workitem.CleanLine(args[0], workitem.MaxListChars, secret)
+		if reason != "" {
+			return nil, workItemWordError("list", reason, workitem.MaxListChars)
+		}
+		name, reason := workitem.CleanLine(args[1], workitem.MaxListChars, secret)
+		if reason != "" {
+			return nil, workItemWordError("name", reason, workitem.MaxListChars)
+		}
+		ask.list, ask.rename = old, name
 	case workItemComment:
 		if err := cmp.Or(uses(), numbered(false)); err != nil {
 			return nil, err
@@ -823,28 +916,28 @@ func workItemNumber(word string) (int, error) {
 	return n, nil
 }
 
-// workItemLabels cleans a work item's labels: each on one line within
-// its cap, the empty ones dropped, none twice (compared without case), at
-// most workitem.MaxLabels. Never nil.
-func workItemLabels(words []string, secret string) ([]string, error) {
-	labels := []string{}
+// workItemTags cleans a work item's tags: each on one line within its
+// cap, the empty ones dropped, none twice (compared without case), at
+// most workitem.MaxTags. Never nil.
+func workItemTags(words []string, secret string) ([]string, error) {
+	tags := []string{}
 	for _, w := range words {
 		if strings.TrimSpace(w) == "" {
 			continue
 		}
-		label, reason := workitem.CleanLine(w, workitem.MaxLabelChars, secret)
+		tag, reason := workitem.CleanLine(w, workitem.MaxTagChars, secret)
 		if reason != "" {
-			return nil, workItemWordError("label", reason, workitem.MaxLabelChars)
+			return nil, workItemWordError("tag", reason, workitem.MaxTagChars)
 		}
-		if slices.ContainsFunc(labels, func(l string) bool { return strings.EqualFold(l, label) }) {
+		if slices.ContainsFunc(tags, func(l string) bool { return strings.EqualFold(l, tag) }) {
 			continue
 		}
-		if len(labels) == workitem.MaxLabels {
-			return nil, &protocol.Error{Code: protocol.CodeInvalidInput, Message: "a work item carries at most " + itoa(workitem.MaxLabels) + " labels", Details: map[string]string{"field": "label", "reason": ReasonTooMany}}
+		if len(tags) == workitem.MaxTags {
+			return nil, &protocol.Error{Code: protocol.CodeInvalidInput, Message: "a work item carries at most " + itoa(workitem.MaxTags) + " tags", Details: map[string]string{"field": "tag", "reason": ReasonTooMany}}
 		}
-		labels = append(labels, label)
+		tags = append(tags, tag)
 	}
-	return labels, nil
+	return tags, nil
 }
 
 // readWorkItemText reads add's and edit's stdin: the title on the first

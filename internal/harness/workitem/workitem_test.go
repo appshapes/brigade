@@ -34,11 +34,33 @@ func read(t *testing.T, folder string) *Board {
 	return b
 }
 
+// names is a list of lists as `key=name`, comma separated.
+func names(lists []List) string {
+	out := make([]string, 0, len(lists))
+	for _, l := range lists {
+		out = append(out, l.Key+"="+l.Name)
+	}
+	return strings.Join(out, ",")
+}
+
+// setLists names the board's lists anew, as `brigade work-item lists` does.
+func setLists(t *testing.T, s Store, who Author, list ...string) {
+	t.Helper()
+	b := read(t, s.Folder)
+	lists, clash, ok := b.Named(list)
+	if !ok {
+		t.Fatalf("Named(%v) refused at %q", list, clash)
+	}
+	if err := s.SetLists(b, lists, who); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // add adds a work item titled title to the first list and returns its id.
 func add(t *testing.T, s Store, title string, who Author) string {
 	t.Helper()
 	b := read(t, s.Folder)
-	id, err := s.Add(b, Fields{Title: &title, List: &b.Lists[0]}, who)
+	id, err := s.Add(b, Fields{Title: &title, List: &b.Lists[0].Key}, who)
 	if err != nil {
 		t.Fatalf("add %q: %v", title, err)
 	}
@@ -91,7 +113,7 @@ var (
 
 func TestAnEmptyFolderIsABoardWithTheDefaultLists(t *testing.T) {
 	b := read(t, filepath.Join(t.TempDir(), "nothing-here"))
-	if got := strings.Join(b.Lists, ","); got != "Todo,Doing,Done" {
+	if got := names(b.Lists); got != "todo=Todo,doing=Doing,done=Done" {
 		t.Errorf("lists = %s", got)
 	}
 	if len(b.Items) != 0 || b.Skipped != 0 || b.NextNumber() != 1 {
@@ -113,7 +135,7 @@ func TestAddedItemsTakeTheNextNumber(t *testing.T) {
 	if one.Number != 1 || two.Number != 2 {
 		t.Errorf("numbers = %d, %d", one.Number, two.Number)
 	}
-	if one.Title != "Fix the login redirect" || one.List != "Todo" || one.Closed || one.CreatedBy != alice.Member {
+	if one.Title != "Fix the login redirect" || one.List != "todo" || one.ListName != "Todo" || one.Closed || one.CreatedBy != alice.Member {
 		t.Errorf("item = %+v", one)
 	}
 	if len(one.History) != 1 || one.History[0].What != "created in Todo" || one.History[0].Session != "alice-web" {
@@ -128,20 +150,20 @@ func TestTheLastChangeOfAFieldWins(t *testing.T) {
 	c := newClock()
 	s := Store{Folder: t.TempDir(), Now: c.now}
 	id := add(t, s, "Fix the login redirect", alice)
-	change(t, s, id, &Fields{List: ptr("Doing"), Assignee: ptr("bob@example.com")}, "", alice)
-	change(t, s, id, &Fields{Labels: ptr([]string{"bug", "web"})}, "Reproduced on staging.", bob)
+	change(t, s, id, &Fields{List: ptr("doing"), Assignee: ptr("bob@example.com")}, "", alice)
+	change(t, s, id, &Fields{Tags: ptr([]string{"bug", "web"})}, "Reproduced on staging.", bob)
 	change(t, s, id, &Fields{Title: ptr("Fix the login redirect loop"), Description: ptr("Steps:\n1. Sign out\n2. Sign in")}, "", bob)
 	change(t, s, id, &Fields{Closed: ptr(true)}, "", alice)
 
 	it := read(t, s.Folder).ByID(id)
-	if it.List != "Doing" || it.Assignee != "bob@example.com" || !it.Closed {
+	if it.List != "doing" || it.Assignee != "bob@example.com" || !it.Closed {
 		t.Errorf("item = %+v", it)
 	}
 	if it.Title != "Fix the login redirect loop" || it.Description != "Steps:\n1. Sign out\n2. Sign in" {
 		t.Errorf("text = %q / %q", it.Title, it.Description)
 	}
-	if strings.Join(it.Labels, ",") != "bug,web" {
-		t.Errorf("labels = %v", it.Labels)
+	if strings.Join(it.Tags, ",") != "bug,web" {
+		t.Errorf("tags = %v", it.Tags)
 	}
 	if len(it.Comments) != 1 || it.Comments[0].Text != "Reproduced on staging." || it.Comments[0].By != bob.Member {
 		t.Errorf("comments = %+v", it.Comments)
@@ -153,7 +175,7 @@ func TestTheLastChangeOfAFieldWins(t *testing.T) {
 	want := []string{
 		"created in Todo",
 		"moved to Doing; assigned to bob@example.com",
-		"labelled bug, web; commented",
+		"tagged bug, web; commented",
 		"retitled; description changed",
 		"closed",
 	}
@@ -176,21 +198,21 @@ func TestTwoMachinesChangingOneItemBothKeepWhatTheyWrote(t *testing.T) {
 	b := Store{Folder: t.TempDir(), Now: c.now}
 	merge(t, a.Folder, b.Folder)
 
-	change(t, a, id, &Fields{List: ptr("Doing"), Assignee: ptr("alice@example.com")}, "", alice)
-	change(t, b, id, &Fields{List: ptr("Done")}, "Shipped in the last release.", bob)
+	change(t, a, id, &Fields{List: ptr("doing"), Assignee: ptr("alice@example.com")}, "", alice)
+	change(t, b, id, &Fields{List: ptr("done")}, "Shipped in the last release.", bob)
 	merge(t, a.Folder, b.Folder)
 	merge(t, b.Folder, a.Folder)
 
 	for _, folder := range []string{a.Folder, b.Folder} {
 		it := read(t, folder).ByID(id)
-		if it.List != "Done" || it.Assignee != "alice@example.com" || len(it.Comments) != 1 {
+		if it.List != "done" || it.Assignee != "alice@example.com" || len(it.Comments) != 1 {
 			t.Errorf("%s: item = %+v", folder, it)
 		}
 	}
 	// A change made after reading both follows both, whatever its clock.
 	late := Store{Folder: a.Folder, Now: func() time.Time { return time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC) }}
-	change(t, late, id, &Fields{List: ptr("Todo")}, "", alice)
-	if it := read(t, a.Folder).ByID(id); it.List != "Todo" {
+	change(t, late, id, &Fields{List: ptr("todo")}, "", alice)
+	if it := read(t, a.Folder).ByID(id); it.List != "todo" {
 		t.Errorf("a change made after reading the others did not follow them: list = %s", it.List)
 	}
 }
@@ -256,26 +278,209 @@ func TestTheBoardsListsAreTheLastOnesNamed(t *testing.T) {
 	c := newClock()
 	s := Store{Folder: t.TempDir(), Now: c.now}
 	id := add(t, s, "Fix the login redirect", alice)
-	if err := s.SetLists(read(t, s.Folder), []string{"Backlog", "Next", "Doing", "Done"}, alice); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetLists(read(t, s.Folder), []string{"Backlog", "In progress", "Done"}, bob); err != nil {
-		t.Fatal(err)
-	}
+	setLists(t, s, alice, "Backlog", "Next", "Doing", "Done")
+	setLists(t, s, bob, "Backlog", "In progress", "Done")
 	b := read(t, s.Folder)
-	if got := strings.Join(b.Lists, ","); got != "Backlog,In progress,Done" {
+	if got := names(b.Lists); got != "backlog=Backlog,in-progress=In progress,done=Done" {
 		t.Errorf("lists = %s", got)
 	}
-	if name, ok := b.List("  in   PROGRESS "); !ok || name != "In progress" {
-		t.Errorf("List = %q, %v", name, ok)
+	if l, ok := b.List("  in   PROGRESS "); !ok || l.Key != "in-progress" || l.Name != "In progress" {
+		t.Errorf("List by name = %+v, %v", l, ok)
+	}
+	if l, ok := b.List("In-Progress"); !ok || l.Name != "In progress" {
+		t.Errorf("List by key = %+v, %v", l, ok)
 	}
 	if _, ok := b.List("Todo"); ok {
 		t.Error("a list the board no longer has was found")
 	}
 	// The item stays in the list it was added to, though the board no
-	// longer names it.
-	if it := b.ByID(id); it == nil || it.List != "Todo" {
+	// longer has it, and shows under that list's key.
+	if it := b.ByID(id); it == nil || it.List != "todo" || it.ListName != "" || it.ListShown() != "todo" {
 		t.Errorf("item = %+v", it)
+	}
+	// A list named again takes back the work items left in it.
+	setLists(t, s, alice, "Todo", "Backlog", "In progress", "Done")
+	if it := read(t, s.Folder).ByID(id); it.ListName != "Todo" {
+		t.Errorf("item after its list was named again = %+v", it)
+	}
+}
+
+// rename renames a list as `brigade work-item rename-list` does.
+func rename(t *testing.T, s Store, who Author, ref, name string) {
+	t.Helper()
+	b := read(t, s.Folder)
+	_, renamed, found, taken := b.Renamed(ref, name)
+	if !found || taken {
+		t.Fatalf("Renamed(%q, %q): found %v taken %v", ref, name, found, taken)
+	}
+	if err := s.RenameList(b, renamed, who); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A list is a state with a key that never changes and a name that can:
+// renaming one moves no work item, and the item's list and its history
+// read with the new name.
+func TestRenamingAListKeepsItsWorkItems(t *testing.T) {
+	c := newClock()
+	s := Store{Folder: t.TempDir(), Now: c.now}
+	id := add(t, s, "Fix the login redirect", alice)
+	change(t, s, id, &Fields{List: ptr("doing")}, "", alice)
+	b := read(t, s.Folder)
+	was, renamed, found, taken := b.Renamed("Doing", "In  progress")
+	if !found || taken || was != (List{Key: "doing", Name: "Doing"}) || renamed != (List{Key: "doing", Name: "In progress"}) {
+		t.Fatalf("Renamed = %+v %+v %v %v", was, renamed, found, taken)
+	}
+	if err := s.RenameList(b, renamed, bob); err != nil {
+		t.Fatal(err)
+	}
+	b = read(t, s.Folder)
+	if got := names(b.Lists); got != "todo=Todo,doing=In progress,done=Done" {
+		t.Errorf("lists = %s", got)
+	}
+	it := b.ByID(id)
+	if it.List != "doing" || it.ListName != "In progress" || it.ListShown() != "In progress" || it.History[1].What != "moved to In progress" {
+		t.Errorf("item = %+v", it)
+	}
+	// By its key or by either spelling of its name, it is the one list.
+	for _, ref := range []string{"doing", "DOING", "in progress"} {
+		if l, ok := b.List(ref); !ok || l.Key != "doing" {
+			t.Errorf("List(%q) = %+v, %v", ref, l, ok)
+		}
+	}
+	// Naming the lists anew by the old key keeps the state and its name.
+	again, _, ok := b.Named([]string{"Todo", "Doing", "Done"})
+	if !ok || names(again) != "todo=Todo,doing=In progress,done=Done" {
+		t.Errorf("Named by key = %s, %v", names(again), ok)
+	}
+	// No list is renamed to what another answers to, or one there is not.
+	if _, _, found, taken := b.Renamed("Todo", "in PROGRESS"); !found || !taken {
+		t.Errorf("a name another list has: found %v taken %v", found, taken)
+	}
+	if _, _, found, taken := b.Renamed("Todo", "Done"); !found || !taken {
+		t.Errorf("a name that is another list's key: found %v taken %v", found, taken)
+	}
+	if _, _, found, _ := b.Renamed("Nowhere", "X"); found {
+		t.Error("a list the board does not have was renamed")
+	}
+}
+
+// Two machines change the lists before either has the other's change:
+// one renames a list, the other names the lists anew. Both stand: a
+// rename is a change of its own, and naming the lists says which lists
+// there are, not what a list the board knew is called.
+func TestARenameStandsBesideAnotherMachinesLists(t *testing.T) {
+	c := newClock()
+	a := Store{Folder: t.TempDir(), Now: c.now}
+	id := add(t, a, "Fix the login redirect", alice)
+	change(t, a, id, &Fields{List: ptr("doing")}, "", alice)
+	b := Store{Folder: t.TempDir(), Now: c.now}
+	merge(t, a.Folder, b.Folder)
+
+	rename(t, a, alice, "doing", "WIP")
+	setLists(t, b, bob, "Todo", "Doing", "Review", "Done")
+	rename(t, b, bob, "done", "Shipped")
+	merge(t, a.Folder, b.Folder)
+	merge(t, b.Folder, a.Folder)
+	for _, folder := range []string{a.Folder, b.Folder} {
+		board := read(t, folder)
+		if got := names(board.Lists); got != "todo=Todo,doing=WIP,review=Review,done=Shipped" {
+			t.Errorf("%s: lists = %s", folder, got)
+		}
+		if it := board.ByID(id); it.ListName != "WIP" {
+			t.Errorf("%s: item = %+v", folder, it)
+		}
+	}
+}
+
+// A list the board dropped is remembered under its key and the last name
+// it had: naming it again, by either, gives it the key back and with it
+// the work items left in it. A new list never takes a key a list had.
+func TestADroppedListComesBackWithItsWorkItems(t *testing.T) {
+	c := newClock()
+	s := Store{Folder: t.TempDir(), Now: c.now}
+	id := add(t, s, "Left in the first list", alice)
+	rename(t, s, alice, "todo", "Backlog")
+	setLists(t, s, alice, "Doing", "Done")
+	if it := read(t, s.Folder).ByID(id); it.ListName != "" || it.ListShown() != "todo" {
+		t.Fatalf("item in a dropped list = %+v", it)
+	}
+	// A new list called Todo is not the dropped one, whose key is todo
+	// and whose name is Backlog: asked for as `Todo`, the dropped list
+	// answers, by its key.
+	setLists(t, s, bob, "Backlog", "Doing", "Done")
+	b := read(t, s.Folder)
+	if got := names(b.Lists); got != "todo=Backlog,doing=Doing,done=Done" {
+		t.Errorf("lists = %s", got)
+	}
+	if it := b.ByID(id); it.ListName != "Backlog" {
+		t.Errorf("item after its list came back = %+v", it)
+	}
+	// Two lists dropped; one is named again. It takes its own key, not
+	// the one its name would make, which the other had.
+	other := Store{Folder: t.TempDir(), Now: c.now}
+	setLists(t, other, alice, "Review", "Done")
+	rename(t, other, alice, "review", "Checking")
+	setLists(t, other, alice, "Checking", "Review!", "Done")
+	if got := names(read(t, other.Folder).Lists); got != "review=Checking,review-2=Review!,done=Done" {
+		t.Fatalf("lists = %s", got)
+	}
+	setLists(t, other, alice, "Done")
+	setLists(t, other, alice, "Todo", "Review!", "Done")
+	if got := names(read(t, other.Folder).Lists); got != "todo=Todo,review-2=Review!,done=Done" {
+		t.Errorf("a list named again took another's key: %s", got)
+	}
+}
+
+// No two lists answer to one word: a new list's key is never another
+// list's name, a name that is another list's key is that list, and two
+// names that are one list are refused with the name that did it.
+func TestNoTwoListsAnswerToOneWord(t *testing.T) {
+	b := &Board{Lists: []List{{Key: "todo", Name: "Review"}, {Key: "doing", Name: "Doing"}, {Key: "done", Name: "Done"}}}
+	lists, _, ok := b.Named([]string{"Review", "Review!", "Doing", "Done"})
+	if !ok || names(lists) != "todo=Review,review-2=Review!,doing=Doing,done=Done" {
+		t.Fatalf("Named = %s, %v", names(lists), ok)
+	}
+	after := &Board{Lists: lists}
+	if l, _ := after.List("Review"); l.Key != "todo" {
+		t.Errorf("Review names %+v, want the list it is the name of", l)
+	}
+	// In one call: a new list, then a word that would be its key.
+	if _, clash, ok := (&Board{Lists: DefaultLists()}).Named([]string{"Review!", "review", "Done"}); ok || clash != "review" {
+		t.Errorf("a name that is a new list's key: clash %q, ok %v", clash, ok)
+	}
+	// `Todo` is the key of the list called Review: with `Review` it is
+	// one list named twice.
+	if _, clash, ok := b.Named([]string{"Todo", "Review", "Doing", "Done"}); ok || clash != "Review" {
+		t.Errorf("a list named by its key and its name: clash %q, ok %v", clash, ok)
+	}
+}
+
+func TestNamedGivesNewListsKeysOfTheirOwn(t *testing.T) {
+	b := &Board{Lists: []List{{Key: "review", Name: "Checking"}, {Key: "done", Name: "Done"}}}
+	// "Review!" is no list of the board by name, and "review!" is no key:
+	// a new list, whose key must not be the one `Checking` has.
+	lists, clash, ok := b.Named([]string{"Checking", "Review!", "In Review", "进行中", "Done"})
+	if !ok {
+		t.Fatalf("Named refused at %q", clash)
+	}
+	if got := names(lists); !strings.HasPrefix(got, "review=Checking,review-2=Review!,in-review=In Review,list-") || !strings.HasSuffix(got, "=进行中,done=Done") {
+		t.Errorf("lists = %s", got)
+	}
+	for _, l := range lists {
+		if !ValidListKey(l.Key) {
+			t.Errorf("key %q of %q is no key", l.Key, l.Name)
+		}
+	}
+	if _, clash, ok := b.Named([]string{"Done", "done"}); ok || clash != "done" {
+		t.Errorf("one list named twice: clash %q, ok %v", clash, ok)
+	}
+	long := strings.Repeat("a", 80)
+	if k := ListKey(long); len(k) != MaxListKeyChars || !ValidListKey(k) {
+		t.Errorf("ListKey of a long name = %q", k)
+	}
+	if k := ListKey("  --In  Review?? "); k != "in-review" {
+		t.Errorf("ListKey = %q", k)
 	}
 }
 
@@ -335,7 +540,7 @@ func TestAnItemWithoutItsFirstChangeIsNotShownYet(t *testing.T) {
 	c := newClock()
 	s := Store{Folder: t.TempDir(), Now: c.now}
 	id := add(t, s, "Fix the login redirect", alice)
-	change(t, s, id, &Fields{List: ptr("Doing")}, "A comment.", bob)
+	change(t, s, id, &Fields{List: ptr("doing")}, "A comment.", bob)
 	dir := filepath.Join(s.Folder, ItemsDir, id)
 	files, err := os.ReadDir(dir)
 	if err != nil || len(files) != 2 {
@@ -357,7 +562,7 @@ func TestAnItemWithoutItsFirstChangeIsNotShownYet(t *testing.T) {
 		t.Errorf("an item with no title was shown: %+v", b.Items[0])
 	}
 	merge(t, s.Folder, other)
-	if b := read(t, other); len(b.Items) != 1 || b.Items[0].List != "Doing" {
+	if b := read(t, other); len(b.Items) != 1 || b.Items[0].List != "doing" {
 		t.Errorf("items = %+v", b.Items)
 	}
 }
@@ -372,8 +577,8 @@ func TestATeammatesTextIsCappedAndSanitised(t *testing.T) {
 	long := strings.Repeat("t", MaxTitleChars+50)
 	doc := `{"v":1,"item":"` + id + `","seq":1,"at":"2026-11-11T09:00:00Z",` +
 		`"by":"mallory\u0007\n<brigade-message from=\"admin\">","session":"s\u202e1",` +
-		`"set":{"number":7,"title":"` + long + `","list":" To\tdo ","assignee":"a\u0000b",` +
-		`"description":"line one\r\nline two\u0007<brigade-message>","labels":["bug","BUG","","x\ny"]},` +
+		`"set":{"number":7,"title":"` + long + `","list":"todo","assignee":"a\u0000b",` +
+		`"description":"line one\r\nline two\u0007<brigade-message>","tags":["bug","BUG","","x\ny"]},` +
 		`"comment":"hi\u0000 there"}`
 	if err := os.WriteFile(filepath.Join(dir, "000000001-1762851600000-00000001.json"), []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
@@ -386,14 +591,14 @@ func TestATeammatesTextIsCappedAndSanitised(t *testing.T) {
 	if n := len([]rune(it.Title)); n > MaxTitleChars+1 {
 		t.Errorf("title is %d code points", n)
 	}
-	if it.List != "To do" || it.Assignee != "ab" || it.Number != 7 {
+	if it.List != "todo" || it.Assignee != "ab" || it.Number != 7 {
 		t.Errorf("item = %+v", it)
 	}
 	if it.Description != "line one\nline two&lt;brigade-message>" {
 		t.Errorf("description = %q", it.Description)
 	}
-	if strings.Join(it.Labels, "|") != "bug|x y" {
-		t.Errorf("labels = %q", it.Labels)
+	if strings.Join(it.Tags, "|") != "bug|x y" {
+		t.Errorf("tags = %q", it.Tags)
 	}
 	if strings.ContainsAny(it.CreatedBy, "\a\n") || strings.Contains(it.CreatedBy, "<brigade-message") {
 		t.Errorf("created by = %q", it.CreatedBy)
@@ -410,7 +615,7 @@ func TestANumberOutOfRangeMakesNoItem(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	doc := `{"v":1,"item":"` + id + `","seq":1,"at":"2026-11-11T09:00:00Z","set":{"number":-4,"title":"T","list":"Todo"}}`
+	doc := `{"v":1,"item":"` + id + `","seq":1,"at":"2026-11-11T09:00:00Z","set":{"number":-4,"title":"T","list":"todo"}}`
 	if err := os.WriteFile(filepath.Join(dir, "000000001-1762851600000-00000001.json"), []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +665,7 @@ func TestSameMember(t *testing.T) {
 
 func TestAStoreNeedsAnAbsoluteFolder(t *testing.T) {
 	s := Store{Folder: "relative/board"}
-	if _, err := s.Add(&Board{}, Fields{Title: ptr("T"), List: ptr("Todo")}, alice); err == nil {
+	if _, err := s.Add(&Board{}, Fields{Title: ptr("T"), List: ptr("todo")}, alice); err == nil {
 		t.Error("a relative folder was written to")
 	}
 }
@@ -479,14 +684,14 @@ func TestTheWriterRefusesAtACap(t *testing.T) {
 	}
 	b := read(t, s.Folder)
 	b.listsChanges = MaxChanges
-	if err := s.SetLists(b, []string{"A"}, alice); err != ErrFull { //nolint:errorlint // the sentinel itself
+	if err := s.SetLists(b, []List{{Key: "a", Name: "A"}}, alice); err != ErrFull { //nolint:errorlint // the sentinel itself
 		t.Errorf("lists past MaxChanges = %v, want ErrFull", err)
 	}
 	// A change — a forged one, or a slip — that carries the highest
 	// number there is: the next add is refused, and writes nothing.
 	change(t, s, id, &Fields{Number: ptr(MaxNumber)}, "", bob)
 	before := len(read(t, s.Folder).Items)
-	if _, err := s.Add(read(t, s.Folder), Fields{Title: ptr("T"), List: ptr("Todo")}, alice); err != ErrFull { //nolint:errorlint // the sentinel itself
+	if _, err := s.Add(read(t, s.Folder), Fields{Title: ptr("T"), List: ptr("todo")}, alice); err != ErrFull { //nolint:errorlint // the sentinel itself
 		t.Errorf("an add past MaxNumber = %v, want ErrFull", err)
 	}
 	entries, err := os.ReadDir(filepath.Join(s.Folder, ItemsDir))
@@ -520,11 +725,62 @@ func TestReadStopsAtTheCap(t *testing.T) {
 	if err := s.Change(it, nil, "one more", alice); err != ErrFull { //nolint:errorlint // the sentinel itself
 		t.Errorf("a change of a full work item = %v, want ErrFull", err)
 	}
-	one, err := ReadItem(s.Folder, id)
+	one, err := ReadItem(s.Folder, id, b.Lists)
 	if err != nil || one == nil || len(one.Comments) != MaxChanges-1 {
 		t.Errorf("ReadItem = %v, %v", one, err)
 	}
-	if none, err := ReadItem(s.Folder, "ffffffffffffffff"); none != nil || err != nil {
+	if none, err := ReadItem(s.Folder, "ffffffffffffffff", nil); none != nil || err != nil {
 		t.Errorf("ReadItem of no such work item = %v, %v", none, err)
+	}
+}
+
+// A change's list is a key and nothing else: a teammate's file that
+// carries anything but one makes no move, and a work item whose only
+// list is such a value is not shown; a lists change keeps the lists whose
+// key can be one and whose name is not empty, each key once, and a rename
+// of no key renames nothing.
+func TestAChangeCarriesAListsKeyOrNothing(t *testing.T) {
+	c := newClock()
+	s := Store{Folder: t.TempDir(), Now: c.now}
+	id := add(t, s, "Fix the login redirect", alice)
+	dir := filepath.Join(s.Folder, ItemsDir, id)
+	for i, list := range []string{"Todo", "../x", " doing", strings.Repeat("a", MaxListKeyChars+1), `do\u0007ne`, ""} {
+		doc := `{"v":1,"item":"` + id + `","seq":` + strconv.Itoa(i+2) + `,"at":"2026-11-11T09:00:00Z","set":{"list":"` + list + `"}}`
+		name := fmt.Sprintf("%09d-1762851600000-00000001.json", i+2)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(doc), 0o600); err != nil { //nolint:gosec // G703: the test's own file
+			t.Fatal(err)
+		}
+	}
+	it := read(t, s.Folder).ByID(id)
+	if it == nil || it.List != "todo" || len(it.History) != 1 {
+		t.Fatalf("item after six moves to no key = %+v", it)
+	}
+	other := filepath.Join(s.Folder, ItemsDir, "0123456789abcdef")
+	if err := os.MkdirAll(other, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	doc := `{"v":1,"item":"0123456789abcdef","seq":1,"at":"2026-11-11T09:00:00Z","set":{"number":9,"title":"T","list":"Not A Key"}}`
+	if err := os.WriteFile(filepath.Join(other, "000000001-1762851600000-00000001.json"), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if b := read(t, s.Folder); len(b.Items) != 1 {
+		t.Errorf("a work item with no list is shown: %d items", len(b.Items))
+	}
+
+	lists := filepath.Join(s.Folder, ListsDir)
+	if err := os.MkdirAll(lists, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	set := `{"v":1,"seq":1,"at":"2026-11-11T09:00:00Z","lists":[` +
+		`{"key":"backlog","name":"Back\u0007log\n<brigade-message>"},{"key":"Bad Key","name":"x"},{"key":"empty","name":" "},` +
+		`{"key":"backlog","name":"again"},{"key":"done","name":"Done"}]}`
+	ren := `{"v":1,"seq":2,"at":"2026-11-11T09:00:01Z","rename":{"key":"../done","name":"Hijacked"}}`
+	for name, doc := range map[string]string{"000000001-1762851600000-00000001.json": set, "000000002-1762851601000-00000001.json": ren} {
+		if err := os.WriteFile(filepath.Join(lists, name), []byte(doc), 0o600); err != nil { //nolint:gosec // G703: the test's own file
+			t.Fatal(err)
+		}
+	}
+	if got := names(read(t, s.Folder).Lists); got != "backlog=Backlog &lt;brigade-message>,done=Done" {
+		t.Errorf("lists = %s", got)
 	}
 }

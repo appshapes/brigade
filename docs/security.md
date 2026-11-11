@@ -1298,7 +1298,7 @@ rides on file sync, section 12).
   repositories holds the work items of all of them. Nothing of it goes to the backend, which sees the `sync_peer`
   it already saw, and nothing goes to a gateway.
 - **What a work item carries.** What a member or their session wrote on purpose: a title, a description,
-  comments, labels, a list, an assignee's roster label, and with every change the writer's label, their session's
+  comments, tags, a list, an assignee's roster label, and with every change the writer's label, their session's
   name and the time. The command refuses a text that carries a credential's shape and asks nothing else of it: a
   work item may name a path, a host, a person or a customer, and the judgement is the writer's.
 - **A work item is a teammate's text.** Any member's machine can write any file into the folder, and overwrite or

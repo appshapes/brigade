@@ -149,14 +149,14 @@ func init() {
 		},
 		{
 			Name:    "work-item",
-			Args:    "list [--list <name>] [--to <label> | --mine | --nobody] [--label <name>] [--closed] | show <number> | add [--list <name>] [--to <label> | --mine] [--label <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | label <number> [<name>…] | comment <number> | close <number> | reopen <number> | lists [<name>…]",
-			Summary: "read and change the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, label, comment on, close or reopen one, and show or name the board's lists",
+			Args:    "list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] | show <number> | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] | rename-list <list> <new name>",
+			Summary: "read and change the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists (a list is named by its key or its name)",
 			Flags: func(fs *flag.FlagSet) {
-				fs.String("list", "", "add: the list the new work item goes into (the board's first when unset); list: only the work items in this list")
+				fs.String("list", "", "one of the board's lists, by its key or its name. add: the list the new work item goes into (the board's first when unset); list: only the work items in this list")
 				fs.String("to", "", "a member, by their label as the roster shows it. add: the new work item's assignee; assign: the work item's; list: only the work items assigned to them")
 				fs.Bool("mine", false, "this session's own member, in place of --to")
 				fs.Bool("nobody", false, "assign: assign the work item to nobody; list: only the work items assigned to nobody")
-				fs.String("label", "", "add: the new work item's labels, separated by commas; list: only the work items carrying this label")
+				fs.String("tag", "", "add: the new work item's tags, separated by commas; list: only the work items carrying this tag")
 				fs.Bool("closed", false, "list: the closed work items instead of the open ones")
 			},
 			Run: runWorkItem,
@@ -403,7 +403,7 @@ func runWorkItem(cx *Context, args []string) error {
 		To:     stringFlag(cx, "to"),
 		Mine:   cx.Bool("mine"),
 		Nobody: cx.Bool("nobody"),
-		Label:  stringFlag(cx, "label"),
+		Tag:    stringFlag(cx, "tag"),
 		Closed: cx.Bool("closed"),
 	})
 }

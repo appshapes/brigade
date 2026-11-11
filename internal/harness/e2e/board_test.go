@@ -24,6 +24,7 @@ type boardItem struct {
 	Number    int    `json:"number"`
 	Title     string `json:"title"`
 	List      string `json:"list"`
+	ListName  string `json:"list_name"`
 	Assignee  string `json:"assignee"`
 	CreatedBy string `json:"created_by"`
 	Comments  []struct {
@@ -36,7 +37,10 @@ type boardItem struct {
 }
 
 type boardResult struct {
-	Lists []string `json:"lists"`
+	Lists []struct {
+		Key  string `json:"key"`
+		Name string `json:"name"`
+	} `json:"lists"`
 	Items []struct {
 		Number int    `json:"number"`
 		Title  string `json:"title"`
@@ -65,7 +69,9 @@ type boardResult struct {
 //  2. Both machines hold the one folder id, derived from the team alone,
 //     and connect — two sessions that share no repository.
 //  3. A work item alice adds in the web repository is on bob's board in
-//     the api repository; bob moves it and comments, and alice sees both.
+//     the api repository; bob moves it, comments and gives its list
+//     another name, and alice sees all three: the work item in the same
+//     list, under its new name.
 //  4. Each adds a work item before either has the other's: both take the
 //     same number. Once the two have crossed, the next command on either
 //     machine gives the later one the next free number, and both boards
@@ -161,8 +167,10 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 	}
 	boardID := foldersync.BoardFolder(r.teamRef, "").ID
 	for name, s := range map[string]session{"alice": alice, "bob": bob} {
+		// The path is the map's own, compared as written: the folder is
+		// made by the watcher's first apply, which may not have run yet.
 		c := status(s).Configured
-		if len(c) != 1 || c[0].ID != boardID || !c[0].Team || c[0].Label != foldersync.BoardLabel || !samePath(c[0].Path, boards[name]) {
+		if len(c) != 1 || c[0].ID != boardID || !c[0].Team || c[0].Label != foldersync.BoardLabel || c[0].Path != boards[name] {
 			t.Fatalf("%s configured %+v, want the board %s at %s", name, c, boardID, boards[name])
 		}
 	}
@@ -217,7 +225,7 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 		return jsonResult[boardResult](t, r.mustRun(r.env(s), stdin, append([]string{"work-item"}, append(args, "--json")...)...).stdout)
 	}
 	added := board(alice, "Fix the login redirect\n\nSigning in from the invite link returns to the invite.\n", "add", "--mine")
-	if added.Item == nil || added.Item.Number != 1 || added.Item.List != "Todo" || added.Item.CreatedBy != aliceLabel || added.Item.Assignee != aliceLabel {
+	if added.Item == nil || added.Item.Number != 1 || added.Item.List != "todo" || added.Item.ListName != "Todo" || added.Item.CreatedBy != aliceLabel || added.Item.Assignee != aliceLabel {
 		t.Fatalf("alice's add: %+v", added.Item)
 	}
 	wrote := time.Now()
@@ -227,20 +235,24 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 	})
 	t.Logf("alice's work item, added in the web repository, was on bob's board in the api repository %s later", time.Since(wrote).Round(time.Millisecond))
 
-	if moved := board(bob, "", "move", "1", "Doing"); !moved.Changed || moved.Item.List != "Doing" {
+	if moved := board(bob, "", "move", "1", "Doing"); !moved.Changed || moved.Item.List != "doing" {
 		t.Fatalf("bob's move: %+v", moved.Item)
 	}
 	board(bob, "Reproduced with a fresh invite.\n", "comment", "1")
+	// bob renames the list: its key, and the work item in it, stay.
+	if renamed := board(bob, "", "rename-list", "doing", "Under way"); !renamed.Changed || len(renamed.Lists) != 3 || renamed.Lists[1].Key != "doing" || renamed.Lists[1].Name != "Under way" {
+		t.Fatalf("bob's rename: %+v", renamed.Lists)
+	}
 	wrote = time.Now()
 	var seen *boardItem
 	testutil.Eventually(t, waitFile, pollSync, func() bool {
 		seen = board(alice, "", "show", "1").Item
-		return seen != nil && seen.List == "Doing" && len(seen.Comments) == 1
+		return seen != nil && seen.List == "doing" && seen.ListName == "Under way" && len(seen.Comments) == 1
 	})
 	if seen.Comments[0].Text != "Reproduced with a fresh invite." || seen.Comments[0].Session != "bob-api" {
 		t.Fatalf("bob's comment as alice reads it: %+v", seen.Comments[0])
 	}
-	t.Logf("bob's move and comment reached alice %s later; the history reads %v", time.Since(wrote).Round(time.Millisecond), seen.History)
+	t.Logf("bob's move, comment and rename of the list reached alice %s later; the history reads %v", time.Since(wrote).Round(time.Millisecond), seen.History)
 
 	// --- 4. two machines take one number, and the next command puts it right ----
 	clash := time.Now()

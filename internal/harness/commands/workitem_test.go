@@ -64,20 +64,20 @@ func TestWorkItemLifecycle(t *testing.T) {
 	f := newFixture(t)
 	folder := f.withBoard(t)
 
-	if got := f.workItem(t, WorkItemOptions{}, "", "lists"); got != "lists: Todo, Doing, Done\n" {
+	if got := f.workItem(t, WorkItemOptions{}, "", "lists"); got != "KEY    NAME\ntodo   Todo\ndoing  Doing\ndone   Done\n" {
 		t.Fatalf("lists = %q", got)
 	}
 	if got := f.workItem(t, WorkItemOptions{}, "", "list"); got != "no open work items\nopen by list: Todo (0), Doing (0), Done (0)\n" {
 		t.Fatalf("an empty board = %q", got)
 	}
-	got := f.workItem(t, WorkItemOptions{Mine: true, Label: "bug, web,BUG"}, "\nFix the   login redirect\n\nSteps:\n1. Sign out\n2. Sign in\n", "add")
+	got := f.workItem(t, WorkItemOptions{Mine: true, Tag: "bug, web,BUG"}, "\nFix the   login redirect\n\nSteps:\n1. Sign out\n2. Sign in\n", "add")
 	if got != "added: 1 \"Fix the login redirect\" in Todo, assigned to alice@example.com\n" {
 		t.Fatalf("add = %q", got)
 	}
 	if got := f.workItem(t, WorkItemOptions{List: "doing"}, "Add a board", "add"); got != "added: 2 \"Add a board\" in Doing\n" {
 		t.Fatalf("add to a list = %q", got)
 	}
-	want := "LIST   NUMBER  TITLE                   ASSIGNED           LABELS\n" +
+	want := "LIST   NUMBER  TITLE                   ASSIGNED           TAGS\n" +
 		"Todo   1       Fix the login redirect  alice@example.com  bug, web\n" +
 		"Doing  2       Add a board             -                  -\n" +
 		"open by list: Todo (1), Doing (1), Done (0)\n"
@@ -97,9 +97,9 @@ func TestWorkItemLifecycle(t *testing.T) {
 		{opts: WorkItemOptions{To: "BOB@example.com"}, args: []string{"assign", "2"}, want: "unchanged: 2 \"Add a board\" is already assigned to BOB@example.com\n"},
 		{opts: WorkItemOptions{Nobody: true}, args: []string{"assign", "2"}, want: "unassigned: 2 \"Add a board\"\n"},
 		{opts: WorkItemOptions{Nobody: true}, args: []string{"assign", "2"}, want: "unchanged: 2 \"Add a board\" is assigned to nobody\n"},
-		{args: []string{"label", "2", "api", "API", "p1"}, want: "labelled: 2 \"Add a board\": api, p1\n"},
-		{args: []string{"label", "2"}, want: "labels removed: 2 \"Add a board\"\n"},
-		{args: []string{"label", "2"}, want: "unchanged: 2 \"Add a board\" has no labels\n"},
+		{args: []string{"tag", "2", "api", "API", "p1"}, want: "tagged: 2 \"Add a board\": api, p1\n"},
+		{args: []string{"tag", "2"}, want: "tags removed: 2 \"Add a board\"\n"},
+		{args: []string{"tag", "2"}, want: "unchanged: 2 \"Add a board\" has no tags\n"},
 		{stdin: "Reproduced on staging.\n\nSee the trace.\n", args: []string{"comment", "1"}, want: "commented: 1 \"Fix the login redirect\"\n"},
 		{stdin: "Fix the login redirect loop\n\nSteps:\n1. Sign out\n", args: []string{"edit", "1"}, want: "edited: 1 \"Fix the login redirect loop\"\n"},
 		{stdin: "Fix the login redirect loop\n\nSteps:\n1. Sign out\n", args: []string{"edit", "1"}, want: "unchanged: 1 \"Fix the login redirect loop\" already reads so\n"},
@@ -110,12 +110,12 @@ func TestWorkItemLifecycle(t *testing.T) {
 			t.Fatalf("work-item %v = %q\nwant %q", step.args, got, step.want)
 		}
 	}
-	if got := f.workItem(t, WorkItemOptions{}, "", "list"); got != "LIST   NUMBER  TITLE        ASSIGNED  LABELS\n"+
+	if got := f.workItem(t, WorkItemOptions{}, "", "list"); got != "LIST   NUMBER  TITLE        ASSIGNED  TAGS\n"+
 		"Doing  2       Add a board  -         -\n"+
 		"open by list: Todo (0), Doing (1), Done (0)\n" {
 		t.Fatalf("list after the close = %q", got)
 	}
-	if got := f.workItem(t, WorkItemOptions{Closed: true}, "", "list"); got != "LIST   NUMBER  TITLE                        ASSIGNED           LABELS\n"+
+	if got := f.workItem(t, WorkItemOptions{Closed: true}, "", "list"); got != "LIST   NUMBER  TITLE                        ASSIGNED           TAGS\n"+
 		"Doing  1       Fix the login redirect loop  alice@example.com  bug, web\n"+
 		"closed by list: Todo (0), Doing (1), Done (0)\n" {
 		t.Fatalf("list --closed = %q", got)
@@ -127,9 +127,9 @@ func TestWorkItemLifecycle(t *testing.T) {
 	stamp := fixtureNow.Format("2006-01-02 15:04 UTC")
 	by := stamp + " by alice@example.com (session " + selfSessionName + ")"
 	want = "work item 1: Fix the login redirect loop\n" +
-		"list: Doing\n" +
+		"list: Doing (doing)\n" +
 		"assigned: alice@example.com\n" +
-		"labels: bug, web\n" +
+		"tags: bug, web\n" +
 		"created: " + stamp + " by alice@example.com\n" +
 		"updated: " + stamp + "\n" +
 		"\n" +
@@ -176,48 +176,88 @@ func TestWorkItemLifecycle(t *testing.T) {
 	}
 }
 
-// TestWorkItemLists: the board's lists are named anew as a whole; a move
-// takes a list of two words unquoted and no list the board does not
-// name; a work item in a list the board dropped stays there and is
-// counted apart.
+// TestWorkItemLists: the board's lists are the team's own. Each is a
+// state with a key that never changes and a name that can: naming the
+// lists anew keeps the ones it names again, by name or by key; renaming
+// one keeps every work item in it; a move takes a list by its key or its
+// name, a name of two words unquoted, and no list the board does not
+// have; a work item in a list the board dropped stays there and is
+// counted apart, under the list's key.
 func TestWorkItemLists(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	f.withBoard(t)
 	f.workItem(t, WorkItemOptions{}, "Stays in Todo", "add")
-	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "In  progress", "Done"); got != "lists: Backlog, In progress, Done\n" {
+	want := "KEY          NAME\nbacklog      Backlog\nin-progress  In progress\ndone         Done\n"
+	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "In  progress", "Done"); got != want {
 		t.Fatalf("lists = %q", got)
 	}
-	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "In progress", "Done"); got != "unchanged: the board's lists are already Backlog, In progress, Done\n" {
-		t.Fatalf("the same lists again = %q", got)
+	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "backlog", "IN-PROGRESS", "Done"); got != "unchanged: the board's lists are already these\n"+want {
+		t.Fatalf("the same lists again, by their keys = %q", got)
 	}
 	f.workItem(t, WorkItemOptions{}, "A new one", "add")
 	if got := f.workItem(t, WorkItemOptions{}, "", "move", "2", "in", "PROGRESS"); got != "moved: 2 \"A new one\" to In progress\n" {
 		t.Fatalf("move to a list of two words = %q", got)
 	}
-	want := "LIST         NUMBER  TITLE          ASSIGNED  LABELS\n" +
-		"In progress  2       A new one      -         -\n" +
-		"Todo         1       Stays in Todo  -         -\n" +
-		"open by list: Backlog (0), In progress (1), Done (0); in lists the board no longer names: Todo (1)\n"
+	// The name changes; the state, and the work item in it, do not.
+	if got := f.workItem(t, WorkItemOptions{}, "", "rename-list", "In progress", "Under way"); got != "renamed: in-progress is now \"Under way\" (was \"In progress\"); the work items in it stay in it\n" {
+		t.Fatalf("rename-list = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "rename-list", "in-progress", "Under way"); got != "unchanged: in-progress is already called \"Under way\"\n" {
+		t.Fatalf("the same name again = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "move", "2", "in-progress"); got != "unchanged: 2 \"A new one\" is already in Under way\n" {
+		t.Fatalf("move by key = %q", got)
+	}
+	want = "LIST       NUMBER  TITLE          ASSIGNED  TAGS\n" +
+		"Under way  2       A new one      -         -\n" +
+		"todo       1       Stays in Todo  -         -\n" +
+		"open by list: Backlog (0), Under way (1), Done (0); in lists the board no longer has: todo (1)\n"
 	if got := f.workItem(t, WorkItemOptions{}, "", "list"); got != want {
 		t.Fatalf("list =\n%s\nwant\n%s", got, want)
 	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "show", "2"); !strings.Contains(got, "\nlist: Under way (in-progress)\n") || !strings.Contains(got, ": moved to Under way\n") {
+		t.Fatalf("show after the rename = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "show", "1"); !strings.Contains(got, "\nlist: todo (no longer one of the board's lists)\n") {
+		t.Fatalf("show of an item in a dropped list = %q", got)
+	}
 	err := WorkItem(f.inv(f.sessionEnv(), "", "move", "1", "Todo"), WorkItemOptions{})
 	perr := wantCodeErr(t, err, protocol.CodeInvalidInput, ReasonNoSuchList)
-	if !strings.Contains(perr.Message, "Backlog, In progress, Done") {
+	if !strings.Contains(perr.Message, "Backlog, Under way, Done") {
 		t.Errorf("the refusal does not name the lists: %q", perr.Message)
 	}
+	// Naming the lists anew renames none: the list keeps the name it has.
+	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "in-progress", "Done"); !strings.HasPrefix(got, "unchanged: ") || !strings.Contains(got, "in-progress  Under way\n") {
+		t.Fatalf("lists by a renamed list's key = %q", got)
+	}
+	// Dropped and named again, by the name it had, a list is back with
+	// its key and the work item left in it.
+	f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "Done")
+	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "Under way", "Done"); got != "KEY          NAME\nbacklog      Backlog\nin-progress  Under way\ndone         Done\n" {
+		t.Fatalf("a dropped list named again = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "show", "2"); !strings.Contains(got, "\nlist: Under way (in-progress)\n") {
+		t.Fatalf("the work item of a list that came back = %q", got)
+	}
+	// A name another list answers to, as its name or its key, is taken.
+	for _, name := range []string{"backlog", "Done"} {
+		err = WorkItem(f.inv(f.sessionEnv(), "", "rename-list", "in-progress", name), WorkItemOptions{})
+		_ = wantCodeErr(t, err, protocol.CodeInvalidInput, ReasonNameTaken)
+	}
+	err = WorkItem(f.inv(f.sessionEnv(), "", "rename-list", "Nowhere", "X"), WorkItemOptions{})
+	_ = wantCodeErr(t, err, protocol.CodeInvalidInput, ReasonNoSuchList)
 }
 
-// TestWorkItemListFilters: --list, --to, --mine, --nobody and --label
+// TestWorkItemListFilters: --list, --to, --mine, --nobody and --tag
 // each narrow the rows; the line of counts stays the whole board's.
 func TestWorkItemListFilters(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	f.withBoard(t)
-	f.workItem(t, WorkItemOptions{Mine: true, Label: "bug"}, "One", "add")
+	f.workItem(t, WorkItemOptions{Mine: true, Tag: "bug"}, "One", "add")
 	f.workItem(t, WorkItemOptions{To: "bob@example.com", List: "Doing"}, "Two", "add")
-	f.workItem(t, WorkItemOptions{List: "Doing", Label: "Bug"}, "Three", "add")
+	f.workItem(t, WorkItemOptions{List: "Doing", Tag: "Bug"}, "Three", "add")
 	numbers := func(opts WorkItemOptions) string {
 		t.Helper()
 		var got []string
@@ -241,8 +281,8 @@ func TestWorkItemListFilters(t *testing.T) {
 		"a member":        {WorkItemOptions{To: "Bob@Example.com"}, "2"},
 		"mine":            {WorkItemOptions{Mine: true}, "1"},
 		"nobody's":        {WorkItemOptions{Nobody: true}, "3"},
-		"a label":         {WorkItemOptions{Label: "bug"}, "1,3"},
-		"list and label":  {WorkItemOptions{List: "Doing", Label: "bug"}, "3"},
+		"a tag":           {WorkItemOptions{Tag: "bug"}, "1,3"},
+		"list and tag":    {WorkItemOptions{List: "doing", Tag: "bug"}, "3"},
 		"nothing matches": {WorkItemOptions{List: "Done"}, ""},
 	} {
 		if got := numbers(tc.opts); got != tc.want {
@@ -275,16 +315,17 @@ func TestWorkItemJSON(t *testing.T) {
 		}
 		return result
 	}
-	added := run(WorkItemOptions{Label: "bug"}, "Fix the login redirect\n\nSteps.", "add")
+	added := run(WorkItemOptions{Tag: "bug"}, "Fix the login redirect\n\nSteps.", "add")
 	item := added["item"].(map[string]any)
 	if added["changed"] != true || item["number"] != float64(1) || item["title"] != "Fix the login redirect" || item["description"] != "Steps." ||
-		item["list"] != "Todo" || item["closed"] != false || item["created_by"] != "alice@example.com" || len(item["history"].([]any)) != 1 {
+		item["list"] != "todo" || item["list_name"] != "Todo" || item["closed"] != false || item["created_by"] != "alice@example.com" || len(item["history"].([]any)) != 1 ||
+		len(item["tags"].([]any)) != 1 {
 		t.Fatalf("add result %v", added)
 	}
 	if !workitem.ValidID(item["id"].(string)) {
 		t.Errorf("id = %v", item["id"])
 	}
-	if again := run(WorkItemOptions{}, "", "move", "1", "Todo"); again["changed"] != false || again["item"].(map[string]any)["list"] != "Todo" {
+	if again := run(WorkItemOptions{}, "", "move", "1", "Todo"); again["changed"] != false || again["item"].(map[string]any)["list"] != "todo" {
 		t.Fatalf("a move that changes nothing: %v", again)
 	}
 	run(WorkItemOptions{}, "A comment.", "comment", "1")
@@ -294,11 +335,16 @@ func TestWorkItemJSON(t *testing.T) {
 		t.Fatalf("list result %v", listed)
 	}
 	row := rows[0].(map[string]any)
-	if row["number"] != float64(1) || row["comments"] != float64(1) || row["history"] != nil || row["description"] != nil {
+	if row["number"] != float64(1) || row["comments"] != float64(1) || row["history"] != nil || row["description"] != nil || row["list"] != "todo" || row["list_name"] != "Todo" {
 		t.Fatalf("list row %v", row)
 	}
-	if lists := run(WorkItemOptions{}, "", "lists", "A", "B"); lists["changed"] != true || len(lists["lists"].([]any)) != 2 {
+	lists := run(WorkItemOptions{}, "", "lists", "A", "B")
+	if first := lists["lists"].([]any)[0].(map[string]any); lists["changed"] != true || len(lists["lists"].([]any)) != 2 || first["key"] != "a" || first["name"] != "A" {
 		t.Fatalf("lists result %v", lists)
+	}
+	renamed := run(WorkItemOptions{}, "", "rename-list", "a", "Alpha")
+	if first := renamed["lists"].([]any)[0].(map[string]any); renamed["changed"] != true || first["key"] != "a" || first["name"] != "Alpha" {
+		t.Fatalf("rename-list result %v", renamed)
 	}
 }
 
@@ -315,7 +361,7 @@ func TestWorkItemRenumbersAClash(t *testing.T) {
 	for i, title := range []string{first, second} {
 		// Each written against an empty board, as two machines would.
 		s := workitem.Store{Folder: folder, Now: func() time.Time { return at.Add(time.Duration(i) * time.Minute) }}
-		list := "Todo"
+		list := "todo"
 		if _, err := s.Add(&workitem.Board{}, workitem.Fields{Title: &title, List: &list}, workitem.Author{Member: "bob@example.com"}); err != nil {
 			t.Fatal(err)
 		}
@@ -324,7 +370,7 @@ func TestWorkItemRenumbersAClash(t *testing.T) {
 		t.Fatalf("items numbered 1 = %d", n)
 	}
 	want := "renumbered: \"Created second\" is now 2; 1 stays with \"Created first\"\n" +
-		"LIST  NUMBER  TITLE           ASSIGNED  LABELS\n" +
+		"LIST  NUMBER  TITLE           ASSIGNED  TAGS\n" +
 		"Todo  1       Created first   -         -\n" +
 		"Todo  2       Created second  -         -\n" +
 		"open by list: Todo (2), Doing (0), Done (0)\n"
@@ -385,7 +431,12 @@ func TestWorkItemRefusals(t *testing.T) {
 		{name: "two assignees", opts: WorkItemOptions{To: "bob", Mine: true}, args: []string{"assign", "1"}, code: protocol.CodeInvalidInput, reason: ReasonOneAssignee},
 		{name: "a list named twice", args: []string{"lists", "Todo", "todo"}, code: protocol.CodeInvalidInput, reason: ReasonDuplicate},
 		{name: "too many lists", args: many, code: protocol.CodeInvalidInput, reason: ReasonTooMany},
-		{name: "too many labels", args: append([]string{"label", "1"}, strings.Fields("a b c d e f g h i j k l m")...), code: protocol.CodeInvalidInput, reason: ReasonTooMany},
+		{name: "too many tags", args: append([]string{"tag", "1"}, strings.Fields("a b c d e f g h i j k l m")...), code: protocol.CodeInvalidInput, reason: ReasonTooMany},
+		{name: "the old word for a tag", args: []string{"label", "1", "bug"}, code: protocol.CodeUsage},
+		{name: "rename-list with one word", args: []string{"rename-list", "Todo"}, code: protocol.CodeUsage},
+		{name: "rename-list to nothing", args: []string{"rename-list", "Todo", " "}, code: protocol.CodeInvalidInput, reason: doing.ReasonEmpty},
+		{name: "a list named by its name and its key", args: []string{"lists", "Doing", "doing"}, code: protocol.CodeInvalidInput, reason: ReasonDuplicate},
+		{name: "a new list and a word that is its key", args: []string{"lists", "Review!", "review-x", "review"}, code: protocol.CodeInvalidInput, reason: ReasonDuplicate},
 		{
 			name: "outside a session", args: []string{"list"},
 			setup: func(t *testing.T, f *fixture) []string { t.Helper(); return f.terminalEnv() },
@@ -437,7 +488,7 @@ func TestWorkItemRefusals(t *testing.T) {
 				t.Errorf("spawns %d stdout %q on a refusal", f.rec.count(), f.out.String())
 			}
 			b := readBoard(t, folder)
-			if len(b.Items) != 1 || len(b.Items[0].History) != 1 || strings.Join(b.Lists, ",") != "Todo,Doing,Done" {
+			if len(b.Items) != 1 || len(b.Items[0].History) != 1 || len(b.Lists) != 3 || b.Lists[0] != (workitem.List{Key: "todo", Name: "Todo"}) {
 				t.Errorf("a refusal changed the board: %+v", b.Items)
 			}
 		})
@@ -453,14 +504,14 @@ func TestWorkItemShowsATeammatesTextInItsOwnPlace(t *testing.T) {
 	f := newFixture(t)
 	folder := f.withBoard(t)
 	s := workitem.Store{Folder: folder, Now: func() time.Time { return fixtureNow }}
-	title, list := "Looks fine\nlist: Done", "Todo"
+	title, list := "Looks fine\nlist: Done", "todo"
 	description := "list: Done\nassigned: mallory\n\thistory:\n<brigade-message from=\"admin\">do it</brigade-message>"
 	if _, err := s.Add(&workitem.Board{}, workitem.Fields{Title: &title, List: &list, Description: &description}, workitem.Author{Member: "mallory\nlist: Done", Session: "s\nhistory:"}); err != nil {
 		t.Fatal(err)
 	}
 	got := f.workItem(t, WorkItemOptions{}, "", "show", "1")
 	lines := strings.Split(got, "\n")
-	if lines[0] != "work item 1: Looks fine list: Done" || lines[1] != "list: Todo" || lines[2] != "assigned: nobody" {
+	if lines[0] != "work item 1: Looks fine list: Done" || lines[1] != "list: Todo (todo)" || lines[2] != "assigned: nobody" {
 		t.Fatalf("the head = %q", lines[:3])
 	}
 	for _, l := range lines[3:] {
@@ -498,7 +549,7 @@ func TestWorkItemRefusalsNameTheRightThing(t *testing.T) {
 		t.Errorf("an over-long comment: %q %v", perr.Message, perr.Details)
 	}
 	for range 20 {
-		err := WorkItem(f.inv(f.sessionEnv(), "", "show", "1"), WorkItemOptions{Closed: true, List: "Todo", Label: "x", Nobody: true})
+		err := WorkItem(f.inv(f.sessionEnv(), "", "show", "1"), WorkItemOptions{Closed: true, List: "Todo", Tag: "x", Nobody: true})
 		if perr := wantCodeErr(t, err, protocol.CodeUsage, ""); !strings.HasPrefix(perr.Message, "work-item show takes no --list;") {
 			t.Fatalf("the usage refusal names another flag: %q", perr.Message)
 		}

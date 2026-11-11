@@ -50,14 +50,12 @@ func TestNoTopLevelDirectoryIsFollowedThroughASymlink(t *testing.T) {
 		// Another board's directory, with something in it to be read.
 		other := Store{Folder: outside + "-" + name, Now: c.now}
 		add(t, other, "From elsewhere", bob)
-		if err := other.SetLists(read(t, other.Folder), []string{"Theirs"}, bob); err != nil {
-			t.Fatal(err)
-		}
+		setLists(t, other, bob, "Theirs")
 		if err := os.Symlink(filepath.Join(other.Folder, name), filepath.Join(s.Folder, name)); err != nil {
 			t.Fatal(err)
 		}
 		b := read(t, s.Folder)
-		if len(b.Items) != 0 || b.Lists[0] != "Todo" || b.Skipped != 1 {
+		if len(b.Items) != 0 || b.Lists[0].Name != "Todo" || b.Skipped != 1 {
 			t.Errorf("%s as a symlink: items %d, lists %v, skipped %d", name, len(b.Items), b.Lists, b.Skipped)
 		}
 		before, err := os.ReadDir(filepath.Join(other.Folder, name))
@@ -66,9 +64,9 @@ func TestNoTopLevelDirectoryIsFollowedThroughASymlink(t *testing.T) {
 		}
 		var werr error
 		if name == ItemsDir {
-			_, werr = s.Add(b, Fields{Title: ptr("T"), List: ptr("Todo")}, alice)
+			_, werr = s.Add(b, Fields{Title: ptr("T"), List: ptr("todo")}, alice)
 		} else {
-			werr = s.SetLists(b, []string{"Mine"}, alice)
+			werr = s.SetLists(b, []List{{Key: "mine", Name: "Mine"}}, alice)
 		}
 		if werr == nil {
 			t.Errorf("%s as a symlink: a change was written through it", name)
@@ -77,7 +75,7 @@ func TestNoTopLevelDirectoryIsFollowedThroughASymlink(t *testing.T) {
 		if err != nil || len(after) != len(before) {
 			t.Errorf("%s as a symlink: the directory it points at went from %d to %d entries (%v)", name, len(before), len(after), err)
 		}
-		if it, err := ReadItem(s.Folder, "0123456789abcdef"); it != nil || err != nil {
+		if it, err := ReadItem(s.Folder, "0123456789abcdef", nil); it != nil || err != nil {
 			t.Errorf("%s as a symlink: ReadItem = %v, %v", name, it, err)
 		}
 	}

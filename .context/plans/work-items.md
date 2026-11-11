@@ -31,6 +31,15 @@ Jira, or Linear."
    made two `apply` calls a round, which the contract ("the whole desired set, every time") lets an external
    adapter undo; it became one `apply` with optional members (§4.3).
 
+6. **A list is a state with a key and a name** (Rjae, after the move of §9: "it would be ideal if a team has the
+   ability to define its own set of states", and of a state's name, "one might change the 'nickname' but not
+   affect the underlying state (status)"; asked how the identity should look, he chose a key the team sees over a
+   hidden one). The lists were the team's own already; what was missing is that a renamed list kept its work
+   items (§4.5).
+7. **A work item's free-form markers are tags, not labels** (Rjae: "Do we have support for tags (or Trello calls
+   thems labels)?"; asked, he chose the rename): in this command a label is a member's roster label and nothing
+   else.
+
 Routine calls made and said: the carrier is a synced folder and not a backend table (the card's title, and
 ruling 1 of manager-digest.md: "Supabase is an adapter"; a Cavalry adapter has nothing to implement); the lists
 are the team's own, starting `Todo`, `Doing`, `Done`; a work item has a title, a description, a list, an
@@ -97,13 +106,31 @@ would create it with a project folder's mode.
 ```
 
 A change: `v`, `item`, `seq`, `at`, `by` (the writer's roster label), `session`, and `set` (any of `number`,
-`title`, `description`, `list`, `assignee`, `labels`, `closed`), `comment`, or `lists`. The fold orders by
+`title`, `description`, `list`, `assignee`, `tags`, `closed`), `comment`, or `lists`.
+
+**Lists.** A list is `{key, name}`. The key is the state: set once, when the list is made, as `ListKey` of the
+name it was given then (lower case, hyphens for anything but a to z and digits, 32 characters; `list-` and eight
+hex digits of the name's SHA-256 for a name in another script), and it is what a work item's `list` carries. The
+name is what the team calls the state (`lists.go`). Two kinds of change make the lists: one names them all, in
+order, and the last such change says which lists the board has; the other renames one list by its key. A name
+is folded apart from the membership: a list is called what its latest rename says, or else what the change that
+first named it called it. So a rename on one machine and the lists named anew on another both stand. The fold
+also keeps the lists the board had before (`past`), each under its key and last name. `Board.Named` builds the
+lists `brigade work-item lists <name>…` asks for: a name that is a list the board has, by key or by name, is
+that list as it is; one the board had before is that list again, with its key and so the work items left in
+it; any other is a new list whose key is no key and no name a list of the board, now or before, answers to. A
+reference is looked up among the keys first and the names next, and no two lists may answer to one word: `Named`
+refuses two names that are one list, `Renamed` a name another list answers to. The fold reads an item's list
+and its history with the names the lists have now.
+
+The first cut of the store, on `master` for a few hours and in no release, kept a list as its name and tags
+as `labels`. Its files are not read by this one: only this machine's board held any, and it was written again. The fold orders by
 (`seq`, `at`, file name) and the last change of a field wins; `seq` is the highest the writer saw plus one, so a
 change made after reading another follows it whatever the clocks say. An item needs a number, a title and a list
 (its first change sets them); one whose first change has not arrived is not shown. Readers take only files whose
 name, size and shape are a change's, follow no symlink, cap and sanitise every string (`protocol.Sanitize`), and
 count what they skip. Caps: change file 128 KiB, title 200, description 8,000, comment 4,000 code points, 24
-lists, 12 labels, 20,000 items, 2,000 changes an item.
+lists, 12 tags, 20,000 items, 2,000 changes an item.
 
 **Numbers.** `NextNumber` is the highest on the board plus one. `Clashes` is every item of a number but the one
 created first (by creation time, then id); `Store.Repair` gives each the next free number as a change of its own.
@@ -113,8 +140,9 @@ is left.
 
 ### 4.6 The command (`internal/harness/commands/workitem.go`, `internal/cli`)
 
-`brigade work-item list|show|add|edit|move|assign|label|comment|close|reopen|lists`, flags `--list`, `--to`,
-`--mine`, `--nobody`, `--label`, `--closed`, in-session only. Text on stdin (title, blank line, description);
+`brigade work-item list|show|add|edit|move|assign|tag|comment|close|reopen|lists|rename-list`, flags `--list`,
+`--to`, `--mine`, `--nobody`, `--tag`, `--closed`, in-session only. A list is named by its key or its name
+wherever a command takes one; `lists` prints both. Text on stdin (title, blank line, description);
 `workitem.CleanLine`/`CleanBlock` refuse an empty text, one past its cap, invalid UTF-8 and a credential's shape
 (`doing.CarriesCredential`), and unlike a doing line allow a path. The author is read from this machine alone:
 the team binding's label, else the `label` option's resolution. A verb that finds nothing to change says
@@ -154,12 +182,13 @@ adapters, `supabase/`.
 2. **The real binaries, two machines' worth of state, two repositories**
    (`BRIGADE_TEST_SYNCTHING=1 go test ./internal/harness/e2e/ -run TestABoardSpansTheTeamsRepositories`): one team,
    alice's session in `web` and bob's in `api`, team files with the board and no folder, two Syncthing
-   instances. Measured 2026-11-11 with Syncthing on this machine, three runs on the final build: the board held
-   on both and the two connected about 16 s after the first SessionStart; alice's work item on bob's board 10 s
-   to 50 s after she added it; bob's move and comment at alice's about 10 s later; two work items numbered 2 on
-   two machines were 2 and 3 on both 17 s to 53 s after the adds; nothing in either checkout, no title in the
-   backend's files. The two sizes of wait are the engine's: its file watcher's ten seconds, or its
-   once-a-minute scan, which is what a new work item (a new directory) waited for in half the measurements.
+   instances. Measured 2026-11-11 with Syncthing on this machine, two runs on the build as committed: the board
+   held on both and the two connected about 16 s after the first SessionStart; alice's work item on bob's board
+   11 s and 65 s after she added it; bob's move, comment and rename of its list at alice's 11 s and 71 s later,
+   the work item still in the list under its new name; two work items numbered 2 on two machines were 2 and 3 on
+   both 36 s and 59 s after the adds; nothing in either checkout, no title in the backend's files. The two sizes
+   of wait are the engine's: its file watcher's ten seconds, or its once-a-minute scan, which a new directory (a
+   new work item, the board's first change of its lists) often waits for.
 3. **The skills in live Claude Code sessions** (`scripts/experiments/E18-work-items.sh`,
    [E18](../../docs/experiments/E18-work-items.md)).
 
@@ -173,6 +202,13 @@ adapters, `supabase/`.
    that blamed the title for a description past the read limit, one that pointed at stdin for a word of the
    command line, and one that named a different stray flag each run; and the board folded three times a
    command (once, plus the one work item after a write).
+5. **A second agent review**, of the lists' keys and the tags, found nine things, all fixed before that commit:
+   a new list's key that could be another list's name, so that the name reached the wrong list (no two lists
+   answer to one word now); a rename written as the whole set of lists, which another machine's change of the
+   lists undid (a rename is a change of its own); a dropped list that did not get its key back when named again
+   after a rename, and a new list that could take a dropped list's key (the board remembers the lists it had); a
+   refusal that misdescribed a renamed list's old name; no test of a hostile list key; one lookup written five
+   times; a second lookup that could hide a missing list; and comments that still said label.
 
 ## 7. What this concedes
 
@@ -190,3 +226,15 @@ Work items in the digest; a session-start or Stop-hook line about the work items
 member; reaching the board from Slack or email; due dates, checklists, attachments, ordering within a list;
 deleting; a terminal form outside a session; importing a Trello board; moving this repository's own `/trello-*`
 skills onto the board.
+
+## 9. The Brigade team's own board (2026-11-11)
+
+Rjae, once card 263 was closed: "create a work item for the tool chain bump with the details you summarized for
+me. Then, move the remaining Brigade Trello cards to work items". Asked three things, he chose to keep the Trello
+numbers, to comment on and archive the Trello cards, and to wait for the release rather than point this machine
+at the dev build. `.brigade.json` carries `"board": true`; the 20 open Brigade cards are work items with their
+numbers (54 to 249), in `Hibernating`, `Wanting` and `Doing` (the one card of Trello's Brigade list), with their
+creators, dates, comments and a last comment naming the Trello card; work item 264 is the toolchain bump for
+GO-2026-6859; the board's next number is 265. They were written by a one-off program in `.ignored/` through this
+package's store, and written again in the shape of rulings 6 and 7 from the saved export, before any machine
+but this one held them. The Trello cards are archived, not completed. Rows P83-3 and P83-4.

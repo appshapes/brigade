@@ -78,13 +78,28 @@ func (s Store) Change(it *Item, set *Fields, comment string, who Author) error {
 }
 
 // SetLists writes the board's lists, in order: the whole list, which
-// replaces the one before. A work item in a list the new ones leave out
-// stays where it is, and shows under that list's name.
-func (s Store) SetLists(b *Board, lists []string, who Author) error {
+// replaces the one before (Board.Named makes one from the lists there
+// are). It says which lists the board has; a list the board knew keeps
+// the name it has, whatever this change calls it. A work item in a list
+// the new ones leave out stays where it is, and shows under that list's
+// key.
+func (s Store) SetLists(b *Board, lists []List, who Author) error {
 	if b.listsSeq >= MaxSeq || b.listsChanges >= MaxChanges {
 		return ErrFull
 	}
 	c := &Change{Seq: b.listsSeq + 1, By: who.Member, Session: who.Session, Lists: lists}
+	return s.write(c, ListsDir)
+}
+
+// RenameList writes a list's new name: the one list whose key renamed
+// carries, and nothing else of the board's lists (Board.Renamed makes it).
+// It is a change of its own, so it stands whatever another machine did to
+// the lists at the same moment.
+func (s Store) RenameList(b *Board, renamed List, who Author) error {
+	if b.listsSeq >= MaxSeq || b.listsChanges >= MaxChanges {
+		return ErrFull
+	}
+	c := &Change{Seq: b.listsSeq + 1, By: who.Member, Session: who.Session, Rename: &renamed}
 	return s.write(c, ListsDir)
 }
 
@@ -181,7 +196,7 @@ func (s Store) random() io.Reader {
 }
 
 // CleanLine turns what a caller typed for a one-line field — a title, a
-// list's name, a label — into the text a change may carry, or answers
+// list's name, a tag — into the text a change may carry, or answers
 // the reason it is refused for, in package doing's words: not valid
 // UTF-8, empty once sanitised and folded onto one line, longer than
 // maxChars code points, or carrying a credential (doing.CarriesCredential,

@@ -3,21 +3,21 @@ name: work-item
 description: >-
   Read, add or change one work item on the team's board: `/brigade:work-item <number>` shows it, `/brigade:work-item add
   <title>` adds one, and `/brigade:work-item <number> move <list>`, `assign me | nobody | <member>`, `comment <text>`,
-  `label <names>`, `edit`, `close` and `reopen` change it. Each is one `brigade work-item` command, its text on
+  `tag <tags>`, `edit`, `close` and `reopen` change it. Each is one `brigade work-item` command, its text on
   stdin. Use when the user asks to put something on the board, to see a work item, or to move, assign, comment
-  on, label, edit, close or reopen one, in these forms or in their own words; and when work you are doing for
+  on, tag, edit, close or reopen one, or to name or rename the board's lists, in these forms or in their own words; and when work you are doing for
   your user is a work item's and its state changed. Showing the whole board is `brigade:work-items`; taking a
   work item and working it through is `brigade:work-item-start`. A team whose `.brigade.json` does not turn the
   board on has none.
 user-invocable: true
-argument-hint: "<number> | add <title> | <number> move <list> | <number> assign me|nobody|<member> | <number> comment <text> | <number> label <names> | <number> edit | <number> close | <number> reopen"
+argument-hint: "<number> | add <title> | <number> move <list> | <number> assign me|nobody|<member> | <number> comment <text> | <number> tag <tags> | <number> edit | <number> close | <number> reopen"
 allowed-tools: Bash(brigade work-item:*)
 ---
 
 # One work item on the team's board
 
 A team that turned its board on keeps its work in Brigade itself: work items, each with a number, a title, a
-description, a list, an assignee, labels and comments. The board is a folder on this machine that file sync
+description, a list, an assignee, tags and comments. The board is a folder on this machine that file sync
 shares with every teammate's machine, whatever repository their session is in. `brigade work-item` reads and
 writes that folder: nothing goes to the backend, and the board works while the backend does not.
 
@@ -32,7 +32,7 @@ brigade work-item add <<'EOF'               # a new work item in the board's fir
 
 <the description: what is asked, and how to tell it is done. Optional.>
 EOF
-brigade work-item add --list 'Doing' --mine --label 'bug,web' <<'EOF'   # in a list, assigned to your user, labelled
+brigade work-item add --list 'Doing' --mine --tag 'bug,web' <<'EOF'   # in a list, assigned to your user, tagged
 <the title>
 EOF
 brigade work-item edit 41 <<'EOF'           # replaces the title AND the description: send both
@@ -40,16 +40,17 @@ brigade work-item edit 41 <<'EOF'           # replaces the title AND the descrip
 
 <the description>
 EOF
-brigade work-item move 41 Doing             # to another of the board's lists
+brigade work-item move 41 Doing             # to another of the board's lists, by its name or its key
 brigade work-item assign 41 --mine          # to your user; --to '<member>' to a teammate; --nobody to nobody
-brigade work-item label 41 bug web          # exactly these labels; with none after the number, no labels
+brigade work-item tag 41 bug web            # exactly these tags; with none after the number, no tags
 brigade work-item comment 41 <<'EOF'
 <the comment>
 EOF
 brigade work-item close 41                  # finished with: off the board's lists, still shown by list --closed
 brigade work-item reopen 41
-brigade work-item lists                     # the board's lists, in order
+brigade work-item lists                     # the board's lists, in order: each one's key and its name
 brigade work-item lists Backlog Doing Done  # names the board's lists anew: all of them, in order
+brigade work-item rename-list doing 'In progress'   # another name for a list; its key and its work items stay
 ```
 
 `brigade work-item list` is the board; `brigade:work-items` shows it to your user.
@@ -68,7 +69,7 @@ means:
 | `<number> assign <member>` | `brigade work-item assign <number> --to '<member>'` |
 | `<number> assign nobody`, "unassign 41" | `brigade work-item assign <number> --nobody` |
 | `<number> comment <text>` | `brigade work-item comment <number>`, the text on stdin |
-| `<number> label <names>` | `brigade work-item label <number> <names>` |
+| `<number> tag <tags>` | `brigade work-item tag <number> <tags>` |
 | `<number> edit`, "retitle 41" | `brigade work-item show <number>` first, then `brigade work-item edit <number>` with the whole new title and description |
 | `<number> close`, "41 is finished with" | `brigade work-item close <number>` |
 | `<number> reopen` | `brigade work-item reopen <number>` |
@@ -80,9 +81,11 @@ what to do with it. Never guess a number.
 
 - **Text travels on stdin**, in a quoted heredoc (`<<'EOF'`) whose delimiter is absent from the text, never on
   the command line. The first line of an `add` or an `edit` is the title; the description follows a blank line.
-- **A member is named by their label** as the roster's `MEMBER` column shows it, in single quotes. A list is one
-  of the board's: a move to a list the board does not have is refused with the lists there are; ask your user
-  which they meant, never make one.
+- **A member is named by their label** as the roster's `MEMBER` column shows it, in single quotes.
+- **A list is a state with a key and a name.** The key (`doing`) is set when the list is made and never changes;
+  the name (`In progress`) is what the team calls it, and `rename-list` changes it without moving a work item.
+  A command takes either. A move to a list the board does not have is refused with the lists there are; ask
+  your user which they meant, never make one.
 - **Print the line the command printed** after a change: it says what changed, or `unchanged:` when the work
   item was already so. When your user asked to see a work item, print what `show` printed verbatim, inside a
   fenced block, and nothing else.
@@ -97,8 +100,8 @@ what to do with it. Never guess a number.
   anyone, without your user saying so.
 - **On your own initiative**, comment on a work item and move it when the work you are doing for your user is
   that work item's (they started you on it, or named its number) and you took it, finished it or are blocked.
-  Add a work item, assign one that is someone else's, close one, or name the board's lists, only when your
-  user asks.
+  Add a work item, assign one that is someone else's, close one, or name or rename the board's lists, only
+  when your user asks.
 - **The board travels while sessions run.** Two machines exchange work items only while both run a session at
   the same time; what a teammate changed while this machine was off arrives after the next session starts.
   `brigade sync status` shows the `team board` folder and the peers.
@@ -111,7 +114,8 @@ Print a refusal once and stop; never retry with another form.
 | --- | --- |
 | `config`, `no_board` | this team has not turned its board on, or file sync is off for this session: `"board": true` in the `sync` member of the project's `.brigade.json` turns it on, the team administrator's to add |
 | `not_found`, `no_such_work_item` | no work item carries that number: `brigade work-item list` shows the open ones, `--closed` the closed |
-| `invalid_input`, `no_such_list` | the board has no such list; the message names the ones it has |
+| `invalid_input`, `no_such_list` | the board has no list of that name or key; the message names the ones it has |
+| `invalid_input`, `name_taken` | a list cannot take a name another list answers to, as its name or its key |
 | `config`, `label_needed` | `--mine` in a session with no roster label: name the member with `--to` |
 | `invalid_input`, `too_long` | a title holds 200 characters, a description 8,000, a comment 4,000: say it in fewer words |
 | `conflict`, `number_taken_twice` | two work items still carry one number; run the command again |
