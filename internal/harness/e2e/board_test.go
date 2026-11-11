@@ -38,9 +38,14 @@ type boardItem struct {
 
 type boardResult struct {
 	Lists []struct {
-		Key  string `json:"key"`
-		Name string `json:"name"`
+		Key    string `json:"key"`
+		Name   string `json:"name"`
+		Hidden bool   `json:"hidden"`
 	} `json:"lists"`
+	NotShown []struct {
+		List  string `json:"list"`
+		Items int    `json:"items"`
+	} `json:"not_shown"`
 	Items []struct {
 		Number int    `json:"number"`
 		Title  string `json:"title"`
@@ -243,16 +248,26 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 	if renamed := board(bob, "", "rename-list", "doing", "Under way"); !renamed.Changed || len(renamed.Lists) != 3 || renamed.Lists[1].Key != "doing" || renamed.Lists[1].Name != "Under way" {
 		t.Fatalf("bob's rename: %+v", renamed.Lists)
 	}
+	// And hides the list nobody works in from the listing (work item
+	// 269): a change of its own, like the rename, that moves nothing.
+	if hid := board(bob, "", "hide-list", "Done"); !hid.Changed || len(hid.Lists) != 3 || !hid.Lists[2].Hidden {
+		t.Fatalf("bob's hide-list: %+v", hid.Lists)
+	}
 	wrote = time.Now()
 	var seen *boardItem
 	testutil.Eventually(t, waitFile, pollSync, func() bool {
 		seen = board(alice, "", "show", "1").Item
-		return seen != nil && seen.List == "doing" && seen.ListName == "Under way" && len(seen.Comments) == 1
+		if seen == nil || seen.List != "doing" || seen.ListName != "Under way" || len(seen.Comments) != 1 {
+			return false
+		}
+		// alice's listing leaves the hidden list out, and says so.
+		listed := board(alice, "", "list")
+		return len(listed.Lists) == 3 && listed.Lists[2].Hidden && len(listed.NotShown) == 1 && listed.NotShown[0].List == "done"
 	})
 	if seen.Comments[0].Text != "Reproduced with a fresh invite." || seen.Comments[0].Session != "bob-api" {
 		t.Fatalf("bob's comment as alice reads it: %+v", seen.Comments[0])
 	}
-	t.Logf("bob's move, comment and rename of the list reached alice %s later; the history reads %v", time.Since(wrote).Round(time.Millisecond), seen.History)
+	t.Logf("bob's move, comment, rename of the list and hiding of another reached alice %s later; the history reads %v", time.Since(wrote).Round(time.Millisecond), seen.History)
 
 	// --- 4. two machines take one number, and the next command puts it right ----
 	clash := time.Now()

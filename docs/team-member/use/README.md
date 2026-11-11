@@ -71,7 +71,8 @@ Details: [Record notes and ask for decisions](notes-and-decisions.md).
 
 ## Keep the team's work on the Brigade Board
 
-1. `/brigade:work-items` prints the Brigade Board, the team's board of work items: the open work items by list, in every repository of the team.
+1. `/brigade:work-items` prints the Brigade Board, the team's board of work items: the open work items by list, in
+   every repository of the team. `/brigade:work-items all` includes the lists the team hid from the listing.
 2. `/brigade:work-item add <title>` adds one; `/brigade:work-item <number>` shows one, and `<number> move <list>`,
    `assign me`, `comment <text>`, `close` change it. Each is one `brigade work-item` command.
 3. `/brigade:work-item-start <number>` has the session take a work item, do the work, comment and move it on.

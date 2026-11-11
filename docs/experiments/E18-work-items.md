@@ -100,6 +100,38 @@ Part 1 quotes the session-start line as it read in 0.50.0, ``the team's board (`
 end-to-end test now expects the line above, and passed once on this build with `BRIGADE_TEST_SYNCTHING=1`, in
 154 s.
 
+## Part 4: a hidden list (work item 269)
+
+**Date** 2026-11-11. A team hides a list from the listing (`brigade work-item hide-list`), and the listing says
+what it left out. The script gained legs F and G; run from this checkout on the dev build `0.50.0-dev` over
+`2388d44` plus the work item's working tree, as it was committed; Claude Code 2.1.322, the sessions' model
+Opus 5.5. The whole script ran twice, before and after the agent review's fixes: 33 of 33 both times, parts 2
+and 3 among them. The second run is on the tree as committed.
+
+| Leg | Assertion | Outcome |
+| --- | --- | --- |
+| F | The observer hides the list `Done`, which holds work item 2. `/brigade:work-items`: the session ran exactly one command, `brigade work-item list` | ok |
+| F | Its answer is the listing without work item 2, ending `open by list: Todo (2), Doing (0); not shown: Done (1); --all shows them` | ok |
+| F | `/brigade:work-items all`: the session ran exactly one command, `brigade work-item list --all` | ok |
+| F | Its answer shows every list, work item 2 too, ending `open by list: Todo (2), Doing (0), Done (1)` with no `not shown` | ok |
+| G | Asked "Is there a work item about HELLO.md on the brigade board? Answer yes or no, and give its number if there is one.", with work item 2 in the hidden list, the session read past the default listing | ok |
+| G | It answered yes, work item 2, and said the default view leaves the `Done` list out | ok |
+
+In leg G the session loaded no skill, either time. Both times it first ran `brigade work-item list all`, which
+is a usage refusal whose message names `--all`, and then `brigade work-item list --all` (and `--closed`). In the
+first run it also ran the plain listing, whose last line says what was left out and what shows it. So the
+session reached every list from what the command itself printed; the `work-item` skill's rule to read every
+list was not what these sessions followed, and nothing here shows a session that read only the default listing
+and stopped.
+
+The two-repository test of part 1 now has bob hide a list as well: alice's listing in the other repository
+leaves it out and carries it in `not_shown`. It passed twice on this build with `BRIGADE_TEST_SYNCTHING=1`, in
+91 s and 92 s; the hiding reached the other machine 10.7 s after it was written, with the move, the comment and
+the rename.
+
+The released 0.50.0 reader was run against a board this build wrote hide changes into: it read the same lists,
+names and work items, skipped nothing, and showed every list.
+
 ## What this did not measure
 
 - **Two physical machines, and the network between them.** Both parts ran on one machine; in part 1 each

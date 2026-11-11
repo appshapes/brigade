@@ -64,7 +64,7 @@ func TestWorkItemLifecycle(t *testing.T) {
 	f := newFixture(t)
 	folder := f.withBoard(t)
 
-	if got := f.workItem(t, WorkItemOptions{}, "", "lists"); got != "KEY    NAME\ntodo   Todo\ndoing  Doing\ndone   Done\n" {
+	if got := f.workItem(t, WorkItemOptions{}, "", "lists"); got != "KEY    NAME   SHOWN\ntodo   Todo   yes\ndoing  Doing  yes\ndone   Done   yes\n" {
 		t.Fatalf("lists = %q", got)
 	}
 	if got := f.workItem(t, WorkItemOptions{}, "", "list"); got != "no open work items\nopen by list: Todo (0), Doing (0), Done (0)\n" {
@@ -188,7 +188,7 @@ func TestWorkItemLists(t *testing.T) {
 	f := newFixture(t)
 	f.withBoard(t)
 	f.workItem(t, WorkItemOptions{}, "Stays in Todo", "add")
-	want := "KEY          NAME\nbacklog      Backlog\nin-progress  In progress\ndone         Done\n"
+	want := "KEY          NAME         SHOWN\nbacklog      Backlog      yes\nin-progress  In progress  yes\ndone         Done         yes\n"
 	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "In  progress", "Done"); got != want {
 		t.Fatalf("lists = %q", got)
 	}
@@ -228,13 +228,13 @@ func TestWorkItemLists(t *testing.T) {
 		t.Errorf("the refusal does not name the lists: %q", perr.Message)
 	}
 	// Naming the lists anew renames none: the list keeps the name it has.
-	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "in-progress", "Done"); !strings.HasPrefix(got, "unchanged: ") || !strings.Contains(got, "in-progress  Under way\n") {
+	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "in-progress", "Done"); !strings.HasPrefix(got, "unchanged: ") || !strings.Contains(got, "in-progress  Under way  yes\n") {
 		t.Fatalf("lists by a renamed list's key = %q", got)
 	}
 	// Dropped and named again, by the name it had, a list is back with
 	// its key and the work item left in it.
 	f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "Done")
-	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "Under way", "Done"); got != "KEY          NAME\nbacklog      Backlog\nin-progress  Under way\ndone         Done\n" {
+	if got := f.workItem(t, WorkItemOptions{}, "", "lists", "Backlog", "Under way", "Done"); got != "KEY          NAME       SHOWN\nbacklog      Backlog    yes\nin-progress  Under way  yes\ndone         Done       yes\n" {
 		t.Fatalf("a dropped list named again = %q", got)
 	}
 	if got := f.workItem(t, WorkItemOptions{}, "", "show", "2"); !strings.Contains(got, "\nlist: Under way (in-progress)\n") {
@@ -405,6 +405,12 @@ func TestWorkItemRefusals(t *testing.T) {
 		{name: "no verb", code: protocol.CodeUsage},
 		{name: "an unknown verb", args: []string{"delete", "1"}, code: protocol.CodeUsage},
 		{name: "list with a word", args: []string{"list", "mine"}, code: protocol.CodeUsage},
+		{name: "hide-list with no list", args: []string{"hide-list"}, code: protocol.CodeUsage},
+		{name: "hide-list with two words", args: []string{"hide-list", "In", "progress"}, code: protocol.CodeUsage},
+		{name: "hide-list of a list the board has not", args: []string{"hide-list", "Nowhere"}, code: protocol.CodeInvalidInput, reason: ReasonNoSuchList},
+		{name: "unhide-list of a list the board has not", args: []string{"unhide-list", "Nowhere"}, code: protocol.CodeInvalidInput, reason: ReasonNoSuchList},
+		{name: "hide-list with a flag", opts: WorkItemOptions{All: true}, args: []string{"hide-list", "Todo"}, code: protocol.CodeUsage},
+		{name: "--all with a verb that lists nothing", opts: WorkItemOptions{All: true}, args: []string{"show", "1"}, code: protocol.CodeUsage},
 		{name: "a flag the verb does not take", opts: WorkItemOptions{List: "Todo"}, args: []string{"close", "1"}, code: protocol.CodeUsage},
 		{name: "show with no number", args: []string{"show"}, code: protocol.CodeUsage},
 		{name: "show with two", args: []string{"show", "1", "2"}, code: protocol.CodeUsage},
@@ -584,5 +590,177 @@ func TestWorkItemBoardThatCannotBeRead(t *testing.T) {
 	}
 	if f.out.Len() != 0 {
 		t.Errorf("stdout %q", f.out.String())
+	}
+}
+
+// TestWorkItemHiddenLists is work item 269: a team hides a list from the
+// listing and shows it again, by the list's key or its name. A listing
+// leaves a hidden list's work items out and says so in its line of
+// counts, with what shows them; --all shows every list and --list the one
+// it names, hidden or not; the other verbs reach a work item in a hidden
+// list as before.
+func TestWorkItemHiddenLists(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	folder := f.withBoard(t)
+	f.workItem(t, WorkItemOptions{}, "", "lists", "Hibernating", "Wanting", "Done")
+	f.workItem(t, WorkItemOptions{Mine: true, Tag: "later"}, "Parked", "add")
+	f.workItem(t, WorkItemOptions{List: "wanting"}, "Wanted", "add")
+
+	if got := f.workItem(t, WorkItemOptions{}, "", "hide-list", "Hibernating"); got != "hidden: hibernating (\"Hibernating\") is left out of brigade work-item list; --all shows every list and --list hibernating this one, and the work items in it stay in it\n" {
+		t.Fatalf("hide-list = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "hide-list", "hibernating"); got != "unchanged: hibernating (\"Hibernating\") is already hidden\n" {
+		t.Fatalf("hide-list again = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "lists"); got != "KEY          NAME         SHOWN\nhibernating  Hibernating  no\nwanting      Wanting      yes\ndone         Done         yes\n" {
+		t.Fatalf("lists = %q", got)
+	}
+	if b := readBoard(t, folder); len(b.Items) != 2 || b.ByNumber(1)[0].List != "hibernating" || b.ByNumber(1)[0].Closed {
+		t.Fatalf("hiding a list touched its work item: %+v", b.ByNumber(1)[0])
+	}
+
+	wantRow := "Wanting  2       Wanted  -         -\n"
+	footer := "open by list: Wanting (1), Done (0); not shown: Hibernating (1); --all shows them\n"
+	if got := f.workItem(t, WorkItemOptions{}, "", "list"); got != "LIST     NUMBER  TITLE   ASSIGNED  TAGS\n"+wantRow+footer {
+		t.Fatalf("the default listing = %q", got)
+	}
+	all := "LIST         NUMBER  TITLE   ASSIGNED           TAGS\n" +
+		"Hibernating  1       Parked  alice@example.com  later\n" +
+		"Wanting      2       Wanted  -                  -\n" +
+		"open by list: Hibernating (1), Wanting (1), Done (0)\n"
+	if got := f.workItem(t, WorkItemOptions{All: true}, "", "list"); got != all {
+		t.Fatalf("list --all = %q", got)
+	}
+	named := "LIST         NUMBER  TITLE   ASSIGNED           TAGS\n" +
+		"Hibernating  1       Parked  alice@example.com  later\n" +
+		"open by list: Hibernating (1), Wanting (1), Done (0)\n"
+	if got := f.workItem(t, WorkItemOptions{List: "Hibernating"}, "", "list"); got != named {
+		t.Fatalf("list --list of the hidden list = %q", got)
+	}
+	// A filter is no way round it, and no way to lose it: the member's
+	// own work item is in the hidden list, and the line says how many of
+	// the hidden list's the filter matches — what --all would add.
+	if got := f.workItem(t, WorkItemOptions{Mine: true}, "", "list"); got != "no open work items match in the lists shown\nopen by list: Wanting (1), Done (0); not shown: Hibernating (1, 1 matching); --all shows them\n" {
+		t.Fatalf("list --mine = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{Nobody: true}, "", "list"); got != "LIST     NUMBER  TITLE   ASSIGNED  TAGS\n"+wantRow+"open by list: Wanting (1), Done (0); not shown: Hibernating (1, 0 matching); --all shows them\n" {
+		t.Fatalf("list --nobody = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{Tag: "none-such"}, "", "list"); got != "no open work items match\nopen by list: Wanting (1), Done (0); not shown: Hibernating (1, 0 matching); --all shows them\n" {
+		t.Fatalf("list --tag of a tag nothing carries = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{Mine: true, All: true}, "", "list"); !strings.Contains(got, "Hibernating  1       Parked") {
+		t.Fatalf("list --mine --all = %q", got)
+	}
+	// The other verbs know nothing of it.
+	if got := f.workItem(t, WorkItemOptions{}, "", "show", "1"); !strings.Contains(got, "Parked") || !strings.Contains(got, "Hibernating") {
+		t.Fatalf("show of a work item in a hidden list = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "move", "2", "hibernating"); got != "moved: 2 \"Wanted\" to Hibernating\n" {
+		t.Fatalf("move into a hidden list = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "list"); got != "no open work items in the lists shown\nopen by list: Wanting (0), Done (0); not shown: Hibernating (2); --all shows them\n" {
+		t.Fatalf("a listing with every open work item in the hidden list = %q", got)
+	}
+
+	// A new work item with no list named goes into the first list the
+	// listing shows, not into the board's first; one sent into a hidden
+	// list by name is told so. A closed work item is off the lists, and
+	// the closed listing shows it whatever list it was in.
+	if got := f.workItem(t, WorkItemOptions{}, "Not born out of sight", "add"); got != "added: 3 \"Not born out of sight\" in Wanting\n" {
+		t.Fatalf("add with no list on a board whose first list is hidden = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{List: "Hibernating"}, "Put away", "add"); got != "added: 4 \"Put away\" in Hibernating (a hidden list: brigade work-item list leaves it out, --all shows it)\n" {
+		t.Fatalf("add into a hidden list = %q", got)
+	}
+	f.workItem(t, WorkItemOptions{}, "", "close", "4")
+	f.workItem(t, WorkItemOptions{}, "", "close", "3")
+	if got := f.workItem(t, WorkItemOptions{Closed: true}, "", "list"); got != "LIST         NUMBER  TITLE                  ASSIGNED  TAGS\n"+
+		"Hibernating  4       Put away               -         -\n"+
+		"Wanting      3       Not born out of sight  -         -\n"+
+		"closed by list: Hibernating (1), Wanting (1), Done (0)\n" {
+		t.Fatalf("list --closed = %q", got)
+	}
+
+	// Every list hidden: the line still says where the work items are.
+	f.workItem(t, WorkItemOptions{}, "", "hide-list", "wanting")
+	f.workItem(t, WorkItemOptions{}, "", "hide-list", "Done")
+	if got := f.workItem(t, WorkItemOptions{}, "", "list"); got != "no open work items in the lists shown\nopen by list: every list is hidden; not shown: Hibernating (2), Wanting (0), Done (0); --all shows them\n" {
+		t.Fatalf("a listing of a board with every list hidden = %q", got)
+	}
+	// A rename and the lists named anew keep a list as hidden as it was.
+	f.workItem(t, WorkItemOptions{}, "", "rename-list", "hibernating", "Asleep")
+	f.workItem(t, WorkItemOptions{}, "", "lists", "Asleep", "Wanting", "Doing", "Done")
+	if got := f.workItem(t, WorkItemOptions{}, "", "lists"); got != "KEY          NAME     SHOWN\nhibernating  Asleep   no\nwanting      Wanting  no\ndoing        Doing    yes\ndone         Done     no\n" {
+		t.Fatalf("lists after a rename and a naming = %q", got)
+	}
+
+	if got := f.workItem(t, WorkItemOptions{}, "", "unhide-list", "Asleep"); got != "shown: hibernating (\"Asleep\") is in brigade work-item list again\n" {
+		t.Fatalf("unhide-list = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "unhide-list", "hibernating"); got != "unchanged: hibernating (\"Asleep\") is already shown\n" {
+		t.Fatalf("unhide-list again = %q", got)
+	}
+	if got := f.workItem(t, WorkItemOptions{}, "", "list"); !strings.Contains(got, "Asleep  1       Parked") || !strings.HasSuffix(got, "open by list: Asleep (2), Doing (0); not shown: Wanting (0), Done (0); --all shows them\n") {
+		t.Fatalf("the listing after unhide-list = %q", got)
+	}
+}
+
+// TestWorkItemHiddenListsJSON: the --json forms say what the human ones
+// do. A listing carries the hidden lists it left out with their counts,
+// and none when it left none out; every list carries `hidden` when it is.
+func TestWorkItemHiddenListsJSON(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.withBoard(t)
+	run := func(opts WorkItemOptions, stdin string, args ...string) map[string]any {
+		t.Helper()
+		f.out.Reset()
+		inv := f.inv(f.sessionEnv(), stdin, args...)
+		inv.JSON = true
+		if err := WorkItem(inv, opts); err != nil {
+			t.Fatalf("work-item %v: %v", args, err)
+		}
+		ok, result := envelopeOf(t, f.out.String())
+		if !ok || result["verb"] != args[0] {
+			t.Fatalf("work-item %v result %v", args, result)
+		}
+		return result
+	}
+	run(WorkItemOptions{}, "In todo", "add")
+	run(WorkItemOptions{List: "done"}, "In done", "add")
+	hidden := run(WorkItemOptions{}, "", "hide-list", "Done")
+	if last := hidden["lists"].([]any)[2].(map[string]any); hidden["changed"] != true || last["key"] != "done" || last["hidden"] != true {
+		t.Fatalf("hide-list result %v", hidden)
+	}
+	if again := run(WorkItemOptions{}, "", "hide-list", "done"); again["changed"] != false || again["lists"].([]any)[2].(map[string]any)["hidden"] != true {
+		t.Fatalf("hide-list again %v", again)
+	}
+	listed := run(WorkItemOptions{}, "", "list")
+	left := listed["not_shown"].([]any)
+	if len(listed["items"].([]any)) != 1 || len(left) != 1 {
+		t.Fatalf("list result %v", listed)
+	}
+	if n := left[0].(map[string]any); n["list"] != "done" || n["list_name"] != "Done" || n["items"] != float64(1) || n["matching"] != float64(1) {
+		t.Fatalf("not_shown %v", n)
+	}
+	if mine := run(WorkItemOptions{Mine: true}, "", "list"); mine["not_shown"].([]any)[0].(map[string]any)["matching"] != float64(0) || mine["not_shown"].([]any)[0].(map[string]any)["items"] != float64(1) {
+		t.Fatalf("list --mine not_shown %v", mine["not_shown"])
+	}
+	if first := listed["lists"].([]any)[0].(map[string]any); first["hidden"] != nil || listed["lists"].([]any)[2].(map[string]any)["hidden"] != true {
+		t.Fatalf("lists of the listing %v", listed["lists"])
+	}
+	for _, opts := range []WorkItemOptions{{All: true}, {List: "done"}, {Closed: true}} {
+		if got := run(opts, "", "list"); got["not_shown"] != nil {
+			t.Fatalf("list %+v leaves a list out: %v", opts, got)
+		}
+	}
+	if all := run(WorkItemOptions{All: true}, "", "list"); len(all["items"].([]any)) != 2 {
+		t.Fatalf("list --all %v", all)
+	}
+	shown := run(WorkItemOptions{}, "", "unhide-list", "done")
+	if shown["changed"] != true || shown["lists"].([]any)[2].(map[string]any)["hidden"] != nil {
+		t.Fatalf("unhide-list result %v", shown)
 	}
 }

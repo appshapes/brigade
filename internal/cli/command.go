@@ -149,15 +149,16 @@ func init() {
 		},
 		{
 			Name:    "work-item",
-			Args:    "list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] | show <number> | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] | rename-list <list> <new name>",
-			Summary: "read and change the Brigade Board, the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists (a list is named by its key or its name)",
+			Args:    "list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] [--all] | show <number> | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] | rename-list <list> <new name> | hide-list <list> | unhide-list <list>",
+			Summary: "read and change the Brigade Board, the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists, or hide one from the listing (a list is named by its key or its name; a listing leaves a hidden list out unless --all or --list asks for it)",
 			Flags: func(fs *flag.FlagSet) {
-				fs.String("list", "", "one of the board's lists, by its key or its name. add: the list the new work item goes into (the board's first when unset); list: only the work items in this list")
+				fs.String("list", "", "one of the board's lists, by its key or its name. add: the list the new work item goes into (the board's first shown list when unset); list: only the work items in this list, a hidden one too")
 				fs.String("to", "", "a member, by their label as the roster shows it. add: the new work item's assignee; assign: the work item's; list: only the work items assigned to them")
 				fs.Bool("mine", false, "this session's own member, in place of --to")
 				fs.Bool("nobody", false, "assign: assign the work item to nobody; list: only the work items assigned to nobody")
 				fs.String("tag", "", "add: the new work item's tags, separated by commas; list: only the work items carrying this tag")
 				fs.Bool("closed", false, "list: the closed work items instead of the open ones")
+				fs.Bool("all", false, "list: the open work items of every list, those of a hidden list too (a listing of open work items leaves a hidden list out and says so in its line of counts)")
 			},
 			Run: runWorkItem,
 		},
@@ -405,6 +406,7 @@ func runWorkItem(cx *Context, args []string) error {
 		Nobody: cx.Bool("nobody"),
 		Tag:    stringFlag(cx, "tag"),
 		Closed: cx.Bool("closed"),
+		All:    cx.Bool("all"),
 	})
 }
 

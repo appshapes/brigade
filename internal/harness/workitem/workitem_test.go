@@ -784,3 +784,159 @@ func TestAChangeCarriesAListsKeyOrNothing(t *testing.T) {
 		t.Errorf("lists = %s", got)
 	}
 }
+
+// hide hides a list from the default listing or shows it again, as
+// `brigade work-item hide-list` and `unhide-list` do.
+func hide(t *testing.T, s Store, who Author, ref string, hidden bool) {
+	t.Helper()
+	b := read(t, s.Folder)
+	l, ok := b.List(ref)
+	if !ok {
+		t.Fatalf("no list %q", ref)
+	}
+	if err := s.HideList(b, l.Key, hidden, who); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// hiddenKeys is the keys of the hidden lists, comma separated.
+func hiddenKeys(lists []List) string {
+	var out []string
+	for _, l := range lists {
+		if l.Hidden {
+			out = append(out, l.Key)
+		}
+	}
+	return strings.Join(out, ",")
+}
+
+// A list is hidden from the default listing by a change of its own (work
+// item 269): the latest one for its key says whether it is. It moves no
+// work item; it stands beside a rename and beside the lists named anew on
+// another machine. Hiding is of a list the board has: one the board
+// drops takes its hiding with it and shows when it is named again, and a
+// hide written for a list the board does not have changes nothing.
+func TestAListIsHiddenByItsLatestHideChange(t *testing.T) {
+	c := newClock()
+	a := Store{Folder: t.TempDir(), Now: c.now}
+	id := add(t, a, "Parked for now", alice)
+	setLists(t, a, alice, "Hibernating", "Todo", "Doing", "Done")
+	change(t, a, id, &Fields{List: ptr("hibernating")}, "", alice)
+	if got := hiddenKeys(read(t, a.Folder).Lists); got != "" {
+		t.Fatalf("a board nobody hid a list on hides %q", got)
+	}
+	b := Store{Folder: t.TempDir(), Now: c.now}
+	merge(t, a.Folder, b.Folder)
+
+	hide(t, a, alice, "Hibernating", true)
+	rename(t, b, bob, "hibernating", "Parked")
+	setLists(t, b, bob, "Todo", "Hibernating", "Doing", "Review", "Done")
+	hide(t, b, bob, "done", true)
+	merge(t, a.Folder, b.Folder)
+	merge(t, b.Folder, a.Folder)
+	for _, folder := range []string{a.Folder, b.Folder} {
+		board := read(t, folder)
+		if got := names(board.Lists); got != "todo=Todo,hibernating=Parked,doing=Doing,review=Review,done=Done" {
+			t.Errorf("%s: lists = %s", folder, got)
+		}
+		if got := hiddenKeys(board.Lists); got != "hibernating,done" {
+			t.Errorf("%s: hidden = %q", folder, got)
+		}
+		if it := board.ByID(id); it == nil || it.List != "hibernating" || it.ListName != "Parked" || it.Closed {
+			t.Errorf("%s: the work item in the hidden list = %+v", folder, it)
+		}
+	}
+
+	hide(t, a, alice, "done", false)
+	if got := hiddenKeys(read(t, a.Folder).Lists); got != "hibernating" {
+		t.Errorf("after showing done again, hidden = %q", got)
+	}
+	// Dropped and named again, the list is back with its key and its
+	// work item, and it shows: the board that dropped it dropped its
+	// hiding.
+	setLists(t, a, alice, "Todo", "Done")
+	if board := read(t, a.Folder); hiddenKeys(board.Lists) != "" {
+		t.Errorf("with the hidden list dropped, hidden = %q", hiddenKeys(board.Lists))
+	}
+	setLists(t, a, alice, "Todo", "Parked", "Done")
+	if board := read(t, a.Folder); hiddenKeys(board.Lists) != "" || names(board.Lists) != "todo=Todo,hibernating=Parked,done=Done" || board.ByID(id).ListName != "Parked" {
+		t.Errorf("a dropped list named again: lists %s, hidden %q", names(board.Lists), hiddenKeys(board.Lists))
+	}
+	// A hide for a list the board does not have — another machine's,
+	// written before it had the lists as they are — changes nothing, now
+	// or when the list is named again.
+	if err := a.HideList(read(t, a.Folder), "review", true, alice); err != nil {
+		t.Fatal(err)
+	}
+	setLists(t, a, alice, "Todo", "Parked", "Review", "Done")
+	if board := read(t, a.Folder); hiddenKeys(board.Lists) != "" {
+		t.Errorf("a list hidden while the board had none such: hidden = %q", hiddenKeys(board.Lists))
+	}
+	// A rename carries the list's state out to the caller.
+	hide(t, a, alice, "Parked", true)
+	if _, renamed, found, taken := read(t, a.Folder).Renamed("hibernating", "Asleep"); !found || taken || !renamed.Hidden {
+		t.Errorf("Renamed of a hidden list = %+v, found %v, taken %v", renamed, found, taken)
+	}
+}
+
+// What hides a list is the hide changes alone: a change that names or
+// renames lists says nothing of it, whatever a file in the folder
+// claims, and one this build writes carries no such member. A hide of
+// what cannot be a key is dropped, and a change of a kind this reader
+// does not know changes nothing — which is how a reader from before
+// hidden lists reads a hide.
+func TestOnlyAHideChangeHidesAList(t *testing.T) {
+	c := newClock()
+	s := Store{Folder: t.TempDir(), Now: c.now}
+	lists := filepath.Join(s.Folder, ListsDir)
+	if err := os.MkdirAll(lists, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	docs := map[string]string{
+		"000000001-1762851600000-00000001.json": `{"v":1,"seq":1,"at":"2026-11-11T09:00:00Z","lists":[{"key":"todo","name":"Todo","hidden":true},{"key":"done","name":"Done"}]}`,
+		"000000002-1762851601000-00000001.json": `{"v":1,"seq":2,"at":"2026-11-11T09:00:01Z","rename":{"key":"done","name":"Shipped","hidden":true}}`,
+		"000000003-1762851602000-00000001.json": `{"v":1,"seq":3,"at":"2026-11-11T09:00:02Z","hide":{"key":"../todo","hidden":true}}`,
+		"000000004-1762851603000-00000001.json": `{"v":1,"seq":4,"at":"2026-11-11T09:00:03Z","hide":{"key":"gone","hidden":true}}`,
+		"000000005-1762851604000-00000001.json": `{"v":1,"seq":5,"at":"2026-11-11T09:00:04Z","a-kind-of-later":{"key":"todo"}}`,
+	}
+	for name, doc := range docs {
+		if err := os.WriteFile(filepath.Join(lists, name), []byte(doc), 0o600); err != nil { //nolint:gosec // G703: the test's own file
+			t.Fatal(err)
+		}
+	}
+	board := read(t, s.Folder)
+	if names(board.Lists) != "todo=Todo,done=Shipped" || hiddenKeys(board.Lists) != "" || board.Skipped != 0 {
+		t.Fatalf("lists %s, hidden %q, skipped %d", names(board.Lists), hiddenKeys(board.Lists), board.Skipped)
+	}
+
+	hide(t, s, alice, "todo", true)
+	setLists(t, s, alice, "Todo", "Shipped", "Later")
+	rename(t, s, alice, "todo", "Next")
+	if board := read(t, s.Folder); hiddenKeys(board.Lists) != "todo" || names(board.Lists) != "todo=Next,done=Shipped,later=Later" {
+		t.Fatalf("lists %s, hidden %q", names(board.Lists), hiddenKeys(board.Lists))
+	}
+	entries, err := os.ReadDir(lists)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hides := 0
+	for _, e := range entries {
+		data, err := os.ReadFile(filepath.Join(lists, e.Name())) //nolint:gosec // G304: the test's own directory
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, mine := docs[e.Name()]; mine {
+			continue
+		}
+		if strings.Contains(string(data), `"hide"`) {
+			hides++
+			continue
+		}
+		if strings.Contains(string(data), "hidden") {
+			t.Errorf("%s names or renames lists and carries hidden: %s", e.Name(), data)
+		}
+	}
+	if hides != 1 {
+		t.Errorf("%d hide changes written, want 1", hides)
+	}
+}

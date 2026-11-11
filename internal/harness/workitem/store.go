@@ -87,7 +87,11 @@ func (s Store) SetLists(b *Board, lists []List, who Author) error {
 	if b.listsSeq >= MaxSeq || b.listsChanges >= MaxChanges {
 		return ErrFull
 	}
-	c := &Change{Seq: b.listsSeq + 1, By: who.Member, Session: who.Session, Lists: lists}
+	named := make([]ListName, 0, len(lists))
+	for _, l := range lists {
+		named = append(named, ListName{Key: l.Key, Name: l.Name})
+	}
+	c := &Change{Seq: b.listsSeq + 1, By: who.Member, Session: who.Session, Lists: named}
 	return s.write(c, ListsDir)
 }
 
@@ -99,7 +103,20 @@ func (s Store) RenameList(b *Board, renamed List, who Author) error {
 	if b.listsSeq >= MaxSeq || b.listsChanges >= MaxChanges {
 		return ErrFull
 	}
-	c := &Change{Seq: b.listsSeq + 1, By: who.Member, Session: who.Session, Rename: &renamed}
+	c := &Change{Seq: b.listsSeq + 1, By: who.Member, Session: who.Session, Rename: &ListName{Key: renamed.Key, Name: renamed.Name}}
+	return s.write(c, ListsDir)
+}
+
+// HideList writes whether the list with that key is left out of the
+// default listing (work item 269): the one list, and nothing else of the
+// board's lists. Like a rename it is a change of its own, so it stands
+// whatever another machine did to the lists at the same moment; the work
+// items in the list are not touched.
+func (s Store) HideList(b *Board, key string, hidden bool, who Author) error {
+	if b.listsSeq >= MaxSeq || b.listsChanges >= MaxChanges {
+		return ErrFull
+	}
+	c := &Change{Seq: b.listsSeq + 1, By: who.Member, Session: who.Session, Hide: &Hide{Key: key, Hidden: hidden}}
 	return s.write(c, ListsDir)
 }
 

@@ -23,7 +23,7 @@ documentation inside a team; this page names them and says what differs from Cla
 | [`muse/brigade/skills/quiet/SKILL.md`](../../../muse/brigade/skills/quiet/SKILL.md) | the quiet command | make this one session quiet with `brigade inbound hold`, the roster line and a standing instruction; `off` returns it |
 | [`muse/brigade/skills/subscribe/SKILL.md`](../../../muse/brigade/skills/subscribe/SKILL.md) | the subscribe command | subscribe the user's own label to the project's digest with `brigade report subscribe`, or remove it with `unsubscribe`; nobody else's entry |
 | [`muse/brigade/skills/work-items/SKILL.md`](../../../muse/brigade/skills/work-items/SKILL.md) | the work-items command | print the Brigade Board, the team's board of work items, verbatim |
-| [`muse/brigade/skills/work-item/SKILL.md`](../../../muse/brigade/skills/work-item/SKILL.md) | the work-item command, and the model when the user asks about a work item | read, add or change one work item with one `brigade work-item` command |
+| [`muse/brigade/skills/work-item/SKILL.md`](../../../muse/brigade/skills/work-item/SKILL.md) | the work-item command, and the model when the user asks about a work item | read, add or change one work item, or name, rename, hide or unhide the board's lists, with one `brigade work-item` command |
 | [`muse/brigade/skills/work-item-start/SKILL.md`](../../../muse/brigade/skills/work-item-start/SKILL.md) | the work-item-start command | take a work item and work it through, then comment and move it |
 
 What differs from Claude Code:

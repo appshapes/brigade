@@ -38,6 +38,7 @@ Details: [Set up the digests](digests.md).
 2. Every member's plugin must be newer than 0.49.0, and each machine needs `syncthing` on its PATH. Nothing is
    applied to the backend.
 3. `brigade work-item lists Backlog Doing Done` names the board's lists; it starts with `Todo`, `Doing`, `Done`.
+   `brigade work-item hide-list <list>` leaves one out of the listing.
 
 Details: [Turn on the Brigade Board](board.md).
 

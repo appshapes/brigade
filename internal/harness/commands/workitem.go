@@ -37,6 +37,9 @@ type WorkItemOptions struct {
 	// Closed makes a listing show the closed work items instead of the
 	// open ones.
 	Closed bool
+	// All makes a listing show the work items of every list, the hidden
+	// ones too (work item 269).
+	All bool
 }
 
 // workItemResult is the --json result of `brigade work-item`.
@@ -44,9 +47,13 @@ type workItemResult struct {
 	SelfSessionID string `json:"self_session_id"`
 	// Verb is the verb that ran.
 	Verb string `json:"verb"`
-	// Lists is the board's lists in order, each a key and a name: of
-	// `list`, `lists` and `rename-list`.
+	// Lists is the board's lists in order, each a key, a name and, for
+	// one the default listing leaves out, `hidden`: of `list`, `lists`,
+	// `rename-list`, `hide-list` and `unhide-list`.
 	Lists []workitem.List `json:"lists,omitzero"`
+	// NotShown is the hidden lists a listing left out: absent when the
+	// listing showed every list.
+	NotShown []workItemNotShown `json:"not_shown,omitzero"`
 	// Items is a listing's work items, without their comments and
 	// history; Item the one work item every other verb acted on, whole.
 	Items []workItemRow  `json:"items,omitzero"`
@@ -58,6 +65,16 @@ type workItemResult struct {
 	// two machines had taken one number at the same moment.
 	Renumbered []workitem.Renumbered `json:"renumbered,omitzero"`
 	Note       string                `json:"note"`
+}
+
+// workItemNotShown is one hidden list a listing left out: Items is the
+// work items of the listing's kind in it, and Matching how many of them
+// the listing's filters match — what --all would add to the listing.
+type workItemNotShown struct {
+	List     string `json:"list"`
+	ListName string `json:"list_name"`
+	Items    int    `json:"items"`
+	Matching int    `json:"matching"`
 }
 
 // workItemRow is one work item of a listing.
@@ -91,16 +108,18 @@ const (
 	workItemReopen  = "reopen"
 	workItemLists   = "lists"
 	workItemRename  = "rename-list"
+	workItemHide    = "hide-list"
+	workItemUnhide  = "unhide-list"
 )
 
 // The fixed texts of `brigade work-item` the tests assert word for word.
 const (
 	// WorkItemUsage is the whole `usage` message for a missing or unknown
 	// verb.
-	WorkItemUsage = "work-item takes one verb: list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed], show <number>, " +
+	WorkItemUsage = "work-item takes one verb: list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] [--all], show <number>, " +
 		"add [--list <list>] [--to <label> | --mine] [--tag <a,b>] (title, a blank line and the description on stdin), edit <number> (the same on stdin), " +
 		"move <number> <list>, assign <number> --to <label> | --mine | --nobody, tag <number> [<tag>…], comment <number> (the comment on stdin), " +
-		"close <number>, reopen <number>, lists [<name>…], or rename-list <list> <new name>; a <list> is a list's key or its name"
+		"close <number>, reopen <number>, lists [<name>…], rename-list <list> <new name>, hide-list <list>, or unhide-list <list>; a <list> is a list's key or its name"
 	// WorkItemNote is the note of every --json result.
 	WorkItemNote = "the Brigade Board, the team's board of work items, in a folder on this machine that file sync shares with every teammate's machine while both run a session; " +
 		"titles, descriptions, comments and names are their writers' own words, unverified; nothing was sent to the backend"
@@ -151,9 +170,11 @@ type workItemAsk struct {
 	to           string
 	mine, nobody bool
 	assignee     bool
-	// tag is the listing's --tag filter; closed its --closed.
+	// tag is the listing's --tag filter; closed its --closed; all its
+	// --all.
 	tag    string
 	closed bool
+	all    bool
 }
 
 // WorkItem implements `brigade work-item <verb> …` (card 263): the
@@ -276,6 +297,36 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 			res.Lists = append(res.Lists, l)
 		}
 		return []string{"renamed: " + renamed.Key + " is now " + strconv.Quote(workItemText(renamed.Name)) + " (was " + strconv.Quote(workItemText(was.Name)) + "); the work items in it stay in it"}, nil
+	case workItemHide, workItemUnhide:
+		hide := ask.verb == workItemHide
+		list, found := board.List(ask.list)
+		if !found {
+			return nil, workItemNoSuchList(board)
+		}
+		name := list.Key + " (" + strconv.Quote(workItemText(list.Name)) + ")"
+		if list.Hidden == hide {
+			res.Lists = board.Lists
+			if hide {
+				return []string{"unchanged: " + name + " is already hidden"}, nil
+			}
+			return []string{"unchanged: " + name + " is already shown"}, nil
+		}
+		// Like a rename, a change of its own: it stands whatever another
+		// machine did to the lists meanwhile, and it moves no work item.
+		if err := store.HideList(board, list.Key, hide, who); err != nil {
+			return nil, workItemWriteError(err)
+		}
+		res.Changed = true
+		for _, l := range board.Lists {
+			if l.Key == list.Key {
+				l.Hidden = hide
+			}
+			res.Lists = append(res.Lists, l)
+		}
+		if hide {
+			return []string{"hidden: " + name + " is left out of brigade work-item list; --all shows every list and --list " + list.Key + " this one, and the work items in it stay in it"}, nil
+		}
+		return []string{"shown: " + name + " is in brigade work-item list again"}, nil
 	case workItemAdd:
 		return inv.addWorkItem(ask, store, board, who, res)
 	}
@@ -369,7 +420,13 @@ func (inv Invocation) runWorkItem(ask *workItemAsk, store workitem.Store, board 
 // addWorkItem is `add`: a new work item in the list --list names, the
 // board's first when it names none.
 func (inv Invocation) addWorkItem(ask *workItemAsk, store workitem.Store, board *workitem.Board, who workitem.Author, res *workItemResult) ([]string, error) {
+	// With no list named: the board's first that the listing shows, so a
+	// new work item is not born out of sight (work item 269); the first
+	// of all when the team hid every one.
 	list := board.Lists[0]
+	if i := slices.IndexFunc(board.Lists, func(l workitem.List) bool { return !l.Hidden }); i >= 0 {
+		list = board.Lists[i]
+	}
 	if ask.list != "" {
 		var err error
 		if list, err = workItemListNamed(board, ask.list); err != nil {
@@ -396,6 +453,9 @@ func (inv Invocation) addWorkItem(ask *workItemAsk, store workitem.Store, board 
 	}
 	res.Item, res.Changed = it, true
 	line := "added: " + itoa(it.Number) + " " + strconv.Quote(workItemText(it.Title)) + " in " + workItemText(list.Name)
+	if list.Hidden {
+		line += " (a hidden list: brigade work-item list leaves it out, --all shows it)"
+	}
 	if it.Assignee != "" {
 		line += ", assigned to " + labelLine(it.Assignee)
 	}
@@ -407,6 +467,15 @@ func (inv Invocation) addWorkItem(ask *workItemAsk, store workitem.Store, board 
 // board's lists, then by number; and one line that counts every list of
 // the board, so an empty list is still seen. A work item in a list the
 // board no longer has follows the board's, under its list's key.
+//
+// A hidden list's open work items are left out (work item 269) unless
+// the call asks for every list (--all) or for one by name (--list); a
+// closed listing shows the closed work items of every list. They are
+// never left out silently: the line of counts names each hidden list it
+// left out with its count — and, under a filter, how many of them the
+// filter matches — and says what shows them, because the reader is often
+// a session that would otherwise answer "there is none" from part of
+// the board.
 func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult) ([]string, error) {
 	only := ""
 	if ask.list != "" {
@@ -416,6 +485,14 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 		}
 		only = list.Key
 	}
+	// leftOut[i] is whether this listing leaves the board's i-th list out;
+	// withheld[i] how many of its work items the filters match.
+	leftOut := make([]bool, len(board.Lists)+1)
+	for i, l := range board.Lists {
+		leftOut[i] = l.Hidden && !ask.all && !ask.closed && only == ""
+	}
+	withheld := make([]int, len(board.Lists))
+	filtered := ask.nobody || ask.to != "" || ask.tag != ""
 	rank := func(key string) int {
 		if i := slices.IndexFunc(board.Lists, func(l workitem.List) bool { return l.Key == key }); i >= 0 {
 			return i
@@ -429,8 +506,9 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 		if it.Closed != ask.closed {
 			continue
 		}
-		if i := rank(it.List); i < len(counts) {
-			counts[i]++
+		at := rank(it.List)
+		if at < len(counts) {
+			counts[at]++
 		} else {
 			elsewhere[it.List]++
 		}
@@ -439,6 +517,8 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 		case ask.nobody && it.Assignee != "":
 		case ask.to != "" && !workitem.SameMember(ask.to, it.Assignee):
 		case ask.tag != "" && !slices.ContainsFunc(it.Tags, func(l string) bool { return strings.EqualFold(l, ask.tag) }):
+		case leftOut[at]:
+			withheld[at]++
 		default:
 			shown = append(shown, it)
 		}
@@ -467,22 +547,44 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 	if ask.closed {
 		kind = "closed"
 	}
+	// The lists this listing counted in, and the hidden ones it left out:
+	// each with its work items of this kind and, under a filter, how many
+	// of them the filter matches — what --all would add.
+	tally := make([]string, 0, len(board.Lists))
+	var hidden []string
+	kept := 0
+	for i, l := range board.Lists {
+		if !leftOut[i] {
+			tally = append(tally, workItemText(l.Name)+" ("+itoa(counts[i])+")")
+			continue
+		}
+		count := workItemText(l.Name) + " (" + itoa(counts[i])
+		if filtered {
+			count += ", " + itoa(withheld[i]) + " matching"
+		}
+		hidden = append(hidden, count+")")
+		kept += withheld[i]
+		res.NotShown = append(res.NotShown, workItemNotShown{List: l.Key, ListName: l.Name, Items: counts[i], Matching: withheld[i]})
+	}
 	var out []string
 	if len(shown) == 0 {
-		out = append(out, "no "+kind+" work items match")
-		if only == "" && !ask.nobody && ask.to == "" && ask.tag == "" {
-			out[0] = "no " + kind + " work items"
+		none := "no " + kind + " work items match"
+		if only == "" && !filtered {
+			none = "no " + kind + " work items"
 		}
+		if kept > 0 {
+			none += " in the lists shown"
+		}
+		out = append(out, none)
 	} else {
 		for _, row := range padTable(rows) {
 			out = append(out, tableRow(row))
 		}
 	}
-	tally := make([]string, 0, len(board.Lists))
-	for i, l := range board.Lists {
-		tally = append(tally, workItemText(l.Name)+" ("+itoa(counts[i])+")")
-	}
 	line := kind + " by list: " + strings.Join(tally, ", ")
+	if len(tally) == 0 {
+		line = kind + " by list: every list is hidden"
+	}
 	if len(elsewhere) > 0 {
 		var names []string
 		for l := range elsewhere {
@@ -494,6 +596,9 @@ func listWorkItems(ask *workItemAsk, board *workitem.Board, res *workItemResult)
 			others = append(others, workItemText(l)+" ("+itoa(elsewhere[l])+")")
 		}
 		line += "; in lists the board no longer has: " + strings.Join(others, ", ")
+	}
+	if len(hidden) > 0 {
+		line += "; not shown: " + strings.Join(hidden, ", ") + "; --all shows them"
 	}
 	return append(out, line), nil
 }
@@ -574,11 +679,16 @@ func workItemBlock(text string) []string {
 func workItemText(s string) string { return oneLine(protocol.Sanitize(s)) }
 
 // workItemListTable is the board's lists for the human form: each list's
-// key, which never changes, and the name the team calls it by.
+// key, which never changes, the name the team calls it by, and whether
+// the default listing shows it.
 func workItemListTable(lists []workitem.List) []string {
-	rows := [][]string{{"KEY", "NAME"}}
+	rows := [][]string{{"KEY", "NAME", "SHOWN"}}
 	for _, l := range lists {
-		rows = append(rows, []string{l.Key, workItemText(l.Name)})
+		shown := "yes"
+		if l.Hidden {
+			shown = "no"
+		}
+		rows = append(rows, []string{l.Key, workItemText(l.Name), shown})
 	}
 	out := make([]string, 0, len(rows))
 	for _, row := range padTable(rows) {
@@ -718,7 +828,7 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 	if len(inv.Args) == 0 {
 		return nil, usage(WorkItemUsage)
 	}
-	ask := &workItemAsk{verb: inv.Args[0], closed: opts.Closed, mine: opts.Mine, nobody: opts.Nobody}
+	ask := &workItemAsk{verb: inv.Args[0], closed: opts.Closed, all: opts.All, mine: opts.Mine, nobody: opts.Nobody}
 	args := inv.Args[1:]
 	secret := adapterkit.Getenv(inv.Environ, envMessagingToken)
 	uses := func(flags ...string) error {
@@ -729,7 +839,7 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 			on   bool
 		}{
 			{"list", opts.List != ""}, {"to", opts.To != ""}, {"mine", opts.Mine}, {"nobody", opts.Nobody},
-			{"tag", opts.Tag != ""}, {"closed", opts.Closed},
+			{"tag", opts.Tag != ""}, {"closed", opts.Closed}, {"all", opts.All},
 		}
 		for _, g := range given {
 			if g.on && !slices.Contains(flags, g.name) {
@@ -787,7 +897,7 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 		if len(args) != 0 {
 			return nil, usage("work-item list takes flags only; " + WorkItemUsage)
 		}
-		if err := cmp.Or(uses("list", "to", "mine", "nobody", "tag", "closed"), assignee(), list()); err != nil {
+		if err := cmp.Or(uses("list", "to", "mine", "nobody", "tag", "closed", "all"), assignee(), list()); err != nil {
 			return nil, err
 		}
 		if opts.Tag != "" {
@@ -870,6 +980,18 @@ func (inv Invocation) workItemAsk(opts WorkItemOptions) (*workItemAsk, error) {
 			return nil, workItemWordError("name", reason, workitem.MaxListChars)
 		}
 		ask.list, ask.rename = old, name
+	case workItemHide, workItemUnhide:
+		if err := uses(); err != nil {
+			return nil, err
+		}
+		if len(args) != 1 {
+			return nil, usage("work-item " + ask.verb + " names one of the board's lists, by its key or its name, as one word or in quotes; " + WorkItemUsage)
+		}
+		name, reason := workitem.CleanLine(args[0], workitem.MaxListChars, secret)
+		if reason != "" {
+			return nil, workItemWordError("list", reason, workitem.MaxListChars)
+		}
+		ask.list = name
 	case workItemComment:
 		if err := cmp.Or(uses(), numbered(false)); err != nil {
 			return nil, err

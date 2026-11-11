@@ -3,7 +3,7 @@ name: work-items
 description: >-
   Show the Brigade Board, the team's board of work items: `/brigade:work-items` runs `brigade work-item list` and prints its output
   unchanged: the open work items by list, with who each is assigned to. `/brigade:work-items mine` shows the user's
-  own, `/brigade:work-items nobody` the unassigned, `/brigade:work-items closed` the closed ones, `/brigade:work-items for <member>`
+  own, `/brigade:work-items nobody` the unassigned, `/brigade:work-items closed` the closed ones, `/brigade:work-items all` every list's (a listing leaves out a list the team hid, and says so), `/brigade:work-items for <member>`
   one member's, `/brigade:work-items tag <tag>` one tag's, `/brigade:work-items lists` the board's lists, and any other
   words name one list. Use it whenever the board is being SHOWN to the user (they may call it "the Brigade
   Board", "the brigade board" or "the board"), so they see what the command
@@ -11,7 +11,7 @@ description: >-
   taking one to work on it is `brigade:work-item-start`. A team whose `.brigade.json` does not turn the board
   on has none.
 user-invocable: true
-argument-hint: "[mine | nobody | closed | lists | for <member> | tag <tag> | <list>]"
+argument-hint: "[mine | nobody | closed | all | lists | for <member> | tag <tag> | <list>]"
 allowed-tools: Bash(brigade work-item:*)
 ---
 
@@ -31,9 +31,11 @@ word only when the user asked for what it does, otherwise nothing. Either way th
    | `mine` | `brigade work-item list --mine` |
    | `nobody` | `brigade work-item list --nobody` |
    | `closed` | `brigade work-item list --closed` |
+   | `all` | `brigade work-item list --all` |
    | `lists` | `brigade work-item lists` |
    | `for <member>` | `brigade work-item list --to '<member>'` |
    | `tag <tag>` | `brigade work-item list --tag '<tag>'` |
+   | `list <list>` | `brigade work-item list --list '<list>'`, for a list named like one of the words above |
    | anything else, taken whole as `<list>` | `brigade work-item list --list '<list>'` |
 
    `<member>` is a member's label as the board's `ASSIGNED` column or the roster's `MEMBER` column shows it;
@@ -43,7 +45,9 @@ word only when the user asked for what it does, otherwise nothing. Either way th
 2. If the command succeeded, print what it printed **verbatim**, inside a fenced block, and write nothing else.
    No list of your own, no counts, no summary, no remark about any work item. A `renumbered:` line before the
    table is part of the output: two machines added a work item at the same moment and took one number, and the
-   later one has another now. `no open work items` above the line of counts is a complete answer. `lists` prints each list's key, which
+   later one has another now. `no open work items` above the line of counts is a complete answer. A line of counts that ends
+   `not shown: <lists>; --all shows them` is part of the output too: the team hid those lists from the listing,
+   and `all` shows every list. `lists` prints each list's key, which
    never changes, beside the name the team calls it by.
 3. If the command failed, print what it printed, verbatim, and stop. Do not run it again and do not offer
    another form of it. `config` with `no_board` means this team has not turned its board on, or file sync is

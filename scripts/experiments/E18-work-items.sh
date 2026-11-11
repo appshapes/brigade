@@ -16,7 +16,12 @@
 #      session knows the Brigade Board is the team's board of work items, runs `brigade work-item list` and
 #      answers with what is on it;
 #   E  the same for a change: asked to put something "on the brigade board", it runs one `brigade work-item add`
-#      and the board holds the new work item.
+#      and the board holds the new work item;
+#   F  a hidden list (work item 269): the observer hides `Done`, and `/brigade:work-items` prints the listing
+#      without that list's work item and with the line that says what was left out; `/brigade:work-items all`
+#      runs `brigade work-item list --all` and prints every list;
+#   G  a question the default listing would answer wrongly: asked whether the board has a work item about
+#      HELLO.md, which is in the hidden list, the session reads every list and says yes, with its number.
 # A second session of the same member, driven by the real `brigade hook` subcommands with a sleeper as CLAUDE_PID,
 # is the observer: it reads the board with `brigade work-item … --json` after each leg, and adds leg C's work item.
 # Both sessions are on one machine, so they read and write the one board folder.
@@ -41,6 +46,7 @@ title_a='Try the board from a live session'
 title_c='Add a HELLO.md that says hello'
 title_e='Write the release checklist'
 asked_d='What is on the brigade board right now?'
+asked_g='Is there a work item about HELLO.md on the brigade board? Answer yes or no, and give its number if there is one.'
 run_wait=420    # seconds one `claude -p` run may take
 
 say() {
@@ -388,7 +394,46 @@ board list > "$out/board-e.json"
   bad "E: the board after the request: $(jq -c '[.items[] | {number, title}]' "$out/board-e.json")"
 
 # ---------------------------------------------------------------------------------------------------------------
-# 10. Nothing went to the backend
+# 10. Legs F and G: a hidden list (work item 269)
+# ---------------------------------------------------------------------------------------------------------------
+say ""
+observer "$brigade" work-item hide-list Done > "$out/observer-hide.out" || die "the observer could not hide the list Done"
+ok "the observer hid a list: $(cat "$out/observer-hide.out")"
+say "leg F: /brigade:work-items"
+session hidden 'Skill' 6 "/brigade:work-items"
+commands hidden > "$out/hidden.commands.txt"
+answer hidden > "$out/hidden.answer.txt"
+[ "$(cat "$out/hidden.commands.txt")" = "brigade work-item list" ] &&
+  ok "F: the session ran exactly one command: brigade work-item list" ||
+  bad "F: the session's commands: $(cat "$out/hidden.commands.txt")"
+{ grep -qF 'open by list: Todo (2), Doing (0); not shown: Done (1); --all shows them' "$out/hidden.answer.txt" && ! grep -qF "$title_c" "$out/hidden.answer.txt"; } &&
+  ok "F: the answer leaves the hidden list's work item out and carries the line that says so: $(grep 'not shown' "$out/hidden.answer.txt" | head -1)" ||
+  bad "F: the answer is not the listing without the hidden list: $(head -c 600 "$out/hidden.answer.txt")"
+say "leg F: /brigade:work-items all"
+session all 'Skill' 6 "/brigade:work-items all"
+commands all > "$out/all.commands.txt"
+answer all > "$out/all.answer.txt"
+[ "$(cat "$out/all.commands.txt")" = "brigade work-item list --all" ] &&
+  ok "F: with \`all\` the session ran exactly one command: brigade work-item list --all" ||
+  bad "F: the session's commands with \`all\`: $(cat "$out/all.commands.txt")"
+{ grep -qF "$title_c" "$out/all.answer.txt" && grep -qF 'open by list: Todo (2), Doing (0), Done (1)' "$out/all.answer.txt" && ! grep -q 'not shown' "$out/all.answer.txt"; } &&
+  ok "F: the answer shows every list, the hidden one's work item too" ||
+  bad "F: the answer with \`all\` is not every list: $(head -c 600 "$out/all.answer.txt")"
+
+say ""
+say "leg G: $asked_g"
+session ask 'Skill,Bash(brigade work-item:*)' 10 "$asked_g"
+commands ask > "$out/ask.commands.txt"
+answer ask > "$out/ask.answer.txt"
+grep -Eq -- '^brigade work-item (list .*--(all|list)|show 2)' "$out/ask.commands.txt" &&
+  ok "G: asked about a work item that is in the hidden list, the session read past the default listing: $(tr '\n' ';' < "$out/ask.commands.txt")" ||
+  bad "G: the session read only the default listing: $(tr '\n' ';' < "$out/ask.commands.txt")"
+{ grep -qi 'yes' "$out/ask.answer.txt" && grep -qw '2' "$out/ask.answer.txt"; } &&
+  ok "G: it answered yes, work item 2: $(tr '\n' ' ' < "$out/ask.answer.txt" | cut -c1-200)" ||
+  bad "G: it did not find work item 2: $(head -c 400 "$out/ask.answer.txt")"
+
+# ---------------------------------------------------------------------------------------------------------------
+# 11. Nothing went to the backend
 # ---------------------------------------------------------------------------------------------------------------
 say ""
 if grep -rqF -e "$title_a" -e "$title_c" -e "$title_e" "$state_dir/fs-adapter" 2>/dev/null; then

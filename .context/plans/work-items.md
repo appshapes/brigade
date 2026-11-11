@@ -263,3 +263,42 @@ the synced folder's label `team board` (an adapter of a team's own reads that la
 "The board" stays the short form once the name has been given. No command `brigade board` and no skill of that
 name were added: the ask was that a session understand the words. `docs/security.md` section 19 is unchanged.
 Proof: E18's legs D and E, a session asked in plain words about "the brigade board".
+
+## 11. Hidden lists: a default view the team sets (2026-11-11, work item 269)
+
+Rjae, seeing this team's board with 15 of 26 work items in `Hibernating`: "I think we should make the default
+output for `/brigade:work-items` be based on `include` and `exclude` configuration - which perhaps our
+documentation would list the example having `exclude` containing 'hibernating'. And add an option to the skill
+for `--all`." Asked for thoughts, he was given a variant and took it whole: "Agreed with every recommendation of
+yours. Go ahead, including releasing."
+
+The rulings, as recommended and agreed:
+
+1. **The setting is a property of the list, kept on the board**, not `include` and `exclude` in `.brigade.json`.
+   The board spans repositories and the team file is one repository's: a setting there would be committed in
+   each and could differ between them. On the board it travels as a rename does and is changed with one command.
+2. **Exclude only.** Every list shows unless the team hid it, so a list added later shows. No `include`, and so
+   no rule for when the two disagree.
+3. **In the command, not the skill**: `brigade work-item list` leaves a hidden list out; `--all` shows every
+   list and `--list <list>` the one it names. The skill form is `all`. `--all` is every list of open work items;
+   `--closed` stays its own, and a closed listing shows the closed work items of every list (a closed work item
+   is off the lists; the agent review found the first cut hiding them too, against the page).
+4. **Never silently.** The line of counts names every hidden list the listing left out, with its count, and what
+   shows them; a `--json` listing carries `not_shown`. The reader is often a session, which would answer "there
+   is none" from part of the board, so the `work-item` skill says to read every list before saying so.
+
+How it is built: a third kind of change under `lists/`, `{"hide": {"key": …, "hidden": …}}`, folded like a
+rename (the latest for a key wins) and apart from the lists' membership, so a hide made on one machine while
+another names the lists anew, with the list among them, stands. Hiding is of a list the board has: a hide for a
+key the board does not have at that point of the order changes nothing, and a list the board drops takes its
+hiding with it, so it shows when it is named again (the review's finding: otherwise a list came back hidden
+with no word, and a dropped hidden list could not be reached to unhide). A change that names or renames lists
+cannot carry `hidden`: it carries a `ListName`, a type with no such member. `add` with no list goes to the first
+list that is shown. Under a filter the line of counts gives, for each hidden list, how many of its work items
+the filter matches, and `not_shown` carries `matching`. `Version` stays 1: the released 0.50.0 reader was run against a board this build wrote hide changes into
+(a worktree at `v0.50.0`, the board written by a scratch program through the store) and read the same lists,
+names and work items, skipping nothing; it shows every list. The filters `--mine`, `--to`, `--nobody` and
+`--tag` do not bring a hidden list back; a listing that shows nothing because of it says "in the lists shown".
+
+Not built: a member's own view (a plugin option that always shows every list), a declared order within a list,
+and hiding by anything but the list.

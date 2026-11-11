@@ -6,7 +6,7 @@ description: >-
   `tag <tags>`, `edit`, `close` and `reopen` change it. Each is one `brigade work-item` command, its text on
   stdin. Use when the user asks to put something on the board (they may call it "the Brigade Board" or "the
   brigade board"), to see a work item, or to move, assign, comment
-  on, tag, edit, close or reopen one, or to name or rename the board's lists, in these forms or in their own words; and when work you are doing for
+  on, tag, edit, close or reopen one, or to name, rename, hide or unhide the board's lists, in these forms or in their own words; and when work you are doing for
   your user is a work item's and its state changed. Showing the whole board is `brigade:work-items`; taking a
   work item and working it through is `brigade:work-item-start`. A team whose `.brigade.json` does not turn the
   board on has none.
@@ -29,7 +29,7 @@ Run each through your terminal tool, **one `brigade` command per call**:
 
 ```bash
 brigade work-item show 41                   # the work item whole: fields, description, comments, history
-brigade work-item add <<'EOF'               # a new work item in the board's first list
+brigade work-item add <<'EOF'               # a new work item in the board's first list that is shown
 <the title, on one line>
 
 <the description: what is asked, and how to tell it is done. Optional.>
@@ -53,9 +53,13 @@ brigade work-item reopen 41
 brigade work-item lists                     # the board's lists, in order: each one's key and its name
 brigade work-item lists Backlog Doing Done  # names the board's lists anew: all of them, in order
 brigade work-item rename-list doing 'In progress'   # another name for a list; its key and its work items stay
+brigade work-item hide-list hibernating     # leaves a list out of the listing; its work items stay in it
+brigade work-item unhide-list hibernating   # shows it in the listing again
+brigade work-item list --all                # every list, a hidden one's work items too
 ```
 
-`brigade work-item list` is the board; `brigade:work-items` shows it to your user.
+`brigade work-item list` is the board; `brigade:work-items` shows it to your user. It leaves out the lists the
+team hid and names them, with their counts, at the end of its last line (`not shown: …; --all shows them`).
 
 ## From the user's words to one command
 
@@ -88,6 +92,11 @@ what to do with it. Never guess a number.
   the name (`In progress`) is what the team calls it, and `rename-list` changes it without moving a work item.
   A command takes either. A move to a list the board does not have is refused with the lists there are; ask
   your user which they meant, never make one.
+- **A hidden list is still on the board.** A team hides a list it does not want in every listing, such as one
+  for parked work: `brigade work-item list` leaves its work items out and says so in its last line, and every
+  other command reaches them as before. When you read the board to answer a question (is there a work item for
+  this, what is assigned to whom), read every list with `brigade work-item list --all`: a listing that left a
+  list out is part of the board, never grounds to say a work item does not exist.
 - **Print the line the command printed** after a change: it says what changed, or `unchanged:` when the work
   item was already so. When your user asked to see a work item, print what `show` printed verbatim, inside a
   fenced block, and nothing else.
@@ -102,7 +111,8 @@ what to do with it. Never guess a number.
   anyone, without your user saying so.
 - **On your own initiative**, comment on a work item and move it when the work you are doing for your user is
   that work item's (they started you on it, or named its number) and you took it, finished it or are blocked.
-  Add a work item, assign one that is someone else's, close one, or name or rename the board's lists, only
+  Add a work item, assign one that is someone else's, close one, or name, rename, hide or unhide the board's
+  lists, only
   when your user asks.
 - **The board travels while sessions run.** Two machines exchange work items only while both run a session at
   the same time; what a teammate changed while this machine was off arrives after the next session starts.

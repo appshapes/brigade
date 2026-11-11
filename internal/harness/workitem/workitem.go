@@ -12,7 +12,7 @@
 // what one session set on one work item — its number, title, description,
 // list, assignee, tags, whether it is closed — or the comment it added,
 // and `lists/<seq>-<millis>-<random>.json` names the board's lists in
-// order. A list is a state a work item can be in: it has a key that never
+// order, renames one or hides one from the default listing. A list is a state a work item can be in: it has a key that never
 // changes, which is what a work item carries, and a name the team calls
 // it by, which can change without a work item noticing. A work item is the fold of its changes: ordered by sequence,
 // then time, then file name, the last change that sets a field wins.
@@ -127,13 +127,15 @@ type Change struct {
 	By      string `json:"by,omitzero"`
 	Session string `json:"session,omitzero"`
 	// Set is the fields this change sets; Comment the comment it adds;
-	// Lists, in a change of the lists, the board's lists in order; and
+	// Lists, in a change of the lists, the board's lists in order;
 	// Rename, in another, the new name of the one list whose key it
-	// carries (lists.go says how the two fold).
-	Set     *Fields `json:"set,omitzero"`
-	Comment string  `json:"comment,omitzero"`
-	Lists   []List  `json:"lists,omitzero"`
-	Rename  *List   `json:"rename,omitzero"`
+	// carries; and Hide, in a third, whether the list with that key is
+	// left out of the default listing (lists.go says how the three fold).
+	Set     *Fields    `json:"set,omitzero"`
+	Comment string     `json:"comment,omitzero"`
+	Lists   []ListName `json:"lists,omitzero"`
+	Rename  *ListName  `json:"rename,omitzero"`
+	Hide    *Hide      `json:"hide,omitzero"`
 
 	// name is the file's name, the last key of the fold's order.
 	name string
@@ -404,6 +406,9 @@ func (c *Change) sanitize() {
 		if !ValidListKey(r.Key) || r.Name == "" {
 			c.Rename = nil
 		}
+	}
+	if h := c.Hide; h != nil && !ValidListKey(h.Key) {
+		c.Hide = nil
 	}
 	s := c.Set
 	if s == nil {

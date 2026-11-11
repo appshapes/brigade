@@ -9,6 +9,31 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A team can hide a list from the board's listing** (work item 269).
+  `brigade work-item hide-list <list>` leaves a list out of `brigade
+  work-item list` and `/brigade:work-items`, and `unhide-list <list>`
+  shows it again: for parked work, or for finished work that piles up.
+  Nothing in the list changes, and every other command reaches its work
+  items as before. A listing never leaves a list out silently: its last
+  line names each hidden list with its count, as in `open by list:
+  Wanting (7), Doing (2), Done (1); not shown: Hibernating (15); --all
+  shows them`, and a `--json` listing carries `not_shown`. `brigade
+  work-item list --all` (`/brigade:work-items all`) shows every list, and
+  `--list <list>` the one it names, hidden or not; under `--mine`,
+  `--to`, `--nobody` or `--tag` the line says how many of a hidden list's
+  work items the filter matches. A closed listing shows the closed work
+  items of every list. `add` with no `--list` puts a new work item in the
+  first list that is shown. `brigade work-item lists` gains a `SHOWN`
+  column. The setting is the team's and is kept on the board, so it is
+  the same in every repository and needs no change to `.brigade.json`; a
+  list keeps it when it is renamed, and loses it when the team drops the
+  list. A session's skills tell it to read every list before it says a
+  work item does not exist. A plugin of 0.50.0 reads the same board and
+  shows every list. See
+  [Hide a list from the listing](docs/team-member/use/work-items.md#hide-a-list-from-the-listing).
+
 ### Changed
 
 - **The team's board of work items is named Brigade Board** (work item

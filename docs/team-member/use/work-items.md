@@ -17,7 +17,7 @@ harnesses name them their own way ([the skills, by harness](../../agent/in-a-tea
 
 | Command | What it does |
 | --- | --- |
-| `/brigade:work-items` | prints the board verbatim; `mine`, `nobody`, `closed`, `for <member>`, `tag <tag>` or a list narrows it, and `lists` prints the board's lists |
+| `/brigade:work-items` | prints the board verbatim; `mine`, `nobody`, `closed`, `for <member>`, `tag <tag>` or a list narrows it, `all` includes the lists the team hid, and `lists` prints the board's lists |
 | `/brigade:work-item <number>` | shows one work item; `add <title>`, and `<number> move <list>`, `assign me`, `comment <text>`, `tag <tags>`, `edit`, `close`, `reopen`, add one or change it |
 | `/brigade:work-item-start <number>` | has the session take the work item and work it through: it assigns it to you, moves it to the list for work in progress, does the work, comments what it did and moves it on |
 
@@ -27,6 +27,7 @@ harnesses name them their own way ([the skills, by harness](../../agent/in-a-tea
 brigade work-item list                       # the open work items, by list
 brigade work-item list --mine                # yours; --to <label> a teammate's; --nobody the unassigned
 brigade work-item list --list Doing          # one list, by its name or its key; --tag bug one tag; --closed the closed ones
+brigade work-item list --all                 # every list, the ones the team hid from the listing too
 brigade work-item show 41                    # one work item: fields, description, comments, history
 brigade work-item add --list Todo --mine --tag bug,web <<'EOF'
 Fix the login redirect
@@ -50,6 +51,8 @@ brigade work-item reopen 41
 brigade work-item lists                      # the board's lists, in order: each one's key and its name
 brigade work-item lists Backlog Doing Review Done   # names them anew: all of them, in order
 brigade work-item rename-list doing 'In progress'   # another name for a list; its key and its work items stay
+brigade work-item hide-list hibernating      # leaves a list out of the listing; its work items stay in it
+brigade work-item unhide-list hibernating    # shows it in the listing again
 ```
 
 Every verb runs inside a session and takes `--json`. A title, a description and a comment travel on stdin; the
@@ -89,11 +92,11 @@ A list is a state a work item can be in, and the lists are the team's own. Each 
 
 ```
 $ brigade work-item lists
-KEY          NAME
-hibernating  Hibernating
-wanting      Wanting
-doing        Doing
-done         Done
+KEY          NAME         SHOWN
+hibernating  Hibernating  yes
+wanting      Wanting      yes
+doing        Doing        yes
+done         Done         yes
 $ brigade work-item rename-list wanting 'Next up'
 renamed: wanting is now "Next up" (was "Wanting"); the work items in it stay in it
 ```
@@ -110,6 +113,40 @@ that list. After `rename-list todo Backlog`, `Todo` still means the list now cal
 
 A rename is a change of its own. If one machine renames a list while another names the lists anew, both stand
 once the two have exchanged: the lists are the ones named, and the list is called what the rename said.
+
+### Hide a list from the listing
+
+A team that parks work in a list, or lets finished work pile up in one, hides that list: `brigade work-item list`
+then shows the lists the team works in, and says what it left out.
+
+```
+$ brigade work-item hide-list hibernating
+hidden: hibernating ("Hibernating") is left out of brigade work-item list; --all shows every list and --list hibernating this one, and the work items in it stay in it
+$ brigade work-item list
+LIST     NUMBER  TITLE                   ASSIGNED           TAGS
+Wanting  41      Fix the login redirect  alice@example.com  bug
+open by list: Wanting (1), Doing (0), Done (0); not shown: Hibernating (15); --all shows them
+```
+
+- **Nothing in the list changes.** Its work items stay in it, open, with their numbers; `show`, `move`,
+  `assign`, `comment` and the rest reach them as before, and a work item can be moved into a hidden list.
+- **The listing never leaves a list out silently.** Its last line names every hidden list it left out, with
+  the number of work items in it. `--all` shows every list; `--list <list>` shows the one it names, hidden or
+  not. `--mine`, `--to`, `--nobody` and `--tag` narrow what is shown and do not bring a hidden list back; the
+  line then says how many of the hidden list's work items the filter matches, as in `not shown: Hibernating
+  (15, 2 matching)`, which is what `--all` would add.
+- **A new work item is not born out of sight.** `add` with no `--list` puts it in the first list that is shown.
+  One added to a hidden list by name is told so.
+- **It is the team's setting, kept on the board.** It is the same in every repository of the team, any member
+  changes it, and `brigade work-item unhide-list <list>` undoes it. `brigade work-item lists` says which lists
+  are shown. Like a rename it is a change of its own, and a list keeps it when it is renamed or when the lists
+  are named anew with it among them. A list the team drops loses it: its work items show again, counted apart
+  as a dropped list's are, and the list shows when it is named again.
+- **Hidden is not closed.** A closed work item is finished with and off the board's lists, and `--closed`
+  shows it whatever list it was in. A work item in a hidden list is open and on the board.
+- **A session reads every list before it says a work item does not exist**: its skill tells it to use `--all`
+  when it reads the board to answer a question.
+- **A plugin of 0.50.0** knows no hidden list: it reads the same board and shows every list.
 
 ## Two machines, one number
 

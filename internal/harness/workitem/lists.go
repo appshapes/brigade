@@ -2,14 +2,21 @@
 // are the team's own. A list has a key, which is the state and never
 // changes, and a name, which is what the team calls it and can change.
 //
-// Two kinds of change make them, both files under `lists/`. One names
+// Three kinds of change make them, all files under `lists/`. One names
 // the board's lists, all of them and in order: the last such change says
-// which lists the board has. The other renames one list, by its key. A
+// which lists the board has. Another renames one list, by its key. A
 // name is folded apart from the membership: a list is called what its
 // latest rename says, or else what the change that first named it called
 // it. So a rename made on one machine while another names the lists anew
 // is not undone by it, and two machines that rename two lists both keep
-// their rename.
+// their rename. The third hides one list from the default listing, or
+// shows it again (work item 269), and is folded the same way: a list is
+// hidden when the latest change that says so for its key says hidden.
+// Hiding is of a list on the board: a hide of a key the board does not
+// have at that point changes nothing, and a list the board drops takes
+// its hiding with it, so one that is named again later shows. A reader
+// from before it knew no such change and takes it for one that changes
+// nothing, so it shows every list.
 //
 // A list answers to two words, its key and its name, and a reference —
 // what a person types for `move`, `--list` or `rename-list` — is looked
@@ -34,9 +41,30 @@ import (
 // was given then (ListKey), and never changed; a work item carries it.
 // Name is what the team calls the state, and renaming it moves no work
 // item.
+//
+// Hidden is true for a list the default listing leaves out (work item
+// 269): the work items in it are on the board as before, and a listing
+// shows them when it is asked for every list or for this one. It is the
+// fold of the Hide changes, and no member of a change that names or
+// renames lists: those carry a ListName, which has no such member.
 type List struct {
+	Key    string `json:"key"`
+	Name   string `json:"name"`
+	Hidden bool   `json:"hidden,omitzero"`
+}
+
+// A ListName is a list as a change names it: its key and what it is
+// called, and nothing else.
+type ListName struct {
 	Key  string `json:"key"`
 	Name string `json:"name"`
+}
+
+// A Hide is the change that hides the list with that key from the default
+// listing (Hidden true) or shows it again (false).
+type Hide struct {
+	Key    string `json:"key"`
+	Hidden bool   `json:"hidden"`
 }
 
 // DefaultLists is the lists of a board nobody has named lists for.
@@ -117,11 +145,12 @@ func answers(lists []List, l List) bool {
 // a key that can be one and a name on one sanitised line of at most
 // MaxListChars code points, a key already taken dropped, at most
 // MaxLists of them.
-func cleanLists(lists []List) []List {
-	out := make([]List, 0, min(len(lists), MaxLists))
+func cleanLists(lists []ListName) []ListName {
+	out := make([]ListName, 0, min(len(lists), MaxLists))
 	for _, l := range lists {
 		l.Name = protocol.TruncateRunes(Line(l.Name), MaxListChars)
-		if _, taken := byKey(out, l.Key); !ValidListKey(l.Key) || l.Name == "" || taken || len(out) >= MaxLists {
+		taken := slices.ContainsFunc(out, func(o ListName) bool { return o.Key == l.Key })
+		if !ValidListKey(l.Key) || l.Name == "" || taken || len(out) >= MaxLists {
 			continue
 		}
 		out = append(out, l)
@@ -132,40 +161,54 @@ func cleanLists(lists []List) []List {
 // foldLists is the board's lists as its changes make them, in the order
 // readChanges gave them: the lists of the last change that named any
 // (DefaultLists when none did), each under the name its latest rename
-// gave it, or else the one it was first named with; and past, the lists
-// the board had before and has no longer, the same way.
+// gave it, or else the one it was first named with, and hidden when the
+// latest change that hides or shows its key, made while the board had the
+// list, says so; and past, the lists the board had before and has no
+// longer, under their names and never hidden.
 func foldLists(changes []*Change) (lists, past []List) {
 	first := map[string]string{}   // the name a key was first given
 	renamed := map[string]string{} // the name its latest rename gave it
+	hidden := map[string]bool{}    // what its latest hide change says
 	var seen []string              // every key, in the order it was first named
 	current := make([]string, 0, MaxLists)
-	note := func(l List) {
-		if _, ok := first[l.Key]; !ok {
-			first[l.Key] = l.Name
-			seen = append(seen, l.Key)
+	note := func(key, name string) {
+		if _, ok := first[key]; !ok {
+			first[key] = name
+			seen = append(seen, key)
 		}
 	}
 	for _, l := range DefaultLists() {
-		note(l)
+		note(l.Key, l.Name)
 		current = append(current, l.Key)
 	}
 	for _, c := range changes {
 		if len(c.Lists) > 0 {
-			current = current[:0]
+			next := make([]string, 0, len(c.Lists))
 			for _, l := range c.Lists {
-				note(l)
-				current = append(current, l.Key)
+				note(l.Key, l.Name)
+				next = append(next, l.Key)
 			}
+			// A list the board drops takes its hiding with it.
+			for _, key := range current {
+				if !slices.Contains(next, key) {
+					delete(hidden, key)
+				}
+			}
+			current = next
 		}
 		if c.Rename != nil {
 			renamed[c.Rename.Key] = c.Rename.Name
 		}
+		// Hiding is of a list the board has at this point of the order.
+		if c.Hide != nil && slices.Contains(current, c.Hide.Key) {
+			hidden[c.Hide.Key] = c.Hide.Hidden
+		}
 	}
 	named := func(key string) List {
 		if n, ok := renamed[key]; ok {
-			return List{Key: key, Name: n}
+			return List{Key: key, Name: n, Hidden: hidden[key]}
 		}
-		return List{Key: key, Name: first[key]}
+		return List{Key: key, Name: first[key], Hidden: hidden[key]}
 	}
 	for _, key := range current {
 		lists = append(lists, named(key))
@@ -245,7 +288,7 @@ func (b *Board) Renamed(ref, name string) (was, renamed List, found, taken bool)
 	if !found {
 		return List{}, List{}, false, false
 	}
-	renamed = List{Key: was.Key, Name: Line(name)}
+	renamed = List{Key: was.Key, Name: Line(name), Hidden: was.Hidden}
 	others := slices.DeleteFunc(slices.Clone(b.Lists), func(o List) bool { return o.Key == was.Key })
 	if slices.ContainsFunc(others, func(o List) bool {
 		return strings.EqualFold(o.Name, renamed.Name) || o.Key == strings.ToLower(renamed.Name)

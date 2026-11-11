@@ -53,7 +53,13 @@ whole and in order, and renames one without moving a work item
 ```bash
 brigade work-item lists Backlog Doing Review Done
 brigade work-item rename-list review 'In review'
+brigade work-item hide-list backlog          # left out of the listing; --all shows it
 ```
+
+A hidden list is the team's way to keep parked or finished work out of every listing without closing it
+([Hide a list from the listing](../../team-member/use/work-items.md#hide-a-list-from-the-listing)). It is kept
+on the board, so it needs no change to `.brigade.json` and is the same in every repository; a member on 0.50.0
+sees every list.
 
 A list is a state with a key, set once from its first name and never changed, and a name, which can change.
 Up to 24 lists, each name up to 64 characters. A work item in a list the new ones leave out stays where it is.
@@ -64,7 +70,7 @@ A board holds 20,000 work items and a work item 2,000 changes; past either, `bri
 
 Changes, never a work item as a file. Each act — adding a work item, moving it, a comment — is one small JSON
 file, written once and never rewritten: `items/<id>/<sequence>-<time>-<random>.json`, and
-`lists/<sequence>-<time>-<random>.json` for the board's lists. A work item is what its changes add up to, the
+`lists/<sequence>-<time>-<random>.json` for the board's lists: the lists named, one renamed, one hidden or shown. A work item is what its changes add up to, the
 last change of a field winning. Two machines therefore never write the same file, and the sync engine makes no
 conflict copy. Nothing is ever removed: a closed work item stays in the folder, and so does every change.
 
