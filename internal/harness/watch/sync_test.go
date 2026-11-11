@@ -578,3 +578,137 @@ func TestNoSyncWithoutTheMapMembers(t *testing.T) {
 		t.Fatalf("verbs = %v, want none", got)
 	}
 }
+
+// TestSyncSharesTheBoardWithTheWholeTeam: a team with a board (card 263)
+// has the board's folder in its apply beside the project's own — the
+// id carrying the team alone, the path this machine's, marked as the
+// team's — and the peer of every teammate's online session, whatever its
+// repository, as the team's peers, while the repository's sessions stay
+// the peers of the project's folders. The notice counts the board among
+// the folders.
+func TestSyncSharesTheBoardWithTheWholeTeam(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	fx.useFS()
+	repo, other := ptr(syncRepo), ptr("another-repo")
+	fx.registerPeer(repo, ptr("syncthing:PEER-A"), false)
+	fx.registerPeer(other, ptr("syncthing:PEER-C"), false)             // another repository of the team
+	fx.registerPeer(other, ptr("syncthing:PEER-C"), false)             // the same machine twice: offered once
+	fx.registerPeer(nil, ptr("syncthing:PEER-E"), false)               // no repository shared
+	fx.registerPeer(other, ptr("syncthing:PEER-D"), true)              // offline: not read
+	fx.registerPeer(other, ptr("other:PEER-B"), false)                 // another adapter's peer
+	fx.registerPeer(other, ptr("syncthing:"+fakesync.SelfPeer), false) // another session on this machine
+	fx.registerPeer(other, nil, false)                                 // a session without sync
+
+	root := t.TempDir()
+	boardPath := filepath.Join(t.TempDir(), "boards", "team-key")
+	fx.writeMapWith(func(m *sessionmap.ByPID) {
+		m.WorkspaceLabel = syncRepo
+		m.SyncAdapter = "syncthing"
+		m.SyncFolders = []string{"docs"}
+		m.SyncRoot = root
+		m.SyncScope = syncScope
+		m.BoardFolder = boardPath
+	})
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{
+		Apply: `{"folders":[{"id":"a","state":"idle"},{"id":"board","state":"idle"}],"peers":[{"peer":"PEER-A","connected":true},{"peer":"PEER-C","connected":false},{"peer":"PEER-E","connected":true}]}`,
+	})
+	deps := fx.deps()
+	deps.SyncCommand = fake.Argv
+	deps.HeartbeatInterval = time.Hour
+	deps.SyncInterval = time.Hour
+	deps.SyncListInterval = time.Hour
+	r := fx.start(deps, fx.args()...)
+
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		return fx.readNotice() == "Brigade sync: 2 folders, 2 of 3 peers connected"
+	})
+	recs := fake.Records(t)
+	if got := fake.Verbs(t); !slices.Equal(got, []string{"describe", "attach", "apply"}) {
+		t.Fatalf("verbs before the stop = %v", got)
+	}
+	var apply foldersync.ApplyRequest
+	if err := json.Unmarshal(recs[2].Request, &apply); err != nil {
+		t.Fatal(err)
+	}
+	// The project's folder, then the board: the team's folder.
+	if len(apply.Folders) != 2 || apply.Folders[0].ID != foldersync.FolderID(fx.teamRef, syncScope, "docs") || apply.Folders[0].Team {
+		t.Fatalf("the apply's folders = %+v", apply.Folders)
+	}
+	if want := foldersync.BoardFolder(fx.teamRef, boardPath); apply.Folders[1] != want || !want.Team {
+		t.Fatalf("the apply's board folder = %+v, want %+v", apply.Folders[1], want)
+	}
+	// With a team folder comes the checkout's toplevel.
+	if apply.Root != root {
+		t.Fatalf("the apply's root = %q, want %q", apply.Root, root)
+	}
+	// The repository's sessions for the project's folders, as ever.
+	if want := []foldersync.Peer{{Peer: "PEER-A", Label: "peer@example.com"}}; !slices.Equal(apply.Peers, want) {
+		t.Fatalf("the apply's peers = %+v, want %+v", apply.Peers, want)
+	}
+	// Every teammate's peer for the board.
+	var got []string
+	for _, p := range apply.TeamPeers {
+		got = append(got, p.Peer)
+	}
+	slices.Sort(got)
+	if want := []string{"PEER-A", "PEER-C", "PEER-E"}; !slices.Equal(got, want) {
+		t.Fatalf("the apply's team peers = %v, want %v", got, want)
+	}
+	// The folder is Brigade's own: created private before an adapter
+	// could create it with a project folder's mode.
+	fi, err := os.Stat(boardPath)
+	if err != nil || !fi.IsDir() || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("the board folder: %v, %v", fi, err)
+	}
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+// TestSyncSharesTheBoardAlone: a project that lists no folder and turns
+// the board on applies the board alone; and a session that shares no
+// workspace label, which offers no peer for a repository's folders,
+// still shares the team's board with the team.
+func TestSyncSharesTheBoardAlone(t *testing.T) {
+	t.Parallel()
+	fx := newFixture(t, fixtureOptions{sink: true})
+	fx.useFS()
+	fx.registerPeer(ptr("another-repo"), ptr("syncthing:PEER-C"), false)
+	boardPath := filepath.Join(t.TempDir(), "boards", "team-key")
+	fx.writeMapWith(func(m *sessionmap.ByPID) {
+		m.WorkspaceLabel = ""
+		m.SyncAdapter = "syncthing"
+		m.SyncRoot = t.TempDir()
+		m.BoardFolder = boardPath
+	})
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{
+		Apply: `{"folders":[{"id":"board","state":"idle"}],"peers":[{"peer":"PEER-C","connected":true}]}`,
+	})
+	deps := fx.deps()
+	deps.SyncCommand = fake.Argv
+	deps.HeartbeatInterval = time.Hour
+	deps.SyncInterval = time.Hour
+	deps.SyncListInterval = time.Hour
+	r := fx.start(deps, fx.args()...)
+	testutil.Eventually(t, waitShort, pollEvery, func() bool {
+		return fx.readNotice() == "Brigade sync: 1 folders, 1 of 1 peers connected"
+	})
+	recs := fake.Records(t)
+	if got := fake.Verbs(t); !slices.Equal(got, []string{"describe", "attach", "apply"}) {
+		t.Fatalf("verbs before the stop = %v", got)
+	}
+	var apply foldersync.ApplyRequest
+	if err := json.Unmarshal(recs[2].Request, &apply); err != nil {
+		t.Fatal(err)
+	}
+	if want := []foldersync.Folder{foldersync.BoardFolder(fx.teamRef, boardPath)}; !slices.Equal(apply.Folders, want) {
+		t.Fatalf("the apply's folders = %+v, want %+v", apply.Folders, want)
+	}
+	if len(apply.Peers) != 0 || len(apply.TeamPeers) != 1 || apply.TeamPeers[0].Peer != "PEER-C" {
+		t.Fatalf("the apply's peers = %+v, team peers = %+v", apply.Peers, apply.TeamPeers)
+	}
+	if code := r.stopAndWait(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}

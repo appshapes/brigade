@@ -9,6 +9,43 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A team can keep its work in Brigade: a board of work items** (card
+  263). A team that sets `"board": true` in the `sync` member of its
+  `.brigade.json` has one board for all its repositories: work items,
+  each with a number, a title, a description, a list, an assignee, labels
+  and comments, in lists the team names itself (`Todo`, `Doing` and
+  `Done` to start with). `brigade work-item` reads and changes it from
+  inside a session: `list`, `show`, `add`, `edit`, `move`, `assign`,
+  `label`, `comment`, `close`, `reopen` and `lists`. Three skills are the
+  short forms in every package: `/brigade:work-items` prints the board,
+  `/brigade:work-item` reads, adds or changes one work item, and
+  `/brigade:work-item-start <number>` has the session take a work item,
+  do the work, comment what it did and move it on. The board is a folder
+  on each member's machine, under Brigade's state directory and outside
+  every checkout, that file sync shares with the machine of every
+  teammate's session whatever repository it is in; nothing goes to the
+  backend, so there is no migration, no change to the adapter protocol,
+  and the board works while the backend does not. Each change is a file
+  of its own, so two members who change one work item at the same moment
+  both keep what they wrote. A number is the highest on the board plus
+  one; two machines that take one number before either has the other's
+  work item are put right by the next command on any machine, which gives
+  the later one the next free number and says so. Two machines exchange
+  work items only while both run a session. Every member's plugin must be
+  newer than 0.49.0 before a project turns the board on: an older one
+  ignores the member and has no board. A sync adapter of a team's own
+  receives the board in `apply` as a folder marked `"team": true`, with
+  the team's peers in `team_peers` and the checkout's toplevel in `root`;
+  all three members are optional, the protocol stays `sync/1`, and an
+  adapter that ignores them shares the board with the repository's
+  sessions alone. How to use it:
+  [Keep the team's work on the board](docs/team-member/use/work-items.md).
+  How to turn it on:
+  [Turn on the board](docs/team-admin/configure/board.md). What it opens:
+  [docs/security.md, section 19](docs/security.md#19-the-board-and-its-work-items).
+
 ### Changed
 
 - **A push's CI run takes under five minutes, from eleven** (card 245).

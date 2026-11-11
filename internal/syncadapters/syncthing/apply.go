@@ -47,7 +47,10 @@ func (in *instance) detach(sessionID string) (*detachResult, error) {
 }
 
 // apply introduces the peers and shares the folders with every one of them
-// (plan 4.3, 4.4; card 42), changing in the instance whatever that takes:
+// (plan 4.3, 4.4; card 42) — a folder marked `team` with teamPeers, the
+// peers of the whole team's sessions, and every other with peers, those
+// of the repository's (card 263) — changing in the instance whatever that
+// takes:
 //
 //   - a peer the instance does not know is added; one it already holds is
 //     left as it is, because a person may have added it by hand, with its
@@ -74,15 +77,23 @@ func (in *instance) detach(sessionID string) (*detachResult, error) {
 // None of these is a rule about what apply may touch. Brigade is open by
 // default and restricted by configuration alone (the `sync` option): what
 // apply leaves as it found it, it leaves because a team relies on it.
-func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult, error) {
+func (in *instance) apply(folders []folderSpec, peers, teamPeers []peerSpec, root string) (*applyResult, error) {
 	for _, f := range folders {
 		if f.ID == "" || !filepath.IsAbs(f.Path) {
 			return nil, errInput("folders", "every folder needs an id and an absolute path")
 		}
 	}
+	if root != "" && !filepath.IsAbs(root) {
+		return nil, errInput("root", "root must be an absolute path when it is given")
+	}
 	for _, p := range peers {
 		if p.Peer == "" {
 			return nil, errInput("peers", "every peer needs a descriptor")
+		}
+	}
+	for _, p := range teamPeers {
+		if p.Peer == "" {
+			return nil, errInput("team_peers", "every peer needs a descriptor")
 		}
 	}
 	c, err := in.e.Running()
@@ -103,30 +114,53 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 	for _, d := range known {
 		have[d.DeviceID] = true
 	}
-	devs := make([]engine.DeviceRef, 0, len(peers))
-	for _, p := range peers {
-		if have[p.Peer] {
-			devs = append(devs, engine.DeviceRef{DeviceID: p.Peer})
-			continue
-		}
-		err := c.SetDevice(engine.DeviceConfig{DeviceID: p.Peer, Name: p.Label, Addresses: []string{"dynamic"}})
-		if err != nil {
-			if s := engine.HTTPStatus(err); s >= 400 && s < 500 {
-				in.a.log.Warn("syncthing refused a peer; skipped", slog.Int("status", s))
+	// refused is the descriptors Syncthing answered 4xx this round: one
+	// that is in both lists is posted, and logged, once.
+	refused := map[string]bool{}
+	introduce := func(list []peerSpec) ([]engine.DeviceRef, error) {
+		devs := make([]engine.DeviceRef, 0, len(list))
+		for _, p := range list {
+			if refused[p.Peer] {
 				continue
 			}
-			return nil, err
+			if !have[p.Peer] {
+				err := c.SetDevice(engine.DeviceConfig{DeviceID: p.Peer, Name: p.Label, Addresses: []string{"dynamic"}})
+				if err != nil {
+					if s := engine.HTTPStatus(err); s >= 400 && s < 500 {
+						in.a.log.Warn("syncthing refused a peer; skipped", slog.Int("status", s))
+						refused[p.Peer] = true
+						continue
+					}
+					return nil, err
+				}
+				have[p.Peer] = true
+			}
+			devs = append(devs, engine.DeviceRef{DeviceID: p.Peer})
 		}
-		devs = append(devs, engine.DeviceRef{DeviceID: p.Peer})
+		return devs, nil
+	}
+	devs, err := introduce(peers)
+	if err != nil {
+		return nil, err
+	}
+	teamDevs, err := introduce(teamPeers)
+	if err != nil {
+		return nil, err
 	}
 
 	existing, err := c.Folders()
 	if err != nil {
 		return nil, err
 	}
-	result := &applyResult{Folders: make([]folderState, 0, len(folders)), Peers: make([]peerState, 0, len(peers))}
+	result := &applyResult{Folders: make([]folderState, 0, len(folders)), Peers: make([]peerState, 0, len(peers)+len(teamPeers))}
 	for _, f := range folders {
 		path := filepath.Clean(f.Path)
+		// A team folder is shared with the team's peers, every other with
+		// the repository's.
+		with := devs
+		if f.Team {
+			with = teamDevs
+		}
 		var had []engine.DeviceRef
 		if old := replaced(existing, f, path); old != nil {
 			// Copied first: removing the entry shifts the slice old points into.
@@ -152,7 +186,9 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 			had = unionDevices(had, current.Devices)
 		}
 		// The folder is the project's (a path it lists), so it is created
-		// with an ordinary directory mode, not the state tree's 0700.
+		// with an ordinary directory mode, not the state tree's 0700. A
+		// team folder is under the state directory and the harness made
+		// it, private, before this call.
 		if err := os.MkdirAll(path, 0o755); err != nil { //nolint:gosec // G301: a project folder, readable like its siblings
 			in.a.log.Warn("a folder could not be created; rejected", slog.String("folder_id", f.ID), adapterlog.Err(err))
 			result.Folders = append(result.Folders, folderState{ID: f.ID, State: stateRejected})
@@ -160,7 +196,7 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 		}
 		err := c.SetFolder(engine.FolderConfig{
 			ID: f.ID, Label: f.Label, Path: path, Type: "sendreceive",
-			Devices:          unionDevices(had, devs),
+			Devices:          unionDevices(had, with),
 			Versioning:       engine.VersioningConfig{Type: "trashcan", Params: map[string]string{"cleanoutDays": "14"}},
 			FSWatcherEnabled: true,
 			RescanIntervalS:  60,
@@ -175,7 +211,7 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 		}
 		result.Folders = append(result.Folders, folderState{ID: f.ID, State: c.FolderState(f.ID)})
 	}
-	for _, e := range formerFolders(existing, folders) {
+	for _, e := range formerFolders(existing, folders, root) {
 		if !e.Paused {
 			// A failed pause is logged and tried again next round; it
 			// never costs the listed folders their apply.
@@ -192,7 +228,14 @@ func (in *instance) apply(folders []folderSpec, peers []peerSpec) (*applyResult,
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range peers {
+	// Every peer of either list, once: a repository's peer is one of the
+	// team's too.
+	reported := make(map[string]bool, len(peers)+len(teamPeers))
+	for _, p := range slices.Concat(peers, teamPeers) {
+		if reported[p.Peer] {
+			continue
+		}
+		reported[p.Peer] = true
 		result.Peers = append(result.Peers, peerState{Peer: p.Peer, Connected: conns[p.Peer]})
 	}
 	return result, nil
@@ -258,8 +301,13 @@ func replaced(existing []engine.ConfiguredFolder, f folderSpec, path string) *en
 //     name is proven, not guessed;
 //   - its path is where this checkout puts that name: the checkout's
 //     root (or the ancestor a ".." folder climbs to) is recovered the same
-//     way from a requested folder's proven name and path.
-func formerFolders(existing []engine.ConfiguredFolder, folders []folderSpec) []engine.ConfiguredFolder {
+//     way from a requested folder's proven name and path, or is root, the
+//     toplevel the request names when it carries a team folder (card
+//     263). A project that lists no folder any more and keeps its team's
+//     board requests the board alone, whose label proves no name: without
+//     root nothing would anchor the folders it dropped, and they would go
+//     on syncing for as long as a session of the board runs.
+func formerFolders(existing []engine.ConfiguredFolder, folders []folderSpec, root string) []engine.ConfiguredFolder {
 	if len(folders) == 0 {
 		return nil
 	}
@@ -275,6 +323,9 @@ func formerFolders(existing []engine.ConfiguredFolder, folders []folderSpec) []e
 	}
 	requested := make(map[string]bool, 2*len(folders))
 	var anchors []anchor
+	if root != "" {
+		anchors = append(anchors, anchor{up: 0, base: filepath.Clean(root)})
+	}
 	for _, f := range folders {
 		if p, ok := teamPrefix(f.ID); !ok || p != prefix {
 			return nil

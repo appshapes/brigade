@@ -72,6 +72,49 @@ func TestLegacyFolderIDIsTheEarlierDerivation(t *testing.T) {
 	}
 }
 
+// TestBoardFolderIsTheTeamsAlone pins the board's folder (card 263): an
+// id derived from team_ref and nothing of a repository or a machine, so
+// every session of the team, in any of its repositories, arrives at it;
+// an id no folder of a team file can take; and a path under the state
+// directory, outside every checkout.
+func TestBoardFolderIsTheTeamsAlone(t *testing.T) {
+	t.Parallel()
+	const ref = "6f0f2b41-5a3c-49d7-b8e2-0c7a4f1e6d33"
+	sum := sha256.Sum256([]byte("/board"))
+	want := "brigade-6f0f2b41-" + hex.EncodeToString(sum[:])[:12]
+	// The path is keyed by team_ref alone, as the id is: the two never
+	// part when a team's file is pointed at another backend URL.
+	refSum := sha256.Sum256([]byte(ref))
+	path := foldersync.BoardPath("/home/u/.local/state/brigade", ref)
+	if path != filepath.Join("/home/u/.local/state/brigade", "boards", hex.EncodeToString(refSum[:])[:32]) {
+		t.Fatalf("BoardPath = %q", path)
+	}
+	if foldersync.BoardPath("/s", "team-b-1") == foldersync.BoardPath("/s", "team-a-1") || strings.Contains(foldersync.BoardPath("/s", "../../etc"), "..") {
+		t.Fatal("BoardPath: two teams share a folder, or a team_ref reached the path as written")
+	}
+	f := foldersync.BoardFolder(ref, path)
+	if f.ID != want || f.Path != path || f.Label != "team board" || f.Replaces != "" {
+		t.Fatalf("BoardFolder = %+v, want id %q", f, want)
+	}
+	// The id the documents print.
+	if f.ID != "brigade-6f0f2b41-10ec23840280" {
+		t.Fatalf("BoardFolder id = %q, want the documents' example", f.ID)
+	}
+	if foldersync.BoardFolder("team-b-1", path).ID == f.ID {
+		t.Fatal("two teams share a board id")
+	}
+	// No listed folder takes the id, scoped or not: `board` in a
+	// repository named anything, or alone, hashes another text.
+	for _, other := range []string{
+		foldersync.FolderID(ref, "brigade", "board"), foldersync.LegacyFolderID(ref, "board"),
+		foldersync.FolderID(ref, "team", "board"), foldersync.LegacyFolderID(ref, "team board"),
+	} {
+		if other == f.ID {
+			t.Fatalf("a listed folder takes the board's id %q", other)
+		}
+	}
+}
+
 func TestFoldersDerivesPathLabelAndReplaces(t *testing.T) {
 	t.Parallel()
 	got := foldersync.Folders("team-1", "/home/u/repo", "brigade", []string{".context/plans", "docs"})
@@ -222,7 +265,7 @@ func TestVerbsOverTheWire(t *testing.T) {
 	}
 	folders := foldersync.Folders("team-1", "/r", "repo", []string{"docs"})
 	peers := []foldersync.Peer{{Peer: "P1", Label: "alice"}}
-	ap, err := c.Apply(ctx, "sess-1", folders, peers)
+	ap, err := c.Apply(ctx, "sess-1", foldersync.ApplySet{Folders: folders, Peers: peers, Root: "/r"})
 	if err != nil || len(ap.Folders) != 1 || len(ap.Peers) != 1 || !ap.Peers[0].Connected {
 		t.Fatalf("Apply = %+v, %v", ap, err)
 	}
@@ -267,6 +310,55 @@ func TestVerbsOverTheWire(t *testing.T) {
 // TestAttachAndDetachCarryThePID: a Client with a PID sends it as
 // attach's and detach's optional "pid" member (and only theirs); without
 // one the member is absent, as TestVerbsOverTheWire pins.
+// TestApplyCarriesTheTeamsPeersOnlyForATeamFolder pins the optional
+// members card 263 added to `apply` (docs/sync-adapters.md): a folder
+// that is the team's says `"team":true`, and the request then carries
+// `team_peers`, an empty list when no teammate is online, and `root`,
+// the checkout's toplevel; a request with no such folder is byte for
+// byte what it was before, whatever the caller passed.
+func TestApplyCarriesTheTeamsPeersOnlyForATeamFolder(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	state := filepath.Join(dir, "state")
+	fake := fakesync.Write(t, dir, fakesync.Answers{})
+	c := &foldersync.Client{Adapter: "syncthing", StateDir: state, Environ: []string{"PATH=/usr/bin:/bin"}, Command: fake.Argv}
+	ctx := t.Context()
+
+	project := foldersync.Folders("team-1", "/r", "repo", []string{"docs"})
+	board := foldersync.BoardFolder("team-1", "/s/boards/k")
+	repoPeers := []foldersync.Peer{{Peer: "P1", Label: "alice"}}
+	teamPeers := []foldersync.Peer{{Peer: "P1", Label: "alice"}, {Peer: "P2", Label: "bob"}}
+	for _, call := range []struct {
+		folders []foldersync.Folder
+		team    []foldersync.Peer
+	}{
+		{append(slices.Clone(project), board), teamPeers},
+		{[]foldersync.Folder{board}, nil},
+		{project, teamPeers},
+	} {
+		if _, err := c.Apply(ctx, "sess-1", foldersync.ApplySet{Folders: call.folders, Peers: repoPeers, TeamPeers: call.team, Root: "/r"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	head := `{"state_dir":"` + state + `","session_id":"sess-1","folders":[`
+	docs := `{"id":"` + project[0].ID + `","path":"/r/docs","label":"repo/docs","replaces":"` + project[0].Replaces + `"}`
+	team := `{"id":"` + board.ID + `","path":"/s/boards/k","label":"team board","team":true}`
+	want := []string{
+		head + docs + `,` + team + `],"peers":[{"peer":"P1","label":"alice"}],"team_peers":[{"peer":"P1","label":"alice"},{"peer":"P2","label":"bob"}],"root":"/r"}`,
+		head + team + `],"peers":[{"peer":"P1","label":"alice"}],"team_peers":[],"root":"/r"}`,
+		head + docs + `],"peers":[{"peer":"P1","label":"alice"}]}`,
+	}
+	recs := fake.Records(t)
+	if len(recs) != len(want) {
+		t.Fatalf("calls = %d", len(recs))
+	}
+	for i, r := range recs {
+		if string(r.Request) != want[i] {
+			t.Errorf("apply %d request =\n%s\nwant\n%s", i, r.Request, want[i])
+		}
+	}
+}
+
 func TestAttachAndDetachCarryThePID(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

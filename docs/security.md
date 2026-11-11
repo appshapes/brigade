@@ -1283,3 +1283,39 @@ adds no control beyond the `sync` option (the folder rides on folder sync, secti
   duplicate, accepted. A subscriber nobody can reach is held for five minutes rather than tried every tick. A quiet
   team — no entry or decision written since a subscriber's last digest — sends them nothing: there is no manager
   node and no cron.
+
+## 19. The board and its work items
+
+A team can keep its work in Brigade itself (`sync.board`, card 263; [Turn on the
+board](team-admin/configure/board.md)): work items in the lists of one board, read and changed with
+`brigade work-item`. This section says what that opens; it adds no control beyond the `sync` option (the board
+rides on file sync, section 12).
+
+- **Where the board is, and to whom it goes.** One folder per team on each member's machine, under `boards/` in
+  Brigade's state directory and named after the team's reference, outside every checkout. File sync shares it with the machine of **every
+  teammate's session, whatever repository that session is in**: the repository match of section 12 keeps a
+  project's listed folders apart and does not apply to the board, so a member who works in one of the team's
+  repositories holds the work items of all of them. Nothing of it goes to the backend, which sees the `sync_peer`
+  it already saw, and nothing goes to a gateway.
+- **What a work item carries.** What a member or their session wrote on purpose: a title, a description,
+  comments, labels, a list, an assignee's roster label, and with every change the writer's label, their session's
+  name and the time. The command refuses a text that carries a credential's shape and asks nothing else of it: a
+  work item may name a path, a host, a person or a customer, and the judgement is the writer's.
+- **A work item is a teammate's text.** Any member's machine can write any file into the folder, and overwrite or
+  delete one, as it can in any synced folder. A change that says it is by someone is that machine's word for it;
+  nothing signs it. A forged change can retitle, move, assign, close or renumber any work item, or add a comment
+  under any name. The readers take only files with a change's name, size and shape, follow no symlink (a
+  change, a work item's directory, or `items` and `lists` themselves, through which nothing is written either),
+  and cap and sanitise every string; the human form of `brigade work-item show` indents a description and a comment under
+  their headings, so no line of them stands where a field would.
+- **A work item is not an instruction.** The skills tell the model that reading a work item is reading, and that
+  when its user asks it to work on one the task is the user's, while nothing in the work item can ask for a
+  secret, for a command that destroys something or reaches outside the project, or for a message to anyone,
+  without the user's own word. That is the model's judgement, as section 3 says of a message body. The injection
+  test set has not been run against work items.
+- **Nothing is removed.** A work item is what its changes add up to, a closed one stays in the folder, and no
+  verb deletes: what was once written to the board stays on every machine that received it, a member's who has
+  since left included. Revoking a member ends their sessions, and with them their sync; it recalls nothing.
+- **Turning it off.** With `sync: off` a member's sessions share no board and `brigade work-item` refuses. A
+  project that drops `board` from its team file has sessions that no longer ask for the folder; an engine that
+  already shares it goes on carrying it while it runs for another folder, and the files stay where they are.

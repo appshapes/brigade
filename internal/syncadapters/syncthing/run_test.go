@@ -149,6 +149,19 @@ func TestUsageAndInputRefusals(t *testing.T) {
 	if o.exit != 3 {
 		t.Errorf("relative state_dir: exit %d, stdout %q", o.exit, o.stdout)
 	}
+	// apply's optional members (card 263): a team peer needs a descriptor,
+	// and a root is an absolute path.
+	for name, extra := range map[string]map[string]any{
+		"team_peers": {"team_peers": []map[string]string{{"peer": "", "label": "nobody"}}},
+		"root":       {"root": "relative/checkout"},
+	} {
+		req := map[string]any{"state_dir": t.TempDir(), "session_id": "s1", "folders": []map[string]string{}, "peers": []map[string]string{}}
+		maps.Copy(req, extra)
+		o := invoke(t, d, "apply", req)
+		if o.exit != 3 || o.env.Error.Code != "invalid_input" || o.env.Error.Details["field"] != name {
+			t.Errorf("a bad %s: exit %d, stdout %q", name, o.exit, o.stdout)
+		}
+	}
 }
 
 func TestStatusWithNoDaemon(t *testing.T) {
@@ -423,6 +436,157 @@ func testApplyPauses(t *testing.T, id func(ref, repository, folder string) strin
 	for _, c := range fake.Folders {
 		if c.Paused {
 			t.Errorf("folder %s is still paused after the project listed it again", c.Label)
+		}
+	}
+}
+
+// TestApplySharesATeamFolderWithTheTeamsPeers: a folder the request marks
+// `team` — the board (card 263) — is shared with `team_peers`, the peers
+// of the whole team's sessions, and every other folder with `peers`, the
+// repository's; a peer in both lists is added once and reported once.
+// The team folder is not a checkout's: an apply that does not name it
+// — another session's, or an older version's — leaves it as it is, and
+// an apply that names it alone pauses nothing of a checkout's.
+func TestApplySharesATeamFolderWithTheTeamsPeers(t *testing.T) {
+	t.Parallel()
+	fake, srv := syncthingtest.New(t)
+	d := testDeps(srv, "")
+	stateDir, _ := runningHome(t)
+	root := filepath.Join(t.TempDir(), "repo")
+	const ref = "6f0f2b41"
+	docs := map[string]any{"id": testFolderID(ref, "repo", "docs"), "path": filepath.Join(root, "docs"), "label": "repo/docs"}
+	// foldersync.BoardFolder: the id hashes "/board", the label is fixed.
+	board := map[string]any{"id": testLegacyID(ref, "/board"), "path": filepath.Join(stateDir, "boards", "team-key"), "label": "team board", "team": true}
+	fake.Connected["PEERTWO"] = true
+	req := map[string]any{
+		"state_dir": stateDir, "session_id": "s1",
+		"folders": []map[string]any{docs, board},
+		"peers":   []map[string]string{{"peer": "PEERONE", "label": "alice"}},
+		"team_peers": []map[string]string{
+			{"peer": "PEERONE", "label": "alice"},
+			{"peer": "PEERTWO", "label": "bob"},
+			{"peer": "BADPEER", "label": "broken"},
+		},
+	}
+	for range 2 { // idempotent
+		res := mustOK(t, invoke(t, d, "apply", req), "apply")
+		folders := res["folders"].([]any)
+		if len(folders) != 2 || folders[0].(map[string]any)["state"] != "idle" || folders[1].(map[string]any)["state"] != "idle" {
+			t.Fatalf("apply folders = %v", folders)
+		}
+		var peers []string
+		for _, p := range res["peers"].([]any) {
+			m := p.(map[string]any)
+			peers = append(peers, m["peer"].(string)+"="+strconv.FormatBool(m["connected"].(bool)))
+		}
+		if want := []string{"PEERONE=false", "PEERTWO=true", "BADPEER=false"}; !slices.Equal(peers, want) {
+			t.Fatalf("apply peers = %v, want %v", peers, want)
+		}
+	}
+	devicesOf := func(id string) []string {
+		fake.Mu.Lock()
+		defer fake.Mu.Unlock()
+		for _, c := range fake.Folders {
+			if c.ID == id {
+				var out []string
+				for _, dev := range c.Devices {
+					out = append(out, dev.DeviceID)
+				}
+				return out
+			}
+		}
+		return nil
+	}
+	if got := devicesOf(docs["id"].(string)); !slices.Equal(got, []string{"PEERONE"}) {
+		t.Errorf("the project folder's devices = %v, want the repository's peer alone", got)
+	}
+	if got := devicesOf(board["id"].(string)); !slices.Equal(got, []string{"PEERONE", "PEERTWO"}) {
+		t.Errorf("the team folder's devices = %v, want every teammate's usable peer", got)
+	}
+	fake.Mu.Lock()
+	if len(fake.Devices) != 2 {
+		t.Errorf("devices = %+v, want each peer added once", fake.Devices)
+	}
+	fake.Mu.Unlock()
+
+	// An apply without the team folder, then one with it alone.
+	for _, folders := range [][]map[string]any{{docs}, {board}} {
+		req["folders"] = folders
+		res := mustOK(t, invoke(t, d, "apply", req), "apply")
+		if got := res["folders"].([]any); len(got) != 1 || got[0].(map[string]any)["state"] != "idle" {
+			t.Fatalf("apply of %v: folders = %v", folders[0]["label"], got)
+		}
+	}
+	fake.Mu.Lock()
+	defer fake.Mu.Unlock()
+	if fake.Pauses != 0 || len(fake.Deletes) != 0 || len(fake.Folders) != 2 {
+		t.Errorf("pauses %d, deletes %v, folders %+v: an apply touched a folder it did not name", fake.Pauses, fake.Deletes, fake.Folders)
+	}
+}
+
+// TestApplyPausesAFolderOfAProjectThatKeepsOnlyItsBoard: a project that
+// stops listing folders and keeps its team's board requests the board
+// alone, whose label proves no folder name. The request's `root` — the
+// checkout's toplevel, sent with a team folder — is what still tells
+// apply which folder this checkout dropped: it is paused, as a dropped
+// folder is in a project that lists another. Another checkout's folder
+// stays as it is; and with no `root` nothing is paused.
+func TestApplyPausesAFolderOfAProjectThatKeepsOnlyItsBoard(t *testing.T) {
+	t.Parallel()
+	fake, srv := syncthingtest.New(t)
+	d := testDeps(srv, "")
+	stateDir, _ := runningHome(t)
+	work := t.TempDir()
+	root := filepath.Join(work, "repo")
+	const ref = "6f0f2b41"
+	docs := map[string]any{"id": testFolderID(ref, "repo", "docs"), "path": filepath.Join(root, "docs"), "label": "repo/docs"}
+	board := map[string]any{"id": testLegacyID(ref, "/board"), "path": filepath.Join(stateDir, "boards", "team"), "label": "team board", "team": true}
+	// The same team's other repository, on this machine too.
+	other := engine.FolderConfig{ID: testFolderID(ref, "other", "docs"), Label: "other/docs", Path: filepath.Join(work, "other", "docs")}
+	fake.Folders = []engine.FolderConfig{other}
+	req := map[string]any{
+		"state_dir": stateDir, "session_id": "s1", "root": root,
+		"folders": []map[string]any{docs, board}, "peers": []map[string]string{}, "team_peers": []map[string]string{},
+	}
+	mustOK(t, invoke(t, d, "apply", req), "apply")
+
+	states := func(res map[string]any) map[string]string {
+		out := map[string]string{}
+		for _, f := range res["folders"].([]any) {
+			m := f.(map[string]any)
+			out[m["id"].(string)] = m["state"].(string)
+		}
+		return out
+	}
+	// The project drops `docs` and keeps the board. Without the root,
+	// nothing anchors the dropped folder.
+	req["folders"] = []map[string]any{board}
+	delete(req, "root")
+	if got := states(mustOK(t, invoke(t, d, "apply", req), "apply")); len(got) != 1 || got[board["id"].(string)] != "idle" {
+		t.Fatalf("apply with no root: folders = %v", got)
+	}
+	fake.Mu.Lock()
+	if fake.Pauses != 0 {
+		t.Errorf("%d pauses with no root", fake.Pauses)
+	}
+	fake.Mu.Unlock()
+
+	req["root"] = root
+	for round := range 2 {
+		got := states(mustOK(t, invoke(t, d, "apply", req), "apply"))
+		want := map[string]string{board["id"].(string): "idle", docs["id"].(string): "paused"}
+		if !maps.Equal(got, want) {
+			t.Fatalf("round %d: apply folders = %v, want %v", round, got, want)
+		}
+	}
+	fake.Mu.Lock()
+	defer fake.Mu.Unlock()
+	if fake.Pauses != 1 {
+		t.Errorf("%d pauses, want 1: the dropped folder is paused once", fake.Pauses)
+	}
+	for _, c := range fake.Folders {
+		if (c.ID == other.ID || c.ID == board["id"]) && c.Paused {
+			t.Errorf("folder %s (%s) was paused", c.ID, c.Label)
 		}
 	}
 }

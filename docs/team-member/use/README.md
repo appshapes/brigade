@@ -13,6 +13,7 @@ they arrive. You ask in words; these are the things to ask for and what comes ba
 | write to people on email or Slack, and read what they send | [Write to people on email or Slack](#write-to-people-on-email-or-slack) |
 | keep folders in step with teammates' checkouts | [Sync folders](#sync-folders) |
 | record what your session did, ask a teammate for a decision, or subscribe to the digest | [Record notes and ask for decisions](#record-notes-and-ask-for-decisions) |
+| keep the team's work items on a board in Brigade, and have a session take one | [Keep the team's work on the board](#keep-the-teams-work-on-the-board) |
 | check whether your session is receiving | [Check that your session is receiving](#check-that-your-session-is-receiving) |
 | know what happens when the network drops | [Ride out a network drop](#ride-out-a-network-drop) |
 | read and release the messages a `hold` session kept | [Read and release held messages](#read-and-release-held-messages) |
@@ -67,6 +68,16 @@ Details: [Sync folders](sync-folders.md).
    you the digest on your period; `brigade report unsubscribe` stops it.
 
 Details: [Record notes and ask for decisions](notes-and-decisions.md).
+
+## Keep the team's work on the board
+
+1. `/brigade:work-items` prints the board: the open work items by list, in every repository of the team.
+2. `/brigade:work-item add <title>` adds one; `/brigade:work-item <number>` shows one, and `<number> move <list>`,
+   `assign me`, `comment <text>`, `close` change it. Each is one `brigade work-item` command.
+3. `/brigade:work-item-start <number>` has the session take a work item, do the work, comment and move it on.
+4. A team has a board when its `.brigade.json` turns it on; it travels while both machines run a session.
+
+Details: [Keep the team's work on the board](work-items.md).
 
 ## Check that your session is receiving
 

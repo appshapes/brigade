@@ -148,6 +148,20 @@ func init() {
 			Run: runReport,
 		},
 		{
+			Name:    "work-item",
+			Args:    "list [--list <name>] [--to <label> | --mine | --nobody] [--label <name>] [--closed] | show <number> | add [--list <name>] [--to <label> | --mine] [--label <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | label <number> [<name>…] | comment <number> | close <number> | reopen <number> | lists [<name>…]",
+			Summary: "read and change the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, label, comment on, close or reopen one, and show or name the board's lists",
+			Flags: func(fs *flag.FlagSet) {
+				fs.String("list", "", "add: the list the new work item goes into (the board's first when unset); list: only the work items in this list")
+				fs.String("to", "", "a member, by their label as the roster shows it. add: the new work item's assignee; assign: the work item's; list: only the work items assigned to them")
+				fs.Bool("mine", false, "this session's own member, in place of --to")
+				fs.Bool("nobody", false, "assign: assign the work item to nobody; list: only the work items assigned to nobody")
+				fs.String("label", "", "add: the new work item's labels, separated by commas; list: only the work items carrying this label")
+				fs.Bool("closed", false, "list: the closed work items instead of the open ones")
+			},
+			Run: runWorkItem,
+		},
+		{
 			Name:    "inbound",
 			Args:    "[accept|hold|refuse]",
 			Summary: "show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)",
@@ -378,6 +392,19 @@ func runReport(cx *Context, args []string) error {
 		Only:       stringFlag(cx, "only"),
 		Wait:       stringFlag(cx, "wait"),
 		To:         stringFlag(cx, "to"),
+	})
+}
+
+// runWorkItem is the table's Run for `work-item` (card 263; the verb and
+// its words are positional arguments).
+func runWorkItem(cx *Context, args []string) error {
+	return harnesscmd.WorkItem(invocation(cx, args), harnesscmd.WorkItemOptions{
+		List:   stringFlag(cx, "list"),
+		To:     stringFlag(cx, "to"),
+		Mine:   cx.Bool("mine"),
+		Nobody: cx.Bool("nobody"),
+		Label:  stringFlag(cx, "label"),
+		Closed: cx.Bool("closed"),
 	})
 }
 

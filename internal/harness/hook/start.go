@@ -21,6 +21,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/adapterclient"
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/doing"
+	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/inbound"
 	"github.com/appshapes/brigade/internal/harness/notify"
@@ -504,7 +505,7 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 		r.fail("session-start: frame text", err, frameLine(err))
 		return resolved{}, false
 	}
-	sync, syncLine := r.resolveSync(opts, tf, in.Cwd)
+	sync, syncLine := r.resolveSync(opts, tf, in.Cwd, foldersync.BoardPath(f.stateDir, tf.TeamRef))
 	polling := resolvePolling(tf)
 	messageSound, soundLine := r.resolveAnnounce(opts.MessageSound, r.deps.SoundPlayer, announceSound)
 	messageNotification, notificationLine := r.resolveAnnounce(opts.MessageNotification, r.deps.Notifier, announceNotification)
@@ -719,6 +720,10 @@ type frozenSync struct {
 	// stateFolder is the absolute path of the listed folder the team
 	// file's `sync.state` names (card 162), "" when it names none.
 	stateFolder string
+	// boardFolder is the absolute path of the team's board on this
+	// machine (card 263), "" when the team file's `sync.board` is not
+	// true.
+	boardFolder string
 }
 
 // frozenIn reports whether m already carries exactly this configuration:
@@ -726,7 +731,7 @@ type frozenSync struct {
 // watcher reads these members once, when it starts its sync goroutine.
 func (s frozenSync) frozenIn(m *sessionmap.ByPID) bool {
 	return m.SyncAdapter == s.adapter && m.SyncRoot == s.root && m.SyncScope == s.scope &&
-		m.StateFolder == s.stateFolder && slices.Equal(m.SyncFolders, s.folders)
+		m.StateFolder == s.stateFolder && m.BoardFolder == s.boardFolder && slices.Equal(m.SyncFolders, s.folders)
 }
 
 // frozenPolling is the team file's `polling` member as SessionStart
@@ -793,19 +798,26 @@ const (
 // without a `sync` member says nothing — a project that syncs nothing
 // must not be told so at every start — and one whose member is unusable
 // has already earned card 32's line (syncUnusableLine), so it gets no
-// second. Otherwise: the option off, or no folders, is a `file sync off`
-// line naming why; a usable member with folders and the option on freezes
+// second. Otherwise: the option off, or nothing to sync (no folders and
+// no board), is a `file sync off` line naming why; a usable member with
+// folders, the team's board (card 263) or both, and the option on, freezes
 // the adapter's name, the folders and the canonical toplevel (the folders
-// are relative to it, teamfile.SyncConfig) and says `file sync on`. Nothing
-// here looks for the adapter on PATH: the watcher discovers it, and says
-// so through its notice when it cannot (watch/sync.go).
-func (r *run) resolveSync(opts config.Options, tf *teamfile.File, cwd string) (frozenSync, string) {
+// are relative to it, teamfile.SyncConfig) and says `file sync on`. The
+// board is frozen as boardPath, this machine's folder for the team's
+// board under the state directory: it is the team's, not this checkout's,
+// so it needs no listed folder. The caller names it after the team
+// file's team_ref — the one the binding was matched against field by
+// field, and so the one the session registers under and the watcher
+// derives the folder's id from. Nothing here looks for the adapter on
+// PATH: the watcher discovers it, and says so through its notice when it
+// cannot (watch/sync.go).
+func (r *run) resolveSync(opts config.Options, tf *teamfile.File, cwd, boardPath string) (frozenSync, string) {
 	switch {
 	case tf == nil || tf.Sync == nil:
 		return frozenSync{}, ""
 	case !opts.Sync:
 		return frozenSync{}, syncOffLine(syncOffOption)
-	case len(tf.Sync.Folders) == 0:
+	case len(tf.Sync.Folders) == 0 && !tf.Sync.Board:
 		return frozenSync{}, syncOffLine(syncOffNoFolders)
 	}
 	root, ok := syncRoot(cwd)
@@ -821,7 +833,18 @@ func (r *run) resolveSync(opts config.Options, tf *teamfile.File, cwd string) (f
 		// the state as written.
 		sync.stateFolder = filepath.Join(root, tf.Sync.State)
 	}
-	return sync, syncOnLine(len(tf.Sync.Folders), tf.Sync.Adapter)
+	if tf.Sync.Board {
+		// A path the map would refuse costs the session its board, never
+		// its map: the state directory is absolute and the folder's name
+		// a hash, so this is belt and braces.
+		if filepath.IsAbs(boardPath) && filepath.Clean(boardPath) == boardPath {
+			sync.boardFolder = boardPath
+		} else if len(sync.folders) == 0 {
+			r.log.Warn("session-start: the board folder is not an absolute path; file sync is off")
+			return frozenSync{}, syncOffLine(syncOffUnresolved)
+		}
+	}
+	return sync, syncOnLine(len(tf.Sync.Folders), sync.boardFolder != "", tf.Sync.Adapter)
 }
 
 // syncScope is the repository's name for the folder ids (card 42):
@@ -861,9 +884,22 @@ func syncRoot(cwd string) (string, bool) {
 // syncOnLine and syncOffLine are the one SessionStart sync line (§4.3).
 // The adapter is a validated name and why is one of this file's fixed
 // reasons; neither carries a folder, a path or a value from the option.
-func syncOnLine(folders int, adapter string) string {
-	return "Brigade: file sync on: " + strconv.Itoa(folders) + " folder(s) through " + attr(adapter) + "."
+// A team with a board (card 263) is told so here, with the command that
+// lists its work items: the line is how a session learns the board
+// exists.
+func syncOnLine(folders int, board bool, adapter string) string {
+	what := strconv.Itoa(folders) + " folder(s)"
+	switch {
+	case board && folders == 0:
+		what = syncBoardWords
+	case board:
+		what += " and " + syncBoardWords
+	}
+	return "Brigade: file sync on: " + what + " through " + attr(adapter) + "."
 }
+
+// syncBoardWords is how the sync line names the team's board.
+const syncBoardWords = "the team's board (`brigade work-item list`)"
 
 func syncOffLine(why string) string {
 	return "Brigade: file sync off (" + why + ")."
@@ -1237,6 +1273,7 @@ func (r *run) buildMap(f facts, in input, res resolved, sessionID, teamRef, team
 		SyncRoot:               res.sync.root,
 		SyncScope:              res.sync.scope,
 		StateFolder:            res.sync.stateFolder,
+		BoardFolder:            res.sync.boardFolder,
 		MessageSound:           res.messageSound,
 		MessageNotification:    res.messageNotification,
 		MessageIntervalSeconds: int(res.opts.MessageInterval / time.Second),

@@ -114,8 +114,9 @@ type syncPeerJSON struct {
 // Sync implements `brigade sync status [--json]` (folder-sync plan §4.3):
 // inside a session, the sync adapter and folders the SessionStart hook
 // froze into the by-pid map, and the adapter's `status` verb — the
-// engine's state, this machine's peer, this project's folders (label,
-// state) and every peer (label, connected). A peer's label is looked up in
+// engine's state, this machine's peer, this project's folders and the
+// team's board when it has one (label, state) and every peer (label,
+// connected). A peer's label is looked up in
 // the team roster best effort; the adapter answers for itself. Outside a
 // session it refuses, like `doing`: there is no map to read.
 func Sync(inv Invocation) error {
@@ -154,6 +155,11 @@ func Sync(inv Invocation) error {
 		return err
 	}
 	configured := foldersync.Folders(m.TeamRef, m.SyncRoot, m.SyncScope, m.SyncFolders)
+	if m.BoardFolder != "" {
+		// The team's board (card 263) is a folder this session shares
+		// too: the team's, at this machine's path for it.
+		configured = append(configured, foldersync.BoardFolder(m.TeamRef, m.BoardFolder))
+	}
 	labels := inv.peerLabels(m.SyncAdapter)
 
 	if inv.JSON {

@@ -105,6 +105,12 @@ func TestSyncRules(t *testing.T) {
 		{"state in another case than the list", `{"folders":["a"],"state":"A/b"}`, teamfile.SyncStateNotListed, "", nil},
 		{"state with no folders", `{"state":"a"}`, teamfile.SyncStateNotListed, "", nil},
 		{"the folder rules come first", `{"folders":["/abs"],"state":"/abs"}`, teamfile.SyncFolderNotRelative, "", nil},
+		// The board (card 263): a switch, true or false and nothing else.
+		{"board is a string", `{"folders":["a"],"board":"true"}`, teamfile.SyncBoardInvalid, "", nil},
+		{"board is a number", `{"board":1}`, teamfile.SyncBoardInvalid, "", nil},
+		{"board is null", `{"board":null}`, teamfile.SyncBoardInvalid, "", nil},
+		{"board is an object", `{"board":{}}`, teamfile.SyncBoardInvalid, "", nil},
+		{"the state rules come before the board's", `{"folders":["a"],"state":"b","board":1}`, teamfile.SyncStateNotListed, "", nil},
 	}
 	covered := map[string]bool{}
 	for _, c := range cases {
@@ -164,7 +170,7 @@ func TestSyncReasonsListIsClosed(t *testing.T) {
 	want := []string{
 		"not_object", "adapter_invalid", "folders_invalid", "too_many_folders",
 		"folder_too_long", "folder_not_relative", "folder_not_clean", "folder_root",
-		"state_invalid", "state_not_listed",
+		"state_invalid", "state_not_listed", "board_invalid",
 	}
 	if got := teamfile.SyncReasons(); !slices.Equal(got, want) {
 		t.Fatalf("SyncReasons() = %q\nwant %q: the list is closed and every change needs a test", got, want)
@@ -276,6 +282,10 @@ func TestCarriedSync(t *testing.T) {
 			withSync(`{"folders":["b","a"],"state":"a"}`), false,
 			&teamfile.SyncConfig{Adapter: "syncthing", Folders: []string{"b", "a"}, State: "a"}, "",
 		},
+		"a usable member with the board on": {
+			withSync(`{"board":true}`), false,
+			&teamfile.SyncConfig{Adapter: "syncthing", Folders: []string{}, Board: true}, "",
+		},
 		"a refused file with no sync": {"not json", false, nil, ""},
 		"an unusable member":          {withSync(`{"folders":["/x"]}`), false, nil, teamfile.SyncFolderNotRelative},
 		"a refused file that declares sync": {
@@ -346,4 +356,27 @@ func stateUnderListed(c *teamfile.SyncConfig) bool {
 	return slices.ContainsFunc(c.Folders, func(f string) bool {
 		return c.State == f || strings.HasPrefix(c.State, f+"/")
 	})
+}
+
+// TestSyncBoard: the board is a switch of the `sync` member (card 263),
+// off unless the file says true, and it needs no listed folder.
+func TestSyncBoard(t *testing.T) {
+	t.Parallel()
+	for member, want := range map[string]bool{
+		`{"board":true}`:    true,
+		`{"board":false}`:   false,
+		`{"folders":["a"]}`: false,
+		`{"folders":["a"],"state":"a","board":true}`: true,
+	} {
+		f, err := teamfile.Parse(write(t, withSync(member)))
+		if err != nil {
+			t.Fatalf("%s: %v", member, err)
+		}
+		if f.Sync == nil || f.SyncUnusable != "" || f.Sync.Board != want {
+			t.Errorf("%s: sync = %+v, unusable = %q; want board %v", member, f.Sync, f.SyncUnusable, want)
+		}
+		if len(f.Ignored) != 0 {
+			t.Errorf("%s: ignored = %q", member, f.Ignored)
+		}
+	}
 }

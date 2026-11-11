@@ -58,7 +58,7 @@ Every verb is **idempotent**: Brigade repeats them freely.
 | --- | --- | --- |
 | `describe` | `{}` | `{"name","version","protocol_version":"sync/1"}` |
 | `attach` | `{"state_dir","session_id","pid"}` | `{"peer":"<descriptor>"}` |
-| `apply` | `{"state_dir","session_id","folders":[{"id","path","label","replaces"}],"peers":[{"peer","label"}]}` | `{"folders":[{"id","state"}],"peers":[{"peer","connected"}]}` |
+| `apply` | `{"state_dir","session_id","folders":[{"id","path","label","replaces","team"}],"peers":[{"peer","label"}],"team_peers":[{"peer","label"}],"root"}` | `{"folders":[{"id","state"}],"peers":[{"peer","connected"}]}` |
 | `status` | `{"state_dir"}` | `{"running","peer","folders":[{"id","path","state"}],"peers":[{"peer","connected"}]}` |
 | `detach` | `{"state_dir","session_id","pid"}` | `{"stopped"}` |
 
@@ -71,7 +71,8 @@ a `detach` (a watcher killed with `SIGKILL`), so the engine does not outlive the
 conforming.
 
 **Ignore a member you do not know.** A request can gain an optional member in any Brigade release — `pid` in
-0.11.0, a folder's `replaces` in 0.16.0 — and the protocol stays `sync/1`.
+0.11.0, a folder's `replaces` in 0.16.0, a folder's `team` and the request's `team_peers` and `root` with the
+board — and the protocol stays `sync/1`.
 
 ### `describe`
 
@@ -115,6 +116,18 @@ session lives (with the peers of the last read).
   Offline sessions are not read: their machines run no engine, and their rows were most of the roster's bytes. A
   peer that was listed before may stay configured. Never this machine's own. `label` is the teammate's roster
   label: unverified text, for display only.
+- A folder's `team` and the request's `team_peers` are **optional**, and come together: a team that turned its
+  board on ([Turn on the board](team-admin/configure/board.md)) has one folder that is the team's and not a
+  repository's, marked `"team": true`, at a path under Brigade's state directory. Share it with `team_peers` —
+  the peer of every teammate's online session, whatever its repository, for the same adapter — instead of
+  `peers`; every other folder stays with `peers`. A request with no team folder carries no `team_peers`; one with
+  a team folder carries it even when it is empty. An adapter that does not know the two members shares the
+  board with `peers`, the repository's sessions alone: a narrower board, never a broken one. Report every peer of
+  both lists once.
+- `root` is **optional**, and comes with a team folder: the absolute path of the checkout's toplevel, which the
+  project's listed folders are relative to. A project can list no folder and keep its board; the request then
+  names the team folder alone, and `root` is what still says where this checkout's folders were, for an adapter
+  that stops sharing a folder its project no longer lists. An adapter may ignore it.
 
 Report each folder's state in your engine's own words (`idle`, `syncing`, `error`, …) and whether each peer is
 connected right now. What `apply` changes in your engine to get there is yours to decide. A peer or folder that
@@ -122,6 +135,10 @@ is no longer listed may stay configured; removing it is not required.
 
 What the bundled adapter does:
 
+- **It shares a team folder with the team.** A folder marked `team` gets the devices of `team_peers`, every other
+  folder those of `peers`; a device in both lists is added once. It never counts the team folder among a
+  checkout's: its label gives no folder name, so it is never paused as one the project dropped. With `root` it
+  pauses a folder this checkout dropped even when the team folder is the only one the request names.
 - **It keeps what a person set up.** A device, or a folder's device, that someone configured by hand stays, with
   its name and addresses: teams add an always-on server that way.
 - **It moves a folder to its new id.** A folder the instance holds under `replaces` at `path` has its entry
@@ -195,6 +212,15 @@ that list the same folder. Use the id as your engine's folder id, or map it to o
 
 From 0.11.0 to 0.15.0 the hash was of the folder alone — `brigade-6f0f2b41-46b42b4229cd` for the same folder.
 That id is what `replaces` carries. A checkout whose repository has no name keeps it, and sends no `replaces`.
+
+The team's board has one id per team, with no repository in it: the hashed text is `/board`, which no listed
+folder can be, and its `label` is `team board` for every team. Team `6f0f2b41-5a3c-…` gives
+`brigade-6f0f2b41-10ec23840280`:
+
+```
+$ printf '/board' | shasum -a 256 | cut -c1-12
+10ec23840280
+```
 
 ## Failing
 

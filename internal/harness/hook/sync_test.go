@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/appshapes/brigade/internal/harness/config"
+	"github.com/appshapes/brigade/internal/harness/foldersync"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakeadapter"
@@ -47,6 +48,7 @@ func TestSyncLines(t *testing.T) {
 		subdir  string // a cwd below the toplevel
 		folders []string
 		adapter string
+		board   bool // the map freezes the team's board folder (card 263)
 		want    []string
 	}{
 		"no sync member": {},
@@ -79,6 +81,25 @@ func TestSyncLines(t *testing.T) {
 		"an unusable member, one line": {
 			members: `,"sync":{"folders":["/abs"]}`,
 			want:    []string{unusable},
+		},
+		// The team's board (card 263): something to sync by itself.
+		"the board beside a folder": {
+			members: `,"sync":{"folders":["shared"],"board":true}`,
+			folders: []string{"shared"}, adapter: "syncthing", board: true,
+			want: []string{"Brigade: file sync on: 1 folder(s) and the team's board (`brigade work-item list`) through syncthing."},
+		},
+		"the board alone": {
+			members: `,"sync":{"board":true}`,
+			adapter: "syncthing", board: true,
+			want: []string{"Brigade: file sync on: the team's board (`brigade work-item list`) through syncthing."},
+		},
+		"the board switched off, and no folders": {
+			members: `,"sync":{"board":false}`,
+			want:    []string{"Brigade: file sync off (no folders listed)."},
+		},
+		"the board with the option off": {
+			members: `,"sync":{"board":true}`, option: "off",
+			want: []string{"Brigade: file sync off (the sync option is off)."},
 		},
 	}
 	for name, tc := range cases {
@@ -117,10 +138,21 @@ func TestSyncLines(t *testing.T) {
 			}
 			m := f.mustMap()
 			if tc.adapter == "" {
-				if m.SyncAdapter != "" || m.SyncFolders != nil || m.SyncRoot != "" {
-					t.Fatalf("sync frozen for a session that syncs nothing: %q %v %q", m.SyncAdapter, m.SyncFolders, m.SyncRoot)
+				if m.SyncAdapter != "" || m.SyncFolders != nil || m.SyncRoot != "" || m.BoardFolder != "" {
+					t.Fatalf("sync frozen for a session that syncs nothing: %q %v %q %q", m.SyncAdapter, m.SyncFolders, m.SyncRoot, m.BoardFolder)
 				}
 				return
+			}
+			// The board is this machine's folder for the team, under the
+			// state directory and outside the checkout, named after the
+			// team file's team_ref (teamFileBase's): the reference the
+			// binding was matched against, and so the backend's.
+			wantBoard := ""
+			if tc.board {
+				wantBoard = foldersync.BoardPath(f.stateDir, "team-1")
+			}
+			if m.BoardFolder != wantBoard {
+				t.Fatalf("frozen board_folder = %q, want %q", m.BoardFolder, wantBoard)
 			}
 			if m.SyncAdapter != tc.adapter || !slices.Equal(m.SyncFolders, tc.folders) || m.SyncRoot != realpath(t, top) {
 				t.Fatalf("frozen sync = %q %v %q, want %q %v %q", m.SyncAdapter, m.SyncFolders, m.SyncRoot, tc.adapter, tc.folders, realpath(t, top))
@@ -248,6 +280,8 @@ func TestSyncChangeRespawnsTheWatcher(t *testing.T) {
 		{"the repository named by a remote", `,"sync":{"folders":["docs"]}`, "", "git@github.com:example/renamed.git", true, []string{"docs"}},
 		// The state folder (card 162) is read by the watcher once too.
 		{"a state folder named", `,"sync":{"folders":["docs"],"state":"docs"}`, "", "", true, []string{"docs"}},
+		// And so is the team's board (card 263).
+		{"the board turned on", `,"sync":{"folders":["docs"],"board":true}`, "", "", true, []string{"docs"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

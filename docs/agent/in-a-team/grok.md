@@ -18,6 +18,9 @@ A genuine Stop offers one setup continuation; its marker and recursion guard pre
 | [`grok/brigade/skills/slack/SKILL.md`](../../../grok/brigade/skills/slack/SKILL.md) | slack |
 | [`grok/brigade/skills/quiet/SKILL.md`](../../../grok/brigade/skills/quiet/SKILL.md) | quiet: make this one session quiet, and return it |
 | [`grok/brigade/skills/subscribe/SKILL.md`](../../../grok/brigade/skills/subscribe/SKILL.md) | subscribe: the user's own opt-in to the digest, and `off` |
+| [`grok/brigade/skills/work-items/SKILL.md`](../../../grok/brigade/skills/work-items/SKILL.md) | work-items: print the team's board of work items verbatim |
+| [`grok/brigade/skills/work-item/SKILL.md`](../../../grok/brigade/skills/work-item/SKILL.md) | work-item: read, add or change one work item |
+| [`grok/brigade/skills/work-item-start/SKILL.md`](../../../grok/brigade/skills/work-item-start/SKILL.md) | work-item-start: take a work item and work it through |
 
 Use `brigade whoami --json` to obtain this incarnation's safely quoted absolute `monitor_command` and exact
 `monitor_description`. Inspect native tasks before arming; only an exact running monitor command confirms

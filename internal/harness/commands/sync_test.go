@@ -237,6 +237,57 @@ func TestSyncStatusJSON(t *testing.T) {
 	}
 }
 
+// TestSyncStatusShowsTheTeamsBoard: a team with a board (card 263) has
+// its folder among the session's own, under its fixed label, with the
+// engine's state — and it is the one row of a project that lists no
+// folder. The JSON form carries it as configured, marked as the team's.
+func TestSyncStatusShowsTheTeamsBoard(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	m := f.byPID()
+	m.SyncAdapter, m.SyncRoot = "syncthing", t.TempDir()
+	m.BoardFolder = foldersync.BoardPath(f.stateDir, fixtureTeamRef)
+	f.writeMap(t, m)
+	board := foldersync.BoardFolder(fixtureTeamRef, m.BoardFolder)
+	status, err := json.Marshal(foldersync.StatusResult{
+		Running: true, Peer: fakesync.SelfPeer,
+		Folders: []foldersync.FolderState{{ID: board.ID, Path: board.Path, State: "idle"}},
+		Peers:   []foldersync.PeerState{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := fakesync.Write(t, t.TempDir(), fakesync.Answers{Status: string(status)})
+	f.rec.on("session list", okAnswer(syncListResult(t)))
+	inv := f.inv(f.sessionEnv(), "", "status")
+	inv.Deps.SyncCommand = fake.Argv
+	if err := Sync(inv); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	want := "sync: syncthing, engine running, this machine's peer SELF-DEVICE-1\n" +
+		"FOLDER      STATE\n" +
+		"team board  idle\n"
+	if got := f.out.String(); got != want {
+		t.Fatalf("stdout =\n%s\nwant\n%s", got, want)
+	}
+	f.out.Reset()
+	inv = f.inv(f.sessionEnv(), "", "status")
+	inv.JSON = true
+	inv.Deps.SyncCommand = fake.Argv
+	if err := Sync(inv); err != nil {
+		t.Fatalf("Sync --json: %v", err)
+	}
+	var env struct {
+		Result syncStatusResult `json:"result"`
+	}
+	if err := json.Unmarshal(f.out.Bytes(), &env); err != nil {
+		t.Fatalf("stdout %q: %v", f.out.String(), err)
+	}
+	if !slices.Equal(env.Result.Configured, []foldersync.Folder{board}) || !board.Team {
+		t.Fatalf("configured = %+v, want the board alone", env.Result.Configured)
+	}
+}
+
 // TestSyncStatusWithoutARoster: a backend that cannot list still leaves
 // the sync adapter's report standing, every peer by its short descriptor.
 func TestSyncStatusWithoutARoster(t *testing.T) {

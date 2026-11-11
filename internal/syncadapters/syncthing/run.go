@@ -131,7 +131,7 @@ func (a *adapter) execute(verb string, req *request) (any, error) {
 		}
 		return inst.attach(req.SessionID, req.PID)
 	case verbApply:
-		return inst.apply(req.Folders, req.Peers)
+		return inst.apply(req.Folders, req.Peers, req.TeamPeers, req.Root)
 	case verbStatus:
 		return inst.status()
 	default: // verbDetach; parseVerb admits nothing else
@@ -196,24 +196,34 @@ func (a *adapter) fail(err error) int {
 // detach's optional "pid": the process that holds the session's
 // reference (the harness sends its watcher's), kept in refs/<session_id>
 // so a reference whose process died without detaching is pruned.
+// TeamPeers is apply's optional "team_peers": the peers a folder marked
+// `team` is shared with instead of Peers (card 263). Root is apply's
+// optional "root", sent with a team folder: the checkout's toplevel, which
+// lets apply find a folder this checkout dropped when the project lists
+// none (formerFolders).
 type request struct {
 	StateDir  string       `json:"state_dir"`
 	SessionID string       `json:"session_id"`
 	PID       int          `json:"pid"`
 	Folders   []folderSpec `json:"folders"`
 	Peers     []peerSpec   `json:"peers"`
+	TeamPeers []peerSpec   `json:"team_peers"`
+	Root      string       `json:"root"`
 }
 
 // A folderSpec is one folder apply shares: the id the harness derived
 // ("brigade-<team>-<hash>"), the absolute path in this checkout, and a
 // label for Syncthing's own UI. Replaces, optional, is the id the folder
 // had before 0.16.0: apply moves a folder the instance still holds under
-// it, at this path, to ID (card 42).
+// it, at this path, to ID (card 42). Team, optional, marks a folder that
+// is the team's and not one repository's — the board (card 263) — which
+// apply shares with the request's team_peers instead of its peers.
 type folderSpec struct {
 	ID       string `json:"id"`
 	Path     string `json:"path"`
 	Label    string `json:"label"`
 	Replaces string `json:"replaces"`
+	Team     bool   `json:"team"`
 }
 
 // A peerSpec is one teammate's descriptor (a Syncthing device id, the

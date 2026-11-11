@@ -53,6 +53,10 @@ type syncSetup struct {
 	root      string
 	scope     string
 	pluginBin string
+	// board is this machine's folder for the team's board of work items
+	// (card 263), "" for a team with none: a folder of the team's, not of
+	// this repository, shared with every teammate's peer.
+	board string
 }
 
 // enabled reports whether the map froze a sync configuration.
@@ -75,6 +79,10 @@ func (s syncSetup) enabled() bool { return s.adapter != "" }
 //     machines run no Brigade engine, so their peers could not connect,
 //     and their rows were two thirds of the roster's bytes; a peer
 //     introduced earlier stays configured, the adapter removes none);
+//     and, for a team with a board (card 263), the board's folder in
+//     the same apply, marked as the team's, with the peer of every
+//     teammate's online session whatever its repository beside the
+//     repository's own;
 //   - then rounds on two tickers: the roster is read every
 //     SyncListInterval (a failed read waits for the next one, and until a
 //     read succeeds nothing is applied), and apply runs
@@ -109,7 +117,8 @@ func (w *watcher) runSync(ctx context.Context) {
 	}
 	w.log.Info("sync adapter described",
 		slog.String("sync_adapter", w.sync.adapter), slog.String("name", protocol.SanitizeAttribute(desc.Name)),
-		slog.String("version", protocol.SanitizeAttribute(desc.Version)), slog.Int("folders", len(w.sync.folders)))
+		slog.String("version", protocol.SanitizeAttribute(desc.Version)), slog.Int("folders", len(w.sync.folders)),
+		slog.Bool("board", w.sync.board != ""))
 	// The detach is registered before the first attach: an attach that
 	// counted this session in and then failed (or was cut short by the
 	// session's end) must not leave the reference behind, and detach is
@@ -125,13 +134,13 @@ func (w *watcher) runSync(ctx context.Context) {
 	defer applyTick.Stop()
 	var (
 		lastSummary string
-		peers       []foldersync.Peer // the teammates' peers of the last roster read
-		listed      bool              // a roster read has succeeded
-		readDue     = true            // the roster is to be read this round
-		applied     string            // the peer set of the last apply that completed
-		applyDue    = true            // an apply is due: the first, SyncInterval's, or a retry
-		followUp    bool              // the last apply introduced a change: apply once more
-		attached    = true            // the attach above stands for the first apply
+		peers       syncPeerSets // the teammates' peers of the last roster read
+		listed      bool         // a roster read has succeeded
+		readDue     = true       // the roster is to be read this round
+		applied     string       // the peer set of the last apply that completed
+		applyDue    = true       // an apply is due: the first, SyncInterval's, or a retry
+		followUp    bool         // the last apply introduced a change: apply once more
+		attached    = true       // the attach above stands for the first apply
 	)
 	for {
 		if readDue {
@@ -177,21 +186,36 @@ func (w *watcher) runSync(ctx context.Context) {
 	}
 }
 
-// peerSet is a canonical form of a round's peers — the descriptors,
-// sorted — so a round can tell whether the teammates changed.
-func peerSet(peers []foldersync.Peer) string {
-	ds := make([]string, 0, len(peers))
-	for _, p := range peers {
-		ds = append(ds, p.Peer)
+// syncPeerSets is the teammates' peers of one roster read: repo, those
+// of the sessions in this session's repository, which the project's
+// folders are shared with; and team, those of every session of the team,
+// which its board is shared with (card 263; empty for a team with none).
+type syncPeerSets struct {
+	repo []foldersync.Peer
+	team []foldersync.Peer
+}
+
+// peerSet is a canonical form of a round's peers — the descriptors of
+// each set, sorted — so a round can tell whether the teammates changed.
+func peerSet(peers syncPeerSets) string {
+	sorted := func(list []foldersync.Peer) string {
+		ds := make([]string, 0, len(list))
+		for _, p := range list {
+			ds = append(ds, p.Peer)
+		}
+		slices.Sort(ds)
+		return strings.Join(ds, "\n")
 	}
-	slices.Sort(ds)
-	return strings.Join(ds, "\n")
+	if len(peers.team) == 0 {
+		return sorted(peers.repo)
+	}
+	return sorted(peers.repo) + "\n\nteam\n" + sorted(peers.team)
 }
 
 // syncRoster reads the teammates' peers for this round; false (logged)
 // when the roster could not be read: the peers of the last read that
 // succeeded stand, and runSync decides when to read again.
-func (w *watcher) syncRoster(ctx context.Context) ([]foldersync.Peer, bool) {
+func (w *watcher) syncRoster(ctx context.Context) (syncPeerSets, bool) {
 	own := ""
 	if p := w.syncPeer.Load(); p != nil {
 		own, _ = foldersync.PeerFor(w.sync.adapter, *p)
@@ -202,7 +226,7 @@ func (w *watcher) syncRoster(ctx context.Context) ([]foldersync.Peer, bool) {
 			w.log.Warn("sync: the roster could not be read; the last peers stand",
 				slog.String("code", string(codeOf(err))), adlog.Err(err))
 		}
-		return nil, false
+		return syncPeerSets{}, false
 	}
 	return peers, true
 }
@@ -226,13 +250,29 @@ func (w *watcher) syncAttach(ctx context.Context, client *foldersync.Client) err
 }
 
 // syncApply is one `apply` with the folders and the round's teammates'
-// peers. The folders' ids and labels carry the repository's name the hook
-// froze (card 42), not the session's workspace label. It returns the
-// summary line for the notice, or "" when the apply did not complete
-// (logged; the next round tries again).
-func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client, peers []foldersync.Peer) string {
+// peers: the project's folders, for the peers of the repository's
+// sessions, and — for a team with a board (card 263) — the board's
+// folder, marked as the team's, for the peers of the whole team's. The
+// folders' ids and labels carry the repository's name the hook froze
+// (card 42), not the session's workspace label; the board's id carries
+// the team alone. It returns the summary line for the notice, or "" when
+// the apply did not complete (logged; the next round tries again).
+func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client, peers syncPeerSets) string {
 	folders := foldersync.Folders(w.teamRef, w.sync.root, w.sync.scope, w.sync.folders)
-	res, err := client.Apply(ctx, w.sessionID, folders, peers)
+	offered := len(peers.repo)
+	if w.sync.board != "" {
+		// The board is Brigade's own folder, private like the state
+		// directory it is under; an adapter would create it with a
+		// project folder's mode. A failure here is the adapter's to
+		// report as a folder it could not use.
+		if err := os.MkdirAll(w.sync.board, 0o700); err != nil {
+			w.log.Warn("sync: the board folder could not be created", adlog.Err(err))
+		}
+		folders = append(folders, foldersync.BoardFolder(w.teamRef, w.sync.board))
+		// Every peer of the repository's sessions is one of the team's.
+		offered = len(peers.team)
+	}
+	res, err := client.Apply(ctx, w.sessionID, foldersync.ApplySet{Folders: folders, Peers: peers.repo, TeamPeers: peers.team, Root: w.sync.root})
 	if err != nil {
 		if ctx.Err() == nil {
 			w.log.Warn("sync apply failed", slog.String("code", string(codeOf(err))), adlog.Err(err))
@@ -245,7 +285,7 @@ func (w *watcher) syncApply(ctx context.Context, client *foldersync.Client, peer
 	}
 	summary, connected := syncSummary(res, folders)
 	w.log.Info("sync applied",
-		slog.Int("folders", len(res.Folders)), slog.Int("peers_offered", len(peers)),
+		slog.Int("folders", len(res.Folders)), slog.Int("peers_offered", offered),
 		slog.Int("peers", len(res.Peers)), slog.Int("connected", connected),
 		slog.String("folder_states", strings.Join(states, ",")))
 	return summary
@@ -300,38 +340,46 @@ func syncSummary(res *foldersync.ApplyResult, listed []foldersync.Folder) (strin
 
 // syncPeers reads the roster through the watcher's own backend client
 // (online sessions only, card 60) and keeps the teammates' peers this adapter
-// can use: not this session, the same workspace_label — by default the
-// repository's name, so a session is introduced to the sessions of its
-// own repository; the folder ids are kept apart by the repository's name
-// itself (foldersync.FolderID), whatever label a member chose —
-// and a sync_peer carrying THIS adapter's prefix, which is stripped. A
-// descriptor is offered once, and never this machine's own (another
-// session here shares its engine). A session that shares no workspace
-// label cannot tell its repository's sessions from the rest, so it
-// offers no peer at all.
-func (w *watcher) syncPeers(ctx context.Context, own string) ([]foldersync.Peer, error) {
+// can use: not this session, and a sync_peer carrying THIS adapter's
+// prefix, which is stripped. For the project's folders (repo) they are
+// the peers of the sessions with the same workspace_label — by default
+// the repository's name, so a session is introduced to the sessions of
+// its own repository; the folder ids are kept apart by the repository's
+// name itself (foldersync.FolderID), whatever label a member chose. A
+// session that shares no workspace label cannot tell its repository's
+// sessions from the rest, so it offers no peer for them at all. For the
+// team's board (team, card 263) they are the peers of every session of
+// the team, whatever its label: the board is the team's, and a teammate
+// in another repository holds it too. In each set a descriptor is
+// offered once, and never this machine's own (another session here
+// shares its engine).
+func (w *watcher) syncPeers(ctx context.Context, own string) (syncPeerSets, error) {
 	lctx, cancel := context.WithTimeout(ctx, adapterclient.DefaultTimeout)
 	defer cancel()
 	list, err := w.client.ListSessions(lctx, false)
 	if err != nil {
-		return nil, err
+		return syncPeerSets{}, err
 	}
 	label := w.state.snapshot().workspaceLabel
-	peers := []foldersync.Peer{}
-	if label == "" {
-		return peers, nil
-	}
-	seen := map[string]bool{own: true}
+	peers := syncPeerSets{repo: []foldersync.Peer{}, team: []foldersync.Peer{}}
+	seenRepo, seenTeam := map[string]bool{own: true}, map[string]bool{own: true}
 	for _, rec := range list.Sessions {
-		if rec.IsSelf || rec.WorkspaceLabel == nil || *rec.WorkspaceLabel != label || rec.SyncPeer == nil {
+		if rec.IsSelf || rec.SyncPeer == nil {
 			continue
 		}
 		d, ok := foldersync.PeerFor(w.sync.adapter, *rec.SyncPeer)
-		if !ok || seen[d] {
+		if !ok {
 			continue
 		}
-		seen[d] = true
-		peers = append(peers, foldersync.Peer{Peer: d, Label: foldersync.PeerLabel(rec.HumanLabel, rec.PrincipalRef)})
+		peer := foldersync.Peer{Peer: d, Label: foldersync.PeerLabel(rec.HumanLabel, rec.PrincipalRef)}
+		if w.sync.board != "" && !seenTeam[d] {
+			seenTeam[d] = true
+			peers.team = append(peers.team, peer)
+		}
+		if label != "" && rec.WorkspaceLabel != nil && *rec.WorkspaceLabel == label && !seenRepo[d] {
+			seenRepo[d] = true
+			peers.repo = append(peers.repo, peer)
+		}
 	}
 	return peers, nil
 }

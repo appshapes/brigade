@@ -28,6 +28,8 @@ Commands:
                                               ask a person for a decision (the question on stdin), sent at once to their digest recipients or their session — held for their wait when they are this session's own user — or close one with its outcome
   report subscribe [--recipients <@name | #channel | address>] [--every <duration>] [--at <HH:MM>] [--tz <zone>] [--only mine] [--wait <duration>] | unsubscribe | show [--to <label>] | send [--to <label>]
                                               subscribe this session's member to the digest (reports.json in the state folder) or unsubscribe, print the digest a subscriber would get now, or send one now
+  work-item list [--list <name>] [--to <label> | --mine | --nobody] [--label <name>] [--closed] | show <number> | add [--list <name>] [--to <label> | --mine] [--label <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | label <number> [<name>…] | comment <number> | close <number> | reopen <number> | lists [<name>…]
+                                              read and change the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, label, comment on, close or reopen one, and show or name the board's lists
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
   team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags]
@@ -173,6 +175,23 @@ subscribe this session's member to the digest (reports.json in the state folder)
 | `--to <value>` | the subscriber a show or a send is for, by their label (show: your own subscription when left out; send: every subscriber) |
 | `--tz <value>` | the zone of --at, an IANA name such as America/Los_Angeles (UTC when unset) |
 | `--wait <value>` | how long a decision one of your own sessions asks you is held, while you can answer it in that conversation, before it is sent: a duration such as 10m or 30m (10m when unset; 0 sends it at once) |
+
+## brigade work-item
+
+```text
+Usage: brigade work-item list [--list <name>] [--to <label> | --mine | --nobody] [--label <name>] [--closed] | show <number> | add [--list <name>] [--to <label> | --mine] [--label <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | label <number> [<name>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] [--json] [--log-level debug|info|warn|error]
+
+read and change the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, label, comment on, close or reopen one, and show or name the board's lists
+```
+
+| Flag | What it does |
+| --- | --- |
+| `--closed` | list: the closed work items instead of the open ones |
+| `--label <value>` | add: the new work item's labels, separated by commas; list: only the work items carrying this label |
+| `--list <value>` | add: the list the new work item goes into (the board's first when unset); list: only the work items in this list |
+| `--mine` | this session's own member, in place of --to |
+| `--nobody` | assign: assign the work item to nobody; list: only the work items assigned to nobody |
+| `--to <value>` | a member, by their label as the roster shows it. add: the new work item's assignee; assign: the work item's; list: only the work items assigned to them |
 
 ## brigade inbound
 

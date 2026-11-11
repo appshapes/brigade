@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 
 	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -170,16 +171,26 @@ func (c *Client) Attach(ctx context.Context, sessionID string) (*AttachResult, e
 	return &out, nil
 }
 
-// Apply runs `apply` with the whole desired set.
-func (c *Client) Apply(ctx context.Context, sessionID string, folders []Folder, peers []Peer) (*ApplyResult, error) {
+// Apply runs `apply` with the whole desired set: the folders, the peers
+// of the repository's sessions, and — only when a folder is the team's
+// (Folder.Team) — the peers of the whole team's, which the request then
+// carries even when there are none yet, and the checkout's toplevel. A
+// request with no team folder is what it was before the board existed.
+func (c *Client) Apply(ctx context.Context, sessionID string, set ApplySet) (*ApplyResult, error) {
+	folders, peers, teamPeers, root := set.Folders, set.Peers, set.TeamPeers, set.Root
 	if folders == nil {
 		folders = []Folder{}
 	}
 	if peers == nil {
 		peers = []Peer{}
 	}
+	if !slices.ContainsFunc(folders, func(f Folder) bool { return f.Team }) {
+		teamPeers, root = nil, ""
+	} else if teamPeers == nil {
+		teamPeers = []Peer{}
+	}
 	var out ApplyResult
-	req := ApplyRequest{StateDir: c.StateDir, SessionID: sessionID, Folders: folders, Peers: peers}
+	req := ApplyRequest{StateDir: c.StateDir, SessionID: sessionID, Folders: folders, Peers: peers, TeamPeers: teamPeers, Root: root}
 	if err := c.call(ctx, VerbApply, req, &out); err != nil {
 		return nil, err
 	}

@@ -39,6 +39,10 @@ bob@example.com  yes
 A folder's state is Syncthing's own word, or `not shared yet` before the first round, `rejected`, `conflict_path`
 (another checkout on this machine holds it) or `no longer listed (paused)`. `--json` carries the ids in full.
 
+A team with a board ([Keep the team's work on the board](work-items.md)) has one more row, `team board`, and its
+session-start line names it: ``file sync on: 2 folder(s) and the team's board (`brigade work-item list`) through
+syncthing.`` The board is a folder under Brigade's state directory, not in your checkout.
+
 ## What is written in your checkout
 
 The listed folders (created when missing) and whatever teammates' machines put in them; `.stfolder` in each (the
@@ -53,7 +57,8 @@ sees all of it: a tracked folder syncs like any other, so list folders the repos
 - **Who syncs with whom.** Each session publishes its machine's Syncthing device id to the roster. Every 15 s
   (the team's `polling.roster_seconds`) the watcher reads the roster and shares the listed folders with the
   device of every other online session of the team in the same repository (the REPO name). A session that sends no
-  repository name introduces nobody and is introduced to nobody.
+  repository name introduces nobody and is introduced to nobody. The team's board is the one folder shared with
+  the device of every online session of the team, whatever its repository.
 - **The folder id** is derived on every checkout without exchange: `brigade-`, the team reference's first eight
   characters, and a hash of `<repository>/<folder>`. Two repositories of one team can list the same folder and each
   syncs its own.

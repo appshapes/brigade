@@ -224,6 +224,27 @@ func TestByPIDValidate(t *testing.T) {
 			withSync(m)
 			m.StateFolder = "/home/u/work/repo/.brigade/state/"
 		}, wantField: "state_folder"},
+		// The board folder (card 263): absent, or a clean absolute path;
+		// it is something to sync by itself, so it stands with no folder
+		// listed, and never without the adapter and the root.
+		{name: "sync with a board folder is valid", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.BoardFolder = "/home/u/.local/state/brigade/boards/0123456789abcdef0123456789abcdef"
+		}},
+		{name: "a board folder with no listed folder is valid", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.SyncFolders = nil
+			m.BoardFolder = "/home/u/.local/state/brigade/boards/0123456789abcdef0123456789abcdef"
+		}},
+		{name: "board folder without the rest", mutate: func(m *sessionmap.ByPID) { m.BoardFolder = "/home/u/boards/x" }, wantField: "sync_adapter"},
+		{name: "board folder relative", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.BoardFolder = "boards/" + evilMarker
+		}, wantField: "board_folder"},
+		{name: "board folder not clean", mutate: func(m *sessionmap.ByPID) {
+			withSync(m)
+			m.BoardFolder = "/home/u/boards/../" + evilMarker
+		}, wantField: "board_folder"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

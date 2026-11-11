@@ -173,10 +173,12 @@ type ByPID struct {
 	// status`: the NAME of the sync adapter the team file's `sync` member
 	// gives (never a path — foldersync resolves it), the folders it lists
 	// exactly as written (relative to the checkout), and the canonical
-	// repository toplevel they are relative to. All three are set together
-	// — a usable member with at least one folder and the `sync` option on —
-	// or none is, and then this session syncs nothing. Absent (omitzero)
-	// in a map from before file sync existed, which reads as "off".
+	// repository toplevel they are relative to. The adapter and the root
+	// are set together — a usable member with something to sync and the
+	// `sync` option on — or neither is, and then this session syncs
+	// nothing; the folders are empty for a project that syncs only its
+	// team's board (BoardFolder, card 263). Absent (omitzero) in a map
+	// from before file sync existed, which reads as "off".
 	SyncAdapter string   `json:"sync_adapter,omitzero"`
 	SyncFolders []string `json:"sync_folders,omitzero"`
 	SyncRoot    string   `json:"sync_root,omitzero"`
@@ -198,6 +200,18 @@ type ByPID struct {
 	// project that shares no state, with sync off, and in a map from
 	// before it existed. The watcher reads it once, when it starts.
 	StateFolder string `json:"state_folder,omitzero"`
+	// BoardFolder is the absolute path of the team's board of work items
+	// on this machine (card 263): a folder under Brigade's state directory
+	// named after the team's reference (foldersync.BoardPath), outside
+	// every checkout, which the sync
+	// adapter shares with every teammate's machine whatever repository
+	// their session is in. Frozen beside the sync members when the team
+	// file's `sync.board` is true and under their conditions (sync on,
+	// the member usable, the root resolved), with or without a listed
+	// folder; absent (omitzero) for a team with no board, with sync off,
+	// and in a map from before it existed. The watcher reads it once,
+	// when it starts; `brigade work-item` reads it at every call.
+	BoardFolder string `json:"board_folder,omitzero"`
 	// MessageSound is the `message_sound` option as the hook resolved it
 	// (card 35): true when this session's watcher plays one quiet sound
 	// as a message arrives. The watcher re-reads it on every liveness
@@ -388,14 +402,15 @@ func (m *ByPID) Roster() time.Duration { return polling.Roster(m.RosterSeconds) 
 var syncAdapterName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
 // validateSync checks the sync members as one: all absent, or an
-// adapter name, a clean absolute root and at least one folder, each a
-// clean relative path that stays under the root, a scope that is absent
-// or a repository name, and a state folder that is absent or a clean
-// absolute path (card 162). Only what the watcher needs to build a
-// folder path and id it can hand an adapter: the team file's parser
-// applied its own rules before the hook froze these.
+// adapter name, a clean absolute root and something to sync — at least
+// one folder, each a clean relative path that stays under the root, or
+// the team's board (card 263), or both — a scope that is absent or a
+// repository name, and a state folder and a board folder that are each
+// absent or a clean absolute path (cards 162, 263). Only what the watcher
+// needs to build a folder path and id it can hand an adapter: the team
+// file's parser applied its own rules before the hook froze these.
 func (m *ByPID) validateSync() error {
-	if m.SyncAdapter == "" && len(m.SyncFolders) == 0 && m.SyncRoot == "" && m.SyncScope == "" && m.StateFolder == "" {
+	if m.SyncAdapter == "" && len(m.SyncFolders) == 0 && m.SyncRoot == "" && m.SyncScope == "" && m.StateFolder == "" && m.BoardFolder == "" {
 		return nil
 	}
 	switch {
@@ -403,12 +418,14 @@ func (m *ByPID) validateSync() error {
 		return errInvalid("sync_adapter")
 	case !filepath.IsAbs(m.SyncRoot) || filepath.Clean(m.SyncRoot) != m.SyncRoot:
 		return errInvalid("sync_root")
-	case len(m.SyncFolders) == 0:
+	case len(m.SyncFolders) == 0 && m.BoardFolder == "":
 		return errInvalid("sync_folders")
 	case m.SyncScope != "" && !ValidSyncScope(m.SyncScope):
 		return errInvalid("sync_scope")
 	case m.StateFolder != "" && (!filepath.IsAbs(m.StateFolder) || filepath.Clean(m.StateFolder) != m.StateFolder):
 		return errInvalid("state_folder")
+	case m.BoardFolder != "" && (!filepath.IsAbs(m.BoardFolder) || filepath.Clean(m.BoardFolder) != m.BoardFolder):
+		return errInvalid("board_folder")
 	}
 	// The folder rule is the team file's (internal/harness/teamfile/sync.go
 	// checkFolder) and nothing more: relative, path.Clean-unchanged, not ".".

@@ -86,12 +86,17 @@ type AttachResult struct {
 // optional, is the id the same folder had under the derivation of 0.11.0
 // to 0.15.0 (LegacyFolderID): an adapter whose engine still holds the
 // folder under that id at Path carries it over to ID (card 42). Absent
-// when the two ids are one.
+// when the two ids are one. Team, optional, marks a folder that is the
+// team's and not one repository's (the board, card 263): the adapter
+// shares it with the request's TeamPeers instead of its Peers. An
+// adapter that does not know the member shares it with Peers, the
+// repository's sessions alone.
 type Folder struct {
 	ID       string `json:"id"`
 	Path     string `json:"path"`
 	Label    string `json:"label"`
 	Replaces string `json:"replaces,omitzero"`
+	Team     bool   `json:"team,omitzero"`
 }
 
 // A Peer is one teammate's peer `apply` introduces: the descriptor with
@@ -102,11 +107,32 @@ type Peer struct {
 }
 
 // ApplyRequest is `apply`'s request: the whole desired set, every time.
+// Peers are the peers of the sessions in this session's repository,
+// which every folder is shared with but a Team one. Two members come
+// only when a folder is the team's (card 263): TeamPeers, the peers of
+// every session of the team, which a Team folder is shared with instead;
+// and Root, the checkout's toplevel that the project's listed folders
+// are relative to, so that an adapter can still tell a folder this
+// checkout shared and its project no longer lists when the project lists
+// none at all and the team folder is the only one in the request.
 type ApplyRequest struct {
 	StateDir  string   `json:"state_dir"`
 	SessionID string   `json:"session_id"`
 	Folders   []Folder `json:"folders"`
 	Peers     []Peer   `json:"peers"`
+	TeamPeers []Peer   `json:"team_peers,omitzero"`
+	Root      string   `json:"root,omitzero"`
+}
+
+// An ApplySet is what one `apply` asks for: the folders, the peers of the
+// repository's sessions, the peers of the whole team's and the checkout's
+// toplevel. The last two reach the adapter only when a folder is the
+// team's.
+type ApplySet struct {
+	Folders   []Folder
+	Peers     []Peer
+	TeamPeers []Peer
+	Root      string
 }
 
 // FolderState is one folder in `apply`'s and `status`'s results. Path is
@@ -225,6 +251,49 @@ func Folders(teamRef, root, scope string, folders []string) []Folder {
 		out = append(out, folder)
 	}
 	return out
+}
+
+// The team's board (card 263) is a folder of the team's, not of one of
+// its repositories: it lives under Brigade's state directory, outside
+// every checkout, so the sessions of every repository of the team on one
+// machine read and write the one folder, and one engine never has to
+// hold one id at two paths.
+const (
+	// BoardDir is the directory under the state directory that holds one
+	// board folder per team this machine belongs to.
+	BoardDir = "boards"
+	// BoardLabel is the board folder's human label, the same for every
+	// team: the id's team part tells two teams' boards apart.
+	BoardLabel = "team board"
+	// boardHashed is the text the board folder's id hashes. It is no
+	// folder a team file can list — those are relative paths, and this
+	// one starts with a slash — so no repository's folder, under the
+	// derivation of any release, takes the same id; and it is not the
+	// label, so the bundled adapter never reads a folder name out of the
+	// label and never counts the board among a checkout's folders.
+	boardHashed = "/board"
+)
+
+// BoardPath is this machine's board folder for the team: <state
+// dir>/boards/<the first 32 hex digits of the SHA-256 of team_ref>. It is
+// keyed by team_ref and nothing else, as the folder's id is (BoardFolder):
+// a team whose file is pointed at another backend URL keeps its path with
+// its id, where a path keyed by the machine's team key — which hashes the
+// adapter and the URL too — would move away from a folder the engine
+// still holds under the same id. The hash makes any team_ref a path
+// component.
+func BoardPath(stateDir, teamRef string) string {
+	sum := sha256.Sum256([]byte(teamRef))
+	return filepath.Join(stateDir, BoardDir, hex.EncodeToString(sum[:])[:32])
+}
+
+// BoardFolder is the team's board as `apply` shares it: an id every
+// machine of the team derives from team_ref alone, "brigade-<team8>-"
+// and the first 12 hex digits of the SHA-256 of "/board", the path this
+// machine keeps it at, BoardLabel, and Team: it is shared with the peer
+// of every teammate's session, whatever repository that session is in.
+func BoardFolder(teamRef, path string) Folder {
+	return Folder{ID: folderID(teamRef, boardHashed), Path: path, Label: BoardLabel, Team: true}
 }
 
 // WirePeer is the sync_peer value a session publishes: the adapter name,

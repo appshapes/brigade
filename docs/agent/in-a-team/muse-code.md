@@ -8,7 +8,7 @@ map. The reader uses `$HOME/.local/share/muse/sessions`: Muse strips `XDG_*` fro
 directories are unsupported. Missing/unsupported records preserve the last known name and leave unobserved
 context blank. See [format evidence, validation limits and read bounds](../../research/host-session-facts.md).
 
-The Muse Code package (`muse/brigade/`) ships the same nine skills, worded for Muse. They are the model's
+The Muse Code package (`muse/brigade/`) ships the same twelve skills, worded for Muse. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 
 | Skill | Who invokes it | What it carries |
@@ -22,6 +22,9 @@ documentation inside a team; this page names them and says what differs from Cla
 | [`muse/brigade/skills/slack/SKILL.md`](../../../muse/brigade/skills/slack/SKILL.md) | the slack command | one `brigade send` to the Slack gateway |
 | [`muse/brigade/skills/quiet/SKILL.md`](../../../muse/brigade/skills/quiet/SKILL.md) | the quiet command | make this one session quiet with `brigade inbound hold`, the roster line and a standing instruction; `off` returns it |
 | [`muse/brigade/skills/subscribe/SKILL.md`](../../../muse/brigade/skills/subscribe/SKILL.md) | the subscribe command | subscribe the user's own label to the project's digest with `brigade report subscribe`, or remove it with `unsubscribe`; nobody else's entry |
+| [`muse/brigade/skills/work-items/SKILL.md`](../../../muse/brigade/skills/work-items/SKILL.md) | the work-items command | print the team's board of work items verbatim |
+| [`muse/brigade/skills/work-item/SKILL.md`](../../../muse/brigade/skills/work-item/SKILL.md) | the work-item command, and the model when the user asks about a work item | read, add or change one work item with one `brigade work-item` command |
+| [`muse/brigade/skills/work-item-start/SKILL.md`](../../../muse/brigade/skills/work-item-start/SKILL.md) | the work-item-start command | take a work item and work it through, then comment and move it |
 
 What differs from Claude Code:
 

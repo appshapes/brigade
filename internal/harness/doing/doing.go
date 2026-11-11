@@ -105,6 +105,28 @@ func Clean(raw, home string, secrets ...string) (text, reason string) {
 	return CleanText(raw, home, MaxChars, secrets...)
 }
 
+// CarriesCredential is the credential rule alone, for a text the caller
+// cleans by its own rules (a work item's title, description and comments,
+// card 263, which keep their line breaks and may name a path): it reports
+// whether text holds one of log.SecretShaped's prefix formats, one of the
+// literals in secretPrefixes, or one of secrets, the empty ones skipped.
+func CarriesCredential(text string, secrets ...string) bool {
+	if log.SecretShaped(text) {
+		return true
+	}
+	for _, p := range secretPrefixes {
+		if strings.Contains(text, p) {
+			return true
+		}
+	}
+	for _, s := range secrets {
+		if s != "" && strings.Contains(text, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // CleanText is Clean with the cap a parameter: the same rules for the
 // longer lines the manager digest takes on purpose (card 162) — a note,
 // a decision's question, its options and its outcome — whose caps are
@@ -120,18 +142,8 @@ func CleanText(raw, home string, maxChars int, secrets ...string) (text, reason 
 	if utf8.RuneCountInString(text) > maxChars {
 		return "", ReasonTooLong
 	}
-	if log.SecretShaped(text) {
+	if CarriesCredential(text, secrets...) {
 		return "", ReasonSecretShaped
-	}
-	for _, p := range secretPrefixes {
-		if strings.Contains(text, p) {
-			return "", ReasonSecretShaped
-		}
-	}
-	for _, s := range secrets {
-		if s != "" && strings.Contains(text, s) {
-			return "", ReasonSecretShaped
-		}
 	}
 	if len(home) > 1 && strings.Contains(text, home) {
 		return "", ReasonLocalPath

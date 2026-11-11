@@ -10,7 +10,7 @@ The ` | <folder>` Codex shows after that name in its terminal title is Codex's o
 repository's root), not part of the name and not on the roster
 ([measured](../../experiments/codex-terminal-title.md), card 190).
 
-The Codex CLI package (`codex/brigade/`) ships the same nine skills, worded for Codex. They are the model's
+The Codex CLI package (`codex/brigade/`) ships the same twelve skills, worded for Codex. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 
 | Skill | Who invokes it | What it carries |
@@ -24,6 +24,9 @@ documentation inside a team; this page names them and says what differs from Cla
 | [`codex/brigade/skills/slack/SKILL.md`](../../../codex/brigade/skills/slack/SKILL.md) | `$brigade:slack <to> <text>` | one `brigade send` to the Slack gateway |
 | [`codex/brigade/skills/quiet/SKILL.md`](../../../codex/brigade/skills/quiet/SKILL.md) | `$brigade:quiet [on [--to <where>] [--refuse]]`, `$brigade:quiet off`, `$brigade:quiet status` | make this one session quiet with `brigade inbound hold`, the roster line and a standing instruction; `off` returns it |
 | [`codex/brigade/skills/subscribe/SKILL.md`](../../../codex/brigade/skills/subscribe/SKILL.md) | `$brigade:subscribe [--recipients "<list>"] [--every <duration> or --at <HH:MM> --tz <zone>] [--only mine]`, `$brigade:subscribe off` | subscribe the user's own label to the project's digest with `brigade report subscribe`, or remove it with `unsubscribe`; nobody else's entry |
+| [`codex/brigade/skills/work-items/SKILL.md`](../../../codex/brigade/skills/work-items/SKILL.md) | `$brigade:work-items [mine \| nobody \| closed \| lists \| for <member> \| label <name> \| <list>]` | print the team's board of work items verbatim |
+| [`codex/brigade/skills/work-item/SKILL.md`](../../../codex/brigade/skills/work-item/SKILL.md) | `$brigade:work-item <number>`, `$brigade:work-item add <title>`, `$brigade:work-item <number> move \| assign \| comment \| label \| edit \| close \| reopen` | read, add or change one work item with one `brigade work-item` command |
+| [`codex/brigade/skills/work-item-start/SKILL.md`](../../../codex/brigade/skills/work-item-start/SKILL.md) | `$brigade:work-item-start <number>` | take a work item and work it through, then comment and move it |
 
 What differs from Claude Code:
 

@@ -23,13 +23,17 @@ import (
 // plan §5.1): one of Folders as written there, or a clean relative path
 // under one (card 171: `.brigade/state` under a synced `.brigade`, the
 // entries riding the sync that folder already has), or "" when the
-// project shares no state. The json tags are the member's own shape, so
-// `team create --force` writes a carried SyncConfig back unchanged in
-// meaning.
+// project shares no state. Board, optional, turns on the team's board of
+// work items (card 263): a folder of the team's own, outside every
+// checkout, that the same adapter shares with every teammate's machine
+// whatever repository their session is in; it needs no entry in Folders.
+// The json tags are the member's own shape, so `team create --force`
+// writes a carried SyncConfig back unchanged in meaning.
 type SyncConfig struct {
 	Adapter string   `json:"adapter"`
 	Folders []string `json:"folders"`
 	State   string   `json:"state,omitzero"`
+	Board   bool     `json:"board,omitzero"`
 }
 
 // DefaultSyncAdapter is the adapter a `sync` member without one names.
@@ -60,6 +64,7 @@ const (
 	SyncFolderRoot        = "folder_root"         // `.`, the whole checkout
 	SyncStateInvalid      = "state_invalid"       // state is not a non-empty string that passes the folder rules
 	SyncStateNotListed    = "state_not_listed"    // state is neither an entry of folders nor a path under one
+	SyncBoardInvalid      = "board_invalid"       // board is not true or false
 )
 
 // SyncReasons is the closed unusable-sync token list, in check order.
@@ -67,13 +72,13 @@ func SyncReasons() []string {
 	return []string{
 		SyncNotObject, SyncAdapterInvalid, SyncFoldersInvalid, SyncTooManyFolders,
 		SyncFolderTooLong, SyncFolderNotRelative, SyncFolderNotClean, SyncFolderRoot,
-		SyncStateInvalid, SyncStateNotListed,
+		SyncStateInvalid, SyncStateNotListed, SyncBoardInvalid,
 	}
 }
 
 // syncMembers is what this version reads inside `sync`; any other inner
 // member is ignored and named `sync.<name>`.
-var syncMembers = map[string]bool{"adapter": true, "folders": true, "state": true}
+var syncMembers = map[string]bool{"adapter": true, "folders": true, "state": true, "board": true}
 
 // parseSync validates the `sync` member. It never refuses: an unusable
 // member is (nil, ignored, token). The secret walk over the whole
@@ -118,6 +123,14 @@ func parseSync(member jsontext.Value) (*SyncConfig, []string, string) {
 		}
 		if !stateListed(cfg.Folders, cfg.State) {
 			return nil, ignored, SyncStateNotListed
+		}
+	}
+	// The board (card 263) is a switch and nothing else: where the folder
+	// is and what it is called are the same on every machine of the team
+	// without the file saying so.
+	if v, ok := obj["board"]; ok {
+		if (v.Kind() != 't' && v.Kind() != 'f') || json.Unmarshal(v, &cfg.Board) != nil {
+			return nil, ignored, SyncBoardInvalid
 		}
 	}
 	return cfg, ignored, ""
