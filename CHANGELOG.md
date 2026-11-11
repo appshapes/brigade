@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.50.0] — 2026-11-11
+
 ### Added
 
 - **A team can keep its work in Brigade: a board of work items** (card
@@ -70,6 +72,17 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   is that a pull request written off a Mac meets macOS at the next
   `make push` rather than before its merge. The `master` ruleset's
   required checks are now `fast`, `lint`, `supabase` and `e2e`.
+
+### Security
+
+- **The Go toolchain is 1.27.4** (work item 264). govulncheck's
+  GO-2026-6859, an HTTP/1 server crash from a race on a `MaxBytesReader`
+  header in `net/http`, is fixed in go1.27.4 and is reached from
+  Brigade's code through the standard library: the self-hosted webhook
+  gateway serves HTTP, and the Syncthing REST client and the Supabase
+  adapter use `net/http` as clients. `go.mod` pins 1.27.4, and the
+  committed Windows launcher is rebuilt with it. Nothing a member
+  configures changes.
 
 ## [0.49.0] — 2026-11-10
 

@@ -1,6 +1,6 @@
 module github.com/appshapes/brigade
 
-go 1.27.3
+go 1.27.4
 
 ignore docs/research
 
