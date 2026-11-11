@@ -11,6 +11,7 @@
   },
   "sync": {
     "folders": [".brigade"],
-    "state": ".brigade/state"
+    "state": ".brigade/state",
+    "board": true
   }
 }

@@ -26,6 +26,11 @@
   last involved (card 163): the team is `team_name` and the session name the `session_name` of the row whose
   `session_id` equals `self_session_id` in `brigade sessions --here --json` (the roster carries a renamed
   session's new name, and so does `brigade whoami` since card 164). Outside a Brigade session there is no stamp.
+- **Brigade's own work is on the team's board** (owner, 2026-11-11, card 263). The Brigade cards that were open on
+  the AppShapes Trello board moved to work items with the same numbers, and new work items continue from 264: a
+  commit's number is its work item's. `brigade work-item` reads and changes them where the plugin carries the
+  board (a release newer than 0.49.0). The `/trello-*` skills above are not ported to work items yet: they still
+  serve the board's other projects, and the archived Brigade cards stay readable in Trello.
 - **Skills of this repository** live in `.claude/skills/`: `commit`, `trello-create`, `trello-read`, `trello-start`,
   `trello-done`, `playwright-cli`. The Brigade plugin's own skills (`plugin/skills/`, `muse/brigade/skills/`,
   `codex/brigade/skills/`, `grok/brigade/skills/`) are the product.
