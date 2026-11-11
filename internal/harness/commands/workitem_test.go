@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -157,11 +158,15 @@ func TestWorkItemLifecycle(t *testing.T) {
 		t.Fatalf("%d children spawned for the board", f.rec.count())
 	}
 	// Six changes of the first work item, each a file of its own, 0600
-	// under 0700 directories.
+	// under 0700 directories (where a file has a mode: on Windows the
+	// profile directory is what keeps the state directory private).
 	dir := filepath.Join(folder, workitem.ItemsDir, readBoard(t, folder).ByNumber(1)[0].ID)
 	files, err := os.ReadDir(dir)
 	if err != nil || len(files) != 6 {
 		t.Fatalf("change files = %d, %v", len(files), err)
+	}
+	if runtime.GOOS == "windows" {
+		return
 	}
 	if fi, err := os.Stat(dir); err != nil || fi.Mode().Perm() != 0o700 {
 		t.Errorf("the work item's directory: %v, %v", fi, err)
@@ -504,6 +509,9 @@ func TestWorkItemRefusalsNameTheRightThing(t *testing.T) {
 // is a failure, never an empty board whose next number is 1.
 func TestWorkItemBoardThatCannotBeRead(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("a mode bit takes no directory away from its owner on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root reads every directory")
 	}
