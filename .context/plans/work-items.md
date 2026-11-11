@@ -238,3 +238,28 @@ creators, dates, comments and a last comment naming the Trello card; work item 2
 GO-2026-6859; the board's next number is 265. They were written by a one-off program in `.ignored/` through this
 package's store, and written again in the shape of rulings 6 and 7 from the saved export, before any machine
 but this one held them. The Trello cards are archived, not completed. Rows P83-3 and P83-4.
+
+## 10. The feature's name: Brigade Board (2026-11-11, work item 268)
+
+Rjae, asked for a name after the release ("I was thinking 'Brigade Work'"), took the recommendation: "I agree with
+your recommendation: Brigade Board. Let's make it so a user could refer to 'brigade board' and the session will
+know that refers to this new feature." Why Brigade Board over Brigade Work: "Brigade Work" cannot be told from
+"Brigade work" in speech, in a search or in a sentence ("how does Brigade work"), and "board" was already the word
+of the setting (`"board": true`), the pages and the session-start line.
+
+What carries the name, so that a session knows it:
+
+- the description and the first paragraph of the three work-item skills, and the board section of
+  `team-messaging` (in the Grok package, whose `team-messaging` is the short one, its paragraph on the board), in
+  all four packages: the description is what a harness shows the model before a skill loads,
+  so it names "the Brigade Board" and the words a user may say ("the brigade board", "the board");
+- the session-start line, ``the team's Brigade Board of work items (`brigade work-item list`)``: every session of a
+  team with a board reads the name with the command that lists it;
+- `brigade work-item`'s summary in `brigade help`, the note of its `--json` results and its `no_board` refusal;
+- the titles of the team member's and the team administrator's pages, the agent pages and the changelog.
+
+What keeps its name: "work item", `brigade work-item`, the three skills, the `board` member of the team file, and
+the synced folder's label `team board` (an adapter of a team's own reads that label; it was released in 0.50.0).
+"The board" stays the short form once the name has been given. No command `brigade board` and no skill of that
+name were added: the ask was that a session understand the words. `docs/security.md` section 19 is unchanged.
+Proof: E18's legs D and E, a session asked in plain words about "the brigade board".

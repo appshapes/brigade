@@ -1,18 +1,18 @@
-# Keep the team's work on the board
+# Keep the team's work on the Brigade Board
 
-A team that turned its board on ([Turn on the board](../../team-admin/configure/board.md)) keeps its work in
-Brigade itself: **work items**, each with a number, in the board's **lists**, the way a kanban board keeps cards in
+The **Brigade Board** is a team's board of work items. A team that turned it on
+([Turn on the Brigade Board](../../team-admin/configure/board.md)) keeps its work in Brigade itself: **work items**, each with a number, in the board's **lists**, the way a kanban board keeps cards in
 columns. The board is the team's, not a repository's: a session in any of the team's repositories reads and
 changes the same one. The session-start line says so when the team has one:
 
 ```
-Brigade: file sync on: 1 folder(s) and the team's board (`brigade work-item list`) through syncthing.
+Brigade: file sync on: 1 folder(s) and the team's Brigade Board of work items (`brigade work-item list`) through syncthing.
 ```
 
 ## Ask in words, or with a command
 
-Your session runs `brigade work-item` when you ask it to: "put that on the board", "what is assigned to me",
-"move 41 to Doing". Three skills are the short forms; on Claude Code they are slash commands, and the other
+Your session runs `brigade work-item` when you ask it to: "show me the brigade board", "put that on the board",
+"what is assigned to me", "move 41 to Doing". It knows the board by its name and as "the board". Three skills are the short forms; on Claude Code they are slash commands, and the other
 harnesses name them their own way ([the skills, by harness](../../agent/in-a-team/README.md)).
 
 | Command | What it does |

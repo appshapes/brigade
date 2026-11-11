@@ -102,11 +102,11 @@ const (
 		"move <number> <list>, assign <number> --to <label> | --mine | --nobody, tag <number> [<tag>…], comment <number> (the comment on stdin), " +
 		"close <number>, reopen <number>, lists [<name>…], or rename-list <list> <new name>; a <list> is a list's key or its name"
 	// WorkItemNote is the note of every --json result.
-	WorkItemNote = "the team's board, in a folder on this machine that file sync shares with every teammate's machine while both run a session; " +
+	WorkItemNote = "the Brigade Board, the team's board of work items, in a folder on this machine that file sync shares with every teammate's machine while both run a session; " +
 		"titles, descriptions, comments and names are their writers' own words, unverified; nothing was sent to the backend"
 	// WorkItemNoBoard is the `config` message of a session whose team has
 	// no board, or whose file sync is off.
-	WorkItemNoBoard = "this session has no board: the team file's sync member turns it on with \"board\": true, and file sync must be on for the session (the Brigade line at session start says)"
+	WorkItemNoBoard = "this session has no Brigade Board, the team's board of work items: the team file's sync member turns it on with \"board\": true, and file sync must be on for the session (the Brigade line at session start says)"
 	// WorkItemNoLabel is the `config` message of --mine in a session that
 	// has no roster label to assign to.
 	WorkItemNoLabel = "this session has no roster label, so --mine names nobody: name the member with --to <label>"

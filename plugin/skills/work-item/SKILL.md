@@ -1,10 +1,11 @@
 ---
 name: work-item
 description: >-
-  Read, add or change one work item on the team's board: `/brigade:work-item <number>` shows it, `/brigade:work-item add
+  Read, add or change one work item on the Brigade Board, the team's board of work items: `/brigade:work-item <number>` shows it, `/brigade:work-item add
   <title>` adds one, and `/brigade:work-item <number> move <list>`, `assign me | nobody | <member>`, `comment <text>`,
   `tag <tags>`, `edit`, `close` and `reopen` change it. Each is one `brigade work-item` command, its text on
-  stdin. Use when the user asks to put something on the board, to see a work item, or to move, assign, comment
+  stdin. Use when the user asks to put something on the board (they may call it "the Brigade Board" or "the
+  brigade board"), to see a work item, or to move, assign, comment
   on, tag, edit, close or reopen one, or to name or rename the board's lists, in these forms or in their own words; and when work you are doing for
   your user is a work item's and its state changed. Showing the whole board is `brigade:work-items`; taking a
   work item and working it through is `brigade:work-item-start`. A team whose `.brigade.json` does not turn the
@@ -14,9 +15,10 @@ argument-hint: "<number> | add <title> | <number> move <list> | <number> assign 
 allowed-tools: Bash(brigade work-item:*)
 ---
 
-# One work item on the team's board
+# One work item on the Brigade Board
 
-A team that turned its board on keeps its work in Brigade itself: work items, each with a number, a title, a
+The **Brigade Board** is a team's board of work items, and what a user means by "the brigade board", "the
+team's board" or "the board". A team that turned its board on keeps its work in Brigade itself: work items, each with a number, a title, a
 description, a list, an assignee, tags and comments. The board is a folder on this machine that file sync
 shares with every teammate's machine, whatever repository their session is in. `brigade work-item` reads and
 writes that folder: nothing goes to the backend, and the board works while the backend does not.

@@ -26,7 +26,7 @@ The VERSION column of `brigade sessions` shows each session's plugin version. Tw
   alone, while an earlier member's commits are credited to every session that lists them, as before.
 - **Before a project turns its board on** (`sync.board`), every member's plugin must be newer than 0.49.0: an
   older one ignores the member, syncs the listed folders as before and has no board
-  ([Turn on the board](../../team-admin/configure/board.md)).
+  ([Turn on the Brigade Board](../../team-admin/configure/board.md)).
 - **Around 0.16.0**, which changed how a synced folder's id is made: members on either side of it do not exchange
   files until the last one has updated ([Sync folders](../use/sync-folders.md)).
 

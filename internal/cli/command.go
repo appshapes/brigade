@@ -150,7 +150,7 @@ func init() {
 		{
 			Name:    "work-item",
 			Args:    "list [--list <list>] [--to <label> | --mine | --nobody] [--tag <tag>] [--closed] | show <number> | add [--list <list>] [--to <label> | --mine] [--tag <a,b>] | edit <number> | move <number> <list> | assign <number> --to <label> | --mine | --nobody | tag <number> [<tag>…] | comment <number> | close <number> | reopen <number> | lists [<name>…] | rename-list <list> <new name>",
-			Summary: "read and change the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists (a list is named by its key or its name)",
+			Summary: "read and change the Brigade Board, the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists (a list is named by its key or its name)",
 			Flags: func(fs *flag.FlagSet) {
 				fs.String("list", "", "one of the board's lists, by its key or its name. add: the list the new work item goes into (the board's first when unset); list: only the work items in this list")
 				fs.String("to", "", "a member, by their label as the roster shows it. add: the new work item's assignee; assign: the work item's; list: only the work items assigned to them")

@@ -40,7 +40,7 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
   (`/brigade:slack <to> <text>`), `quiet` (`/brigade:quiet`, which makes the one session it is typed in hold its
   team messages and say so on the roster; `/brigade:quiet off` returns it), `subscribe` (`/brigade:subscribe`,
   the user's own opt-in to the project's digest; `/brigade:subscribe off` removes it), and the three of a team
-  that keeps its work on the board: `work-items` (`/brigade:work-items`, the board printed verbatim), `work-item`
+  that keeps its work on the Brigade Board: `work-items` (`/brigade:work-items`, the board printed verbatim), `work-item`
   (`/brigade:work-item <number>`, `/brigade:work-item add <title>`: read, add or change one) and
   `work-item-start` (`/brigade:work-item-start <number>`: take one and work it through).
 - **No MCP server and no channel wiring.** The plugin is a CLI, four hooks and twelve skills; there is nothing else

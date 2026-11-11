@@ -12,7 +12,7 @@ involved, and nothing was sent to anyone.
 A team that sets `"board": true` in the `sync` member of its `.brigade.json` keeps its work in Brigade: work
 items in the lists of one board (each list a state with a key that never changes and a name that can), read and
 changed with `brigade work-item`, in a folder under each machine's state directory that file sync shares with every teammate's machine whatever repository their session is in
-([Keep the team's work on the board](../team-member/use/work-items.md)).
+([Keep the team's work on the Brigade Board](../team-member/use/work-items.md)).
 
 ## Part 1: two machines, two repositories, no model
 
@@ -72,6 +72,34 @@ The skill named the command only in the `work-item` skill it points at; its seco
 as committed: after that change, after the two agent reviews' fixes, and after the lists gained their keys and a
 work item's labels became tags. The four before it were twenty of twenty as well.
 
+## Part 3: the name, in the user's own words (work item 268)
+
+**Date** 2026-11-11, after the 0.50.0 release. The feature was named Brigade Board, and the ask was that a
+session know what "the brigade board" means. `scripts/experiments/E18-work-items.sh` gained two legs, each one
+headless session given a sentence and no command, with `Skill` and `Bash(brigade work-item:*)` allowed. Run from
+this checkout on the dev build `0.50.0-dev` over `fdb1185` plus the work item's working tree, as it was
+committed; Claude Code 2.1.322, the sessions' model Opus 5.5. The whole script ran twice, the second time after
+the agent review made the two legs assert what this table says: 26 of 26, the 20 assertions of part 2 among
+them. The first run, with looser checks, was 24 of 24, and its sessions did the same things.
+
+| Leg | Assertion | Outcome |
+| --- | --- | --- |
+| A | The session's start line names the feature: ``Brigade: file sync on: the team's Brigade Board of work items (`brigade work-item list`) through syncthing.`` | ok |
+| D | Asked "What is on the brigade board right now?", the session loaded `brigade:work-items` itself | ok |
+| D | It ran exactly one command, `brigade work-item list` | ok |
+| D | Its answer names both work items on the board, "Try the board from a live session" and "Add a HELLO.md that says hello" | ok |
+| E | Asked to `Put "Write the release checklist" on the brigade board.`, the session loaded `brigade:work-item` itself | ok |
+| E | It ran exactly one command, a `brigade work-item add` with the title on stdin | ok |
+| E | The observer's board holds one work item of that title, number 3 | ok |
+| all | No work item's title, of the three the legs wrote, is in the backend's files | ok |
+
+Neither session asked what was meant. No session was run on the plugin as released in 0.50.0, whose skills say
+"the team's board": this shows that the name is understood, not that it was not understood before.
+
+Part 1 quotes the session-start line as it read in 0.50.0, ``the team's board (`brigade work-item list`)``. The
+end-to-end test now expects the line above, and passed once on this build with `BRIGADE_TEST_SYNCTHING=1`, in
+154 s.
+
 ## What this did not measure
 
 - **Two physical machines, and the network between them.** Both parts ran on one machine; in part 1 each
@@ -85,3 +113,5 @@ work item's labels became tags. The four before it were twenty of twenty as well
   injection test set has not been run against work items
   ([docs/security.md, section 19](../security.md#19-the-board-and-its-work-items)).
 - **A long-lived board.** A handful of work items; nothing measured a board of thousands.
+- **Other words for the board.** Part 3 asked one sentence for showing and one for adding; a session whose team has
+  no board was not asked about "the brigade board".

@@ -898,8 +898,10 @@ func syncOnLine(folders int, board bool, adapter string) string {
 	return "Brigade: file sync on: " + what + " through " + attr(adapter) + "."
 }
 
-// syncBoardWords is how the sync line names the team's board.
-const syncBoardWords = "the team's board (`brigade work-item list`)"
+// syncBoardWords is how the sync line names the team's board: by the
+// feature's name, Brigade Board (work item 268), so a session whose user
+// says "the brigade board" knows what is meant and which command reads it.
+const syncBoardWords = "the team's Brigade Board of work items (`brigade work-item list`)"
 
 func syncOffLine(why string) string {
 	return "Brigade: file sync off (" + why + ")."

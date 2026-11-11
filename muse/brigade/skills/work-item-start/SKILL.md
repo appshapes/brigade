@@ -1,7 +1,7 @@
 ---
 name: work-item-start
 description: >-
-  Take one work item from the team's board and work it through in this session: `brigade:work-item-start <number>`
+  Take one work item from the Brigade Board, the team's board of work items, and work it through in this session: `brigade:work-item-start <number>`
   reads it, assigns it to the user, moves it to the board's list for work in progress, agrees the approach with
   the user where the work item leaves it open, does the work under the project's own rules, then comments on
   the work item with what was done and moves it to the board's list for finished work. Use when the user asks
@@ -14,8 +14,8 @@ argument-hint: "<number>"
 # Start a work item
 
 `$ARGUMENTS` is what came after the skill's name, `brigade:work-item-start`: typed by the user, or passed by you when they asked in words to start, take or work
-on a work item: its number. With no number, ask for one and stop. The commands and the rules of the board are
-in `brigade:work-item`; one `brigade` command per call.
+on a work item: its number. With no number, ask for one and stop. The board is the team's **Brigade
+Board** of work items; its commands and rules are in `brigade:work-item`. One `brigade` command per call.
 
 1. **Read it.** Run `brigade work-item show <number>`. A refusal is final: print it and stop. A closed work
    item, or one assigned to another member, is not yours to take without a word: say what you found and ask

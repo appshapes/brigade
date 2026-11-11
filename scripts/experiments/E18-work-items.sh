@@ -11,7 +11,12 @@
 #      answer carries the table as the command printed it;
 #   C  `/brigade:work-item-start <number>` takes a work item and works it through: the session reads it, assigns
 #      it to its user, moves it to Doing, does what it asks (one small file), comments what it did and moves it
-#      to Done.
+#      to Done;
+#   D  the user's own words, no command (work item 268): asked "What is on the brigade board right now?", the
+#      session knows the Brigade Board is the team's board of work items, runs `brigade work-item list` and
+#      answers with what is on it;
+#   E  the same for a change: asked to put something "on the brigade board", it runs one `brigade work-item add`
+#      and the board holds the new work item.
 # A second session of the same member, driven by the real `brigade hook` subcommands with a sleeper as CLAUDE_PID,
 # is the observer: it reads the board with `brigade work-item … --json` after each leg, and adds leg C's work item.
 # Both sessions are on one machine, so they read and write the one board folder.
@@ -34,6 +39,8 @@ alice='alice@board.invalid'
 team_name=board-proof
 title_a='Try the board from a live session'
 title_c='Add a HELLO.md that says hello'
+title_e='Write the release checklist'
+asked_d='What is on the brigade board right now?'
 run_wait=420    # seconds one `claude -p` run may take
 
 say() {
@@ -227,6 +234,11 @@ commands() {
   jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "tool_use" and .name == "Bash") | .input.command | gsub("\n"; " ⏎ ")' \
     "$out/$1.stream.jsonl" 2>/dev/null || true
 }
+# skills <leg>: one line per skill the model loaded by itself, through the Skill tool.
+skills() {
+  jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "tool_use" and .name == "Skill") | .input.skill // empty' \
+    "$out/$1.stream.jsonl" 2>/dev/null || true
+}
 # answer <leg>: the session's final answer.
 answer() { jq -r 'select(.type == "result") | .result // empty' "$out/$1.stream.jsonl" 2>/dev/null || true; }
 # start_line <leg>: what the SessionStart hook printed to the session.
@@ -275,8 +287,11 @@ say "leg A: /brigade:work-item add $title_a"
 session add 'Skill' 8 "/brigade:work-item add $title_a"
 commands add > "$out/add.commands.txt"
 answer add > "$out/add.answer.txt"
-[ -n "$(start_line add)" ] && ok "A: the session's start line named the board: $(start_line add)" ||
-  bad "A: the session's stream carries no \`file sync on\` line naming the board"
+line_a=$(start_line add)
+case $line_a in
+  *"the team's Brigade Board of work items (\`brigade work-item list\`)"*) ok "A: the session's start line named the Brigade Board: $line_a" ;;
+  *) bad "A: the session's stream carries no \`file sync on\` line naming the Brigade Board: $line_a" ;;
+esac
 grep -q '^brigade work-item add' "$out/add.commands.txt" &&
   ok "A: the session ran $(grep -c '^brigade work-item' "$out/add.commands.txt") brigade work-item command(s): $(head -1 "$out/add.commands.txt")" ||
   bad "A: no \`brigade work-item add\` among the session's commands: $(cat "$out/add.commands.txt")"
@@ -337,10 +352,46 @@ say "C: the history: $(jq -r '[.item.history[].what] | join(" | ")' "$out/board-
   ok "C: the comment names its session: $(jq -r '.item.comments[-1].session' "$out/board-c.json")" || bad "C: the comment names no session"
 
 # ---------------------------------------------------------------------------------------------------------------
-# 9. Nothing went to the backend
+# 9. Legs D and E: the user's own words name the Brigade Board (work item 268)
 # ---------------------------------------------------------------------------------------------------------------
 say ""
-if grep -rqF "$title_a" "$state_dir/fs-adapter" 2>/dev/null; then
+say "leg D: $asked_d"
+session words 'Skill,Bash(brigade work-item:*)' 8 "$asked_d"
+commands words > "$out/words.commands.txt"
+skills words > "$out/words.skills.txt"
+answer words > "$out/words.answer.txt"
+grep -qx 'brigade:work-items' "$out/words.skills.txt" &&
+  ok "D: asked in words about \"the brigade board\", the session loaded the skill itself: $(tr '\n' ' ' < "$out/words.skills.txt")" ||
+  bad "D: the session did not load brigade:work-items; it loaded: $(tr '\n' ' ' < "$out/words.skills.txt")"
+[ "$(cat "$out/words.commands.txt")" = "brigade work-item list" ] &&
+  ok "D: it ran exactly one command: brigade work-item list" ||
+  bad "D: the session's commands: $(cat "$out/words.commands.txt")"
+{ grep -qF "$title_a" "$out/words.answer.txt" && grep -qF "$title_c" "$out/words.answer.txt"; } &&
+  ok "D: its answer names both work items on the board: \"$title_a\" and \"$title_c\"" ||
+  bad "D: the answer does not name both work items: $(head -c 600 "$out/words.answer.txt")"
+
+say ""
+say "leg E: Put \"$title_e\" on the brigade board."
+session put 'Skill,Bash(brigade work-item:*)' 8 "Put \"$title_e\" on the brigade board."
+commands put > "$out/put.commands.txt"
+skills put > "$out/put.skills.txt"
+answer put > "$out/put.answer.txt"
+grep -qx 'brigade:work-item' "$out/put.skills.txt" &&
+  ok "E: asked to put it \"on the brigade board\", the session loaded the skill itself: $(tr '\n' ' ' < "$out/put.skills.txt")" ||
+  bad "E: the session did not load brigade:work-item; it loaded: $(tr '\n' ' ' < "$out/put.skills.txt")"
+{ [ "$(wc -l < "$out/put.commands.txt" | tr -d ' ')" = 1 ] && grep -q '^brigade work-item add' "$out/put.commands.txt"; } &&
+  ok "E: it ran exactly one command: $(head -1 "$out/put.commands.txt")" ||
+  bad "E: the session's commands: $(cat "$out/put.commands.txt")"
+board list > "$out/board-e.json"
+[ "$(jq -c --arg t "$title_e" '[.items[] | select(.title == $t) | .number]' "$out/board-e.json")" = '[3]' ] &&
+  ok "E: the observer's board holds one work item \"$title_e\", number 3" ||
+  bad "E: the board after the request: $(jq -c '[.items[] | {number, title}]' "$out/board-e.json")"
+
+# ---------------------------------------------------------------------------------------------------------------
+# 10. Nothing went to the backend
+# ---------------------------------------------------------------------------------------------------------------
+say ""
+if grep -rqF -e "$title_a" -e "$title_c" -e "$title_e" "$state_dir/fs-adapter" 2>/dev/null; then
   bad "a work item's title is in the backend's files under $state_dir/fs-adapter"
 else
   ok "no work item is in the backend's files: the board is the folder alone ($(find "$state_dir/boards" -name '*.json' | wc -l | tr -d ' ') change files under boards/)"

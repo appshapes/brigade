@@ -39,9 +39,9 @@ bob@example.com  yes
 A folder's state is Syncthing's own word, or `not shared yet` before the first round, `rejected`, `conflict_path`
 (another checkout on this machine holds it) or `no longer listed (paused)`. `--json` carries the ids in full.
 
-A team with a board ([Keep the team's work on the board](work-items.md)) has one more row, `team board`, and its
-session-start line names it: ``file sync on: 2 folder(s) and the team's board (`brigade work-item list`) through
-syncthing.`` The board is a folder under Brigade's state directory, not in your checkout.
+A team with a Brigade Board ([Keep the team's work on the Brigade Board](work-items.md)) has one more row, `team board`, and its
+session-start line names it: ``file sync on: 2 folder(s) and the team's Brigade Board of work items (`brigade work-item list`)
+through syncthing.`` The board is a folder under Brigade's state directory, not in your checkout.
 
 ## What is written in your checkout
 

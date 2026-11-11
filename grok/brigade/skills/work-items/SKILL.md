@@ -1,19 +1,21 @@
 ---
 name: work-items
 description: >-
-  Show the team's board of work items: `/brigade:work-items` runs `brigade work-item list` and prints its output
+  Show the Brigade Board, the team's board of work items: `/brigade:work-items` runs `brigade work-item list` and prints its output
   unchanged: the open work items by list, with who each is assigned to. `/brigade:work-items mine` shows the user's
   own, `/brigade:work-items nobody` the unassigned, `/brigade:work-items closed` the closed ones, `/brigade:work-items for <member>`
   one member's, `/brigade:work-items tag <tag>` one tag's, `/brigade:work-items lists` the board's lists, and any other
-  words name one list. Use it whenever the board is being SHOWN to the user, so they see what the command
+  words name one list. Use it whenever the board is being SHOWN to the user (they may call it "the Brigade
+  Board", "the brigade board" or "the board"), so they see what the command
   printed rather than a retelling of it; reading, adding or changing one work item is `brigade:work-item`, and
   taking one to work on it is `brigade:work-item-start`. A team whose `.brigade.json` does not turn the board
   on has none.
 ---
 
-# Show the team's board
+# Show the Brigade Board
 
-A team that turned its board on keeps its work in Brigade itself: work items, each with a number, in the board's
+The **Brigade Board** is a team's board of work items, and what a user means by "the brigade board", "the
+team's board" or "the board". A team that turned its board on keeps its work in Brigade itself: work items, each with a number, in the board's
 lists, in a folder file sync shares with every teammate's machine whatever repository their session is in.
 `$ARGUMENTS` is what came after `/brigade:work-items`: typed by the user, or passed by you when you loaded this skill to show the board: a
 word only when the user asked for what it does, otherwise nothing. Either way the steps below are the whole of it.

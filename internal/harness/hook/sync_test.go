@@ -86,12 +86,12 @@ func TestSyncLines(t *testing.T) {
 		"the board beside a folder": {
 			members: `,"sync":{"folders":["shared"],"board":true}`,
 			folders: []string{"shared"}, adapter: "syncthing", board: true,
-			want: []string{"Brigade: file sync on: 1 folder(s) and the team's board (`brigade work-item list`) through syncthing."},
+			want: []string{"Brigade: file sync on: 1 folder(s) and the team's Brigade Board of work items (`brigade work-item list`) through syncthing."},
 		},
 		"the board alone": {
 			members: `,"sync":{"board":true}`,
 			adapter: "syncthing", board: true,
-			want: []string{"Brigade: file sync on: the team's board (`brigade work-item list`) through syncthing."},
+			want: []string{"Brigade: file sync on: the team's Brigade Board of work items (`brigade work-item list`) through syncthing."},
 		},
 		"the board switched off, and no folders": {
 			members: `,"sync":{"board":false}`,

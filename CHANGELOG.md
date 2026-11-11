@@ -9,6 +9,22 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **The team's board of work items is named Brigade Board** (work item
+  268). A session understands "the brigade board" ("show me the brigade
+  board", "put this on the Brigade Board") as the board `brigade
+  work-item` reads and changes. The three work-item skills and the
+  team-messaging skill of every package name it; the session-start line
+  reads ``file sync on: 1 folder(s) and the team's Brigade Board of work
+  items (`brigade work-item list`) through syncthing.``; and
+  `brigade work-item`'s summary, the note of its `--json` results and
+  its `no_board` refusal name it. "Work item", the command and the
+  skills' names are unchanged, the synced folder is still labelled
+  `team board`, and "the board" stays the short form. The pages are
+  [Keep the team's work on the Brigade Board](docs/team-member/use/work-items.md)
+  and [Turn on the Brigade Board](docs/team-admin/configure/board.md).
+
 ## [0.50.0] — 2026-11-11
 
 ### Added

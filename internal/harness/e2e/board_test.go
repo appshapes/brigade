@@ -132,7 +132,7 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 
 	// --- 1. two sessions start, in two repositories ------------------------------
 	start := time.Now()
-	const onLine = "Brigade: file sync on: the team's board (`brigade work-item list`) through syncthing."
+	const onLine = "Brigade: file sync on: the team's Brigade Board of work items (`brigade work-item list`) through syncthing."
 	boards := map[string]string{}
 	for name, s := range map[string]session{"alice": alice, "bob": bob} {
 		res := r.hook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))

@@ -117,7 +117,7 @@ session lives (with the peers of the last read).
   peer that was listed before may stay configured. Never this machine's own. `label` is the teammate's roster
   label: unverified text, for display only.
 - A folder's `team` and the request's `team_peers` are **optional**, and come together: a team that turned its
-  board on ([Turn on the board](team-admin/configure/board.md)) has one folder that is the team's and not a
+  board on ([Turn on the Brigade Board](team-admin/configure/board.md)) has one folder that is the team's and not a
   repository's, marked `"team": true`, at a path under Brigade's state directory. Share it with `team_peers` —
   the peer of every teammate's online session, whatever its repository, for the same adapter — instead of
   `peers`; every other folder stays with `peers`. A request with no team folder carries no `team_peers`; one with

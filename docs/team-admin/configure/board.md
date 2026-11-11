@@ -1,12 +1,12 @@
-# Turn on the board
+# Turn on the Brigade Board
 
 ```json
 "sync": { "folders": [".context/plans"], "board": true }
 ```
 
-A team that sets `"board": true` in the `sync` member of `.brigade.json` keeps its work in Brigade itself: work
-items in the lists of one board, read and changed with `brigade work-item`
-([Keep the team's work on the board](../../team-member/use/work-items.md)). The board is the team's, not a
+The **Brigade Board** is a team's board of work items. A team that sets `"board": true` in the `sync` member of
+`.brigade.json` keeps its work in Brigade itself: work items in the lists of one board, read and changed with
+`brigade work-item` ([Keep the team's work on the Brigade Board](../../team-member/use/work-items.md)). The board is the team's, not a
 repository's. It needs no listed folder: `"sync": { "board": true }` alone is a project that syncs nothing but
 the board.
 
