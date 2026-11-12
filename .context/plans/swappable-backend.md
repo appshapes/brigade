@@ -1,5 +1,15 @@
 # A swappable backend: the gateways, folder sync and the harness over the adapter protocol (Trello card 156)
 
+**Superseded in part, 2026-11-12.** Work item 156 is closed, split by the owner into two work items. Work item
+273 is §1's S2 and §9's phase 5: a team moves from Supabase to the Brigade server keeping its join secret, then
+with no action by its members. That is now first, not second (the owner: "the whole point of an adapter is to be
+able to swap it without affecting the clients"). Work item 274 is phase 2's admin verbs. Phases 3 and 4 are done
+in another form by work item 89 (`brigade-server.md`): the REST contract and the bundled `rest` adapter as
+planned here, a Rust server over Cavalry in place of the Go reference server, and the gateways inside that server
+in place of the Go gateway process. Phase 1, phase 0's session-start line and `session.facts` serve only a
+third-party adapter and are dropped. The review is on work item 156's comments. Work items 89, 273, 274 and 272
+are one roadmap, sequenced by work item 89's session. The text below is the plan as it stood on 2026-10-29.
+
 Owner: Rjae. Session: 155-review-adapter-swap. Written 2026-10-29 from card 155's review (its findings are the
 first comment on that card). Status: proposal, awaiting the rulings of §10; nothing in §9 starts before them.
 Rows P63-* in brigade-execution-log.md once work begins. Revised the same day after Rjae's clarification: the
