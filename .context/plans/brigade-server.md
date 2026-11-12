@@ -4,6 +4,10 @@ Written 2026-11-12 by the session `brigade-fix-1e`. It replaces `.context/plans/
 peer-to-peer design of 2026-11-11), which stays for the facts the Cavalry session's spike measured and for the
 design this one grew out of. Where the two disagree, this page is the plan.
 
+Corrected 2026-11-12 by the session `89-brigade-server-over-cavalry`, which built phase 2: the owner's two
+rulings of that day (§2, §4.2, §4.5, §10), Cavalry's cards 271 and 272 (§3, §6, §10), and what was built and
+measured (§4.5, §7, §8).
+
 ## 1. The goal
 
 A Brigade team runs with no Supabase project and no cloud account. Its members' sessions reach a **Brigade
@@ -34,6 +38,24 @@ These are his words from this session; the design in §4 is mine and built on th
    the record of truth, and he said "Go ahead."
 5. Members on Cavalry directly is wanted "only if this kept the plug-in at least as simple as it is today." It
    does not (§9), so it is not in this plan.
+6. TLS (ruling 3 of §10), 2026-11-12: "Yes, but [I'd] like an option for an admin to put TLS termination before
+   the server". To the shape proposed for that option he said "Agree with recommendations.": the server refuses
+   to start in plain HTTP on an address that is not loopback unless the operator sets an explicit option saying
+   that TLS ends in front of it, and the adapter still requires https unless the host is loopback.
+7. The server's HTTP and TLS crates (ruling 4), 2026-11-12: "my intention is that installation and delivery of
+   the server is separate from the plug-in. Wouldn't that eliminate Brigade refusal? And if so, [I'd] prefer the
+   'usual one' option." So the stack is hyper, tokio and tokio-rustls. The allowlist in `server/deny.toml` stays
+   ("Agree with recommendations.").
+
+8. Who may create a team on a server (ruling 2), 2026-11-12, asked whether it should stay that anyone who can
+   reach a server started without `--create-token-file` can create one: "Anyone". So a server is open to team
+   creation by default, as phase 2 built it. He was not asked about the option itself and did not speak of it: it
+   stays, for an operator who wants a token, and the contract already says a server may require one.
+9. Landing phase 2 on `master`, 2026-11-12: "Yes".
+
+Items 6 and 7 were said in `brigade-fix-1e`'s conversation. They reached the session that built phase 2 as that
+session's relay, with his words quoted, and are on work item 89 (its comments of 2026-11-12, 10:16 and 10:21 UTC).
+Items 8 and 9 were said to the session that built phase 2, in answer to its report.
 
 The six rulings of 2026-11-11 were made for the peer-to-peer design. What is left of them: an always-on machine
 the team owns is acceptable (ruling 1, now the server); green field first, moving an existing team later
@@ -80,6 +102,13 @@ at `0d28208`; the earlier plan's §3 has the table):
   at the median. `Recording::request_sync` lets many writes share one sync.
 - A container's default `/dev/shm` (64 MiB) is too small and fails quietly: the server starts and every append is
   refused `not-connected`. Only `cavalry doctor` says why (Cavalry issue 238 is a related leak).
+- 2026-11-12, the Cavalry session's report (its answers, section G, and its message to the phase 2 session): both
+  asks of §6 are Cavalry cards now, 271 (`ssc=true` on a feed's channel: a live recording connects the
+  publication) and 272 (`term-length=<length>`). They were built on branches and not on Cavalry's `master`, which
+  was `620a2e2`, when phase 2 was built; at that commit a channel that names either key is refused. On
+  `term-length=1m|ssc=true` it measured one instance at 11.0 MiB of driver directory and 22 MiB resident, with a
+  longest message of 131,072 bytes. JSON can write a character as six bytes, so a sealed record of a 16,384-byte
+  body is up to about 104 KiB: `1m` fits it and `256k` or `512k` does not.
 
 ## 4. The design
 
@@ -117,8 +146,12 @@ at `0d28208`; the earlier plan's §3 has the table):
 - **Credentials.** `team join` with the secret creates a member and returns an opaque token; the server keeps its
   hash, the adapter keeps the token in the credential file. The server therefore decides who is a member:
   leaving, revoking and rotating work without everyone rejoining, and the admin verbs can be enforced.
-- **Transport security.** HTTPS. The server serves TLS itself or sits behind a proxy or a tunnel that does;
-  plain HTTP is accepted on loopback only. A self-signed server is pinned by a fingerprint in the team file.
+- **Transport security.** HTTPS (ruled 2026-11-12, §2 item 6). The server serves TLS itself when it is given a
+  certificate and its key. Without them it serves plain HTTP on loopback only, unless the operator sets
+  `--tls-in-front`, which says that a proxy or a tunnel ends TLS in front of it; plain HTTP on any other address
+  is refused at the start. What stands in front must pass the `Authorization` and `Brigade-Create-Token` headers,
+  allow a 1 MiB body, hold a quiet request open for more than 30 seconds and never send a `POST` again by itself.
+  A self-signed server is pinned by a fingerprint in the team file (phase 3: the member's side is not built).
 
 ### 4.3 More than one instance: one writer, the others stand by
 
@@ -174,31 +207,58 @@ server/crates/brigade-log/      the ordered log behind one trait: a file log for
 server/crates/brigade-server/   the binary: configuration, HTTP, credentials' hashing, snapshots, wiring
 ```
 
-- **`execute(&mut State, command, now, fresh) -> Result<Reply, Error>`** checks a request, applies its records to
-  the state and hands the records to the caller, which appends and syncs them before it answers. A failed append
-  ends the process: the state must never be ahead of the log. `fresh` is the randomness the command may need (new
-  ids, a new credential, a new join secret), drawn by the caller.
+- **`answer(&mut State, Request, now, &mut dyn Entropy) -> Result<Outcome, Error>`** takes a request's path and
+  body, checks it in the stand-in server's order (the credential before the shape, and nothing of the body read
+  beyond its members' names until the credential is known), applies its records to the state and hands them to
+  the caller with the answer (`Outcome`), which appends and syncs them before it answers. A failed append ends the process: the state must never be ahead of the log.
+  `caller` is the hash of the credential the request presented, and `Entropy` the source of what the command may
+  need (new ids, a new credential, a new join secret), which the caller owns: the operating system's in the
+  server, a counter in a test.
 - **`apply(&mut State, &Record)`** is what a restart and a standby run. It cannot fail and reads no clock.
 - **Time.** The caller reads the clock once per request and passes `now`; a record carries `at`. A session's
   state is computed from `lease_until` and the reader's `now` (4.5.8). Retention and the rate windows are
   functions of record times, so the sweep needs no record of its own.
-- **Records** (each `{version, kind, at, …}`): `team.created`, `member.joined`, `member.left`,
-  `credential.issued`, `credential.revoked`, `session.opened`, `session.resumed`, `session.heartbeat`,
-  `session.closed`, `message.accepted`, `message.acked`. A heartbeat is a record so that a standby has the leases;
-  if the log's growth ever matters, heartbeats are the first thing to thin.
+- **Entries.** The records one request made are one entry of the log, `{sequence, records}`, sealed as one: the
+  log holds all of a request's records or none. Entries are numbered from one inside the seal, and a start
+  refuses an entry that is not the one after the last it applied, so a log read wrongly is never believed.
+- **Records** (each `{version, at, kind, …}`, the team a member of the kinds that have one): `team.created`,
+  `member.joined`, `member.left`, `credential.issued`, `credential.revoked`, `session.opened`, `session.resumed`,
+  `session.heartbeat`, `session.closed`, `message.accepted`, `message.acked`. A heartbeat is a record so that a
+  standby has the leases; if the log's growth ever matters, heartbeats are the first thing to thin. No entry is
+  longer than 104 KiB before its seal: the server refuses to start on a log that takes less, and it caps the two
+  members BAP/1 leaves uncapped (`harness`, `harness_version`) at 256 code points, which the contract's section 5
+  now allows.
 - **Waiting receives** are the HTTP layer's: a waiter per session, woken when a `message.accepted` for that
   session is applied.
 - **The log trait**: `append(records) -> position` (returns after the sync), `read_from(position)` for a restart,
-  and `follow(position)` for a standby. The Cavalry implementation is the spike's pattern
-  (`../cavalry/.ignored/cavalry-adapter/spike/`): a recorded `cavalry:udp` publication under initial term id 0, a
-  subscription to its own feed until Cavalry's B5 lands, the catalog read at start after stopping any recording
-  still live, and positions taken from the image's arithmetic.
+  and `release(position)`, which tells the log what the kept snapshots cover. A standby's `follow` comes with
+  phase 4: its request travels over HTTP and names a session (§4.3), so its shape is that phase's to fix. The
+  Cavalry implementation is the spike's pattern (`../cavalry/.ignored/cavalry-adapter/spike-term/`): a recorded
+  `cavalry:udp` publication under initial term id 0, a subscription to its own feed until a pin has Cavalry's
+  card 271, the catalog read at start after stopping any recording still live, a restart's read through a replay
+  over `cavalry:ipc`, and positions taken from the image's arithmetic. One constant, `Shape` in `feed.rs`, holds
+  what differs between pins. A client that was closed under an append (a process held still for more than ten
+  seconds) is connected again, and only the records the feed does not hold are offered again. When a snapshot is
+  taken and the live recording holds `--feed-roll-bytes` or more, the feed is rolled, and the recordings that end
+  before the oldest kept snapshot are purged.
 - **HTTP.** Thirteen fixed `POST` paths, bodies of at most 1 MiB, a few tens of connections, some of them
-  waiting. Two candidate stacks for ruling 4. The small one: `httparse` for parsing, `rustls` with `ring` for
-  TLS, blocking threads, and about 200 lines of strict framing of our own (a `Content-Length` is required, a
-  `Transfer-Encoding` is refused, anything odd closes the connection). The usual one: `hyper`, `tokio` and
-  `tokio-rustls`, about fifty crates and no framing code of ours. `ring` also does the sealing, the hashes and
-  the randomness either way. The HTTP layer is kept thin so that the choice can change.
+  waiting. The stack is hyper on tokio, with rustls on ring through tokio-rustls (ruled 2026-11-12, §2 item 7),
+  and no router framework. `ring` also does the sealing, the hashes and the randomness. The HTTP layer is thin:
+  it reads the path, the credential and the body, and writes the envelope with its status. Every connection
+  carries one request. A body that is too long is read on, up to 4 MiB, before it is refused, so the refusal
+  reaches a client that is still sending.
+- **One thread owns the state and the log** (`engine.rs`). Handlers send it a command over a channel and await
+  the answer, so the blocking append and sync never run on tokio's workers and the one order is the thread's own.
+  The jobs that are waiting when the thread looks are answered together and share one sync. A receive that waits
+  is asked again every time the state has changed and the change is on the disk.
+- **Snapshots** (`snapshot.rs`): a header line with the format's version, the log's position and a checksum, then
+  the state as JSON; written beside its name and renamed into place; one every `--snapshot-every` entries, after
+  a start that read entries, and at a stop; the newest three are kept, and a damaged one is passed over for the
+  one behind it. The checksum covers the position, and the log is shortened only once two snapshots exist.
+- **Reviewed.** Two independent reviews of the code on 2026-11-12, one of the rules against BAP/1 and the Go
+  reference, one of the engine, the log and the HTTP layer. What they found and what was changed is in the
+  execution log's row P86-2; what was left for a decision or a measurement is the "Known limits" section of
+  `docs/developer/change/server.md`.
 - **The oracle** is the conformance suite through `brigade adapter rest`, as for the stand-in. `brigade-core`
   also has its own tests, and the fs adapter's store is the worked example for every rule's detail.
 
@@ -230,14 +290,18 @@ when its CI job cannot stay under five minutes, or when it has users and issues 
 
 ## 6. What Cavalry is asked for
 
-Nothing blocks. Two small asks are worth making before 0.1.0 freezes `spec/udp.md`, and whether they become
-Cavalry cards is Rjae's to say (§10, ruling 8):
+Nothing blocks. Two small asks were worth making before 0.1.0 freezes `spec/udp.md`. Both are Cavalry cards
+since 2026-11-12, 272 and 271 (§3; the Cavalry session reports that Rjae told it to proceed on its own
+recommendations), and the server moves its pin and its `Shape` when a commit with both is on Cavalry's `master`:
 
 - **A term length per channel.** I called it nice to have; the Cavalry session disagrees, and its numbers are why.
   A log is 48 MiB today. With a 1 MiB term an instance among five holds 38 MiB, not 488 MiB, and an admin has
   nothing to size. Until it lands, the server's container needs `/dev/shm` set (the Cavalry session's formula for
   a full mesh of n is 8 MiB + 48 MiB × 4n), and **the server checks the room at start and refuses to start with
-  a plain message** rather than fail quietly.
+  a plain message** rather than fail quietly. Built in phase 2: the check is sized from the term the feed asks
+  for, 201 MiB for one instance at the current pin and about 20 MiB on a 1 MiB term. In a container with Docker's
+  default 64 MiB the server ends at once with "has room for 64 MiB and the feed needs 201 MiB" and how to give it
+  more (measured 2026-11-12).
 - **Appending with no receiver** (its B5) removes the self-subscription and one log.
 
 Windows and the idle that sleeps are no longer Brigade's asks. The subscriber that calls out and wire encryption
@@ -252,7 +316,15 @@ What Cavalry wants from Brigade now (its section F5): the soak of a server that 
   inside `make test`.
 - **The server:** the same suite, with `--slow`, green against a running `brigade-server`; opt-in locally and
   the `server` job in CI. The Rust state machine has its own tests, and a restart test: stop the process, start
-  it, and every unacknowledged message is still there.
+  it, and every unacknowledged message is still there. Measured 2026-11-12 on the developer's Mac
+  (`make server-test`): through `brigade adapter rest`, 48 passed, 0 failed, 1 slow case skipped on the file log,
+  and 49 passed, 0 failed, 0 skipped with `--slow` on the Cavalry feed at `620a2e2`. On both logs a server that
+  was killed and started again held every unacknowledged message, the acknowledgements, the cursors and the
+  idempotency keys. On the Cavalry feed a server held still for 12 seconds went on with nothing lost or
+  repeated, and a server made to roll at every snapshot let go of the recordings its snapshots covered and held
+  the same state after a kill. The same tests and both suite runs are green in a Linux container (Linux 7.0 on
+  aarch64 in Docker Desktop, `--shm-size=512m`): not x86-64, not a real disk, and not CI's runner, which has not
+  run the `server` job yet.
 - **A real team:** `make e2e` against the adapter and the server, then a green-field team of two members for a
   week, with the server's log directory and its counters as the measurement.
 - **Standby:** two instances on two hosts; send through the primary, stop it, promote, receive from the standby.
@@ -263,7 +335,7 @@ What Cavalry wants from Brigade now (its section F5): the soak of a server that 
 | --- | --- | --- |
 | 0 | Research, the spike, the direction. Done 2026-11-12. | |
 | 1 | The contract page, the `rest` adapter, the stand-in, conformance green in `make test`. Go only. Built and verified 2026-11-12 (execution log P86-1): conformance(rest) 48 passed, 0 failed, 1 slow case skipped; 49 of 49 with `--slow`. | nothing |
-| 2 | The server with one instance: the workspace, records, the state machine, the recorded feed, snapshots, HTTP, credentials; the conformance suite green against it; the `server` CI job. | phase 1; rulings 3, 4 |
+| 2 | The server with one instance: the workspace, records, the state machine, the recorded feed, snapshots, HTTP, credentials; the conformance suite green against it; the `server` CI job. Built and verified 2026-11-12 (execution log P86-2): `server/` with `brigade-core`, `brigade-log` and `brigade-server`; `make server-build`, `server-check`, `server-test` and `server-deps-check`; the `server` job in `ci.yml`, not yet run by CI and not required by the ruleset. | phase 1; rulings 3, 4 |
 | 3 | A real team: `team create --adapter rest`, the team file, the session-start lines, `make e2e`, the Project Owner and Team Admin pages, the `security.md` section, the first server release, the experimental label. | phase 2; rulings 2, 5 |
 | 4 | Standby instances: following, snapshots for a new instance, promotion, the adapter's second address (work item 156's team file version 2), the two-host proof, a week's soak. | phase 3; ruling 1 |
 | 5 | Email and Slack beside the server: work item 156, phase 4. | independent |
@@ -286,16 +358,19 @@ any stack can stand behind it.
 ## 10. Rulings wanted (Rjae), each with the default I work to until told otherwise
 
 1. **One writer at a time** (§4.3), with promotion by an operator's command first. Default: yes.
-2. **Who may create a team on a server.** A stranger who can reach it should not. Default: a token the operator
-   issues, read from a file or stdin, never argv.
-3. **TLS.** Default: the server can serve TLS itself, plain HTTP on loopback only, and a self-signed server is
-   pinned in the team file.
-4. **The server's dependencies.** An allowlist in `server/deny.toml`; the HTTP and TLS crates are named on it
-   before phase 2 writes code against them.
+2. **Who may create a team on a server.** Ruled 2026-11-12 (§2 item 8): "Anyone". The default this plan worked
+   to, that a stranger who can reach a server should not, is withdrawn: a server started without
+   `--create-token-file` lets anyone who reaches it create a team. The option stays for an operator who wants a
+   token, read from a file, never argv. Still open beside it: nothing bounds the sessions a member registers or
+   the principals a join secret makes (`docs/developer/change/server.md`, "Known limits").
+3. **TLS.** Ruled 2026-11-12 (§2 item 6): the default, and an option for TLS that ends in front of the server.
+4. **The server's dependencies.** Ruled 2026-11-12 (§2 item 7): hyper, tokio and tokio-rustls, and the allowlist
+   in `server/deny.toml` stays.
 5. **The `server` CI job and the ruleset.** Default: the job runs from phase 2 and becomes required when phase 3
-   ships.
+   ships. Phase 2 worked to it: the job is in `ci.yml` and the ruleset does not name it.
 6. **The stand-in.** Default: a test fixture only, never shipped.
 7. **Work items.** Default: 89 carries phases 1 to 4; 156 keeps the team file version 2, the protocol additions
    and the gateways, and a comment there says its phase 3 is built here.
 8. **Cavalry's two small asks as cards now** (§6), and whether Brigade's team is invited as an early tester of
-   Cavalry before 0.1.0. No default: these are in Cavalry, and nothing here waits on them.
+   Cavalry before 0.1.0. The first half is answered: they are Cavalry's cards 271 and 272 (§3). The invitation is
+   still open, and nothing here waits on it.

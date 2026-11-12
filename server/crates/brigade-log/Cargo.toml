@@ -1,0 +1,27 @@
+[package]
+name = "brigade-log"
+description = "The ordered log of a Brigade server behind one trait: a file log for tests, the Cavalry feed for real."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The Cavalry feed. Cavalry runs on Linux and macOS; a build without it has the file log alone.
+default = ["cavalry"]
+cavalry = ["dep:cavalry", "dep:cavalry-log", "dep:nix"]
+
+[dependencies]
+# The room of the driver directory's file system, read before the driver starts.
+nix = { workspace = true, optional = true }
+ring.workspace = true
+# Cavalry is a git dependency pinned to one commit until its first release (0.1.0). Nothing in it is frozen
+# before then: treat a new rev as one that may need the feed started again from a snapshot.
+cavalry = { git = "https://github.com/appshapes/cavalry", rev = "620a2e29e04751c7a1f930132666f85b3dd58e7a", default-features = false, optional = true }
+# The catalog's reader, which `cavalry` does not re-export.
+cavalry-log = { git = "https://github.com/appshapes/cavalry", rev = "620a2e29e04751c7a1f930132666f85b3dd58e7a", optional = true }

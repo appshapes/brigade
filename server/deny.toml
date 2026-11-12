@@ -1,0 +1,125 @@
+# The server's dependency list (.context/plans/brigade-server.md, section 5, rule 3).
+#
+# The server holds a team's messages, so every crate it links is named here, with its licence and where it
+# comes from. `make server-deps-check` (cargo-deny) fails on a crate this file does not name: a new dependency
+# is added here in the change that adds it, and the diff says so.
+#
+# The owner ruled the HTTP and TLS stack on 2026-11-12: hyper, tokio and tokio-rustls, because the server is
+# installed and delivered apart from the plugin, so what it links is not what a member's machine runs. The
+# list below is that stack and nothing beside it: no router framework, no logging framework, and rustls on
+# ring with no second cryptography library.
+
+[graph]
+# What the server is built for. Cavalry runs on Linux and macOS and nowhere else.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+all-features = true
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = true
+# Two versions of one crate are refused, with one exception: Cavalry's zerocopy-derive is built with syn 2 and
+# serde's and tokio's macros with syn 3. Both run when the server is built and neither is linked into it.
+skip = [{ crate = "syn@2", reason = "zerocopy-derive is built with syn 2; serde_derive and tokio-macros with syn 3" }]
+# With a list here, a crate that is not on it is refused.
+allow = [
+    # The server's own.
+    "brigade-core",
+    "brigade-log",
+    "brigade-server",
+
+    # Cavalry, a git dependency pinned to one commit until its first release, and what it links.
+    "cavalry",
+    "cavalry-client",
+    "cavalry-driver",
+    "cavalry-log",
+    "cavalry-proto",
+    "cavalry-raft",
+    "cavalry-shm",
+    "bitflags",
+    "cfg-if",
+    "libc",
+    "memmap2",
+    "memoffset",
+    "nix",
+    "zerocopy",
+
+    # The records, the snapshots and the wire: JSON.
+    "itoa",
+    "memchr",
+    "serde",
+    "serde_core",
+    "serde_json",
+    "zmij",
+
+    # The seal, the hashes and the randomness, and TLS's cryptography: ring.
+    "getrandom",
+    "ring",
+    "untrusted",
+
+    # HTTP: hyper on tokio.
+    "atomic-waker",
+    "bytes",
+    "errno",
+    "futures-core",
+    "http",
+    "http-body",
+    "http-body-util",
+    "httparse",
+    "httpdate",
+    "hyper",
+    "hyper-util",
+    "mio",
+    "pin-project-lite",
+    "signal-hook-registry",
+    "smallvec",
+    "socket2",
+    "tokio",
+
+    # TLS: rustls.
+    "once_cell",
+    "rustls",
+    "rustls-pki-types",
+    "rustls-webpki",
+    "subtle",
+    "tokio-rustls",
+    "zeroize",
+
+    # Run when the server is built, and not linked into it.
+    "autocfg",
+    "cc",
+    "cfg_aliases",
+    "find-msvc-tools",
+    "proc-macro2",
+    "quote",
+    "serde_derive",
+    "shlex",
+    "syn",
+    "tokio-macros",
+    "unicode-ident",
+    "zerocopy-derive",
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+]
+confidence-threshold = 0.9
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Cavalry's crates are not published before its first release.
+allow-git = ["https://github.com/appshapes/cavalry"]

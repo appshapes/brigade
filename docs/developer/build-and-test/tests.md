@@ -35,6 +35,18 @@ bundled `rest` adapter; `make conformance adapter=<executable> [args="-- fixed a
 positive control is four deliberately broken builds of the reference adapter, each of which must fail exactly its
 own cases.
 
+## The server
+
+```sh
+make server-check        # rustfmt and clippy on server/, warnings denied
+make server-test         # cargo test, then the conformance suite against a running brigade-server
+```
+
+`server/` is a Rust workspace outside `make test` ([Change the server](../change/server.md)). `make server-test`
+builds the Go binaries, runs the workspace's tests, and then runs `brigade-conformance` through `bin/brigade`'s
+`rest` adapter against a server it starts: on the file log, and with `--slow` on the Cavalry feed. It needs
+`cargo`, Linux or macOS, and 201 MiB of room where Cavalry's driver directory goes (`/dev/shm` on Linux).
+
 ## The drift tests in scripts/ci
 
 `go test ./scripts/ci` runs the Go tests that prove each CI script can fail, against fixture trees: the plugin

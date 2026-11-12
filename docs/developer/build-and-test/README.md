@@ -23,6 +23,7 @@ Details: [Run the gate](gates.md).
 1. `make test`: unit, testscript, harness, conformance(fs), conformance(rest), with `-race`; no Docker, no stack.
 2. `make supabase-start supabase-env`, then `make test-all`, before touching `supabase/`.
 3. `BRIGADE_TEST_SYNCTHING=1 go test -run TestRealSyncthingIntegration ./internal/syncadapters/syncthing` for the real daemon.
+4. `make server-check server-test` for `server/`, the Rust workspace, which `make test` never runs.
 
 Details: [Run the tests](tests.md).
 
@@ -35,7 +36,7 @@ Details: [Run the proofs](proofs.md).
 
 ## Know the CI
 
-1. `ci.yml`: `fast`, `lint`, `windows`, `supabase` and `e2e`, side by side, then `deploy-staging`; `release.yml` on a `v*` tag.
+1. `ci.yml`: `fast`, `lint`, `windows`, `supabase`, `e2e` and `server`, side by side, then `deploy-staging`; `release.yml` on a `v*` tag.
 2. [scripts/ci/README.md](../../../scripts/ci/README.md) says what every script does and what calls it.
 
 Details: [Know the CI](ci.md).

@@ -316,6 +316,35 @@ test-all: test test-db advisor-lints test-integration e2e ## Everything (require
 conformance: build ## Run the conformance suite against an adapter (usage: make conformance adapter=<executable> [args="-- fixed args"])
 	$(bin_dir)/brigade-conformance --adapter $(adapter) $(args)
 
+# The Brigade server (work item 89, .context/plans/brigade-server.md): the Rust workspace under server/. It shares
+# no code with the Go side, has its own version (server/VERSION) and its own dependency list (server/deny.toml), and
+# it is OUTSIDE the acceptance gate: `make test` and `make push` run no Rust, and none of the four targets below is a
+# prerequisite of anything above. What joins the two sides is the contract (docs/backend-rest-v1.md) and the
+# conformance suite run through the bundled `rest` adapter, which is why server-test builds the Go binaries first.
+# Every recipe runs inside server/, because rustup reads the toolchain pin (server/rust-toolchain.toml) from the
+# working directory and not from --manifest-path.
+.PHONY: server-build
+server-build: ## Build server/target/release/brigade-server, the Brigade server (Rust; needs cargo, outside the acceptance gate)
+	cd server && cargo build --release --locked
+
+.PHONY: server-check
+server-check: ## rustfmt and clippy on server/ with warnings denied, with and without the Cavalry feed (CI)
+	cd server && cargo fmt --all --check
+	cd server && cargo clippy --workspace --all-targets --locked -- -D warnings
+	cd server && cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
+
+# The second line runs the tests marked ignored: the conformance suite through bin/brigade's rest adapter against a
+# running server, on the file log and then with --slow on the Cavalry feed (the contract's section 6). One at a
+# time, so the suite's own deadlines are met on a runner with four cores.
+.PHONY: server-test
+server-test: build ## The server's tests, then conformance(server) through the rest adapter: on the file log, and with --slow on the Cavalry feed (CI)
+	cd server && cargo test --workspace --locked
+	cd server && BRIGADE_BIN_DIR=$(CURDIR)/$(bin_dir) cargo test --locked -p brigade-server --test server -- --ignored --test-threads=1
+
+.PHONY: server-deps-check
+server-deps-check: ## Fail unless the server links only the crates, licences and sources server/deny.toml allows, with no known advisory (needs cargo-deny) (CI)
+	cd server && cargo deny --locked check
+
 .PHONY: e2e
 e2e: build ## Phase 4 no-LLM proof in watcher sink mode against the local stack (CI)
 	$(unclaude) scripts/proof.sh

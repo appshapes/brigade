@@ -34,7 +34,9 @@
 #
 # The master ruleset (`master-pr-checks`) names the required checks by JOB NAME: fast, lint, supabase and e2e.
 # A job added here is not required until the ruleset names it, and a required name no job reports blocks every
-# pull request: change the two together (scripts/ci/README.md, "Required GitHub configuration").
+# pull request: change the two together (scripts/ci/README.md, "Required GitHub configuration"). `server`, the
+# Rust workspace's job (work item 89), runs beside the others and is deliberately NOT required until the first
+# server release: its comment says so.
 #
 # The earlier departures are gone. Each was a step disabled by a constant-false `if:` until its deliverable
 # existed: P1-8 removed (b) (the `fast` job ran `make cross` in place of `make checksums-check`) and (c)
@@ -270,6 +272,45 @@ jobs:
       - run: go tool covdata percent -i="${{ runner.temp }}/cov" >> "$GITHUB_STEP_SUMMARY"
       - if: always()
         run: make supabase-clean supabase=supabase
+
+  # The Brigade server (work item 89, .context/plans/brigade-server.md): the Rust workspace under server/, which
+  # shares no code with the Go side and is outside the acceptance gate, so it has a job of its own beside the
+  # others. It checks the workspace (rustfmt, clippy with warnings denied, the crate allowlist of
+  # server/deny.toml), runs the server's own tests, and then runs the conformance suite through the bundled `rest`
+  # adapter against a running server: on the file log, and with --slow on the Cavalry feed (the contract's
+  # section 6). That is why the job sets up Go as well: bin/brigade and bin/brigade-conformance are the suite.
+  # Cavalry is a git dependency pinned to one commit of a public repository, which cargo fetches.
+  #
+  # NOT required by the master ruleset yet: the job runs from the plan's phase 2 and becomes a required check
+  # when phase 3 ships the first server release (the plan's section 10, ruling 5). Add it to the ruleset then.
+  server:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15                   # first runs: measure, then pin at 2x the p90 like the others. Loose until
+                                          # then: no run has timed this job, least of all on a cold cargo cache
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |        # a key of this job's own: the header says why
+            go.sum
+            server/Cargo.lock
+      # The image's rustup installs the toolchain server/rust-toolchain.toml pins, clippy and rustfmt with it.
+      # `rustup toolchain install` with no name reads the file on rustup 1.28 and later; an older rustup refuses
+      # that and installs on `rustup show` instead. Printed, because the image's rustup is not measured yet.
+      - name: Rust toolchain
+        working-directory: server
+        run: |
+          rustup --version
+          rustup toolchain install || rustup show
+          cargo --version
+      - uses: Swatinem/rust-cache@v2
+        with: {workspaces: server}
+      - run: make server-check
+      - uses: taiki-e/install-action@v2
+        with: {tool: cargo-deny@0.20.2}   # the version server/deny.toml was written against
+      - run: make server-deps-check
+      - run: make server-test
 
   deploy-staging:                         # Phase 5; only when a hosted staging project exists
     if: github.ref == 'refs/heads/master' && vars.BRIGADE_STAGING == 'true'

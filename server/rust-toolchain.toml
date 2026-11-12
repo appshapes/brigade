@@ -1,0 +1,5 @@
+# The toolchain the server is built and checked with, here and in CI. Cavalry needs 1.89 or later; the pin is
+# what makes `cargo fmt` and `cargo clippy` say the same thing on every machine.
+[toolchain]
+channel = "1.99.0"
+components = ["clippy", "rustfmt"]

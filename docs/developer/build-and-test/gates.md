@@ -20,6 +20,10 @@ CI's `fast` job adds `checksums-check`, `plugin-check`, `launcher-check`, `muse-
 `grok-plugin-check` and `functions-check`; `lint` runs in a job of its own, and the `windows`, `supabase` and `e2e`
 jobs run the rest ([Know the CI](ci.md)).
 
+`server/`, the Rust workspace of the Brigade server, is outside this gate: `make test` and `make push` run no
+Rust. Its own gate is `make server-check server-test server-deps-check`, which CI's `server` job runs
+([Change the server](../change/server.md)).
+
 ## What lint enforces, in one place
 
 `.golangci.yml`'s forbidigo rules are the stdout, exit, environment and spawn discipline: no `fmt.Print` or

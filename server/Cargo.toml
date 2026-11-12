@@ -1,0 +1,45 @@
+# The Brigade server: a backend for docs/backend-rest-v1.md that keeps a team on the file system and on a
+# Cavalry feed, with no Supabase project (work item 89, .context/plans/brigade-server.md).
+#
+# This workspace shares no code with the Go side of the repository. The contract page and the conformance
+# suite, run through the bundled `rest` adapter, are the only things the two have in common.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+# The server has its own version, in VERSION beside this file; a test holds the two equal.
+version = "0.0.0"
+edition = "2024"
+# 1.89 is what Cavalry needs (its log directory's lock); edition 2024 needs 1.85.
+rust-version = "1.89"
+license = "MIT"
+repository = "https://github.com/appshapes/brigade"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
+# Every crate the server links is named in deny.toml. A new one is added there in the same change.
+[workspace.dependencies]
+brigade-core = { path = "crates/brigade-core" }
+brigade-log = { path = "crates/brigade-log", default-features = false }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+nix = { version = "0.31", default-features = false, features = ["fs", "user"] }
+ring = "0.17"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+
+[profile.release]
+# One codegen unit and no unwinding tables beyond what a panic message needs: the binary is small and a
+# panic ends the process, which is what a failed append must do (plan 4.5).
+codegen-units = 1
+panic = "abort"

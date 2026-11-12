@@ -8,6 +8,7 @@
 | write an adapter for another backend | [Write an adapter](#write-an-adapter) |
 | write a sync adapter or a mail connector | [Write a sync adapter or a mail connector](#write-a-sync-adapter-or-a-mail-connector) |
 | add a migration, a function, or change the Supabase adapter | [Change the backend](#change-the-backend) |
+| change the Brigade server, the backend with no Supabase project | [Change the server](#change-the-server) |
 | add Brigade support for another harness | [Add a harness](#add-a-harness) |
 | know where things are | [Know the layout](#know-the-layout) |
 
@@ -39,6 +40,14 @@ Details: [Write a sync adapter or a mail connector](sync-and-mail.md).
 2. `make supabase-start supabase-env && make test-all` before pushing; `make functions-check` for `supabase/functions/`.
 
 Details: [Change the backend](backend.md).
+
+## Change the server
+
+1. `server/` is a Rust workspace of its own: no code shared with the Go side, outside the acceptance gate.
+2. `make server-check server-test` before pushing; a new crate goes on `server/deny.toml` (`make server-deps-check`).
+3. The oracle is the conformance suite through the `rest` adapter against a running server.
+
+Details: [Change the server](server.md).
 
 ## Add a harness
 

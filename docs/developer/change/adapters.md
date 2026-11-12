@@ -26,7 +26,8 @@ your adapter.
 **A server instead of an adapter.** [docs/backend-rest-v1.md](../../backend-rest-v1.md) is the contract a server
 implements to be a Brigade backend through the bundled `rest` adapter: BAP/1's commands as HTTP requests. It is a
 draft until the first server that implements it is released (work item 89). The same suite is the arbiter:
-`bin/brigade-conformance --env BRIGADE_REST_URL=<base> --adapter bin/brigade -- adapter rest`.
+`bin/brigade-conformance --env BRIGADE_REST_URL=<base> --adapter bin/brigade -- adapter rest`. `server/` is such a
+server, in Rust ([Change the server](server.md)).
 
 What we ask of you: read the frozen core (`describe`, `session *`, `message *`, the semantics of 4.5) against
 your backend and tell us, naming section numbers, whether there is anything you cannot express without GoTrue,

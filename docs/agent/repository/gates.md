@@ -5,12 +5,21 @@
   only `make test-integration-adapter` sets (`make test-integration` runs it, and so does CI's `supabase` job).
   Run `make supabase-start supabase-env` once, then `make test-all`, before pushing anything that touches
   `supabase/` or `internal/adapters/supabase`.
-- **CI's shape** (card 245, owner rulings 2026-11-10). `ci.yml`'s `fast`, `lint`, `windows`, `supabase` and `e2e`
-  jobs run side by side, so a run is as long as its longest job: never make one of them wait on another, and keep
+- **CI's shape** (card 245, owner rulings 2026-11-10). `ci.yml`'s `fast`, `lint`, `windows`, `supabase`, `e2e` and
+  `server` jobs run side by side, so a run is as long as its longest job: never make one of them wait on another, and keep
   each under five minutes. The `master` ruleset (`master-pr-checks`) requires `fast`, `lint`, `supabase` and `e2e`
   by job name: a job added or renamed in `ci.yml` changes the ruleset in the same piece of work, or it gates
   nothing (or blocks every pull request). There is no macOS job and no cross-host `reproducibility` job; never
   add one back without the owner. The `fast` job passes `go_test_p=4` to `make test`; everywhere else the pin is 2.
+- **The server** (work item 89, `.context/plans/brigade-server.md`). `server/` is a Rust workspace that shares no
+  code with the Go side and is outside the acceptance gate: never make `make test`, `make push` or a Go package
+  depend on it. Its gate is `make server-check server-test server-deps-check`; run it before pushing anything
+  under `server/`. Every crate it links is named in `server/deny.toml`, and a new one is added there in the same
+  change. Cavalry is a git dependency pinned to one commit in `server/crates/brigade-log/Cargo.toml`: a new pin
+  may need the feed started again from a snapshot, and `Shape` in `feed.rs` is the one place a pin's differences
+  go. CI's `server` job runs the gate and is not required by the `master` ruleset until the first server release
+  (the plan's ruling 5); the contract (`docs/backend-rest-v1.md`) still changes only in one commit with the
+  adapter, the stand-in and a green conformance run.
 - **Release pins.** Never commit a `plugin/bin/checksums.txt` or `plugin/bin/VERSION` you did not produce with
   `make release`; `muse/brigade/bin/` carries copies the release sequence writes. `make checksums-check` requires
   the committed file to be reproduced by a fresh cross-compile or backed by the published release (in the

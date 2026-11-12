@@ -138,6 +138,8 @@ the principal's is `not_found` (4.5.7).
   and hop counting of 4.5.12.
 - The limits, the lease range and the retention floors of BAP/1's 4.4.1 exactly: the adapter advertises those
   constants in `describe` without asking the server, and the conformance suite checks a value at each cap.
+  A member BAP/1 gives no cap (`harness`, `harness_version`) may have one of the server's own, of 256 code
+  points or more, refused as `invalid_input` like any other: a server need not store a megabyte it was sent.
 - The session members behind these capabilities, stored and reported: `session.description`, `session.resume`,
   `session.workspace_label`, `session.inbound`, `session.model`, `session.context_used_tokens`,
   `session.human_label`, `session.brigade_version` and `session.sync_peer`; and `team.create`, `team.join` and
