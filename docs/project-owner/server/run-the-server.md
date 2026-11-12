@@ -16,6 +16,7 @@ brigade-server --data /var/lib/brigade-server --listen 0.0.0.0:8743 --tls-self-s
 | `snapshots/` | the state at a point of the log, so that a start reads little; the newest three are kept |
 | `record.key` | the key the log's entries are sealed under; a directory that has a log and has lost this file is refused |
 | `tls/` | the certificate the server made for itself and its key, with `--tls-self-signed` |
+| `gateway/` | the mail and Slack gateways' own records, with `--gateway-config`: the credential each is a member by, and which thread a carried message belongs to |
 | `lock` | one server per directory |
 
 Run the server as a user of its own, and give that user the directory and nothing else.

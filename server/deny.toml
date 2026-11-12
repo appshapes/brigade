@@ -30,6 +30,7 @@ skip = [{ crate = "syn@2", reason = "zerocopy-derive is built with syn 2; serde_
 allow = [
     # The server's own.
     "brigade-core",
+    "brigade-gateway",
     "brigade-log",
     "brigade-server",
 
@@ -61,6 +62,13 @@ allow = [
     "getrandom",
     "ring",
     "untrusted",
+
+    # The patterns the gateway reads a mail with (addresses, Message-IDs, the HTML of a mail with no text
+    # part): regex, built without its Unicode tables and without its literal search, so that it brings
+    # nothing but its own two halves.
+    "regex",
+    "regex-automata",
+    "regex-syntax",
 
     # HTTP: hyper on tokio.
     "atomic-waker",
@@ -102,6 +110,12 @@ allow = [
     "time-core",
     "yasna",
 
+    # The gateways' one way out (hyper's client, over rustls): what a connection hands its requests through,
+    # and the authorities a call to Slack or to a mail provider is checked against, Mozilla's list as data.
+    "try-lock",
+    "want",
+    "webpki-roots",
+
     # Run when the server is built, and not linked into it.
     "autocfg",
     "cc",
@@ -122,6 +136,8 @@ allow = [
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    # webpki-roots alone: the licence of Mozilla's list of authorities, which is data and no code.
+    "CDLA-Permissive-2.0",
     "ISC",
     "MIT",
     "Unicode-3.0",

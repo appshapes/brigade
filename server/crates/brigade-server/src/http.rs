@@ -3,6 +3,9 @@
 //! This layer is thin on purpose. It reads the path, the credential and the body, hands the command to the
 //! engine and writes the envelope back with the status the contract pairs with it. The one thing it does of
 //! its own is hold a receive that asked to wait (the contract's section 4).
+//!
+//! The gateways' endpoints are on the same listener and outside the contract: a request under `/gateway/`
+//! that a configured gateway takes is handed to it, and answered with the status and the JSON it gives.
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -26,6 +29,8 @@ use tokio::time::Instant;
 use tokio_rustls::TlsAcceptor;
 
 use crate::engine::Client;
+use crate::gateway::Gateways;
+use crate::gateway::endpoint::{self, Received, Route};
 use crate::note::note;
 
 /// The header that carries the creation token (the contract's section 3).
@@ -40,8 +45,8 @@ const INFO_PATH: &str = "/v1/info";
 /// How long a client has to send its request's head, and then its body.
 const READ_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// How much of a body that is too long is read before the request is refused.
-const DRAINED_BYTES: usize = 4 * MAX_REQUEST_BYTES;
+/// How many times the most a reader takes is read of a body that is too long, before the request is refused.
+const DRAINED_TIMES: usize = 4;
 
 /// How long a TLS handshake may take.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -61,6 +66,8 @@ pub struct Shared {
     pub create_token: Option<String>,
     /// Becomes true when the server is told to stop.
     pub stopping: watch::Receiver<bool>,
+    /// The Slack and mail gateways, when the operator configured any.
+    pub gateways: Option<Arc<Gateways>>,
 }
 
 /// The result of `/v1/info`.
@@ -86,33 +93,44 @@ fn caller(headers: &HeaderMap) -> Option<String> {
     fits.then(|| sha256_hex(credential))
 }
 
-/// Reads a request's body, up to the contract's megabyte.
+/// Why a request's body was not read.
+enum Unread {
+    /// The connection broke, or what came is not a body.
+    Broken,
+    /// The body did not arrive in time.
+    Late,
+    /// The body is longer than its reader takes.
+    TooLong,
+}
+
+/// Reads a request's body, up to `most` bytes.
 ///
-/// A body that is too long is read on and thrown away, up to [`DRAINED_BYTES`], before it is refused: a
+/// A body that is too long is read on and thrown away, up to four times as much, before it is refused: a
 /// server that answers and closes while its client is still sending has its answer lost with the
 /// connection, and the client never learns why.
-async fn body_of(request: Request<Incoming>) -> Result<Bytes, Error> {
+async fn body_within(request: Request<Incoming>, most: usize) -> Result<Bytes, Unread> {
     let declared = request
         .headers()
         .get(CONTENT_LENGTH)
         .and_then(|length| length.to_str().ok()?.parse::<usize>().ok());
-    let mut too_long = declared.is_some_and(|length| length > MAX_REQUEST_BYTES);
+    let mut too_long = declared.is_some_and(|length| length > most);
+    let drained = most.saturating_mul(DRAINED_TIMES);
     let deadline = Instant::now() + READ_TIMEOUT;
     let mut incoming = request.into_body();
     let (mut body, mut read) = (Vec::new(), 0_usize);
     loop {
         let frame = match tokio::time::timeout_at(deadline, incoming.frame()).await {
             Ok(Some(Ok(frame))) => frame,
-            Ok(Some(Err(_))) => return Err(Error::malformed_json()),
+            Ok(Some(Err(_))) => return Err(Unread::Broken),
             Ok(None) => break,
-            Err(_) => return Err(Error::unavailable("the request's body did not arrive in time")),
+            Err(_) => return Err(Unread::Late),
         };
         let Ok(data) = frame.into_data() else { continue };
         read += data.len();
-        if read > DRAINED_BYTES {
-            return Err(Error::body_too_long());
+        if read > drained {
+            return Err(Unread::TooLong);
         }
-        if !too_long && read > MAX_REQUEST_BYTES {
+        if !too_long && read > most {
             too_long = true;
             body = Vec::new();
         }
@@ -121,10 +139,21 @@ async fn body_of(request: Request<Incoming>) -> Result<Bytes, Error> {
         }
     }
     if too_long {
-        Err(Error::body_too_long())
+        Err(Unread::TooLong)
     } else {
         Ok(Bytes::from(body))
     }
+}
+
+/// Reads a request's body, up to the contract's megabyte.
+async fn body_of(request: Request<Incoming>) -> Result<Bytes, Error> {
+    body_within(request, MAX_REQUEST_BYTES)
+        .await
+        .map_err(|unread| match unread {
+            Unread::Broken => Error::malformed_json(),
+            Unread::Late => Error::unavailable("the request's body did not arrive in time"),
+            Unread::TooLong => Error::body_too_long(),
+        })
 }
 
 /// Whether a receive's answer holds no message.
@@ -194,6 +223,91 @@ async fn answer(shared: &Shared, request: Request<Incoming>) -> Result<Value, Er
     }
 }
 
+/// The endpoint of a configured gateway that a request is for, when it is for one.
+fn gateway_route(shared: &Shared, request: &Request<Incoming>) -> Option<(Arc<Gateways>, Route)> {
+    let gateways = shared.gateways.as_ref()?;
+    let route = Route::of(gateways, request.uri().path())?;
+    Some((Arc::clone(gateways), route))
+}
+
+/// Answers one request to a gateway's endpoint with the status and the JSON the gateway gives.
+///
+/// The body is read only when what came before it does not already decide the answer, and then up to what
+/// the endpoint takes: anyone can send a request here.
+///
+/// The gateway answers in a task of its own. Slack gives a request three seconds and then closes the
+/// connection, and a request dropped with its connection would be carried half way and begun again at
+/// Slack's next delivery. In its own task the first delivery is carried to its end, whoever is still
+/// listening for the answer.
+///
+/// Such a task outlives its connection, so the connections' places do not bound them. The gateways have
+/// places of their own: a request that finds none is told at once to come again, which Slack and a mail
+/// provider do.
+async fn gateway_answer(
+    gateways: Arc<Gateways>,
+    route: Route,
+    request: Request<Incoming>,
+) -> Response<Full<Bytes>> {
+    let method = request.method().as_str().to_owned();
+    let path = request.uri().path().to_owned();
+    // Each byte of a header's value is one character, as the Fetch standard reads a header.
+    let headers = request
+        .headers()
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.as_str().to_owned(),
+                value.as_bytes().iter().copied().map(char::from).collect(),
+            )
+        })
+        .collect();
+    let mut received = Received {
+        method,
+        path,
+        headers,
+        body: String::new(),
+    };
+    // What came before the body may already decide the answer, and then none of the body is read: a
+    // request anyone can send is not kept in memory before it is known whose it is.
+    if let Some(answer) = endpoint::before_body(&gateways, route, &received) {
+        return response(answer.status, answer.body);
+    }
+    // With every place taken there is nothing to read the body for.
+    if gateways.full() {
+        let answer = endpoint::answer_busy();
+        return response(answer.status, answer.body);
+    }
+    received.body = match body_within(request, route.most(&gateways)).await {
+        Ok(bytes) => {
+            let text = String::from_utf8_lossy(&bytes);
+            text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned()
+        }
+        Err(unread) => {
+            let answer = match unread {
+                Unread::Broken => endpoint::answer_broken(),
+                Unread::Late => endpoint::answer_late(),
+                Unread::TooLong => endpoint::answer_too_long(),
+            };
+            return response(answer.status, answer.body);
+        }
+    };
+    // The place is taken once the body is read, and not before: a caller that sends its body slowly holds
+    // a connection's place, and none of the gateways'.
+    let Some(place) = gateways.place() else {
+        let answer = endpoint::answer_busy();
+        return response(answer.status, answer.body);
+    };
+    let answering = tokio::spawn(async move {
+        let _place = place;
+        endpoint::answer(&gateways, route, &received).await
+    });
+    let answer = answering.await.unwrap_or_else(|_| {
+        note("a gateway's endpoint ended before it answered");
+        endpoint::answer_failed()
+    });
+    response(answer.status, answer.body)
+}
+
 /// Writes an envelope with the status the contract's section 1 pairs with it.
 fn respond(outcome: Result<Value, Error>) -> Response<Full<Bytes>> {
     let (status, envelope) = match outcome {
@@ -202,6 +316,11 @@ fn respond(outcome: Result<Value, Error>) -> Response<Full<Bytes>> {
     };
     let mut body = envelope.to_string();
     body.push('\n');
+    response(status, body)
+}
+
+/// One answer: a status and a JSON body, on a connection that closes after it.
+fn response(status: u16, body: String) -> Response<Full<Bytes>> {
     let mut response = Response::new(Full::new(Bytes::from(body)));
     *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     response.headers_mut().insert(
@@ -222,7 +341,13 @@ where
 {
     let service = service_fn(move |request| {
         let shared = Arc::clone(&shared);
-        async move { Ok::<_, Infallible>(respond(answer(&shared, request).await)) }
+        async move {
+            let response = match gateway_route(&shared, &request) {
+                Some((gateways, route)) => gateway_answer(gateways, route, request).await,
+                None => respond(answer(&shared, request).await),
+            };
+            Ok::<_, Infallible>(response)
+        }
     });
     // A connection that ends badly is the client's affair: a request that was answered was answered.
     let _ = http1::Builder::new()
@@ -234,7 +359,8 @@ where
 }
 
 /// Serves requests on `listener` until the server is told to stop, and then gives the requests that are
-/// being answered `drain` to be answered: one whose entry is in the log should get its answer.
+/// being answered `drain` to be answered: one whose entry is in the log should get its answer, and one a
+/// gateway is carrying should be carried.
 pub async fn serve(listener: TcpListener, tls: Option<TlsAcceptor>, shared: Arc<Shared>, drain: Duration) {
     let room = Arc::new(Semaphore::new(CONNECTIONS));
     let mut stop = shared.stopping.clone();
@@ -278,8 +404,15 @@ pub async fn serve(listener: TcpListener, tls: Option<TlsAcceptor>, shared: Arc<
     }
     // Every connection holds a place while it is served: with all of them free again, every request that
     // was being answered has its answer. A receive that was waiting was answered at the stop.
+    let deadline = Instant::now() + drain;
     let places = u32::try_from(CONNECTIONS).unwrap_or(u32::MAX);
-    let _ = tokio::time::timeout(drain, room.acquire_many(places)).await;
+    let _ = tokio::time::timeout_at(deadline, room.acquire_many(places)).await;
+    // A gateway's request whose caller hung up is still being carried, and has the rest of the same time to
+    // be. What a stop cuts short all the same is carried at the provider's next delivery: nothing says a
+    // delivery came until the gateway is done with it.
+    if let Some(gateways) = &shared.gateways {
+        let _ = tokio::time::timeout_at(deadline, gateways.idle()).await;
+    }
 }
 
 #[cfg(test)]

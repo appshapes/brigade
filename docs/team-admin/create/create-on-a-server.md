@@ -2,7 +2,8 @@
 
 A team can live on a [Brigade server](../../project-owner/server/README.md), a program the Project Owner runs on
 a machine of your organisation's own, in place of a Supabase project. Everything a member does afterwards is the
-same. It is experimental in 0.1.0 of the server, and a team on one has no mail or Slack gateway yet.
+same. The server is experimental. A team on one has the mail and Slack gateways when the Project Owner has opened
+them ([Open the gateways](../../project-owner/server/gateways.md)), from 0.2.0 of the server.
 
 ## What you need
 

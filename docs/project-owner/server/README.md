@@ -2,8 +2,8 @@
 
 A Brigade server is the backend you run yourself: one program on an always-on machine of your own, with no
 Supabase project and no cloud account. It keeps every team on that machine's disk, so whoever can read its data
-directory can read every message. It is experimental in 0.1.0: one instance with no standby, and no mail or Slack
-gateway yet.
+directory can read every message. It is experimental: one instance with no standby. From 0.2.0 it carries the mail
+and Slack gateways itself.
 
 ## If you want to
 
@@ -13,6 +13,7 @@ gateway yet.
 | start it, choose how it serves HTTPS, run it as a service | [Run the server](#run-the-server) |
 | give a Team Admin what they need, and nothing more | [Hand over the values](#hand-over-the-values) |
 | back it up, update it, move it, replace its certificate | [Keep the server](#keep-the-server) |
+| let people write to the team by email or from Slack | [Open the gateways](#open-the-gateways) |
 
 ## Install the server
 
@@ -50,3 +51,13 @@ Details: [Hand over the values](hand-over-the-values.md).
 3. Losing the directory loses every team in it: there is one instance and no standby yet.
 
 Details: [Keep the server](keep-the-server.md).
+
+## Open the gateways
+
+1. The server must be reachable from the internet at an HTTPS name with a certificate a public authority signed.
+2. Write one JSON file that names the Slack app's and the mail provider's secrets by file, and the join secret
+   file of each team; start the server with `--gateway-config <file>`.
+3. Point the Slack app's two request URLs at `https://<host>/gateway/slack`, and the mail provider's webhook at
+   `https://<host>/gateway/mail/resend` or `/gateway/mail/postmark`.
+
+Details: [Open the gateways](gateways.md).

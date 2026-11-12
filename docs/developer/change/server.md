@@ -23,7 +23,8 @@ Server](../../project-owner/server/README.md).
 | --- | --- |
 | `brigade-core` | The rules, with no I/O and no clock. `answer` takes a request's path and body, checks it in the stand-in server's order, answers it against the `State` and makes its `Entry` of records; `State::replay` is what a restart and a standby run over the same entries. |
 | `brigade-log` | The ordered log behind one trait, `Log`: `append` returns after the sync, `read_from` plays the entries after a position, `release` says what the kept snapshots cover. `FileLog` is one file, for tests; `CavalryLog` (feature `cavalry`) is a recorded Cavalry publication. `Sealer` seals each entry with AES-256-GCM. |
-| `brigade-server` | The binary: the options, the one thread that owns the state and the log (`engine.rs`), snapshots, HTTP and TLS. |
+| `brigade-gateway` | What the mail and Slack gateways decide and what they write, with no I/O: the directives at the top of a text, which session an argument means, the Brigade body of a mail or a Slack message and the mail or the post of a session's message, the roster's text, the signature checks, and for Slack's Web API, Resend and Postmark the request to make and the reading of its answer. It is the Edge Functions' shared TypeScript ported text for text, and its tests are theirs. |
+| `brigade-server` | The binary: the options, the one thread that owns the state and the log (`engine.rs`), snapshots, HTTP and TLS, and under `gateway/` the gateways' I/O: their configuration and state, the HTTPS client, the loop and the two endpoints. |
 
 ## Build, check and test
 
@@ -78,6 +79,49 @@ a quiet request open for more than 30 seconds (the receive that waits) and never
 Anyone who can reach a server may create a team on it (owner ruling, 2026-11-12). An operator who wants otherwise
 starts it with `--create-token-file`: creating a team then needs that file's token in the `Brigade-Create-Token`
 header, and everything else is unchanged.
+
+## The gateways
+
+From 0.2.0 the mail and Slack gateways are part of the server (the plan's section 4.6), off until
+`--gateway-config` names their configuration.
+
+- **Two layers.** `brigade-gateway` is every rule and every word, ported from `supabase/functions/_shared/` and
+  from the four handlers, and checked against that TypeScript by running both over generated inputs. A change to
+  what a gateway says or decides is made there, with its test, and the Edge Functions' copy changes with it while
+  the two exist. `brigade-server/src/gateway/` is the I/O and nothing else: `config.rs` reads the file (secrets by
+  path), `state.rs` keeps the gateways' own records in `<data>/gateway/state.json`, `client.rs` makes one HTTPS
+  request, `member.rs` is a gateway acting as the member it is, `presence.rs` joins and keeps its session,
+  `slack_in.rs`, `slack_out.rs`, `mail_in.rs` and `mail_out.rs` are the four handlers, `turns.rs` the loop,
+  `endpoint.rs` the two addresses, and `refusals.rs` what keeps a stranger's refused requests from filling the
+  log: one line a minute for each kind, with the count.
+- **A gateway is a member.** It joins a team with the join secret, registers one session (`slack-gateway` with
+  harness `gateway-slack`, `mail-gateway` with `gateway-email`) and acts only through the engine's request path
+  with its own credential. Nothing in `gateway/` reads or writes the state: a rule a member is held to holds a
+  gateway.
+- **The loop** receives for each gateway every two seconds and keeps its session with a heartbeat every minute.
+  It does not listen to the engine's change signal, which its own heartbeat would move.
+- **The endpoints** are outside `/v1/`: `POST /gateway/slack` (the Events API and the slash command, by Slack's
+  signature) and `POST /gateway/mail/resend` or `/gateway/mail/postmark` (the provider's webhook, by its
+  signature or its secret). Nothing of a request is parsed before it is authenticated, with one exception: a
+  body of at most 4 KiB that is Slack's `url_verification` handshake is answered unsigned, which is what lets an
+  operator create the Slack app. Postmark's secret is in a header or the path and is checked before the body is
+  read. Each request runs in a task of its own, because Slack hangs up after three seconds and hyper drops the
+  request of a caller that has gone; 64 run at once, and one more is answered 503 and delivered again.
+- **Once, and never lost.** A delivery is written down as done only when it is: the engine took the message and
+  the thread row is recorded, or the person was given their answer. While it is being carried its id is held in
+  memory, and the same delivery arriving again is told to come later. So a stop or a crash at any point leaves
+  either a finished delivery or one the provider delivers again, and the send's idempotency key (the provider's
+  own id) keeps a second carry from being a second message. A stop waits for the carries that are running,
+  within the drain it gives connections. A delivery that is dropped or ignored is not written down at all.
+- **Where it departs from the functions.** A reply address carries a server's message id, which is not a UUID.
+  The mark is written after the carry and not before it, as above. The mail gateway sends neither a bounce nor a
+  command's answer to an address of its own (the inbox or a tag of it, the public address, the From), so an
+  address that forwards to the inbox cannot make it answer itself; the functions guard the inbox only (work item
+  271). Everything else is the functions' behaviour, their oddities included: a Slack `429` is final, and a
+  `to:` line on a reply starts a new thread.
+- **Tests.** `tests/gateway.rs` starts the binary with a stand-in Slack and a stand-in mail provider on loopback,
+  which the configuration's `api` members point the gateways at; the client speaks plain HTTP to loopback and to
+  nothing else.
 
 ## Release it
 
@@ -142,8 +186,7 @@ from deletion and from being moved, as the plugin's are.
 
 ## Not built yet
 
-There is no standby instance (phase 4), and a team on a server has no Slack or email gateway: both run inside a
-Supabase project today, and they are to be built into the server (the plan's phase 3b).
+There is no standby instance (phase 4).
 
 ## Known limits
 

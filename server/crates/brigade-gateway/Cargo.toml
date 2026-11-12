@@ -1,0 +1,19 @@
+[package]
+name = "brigade-gateway"
+description = "The rules of Brigade's mail and Slack gateways: directives, recipients, what each writes, the connector contract and the Slack Web API's two ends. No I/O and no clock."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+brigade-core.workspace = true
+regex.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true

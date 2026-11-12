@@ -1354,5 +1354,14 @@ what differs. The server is experimental in its 0.1.0.
   member accepts. The secret is not asked for again, because it would add nothing: someone who could answer for
   the server under a false certificate would be sent the secret as well. What protects the member is comparing
   the new fingerprint with what the server's operator says it is.
-- **What it does not have yet.** One instance and no standby, so the server's disk is the team's only copy; and
-  no mail or Slack gateway.
+- **The gateways.** From 0.2.0 the mail and Slack gateways of section 14 are part of the server, off until its
+  operator names a configuration for them. Section 14 holds for them as it is, with three differences. A gateway
+  is a member that joined with the team's join secret, which the operator hands the server in a file, and it acts
+  only through the requests any member makes, so the server's rules and limits apply to it. The Slack app's bot
+  token and signing secret and the mail provider's key sit in files on the server's machine, named by the
+  configuration and never in it; the credential each gateway is a member by, and which thread a carried message
+  belongs to, sit in the data directory. And the two addresses Slack and a mail provider call are on the server's
+  own listener, so a server with gateways is reachable from the internet: a request there is checked by Slack's
+  signature or the provider's secret before anything of it is acted on, and every other address still asks for a
+  member's credential.
+- **What it does not have yet.** One instance and no standby, so the server's disk is the team's only copy.

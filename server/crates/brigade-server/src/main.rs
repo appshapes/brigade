@@ -6,6 +6,7 @@
 //! `.context/plans/brigade-server.md` (work item 89).
 
 mod engine;
+mod gateway;
 mod http;
 mod note;
 mod options;
@@ -79,6 +80,11 @@ fn run(options: &Options) -> Result<(), String> {
         .map_err(|_| format!("another server is running on {}", options.data.display()))?;
 
     let create_token = create_token(options)?;
+    // The gateways are read before the log is opened: a configuration that does not read ends the start.
+    let gateways = match &options.gateway_config {
+        Some(path) => gateway::ready(gateway::config::read(path)?, &options.data)?,
+        None => None,
+    };
     let tls = match &options.tls {
         Some(Tls::Files(certificate, key)) => Some(tls::serving(certificate, key)?),
         Some(Tls::SelfSigned) => {
@@ -119,12 +125,24 @@ fn run(options: &Options) -> Result<(), String> {
         .build()
         .map_err(|error| format!("the runtime could not be started: {error}"))?;
     let (stop, stopping) = watch::channel(false);
+    let gateways = gateways.map(|ready| Arc::new(ready.on(started.client.clone())));
     let shared = Arc::new(http::Shared {
         engine: started.client,
         create_token,
         stopping,
+        gateways,
     });
     let served = runtime.block_on(async {
+        // Every gateway is a member with a session before anything can be asked of it: a request that came
+        // before that could not be carried.
+        let turns = match &shared.gateways {
+            Some(gateways) => {
+                let mut turns = gateway::turns::Turns::new(gateways);
+                turns.take_places(gateways).await;
+                Some(turns)
+            }
+            None => None,
+        };
         let listener = TcpListener::bind(options.listen)
             .await
             .map_err(|error| format!("{} could not be listened on: {error}", options.listen))?;
@@ -147,6 +165,14 @@ fn run(options: &Options) -> Result<(), String> {
 
         let acceptor = tls.map(|tls| tls.acceptor);
         let serving = tokio::spawn(http::serve(listener, acceptor, Arc::clone(&shared), DRAIN));
+        // The gateways' turns begin with the listener: each goes to work on what waits for it.
+        let turning = shared.gateways.as_ref().zip(turns).map(|(gateways, turns)| {
+            tokio::spawn(gateway::turns::run(
+                Arc::clone(gateways),
+                turns,
+                shared.stopping.clone(),
+            ))
+        });
         let mut terminate =
             signal(SignalKind::terminate()).map_err(|error| format!("signals cannot be heard: {error}"))?;
         let mut interrupt =
@@ -160,6 +186,11 @@ fn run(options: &Options) -> Result<(), String> {
         // waits at once, and then the listener's task ends.
         let _ = stop.send(true);
         let _ = serving.await;
+        // A gateway's turn ends after the message it is carrying; one that Slack or a mail provider holds
+        // up for longer is dropped with the runtime, and what it had not acknowledged waits in its inbox.
+        if let Some(turning) = turning {
+            let _ = tokio::time::timeout(DRAIN, turning).await;
+        }
         Ok::<(), String>(())
     });
     // The engine ends when the last holder of a way to it has gone: what is still running is dropped, and

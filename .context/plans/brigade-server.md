@@ -292,6 +292,57 @@ server/crates/brigade-server/   the binary: configuration, HTTP, credentials' ha
 - **The oracle** is the conformance suite through `brigade adapter rest`, as for the stand-in. `brigade-core`
   also has its own tests, and the fs adapter's store is the worked example for every rule's detail.
 
+### 4.6 Slack and email inside the server (phase 3b)
+
+The owner's rulings are §2 items 17 and 18, and three he added the same day: Slack "however the Slack app is
+configured today (i.e., mode)", which is the Events API over public HTTPS and not Socket Mode; email may be a
+pull, Resend or Postmark alone is fine for the first version, throughput does not matter, and "priority number one
+is limiting the lift on the Brigade admin", knowing that each organisation has its own mailbox provider; and the
+team moves only once the gateways work on the server.
+
+What exists today is written down, from the Edge Functions and their tests, in
+`.ignored/brigade-server/gateway-spec.md` (2026-11-12, gitignored scratch in the main checkout): identity, both
+directions of both gateways, the state, the secrets, what leans on Supabase, the test cases and the sizes (about
+3,000 lines of code and 2,300 of Deno tests). That page is the port's reference and the Deno tests are the cases
+to carry over.
+
+- **Two layers.** A new crate, `brigade-gateway`, is the logic with no I/O: the leading directives
+  (`_shared/block.ts`), the mail text (`mail.ts`), recipient resolution, inbound and outbound resolution, the
+  renderers and the roster text (`gateway.ts`, `slack.ts`), and the two signature checks. Its tests are the Deno
+  tests, ported case for case. `brigade-server` gets a `gateway` module: the configuration, the state, an HTTPS
+  client, the Slack Web API and the mail providers' calls, the HTTP endpoints and the loop.
+- **Identity, unchanged for members.** A gateway is an ordinary member with one session per team and kind:
+  `slack-gateway` with harness `gateway-slack`, `mail-gateway` with harness `gateway-email`, idle, accepting, a
+  lease of 600 s, and the description the functions write. The plugin's skills find it on the roster by harness,
+  so no plugin change is needed. It becomes a member the ordinary way: the operator gives the server the team's
+  join secret in a file, the server joins through its own `/v1/team/join` and keeps the credential in its gateway
+  state. From then on it acts only through the engine's request path with that credential, so every rule and
+  every limit applies to it as to any member.
+- **Off until configured.** `--gateway-config <file>`: one JSON file that names the Slack app (the bot token's
+  and the signing secret's files, the bot's handle, the workspace), the mail provider (its key's and its webhook
+  secret's files, the inbox, the public address, the From) and, for each, the join secret file of every team it
+  serves. Secrets are named by path and never by value.
+- **Inbound, on the server's own listener and outside `/v1/`.** `POST /gateway/slack` takes the Events API
+  (the `url_verification` handshake, `message` and `app_mention`) and the slash command, checked by Slack's
+  signature. `POST /gateway/mail/resend` and `/gateway/mail/postmark` take the provider's webhook, checked as the
+  connectors check it today. So the server must be reachable at a name with a certificate a public authority
+  signed, as the owner's is.
+- **Outbound.** A loop inside the server, every few seconds and at once when a message is accepted for a gateway's
+  session: heartbeat, receive up to 50, deliver, record the thread, acknowledge. Slack through its Web API; mail
+  through the provider's send call. Parity with the functions first, their known oddities included and listed.
+- **State.** The gateway's own bookkeeping, under `gateway/` in the data directory: each gateway's credential and
+  session, the thread rows that make a reply routable, and the ids already received. Files written whole and
+  moved into place, swept after 90 days as today. It is not in the ordered log: a standby (phase 4) has to be
+  given it another way, and that is noted there.
+- **The HTTPS client.** hyper's client connection over tokio-rustls with the webpki roots, a few new crates in
+  `server/deny.toml`, and no HTTP client framework.
+- **Order.** The crate and the ported logic with its tests; the state, the configuration and the client; Slack out
+  and in; mail out and in; the operator's page and the `security.md` paragraph; release 0.2.0 and the server on
+  `sled` moved to it; then the owner's part (the Slack app's two request URLs set to
+  `https://brigade.appshapes.com/gateway/slack`, the bot token and signing secret in files on the host, the mail
+  provider's key, webhook secret and webhook URL); then the team: `team create --adapter rest` for `appshapes`,
+  the team file committed in every repository, every member joins with the plugin at 0.52.0 or later.
+
 ## 5. The repository
 
 Rjae's direction is to start here. The reason it is right is that the contract does not exist yet, and the
@@ -371,7 +422,7 @@ What Cavalry wants from Brigade now (its section F5): the soak of a server that 
 | 1 | The contract page, the `rest` adapter, the stand-in, conformance green in `make test`. Go only. Built and verified 2026-11-12 (execution log P86-1): conformance(rest) 48 passed, 0 failed, 1 slow case skipped; 49 of 49 with `--slow`. | nothing |
 | 2 | The server with one instance: the workspace, records, the state machine, the recorded feed, snapshots, HTTP, credentials; the conformance suite green against it; the `server` CI job. Built and verified 2026-11-12 (execution log P86-2): `server/` with `brigade-core`, `brigade-log` and `brigade-server`; `make server-build`, `server-check`, `server-test` and `server-deps-check`; the `server` job in `ci.yml`, green on its first run (2 min 22 s, cold cache) and not required by the ruleset. On `master` as `87df95b`. | phase 1; rulings 3, 4 |
 | 3 | A real team: `team create --adapter rest`, the team file, the session-start lines, `make e2e`, the Project Owner and Team Admin pages, the `security.md` section, the first server release, the experimental label. Built 2026-11-12 so far (execution log P86-3): `rest` is a second bundled adapter the harness resolves by name; `team create --adapter rest --url … [--certificate …] [--create-token-file …]`; the team file's `certificate` member, a pin the member's adapter trusts in place of an authority; join and re-consent carry it; one end-to-end test through the built binary, against the stand-in in `make test` and against `brigade-server` over TLS in `make server-test`. Then (P86-4): the Project Owner and Team Admin pages, the `security.md` section, `--tls-self-signed`, version 0.1.0, `make server-tag` and the `server-release` workflow, the contract frozen at version 1, and `server` a required check. | phase 2; rulings 2, 5 |
-| 3b | Slack and email inside the server (§2 item 18): Slack as the Slack app is configured today, the Events API over public HTTPS (the owner, 2026-11-12: "However the Slack app is configured today (i.e., mode) that's how I want `server` to be designed"), email through Resend or Postmark first; off until an operator configures it; the gateway acts through the same request path as a member. Then the `appshapes` team moves to the server on `sled`, reached as `brigade.appshapes.com` on TCP 443 with the owner's own certificate (§2 item 17). | phase 3; the release |
+| 3b | Slack and email inside the server (§2 item 18): Slack as the Slack app is configured today, the Events API over public HTTPS (the owner, 2026-11-12: "However the Slack app is configured today (i.e., mode) that's how I want `server` to be designed"), email through Resend or Postmark first; off until an operator configures it; the gateway acts through the same request path as a member. Then the `appshapes` team moves to the server on `sled`, reached as `brigade.appshapes.com` on TCP 443 with the owner's own certificate (§2 item 17). Built 2026-11-12 (execution log P86-6): the crate `brigade-gateway`, the Edge Functions' shared TypeScript and the four handlers' texts ported and checked against the TypeScript by running both; `brigade-server/src/gateway/`, the I/O; `--gateway-config`; `POST /gateway/slack` and `POST /gateway/mail/resend` or `/postmark`; an independent review and its fixes; released as server 0.2.0. Not yet: the gateways switched on at the owner's host, and the team's move. | phase 3; the release |
 | 4 | Standby instances: following, snapshots for a new instance, promotion, the adapter's second address (work item 156's team file version 2), the two-host proof, a week's soak. | phase 3; ruling 1 |
 | 5 | Email and Slack beside the server: work item 156, phase 4. Superseded for a team on this server by phase 3b; 156 keeps the gateway process for other backends. | independent |
 | Later | Automatic promotion on Cavalry's cluster; moving an existing team; whether this becomes the default; a repository of its own. | |

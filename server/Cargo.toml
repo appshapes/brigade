@@ -9,7 +9,7 @@ members = ["crates/*"]
 
 [workspace.package]
 # The server has its own version, in VERSION beside this file; a test holds the two equal.
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 # 1.89 is what Cavalry needs (its log directory's lock); edition 2024 needs 1.85.
 rust-version = "1.89"
@@ -26,17 +26,26 @@ all = { level = "deny", priority = -1 }
 # Every crate the server links is named in deny.toml. A new one is added there in the same change.
 [workspace.dependencies]
 brigade-core = { path = "crates/brigade-core" }
+brigade-gateway = { path = "crates/brigade-gateway" }
 brigade-log = { path = "crates/brigade-log", default-features = false }
 http-body-util = "0.1"
-hyper = { version = "1", features = ["http1", "server"] }
+# `client` is the gateways' one way out: a request to Slack or to a mail provider, over a connection of its own.
+hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 nix = { version = "0.31", default-features = false, features = ["fs", "user"] }
+# The gateway's patterns, searched with the lazy DFA. Without `unicode` no pattern can lean on a Unicode
+# table (the gateway spells out JavaScript's own classes), and without `perf-literal` regex brings nothing
+# beside regex-automata and regex-syntax.
+regex = { version = "1", default-features = false, features = ["std", "perf-dfa"] }
 ring = "0.17"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+# The authorities a gateway trusts when it calls Slack or a mail provider: Mozilla's list, as data in the binary,
+# so that the server needs nothing of the host's.
+webpki-roots = "1"
 
 [profile.release]
 # One codegen unit and no unwinding tables beyond what a panic message needs: the binary is small and a

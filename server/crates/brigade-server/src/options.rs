@@ -1,6 +1,7 @@
 //! What the operator tells the server on its command line.
 //!
-//! Nothing secret is ever an argument: the creation token and the TLS key are files, named by path.
+//! Nothing secret is ever an argument: the creation token and the TLS key are files, named by path, and so is
+//! every secret of the gateways, by the configuration that is itself a file.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -36,6 +37,9 @@ A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md,
                                front of the server (a proxy or a tunnel)
   --create-token-file <file>   require this file's token, in the Brigade-Create-Token header, to create a team
   --address-file <file>        write the base URL the server listens on to this file once it is ready
+  --gateway-config <file>      the Slack and mail gateways, as one JSON file that names each secret by the
+                               path of the file that holds it; without it the server has no gateway and
+                               answers nothing under /gateway/
   --log cavalry|file           the ordered log: a Cavalry feed (default) or one file (for tests)
   --feed-control <ip:port>     the UDP address of the Cavalry feed (default 127.0.0.1:8744)
   --feed-self <ip:port>        the UDP address the server reads its own feed on (default 127.0.0.1:8745)
@@ -71,6 +75,8 @@ pub struct Options {
     pub create_token_file: Option<PathBuf>,
     /// Where to write the base URL once the server listens.
     pub address_file: Option<PathBuf>,
+    /// The file that configures the Slack and mail gateways, when the server has any.
+    pub gateway_config: Option<PathBuf>,
     /// The ordered log.
     pub log: LogKind,
     /// The UDP address of the Cavalry feed.
@@ -113,6 +119,7 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
     let mut arguments = arguments.into_iter();
     let (mut data, mut listen, mut tls_cert, mut tls_key) = (None, None, None, None);
     let (mut create_token_file, mut address_file, mut driver_dir) = (None, None, None);
+    let mut gateway_config = None;
     let (mut feed_control, mut feed_self, mut log, mut snapshot_every) = (None, None, None, None);
     let mut feed_roll_bytes = None;
     let mut tls_in_front = false;
@@ -130,6 +137,7 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
             "--tls-key" => tls_key = Some(PathBuf::from(value("--tls-key")?)),
             "--create-token-file" => create_token_file = Some(PathBuf::from(value("--create-token-file")?)),
             "--address-file" => address_file = Some(PathBuf::from(value("--address-file")?)),
+            "--gateway-config" => gateway_config = Some(PathBuf::from(value("--gateway-config")?)),
             "--driver-dir" => driver_dir = Some(PathBuf::from(value("--driver-dir")?)),
             "--feed-control" => feed_control = Some(value("--feed-control")?),
             "--feed-self" => feed_self = Some(value("--feed-self")?),
@@ -202,6 +210,7 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
         tls_in_front,
         create_token_file,
         address_file,
+        gateway_config,
         log,
         feed_control: feed_control.unwrap_or_else(|| DEFAULT_FEED_CONTROL.to_owned()),
         feed_self: feed_self.unwrap_or_else(|| DEFAULT_FEED_SELF.to_owned()),
@@ -292,6 +301,22 @@ mod tests {
             arguments.extend_from_slice(others);
             assert!(run(&arguments).is_err(), "{others:?}");
         }
+    }
+
+    #[test]
+    fn the_gateways_are_off_until_a_file_configures_them() {
+        assert_eq!(run(&["--data", "d"]).unwrap().gateway_config, None);
+        let configured = run(&["--data", "d", "--gateway-config", "/etc/brigade/gateways.json"]).unwrap();
+        assert_eq!(
+            configured.gateway_config.as_deref(),
+            Some(std::path::Path::new("/etc/brigade/gateways.json"))
+        );
+        assert!(
+            run(&["--data", "d", "--gateway-config"])
+                .unwrap_err()
+                .contains("--gateway-config needs a value")
+        );
+        assert!(super::USAGE.contains("--gateway-config <file>"));
     }
 
     #[test]

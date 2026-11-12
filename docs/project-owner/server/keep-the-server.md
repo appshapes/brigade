@@ -2,8 +2,9 @@
 
 ## Back it up
 
-Everything the server knows is in its data directory: the log, the snapshots, the key the log is sealed under and,
-with `--tls-self-signed`, the certificate every team file pins.
+Everything the server knows is in its data directory: the log, the snapshots, the key the log is sealed under,
+with `--tls-self-signed` the certificate every team file pins, and with the gateways on, their own records in
+`gateway/`.
 
 ```sh
 sudo systemctl stop brigade-server
@@ -48,6 +49,6 @@ to nothing.
 
 ## What it does not do yet
 
-One instance; no mail or Slack gateway; nothing bounds the teams on a server or the sessions a member registers.
+One instance; nothing bounds the teams on a server or the sessions a member registers.
 [Change the server](../../developer/change/server.md#known-limits) lists the limits the reviews of the code left
 open.
