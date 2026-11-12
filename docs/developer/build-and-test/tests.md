@@ -1,7 +1,7 @@
 # Run the tests
 
 ```sh
-make test                                  # unit + testscript + harness + conformance(fs), -race, coverage profile
+make test                                  # unit + testscript + harness + conformance(fs) + conformance(rest), -race, coverage profile
 make supabase-start supabase-env && make test-all   # + pgTAP, advisor lints, integration, conformance(supabase), e2e
 ```
 
@@ -28,8 +28,9 @@ last session; a few minutes.
 ## The conformance suite
 
 `brigade-conformance` is the arbiter for an adapter: 49 cases, three principals in two teams, an environment built
-from scratch. `make test` runs it against the fs adapter; `make conformance adapter=<executable> [args="-- fixed
-args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
+from scratch. `make test` runs it against the fs adapter and, through `bin/brigade-rest-stub` (a stand-in server
+for [the backend REST contract](../../backend-rest-v1.md) that runs the fs adapter in-process), against the
+bundled `rest` adapter; `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
 `--setup <cmd>` when principals are provisioned out of band ([Write an adapter](../change/adapters.md)). Its own
 positive control is four deliberately broken builds of the reference adapter, each of which must fail exactly its
 own cases.

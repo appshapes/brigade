@@ -20,7 +20,7 @@ Details: [Run the gate](gates.md).
 
 ## Run the tests
 
-1. `make test`: unit, testscript, harness, conformance(fs), with `-race`; no Docker, no stack.
+1. `make test`: unit, testscript, harness, conformance(fs), conformance(rest), with `-race`; no Docker, no stack.
 2. `make supabase-start supabase-env`, then `make test-all`, before touching `supabase/`.
 3. `BRIGADE_TEST_SYNCTHING=1 go test -run TestRealSyncthingIntegration ./internal/syncadapters/syncthing` for the real daemon.
 

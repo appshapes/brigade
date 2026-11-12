@@ -9,7 +9,7 @@ make typecheck lint build test vuln deps-check schema-check tidy-check docs-chec
 | `typecheck` | `go build ./...` and `go vet ./...`, tests included |
 | `lint` | golangci-lint for darwin, linux **and** windows (config verify, run, formatters) and a plain gofmt check |
 | `build` | `bin/brigade` and the dev-only binaries with the release flags, version `<pin>-dev` |
-| `test` | unit, testscript, harness and conformance(fs) with `-race`, plus the drift tests in `scripts/ci/` and the documentation gate |
+| `test` | unit, testscript, harness, conformance(fs) and conformance(rest) with `-race`, plus the drift tests in `scripts/ci/` and the documentation gate |
 | `vuln` | govulncheck on the source and on the built binary |
 | `deps-check` | `bin/brigade` links exactly the modules in `docs/allowed-deps.txt` |
 | `schema-check` | `docs/protocol-v1.schema.json` is what `make schema` generates |

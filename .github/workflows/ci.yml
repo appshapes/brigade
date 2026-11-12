@@ -107,7 +107,7 @@ jobs:
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - run: make typecheck tidy-check
-      # unit + testscript + harness + conformance(fs), -race, coverage profile. `go_test_p=4`: four packages at a
+      # unit + testscript + harness + conformance(fs) + conformance(rest), -race, coverage profile. `go_test_p=4`: four packages at a
       # time on this 4 vCPU runner (card 245). At the Makefile's pin of 2 the `go test` line took 193 s for 283 s
       # of package time on run 42871717045, and it was the longest thing in this file; at 4 it took 98 s to 141 s
       # for 249 s to 330 s of package time on the four attempts of run 42890494351, every package green.

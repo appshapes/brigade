@@ -281,7 +281,7 @@ func LookupMultiCall(name string) (Command, bool) {
 // Implemented and `help --all` no longer lists it as a placeholder, and
 // it answers honestly if a future caller routes around internal/app.
 func runAdapterEntry(*Context, []string) error {
-	return usagef("adapter", "the adapter entrypoint is dispatched by the multi-call seam; run `"+Program+" adapter supabase <group> <verb>`")
+	return usagef("adapter", "the adapter entrypoint is dispatched by the multi-call seam; run `"+Program+" adapter supabase|rest <group> <verb>`")
 }
 
 // runHookEntry and runWatchEntry are the table's Run for the `hook` and

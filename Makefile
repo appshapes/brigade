@@ -151,6 +151,7 @@ build: version-check ## Build bin/brigade plus the dev-only binaries for this ho
 	$(go_build_env) go build $(go_flags) $(cover_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-adapter-fs ./cmd/brigade-adapter-fs
 	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-fake-adapter ./cmd/brigade-fake-adapter
 	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-conformance ./cmd/brigade-conformance
+	$(go_build_env) go build $(go_flags) -ldflags '$(ld_flags_dev)' -o $(bin_dir)/brigade-rest-stub ./cmd/brigade-rest-stub
 
 .PHONY: build-webhook-gateway
 build-webhook-gateway: version-check ## Build bin/brigade-webhook-gateway, the self-hosted webhook gateway, with the release flags
@@ -158,7 +159,7 @@ build-webhook-gateway: version-check ## Build bin/brigade-webhook-gateway, the s
 
 .PHONY: clean
 clean: ## Remove build artifacts and local caches
-	rm -rf $(bin_dir)/brigade $(bin_dir)/brigade-adapter-fs $(bin_dir)/brigade-fake-adapter $(bin_dir)/brigade-conformance $(bin_dir)/brigade-webhook-gateway dist $(dist_cross) cover.out $(env_test) playwright-report test-results
+	rm -rf $(bin_dir)/brigade $(bin_dir)/brigade-adapter-fs $(bin_dir)/brigade-fake-adapter $(bin_dir)/brigade-conformance $(bin_dir)/brigade-rest-stub $(bin_dir)/brigade-webhook-gateway dist $(dist_cross) cover.out $(env_test) playwright-report test-results
 
 .PHONY: typecheck
 typecheck: ## go build ./... and go vet ./... (every package, including tests) (CI)
@@ -218,10 +219,16 @@ lint-fix: ## golangci-lint --fix and fmt
 	$(golangci_lint) run --fix ./...
 	$(golangci_lint) fmt ./...
 
+# The third line is conformance(rest): the bundled `rest` adapter in bin/brigade against the stand-in server of
+# internal/adapters/rest/stub, which answers every request of docs/backend-rest-v1.md by running the fs adapter
+# in-process. brigade-rest-stub starts that server on a loopback port in a temporary directory, runs the command after
+# its `--` with {url} replaced by the server's base url, and exits with the command's status; the suite's own `--`
+# (the adapter's fixed arguments) is part of that command. No Docker and no local stack, like the fs line.
 .PHONY: test
-test: build ## Unit + testscript + harness + conformance(fs) with -race; no Docker and no local stack (what `make commit` runs) (CI)
+test: build ## Unit + testscript + harness + conformance(fs) + conformance(rest) with -race; no Docker and no local stack (what `make commit` runs) (CI)
 	go test $(go_test_flags) -covermode=atomic -coverprofile=cover.out ./...
 	$(bin_dir)/brigade-conformance --shared-env BRIGADE_FS_ROOT $(cover_env) --adapter $(bin_dir)/brigade-adapter-fs
+	$(bin_dir)/brigade-rest-stub -- $(bin_dir)/brigade-conformance --env BRIGADE_REST_URL={url} $(cover_env) --adapter $(bin_dir)/brigade -- adapter rest
 
 .PHONY: vuln
 vuln: build ## govulncheck on the source tree and on the built binary (pinned in tools.mod) (CI)

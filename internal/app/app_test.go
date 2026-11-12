@@ -195,6 +195,44 @@ func TestRunDispatchesTheBundledAdapter(t *testing.T) {
 	}
 }
 
+// TestRunDispatchesTheRestAdapter pins the second bundled adapter's seam:
+// `brigade adapter rest …` reaches the rest adapter's own dispatcher,
+// which speaks BAP/1 on stdout (a `describe` on an empty configuration
+// directory names itself and says unconfigured, with no network), its
+// poison scan applies after the name, and the usage text for a missing or
+// unknown name names both bundled adapters.
+func TestRunDispatchesTheRestAdapter(t *testing.T) {
+	t.Parallel()
+	env := []string{"HOME=" + t.TempDir(), "BRIGADE_CONFIG_DIR=" + t.TempDir(), "BRIGADE_TEST_OFFLINE=1"}
+	exit, stdout, stderr := run(t, env, "adapter", "rest", "describe")
+	if exit != 0 {
+		t.Fatalf("adapter rest describe: exit = %d, want 0 (stdout %q, stderr %q)", exit, stdout, stderr)
+	}
+	for _, want := range []string{`"ok":true`, `"name":"brigade-adapter-rest"`, `"state":"unconfigured"`, `"message.watch.push"`} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("adapter rest describe: stdout = %q, want it to carry %s", stdout, want)
+		}
+	}
+	if strings.Count(stdout, "\n") != 1 {
+		t.Errorf("adapter rest describe: stdout is not exactly one line: %q", stdout)
+	}
+
+	exit, stdout, stderr = run(t, env, "adapter", "rest", "session", "list", "--join-secret", "brg1.x.NOTREAL")
+	if exit != 2 || !strings.Contains(stdout, `"code":"usage"`) {
+		t.Errorf("poison flag: exit %d stdout %q, want exit 2 and a usage envelope", exit, stdout)
+	}
+	if strings.Contains(stdout+stderr, "NOTREAL") {
+		t.Errorf("poison flag: the argv value was echoed")
+	}
+
+	for _, args := range [][]string{{"adapter"}, {"adapter", "nosuch", "describe"}} {
+		exit, _, stderr := run(t, env, args...)
+		if exit != 2 || !strings.Contains(stderr, "`supabase`") || !strings.Contains(stderr, "`rest`") {
+			t.Errorf("%v: exit %d stderr %q, want a usage line that names both bundled adapters", args, exit, stderr)
+		}
+	}
+}
+
 // TestRunDispatchesTheSyncAdapterGroup pins the card-33 seam (folder-sync
 // plan §4.3): `brigade sync-adapter syncthing <verb>` reaches the bundled
 // sync adapter's table entry, which answers with exactly one protocol

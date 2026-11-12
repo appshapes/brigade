@@ -41,7 +41,7 @@ matrix round trip:
 ```sh
 make typecheck tidy-check
 make lint
-make build test          # unit + testscript + harness + conformance(fs), -race. Docker-free by design.
+make build test          # unit + testscript + harness + conformance(fs) + conformance(rest), -race. Docker-free by design.
 make deps-check schema-check
 make plugin-check        # plugin/ allowlist, modes, VERSION == plugin.json, shellcheck, the secret scan
 make launcher-check      # plugin/bin/brigade.exe reproduces from cmd/brigade-launcher (see the launcher rule below)
