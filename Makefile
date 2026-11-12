@@ -394,7 +394,7 @@ docs-check: ## The documentation gate (cards 110, 112): README and persona shape
 	go run ./cmd/brigade-docs check
 
 .PHONY: grok-plugin-check
-grok-plugin-check: ## Validate Grok native package, four hooks, twelve skills and canonical release assets (CI)
+grok-plugin-check: ## Validate Grok native package, four hooks, thirteen skills and canonical release assets (CI)
 	sh scripts/ci/grok-plugin-check.sh
 
 .PHONY: docs-generate

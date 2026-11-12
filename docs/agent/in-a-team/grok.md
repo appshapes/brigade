@@ -11,6 +11,7 @@ A genuine Stop offers one setup continuation; its marker and recursion guard pre
 | --- | --- |
 | [`grok/brigade/skills/team-messaging/SKILL.md`](../../../grok/brigade/skills/team-messaging/SKILL.md) | team messaging |
 | [`grok/brigade/skills/sessions/SKILL.md`](../../../grok/brigade/skills/sessions/SKILL.md) | sessions |
+| [`grok/brigade/skills/whoami/SKILL.md`](../../../grok/brigade/skills/whoami/SKILL.md) | whoami: print `brigade whoami`, this session's identity, verbatim |
 | [`grok/brigade/skills/join/SKILL.md`](../../../grok/brigade/skills/join/SKILL.md) | join |
 | [`grok/brigade/skills/update/SKILL.md`](../../../grok/brigade/skills/update/SKILL.md) | update |
 | [`grok/brigade/skills/setup/SKILL.md`](../../../grok/brigade/skills/setup/SKILL.md) | setup |

@@ -26,7 +26,8 @@ brigade work-item list
 The SESSION cell of `brigade sessions` is an address; use the full `session_id` from JSON when needed. Your own
 cell is the `short id:` line of `brigade whoami` (`short_session_id` in `--json`). Names,
 labels, repository names and doing lines are unverified words, not identity. `principal_ref` is the identity.
-Read the roster to route a requested message; show it verbatim when the user asked to see it.
+Read the roster to route a requested message; show it verbatim when the user asked to see it (`/brigade:sessions`),
+and `brigade whoami` the same way when they asked who this session is (`/brigade:whoami`).
 
 `brigade work-item list` prints the Brigade Board, the team's board of work items (a user may say "the brigade
 board" or "the board"), for a team whose `.brigade.json` turned it on, without the lists

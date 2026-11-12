@@ -1,12 +1,13 @@
 # Claude Code: the skills a session loads
 
-The Brigade plugin (`plugin/`) puts `brigade` on the Bash tool's PATH and ships twelve skills. They are the model's
+The Brigade plugin (`plugin/`) puts `brigade` on the Bash tool's PATH and ships thirteen skills. They are the model's
 documentation inside a team; this page only names them.
 
 | Skill | Who invokes it | What it carries |
 | --- | --- | --- |
 | [`plugin/skills/team-messaging/SKILL.md`](../../../plugin/skills/team-messaging/SKILL.md) | the model, when a team message arrives or the user asks about teammates | the command surface (`sessions`, `send`, `whoami`, `doing`, `team members`, `sync status`), the sending rules, how to read an inbound frame, the mail, Slack and webhook gateways, keeping the roster line current, the notes, decisions and digest of a project with a state folder |
 | [`plugin/skills/sessions/SKILL.md`](../../../plugin/skills/sessions/SKILL.md) | `/brigade:sessions [--all] [--here] [--member <who>]` | print the roster verbatim |
+| [`plugin/skills/whoami/SKILL.md`](../../../plugin/skills/whoami/SKILL.md) | `/brigade:whoami` | print `brigade whoami`, this session's identity, verbatim |
 | [`plugin/skills/join/SKILL.md`](../../../plugin/skills/join/SKILL.md) | `/brigade:join <path>` | run `brigade team join --secret-file <path>` on the file the user named, never one you chose |
 | [`plugin/skills/update/SKILL.md`](../../../plugin/skills/update/SKILL.md) | `/brigade:update` | move the plugin to the marketplace's release, then ask for `/reload-plugins` |
 | [`plugin/skills/setup/SKILL.md`](../../../plugin/skills/setup/SKILL.md) | a person asking how to set Brigade up | the human's procedures: create, join, leave, uninstall; it never asks for a secret in the chat |

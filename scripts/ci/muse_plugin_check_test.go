@@ -37,6 +37,7 @@ func (tr *tree) museTree() {
 		"muse/brigade/skills/setup/SKILL.md", "muse/brigade/skills/join/SKILL.md", "muse/brigade/skills/update/SKILL.md",
 		"muse/brigade/skills/email/SKILL.md", "muse/brigade/skills/slack/SKILL.md", "muse/brigade/skills/quiet/SKILL.md", "muse/brigade/skills/subscribe/SKILL.md", "muse/brigade/README.md",
 		"muse/brigade/skills/work-items/SKILL.md", "muse/brigade/skills/work-item/SKILL.md", "muse/brigade/skills/work-item-start/SKILL.md",
+		"muse/brigade/skills/whoami/SKILL.md",
 	} {
 		copyFile(rel)
 	}
@@ -196,6 +197,51 @@ func TestMusePluginCheck(t *testing.T) {
 		tr.write("muse/brigade/skills/update/SKILL.md", "---\nname: update\ndisable-model-invocation: true\n---\n# x\n")
 		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
 		wantFail(t, r, "disable-model-invocation")
+	})
+
+	// Card 248: Muse loads only the skills its manifest names, so a skill directory the manifest leaves out ships
+	// and is never offered, as card 167's subscribe skill was.
+	t.Run("a skill the manifest does not name fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.museTree()
+		tr.write("muse/brigade/skills/extra/SKILL.md", "---\nname: extra\n---\n# x\n")
+		tr.git("add", "muse/brigade/skills/extra/SKILL.md")
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		wantFail(t, r, "does not name these skills", "skills/extra/SKILL.md")
+	})
+
+	// The manifest text, rewritten: an entry under another id, or the same skill twice, is offered wrongly by Muse.
+	rewriteManifest := func(t *testing.T, tr *tree, old, new string) {
+		t.Helper()
+		p := filepath.Join(tr.root, "muse/brigade/.muse-plugin/plugin.json")
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), old) {
+			t.Fatalf("the manifest has no %q", old)
+		}
+		tr.write("muse/brigade/.muse-plugin/plugin.json", strings.Replace(string(data), old, new, 1))
+	}
+
+	t.Run("a skill under an id that is not its directory's name fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.museTree()
+		rewriteManifest(t, tr, `"id": "whoami"`, `"id": "who-ami"`)
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		wantFail(t, r, "with the id who-ami")
+	})
+
+	t.Run("a skill named twice fails", func(t *testing.T) {
+		t.Parallel()
+		tr := newTree(t)
+		tr.museTree()
+		rewriteManifest(t, tr, `{ "id": "whoami", "path": "skills/whoami/SKILL.md" }`,
+			`{ "id": "whoami", "path": "skills/whoami/SKILL.md" },`+"\n"+`      { "id": "whoami", "path": "skills/whoami/SKILL.md" }`)
+		r := runScript(t, "muse-plugin-check.sh", tr.root, tr.env())
+		wantFail(t, r, "more than once", "skills/whoami/SKILL.md")
 	})
 
 	// The marketplace catalog (card 115), check 10.

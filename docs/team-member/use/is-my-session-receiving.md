@@ -1,7 +1,7 @@
 # Check that your session is receiving
 
 Ask your session: `Is this session receiving team messages?` It runs `brigade whoami`, whose last line is the
-answer:
+answer; `/brigade:whoami` prints the whole output verbatim:
 
 ```
 delivery: watcher running (0.31.0), connected for 12m; last delivery recorded 3m ago; 0 held

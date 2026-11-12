@@ -138,18 +138,34 @@ else
   ok "wrappers parse under: $checked (shellcheck skipped, not CI)"
 fi
 
-# ---- 9. the skills the manifest names exist and stay reachable (card 28) ----------------------------------------
-grep -oE '"path"[[:space:]]*:[[:space:]]*"skills/[^"]*"' "$manifest" | sed -e 's/^"path"[[:space:]]*:[[:space:]]*"//' -e 's/"$//' |
-  while IFS= read -r p; do
-    [ -f "$root/$p" ] || die "$manifest names a skill that does not exist: $p"
-  done
+# ---- 9. the manifest names every skill once, under its directory's name, and all stay reachable (cards 28, 248) ---
+paths=$(grep -oE '"path"[[:space:]]*:[[:space:]]*"skills/[^"]*"' "$manifest" | sed -e 's/^"path"[[:space:]]*:[[:space:]]*"//' -e 's/"$//')
+for p in $paths; do
+  [ -f "$root/$p" ] || die "$manifest names a skill that does not exist: $p"
+done
+dup=$(printf '%s\n' "$paths" | sort | uniq -d)
+[ -z "$dup" ] || die "$manifest names a skill more than once: $(printf '%s' "$dup" | tr '\n' ' ')"
+# Each entry is one line, { "id": "<dir>", "path": "skills/<dir>/SKILL.md" }, and its id is its directory's name.
+entries=$(grep -oE '"id"[[:space:]]*:[[:space:]]*"[^"]*"[[:space:]]*,[[:space:]]*"path"[[:space:]]*:[[:space:]]*"skills/[^"]*"' "$manifest" |
+  sed -E 's/^"id"[[:space:]]*:[[:space:]]*"([^"]*)".*"skills\/([^/"]*)\/SKILL\.md"$/\1:\2/')
+[ "$(printf '%s\n' "$entries" | grep -c .)" = "$(printf '%s\n' "$paths" | grep -c .)" ] ||
+  die "$manifest has a skill entry that is not { \"id\": \"<dir>\", \"path\": \"skills/<dir>/SKILL.md\" } on one line"
+for e in $entries; do
+  [ "${e%%:*}" = "${e#*:}" ] || die "$manifest names skills/${e#*:}/ with the id ${e%%:*}: a skill's id is its directory's name"
+done
+# Muse loads only the skills its manifest lists: a skill directory the manifest does not name ships in the package
+# and is never offered (card 167's subscribe skill was, until card 248 named it).
 disabled=""
+unnamed=""
 for f in "$root"/skills/*/SKILL.md; do
   [ -f "$f" ] || continue
+  rel=${f#"$root"/}
+  printf '%s\n' "$paths" | grep -qxF "$rel" || unnamed="$unnamed $rel"
   if grep -qE '^[[:space:]]*disable-model-invocation[[:space:]]*:' "$f"; then disabled="$disabled $f"; fi
 done
+[ -z "$unnamed" ] || die "$manifest does not name these skills, and Muse loads only the ones it names:$unnamed"
 [ -z "$disabled" ] || die "disable-model-invocation is declared in:$disabled -- Brigade's skills are reachable by the model (card 28)"
-ok "every skill the manifest names exists and none declares disable-model-invocation"
+ok "every skill the manifest names exists, once, under its own id; the manifest names every skill; none declares disable-model-invocation"
 
 # ---- 10. the marketplace catalog (card 115) -----------------------------------------------------------------------
 # Muse reads marketplace.json at the repository root first (before the Codex and the Claude Code catalogs), so a

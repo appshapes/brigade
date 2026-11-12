@@ -24,6 +24,7 @@ they arrive. You ask in words; these are the things to ask for and what comes ba
 
 1. `/brigade:sessions` prints the roster verbatim: a short SESSION id, name, state, member, model, context, version.
 2. `--here` shows this repository's sessions, `--member <who>` one member's, `--all` includes the offline ones.
+3. `/brigade:whoami` prints this session's own identity verbatim: its name, SESSION id, team, label and delivery.
 
 Details: [See the team](see-the-team.md).
 
@@ -82,7 +83,7 @@ Details: [Keep the team's work on the Brigade Board](work-items.md).
 
 ## Check that your session is receiving
 
-1. Ask: `Is this session receiving team messages?` It runs `brigade whoami`.
+1. Ask: `Is this session receiving team messages?` It runs `brigade whoami`; `/brigade:whoami` prints the same.
 2. The last line, `delivery:`, is the answer: `connected for 12m` means yes.
 
 Details: [Check that your session is receiving](is-my-session-receiving.md).

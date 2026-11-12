@@ -121,7 +121,7 @@ stable.
 When you are **showing** the output of `brigade sessions` or `brigade team members` to your user, rather than
 reading it to address a message, print what the command printed: do not tabulate, count, summarise, or compare it
 with an earlier run. `/brigade:sessions` is the command bound to that for the session roster, and it is what your
-user should reach for.
+user should reach for; `/brigade:whoami` is the same for `brigade whoami`, this session's own identity.
 
 ## Sending
 

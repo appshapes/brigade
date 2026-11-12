@@ -9,6 +9,23 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **`/brigade:whoami` shows who this session is on the team** (work item
+  248). It runs `brigade whoami` and prints what it printed, verbatim, among
+  its lines the session's ids, name and team, its member label and whether it
+  is receiving. It is in all four packages: `/brigade:whoami` in Claude
+  Code and Grok Build, `$brigade:whoami` in Codex CLI, and the `whoami` skill
+  in Muse Code. It takes no arguments.
+
+### Fixed
+
+- **Muse Code offers the `subscribe` skill.** The Muse package has shipped
+  it since 0.44.0 without naming it in its manifest, and Muse loads only the
+  skills a manifest names, so a Muse session never had it. The manifest now
+  names every skill, and `make muse-plugin-check` refuses a skill directory
+  the manifest leaves out.
+
 ## [0.52.0] — 2026-11-12
 
 ### Added

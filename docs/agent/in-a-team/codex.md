@@ -10,13 +10,14 @@ The ` | <folder>` Codex shows after that name in its terminal title is Codex's o
 repository's root), not part of the name and not on the roster
 ([measured](../../experiments/codex-terminal-title.md), card 190).
 
-The Codex CLI package (`codex/brigade/`) ships the same twelve skills, worded for Codex. They are the model's
+The Codex CLI package (`codex/brigade/`) ships the same thirteen skills, worded for Codex. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 
 | Skill | Who invokes it | What it carries |
 | --- | --- | --- |
 | [`codex/brigade/skills/team-messaging/SKILL.md`](../../../codex/brigade/skills/team-messaging/SKILL.md) | the model, when a team message arrives or the user asks about teammates | the command surface, the sending rules, the inbound frame, the gateways, the roster line, the notes, decisions and digest of a project with a state folder |
 | [`codex/brigade/skills/sessions/SKILL.md`](../../../codex/brigade/skills/sessions/SKILL.md) | `$brigade:sessions` | print the roster verbatim |
+| [`codex/brigade/skills/whoami/SKILL.md`](../../../codex/brigade/skills/whoami/SKILL.md) | `$brigade:whoami` | print `brigade whoami`, this session's identity, verbatim |
 | [`codex/brigade/skills/join/SKILL.md`](../../../codex/brigade/skills/join/SKILL.md) | `$brigade:join <path>` | run `brigade team join --secret-file <path>` on the file the user named |
 | [`codex/brigade/skills/update/SKILL.md`](../../../codex/brigade/skills/update/SKILL.md) | `$brigade:update` | refresh the marketplace, install again, then a new session |
 | [`codex/brigade/skills/setup/SKILL.md`](../../../codex/brigade/skills/setup/SKILL.md) | a person asking how to set Brigade up | the human's procedures |
