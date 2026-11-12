@@ -212,17 +212,17 @@ func TestMusePluginCheck(t *testing.T) {
 	})
 
 	// The manifest text, rewritten: an entry under another id, or the same skill twice, is offered wrongly by Muse.
-	rewriteManifest := func(t *testing.T, tr *tree, old, new string) {
+	rewriteManifest := func(t *testing.T, tr *tree, from, to string) {
 		t.Helper()
 		p := filepath.Join(tr.root, "muse/brigade/.muse-plugin/plugin.json")
 		data, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(data), old) {
-			t.Fatalf("the manifest has no %q", old)
+		if !strings.Contains(string(data), from) {
+			t.Fatalf("the manifest has no %q", from)
 		}
-		tr.write("muse/brigade/.muse-plugin/plugin.json", strings.Replace(string(data), old, new, 1))
+		tr.write("muse/brigade/.muse-plugin/plugin.json", strings.Replace(string(data), from, to, 1))
 	}
 
 	t.Run("a skill under an id that is not its directory's name fails", func(t *testing.T) {
