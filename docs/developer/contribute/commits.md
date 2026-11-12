@@ -12,8 +12,8 @@ the push. In a shared checkout, check `git status` first: another session's edit
 conflict, stop and hand it back; never `git merge --abort` into a rebase, never a force-push.
 
 - **The message** is `<card>: <Imperative summary>`, the number being the AppShapes Trello card the work belongs to
-  ([Work a card](cards.md)). `/commit <card>` in Claude Code writes the message from the diff, confirms it with you
-  and runs the chain; it refuses without a numeric card.
+  ([Work a card](cards.md)). `/commit <card>` in Claude Code writes the message from the diff and runs the chain
+  without asking for approval; it refuses without a numeric card and stops at anything that looks like a secret.
 - **The execution log.** `.context/plans/brigade-execution-log.md` is the single source of truth for where the work
   stands: a commit that finishes a piece of work adds its row in the same commit. A PR labelled `maintenance` is
   exempt.
