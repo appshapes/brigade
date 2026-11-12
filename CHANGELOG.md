@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.52.0] — 2026-11-12
+
 ### Added
 
 - **A team can live on a Brigade server, with no Supabase project** (work
