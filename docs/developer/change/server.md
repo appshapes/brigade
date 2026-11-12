@@ -2,8 +2,9 @@
 
 `server/` is the Brigade server: a backend for [the backend REST contract](../../backend-rest-v1.md) that keeps a
 team on the file system and on a Cavalry feed, with no Supabase project (work item 89; the plan is
-`.context/plans/brigade-server.md`). It runs one instance today. It has no release yet, and the harness does not yet
-accept `"adapter": "rest"` in a team file, so no team runs on it outside a test.
+`.context/plans/brigade-server.md`). It runs one instance today. A team is created on it with `brigade team create
+--adapter rest`, and its team file names the server's url and, for a certificate no authority signed, that
+certificate's fingerprint. It has no release yet.
 
 ## Three rules
 
@@ -28,7 +29,7 @@ accept `"adapter": "rest"` in a team file, so no team runs on it outside a test.
 ```sh
 make server-build        # server/target/release/brigade-server
 make server-check        # rustfmt, and clippy with warnings denied, with and without the Cavalry feed
-make server-test         # the server's tests, then the conformance suite against a running server
+make server-test         # the server's tests, the conformance suite against a running server, and a team on one
 make server-deps-check   # cargo-deny against server/deny.toml; `cargo install cargo-deny --locked` once
 ```
 
@@ -40,6 +41,12 @@ The toolchain is the one `server/rust-toolchain.toml` pins; rustup installs it o
 `--slow` on the Cavalry feed. Beside it, `crates/brigade-core/tests/rules.rs` holds the same rules at the size of a
 function call with the clock in the test's hands, and `crates/brigade-server/tests/server.rs` holds what only a
 process shows: a kill and a start, a receive that waits, TLS, a process held still past Cavalry's timeouts.
+
+The member's side has one test of its own, `TestATeamOnAServerThroughTheRealBinary` in `internal/harness/e2e`: the
+built `brigade` creates a team with `--adapter rest`, a second member joins from inside a session, both sessions
+start, and a message one sends reaches the other's inbox. `make test` runs it against the stand-in server; `make
+server-test` runs it against `brigade-server` over TLS, with a certificate made for no address, so that only its
+fingerprint in the team file can make a member trust it.
 
 ## Run one
 
@@ -58,7 +65,8 @@ every entry since. A stop takes no new connection, answers what is being answere
 once, the rest within five seconds) and then writes its snapshot.
 
 The listener follows the owner's ruling of 2026-11-12. With `--tls-cert` and `--tls-key` the server serves HTTPS
-itself. Without them it serves plain HTTP, on a loopback address only, unless `--tls-in-front` says that TLS ends
+itself, and its start line names the certificate's fingerprint (`certificate sha256:…`): what `team create
+--certificate` takes and the team file pins, when no authority signed the certificate. Without them it serves plain HTTP, on a loopback address only, unless `--tls-in-front` says that TLS ends
 in front of it; a start that would put plain HTTP on any other address is refused before the directory is touched.
 What stands in front must pass the `Authorization` and `Brigade-Create-Token` headers, allow a body of 1 MiB, hold
 a quiet request open for more than 30 seconds (the receive that waits) and never send a `POST` again by itself.
@@ -112,8 +120,9 @@ header, and everything else is unchanged.
 
 ## Not built yet
 
-TLS has no pinned fingerprint on the member's side; there is no `team create --adapter rest`, no release and no
-container image (the plan's phase 3); and no standby instance (phase 4).
+There is no release yet: the image `server/Dockerfile` builds is not published anywhere (the plan's phase 3). There
+is no standby instance (phase 4), and a team on a server has no Slack or email gateway: both run inside a Supabase
+project today (work item 156).
 
 ## Known limits
 

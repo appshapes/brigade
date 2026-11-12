@@ -226,7 +226,7 @@ func TestPatchSurvivesAdapterRewrite(t *testing.T) {
 	if err := adapterkit.SaveProfile(dir, key, p); err != nil {
 		t.Fatal(err)
 	}
-	if err := write.PatchBindingBackend(dir, key, "fs", "http://127.0.0.1:1", "placeholder"); err != nil {
+	if err := write.PatchBindingBackend(dir, key, "fs", "http://127.0.0.1:1", "placeholder", ""); err != nil {
 		t.Fatal(err)
 	}
 	// The adapter's own rewrite: load, change an adapter-owned member, save.

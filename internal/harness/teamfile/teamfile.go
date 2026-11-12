@@ -81,6 +81,7 @@ const (
 	ReasonUnsupportedVersion = "unsupported_version" // version is not 1
 	ReasonURLNotHTTPS        = "url_not_https"       // url is not https and not loopback http
 	ReasonAdapterUnknown     = "adapter_unknown"     // adapter is not a well-formed adapter name
+	ReasonCertificate        = "certificate"         // certificate is not sha256: and 64 hex digits, or goes with an http url
 )
 
 // Reasons is the closed token list, in rendering order. Tests enumerate
@@ -90,6 +91,7 @@ func Reasons() []string {
 		ReasonNotRegularFile, ReasonWorldWritable, ReasonTooLarge,
 		ReasonSecretShaped, ReasonSecretKey, ReasonMalformed,
 		ReasonUnsupportedVersion, ReasonURLNotHTTPS, ReasonAdapterUnknown,
+		ReasonCertificate,
 	}
 }
 
@@ -101,8 +103,14 @@ type File struct {
 	Adapter        string
 	URL            string
 	PublishableKey string
-	TeamRef        string
-	TeamName       string
+	// Certificate is the `certificate` member: the pin of the backend's
+	// own certificate (adapterkit.CertificateFingerprint), for a server
+	// whose certificate no authority signed; "" when the file has none. It
+	// is public, like the url, and it is part of what a member consents to:
+	// a file that names another certificate is a changed file.
+	Certificate string
+	TeamRef     string
+	TeamName    string
 	// Sync is the project's `sync` member when present AND usable, nil
 	// otherwise. SyncUnusable is the SyncReasons token when a `sync`
 	// member is present but not usable, "" otherwise — never both set.
@@ -140,11 +148,18 @@ var secretShape = regexp.MustCompile(`brg1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}`)
 
 // members is the schema this version reads. True means required; any
 // other member is ignored (card 32) and named in File.Ignored.
+// publishable_key is required of every adapter but RestAdapter, whose
+// backend has no key: validate holds that.
 var members = map[string]bool{
 	"version": true, "adapter": true, "url": true,
-	"publishable_key": true, "team_ref": true, "team_name": false,
+	"publishable_key": false, "certificate": false,
+	"team_ref": true, "team_name": false,
 	"sync": false, "gateway": false, "polling": false,
 }
+
+// RestAdapter is the adapter name of a team on a Brigade server (work
+// item 89): the one adapter whose team file carries no publishable_key.
+const RestAdapter = "rest"
 
 // Parse reads and validates the team file at path. Every check runs on
 // the OPEN descriptor (the file cannot be swapped between check and
@@ -339,12 +354,20 @@ func validate(path string, raw map[string]jsontext.Value) (*File, error) {
 		return nil, refusal(path, ReasonUnsupportedVersion, "the team file names a version this build does not read")
 	}
 	for name, dst := range map[string]*string{
-		"adapter": &f.Adapter, "url": &f.URL,
-		"publishable_key": &f.PublishableKey, "team_ref": &f.TeamRef,
+		"adapter": &f.Adapter, "url": &f.URL, "team_ref": &f.TeamRef,
 	} {
 		if err := json.Unmarshal(raw[name], dst); err != nil || *dst == "" {
 			return nil, refusal(path, ReasonMalformed, "the team file's "+name+" member must be a non-empty string")
 		}
+	}
+	// A Brigade server has no publishable key, so a `rest` file carries
+	// none; every other adapter's file must, as before.
+	if key, ok := raw["publishable_key"]; ok {
+		if err := json.Unmarshal(key, &f.PublishableKey); err != nil || f.PublishableKey == "" {
+			return nil, refusal(path, ReasonMalformed, "the team file's publishable_key member must be a non-empty string")
+		}
+	} else if f.Adapter != RestAdapter {
+		return nil, refusal(path, ReasonMalformed, "the team file is missing a required member: publishable_key")
 	}
 	if name, ok := raw["team_name"]; ok {
 		var s string
@@ -361,6 +384,15 @@ func validate(path string, raw map[string]jsontext.Value) (*File, error) {
 	}
 	if err := checkURL(path, f.URL); err != nil {
 		return nil, err
+	}
+	if pin, ok := raw["certificate"]; ok {
+		// One spelling only, and only beside an https url: a pin that could
+		// be written two ways would drift from a member's consent without
+		// changing, and a pin on an http url would pin nothing.
+		if err := json.Unmarshal(pin, &f.Certificate); err != nil || !adapterkit.ValidCertificatePin(f.Certificate) ||
+			!strings.HasPrefix(strings.ToLower(f.URL), "https://") {
+			return nil, refusal(path, ReasonCertificate, "the team file's certificate member must be sha256: and the 64 lowercase hex digits of the server certificate's fingerprint, beside an https url")
+		}
 	}
 	return &f, nil
 }

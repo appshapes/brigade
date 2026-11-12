@@ -117,16 +117,16 @@ func Promote(configDir, tempKey, key string) error {
 }
 
 // PatchBindingBackend rewrites the binding's harness-owned members —
-// adapter, url, publishable_key — leaving everything the adapter wrote
+// adapter, url, publishable_key, certificate — leaving everything the adapter wrote
 // intact (verify-round high fix 1: the kit schema round-trips, so a
 // later adapter load-modify-save preserves the patch, and this patch
 // preserves the adapter's members).
-func PatchBindingBackend(configDir, key, adapter, url, publishableKey string) error {
+func PatchBindingBackend(configDir, key, adapter, url, publishableKey, certificate string) error {
 	p, err := adapterkit.LoadProfile(configDir, key)
 	if err != nil {
 		return err
 	}
-	p.Adapter, p.URL, p.PublishableKey = adapter, url, publishableKey
+	p.Adapter, p.URL, p.PublishableKey, p.Certificate = adapter, url, publishableKey, certificate
 	return adapterkit.SaveProfile(configDir, key, p)
 }
 
@@ -134,8 +134,8 @@ func PatchBindingBackend(configDir, key, adapter, url, publishableKey string) er
 // harness-owned members, creating a minimal kit profile when the adapter
 // wrote none (a minimal adapter may not persist a binding at all): an
 // existing binding keeps every adapter-written member and only the
-// backend trio and any EMPTY team member is filled.
-func EnsureBinding(configDir, key, adapter, url, publishableKey, teamRef, teamName, principalRef string) error {
+// backend members and any EMPTY team member is filled.
+func EnsureBinding(configDir, key, adapter, url, publishableKey, certificate, teamRef, teamName, principalRef string) error {
 	p, err := adapterkit.LoadProfile(configDir, key)
 	if err != nil {
 		if !missingBinding(err) {
@@ -143,7 +143,7 @@ func EnsureBinding(configDir, key, adapter, url, publishableKey, teamRef, teamNa
 		}
 		p = &adapterkit.Profile{Version: adapterkit.ProfileVersion, Adapter: adapter}
 	}
-	p.Adapter, p.URL, p.PublishableKey = adapter, url, publishableKey
+	p.Adapter, p.URL, p.PublishableKey, p.Certificate = adapter, url, publishableKey, certificate
 	if p.TeamRef == "" {
 		p.TeamRef = teamRef
 	}

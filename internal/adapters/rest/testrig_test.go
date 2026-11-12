@@ -65,12 +65,24 @@ func newBackend(t *testing.T) *backend {
 
 func newBackendWith(t *testing.T, o stub.Options) *backend {
 	t.Helper()
+	return newBackendServing(t, o, false)
+}
+
+// newTLSBackend is a stand-in server that serves HTTPS with a certificate
+// no authority this machine trusts has signed: httptest's own.
+func newTLSBackend(t *testing.T) *backend {
+	t.Helper()
+	return newBackendServing(t, stub.Options{Poll: 20 * time.Millisecond}, true)
+}
+
+func newBackendServing(t *testing.T, o stub.Options, overTLS bool) *backend {
+	t.Helper()
 	server, err := stub.New(t.TempDir(), o)
 	if err != nil {
 		t.Fatal(err)
 	}
 	b := &backend{t: t}
-	b.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		seen := seenRequest{
 			Path: r.URL.Path, Authorization: r.Header.Get("Authorization"),
@@ -94,7 +106,12 @@ func newBackendWith(t *testing.T, o stub.Options) *backend {
 		}
 		r.Body = io.NopCloser(bytes.NewReader(raw))
 		server.ServeHTTP(w, r)
-	}))
+	})
+	if overTLS {
+		b.srv = httptest.NewTLSServer(handler)
+	} else {
+		b.srv = httptest.NewServer(handler)
+	}
 	t.Cleanup(b.srv.Close)
 	return b
 }

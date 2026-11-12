@@ -53,9 +53,39 @@ These are his words from this session; the design in §4 is mine and built on th
    stays, for an operator who wants a token, and the contract already says a server may require one.
 9. Landing phase 2 on `master`, 2026-11-12: "Yes".
 
+10. How sessions work from here, 2026-11-12: "I want you and all future sessions to run autonomously, using your
+    own recommendations when decisions are needed, and that includes releasing. When you truly require my input,
+    pause and ask me."
+11. The first server release, 2026-11-12: "Agreed" to version 0.1.0 tagged `server-v0.1.0`, binaries for Linux
+    (x86-64 and aarch64) and macOS (aarch64) on a GitHub release, and the image at
+    `ghcr.io/appshapes/brigade-server`. And: "Can users also install via crate? I think that is how most admins
+    will want to install." So `cargo install --git … --tag server-v0.1.0 brigade-server --locked` is a documented
+    way from the first release; `cargo install brigade-server` from crates.io waits for Cavalry there, because
+    crates.io refuses a crate with a git dependency.
+12. The `server` CI job becomes required when phase 3 ships (ruling 5): "Agreed."
+13. The `security.md` section for the server: "No need to show me, understood."
+14. Limits (the flood bounds the Supabase backend has): "Agreed. But a reinforcing reminder: Brigade is open by
+    design, and only closed by choice/configuration." So nothing closes by default: no cap on teams or members,
+    and what closes is a switch an operator turns on.
+15. `--create-token-file`: "Keep."
+16. Rulings 1, 6, 7 and 8 of §10, 2026-11-12: one writer at a time with promotion by command (asked whether that
+    blocks automatic promotion on Cavalry's cluster later, the answer given was no: the log sits behind one
+    interface and the cluster's log goes behind it); the stand-in stays a test fixture, "Agreed"; the work items
+    as proposed, "Yes"; an early tester of Cavalry, "Yes". He has other hosts for a standby.
+17. The proof with a real team, 2026-11-12: "I want to move Brigade repo over since it is only two devs. As part
+    of this, I want to switch Brigade to the `appshapes` team - which Cavalry and all other appshapes repos are
+    currently on. […] In short: no burn-in, we go straight to live testing using Brigade. I have a clean,
+    dedicated host in mind (`sled`)." Asked whether the whole team moves at once: "agreed, A", the whole team.
+18. The gateways, 2026-11-12, told that a team on a server has neither Slack nor email (both are Supabase Edge
+    Functions): "if you are confident that the gateways are a **fast** follow then it can wait, but if not then
+    we need to wait for the gateways. also, why can't the gateways ship as part of the `server`? if it's a
+    best-practice thing, then i would side on bundling together to ease the lift on Brigade admins." The session's
+    answer: Slack is quick, receiving email on a host that is not on the public internet is not sure, so the team
+    moves after the gateways; and they are built into `brigade-server` (§8, phase 3b).
+
 Items 6 and 7 were said in `brigade-fix-1e`'s conversation. They reached the session that built phase 2 as that
 session's relay, with his words quoted, and are on work item 89 (its comments of 2026-11-12, 10:16 and 10:21 UTC).
-Items 8 and 9 were said to the session that built phase 2, in answer to its report.
+Items 8 to 18 were said to the session that built phases 2 and 3, in answer to its reports and questions.
 
 The six rulings of 2026-11-11 were made for the peer-to-peer design. What is left of them: an always-on machine
 the team owns is acceptable (ruling 1, now the server); green field first, moving an existing team later
@@ -323,10 +353,14 @@ What Cavalry wants from Brigade now (its section F5): the soak of a server that 
   idempotency keys. On the Cavalry feed a server held still for 12 seconds went on with nothing lost or
   repeated, and a server made to roll at every snapshot let go of the recordings its snapshots covered and held
   the same state after a kill. The same tests and both suite runs are green in a Linux container (Linux 7.0 on
-  aarch64 in Docker Desktop, `--shm-size=512m`): not x86-64, not a real disk, and not CI's runner, which has not
-  run the `server` job yet.
+  aarch64 in Docker Desktop, `--shm-size=512m`): not a real disk. CI's runner, x86-64, ran the `server` job for
+  the first time on `87df95b` (run 43222730771): green in 2 min 22 s on a cold cargo cache.
 - **A real team:** `make e2e` against the adapter and the server, then a green-field team of two members for a
-  week, with the server's log directory and its counters as the measurement.
+  week, with the server's log directory and its counters as the measurement. Changed by the owner on 2026-11-12
+  (§2 item 17): no week of two members; the `appshapes` team, every repository of it, moves to a server on the
+  host `sled` once the gateways work there, and real use is the proof. What stands in for `make e2e`, which is
+  written for a Supabase stack and real Claude Code sessions, is `TestATeamOnAServerThroughTheRealBinary`: the
+  built `brigade` and its bundled adapter as real processes, against the stand-in and against the server.
 - **Standby:** two instances on two hosts; send through the primary, stop it, promote, receive from the standby.
 
 ## 8. Phases
@@ -335,10 +369,11 @@ What Cavalry wants from Brigade now (its section F5): the soak of a server that 
 | --- | --- | --- |
 | 0 | Research, the spike, the direction. Done 2026-11-12. | |
 | 1 | The contract page, the `rest` adapter, the stand-in, conformance green in `make test`. Go only. Built and verified 2026-11-12 (execution log P86-1): conformance(rest) 48 passed, 0 failed, 1 slow case skipped; 49 of 49 with `--slow`. | nothing |
-| 2 | The server with one instance: the workspace, records, the state machine, the recorded feed, snapshots, HTTP, credentials; the conformance suite green against it; the `server` CI job. Built and verified 2026-11-12 (execution log P86-2): `server/` with `brigade-core`, `brigade-log` and `brigade-server`; `make server-build`, `server-check`, `server-test` and `server-deps-check`; the `server` job in `ci.yml`, not yet run by CI and not required by the ruleset. | phase 1; rulings 3, 4 |
-| 3 | A real team: `team create --adapter rest`, the team file, the session-start lines, `make e2e`, the Project Owner and Team Admin pages, the `security.md` section, the first server release, the experimental label. | phase 2; rulings 2, 5 |
+| 2 | The server with one instance: the workspace, records, the state machine, the recorded feed, snapshots, HTTP, credentials; the conformance suite green against it; the `server` CI job. Built and verified 2026-11-12 (execution log P86-2): `server/` with `brigade-core`, `brigade-log` and `brigade-server`; `make server-build`, `server-check`, `server-test` and `server-deps-check`; the `server` job in `ci.yml`, green on its first run (2 min 22 s, cold cache) and not required by the ruleset. On `master` as `87df95b`. | phase 1; rulings 3, 4 |
+| 3 | A real team: `team create --adapter rest`, the team file, the session-start lines, `make e2e`, the Project Owner and Team Admin pages, the `security.md` section, the first server release, the experimental label. Built 2026-11-12 so far (execution log P86-3): `rest` is a second bundled adapter the harness resolves by name; `team create --adapter rest --url … [--certificate …] [--create-token-file …]`; the team file's `certificate` member, a pin the member's adapter trusts in place of an authority; join and re-consent carry it; one end-to-end test through the built binary, against the stand-in in `make test` and against `brigade-server` over TLS in `make server-test`. Not yet: the Project Owner and Team Admin pages, the `security.md` section, the release. | phase 2; rulings 2, 5 |
+| 3b | Slack and email inside the server (§2 item 18): Slack both ways over Socket Mode, email out, then email in; off until an operator configures it; the gateway acts through the same request path as a member. Then the `appshapes` team moves to the server on `sled` (§2 item 17). | phase 3; the release |
 | 4 | Standby instances: following, snapshots for a new instance, promotion, the adapter's second address (work item 156's team file version 2), the two-host proof, a week's soak. | phase 3; ruling 1 |
-| 5 | Email and Slack beside the server: work item 156, phase 4. | independent |
+| 5 | Email and Slack beside the server: work item 156, phase 4. Superseded for a team on this server by phase 3b; 156 keeps the gateway process for other backends. | independent |
 | Later | Automatic promotion on Cavalry's cluster; moving an existing team; whether this becomes the default; a repository of its own. | |
 
 Phase 1 is useful whatever happens to the rest: it is work item 156's contract and adapter, and any server in
@@ -357,7 +392,8 @@ any stack can stand behind it.
 
 ## 10. Rulings wanted (Rjae), each with the default I work to until told otherwise
 
-1. **One writer at a time** (§4.3), with promotion by an operator's command first. Default: yes.
+1. **One writer at a time** (§4.3), with promotion by an operator's command first. Ruled 2026-11-12 (§2 item
+   16): yes.
 2. **Who may create a team on a server.** Ruled 2026-11-12 (§2 item 8): "Anyone". The default this plan worked
    to, that a stranger who can reach a server should not, is withdrawn: a server started without
    `--create-token-file` lets anyone who reaches it create a team. The option stays for an operator who wants a
@@ -366,11 +402,12 @@ any stack can stand behind it.
 3. **TLS.** Ruled 2026-11-12 (§2 item 6): the default, and an option for TLS that ends in front of the server.
 4. **The server's dependencies.** Ruled 2026-11-12 (§2 item 7): hyper, tokio and tokio-rustls, and the allowlist
    in `server/deny.toml` stays.
-5. **The `server` CI job and the ruleset.** Default: the job runs from phase 2 and becomes required when phase 3
-   ships. Phase 2 worked to it: the job is in `ci.yml` and the ruleset does not name it.
-6. **The stand-in.** Default: a test fixture only, never shipped.
-7. **Work items.** Default: 89 carries phases 1 to 4; 156 keeps the team file version 2, the protocol additions
+5. **The `server` CI job and the ruleset.** Ruled 2026-11-12 (§2 item 12): the job runs from phase 2 and becomes
+   required when phase 3 ships. Phase 2 worked to it: the job is in `ci.yml` and the ruleset does not name it.
+6. **The stand-in.** Ruled 2026-11-12 (§2 item 16): a test fixture only, never shipped.
+7. **Work items.** Ruled 2026-11-12 (§2 item 16), as proposed, with one change that item 18 made the same day:
+   the Slack and email gateways of a team on a server are built into the server, here. 89 carries phases 1 to 4; 156 keeps the team file version 2, the protocol additions
    and the gateways, and a comment there says its phase 3 is built here.
 8. **Cavalry's two small asks as cards now** (§6), and whether Brigade's team is invited as an early tester of
-   Cavalry before 0.1.0. The first half is answered: they are Cavalry's cards 271 and 272 (§3). The invitation is
-   still open, and nothing here waits on it.
+   Cavalry before 0.1.0. The first half is answered: they are Cavalry's cards 271 and 272 (§3). The invitation:
+   ruled 2026-11-12 (§2 item 16), yes; the server on `sled` is that tester.

@@ -19,6 +19,12 @@ import (
 // local build is the dev-binary pointer (D35), not a registry rebind.
 const BundledAdapterName = "supabase"
 
+// BundledRestName is the second name that needs no registry entry: this
+// executable's `adapter rest`, the adapter of a team on a Brigade server
+// (work item 89, docs/backend-rest-v1.md). A registry entry of that name
+// is ignored, as one named "supabase" is.
+const BundledRestName = "rest"
+
 // The two harness-owned files of D36 (3.2).
 const (
 	// SidecarFileName is the per-profile default adapter, one line, in
@@ -70,16 +76,42 @@ const MaxAdapterNameLen = 64
 // through os.Executable() at spawn time and never stored as a path (the
 // hook, the Bash tool and the watcher may run different cached binaries
 // only in a development setup, and no map may pin one). Source says which
-// step chose it, for `whoami` and `profile status`.
+// step chose it, for `whoami` and `profile status`. Name says which
+// bundled adapter a Bundled one is: "" for `adapter supabase`,
+// BundledRestName for `adapter rest`.
 type Adapter struct {
 	Argv    []string
 	Bundled bool
+	Name    string
 	Source  string
 }
 
+// bundledRest is the bundled `rest` adapter as source chose it.
+func bundledRest(source string) Adapter {
+	return Adapter{Bundled: true, Name: BundledRestName, Source: source}
+}
+
+// Command is the adapter as the by-pid map's adapter_command holds it: []
+// for the bundled Supabase adapter, sessionmap.BundledRestCommand alone
+// for the bundled `rest` adapter, else the argv prefix.
+func (a Adapter) Command() []string {
+	switch {
+	case a.Bundled && a.Name == BundledRestName:
+		return []string{sessionmap.BundledRestCommand}
+	case a.Bundled:
+		return []string{}
+	default:
+		return append([]string{}, a.Argv...)
+	}
+}
+
 // Encode renders the adapter as the JSON array text the hook records in
-// the by-pid map and passes to the watcher: "[]" for the bundled adapter.
+// the by-pid map and passes to the watcher: "[]" for the bundled Supabase
+// adapter, and Command's array for every other.
 func (a Adapter) Encode() (string, error) {
+	if a.Bundled && a.Name == BundledRestName {
+		return `["` + sessionmap.BundledRestCommand + `"]`, nil
+	}
 	if a.Bundled || len(a.Argv) == 0 {
 		return "[]", nil
 	}
@@ -109,6 +141,9 @@ func AdapterFromArgv(argv []string) (Adapter, error) {
 	if len(argv) == 0 {
 		return Adapter{Bundled: true, Source: SourceMap}, nil
 	}
+	if sessionmap.IsBundledRest(argv) {
+		return bundledRest(SourceMap), nil
+	}
 	return Adapter{Argv: append([]string(nil), argv...), Source: SourceMap}, nil
 }
 
@@ -130,6 +165,9 @@ func DecodeAdapter(s string) (Adapter, error) {
 		}
 		if len(argv) == 0 {
 			return Adapter{Bundled: true, Source: SourceEnv}, nil
+		}
+		if sessionmap.IsBundledRest(argv) {
+			return bundledRest(SourceEnv), nil
 		}
 		if !filepath.IsAbs(argv[0]) {
 			return Adapter{}, errAdapter(ReasonAdapterRelative, SourceEnv, msgRelative)
@@ -168,13 +206,17 @@ func CheckAdapterName(name string) error {
 // adapter_command option — a per-session override, never sourced from
 // any repository file; (2) the adapter NAME the team's binding or the
 // project's team file carries, resolved strictly user-side through
-// adapters.json; (3) the bundled adapter, which the name "supabase" (or
-// no name at all) means. The old sidecar and profile-member read steps
-// are gone: nothing on disk beside the binding names an adapter any
-// more, and the binding names a dialect, never a command.
+// adapters.json; (3) a bundled adapter: the name "rest" means `adapter
+// rest`, and the name "supabase" (or no name at all) `adapter supabase`.
+// The old sidecar and profile-member read steps are gone: nothing on disk
+// beside the binding names an adapter any more, and the binding names a
+// dialect, never a command.
 func ResolveAdapter(opts Options, configDir, adapterName string) (Adapter, error) {
 	if opts.AdapterCommand != "" {
 		return parseSpec(opts.AdapterCommand, configDir, SourceOption)
+	}
+	if adapterName == BundledRestName {
+		return bundledRest(SourceBundled), nil
 	}
 	if adapterName != "" && adapterName != BundledAdapterName {
 		return parseSpec(adapterName, configDir, SourceProfile)
@@ -213,6 +255,9 @@ func parseSpec(value, configDir, source string) (Adapter, error) {
 	case CheckAdapterName(v) == nil:
 		if v == BundledAdapterName {
 			return Adapter{Bundled: true, Source: source}, nil
+		}
+		if v == BundledRestName {
+			return bundledRest(source), nil
 		}
 		return lookupRegistry(v, configDir, source)
 	case looksLikePath(v):
@@ -326,15 +371,15 @@ const SourceRegistry = "registry"
 // RegisterAdapter adds or replaces the entry name → argv in
 // ${configDir}/adapters.json (D36: a third-party name is registered once by
 // `profile init --adapter`; the file stays editable by the human). name must
-// pass CheckAdapterName and must not be the bundled name (it needs no entry
+// pass CheckAdapterName and must not be a bundled name (it needs no entry
 // and cannot be rebound); argv must be non-empty with an absolute first
 // element. An existing registry is read through ReadStrict and refused on
 // the same terms as resolution (insecure_mode, registry_malformed), so a
 // broken or world-readable file is never silently replaced; every other
 // entry is kept verbatim. The file is written atomically, 0600.
 func RegisterAdapter(configDir, name string, argv []string) error {
-	if CheckAdapterName(name) != nil || name == BundledAdapterName {
-		return errAdapter(ReasonAdapterMalformed, SourceRegistry, "the adapter name must be 1-64 characters from letters, digits, dash and underscore, and not the bundled name")
+	if CheckAdapterName(name) != nil || name == BundledAdapterName || name == BundledRestName {
+		return errAdapter(ReasonAdapterMalformed, SourceRegistry, "the adapter name must be 1-64 characters from letters, digits, dash and underscore, and not a bundled name")
 	}
 	switch {
 	case len(argv) == 0:

@@ -448,7 +448,7 @@ func (r *rig) createTeam() {
 	if joined.TeamRef != r.teamRef || joined.Rejoined {
 		t.Fatalf("team join: %+v", joined)
 	}
-	if err := write.EnsureBinding(r.configDirB, r.teamKey, "fs", "http://127.0.0.1:1", "placeholder", r.teamRef, teamName, ""); err != nil {
+	if err := write.EnsureBinding(r.configDirB, r.teamKey, "fs", "http://127.0.0.1:1", "placeholder", "", r.teamRef, teamName, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := write.Pin(r.configDirB, canon, teamstore.Pin{

@@ -80,7 +80,7 @@ fn run(options: &Options) -> Result<(), String> {
 
     let create_token = create_token(options)?;
     let tls = match &options.tls {
-        Some((certificate, key)) => Some(tls::acceptor(certificate, key)?),
+        Some((certificate, key)) => Some(tls::serving(certificate, key)?),
         None => None,
     };
     if options.log == LogKind::File {
@@ -128,13 +128,15 @@ fn run(options: &Options) -> Result<(), String> {
                 .map_err(|error| format!("{} could not be written: {error}", path.display()))?;
         }
         let how = match (&tls, options.tls_in_front) {
-            (Some(_), _) => "",
-            (None, true) => " (plain HTTP: TLS ends in front of the server)",
-            (None, false) => " (plain HTTP on loopback)",
+            // What a team file pins when no authority signed the certificate.
+            (Some(tls), _) => format!(" (certificate {})", tls.fingerprint),
+            (None, true) => " (plain HTTP: TLS ends in front of the server)".to_owned(),
+            (None, false) => " (plain HTTP on loopback)".to_owned(),
         };
         note(&format!("listening on {base}{how}"));
 
-        let serving = tokio::spawn(http::serve(listener, tls, Arc::clone(&shared), DRAIN));
+        let acceptor = tls.map(|tls| tls.acceptor);
+        let serving = tokio::spawn(http::serve(listener, acceptor, Arc::clone(&shared), DRAIN));
         let mut terminate =
             signal(SignalKind::terminate()).map_err(|error| format!("signals cannot be heard: {error}"))?;
         let mut interrupt =

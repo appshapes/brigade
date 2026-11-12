@@ -80,6 +80,52 @@ func TestParseFsAdapterPlaceholders(t *testing.T) {
 	}
 }
 
+// A team on a Brigade server (work item 89): the file carries no
+// publishable key, and names the server's certificate when no authority
+// signed it.
+func TestParseRestAdapter(t *testing.T) {
+	t.Parallel()
+	const pin = "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+	base := `{"version":1,"adapter":"rest","url":"https://brigade.example.com:8743","team_ref":"t_4f9c","team_name":"ops"`
+	f, err := teamfile.Parse(write(t, base+"}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Adapter != teamfile.RestAdapter || f.PublishableKey != "" || f.Certificate != "" || len(f.Ignored) != 0 {
+		t.Errorf("a server's file with no pin: %+v", f)
+	}
+	f, err = teamfile.Parse(write(t, base+`,"certificate":"`+pin+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Certificate != pin || len(f.Ignored) != 0 {
+		t.Errorf("a server's file with a pin: certificate %q ignored %v", f.Certificate, f.Ignored)
+	}
+	// Every other adapter's file still needs its key.
+	keyless := strings.Replace(base, `"adapter":"rest"`, `"adapter":"supabase"`, 1) + "}"
+	_, err = teamfile.Parse(write(t, keyless))
+	wantReason(t, err, teamfile.ReasonMalformed)
+	// One spelling of a pin, and only beside an https url.
+	loopback := strings.Replace(base, "https://brigade.example.com:8743", "http://127.0.0.1:8743", 1)
+	for name, doc := range map[string]string{
+		"uppercase":    base + `,"certificate":"` + strings.ToUpper(pin) + `"}`,
+		"colons":       base + `,"certificate":"BA:78:16"}`,
+		"no prefix":    base + `,"certificate":"` + strings.TrimPrefix(pin, "sha256:") + `"}`,
+		"not a string": base + `,"certificate":1}`,
+		"empty":        base + `,"certificate":""}`,
+		"http url":     loopback + `,"certificate":"` + pin + `"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := teamfile.Parse(write(t, doc))
+			wantReason(t, err, teamfile.ReasonCertificate)
+		})
+	}
+	if _, err := teamfile.Parse(write(t, loopback+"}")); err != nil {
+		t.Errorf("a loopback server with no pin: %v", err)
+	}
+}
+
 func TestParseIgnoresPoisonFields(t *testing.T) {
 	t.Parallel()
 	// The file opened in card 32: each once-refused poison member is now
@@ -415,6 +461,7 @@ func TestReasonsListIsClosed(t *testing.T) {
 		teamfile.ReasonNotRegularFile, teamfile.ReasonWorldWritable, teamfile.ReasonTooLarge,
 		teamfile.ReasonSecretShaped, teamfile.ReasonSecretKey, teamfile.ReasonMalformed,
 		teamfile.ReasonUnsupportedVersion, teamfile.ReasonURLNotHTTPS, teamfile.ReasonAdapterUnknown,
+		teamfile.ReasonCertificate,
 	}
 	got := teamfile.Reasons()
 	if len(got) != len(want) {

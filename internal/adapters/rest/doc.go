@@ -40,6 +40,16 @@
 // (C-01, C-07), and the proxy variables, SSL_CERT_FILE and SSL_CERT_DIR
 // are honoured as the Supabase adapter honours them.
 //
+// The server's certificate: team.json may carry `certificate`, the pin of
+// the server's own certificate (adapterkit.CertificateFingerprint), given
+// to `profile init --certificate` or in the `backend` member of a join.
+// With a pin the adapter accepts that certificate and no other, and
+// consults no authority, name or date; without one the usual verification
+// applies. The pin is part of the backend: a join's `backend` that names
+// another pin for a configured profile is `conflict`, and a server that
+// presents another certificate is `unavailable` certificate_mismatch,
+// refused in the handshake.
+//
 // The package mirrors internal/adapters/supabase in structure (the same
 // dispatch and flag rules, the same poison flag, the same order of checks:
 // argv, profile, stdin, then the server) without importing it. The

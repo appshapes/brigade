@@ -33,6 +33,7 @@ type profileStatusResult struct {
 	Name         string `json:"name"`
 	State        string `json:"state"`
 	URL          string `json:"url,omitzero"`
+	Certificate  string `json:"certificate,omitzero"`
 	TeamRef      string `json:"team_ref,omitzero"`
 	TeamName     string `json:"team_name,omitzero"`
 	PrincipalRef string `json:"principal_ref,omitzero"`
@@ -45,13 +46,44 @@ type profileActionResult struct {
 	Name         string `json:"name"`
 	State        string `json:"state"`
 	URL          string `json:"url,omitzero"`
+	Certificate  string `json:"certificate,omitzero"`
 	PrincipalRef string `json:"principal_ref,omitzero"`
 }
 
 // backendDocument is the adapter-specific `backend` member of the `team
-// join` request (4.4.10): {url}.
+// join` request (4.4.10): {url}, and {certificate} when the team file pins
+// the server's own certificate.
 type backendDocument struct {
-	URL string `json:"url"`
+	URL         string `json:"url"`
+	Certificate string `json:"certificate,omitzero"`
+}
+
+// A server is where a profile's backend is and how its certificate is
+// trusted: the base url, and the pin of the server's own certificate
+// (adapterkit.CertificateFingerprint) or "" for the usual verification.
+type server struct {
+	url         string
+	certificate string
+}
+
+// checkBackend is the url rule and the pin rule together. A pin is the
+// stored spelling and goes with an https url only: over http there is no
+// certificate to compare it with, and a pin that silently did nothing would
+// read as protection.
+func checkBackend(b server) error {
+	if err := checkBackendURL(b.url); err != nil {
+		return err
+	}
+	if b.certificate == "" {
+		return nil
+	}
+	if !adapterkit.ValidCertificatePin(b.certificate) {
+		return errInvalidField("certificate", reasonInvalidValue, "certificate must be sha256: and the 64 hex digits of the server certificate's fingerprint")
+	}
+	if !strings.HasPrefix(strings.ToLower(b.url), "https://") {
+		return errInvalidField("certificate", reasonCertificateWithoutTLS, "a certificate is pinned for an https backend only")
+	}
+	return nil
 }
 
 // loadProfile reads team.json. present is false only when the file is
@@ -122,7 +154,10 @@ func (c *command) connect(p *adapterkit.Profile) error {
 	if checkBackendURL(p.URL) != nil {
 		return errConfig("the profile's backend url is not usable: it must be https (http only for a loopback host)", reasonBackendURL)
 	}
-	client, err := newClient(p.URL, c.environ, c.log)
+	if checkBackend(server{url: p.URL, certificate: p.Certificate}) != nil {
+		return errConfig("the profile's pinned certificate is not usable: it must be sha256: and 64 hex digits, on an https backend", reasonBackendCertificate)
+	}
+	client, err := newClient(p.URL, p.Certificate, c.environ, c.log)
 	if err != nil {
 		return err
 	}
@@ -223,53 +258,57 @@ func normalizeURL(raw string) string {
 }
 
 // resolveBackend is where a binding command's backend comes from: the
-// profile's own url when it has one, else the request's `backend` member
+// profile's own when it has one, else the request's `backend` member
 // (`team join` only), else BRIGADE_REST_URL; with none of those, no
 // profile is `config` profile_missing and a profile without a url is
 // `config` backend_unconfigured, the answers every other command gives. A
 // `backend` member on a profile that already names a DIFFERENT backend is
 // `conflict` (4.4.10: accepted only when the profile has no backend
-// configured); the same backend again is accepted as a no-op.
-func (c *command) resolveBackend(p *adapterkit.Profile, raw jsontext.Value) (string, error) {
-	requested, hasRequest := "", len(raw) > 0
+// configured); the same backend again is accepted as a no-op. The pin is
+// part of the backend: the same url under another certificate is a
+// different backend, and only `profile init --force` moves a profile to it.
+func (c *command) resolveBackend(p *adapterkit.Profile, raw jsontext.Value) (server, error) {
+	var requested server
+	hasRequest := len(raw) > 0
 	if hasRequest {
 		var doc backendDocument
 		if err := json.Unmarshal(raw, &doc); err != nil || doc.URL == "" {
-			return "", errInvalidField("backend", reasonInvalidValue, "backend must be an object with url")
+			return server{}, errInvalidField("backend", reasonInvalidValue, "backend must be an object with url")
 		}
-		requested = normalizeURL(doc.URL)
+		requested = server{url: normalizeURL(doc.URL), certificate: doc.Certificate}
 	}
 	if p != nil && p.URL != "" {
-		if hasRequest && requested != normalizeURL(p.URL) {
-			return "", errConflict("this profile already names a different backend; run `profile init --force` to replace it", reasonProfileExists)
+		own := server{url: p.URL, certificate: p.Certificate}
+		if hasRequest && (requested.url != normalizeURL(own.url) || requested.certificate != own.certificate) {
+			return server{}, errConflict("this profile already names a different backend; run `profile init --force` to replace it", reasonProfileExists)
 		}
-		return p.URL, nil
+		return own, nil
 	}
 	if hasRequest {
-		if err := checkBackendURL(requested); err != nil {
-			return "", err
+		if err := checkBackend(requested); err != nil {
+			return server{}, err
 		}
 		return requested, nil
 	}
 	if env := adapterkit.Getenv(c.environ, backendURLVar); env != "" {
 		if checkBackendURL(env) != nil {
-			return "", errConfig(backendURLVar+" is not a usable backend url (https, or http for a loopback host)", reasonInvalidValue)
+			return server{}, errConfig(backendURLVar+" is not a usable backend url (https, or http for a loopback host)", reasonInvalidValue)
 		}
-		return normalizeURL(env), nil
+		return server{url: normalizeURL(env)}, nil
 	}
 	if p == nil {
-		return "", errNoProfile()
+		return server{}, errNoProfile()
 	}
-	return "", errNoBackend()
+	return server{}, errNoBackend()
 }
 
-// bootstrapProfile writes the resolved backend url into team.json when the
+// bootstrapProfile writes the resolved backend into team.json when the
 // file does not carry it yet (the implicit `profile init` of a binding
 // command run on a fresh profile) and leaves an already configured file
 // alone. It runs after the request was validated, so a refused document
 // creates nothing. The profile it returns is the one on disk.
-func (c *command) bootstrapProfile(p *adapterkit.Profile, backendURL string) (*adapterkit.Profile, error) {
-	if p != nil && p.URL == backendURL {
+func (c *command) bootstrapProfile(p *adapterkit.Profile, b server) (*adapterkit.Profile, error) {
+	if p != nil && p.URL == b.url && p.Certificate == b.certificate {
 		return p, nil
 	}
 	if p == nil {
@@ -280,7 +319,7 @@ func (c *command) bootstrapProfile(p *adapterkit.Profile, backendURL string) (*a
 			CreatedAt:   c.now().UTC(),
 		}
 	}
-	p.URL = backendURL
+	p.URL, p.Certificate = b.url, b.certificate
 	if err := adapterkit.SaveProfile(c.cfgDir, c.profileName, p); err != nil {
 		return nil, err
 	}
@@ -303,14 +342,18 @@ func (c *command) profileCommand() (any, error) {
 	}
 }
 
-// profileInit writes the backend url: `profile init --url <base>
-// [--force]`. The url is configuration, not a secret, so argv is
-// acceptable (4.1). An existing profile is `conflict` unless --force,
-// which rewrites the url only and never touches credential.json or the
-// team binding.
+// profileInit writes the backend: `profile init --url <base>
+// [--certificate sha256:<hex>] [--force]`. Both are configuration, not
+// secrets, so argv is acceptable (4.1). --certificate pins the server's own
+// certificate, for a server whose certificate no authority signed; it is
+// read as a person copies it (the server's start line, or openssl's colon
+// form) and stored in one spelling. An existing profile is `conflict`
+// unless --force, which rewrites the backend only, the url and the pin
+// together, and never touches credential.json or the team binding.
 func (c *command) profileInit() (any, error) {
 	fs := newFlags()
 	backendURL := fs.String("url", "", "the server's base url (https, or http for a loopback host)")
+	certificate := fs.String("certificate", "", "the SHA-256 fingerprint of the server's own certificate, to trust that certificate and no other")
 	force := fs.Bool("force", false, "replace the backend of an existing profile")
 	if err := c.parse(fs); err != nil {
 		return nil, err
@@ -318,7 +361,15 @@ func (c *command) profileInit() (any, error) {
 	if *backendURL == "" {
 		return nil, errUsage("--url <https-url> is required")
 	}
-	if err := checkBackendURL(*backendURL); err != nil {
+	wanted := server{url: normalizeURL(*backendURL)}
+	if *certificate != "" {
+		pin, ok := adapterkit.NormalizeCertificatePin(*certificate)
+		if !ok {
+			return nil, errInvalidField("certificate", reasonInvalidValue, "certificate must be the 64 hex digits of the server certificate's SHA-256 fingerprint")
+		}
+		wanted.certificate = pin
+	}
+	if err := checkBackend(wanted); err != nil {
 		return nil, err
 	}
 	p, exists, err := c.loadProfile()
@@ -336,7 +387,7 @@ func (c *command) profileInit() (any, error) {
 			CreatedAt:   c.now().UTC(),
 		}
 	}
-	p.URL = normalizeURL(*backendURL)
+	p.URL, p.Certificate = wanted.url, wanted.certificate
 	if err := adapterkit.SaveProfile(c.cfgDir, c.profileName, p); err != nil {
 		return nil, err
 	}
@@ -345,7 +396,7 @@ func (c *command) profileInit() (any, error) {
 		return nil, err
 	}
 	return &profileActionResult{
-		Name: c.profileName, State: state, URL: p.URL, PrincipalRef: principalOf(p, cred),
+		Name: c.profileName, State: state, URL: p.URL, Certificate: p.Certificate, PrincipalRef: principalOf(p, cred),
 	}, nil
 }
 
@@ -362,7 +413,8 @@ func (c *command) profileStatus() (any, error) {
 	}
 	out := &profileStatusResult{Name: c.profileName, State: state, PrincipalRef: principalOf(p, cred)}
 	if p != nil {
-		out.URL, out.TeamRef, out.TeamName, out.HumanLabel = p.URL, p.TeamRef, p.TeamName, p.HumanLabel
+		out.URL, out.Certificate = p.URL, p.Certificate
+		out.TeamRef, out.TeamName, out.HumanLabel = p.TeamRef, p.TeamName, p.HumanLabel
 	}
 	return out, nil
 }

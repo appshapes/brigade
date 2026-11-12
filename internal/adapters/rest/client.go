@@ -70,6 +70,10 @@ const offlineVar = "BRIGADE_TEST_OFFLINE"
 // errOffline is the dial failure under BRIGADE_TEST_OFFLINE=1.
 var errOffline = errors.New("network dial refused: BRIGADE_TEST_OFFLINE is set")
 
+// errPinnedCertificate is the handshake failure of a server that did not
+// present the pinned certificate.
+var errPinnedCertificate = errors.New("the server's certificate is not the pinned one")
+
 // A client is the adapter's one HTTP client for one server: the proxy and
 // CA configuration of the environment it was built from, and no redirects.
 type client struct {
@@ -80,16 +84,17 @@ type client struct {
 }
 
 // newClient builds the client for a profile's server. baseURL is the base
-// url as `profile init` stored it (checkBackendURL). Nothing here dials:
-// construction is safe for `describe`.
+// url as `profile init` stored it (checkBackendURL), and pin the profile's
+// certificate pin or "". Nothing here dials: construction is safe for
+// `describe`.
 //
 // The client has no timeout of its own: every request carries a context
 // with a deadline, because a long poll must outlive the 20 s every other
 // request gets. It follows no redirect: a 3xx is an answer that is not an
 // envelope, and a server that moved says so to its operator, not by
 // sending the credential to another origin.
-func newClient(baseURL string, environ []string, log *slog.Logger) (*client, error) {
-	transport, err := newTransport(environ)
+func newClient(baseURL, pin string, environ []string, log *slog.Logger) (*client, error) {
+	transport, err := newTransport(environ, pin)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +113,15 @@ func newClient(baseURL string, environ []string, log *slog.Logger) (*client, err
 // the environment (how a sandboxed `brigade send` reaches the server),
 // SSL_CERT_FILE and SSL_CERT_DIR honoured when set, a 10 s connect budget,
 // and the BRIGADE_TEST_OFFLINE dialer that fails every connection loudly.
-func newTransport(environ []string) (*http.Transport, error) {
+//
+// With a pin, the server is trusted by its own certificate and by nothing
+// else: the certificate it presents must be the pinned one, byte for byte,
+// and no authority, name or date is consulted, as for an SSH host key. That
+// is what lets an operator serve a certificate nobody signed. The pin is
+// checked on every connection, a resumed one included, and through a proxy
+// it is still the server's certificate that is compared: the proxy only
+// carries the bytes.
+func newTransport(environ []string, pin string) (*http.Transport, error) {
 	dialer := &net.Dialer{Timeout: connectTimeout, KeepAlive: 30 * time.Second}
 	offline := adapterkit.Getenv(environ, offlineVar) != ""
 	transport := &http.Transport{
@@ -130,6 +143,21 @@ func newTransport(environ []string) (*http.Transport, error) {
 		MaxIdleConns:          4,
 	}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	if pin != "" {
+		// The usual verification is replaced, not removed: VerifyConnection
+		// runs on every handshake and refuses any certificate but the pinned
+		// one.
+		tlsConfig.InsecureSkipVerify = true //nolint:gosec // G402: verified by the pinned fingerprint, in VerifyConnection below
+		tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 ||
+				!adapterkit.SameCertificatePin(adapterkit.CertificateFingerprint(state.PeerCertificates[0].Raw), pin) {
+				return errPinnedCertificate
+			}
+			return nil
+		}
+		transport.TLSClientConfig = tlsConfig
+		return transport, nil
+	}
 	if pool, ok, err := rootPool(environ); err != nil {
 		return nil, err
 	} else if ok {

@@ -49,6 +49,11 @@ type Profile struct {
 	// PublishableKey is the backend's publishable API key. Publishable
 	// keys are configuration, not secrets (5.1).
 	PublishableKey string `json:"publishable_key,omitzero"`
+	// Certificate is the pin of the backend's own certificate
+	// (CertificateFingerprint), for a REST backend whose certificate no
+	// authority signed; empty means the usual verification. It is
+	// configuration, not a secret, like the url it goes with.
+	Certificate string `json:"certificate,omitzero"`
 	// TeamRef is the opaque reference of the team the profile is bound
 	// to; empty while unbound.
 	TeamRef string `json:"team_ref,omitzero"`

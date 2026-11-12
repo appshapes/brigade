@@ -79,7 +79,7 @@ func (c *command) teamCreate() (any, error) {
 	if present && p.TeamRef != "" {
 		return nil, errConflict("this profile is already bound to a team", reasonProfileBound)
 	}
-	backendURL, err := c.resolveBackend(p, nil)
+	where, err := c.resolveBackend(p, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (c *command) teamCreate() (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := c.prepareBinding(p, backendURL); err != nil {
+	if err := c.prepareBinding(p, where); err != nil {
 		return nil, err
 	}
 	humanLabel := req.HumanLabel
@@ -204,11 +204,11 @@ func (c *command) teamJoin() (any, error) {
 	if present && p.TeamRef != "" && p.TeamRef != secret.TeamRef() {
 		return nil, errConflict("this profile is already bound to another team", reasonProfileBound)
 	}
-	backendURL, err := c.resolveBackend(p, req.Backend)
+	where, err := c.resolveBackend(p, req.Backend)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.prepareBinding(p, backendURL); err != nil {
+	if err := c.prepareBinding(p, where); err != nil {
 		return nil, err
 	}
 	humanLabel := req.HumanLabel
@@ -273,8 +273,8 @@ func (c *command) teamJoinRequest(label string, prompt bool) (*protocol.TeamJoin
 // url is written to team.json when the file does not carry it yet, the
 // client is built, and the credential is loaded when the profile holds
 // one. Holding none is not a failure here: the server issues one.
-func (c *command) prepareBinding(p *adapterkit.Profile, backendURL string) error {
-	p, err := c.bootstrapProfile(p, backendURL)
+func (c *command) prepareBinding(p *adapterkit.Profile, where server) error {
+	p, err := c.bootstrapProfile(p, where)
 	if err != nil {
 		return err
 	}

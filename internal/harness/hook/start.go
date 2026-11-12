@@ -1085,16 +1085,17 @@ func frameFileErr(reason, message string) *protocol.Error {
 	}
 }
 
-// adapterArgv is the map's adapter_command: the resolved argv prefix, or
-// [] for the bundled adapter (Adapter.Encode's array, kept as a slice).
+// adapterArgv is the map's adapter_command: the resolved argv prefix, []
+// for the bundled Supabase adapter, or the one-element marker of the
+// bundled `rest` adapter (Adapter.Encode's array, kept as a slice).
 func adapterArgv(a config.Adapter) ([]string, error) {
 	if a.Bundled {
-		return []string{}, nil
+		return a.Command(), nil
 	}
 	if err := sessionmap.CheckAdapterCommand(a.Argv); err != nil {
 		return nil, err
 	}
-	return append([]string{}, a.Argv...), nil
+	return a.Command(), nil
 }
 
 // existingMap reads this pid's by-pid map; a missing or refused map is

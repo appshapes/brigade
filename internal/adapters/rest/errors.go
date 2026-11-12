@@ -24,6 +24,12 @@ const (
 	reasonProfileExists       = "profile_exists"
 	reasonBackendUnconfigured = "backend_unconfigured"
 	reasonBackendURL          = "backend_url"
+	reasonBackendCertificate  = "backend_certificate"
+	// reasonCertificateWithoutTLS: a pin given with an http url.
+	reasonCertificateWithoutTLS = "certificate_without_https"
+	// reasonCertificateMismatch: the server presented a certificate other
+	// than the pinned one.
+	reasonCertificateMismatch = "certificate_mismatch"
 	reasonCredentialMissing   = "credential_missing" //nolint:gosec // G101: a details.reason token, not a credential
 	reasonNoTeamBound         = "no_team_bound"
 	reasonInvalidArguments    = "invalid_arguments"
@@ -118,6 +124,16 @@ func errTLS() *protocol.Error {
 	return errUnavailable("certificate verification failed; install ca-certificates or set SSL_CERT_FILE", reasonTLS)
 }
 
+// errCertificateMismatch is a server that presented a certificate other
+// than the one the team file pins: `unavailable`, like every other failure
+// to reach the backend the profile means, with its own details.reason. It
+// is what a renewed certificate looks like before the team file names the
+// new one, and what an impostor looks like; the message says the first and
+// never asks anyone to trust what was presented.
+func errCertificateMismatch() *protocol.Error {
+	return errUnavailable("the server's certificate is not the one this team's file pins; if the server's certificate was replaced, its operator gives the team the new fingerprint", reasonCertificateMismatch)
+}
+
 // The fixed messages of the authentication ladder (4.6; C-06, C-08):
 // `config` for "no profile", "no backend" and "no team bound";
 // `unauthenticated` for a missing credential.
@@ -165,6 +181,9 @@ func mapTransportError(err error) *protocol.Error {
 	}
 	if errors.Is(err, errOffline) {
 		return errUnavailable("network access is disabled by BRIGADE_TEST_OFFLINE", reasonOffline)
+	}
+	if errors.Is(err, errPinnedCertificate) {
+		return errCertificateMismatch()
 	}
 	var unknownAuthority x509.UnknownAuthorityError
 	var hostname x509.HostnameError

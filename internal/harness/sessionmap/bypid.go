@@ -471,12 +471,28 @@ func (m *ByPID) Instruction() frame.Instruction {
 	return frame.Instruction{Level: frame.Level(m.FrameLevel), Custom: m.FrameText}
 }
 
+// BundledRestCommand is the adapter_command of the second bundled adapter,
+// this executable's `adapter rest` (work item 89): one element that is
+// not a path. Like [], it names no file, so no map pins a binary; and no
+// executable can be meant by it, because a command starts with an absolute
+// path.
+const BundledRestCommand = "bundled:rest"
+
+// IsBundledRest reports whether argv is BundledRestCommand alone.
+func IsBundledRest(argv []string) bool {
+	return len(argv) == 1 && argv[0] == BundledRestCommand
+}
+
 // CheckAdapterCommand validates a resolved adapter argv prefix: every
 // element non-empty and, when there is one, the first an absolute path.
-// An empty argv is valid and means the bundled adapter. A relative
-// executable is refused because a planted map must not be able to make
-// the harness exec a path relative to whatever the cwd happens to be.
+// An empty argv is valid and means the bundled adapter, and so is
+// BundledRestCommand alone. A relative executable is refused because a
+// planted map must not be able to make the harness exec a path relative to
+// whatever the cwd happens to be.
 func CheckAdapterCommand(argv []string) error {
+	if IsBundledRest(argv) {
+		return nil
+	}
 	for _, a := range argv {
 		if a == "" {
 			return errors.New("adapter command has an empty element")

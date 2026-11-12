@@ -55,11 +55,12 @@ const (
 	DescribeTimeout = 3 * time.Second
 )
 
-// bundledAdapterArgv is what an empty (bundled) [config.Adapter] resolves
-// to at spawn time: this executable, `adapter supabase`. It is resolved
-// through os.Executable() and never stored, so a development setup running
+// bundledAdapterArgv is what a bundled [config.Adapter] resolves to at
+// spawn time: this executable, `adapter supabase`, or `adapter rest` for
+// the adapter named config.BundledRestName. It is resolved through
+// os.Executable() and never stored, so a development setup running
 // different cached binaries is not pinned to one (D36).
-func bundledAdapterArgv() ([]string, error) {
+func bundledAdapterArgv(name string) ([]string, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return nil, &protocol.Error{
@@ -68,7 +69,10 @@ func bundledAdapterArgv() ([]string, error) {
 			Details: map[string]string{"reason": "executable_unresolved"},
 		}
 	}
-	return []string{self, "adapter", "supabase"}, nil
+	if name == config.BundledRestName {
+		return []string{self, "adapter", config.BundledRestName}, nil
+	}
+	return []string{self, "adapter", config.BundledAdapterName}, nil
 }
 
 // A Client spawns one adapter's children for one profile. The zero value
@@ -124,7 +128,7 @@ func (c *Client) baseArgv() ([]string, error) {
 	if !c.Adapter.Bundled && len(c.Adapter.Argv) > 0 {
 		return append([]string{}, c.Adapter.Argv...), nil
 	}
-	return bundledAdapterArgv()
+	return bundledAdapterArgv(c.Adapter.Name)
 }
 
 // argv builds the full child argv:

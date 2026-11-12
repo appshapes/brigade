@@ -286,7 +286,8 @@ jobs:
   server:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15                   # first runs: measure, then pin at 2x the p90 like the others. Loose until
-                                          # then: no run has timed this job, least of all on a cold cargo cache
+                                          # then: one run has timed this job, 2m22s on a cold cargo cache
+                                          # (run 43222730771, on 87df95b)
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

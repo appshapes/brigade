@@ -453,3 +453,60 @@ func TestRegisterAdapterRefusals(t *testing.T) {
 		}
 	})
 }
+
+// The second bundled adapter (work item 89): the name "rest" needs no
+// registry entry, cannot be rebound by one, and survives the by-pid map and
+// the watcher's environment as a marker that is not a path.
+func TestResolveBundledRestAdapter(t *testing.T) {
+	t.Parallel()
+	configDir := filepath.Join(t.TempDir(), "config")
+	// A registry entry of the bundled name is ignored.
+	writeRegistry(t, configDir, `{"rest": "/opt/not-the-bundled-one"}`)
+
+	got, err := config.ResolveAdapter(config.Options{}, configDir, config.BundledRestName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAdapter(t, got, nil, true, config.SourceBundled)
+	if got.Name != config.BundledRestName {
+		t.Fatalf("adapter = %+v, want the bundled rest adapter", got)
+	}
+	// The option may name it too.
+	byOption, err := config.ResolveAdapter(config.Options{AdapterCommand: "rest"}, configDir, "supabase")
+	if err != nil || !byOption.Bundled || byOption.Name != config.BundledRestName || byOption.Source != config.SourceOption {
+		t.Fatalf("adapter_command rest = %+v, %v", byOption, err)
+	}
+	// The Supabase adapter is still the one with no name.
+	plain, err := config.ResolveAdapter(config.Options{}, configDir, "")
+	if err != nil || !plain.Bundled || plain.Name != "" {
+		t.Fatalf("no adapter name = %+v, %v", plain, err)
+	}
+
+	// Through the map and the watcher's environment and back.
+	if cmd := got.Command(); len(cmd) != 1 || cmd[0] != "bundled:rest" {
+		t.Fatalf("Command() = %q", cmd)
+	}
+	fromMap, err := config.AdapterFromArgv(got.Command())
+	if err != nil || !fromMap.Bundled || fromMap.Name != config.BundledRestName || len(fromMap.Argv) != 0 {
+		t.Fatalf("AdapterFromArgv = %+v, %v", fromMap, err)
+	}
+	encoded, err := got.Encode()
+	if err != nil || encoded != `["bundled:rest"]` {
+		t.Fatalf("Encode() = %q, %v", encoded, err)
+	}
+	fromEnv, err := config.DecodeAdapter(encoded)
+	if err != nil || !fromEnv.Bundled || fromEnv.Name != config.BundledRestName {
+		t.Fatalf("DecodeAdapter = %+v, %v", fromEnv, err)
+	}
+	if again, err := fromEnv.Encode(); err != nil || again != encoded {
+		t.Fatalf("a second Encode() = %q, %v", again, err)
+	}
+	if plainCmd := plain.Command(); len(plainCmd) != 0 {
+		t.Fatalf("the Supabase adapter's Command() = %q, want []", plainCmd)
+	}
+
+	// The name cannot be registered.
+	if err := config.RegisterAdapter(configDir, config.BundledRestName, []string{"/opt/x"}); err == nil {
+		t.Fatal("RegisterAdapter accepted the bundled name rest")
+	}
+}

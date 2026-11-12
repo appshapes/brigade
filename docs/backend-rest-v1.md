@@ -18,6 +18,11 @@ validates what it sends as a courtesy; a server never relies on it.
 
 - **Base URL.** `https://<host>[:<port>][/<prefix>]`. `http://` is accepted by the adapter for a loopback host
   only (`127.0.0.1`, `::1`, `localhost`). Every endpoint is under `<base>/v1/`.
+- **The server's certificate.** The adapter verifies it against the authorities its machine trusts. A team file
+  may instead pin it: `"certificate": "sha256:<64 hex digits>"`, the SHA-256 of the server's own certificate as
+  TLS sends it (DER). The adapter then accepts that certificate and no other, whoever signed it and whatever
+  names and dates it carries, so a server needs no authority to be reached safely. A server that serves another
+  certificate is `unavailable` with `details.reason` `certificate_mismatch`, before anything of a request is sent.
 - **Requests.** `POST`, `Content-Type: application/json`, one JSON object of at most 1 MiB. A command with no
   input sends `{}`.
 - **Credential.** `Authorization: Bearer <credential>` on every request once the adapter holds one. A credential

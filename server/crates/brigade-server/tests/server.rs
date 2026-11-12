@@ -947,6 +947,24 @@ fn the_server_serves_tls_itself_when_it_is_given_a_certificate() {
     assert_eq!(status, 200, "{envelope}");
     assert!(envelope["result"]["credential"].is_string());
 
+    // The start line names the certificate's fingerprint as `openssl` prints it, which is what a team file pins.
+    let printed = Command::new("openssl")
+        .args(["x509", "-noout", "-fingerprint", "-sha256", "-in"])
+        .arg(&certificate)
+        .output()
+        .unwrap();
+    let printed = String::from_utf8_lossy(&printed.stdout);
+    let hex = printed
+        .trim()
+        .rsplit('=')
+        .next()
+        .unwrap()
+        .replace(':', "")
+        .to_lowercase();
+    assert_eq!(hex.len(), 64, "{printed}");
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    assert!(said.contains(&format!("(certificate sha256:{hex})")), "{said}");
+
     // The same port does not answer plain HTTP.
     let authority = server.url.strip_prefix("https://").unwrap();
     let mut stream = TcpStream::connect(authority).unwrap();

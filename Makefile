@@ -335,11 +335,15 @@ server-check: ## rustfmt and clippy on server/ with warnings denied, with and wi
 
 # The second line runs the tests marked ignored: the conformance suite through bin/brigade's rest adapter against a
 # running server, on the file log and then with --slow on the Cavalry feed (the contract's section 6). One at a
-# time, so the suite's own deadlines are met on a runner with four cores.
+# time, so the suite's own deadlines are met on a runner with four cores. The third is the member's side against
+# the same server: the built `brigade` creates a team with --adapter rest, a second member joins, and a message is
+# delivered, over TLS with a certificate that only its pin in the team file makes trusted. `make test` runs that
+# test too, against the stand-in server; BRIGADE_E2E_SERVER is what points it at the real one.
 .PHONY: server-test
-server-test: build ## The server's tests, then conformance(server) through the rest adapter: on the file log, and with --slow on the Cavalry feed (CI)
+server-test: build ## The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), and a team created, joined and used on the server over TLS (CI)
 	cd server && cargo test --workspace --locked
 	cd server && BRIGADE_BIN_DIR=$(CURDIR)/$(bin_dir) cargo test --locked -p brigade-server --test server -- --ignored --test-threads=1
+	BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^TestATeamOnAServerThroughTheRealBinary$$' ./internal/harness/e2e/
 
 .PHONY: server-deps-check
 server-deps-check: ## Fail unless the server links only the crates, licences and sources server/deny.toml allows, with no known advisory (needs cargo-deny) (CI)

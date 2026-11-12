@@ -49,22 +49,23 @@ const orphanMaxAge = time.Hour
 // when nothing was dropped).
 type createOptions struct {
 	url, key, name, label, adapter, secretFile string
-	force                                      bool
-	carriedSync                                *teamfile.SyncConfig
-	syncNotCarried                             string
-	carriedGateway                             *teamfile.GatewayConfig
-	gatewayNotCarried                          string
-	carriedPolling                             *teamfile.PollingConfig
-	pollingNotCarried                          string
+	// certificate and createTokenFile are a Brigade server's (--adapter
+	// rest): the pin of its own certificate in the stored spelling, and the
+	// file that holds the operator's creation token.
+	certificate, createTokenFile string
+	force                        bool
+	carriedSync                  *teamfile.SyncConfig
+	syncNotCarried               string
+	carriedGateway               *teamfile.GatewayConfig
+	gatewayNotCarried            string
+	carriedPolling               *teamfile.PollingConfig
+	pollingNotCarried            string
 }
 
 // teamCreate implements the rebuilt `brigade team create` (brief §2):
 // one command in the admin's terminal, cwd anywhere inside the checkout.
 func (inv Invocation) teamCreate(raw rawArgs) error {
-	opts, err := parseCreateFlags(raw.Rest, inv.Environ)
-	if err == nil && raw.Adapter != "" {
-		opts.adapter = raw.Adapter
-	}
+	opts, err := parseCreateFlags(raw.Rest, raw.Adapter, inv.Environ)
 	if err != nil {
 		return err
 	}
@@ -108,7 +109,12 @@ func (inv Invocation) teamCreate(raw rawArgs) error {
 // DECISIVE finding: a relative path deposits a live secret inside the
 // repository, the one place it must never exist). A leading `~/` is
 // HOME's, not the cwd's (card 130).
-func parseCreateFlags(args, environ []string) (*createOptions, error) {
+//
+// adapter is the --adapter the raw grammar took out of args, "" for the
+// default. It decides what names the backend: a url and a publishable key
+// for every adapter but `rest`, and for `rest`, a Brigade server (work
+// item 89), a url alone, with the two flags only a server has.
+func parseCreateFlags(args []string, adapter string, environ []string) (*createOptions, error) {
 	var o createOptions
 	fs := flag.NewFlagSet("team create", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -118,12 +124,17 @@ func parseCreateFlags(args, environ []string) (*createOptions, error) {
 	fs.StringVar(&o.label, "label", "", "")
 	fs.StringVar(&o.adapter, "adapter", config.BundledAdapterName, "")
 	fs.StringVar(&o.secretFile, "secret-file", "", "")
+	fs.StringVar(&o.certificate, "certificate", "", "")
+	fs.StringVar(&o.createTokenFile, "create-token-file", "", "")
 	fs.BoolVar(&o.force, "force", false, "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
-		return nil, usage("team create takes --url, --key, --name, --label, --adapter, --secret-file and --force")
+		return nil, usage("team create takes --url, --key, --name, --label, --adapter, --secret-file and --force, and for --adapter rest --certificate and --create-token-file")
 	}
-	if o.url == "" || o.key == "" {
-		return nil, usage("team create needs --url and --key (the backend the team will live in)")
+	if adapter != "" {
+		o.adapter = adapter
+	}
+	if err := checkCreateBackend(&o, environ); err != nil {
+		return nil, err
 	}
 	if o.secretFile == "" {
 		return nil, usage("team create needs --secret-file: the join secret goes to that file (0600), never to your terminal")
@@ -133,6 +144,46 @@ func parseCreateFlags(args, environ []string) (*createOptions, error) {
 		return nil, usage("--secret-file must be an absolute path outside this project (a relative path would land in the repository)")
 	}
 	return &o, nil
+}
+
+// checkCreateBackend holds what names the backend to the adapter that will
+// be asked. A Brigade server has no key: its team file carries the url
+// and, for a certificate no authority signed, that certificate's pin,
+// which is read here as a person copies it (the server's start line, or
+// openssl's colon form) and kept in the one stored spelling.
+func checkCreateBackend(o *createOptions, environ []string) error {
+	if o.adapter != config.BundledRestName {
+		if o.url == "" || o.key == "" {
+			return usage("team create needs --url and --key (the backend the team will live in)")
+		}
+		if o.certificate != "" || o.createTokenFile != "" {
+			return usage("--certificate and --create-token-file are a Brigade server's: they go with --adapter rest")
+		}
+		return nil
+	}
+	if o.url == "" {
+		return usage("team create --adapter rest needs --url (the server the team will live on)")
+	}
+	if o.key != "" {
+		return usage("a Brigade server has no publishable key: leave --key out with --adapter rest")
+	}
+	if o.certificate != "" {
+		pin, ok := adapterkit.NormalizeCertificatePin(o.certificate)
+		if !ok {
+			return usage("--certificate must be the SHA-256 fingerprint of the server's certificate: 64 hex digits, as the server's start line or openssl prints them")
+		}
+		if !strings.HasPrefix(strings.ToLower(o.url), "https://") {
+			return usage("--certificate goes with an https --url: over http there is no certificate to pin")
+		}
+		o.certificate = pin
+	}
+	if o.createTokenFile != "" {
+		o.createTokenFile = expandHome(o.createTokenFile, environ)
+		if !filepath.IsAbs(o.createTokenFile) {
+			return usage("--create-token-file must be an absolute path")
+		}
+	}
+	return nil
 }
 
 // expandHome spells a leading `~/` of a --secret-file as the HOME it
@@ -230,10 +281,11 @@ func (inv Invocation) createRequest(opts *createOptions) (*protocol.TeamCreateRe
 }
 
 // driveCreate runs the adapter half of create under a temp key: the
-// backend pair (supabase only — the extras are Supabase-specific and the
-// fs adapter's `profile init` takes only --force), then `team create`
-// with the secret going straight to --secret-file, captured stdio
-// throughout.
+// backend (the url and the key for supabase, the url and the certificate
+// pin for a Brigade server; the fs adapter's `profile init` takes only
+// --force), then `team create` with the secret going straight to
+// --secret-file, captured stdio throughout. A server's creation token is
+// read by the adapter from its file and never passes through here.
 func (inv Invocation) driveCreate(opts *createOptions, req *protocol.TeamCreateRequest) (*teamCreateAnswer, string, *target, error) {
 	tmpKey, err := write.TempKey()
 	if err != nil {
@@ -247,13 +299,20 @@ func (inv Invocation) driveCreate(opts *createOptions, req *protocol.TeamCreateR
 		inv.logger().Debug("orphan prune failed", "err", err)
 	}
 	initFlags := []string{"--force"}
-	if opts.adapter == config.BundledAdapterName {
+	createFlags := []string{"--secret-file", opts.secretFile}
+	switch opts.adapter {
+	case config.BundledAdapterName:
 		initFlags = []string{"--url", opts.url, "--key", opts.key}
+	case config.BundledRestName:
+		initFlags = restBackendFlags(opts.url, opts.certificate)
+		if opts.createTokenFile != "" {
+			createFlags = append(createFlags, "--create-token-file", opts.createTokenFile)
+		}
 	}
 	if _, err := t.client.Call(context.Background(), "profile", "init", initFlags, nil); err != nil {
 		return nil, "", nil, err
 	}
-	env, err := t.client.Call(context.Background(), "team", "create", []string{"--secret-file", opts.secretFile}, req)
+	env, err := t.client.Call(context.Background(), "team", "create", createFlags, req)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -262,6 +321,17 @@ func (inv Invocation) driveCreate(opts *createOptions, req *protocol.TeamCreateR
 		return nil, "", nil, protocolMismatch("team create answered without a team_ref")
 	}
 	return &answer, tmpKey, t, nil
+}
+
+// restBackendFlags are the `profile init` flags that name a Brigade
+// server: its url, and the pin of its certificate when the team file
+// carries one.
+func restBackendFlags(url, certificate string) []string {
+	flags := []string{"--url", url}
+	if certificate != "" {
+		flags = append(flags, "--certificate", certificate)
+	}
+	return flags
 }
 
 // labelSent renders create's disclosure line: what the command published
@@ -294,7 +364,7 @@ type teamCreateAnswer struct {
 // create — says what was published about the person who ran it.
 func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, req *protocol.TeamCreateRequest, choice labelChoice, answer *teamCreateAnswer, tmpKey string, t *target) error {
 	key := teamstore.Key(opts.adapter, opts.url, answer.TeamRef)
-	if err := write.EnsureBinding(t.configDir, tmpKey, opts.adapter, opts.url, opts.key,
+	if err := write.EnsureBinding(t.configDir, tmpKey, opts.adapter, opts.url, opts.key, opts.certificate,
 		answer.TeamRef, answer.TeamName, answer.PrincipalRef); err != nil {
 		return err
 	}
@@ -307,15 +377,23 @@ func (inv Invocation) finishCreate(opts *createOptions, top, filePath string, re
 		return fmt.Errorf("commands: canonicalize checkout: %w", err)
 	}
 	if err := write.Pin(t.configDir, canon, teamstore.Pin{
-		Adapter: opts.adapter, URL: opts.url, PublishableKey: opts.key,
+		Adapter: opts.adapter, URL: opts.url, PublishableKey: opts.key, Certificate: opts.certificate,
 		TeamRef: answer.TeamRef, ConsentedAt: inv.Deps.now().UTC(),
 	}); err != nil {
 		return err
 	}
 	members := map[string]any{
 		"version": 1, "adapter": opts.adapter, "url": opts.url,
-		"publishable_key": opts.key, "team_ref": answer.TeamRef,
+		"team_ref":  answer.TeamRef,
 		"team_name": protocol.SanitizeName(answer.TeamName),
+	}
+	// A Brigade server's file has no key, and names its certificate only
+	// when one was pinned.
+	if opts.key != "" {
+		members["publishable_key"] = opts.key
+	}
+	if opts.certificate != "" {
+		members["certificate"] = opts.certificate
 	}
 	if opts.carriedSync != nil {
 		members["sync"] = opts.carriedSync
@@ -566,6 +644,11 @@ func (inv Invocation) confirmGate(f *teamfile.File, action string) error {
 	if f.Adapter != config.BundledAdapterName {
 		line += " via adapter \"" + attrLine(f.Adapter) + "\""
 	}
+	if f.Certificate != "" {
+		// What the file asks this machine to trust in place of an authority,
+		// in full: a pin cut short is not one a person can compare.
+		line += ", trusting the server certificate " + pinLine(f.Certificate)
+	}
 	if inv.inSession() {
 		// No terminal to ask on — stdin is /dev/null — so the invocation
 		// is the consent: typed by the person with `!`, or run by the model
@@ -621,7 +704,10 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 			return err
 		}
 	}
-	backend, err := json.Marshal(map[string]string{"url": f.URL, "publishable_key": f.PublishableKey})
+	if err := inv.alignRestBackend(t, f); err != nil {
+		return err
+	}
+	backend, err := json.Marshal(backendOf(f))
 	if err != nil {
 		return fmt.Errorf("commands: marshal backend: %w", err)
 	}
@@ -634,12 +720,61 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 	if uerr := json.Unmarshal(env.Result, &answer); uerr != nil || answer.Validate() != nil {
 		return protocolMismatch("team join answered a shape this build does not read")
 	}
-	if err := write.EnsureBinding(t.configDir, t.profile, f.Adapter, f.URL, f.PublishableKey,
+	if err := write.EnsureBinding(t.configDir, t.profile, f.Adapter, f.URL, f.PublishableKey, f.Certificate,
 		answer.TeamRef, answer.TeamName, answer.PrincipalRef); err != nil {
 		return err
 	}
 	inv.recordLabelOrigin(t.configDir, t.profile, label)
 	return inv.writePinAndReport(t, canon, f, "joined")
+}
+
+// backendOf is the adapter-specific `backend` member of the join request
+// (4.4.10) as the team file names it: {url, publishable_key}, and for a
+// Brigade server {url}, with {certificate} when the file pins one.
+func backendOf(f *teamfile.File) map[string]string {
+	if f.Adapter != config.BundledRestName {
+		return map[string]string{"url": f.URL, "publishable_key": f.PublishableKey}
+	}
+	backend := map[string]string{"url": f.URL}
+	if f.Certificate != "" {
+		backend["certificate"] = f.Certificate
+	}
+	return backend
+}
+
+// alignRestBackend moves an existing profile of a Brigade server to the
+// certificate the team file names now, before a join is sent to it. The
+// adapter takes a join's backend only on a profile that names none
+// (4.4.10) and answers `conflict` to another certificate, rightly: a
+// request must not re-point a profile. Here the human has just consented
+// to the file, so the explicit path, `profile init --force`, is the one to
+// take. A profile that is not there yet, or that already agrees, is left
+// alone.
+func (inv Invocation) alignRestBackend(t *target, f *teamfile.File) error {
+	if f.Adapter != config.BundledRestName {
+		return nil
+	}
+	binding, err := teamstore.LoadBinding(t.configDir, t.profile)
+	if err != nil {
+		if bindingMissing(err) {
+			return nil
+		}
+		return err
+	}
+	if binding.URL == f.URL && binding.Certificate == f.Certificate {
+		return nil
+	}
+	return inv.repointRest(t, f)
+}
+
+// repointRest rewrites a Brigade server's backend in the adapter's profile
+// and in the binding together: the url and the certificate pin.
+func (inv Invocation) repointRest(t *target, f *teamfile.File) error {
+	flags := append([]string{"--force"}, restBackendFlags(f.URL, f.Certificate)...)
+	if _, err := t.client.Call(context.Background(), "profile", "init", flags, nil); err != nil {
+		return err
+	}
+	return write.PatchBindingBackend(t.configDir, t.profile, f.Adapter, f.URL, f.PublishableKey, f.Certificate)
 }
 
 // checkJoinSecret is the local half of a join, before any network (review
@@ -670,13 +805,21 @@ func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, bindi
 	if err != nil {
 		return err
 	}
-	if pinned && pin.Matches(f) && binding.PublishableKey == f.PublishableKey {
+	if pinned && pin.Matches(f) && binding.PublishableKey == f.PublishableKey && binding.Certificate == f.Certificate {
 		return writeLines(inv.Out, "already joined: this checkout is pinned to team \""+f.TeamName+"\" ("+sanitizeID(f.TeamRef)+")")
 	}
-	if _, err := t.client.ListSessions(context.Background(), false); err != nil {
-		// The credential no longer works (revoked server-side, or the
-		// key rotated under it): fall back to a normal secret join.
-		return inv.firstJoin(t, canon, f, labelChoice{}, secretFile)
+	// A Brigade server whose certificate the file now names differently:
+	// the profile still trusts the old one, so asking the server anything
+	// through it would only say whether the old certificate is still
+	// served. The credential is not in question; the change is reviewed
+	// below and the profile is moved to the new pin.
+	repinned := f.Adapter == config.BundledRestName && binding.Certificate != f.Certificate
+	if !repinned {
+		if _, err := t.client.ListSessions(context.Background(), false); err != nil {
+			// The credential no longer works (revoked server-side, or the
+			// key rotated under it): fall back to a normal secret join.
+			return inv.firstJoin(t, canon, f, labelChoice{}, secretFile)
+		}
 	}
 	if pinned {
 		inv.printDiff(pin, f)
@@ -702,7 +845,14 @@ func (inv Invocation) reconsent(t *target, canon string, f *teamfile.File, bindi
 				return err
 			}
 		}
-		if err := write.PatchBindingBackend(t.configDir, t.profile, f.Adapter, f.URL, f.PublishableKey); err != nil {
+		if err := write.PatchBindingBackend(t.configDir, t.profile, f.Adapter, f.URL, f.PublishableKey, f.Certificate); err != nil {
+			return err
+		}
+	}
+	if repinned {
+		// Certificate-only drift: the pin, the binding and the adapter's
+		// profile move together, no secret.
+		if err := inv.repointRest(t, f); err != nil {
 			return err
 		}
 	}
@@ -715,6 +865,7 @@ func (inv Invocation) printDiff(pin *teamstore.Pin, f *teamfile.File) {
 		{"adapter", attrLine(pin.Adapter), attrLine(f.Adapter)},
 		{"backend host", attrLine(hostOf(pin.URL)), attrLine(hostOf(f.URL))},
 		{"publishable key", attrLine(pin.PublishableKey), attrLine(f.PublishableKey)},
+		{"server certificate", pinLine(pin.Certificate), pinLine(f.Certificate)},
 		{"team", sanitizeID(pin.TeamRef), sanitizeID(f.TeamRef)},
 	}
 	for _, p := range pairs {
@@ -724,10 +875,26 @@ func (inv Invocation) printDiff(pin *teamstore.Pin, f *teamfile.File) {
 	}
 }
 
+// pinLine renders a certificate pin for a person: "none" for a file that
+// trusts the usual authorities, and a pin in the stored spelling whole,
+// since its characters are `sha256:` and hex and it is longer than the cap
+// attrLine puts on a value. Anything else, which only a hand-edited store
+// can hold, goes through attrLine.
+func pinLine(pin string) string {
+	switch {
+	case pin == "":
+		return "none"
+	case adapterkit.ValidCertificatePin(pin):
+		return pin
+	default:
+		return attrLine(pin)
+	}
+}
+
 // writePinAndReport records consent and prints the one success line.
 func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.File, did string) error {
 	if err := write.Pin(t.configDir, canon, teamstore.Pin{
-		Adapter: f.Adapter, URL: f.URL, PublishableKey: f.PublishableKey,
+		Adapter: f.Adapter, URL: f.URL, PublishableKey: f.PublishableKey, Certificate: f.Certificate,
 		TeamRef: f.TeamRef, ConsentedAt: inv.Deps.now().UTC(),
 	}); err != nil {
 		return err

@@ -476,6 +476,26 @@ func TestBundledAdapterArgv(t *testing.T) {
 	}
 }
 
+// TestBundledRestAdapterArgv proves the second bundled adapter resolves to
+// this executable's `adapter rest` prefix (work item 89).
+func TestBundledRestAdapterArgv(t *testing.T) {
+	t.Parallel()
+	adapter, err := config.ResolveAdapter(config.Options{}, t.TempDir(), config.BundledRestName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Client{Adapter: adapter, Profile: "work"}
+	argv, err := c.argv("session", "list", nil)
+	if err != nil {
+		t.Fatalf("argv: %v", err)
+	}
+	self, _ := os.Executable()
+	want := []string{self, "adapter", "rest", "--profile", "work", "session", "list"}
+	if strings.Join(argv, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("argv = %v, want %v", argv, want)
+	}
+}
+
 // TestDescribeArgvHasNoVerb proves the describe argv omits an empty verb.
 func TestDescribeArgvHasNoVerb(t *testing.T) {
 	t.Parallel()

@@ -49,7 +49,8 @@ func LoadBinding(configDir, key string) (*adapterkit.Profile, error) {
 }
 
 // VerifyBinding compares a binding against a parsed repo file on the
-// four pinned members. team_name drift deliberately does NOT refuse: the
+// pinned members: the four every team has, and the certificate pin of a
+// team whose file carries one. team_name drift deliberately does NOT refuse: the
 // display name is cosmetic and a PR may retitle a team without
 // disconnecting anyone. The mismatch refusal names the member, never a
 // value.
@@ -58,6 +59,7 @@ func VerifyBinding(b *adapterkit.Profile, f *teamfile.File) error {
 		{"adapter", b.Adapter, f.Adapter},
 		{"url", b.URL, f.URL},
 		{"publishable_key", b.PublishableKey, f.PublishableKey},
+		{"certificate", b.Certificate, f.Certificate},
 		{"team_ref", b.TeamRef, f.TeamRef},
 	} {
 		if c.binding != c.file {
@@ -73,12 +75,15 @@ func VerifyBinding(b *adapterkit.Profile, f *teamfile.File) error {
 
 // A Pin records a human's consent: this checkout (keyed by the canonical
 // path of the directory holding its team file) attaches to this team.
-// The four members mirror VerifyBinding's; consented_at is when the
-// human said yes.
+// The members mirror VerifyBinding's; consented_at is when the human
+// said yes. Certificate is the file's certificate pin, absent from a pin
+// whose file had none: a file that later names one, or another, no longer
+// matches, and a human reviews the change before a session attaches.
 type Pin struct {
 	Adapter        string    `json:"adapter"`
 	URL            string    `json:"url"`
 	PublishableKey string    `json:"publishable_key"`
+	Certificate    string    `json:"certificate,omitzero"`
 	TeamRef        string    `json:"team_ref"`
 	ConsentedAt    time.Time `json:"consented_at"`
 }
@@ -87,7 +92,7 @@ type Pin struct {
 // pinned member — the hook's attach condition (brief §5).
 func (p *Pin) Matches(f *teamfile.File) bool {
 	return p.Adapter == f.Adapter && p.URL == f.URL &&
-		p.PublishableKey == f.PublishableKey && p.TeamRef == f.TeamRef
+		p.PublishableKey == f.PublishableKey && p.Certificate == f.Certificate && p.TeamRef == f.TeamRef
 }
 
 // PinsFile is the projects.json shape shared with the write subpackage.
