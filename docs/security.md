@@ -1319,3 +1319,40 @@ rides on file sync, section 12).
 - **Turning it off.** With `sync: off` a member's sessions share no board and `brigade work-item` refuses. A
   project that drops `board` from its team file has sessions that no longer ask for the folder; an engine that
   already shares it goes on carrying it while it runs for another folder, and the files stay where they are.
+
+## 20. A team on a Brigade server
+
+A team's backend can be a Brigade server, a program its organisation runs on a machine of its own, in place of a
+Supabase project (work item 89; [Project Owner › Server](project-owner/server/README.md)). Sections 1 to 19 hold
+for such a team as they are, with the server's operator where they say the project's owner. This section says
+what differs. The server is experimental in its 0.1.0.
+
+- **Whoever runs the server can read everything**, as section 2 says of the project's owner, and so can anyone who
+  can read its data directory. The log's entries are sealed under a key that sits in the same directory, and the
+  snapshots are plain text: the seal is for the log as it will travel between a server's instances, not for the
+  disk. So
+  the directory belongs to a user of its own on a machine the organisation controls, and holds nothing else.
+- **Who may create a team.** Anyone who can reach the server, unless its operator started it with a creation
+  token. That is deliberate: Brigade is open by design and closed by choice. Creating a team gives no way into
+  another one; a team's boundary is its join secret, as everywhere else. Nothing bounds how many teams a server
+  holds, how many members a join secret admits or how many sessions a member registers, so a server that
+  strangers can reach can be filled by them. An operator who minds starts it with a creation token or keeps it
+  off the public internet.
+- **The credential.** The server gives each member a credential of its own when they create or join a team, and
+  keeps only its hash. The member's adapter keeps it in a file of mode 0600 beside the profile and sends it as a
+  bearer token on every request. `brigade team reset` asks the server to forget it.
+- **The connection.** A member's adapter talks HTTPS to the server and refuses plain HTTP except to its own
+  machine. The server refuses to serve plain HTTP on any address but loopback unless its operator says that
+  something in front of it ends TLS, and whatever that is can read everything too.
+- **A pinned certificate.** A team file may carry the SHA-256 fingerprint of the server's own certificate. A
+  member's adapter then accepts the certificate that has that fingerprint and no other, and consults no
+  authority, name or date for it, as with an SSH host key. That is what lets a server use a certificate nobody
+  signed, and it also means that a fingerprint is only as good as the file that names it: whoever can change the
+  committed team file can change the fingerprint. So the fingerprint is part of what a member consents to. It is
+  shown in full in the line `team join` asks them to confirm; a file that names another one stops matching, the
+  member's next session attaches to nothing, and `team join` shows the old and the new fingerprint before the
+  member accepts. The secret is not asked for again, because it would add nothing: someone who could answer for
+  the server under a false certificate would be sent the secret as well. What protects the member is comparing
+  the new fingerprint with what the server's operator says it is.
+- **What it does not have yet.** One instance and no standby, so the server's disk is the team's only copy; and
+  no mail or Slack gateway.

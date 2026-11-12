@@ -4,9 +4,14 @@
 //! server off loopback is `--tls-in-front`: plain HTTP behind something that ends TLS.
 //!
 //! A certificate no authority signed is trusted by its fingerprint: a team file names it, and a member's
-//! adapter then accepts that certificate and no other. So the server says the fingerprint when it starts.
+//! adapter then accepts that certificate and no other. So the server says the fingerprint when it starts,
+//! and with `--tls-self-signed` it makes such a certificate itself, once, so that an operator needs no other
+//! tool to serve HTTPS.
 
-use std::path::Path;
+use std::fs::{self, DirBuilder, OpenOptions};
+use std::io::Write as _;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use brigade_core::hash::sha256_hex_of;
@@ -55,4 +60,67 @@ pub fn serving(certificate: &Path, key: &Path) -> Result<Serving, String> {
         acceptor: TlsAcceptor::from(Arc::new(config)),
         fingerprint,
     })
+}
+
+/// The name in the certificate the server makes for itself. It stands for nothing: a member trusts that
+/// certificate by its fingerprint, never by a name.
+const OWN_NAME: &str = "brigade-server";
+
+/// The certificate the server made for itself and its key, `<data>/tls/certificate.pem` and `key.pem`, and
+/// whether this call made them.
+///
+/// On the first start neither file is there and both are made: an ECDSA P-256 key, mode 0600, and a
+/// certificate signed with it. The certificate names no address and is valid for as long as its format
+/// allows, because what trusts it reads neither: a team file pins its fingerprint. Every later start reads
+/// the same two files, since a new certificate would be one no team file pins.
+///
+/// # Errors
+/// A sentence for the operator. A directory that holds one of the two files and not the other is refused:
+/// the server never replaces half of a pair, and never a certificate that a team may have pinned.
+pub fn own_certificate(data: &Path) -> Result<(PathBuf, PathBuf, bool), String> {
+    let dir = data.join("tls");
+    let (certificate, key) = (dir.join("certificate.pem"), dir.join("key.pem"));
+    match (certificate.exists(), key.exists()) {
+        (true, true) => return Ok((certificate, key, false)),
+        (false, false) => {}
+        _ => {
+            return Err(format!(
+                "{} holds the server's certificate or its key and not both: restore the missing file, or \
+                 remove the directory to have a new certificate made, which every team file must then pin anew",
+                dir.display()
+            ));
+        }
+    }
+    let refused =
+        |error: &dyn std::fmt::Display| format!("the server's own certificate could not be made: {error}");
+    let pair = rcgen::KeyPair::generate().map_err(|error| refused(&error))?;
+    let made = rcgen::CertificateParams::new(vec![OWN_NAME.to_owned()])
+        .and_then(|params| params.self_signed(&pair))
+        .map_err(|error| refused(&error))?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .map_err(|error| format!("{} could not be created: {error}", dir.display()))?;
+    // Both are written beside their names and moved into place, the key first: a start that is cut short
+    // leaves nothing, or a key with no certificate, which the next start refuses by name.
+    for (path, text, mode) in [
+        (&key, pair.serialize_pem(), 0o600),
+        (&certificate, made.pem(), 0o644),
+    ] {
+        let beside = path.with_extension("pem.new");
+        let _ = fs::remove_file(&beside);
+        let written = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(mode)
+            .open(&beside)
+            .and_then(|mut file| {
+                file.write_all(text.as_bytes())?;
+                file.sync_all()
+            })
+            .and_then(|()| fs::rename(&beside, path));
+        written.map_err(|error| format!("{} could not be written: {error}", path.display()))?;
+    }
+    Ok((certificate, key, true))
 }

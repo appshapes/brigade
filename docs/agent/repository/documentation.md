@@ -15,7 +15,7 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   the TL;DR. It may link to a reference document instead of repeating it.
 - **Reference documents stay where code names them** and are reached from the tree: `docs/security.md` (argued;
   its sentences carry owner rulings, so summarise it and never rewrite it), `docs/protocol-v1.md` (frozen),
-  `docs/adapter-authors.md`, `docs/backend-rest-v1.md` (a draft until work item 89's first server release),
+  `docs/adapter-authors.md`, `docs/backend-rest-v1.md` (frozen at version 1 with work item 89's first server release),
   `docs/sync-adapters.md`, `docs/mail-connectors.md`, `docs/webhook-gateway.md`,
   `docs/email/README.md`,
   `docs/experiments/`, `docs/research/`, `scripts/ci/README.md`, `internal/adapters/fs/README.md`, and the

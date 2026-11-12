@@ -4,7 +4,8 @@
 team on the file system and on a Cavalry feed, with no Supabase project (work item 89; the plan is
 `.context/plans/brigade-server.md`). It runs one instance today. A team is created on it with `brigade team create
 --adapter rest`, and its team file names the server's url and, for a certificate no authority signed, that
-certificate's fingerprint. It has no release yet.
+certificate's fingerprint. Its first release is 0.1.0; the operator's pages are [Project Owner ›
+Server](../../project-owner/server/README.md).
 
 ## Three rules
 
@@ -66,7 +67,10 @@ once, the rest within five seconds) and then writes its snapshot.
 
 The listener follows the owner's ruling of 2026-11-12. With `--tls-cert` and `--tls-key` the server serves HTTPS
 itself, and its start line names the certificate's fingerprint (`certificate sha256:…`): what `team create
---certificate` takes and the team file pins, when no authority signed the certificate. Without them it serves plain HTTP, on a loopback address only, unless `--tls-in-front` says that TLS ends
+--certificate` takes and the team file pins, when no authority signed the certificate. With `--tls-self-signed`
+the server makes that certificate itself on its first start (`tls.rs`, rcgen on ring), keeps it and its key in
+`<data>/tls`, and serves the same one on every later start: a new certificate would be one no team file pins, so
+a directory that holds one of the two files and not the other is refused, never repaired. Without them it serves plain HTTP, on a loopback address only, unless `--tls-in-front` says that TLS ends
 in front of it; a start that would put plain HTTP on any other address is refused before the directory is touched.
 What stands in front must pass the `Authorization` and `Brigade-Create-Token` headers, allow a body of 1 MiB, hold
 a quiet request open for more than 30 seconds (the receive that waits) and never send a `POST` again by itself.
@@ -74,6 +78,24 @@ a quiet request open for more than 30 seconds (the receive that waits) and never
 Anyone who can reach a server may create a team on it (owner ruling, 2026-11-12). An operator who wants otherwise
 starts it with `--create-token-file`: creating a team then needs that file's token in the `Brigade-Create-Token`
 header, and everything else is unchanged.
+
+## Release it
+
+The server is released apart from the plugin, by a tag of its own that `release.yml` never sees.
+
+1. Set the version in `server/VERSION` and in `[workspace.package]` of `server/Cargo.toml` (a test holds the two
+   equal), and refresh the lock file: `cd server && cargo update --workspace`.
+2. Add the `## [<version>]` section to `server/CHANGELOG.md`: it becomes the release's text.
+3. Land it on `master` with a green `server` job.
+4. `make server-tag`. It checks the three places agree, that the tree is clean and is `origin/master`'s head, and
+   pushes the tag `server-v<version>`.
+
+The `server-release` workflow then builds the Linux binaries on Debian 12, so that they start on glibc 2.36 and
+later, the macOS binary, and `server/Dockerfile` on a runner of each architecture; it publishes the binaries
+with `checksums.txt` on a GitHub release that is not marked latest (the plugin's is), and the image as
+`ghcr.io/appshapes/brigade-server:<version>` and `:latest`. Installing by crate needs nothing built: `cargo
+install --git … --tag server-v<version> brigade-server --locked` reads the tag. The tags `server-v*` are protected
+from deletion and from being moved, as the plugin's are.
 
 ## What stays true
 
@@ -120,9 +142,8 @@ header, and everything else is unchanged.
 
 ## Not built yet
 
-There is no release yet: the image `server/Dockerfile` builds is not published anywhere (the plan's phase 3). There
-is no standby instance (phase 4), and a team on a server has no Slack or email gateway: both run inside a Supabase
-project today (work item 156).
+There is no standby instance (phase 4), and a team on a server has no Slack or email gateway: both run inside a
+Supabase project today, and they are to be built into the server (the plan's phase 3b).
 
 ## Known limits
 

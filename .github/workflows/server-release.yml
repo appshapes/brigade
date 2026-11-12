@@ -1,0 +1,174 @@
+# The Brigade server's release (work item 89): a tag `server-v<version>` builds the binaries and the image and
+# publishes them. The server is released apart from the plugin: `release.yml` listens to `v*` and never sees
+# these tags, and nothing here touches plugin/, the checksums or the marketplace.
+#
+#   1. bump server/VERSION and the workspace's version in server/Cargo.toml, refresh server/Cargo.lock
+#   2. add the `## [<version>]` section to server/CHANGELOG.md, land it on master with a green `server` job
+#   3. make server-tag          (checks the three, tags master's head and pushes the tag)
+#
+# What a release is: three binaries and their checksums on a GitHub release that is not marked latest (the
+# plugin's is), and one image for two architectures at ghcr.io/appshapes/brigade-server. Installing by crate
+# needs nothing built: `cargo install --git … --tag server-v<version> brigade-server --locked` reads the tag.
+name: server-release
+
+on:
+  push:
+    tags: ["server-v*"]
+
+# One release per tag, never cancelled halfway: a half-published image is worse than a slow one.
+concurrency:
+  group: server-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write     # the GitHub release
+  packages: write     # the image
+
+env:
+  IMAGE: ghcr.io/appshapes/brigade-server
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag is the version the tree names
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#server-v}"
+          test "$version" = "$(cat server/VERSION)" || { echo "the tag is not server/VERSION"; exit 1; }
+          grep -q "^version = \"$version\"$" server/Cargo.toml || { echo "server/Cargo.toml names another version"; exit 1; }
+          grep -q "^## \[$version\]" server/CHANGELOG.md || { echo "server/CHANGELOG.md has no section for $version"; exit 1; }
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then echo "this release exists already"; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # The Linux binaries are built on Debian 12, the oldest C library a release promises to run on (2.36): a
+  # binary linked on the runner's own Ubuntu would refuse to start on anything older than that Ubuntu.
+  linux:
+    needs: guard
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, arch: amd64}
+          - {runner: ubuntu-24.04-arm, arch: arm64}
+    runs-on: ${{ matrix.runner }}
+    container: rust:1.99.0-bookworm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        working-directory: server
+        run: |
+          cargo --version
+          cargo build --release --locked -p brigade-server
+          ./target/release/brigade-server --version
+          test "$(./target/release/brigade-server --version)" = "brigade-server ${{ needs.guard.outputs.version }}"
+      - name: Name it
+        run: |
+          mkdir dist
+          cp server/target/release/brigade-server "dist/brigade-server_${{ needs.guard.outputs.version }}_linux_${{ matrix.arch }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  # The one macOS job in this repository. ci.yml has none by the owner's ruling of 2026-11-10; this one runs
+  # only for a server release, which the owner agreed carries a macOS binary (2026-11-12).
+  macos:
+    needs: guard
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        working-directory: server
+        run: |
+          rustup toolchain install || rustup show
+          cargo --version
+          cargo build --release --locked -p brigade-server
+          test "$(./target/release/brigade-server --version)" = "brigade-server ${{ needs.guard.outputs.version }}"
+      - name: Name it
+        run: |
+          mkdir dist
+          cp server/target/release/brigade-server "dist/brigade-server_${{ needs.guard.outputs.version }}_darwin_arm64"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-darwin-arm64
+          path: dist/*
+          if-no-files-found: error
+
+  # The image is server/Dockerfile, built on a runner of each architecture and pushed under a tag of its own;
+  # `publish` joins the two under the version. Nothing is emulated.
+  image:
+    needs: guard
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, arch: amd64}
+          - {runner: ubuntu-24.04-arm, arch: arm64}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and push
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+          tag="$IMAGE:${{ needs.guard.outputs.version }}-${{ matrix.arch }}"
+          docker build \
+            --label "org.opencontainers.image.version=${{ needs.guard.outputs.version }}" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "$tag" server
+          test "$(docker run --rm "$tag" --version)" = "brigade-server ${{ needs.guard.outputs.version }}"
+          docker push "$tag"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  publish:
+    needs: [guard, linux, macos, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: The binaries and their checksums
+        run: |
+          gh run download "$GITHUB_RUN_ID" --dir artifacts
+          mkdir dist
+          find artifacts -type f -name 'brigade-server_*' -exec cp {} dist/ \;
+          ls -l dist
+          test "$(ls dist | wc -l)" -eq 3
+          (cd dist && sha256sum brigade-server_* > checksums.txt && cat checksums.txt)
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: The image, one name for both architectures
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+          version="${{ needs.guard.outputs.version }}"
+          docker buildx imagetools create \
+            --tag "$IMAGE:$version" --tag "$IMAGE:latest" \
+            "$IMAGE:$version-amd64" "$IMAGE:$version-arm64"
+          docker buildx imagetools inspect "$IMAGE:$version"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: The release
+        run: |
+          version="${{ needs.guard.outputs.version }}"
+          # The changelog's section for this version, without its heading, is the release's text.
+          awk -v want="## [$version]" '
+            index($0, want) == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' server/CHANGELOG.md > notes.md
+          test -s notes.md
+          # Not latest: `latest` is the plugin's release, which the plugin's own downloads follow.
+          gh release create "$GITHUB_REF_NAME" --title "Brigade server $version" --notes-file notes.md \
+            --latest=false dist/*
+        env:
+          GH_TOKEN: ${{ github.token }}

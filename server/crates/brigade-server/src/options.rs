@@ -30,6 +30,8 @@ A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md,
   --listen <ip:port>           the address to serve on (default 127.0.0.1:8743)
   --tls-cert <file>            the server's certificate chain, PEM; with --tls-key the server serves HTTPS
   --tls-key <file>             the certificate's private key, PEM
+  --tls-self-signed            serve HTTPS with a certificate the server makes for itself on its first start
+                               and keeps in <dir>/tls; a team file pins the fingerprint the server prints
   --tls-in-front               serve plain HTTP on an address that is not loopback, because TLS ends in
                                front of the server (a proxy or a tunnel)
   --create-token-file <file>   require this file's token, in the Brigade-Create-Token header, to create a team
@@ -61,8 +63,8 @@ pub struct Options {
     pub data: PathBuf,
     /// The address to serve on.
     pub listen: SocketAddr,
-    /// The certificate chain and its key, when the server serves HTTPS itself.
-    pub tls: Option<(PathBuf, PathBuf)>,
+    /// Where the certificate and its key come from, when the server serves HTTPS itself.
+    pub tls: Option<Tls>,
     /// Whether TLS ends in front of the server.
     pub tls_in_front: bool,
     /// The file that holds the creation token, when creating a team needs one.
@@ -81,6 +83,15 @@ pub struct Options {
     pub snapshot_every: u64,
     /// How many bytes a recording of the feed holds before it is rolled.
     pub feed_roll_bytes: u64,
+}
+
+/// Where a server that serves HTTPS itself has its certificate from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Tls {
+    /// The operator's own files: the certificate chain and its key.
+    Files(PathBuf, PathBuf),
+    /// A certificate the server makes for itself and keeps in its data directory.
+    SelfSigned,
 }
 
 /// What a command line asks for.
@@ -105,12 +116,14 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
     let (mut feed_control, mut feed_self, mut log, mut snapshot_every) = (None, None, None, None);
     let mut feed_roll_bytes = None;
     let mut tls_in_front = false;
+    let mut tls_self_signed = false;
     while let Some(flag) = arguments.next() {
         let mut value = |name: &str| arguments.next().ok_or_else(|| format!("{name} needs a value"));
         match flag.as_str() {
             "--help" | "-h" => return Ok(Asked::Help),
             "--version" => return Ok(Asked::Version),
             "--tls-in-front" => tls_in_front = true,
+            "--tls-self-signed" => tls_self_signed = true,
             "--data" => data = Some(PathBuf::from(value("--data")?)),
             "--listen" => listen = Some(value("--listen")?),
             "--tls-cert" => tls_cert = Some(PathBuf::from(value("--tls-cert")?)),
@@ -132,23 +145,30 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
         .unwrap_or(DEFAULT_LISTEN)
         .parse()
         .map_err(|_| "--listen takes an IP address and a port, as 127.0.0.1:8743")?;
-    let tls = match (tls_cert, tls_key) {
-        (Some(cert), Some(key)) => Some((cert, key)),
-        (None, None) => None,
+    let tls = match (tls_cert, tls_key, tls_self_signed) {
+        (Some(cert), Some(key), false) => Some(Tls::Files(cert, key)),
+        (None, None, true) => Some(Tls::SelfSigned),
+        (None, None, false) => None,
+        (_, _, true) => {
+            return Err(
+                "--tls-self-signed makes the server's own certificate; it does not go with --tls-cert"
+                    .to_owned(),
+            );
+        }
         _ => return Err("--tls-cert and --tls-key go together".to_owned()),
     };
     if tls.is_some() && tls_in_front {
         return Err(
-            "--tls-in-front is for a server that serves plain HTTP; it does not go with --tls-cert"
+            "--tls-in-front is for a server that serves plain HTTP; it does not go with a certificate"
                 .to_owned(),
         );
     }
     // Plain HTTP never reaches a public interface by accident: off loopback the operator either gives the
-    // server a certificate or says that TLS ends in front of it (owner ruling, 2026-11-12).
+    // server a certificate, has it make one, or says that TLS ends in front of it (owner ruling, 2026-11-12).
     if tls.is_none() && !tls_in_front && !listen.ip().is_loopback() {
         return Err(
-            "plain HTTP is served on a loopback address only: give --tls-cert and --tls-key, \
-                    or --tls-in-front when TLS ends in front of the server"
+            "plain HTTP is served on a loopback address only: give --tls-self-signed, or --tls-cert and \
+                    --tls-key, or --tls-in-front when TLS ends in front of the server"
                 .to_owned(),
         );
     }
@@ -193,7 +213,7 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{Asked, LogKind, Options, parse};
+    use super::{Asked, LogKind, Options, Tls, parse};
 
     fn run(arguments: &[&str]) -> Result<Options, String> {
         match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
@@ -256,6 +276,22 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn the_server_makes_its_own_certificate_when_it_is_asked_to() {
+        let own = run(&["--data", "d", "--listen", "0.0.0.0:9000", "--tls-self-signed"]).unwrap();
+        assert_eq!(own.tls, Some(Tls::SelfSigned));
+        // It is one way to have a certificate, not a second one beside the operator's files or a proxy.
+        for others in [
+            &["--tls-cert", "c.pem", "--tls-key", "k.pem"][..],
+            &["--tls-cert", "c.pem"][..],
+            &["--tls-in-front"][..],
+        ] {
+            let mut arguments = vec!["--data", "d", "--tls-self-signed"];
+            arguments.extend_from_slice(others);
+            assert!(run(&arguments).is_err(), "{others:?}");
+        }
     }
 
     #[test]

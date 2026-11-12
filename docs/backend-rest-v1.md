@@ -3,9 +3,9 @@
 A server that implements this contract is a Brigade backend. Brigade's bundled `rest` adapter
 (`brigade adapter rest`) speaks it, so an organisation that wants its own backend writes a server and no adapter.
 
-**Status: draft.** Version 1 is frozen with the first release of a server that implements it (work item 89).
-Until then a change to this page lands in one commit with the adapter, the stand-in server and the conformance
-run.
+**Status: version 1, frozen** with the first release of a server that implements it, `brigade-server` 0.1.0
+(2026-11-12, work item 89). A change an existing server or adapter would fail is a new version of this page. A
+change they both survive lands in one commit with the adapter, the stand-in server and the conformance run.
 
 The contract is [BAP/1](protocol-v1.md) carried over HTTP. Section numbers below, such as 4.5.5, are that
 document's. A command the adapter cannot answer from its own files becomes one request, the request body is the

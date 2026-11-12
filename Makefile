@@ -318,7 +318,7 @@ conformance: build ## Run the conformance suite against an adapter (usage: make 
 
 # The Brigade server (work item 89, .context/plans/brigade-server.md): the Rust workspace under server/. It shares
 # no code with the Go side, has its own version (server/VERSION) and its own dependency list (server/deny.toml), and
-# it is OUTSIDE the acceptance gate: `make test` and `make push` run no Rust, and none of the four targets below is a
+# it is OUTSIDE the acceptance gate: `make test` and `make push` run no Rust, and none of the targets below is a
 # prerequisite of anything above. What joins the two sides is the contract (docs/backend-rest-v1.md) and the
 # conformance suite run through the bundled `rest` adapter, which is why server-test builds the Go binaries first.
 # Every recipe runs inside server/, because rustup reads the toolchain pin (server/rust-toolchain.toml) from the
@@ -344,6 +344,10 @@ server-test: build ## The server's tests, conformance(server) through the rest a
 	cd server && cargo test --workspace --locked
 	cd server && BRIGADE_BIN_DIR=$(CURDIR)/$(bin_dir) cargo test --locked -p brigade-server --test server -- --ignored --test-threads=1
 	BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^TestATeamOnAServerThroughTheRealBinary$$' ./internal/harness/e2e/
+
+.PHONY: server-tag
+server-tag: ## Tag master's head as the server release server/VERSION names and push the tag; the server-release workflow then publishes the binaries and the image
+	scripts/server-tag.sh
 
 .PHONY: server-deps-check
 server-deps-check: ## Fail unless the server links only the crates, licences and sources server/deny.toml allows, with no known advisory (needs cargo-deny) (CI)

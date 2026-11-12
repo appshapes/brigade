@@ -15,8 +15,8 @@ tool versions the `fast` job prints in its "Runner image inventory" step; shellc
 sets `timeout-minutes` except one whose body is a reusable workflow, where GitHub rejects it.
 
 The first six jobs of `ci.yml` wait on nothing, so a run is as long as its longest job (card 245: under five
-minutes, from eleven). The `master` ruleset requires `fast`, `lint`, `supabase` and `e2e` by job name: add or
-rename a job and the ruleset together. `windows` is not required, and neither is `server` until the first server
+minutes, from eleven). The `master` ruleset requires `fast`, `lint`, `supabase`, `e2e` and `server` by job name:
+add or rename a job and the ruleset together. `windows` is not required; `server` is, since the first server
 release (work item 89). No job runs on macOS: a person's commit has passed `make push` on the
 developer's machine, a Mac today, before it reaches origin, and a release is where the Linux rebuild must
 reproduce the checksums `make release` pinned.

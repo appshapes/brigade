@@ -9,6 +9,29 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A team can live on a Brigade server, with no Supabase project** (work
+  item 89). `rest` is a second adapter bundled with Brigade, beside
+  `supabase`: `brigade team create --adapter rest --url https://<host>:8743
+  --name <team> --secret-file <path>` creates a team on a server the
+  Project Owner runs on a machine of the organisation's own, and writes a
+  team file with `"adapter": "rest"` and no `publishable_key`. Joining and
+  everything after it are unchanged. When no authority signed the server's
+  certificate, `--certificate <fingerprint>` puts its SHA-256 fingerprint in
+  the team file as `"certificate": "sha256:…"`, and a member's sessions then
+  accept that certificate and no other; `team join` names the fingerprint in
+  the line it asks a member to confirm, and a file that later names another
+  one is reviewed with `team join`, which needs no secret for it.
+  `--create-token-file <path>` passes a server's creation token, when its
+  operator set one. The server is its own program with its own releases
+  (`server-v0.1.0` is the first) and is experimental; a team on one has no
+  mail or Slack gateway yet. A plugin before this release reads a server's
+  team file as broken and connects to nothing, so every member updates
+  before the file is committed. Pages: Project Owner › Server, Team Admin ›
+  Create › Create the team on a server, and section 20 of
+  `docs/security.md`.
+
 ## [0.51.0] — 2026-11-11
 
 ### Added

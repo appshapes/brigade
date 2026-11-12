@@ -90,6 +90,18 @@ allow = [
     "tokio-rustls",
     "zeroize",
 
+    # The certificate the server makes for itself (--tls-self-signed), so that an operator needs no other
+    # tool to serve HTTPS: rcgen on ring, and what writes a certificate's fields and its PEM.
+    "base64",
+    "deranged",
+    "num-conv",
+    "pem",
+    "powerfmt",
+    "rcgen",
+    "time",
+    "time-core",
+    "yasna",
+
     # Run when the server is built, and not linked into it.
     "autocfg",
     "cc",

@@ -23,7 +23,7 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 
 use crate::note::note;
-use crate::options::{Asked, LogKind, Options};
+use crate::options::{Asked, LogKind, Options, Tls};
 
 /// How long the requests that are being answered are given once the server is told to stop.
 const DRAIN: Duration = Duration::from_secs(5);
@@ -80,7 +80,17 @@ fn run(options: &Options) -> Result<(), String> {
 
     let create_token = create_token(options)?;
     let tls = match &options.tls {
-        Some((certificate, key)) => Some(tls::serving(certificate, key)?),
+        Some(Tls::Files(certificate, key)) => Some(tls::serving(certificate, key)?),
+        Some(Tls::SelfSigned) => {
+            let (certificate, key, made) = tls::own_certificate(&options.data)?;
+            if made {
+                note(&format!(
+                    "made the server's own certificate, {}",
+                    certificate.display()
+                ));
+            }
+            Some(tls::serving(&certificate, &key)?)
+        }
         None => None,
     };
     if options.log == LogKind::File {

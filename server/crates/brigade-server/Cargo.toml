@@ -22,6 +22,7 @@ brigade-log.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 ring.workspace = true
 rustls.workspace = true
 serde.workspace = true

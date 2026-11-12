@@ -5,14 +5,9 @@ package e2e
 import (
 	"bufio"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json/v2"
 	"encoding/pem"
-	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,9 +28,9 @@ import (
 )
 
 // serverBinVar names a built `brigade-server` (work item 89, server/). With
-// it set, the test below runs against that server, over TLS, with a
-// certificate no authority signed and its pin in the team file; `make
-// server-test` sets it. Without it the backend is the stand-in server
+// it set, the test below runs against that server, over TLS, with the
+// certificate the server makes for itself and its pin in the team file;
+// `make server-test` sets it. Without it the backend is the stand-in server
 // (cmd/brigade-rest-stub) over loopback HTTP, which is what `make test`
 // runs: no Rust, no certificate.
 const serverBinVar = "BRIGADE_E2E_SERVER"
@@ -92,41 +87,14 @@ func startStub(t *testing.T) restBackend {
 }
 
 // startServer runs a built brigade-server on a data directory of its own,
-// serving TLS with a certificate made here: for the name "brigade-e2e" and
-// for no address, so the only thing that can make a member trust it is the
-// pin.
+// serving TLS with the certificate it makes for itself (--tls-self-signed):
+// one that names no address and that no authority signed, so the only
+// thing that can make a member trust it is its pin. This is the start an
+// operator with no certificate of their own makes.
 func startServer(t *testing.T, bin string) restBackend {
 	t.Helper()
 	dir := t.TempDir()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(time.Now().UnixNano()),
-		Subject:      pkix.Name{CommonName: "brigade-e2e"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	certFile, keyFile, addressFile := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem"), filepath.Join(dir, "address")
-	for path, block := range map[string]*pem.Block{
-		certFile: {Type: "CERTIFICATE", Bytes: der},
-		keyFile:  {Type: "PRIVATE KEY", Bytes: keyDER},
-	} {
-		if err := os.WriteFile(path, pem.EncodeToMemory(block), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	data, addressFile := filepath.Join(dir, "data"), filepath.Join(dir, "address")
 	log, err := os.Create(filepath.Join(dir, "server.log"))
 	if err != nil {
 		t.Fatal(err)
@@ -135,29 +103,43 @@ func startServer(t *testing.T, bin string) restBackend {
 	// The file log: what is under test here is the member's side and the
 	// listener, and the server's own tests hold the Cavalry feed.
 	//nolint:gosec // G204: the server binary the caller named; no shell is involved
-	cmd := exec.CommandContext(context.WithoutCancel(t.Context()), bin, "--data", filepath.Join(dir, "data"), "--listen", "127.0.0.1:0", "--log", "file",
-		"--tls-cert", certFile, "--tls-key", keyFile, "--address-file", addressFile)
+	cmd := exec.CommandContext(context.WithoutCancel(t.Context()), bin, "--data", data, "--listen", "127.0.0.1:0", "--log", "file",
+		"--tls-self-signed", "--address-file", addressFile)
 	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("%s: %v", bin, err)
 	}
 	stopOnCleanup(t, cmd)
+	said := func() string {
+		text, _ := os.ReadFile(log.Name())
+		return string(text)
+	}
 	var url string
 	testutil.Eventually(t, waitLong, pollEvery, func() bool {
-		data, err := os.ReadFile(addressFile)
-		url = strings.TrimSpace(string(data))
+		text, err := os.ReadFile(addressFile)
+		url = strings.TrimSpace(string(text))
 		return err == nil && url != ""
 	})
 	if !strings.HasPrefix(url, "https://127.0.0.1:") {
-		said, _ := os.ReadFile(log.Name())
-		t.Fatalf("the server's address file holds %q, want an https loopback url\n%s", url, said)
+		t.Fatalf("the server's address file holds %q, want an https loopback url\n%s", url, said())
 	}
-	pin := adapterkit.CertificateFingerprint(der)
-	// The server says the same fingerprint when it starts: that line is where
-	// an operator copies the pin from.
+	// The pin is the fingerprint of the certificate the server made, and the
+	// server's start line says the same one: that line is where an operator
+	// copies it from.
+	text, err := os.ReadFile(filepath.Join(data, "tls", "certificate.pem"))
+	if err != nil {
+		t.Fatalf("the server's own certificate: %v\n%s", err, said())
+	}
+	block, _ := pem.Decode(text)
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatalf("the server's own certificate is not a PEM certificate")
+	}
+	if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+		t.Fatalf("the server's own certificate does not parse: %v", err)
+	}
+	pin := adapterkit.CertificateFingerprint(block.Bytes)
 	testutil.Eventually(t, waitLong, pollEvery, func() bool {
-		said, _ := os.ReadFile(log.Name())
-		return strings.Contains(string(said), "(certificate "+pin+")")
+		return strings.Contains(said(), "(certificate "+pin+")")
 	})
 	return restBackend{url: url, certificate: pin}
 }

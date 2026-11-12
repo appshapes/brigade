@@ -1,13 +1,15 @@
 # Create
 
-You need a project the [Project Owner](../../project-owner/README.md) has deployed Brigade into: its URL and its
-publishable key, both public. The rest is one command and two things to hand out.
+You need a backend the [Project Owner](../../project-owner/README.md) runs: a Supabase project Brigade is deployed
+into, with its URL and its publishable key, or a Brigade server, with its URL. The values are public. The rest is
+one command and two things to hand out.
 
 ## If you want to
 
 | If you want to | Go to |
 | --- | --- |
 | create the team and its committed file | [Create the team](#create-the-team) |
+| create it on a Brigade server, with no Supabase project | [Create the team on a server](#create-the-team-on-a-server) |
 | give members the join secret | [Hand out the secret](#hand-out-the-secret) |
 | make another repository part of the same team | [Add a repository](#add-a-repository) |
 | keep the only administrative credential safe | [Back up the credential](#back-up-the-credential) |
@@ -20,6 +22,16 @@ publishable key, both public. The rest is one command and two things to hand out
 3. `brigade team status` names the team and the project URL.
 
 Details: [Create the team](create-the-team.md).
+
+## Create the team on a server
+
+1. In the project checkout:
+   `brigade team create --adapter rest --url https://<host>:8743 --name <team> --secret-file ~/brigade-<team>.secret`
+2. Add `--certificate sha256:…` when the Project Owner gave you a fingerprint, and `--create-token-file <path>`
+   when they gave you a creation token.
+3. `git add .brigade.json && git commit && git push`. Members need the plugin at 0.52.0 or later.
+
+Details: [Create the team on a server](create-on-a-server.md).
 
 ## Hand out the secret
 

@@ -32,11 +32,11 @@
 # next dependency bump. So each job adds a file of its own to go.sum (`fast` tools.sum, `lint` .golangci.yml
 # as well, `supabase` supabase/config.toml, `e2e` scripts/proof.sh): the file is the job's, the key is its own.
 #
-# The master ruleset (`master-pr-checks`) names the required checks by JOB NAME: fast, lint, supabase and e2e.
-# A job added here is not required until the ruleset names it, and a required name no job reports blocks every
-# pull request: change the two together (scripts/ci/README.md, "Required GitHub configuration"). `server`, the
-# Rust workspace's job (work item 89), runs beside the others and is deliberately NOT required until the first
-# server release: its comment says so.
+# The master ruleset (`master-pr-checks`) names the required checks by JOB NAME: fast, lint, supabase, e2e and
+# server. A job added here is not required until the ruleset names it, and a required name no job reports blocks
+# every pull request: change the two together (scripts/ci/README.md, "Required GitHub configuration"). `server`,
+# the Rust workspace's job (work item 89), is required since the first server release, 0.1.0 (owner ruling,
+# 2026-11-12).
 #
 # The earlier departures are gone. Each was a step disabled by a constant-false `if:` until its deliverable
 # existed: P1-8 removed (b) (the `fast` job ran `make cross` in place of `make checksums-check`) and (c)
@@ -281,8 +281,8 @@ jobs:
   # section 6). That is why the job sets up Go as well: bin/brigade and bin/brigade-conformance are the suite.
   # Cavalry is a git dependency pinned to one commit of a public repository, which cargo fetches.
   #
-  # NOT required by the master ruleset yet: the job runs from the plan's phase 2 and becomes a required check
-  # when phase 3 ships the first server release (the plan's section 10, ruling 5). Add it to the ruleset then.
+  # Required by the master ruleset since the first server release, 0.1.0 (the plan's section 10, ruling 5, as
+  # the owner ruled it on 2026-11-12): a pull request that breaks the server or its contract does not merge.
   server:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15                   # first runs: measure, then pin at 2x the p90 like the others. Loose until

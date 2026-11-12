@@ -33,6 +33,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `server-build` | Build server/target/release/brigade-server, the Brigade server (Rust; needs cargo, outside the acceptance gate) |
 | `server-check` | rustfmt and clippy on server/ with warnings denied, with and without the Cavalry feed (CI) |
 | `server-test` | The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), and a team created, joined and used on the server over TLS (CI) |
+| `server-tag` | Tag master's head as the server release server/VERSION names and push the tag; the server-release workflow then publishes the binaries and the image |
 | `server-deps-check` | Fail unless the server links only the crates, licences and sources server/deny.toml allows, with no known advisory (needs cargo-deny) (CI) |
 | `e2e` | Phase 4 no-LLM proof in watcher sink mode against the local stack (CI) |
 | `proof` | Phase 4 proof including the headless LLM run, the idle-wake run and the crash-and-resume run (needs a logged-in claude) |

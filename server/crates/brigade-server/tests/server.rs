@@ -897,8 +897,19 @@ fn self_signed(scratch: &Scratch) -> Option<(PathBuf, PathBuf)> {
     made.success().then_some((certificate, key))
 }
 
-/// One `POST` over TLS, trusting `certificate` alone.
+/// One `POST` over TLS to a server named `localhost`, trusting `certificate` alone.
 fn post_over_tls(url: &str, certificate: &Path, path: &str, body: &str) -> (u16, Value) {
+    post_over_tls_as(url, certificate, "localhost", path, body)
+}
+
+/// One `POST` over TLS, trusting `certificate` alone, to a server that certificate calls `name`.
+fn post_over_tls_as(
+    url: &str,
+    certificate: &Path,
+    name: &'static str,
+    path: &str,
+    body: &str,
+) -> (u16, Value) {
     use rustls::pki_types::pem::PemObject;
     use rustls::pki_types::{CertificateDer, ServerName};
 
@@ -913,7 +924,7 @@ fn post_over_tls(url: &str, certificate: &Path, path: &str, body: &str) -> (u16,
             .unwrap()
             .with_root_certificates(roots)
             .with_no_client_auth();
-    let name = ServerName::try_from("localhost").unwrap();
+    let name = ServerName::try_from(name).unwrap();
     let mut connection = rustls::ClientConnection::new(Arc::new(config), name).unwrap();
     let mut stream = TcpStream::connect(authority).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
@@ -975,6 +986,72 @@ fn the_server_serves_tls_itself_when_it_is_given_a_certificate() {
     let mut response = Vec::new();
     let _ = stream.read_to_end(&mut response);
     assert!(!String::from_utf8_lossy(&response).contains("contract_version"));
+}
+
+/// The fingerprint in the server's start line, as `sha256:<hex>`.
+fn said_fingerprint(scratch: &Scratch) -> String {
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    let from = said
+        .rfind("(certificate sha256:")
+        .expect("a start line that names the certificate")
+        + 13;
+    said[from..from + 71].to_owned()
+}
+
+#[test]
+fn the_server_makes_its_own_certificate_once_and_keeps_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let scratch = Scratch::new("own-certificate");
+    let mut arguments = log_arguments("file", &scratch);
+    arguments.push("--tls-self-signed".to_owned());
+    let tls = scratch.path("data").join("tls");
+    let (certificate, key) = (tls.join("certificate.pem"), tls.join("key.pem"));
+
+    let first = {
+        let server = Server::start(&scratch, &arguments);
+        assert!(server.url.starts_with("https://"), "{}", server.url);
+        // The certificate it made is the one it serves, and a client that trusts it alone is answered.
+        let (status, envelope) = post_over_tls_as(
+            &server.url,
+            &certificate,
+            "brigade-server",
+            "/v1/team/create",
+            r#"{"team_name":"ops"}"#,
+        );
+        assert_eq!(status, 200, "{envelope}");
+        said_fingerprint(&scratch)
+    };
+    assert_eq!(first.len(), 71, "{first}");
+    assert!(
+        std::fs::read_to_string(scratch.path("stderr"))
+            .unwrap()
+            .contains("made the server's own certificate")
+    );
+    assert_eq!(
+        std::fs::metadata(&key).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(&tls).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+
+    // A second start serves the same certificate: a new one would be one no team file pins.
+    let pem = std::fs::read(&certificate).unwrap();
+    {
+        let _server = Server::start(&scratch, &arguments);
+        assert_eq!(said_fingerprint(&scratch), first);
+    }
+    assert_eq!(std::fs::read(&certificate).unwrap(), pem);
+
+    // Half of the pair is never replaced: the start is refused, by name.
+    std::fs::remove_file(&key).unwrap();
+    let refused = Server::try_start(&scratch, &arguments)
+        .err()
+        .expect("a refused start");
+    assert!(refused.contains("not both"), "{refused}");
+    assert_eq!(std::fs::read(&certificate).unwrap(), pem);
 }
 
 /// The conformance suite through the bundled `rest` adapter: the contract's section 6.
