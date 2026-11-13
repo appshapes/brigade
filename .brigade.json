@@ -1,12 +1,11 @@
 {
-  "adapter": "supabase",
-  "url": "https://wmgtaraqmoufmrnyojzf.supabase.co",
-  "publishable_key": "sb_publishable_qUEiHdtSB2fXSmgVManc-g_c-uZOyWj",
-  "team_ref": "0a465da2-da2f-468e-abb6-2a6e2fd0460d",
-  "team_name": "brigade",
+  "adapter": "rest",
+  "url": "https://brigade.appshapes.com",
+  "team_ref": "3b8904c6-6b11-41aa-a0e7-36bc3986c666",
+  "team_name": "appshapes",
   "version": 1,
   "gateway": {
-    "email": "brigade-team@appshapes.com",
+    "email": "appshapes-team@appshapes.com",
     "slack": "appshapes.slack.com: @brigade"
   },
   "sync": {
