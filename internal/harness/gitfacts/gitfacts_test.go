@@ -163,7 +163,10 @@ func TestLogListsTheRangeByAuthor(t *testing.T) {
 	first := commit("162: Add the state folder")
 	commit("merge from a teammate", "GIT_AUTHOR_EMAIL=them@example.com", "GIT_AUTHOR_NAME=Them")
 	third := commit("no card here <tag> \u0007")
-	r := gitfacts.Runner{Top: top, Environ: env, Timeout: 5 * time.Second}
+	// The deadline is a hang catcher, not a speed test: on a loaded Windows
+	// runner one git call took over five seconds (2026-11-13, run
+	// 43493511721), which failed the five-second deadline this had then.
+	r := gitfacts.Runner{Top: top, Environ: env, Timeout: 2 * time.Minute}
 	email, err := r.AuthorEmail(t.Context())
 	if err != nil || email != "me@example.com" {
 		t.Fatalf("AuthorEmail = %q, %v", email, err)
