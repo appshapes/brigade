@@ -20,8 +20,9 @@ one subject and is the only place its rules live.
    `/commit <work item>`, the number being the work item's on the team's Brigade Board. A merge conflict is
    the session's to resolve in place, never aborted and never handed back; on a runner an agent hands it back.
 2. Plans in `.context/plans/`, scratch in `.ignored/`; a finished piece of work adds its execution-log row.
-3. `/work-item-start <n>` takes a work item to Done; one is finished when on `master` with CI green and nothing
-   on it is open: then the landing comment and the move to Done, unasked. Closing is the owner's.
+3. `/brigade:work-item-start <n>` takes a work item to Done, its steps governed by the conventions; one is finished
+   when on `master` with CI green and nothing on it is open: then the landing comment and the move to Done,
+   unasked. Closing is the owner's.
 
 Details: [Conventions](conventions.md).
 

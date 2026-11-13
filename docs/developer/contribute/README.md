@@ -19,7 +19,7 @@ Details: [Commit and push](commits.md).
 ## Work from the Brigade Board
 
 1. The number in a commit message is a work item's on the Brigade Board of the team `appshapes`; `brigade work-item list`, `show <n>`, `add`.
-2. `/work-item-start <n>` takes a work item from reading it to Done: taken, scope agreed, built, proven, on `master` with CI green, the landing comment on it.
+2. `/brigade:work-item-start <n>` takes a work item from reading it to Done under the repository's rules: taken, scope agreed, built, proven, reviewed, on `master` with CI green, the landing comment on it.
 3. A work item is finished when on `master` with CI green and nothing on it is open; then comment and move it to Done, unasked. Closing is the owner's.
 
 Details: [Work from the Brigade Board](work-items.md).

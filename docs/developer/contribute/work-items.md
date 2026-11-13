@@ -36,14 +36,15 @@ work-item` command for each of these, asked for in words or with the plugin's sk
 
 ## Start a work item
 
-`/work-item-start <number> [<collaborator session>]` takes one from reading it to Done on its own, asking you only
-where the work item leaves a real choice: the work item read, assigned to you and moved to Doing, the scope and
-approach agreed with you, the work built under the rule files and proven against each done criterion (a green
-build alone proves nothing), reviewed, pushed to `master` with `ci.yml` green (what "deployed to development"
-means here: Brigade has no development environment, and a release is not part of it), the landing comment on the
-work item, and the work item moved to Done. A second argument names another of your sessions that this one leads
-over Brigade. In this repository it replaces the plugin's `/brigade:work-item-start`, which knows none of the
-gates.
+`/brigade:work-item-start <number> [<session>…]`, the plugin's skill from 0.54.0 on (in another harness, its
+Brigade package's skill of that name; on an older plugin, `/brigade:update` first), takes one from reading it to
+Done on its own, asking you only where the work item leaves a real choice. Its steps follow this repository's rules, which govern them where they say more
+([Conventions](../../agent/repository/conventions.md)): the work item read, assigned to you and moved to Doing,
+the session named after it, the scope and approach agreed with you, the work built under the rule files and
+proven against each done criterion (a green build alone proves nothing), an agent review, the push to `master`
+with `ci.yml` watched to green (Brigade has no development environment, and a release is not part of it), the
+landing comment on the work item, and the work item moved to Done. Further arguments name other sessions of yours
+that this one leads over Brigade.
 
 ## When a work item is finished
 
@@ -58,7 +59,7 @@ board's lists, and closing is the owner's. The release that carries the work fol
 ## A typical cycle
 
 ```
-1.  /work-item-start 265              read, take, agree the scope, build, prove, review, push, CI, comment, Done
+1.  /brigade:work-item-start 265      read, take, agree the scope, build, prove, review, push, CI, comment, Done
 ```
 
 The same by hand:

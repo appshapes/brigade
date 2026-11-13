@@ -72,19 +72,51 @@
   address or a customer's name on a work item: the board is a folder on every teammate's machine. A work item's
   comment carries no `Session stamp:` line, because the board records its member and its session; the stamp
   rule for Trello cards (card 163) went with them (2026-11-13, work item 265).
-- **Starting and finishing a work item.** `/work-item-start <number> [<collaborator session>]` takes a work item
-  from reading it to Done (2026-11-12, work item 265, the port of `/trello-start`): read, assigned to the user
-  and moved to Doing, the scope agreed, built, proven, reviewed, on `master` with CI green, the landing comment,
-  moved to Done. In this repository it is the way to start a work item, not the plugin's
-  `/brigade:work-item-start` of the same name, which knows none of this repository's gates. A work item is
-  finished when its done criteria are met, the work is on `master` with CI green (a research or decision work
-  item: its answer is on it) and nothing on it is open; the release that carries the work is not the work
-  item's (the owner's ruling of 2026-10-31 for `/trello-start`). Then write the landing comment and move it to
-  Done without being asked (2026-11-13, work item 265: the done check of the removed `trello-done`). When
+- **Starting and finishing a work item.** A work item is started with the Brigade package's `work-item-start`
+  skill (`/brigade:work-item-start <number> [<session>…]` in Claude Code, its package's skill of that name in
+  another harness), and where these rules say more than its steps, they govern them (2026-11-13, work item 305:
+  they were this repository's own skill of that name, the port of `/trello-start` of 2026-11-12, work item 265,
+  now retired). That needs the plugin at 0.54.0 or later, whose skill defers to a project's rules: on an older
+  one, `/brigade:update` first. The steps below are this bullet's, named by their words, not the skill's numbers.
+  1. **Read** what the work item points at where its words are not enough: a plan in `.context/plans/`, an
+     experiment report, a research digest, a changelog section.
+  2. **Agree** in a few lines what it asks for, the parts of the repository it touches (the binary, a package,
+     `supabase/`, `server/`, the documentation), what is decided and what is still to confirm. Ask the user only
+     about a reading that leads to materially different work, a departure from the work item or from a rule file,
+     a change to the frozen protocol, the frozen REST contract or `docs/security.md`, something to apply to a
+     hosted project or a running server before the user can test it, or a choice the rules leave to them; any
+     other is a routine call, made and said.
+  3. **Build** after `brigade sessions --here` and a clean `git status` (the commit chain stages every
+     working-tree change, another session's edits included), then `make pull`. The changelog entry under
+     `## [Unreleased]` (none when nothing ships, such as a repository skill) and the execution-log row are written
+     as part of the work.
+  4. **Prove** it: the acceptance gate and the checks [gates.md](gates.md) names for what changed, then every done
+     criterion held against the running thing, a green build proving nothing: a command through its real
+     invocation on the built `bin/brigade`, a plugin change through a live session (`make plugin-dev`), a gateway
+     through its proof script or a real send (say first what will arrive and where), a page read where it lands.
+  5. **Review and push**: an agent review of the working tree before anything reaches origin (in Claude Code the
+     `code-review` skill; in another harness, a review agent or a second session given the diff and these rules),
+     its findings fixed, then `make push message="<work item>: <Imperative summary>"` (or `/commit <work item>`),
+     and `ci.yml` watched on the pushed commit (`gh run list --commit <sha>`, `gh run watch <id>`) until every
+     job is green. A red job is the work item's, except `fast` red at `make vuln` on a new Go advisory: a
+     toolchain bump under its own work item, told to the user. Brigade has no development environment: on
+     `master` with CI green is deployed. What **Agree** settled to apply to a hosted project or a server is
+     applied now.
+  6. **Land** it: one comment saying where the work landed (the commits), what changed, every existing file
+     touched and why, how each done criterion was checked, what was applied to a hosted project or a server, what
+     is still open and whose, and that the next release carries the work. Over the comment cap (`too_long`), say
+     it in fewer words and leave the long account to the execution-log row, which the comment names. Then the
+     move to Done below, never a close, whoever says the work is finished: closing is the owner's. The checkout
+     is left on `master`, up to date (`make pull` reports nothing new) and clean.
+
+  A work item is finished when its done criteria are met, the work is on `master` with CI green (a research or
+  decision work item: its answer is on it) and nothing on it is open; the release that carries the work is not
+  the work item's (the owner's ruling of 2026-10-31 for `/trello-start`). Then write the landing comment and move
+  it to Done without being asked (2026-11-13, work item 265: the done check of the removed `trello-done`). When
   something is still open, say what it is and leave the work item where it is; never report one as finished
   without having moved it. Done is not closed: closing is the owner's word, as it was for work item 264.
-- **Skills of this repository** live in `.claude/skills/`: `commit`, `work-item-start`, `playwright-cli`. The
-  Brigade plugin's own skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`,
-  `grok/brigade/skills/`) are the product.
+- **Skills of this repository** live in `.claude/skills/`: `commit`, `playwright-cli`. The Brigade plugin's own
+  skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`, `grok/brigade/skills/`) are the
+  product.
 - **Dates** in plans and logs are absolute (`2026-10-17`), never relative.
 - **Wording.** Say "the 26 test messages" or "the injection test set", never "corpus".
