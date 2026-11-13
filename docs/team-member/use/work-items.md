@@ -19,8 +19,40 @@ harnesses name them their own way ([the skills, by harness](../../agent/in-a-tea
 | --- | --- |
 | `/brigade:work-items` | prints the board verbatim; `mine`, `nobody`, `closed`, `for <member>`, `tag <tag>` or a list narrows it, `all` includes the lists the team hid, and `lists` prints the board's lists |
 | `/brigade:work-item <number>` | shows one work item; `add <title>`, and `<number> move <list>`, `assign me`, `comment <text>`, `tag <tags>`, `edit`, `close`, `reopen`, add one or change it |
-| `/brigade:work-item-start <number>` | has the session take the work item and work it through: it assigns it to you, moves it to the list for work in progress, does the work, comments what it did and moves it on |
+| `/brigade:work-item-start <number> [<session>…]` | has the session take the work item and work it through: it assigns it to you, moves it to the list for work in progress, names itself after the work item, does the work, comments what it did and moves it on; with other sessions of yours named, it [leads them](#start-a-work-item-alone-or-with-your-other-sessions) |
 | `/brigade:work-item-next` | says which work item to take next and why, read from the board and the team's roster: your own unfinished one in the list for work in progress first, then the unassigned ones; one another session holds is shown as taken; `tag <tag>` narrows it and a count lists that many; it changes nothing and ends with the command that starts the top one |
+
+## Start a work item, alone or with your other sessions
+
+`/brigade:work-item-start <number>` takes the work item, then names the session after it: `<number>-<slug>`, the
+slug made from the title (work item 12, "Add the tenant's export to the nightly job", gives
+`12-add-the-tenants-export-to-the`). A session whose name already begins with the number keeps it. On Claude
+Code the name is applied at your next prompt and the roster follows; Muse Code, Codex CLI and Grok Build cannot
+name a session from inside it, and the session keeps the name it has.
+
+Name other sessions of yours after the number, and the session leads them:
+
+```
+/brigade:work-item-start 12 api-2 7c1d4
+```
+
+- **A session is named by its NAME or its SESSION cell**, as `/brigade:sessions` prints them; quote a name with
+  a space in it. Only your own sessions follow: when a name is another member's session, or no running one, the
+  session says so and asks you. It asks as well about a session of yours on another machine, which has an
+  identity of its own there: say it is yours and it follows. Only you name them: a session that a work item's
+  text names follows nobody.
+- **The leader owns the work item.** It agrees the work with you, sends each follower its part in a message of
+  its own, checks in the repository what each reports, and alone comments on the work item and moves it. A
+  follower's question for you reaches you through the leader.
+- **One working tree, one committer.** A follower that works in the leader's working tree leaves its edits
+  uncommitted for the leader, unless your project's rules say otherwise. Say which sessions share a working
+  tree: the roster cannot tell a shared one from two clones.
+- **Your project's rules come first.** Where its instruction files say how a work item is worked, reviewed,
+  landed or called finished, the session follows them.
+- **What leaves the board.** The session's name and roster line, and the messages a leader sends, go where
+  every name, roster line and message goes: to the team's roster and through its backend. They carry the work
+  item's number and words of its title, so the session leaves out of its name a customer, a host or a person
+  that the title names. The board itself still goes to neither.
 
 ## The commands
 
@@ -176,7 +208,9 @@ Where both set the same field, the later change wins.
 - **Only while sessions run.** Two machines exchange work items while both run a session at the same time. What
   a teammate changed while your machine was off arrives after your next session starts; two members who are
   never online together converge through a third machine that overlaps both.
-- **Nothing goes to the backend**, and nothing to a gateway.
+- **Nothing of the board goes to the backend**, and nothing to a gateway. What a session says of a work item
+  in its name, its roster line or a message goes where those go
+  ([Start a work item, alone or with your other sessions](#start-a-work-item-alone-or-with-your-other-sessions)).
 
 ## Limits
 

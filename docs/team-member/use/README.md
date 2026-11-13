@@ -76,7 +76,8 @@ Details: [Record notes and ask for decisions](notes-and-decisions.md).
    every repository of the team. `/brigade:work-items all` includes the lists the team hid from the listing.
 2. `/brigade:work-item add <title>` adds one; `/brigade:work-item <number>` shows one, and `<number> move <list>`,
    `assign me`, `comment <text>`, `close` change it. Each is one `brigade work-item` command.
-3. `/brigade:work-item-start <number>` has the session take a work item, do the work, comment and move it on.
+3. `/brigade:work-item-start <number>` has the session take a work item, do the work, comment and move it on;
+   `/brigade:work-item-start <number> <session>…` has it lead your other sessions named there, each with a part.
    `/brigade:work-item-next` says which one to take next, and why; it changes nothing.
 4. A team has a board when its `.brigade.json` turns it on; it travels while both machines run a session.
 

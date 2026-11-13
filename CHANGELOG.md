@@ -27,6 +27,27 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Changed
 
+- **`/brigade:work-item-start` names the session and leads your other
+  sessions** (work item 303). A session started on a work item now names
+  itself after it, `<number>-<slug>` with the slug made from the title,
+  so the roster shows which session has which work item. A session whose
+  name already begins with the number keeps it, and on Muse Code, Codex
+  CLI and Grok Build, which cannot name a session from inside it, the
+  name stays as it is. `/brigade:work-item-start <number> <session>…`
+  has the session lead the other sessions of yours that you name, by
+  NAME or by SESSION cell: each follower gets its part in a message of
+  its own, the leader alone comments on the work item and moves it, and
+  a follower in the leader's working tree leaves its edits uncommitted
+  for the leader. Only your own sessions follow, recognised by their
+  principal and never by their label: when a name is another member's
+  session, or no running one, the session says so and asks you, as it
+  does for a session of yours on another machine, whose identity is its
+  own. The session's name and the leader's messages carry the work
+  item's number and words of its title to the roster and through the
+  backend, as the board itself never does. Where your project's
+  instruction files say how a work item is worked, reviewed, landed or
+  called finished, they govern the skill's steps.
+
 - **A work item holds a much longer text** (work item 304). A description
   holds 65,536 characters and a comment 16,384, up from 8,000 and 4,000,
   and a change file in the board's folder 1 MiB, up from 128 KiB; a title

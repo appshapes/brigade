@@ -43,7 +43,8 @@ whole [Team Member](../docs/team-member/README.md) tree; what the model reads,
   the user's own opt-in to the project's digest; `/brigade:subscribe off` removes it), and the four of a team
   that keeps its work on the Brigade Board: `work-items` (`/brigade:work-items`, the board printed verbatim), `work-item`
   (`/brigade:work-item <number>`, `/brigade:work-item add <title>`: read, add or change one),
-  `work-item-start` (`/brigade:work-item-start <number>`: take one and work it through) and `work-item-next`
+  `work-item-start` (`/brigade:work-item-start <number> [<session>…]`: take one and work it through, leading the
+  other sessions of yours that you name) and `work-item-next`
   (`/brigade:work-item-next [tag <tag>] [count]`: which one to take next, read from the board and the roster).
 - **No MCP server and no channel wiring.** The plugin is a CLI, four hooks and fourteen skills; there is nothing else
   in the tree, and `make plugin-check` enforces it.

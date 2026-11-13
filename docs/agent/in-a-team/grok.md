@@ -21,7 +21,7 @@ A genuine Stop offers one setup continuation; its marker and recursion guard pre
 | [`grok/brigade/skills/subscribe/SKILL.md`](../../../grok/brigade/skills/subscribe/SKILL.md) | subscribe: the user's own opt-in to the digest, and `off` |
 | [`grok/brigade/skills/work-items/SKILL.md`](../../../grok/brigade/skills/work-items/SKILL.md) | work-items: print the Brigade Board, the team's board of work items, verbatim |
 | [`grok/brigade/skills/work-item/SKILL.md`](../../../grok/brigade/skills/work-item/SKILL.md) | work-item: read, add or change one work item, or name, rename, hide or unhide the board's lists |
-| [`grok/brigade/skills/work-item-start/SKILL.md`](../../../grok/brigade/skills/work-item-start/SKILL.md) | work-item-start: take a work item and work it through |
+| [`grok/brigade/skills/work-item-start/SKILL.md`](../../../grok/brigade/skills/work-item-start/SKILL.md) | work-item-start: take a work item and work it through; with other sessions of the user's named after the number, lead them as followers, each with a part of its own |
 | [`grok/brigade/skills/work-item-next/SKILL.md`](../../../grok/brigade/skills/work-item-next/SKILL.md) | work-item-next: say which work item to take next and why, from the board and the roster; it changes nothing |
 
 Use `brigade whoami --json` to obtain this incarnation's safely quoted absolute `monitor_command` and exact
