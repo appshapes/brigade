@@ -1364,4 +1364,8 @@ what differs. The server is experimental in its 0.1.0.
   own listener, so a server with gateways is reachable from the internet: a request there is checked by Slack's
   signature or the provider's secret before anything of it is acted on, and every other address still asks for a
   member's credential.
+- **A team taken in.** A team can move to a server from another backend with its join secret: the operator, with
+  the secret in a file, runs a command on the server's data directory while the server is stopped. No request
+  can do that, and the secret is not kept: the server stores its hash, as for a team it created. The secret is
+  as strong after the move as before it, and whoever held it can join the team on the server.
 - **What it does not have yet.** One instance and no standby, so the server's disk is the team's only copy.

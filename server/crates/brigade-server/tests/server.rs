@@ -626,6 +626,196 @@ fn one_directory_has_one_server() {
     assert!(second.contains("another server is running"), "{second}");
 }
 
+/// A reference as a backend that names its teams with UUIDs makes one.
+const ELSEWHERE: &str = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
+
+/// Writes the join secret of a team that lives elsewhere to a file of the test's own, as a member's secret
+/// file holds it, and returns the file and the secret. The secret is put together here, because the
+/// repository's secret scan refuses a file that holds a whole one.
+fn secret_file(scratch: &Scratch, team_ref: &str, random: &str) -> (PathBuf, String) {
+    let secret = format!("brg1.{team_ref}.{random}");
+    let file = scratch.path(&format!("{random}.join-secret"));
+    std::fs::write(&file, format!("{secret}\n")).unwrap();
+    (file, secret)
+}
+
+/// Runs the command that takes a team in on `scratch`'s data directory, and returns its status and
+/// everything it wrote.
+fn take_in(scratch: &Scratch, log: &[String], name: &str, secret_file: &Path) -> (Option<i32>, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+        .arg("--data")
+        .arg(scratch.path("data"))
+        .args(log)
+        .args(["--import-team", name, "--join-secret-file"])
+        .arg(secret_file)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let wrote = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.code(), wrote)
+}
+
+#[test]
+fn a_team_that_lives_elsewhere_is_taken_in_and_joined_with_the_secret_it_has() {
+    let scratch = Scratch::new("import");
+    let arguments = log_arguments("file", &scratch);
+    let (file, secret) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
+
+    // On a directory that holds nothing yet, the command takes the team in, says so and ends. It listens on
+    // nothing, and the engine leaves its snapshot behind as it does at every stop.
+    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(
+        wrote.contains(&format!("took in team \"ops\" ({ELSEWHERE})")),
+        "{wrote}"
+    );
+    assert!(!wrote.contains("listening on"), "{wrote}");
+    assert!(!wrote.contains("kept-from-the-other-backend"), "{wrote}");
+    assert!(!scratch.path("address").exists());
+    let snapshots = std::fs::read_dir(scratch.path("data").join("snapshots"))
+        .unwrap()
+        .count();
+    assert_eq!(snapshots, 1);
+
+    // A server on that directory has the team: a member joins with the secret it already has, and its
+    // session is registered and listed as on a team that was created here.
+    let server = Server::start(&scratch, &arguments);
+    let (status, joined) = server.post(
+        None,
+        "/v1/team/join",
+        &json!({"join_secret": secret, "human_label": "alice"}),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let joined = &joined["result"];
+    assert_eq!(
+        (
+            text(joined, "team_ref").as_str(),
+            text(joined, "team_name").as_str()
+        ),
+        (ELSEWHERE, "ops")
+    );
+    let credential = text(joined, "credential");
+    let session = register(&server, &credential, ELSEWHERE, "alpha");
+    let listed = server.ok(&credential, "/v1/session/list", &json!({"team_ref": ELSEWHERE}));
+    assert_eq!(listed["team_name"], json!("ops"));
+    let sessions = listed["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["session_id"], json!(session));
+
+    // While the server runs on the directory nothing is taken in beside it: the command is refused in the
+    // words a second server is, and the team it named is not there.
+    let (other_file, other) = secret_file(
+        &scratch,
+        "1e1e1e1e-1e1e-4e1e-8e1e-1e1e1e1e1e1e",
+        "never-taken-in-anywhere",
+    );
+    let (status, wrote) = take_in(&scratch, &arguments, "other", &other_file);
+    assert_eq!(status, Some(1), "{wrote}");
+    assert!(wrote.contains("another server is running"), "{wrote}");
+    assert!(!wrote.contains("took in team"), "{wrote}");
+    assert!(!wrote.contains("never-taken-in-anywhere"), "{wrote}");
+    let (status, envelope) = server.post(None, "/v1/team/join", &json!({"join_secret": other}));
+    assert_eq!(
+        (status, text(&envelope["error"], "code").as_str()),
+        (403, "unauthorized")
+    );
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    assert!(!said.contains("kept-from-the-other-backend"), "{said}");
+    assert!(!said.contains("never-taken-in-anywhere"), "{said}");
+    server.stop();
+
+    // The same secret again, under whatever name: the team is already here, and it is left as it is.
+    let (status, wrote) = take_in(&scratch, &arguments, "renamed", &file);
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(
+        wrote.contains(&format!("team \"ops\" ({ELSEWHERE}) is already here")),
+        "{wrote}"
+    );
+    assert!(!wrote.contains("took in team"), "{wrote}");
+    assert!(!wrote.contains("kept-from-the-other-backend"), "{wrote}");
+
+    let server = Server::start(&scratch, &arguments);
+    let members = server.ok(&credential, "/v1/team/members", &json!({"team_ref": ELSEWHERE}));
+    assert_eq!(members["team_name"], json!("ops"));
+    assert_eq!(members["members"].as_array().unwrap().len(), 1);
+    // The command that was refused while the server ran left nothing behind either.
+    let (status, _) = server.post(None, "/v1/team/join", &json!({"join_secret": other}));
+    assert_eq!(status, 403);
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    assert!(!said.contains("kept-from-the-other-backend"), "{said}");
+    server.stop();
+}
+
+#[test]
+fn a_team_is_not_taken_in_from_a_file_that_holds_no_join_secret_for_it() {
+    let scratch = Scratch::new("import-refused");
+    let arguments = log_arguments("file", &scratch);
+    let refused = |file: &Path, why: &str| {
+        let (status, wrote) = take_in(&scratch, &arguments, "ops", file);
+        assert_eq!(status, Some(1), "{wrote}");
+        assert!(wrote.contains(why), "{wrote}");
+        assert!(!wrote.contains("took in team"), "{wrote}");
+        wrote
+    };
+
+    // A file that is not there, and one that holds nothing but the end of a line.
+    refused(&scratch.path("no-such-file"), "could not be read");
+    let empty = scratch.path("empty");
+    std::fs::write(&empty, " \n").unwrap();
+    refused(&empty, "holds no join secret");
+    // A text that is no join secret is refused, and no sentence repeats what the file held.
+    let not_one = scratch.path("not-one");
+    std::fs::write(&not_one, "what-the-file-held is no join secret\n").unwrap();
+    let wrote = refused(
+        &not_one,
+        "the team was not taken in: invalid_input: join_secret is malformed",
+    );
+    assert!(!wrote.contains("what-the-file-held"), "{wrote}");
+
+    // A team that is here under one secret is not taken in under another, and neither secret is repeated.
+    let (file, secret) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
+    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    assert_eq!(status, Some(0), "{wrote}");
+    let (other_file, other) = secret_file(&scratch, ELSEWHERE, "another-secret-for-the-reference");
+    let wrote = refused(
+        &other_file,
+        "conflict: a team of that reference is here under another join secret",
+    );
+    assert!(!wrote.contains("another-secret-for-the-reference"), "{wrote}");
+    assert!(!wrote.contains("kept-from-the-other-backend"), "{wrote}");
+
+    // The command serves nothing, so it is refused with what serving takes, before it touches a directory.
+    let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+        .arg("--data")
+        .arg(scratch.path("untouched"))
+        .args([
+            "--import-team",
+            "ops",
+            "--listen",
+            "127.0.0.1:0",
+            "--join-secret-file",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("does not go with --listen"));
+    assert!(!scratch.path("untouched").exists());
+
+    // After all of it the team opens to the secret it was taken in with, and to no other.
+    let server = Server::start(&scratch, &arguments);
+    let (status, _) = server.post(None, "/v1/team/join", &json!({"join_secret": other}));
+    assert_eq!(status, 403);
+    let (status, joined) = server.post(None, "/v1/team/join", &json!({"join_secret": secret}));
+    assert_eq!(status, 200, "{joined}");
+    assert_eq!(text(&joined["result"], "team_ref"), ELSEWHERE);
+    server.stop();
+}
+
 #[test]
 fn the_listener_refuses_plain_http_off_loopback_before_it_touches_the_directory() {
     let scratch = Scratch::new("listen");

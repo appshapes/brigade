@@ -83,6 +83,21 @@ These are his words from this session; the design in §4 is mine and built on th
     answer: Slack is quick, receiving email on a host that is not on the public internet is not sure, so the team
     moves after the gateways; and they are built into `brigade-server` (§8, phase 3b).
 
+19. The team keeps its join secret, 2026-11-12, said in another of his sessions (`brigade-89`) and recorded on
+    work item 272: the `appshapes` team moves to the server "keeping its existing join secret if that is
+    technically feasible"; "the whole point of an adapter is to be able to swap it without affecting the
+    clients". He cannot have members join again with a new secret, and the thinktech team will move the same way
+    later. So the team is not made with `team create --adapter rest`: the server takes it in (§4.7).
+20. The same day, there: the repositories on that team on the server are brigade, cavalry, muster and telder, and
+    the mail gateway's address is `appshapes-team@appshapes.com`. Work item 272 carries the move of the
+    repositories, the board and the members; this plan carries the server's side.
+
+21. One roadmap, 2026-11-12, said in `brigade-89`'s conversation and recorded on work items 272, 273 and 274:
+    work item 156 is split and closed, into 273 (a team moves keeping its join secret, then with no action by
+    its members) and 274 (the admin verbs on the server); and work items 89, 273, 274 and 272 "should be
+    considered one atomic roadmap by the 89 session", sequenced here so that the cut-over happens once. And:
+    "Once we get to the point of being able to start 272, I must be notified." Section 11 is that roadmap.
+
 Items 6 and 7 were said in `brigade-fix-1e`'s conversation. They reached the session that built phase 2 as that
 session's relay, with his words quoted, and are on work item 89 (its comments of 2026-11-12, 10:16 and 10:21 UTC).
 Items 8 to 18 were said to the session that built phases 2 and 3, in answer to its reports and questions.
@@ -340,8 +355,29 @@ to carry over.
   and in; mail out and in; the operator's page and the `security.md` paragraph; release 0.2.0 and the server on
   `sled` moved to it; then the owner's part (the Slack app's two request URLs set to
   `https://brigade.appshapes.com/gateway/slack`, the bot token and signing secret in files on the host, the mail
-  provider's key, webhook secret and webhook URL); then the team: `team create --adapter rest` for `appshapes`,
-  the team file committed in every repository, every member joins with the plugin at 0.52.0 or later.
+  provider's key, webhook secret and webhook URL); then the team. As first written that was `team create
+  --adapter rest` for `appshapes`; the owner's ruling of §2 item 19 replaced it with §4.7.
+
+### 4.7 Taking in a team that exists (phase 3c)
+
+A join checks the SHA-256 of the whole secret against the team the secret names, and `team.created` carries a
+reference, a name, that hash and a creator. So a team that lives on another backend is taken in by one record:
+`team.created` with the reference inside its existing secret, its name, the secret's hash, and no creator and no
+member. The server's parser takes the reference as everything between the prefix and the last dot, so a Supabase
+reference, a UUID, is taken as it is.
+
+- **An operator's command**, `brigade-server --data <dir> --import-team <name> --join-secret-file <file>`, run
+  between a stop and a start because one process owns the log. It is a job of its own kind for the engine and
+  not a request, so the frozen contract is untouched and no address of the server can take a team in. The same
+  secret again changes nothing; another secret for the same reference is refused.
+- **What a member's machine sees.** The team file's `adapter` and `url` change and `publishable_key` goes, which
+  reads as a move to another backend: the next session attaches to nothing and says to run `team join`, and the
+  join needs the secret file the member already has. One join for each machine. A member doing nothing at all is
+  not possible yet: their credential is the old backend's, which the server cannot check (work item 156's last
+  phase).
+- **What keeping the reference keeps.** The board's folder id, which comes from the reference, and every name a
+  machine or a person has for the team. Members, sessions and waiting messages do not come over.
+- **The gateways** join with the same secret file.
 
 ## 5. The repository
 
@@ -423,6 +459,7 @@ What Cavalry wants from Brigade now (its section F5): the soak of a server that 
 | 2 | The server with one instance: the workspace, records, the state machine, the recorded feed, snapshots, HTTP, credentials; the conformance suite green against it; the `server` CI job. Built and verified 2026-11-12 (execution log P86-2): `server/` with `brigade-core`, `brigade-log` and `brigade-server`; `make server-build`, `server-check`, `server-test` and `server-deps-check`; the `server` job in `ci.yml`, green on its first run (2 min 22 s, cold cache) and not required by the ruleset. On `master` as `87df95b`. | phase 1; rulings 3, 4 |
 | 3 | A real team: `team create --adapter rest`, the team file, the session-start lines, `make e2e`, the Project Owner and Team Admin pages, the `security.md` section, the first server release, the experimental label. Built 2026-11-12 so far (execution log P86-3): `rest` is a second bundled adapter the harness resolves by name; `team create --adapter rest --url … [--certificate …] [--create-token-file …]`; the team file's `certificate` member, a pin the member's adapter trusts in place of an authority; join and re-consent carry it; one end-to-end test through the built binary, against the stand-in in `make test` and against `brigade-server` over TLS in `make server-test`. Then (P86-4): the Project Owner and Team Admin pages, the `security.md` section, `--tls-self-signed`, version 0.1.0, `make server-tag` and the `server-release` workflow, the contract frozen at version 1, and `server` a required check. | phase 2; rulings 2, 5 |
 | 3b | Slack and email inside the server (§2 item 18): Slack as the Slack app is configured today, the Events API over public HTTPS (the owner, 2026-11-12: "However the Slack app is configured today (i.e., mode) that's how I want `server` to be designed"), email through Resend or Postmark first; off until an operator configures it; the gateway acts through the same request path as a member. Then the `appshapes` team moves to the server on `sled`, reached as `brigade.appshapes.com` on TCP 443 with the owner's own certificate (§2 item 17). Built 2026-11-12 (execution log P86-6): the crate `brigade-gateway`, the Edge Functions' shared TypeScript and the four handlers' texts ported and checked against the TypeScript by running both; `brigade-server/src/gateway/`, the I/O; `--gateway-config`; `POST /gateway/slack` and `POST /gateway/mail/resend` or `/postmark`; an independent review and its fixes; released as server 0.2.0. Not yet: the gateways switched on at the owner's host, and the team's move. | phase 3; the release |
+| 3c | Taking in a team that exists, with its join secret (§4.7; §2 items 19 and 20): `--import-team`, released as server 0.3.0, then the `appshapes` team taken in on the owner's host and the gateways configured with its secret. The move of the four repositories, the board and the members is work item 272. | phase 3b |
 | 4 | Standby instances: following, snapshots for a new instance, promotion, the adapter's second address (work item 156's team file version 2), the two-host proof, a week's soak. | phase 3; ruling 1 |
 | 5 | Email and Slack beside the server: work item 156, phase 4. Superseded for a team on this server by phase 3b; 156 keeps the gateway process for other backends. | independent |
 | Later | Automatic promotion on Cavalry's cluster; moving an existing team; whether this becomes the default; a repository of its own. | |
@@ -462,3 +499,40 @@ any stack can stand behind it.
 8. **Cavalry's two small asks as cards now** (§6), and whether Brigade's team is invited as an early tester of
    Cavalry before 0.1.0. The first half is answered: they are Cavalry's cards 271 and 272 (§3). The invitation:
    ruled 2026-11-12 (§2 item 16), yes; the server on `sled` is that tester.
+
+## 11. The roadmap to the cut-over: work items 89, 273, 274 and 272 as one
+
+The owner made these four one roadmap on 2026-11-12 (§2 item 21) and gave its order to this plan. The cut-over is
+the one moment at which the `appshapes` team's repositories, members, Slack and mail leave the Supabase project
+for the server. Everything before it changes nothing for anyone; nothing in it is done twice.
+
+| Step | Work item | What | Who | State |
+| --- | --- | --- | --- | --- |
+| 1 | 273, part 1 | The server takes in a team that exists, with its join secret (§4.7): `--import-team`, server 0.3.0. | the 89 session | built and released as 0.3.0, 2026-11-12 (execution log P86-7) |
+| 2 | 274 | The admin verbs on a team on the server: rotate the join secret, revoke a member, transfer the team; and who owns a team that was taken in, which has no creator. A server release and a plugin release. | the 89 session, unless the owner gives it to another | not started |
+| 3 | 89 | Ready for the cut-over: the owner's host on the release that has steps 1 and 2; the `appshapes` team taken in there with its existing secret; the gateways' configuration written with that secret's file and the mail team's inbox; the Slack app's bot token and signing secret in their files on the host (the owner). | the 89 session, and the owner for the two Slack files | not started |
+| | | **Here work item 272 can start, and the owner is told** (below). | | |
+| 4 | 272 | First the check that file sync and the board work on a team on the server, and the board's carry-over tried on a scratch folder. Then the cut-over, once, in the order 272 gives: the team file in the four repositories; the gateways go live (the Slack app's two addresses moved by the owner, the mail provider's webhook added by the 89 session); the board carried over; each member joins once with the secret file they have; the check. | 272's session, with the 89 session for the gateways | waits for step 3 |
+| 5 | 273, part 2 | A member's next session attaches with no command run: a voucher the server trusts. A security design and the owner's ruling first. Before the thinktech team moves. | to be assigned | after the cut-over |
+
+**Why 274 comes before the cut-over.** A team on the server cannot rotate its join secret or remove a member
+until 274 ships. The move keeps an old secret on purpose, and every member, one of them from another
+organisation, holds it in a file. Moving first would take away, at that moment, the two controls the team has on
+Supabase today. The other order is possible, the cut-over first and that gap accepted for as long as 274 takes;
+it is the owner's to choose, and this plan takes the safer one until he says otherwise.
+
+**What is switched only in the cut-over, never before.** The Slack app's two request addresses: a Slack app
+points at one backend, so the moment they move, Slack stops for every member who has not joined the server yet.
+The mail provider's second webhook: once it exists, a mail to the team's address is carried by both backends, and
+the server would bounce it while nobody has joined. So step 3 prepares both and switches neither.
+
+**When 272 can start, and how the owner is told.** When step 3 is done: the release with the import and the
+admin verbs is on the host, the team is taken in, the gateways are configured and ready, and the two Slack files
+are there. The 89 session then tells the owner twice, as he asked: in its conversation, first in its message; and
+with `brigade decision --to 'rjae@appshapes.com' --options "start 272 now | wait"`, which reaches his digest's
+recipient if he has not answered in the conversation within his wait. It tells `brigade-89` too, if that session
+is still there. Work item 272 carries the same rule for a session that gets there first.
+
+**What is still the owner's to decide** (on work item 272): whether the member from another organisation joins
+the one team; what becomes of the old teams' Slack and mail addresses; the numbering of carried-over work items;
+and, here, the order of steps 2 and 4.

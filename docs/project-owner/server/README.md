@@ -14,6 +14,7 @@ and Slack gateways itself.
 | give a Team Admin what they need, and nothing more | [Hand over the values](#hand-over-the-values) |
 | back it up, update it, move it, replace its certificate | [Keep the server](#keep-the-server) |
 | let people write to the team by email or from Slack | [Open the gateways](#open-the-gateways) |
+| move a team here from a Supabase project, keeping its join secret | [Take in a team that exists](#take-in-a-team-that-exists) |
 
 ## Install the server
 
@@ -61,3 +62,14 @@ Details: [Keep the server](keep-the-server.md).
    `https://<host>/gateway/mail/resend` or `/gateway/mail/postmark`.
 
 Details: [Open the gateways](gateways.md).
+
+## Take in a team that exists
+
+1. Stop the server, then
+   `brigade-server --data <dir> --import-team <name> --join-secret-file <file>`, then start it.
+2. In each repository of the team, in `.brigade.json`: `adapter` becomes `rest`, `url` the server's, and
+   `publishable_key` goes; `team_ref` stays.
+3. Each member updates the plugin to 0.52.0 or later, pulls, and joins once with the secret file they already
+   have.
+
+Details: [Take in a team that exists](take-in-a-team.md).

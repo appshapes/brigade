@@ -23,6 +23,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
+	"github.com/appshapes/brigade/internal/harness/teamstore/write"
 	"github.com/appshapes/brigade/internal/testutil"
 	"github.com/appshapes/brigade/internal/testutil/fakesock"
 )
@@ -93,7 +94,13 @@ func startStub(t *testing.T) restBackend {
 // operator with no certificate of their own makes.
 func startServer(t *testing.T, bin string) restBackend {
 	t.Helper()
-	dir := t.TempDir()
+	return startServerOn(t, bin, t.TempDir())
+}
+
+// startServerOn is startServer on a directory the caller made: the server's data are in its `data`, so a team
+// taken in there before the start is served by it.
+func startServerOn(t *testing.T, bin, dir string) restBackend {
+	t.Helper()
 	data, addressFile := filepath.Join(dir, "data"), filepath.Join(dir, "address")
 	log, err := os.Create(filepath.Join(dir, "server.log"))
 	if err != nil {
@@ -194,6 +201,13 @@ func (r *rig) restHook(s session, sub, doc string) result {
 	return res
 }
 
+// restJoin is a member's join from inside a session, in the checkout, with the rig's secret file: what
+// `/brigade:join <path>` runs.
+func (r *rig) restJoin(s session, label string) result {
+	r.t.Helper()
+	return r.runIn(r.checkout, r.restEnv(s), "", "team", "join", "--secret-file", r.secretFile, "--label", label)
+}
+
 // TestATeamOnAServerThroughTheRealBinary is the path a team on a Brigade
 // server takes, with the built `brigade` binary and its bundled `rest`
 // adapter as real processes (work item 89, phase 3): the admin's `team
@@ -261,7 +275,7 @@ func TestATeamOnAServerThroughTheRealBinary(t *testing.T) {
 	if r.mapExists(bob) || !strings.Contains(res.stdout, "team join") {
 		t.Fatalf("a session of a member who has not joined: stdout %q, map %v", res.stdout, r.mapExists(bob))
 	}
-	res = r.runIn(r.checkout, r.restEnv(bob), "", "team", "join", "--secret-file", r.secretFile, "--label", bobLabel)
+	res = r.restJoin(bob, bobLabel)
 	if res.exit != 0 {
 		t.Fatalf("team join: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
 	}
@@ -341,5 +355,135 @@ func TestATeamOnAServerThroughTheRealBinary(t *testing.T) {
 	// The session's messaging token is in no file the run left behind.
 	if hits := tokenHits(t, token, r.dirs.Root); len(hits) != 0 {
 		t.Errorf("the messaging token is in %v", hits)
+	}
+}
+
+// TestATeamMovesToAServerWithItsSecretThroughTheRealBinary is what a team that lives on another backend goes
+// through when it moves to a Brigade server and keeps its join secret (work item 89, the plan's section 4.7):
+// the operator takes the team in with the secret it already has, the repository's team file is pointed at the
+// server with the team's reference unchanged, and each member's machine, which was joined to the team on the
+// old backend, joins the server once with the secret file it already holds. It needs the server itself, so it
+// runs only where `make server-test` names one.
+func TestATeamMovesToAServerWithItsSecretThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	bin := os.Getenv(serverBinVar)
+	if bin == "" {
+		t.Skip("needs a built brigade-server: make server-test names it in " + serverBinVar)
+	}
+	r := newRig(t)
+
+	// --- 1. the team as it is on the old backend: a reference, a name, a secret every member has ---------
+	// The reference has a Supabase project's form, a UUID, and the secret is put together here: no file of
+	// the repository holds the shape of one.
+	const teamRef = "6f0f2b41-0f0f-4f0f-8f0f-0f0f0f0f0f0f"
+	const oldURL = "https://old.supabase.example"
+	secret := strings.Join([]string{"brg1", teamRef, strings.Repeat("ab", 16)}, ".")
+	r.secretFile = filepath.Join(r.dirs.Root, "team.secret")
+	if err := os.WriteFile(r.secretFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// --- 2. the operator takes the team in, with the server stopped, then starts it ---------------------
+	dir := t.TempDir()
+	//nolint:gosec // G204: the server binary the caller named; no shell is involved
+	taken, err := exec.CommandContext(t.Context(), bin, "--data", filepath.Join(dir, "data"), "--log", "file",
+		"--import-team", teamName, "--join-secret-file", r.secretFile).CombinedOutput()
+	if err != nil {
+		t.Fatalf("taking the team in: %v\n%s", err, taken)
+	}
+	if !strings.Contains(string(taken), `took in team "`+teamName+`" (`+teamRef+`)`) || strings.Contains(string(taken), secret) {
+		t.Fatalf("what the import said: %s", taken)
+	}
+	backend := startServerOn(t, bin, dir)
+
+	// --- 3. each member's machine is joined to the team on the old backend ------------------------------
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldKey := teamstore.Key("supabase", oldURL, teamRef)
+	for _, configDir := range []string{r.configDir, r.configDirB} {
+		if err := write.EnsureBinding(configDir, oldKey, "supabase", oldURL, "sb_publishable_x", "", teamRef, teamName, "p-old"); err != nil {
+			t.Fatal(err)
+		}
+		if err := write.Pin(configDir, canon, teamstore.Pin{
+			Adapter: "supabase", URL: oldURL, PublishableKey: "sb_publishable_x", TeamRef: teamRef,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// --- 4. the repository's team file is pointed at the server; the reference stays -------------------
+	file, err := json.Marshal(map[string]any{
+		"version": 1, "adapter": "rest", "url": backend.url, "certificate": backend.certificate,
+		"team_ref": teamRef, "team_name": teamName,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // G306: a committed team file is 0644
+	if err := os.WriteFile(filepath.Join(r.checkout, teamfile.FileName), append(file, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r.teamRef, r.teamKey = teamRef, teamstore.Key("rest", backend.url, teamRef)
+
+	// --- 5. a session attaches to nothing until its member joins once, with the file they have ---------
+	sock := fakesock.New(t)
+	token := "cc-messaging-secret-MUST-NOT-LEAK-" + testutil.RunID()
+	alice := r.newSession("alice", "", aliceName, sock.Path(), token)
+	bob := r.newSession("bob", bobName, "", "", "")
+	start := func(s session) result {
+		return r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	}
+	for _, member := range []struct {
+		session session
+		label   string
+	}{{alice, aliceLabel}, {bob, bobLabel}} {
+		res := start(member.session)
+		if r.mapExists(member.session) || !strings.Contains(res.stdout, "does not match the team you joined here") {
+			t.Fatalf("a session of a member who has not moved: stdout %q, map %v", res.stdout, r.mapExists(member.session))
+		}
+		res = r.restJoin(member.session, member.label)
+		if res.exit != 0 {
+			t.Fatalf("team join: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stdout, `join team "`+teamName+`" (`+teamRef+`)`) || !strings.Contains(res.stdout, `via adapter "rest"`) ||
+			strings.Contains(res.stdout+res.stderr, secret) {
+			t.Errorf("the join's consent line: %q", res.stdout)
+		}
+		start(member.session)
+		m := r.mustMap(member.session)
+		if m.TeamRef != teamRef || m.TeamName != teamName || m.TeamKey != r.teamKey || !sessionmap.IsBundledRest(m.AdapterCommand) {
+			t.Fatalf("the member's map after the join: %+v", m)
+		}
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return r.logHas(alice, "watch ready") })
+
+	// --- 6. the team works as it did: a message from one member's session reaches the other's ----------
+	aliceMap, bobMap := r.mustMap(alice), r.mustMap(bob)
+	res := r.mustRun(r.restEnv(bob), "we are on the server now", "send", aliceMap.BrigadeSessionID, "--summary", "moved", "--json")
+	sent := jsonResult[sendResult](t, res.stdout)
+	frames := sock.WaitFrames(1, waitLong)
+	p, err := frame.Parse(frames[0])
+	if err != nil {
+		t.Fatalf("the injected frame does not parse: %v\n%s", err, frames[0])
+	}
+	if p.MessageID != sent.MessageID || p.ReplyToSessionID != bobMap.BrigadeSessionID || p.Team != teamName ||
+		p.FromLabel != bobLabel+" (unverified)" || p.Body != "we are on the server now" {
+		t.Errorf("frame: %+v", p)
+	}
+	entry := r.liveWatcher(alice)
+	for _, s := range []session{alice, bob} {
+		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return !alive(entry.PID) })
+	// Neither the join secret nor the session's messaging token is in any file the run left behind but the
+	// secret's own.
+	for _, hidden := range []string{secret, token} {
+		for _, hit := range tokenHits(t, hidden, r.dirs.Root) {
+			if hit != r.secretFile {
+				t.Errorf("a secret of the run is in %s", hit)
+			}
+		}
 	}
 }

@@ -60,7 +60,7 @@ pub struct Team {
     pub team_name: String,
     /// The SHA-256 of the whole join secret. The secret itself is never kept.
     pub join_secret_hash: String,
-    /// The principal that created the team.
+    /// The principal that created the team. Empty for a team that was taken in from another backend.
     pub created_by: String,
     /// When the team was created.
     pub created_at: Timestamp,

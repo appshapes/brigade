@@ -155,6 +155,18 @@ fn context_used_tokens(document: &Document) -> Result<Option<i64>, Error> {
     Ok(Some(tokens))
 }
 
+/// The rule a team's name is held to, whoever names the team: a `/v1/team/create`, and the operator who
+/// takes in a team that exists elsewhere. The name is there, and within its cap in code points.
+///
+/// # Errors
+/// `invalid_input` naming `team_name`, when the name is empty or over the cap.
+pub fn check_team_name(team_name: &str) -> Result<(), Error> {
+    if team_name.is_empty() {
+        return Err(Error::required("team_name"));
+    }
+    cap_chars("team_name", team_name, limits::MAX_TEAM_NAME_CODEPOINTS)
+}
+
 const ACTIVITIES: &[&str] = &["busy", "idle"];
 const INBOUND_POLICIES: &[&str] = &["accept", "hold", "refuse"];
 
@@ -402,8 +414,9 @@ impl Command {
 }
 
 fn team_create(document: &Document) -> Result<Command, Error> {
-    let team_name = document.required_text("team_name")?;
-    cap_chars("team_name", &team_name, limits::MAX_TEAM_NAME_CODEPOINTS)?;
+    // An absent name is an empty one, and the rule refuses both in the same words.
+    let team_name = document.text("team_name")?.unwrap_or_default();
+    check_team_name(&team_name)?;
     let human_label =
         optional_text(document, "human_label", limits::MAX_HUMAN_LABEL_CHARS)?.unwrap_or_default();
     Ok(Command::TeamCreate(TeamCreate {

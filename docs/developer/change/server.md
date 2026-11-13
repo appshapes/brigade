@@ -80,6 +80,16 @@ Anyone who can reach a server may create a team on it (owner ruling, 2026-11-12)
 starts it with `--create-token-file`: creating a team then needs that file's token in the `Brigade-Create-Token`
 header, and everything else is unchanged.
 
+## Taking a team in
+
+`--import-team <name> --join-secret-file <file>` writes one `team.created` record for a team that exists
+elsewhere: the reference inside the secret, the name, the SHA-256 of the whole secret, and no creator and no
+member. A join checks that hash against the team the secret names, so the team's members join with the secret
+they have. It is a job of its own kind for the engine, appended and synced like any other, and not a request:
+`answer` knows no path for it, so no address of the server can reach it. It runs between a stop and a start,
+because one process owns the log. The same secret again changes nothing; another secret for the same reference
+is refused.
+
 ## The gateways
 
 From 0.2.0 the mail and Slack gateways are part of the server (the plan's section 4.6), off until

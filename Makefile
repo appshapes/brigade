@@ -338,12 +338,14 @@ server-check: ## rustfmt and clippy on server/ with warnings denied, with and wi
 # time, so the suite's own deadlines are met on a runner with four cores. The third is the member's side against
 # the same server: the built `brigade` creates a team with --adapter rest, a second member joins, and a message is
 # delivered, over TLS with a certificate that only its pin in the team file makes trusted. `make test` runs that
-# test too, against the stand-in server; BRIGADE_E2E_SERVER is what points it at the real one.
+# test too, against the stand-in server; BRIGADE_E2E_SERVER is what points it at the real one. With it goes the
+# test of a team that moves to the server with its join secret, which needs the server's own import and so runs
+# here only: the operator takes the team in, and each member's machine joins once with the secret it has.
 .PHONY: server-test
-server-test: build ## The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), and a team created, joined and used on the server over TLS (CI)
+server-test: build ## The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), a team created, joined and used on the server over TLS, and a team moved there with its join secret (CI)
 	cd server && cargo test --workspace --locked
 	cd server && BRIGADE_BIN_DIR=$(CURDIR)/$(bin_dir) cargo test --locked -p brigade-server --test server -- --ignored --test-threads=1
-	BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^TestATeamOnAServerThroughTheRealBinary$$' ./internal/harness/e2e/
+	BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^(TestATeamOnAServerThroughTheRealBinary|TestATeamMovesToAServerWithItsSecretThroughTheRealBinary)$$' ./internal/harness/e2e/
 
 .PHONY: server-tag
 server-tag: ## Tag master's head as the server release server/VERSION names and push the tag; the server-release workflow then publishes the binaries and the image

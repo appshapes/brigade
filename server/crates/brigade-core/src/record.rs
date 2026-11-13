@@ -244,7 +244,8 @@ pub enum Event {
         team_name: String,
         /// The SHA-256 of the whole join secret.
         join_secret_hash: String,
-        /// The principal that created it.
+        /// The principal that created it. Empty for a team that was taken in from another backend, which
+        /// nobody here created.
         created_by: String,
     },
     /// A principal became an active member of a team: a new membership, or one that was revoked and is

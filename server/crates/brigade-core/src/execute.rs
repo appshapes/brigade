@@ -8,6 +8,10 @@
 //! Every rule here is one of BAP/1's section 4.5, which the contract hands to the server. The filesystem
 //! adapter (`internal/adapters/fs`) is the worked example they were written against, and the stand-in
 //! server (`internal/adapters/rest/stub`) the order a request is checked in.
+//!
+//! [`import_team`] is the one change that is not a request. It takes in a team that exists on another
+//! backend, with the join secret it has there, and is the operator's alone: [`answer`] has no path to it.
+//! It makes its entry as a request does, and the caller appends and syncs that entry in the same way.
 
 use std::collections::BTreeMap;
 
@@ -21,8 +25,8 @@ use crate::record::{AcceptedMessage, Entry, Event, Idempotency, Record, SessionC
 use crate::state::{Session, State, Team};
 use crate::time::Timestamp;
 use crate::wire::{
-    Ack, Command, Heartbeat, JOIN_SECRET_PREFIX, Receive, Registration, Send, SessionList, TeamCreate,
-    TeamJoin,
+    Ack, Command, Heartbeat, JOIN_SECRET_PREFIX, JoinSecret, Receive, Registration, Send, SessionList,
+    TeamCreate, TeamJoin, check_team_name,
 };
 
 /// One request as it arrived.
@@ -121,6 +125,55 @@ pub fn execute(
         Command::MessageAck(request) => message_ack(state, caller, request, now),
         Command::CredentialRevoke => credential_revoke(state, caller, now),
     }
+}
+
+/// Takes in a team that already exists elsewhere, under `team_name`, keeping its join secret.
+///
+/// A join checks the hash of the whole secret against the team the secret names, so the team is here once
+/// one `team.created` record carries the reference inside the secret, the name and that hash. Its members
+/// then join with the secret they already have, as they would join a team that was created here. The team
+/// is taken in with no member and no principal: nobody here created it, so the record names no creator.
+///
+/// Taking in a team that is here under the same secret changes nothing and makes no entry; the answer then
+/// carries the name the team has. The answer is `team_ref`, `team_name` and `imported`, and neither it nor
+/// a refusal holds any part of the secret.
+///
+/// # Errors
+/// `invalid_input` when `join_secret` is not a join secret or `team_name` breaks the rule a created team's
+/// name is held to; `conflict` when a team of that reference is here under another join secret. The state is
+/// unchanged.
+pub fn import_team(
+    state: &mut State,
+    team_name: &str,
+    join_secret: &str,
+    now: Timestamp,
+) -> Result<Outcome, Error> {
+    let join_secret = JoinSecret::parse(join_secret)?;
+    check_team_name(team_name)?;
+    let team_ref = join_secret.team_ref();
+    let join_secret_hash = sha256_hex(join_secret.expose());
+    if let Some(team) = state.teams.get(team_ref) {
+        if !same(&team.join_secret_hash, &join_secret_hash) {
+            return Err(Error::conflict(
+                "a team of that reference is here under another join secret",
+                "other_join_secret",
+            ));
+        }
+        return Ok(Outcome::read(
+            json!({"team_ref": team_ref, "team_name": team.team_name, "imported": false}),
+        ));
+    }
+    let created = Event::TeamCreated {
+        team_ref: team_ref.to_owned(),
+        team_name: team_name.to_owned(),
+        join_secret_hash,
+        created_by: String::new(),
+    };
+    let entry = commit(state, now, vec![created]);
+    Ok(Outcome {
+        result: json!({"team_ref": team_ref, "team_name": team_name, "imported": true}),
+        entry,
+    })
 }
 
 /// Makes the records of one request, applies them, and numbers them as the log's next entry.

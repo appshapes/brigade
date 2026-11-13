@@ -5,6 +5,9 @@
 //! only then sends the answers. So there is one order, the thread's own, and an answer is never ahead of the
 //! disk. The jobs that are waiting when the thread looks share one sync.
 //!
+//! A team the operator takes in from another backend is a job too, of a kind of its own: it changes the
+//! state through the same queue, the same append and the same sync, and is nothing a request can ask for.
+//!
 //! A failed append ends the process: the state already holds what the log does not, and nothing may be
 //! answered from it.
 
@@ -16,7 +19,7 @@ use std::thread::JoinHandle;
 
 use brigade_core::hash::hex;
 use brigade_core::record::LONGEST_ENCODED_BYTES;
-use brigade_core::{Entropy, Entry, Error, Request, State, Timestamp, answer};
+use brigade_core::{Entropy, Entry, Error, Request, State, Timestamp, answer, import_team};
 use brigade_log::{FileLog, KEY_BYTES, Log, LogError, Position, Sealer};
 use hyper::body::Bytes;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -53,18 +56,34 @@ pub struct Settings {
     pub feed_roll_bytes: u64,
 }
 
-/// One request for the engine, and where its answer goes.
+/// What the engine is asked to do.
+enum Work {
+    /// To answer one request of the contract, as it arrived.
+    Request {
+        /// The SHA-256 of the credential the request presented, when it presented one.
+        caller: Option<String>,
+        /// Whether the request may create a team.
+        may_create: bool,
+        path: String,
+        body: Bytes,
+    },
+    /// To take in a team that exists elsewhere, with the join secret it has there. It is a kind of its own
+    /// and not a request, so no path of the contract reaches it: only the operator's command line asks it.
+    Import {
+        /// The name the team gets here.
+        team_name: String,
+        /// The team's whole join secret, as its file held it.
+        join_secret: String,
+    },
+}
+
+/// One piece of work for the engine, and where its answer goes.
 struct Job {
-    /// The SHA-256 of the credential the request presented, when it presented one.
-    caller: Option<String>,
-    /// Whether the request may create a team.
-    may_create: bool,
-    path: String,
-    body: Bytes,
+    work: Work,
     reply: oneshot::Sender<Result<Value, Error>>,
 }
 
-/// The way to the engine from the HTTP side.
+/// The way to the engine: from the HTTP side, and from the operator's command that takes a team in.
 #[derive(Clone)]
 pub struct Client {
     jobs: mpsc::Sender<Job>,
@@ -84,16 +103,37 @@ impl Client {
         path: &str,
         body: Bytes,
     ) -> Result<Value, Error> {
-        let stopping = || Error::unavailable("the server is stopping");
-        let (reply, answered) = oneshot::channel();
-        let job = Job {
+        let request = Work::Request {
             caller,
             may_create,
             path: path.to_owned(),
             body,
-            reply,
         };
-        self.jobs.send(job).await.map_err(|_| stopping())?;
+        self.hand(request).await
+    }
+
+    /// Has the engine take in a team that exists elsewhere, under `team_name`, keeping `join_secret`. The
+    /// record it makes is appended and synced before the answer comes, as a request's is.
+    ///
+    /// # Errors
+    /// The failure the rules refuse it with, which holds nothing of the secret; `unavailable` when the
+    /// server is stopping.
+    pub async fn import_team(&self, team_name: &str, join_secret: &str) -> Result<Value, Error> {
+        let import = Work::Import {
+            team_name: team_name.to_owned(),
+            join_secret: join_secret.to_owned(),
+        };
+        self.hand(import).await
+    }
+
+    /// Puts one piece of work on the engine's queue and waits for its answer.
+    async fn hand(&self, work: Work) -> Result<Value, Error> {
+        let stopping = || Error::unavailable("the server is stopping");
+        let (reply, answered) = oneshot::channel();
+        self.jobs
+            .send(Job { work, reply })
+            .await
+            .map_err(|_| stopping())?;
         answered.await.map_err(|_| stopping())?
     }
 
@@ -388,14 +428,27 @@ impl Engine {
             let mut sealed = Vec::new();
             let mut answers = Vec::with_capacity(batch.len());
             for job in &batch {
-                let request = Request {
-                    caller: job.caller.as_deref(),
-                    may_create: job.may_create,
-                    path: &job.path,
-                    body: &job.body,
-                };
                 let now = self.now();
-                let outcome = answer(&mut self.state, request, now, &mut self.entropy);
+                let outcome = match &job.work {
+                    Work::Request {
+                        caller,
+                        may_create,
+                        path,
+                        body,
+                    } => {
+                        let request = Request {
+                            caller: caller.as_deref(),
+                            may_create: *may_create,
+                            path,
+                            body,
+                        };
+                        answer(&mut self.state, request, now, &mut self.entropy)
+                    }
+                    Work::Import {
+                        team_name,
+                        join_secret,
+                    } => import_team(&mut self.state, team_name, join_secret, now),
+                };
                 answers.push(outcome.map(|outcome| {
                     // The records of one request are one entry: the log holds all of them or none.
                     if let Some(entry) = &outcome.entry {

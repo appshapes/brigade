@@ -1,7 +1,8 @@
 //! What the operator tells the server on its command line.
 //!
 //! Nothing secret is ever an argument: the creation token and the TLS key are files, named by path, and so is
-//! every secret of the gateways, by the configuration that is itself a file.
+//! every secret of the gateways, by the configuration that is itself a file, and the join secret of a team
+//! the server takes in.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -24,6 +25,7 @@ pub const DEFAULT_SNAPSHOT_EVERY: u64 = 2000;
 /// The server's usage, printed for `--help` and after a refused command line.
 pub const USAGE: &str = "\
 Usage: brigade-server --data <dir> [options]
+       brigade-server --data <dir> --import-team <name> --join-secret-file <file> [the log's options]
 
 A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md, version 1.
 
@@ -47,6 +49,11 @@ A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md,
   --snapshot-every <records>   records between two snapshots (default 2000)
   --feed-roll-bytes <bytes>    bytes a recording of the feed holds before a snapshot rolls it, so that what
                                the snapshots cover can be let go of (default 16777216)
+  --import-team <name>         take in a team that lives on another backend, under this name, and end: the
+                               team keeps its join secret, so its members join this server with the secret
+                               file they have. Nothing is served, so it goes with --data, the log's options
+                               (--log to --feed-roll-bytes) and --join-secret-file, and with no other
+  --join-secret-file <file>    the file that holds the join secret of the team --import-team takes in
   --version                    print the version
   --help                       print this
 ";
@@ -100,11 +107,25 @@ pub enum Tls {
     SelfSigned,
 }
 
+/// What the command that takes a team in is told.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Import {
+    /// The name the team gets here.
+    pub team_name: String,
+    /// The file that holds the team's join secret.
+    pub join_secret_file: PathBuf,
+    /// The directory and the log, read as a start reads them. The command serves nothing, so nothing else
+    /// of these is the operator's: the command line refuses every option that serving takes.
+    pub options: Options,
+}
+
 /// What a command line asks for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Asked {
     /// To run the server.
     Run(Box<Options>),
+    /// To take in a team that exists elsewhere, and end.
+    Import(Box<Import>),
     /// To print the usage.
     Help,
     /// To print the version.
@@ -122,6 +143,7 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
     let mut gateway_config = None;
     let (mut feed_control, mut feed_self, mut log, mut snapshot_every) = (None, None, None, None);
     let mut feed_roll_bytes = None;
+    let (mut import_team, mut join_secret_file) = (None, None);
     let mut tls_in_front = false;
     let mut tls_self_signed = false;
     while let Some(flag) = arguments.next() {
@@ -144,10 +166,36 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
             "--log" => log = Some(value("--log")?),
             "--snapshot-every" => snapshot_every = Some(value("--snapshot-every")?),
             "--feed-roll-bytes" => feed_roll_bytes = Some(value("--feed-roll-bytes")?),
+            "--import-team" => import_team = Some(value("--import-team")?),
+            "--join-secret-file" => join_secret_file = Some(PathBuf::from(value("--join-secret-file")?)),
             _ => return Err("an argument is not one the server knows".to_owned()),
         }
     }
     let data = data.ok_or("--data <dir> is required")?;
+    let import = match (import_team, join_secret_file) {
+        (Some(team_name), Some(join_secret_file)) => Some((team_name, join_secret_file)),
+        (None, None) => None,
+        _ => return Err("--import-team and --join-secret-file go together".to_owned()),
+    };
+    if import.is_some() {
+        // Taking a team in binds no address and starts no gateway, so an option that serving takes would
+        // be read and never used. It is refused by its name, which is the server's own word.
+        let serving = [
+            ("--listen", listen.is_some()),
+            ("--tls-cert", tls_cert.is_some()),
+            ("--tls-key", tls_key.is_some()),
+            ("--tls-self-signed", tls_self_signed),
+            ("--tls-in-front", tls_in_front),
+            ("--create-token-file", create_token_file.is_some()),
+            ("--address-file", address_file.is_some()),
+            ("--gateway-config", gateway_config.is_some()),
+        ];
+        if let Some((option, _)) = serving.iter().find(|(_, given)| *given) {
+            return Err(format!(
+                "--import-team takes a team in and ends, and serves nothing: it does not go with {option}"
+            ));
+        }
+    }
     let listen: SocketAddr = listen
         .as_deref()
         .unwrap_or(DEFAULT_LISTEN)
@@ -203,7 +251,7 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
             .filter(|bytes| *bytes > 0)
             .ok_or("--feed-roll-bytes takes a number of bytes above zero")?,
     };
-    Ok(Asked::Run(Box::new(Options {
+    let options = Options {
         data,
         listen,
         tls,
@@ -217,16 +265,31 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
         driver_dir,
         snapshot_every,
         feed_roll_bytes,
-    })))
+    };
+    Ok(match import {
+        Some((team_name, join_secret_file)) => Asked::Import(Box::new(Import {
+            team_name,
+            join_secret_file,
+            options,
+        })),
+        None => Asked::Run(Box::new(options)),
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Asked, LogKind, Options, Tls, parse};
+    use super::{Asked, Import, LogKind, Options, Tls, parse};
 
     fn run(arguments: &[&str]) -> Result<Options, String> {
         match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
             Asked::Run(options) => Ok(*options),
+            other => Err(format!("{other:?}")),
+        }
+    }
+
+    fn import(arguments: &[&str]) -> Result<Import, String> {
+        match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
+            Asked::Import(import) => Ok(*import),
             other => Err(format!("{other:?}")),
         }
     }
@@ -317,6 +380,112 @@ mod tests {
                 .contains("--gateway-config needs a value")
         );
         assert!(super::USAGE.contains("--gateway-config <file>"));
+    }
+
+    #[test]
+    fn a_team_is_taken_in_by_its_name_and_the_file_of_its_join_secret() {
+        let taken = import(&[
+            "--data",
+            "/srv/brigade",
+            "--import-team",
+            "ops",
+            "--join-secret-file",
+            "/run/secrets/ops.join-secret",
+        ])
+        .unwrap();
+        assert_eq!(taken.team_name, "ops");
+        assert_eq!(
+            taken.join_secret_file,
+            std::path::Path::new("/run/secrets/ops.join-secret")
+        );
+        // The directory and the log are read as a start reads them.
+        let started = run(&["--data", "/srv/brigade"]).unwrap();
+        assert_eq!(taken.options, started);
+        // The two go together, whichever is missing, and the directory is as required as it always is.
+        for half in [
+            &["--import-team", "ops"][..],
+            &["--join-secret-file", "ops.join-secret"][..],
+        ] {
+            let mut arguments = vec!["--data", "d"];
+            arguments.extend_from_slice(half);
+            let refused = parse(arguments.iter().map(|argument| (*argument).to_owned())).unwrap_err();
+            assert_eq!(refused, "--import-team and --join-secret-file go together");
+        }
+        let no_directory = import(&["--import-team", "ops", "--join-secret-file", "f"]).unwrap_err();
+        assert!(no_directory.contains("--data"), "{no_directory}");
+        assert!(import(&["--data", "d", "--import-team"]).is_err());
+        assert!(super::USAGE.contains("--import-team <name>"));
+        assert!(super::USAGE.contains("--join-secret-file <file>"));
+    }
+
+    #[test]
+    fn taking_a_team_in_serves_nothing_so_it_takes_the_logs_options_and_no_others() {
+        let pair = ["--data", "d", "--import-team", "ops", "--join-secret-file", "f"];
+        let with = |others: &[&'static str]| {
+            let mut arguments = pair.to_vec();
+            arguments.extend_from_slice(others);
+            import(&arguments)
+        };
+        let on_a_file = with(&[
+            "--log",
+            "file",
+            "--feed-control",
+            "127.0.0.1:9001",
+            "--feed-self",
+            "127.0.0.1:9002",
+            "--driver-dir",
+            "/dev/shm/brigade",
+            "--snapshot-every",
+            "7",
+            "--feed-roll-bytes",
+            "4096",
+        ])
+        .unwrap();
+        assert_eq!(on_a_file.options.log, LogKind::File);
+        assert_eq!(on_a_file.options.feed_control, "127.0.0.1:9001");
+        assert_eq!(on_a_file.options.feed_self, "127.0.0.1:9002");
+        assert_eq!(
+            on_a_file.options.driver_dir.as_deref(),
+            Some(std::path::Path::new("/dev/shm/brigade"))
+        );
+        assert_eq!(
+            (
+                on_a_file.options.snapshot_every,
+                on_a_file.options.feed_roll_bytes
+            ),
+            (7, 4096)
+        );
+        // Everything that serving takes is refused by its own name, and its value is not repeated.
+        for (others, named) in [
+            (&["--listen", "127.0.0.1:9000"][..], "--listen"),
+            (&["--tls-cert", "c.pem", "--tls-key", "k.pem"][..], "--tls-cert"),
+            (&["--tls-key", "k.pem"][..], "--tls-key"),
+            (&["--tls-self-signed"][..], "--tls-self-signed"),
+            (&["--tls-in-front"][..], "--tls-in-front"),
+            (&["--create-token-file", "token"][..], "--create-token-file"),
+            (&["--address-file", "address"][..], "--address-file"),
+            (&["--gateway-config", "gateways.json"][..], "--gateway-config"),
+        ] {
+            let refused = with(others).unwrap_err();
+            assert_eq!(
+                refused,
+                format!(
+                    "--import-team takes a team in and ends, and serves nothing: it does not go with {named}"
+                )
+            );
+        }
+        // Whichever comes first on the command line.
+        let first = import(&[
+            "--address-file",
+            "address",
+            "--join-secret-file",
+            "f",
+            "--import-team",
+            "ops",
+            "--data",
+            "d",
+        ]);
+        assert!(first.unwrap_err().contains("--address-file"));
     }
 
     #[test]

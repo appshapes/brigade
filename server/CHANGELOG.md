@@ -4,6 +4,17 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
+## [0.3.0] — 2026-11-12
+
+### Added
+
+- **A team that exists elsewhere can be taken in with its join secret.** `brigade-server --data <dir>
+  --import-team <name> --join-secret-file <file>`, run with the server stopped, writes the team with the
+  reference inside the secret and the secret's hash, and ends. The team's members then join the server with the
+  secret file they already have, so a team moves from a Supabase project to a server without a new secret and
+  keeps its reference. It is an operator's command: no address of the server takes a team in. Members, sessions
+  and waiting messages do not come over.
+
 ## [0.2.0] — 2026-11-12
 
 ### Added

@@ -9,6 +9,7 @@
 //!
 //! - [`wire`] reads and checks a request.
 //! - [`answer`] answers it against the [`state::State`] and makes its [`record::Entry`] of records.
+//! - [`import_team`] takes in a team that exists elsewhere, for the operator and for no request.
 //! - [`state::State::apply`] is what a restart and a standby run over the same records.
 
 pub mod error;
@@ -22,7 +23,7 @@ pub mod time;
 pub mod wire;
 
 pub use error::{Code, Error, envelope_error, envelope_ok};
-pub use execute::{Outcome, Request, answer, execute};
+pub use execute::{Outcome, Request, answer, execute, import_team};
 pub use hash::Entropy;
 pub use record::{Entry, Record};
 pub use state::State;

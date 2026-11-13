@@ -5,7 +5,8 @@
 
 use brigade_core::error::Code;
 use brigade_core::hash::sha256_hex;
-use brigade_core::{Entropy, Entry, Error, Request, State, Timestamp, answer};
+use brigade_core::record::Event;
+use brigade_core::{Entropy, Entry, Error, Record, Request, State, Timestamp, answer, import_team};
 use serde_json::{Value, json};
 
 /// A source of bytes that never repeats and is the same in every run.
@@ -96,6 +97,13 @@ impl Rig {
             team_ref: text(&result, "team_ref"),
         };
         (member, text(&result, "join_secret"))
+    }
+
+    /// Takes in a team that exists elsewhere, as the operator's command does: no request and no credential.
+    fn import(&mut self, team_name: &str, secret: &str) -> Result<Value, Error> {
+        let outcome = import_team(&mut self.state, team_name, secret, self.now)?;
+        self.log.extend(outcome.entry);
+        Ok(outcome.result)
     }
 
     /// Joins a team as a new principal.
@@ -243,6 +251,186 @@ fn a_rejected_join_is_one_answer_and_creates_nothing() {
         .unwrap_err();
     assert_eq!(malformed.code, Code::InvalidInput);
     assert_eq!(rig.list(&alice, true).len(), 0);
+}
+
+/// The reference of a team on a backend that names its teams with UUIDs.
+const ELSEWHERE: &str = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";
+
+/// The join secret a team has on another backend. It is put together when the test runs, because the
+/// repository's secret scan refuses a file that holds a whole one.
+fn secret_of(team_ref: &str, random: &str) -> String {
+    format!("brg1.{team_ref}.{random}")
+}
+
+#[test]
+fn a_team_taken_in_is_joined_with_the_secret_it_has_elsewhere() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    let taken = rig.import("ops", &secret).unwrap();
+    assert_eq!(
+        taken,
+        json!({"team_ref": ELSEWHERE, "team_name": "ops", "imported": true})
+    );
+    // One entry of one record: the team and its secret's hash, with no creator, no member and no principal.
+    let created = Event::TeamCreated {
+        team_ref: ELSEWHERE.into(),
+        team_name: "ops".into(),
+        join_secret_hash: sha256_hex(&secret),
+        created_by: String::new(),
+    };
+    assert_eq!(rig.log.len(), 1);
+    assert_eq!(rig.log[0].records, [Record::new(rig.now, created)]);
+    assert!(rig.state.teams[ELSEWHERE].members.is_empty());
+    assert!(rig.state.principals.is_empty() && rig.state.credentials.is_empty());
+    // The state and the log keep the hash and never the secret.
+    let stored = serde_json::to_string(&rig.state).unwrap();
+    let logged = String::from_utf8(rig.log.iter().flat_map(Entry::encode).collect()).unwrap();
+    assert!(!stored.contains("kept-from-the-other-backend"));
+    assert!(!logged.contains("kept-from-the-other-backend"));
+
+    // Its members join with the secret they have, and are a team exactly as on one that was created here.
+    rig.advance(5);
+    let alice = rig.join(&secret, "alice@example.com");
+    let bob = rig.join(&secret, "bob@example.com");
+    assert_eq!(
+        (alice.team_ref.as_str(), bob.team_ref.as_str()),
+        (ELSEWHERE, ELSEWHERE)
+    );
+    assert_ne!(alice.principal_ref, bob.principal_ref);
+    let a = rig.register(&alice, "alpha");
+    let b = rig.register(&bob, "beta");
+    assert_eq!(rig.list(&bob, false).len(), 2);
+    let sent = rig.send(&alice, &a, &b, "the first message here").unwrap();
+    let received = rig.receive(&bob, &b);
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0]["body"], json!("the first message here"));
+    assert_eq!(received[0]["team_ref"], json!(ELSEWHERE));
+    assert_eq!(received[0]["sender"]["human_label"], json!("alice@example.com"));
+    rig.ack(&bob, &b, &[&text(&sent, "message_id")]);
+    rig.send(&bob, &b, &a, "and its answer").unwrap();
+    assert_eq!(rig.receive(&alice, &a)[0]["body"], json!("and its answer"));
+    let roster = rig.ok(&alice, "/v1/team/members", json!({"team_ref": ELSEWHERE}));
+    assert_eq!(roster["team_name"], json!("ops"));
+    assert_eq!(roster["members"].as_array().unwrap().len(), 2);
+
+    // A wrong secret for the team's reference is refused as any wrong secret is, and creates nothing.
+    let before = rig.state.clone();
+    let wrong = secret_of(ELSEWHERE, "not-what-the-team-has");
+    let wrong = rig
+        .call(None, "/v1/team/join", json!({"join_secret": wrong}))
+        .unwrap_err();
+    let unknown = secret_of("no-such-team", "not-what-the-team-has");
+    let unknown = rig
+        .call(None, "/v1/team/join", json!({"join_secret": unknown}))
+        .unwrap_err();
+    assert_eq!(wrong, unknown);
+    assert_eq!(wrong.code, Code::Unauthorized);
+    assert_eq!(rig.state, before);
+
+    // A restart: every entry, read back from its bytes, makes the same state, the team that was taken in
+    // and everything its members did.
+    let mut replayed = State::default();
+    for entry in &rig.log {
+        replayed.replay(&Entry::decode(&entry.encode()).unwrap()).unwrap();
+    }
+    assert_eq!(replayed, rig.state);
+    // A snapshot: the state written and read back, a team with no creator in it.
+    let snapshot = serde_json::to_vec(&rig.state).unwrap();
+    assert_eq!(serde_json::from_slice::<State>(&snapshot).unwrap(), rig.state);
+}
+
+#[test]
+fn a_team_is_taken_in_once_and_never_under_a_second_secret() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    rig.import("ops", &secret).unwrap();
+    let alice = rig.join(&secret, "alice");
+    rig.register(&alice, "alpha");
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+
+    // Again, under whatever name: nothing changes, no entry is made, and the answer names the team as it is.
+    rig.advance(60);
+    let again = rig.import("renamed", &secret).unwrap();
+    assert_eq!(
+        again,
+        json!({"team_ref": ELSEWHERE, "team_name": "ops", "imported": false})
+    );
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+
+    // Another secret for the same reference is a conflict, told without a word of either secret.
+    let other = secret_of(ELSEWHERE, "another-secret-for-the-reference");
+    let conflict = rig.import("ops", &other).unwrap_err();
+    assert_eq!(conflict.code, Code::Conflict);
+    assert_eq!(reason(&conflict), "other_join_secret");
+    assert_eq!(
+        conflict.message,
+        "a team of that reference is here under another join secret"
+    );
+    let told = format!("{conflict:?}");
+    assert!(!told.contains("another-secret-for-the-reference"));
+    assert!(!told.contains("kept-from-the-other-backend"));
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+    // The team opens to the secret it was taken in with, and to no other.
+    assert_eq!(
+        rig.call(None, "/v1/team/join", json!({"join_secret": other}))
+            .unwrap_err()
+            .code,
+        Code::Unauthorized
+    );
+    assert_eq!(
+        rig.ok(&alice, "/v1/team/join", json!({"join_secret": secret}))["rejoined"],
+        json!(true)
+    );
+
+    // A team that was created here is held to the same: its own secret changes nothing, another is refused.
+    let (carol, created) = rig.create("carol");
+    let entries = rig.log.len();
+    let here = rig.import("renamed", &created).unwrap();
+    assert_eq!(
+        here,
+        json!({"team_ref": carol.team_ref, "team_name": "ops", "imported": false})
+    );
+    let forged = secret_of(&carol.team_ref, "another-secret-for-the-reference");
+    assert_eq!(rig.import("ops", &forged).unwrap_err().code, Code::Conflict);
+    assert_eq!(rig.log.len(), entries);
+}
+
+#[test]
+fn a_team_is_not_taken_in_without_a_join_secret_and_a_name_that_keeps_the_rule() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    // A text that is not a join secret is the refusal a join gives one, and holds nothing of the text.
+    let malformed = rig
+        .call(None, "/v1/team/join", json!({"join_secret": "nope"}))
+        .unwrap_err();
+    assert_eq!(malformed.code, Code::InvalidInput);
+    for not_a_secret in [
+        String::new(),
+        "not-a-join-secret".to_owned(),
+        ELSEWHERE.to_owned(),
+        secret.replacen("brg1.", "brg2.", 1),
+        secret_of(ELSEWHERE, "with a space"),
+        format!("{secret}\n"),
+    ] {
+        let refused = rig.import("ops", &not_a_secret).unwrap_err();
+        assert_eq!(refused, malformed, "{not_a_secret:?}");
+    }
+    // A name is held to the rule a created team's name is held to, in the same words.
+    for name in [String::new(), "é".repeat(65)] {
+        let created = rig
+            .call(None, "/v1/team/create", json!({"team_name": name}))
+            .unwrap_err();
+        let refused = rig.import(&name, &secret).unwrap_err();
+        assert_eq!(refused, created, "{name:?}");
+        assert_eq!(refused.details["field"], "team_name");
+    }
+    // Nothing of all that changed the state or made an entry, and a name at the cap is taken.
+    assert_eq!(rig.state, State::default());
+    assert!(rig.log.is_empty());
+    let at_cap = "é".repeat(64);
+    assert_eq!(rig.import(&at_cap, &secret).unwrap()["team_name"], json!(at_cap));
 }
 
 #[test]
