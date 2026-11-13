@@ -7,8 +7,11 @@
 // the leaves hold the details. Agents enter at CLAUDE.md, whose @imports load
 // the rule files under docs/agent/repository/. A harness Brigade ships a
 // package for is one entry in docs/harnesses.json and six pages the gate
-// requires. Run reports every rule the tree breaks; nothing here reaches the
-// network, so a site going down is never a red build (cavalry ADR 0006).
+// requires. A decision is an ADR under docs/decisions/ (decisions.go). Run
+// reports every rule the tree breaks; nothing here reaches the network, so a
+// site going down is never a red build (cavalry ADR 0006). The one thing
+// read beside the tree is its own git history, for the rule that a committed
+// ADR keeps its text.
 package docscheck
 
 import (
@@ -124,10 +127,15 @@ type Summary struct {
 	Harnesses int
 	Targets   int
 	Commands  int
+	Decisions int
 }
 
 func (s Summary) String() string {
-	return fmt.Sprintf("%d pages, %d links, %d harnesses, %d make targets, %d commands", s.Pages, s.Links, s.Harnesses, s.Targets, s.Commands)
+	adrs := "ADRs"
+	if s.Decisions == 1 {
+		adrs = "ADR"
+	}
+	return fmt.Sprintf("%d pages, %d links, %d harnesses, %d make targets, %d commands, %d %s", s.Pages, s.Links, s.Harnesses, s.Targets, s.Commands, s.Decisions, adrs)
 }
 
 // Run checks the repository at root and returns every finding. An error is
@@ -149,6 +157,7 @@ func Run(root string) ([]Finding, Summary, error) {
 	c.commands()
 	c.coverage()
 	c.changelog()
+	c.decisions()
 	sort.SliceStable(c.findings, func(i, j int) bool {
 		if c.findings[i].Check != c.findings[j].Check {
 			return c.findings[i].Check < c.findings[j].Check

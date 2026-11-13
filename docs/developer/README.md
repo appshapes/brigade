@@ -11,7 +11,7 @@ protocol and a conformance suite, developed on `master` through one gate that ev
 | run the gate, the tests, the proofs, or read what CI does | [Build and test](build-and-test/README.md) |
 | change the protocol, an adapter, the backend, a package, or add a harness | [Change](change/README.md) |
 | cut a release and send its notes | [Release](release/README.md) |
-| commit, work from the Brigade Board, hand work to the agentic loop | [Contribute](contribute/README.md) |
+| commit, work from the Brigade Board, record a decision, hand work to the agentic loop | [Contribute](contribute/README.md) |
 | add or change documentation, and keep the gate green | [Documentation](documentation/README.md) |
 | read the experiments, the research, the proof results and the execution log | [Evidence](evidence/README.md) |
 
@@ -38,7 +38,7 @@ publishes. [Release](release/README.md) includes the notes email and what the ow
 ## Contribute
 
 `<work item>: <Imperative summary>` through `make push`, merges only, a work item of the Brigade Board per piece
-of work. [Contribute](contribute/README.md) also covers the agentic loop.
+of work. [Contribute](contribute/README.md) also covers recording a decision as an ADR and the agentic loop.
 
 ## Documentation
 

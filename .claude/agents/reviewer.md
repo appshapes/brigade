@@ -92,6 +92,12 @@ your errand**: `go.mod`, `tools.mod` and the action pins belong to the dependenc
   must not appear in the adapter, the plugin, the repository or any CI variable that ships.
 - **Config paths.** Never hardcode `~/.claude`; it is `CLAUDE_CONFIG_DIR ?? ~/.claude`. Never read or copy
   `$CLAUDE_CONFIG_DIR/sessions/*.key`. The session registry JSON is read best-effort and never written.
+- **Decisions.** A change to the frozen protocol or the frozen REST contract, to what `docs/security.md` argues,
+  to an invariant in `docs/agent/repository/invariants.md` or to a default every team gets, or a new module in
+  the binary, with no ADR in `docs/decisions/` in the same PR, is a blocker (ADR 0001). So is an ADR whose Status
+  is Proposed, and an edit to an ADR already on `master` beyond its Status line, a dated Corrected entry in its
+  header or a link's target; `make docs-check` fails on those two, and on an ADR missing from the index's list.
+  An ADR the PR itself adds may be revised on the branch.
 - **Layering.** `internal/harness` must not import `internal/adapters/supabase` (depguard). The plugin speaks
   only the adapter protocol and spawns the bundled adapter as a child process.
 - **Tests stay Docker-free.** `make test` must not need Docker or a stack; live Supabase tests are opt-in behind

@@ -67,8 +67,8 @@ func copyDocsTree(t *testing.T) string {
 			}
 			return os.MkdirAll(filepath.Join(dst, relPath), 0o700)
 		}
-		if !d.Type().IsRegular() {
-			return nil
+		if !d.Type().IsRegular() || rel == ".git" {
+			return nil // a worktree's `.git` is a file: the copy is a plain tree, never a repository
 		}
 		data, err := os.ReadFile(p) //nolint:gosec // G304: a path under the repository being tested
 		if err != nil {
@@ -251,7 +251,89 @@ var docsMutations = []struct {
 		t.Helper()
 		docsWrite(t, root, docscheck.VersionFile, "9.9.9\n")
 	}},
+	{"decisions: an ADR with a bad name", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		docsWrite(t, root, docscheck.DecisionsDir+"/12-Planted_Decision.md", plantedADR("0012", "Accepted"))
+	}},
+	{"decisions: a reused number", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		plantADR(t, root, "9999-a-planted-decision.md", plantedADR("9999", "Accepted"))
+		plantADR(t, root, "9999-another-planted-decision.md", plantedADR("9999", "Accepted"))
+	}},
+	{"decisions: a title line of another number", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		plantADR(t, root, "9999-a-planted-decision.md", plantedADR("9998", "Accepted"))
+	}},
+	{"decisions: a Proposed ADR", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		plantADR(t, root, "9999-a-planted-decision.md", plantedADR("9999", "Proposed"))
+	}},
+	{"decisions: an ADR with no Status line", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		plantADR(t, root, "9999-a-planted-decision.md", strings.Replace(plantedADR("9999", "Accepted"), "- **Status:** Accepted\n", "", 1))
+	}},
+	{"decisions: superseded by an ADR that does not exist", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		plantADR(t, root, "9999-a-planted-decision.md", plantedADR("9999", "Superseded by 9998"))
+	}},
+	{"decisions: an ADR with no Decision section", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		plantADR(t, root, "9999-a-planted-decision.md", strings.Replace(plantedADR("9999", "Accepted"), "## Decision\n", "## What we do\n", 1))
+	}},
+	{"decisions: an ADR missing from the index", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		docsWrite(t, root, docscheck.DecisionsDir+"/9999-a-planted-decision.md", plantedADR("9999", "Accepted"))
+	}},
+	{"decisions: an ADR the index links, but not in its list", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		docsWrite(t, root, docscheck.DecisionsDir+"/9999-a-planted-decision.md", plantedADR("9999", "Accepted"))
+		docsAppend(t, root, docscheck.DecisionsIndex, "\nSee also [a planted decision](9999-a-planted-decision.md).\n")
+	}},
+	{"decisions: an index with no list section", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		docsReplace(t, root, docscheck.DecisionsIndex, "## The decisions\n", "## Some decisions\n")
+	}},
+	{"decisions: a misspelt Corrected entry", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		plantADR(t, root, "9999-a-planted-decision.md", strings.Replace(plantedADR("9999", "Accepted"),
+			"- **Supersedes:** none\n", "- **Supersedes:** none\n- **Corrected:** yesterday: the count\n", 1))
+	}},
+	{"decisions: a Corrected entry outside the header", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		plantADR(t, root, "9999-a-planted-decision.md", plantedADR("9999", "Accepted")+"\n- **Corrected:** 2026-11-14: the count was 3, not 4\n")
+	}},
+	{"decisions: no index", "decisions", func(t *testing.T, root string) {
+		t.Helper()
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(docscheck.DecisionsIndex))); err != nil {
+			t.Fatal(err)
+		}
+	}},
 }
+
+// plantedADR is a well-formed ADR of the given number and Status, with a fact in its Context and a sentence and a
+// link in its Decision for a mutation to change.
+func plantedADR(number, status string) string {
+	return "# " + number + ". Plant a decision for the gate to hold\n\n" +
+		"- **Status:** " + status + "\n- **Date:** 2026-11-13\n- **Supersedes:** none\n\n" +
+		"## Context\n\nThe gate counted 4 planted violations. See [the template](0000-template.md \"the template\"), " +
+		"[the index][idx] and the form `[words](target.md)`.\n\n[idx]: README.md\n\n" +
+		"## Decision\n\nWe plant one ADR. [The index](README.md) lists it.\n\n" +
+		"## Alternatives considered\n\n- Plant none. Lost: the rule would be unproven.\n\n" +
+		"## Evidence\n\nNone measured.\n\n## Consequences\n\nNone.\n\n## References\n\n- Work item 309.\n"
+}
+
+// plantADR writes an ADR into the copy and lists it in the index, under the section that lists the ADRs, so that
+// the one thing wrong with it is what the mutation made wrong.
+func plantADR(t *testing.T, root, name, text string) {
+	t.Helper()
+	docsWrite(t, root, docscheck.DecisionsDir+"/"+name, text)
+	docsReplace(t, root, docscheck.DecisionsIndex, plantedListEnd, plantedRow(name)+plantedListEnd)
+}
+
+// plantedListEnd is the heading that follows the index's list of ADRs, and plantedRow a row of that list.
+const plantedListEnd = "\n## Record a decision\n"
+
+func plantedRow(name string) string { return "- [a planted decision](" + name + ")\n" }
 
 // TestDocsGatePassesOnAnUnmutatedCopy is the positive control: the same code path on an untouched copy, and silence.
 func TestDocsGatePassesOnAnUnmutatedCopy(t *testing.T) {

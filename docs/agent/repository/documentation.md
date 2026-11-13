@@ -18,9 +18,21 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   `docs/adapter-authors.md`, `docs/backend-rest-v1.md` (frozen at version 1 with work item 89's first server release),
   `docs/sync-adapters.md`, `docs/mail-connectors.md`, `docs/webhook-gateway.md`,
   `docs/email/README.md`,
-  `docs/experiments/`, `docs/research/`, `scripts/ci/README.md`, `internal/adapters/fs/README.md`, and the
+  `docs/experiments/`, `docs/research/`, `docs/decisions/` (the ADRs, below), `scripts/ci/README.md`,
+  `internal/adapters/fs/README.md`, and the
   package page of every registered harness (`plugin/README.md`, `muse/brigade/README.md`,
   `codex/brigade/README.md`, `grok/brigade/README.md`).
+- **A decision is an ADR** (ADR 0001, work items 302 and 309): one file `docs/decisions/NNNN-short-title.md`,
+  copied from `0000-template.md`, with the next number, listed in `docs/decisions/README.md`, in the same change
+  as the code, the rule or the page it explains. Its Status is `Accepted`, `Accepted; superseded in part by NNNN`,
+  `Superseded by NNNN` or `Rejected`, never Proposed. Once it is on `master` it keeps its text: its Status line
+  changes when a later ADR supersedes it, and a fact that was wrong when it was written is corrected in place
+  under a dated header entry, `- **Corrected:** YYYY-MM-DD: <what was wrong, and what the ADR says now>`, after
+  the Supersedes line and any earlier entry. The title, the other header lines and the Decision section never
+  change, and an ADR is never removed or renamed: a change of mind is a new ADR that supersedes the old one.
+  Two things are not a change: a link in it is repointed when the page it names moves, and when two ADRs have
+  landed under one number, one of them takes the next free number with nothing else changed.
+  Which changes need one, and where a decision lives before it is made, is in [conventions.md](conventions.md).
 - **Agents enter at `CLAUDE.md`**, whose `@docs/agent/repository/<file>.md` imports load every rule file; a rule
   belongs in one of those files, never in `CLAUDE.md` itself, and every file under `docs/agent/repository/` must
   be imported there and linked from `AGENTS.md`. Inside a team, a Brigade skill is the agent's documentation:
@@ -41,11 +53,17 @@ The documentation is one tree for humans and one for agents (card 110, `.context
   (card 112; the generator calls `cli.Commands`, `cli.UsageAll`, `cli.UsageCommand` and `Command.OwnFlags`, so
   the gate needs no built binary); every command `brigade help --all` lists named as `brigade <name>` on at least
   one page of the tree other than the generated reference, `CHANGELOG.md` and the experiment reports (the skill
-  files and the research pages the reachability walk follows do not count); and a `## [<version>]` changelog
-  section for the version `plugin/bin/VERSION` pins. External links are never checked: a site going down is not
-  a bug in this repository.
+  files and the research pages the reachability walk follows do not count); a `## [<version>]` changelog
+  section for the version `plugin/bin/VERSION` pins; and the ADRs (the `decisions` check,
+  `scripts/ci/docs_decisions_test.go`): each one's name, number, title line, Status and `## Decision` section, its
+  place in the index's list, and, read from git, that an ADR which has landed on the default branch keeps its
+  text as the bullet above says, whether the edit is in the working tree, in a commit not yet on that branch or
+  in a pull request (a tree that is no repository skips that half; an ADR a branch added may be revised until it
+  merges; the gate does not look back at what the default branch already did). External links are never checked: a site going down
+  is not a bug in this repository.
 - **When you change** a `make` target's help line or a `brigade` command's table entry (name, arguments, summary
   or flags), run `make docs-generate`; a new command also needs a persona's page that names it. When you add a plugin option,
   document it in `options.md`. When you add a page, name it from a `Details:` line. When you add a harness, add
   the registry entry and the six pages. When a procedure changes, change the leaf and the TL;DR together, and
-  the three setup copies (`scripts/ci/setup_docs_test.go` joins the commands across them).
+  the three setup copies (`scripts/ci/setup_docs_test.go` joins the commands across them). When a change needs
+  an ADR, write it in the same change and list it in the index.

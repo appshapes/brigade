@@ -7,8 +7,10 @@ make docs-generate     # rewrite docs/developer/reference/make-targets.md from t
 ```
 
 The gate is `internal/docscheck`, offline, nothing outside the repository and the standard library (it imports
-`internal/cli` for the command table, so it needs no built binary), a second or two. `scripts/ci/docs_check_test.go`
-runs it inside `make test` against the repository and against a copy of the tree with each violation planted, so
+`internal/cli` for the command table, so it needs no built binary), a second or two. The one program it runs is
+`git`, to read the ADRs as the default branch has them for the `decisions` check. `scripts/ci/docs_check_test.go`
+runs it inside `make test` against the repository and against a copy of the tree with each violation planted
+(`scripts/ci/docs_decisions_test.go` does the same for an ADR's history, in a copy that is a git repository), so
 the gate is proven able to fail; `make push` therefore runs it before every commit, CI's `fast` job runs it as a
 step, `scripts/release-prep.sh` runs it as a precondition, and `release.yml` runs it as a guard before the build.
 
@@ -26,6 +28,7 @@ step, `scripts/release-prep.sh` runs it as a precondition, and `release.yml` run
 | `commands` | `docs/developer/reference/commands.md` differs from what `make docs-generate` writes from `internal/cli`'s command table |
 | `coverage` | a command `brigade help --all` lists is named as `brigade <name>` on no page of the tree other than the generated reference, `CHANGELOG.md` and the experiment reports |
 | `changelog` | `plugin/bin/VERSION` pins a version (not `0.0.0`) with no `## [<version>]` section in `CHANGELOG.md` |
+| `decisions` | an ADR under `docs/decisions/` is not named `NNNN-short-title.md`, reuses a number, does not start `# NNNN. `, has no valid Status (Proposed is not one) or no `## Decision` section, names a superseding ADR that does not exist, is not listed under "The decisions" in `docs/decisions/README.md`, or carries a misplaced or misspelt Corrected entry; and, where the tree is a git repository, an ADR that has landed on the default branch differs from its text there beyond its Status line without a new Corrected entry, in its title, another header line or its Decision section, or is gone from the tree (a link's target may change; one of two ADRs that landed under one number may be renumbered; an ADR a branch added may be revised until it merges) |
 
 External links are never checked: a site going down is not a bug in this repository. Markdown inside fenced code
 blocks and inline code is ignored. An anchor matches a heading by GitHub's slug rule, and by letters and digits

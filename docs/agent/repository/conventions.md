@@ -116,6 +116,22 @@
   it to Done without being asked (2026-11-13, work item 265: the done check of the removed `trello-done`). When
   something is still open, say what it is and leave the work item where it is; never report one as finished
   without having moved it. Done is not closed: closing is the owner's word, as it was for work item 264.
+- **Decisions** (ADR 0001; the file's own rules are in [documentation.md](documentation.md)). An ADR is required
+  for a change to the frozen protocol or the frozen REST contract, to what `docs/security.md` argues, to an
+  invariant in [invariants.md](invariants.md), to a default that every team gets, and for a new module in the
+  shipped binary; it is encouraged for anything a newcomer would ask "why" about. A decision that waits on
+  someone (the owner's own hand, another session, evidence not yet measured) is not a file: it is a work item
+  tagged `decision` beside `brigade`, with the question, the options and the evidence in the ADR template's
+  sections and the ruling as a comment; the owner's ruling is asked for with
+  `brigade decision --to <the owner's roster label> --card <work item>`, the question on stdin, and the session
+  that receives the answer records it with `brigade work-item comment <work item>` and closes the ask with
+  `brigade decision --close <id>`. Once it is ruled, the ADR lands with the change it explains, its References name the work item, and the work item's landing
+  comment names the ADR. A decision a session makes on its own inside a work item needs no work item of its own:
+  its ADR lands in that work item's change. The rulings made before ADR 0001 stay where they were written (no
+  backfill). A decision is written once: a plan is how a piece of work is designed and the execution log is
+  where the work stands, and from ADR 0001 on a plan, a log row and a rule file name the ADR by its number
+  instead of retelling its reasons. The agentic loop's runner has no board: its agent writes the ADR in its pull
+  request and names the work item its issue's title names.
 - **Skills of this repository** live in `.claude/skills/`: `commit`, `playwright-cli`. The Brigade plugin's own
   skills (`plugin/skills/`, `muse/brigade/skills/`, `codex/brigade/skills/`, `grok/brigade/skills/`) are the
   product.

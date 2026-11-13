@@ -6,6 +6,7 @@
 | --- | --- |
 | commit and push a change | [Commit and push](#commit-and-push) |
 | read, add, start or finish the work item the work belongs to | [Work from the Brigade Board](#work-from-the-brigade-board) |
+| record a decision, or correct one that is recorded | [Record a decision](#record-a-decision) |
 | hand a piece of work to the repository's agents | [Use the agentic loop](#use-the-agentic-loop) |
 
 ## Commit and push
@@ -23,6 +24,14 @@ Details: [Commit and push](commits.md).
 3. A work item is finished when on `master` with CI green and nothing on it is open; then comment and move it to Done, unasked. Closing is the owner's.
 
 Details: [Work from the Brigade Board](work-items.md).
+
+## Record a decision
+
+1. A decision a newcomer would ask "why" about is an ADR: `docs/decisions/NNNN-short-title.md`, copied from `0000-template.md`, listed in the index, in the same change as what it explains.
+2. While it waits on someone it is a work item tagged `decision`; ask for the owner's ruling with `brigade decision --to <label> --card <work item>`, the question on stdin. A file is never Proposed.
+3. On `master` an ADR keeps its text: only its Status line changes, or a wrong fact is corrected under a dated `- **Corrected:**` header entry.
+
+Details: [Decisions](../../decisions/README.md).
 
 ## Use the agentic loop
 

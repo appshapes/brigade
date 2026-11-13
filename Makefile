@@ -392,7 +392,7 @@ codex-plugin-check: ## Static checks of codex/brigade/, the Codex CLI package (c
 	sh scripts/ci/codex-plugin-check.sh
 
 .PHONY: docs-check
-docs-check: ## The documentation gate (cards 110, 112): README and persona shapes, links and anchors, orphans, harness pages, options, the generated make-target and command pages, a page for every command, the changelog section (CI)
+docs-check: ## The documentation gate (cards 110, 112; work item 309): README and persona shapes, links and anchors, orphans, harness pages, options, the generated make-target and command pages, a page for every command, the changelog section, the ADRs and that a landed one keeps its text (CI)
 	go run ./cmd/brigade-docs check
 
 .PHONY: grok-plugin-check
