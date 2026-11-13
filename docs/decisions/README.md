@@ -9,6 +9,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 ## The decisions
 
 - [0001. Record decisions as ADRs in the repository](0001-record-decisions-as-adrs.md)
+- [0002. Close a decision's ask from the asker's side, with the ruling as its outcome](0002-close-a-decisions-ask-from-the-askers-side.md)
 
 ## Record a decision
 
@@ -16,9 +17,11 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
    session or on evidence not yet measured is a work item on the Brigade Board tagged `decision` beside `brigade`:
    the question, the options and the evidence in the sections of [the template](0000-template.md), and the ruling
    as a comment. Ask for the owner's ruling with
-   `brigade decision --to <the owner's roster label> --card <work item>`, the question on stdin; when the answer
-   comes, record it with `brigade work-item comment <work item>` and close the ask with
-   `brigade decision --close <id>`.
+   `brigade decision --to <the owner's roster label> --card <work item>`, the question on stdin. The session that
+   receives the answer records it with `brigade work-item comment <work item>`, the owner's words on stdin. The
+   asking session, or another session of the member who asked, closes the ask with
+   `brigade decision --close <the ask's id>`, the ruling as its outcome on stdin; a session of another member
+   that receives the answer records it and tells the asker (ADR 0002).
 2. **Once it is decided**, copy the template to `NNNN-short-title.md` with the next number, the title in the
    imperative, and write it in the same change as the code, the rule or the page it explains. Until it is on
    `master` it can still be revised, on a pull request's branch too. Its Status is
