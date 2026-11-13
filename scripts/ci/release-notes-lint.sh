@@ -101,7 +101,7 @@ if grep -n -E 'sbp_[A-Za-z0-9]{20,}|sb_secret_|eyJ[A-Za-z0-9_-]{20,}\.eyJ' "$not
 # 7. An email only: nobody's address, and nothing that points into the tracker or the plans.
 if [ "$kind" = email ]; then
   if grep -n -E '[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}' "$notes"; then fail "the email carries an address (above)"; else ok "no address"; fi
-  if grep -n -i -E '(^|[^A-Za-z])(card|ticket)s? #?[0-9]+|(^|[^A-Za-z0-9])P[0-9]+-[0-9]+' "$notes"; then fail "the email names a card or a plan row (above)"; else ok "no card or plan row"; fi
+  if grep -n -i -E '(^|[^A-Za-z])(card|ticket)s? #?[0-9]+|\(work[ -]items? #?[0-9]+|(^|[^A-Za-z])work[ -]items? #[0-9]+|(^|[^A-Za-z0-9])P[0-9]+-[0-9]+' "$notes"; then fail "the email names a card, a work item or a plan row (above)"; else ok "no card, work item or plan row"; fi
 fi
 
 # 8. An email only: the draft renders. The renderer reads the draft from the checkout's root (an image's

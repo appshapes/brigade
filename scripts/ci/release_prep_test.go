@@ -302,18 +302,47 @@ func TestReleasePrepRefusals(t *testing.T) {
 		wantFail(t, r.run(nil, "0.0.0"), "pre-release sentinel", "version=X.Y.Z")
 	})
 
-	t.Run("no card is refused: nothing pins the commit's card", func(t *testing.T) {
+	t.Run("no work item is refused: nothing pins the commit's number", func(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
-		wantFail(t, r.run(nil, "0.1.0"), "card=<n>", "Trello card the release belongs to")
+		res := r.run(nil, "0.1.0")
+		wantFail(t, res, "work_item=<n>", "the work item on the team's Brigade Board that the release belongs to", "card=<n> is still accepted")
+		if strings.Contains(res.all(), "Trello") {
+			t.Fatalf("the usage still sends the reader to Trello:\n%s", res.all())
+		}
 	})
 
-	t.Run("a card that is not a number is refused", func(t *testing.T) {
+	t.Run("a work item that is not a number is refused", func(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
-		wantFail(t, r.run([]string{"card=15; touch pwned"}, "0.1.0"), "card must be a Trello card number")
+		wantFail(t, r.run([]string{"work_item=15; touch pwned"}, "0.1.0"), "work_item must be a work item's number")
+		if r.exists("pwned") {
+			t.Fatal("the work item reached a shell")
+		}
+	})
+
+	// card=<n> is the name the number had until work item 265. It is still accepted with the same meaning, so it
+	// meets the same refusal, in the words of today.
+	t.Run("a card that is not a number is refused as a work item", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		res := r.run([]string{"card=15; touch pwned"}, "0.1.0")
+		wantFail(t, res, "work_item must be a work item's number", "15; touch pwned")
+		if strings.Contains(res.all(), "Trello") {
+			t.Fatalf("the refusal still names Trello:\n%s", res.all())
+		}
 		if r.exists("pwned") {
 			t.Fatal("the card reached a shell")
+		}
+	})
+
+	t.Run("a work item and a card that disagree are refused before anything is written", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		res := r.run([]string{"DRY_RUN=1", "work_item=20", "card=15"}, "0.1.0")
+		wantFail(t, res, "work_item='20' and card='15' disagree", "pass one of them")
+		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
+			t.Fatalf("VERSION was bumped although the two numbers disagree: %q", got)
 		}
 	})
 
@@ -321,7 +350,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
 		r.write("plugin/bin/VERSION", "0.0.0\nstray\n", 0o600)
-		res := r.run([]string{"card=15"}, "0.1.0")
+		res := r.run([]string{"work_item=15"}, "0.1.0")
 		wantFail(t, res, "tree not clean")
 		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\nstray\n" {
 			t.Fatalf("a refused run still wrote VERSION: %q", got)
@@ -333,20 +362,20 @@ func TestReleasePrepRefusals(t *testing.T) {
 		r := newRepo(t)
 		r.write("staged.txt", "x\n", 0o600)
 		r.git("add", "staged.txt")
-		wantFail(t, r.run([]string{"card=15"}, "0.1.0"), "tree not clean")
+		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0"), "tree not clean")
 	})
 
 	t.Run("the wrong branch is refused", func(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
 		r.git("switch", "-q", "-c", "feature/x")
-		wantFail(t, r.run([]string{"card=15"}, "0.1.0"), "release from master, not 'feature/x'")
+		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0"), "release from master, not 'feature/x'")
 	})
 
 	t.Run("a branch argument that does not match is refused", func(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
-		wantFail(t, r.run([]string{"card=15"}, "0.1.0", "rehearsal/other"), "release from rehearsal/other, not 'master'")
+		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0", "rehearsal/other"), "release from rehearsal/other, not 'master'")
 	})
 
 	t.Run("an absent plugin manifest is refused before anything is written", func(t *testing.T) {
@@ -354,7 +383,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		r := newRepo(t)
 		r.git("rm", "-q", "plugin/.claude-plugin/plugin.json")
 		r.git("commit", "-qm", "drop the manifest")
-		res := r.run([]string{"card=15"}, "0.1.0")
+		res := r.run([]string{"work_item=15"}, "0.1.0")
 		wantFail(t, res, "plugin/.claude-plugin/plugin.json does not exist", "P3-1")
 		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
 			t.Fatalf("VERSION was bumped despite the refusal: %q", got)
@@ -365,7 +394,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
 		r.remove("bin/goreleaser")
-		wantFail(t, r.run([]string{"card=15"}, "0.1.0"), "make setup-goreleaser")
+		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0"), "make setup-goreleaser")
 	})
 
 	t.Run("a version with no changelog section is refused", func(t *testing.T) {
@@ -373,7 +402,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		r := newRepo(t)
 		r.write("CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n## [0.0.9] — 2026-01-01\n", 0o600)
 		r.git("commit", "-qam", "drop the section")
-		wantFail(t, r.run([]string{"card=15"}, "0.1.0"), "CHANGELOG.md has no '## [0.1.0]' section")
+		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0"), "CHANGELOG.md has no '## [0.1.0]' section")
 		if r.exists("dist-cross/checksums.txt") {
 			t.Fatal("the build ran although the changelog section is missing")
 		}
@@ -383,7 +412,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
 		r.writeAbs(filepath.Join(r.stubBin, "make"), "#!/bin/sh\nprintf 'make %s\\n' \"$*\" >> make.log\n[ \"${1:-}\" = docs-check ] && exit 1\nexit 0\n", 0o700)
-		wantFail(t, r.run([]string{"card=15"}, "0.1.0"), "the documentation gate failed")
+		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0"), "the documentation gate failed")
 		if strings.Contains(r.read("plugin/bin/VERSION"), "0.1.0") {
 			t.Fatal("the pins were bumped although the documentation gate failed")
 		}
@@ -395,7 +424,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		r.museFiles()
 		r.git("rm", "-q", "marketplace.json")
 		r.git("commit", "-qm", "the catalog is gone")
-		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
+		res := r.run([]string{"DRY_RUN=1", "work_item=15"}, "0.1.0")
 		wantFail(t, res, "marketplace.json is missing")
 		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
 			t.Fatalf("the pins were bumped although the catalog is missing: %q", got)
@@ -413,7 +442,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		r.write(".gitignore", r.read(".gitignore")+".DS_Store\n", 0o600)
 		r.git("commit", "-qam", "ignore Finder's files")
 		r.write("muse/brigade/skills/join/.DS_Store", "junk\n", 0o600)
-		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
+		res := r.run([]string{"DRY_RUN=1", "work_item=15"}, "0.1.0")
 		wantFail(t, res, "muse/brigade/ holds files git does not track", "muse/brigade/skills/join/.DS_Store")
 		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
 			t.Fatalf("the pins were bumped although the package holds an untracked file: %q", got)
@@ -426,7 +455,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		r.museFiles()
 		// The stub `go` still answers the toolchain question, and fails the one command the precondition runs.
 		r.writeAbs(filepath.Join(r.stubBin, "go"), "#!/bin/sh\nif [ \"$*\" = 'run ./cmd/brigade-muse-digest check' ]; then echo 'muse-digest: the catalog'\\''s digest is stale' >&2; exit 1; fi\nprintf '%s\\n' "+shellQuote("go"+goLine)+"\n", 0o700)
-		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
+		res := r.run([]string{"DRY_RUN=1", "work_item=15"}, "0.1.0")
 		wantFail(t, res, "marketplace.json is not what 'make muse-digest' writes for this tree", "the catalog's digest is stale")
 		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
 			t.Fatalf("the pins were bumped although the catalog is stale: %q", got)
@@ -444,7 +473,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		r := newRepo(t)
 		r.museFiles()
 		r.writeAbs(filepath.Join(r.stubBin, "go"), "#!/bin/sh\nprintf 'go %s\\n' \"$*\" >> \"$HOME/go.log\"\nprintf '%s\\n' "+shellQuote("go"+goLine)+"\n", 0o700)
-		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
+		res := r.run([]string{"DRY_RUN=1", "work_item=15"}, "0.1.0")
 		wantPass(t, res, "4. go run ./cmd/brigade-muse-digest write", "stopping before the commit")
 		if got := r.read("muse/brigade/bin/VERSION"); got != "0.1.0\n" {
 			t.Fatalf("the Muse package's pin was not bumped: %q", got)
@@ -468,7 +497,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
 		r.stubGo("go1.0.0") // whatever GOTOOLCHAIN asked for, the toolchain that answers is a different one
-		wantFail(t, r.run([]string{"card=15"}, "0.1.0"), "cannot select toolchain go"+goLine, "go1.0.0")
+		wantFail(t, r.run([]string{"work_item=15"}, "0.1.0"), "cannot select toolchain go"+goLine, "go1.0.0")
 	})
 
 	t.Run("running outside the repository root is refused", func(t *testing.T) {
@@ -480,7 +509,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		//nolint:gosec // G204: a fixed script path and a literal argument
 		cmd := exec.CommandContext(t.Context(), "sh", script, "0.1.0")
 		cmd.Dir = sub
-		cmd.Env = r.env("card=15")
+		cmd.Env = r.env("work_item=15")
 		out, err := cmd.CombinedOutput()
 		if err == nil {
 			t.Fatalf("exit 0, want non-zero\n%s", out)
@@ -497,7 +526,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		// correction 4): a single-line manifest reads as "declares no version", so the bump must not pass.
 		r.write("plugin/.claude-plugin/plugin.json", `{"name": "brigade", "version": "0.0.0"}`+"\n", 0o600)
 		r.git("commit", "-qam", "single-line manifest")
-		wantFail(t, r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0"), "the bump did not take", "must start its own line")
+		wantFail(t, r.run([]string{"DRY_RUN=1", "work_item=15"}, "0.1.0"), "the bump did not take", "must start its own line")
 		// The manifest is bumped and verified BEFORE VERSION is written, so the refusal must not strand a
 		// bumped VERSION beside a stale manifest -- git must see the tree exactly as the run found it.
 		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
@@ -514,7 +543,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		// `git diff`/`git diff --cached` do not see untracked files, but step 4's `make push` runs
 		// `git add --verbose :/ .`, which would sweep this into the release commit the tag points at.
 		r.write("scratch-note.txt", "not reviewed\n", 0o600)
-		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
+		res := r.run([]string{"DRY_RUN=1", "work_item=15"}, "0.1.0")
 		wantFail(t, res, "tree not clean", "scratch-note.txt")
 		if got := r.read("plugin/bin/VERSION"); got != "0.0.0\n" {
 			t.Fatalf("a refused run still wrote VERSION: %q", got)
@@ -526,7 +555,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		r := newRepo(t)
 		// DRY_RUN is a switch: `DRY_RUN=true` must fail SAFE. If it fell through to the real path the script
 		// would cp the checksums, run `make push` and `git tag -a`/`git push origin` for real.
-		res := r.run([]string{"DRY_RUN=true", "card=15"}, "0.1.0")
+		res := r.run([]string{"DRY_RUN=true", "work_item=15"}, "0.1.0")
 		wantPass(t, res, "stopping before the commit")
 		if strings.Contains(r.read("make.log"), "push") {
 			t.Fatalf("DRY_RUN=true ran make push:\n%s", r.read("make.log"))
@@ -546,7 +575,7 @@ func TestReleasePrepRefusals(t *testing.T) {
 		t.Parallel()
 		r := newRepo(t)
 		r.stubGoreleaser(true)
-		res := r.run([]string{"DRY_RUN=1", "card=15"}, "0.1.0")
+		res := r.run([]string{"DRY_RUN=1", "work_item=15"}, "0.1.0")
 		wantFail(t, res, "drifted apart")
 		if strings.Contains(r.read("make.log"), "push") {
 			t.Fatalf("make push ran after the drift was detected:\n%s", r.read("make.log"))
@@ -562,7 +591,7 @@ func TestReleasePrepDryRun(t *testing.T) {
 
 	r := newRepo(t)
 	r.git("switch", "-q", "-c", "rehearsal/test")
-	res := r.run([]string{"DRY_RUN=1", "card=20"}, "0.1.0", "rehearsal/test") // card 20, not the pinned 15
+	res := r.run([]string{"DRY_RUN=1", "work_item=20"}, "0.1.0", "rehearsal/test") // work item 20, not a pinned one
 	wantPass(t, res,
 		"preparing v0.1.0 on rehearsal/test with GOTOOLCHAIN=go"+goLine,
 		"1. pinned plugin/bin/VERSION",
@@ -597,7 +626,7 @@ func TestReleasePrepDryRun(t *testing.T) {
 	// steps 4 and 5 were PRINTED, not run
 	for _, want := range []string{
 		`4. cp dist/checksums.txt plugin/bin/checksums.txt`,
-		`4. make push message="20: Release 0.1.0"`, // the card passed in, not a pinned one
+		`4. make push message="20: Release 0.1.0"`, // the work item passed in, not a pinned one
 		`5. git tag -a v0.1.0 -m v0.1.0 && git push origin v0.1.0`,
 	} {
 		if !strings.Contains(res.all(), want) {
@@ -615,5 +644,65 @@ func TestReleasePrepDryRun(t *testing.T) {
 	}
 	if got := r.gitOut("tag", "--list"); got != "" {
 		t.Fatalf("DRY_RUN=1 created a tag: %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// the number's two names
+
+// TestReleasePrepTakesAWorkItemOrACard pins the alias of work item 265: the number of the release commit is
+// work_item=<n>, and card=<n>, its name until then, still means the same, so no command a person or a script
+// typed before stops working. Each case runs the dry run to its end and reads the commit it announces.
+func TestReleasePrepTakesAWorkItemOrACard(t *testing.T) {
+	t.Parallel()
+
+	for _, c := range []struct {
+		name string
+		env  []string
+	}{
+		{"work_item alone", []string{"work_item=20"}},
+		{"card alone, the earlier name", []string{"card=20"}},
+		{"both, saying the same number", []string{"work_item=20", "card=20"}},
+		{"work_item with an empty card, as make release work_item=<n> passes them", []string{"work_item=20", "card="}},
+		{"card with an empty work_item, as make release card=<n> passes them", []string{"work_item=", "card=20"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRepo(t)
+			res := r.run(append([]string{"DRY_RUN=1"}, c.env...), "0.1.0")
+			wantPass(t, res, `4. make push message="20: Release 0.1.0"`, "stopping before the commit")
+		})
+	}
+}
+
+// TestMakeReleasePassesBothNamesOfTheNumber holds the `release` target's side of the same alias by running it:
+// it refuses when neither name is given, and it hands the script both names, each quoted, so that a value make
+// was given reaches the script's own check whole and never the shell. Only the refusal runs for real; the recipe
+// that would call the script is read from `make -n`.
+func TestMakeReleasePassesBothNamesOfTheNumber(t *testing.T) {
+	t.Parallel()
+	root := testutil.RepoRoot(t)
+	run := func(args ...string) (string, error) {
+		//nolint:gosec // G204: make on the repository's own Makefile with this test's literal arguments
+		cmd := exec.CommandContext(t.Context(), "make", append([]string{"-C", root}, args...)...)
+		// make takes a variable from the environment too, and an outer `make test` exports its flags: neither
+		// may reach this one.
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	out, err := run("release", "version=9.9.9")
+	if err == nil || !strings.Contains(out, "usage: make release version=X.Y.Z work_item=<n> [branch=<name>]") {
+		t.Fatalf("make release with neither work_item nor card: err %v, want the usage and a failure\n%s", err, out)
+	}
+	for _, c := range []struct{ name, arg, want string }{
+		{"work_item", "work_item=20", "work_item='20' card='' scripts/release-prep.sh 9.9.9"},
+		{"card", "card=20", "work_item='' card='20' scripts/release-prep.sh 9.9.9"},
+		{"a value the shell would split", "work_item=20; touch pwned", "work_item='20; touch pwned' card='' scripts/release-prep.sh 9.9.9"},
+	} {
+		out, err := run("-n", "release", "version=9.9.9", c.arg)
+		if err != nil || !strings.Contains(out, c.want) {
+			t.Errorf("%s: make -n release %s: err %v, want the recipe %q in\n%s", c.name, c.arg, err, c.want, out)
+		}
 	}
 }

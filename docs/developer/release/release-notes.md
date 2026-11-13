@@ -7,7 +7,7 @@ lints it.
 
 - **The recipients** are a list kept by hand in the secret `RELEASE_NOTES_RECIPIENTS`. This repository is public,
   so the addresses are secrets, never variables and never a file; every reader is `bcc`; the list is read after the
-  last agent step. Never print, upload, commit or put on a card a recipient's address.
+  last agent step. Never print, upload, commit or put on a work item a recipient's address.
 - **The gate.** A writer drafts, the lint and a reviewer read it, the writer gets one fix cycle, and the second
   review is bounded to the first review's findings and the lines the fix changed (the first draft is kept beside
   the second), because a finding first raised after the last fix can only refuse the email: runs 36636440249 and

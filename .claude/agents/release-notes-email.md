@@ -74,7 +74,8 @@ the demo card at the end — is the renderer's. You write the words.
   `/tmp/brigade-email/brigade --help` lists the verb, and an option only if `plugin.json` defines it. Take the
   name from the listing, never from memory.
 - Links are absolute, under `https://github.com/appshapes/brigade`. A relative link goes nowhere from an inbox.
-- Never write: a card or ticket number, a plan row, a conformance case, a commit, a path into the source tree, a
+- Never write: the number of a work item, card or ticket this repository tracks its own work by (a number in a
+  sentence about the Brigade Board, such as an example of moving one, is not that), a plan row, a conformance case, a commit, a path into the source tree, a
   release asset or a checksum, the name or the address of a person, or the word "Unreleased".
 - Never invent a change. If the sources do not say what a change means for a member, leave it out.
 

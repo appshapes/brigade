@@ -1,10 +1,11 @@
 # Cut a release
 
 ```sh
-make release version=0.32.0 card=110          # on a clean master, with bin/goreleaser (make setup-goreleaser)
+make release version=0.32.0 work_item=110     # on a clean master, with bin/goreleaser (make setup-goreleaser)
 ```
 
-`scripts/release-prep.sh` does, in order:
+`work_item` is the number of the release's work item on the team's Brigade Board. `card=<n>`, its earlier name,
+is still accepted with the same meaning; given both, they must agree. `scripts/release-prep.sh` does, in order:
 
 0. **Preconditions**: a version token, a clean tree (untracked files included: step 4 stages everything), the
    expected branch, the manifests, `bin/goreleaser`, the Muse catalog `marketplace.json` current
@@ -21,7 +22,7 @@ make release version=0.32.0 card=110          # on a clean master, with bin/gore
 4. **Commit**: `cp dist/checksums.txt plugin/bin/checksums.txt`, the same into `muse/brigade/bin/`,
    `codex/brigade/bin/` and `grok/brigade/bin/`,
    `go run ./cmd/brigade-muse-digest write` (the digest Muse computes over the final `muse/brigade/`, and the
-   version, into `marketplace.json`), then `make push message="<card>: Release <v>"` (typecheck, pull, build, test with the
+   version, into `marketplace.json`), then `make push message="<work item>: Release <v>"` (typecheck, pull, build, test with the
    documentation gate, commit, push).
 5. **Tag**: `git tag -a v<v> && git push origin v<v>`.
 
@@ -40,14 +41,15 @@ nothing.
 - If the failure was in the workflow alone, a rerun of `make release` dies at step 4 with nothing to commit: do step
   5 by hand (`git tag -a v<v> -m v<v> && git push origin v<v>`). Until the retag keep every fix to non-Go files: a
   Go change makes `checksums-check`'s fresh build differ from the committed file.
-- `DRY_RUN=1 card=<n> scripts/release-prep.sh <v>` does steps 1 to 3 for real and prints 4 and 5.
+- `DRY_RUN=1 work_item=<n> scripts/release-prep.sh <v>` does steps 1 to 3 for real and prints 4 and 5.
 - `make release-dry-run` is goreleaser's check and a local release without publishing.
 
 ## After
 
 Both Claude Code personas on a developer's machine update like any member's; the `make plugin-dev` pointer is
-unaffected. Comment the card with the version and close it when its criteria are met. When the changelog names a
-migration or a gateway change, the Project Owners apply it ([Apply a release](../../project-owner/update/apply-a-release.md)).
+unaffected. Comment the release's work item with the version; closing it is the owner's. When the changelog
+names a migration or a gateway change, the Project Owners apply it
+([Apply a release](../../project-owner/update/apply-a-release.md)).
 
 A tree in which `make release` has not run carries the pre-release `0.0.0` and an empty checksums file, and its
 plugin has nothing to download.

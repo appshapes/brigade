@@ -55,7 +55,7 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `checksums-check` | Fail if plugin/bin/{VERSION,checksums.txt} disagree with plugin.json, a fresh build, or the published release (CI) |
 | `launcher` | Rebuild plugin/bin/brigade.exe, the committed Windows launcher, with the release flags (commit it when cmd/brigade-launcher, the toolchain or golang.org/x/sys changes) |
 | `launcher-check` | Fail unless a fresh build of cmd/brigade-launcher reproduces the committed plugin/bin/brigade.exe byte for byte (CI) |
-| `release` | Pin the plugin to $(version), commit through the push chain as `$(card): Release $(version)`, tag v$(version) and push the tag (usage: make release version=0.1.0 card=<n> [branch=<throwaway>] — branch only for the P2-12 rehearsal) |
+| `release` | Pin the plugin to $(version), commit through the push chain as `$(work_item): Release $(version)`, tag v$(version) and push the tag (usage: make release version=0.1.0 work_item=<n> [branch=<throwaway>] — work_item is the number of the release's work item on the team's Brigade Board, card=<n> still means the same, branch only for the P2-12 rehearsal) |
 | `release-dry-run` | goreleaser check + a local release without publishing (needs a clean tree and a tag on HEAD) |
 | `email-picture` | Capture one picture for the release-notes email into docs/email/$(version)-$(slug).png, 1040 px wide, then print the CHANGELOG line to add (usage: make email-picture version=0.28.0 slug=mail-summary; drag a rectangle) |
 | `email-pictures-check` | Check docs/email/ and the CHANGELOG's picture lines against docs/email/README.md's rules (make test runs the same check) |

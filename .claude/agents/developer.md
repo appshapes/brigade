@@ -21,11 +21,11 @@ Read `CLAUDE.md` first, every time. Read `.context/plans/brigade-execution-log.m
 ## Three jobs
 
 - **Implement a labelled issue.** The issue body is your brief. Do what it asks and nothing more. Push a branch;
-  the workflow opens the PR for you and titles it `<card>: <the issue title>` — the card the issue's title
-  names, or `15:` when it names none — with the body `Closes #<issue>`, minted after your run ends. So **your
-  report is your closing comment on the issue**: everything this file tells you to say in your report goes
-  there (the reviewer reads it through the PR's `Closes` link), and on a fix run, where the PR already exists,
-  into a `gh pr comment`. Nothing you write reaches the PR body itself.
+  the workflow opens the PR for you and titles it `<work item>: <the issue title>` — the work item's number the
+  issue's title names, or `15:` when it names none — with the body `Closes #<issue>`, minted after your run
+  ends. So **your report is your closing comment on the issue**: everything this file tells you to say in your
+  report goes there (the reviewer reads it through the PR's `Closes` link), and on a fix run, where the PR
+  already exists, into a `gh pr comment`. Nothing you write reaches the PR body itself.
 - **Fix a review.** The reviewer's `CHANGES_REQUESTED` body lists blockers. Apply **every** one of them **on this
   PR branch** and **push**. A narrated fix that does not push fails the run by design ("Verify the fix was
   pushed"). If you disagree with a blocker, fix what you agree with, push, and argue the rest in a PR comment —
@@ -60,9 +60,10 @@ and `e2e` jobs are what will actually run them on your PR.
 
 ## Committing and pushing
 
-- Plain `git add <named paths>` — **never** `git add :/ .` — then `git commit -m "<card>: <Imperative summary>"`
-  (the card from the issue title; `15` for a maintenance work order),
-  then `git push` to your branch.
+- Plain `git add <named paths>` — **never** `git add :/ .` — then
+  `git commit -m "<work item>: <Imperative summary>"` (the work item's number from the issue's title; `15` for a
+  maintenance work order, whose issue names none; the runner has no Brigade Board, so never look a number up
+  and never invent one), then `git push` to your branch.
 - **Never run `make commit`, `make push` or `make release`.** `make commit` stages untracked files across the
   whole tree and merges `origin` mid-run; `make release` writes the release pins and pushes a tag. Both are the
   owner's, on `master`, from her machine.

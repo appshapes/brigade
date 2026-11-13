@@ -8,7 +8,7 @@ one subject and is the only place its rules live.
 
 | If you want to | Go to |
 | --- | --- |
-| commit, push, open, start or close a card, place a plan or a scratch file | [Follow the conventions](#follow-the-conventions) |
+| commit, push, read, start or finish a work item, place a plan or a scratch file | [Follow the conventions](#follow-the-conventions) |
 | touch the protocol, stdout, a secret, a configuration directory or a dependency | [Keep the invariants](#keep-the-invariants) |
 | know what must pass before a push and before a release | [Pass the gates](#pass-the-gates) |
 | add or change a page, a harness's pages, or the documentation gate | [Write documentation](#write-documentation) |
@@ -16,9 +16,11 @@ one subject and is the only place its rules live.
 
 ## Follow the conventions
 
-1. `master`, merges only, never rebase; `make push message="<card>: <Imperative summary>"` or `/commit <card>`.
+1. `master`, merges only, never rebase; `make push message="<work item>: <Imperative summary>"` or
+   `/commit <work item>`, the number being the work item's on the team's Brigade Board.
 2. Plans in `.context/plans/`, scratch in `.ignored/`; a finished piece of work adds its execution-log row.
-3. A card is done when shipped and nothing on it is open; then `/trello-done <card>`, unasked.
+3. `/work-item-start <n>` takes a work item to Done; one is finished when on `master` with CI green and nothing
+   on it is open: then the landing comment and the move to Done, unasked. Closing is the owner's.
 
 Details: [Conventions](conventions.md).
 
@@ -53,7 +55,7 @@ Details: [Documentation](documentation.md).
 
 ## Change the automation
 
-1. Recipients of the release-notes email are a secret, never printed, committed or put on a card.
+1. Recipients of the release-notes email are a secret, never printed, committed or put on a work item.
 2. Agents of the loop commit with plain `git` on their branch; a `maintenance` PR needs no execution-log row.
 3. Only `anthropics/claude-code-action` is pinned by full SHA; every other action stays on its major tag.
 

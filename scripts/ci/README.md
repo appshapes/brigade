@@ -173,10 +173,12 @@ The release sequence of plan 7.7, in five steps: pin `plugin/bin/VERSION` and `p
 to the version, rebuild and re-checksum the cross-compiled binaries, commit through the push chain, then tag
 `v<version>` and push the tag — which is what fires `release.yml`.
 
-Invoked by `make release version=X.Y.Z card=<n> [branch=<name>]`, the card naming the release commit
-(`<card>: Release X.Y.Z`). It refuses to run without one, on a dirty tree, refuses any branch
-but `master` unless `branch=` is passed, and refuses to rewrite a published tag, because `plugin/bin/checksums.txt`
-is a compatibility surface for every plugin installed from that commit.
+Invoked by `make release version=X.Y.Z work_item=<n> [branch=<name>]`, the number of the release's work item on
+the team's Brigade Board naming the release commit (`<work item>: Release X.Y.Z`); `card=<n>`, the number's
+earlier name, is still accepted with the same meaning, and the two are refused when they disagree. It refuses to
+run without one, on a dirty tree, refuses any branch but `master` unless `branch=` is passed, and refuses to
+rewrite a published tag, because `plugin/bin/checksums.txt` is a compatibility surface for every plugin installed
+from that commit.
 
 Needs `git`, the Go toolchain named by `go.mod` and `bin/goreleaser` (`make setup-goreleaser`, which needs `gh`).
 When the tree carries the Muse Code package, step 4 runs `go run ./cmd/brigade-muse-digest write`, which computes
@@ -281,7 +283,7 @@ does not carry (`absentSkill`) rather than hard-coding one — a literal there w
 
 With `BRIGADE_NOTES_KIND=email` the file is the release-notes email of `send-release-notes.yml` and `<tag>` is the
 newest release it covers: the asset checks are skipped (an email lists none, and `BRIGADE_NOTES_ASSETS` is not
-read) and three are added — the email carries nobody's address; no card or plan row, which the changelog it is
+read) and three are added — the email carries nobody's address; no card, work item or plan row, which the changelog it is
 composed from is full of; and the draft renders, read in `-check` mode by the email's renderer
 (`cmd/brigade-release-email`, the path in `BRIGADE_EMAIL_RENDERER`, card 73), which knows the shape the writer's
 brief asks for and nothing else, so a table, a quote, raw HTML, a nested list, a relative link or an image the

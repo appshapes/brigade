@@ -188,10 +188,16 @@ func TestReleaseNotesLintPassesAGoodEmail(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "release-notes-lint: clean") {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	for _, want := range []string{"ok: the notes name 0.5.1", "ok: /brigade:update exists", "ok: no address", "ok: no card or plan row", "ok: the draft renders as the email"} {
+	for _, want := range []string{"ok: the notes name 0.5.1", "ok: /brigade:update exists", "ok: no address", "ok: no card, work item or plan row", "ok: the draft renders as the email"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
+	}
+	// A work item is also a thing of the product: an email may show one being moved without pointing into
+	// this repository's tracker (work item 265).
+	code, out = lintKind(t, "email", goodEmail+"\nMove work item 41 to Doing, and the team sees it on the board.\n", commands, "", skills)
+	if code != 0 {
+		t.Fatalf("a sentence about the board's work items was refused: exit %d\n%s", code, out)
 	}
 	// The install command carries an `@` and is not an address.
 	code, out = lintKind(t, "email", goodEmail+"\nInstall with `/plugin install brigade@brigade`.\n", commands, "", skills)
@@ -208,8 +214,13 @@ func TestReleaseNotesLintEmailRefusals(t *testing.T) {
 		want  string
 	}{
 		{"an address", goodEmail + "\nWrite to someone@example.com.\n", "FAIL: the email carries an address"},
-		{"a card", strings.Replace(goodEmail, "is running.", "is running (card 34).", 1), "FAIL: the email names a card or a plan row"},
-		{"a plan row", strings.Replace(goodEmail, "is running.", "is running (P23-1).", 1), "FAIL: the email names a card or a plan row"},
+		{"a card", strings.Replace(goodEmail, "is running.", "is running (card 34).", 1), "FAIL: the email names a card, a work item or a plan row"},
+		// A work item's number is what a card's was (work item 265), where it points into the tracker: in
+		// brackets, as the changelog cites one, or with a #.
+		{"a work item in brackets", strings.Replace(goodEmail, "is running.", "is running (work item 272).", 1), "FAIL: the email names a card, a work item or a plan row"},
+		{"work items in brackets", strings.Replace(goodEmail, "is running.", "is running (work-items 272 and 275).", 1), "FAIL: the email names a card, a work item or a plan row"},
+		{"a work item with a #", strings.Replace(goodEmail, "is running.", "is running, see work item #272.", 1), "FAIL: the email names a card, a work item or a plan row"},
+		{"a plan row", strings.Replace(goodEmail, "is running.", "is running (P23-1).", 1), "FAIL: the email names a card, a work item or a plan row"},
 		{"a skill that does not exist", strings.Replace(goodEmail, "`/brigade:update`", "`/brigade:no-such-skill`", 1), "FAIL: /brigade:no-such-skill is not a skill"},
 		{"the newest version unnamed", strings.ReplaceAll(goodEmail, "0.5.1", "0.5.0"), "FAIL: the notes never name version 0.5.1"},
 		// The renderer's reading (card 73): what the layout cannot show is a finding, with its line.
@@ -253,7 +264,7 @@ func TestReleaseNotesLintKindsDiffer(t *testing.T) {
 	if code, out := lint(t, carded, commands, assets, skills); code != 0 {
 		t.Fatalf("one release's notes were refused for naming a card: exit %d\n%s", code, out)
 	}
-	if code, out := lintKind(t, "email", carded, commands, "", skills); code != 1 || !strings.Contains(out, "FAIL: the email names a card or a plan row") {
+	if code, out := lintKind(t, "email", carded, commands, "", skills); code != 1 || !strings.Contains(out, "FAIL: the email names a card, a work item or a plan row") {
 		t.Fatalf("an email naming a card passed: exit %d\n%s", code, out)
 	}
 	if code, out := lintKind(t, "digest", goodEmail, commands, "", skills); code != 1 || !strings.Contains(out, "FAIL: BRIGADE_NOTES_KIND is neither unset nor email") {

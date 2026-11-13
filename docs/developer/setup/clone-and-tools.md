@@ -20,7 +20,7 @@ job rebuilds from the tag with that toolchain and diffs against the committed ch
 | `make muse-plugin-check`, `make muse-digest` | the same shellcheck, and no Muse Code: the check verifies `marketplace.json`'s digest and `muse-digest` rewrites it with the repository's own computation; with Muse installed, `make test` also has Muse install the package from the catalog, and `muse plugins validate ./muse/brigade` covers the schema half |
 | `make codex-plugin-check` | nothing beyond POSIX sh and git; a local `codex plugin marketplace add <clone>` then `codex plugin add brigade@brigade` installs the package when Codex is installed |
 | the real-Syncthing tests | `syncthing` on `PATH` (`brew install syncthing`); measured with 2.1.5 |
-| the Trello skills | [Work a card](../contribute/cards.md) |
+| the Brigade Board, where the work items are | the Brigade plugin, this machine joined to the team, `syncthing` on `PATH` ([Work from the Brigade Board](../contribute/work-items.md)) |
 
 `make help` lists every target; a trailing ` (CI)` marks the ones a workflow step runs; the generated
 [make targets](../reference/make-targets.md) page is the same list. Plans go in `.context/plans/`, ephemeral

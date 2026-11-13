@@ -1,7 +1,7 @@
 ---
 name: commit
-description: Commit, pull, and push changes using make push with a ticket-prefixed message
-argument-hint: "[ticket-id]"
+description: Commit, pull, and push changes using make push with a message prefixed by the work item's number
+argument-hint: "<work item number>"
 ---
 
 Commit the current working tree changes using this project's `make push` target.
@@ -9,11 +9,11 @@ Commit the current working tree changes using this project's `make push` target.
 `make push` = `make commit` + `git push`. `make commit` alone typechecks, pulls, builds, tests,
 ownership-lints, stages and commits, but does NOT push — so this skill uses `make push`.
 
-The ticket ID is: $ARGUMENTS
+The work item's number is: $ARGUMENTS
 
-## 1. Validate the ticket ID
+## 1. Validate the work item's number
 
-If `$ARGUMENTS` is empty or non-numeric, stop and ask the user to provide a numeric ticket ID (e.g., `/commit 1234`). Do not proceed.
+If `$ARGUMENTS` is empty or non-numeric, stop and ask the user for the number of the work item on the team's Brigade Board that the change belongs to (e.g., `/commit 270`). Do not proceed, and do not invent a number.
 
 ## 2. Analyze changes
 
@@ -36,9 +36,9 @@ Scan every added line (`+` prefix) in the diff output — in ALL files, not just
 
 Based on the changes, write a commit message:
 
-- Format: `<ticket-id>: <Message>` (e.g., `1262: Drizzle schema introspection`)
+- Format: `<work item>: <Message>` (e.g., `270: Let the commit skill run without asking for approval`)
 - One line, under 72 characters when possible
-- Imperative mood, capitalized first word after the ticket prefix
+- Imperative mood, capitalized first word after the number
 - Summarize the intent (why), not a list of files changed
 - Avoid shell-special characters (quotes, backticks, dollar signs) in the message
 
@@ -47,7 +47,7 @@ Based on the changes, write a commit message:
 Do not ask the user to approve the commit (owner ruling, 2026-11-12). Print the command, then run exactly:
 
 ```
-make push "message=<ticket-id>: <generated message>"
+make push "message=<work item>: <generated message>"
 ```
 
 This typechecks, builds, tests, ownership-lints, commits, pulls, and pushes. The only stops are the ones in steps 1 to 3.

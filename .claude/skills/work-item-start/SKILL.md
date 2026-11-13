@@ -6,13 +6,13 @@ argument-hint: "<work item number> [<collaborator session name>]"
 Take one work item of the team's Brigade Board from reading it to Done, landed on `master` with CI green, in this
 session. The first argument is the work item's number; the optional second is the name of another session of the
 same user that works the work item with this one, as its follower. This is the port of the `trello-start` skill
-(work item 265): the same way of working, on the board instead of Trello.
+this repository had until 2026-11-12 (work item 265): the same way of working, on the board instead of Trello.
 
 The arguments are: $ARGUMENTS
 
 ## The mandate
 
-This is what the user is asking for, in their words as `trello-start` carried them, said of a work item. "Me" is
+This is what the user is asking for, in their words as that earlier skill carried them, said of a work item. "Me" is
 the user of this session.
 
 > Review work item <number>. Then, if necessary, interact with me about scoping and implementation. Once we agree
@@ -56,9 +56,9 @@ check).
 1. **Read the work item**: `brigade work-item show <number>`. A closed work item, or one assigned to another
    member, is not this session's to take without a word: say what you found and ask the user whether to go on.
    Read what it points at (a plan in `.context/plans/`, an experiment report, a research digest, a changelog
-   section, an archived Trello card through the `trello-read` skill) where its words are not enough. Then **take
-   it**: `brigade work-item assign <number> --mine`, then `brigade work-item move <number> doing`. Set this
-   session's roster line: `brigade doing` with one sentence naming the work item. Name the session after it:
+   section) where its words are not enough. Then **take it**: `brigade work-item assign <number> --mine`, then
+   `brigade work-item move <number> doing`. Set this session's roster line: `brigade doing` with one sentence
+   naming the work item. Name the session after it:
    `brigade rename <<'EOF'`, then `<number>-<slug>`, the slug being the title in lowercase with apostrophes
    dropped and every other run of characters that are not letters or digits made one hyphen, cut at a hyphen to
    at most 35 characters (`265-port-this-repositorys-trello-skills`), then `EOF`; Claude Code applies it at the

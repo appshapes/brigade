@@ -1,6 +1,7 @@
 #!/bin/sh
-# usage: card=<n> scripts/release-prep.sh <version> [branch]   (run by `make release version=0.1.0 card=<n> [branch=<name>]`)
-#        DRY_RUN=1 card=<n> scripts/release-prep.sh <version> [branch]   -- steps 1-3 for real, then stop and PRINT 4-5
+# usage: work_item=<n> scripts/release-prep.sh <version> [branch]   (run by `make release version=0.1.0 work_item=<n> [branch=<name>]`)
+#        DRY_RUN=1 work_item=<n> scripts/release-prep.sh <version> [branch]   -- steps 1-3 for real, then stop and PRINT 4-5
+#        card=<n> is still accepted in place of work_item=<n>, with the same meaning
 #
 # The release sequence of plan 7.7. plugin/bin/checksums.txt must already be in the commit the tag points at (a
 # plugin installed from that commit verifies the downloaded binary against it), but the release workflow builds
@@ -15,7 +16,7 @@
 #   3  cross-check          goreleaser's own build of the same four targets; the two checksums.txt must be
 #                           identical, which is what stops .goreleaser.yaml and the Makefile drifting apart
 #   4  commit               cp dist/checksums.txt plugin/bin/checksums.txt (and the two copies), rewrite
-#                           marketplace.json's digest; make push message="<card>: Release <v>"
+#                           marketplace.json's digest; make push message="<work item>: Release <v>"
 #   5  tag                  git tag -a v<v> && git push origin v<v>  ->  release.yml builds, verifies, publishes
 #
 # POSIX sh, no process substitution, `shellcheck -s sh` clean (plugin-check.sh check 7 enforces it). Never
@@ -55,9 +56,12 @@ grok_json=grok/brigade/.grok-plugin/plugin.json
 grok_bin=grok/brigade/bin
 
 v=${1:-}
-# The commit message's card: `<card>: Release <v>` is the house rule, the number being the AppShapes Trello card
-# the release belongs to. `make release card=<n>` passes it in the environment, like DRY_RUN, because the second
-# positional is already the optional branch. Nothing is pinned here: no card, no release.
+# The commit message's work item: `<work item>: Release <v>` is the house rule, the number being the one the
+# release's work item has on the team's Brigade Board. `make release work_item=<n>` passes it in the environment,
+# like DRY_RUN, because the second positional is already the optional branch. `card=<n>` is the name the number
+# had until work item 265 and is still accepted with the same meaning, so nothing a person or a script types
+# breaks; the preconditions refuse the two when they disagree. Nothing is pinned here: no work item, no release.
+work_item=${work_item:-}
 card=${card:-}
 # `make release` passes $(branch), which is EMPTY when the caller did not set it, so an empty second argument
 # has to mean the default too -- ${2:-master} alone would leave want_branch empty and no branch would match.
@@ -71,7 +75,7 @@ case ${DRY_RUN:-0} in
 esac
 
 # ---- preconditions -------------------------------------------------------------------------------------------
-[ -n "$v" ] || die "usage: scripts/release-prep.sh <version> [branch]   (make release version=X.Y.Z [branch=<name>])"
+[ -n "$v" ] || die "usage: scripts/release-prep.sh <version> [branch]   (make release version=X.Y.Z work_item=<n> [branch=<name>])"
 case $v in
   v*)                   die "pass the version without the leading 'v' (got '$v'); the script tags v<version> itself" ;;
   # `make release` with no version= does NOT hit the Makefile's `test -n "$(version)"` guard: `version ?=
@@ -83,9 +87,13 @@ case $v in
   [0-9]*.[0-9]*.[0-9]*) ;;
   *)                    die "not a MAJOR.MINOR.PATCH version: '$v'" ;;
 esac
-case $card in
-  '')        die "usage: make release version=X.Y.Z card=<n> [branch=<name>]: card is the AppShapes Trello card the release belongs to (the commit reads '<card>: Release X.Y.Z')" ;;
-  *[!0-9]*)  die "card must be a Trello card number (got '$card')" ;;
+if [ -n "$work_item" ] && [ -n "$card" ] && [ "$work_item" != "$card" ]; then
+  die "work_item='$work_item' and card='$card' disagree: card=<n> is the earlier name of work_item=<n>, so pass one of them (make also takes either from a variable exported in your shell: unset the one you did not mean)"
+fi
+[ -n "$work_item" ] || work_item=$card
+case $work_item in
+  '')        die "usage: make release version=X.Y.Z work_item=<n> [branch=<name>]: work_item is the number of the work item on the team's Brigade Board that the release belongs to (the commit reads '<work item>: Release X.Y.Z'); card=<n> is still accepted with the same meaning" ;;
+  *[!0-9]*)  die "work_item must be a work item's number (got '$work_item')" ;;
 esac
 
 if [ ! -f go.mod ] || [ ! -f "$version_file" ]; then
@@ -205,7 +213,7 @@ if [ "$dry_run" = 1 ]; then
   say "DRY_RUN=1: stopping before the commit. A real run would now:"
   say "  4. cp dist/checksums.txt $committed"
   [ ! -f "$muse_json" ] || say "  4. go run ./cmd/brigade-muse-digest write   (marketplace.json's digest and version)"
-  say "  4. make push message=\"$card: Release $v\""
+  say "  4. make push message=\"$work_item: Release $v\""
   say "  5. git tag -a v$v -m v$v && git push origin v$v"
   exit 0
 fi
@@ -219,7 +227,7 @@ cp dist/checksums.txt "$committed"
 # The package's bin/ is final now, so its digest is the release's (card 115); step 4's `make push` verifies the
 # written catalog again through `make test`.
 [ ! -f "$muse_json" ] || go run ./cmd/brigade-muse-digest write
-make push message="$card: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push
+make push message="$work_item: Release $v"     # typecheck -> pull -> build -> test -> add -> commit -> push
 say "4. committed $committed and marketplace.json"
 
 # ---- 5. tag the commit that now carries VERSION + checksums --------------------------------------------------------

@@ -496,9 +496,9 @@ launcher-check: ## Fail unless a fresh build of cmd/brigade-launcher reproduces 
 	  fi
 
 .PHONY: release
-release: ## Pin the plugin to $(version), commit through the push chain as `$(card): Release $(version)`, tag v$(version) and push the tag (usage: make release version=0.1.0 card=<n> [branch=<throwaway>] — branch only for the P2-12 rehearsal)
-	@test -n "$(version)" && test -n "$(card)" || { echo "usage: make release version=X.Y.Z card=<n> [branch=<name>]"; exit 1; }
-	card=$(card) scripts/release-prep.sh $(version) $(branch)
+release: ## Pin the plugin to $(version), commit through the push chain as `$(work_item): Release $(version)`, tag v$(version) and push the tag (usage: make release version=0.1.0 work_item=<n> [branch=<throwaway>] — work_item is the number of the release's work item on the team's Brigade Board, card=<n> still means the same, branch only for the P2-12 rehearsal)
+	@test -n "$(version)" && test -n "$(work_item)$(card)" || { echo "usage: make release version=X.Y.Z work_item=<n> [branch=<name>]   (card=<n> still means work_item=<n>)"; exit 1; }
+	work_item='$(work_item)' card='$(card)' scripts/release-prep.sh $(version) $(branch)
 
 .PHONY: release-dry-run
 release-dry-run: ## goreleaser check + a local release without publishing (needs a clean tree and a tag on HEAD)

@@ -8,7 +8,7 @@ documentation; on this repository you are a contributor, and `CLAUDE.md` is your
 | If you want to | Go to |
 | --- | --- |
 | take part in a team from a session: the roster, sending, replying, the frame around a message, your roster line | [In a team](in-a-team/README.md) |
-| work on this repository: the rules, the gates, the cards, the documentation | [On this repository](repository/README.md) |
+| work on this repository: the rules, the gates, the work items, the documentation | [On this repository](repository/README.md) |
 
 ## In a team
 

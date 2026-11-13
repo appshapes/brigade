@@ -386,14 +386,17 @@ jobs:
             exit 1
           fi
           # The commit-message rule, enforced where the title is MINTED rather than hoped for at merge time.
-          # CLAUDE.md: `<card>: <Imperative summary>`, the card being the Trello card the work belongs to; the
-          # squash merge takes its subject from this title because squash_merge_commit_title=PR_TITLE is set on
-          # the repository (see the brief's §4.10). Issue titles written by _create-claude-issue.yml are
-          # imperative and unprefixed and belong to the umbrella card, 15. A human's issue names its own card
-          # in its title (`22: …`), so keep it: until 2026-09-16 only a literal `15: ` was kept and every other
-          # card's PR was minted `15: <title>` and retitled by hand (PR #8, `15:` → `19:`, the P11-6 row).
+          # CLAUDE.md: `<work item>: <Imperative summary>`, the number being the work item's on the team's
+          # Brigade Board; the squash merge takes its subject from this title because
+          # squash_merge_commit_title=PR_TITLE is set on the repository (see the brief's §4.10). This runner has
+          # no board, so the number is never looked up here and never invented: a human's issue names its work
+          # item in its title (`22: …`), so keep it. Issue titles written by _create-claude-issue.yml are
+          # imperative and unprefixed: maintenance work orders, which take 15, the number of the build-out
+          # (umbrella) card of the Trello days and not a work item of the board. Until 2026-09-16 only a
+          # literal `15: ` was kept and every other number's PR was minted `15: <title>` and retitled by hand
+          # (PR #8, `15:` → `19:`, the P11-6 row).
           case "$TITLE" in
-            [0-9]*": "*) PR_TITLE="$TITLE" ;;        # the issue names its card: keep it
+            [0-9]*": "*) PR_TITLE="$TITLE" ;;        # the issue names its work item: keep it
             *)           PR_TITLE="15: $TITLE" ;;    # unprefixed: the scheduled callers' maintenance work orders
           esac
           # Labels are copied from the ISSUE, which is where the policy decision was made:

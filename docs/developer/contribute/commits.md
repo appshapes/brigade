@@ -11,9 +11,10 @@ documentation gate), stages **every** working-tree change (`git add --verbose :/
 the push. In a shared checkout, check `git status` first: another session's edits are staged too. On a merge
 conflict, stop and hand it back; never `git merge --abort` into a rebase, never a force-push.
 
-- **The message** is `<card>: <Imperative summary>`, the number being the AppShapes Trello card the work belongs to
-  ([Work a card](cards.md)). `/commit <card>` in Claude Code writes the message from the diff and runs the chain
-  without asking for approval; it refuses without a numeric card and stops at anything that looks like a secret.
+- **The message** is `<work item>: <Imperative summary>`, the number being the work item's on the team's Brigade
+  Board ([Work from the Brigade Board](work-items.md)). `/commit <work item>` in Claude Code writes the message
+  from the diff and runs the chain without asking for approval; it refuses without a number and stops at anything
+  that looks like a secret.
 - **The execution log.** `.context/plans/brigade-execution-log.md` is the single source of truth for where the work
   stands: a commit that finishes a piece of work adds its row in the same commit. A PR labelled `maintenance` is
   exempt.
