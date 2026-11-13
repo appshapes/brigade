@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.53.0] — 2026-11-12
+
 ### Added
 
 - **A team on a Brigade server can be administered** (work item 274).
