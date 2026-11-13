@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.53.1] — 2026-11-13
+
 ### Fixed
 
 - **A repository that moves to another team keeps syncing its folders**
