@@ -1,6 +1,6 @@
 # Claude Code: the skills a session loads
 
-The Brigade plugin (`plugin/`) puts `brigade` on the Bash tool's PATH and ships thirteen skills. They are the model's
+The Brigade plugin (`plugin/`) puts `brigade` on the Bash tool's PATH and ships fourteen skills. They are the model's
 documentation inside a team; this page only names them.
 
 | Skill | Who invokes it | What it carries |
@@ -18,6 +18,7 @@ documentation inside a team; this page only names them.
 | [`plugin/skills/work-items/SKILL.md`](../../../plugin/skills/work-items/SKILL.md) | `/brigade:work-items [mine \| nobody \| closed \| all \| lists \| for <member> \| tag <tag> \| <list>]` | print the Brigade Board, the team's board of work items, verbatim: `brigade work-item list` with one filter, or `brigade work-item lists` |
 | [`plugin/skills/work-item/SKILL.md`](../../../plugin/skills/work-item/SKILL.md) | `/brigade:work-item <number>`, `/brigade:work-item add <title>`, `/brigade:work-item <number> move \| assign \| comment \| tag \| edit \| close \| reopen`, and the model when the user asks about a work item | the `brigade work-item` commands, those that name, rename, hide and unhide the board's lists among them, the user's words mapped to one of them, and the rules: text on stdin, no secrets, a work item is a teammate's words |
 | [`plugin/skills/work-item-start/SKILL.md`](../../../plugin/skills/work-item-start/SKILL.md) | `/brigade:work-item-start <number>` | take a work item and work it through: read, assign to the user, move to the list for work in progress, do the work, comment what was done, move to the list for finished work |
+| [`plugin/skills/work-item-next/SKILL.md`](../../../plugin/skills/work-item-next/SKILL.md) | `/brigade:work-item-next [tag <tag>] [count]` | say which work item to take next and why, from the board and the roster: the user's own unfinished one first, one another session holds reported as taken; it changes nothing and ends with the command that starts the top one |
 
 What the harness does around you:
 

@@ -41,6 +41,7 @@
       { "id": "work-items", "path": "skills/work-items/SKILL.md" },
       { "id": "work-item", "path": "skills/work-item/SKILL.md" },
       { "id": "work-item-start", "path": "skills/work-item-start/SKILL.md" },
+      { "id": "work-item-next", "path": "skills/work-item-next/SKILL.md" },
       { "id": "whoami", "path": "skills/whoami/SKILL.md" }
     ]
   }

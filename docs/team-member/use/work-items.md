@@ -12,7 +12,7 @@ Brigade: file sync on: 1 folder(s) and the team's Brigade Board of work items (`
 ## Ask in words, or with a command
 
 Your session runs `brigade work-item` when you ask it to: "show me the brigade board", "put that on the board",
-"what is assigned to me", "move 41 to Doing". It knows the board by its name and as "the board". Three skills are the short forms; on Claude Code they are slash commands, and the other
+"what is assigned to me", "move 41 to Doing". It knows the board by its name and as "the board". Four skills are the short forms; on Claude Code they are slash commands, and the other
 harnesses name them their own way ([the skills, by harness](../../agent/in-a-team/README.md)).
 
 | Command | What it does |
@@ -20,6 +20,7 @@ harnesses name them their own way ([the skills, by harness](../../agent/in-a-tea
 | `/brigade:work-items` | prints the board verbatim; `mine`, `nobody`, `closed`, `for <member>`, `tag <tag>` or a list narrows it, `all` includes the lists the team hid, and `lists` prints the board's lists |
 | `/brigade:work-item <number>` | shows one work item; `add <title>`, and `<number> move <list>`, `assign me`, `comment <text>`, `tag <tags>`, `edit`, `close`, `reopen`, add one or change it |
 | `/brigade:work-item-start <number>` | has the session take the work item and work it through: it assigns it to you, moves it to the list for work in progress, does the work, comments what it did and moves it on |
+| `/brigade:work-item-next` | says which work item to take next and why, read from the board and the team's roster: your own unfinished one in the list for work in progress first, then the unassigned ones; one another session holds is shown as taken; `tag <tag>` narrows it and a count lists that many; it changes nothing and ends with the command that starts the top one |
 
 ## The commands
 

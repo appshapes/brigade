@@ -6,7 +6,7 @@ description: >-
   the user where the work item leaves it open, does the work under the project's own rules, then comments on
   the work item with what was done and moves it to the board's list for finished work. Use when the user asks
   to start, take, pick up or work on a work item by its number. Reading or changing a work item without working
-  on it is `brigade:work-item`; showing the board is `brigade:work-items`.
+  on it is `brigade:work-item`; showing the board is `brigade:work-items`; choosing which one to take next is `brigade:work-item-next`.
 user-invocable: true
 argument-hint: "<number>"
 ---

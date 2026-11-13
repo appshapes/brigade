@@ -9,6 +9,22 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **`/brigade:work-item-next` says which work item to take next** (work
+  item 300), in all four packages (`brigade:work-item-next` in Muse Code,
+  `$brigade:work-item-next` in Codex). It reads the Brigade Board and the
+  team's roster and prints the next work item with why it is next: your
+  own unfinished one in the list for work in progress first, then one
+  there that nobody holds, then the other lists by number. A work item
+  another member holds, or one a live session's name or roster line
+  names, is shown as taken; one whose own text says it waits on something
+  not yet met is shown as waiting. `tag <tag>` narrows it to one tag, and
+  a count lists that many in order, up to 10. Where the project's own
+  instructions say how its next work is chosen, it follows them. It
+  changes nothing on the board and ends with the command that starts the
+  top one, which it does not run.
+
 ### Changed
 
 - **A work item holds a much longer text** (work item 304). A description

@@ -16,7 +16,7 @@
 | `internal/syncthing`, `internal/syncadapters/syncthing`, `internal/harness/foldersync` | the Syncthing engine (the one daemon Brigade runs), the sync adapter's policy over it, and the harness side of the sync protocol |
 | `internal/adapters/rest`, `cmd/brigade-rest-stub` | the bundled `rest` adapter for [the backend REST contract](../../backend-rest-v1.md), and a stand-in server for its tests (dev and test only) |
 | `server/` | the Brigade server (work item 89): a Rust workspace of its own, `brigade-core`, `brigade-log` and `brigade-server`, outside the acceptance gate ([Change the server](server.md)) |
-| `plugin/` | the Claude Code package: manifest, hooks, thirteen skills, the sh bootstrap and the release pins |
+| `plugin/` | the Claude Code package: manifest, hooks, fourteen skills, the sh bootstrap and the release pins |
 | `muse/brigade/` | the Muse Code package: native manifest, one wrapper per hook, the skills, copies of the pins |
 | `codex/brigade/`, `.agents/plugins/` | the Codex CLI package (native manifest, `hooks/hooks.json`, the skills, copies of the pins) and the marketplace file that names it |
 | `grok/brigade/`, `.grok-plugin/` | the Grok Build package (native manifest, `hooks/hooks.json`'s four hooks, the skills, copies of the pins) and the marketplace file that names it |

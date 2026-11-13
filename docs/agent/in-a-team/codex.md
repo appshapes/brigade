@@ -10,7 +10,7 @@ The ` | <folder>` Codex shows after that name in its terminal title is Codex's o
 repository's root), not part of the name and not on the roster
 ([measured](../../experiments/codex-terminal-title.md), card 190).
 
-The Codex CLI package (`codex/brigade/`) ships the same thirteen skills, worded for Codex. They are the model's
+The Codex CLI package (`codex/brigade/`) ships the same fourteen skills, worded for Codex. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 
 | Skill | Who invokes it | What it carries |
@@ -28,6 +28,7 @@ documentation inside a team; this page names them and says what differs from Cla
 | [`codex/brigade/skills/work-items/SKILL.md`](../../../codex/brigade/skills/work-items/SKILL.md) | `$brigade:work-items [mine \| nobody \| closed \| all \| lists \| for <member> \| tag <tag> \| <list>]` | print the Brigade Board, the team's board of work items, verbatim |
 | [`codex/brigade/skills/work-item/SKILL.md`](../../../codex/brigade/skills/work-item/SKILL.md) | `$brigade:work-item <number>`, `$brigade:work-item add <title>`, `$brigade:work-item <number> move \| assign \| comment \| tag \| edit \| close \| reopen` | read, add or change one work item, or name, rename, hide or unhide the board's lists, with one `brigade work-item` command |
 | [`codex/brigade/skills/work-item-start/SKILL.md`](../../../codex/brigade/skills/work-item-start/SKILL.md) | `$brigade:work-item-start <number>` | take a work item and work it through, then comment and move it |
+| [`codex/brigade/skills/work-item-next/SKILL.md`](../../../codex/brigade/skills/work-item-next/SKILL.md) | `$brigade:work-item-next [tag <tag>] [count]` | say which work item to take next and why, from the board and the roster; it changes nothing |
 
 What differs from Claude Code:
 

@@ -8,7 +8,7 @@ map. The reader uses `$HOME/.local/share/muse/sessions`: Muse strips `XDG_*` fro
 directories are unsupported. Missing/unsupported records preserve the last known name and leave unobserved
 context blank. See [format evidence, validation limits and read bounds](../../research/host-session-facts.md).
 
-The Muse Code package (`muse/brigade/`) ships the same thirteen skills, worded for Muse. They are the model's
+The Muse Code package (`muse/brigade/`) ships the same fourteen skills, worded for Muse. They are the model's
 documentation inside a team; this page names them and says what differs from Claude Code.
 
 | Skill | Who invokes it | What it carries |
@@ -26,6 +26,7 @@ documentation inside a team; this page names them and says what differs from Cla
 | [`muse/brigade/skills/work-items/SKILL.md`](../../../muse/brigade/skills/work-items/SKILL.md) | the work-items command | print the Brigade Board, the team's board of work items, verbatim |
 | [`muse/brigade/skills/work-item/SKILL.md`](../../../muse/brigade/skills/work-item/SKILL.md) | the work-item command, and the model when the user asks about a work item | read, add or change one work item, or name, rename, hide or unhide the board's lists, with one `brigade work-item` command |
 | [`muse/brigade/skills/work-item-start/SKILL.md`](../../../muse/brigade/skills/work-item-start/SKILL.md) | the work-item-start command | take a work item and work it through, then comment and move it |
+| [`muse/brigade/skills/work-item-next/SKILL.md`](../../../muse/brigade/skills/work-item-next/SKILL.md) | the work-item-next command | say which work item to take next and why, from the board and the roster; it changes nothing |
 
 What differs from Claude Code:
 

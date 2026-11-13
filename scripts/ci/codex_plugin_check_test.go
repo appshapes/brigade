@@ -42,7 +42,7 @@ func (tr *tree) codexTree() {
 		"codex/brigade/skills/setup/SKILL.md", "codex/brigade/skills/join/SKILL.md", "codex/brigade/skills/update/SKILL.md",
 		"codex/brigade/skills/email/SKILL.md", "codex/brigade/skills/slack/SKILL.md", "codex/brigade/skills/quiet/SKILL.md", "codex/brigade/skills/subscribe/SKILL.md",
 		"codex/brigade/skills/work-items/SKILL.md", "codex/brigade/skills/work-item/SKILL.md", "codex/brigade/skills/work-item-start/SKILL.md",
-		"codex/brigade/skills/whoami/SKILL.md",
+		"codex/brigade/skills/whoami/SKILL.md", "codex/brigade/skills/work-item-next/SKILL.md",
 	} {
 		copyFile(rel)
 	}
