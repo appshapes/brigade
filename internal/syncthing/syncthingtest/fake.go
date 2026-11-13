@@ -38,6 +38,8 @@ type Fake struct {
 	Deletes []string
 	// FailDelete makes a folder DELETE answer 500.
 	FailDelete bool
+	// DeleteTries counts every folder DELETE, refused or not.
+	DeleteTries int
 	// Extra is the folders "another project" holds: listed, never posted.
 	Extra     []syncthing.ConfiguredFolder
 	Connected map[string]bool
@@ -183,6 +185,7 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 func (f *Fake) serveByID(w http.ResponseWriter, r *http.Request, _ func(any)) {
 	id, ok := strings.CutPrefix(r.URL.Path, "/rest/config/folders/")
 	if ok && r.Method == http.MethodDelete {
+		f.DeleteTries++
 		if f.FailDelete {
 			http.Error(w, "nope", http.StatusInternalServerError)
 			return

@@ -584,7 +584,12 @@ bundled sync adapter never moves a path another id holds: `conflict_path` on eve
 the adapter's own fixture. Machines that held the folder would go on exchanging it under the earlier id, with
 each other only and with Brigade reporting it as not held. `telder` lists no folder. The board is not touched:
 its path is made from the team's reference. The fix is in the adapter and needs a plugin release, so it comes
-before the cut-over.
+before the cut-over. Fixed 2026-11-13 (execution log P87-1): the first session to start in the checkout moves
+each folder to the team its team file names, without the earlier team's devices; the team file decides, so a
+session left over from the earlier team does not move it back while the file names the new team (work item 276
+is what would make such a session stop asking). In the cut-over, members update to the release that carries
+it before the changed team file reaches the `brigade` repository; a member who updates afterwards is put right
+at their next session.
 
 **What is still the owner's to decide** (on work item 272): whether the member from another organisation joins
 the one team; what becomes of the old teams' Slack and mail addresses; the numbering of carried-over work items;

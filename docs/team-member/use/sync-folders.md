@@ -82,6 +82,14 @@ sees all of it: a tracked folder syncs like any other, so list folders the repos
 - Two repositories with the same name share their ids; a checkout whose name differs (a fork, a different
   directory name with no remote) syncs with nobody.
 - A folder the project stops listing is paused, its files stay; remove it in the web GUI to be rid of it.
+- A repository whose team file is pointed at another team keeps its folders. The first session to start in the
+  checkout afterwards moves each one to its id in that team by itself, no file touched, and shares it with that
+  team's sessions. A session that was already running there under the earlier team stops sharing the folder and
+  says `1 folder is held by another checkout`: end it, because left running it moves the folder back to the
+  earlier team if the checkout is switched to a branch whose team file still names that team. A folder outside
+  its checkout (`../shared`), and the folders of a checkout whose team file is not at the repository's toplevel,
+  are not moved; remove the earlier entry in the web GUI. Until the last member has the new team file the team
+  is in two groups that exchange nothing, as in the update to 0.16.0 below.
 - A crash (`SIGKILL`) leaves a reference the next session drops; after a power loss, delete the files in
   `~/.local/state/brigade/sync/syncthing/refs/` with no session running.
 - No file size or count limit of Brigade's; what Syncthing handles, syncs.

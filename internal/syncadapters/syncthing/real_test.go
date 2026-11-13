@@ -3,6 +3,7 @@
 package syncthing
 
 import (
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -320,6 +321,27 @@ func (s *realSide) knows(t *testing.T, other *realSide) {
 //     as a conflict copy. A file deleted on one side in between comes
 //     back from the other.
 func TestRealSyncthingMovesASharedFolder(t *testing.T) {
+	legacy := testLegacyID("test0000", ".brigade")
+	testRealSyncthingMoves(t, legacy, map[string]string{"id": testFolderID("test0000", "web", ".brigade"), "replaces": legacy}, "")
+}
+
+// TestRealSyncthingMovesAFolderToAnotherTeam is the same measurement for
+// work item 275: the repository's team file is pointed at another team, so
+// the folder's id changes and the request's `replaces` names an id the
+// instance never held, and the two members' machines take the new team
+// file one after the other. What holds between and after is what holds
+// for the upgrade above.
+func TestRealSyncthingMovesAFolderToAnotherTeam(t *testing.T) {
+	later := map[string]string{"id": testFolderID("next0000", "web", ".brigade"), "replaces": testLegacyID("next0000", ".brigade")}
+	testRealSyncthingMoves(t, testFolderID("test0000", "web", ".brigade"), later, "next0000")
+}
+
+// testRealSyncthingMoves shares one folder between two real instances
+// under the id earlier, then moves one side and then the other to the
+// folder later names: its id and its `replaces`. With movedTo, a side's
+// move is its checkout taking the team file that names that team.
+func testRealSyncthingMoves(t *testing.T, earlier string, later map[string]string, movedTo string) {
+	t.Helper()
 	if os.Getenv(realSyncthingVar) != "1" {
 		t.Skip("set " + realSyncthingVar + "=1 to run against the syncthing on PATH")
 	}
@@ -367,12 +389,16 @@ func TestRealSyncthingMovesASharedFolder(t *testing.T) {
 			t.Logf("%s (device %s), the end of syncthing.log:\n%s", s.name, s.device, strings.Join(lines, "\n"))
 		}
 	})
-	legacy, scoped := testLegacyID("test0000", ".brigade"), testFolderID("test0000", "web", ".brigade")
+	legacy, scoped := earlier, later["id"]
 	apply := func(s, other *realSide, upgraded bool) {
 		t.Helper()
 		f := map[string]string{"id": legacy, "path": s.folder, "label": "web/.brigade"}
 		if upgraded {
-			f = map[string]string{"id": scoped, "replaces": legacy, "path": s.folder, "label": "web/.brigade"}
+			f = maps.Clone(later)
+			f["path"], f["label"] = s.folder, "web/.brigade"
+			if movedTo != "" {
+				writeTeamFile(t, filepath.Dir(s.folder), movedTo)
+			}
 		}
 		res := call("apply", map[string]any{
 			"state_dir": s.stateDir, "session_id": "real-" + s.name,

@@ -773,6 +773,521 @@ func TestApplyMovesNothingItCannotPlace(t *testing.T) {
 	}
 }
 
+// The two teams of the tests of work item 275: the team a checkout's team
+// file named before, and the one it names now.
+const (
+	earlierTeamRef = "0a465da2"
+	thisTeamRef    = "3b8904c6"
+)
+
+// writeTeamFile writes the team file of the checkout at root, naming the
+// team whose reference begins ref8: a UUID, hyphens and all, as a real
+// reference is.
+func writeTeamFile(t *testing.T, root, ref8 string) {
+	t.Helper()
+	writeTeamFileNaming(t, root, ref8+"-0f0f-4f0f-8f0f-0f0f0f0f0f0f")
+}
+
+// writeTeamFileNaming writes the team file of the checkout at root with
+// teamRef as its `team_ref`, whatever its shape.
+func writeTeamFileNaming(t *testing.T, root, teamRef string) {
+	t.Helper()
+	if err := os.MkdirAll(root, 0o750); err != nil { //nolint:gosec // G301: a checkout
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, ".brigade.json"), `{"version":1,"adapter":"rest","team_ref":"`+teamRef+`","team_name":"ops"}`+"\n")
+}
+
+// TestApplyMovesAFolderToTheTeamItsCheckoutIsOn (work item 275): a
+// repository whose team file is pointed at another team has every listed
+// folder under a new id at the path it always had, and the instance still
+// holds the folder there under the earlier team's id. The checkout's team
+// file names the team that asks, so the earlier entry is removed, once,
+// and the folder is posted under this team's id with this team's peers
+// alone: none of the earlier team's devices, the files where they were,
+// nothing paused. The request is the harness's: a scoped folder names its
+// id of before 0.16.0 as `replaces`, and the team's board comes with it.
+// The earlier team's board, at its own path, is left as it is. The same
+// for a session that shares no repository name, whose ids hash the folder
+// alone.
+func TestApplyMovesAFolderToTheTeamItsCheckoutIsOn(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		earlier, now, replaces, label string
+		// teamRef is the team file's `team_ref` when it is not a UUID
+		// that begins thisTeamRef, and heldAt how the instance has the
+		// earlier entry's path written when not clean.
+		teamRef string
+		heldAt  func(root string) string
+	}{
+		"a repository's folder": {
+			earlier:  testFolderID(earlierTeamRef, "brigade", ".brigade"),
+			now:      testFolderID(thisTeamRef, "brigade", ".brigade"),
+			replaces: testLegacyID(thisTeamRef, ".brigade"),
+			label:    "brigade/.brigade",
+		},
+		"a team whose reference has its hyphens elsewhere": {
+			earlier:  testFolderID(earlierTeamRef, "brigade", ".brigade"),
+			now:      testFolderID(thisTeamRef, "brigade", ".brigade"),
+			replaces: testLegacyID(thisTeamRef, ".brigade"),
+			label:    "brigade/.brigade",
+			teamRef:  thisTeamRef[:3] + "-" + thisTeamRef[3:6] + "-" + thisTeamRef[6:] + "ffff-team",
+		},
+		"an entry whose path the instance has written another way": {
+			earlier:  testFolderID(earlierTeamRef, "brigade", ".brigade"),
+			now:      testFolderID(thisTeamRef, "brigade", ".brigade"),
+			replaces: testLegacyID(thisTeamRef, ".brigade"),
+			label:    "brigade/.brigade",
+			heldAt: func(root string) string {
+				return root + string(filepath.Separator) + "." + string(filepath.Separator) + ".brigade" + string(filepath.Separator)
+			},
+		},
+		"a nested folder": {
+			earlier:  testFolderID(earlierTeamRef, "brigade", "docs/shared"),
+			now:      testFolderID(thisTeamRef, "brigade", "docs/shared"),
+			replaces: testLegacyID(thisTeamRef, "docs/shared"),
+			label:    "brigade/docs/shared",
+		},
+		"a folder the earlier team shared before 0.16.0": {
+			earlier:  testLegacyID(earlierTeamRef, ".brigade"),
+			now:      testFolderID(thisTeamRef, "brigade", ".brigade"),
+			replaces: testLegacyID(thisTeamRef, ".brigade"),
+			label:    "brigade/.brigade",
+		},
+		"a folder shared with no repository name": {
+			earlier: testLegacyID(earlierTeamRef, ".brigade"),
+			now:     testLegacyID(thisTeamRef, ".brigade"),
+			label:   ".brigade",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fake, srv := syncthingtest.New(t)
+			d := testDeps(srv, "")
+			stateDir, _ := runningHome(t)
+			work := t.TempDir()
+			root := filepath.Join(work, "brigade")
+			_, folder, _ := strings.Cut(tc.label, "/")
+			if folder == "" {
+				folder = tc.label
+			}
+			path := filepath.Join(root, filepath.FromSlash(folder))
+			earlierBoardPath, boardPath := filepath.Join(work, "state", "boards", "earlier"), filepath.Join(work, "state", "boards", "now")
+			if tc.teamRef == "" {
+				writeTeamFile(t, root, thisTeamRef)
+			} else {
+				writeTeamFileNaming(t, root, tc.teamRef)
+			}
+			if err := os.MkdirAll(path, 0o750); err != nil { //nolint:gosec // G301: a project folder
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(path, "kept.md"), "a file the folder already holds\n")
+			heldAt := path
+			if tc.heldAt != nil {
+				heldAt = tc.heldAt(root)
+			}
+			earlierBoard, board := testLegacyID(earlierTeamRef, "/board"), testLegacyID(thisTeamRef, "/board")
+			fake.Devices = []engine.DeviceConfig{{DeviceID: "SERVER", Name: "the earlier team's server"}, {DeviceID: "EARLIERPEER", Name: "carol"}}
+			fake.Folders = []engine.FolderConfig{
+				{ID: tc.earlier, Label: tc.label, Path: heldAt, Devices: []engine.DeviceRef{{DeviceID: syncthingtest.ID}, {DeviceID: "SERVER"}, {DeviceID: "EARLIERPEER"}}},
+				{ID: earlierBoard, Label: "team board", Path: earlierBoardPath, Devices: []engine.DeviceRef{{DeviceID: "EARLIERPEER"}}},
+			}
+			listed := map[string]any{"id": tc.now, "path": path, "label": tc.label}
+			if tc.replaces != "" {
+				listed["replaces"] = tc.replaces
+			}
+			req := map[string]any{
+				"state_dir":  stateDir,
+				"session_id": "now",
+				"folders":    []map[string]any{listed, {"id": board, "path": boardPath, "label": "team board", "team": true}},
+				"peers":      []map[string]string{{"peer": "NEWPEER", "label": "bob"}},
+				"team_peers": []map[string]string{{"peer": "NEWPEER", "label": "bob"}, {"peer": "TEAMPEER", "label": "dana"}},
+				"root":       root,
+			}
+			for round := range 2 {
+				res := mustOK(t, invoke(t, d, "apply", req), "apply")
+				fs := res["folders"].([]any)
+				if len(fs) != 2 || fs[0].(map[string]any)["id"] != tc.now || fs[0].(map[string]any)["state"] != "idle" ||
+					fs[1].(map[string]any)["id"] != board || fs[1].(map[string]any)["state"] != "idle" {
+					t.Fatalf("round %d: apply folders = %v, want the folder and the board idle under this team's ids and nothing else", round, fs)
+				}
+			}
+			fake.Mu.Lock()
+			defer fake.Mu.Unlock()
+			if !slices.Equal(fake.Deletes, []string{tc.earlier}) || fake.DeleteTries != 1 {
+				t.Fatalf("deletes = %v in %d tries, want the earlier team's entry at this path, once", fake.Deletes, fake.DeleteTries)
+			}
+			byID := map[string]engine.FolderConfig{}
+			for _, c := range fake.Folders {
+				byID[c.ID] = c
+			}
+			moved := byID[tc.now]
+			if moved.Path != path || moved.Label != tc.label || moved.Paused || !slices.Equal(moved.Devices, []engine.DeviceRef{{DeviceID: "NEWPEER"}}) {
+				t.Errorf("the moved folder = %+v, want it at %s with this team's peer alone", moved, path)
+			}
+			if b := byID[board]; b.Path != boardPath || !slices.Equal(b.Devices, []engine.DeviceRef{{DeviceID: "NEWPEER"}, {DeviceID: "TEAMPEER"}}) {
+				t.Errorf("this team's board = %+v, want it at %s with the team's peers", b, boardPath)
+			}
+			if b := byID[earlierBoard]; b.Path != earlierBoardPath || b.Paused || len(b.Devices) != 1 {
+				t.Errorf("the earlier team's board = %+v, want it as it was", b)
+			}
+			if fake.Pauses != 0 {
+				t.Errorf("%d pauses: a moved folder is not a dropped one", fake.Pauses)
+			}
+			if got := readFile(t, filepath.Join(path, "kept.md")); got != "a file the folder already holds\n" {
+				t.Errorf("the folder's file = %q", got)
+			}
+		})
+	}
+}
+
+// TestApplyMovesAFolderOnlyToTheTeamItsTeamFileNames (work item 275): a
+// session that started while the checkout's team file named the earlier
+// team still asks for the folder under that team's id. The team file
+// names the other team now, so that session's apply takes nothing over:
+// before the folder moved it keeps what it has, as it always did, and
+// once the session of the team the checkout is on has moved the folder it
+// is told `conflict_path`, round after round, and changes nothing. One
+// move in all, whatever order the two apply in, for as long as the file
+// says what it says.
+func TestApplyMovesAFolderOnlyToTheTeamItsTeamFileNames(t *testing.T) {
+	t.Parallel()
+	fake, srv := syncthingtest.New(t)
+	d := testDeps(srv, "")
+	stateDir, _ := runningHome(t)
+	root := filepath.Join(t.TempDir(), "brigade")
+	path := filepath.Join(root, ".brigade")
+	writeTeamFile(t, root, thisTeamRef)
+	earlier, now := testFolderID(earlierTeamRef, "brigade", ".brigade"), testFolderID(thisTeamRef, "brigade", ".brigade")
+	fake.Devices = []engine.DeviceConfig{{DeviceID: "EARLIERPEER"}}
+	fake.Folders = []engine.FolderConfig{{ID: earlier, Label: "brigade/.brigade", Path: path, Devices: []engine.DeviceRef{{DeviceID: "EARLIERPEER"}}}}
+	apply := func(session, folder, legacyRef, peer string) string {
+		t.Helper()
+		res := mustOK(t, invoke(t, d, "apply", map[string]any{
+			"state_dir": stateDir, "session_id": session,
+			"folders": []map[string]string{{"id": folder, "replaces": testLegacyID(legacyRef, ".brigade"), "path": path, "label": "brigade/.brigade"}},
+			"peers":   []map[string]string{{"peer": peer, "label": peer}},
+		}), "apply")
+		fs := res["folders"].([]any)
+		if len(fs) != 1 || fs[0].(map[string]any)["id"] != folder {
+			t.Fatalf("apply folders = %v, want %s alone", fs, folder)
+		}
+		return fs[0].(map[string]any)["state"].(string)
+	}
+	left := func() string { return apply("left-over", earlier, earlierTeamRef, "EARLIERPEER") }
+	current := func() string { return apply("current", now, thisTeamRef, "NEWPEER") }
+
+	// Before any session of the checkout's team has run: the left-over
+	// session's folder is its own id at its own path, as before.
+	for round := range 2 {
+		if state := left(); state != "idle" {
+			t.Fatalf("round %d: the left-over session before the move: %s, want its folder idle", round, state)
+		}
+	}
+	fake.Mu.Lock()
+	tries := fake.DeleteTries
+	fake.Mu.Unlock()
+	if tries != 0 {
+		t.Fatalf("%d deletes before a session of the checkout's team ran", tries)
+	}
+	// The session of the team the checkout is on moves the folder.
+	if state := current(); state != "idle" {
+		t.Fatalf("the session of the checkout's team: %s, want the folder idle under its id", state)
+	}
+	// And the left-over session never takes it back.
+	for round := range 3 {
+		if state := left(); state != "conflict_path" {
+			t.Fatalf("round %d: the left-over session after the move: %s, want conflict_path", round, state)
+		}
+		if state := current(); state != "idle" {
+			t.Fatalf("round %d: the session of the checkout's team: %s, want its folder idle", round, state)
+		}
+	}
+	fake.Mu.Lock()
+	if !slices.Equal(fake.Deletes, []string{earlier}) || fake.DeleteTries != 1 {
+		t.Errorf("deletes = %v in %d tries, want the one move", fake.Deletes, fake.DeleteTries)
+	}
+	if len(fake.Folders) != 1 || fake.Folders[0].ID != now || !slices.Equal(fake.Folders[0].Devices, []engine.DeviceRef{{DeviceID: "NEWPEER"}}) {
+		t.Errorf("folders = %+v, want the folder under the checkout's team's id with that team's peer alone", fake.Folders)
+	}
+	fake.Mu.Unlock()
+
+	// The team file decides, and it decides both ways: a working tree
+	// switched to a branch whose team file names the earlier team again
+	// is that team's checkout, and a session of that team that is still
+	// running moves the folder to it, once. docs/team-member/use/
+	// sync-folders.md says so, and says to end such a session.
+	writeTeamFile(t, root, earlierTeamRef)
+	if state := left(); state != "idle" {
+		t.Fatalf("the earlier team's session once the team file names its team again: %s, want the folder idle under its id", state)
+	}
+	for round := range 2 {
+		if state := current(); state != "conflict_path" {
+			t.Fatalf("round %d: the other team's session: %s, want conflict_path", round, state)
+		}
+		if state := left(); state != "idle" {
+			t.Fatalf("round %d: the earlier team's session: %s, want its folder idle", round, state)
+		}
+	}
+	fake.Mu.Lock()
+	defer fake.Mu.Unlock()
+	if !slices.Equal(fake.Deletes, []string{earlier, now}) || fake.DeleteTries != 2 {
+		t.Errorf("deletes = %v in %d tries, want one move each way", fake.Deletes, fake.DeleteTries)
+	}
+	if len(fake.Folders) != 1 || fake.Folders[0].ID != earlier || !slices.Equal(fake.Folders[0].Devices, []engine.DeviceRef{{DeviceID: "EARLIERPEER"}}) {
+		t.Errorf("folders = %+v, want the folder under the id of the team the file names, with that team's peer alone", fake.Folders)
+	}
+}
+
+// TestApplyMovesNoFolderThatIsNotAnEarlierTeams (work item 275): the path
+// stays its holder's, `conflict_path` and nothing deleted or posted,
+// whenever the entry there is not provably the same folder of this very
+// checkout as an earlier team had it, the checkout's team file does not
+// say the team that asks is the one it is on, or removing the entry would
+// not let this id take the path. An entry of the checkout's own team is
+// not this rule's: it is paused as a folder the project no longer lists,
+// as it was before.
+func TestApplyMovesNoFolderThatIsNotAnEarlierTeams(t *testing.T) {
+	t.Parallel()
+	earlier, now := testFolderID(earlierTeamRef, "brigade", ".brigade"), testFolderID(thisTeamRef, "brigade", ".brigade")
+	theEarlierTeams := func(path, _ string) []engine.FolderConfig {
+		return []engine.FolderConfig{{ID: earlier, Label: "brigade/.brigade", Path: path}}
+	}
+	names := func(ref string) func(*testing.T, string) {
+		return func(t *testing.T, root string) {
+			t.Helper()
+			writeTeamFile(t, root, ref)
+		}
+	}
+	for name, tc := range map[string]struct {
+		held func(path, elsewhere string) []engine.FolderConfig
+		// teamFile writes the checkout's team file; nil is one that names
+		// the team that asks.
+		teamFile   func(t *testing.T, root string)
+		linked     bool
+		failDelete bool
+		paused     bool
+	}{
+		"a folder a person made": {
+			held: func(path, _ string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: "by-hand", Label: "mine", Path: path}}
+			},
+		},
+		"an id of Brigade's shape that its label does not prove": {
+			held: func(path, _ string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: earlier, Label: "brigade/renamed", Path: path}}
+			},
+		},
+		"another folder of the earlier team": {
+			held: func(path, _ string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: testFolderID(earlierTeamRef, "brigade", "docs"), Label: "brigade/docs", Path: path}}
+			},
+		},
+		"an entry of the checkout's own team": {
+			held: func(path, _ string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: testFolderID(thisTeamRef, "renamed", ".brigade"), Label: "renamed/.brigade", Path: path}}
+			},
+			paused: true,
+		},
+		"this id is a second clone's": {
+			held: func(path, elsewhere string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: earlier, Label: "brigade/.brigade", Path: path}, {ID: now, Label: "brigade/.brigade", Path: elsewhere}}
+			},
+		},
+		"a person's folder holds the path too": {
+			held: func(path, _ string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: earlier, Label: "brigade/.brigade", Path: path}, {ID: "by-hand", Label: "mine", Path: path}}
+			},
+		},
+		"two earlier teams' entries hold the path": {
+			held: func(path, _ string) []engine.FolderConfig {
+				return []engine.FolderConfig{
+					{ID: earlier, Label: "brigade/.brigade", Path: path},
+					{ID: testFolderID("11111111", "brigade", ".brigade"), Label: "brigade/.brigade", Path: path},
+				}
+			},
+		},
+		"the earlier team's entry is a clone's that this folder is linked to": {
+			held: func(_, elsewhere string) []engine.FolderConfig {
+				return []engine.FolderConfig{{ID: earlier, Label: "brigade/.brigade", Path: elsewhere}}
+			},
+			linked: true,
+		},
+		"the checkout has no team file": {
+			held:     theEarlierTeams,
+			teamFile: func(*testing.T, string) {},
+		},
+		"the team file still names the earlier team": {
+			held:     theEarlierTeams,
+			teamFile: names(earlierTeamRef),
+		},
+		"the team file names a third team": {
+			held:     theEarlierTeams,
+			teamFile: names("11111111"),
+		},
+		"the team file is not a team file": {
+			held: theEarlierTeams,
+			teamFile: func(t *testing.T, root string) {
+				t.Helper()
+				writeFile(t, filepath.Join(root, ".brigade.json"), `{"team_ref": 7`)
+			},
+		},
+		"the team file names no team": {
+			held: theEarlierTeams,
+			teamFile: func(t *testing.T, root string) {
+				t.Helper()
+				writeFile(t, filepath.Join(root, ".brigade.json"), `{"version":1,"team_ref":"----"}`)
+			},
+		},
+		"the team file is one anybody on the machine can write": {
+			held: theEarlierTeams,
+			teamFile: func(t *testing.T, root string) {
+				t.Helper()
+				writeTeamFile(t, root, thisTeamRef)
+				if err := os.Chmod(filepath.Join(root, ".brigade.json"), 0o666); err != nil { //nolint:gosec // G302: the mode under test
+					t.Fatal(err)
+				}
+			},
+		},
+		"the team file is larger than a team file can be": {
+			held: theEarlierTeams,
+			teamFile: func(t *testing.T, root string) {
+				t.Helper()
+				writeFile(t, filepath.Join(root, ".brigade.json"), `{"team_ref":"`+thisTeamRef+`-0f0f-4f0f-8f0f-0f0f0f0f0f0f","pad":"`+strings.Repeat("x", 40<<10)+`"}`)
+			},
+		},
+		"the team file is a directory": {
+			held: theEarlierTeams,
+			teamFile: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.Mkdir(filepath.Join(root, ".brigade.json"), 0o750); err != nil { //nolint:gosec // G301: the kind under test
+					t.Fatal(err)
+				}
+			},
+		},
+		"the team file is a link to one": {
+			held: theEarlierTeams,
+			teamFile: func(t *testing.T, root string) {
+				t.Helper()
+				other := filepath.Join(filepath.Dir(root), "other")
+				writeTeamFile(t, other, thisTeamRef)
+				if err := os.Symlink(filepath.Join(other, ".brigade.json"), filepath.Join(root, ".brigade.json")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		"the removal is refused": {
+			held:       theEarlierTeams,
+			failDelete: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fake, srv := syncthingtest.New(t)
+			d := testDeps(srv, "")
+			stateDir, _ := runningHome(t)
+			work := t.TempDir()
+			root := filepath.Join(work, "brigade")
+			path, elsewhere := filepath.Join(root, ".brigade"), filepath.Join(work, "clone-2", ".brigade")
+			if err := os.MkdirAll(root, 0o750); err != nil { //nolint:gosec // G301: a checkout
+				t.Fatal(err)
+			}
+			if tc.teamFile == nil {
+				tc.teamFile = names(thisTeamRef)
+			}
+			tc.teamFile(t, root)
+			if tc.linked {
+				// This checkout's folder is a link to the other clone's.
+				if err := os.MkdirAll(elsewhere, 0o750); err != nil { //nolint:gosec // G301: a project folder
+					t.Fatal(err)
+				}
+				if err := os.Symlink(elsewhere, path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := tc.held(path, elsewhere)
+			fake.Folders = slices.Clone(before)
+			fake.FailDelete = tc.failDelete
+			req := map[string]any{
+				"state_dir":  stateDir,
+				"session_id": "now",
+				"folders":    []map[string]string{{"id": now, "replaces": testLegacyID(thisTeamRef, ".brigade"), "path": path, "label": "brigade/.brigade"}},
+				"peers":      []map[string]string{},
+			}
+			const rounds = 2
+			entries, pauses, tries := 1, 0, 0
+			if tc.paused {
+				entries, pauses = 2, 1
+			}
+			if tc.failDelete {
+				tries = rounds
+			}
+			for round := range rounds {
+				res := mustOK(t, invoke(t, d, "apply", req), "apply")
+				fs := res["folders"].([]any)
+				if len(fs) != entries || fs[0].(map[string]any)["id"] != now || fs[0].(map[string]any)["state"] != "conflict_path" {
+					t.Fatalf("round %d: apply folders = %v, want this id conflict_path", round, fs)
+				}
+				if tc.paused && fs[1].(map[string]any)["state"] != "paused" {
+					t.Fatalf("round %d: apply folders = %v, want the checkout's other entry paused", round, fs)
+				}
+			}
+			fake.Mu.Lock()
+			defer fake.Mu.Unlock()
+			if len(fake.Deletes) != 0 || fake.DeleteTries != tries || fake.Pauses != pauses || fake.FolderPosts != 0 {
+				t.Errorf("deletes %v in %d tries, pauses %d, posts %d; want none in %d, %d and none", fake.Deletes, fake.DeleteTries, fake.Pauses, fake.FolderPosts, tries, pauses)
+			}
+			for _, b := range before {
+				if !slices.ContainsFunc(fake.Folders, func(c engine.FolderConfig) bool { return c.ID == b.ID && c.Path == b.Path && c.Paused == tc.paused }) {
+					t.Errorf("folder %s at %s did not stay where it was: %+v", b.ID, b.Path, fake.Folders)
+				}
+			}
+		})
+	}
+}
+
+// TestApplyMovesNoFolderOutsideItsCheckout (work item 275): a folder
+// whose name climbs out of its checkout ("../shared") can be the folder
+// of two repositories at one path, each on a team of its own, and which
+// checkout the entry there belongs to cannot be told from its path. It is
+// never moved: the second repository is told `conflict_path`, as before,
+// though its own team file names the team that asks.
+func TestApplyMovesNoFolderOutsideItsCheckout(t *testing.T) {
+	t.Parallel()
+	fake, srv := syncthingtest.New(t)
+	d := testDeps(srv, "")
+	stateDir, _ := runningHome(t)
+	work := t.TempDir()
+	shared := filepath.Join(work, "shared")
+	writeTeamFile(t, filepath.Join(work, "a"), earlierTeamRef)
+	writeTeamFile(t, filepath.Join(work, "b"), thisTeamRef)
+	// Wherever a team file might be looked for, it names the team that asks.
+	writeTeamFile(t, work, thisTeamRef)
+	writeTeamFile(t, shared, thisTeamRef)
+	held := engine.FolderConfig{ID: testFolderID(earlierTeamRef, "a", "../shared"), Label: "a/../shared", Path: shared, Devices: []engine.DeviceRef{{DeviceID: "SERVER"}}}
+	fake.Devices = []engine.DeviceConfig{{DeviceID: "SERVER"}}
+	fake.Folders = []engine.FolderConfig{held}
+	asks := testFolderID(thisTeamRef, "b", "../shared")
+	for round := range 2 {
+		res := mustOK(t, invoke(t, d, "apply", map[string]any{
+			"state_dir": stateDir, "session_id": "b",
+			"folders": []map[string]string{{"id": asks, "replaces": testLegacyID(thisTeamRef, "../shared"), "path": shared, "label": "b/../shared"}},
+			"peers":   []map[string]string{},
+		}), "apply")
+		if fs := res["folders"].([]any); len(fs) != 1 || fs[0].(map[string]any)["id"] != asks || fs[0].(map[string]any)["state"] != "conflict_path" {
+			t.Fatalf("round %d: apply folders = %v, want conflict_path", round, fs)
+		}
+	}
+	fake.Mu.Lock()
+	defer fake.Mu.Unlock()
+	if fake.DeleteTries != 0 || fake.Pauses != 0 || fake.FolderPosts != 0 {
+		t.Errorf("%d delete tries, %d pauses, %d posts; want none", fake.DeleteTries, fake.Pauses, fake.FolderPosts)
+	}
+	if len(fake.Folders) != 1 || fake.Folders[0].ID != held.ID || fake.Folders[0].Path != shared || fake.Folders[0].Paused || len(fake.Folders[0].Devices) != 1 {
+		t.Errorf("the other repository's folder = %+v, want it as it was", fake.Folders)
+	}
+}
+
 // TestApplyRejectsAFolderItCannotCreate: a folder whose directory cannot
 // be made is `rejected`, and the rest of the apply goes on.
 func TestApplyRejectsAFolderItCannotCreate(t *testing.T) {

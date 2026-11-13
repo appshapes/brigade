@@ -7,12 +7,15 @@ package syncthing
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/v2"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	adapterlog "github.com/appshapes/brigade/internal/adapterkit/log"
 	engine "github.com/appshapes/brigade/internal/syncthing"
 )
@@ -62,6 +65,16 @@ func (in *instance) detach(sessionID string) (*detachResult, error) {
 //     to its id: the earlier folder's configuration is removed and the
 //     folder posted under the new id with the earlier one's devices
 //     (replaced). Syncthing keeps every file and scans the path again;
+//   - a folder the instance holds at this checkout's path as the same
+//     folder of ANOTHER team is what the checkout shared while its team
+//     file named that team (work item 275: a repository that moves to
+//     another team, or a team that is created again). When the checkout's
+//     team file names the team that asks, the earlier entry's
+//     configuration is removed and the folder posted under its id here,
+//     with this team's peers and none of the earlier team's devices
+//     (earlierTeam). The files stay. The team file decides, so a session
+//     left over from the earlier team does not move the folder back
+//     while the file names the other team;
 //   - a folder id the instance holds at another path is another
 //     checkout's on this machine — a second clone — and a path another id
 //     holds is its holder's: both are reported `conflict_path` and left
@@ -177,6 +190,26 @@ func (in *instance) apply(folders []folderSpec, peers, teamPeers []peerSpec, roo
 			had = oldDevices
 			existing = slices.DeleteFunc(existing, func(e engine.ConfiguredFolder) bool { return e.ID == oldID })
 		}
+		if old, confirmed := earlierTeam(existing, f, path); old != nil && !confirmed {
+			// The path stays the other team's. Every round says so, and
+			// only at debug: it is what a session left over from before
+			// the team file changed is told for as long as it runs.
+			in.a.log.Debug("another team's entry holds a folder's path and the checkout's team file does not name this folder's team",
+				slog.String("folder_id", f.ID), slog.String("holder", old.ID))
+		} else if old != nil {
+			oldID := old.ID
+			if err := c.RemoveFolder(oldID); err != nil {
+				// The earlier team's entry still holds the path; the
+				// next round tries again.
+				in.a.log.Warn("a folder could not be moved to the team its checkout is on",
+					slog.String("folder_id", f.ID), slog.String("earlier", oldID), adapterlog.Err(err))
+				result.Folders = append(result.Folders, folderState{ID: f.ID, State: stateConflictPath})
+				continue
+			}
+			// None of its devices come along: they are the earlier team's.
+			in.a.log.Info("moved a folder to the team its checkout is on", slog.String("folder_id", f.ID), slog.String("earlier", oldID))
+			existing = slices.DeleteFunc(existing, func(e engine.ConfiguredFolder) bool { return e.ID == oldID })
+		}
 		current, conflict := place(existing, f.ID, path)
 		if conflict {
 			result.Folders = append(result.Folders, folderState{ID: f.ID, State: stateConflictPath})
@@ -239,6 +272,127 @@ func (in *instance) apply(folders []folderSpec, peers, teamPeers []peerSpec, roo
 		result.Peers = append(result.Peers, peerState{Peer: p.Peer, Connected: conns[p.Peer]})
 	}
 	return result, nil
+}
+
+// earlierTeam is the entry that holds f's path as the same folder of
+// another team, and whether the checkout's team file confirms that f's
+// team is the one the checkout is on: then the entry is what this
+// checkout shared while its team file named that other team (work item
+// 275), and apply moves the folder. Everything about the entry is proven,
+// or it is nil and the path stays its holder's:
+//
+//   - f's id has Brigade's shape and its label carries a folder name that
+//     hashes to it, a name inside the checkout: one that climbs out
+//     ("../shared") can be two repositories' folder at one path, and
+//     which checkout an entry there belongs to cannot be told;
+//   - the entry is at f's own path as written, not at one a symlink makes
+//     the same (a second clone linked to the first), has an id of
+//     Brigade's shape with another team's part, and its label proves the
+//     same folder name;
+//   - removing it lets f take the path: f's id is not held at another
+//     path (a second clone's), and no further entry holds this one.
+//
+// It is confirmed when the team file at the toplevel of the checkout the
+// folder is in names f's team (teamOfCheckout). The team file is what
+// tells the team a checkout moved to from the one it left: a session
+// started before the file changed still asks for the folder under the
+// earlier team's id, and is not to take the path back while the file
+// names the other team. A team folder has no folder name, so the board is
+// never an entry of this kind.
+func earlierTeam(existing []engine.ConfiguredFolder, f folderSpec, path string) (old *engine.ConfiguredFolder, confirmed bool) {
+	prefix, ok := teamPrefix(f.ID)
+	if !ok {
+		return nil, false
+	}
+	name, ok := folderName(prefix, f.ID, f.Label)
+	if !ok {
+		return nil, false
+	}
+	up, rest := climb(name)
+	if up != 0 {
+		return nil, false
+	}
+	// A root that is not absolute is a drive's current directory on
+	// Windows ("C:"), not a checkout.
+	root, ok := trimFolder(path, rest)
+	if !ok || !filepath.IsAbs(root) {
+		return nil, false
+	}
+	for i := range existing {
+		e := &existing[i]
+		same := samePath(e.Path, path)
+		switch {
+		case e.ID == f.ID:
+			if !same {
+				return nil, false
+			}
+		case !same:
+		case old != nil || filepath.Clean(e.Path) != path:
+			return nil, false
+		default:
+			theirs, ok := teamPrefix(e.ID)
+			if !ok || theirs == prefix {
+				return nil, false
+			}
+			if had, ok := folderName(theirs, e.ID, e.Label); !ok || had != name {
+				return nil, false
+			}
+			old = e
+		}
+	}
+	if old == nil {
+		return nil, false
+	}
+	return old, teamOfCheckout(root) == prefix
+}
+
+// teamFileName is the team file at a checkout's toplevel, and
+// maxTeamFileBytes what the harness reads of one at most (its
+// teamfile.MaxBytes).
+const (
+	teamFileName     = ".brigade.json"
+	maxTeamFileBytes = 32768
+)
+
+// teamOfCheckout is the team part of the folder ids of the checkout at
+// root, "brigade-<ref8>-", read from the `team_ref` of its team file as
+// the harness derives it (docs/sync-adapters.md, "Folder ids"): the
+// reference without its hyphens, cut to eight characters. It is "" when
+// nothing can be said of the checkout, and nothing is then moved for it:
+// no file there, a file the harness would not read as a team file either
+// (a link, anything but a regular file, one anybody on the machine can
+// write, one past a team file's size), one that does not parse, or one
+// that names no team. The file is opened without following a link and
+// judged by what was opened, as the harness does (this package imports
+// nothing of the harness: doc.go).
+func teamOfCheckout(root string) string {
+	file, err := adapterkit.OpenNoFollow(filepath.Join(root, teamFileName), os.O_RDONLY, 0)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || adapterkit.WorldWritable(info) || info.Size() > maxTeamFileBytes {
+		return ""
+	}
+	raw := make([]byte, info.Size())
+	if _, err := io.ReadFull(file, raw); err != nil {
+		return ""
+	}
+	var doc struct {
+		TeamRef string `json:"team_ref"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return ""
+	}
+	ref := strings.ReplaceAll(doc.TeamRef, "-", "")
+	if len(ref) > 8 {
+		ref = ref[:8]
+	}
+	if ref == "" {
+		return ""
+	}
+	return "brigade-" + ref + "-"
 }
 
 // stateConflictPath is the folder state for a folder this checkout cannot

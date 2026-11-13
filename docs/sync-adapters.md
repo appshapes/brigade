@@ -143,6 +143,19 @@ What the bundled adapter does:
   its name and addresses: teams add an always-on server that way.
 - **It moves a folder to its new id.** A folder the instance holds under `replaces` at `path` has its entry
   removed and is added again under `id`, with the devices the old entry had. Syncthing keeps the files.
+- **It moves a folder to the team its checkout is on.** A folder's id carries its team, so a repository whose
+  team file is pointed at another team asks for each folder under a new id, at the path the earlier id holds. When
+  the one other entry at `path` is provably that folder as another team had it — an id of Brigade's shape with
+  another team's part, a label that hashes to it, the same folder name, the same path as written — and the team
+  file of the checkout the folder is in (`.brigade.json`, where `path` less the folder's name puts the checkout)
+  names the team of `id`, the entry is removed and the folder added under `id` with this request's devices and
+  any `id` already had there: the earlier team's devices are not carried over. Syncthing keeps the files. The
+  team file decides, so a session that started before it changed, and still asks for the earlier id, is told
+  `conflict_path` and does not move the folder back while the file names the other team. The file is read at
+  the repository's toplevel and only as Brigade itself would read it: a link, a file anybody on the machine can
+  write, or one past a team file's size confirms nothing, and nothing is moved. A folder whose name climbs out of
+  its checkout (`../shared`) is never moved, because two repositories can list it and its path does not say
+  whose it is.
 - **It pauses a folder the project dropped.** A folder it can prove is this checkout's and no longer listed —
   the team part of its id matches, its label is a `<repository>/<folder>` that hashes to its id, and its path is
   where this checkout puts that folder — is paused and reported as an extra entry with the state `paused`. A

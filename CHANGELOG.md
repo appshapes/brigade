@@ -9,6 +9,27 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A repository that moves to another team keeps syncing its folders**
+  (work item 275). A synced folder's id carries its team, so a repository
+  whose team file was pointed at another team, or whose team was created
+  again, asked for every listed folder under a new id at a path the earlier
+  id still held, and Brigade never moved it: the sync line said `1 folder is
+  held by another checkout` for good, `brigade sync status` showed the
+  folder as `not shared yet`, and a machine that had not held the folder
+  before exchanged it with nobody. The first session to start in the
+  checkout now moves each folder to its id in the team the checkout's team
+  file names, by itself: no file is touched, and the folder is shared with
+  that team's sessions, without the earlier team's devices. The team file
+  decides, so a session that was already running under the earlier team
+  stops sharing the folder, and does not move it back while the team file
+  names the new team: end such a session. Two kinds of folder are not
+  moved: one outside its checkout (`../shared`), because two repositories
+  can list it, and one of a checkout whose team file is not at the
+  repository's toplevel. A team that moves to another backend and keeps its
+  reference was never affected, and neither was the Brigade Board.
+
 ## [0.53.0] — 2026-11-12
 
 ### Added
