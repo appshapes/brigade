@@ -71,6 +71,18 @@ func readEnvelope(resp *response, redact *adapterlog.Redactor) (jsontext.Value, 
 	return nil, out
 }
 
+// An unreadableResult is the failure of an answer whose envelope said ok
+// and whose result is not the command's shape: `internal`, like every
+// answer this adapter cannot use. It is a type of its own because an ok
+// envelope means the server did what it was asked, and for one command,
+// `team rotate-secret`, the caller has to be told what that cost
+// (team.go). Everything that reads a failure finds the protocol error
+// inside it.
+type unreadableResult struct{ cause *protocol.Error }
+
+func (e *unreadableResult) Error() string { return e.cause.Message }
+func (e *unreadableResult) Unwrap() error { return e.cause }
+
 // A request is one call of the contract's section 2.
 type request struct {
 	path string
@@ -134,7 +146,7 @@ func (c *command) do(ctx context.Context, r *request) error {
 		}
 		if protocol.Decode(result, r.out) != nil {
 			c.log.Debug("result did not validate", slog.String("path", r.path))
-			return errUnexpectedResponse("the backend answered with a result this adapter could not read")
+			return &unreadableResult{cause: errUnexpectedResponse("the backend answered with a result this adapter could not read")}
 		}
 		return nil
 	}

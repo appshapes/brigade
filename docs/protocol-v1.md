@@ -12,7 +12,7 @@ is a new major version, not an edit to this one.
 
 - **Normative words.** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as RFC 2119 defines them. Everything else
   is description.
-- **Every MUST cites a conformance case.** The suite (plan section 9.2) has 49 cases: `C-01`..`C-47` plus `C-03b`,
+- **Every MUST cites a conformance case.** The suite (plan section 9.2) has 52 cases: `C-01`..`C-50` plus `C-03b`,
   `C-19b` and `C-29b` (the numbering skips 09). A MUST that no case checks yet is marked `[no case: B-n]` and listed in
   Appendix B, which is an input to the suite's implementation (P1-6). No citation here names a case that does not
   exist; Appendix A is the index.
@@ -155,7 +155,9 @@ so that every adapter uses the same words, gated by capability, and permitted ex
 | `team join [--prompt] [--label <human_label>]` | `{join_secret, human_label?, backend?}` (or a TTY prompt with `--prompt`: the secret without echo, then the label) | `{team_ref, team_name, principal_ref, rejoined}` | convention, capability `team.join` (an adapter whose membership is managed elsewhere omits it); binds the profile; `backend` is adapter-specific and accepted only when the profile has no backend configured; exit 7 `conflict` (`profile_bound`) on a profile bound to another team — a secret naming the bound team is a rejoin (4.4.10, C-04, C-08) |
 | `team leave` | none | `{team_ref, principal_ref, left: true}` | convention, capability `team.join`; idempotent; revokes the caller's own membership at the backend, closes the caller's open sessions in that team and unbinds the profile (`describe.profile.state` becomes `not_member`, the credential stays); a later `team join` with the secret re-activates the same membership (`rejoined: true`) and keeps the principal (C-08) |
 | `team members` | none | `{team_ref, team_name, server_time, members: [{principal_ref, human_label, status, joined_at, last_seen_at, session_count}]}` | convention, capability `team.roster` (D22); every active member; `unauthorized` with byte-identical text for a non-member's team and a random `team_ref` (C-43) |
-| `team rotate-secret` / `team revoke-member` / `team transfer` | adapter-defined | adapter-defined | convention, capability `team.admin`, Phase 5; creator only; not specified further in v1 |
+| `team rotate-secret --secret-file <path>` | none | `{team_ref, team_name, secret_version, rotated_at, secret_file}` | convention, capability `team.admin`; the team's owner only; the new secret goes to the file and to no output (4.4.10, C-48) |
+| `team revoke-member [--principal <principal_ref> [--ban] \| --max-version <n>]` | `{principal_ref, ban?}` or `{joined_secret_version_lte}` (or the flags) | `{team_ref, principal_ref, status, changed, sessions_closed}` or `{team_ref, max_version, revoked, sessions_closed}` | convention, capability `team.admin`; the team's owner only (4.4.10, C-49) |
+| `team transfer [--principal <principal_ref>]` | `{principal_ref}` (or the flag) | `{team_ref, principal_ref, transferred: true}` | convention, capability `team.admin`; the team's owner only (4.4.10, C-50) |
 | `profile init` / `profile status` / `profile reset` / `profile revoke-credentials` | adapter-specific | adapter-specific, never a secret | convention, adapter-defined; `profile reset` invalidates the credential at the backend when the adapter can (best effort) and deletes the local credential and profile; `profile revoke-credentials` only invalidates the credential (so a leaked copy of the credential file stops working) and leaves the profile in place for a rejoin; `profile init` on a configured profile is `conflict` unless the adapter's own `--force` is given |
 
 Result objects that have a Go type in `internal/protocol` are named in the table; the composite results of
@@ -695,6 +697,72 @@ registered a session) and `session_count`.
 }
 ```
 
+**Team administration** (capability `team.admin`; shapes fixed 2026-11-12, work item 274). Three commands answer the
+team's **owner** only. The owner is the principal that created the team, until `team transfer` names another. A caller
+that is not the owner, or is the owner and not an active member, is the uniform `unauthorized` of 4.5.7, with bytes
+identical for an active member that is not the owner and for a member that was revoked.
+
+**`team rotate-secret --secret-file <path>`** takes no input. `--secret-file` is required and names an absolute path
+in a directory that exists. The adapter checks it before any network call: no path, or one that is not absolute, is
+`usage`, and a directory that does not exist is `config` with `details.reason = "secret_file_unwritable"`. The team gets a new
+join secret of the format above with the same `team_ref`. The previous secret no longer joins: a join with it is the
+rejected secret of the binding rules. Every member stays a member. The new secret is written to the file with mode
+0600 and appears in no output. Result (C-48):
+
+```json
+{"team_ref": "…", "team_name": "ops", "secret_version": 2, "rotated_at": "2026-11-12T12:00:00Z", "secret_file": "/home/alice/ops.secret"}
+```
+
+All five members are required. `secret_version` counts the team's secrets from 1, the secret `team create` printed, so
+a first rotation answers 2. A rotation whose secret could not be written to the file is `config` with
+`details.reason = "secret_file_unwritable"`: the new secret is lost and the previous one is dead, so rotate again.
+A rotation whose answer from the backend the adapter cannot use is `internal` and means the same: rotate again.
+
+**`team revoke-member`** — one of two requests, on stdin or as flags (C-49):
+
+- `{"principal_ref", "ban"?}`, or `--principal <principal_ref> [--ban]`. That member's membership ends and its open
+  sessions in the team are closed. Without `ban` the member may come back with the secret, as after `team leave`
+  (the same `principal_ref`, `rejoined: true`). With `ban` its join is the rejected secret of the binding rules, until
+  a revocation without `ban` lifts the ban. The owner cannot name itself: `invalid_input` with
+  `details.field = "principal_ref"`. A principal that was never a member is no error: `changed` is `false` and nothing
+  is kept, so a ban of it does not hold. Result:
+
+  ```json
+  {"team_ref": "…", "principal_ref": "…", "status": "revoked", "changed": true, "sessions_closed": 1}
+  ```
+
+  All five members are required. `status` is `revoked` or `banned`, what the request asked for; `changed` says whether
+  the membership's status moved; `sessions_closed` counts the sessions this request closed. Whether a session whose
+  lease had already run out is among them is the backend's own bookkeeping.
+- `{"joined_secret_version_lte": n}`, or `--max-version <n>`, with n from 0 to 2147483647. Every active member that
+  joined with a secret of version n or lower is revoked, except the owner. It never bans, and it leaves a banned
+  member banned. It is the second step after a rotation, when the old secret may have reached someone it should not:
+  everyone comes back through the new one. Result:
+
+  ```json
+  {"team_ref": "…", "max_version": 1, "revoked": 3, "sessions_closed": 2}
+  ```
+
+  All four members are required.
+
+Both forms in one request, or `ban` with the second form, is `invalid_input` on stdin and `usage` as flags. A member
+that was revoked is refused as one that left: `unauthorized` on every command that touches the team, and a running
+watch ends with an `unauthorized` error event and exit 5 (4.5.7). An adapter with `team.admin` adds
+`joined_secret_version` to each member of `team members`, the version of the secret the member last joined with,
+when its backend answers it; an adapter that reaches a backend without the administration commands omits it.
+
+**`team transfer`** — request `{"principal_ref"}` on stdin, or `--principal <principal_ref>`. That principal, an
+active member of the team, becomes its owner. The previous owner stays a member, and its next administration command
+is `unauthorized`. A principal that is not an active member of the team is `invalid_input` with
+`details.field = "principal_ref"`. The owner naming itself is accepted and changes nothing. Result (C-50):
+
+```json
+{"team_ref": "…", "principal_ref": "…", "transferred": true}
+```
+
+All three members are required and `transferred` is always `true`. In `team revoke-member` and `team transfer`, an
+adapter may answer `unauthorized` for a `principal_ref` of a shape its backend never issues.
+
 **`profile init`** on a configured profile is `conflict` unless the adapter's own `--force` is given.
 
 ## 4.5 Semantics
@@ -835,7 +903,7 @@ failure → 9; GoTrue `refresh_token_already_used` (after one re-read-and-retry)
 | `team.create` | `team create` | |
 | `team.join` | `team join`, `team leave` | omitted by an adapter whose membership is managed elsewhere; the suite then provisions principals through `--setup` |
 | `team.roster` | `team members` | every active member (D22) |
-| `team.admin` | `team rotate-secret`, `team revoke-member`, `team transfer` | Phase 5; creator only |
+| `team.admin` | `team rotate-secret`, `team revoke-member`, `team transfer` | the team's owner only (4.4.10); `team members` then carries `joined_secret_version` where the backend answers it |
 | `message.receive` | `message receive` | required in v1 and still advertised (C-18) |
 | `message.watch.push` | — | events arrive without polling: the `ready` event's `mode` is `push` and the harness expects a message within 5 s; an adapter that omits it MUST send `mode: polling` (C-33) and the harness expects two poll intervals of latency (C-35) |
 | `message.watch.stdin_commands` | NDJSON commands on `message watch` stdin (4.4.9) | without it the adapter ignores stdin's content and exits on its EOF |
@@ -896,7 +964,7 @@ The logical plan's ten freeze items and where this document freezes each; nothin
 
 ## Appendix A. Conformance case index
 
-Every case of plan 9.2 and the sections of this document that cite it. Every one of the 47 ids appears at least
+Every case of plan 9.2 and the sections of this document that cite it. Every one of the 52 ids appears at least
 once.
 
 | Case | Rule (9.2) | Cited in |
@@ -950,6 +1018,9 @@ once.
 | C-45 | 4.4.2 human_label (cap `session.human_label`) | 4.4.2 `human_label`, registration paragraph; 4.5.11; 4.7 |
 | C-46 | 4.4.2 brigade_version (cap `session.brigade_version`) | 4.4.2 `brigade_version`; 4.4.3 `brigade_version`; 4.4.4; 4.4.9 commands; 4.5.11; 4.7 |
 | C-47 | 4.4.2 sync_peer (cap `session.sync_peer`) | 4.4.2 `sync_peer`; 4.4.3 `sync_peer`; 4.4.4; 4.4.9 commands; 4.5.11; 4.7 |
+| C-48 | 4.4.10 team rotate-secret (cap `team.admin`) | 4.2 `team rotate-secret`; 4.4.10 `team rotate-secret` |
+| C-49 | 4.4.10 team revoke-member (cap `team.admin`) | 4.2 `team revoke-member`; 4.4.10 `team revoke-member` |
+| C-50 | 4.4.10 team transfer (cap `team.admin`) | 4.2 `team transfer`; 4.4.10 `team transfer` |
 
 ## Appendix B. Normative statements without a conformance case when the suite was specified (input to P1-6)
 

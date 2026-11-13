@@ -6,10 +6,10 @@
 use brigade_gateway::notes::slack::{
     CHANNEL_HISTORY_SCOPE, DEFAULT_BOT_HANDLE, DEFAULT_WORKSPACE, NOT_DELIVERED_SUMMARY, NOT_INSTALLED,
     REACTION, Tell, answer_carried, answer_challenge, answer_command, answer_for, answer_ignored,
-    answer_told, answer_unsigned, challenge, command, confirmation, describe_target, hears_channel_threads,
-    invalid, is_final, joins_first, mention_key, no_gateway, no_match, not_posted, not_sent, parse_request,
-    post, received_key, send, sent_note, tell, thread_row_in, thread_row_out, unaddressed, undeliverable,
-    wants_channel_name,
+    answer_told, answer_unsigned, challenge, command, confirmation, confirmation_among, describe_target,
+    hears_channel_threads, invalid, is_final, joins_first, mention_key, no_gateway, no_match, not_connected,
+    not_posted, not_sent, parse_request, post, received_key, roster_of_connected, send, sent_note, tell,
+    thread_row_in, thread_row_out, unaddressed, undeliverable, wants_channel_name,
 };
 use brigade_gateway::notes::{
     INBOX_BATCH, Sending, already_carried, answer_duplicate, answer_failed, answer_method_not_allowed,
@@ -295,6 +295,35 @@ fn what_a_person_is_told_about_a_message_that_is_not_sent_on() {
 }
 
 #[test]
+fn a_roster_that_leaves_teams_out_says_so_without_naming_them() {
+    // With every team listed the roster is what it always was, and so is every answer that shows it.
+    assert_eq!(not_connected(0), None);
+    assert_eq!(roster_of_connected("ROSTER", 0), "ROSTER");
+    // One team whose gateway is out, and several: a sentence under the roster, which names no team.
+    let one = "One team's gateway is not connected at the moment, so its sessions cannot be reached.";
+    assert_eq!(not_connected(1).as_deref(), Some(one));
+    assert_eq!(roster_of_connected("ROSTER", 1), format!("ROSTER\n\n{one}"));
+    assert_eq!(
+        roster_of_connected("ROSTER", 3),
+        "ROSTER\n\n3 teams' gateways are not connected at the moment, so their sessions cannot be reached."
+    );
+    // The answers that show a roster show this one: a name nobody has, no name at all, and the roster asked
+    // for by its command.
+    let roster = roster_of_connected("ROSTER", 1);
+    assert_eq!(
+        not_sent(
+            "no session ends with \"3f9a2\", and no member has that label",
+            &roster
+        ),
+        format!(
+            "The message was not sent: no session ends with \"3f9a2\", and no member has that label.\n\nROSTER\n\n{one}"
+        )
+    );
+    assert!(unaddressed(&roster).ends_with(&format!("\n\nROSTER\n\n{one}")));
+    assert_eq!(command("sessions", &roster), format!("ROSTER\n\n{one}"));
+}
+
+#[test]
 fn an_answer_is_for_what_is_not_sent_on_and_not_for_what_is_ignored() {
     let text = || "t".to_owned();
     assert_eq!(
@@ -572,6 +601,53 @@ fn a_person_is_told_of_the_send_when_they_used_a_slash_command_or_named_a_member
         confirmation(&direct(), &by_label, 1),
         Some(Tell::Post(_))
     ));
+
+    // With a team left out of the request the note says so under where the message went, and names the
+    // team it went to: the name may have been one a session of the other team answers to as well.
+    let one_out = "One team's gateway is not connected at the moment, so its sessions cannot be reached.";
+    assert_eq!(
+        confirmation_among(&slash(), &by_label, 1, 1),
+        Some(Tell::Response(answer_command(&format!(
+            "{}\n\n{one_out}",
+            sent_note(&by_label, 2)
+        ))))
+    );
+    assert_eq!(
+        confirmation_among(&mention(), &by_label, 2, 1),
+        Some(tell(
+            &mention(),
+            &format!("{}\n\n{one_out}", sent_note(&by_label, 3))
+        ))
+    );
+    assert!(sent_note(&by_label, 2).contains(" on team *ops*"));
+    // A session named by the end of its id is told as well while a team is left out, in a direct message
+    // and in a channel: the characters may end the id of a session of that team too, and the reaction
+    // alone would not say which session the message went to.
+    let by_tail_among = format!("{}\n\n{one_out}", sent_note(&by_tail, 2));
+    assert_eq!(
+        by_tail_among,
+        format!("Sent to *frank* (`…3f9a2`) on team *ops*. {ACCEPTED}\n\n{one_out}")
+    );
+    for message in [direct(), mention()] {
+        assert_eq!(
+            confirmation_among(&message, &by_tail, 1, 1),
+            Some(tell(&message, &by_tail_among))
+        );
+    }
+    // With no team left out the confirmation is what it always was, and that of a session named by its
+    // id in a message is the reaction alone.
+    for message in [slash(), mention(), direct()] {
+        assert_eq!(
+            confirmation_among(&message, &by_label, 2, 0),
+            confirmation(&message, &by_label, 2)
+        );
+        assert_eq!(
+            confirmation_among(&message, &by_tail, 2, 0),
+            confirmation(&message, &by_tail, 2)
+        );
+    }
+    assert_eq!(confirmation_among(&direct(), &by_tail, 2, 0), None);
+    assert_eq!(confirmation_among(&mention(), &by_tail, 2, 0), None);
 }
 
 // ---- slack-out ---------------------------------------------------------------------------------------------

@@ -979,6 +979,145 @@
         "left"
       ]
     },
+    "TeamRevokeByVersionResult": {
+      "properties": {
+        "team_ref": {
+          "type": "string"
+        },
+        "max_version": {
+          "type": "integer",
+          "maximum": 2147483647,
+          "minimum": 0
+        },
+        "revoked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sessions_closed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "type": "object",
+      "required": [
+        "team_ref",
+        "max_version",
+        "revoked",
+        "sessions_closed"
+      ]
+    },
+    "TeamRevokeMemberRequest": {
+      "properties": {
+        "principal_ref": {
+          "type": "string"
+        },
+        "ban": {
+          "type": "boolean"
+        },
+        "joined_secret_version_lte": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "maximum": 2147483647,
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "TeamRevokeMemberResult": {
+      "properties": {
+        "team_ref": {
+          "type": "string"
+        },
+        "principal_ref": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "changed": {
+          "type": "boolean"
+        },
+        "sessions_closed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "type": "object",
+      "required": [
+        "team_ref",
+        "principal_ref",
+        "status",
+        "changed",
+        "sessions_closed"
+      ]
+    },
+    "TeamRotateSecretResult": {
+      "properties": {
+        "team_ref": {
+          "type": "string"
+        },
+        "team_name": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "secret_version": {
+          "type": "integer",
+          "maximum": 2147483647,
+          "minimum": 2
+        },
+        "rotated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "secret_file": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "team_ref",
+        "team_name",
+        "secret_version",
+        "rotated_at",
+        "secret_file"
+      ]
+    },
+    "TeamTransferRequest": {
+      "properties": {
+        "principal_ref": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "principal_ref"
+      ]
+    },
+    "TeamTransferResult": {
+      "properties": {
+        "team_ref": {
+          "type": "string"
+        },
+        "principal_ref": {
+          "type": "string"
+        },
+        "transferred": {
+          "type": "boolean"
+        }
+      },
+      "type": "object",
+      "required": [
+        "team_ref",
+        "principal_ref",
+        "transferred"
+      ]
+    },
     "WatchAcked": {
       "properties": {
         "event": {

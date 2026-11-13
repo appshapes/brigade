@@ -6,7 +6,7 @@
 //! the port's reference gave them; what each step says and decides is `brigade-gateway`'s.
 //!
 //! One thing is the function's own and kept: the lookups of the person, the channel and the link come
-//! before the send, so a slow Slack makes a slow answer. Two are not.
+//! before the send, so a slow Slack makes a slow answer. Three are not.
 //!
 //! Nothing of a request is read before it is known to be Slack's, but the handshake Slack makes when the
 //! request URL is saved, and that only of a body small enough to be one. The function looked for the
@@ -15,6 +15,13 @@
 //! And no message is lost between its coming and its going on. The function wrote a request down as
 //! received before it carried it, and answered every later delivery of it as a duplicate. Here it is
 //! written down once the gateway is done with it ([`Gateways::carry`]).
+//!
+//! And one team cannot stop Slack for the others. A team's owner can end its gateway's membership, by
+//! revoking it or by revoking everyone who joined with a secret it rotated, and until the gateway has
+//! joined again its team's roster is refused. The function failed a request when any served team's roster
+//! could not be read. Here such a team is left out of the request: the other teams' sessions are found and
+//! written to as before, and a person who is shown the roster, or where their message went, is told that
+//! some sessions cannot be reached now.
 
 use brigade_core::Timestamp;
 use brigade_gateway::connector::Request;
@@ -30,7 +37,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use super::endpoint::Received;
 use super::served::{Sent, carried_before, detail};
 use super::state::Kind;
-use super::{Gateways, SlackSide, plain, threads};
+use super::{Gateways, SlackSide, plain, presence, threads};
 use crate::note;
 
 /// The longest body that is looked at for Slack's handshake before its signature is checked. The handshake
@@ -161,14 +168,30 @@ async fn carry(
     if gateways.is_done(&key).await {
         return Ok(notes::answer_duplicate());
     }
-    // 8. The gateways, and 9. every served team's roster, its own gateway session left out.
-    let served = gateways.served(Kind::Slack).await;
-    if served.is_empty() {
+    // 8. The gateways, and 9. every served team's roster, its own gateway session left out. A team whose
+    // gateway is no longer the member it was is left out of this request: its roster cannot be read, and
+    // that is its own affair and not the other teams'. Any other refusal of a roster is a fault, and
+    // fails the request so that Slack delivers it again.
+    let configured = gateways.served(Kind::Slack).await;
+    if configured.is_empty() {
         return Err(ns::NOT_INSTALLED.to_owned());
     }
-    let mut rosters = Vec::new();
-    for gateway in &served {
-        rosters.push(gateway.sessions().await.map_err(|refusal| refusal.message)?);
+    let (mut served, mut rosters, mut left_out) = (Vec::new(), Vec::new(), Vec::new());
+    for gateway in configured {
+        match gateway.sessions().await {
+            Ok(roster) => {
+                served.push(gateway);
+                rosters.push(roster);
+            }
+            Err(refusal) if presence::lost(&refusal) => left_out.push(refusal.message),
+            Err(refusal) => return Err(refusal.message),
+        }
+    }
+    // With every team left out the request fails, as it does for a gateway that serves no team: Slack
+    // delivers it again, and by then the gateway may have joined again.
+    if served.is_empty() {
+        let why = left_out.into_iter().next();
+        return Err(why.unwrap_or_else(|| ns::NOT_INSTALLED.to_owned()));
     }
     let teams: Vec<TeamSessions<'_>> = served
         .iter()
@@ -183,8 +206,11 @@ async fn carry(
         })
         .collect();
     let gateway_ids: Vec<&str> = served.iter().map(|gateway| gateway.session_id.as_str()).collect();
-    // 10. The roster text.
-    let roster = slack_roster(&teams, &gateway_ids, &slack.bot_handle);
+    // 10. The roster text: the teams that answered, and a sentence under them when a team did not.
+    let roster = ns::roster_of_connected(
+        &slack_roster(&teams, &gateway_ids, &slack.bot_handle),
+        left_out.len(),
+    );
     // What a person is told is their answer, and the gateway is done with the request once they have it.
     let told = async |said: ns::Tell| {
         let answer = tell(gateways, slack, said).await;
@@ -288,7 +314,7 @@ async fn carry(
             .asked(&slack.api.add_reaction_request(&m.channel, ts, ns::REACTION))
             .await;
     }
-    match ns::confirmation(m, &recipient, teams.len()) {
+    match ns::confirmation_among(m, &recipient, teams.len(), left_out.len()) {
         Some(ns::Tell::Response(answer)) => return Ok(answer),
         Some(other) => {
             tell(gateways, slack, other).await;
@@ -701,6 +727,248 @@ mod tests {
         );
         assert_eq!(ops.inbox().await.len(), 1);
         let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[tokio::test]
+    async fn a_team_whose_gateway_was_revoked_is_left_out_and_the_other_teams_are_served() {
+        let slack = StandIn::start(standin::slack);
+        let data = scratch("slack-in-left-out");
+        let engine = engine_on(&data);
+        let ops = team(&engine).await;
+        let web = team_named(&engine, "web", "bob@example.com", "storefront").await;
+        // The web team's join secret is in a file, as the configuration names one: the file is what the
+        // operator replaces when the secret was rotated.
+        let web_secret = data.join("web.secret");
+        std::fs::write(&web_secret, format!("{}\n", web.join_secret)).unwrap();
+        let mut app = testing::slack(&format!("{}/api", slack.url), &ops.join_secret);
+        app.teams.push(Secret::kept_in(&web_secret));
+        let both = gateways(
+            &data,
+            &engine,
+            config::Gateways {
+                slack: Some(app),
+                mail: None,
+            },
+        );
+        let (_stop, stopping) = watch::channel(false);
+        let mut turns = Turns::new(&both);
+        turns.pass(&both, &stopping).await;
+        let tail = |session: &str| session[session.len() - 5..].to_owned();
+        let (ops_tail, web_tail) = (tail(&ops.session), tail(&web.session));
+        let form = |text: &str| {
+            signed(
+                "application/x-www-form-urlencoded",
+                &format!("user_id=U0PERSON01&channel_id=D0PERSON01&channel_name=directmessage&text={text}"),
+            )
+        };
+        let how = "To write to one: message @brigade with a first line `to: <the five characters, or a member's label>`, or `/brigade send <five characters or label> <text>`.";
+        let ops_row = format!("• `{ops_tail}`  payments-api  _idle_ · alice@example.com");
+        let web_row = format!("• `{web_tail}`  storefront  _idle_ · bob@example.com");
+        let both_teams = format!(
+            "Sessions on the 2 Brigade teams this gateway serves right now (names and labels are their owners' own words):\n\n*ops*\n{ops_row}\n\n*web*\n{web_row}\n\n{how}"
+        );
+        let (_, said) = asked_of(&both, &form("sessions")).await;
+        assert_eq!(said["text"], json!(both_teams));
+
+        // The web team's owner rotates its join secret and revokes everyone who joined with the old one,
+        // which its gateway did. Nobody of the ops team had a hand in it.
+        let rotated = web
+            .administer("/v1/team/rotate-secret", &json!({"team_ref": web.team_ref}))
+            .await;
+        let swept = web
+            .administer(
+                "/v1/team/revoke-member",
+                &json!({"team_ref": web.team_ref, "joined_secret_version_lte": 1}),
+            )
+            .await;
+        assert_eq!(swept["revoked"], json!(1));
+
+        // A message to a session of the ops team is carried as before, by the ops team's gateway. The
+        // person named the session by the end of its id, which with every team reached is confirmed by the
+        // reaction alone. With a team left out they are told where the message went and that some sessions
+        // could not be reached: in the direct message, in the channel they mentioned the bot in, and in a
+        // command's own answer.
+        let one_out = "One team's gateway is not connected at the moment, so its sessions cannot be reached.";
+        let went_to_ops = format!(
+            "Sent to *payments-api* (`…{ops_tail}`) on team *ops*. Accepted means stored for that session, not read; its reply will come to you here.\n\n{one_out}"
+        );
+        let hello = dm("Ev1", "1700000001.000100", &format!("to: {ops_tail}\n\nhello"));
+        let (status, said) = asked_of(&both, &hello).await;
+        assert_eq!((status, &said["team"]), (200, &json!("ops")), "{said}");
+        let told = named(&slack, "POST /api/chat.postMessage");
+        assert_eq!(told.len(), 1);
+        assert_eq!(
+            (&told[0].json()["text"], &told[0].json()["thread_ts"]),
+            (&json!(went_to_ops), &json!("1700000001.000100"))
+        );
+        let mention = json!({
+            "type": "app_mention", "channel": "C0GENERAL1", "user": "U0PERSON01",
+            "text": format!("<@U0BOT00001> to: {ops_tail}\n\nhello from the channel"),
+            "ts": "1700000001.000200",
+        });
+        let (status, said) = asked_of(&both, &event("Ev1b", &mention)).await;
+        assert_eq!((status, &said["team"]), (200, &json!("ops")), "{said}");
+        let ephemeral = named(&slack, "POST /api/chat.postEphemeral");
+        assert_eq!(ephemeral.len(), 1);
+        assert_eq!(
+            (&ephemeral[0].json()["text"], &ephemeral[0].json()["user"]),
+            (&json!(went_to_ops), &json!("U0PERSON01"))
+        );
+        let (status, said) = asked_of(&both, &form(&format!("send+{ops_tail}+ship+it"))).await;
+        assert_eq!(status, 200);
+        assert_eq!(said["text"], json!(went_to_ops));
+        assert_eq!(ops.inbox().await.len(), 3);
+
+        // The roster lists the team that answered, and says under it that not every session can be
+        // reached. It does not name the team that is left out.
+        let ops_alone = format!(
+            "Sessions on Brigade team *ops* right now (names and labels are their owners' own words):\n\n{ops_row}\n\n{how}\n\n{one_out}"
+        );
+        let (status, said) = asked_of(&both, &form("sessions")).await;
+        assert_eq!(status, 200);
+        assert_eq!(said["text"], json!(ops_alone));
+        assert!(!ops_alone.contains("web") && !ops_alone.contains("storefront"));
+
+        // A message to a session of the web team finds nobody of that name, and the person is told so in
+        // the words they always were, with the same roster and its sentence: in the command's own answer,
+        // and in the direct message.
+        let not_sent = format!(
+            "The message was not sent: no session ends with \"{web_tail}\", and no member has that label.\n\n{ops_alone}"
+        );
+        let (status, said) = asked_of(&both, &form(&format!("send+{web_tail}+is+anyone+there"))).await;
+        assert_eq!(status, 200);
+        assert_eq!(said["text"], json!(not_sent));
+        let lost = dm("Ev2", "1700000002.000100", &format!("to: {web_tail}\n\nhello"));
+        assert_eq!(asked_of(&both, &lost).await, (200, json!({"told": true})));
+        let told = named(&slack, "POST /api/chat.postMessage");
+        assert_eq!(told.last().unwrap().json()["text"], json!(not_sent));
+        assert!(web.inbox().await.is_empty());
+
+        // The operator replaces the file with the secret the team has now. At its next turn the gateway
+        // reads it, joins again, and both teams are found again: the roster is what it was, with no
+        // sentence under it, and a message to the web team's session is carried by its gateway.
+        let new_secret = rotated["join_secret"].as_str().unwrap();
+        std::fs::write(&web_secret, format!("{new_secret}\n")).unwrap();
+        turns.pass(&both, &stopping).await;
+        let (_, said) = asked_of(&both, &form("sessions")).await;
+        assert_eq!(said["text"], json!(both_teams));
+        let (_, said) = asked_of(&both, &form(&format!("send+{web_tail}+ship+it"))).await;
+        assert_eq!(
+            said["text"],
+            json!(format!(
+                "Sent to *storefront* (`…{web_tail}`) on team *web*. Accepted means stored for that session, not read; its reply will come to you here."
+            ))
+        );
+        assert_eq!(web.inbox().await.len(), 1);
+        // With every team reached again, a session named by the end of its id in a direct message is
+        // confirmed by the reaction alone, as it always was: nothing is posted to the person.
+        let posted = named(&slack, "POST /api/chat.postMessage").len();
+        let again = dm(
+            "Ev3",
+            "1700000003.000100",
+            &format!("to: {ops_tail}\n\nhello again"),
+        );
+        let (status, said) = asked_of(&both, &again).await;
+        assert_eq!((status, &said["team"]), (200, &json!("ops")), "{said}");
+        assert_eq!(named(&slack, "POST /api/chat.postMessage").len(), posted);
+        assert_eq!(named(&slack, "POST /api/reactions.add").len(), 3);
+        assert_eq!(ops.inbox().await.len(), 4);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[tokio::test]
+    async fn a_name_two_teams_share_is_carried_with_a_word_while_one_of_them_is_left_out() {
+        let slack = StandIn::start(standin::slack);
+        let data = scratch("slack-in-shared-name");
+        let engine = engine_on(&data);
+        // Both teams have a member labelled alike: the same person, a principal in each.
+        let ops = team(&engine).await;
+        let web = team_named(&engine, "web", "alice@example.com", "storefront").await;
+        let mut app = testing::slack(&format!("{}/api", slack.url), &ops.join_secret);
+        app.teams.push(Secret::of(&web.join_secret));
+        let both = gateways(
+            &data,
+            &engine,
+            config::Gateways {
+                slack: Some(app),
+                mail: None,
+            },
+        );
+        let (_stop, stopping) = watch::channel(false);
+        Turns::new(&both).pass(&both, &stopping).await;
+        let ops_tail = ops.session[ops.session.len() - 5..].to_owned();
+        let form = |text: &str| {
+            signed(
+                "application/x-www-form-urlencoded",
+                &format!("user_id=U0PERSON01&channel_id=D0PERSON01&channel_name=directmessage&text={text}"),
+            )
+        };
+
+        // With both teams reached the label names a member of each, and the gateway picks no team for the
+        // person: the message is not sent.
+        let (status, said) = asked_of(&both, &form("send+alice@example.com+hello")).await;
+        assert_eq!(status, 200);
+        assert!(
+            said["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("The message was not sent: "),
+            "{said}"
+        );
+        assert!(ops.inbox().await.is_empty() && web.inbox().await.is_empty());
+
+        // The web team's owner revokes its gateway, which stays out for now. The label then names one
+        // member, and the message goes to the ops team's session. The person is told where it went, on
+        // which team, and that the sessions of one team could not be reached: the one they meant may be
+        // among those.
+        let body = json!({"team_ref": web.team_ref, "joined_secret_version_lte": 1});
+        assert_eq!(
+            web.administer("/v1/team/revoke-member", &body).await["revoked"],
+            json!(1)
+        );
+        let sent = format!(
+            "Sent to *payments-api* (`…{ops_tail}`) on team *ops*: alice@example.com's the idle session of theirs seen most recently. Accepted means stored for that session, not read; its reply will come to you here.\n\nOne team's gateway is not connected at the moment, so its sessions cannot be reached."
+        );
+        let (status, said) = asked_of(&both, &form("send+alice@example.com+hello")).await;
+        assert_eq!(status, 200);
+        assert_eq!(said["text"], json!(sent));
+        // The same in a direct message, where a person who names a member is told by a post.
+        let labelled = dm("Ev1", "1700000001.000100", "to: alice@example.com\n\nhello again");
+        let (status, said) = asked_of(&both, &labelled).await;
+        assert_eq!((status, &said["team"]), (200, &json!("ops")), "{said}");
+        let told = named(&slack, "POST /api/chat.postMessage");
+        assert_eq!(told.last().unwrap().json()["text"], json!(sent));
+        assert_eq!(ops.inbox().await.len(), 2);
+        assert!(web.inbox().await.is_empty());
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[tokio::test]
+    async fn a_request_fails_while_no_team_can_be_reached_and_is_carried_when_slack_delivers_it_again() {
+        let slack = StandIn::start(standin::slack);
+        let mut world = World::with_slack("slack-in-all-out", &slack).await;
+        let tail = world.ops.session[world.ops.session.len() - 5..].to_owned();
+        // The owner of the one team the gateway serves revokes everyone who joined with the team's secret:
+        // the gateway. The secret was not rotated, so the gateway joins again at its next turn.
+        let body = json!({"team_ref": world.ops.team_ref, "joined_secret_version_lte": 1});
+        let swept = world.ops.administer("/v1/team/revoke-member", &body).await;
+        assert_eq!(swept["revoked"], json!(1));
+
+        // Until then the gateway reaches no team. The request fails as it does for a gateway that serves
+        // none: Slack is told the fixed text and delivers again, the person is told nothing, and nothing
+        // says the request came.
+        let hello = dm("Ev1", "1700000001.000100", &format!("to: {tail}\n\nhello"));
+        assert_eq!(asked(&world, &hello).await, (500, json!({"error": FAILED})));
+        assert!(named(&slack, "POST /api/chat.postMessage").is_empty());
+        assert!(world.ops.inbox().await.is_empty());
+
+        // The gateway joins again, and the delivery Slack makes again is carried.
+        world.pass().await;
+        let (status, said) = asked(&world, &hello).await;
+        assert_eq!((status, &said["duplicate"]), (200, &json!(false)), "{said}");
+        let inbox = world.ops.inbox().await;
+        assert_eq!(inbox.len(), 1);
+        assert_eq!(inbox[0]["message_id"], said["message_id"]);
     }
 
     #[tokio::test]

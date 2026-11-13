@@ -104,8 +104,9 @@ func TestReadStrictTrustsTheProfileDirectoryOnWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if InsecureMode(fi) || ForeignOwner(fi) || WorldWritable(fi) || !IsExecutable(fi) {
-		t.Fatalf("the Windows facts: insecure=%v foreign=%v worldwritable=%v executable=%v; want false,false,false,true", InsecureMode(fi), ForeignOwner(fi), WorldWritable(fi), IsExecutable(fi))
+	if InsecureMode(fi) || ForeignOwner(fi) || WorldWritable(fi) || !IsExecutable(fi) || !OwnerReadWriteOnly(fi) {
+		t.Fatalf("the Windows facts: insecure=%v foreign=%v worldwritable=%v executable=%v ownerreadwriteonly=%v; want false,false,false,true,true",
+			InsecureMode(fi), ForeignOwner(fi), WorldWritable(fi), IsExecutable(fi), OwnerReadWriteOnly(fi))
 	}
 }
 

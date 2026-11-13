@@ -9,9 +9,10 @@
 //! adapter (`internal/adapters/fs`) is the worked example they were written against, and the stand-in
 //! server (`internal/adapters/rest/stub`) the order a request is checked in.
 //!
-//! [`import_team`] is the one change that is not a request. It takes in a team that exists on another
-//! backend, with the join secret it has there, and is the operator's alone: [`answer`] has no path to it.
-//! It makes its entry as a request does, and the caller appends and syncs that entry in the same way.
+//! Three changes are not requests, and are the operator's alone: [`answer`] has no path to any of them.
+//! [`import_team`] takes in a team that exists on another backend, with the join secret it has there,
+//! [`set_owner`] names the owner of a team, and [`take_back`] takes a team from whoever holds it. Each
+//! makes its entry as a request does, and the caller appends and syncs that entry in the same way.
 
 use std::collections::BTreeMap;
 
@@ -25,8 +26,8 @@ use crate::record::{AcceptedMessage, Entry, Event, Idempotency, Record, SessionC
 use crate::state::{Session, State, Team};
 use crate::time::Timestamp;
 use crate::wire::{
-    Ack, Command, Heartbeat, JOIN_SECRET_PREFIX, JoinSecret, Receive, Registration, Send, SessionList,
-    TeamCreate, TeamJoin, check_team_name,
+    Ack, Command, Heartbeat, JOIN_SECRET_PREFIX, JoinSecret, Receive, Registration, Revocation, Send,
+    SessionList, TeamCreate, TeamJoin, TeamRevoke, TeamTransfer, check_team_name,
 };
 
 /// One request as it arrived.
@@ -37,6 +38,10 @@ pub struct Request<'a> {
     /// Whether the caller may create a team: the server asks for no creation token, or the request
     /// presented the right one (the contract's section 3).
     pub may_create: bool,
+    /// Whether the caller's join may make it the owner of a team that has none, one that was taken in
+    /// from another backend (the contract's section 3a). A member that joins over HTTP may; a gateway,
+    /// which joins inside the server, never does.
+    pub may_own: bool,
     /// The path of the request.
     pub path: &'a str,
     /// The body of the request.
@@ -63,8 +68,9 @@ impl Outcome {
 ///
 /// The request is checked in the order the stand-in server checks one: the path, the body's size, that the
 /// body is one JSON object, the credential, the creation token, the membership of the team the request
-/// names, and then its shape and the rules. Nothing of the body is read beyond its members' names until
-/// the credential is known, so a request costs the server its bytes and no more, whoever sent it.
+/// names or, for an administration request, that the caller owns it, and then its shape and the rules.
+/// Nothing of the body is read beyond its members' names until the credential is known, so a request
+/// costs the server its bytes and no more, whoever sent it.
 ///
 /// `now` is the caller's one reading of the clock for this request, and `entropy` the source of every new
 /// identifier.
@@ -96,26 +102,35 @@ pub fn answer(
         let team_ref = document.named_required_text("team_ref")?;
         member_team(state, &team_ref, principal_ref.unwrap_or_default())?;
     }
+    if Command::administration_path(request.path) {
+        let team_ref = document.named_required_text("team_ref")?;
+        owned_team(state, &team_ref, principal_ref.unwrap_or_default())?;
+    }
     let command = Command::read(request.path, &document)?;
-    execute(state, request.caller, &command, now, entropy)
+    execute(state, request.caller, request.may_own, &command, now, entropy)
 }
 
-/// Answers one request that was already read.
+/// Answers one request that was already read. `may_own` is the request's own
+/// ([`Request::may_own`]), and only a join reads it.
 ///
 /// # Errors
 /// The failure to answer with. The state is unchanged.
 pub fn execute(
     state: &mut State,
     caller: Option<&str>,
+    may_own: bool,
     command: &Command,
     now: Timestamp,
     entropy: &mut dyn Entropy,
 ) -> Result<Outcome, Error> {
     match command {
         Command::TeamCreate(request) => Ok(team_create(state, caller, request, now, entropy)),
-        Command::TeamJoin(request) => team_join(state, caller, request, now, entropy),
+        Command::TeamJoin(request) => team_join(state, caller, may_own, request, now, entropy),
         Command::TeamLeave(team_ref) => team_leave(state, caller, team_ref, now),
         Command::TeamMembers(team_ref) => team_members(state, caller, team_ref, now),
+        Command::TeamRotateSecret(team_ref) => team_rotate_secret(state, caller, team_ref, now, entropy),
+        Command::TeamRevokeMember(request) => team_revoke_member(state, caller, request, now),
+        Command::TeamTransfer(request) => team_transfer(state, caller, request, now),
         Command::SessionRegister(request) => session_register(state, caller, request, now, entropy),
         Command::SessionHeartbeat(request) => session_heartbeat(state, caller, request, now),
         Command::SessionList(request) => session_list(state, caller, request, now),
@@ -176,6 +191,126 @@ pub fn import_team(
     })
 }
 
+/// Names the owner of a team, for the server's operator: the principal becomes the team's owner whoever
+/// owned it before, and whether or not anyone did.
+///
+/// It is how a team that was taken in gets the owner its admin should be when someone else joined first,
+/// and how a team whose owner lost its credential gets another. The principal must be an active member of
+/// the team, as the one a transfer names must be. Naming the principal that already owns the team changes
+/// nothing and makes no entry. The answer is `team_ref`, `team_name`, `principal_ref`, the member's
+/// `human_label` and `changed`.
+///
+/// # Errors
+/// `not_found` when the server holds no team of that reference; `invalid_input` naming `principal_ref`
+/// when the principal is not an active member of the team. The state is unchanged.
+pub fn set_owner(
+    state: &mut State,
+    team_ref: &str,
+    principal_ref: &str,
+    now: Timestamp,
+) -> Result<Outcome, Error> {
+    let team = state.teams.get(team_ref).ok_or_else(Error::no_such_team)?;
+    if !team.active(principal_ref) {
+        return Err(not_an_active_member());
+    }
+    let changed = team.owner() != Some(principal_ref);
+    let result = json!({
+        "team_ref": team.team_ref,
+        "team_name": team.team_name,
+        "principal_ref": principal_ref,
+        "human_label": team.label(principal_ref),
+        "changed": changed,
+    });
+    let entry = if changed {
+        let owned = Event::TeamOwnerChanged {
+            team_ref: team_ref.to_owned(),
+            principal_ref: principal_ref.to_owned(),
+        };
+        commit(state, now, vec![owned])
+    } else {
+        None
+    };
+    Ok(Outcome { result, entry })
+}
+
+/// Takes a team back from whoever holds it, for the server's operator.
+///
+/// The first member to join a team that has no owner owns it, and naming another owner takes an active
+/// member. So whoever held a leaked join secret, joined first, rotated the secret and revoked everyone
+/// else would leave the operator nothing to name and the team's admin no way in. This is the way back,
+/// and it is one entry, so the log holds all of it or none:
+///
+/// - the team has a new join secret, minted as a rotation mints one, and its count of secrets is one more;
+/// - every active membership ends and its open sessions are closed, with nobody spared, while a banned
+///   member stays banned and a member that left stays as it was;
+/// - the team has no owner, so the first member to join it with the new secret over HTTP owns it, as on a
+///   team that was just taken in.
+///
+/// The answer is `team_ref`, `team_name`, `secret_version`, `join_secret`, `revoked` and
+/// `sessions_closed`. Its `join_secret` is the one place the new secret is: the caller writes it to the
+/// operator's file and nowhere else.
+///
+/// # Errors
+/// `not_found` when the server holds no team of that reference. The state is unchanged.
+pub fn take_back(
+    state: &mut State,
+    team_ref: &str,
+    now: Timestamp,
+    entropy: &mut dyn Entropy,
+) -> Result<Outcome, Error> {
+    let team = state.teams.get(team_ref).ok_or_else(Error::no_such_team)?;
+    let join_secret = new_join_secret(team, entropy);
+    let secret_version = team.secret_version.saturating_add(1);
+    // Every version a member can have joined with, and no principal left out.
+    let everyone = team.joined_up_to(u32::MAX, "");
+    let revoked = everyone.len();
+    let sessions_closed = team.open_sessions(|member| everyone.contains(member), now);
+    let owned = team.owner().is_some();
+    let team_name = team.team_name.clone();
+    let mut events = vec![Event::TeamSecretRotated {
+        team_ref: team_ref.to_owned(),
+        join_secret_hash: sha256_hex(&join_secret),
+        secret_version,
+    }];
+    if revoked > 0 {
+        events.push(Event::MembersRevokedByVersion {
+            team_ref: team_ref.to_owned(),
+            max_version: u32::MAX,
+            except: String::new(),
+        });
+    }
+    if owned {
+        events.push(Event::TeamOwnerChanged {
+            team_ref: team_ref.to_owned(),
+            principal_ref: String::new(),
+        });
+    }
+    let entry = commit(state, now, events);
+    Ok(Outcome {
+        result: json!({
+            "team_ref": team_ref,
+            "team_name": team_name,
+            "secret_version": secret_version,
+            "join_secret": join_secret,
+            "revoked": revoked,
+            "sessions_closed": sessions_closed,
+        }),
+        entry,
+    })
+}
+
+/// A new join secret for a team that has one already: minted as a created team's is, around the reference
+/// the team has. The reference is what a member's files and the team file key by, and it never changes.
+fn new_join_secret(team: &Team, entropy: &mut dyn Entropy) -> String {
+    format!("{JOIN_SECRET_PREFIX}{}.{}", team.team_ref, new_ref(entropy))
+}
+
+/// The refusal of a principal that is to own a team and is not an active member of it. It is one answer
+/// for a membership that was revoked and for a principal the team never had (BAP/1 4.4.10).
+fn not_an_active_member() -> Error {
+    Error::refused_value("principal_ref", "an active member of this team")
+}
+
 /// Makes the records of one request, applies them, and numbers them as the log's next entry.
 fn commit(state: &mut State, now: Timestamp, events: Vec<Event>) -> Option<Entry> {
     if events.is_empty() {
@@ -227,6 +362,19 @@ fn member_team<'a>(state: &'a State, team_ref: &str, principal_ref: &str) -> Res
         .teams
         .get(team_ref)
         .filter(|team| team.active(principal_ref))
+        .ok_or_else(Error::not_member)
+}
+
+/// The team an administration request names, when the caller is its owner and an active member of it.
+///
+/// The refusal is the one answer [`member_team`] gives, for a team that does not exist, a caller that is
+/// not an active member, an active member that is not the owner, an owner that left, and a team that was
+/// taken in and has no owner yet: nothing in it says whether the team exists or who owns it (the
+/// contract's section 3a).
+fn owned_team<'a>(state: &'a State, team_ref: &str, principal_ref: &str) -> Result<&'a Team, Error> {
+    member_team(state, team_ref, principal_ref)
+        .ok()
+        .filter(|team| team.owner() == Some(principal_ref))
         .ok_or_else(Error::not_member)
 }
 
@@ -298,18 +446,31 @@ fn team_create(
 fn team_join(
     state: &mut State,
     caller: Option<&str>,
+    may_own: bool,
     request: &TeamJoin,
     now: Timestamp,
     entropy: &mut dyn Entropy,
 ) -> Result<Outcome, Error> {
     // The hash is taken before the team is looked up, so a wrong secret and an unknown team cost the same.
+    // A secret the team had before a rotation is a wrong secret: only the hash of the one it has is kept.
     let presented = sha256_hex(request.join_secret.expose());
     let team = state
         .teams
         .get(request.join_secret.team_ref())
         .filter(|team| same(&team.join_secret_hash, &presented))
         .ok_or_else(Error::secret_rejected)?;
+    // A banned principal is told what a wrong secret is told, although its secret is right, and nothing
+    // is made for it. A caller with no credential the server knows is a new principal, which nobody
+    // banned: the ban is on the principal, and the secret is what keeps a stranger out.
+    let banned = caller
+        .and_then(|hash| state.principal_of(hash))
+        .and_then(|principal_ref| team.members.get(principal_ref))
+        .is_some_and(|member| member.banned);
+    if banned {
+        return Err(Error::secret_rejected());
+    }
     let (team_ref, team_name) = (team.team_ref.clone(), team.team_name.clone());
+    let ownerless = team.owner().is_none();
     let mut events = Vec::new();
     let (principal_ref, credential) = principal_or_new(state, caller, entropy, &mut events);
     let rejoined = state.teams[&team_ref].members.contains_key(&principal_ref);
@@ -318,6 +479,15 @@ fn team_join(
         principal_ref: principal_ref.clone(),
         human_label: request.human_label.clone(),
     });
+    // A team that was taken in has no owner, because nobody here created it. The first member whose join
+    // may own it does, in the entry that makes it a member: there is no moment at which the team has that
+    // member and still no owner.
+    if ownerless && may_own {
+        events.push(Event::TeamOwnerChanged {
+            team_ref: team_ref.clone(),
+            principal_ref: principal_ref.clone(),
+        });
+    }
     let entry = commit(state, now, events);
     let mut result = Map::new();
     result.insert("team_ref".into(), json!(team_ref));
@@ -390,6 +560,10 @@ fn team_members(
             entry.insert("status".into(), json!("active"));
             entry.insert("joined_at".into(), json!(member.joined_at.rfc3339()));
             entry.insert(
+                "joined_secret_version".into(),
+                json!(member.joined_secret_version),
+            );
+            entry.insert(
                 "last_seen_at".into(),
                 json!(of_member.map(|(last_seen, _)| last_seen.rfc3339())),
             );
@@ -406,6 +580,147 @@ fn team_members(
         "server_time": now.rfc3339(),
         "members": members,
     })))
+}
+
+fn team_rotate_secret(
+    state: &mut State,
+    caller: Option<&str>,
+    team_ref: &str,
+    now: Timestamp,
+    entropy: &mut dyn Entropy,
+) -> Result<Outcome, Error> {
+    let principal_ref = authenticate(state, caller)?;
+    let team = owned_team(state, team_ref, &principal_ref)?;
+    let join_secret = new_join_secret(team, entropy);
+    let secret_version = team.secret_version.saturating_add(1);
+    let team_name = team.team_name.clone();
+    // No member is touched: the version a member joined with is read only by a revocation that names it.
+    let rotated = Event::TeamSecretRotated {
+        team_ref: team_ref.to_owned(),
+        join_secret_hash: sha256_hex(&join_secret),
+        secret_version,
+    };
+    let entry = commit(state, now, vec![rotated]);
+    Ok(Outcome {
+        result: json!({
+            "team_ref": team_ref,
+            "team_name": team_name,
+            "secret_version": secret_version,
+            "rotated_at": now.rfc3339(),
+            "join_secret": join_secret,
+        }),
+        entry,
+    })
+}
+
+fn team_revoke_member(
+    state: &mut State,
+    caller: Option<&str>,
+    request: &TeamRevoke,
+    now: Timestamp,
+) -> Result<Outcome, Error> {
+    let owner = authenticate(state, caller)?;
+    let team = owned_team(state, &request.team_ref, &owner)?;
+    let team_ref = request.team_ref.clone();
+    match &request.whom {
+        Revocation::Principal { principal_ref, ban } => {
+            // The owner cannot revoke itself: a ban of its own it could never lift, because lifting one
+            // takes an owner that is an active member. Leaving is its way out.
+            if *principal_ref == owner {
+                return Err(Error::refused_value(
+                    "principal_ref",
+                    "a member other than the caller",
+                ));
+            }
+            // The membership moves unless it is already what was asked for: revoked for a revocation,
+            // banned for a ban. A revocation of a banned member is what lifts the ban. A principal the
+            // team never had gets no membership made for it, and is no error.
+            let changed = team
+                .members
+                .get(principal_ref)
+                .is_some_and(|member| member.active || member.banned != *ban);
+            // Only a membership that moves makes a record, and only a record closes a session.
+            let (sessions_closed, entry) = if changed {
+                let open = team.open_sessions(|member| member == principal_ref, now);
+                let revoked = Event::MemberRevoked {
+                    team_ref: team_ref.clone(),
+                    principal_ref: principal_ref.clone(),
+                    banned: *ban,
+                };
+                (open, commit(state, now, vec![revoked]))
+            } else {
+                (0, None)
+            };
+            Ok(Outcome {
+                result: json!({
+                    "team_ref": team_ref,
+                    "principal_ref": principal_ref,
+                    "status": if *ban { "banned" } else { "revoked" },
+                    "changed": changed,
+                    "sessions_closed": sessions_closed,
+                }),
+                entry,
+            })
+        }
+        Revocation::UpToVersion(max_version) => {
+            // The owner is left out whatever version it joined with: after one rotation the natural
+            // request names version one, which is the owner's own.
+            let revoked = team.joined_up_to(*max_version, &owner);
+            let count = revoked.len();
+            let sessions_closed = team.open_sessions(|member| revoked.contains(member), now);
+            let entry = if count == 0 {
+                None
+            } else {
+                let swept = Event::MembersRevokedByVersion {
+                    team_ref: team_ref.clone(),
+                    max_version: *max_version,
+                    except: owner,
+                };
+                commit(state, now, vec![swept])
+            };
+            Ok(Outcome {
+                result: json!({
+                    "team_ref": team_ref,
+                    "max_version": max_version,
+                    "revoked": count,
+                    "sessions_closed": sessions_closed,
+                }),
+                entry,
+            })
+        }
+    }
+}
+
+fn team_transfer(
+    state: &mut State,
+    caller: Option<&str>,
+    request: &TeamTransfer,
+    now: Timestamp,
+) -> Result<Outcome, Error> {
+    let owner = authenticate(state, caller)?;
+    let team = owned_team(state, &request.team_ref, &owner)?;
+    if !team.active(&request.principal_ref) {
+        return Err(not_an_active_member());
+    }
+    // The owner naming itself is accepted and changes nothing. The owner it was stays a member, and its
+    // next administration request is refused as any member's is.
+    let entry = if request.principal_ref == owner {
+        None
+    } else {
+        let owned = Event::TeamOwnerChanged {
+            team_ref: request.team_ref.clone(),
+            principal_ref: request.principal_ref.clone(),
+        };
+        commit(state, now, vec![owned])
+    };
+    Ok(Outcome {
+        result: json!({
+            "team_ref": request.team_ref,
+            "principal_ref": request.principal_ref,
+            "transferred": true,
+        }),
+        entry,
+    })
 }
 
 fn session_register(

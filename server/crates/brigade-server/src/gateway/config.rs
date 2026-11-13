@@ -85,20 +85,53 @@ struct MailTeamFile {
     allowed_senders: Vec<String>,
 }
 
-/// A secret read from its file. It has no `Debug`, and nothing prints it.
+/// A secret read from its file. It has no `Debug`, and nothing prints it or the path it came from: the
+/// path is a value of the configuration's, and may be a secret pasted where a path belongs.
 #[derive(Clone, PartialEq, Eq)]
-pub struct Secret(String);
+pub struct Secret {
+    text: String,
+    /// The file the secret was read from, so that it can be read again while the server runs. A secret a
+    /// test made has none.
+    file: Option<PathBuf>,
+}
 
 impl Secret {
     /// The secret itself, for the one place that sends or compares it.
     #[must_use]
     pub fn reveal(&self) -> &str {
-        &self.0
+        &self.text
+    }
+
+    /// What the secret's file holds now, without the white space around it: a team's join secret is
+    /// replaced in its file when the team's owner has rotated it. `None` for a secret that came from no
+    /// file. A file that cannot be read is told by the kind of the failure, and never by its path.
+    pub fn read_again(&self) -> Option<Result<Self, std::io::ErrorKind>> {
+        let file = self.file.as_ref()?;
+        Some(
+            fs::read_to_string(file)
+                .map(|text| Self {
+                    text: text.trim().to_owned(),
+                    file: Some(file.clone()),
+                })
+                .map_err(|error| error.kind()),
+        )
     }
 
     #[cfg(test)]
     pub fn of(text: &str) -> Self {
-        Self(text.to_owned())
+        Self {
+            text: text.to_owned(),
+            file: None,
+        }
+    }
+
+    /// The secret a file holds, for a test of what follows when the file is replaced.
+    #[cfg(test)]
+    pub fn kept_in(file: &Path) -> Self {
+        Self {
+            text: fs::read_to_string(file).unwrap().trim().to_owned(),
+            file: Some(file.to_path_buf()),
+        }
     }
 }
 
@@ -188,7 +221,10 @@ fn secret(path: &Path, member: &str, what: &str) -> Result<Secret, String> {
     if text.is_empty() {
         return Err(format!("the file {member} names holds no {what}"));
     }
-    Ok(Secret(text.to_owned()))
+    Ok(Secret {
+        text: text.to_owned(),
+        file: Some(path.to_path_buf()),
+    })
 }
 
 /// Where a text stops reading as a configuration, and in which way: the line, the column and the kind of

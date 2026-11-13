@@ -188,6 +188,38 @@ pub struct TeamJoin {
     pub human_label: String,
 }
 
+/// Whom a `/v1/team/revoke-member` revokes: the two forms of BAP/1 4.4.10.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Revocation {
+    /// One member, by its principal.
+    Principal {
+        /// The principal whose membership ends.
+        principal_ref: String,
+        /// Whether its later join is refused as well, until a revocation without a ban lifts that.
+        ban: bool,
+    },
+    /// Every active member that joined with a secret of this version or a lower one, the owner excepted.
+    UpToVersion(u32),
+}
+
+/// `/v1/team/revoke-member`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TeamRevoke {
+    /// The team.
+    pub team_ref: String,
+    /// Whom the request revokes.
+    pub whom: Revocation,
+}
+
+/// `/v1/team/transfer`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TeamTransfer {
+    /// The team.
+    pub team_ref: String,
+    /// The principal that is to own it.
+    pub principal_ref: String,
+}
+
 /// A session's facts as a registration reports them (BAP/1 4.4.2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Registration {
@@ -316,6 +348,12 @@ pub enum Command {
     TeamLeave(String),
     /// `/v1/team/members`, with the team to list.
     TeamMembers(String),
+    /// `/v1/team/rotate-secret`, with the team whose secret is replaced.
+    TeamRotateSecret(String),
+    /// `/v1/team/revoke-member`.
+    TeamRevokeMember(TeamRevoke),
+    /// `/v1/team/transfer`.
+    TeamTransfer(TeamTransfer),
     /// `/v1/session/register`.
     SessionRegister(Registration),
     /// `/v1/session/heartbeat`.
@@ -363,6 +401,9 @@ impl Command {
             "/v1/team/join" => team_join(document),
             "/v1/team/leave" => Ok(Self::TeamLeave(document.named_required_text("team_ref")?)),
             "/v1/team/members" => Ok(Self::TeamMembers(document.named_required_text("team_ref")?)),
+            "/v1/team/rotate-secret" => Ok(Self::TeamRotateSecret(document.named_required_text("team_ref")?)),
+            "/v1/team/revoke-member" => team_revoke_member(document),
+            "/v1/team/transfer" => team_transfer(document),
             "/v1/session/register" => session_register(document),
             "/v1/session/heartbeat" => session_heartbeat(document),
             "/v1/session/list" => session_list(document),
@@ -384,6 +425,9 @@ impl Command {
                 | "/v1/team/join"
                 | "/v1/team/leave"
                 | "/v1/team/members"
+                | "/v1/team/rotate-secret"
+                | "/v1/team/revoke-member"
+                | "/v1/team/transfer"
                 | "/v1/session/register"
                 | "/v1/session/heartbeat"
                 | "/v1/session/list"
@@ -409,6 +453,18 @@ impl Command {
         matches!(
             path,
             "/v1/team/members" | "/v1/session/register" | "/v1/session/list"
+        )
+    }
+
+    /// Whether the request at `path` is one of the three that only a team's owner is answered (the
+    /// contract's section 3a). It names its team in a `team_ref`, and that the caller owns the team is
+    /// checked before the rest of the request is read: a caller that is not the owner learns nothing from
+    /// what else the request held.
+    #[must_use]
+    pub fn administration_path(path: &str) -> bool {
+        matches!(
+            path,
+            "/v1/team/rotate-secret" | "/v1/team/revoke-member" | "/v1/team/transfer"
         )
     }
 }
@@ -437,6 +493,48 @@ fn team_join(document: &Document) -> Result<Command, Error> {
     Ok(Command::TeamJoin(TeamJoin {
         join_secret: JoinSecret::parse(&secret)?,
         human_label,
+    }))
+}
+
+/// The two forms of a revocation, read in the order the adapter checks them in: both forms given, then a
+/// ban beside a version, then the version's range, then neither form.
+fn team_revoke_member(document: &Document) -> Result<Command, Error> {
+    const VERSION: &str = "joined_secret_version_lte";
+    let team_ref = document.named_required_text("team_ref")?;
+    // An empty principal is an absent one, as it is to the adapter.
+    let principal_ref = document
+        .named_text("principal_ref")?
+        .filter(|principal_ref| !principal_ref.is_empty());
+    let ban = document.named_boolean("ban")?.unwrap_or(false);
+    let whom = match (principal_ref, document.has_value(VERSION)) {
+        (Some(_), true) => {
+            return Err(Error::refused_value(
+                "principal_ref",
+                "given without joined_secret_version_lte: they are two forms of one request",
+            ));
+        }
+        (Some(principal_ref), false) => Revocation::Principal { principal_ref, ban },
+        (None, true) => {
+            // A revocation by version is for the members that are to come back with the new secret, and
+            // a ban would keep them out.
+            if ban {
+                return Err(Error::refused_value(
+                    "ban",
+                    "given with principal_ref only: a revocation by version never bans",
+                ));
+            }
+            let max_version = document.named_integer(VERSION, 0, 0, limits::MAX_SECRET_VERSION)?;
+            Revocation::UpToVersion(u32::try_from(max_version).unwrap_or(u32::MAX))
+        }
+        (None, false) => return Err(Error::required("principal_ref")),
+    };
+    Ok(Command::TeamRevokeMember(TeamRevoke { team_ref, whom }))
+}
+
+fn team_transfer(document: &Document) -> Result<Command, Error> {
+    Ok(Command::TeamTransfer(TeamTransfer {
+        team_ref: document.named_required_text("team_ref")?,
+        principal_ref: document.named_required_text("principal_ref")?,
     }))
 }
 
@@ -608,7 +706,7 @@ fn message_ack(document: &Document) -> Result<Command, Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, JoinSecret};
+    use super::{Command, JoinSecret, Revocation, TeamRevoke, TeamTransfer};
     use crate::error::{Code, Error};
 
     fn refused(path: &str, body: &str) -> Error {
@@ -924,5 +1022,145 @@ mod tests {
         assert!(!Command::open_path("/v1/credential/revoke"));
         assert!(Command::team_scoped_path("/v1/session/register"));
         assert!(!Command::team_scoped_path("/v1/team/leave"));
+    }
+
+    #[test]
+    fn the_three_administration_paths_are_the_owners_and_need_a_credential() {
+        for path in [
+            "/v1/team/rotate-secret",
+            "/v1/team/revoke-member",
+            "/v1/team/transfer",
+        ] {
+            assert!(Command::known_path(path), "{path}");
+            assert!(Command::administration_path(path), "{path}");
+            assert!(!Command::open_path(path), "{path}");
+            assert_eq!(field(&refused(path, "{}")), "team_ref", "{path}");
+        }
+        assert!(!Command::administration_path("/v1/team/members"));
+        assert!(!Command::administration_path("/v1/team/leave"));
+        assert_eq!(
+            Command::parse("/v1/team/rotate-secret", br#"{"team_ref":"t","more":1}"#).unwrap(),
+            Command::TeamRotateSecret("t".into())
+        );
+        assert_eq!(
+            Command::parse("/v1/team/transfer", br#"{"team_ref":"t","principal_ref":"p"}"#).unwrap(),
+            Command::TeamTransfer(TeamTransfer {
+                team_ref: "t".into(),
+                principal_ref: "p".into(),
+            })
+        );
+        for body in [
+            r#"{"team_ref":"t"}"#,
+            r#"{"team_ref":"t","principal_ref":""}"#,
+            r#"{"team_ref":"t","principal_ref":null}"#,
+        ] {
+            let error = refused("/v1/team/transfer", body);
+            assert_eq!(
+                (field(&error), reason(&error)),
+                ("principal_ref", "required"),
+                "{body}"
+            );
+        }
+        let error = refused("/v1/team/transfer", r#"{"team_ref":"t","principal_ref":7}"#);
+        assert_eq!(
+            (field(&error), reason(&error)),
+            ("principal_ref", "invalid_value")
+        );
+    }
+
+    #[test]
+    fn a_revocation_is_one_of_two_forms_and_never_both() {
+        let read = |members: &str| {
+            let body = format!("{{\"team_ref\":\"t\"{members}}}");
+            match Command::parse("/v1/team/revoke-member", body.as_bytes()) {
+                Ok(Command::TeamRevokeMember(TeamRevoke { team_ref, whom })) => {
+                    assert_eq!(team_ref, "t");
+                    Ok(whom)
+                }
+                Ok(other) => panic!("not a revocation: {other:?}"),
+                Err(error) => Err(error),
+            }
+        };
+        let one = |ban: bool| Revocation::Principal {
+            principal_ref: "p".into(),
+            ban,
+        };
+        // One member, with a ban or without one; a ban that is absent, `null` or `false` is none.
+        assert_eq!(read(r#","principal_ref":"p""#).unwrap(), one(false));
+        assert_eq!(read(r#","principal_ref":"p","ban":null"#).unwrap(), one(false));
+        assert_eq!(read(r#","principal_ref":"p","ban":false"#).unwrap(), one(false));
+        assert_eq!(read(r#","principal_ref":"p","ban":true"#).unwrap(), one(true));
+        // Every member up to a version, from zero to the highest the reference backend holds.
+        for (version, max) in [("0", 0), ("1", 1), ("2147483647", 2_147_483_647)] {
+            let members = format!(",\"joined_secret_version_lte\":{version}");
+            assert_eq!(read(&members).unwrap(), Revocation::UpToVersion(max));
+        }
+        // An empty or `null` principal is an absent one, and a ban that is not asked for is no ban.
+        assert_eq!(
+            read(r#","principal_ref":"","joined_secret_version_lte":2,"ban":false"#).unwrap(),
+            Revocation::UpToVersion(2)
+        );
+        assert_eq!(
+            read(r#","principal_ref":null,"joined_secret_version_lte":2"#).unwrap(),
+            Revocation::UpToVersion(2)
+        );
+
+        for (members, named, why) in [
+            // Both forms, a ban beside a version, and neither form.
+            (
+                r#","principal_ref":"p","joined_secret_version_lte":1"#,
+                "principal_ref",
+                "invalid_value",
+            ),
+            (
+                r#","joined_secret_version_lte":1,"ban":true"#,
+                "ban",
+                "invalid_value",
+            ),
+            ("", "principal_ref", "required"),
+            (r#","principal_ref":"""#, "principal_ref", "required"),
+            (r#","ban":true"#, "principal_ref", "required"),
+            (
+                r#","joined_secret_version_lte":null"#,
+                "principal_ref",
+                "required",
+            ),
+            // A version outside its range, or that is no whole number.
+            (
+                r#","joined_secret_version_lte":-1"#,
+                "joined_secret_version_lte",
+                "out_of_range",
+            ),
+            (
+                r#","joined_secret_version_lte":2147483648"#,
+                "joined_secret_version_lte",
+                "out_of_range",
+            ),
+            (
+                r#","joined_secret_version_lte":"1""#,
+                "joined_secret_version_lte",
+                "out_of_range",
+            ),
+            (
+                r#","joined_secret_version_lte":1.5"#,
+                "joined_secret_version_lte",
+                "out_of_range",
+            ),
+            // A member of the wrong type is named.
+            (r#","principal_ref":7"#, "principal_ref", "invalid_value"),
+            (r#","principal_ref":"p","ban":"yes""#, "ban", "invalid_value"),
+        ] {
+            let error = read(members).unwrap_err();
+            assert_eq!(error.code, Code::InvalidInput, "{members}");
+            assert_eq!((field(&error), reason(&error)), (named, why), "{members}");
+        }
+        // Both forms win over a ban, and the range is named with its bounds.
+        let error = read(r#","principal_ref":"p","joined_secret_version_lte":1,"ban":true"#).unwrap_err();
+        assert_eq!(field(&error), "principal_ref");
+        let error = read(r#","joined_secret_version_lte":-1"#).unwrap_err();
+        assert_eq!(
+            (error.details["min"].as_str(), error.details["max"].as_str()),
+            ("0", "2147483647")
+        );
     }
 }

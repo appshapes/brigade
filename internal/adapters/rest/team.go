@@ -3,9 +3,11 @@ package rest
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"golang.org/x/term"
@@ -14,10 +16,11 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// The `team *` group (4.4.10): create, join, leave, members. The binding
-// rules are local and run before any request; the secret is read from
-// stdin or a no-echo prompt, sent to the server once and never stored; the
-// credential the server issues goes to credential.json and nowhere else.
+// The `team *` group (4.4.10): create, join, leave, members, and the three
+// administration commands at the bottom of this file. The binding rules
+// are local and run before any request; the secret is read from stdin or a
+// no-echo prompt, sent to the server once and never stored; the credential
+// the server issues goes to credential.json and nowhere else.
 
 // maxCreateTokenBytes bounds the file --create-token-file names.
 const maxCreateTokenBytes = 4096
@@ -44,6 +47,12 @@ func (c *command) teamCommand() (any, error) {
 		return c.teamLeave()
 	case "members":
 		return c.teamMembers()
+	case "rotate-secret":
+		return c.teamRotateSecret()
+	case "revoke-member":
+		return c.teamRevokeMember()
+	case "transfer":
+		return c.teamTransfer()
 	default:
 		return nil, errUsage("unknown team verb")
 	}
@@ -456,4 +465,186 @@ func askLine(w io.Writer, r *bufio.Reader, prompt string) (string, error) {
 		return "", errUsage("the terminal input ended before an answer was given")
 	}
 	return strings.TrimSpace(line), nil
+}
+
+// ---- team administration (4.4.10, capability team.admin) ----
+//
+// Three commands that answer the team's owner only, each one request to an
+// endpoint of the contract's section 3a. The flags, the stdin forms, the
+// local checks and their messages are the Supabase adapter's, so a team's
+// administrator types the same thing whichever backend the team is on; the
+// requests of the two that take input are read by adapterkit. The order is
+// that adapter's too: argv and the request first, so a malformed one costs
+// nothing; then the ladder; then the question whether this server carries
+// the endpoints at all; then the request. The server is the authority on
+// who the owner is: every refusal of that is its one uniform
+// `unauthorized`, passed on as it is.
+
+// requireTeamAdmin asks the server whether it carries the administration
+// endpoints. They are an addition to version 1 that a server may leave
+// out, and one that does says so by not listing `team.admin` in `/v1/info`
+// (the contract's section 5). Such a server would answer the request
+// itself `not_found`, which reads as a session or a message that is not
+// there. So the adapter asks first and answers `config`, with a message
+// that says what is missing and whose it is to mend.
+func (c *command) requireTeamAdmin() error {
+	var info serverInfo
+	if err := c.call(pathInfo, nil, &info); err != nil {
+		return err
+	}
+	if !slices.Contains(info.Capabilities, capTeamAdmin) {
+		return errConfig("the server this team is on does not offer team administration (rotate-secret, revoke-member, transfer); its operator needs to update it", reasonServerLacksTeamAdmin)
+	}
+	return nil
+}
+
+// teamRotateSecret implements `team rotate-secret --secret-file <path>`:
+// /v1/team/rotate-secret gives the team a new join secret and leaves every
+// membership as it was (the version revoke is `team revoke-member
+// --max-version`). --secret-file is REQUIRED and the new secret goes
+// there, 0600, written atomically, and to no output (4.5.14): the result
+// is protocol.TeamRotateSecretResult, which names the file and carries no
+// secret. checkSecretFile runs before any request, so a mistyped path
+// cannot cost a rotation. A write that fails AFTER the rotation is
+// `config` secret_file_unwritable and the new secret is lost, the previous
+// one being dead already; the only way on is to rotate again, which the
+// message says. An answer that says ok and cannot be used is the same
+// loss, and `internal` alone would not tell the administrator so:
+// rotationLost says it on stderr.
+func (c *command) teamRotateSecret() (any, error) {
+	fs := newFlags()
+	secretFile := fs.String("secret-file", "", "write the new join secret to this path (0600); required")
+	if err := c.parse(fs); err != nil {
+		return nil, err
+	}
+	if *secretFile == "" {
+		return nil, errUsage("--secret-file <path> is required: the new join secret is never written to stdout")
+	}
+	if err := checkSecretFile(*secretFile); err != nil {
+		return nil, err
+	}
+	if err := c.authenticate(true); err != nil {
+		return nil, err
+	}
+	if err := c.requireTeamAdmin(); err != nil {
+		return nil, err
+	}
+	var answer rotateSecretAnswer
+	if err := c.call(pathTeamRotateSecret, &teamRequest{TeamRef: c.profile.TeamRef}, &answer); err != nil {
+		var unreadable *unreadableResult
+		if errors.As(err, &unreadable) {
+			c.rotationLost()
+		}
+		return nil, err
+	}
+	// The new secret is registered on the redactor before anything else is
+	// done with the answer, so no line this command writes can carry it.
+	c.redactor.Add(answer.JoinSecret)
+	if answer.TeamRef != c.profile.TeamRef {
+		c.rotationLost()
+		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")
+	}
+	secret, err := protocol.ParseJoinSecret(answer.JoinSecret)
+	if err != nil || secret.TeamRef() != answer.TeamRef {
+		c.rotationLost()
+		return nil, errUnexpectedResponse("the backend answered a join secret this adapter cannot parse")
+	}
+	if werr := adapterkit.WriteAtomic(*secretFile, []byte(secret.Secret()+"\n")); werr != nil {
+		c.log.Warn("the new join secret could not be written to --secret-file after the rotation; the previous secret no longer works and the new one is lost: rotate again")
+		return nil, errConfig("the file named by --secret-file could not be written after the rotation; the new secret is lost, rotate again", reasonSecretFile)
+	}
+	c.warnSecretShownOnce("the new join secret was written to the file named by --secret-file (mode 0600); the previous secret no longer works")
+	return &protocol.TeamRotateSecretResult{
+		TeamRef: answer.TeamRef, TeamName: answer.TeamName, SecretVersion: answer.SecretVersion,
+		RotatedAt: answer.RotatedAt, SecretFile: *secretFile,
+	}, nil
+}
+
+// rotationLost says what an ok answer to a rotation that this adapter
+// cannot use has cost: the server rotated, so the previous secret is dead,
+// and the new one is in an answer nobody can read. The command still
+// answers `internal`, which is what it is; this line, on stderr through
+// the logger, is what tells the administrator to rotate again.
+func (c *command) rotationLost() {
+	c.log.Warn("the server rotated the join secret and its answer could not be used; the previous secret no longer works and the new one is lost: rotate again")
+}
+
+// teamRevokeMember implements `team revoke-member` in its two forms:
+// `--principal <ref> [--ban]` or `--max-version <n>`, or, with no flag,
+// the one stdin document of either shape. The request travels to
+// /v1/team/revoke-member as it was validated, with the profile's team
+// beside it, and the server answers the result of the form it was asked
+// in. An answer about another team, another principal or another version
+// than the one asked for is not this command's result, and is `internal`.
+func (c *command) teamRevokeMember() (any, error) {
+	fs := newFlags()
+	flags := adapterkit.NewTeamRevokeFlags(fs)
+	if err := c.parse(fs); err != nil {
+		return nil, err
+	}
+	req, err := flags.Request(c.stdin)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.authenticate(true); err != nil {
+		return nil, err
+	}
+	if err := c.requireTeamAdmin(); err != nil {
+		return nil, err
+	}
+	teamRef := c.profile.TeamRef
+	body := &revokeMemberBody{TeamRevokeMemberRequest: *req, TeamRef: teamRef}
+	if req.JoinedSecretVersionLTE != nil {
+		out := &protocol.TeamRevokeByVersionResult{}
+		if err := c.call(pathTeamRevokeMember, body, out); err != nil {
+			return nil, err
+		}
+		if out.TeamRef != teamRef || out.MaxVersion != *req.JoinedSecretVersionLTE {
+			return nil, errUnexpectedResponse("the backend answered a revocation other than the one it was asked for")
+		}
+		return out, nil
+	}
+	asked := protocol.MembershipRevoked
+	if req.Ban {
+		asked = protocol.MembershipBanned
+	}
+	out := &protocol.TeamRevokeMemberResult{}
+	if err := c.call(pathTeamRevokeMember, body, out); err != nil {
+		return nil, err
+	}
+	if out.TeamRef != teamRef || out.PrincipalRef != req.PrincipalRef || out.Status != asked {
+		return nil, errUnexpectedResponse("the backend answered a revocation other than the one it was asked for")
+	}
+	return out, nil
+}
+
+// teamTransfer implements `team transfer --principal <ref>` (or stdin
+// {principal_ref}): /v1/team/transfer makes an active member of the team
+// its owner. The previous owner stays a member, and its next
+// administration command is the server's uniform `unauthorized`.
+func (c *command) teamTransfer() (any, error) {
+	fs := newFlags()
+	flags := adapterkit.NewTeamTransferFlags(fs)
+	if err := c.parse(fs); err != nil {
+		return nil, err
+	}
+	req, err := flags.Request(c.stdin)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.authenticate(true); err != nil {
+		return nil, err
+	}
+	if err := c.requireTeamAdmin(); err != nil {
+		return nil, err
+	}
+	teamRef := c.profile.TeamRef
+	out := &protocol.TeamTransferResult{}
+	if err := c.call(pathTeamTransfer, &transferBody{TeamTransferRequest: *req, TeamRef: teamRef}, out); err != nil {
+		return nil, err
+	}
+	if out.TeamRef != teamRef || out.PrincipalRef != req.PrincipalRef {
+		return nil, errUnexpectedResponse("the backend answered a transfer other than the one it was asked for")
+	}
+	return out, nil
 }

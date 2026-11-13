@@ -31,6 +31,11 @@
 //     it remembers, per session, the order in which it first saw each
 //     pending message id, and polls `message receive` while a request
 //     waits.
+//   - The owner, the secret versions and the bans of the contract's
+//     section 3a are the stub's own too (admin.go): the fs adapter has no
+//     team administration, so the stub keeps them in memory beside its
+//     credentials and ends a membership by running `team leave` for the
+//     member it revokes.
 package stub
 
 import (
@@ -83,6 +88,11 @@ type Options struct {
 	// Poll is how often a waiting receive polls the inbox; zero means
 	// defaultPoll.
 	Poll time.Duration
+	// WithoutTeamAdmin makes the server one that leaves the administration
+	// endpoints out, as the contract's section 5 lets a server do: its
+	// /v1/info lists no capability, the three paths are unknown, and the
+	// roster carries no joined_secret_version.
+	WithoutTeamAdmin bool
 }
 
 // A Server is one stand-in backend over one directory.
@@ -92,21 +102,36 @@ type Server struct {
 	poll        time.Duration
 	createToken string
 	nonce       string
+	teamAdmin   bool
+
+	// membership makes the requests that change who is in a team, or read
+	// it to decide something, take turns: a create, a join and the three
+	// administration requests each run several fs commands that belong
+	// together.
+	membership sync.Mutex
 
 	mu         sync.Mutex
 	principals map[[sha256.Size]byte]*principal
 	created    int
 	inboxes    map[string]*inbox
+	// byRef names every principal that created or joined a team by its
+	// principal_ref, and teams holds what the contract's section 3a adds
+	// to a team (admin.go).
+	byRef map[string]*principal
+	teams map[string]*team
 }
 
 // A principal is the server's record of one member's installation: the
 // environment that points the fs adapter at its private directory. mu
 // makes the fs commands run for one principal take turns, because each
-// reads and rewrites that directory's two files.
+// reads and rewrites that directory's two files. ref is its principal_ref,
+// known once it has created or joined a team, and is read and written
+// under the server's mu.
 type principal struct {
 	mu  sync.Mutex
 	dir string
 	env []string
+	ref string
 }
 
 // New returns a server that keeps everything under dir, which must exist
@@ -127,8 +152,11 @@ func New(dir string, o Options) (*Server, error) {
 		poll:        poll,
 		createToken: o.CreateToken,
 		nonce:       hex.EncodeToString(seed[:]),
+		teamAdmin:   !o.WithoutTeamAdmin,
 		principals:  map[[sha256.Size]byte]*principal{},
 		inboxes:     map[string]*inbox{},
+		byRef:       map[string]*principal{},
+		teams:       map[string]*team{},
 	}, nil
 }
 
@@ -146,31 +174,37 @@ type endpoint struct {
 	// open endpoints run without a known credential: /v1/info, and the two
 	// that create a principal.
 	open bool
-	run  func(*Server, *call) (any, *protocol.Error)
+	// admin endpoints are the three of the contract's section 3a, which a
+	// server may leave out.
+	admin bool
+	run   func(*Server, *call) (any, *protocol.Error)
 }
 
 // endpoints is the contract's section 2.
 var endpoints = map[string]endpoint{
-	"/v1/info":              {open: true, run: (*Server).info},
-	"/v1/team/create":       {open: true, run: (*Server).teamCreate},
-	"/v1/team/join":         {open: true, run: (*Server).teamJoin},
-	"/v1/team/leave":        {run: (*Server).teamLeave},
-	"/v1/team/members":      {run: (*Server).teamMembers},
-	"/v1/session/register":  {run: (*Server).sessionRegister},
-	"/v1/session/heartbeat": {run: (*Server).sessionHeartbeat},
-	"/v1/session/list":      {run: (*Server).sessionList},
-	"/v1/session/close":     {run: (*Server).sessionClose},
-	"/v1/message/send":      {run: (*Server).messageSend},
-	"/v1/message/receive":   {run: (*Server).messageReceive},
-	"/v1/message/ack":       {run: (*Server).messageAck},
-	"/v1/credential/revoke": {run: (*Server).credentialRevoke},
+	"/v1/info":               {open: true, run: (*Server).info},
+	"/v1/team/create":        {open: true, run: (*Server).teamCreate},
+	"/v1/team/join":          {open: true, run: (*Server).teamJoin},
+	"/v1/team/leave":         {run: (*Server).teamLeave},
+	"/v1/team/members":       {run: (*Server).teamMembers},
+	"/v1/team/rotate-secret": {admin: true, run: (*Server).teamRotateSecret},
+	"/v1/team/revoke-member": {admin: true, run: (*Server).teamRevokeMember},
+	"/v1/team/transfer":      {admin: true, run: (*Server).teamTransfer},
+	"/v1/session/register":   {run: (*Server).sessionRegister},
+	"/v1/session/heartbeat":  {run: (*Server).sessionHeartbeat},
+	"/v1/session/list":       {run: (*Server).sessionList},
+	"/v1/session/close":      {run: (*Server).sessionClose},
+	"/v1/message/send":       {run: (*Server).messageSend},
+	"/v1/message/receive":    {run: (*Server).messageReceive},
+	"/v1/message/ack":        {run: (*Server).messageAck},
+	"/v1/credential/revoke":  {run: (*Server).credentialRevoke},
 }
 
 // ServeHTTP answers one request with one result envelope and the status
 // the contract's section 1 pairs with it.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ep, known := endpoints[r.URL.Path]
-	if !known {
+	if !known || (ep.admin && !s.teamAdmin) {
 		writeError(w, &protocol.Error{Code: protocol.CodeNotFound, Message: "no such endpoint"})
 		return
 	}
@@ -206,11 +240,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ---- the endpoints ----
 
+// info answers /v1/info. A server that carries the administration
+// endpoints lists `team.admin` in `capabilities`; one that leaves them out
+// has no such member (the contract's section 3a).
 func (s *Server) info(*call) (any, *protocol.Error) {
-	return map[string]any{
+	out := map[string]any{
 		"contract_version": contractVersion,
 		"server":           map[string]string{"name": serverName, "version": buildinfo.String()},
-	}, nil
+	}
+	if s.teamAdmin {
+		out["capabilities"] = []string{capTeamAdmin}
+	}
+	return out, nil
 }
 
 // teamCreate creates a team as the caller: the principal a known
@@ -227,24 +268,61 @@ func (s *Server) teamCreate(c *call) (any, *protocol.Error) {
 	if perr := decode(c.body, req); perr != nil {
 		return nil, perr
 	}
-	return s.bind(c, &protocol.TeamCreateRequest{TeamName: req.TeamName, HumanLabel: req.HumanLabel}, "team", "create")
+	s.membership.Lock()
+	defer s.membership.Unlock()
+	b, perr := s.bind(c, &protocol.TeamCreateRequest{TeamName: req.TeamName, HumanLabel: req.HumanLabel}, "team", "create")
+	if perr != nil {
+		return nil, perr
+	}
+	var created protocol.TeamCreateResult
+	if protocol.Decode(b.result, &created) != nil {
+		return nil, internal()
+	}
+	s.founded(&created, b.who)
+	return s.answer(b)
 }
 
 // teamJoin joins a team as the caller, as teamCreate creates one. A
 // rejected secret is the fs adapter's one fixed `unauthorized`, and a
-// principal that would have been new is discarded.
+// principal that would have been new is discarded. The secret that joins
+// is the team's current one and a banned principal's join is the rejected
+// join (the contract's section 3a), which admission decides before the fs
+// adapter is asked.
 func (s *Server) teamJoin(c *call) (any, *protocol.Error) {
 	req := &protocol.TeamJoinRequest{}
 	if perr := decode(c.body, req); perr != nil {
 		return nil, perr
 	}
-	return s.bind(c, &protocol.TeamJoinRequest{JoinSecret: req.JoinSecret, HumanLabel: req.HumanLabel}, "team", "join")
+	s.membership.Lock()
+	defer s.membership.Unlock()
+	secret, perr := s.admission(c.who, req.JoinSecret)
+	if perr != nil {
+		return nil, perr
+	}
+	b, perr := s.bind(c, &protocol.TeamJoinRequest{JoinSecret: secret, HumanLabel: req.HumanLabel}, "team", "join")
+	if perr != nil {
+		return nil, perr
+	}
+	var joined protocol.TeamJoinResult
+	if protocol.Decode(b.result, &joined) != nil {
+		return nil, internal()
+	}
+	s.admitted(&joined, b.who)
+	return s.answer(b)
+}
+
+// A binding is a create or a join that succeeded: the fs adapter's result,
+// the principal it ran for, and whether that principal is new and so is
+// still owed its credential.
+type binding struct {
+	result jsontext.Value
+	who    *principal
+	fresh  bool
 }
 
 // bind runs a create or a join for the call's principal, or for a new one
-// that exists only if the command succeeds, and adds the new principal's
-// credential to the result.
-func (s *Server) bind(c *call, input any, args ...string) (any, *protocol.Error) {
+// that exists only if the command succeeds.
+func (s *Server) bind(c *call, input any, args ...string) (*binding, *protocol.Error) {
 	who, fresh := c.who, false
 	if who == nil {
 		who, fresh = s.newPrincipal(), true
@@ -260,14 +338,20 @@ func (s *Server) bind(c *call, input any, args ...string) (any, *protocol.Error)
 		}
 		return nil, perr
 	}
-	if !fresh {
-		return result, nil
+	return &binding{result: result, who: who, fresh: fresh}, nil
+}
+
+// answer is the result of a create or a join as the response carries it:
+// the fs adapter's result, with a new principal's credential added.
+func (s *Server) answer(b *binding) (any, *protocol.Error) {
+	if !b.fresh {
+		return b.result, nil
 	}
 	members := map[string]jsontext.Value{}
-	if protocol.Unmarshal(result, &members) != nil {
+	if protocol.Unmarshal(b.result, &members) != nil {
 		return nil, internal()
 	}
-	issued, err := s.issue(who)
+	issued, err := s.issue(b.who)
 	if err != nil {
 		return nil, internal()
 	}
@@ -293,11 +377,18 @@ func (s *Server) teamLeave(c *call) (any, *protocol.Error) {
 	return s.fs(c.who, nil, "team", "leave")
 }
 
+// teamMembers answers the roster of the team the request names, with the
+// version of the secret each member last joined with beside it when the
+// server carries the administration endpoints (the contract's section 3a).
 func (s *Server) teamMembers(c *call) (any, *protocol.Error) {
 	if perr := s.inTeam(c); perr != nil {
 		return nil, perr
 	}
-	return s.fs(c.who, nil, "team", "members")
+	result, perr := s.fs(c.who, nil, "team", "members")
+	if perr != nil || !s.teamAdmin {
+		return result, perr
+	}
+	return s.withJoinedVersions(result)
 }
 
 // sessionRegister registers a session in the team the request names. The
@@ -431,6 +522,7 @@ func (s *Server) issue(who *principal) (string, error) {
 // principal's directory.
 type profileStatus struct {
 	TeamRef      string `json:"team_ref"`
+	TeamName     string `json:"team_name"`
 	PrincipalRef string `json:"principal_ref"`
 }
 
@@ -507,6 +599,14 @@ func translate(e *protocol.ErrorObject) *protocol.Error {
 // words for it.
 func notMember() *protocol.Error {
 	return &protocol.Error{Code: protocol.CodeUnauthorized, Message: "not an active member of this team"}
+}
+
+// secretRejected is the rejected join of the contract's section 3, the fs
+// adapter's own words for it, so a join the stub refuses itself (a secret
+// that was rotated away, a banned principal) is byte-identical to one the
+// fs adapter refuses (a wrong secret, an unknown team).
+func secretRejected() *protocol.Error {
+	return &protocol.Error{Code: protocol.CodeUnauthorized, Message: "join secret rejected"}
 }
 
 func unknownCredential() *protocol.Error {

@@ -7,7 +7,7 @@
 //! Retention (BAP/1 4.5.9) and the send budgets (4.5.12) are functions of record times, so the sweep is
 //! part of applying a record and needs no record of its own.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -22,6 +22,15 @@ const SWEEP_INTERVAL_SECONDS: i64 = 60;
 
 /// The longest window a send budget counts over, in seconds.
 const LONGEST_RATE_WINDOW_SECONDS: i64 = 3600;
+
+/// The version of the join secret a team is created or taken in with. A rotation counts on from it.
+pub const FIRST_SECRET_VERSION: u32 = 1;
+
+/// What a snapshot written before teams counted their secrets reads as: every team had its first secret
+/// then, and every member had joined with it.
+fn first_secret_version() -> u32 {
+    FIRST_SECRET_VERSION
+}
 
 /// Everything a server knows.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,18 +61,25 @@ pub struct Principal {
 }
 
 /// One team.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Team {
     /// The team's reference.
     pub team_ref: String,
     /// The team's display name.
     pub team_name: String,
-    /// The SHA-256 of the whole join secret. The secret itself is never kept.
+    /// The SHA-256 of the whole join secret the team has now. The secret itself is never kept.
     pub join_secret_hash: String,
-    /// The principal that created the team. Empty for a team that was taken in from another backend.
+    /// The team's owner: the principal that created it, until a transfer or the server's operator names
+    /// another. Empty for a team that has none: one that was taken in from another backend, or that the
+    /// operator took back, until its first member joins. The name is the one a snapshot has always had
+    /// for it.
     pub created_by: String,
     /// When the team was created.
     pub created_at: Timestamp,
+    /// The team's count of join secrets: one for the secret it was created or taken in with, and one more
+    /// with every rotation.
+    #[serde(default = "first_secret_version")]
+    pub secret_version: u32,
     /// Every membership the team has had, by principal.
     pub members: BTreeMap<String, Member>,
     /// Every session the team still holds, by id.
@@ -71,14 +87,23 @@ pub struct Team {
 }
 
 /// One principal's membership of one team.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Member {
     /// The member's label: unverified text. Empty when it has none.
     pub human_label: String,
-    /// Whether the membership is active. One that was left is kept, revoked, so a rejoin is the same member.
+    /// Whether the membership is active. One that was left or revoked is kept, so a rejoin is the same
+    /// member.
     pub active: bool,
     /// When the principal first joined.
     pub joined_at: Timestamp,
+    /// The version of the join secret the principal last joined with. It is a record of how the member
+    /// got in, and is read only when the owner revokes by version.
+    #[serde(default = "first_secret_version")]
+    pub joined_secret_version: u32,
+    /// Whether the team's owner banned the principal: its membership is not active, and its join is
+    /// refused as a wrong secret is, until the owner revokes it without a ban.
+    #[serde(default)]
+    pub banned: bool,
     /// When each of the principal's sessions sent, within the longest budget window.
     pub sent_at: VecDeque<Timestamp>,
 }
@@ -142,11 +167,13 @@ pub struct IdempotencyEntry {
 }
 
 impl Member {
-    fn new(human_label: String, joined_at: Timestamp) -> Self {
+    fn new(human_label: String, joined_at: Timestamp, joined_secret_version: u32) -> Self {
         Self {
             human_label,
             active: true,
             joined_at,
+            joined_secret_version,
+            banned: false,
             sent_at: VecDeque::new(),
         }
     }
@@ -278,6 +305,62 @@ impl Team {
             .map_or("", |member| member.human_label.as_str())
     }
 
+    /// The team's owner; `None` for a team that was taken in or taken back and has none yet.
+    #[must_use]
+    pub fn owner(&self) -> Option<&str> {
+        Some(self.created_by.as_str()).filter(|owner| !owner.is_empty())
+    }
+
+    /// The principals a revocation by secret version ends the membership of: every active member that
+    /// joined with a secret of `max_version` or a lower one, other than `except`. A banned member is not
+    /// active, so it is never one of them.
+    ///
+    /// The request counts them with this and the record is applied with it, so the answer and the state
+    /// cannot disagree.
+    #[must_use]
+    pub fn joined_up_to(&self, max_version: u32, except: &str) -> BTreeSet<&str> {
+        self.members
+            .iter()
+            .filter(|(principal_ref, member)| {
+                member.active
+                    && member.joined_secret_version <= max_version
+                    && principal_ref.as_str() != except
+            })
+            .map(|(principal_ref, _)| principal_ref.as_str())
+            .collect()
+    }
+
+    /// How many sessions of the principals `of` picks are open and still held at `now`: what ending their
+    /// memberships closes.
+    #[must_use]
+    pub fn open_sessions(&self, of: impl Fn(&str) -> bool, now: Timestamp) -> usize {
+        self.sessions
+            .values()
+            .filter(|session| session.closed_at.is_none() && session.retained(now))
+            .filter(|session| of(&session.principal_ref))
+            .count()
+    }
+
+    /// Ends the memberships of the principals `of` picks, as of `at`: they are no longer active, and
+    /// their open sessions are closed. It is one pass over the members and one over the sessions, however
+    /// many memberships end. A principal with no membership has none made for it.
+    ///
+    /// A session retention has let go of by `at`, and that no sweep has taken yet, is left as it is: a
+    /// close stamped `at` would have retention hold it again for as long as a session that was closed
+    /// today, with the messages it held. So what is closed here is what [`Team::open_sessions`] counts.
+    fn end_memberships(&mut self, of: impl Fn(&str) -> bool, at: Timestamp) {
+        for (principal_ref, member) in &mut self.members {
+            if of(principal_ref) {
+                member.active = false;
+            }
+        }
+        for session in self.sessions.values_mut() {
+            if session.closed_at.is_none() && session.retained(at) && of(&session.principal_ref) {
+                session.closed_at = Some(at);
+            }
+        }
+    }
+
     /// A session as the record of BAP/1 4.4.3. The label is the membership's when it is read, so a label
     /// that changed shows everywhere at once.
     #[must_use]
@@ -397,6 +480,7 @@ impl State {
                     join_secret_hash: join_secret_hash.clone(),
                     created_by: created_by.clone(),
                     created_at: at,
+                    secret_version: FIRST_SECRET_VERSION,
                     members: BTreeMap::new(),
                     sessions: BTreeMap::new(),
                 });
@@ -407,16 +491,22 @@ impl State {
                 human_label,
             } => {
                 if let Some(team) = self.teams.get_mut(team_ref) {
+                    // The secret a join was let in with is the one the team has when the join is recorded.
+                    let secret_version = team.secret_version;
                     match team.members.get_mut(principal_ref) {
                         Some(member) => {
+                            // A banned principal's join is refused before it makes a record, so the ban
+                            // is gone only where a record says the member is active again.
                             member.active = true;
+                            member.banned = false;
+                            member.joined_secret_version = secret_version;
                             if !human_label.is_empty() {
                                 member.human_label.clone_from(human_label);
                             }
                         }
                         None => {
-                            team.members
-                                .insert(principal_ref.clone(), Member::new(human_label.clone(), at));
+                            let member = Member::new(human_label.clone(), at, secret_version);
+                            team.members.insert(principal_ref.clone(), member);
                         }
                     }
                 }
@@ -426,14 +516,53 @@ impl State {
                 principal_ref,
             } => {
                 if let Some(team) = self.teams.get_mut(team_ref) {
+                    team.end_memberships(|member| member == principal_ref, at);
+                }
+            }
+            Event::MemberRevoked {
+                team_ref,
+                principal_ref,
+                banned,
+            } => {
+                if let Some(team) = self.teams.get_mut(team_ref) {
+                    team.end_memberships(|member| member == principal_ref, at);
                     if let Some(member) = team.members.get_mut(principal_ref) {
-                        member.active = false;
+                        member.banned = *banned;
                     }
-                    for session in team.sessions.values_mut() {
-                        if session.principal_ref == *principal_ref && session.closed_at.is_none() {
-                            session.closed_at = Some(at);
-                        }
-                    }
+                }
+            }
+            Event::MembersRevokedByVersion {
+                team_ref,
+                max_version,
+                except,
+            } => {
+                if let Some(team) = self.teams.get_mut(team_ref) {
+                    // Who is revoked is read from the state the record is applied to, which is the state
+                    // the request counted them in: the log's order is the only order there is.
+                    let revoked: BTreeSet<String> = team
+                        .joined_up_to(*max_version, except)
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect();
+                    team.end_memberships(|member| revoked.contains(member), at);
+                }
+            }
+            Event::TeamSecretRotated {
+                team_ref,
+                join_secret_hash,
+                secret_version,
+            } => {
+                if let Some(team) = self.teams.get_mut(team_ref) {
+                    team.join_secret_hash.clone_from(join_secret_hash);
+                    team.secret_version = *secret_version;
+                }
+            }
+            Event::TeamOwnerChanged {
+                team_ref,
+                principal_ref,
+            } => {
+                if let Some(team) = self.teams.get_mut(team_ref) {
+                    team.created_by.clone_from(principal_ref);
                 }
             }
             Event::SessionOpened {

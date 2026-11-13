@@ -156,6 +156,91 @@ func TestRunDirectoryScanFailsC05(t *testing.T) {
 	}
 }
 
+// TestASecretFileIsNotALeak: a join secret in a file a case named with
+// T.SecretFile is where 4.4.10 sends it, not something the adapter left on
+// disk. TakeSecretFile hands the case the secret and whether the file's
+// mode is exactly 0600 (a wider mode and a narrower one both are not),
+// removes the file and makes the launcher look for that secret from then
+// on; a file a case never took back is removed when the case ends,
+// whatever its outcome; and so neither reaches the end-of-run scan, which
+// still fails C-05 for the same secret anywhere else in the run directory.
+func TestASecretFileIsNotALeak(t *testing.T) {
+	t.Parallel()
+	adapter := fakeAdapter(t)
+	secret := strings.Join([]string{"brg1", "team", "rotated-in-a-test"}, ".")
+	var taken, left, open, narrow, runDir, got string
+	var exact, wide, narrower bool
+	cases := []Case{
+		{ID: "C-01", Tags: []string{TagCore}, Run: func(t *T) {
+			runDir = t.RunDir()
+			taken = t.SecretFile("taken")
+			if err := writeFile(taken, secret+"\n"); err != nil {
+				t.Fatalf("%v", err)
+			}
+			got, exact = t.TakeSecretFile(taken)
+			open = t.SecretFile("open")
+			if err := os.WriteFile(open, []byte(secret+"\n"), 0o644); err != nil { //nolint:gosec // G306: the file the check must call wider than 0600
+				t.Fatalf("%v", err)
+			}
+			_, wide = t.TakeSecretFile(open)
+			narrow = t.SecretFile("narrow")
+			if err := os.WriteFile(narrow, []byte(secret+"\n"), 0o400); err != nil {
+				t.Fatalf("%v", err)
+			}
+			_, narrower = t.TakeSecretFile(narrow)
+		}},
+		{ID: "C-02", Tags: []string{TagCore}, Run: func(t *T) {
+			left = t.SecretFile("left")
+			if err := writeFile(left, secret+"\n"); err != nil {
+				t.Fatalf("%v", err)
+			}
+			t.Fatalf("the case fails after its command wrote the file")
+		}},
+	}
+	code, stdout, _ := run(t, viaShell(adapter, Options{JSON: true, KeepTemp: true}), cases)
+	t.Cleanup(func() { _ = os.RemoveAll(runDir) })
+	var rep Report
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+		t.Fatal(err)
+	}
+	if code != ExitFail || len(rep.Results) != 2 || rep.Results[0].Status != StatusPass || rep.Results[1].ID != "C-02" {
+		t.Fatalf("exit %d results %+v, want C-01 passing, C-02 failing on its own and no C-05", code, rep.Results)
+	}
+	if got != secret || !exact || wide || narrower {
+		t.Errorf("TakeSecretFile: secret match %v, mode0600 %v for a 0600 file, %v for a 0644 one and %v for a 0400 one", got == secret, exact, wide, narrower)
+	}
+	if !strings.HasPrefix(taken, runDir+string(os.PathSeparator)) || !strings.Contains(taken, "c-01-taken") {
+		t.Errorf("SecretFile gave %s, want a path of the case under the run directory %s", taken, runDir)
+	}
+	for _, path := range []string{taken, open, narrow, left} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s is still there after its case ended (%v)", path, err)
+		}
+	}
+
+	// The control: the same secret anywhere else in the run directory is a
+	// leak, and the launcher knows it for a secret of the run once a case
+	// took it from its file.
+	leak := []Case{{ID: "C-01", Tags: []string{TagCore}, Run: func(t *T) {
+		path := t.SecretFile("taken")
+		if err := writeFile(path, secret+"\n"); err != nil {
+			t.Fatalf("%v", err)
+		}
+		t.TakeSecretFile(path)
+		if err := writeFile(t.Scratch("x").StateDir+"/adapter.log", "joined with "+secret+"\n"); err != nil {
+			t.Fatalf("%v", err)
+		}
+	}}}
+	code, stdout, _ = run(t, viaShell(adapter, Options{JSON: true}), leak)
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+		t.Fatal(err)
+	}
+	if code != ExitFail || len(rep.Results) != 2 || rep.Results[1].ID != "C-05" ||
+		!strings.Contains(rep.Results[1].Reason, "adapter.log contains a join secret the run knows") || strings.Contains(rep.Results[1].Reason, secret) {
+		t.Fatalf("exit %d results %+v, want C-05 failing for the log and never quoting the secret", code, rep.Results)
+	}
+}
+
 func TestRunSetupProvisionsTheFixture(t *testing.T) {
 	t.Parallel()
 	// An adapter whose describe says joined once --setup has written a

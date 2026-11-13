@@ -47,7 +47,11 @@ type specBlock struct {
 	text string // the block's content, without the fences
 }
 
-// specJSONBlocks extracts every ```json block in document order.
+// specJSONBlocks extracts every ```json block in document order. A block
+// inside a list item is indented by the item's own indentation, fences and
+// content alike (the two results of `team revoke-member` in 4.4.10): that
+// indentation is Markdown's and not the example's, so it is taken off
+// every line, and what is left is compared with the file byte for byte.
 func specJSONBlocks(t *testing.T) []specBlock {
 	t.Helper()
 	raw, err := os.ReadFile(specPath)
@@ -70,13 +74,34 @@ func specJSONBlocks(t *testing.T) []specBlock {
 			t.Fatalf("unterminated ```json fence at byte %d", start)
 		}
 		end += bodyStart
-		blocks = append(blocks, specBlock{
-			line: strings.Count(doc[:start], "\n") + 1,
-			text: doc[bodyStart:end],
-		})
+		line := strings.Count(doc[:start], "\n") + 1
+		indent := doc[strings.LastIndexByte(doc[:start], '\n')+1 : start]
+		if strings.Trim(indent, " ") != "" {
+			t.Fatalf("spec line %d: the ```json fence follows text on its line", line)
+		}
+		blocks = append(blocks, specBlock{line: line, text: dedent(t, line, doc[bodyStart:end], indent)})
 		pos = end + len(closeFence)
 	}
 	return blocks
+}
+
+// dedent takes the fence's indentation off every line of a block's
+// content, the closing fence's own line included. A line that does not
+// carry it is not part of an indented block, and fails.
+func dedent(t *testing.T, line int, text, indent string) string {
+	t.Helper()
+	if indent == "" {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		rest, ok := strings.CutPrefix(l, indent)
+		if !ok && l != "" {
+			t.Fatalf("spec line %d: a line of the block is indented less than its fence", line)
+		}
+		lines[i] = rest
+	}
+	return strings.Join(lines, "\n")
 }
 
 // canonicalJSON re-encodes a document with sorted member names, so two
@@ -267,13 +292,24 @@ func compositeChecks(t *testing.T) map[string]func(t *testing.T, where string, r
 			for i, m := range roster.Members {
 				got := make([]string, 0, len(m))
 				for k := range m {
-					got = append(got, k)
+					// joined_secret_version is the one member an adapter
+					// with team.admin adds (4.4.10); the 4.2 row is the
+					// roster of every adapter, so an example may carry it
+					// and need not.
+					if k != "joined_secret_version" {
+						got = append(got, k)
+					}
 				}
 				sort.Strings(got)
 				at := where + " members[" + strconv.Itoa(i) + "]"
 				if !reflect.DeepEqual(got, want) {
 					t.Errorf("%s has members %v, want exactly %v (4.2 `team members`)", at, got, want)
 					continue
+				}
+				if v, present := m["joined_secret_version"]; present {
+					if n, ok := v.(float64); !ok || n < 1 || n != float64(int(n)) {
+						t.Errorf("%s: joined_secret_version = %v, want an integer of 1 or more", at, v)
+					}
 				}
 				mustRFC3339(t, at, "joined_at", m["joined_at"])
 				if m["last_seen_at"] != nil {

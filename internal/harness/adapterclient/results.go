@@ -44,13 +44,19 @@ type ReceiveResult struct {
 }
 
 // Member is one roster entry of the `team members` result (4.4.10).
+// JoinedSecretVersion is the version of the join secret the member last
+// joined with, which an adapter with team.admin adds to the roster. It
+// counts from 1, so zero is an adapter that does not answer it (the fs
+// adapter, an older server) and the member is then left out, here and in
+// what `brigade team members --json` prints.
 type Member struct {
-	PrincipalRef string     `json:"principal_ref"`
-	HumanLabel   string     `json:"human_label,omitzero"`
-	Status       string     `json:"status"`
-	JoinedAt     time.Time  `json:"joined_at"`
-	LastSeenAt   *time.Time `json:"last_seen_at"`
-	SessionCount int        `json:"session_count"`
+	PrincipalRef        string     `json:"principal_ref"`
+	HumanLabel          string     `json:"human_label,omitzero"`
+	Status              string     `json:"status"`
+	JoinedAt            time.Time  `json:"joined_at"`
+	JoinedSecretVersion int        `json:"joined_secret_version,omitzero"`
+	LastSeenAt          *time.Time `json:"last_seen_at"`
+	SessionCount        int        `json:"session_count"`
 }
 
 // MembersResult is the `team members` result (4.4.10, C-43).

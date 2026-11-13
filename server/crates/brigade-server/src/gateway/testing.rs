@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use brigade_core::hash::sha256_hex;
 use hyper::body::Bytes;
 use serde_json::{Value, json};
 use tokio::sync::watch;
@@ -63,6 +64,9 @@ pub struct Ops {
     /// The member's session.
     pub session: String,
     member: Member,
+    engine: Client,
+    /// The hash of the member's credential: what the engine knows the team's owner by.
+    owner: String,
 }
 
 /// Creates the team `ops`, whose creator is labelled `alice@example.com` and has the session
@@ -75,11 +79,12 @@ pub async fn team(engine: &Client) -> Ops {
 pub async fn team_named(engine: &Client, team_name: &str, human_label: &str, session_name: &str) -> Ops {
     let body = json!({"team_name": team_name, "human_label": human_label});
     let created = engine
-        .ask(None, true, "/v1/team/create", Bytes::from(body.to_string()))
+        .ask(None, true, true, "/v1/team/create", Bytes::from(body.to_string()))
         .await
         .unwrap();
     let text = |name: &str| created[name].as_str().unwrap().to_owned();
     let member = Member::new(engine.clone(), &text("credential"));
+    let owner = sha256_hex(&text("credential"));
     let coding = Session {
         name: session_name,
         description: "",
@@ -94,6 +99,8 @@ pub async fn team_named(engine: &Client, team_name: &str, human_label: &str, ses
         principal_ref: text("principal_ref"),
         session,
         member,
+        engine: engine.clone(),
+        owner,
     }
 }
 
@@ -115,6 +122,21 @@ impl Ops {
             .await
             .unwrap();
         sent["message_id"].as_str().unwrap().to_owned()
+    }
+
+    /// Asks one of the administration requests as the member, who created the team and so owns it, the
+    /// way a request over HTTP asks it.
+    pub async fn administer(&self, path: &str, body: &Value) -> Value {
+        self.engine
+            .ask(
+                Some(self.owner.clone()),
+                false,
+                true,
+                path,
+                Bytes::from(body.to_string()),
+            )
+            .await
+            .unwrap()
     }
 
     /// What waits for the member's session, oldest first.

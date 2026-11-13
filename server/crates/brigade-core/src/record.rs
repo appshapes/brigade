@@ -244,12 +244,36 @@ pub enum Event {
         team_name: String,
         /// The SHA-256 of the whole join secret.
         join_secret_hash: String,
-        /// The principal that created it. Empty for a team that was taken in from another backend, which
-        /// nobody here created.
+        /// The principal that created it, which is its first owner. Empty for a team that was taken in from
+        /// another backend, which nobody here created: such a team has no owner until a
+        /// `team.owner_changed` names one.
         created_by: String,
     },
+    /// A team was given a new join secret. The secret before it no longer joins, and every member is as it
+    /// was.
+    #[serde(rename = "team.secret_rotated")]
+    TeamSecretRotated {
+        /// The team.
+        team_ref: String,
+        /// The SHA-256 of the whole new join secret.
+        join_secret_hash: String,
+        /// The team's count of secrets, this one included.
+        secret_version: u32,
+    },
+    /// A team has another owner: the one its owner transferred it to, the first member to join a team that
+    /// has none, or the one the server's operator named. Or it has none any more, because the operator
+    /// took the team back.
+    #[serde(rename = "team.owner_changed")]
+    TeamOwnerChanged {
+        /// The team.
+        team_ref: String,
+        /// The principal that owns it from now on. Empty when the operator took the team back: it has no
+        /// owner until the first member joins it over HTTP.
+        principal_ref: String,
+    },
     /// A principal became an active member of a team: a new membership, or one that was revoked and is
-    /// active again with the day it first joined.
+    /// active again with the day it first joined. It joined with the secret the team has now, whose
+    /// version the membership keeps.
     #[serde(rename = "member.joined")]
     MemberJoined {
         /// The team.
@@ -267,6 +291,34 @@ pub enum Event {
         team_ref: String,
         /// The principal.
         principal_ref: String,
+    },
+    /// The team's owner ended a principal's membership, or lifted its ban: the membership is revoked and
+    /// is banned or not as the record says, and the principal's open sessions in the team are closed as
+    /// they are when it leaves.
+    #[serde(rename = "member.revoked")]
+    MemberRevoked {
+        /// The team.
+        team_ref: String,
+        /// The principal.
+        principal_ref: String,
+        /// Whether the principal's later join is refused.
+        banned: bool,
+    },
+    /// The team's owner, or the operator that takes the team back, ended the membership of every active
+    /// member that joined with a secret of `max_version` or a lower one, other than `except`, and their
+    /// open sessions in the team are closed.
+    /// It is one record however many members it covers, because an entry has a longest size: who they are
+    /// is what the state says when the record is applied. Nobody is banned by it, and a banned member is
+    /// not active, so it stays banned.
+    #[serde(rename = "members.revoked_by_version")]
+    MembersRevokedByVersion {
+        /// The team.
+        team_ref: String,
+        /// The highest secret version whose members are revoked.
+        max_version: u32,
+        /// The principal that is never revoked by it: the owner that asked. Empty when the operator took
+        /// the team back, which spares nobody.
+        except: String,
     },
     /// A session was registered.
     #[serde(rename = "session.opened")]
@@ -391,6 +443,25 @@ mod tests {
                 principal_ref: "p".into(),
                 human_label: String::new(),
             },
+            Event::TeamSecretRotated {
+                team_ref: "t".into(),
+                join_secret_hash: "s2".into(),
+                secret_version: 2,
+            },
+            Event::TeamOwnerChanged {
+                team_ref: "t".into(),
+                principal_ref: "q".into(),
+            },
+            Event::MemberRevoked {
+                team_ref: "t".into(),
+                principal_ref: "p".into(),
+                banned: true,
+            },
+            Event::MembersRevokedByVersion {
+                team_ref: "t".into(),
+                max_version: 1,
+                except: "q".into(),
+            },
             Event::SessionHeartbeat {
                 team_ref: "t".into(),
                 session_id: "a".into(),
@@ -425,5 +496,43 @@ mod tests {
         assert!(error.contains("version 2"), "{error}");
         assert!(Record::decode(b"not json").is_err());
         assert!(Record::decode(br#"{"version":1,"at":5,"kind":"no.such.kind"}"#).is_err());
+    }
+
+    #[test]
+    fn the_administration_records_are_named_as_the_log_keeps_them() {
+        // A build that does not know these four kinds refuses the entry that holds one, as it refuses any
+        // kind it does not know: the names are what it reads, so they are held here.
+        let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
+        assert_eq!(
+            written(Event::TeamSecretRotated {
+                team_ref: "t".into(),
+                join_secret_hash: "s2".into(),
+                secret_version: 2,
+            }),
+            r#"{"version":1,"at":5,"kind":"team.secret_rotated","team_ref":"t","join_secret_hash":"s2","secret_version":2}"#
+        );
+        assert_eq!(
+            written(Event::TeamOwnerChanged {
+                team_ref: "t".into(),
+                principal_ref: "q".into(),
+            }),
+            r#"{"version":1,"at":5,"kind":"team.owner_changed","team_ref":"t","principal_ref":"q"}"#
+        );
+        assert_eq!(
+            written(Event::MemberRevoked {
+                team_ref: "t".into(),
+                principal_ref: "p".into(),
+                banned: false,
+            }),
+            r#"{"version":1,"at":5,"kind":"member.revoked","team_ref":"t","principal_ref":"p","banned":false}"#
+        );
+        assert_eq!(
+            written(Event::MembersRevokedByVersion {
+                team_ref: "t".into(),
+                max_version: 1,
+                except: "q".into(),
+            }),
+            r#"{"version":1,"at":5,"kind":"members.revoked_by_version","team_ref":"t","max_version":1,"except":"q"}"#
+        );
     }
 }

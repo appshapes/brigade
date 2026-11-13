@@ -40,6 +40,21 @@ type teamJoinBody struct {
 	HumanLabel string `json:"human_label,omitzero"`
 }
 
+// revokeMemberBody and transferBody are the bodies of the two
+// administration commands that take input: the request of 4.4.10 as it
+// was validated, with the profile's team beside it. Each request is
+// embedded and json/v2 inlines it, so the wire document is one flat
+// object. `team rotate-secret` takes no input and sends teamRequest.
+type revokeMemberBody struct {
+	protocol.TeamRevokeMemberRequest
+	TeamRef string `json:"team_ref"`
+}
+
+type transferBody struct {
+	protocol.TeamTransferRequest
+	TeamRef string `json:"team_ref"`
+}
+
 // registerBody is the registration of 4.4.2 plus the profile's team. The
 // registration is embedded and json/v2 inlines it, so the wire document is
 // one flat object.
@@ -117,14 +132,19 @@ func (a *teamJoinAnswer) Validate() error {
 
 // memberEntry is one row of the `team members` roster (4.4.10). LastSeenAt
 // is a pointer so a member that has never registered a session renders as
-// JSON null rather than as the zero time.
+// JSON null rather than as the zero time. JoinedSecretVersion is the
+// version of the secret the member last joined with, which a server that
+// carries the administration endpoints adds (the contract's section 3a).
+// It counts from 1, so a server that does not answer it leaves a zero
+// here and the member is then not printed.
 type memberEntry struct {
-	PrincipalRef string     `json:"principal_ref"`
-	HumanLabel   string     `json:"human_label,omitzero"`
-	Status       string     `json:"status"`
-	JoinedAt     time.Time  `json:"joined_at"`
-	LastSeenAt   *time.Time `json:"last_seen_at"`
-	SessionCount int        `json:"session_count"`
+	PrincipalRef        string     `json:"principal_ref"`
+	HumanLabel          string     `json:"human_label,omitzero"`
+	Status              string     `json:"status"`
+	JoinedAt            time.Time  `json:"joined_at"`
+	JoinedSecretVersion int        `json:"joined_secret_version,omitzero"`
+	LastSeenAt          *time.Time `json:"last_seen_at"`
+	SessionCount        int        `json:"session_count"`
 }
 
 // teamMembersResult is the `team members` result (4.4.10, C-43).
@@ -146,9 +166,47 @@ func (r *teamMembersResult) Validate() error {
 	}
 	for i := range r.Members {
 		m := &r.Members[i]
-		if m.PrincipalRef == "" || m.Status == "" || m.JoinedAt.IsZero() || m.SessionCount < 0 {
+		if m.PrincipalRef == "" || m.Status == "" || m.JoinedAt.IsZero() || m.SessionCount < 0 || m.JoinedSecretVersion < 0 {
 			return errMalformed
 		}
+	}
+	return nil
+}
+
+// rotateSecretAnswer is the result of `/v1/team/rotate-secret` (the
+// contract's section 3a). JoinSecret is the one place the server shows the
+// new secret: it goes to the --secret-file and to nothing else, and the
+// command prints protocol.TeamRotateSecretResult, which has no such
+// member.
+type rotateSecretAnswer struct {
+	TeamRef       string    `json:"team_ref"`
+	TeamName      string    `json:"team_name"`
+	SecretVersion int       `json:"secret_version"`
+	RotatedAt     time.Time `json:"rotated_at"`
+	JoinSecret    string    `json:"join_secret"`
+}
+
+// Validate implements protocol.Validator. A rotation answers version 2 or
+// more: 1 is the secret `team create` printed.
+func (a *rotateSecretAnswer) Validate() error {
+	if a.TeamRef == "" || a.TeamName == "" || a.SecretVersion < 2 || a.RotatedAt.IsZero() || a.JoinSecret == "" {
+		return errMalformed
+	}
+	return nil
+}
+
+// serverInfo is the result of `/v1/info`: the contract version the server
+// implements and the capabilities it lists beyond version 1's required
+// surface, absent or empty for a server that has none.
+type serverInfo struct {
+	ContractVersion string   `json:"contract_version"`
+	Capabilities    []string `json:"capabilities,omitzero"`
+}
+
+// Validate implements protocol.Validator.
+func (i *serverInfo) Validate() error {
+	if i.ContractVersion == "" {
+		return errMalformed
 	}
 	return nil
 }

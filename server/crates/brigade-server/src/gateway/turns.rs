@@ -7,7 +7,11 @@
 //! woken by it would wake itself.
 //!
 //! One gateway's turn that fails is noted and is that gateway's alone: the others have theirs, and the
-//! server goes on. A gateway the team no longer knows joins it again with the secret, as a new member.
+//! server goes on. A gateway the team no longer knows joins it again with the secret and the credential it
+//! holds, so it comes back as the member it was, and a gateway the team's owner banned stays out. It reads
+//! the secret's file again before every join: a team's owner that rotates the secret and revokes everyone
+//! who joined with the old one revokes the gateways too, and the operator then only replaces the file. A
+//! team that refuses a join, the first or a later one, is asked again once a minute and no more often.
 //!
 //! Before the first pass, and before the server listens, every gateway takes its place: it joins and
 //! registers, and carries nothing. A request that comes in then finds a session to be carried from.
@@ -15,10 +19,12 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use brigade_core::Code;
+use brigade_core::wire::JoinSecret;
+use brigade_core::{Code, Error};
 use brigade_gateway::{Sending, resolve, slack as rules};
 use tokio::sync::watch;
 
+use super::config::Secret;
 use super::member::Session;
 use super::presence::{self, Failure};
 use super::served::Served;
@@ -137,9 +143,16 @@ struct Slot {
     team_name: Option<String>,
     /// When the session was last kept.
     kept: Option<Instant>,
-    /// When the gateway last joined its team again, so that it does so at most once a heartbeat: every such
-    /// join is a new member.
+    /// When the gateway last asked to join its team again, so that it asks at most once a heartbeat for as
+    /// long as the team refuses it.
     rejoined: Option<Instant>,
+    /// When the team last refused the gateway's first join, and what it answered. It is asked again after
+    /// a heartbeat's time; until then a turn fails with that answer and the team is asked nothing.
+    refused: Option<(Instant, Error)>,
+    /// The team's join secret as its file held it when the gateway last read it again, before a join; none
+    /// until it has. It differs from the one the server started with once the file was replaced: the
+    /// team's owner rotated the secret, or the operator mended a file that was wrong.
+    join_secret: Option<Secret>,
     /// What was said of the turns since the last quiet one, so that a failure that lasts is said once and
     /// not every two seconds.
     said: Vec<String>,
@@ -152,7 +165,39 @@ impl Slot {
             team_name: None,
             kept: None,
             rejoined: None,
+            refused: None,
+            join_secret: None,
             said: Vec::new(),
+        }
+    }
+
+    /// The secret the gateway joins its team with: the one its file held when it was last read.
+    fn join_secret<'a>(&'a self, team: &'a Team) -> &'a str {
+        self.join_secret.as_ref().unwrap_or(&team.join_secret).reveal()
+    }
+
+    /// Reads the team's join secret again from its file. A join secret of the same team is the one the
+    /// gateway joins with from now on. Anything else is said once, without the path and without what the
+    /// file held, and the secret the gateway has is kept: a file that is being replaced reads right the
+    /// next time.
+    fn read_join_secret_again(&mut self, team: &Team) {
+        let Some(read) = team.join_secret.read_again() else {
+            return;
+        };
+        let who = self.who(team);
+        match read {
+            Ok(secret) => {
+                let of_the_team =
+                    JoinSecret::parse(secret.reveal()).is_ok_and(|parsed| parsed.team_ref() == team.team_ref);
+                if of_the_team {
+                    self.join_secret = Some(secret);
+                } else {
+                    self.once(format!(
+                        "{who} found no join secret of its team in its join secret file"
+                    ));
+                }
+            }
+            Err(kind) => self.once(format!("{who} could not read its join secret file again: {kind}")),
         }
     }
 
@@ -216,8 +261,11 @@ impl Slot {
     }
 
     /// What follows a failure. It is said once. A session that is gone is kept anew at the next turn. A
-    /// gateway the team no longer knows joins again with the secret, as a new member, and registers its
-    /// session at once: until it has one, nothing that comes for the team can be carried.
+    /// gateway the team no longer knows joins again with the secret its file holds now and the credential
+    /// it holds, and has its session again at once: until it has one, nothing that comes for the team can
+    /// be carried. It tries that once a minute for as long as the team refuses it, so a secret that was
+    /// rotated lets the gateway back in within a minute of the operator replacing the file, and a gateway
+    /// the team's owner banned asks once a minute and stays out.
     async fn failed(&mut self, gateways: &Gateways, team: &Team, failure: &Failure) {
         let who = self.who(team);
         // The contract's code and message, or the store's sentence: nothing a message carried.
@@ -237,19 +285,24 @@ impl Slot {
             return;
         }
         self.rejoined = Some(Instant::now());
+        self.read_join_secret_again(team);
         let joined = presence::join(
             &gateways.engine,
             &gateways.store,
             team.kind,
-            team.join_secret.reveal(),
+            self.join_secret(team),
         )
         .await;
         let registered = match joined {
-            Ok(membership) => {
+            Ok((membership, same_member)) => {
+                // The one line an operator looks for after replacing the file. It names the gateway and
+                // the team, and nothing of the secret. A gateway whose credential the server no longer
+                // knew is a new member, and the line says so.
                 note(&format!(
-                    "the {} joined team {} again, as a new member",
+                    "the {} joined team {} again{}",
                     presence::label(team.kind),
-                    plain(&membership.team_name)
+                    plain(&membership.team_name),
+                    if same_member { "" } else { ", as a new member" }
                 ));
                 self.kept = None;
                 self.seat(gateways, team).await.map(|_| ())
@@ -266,6 +319,12 @@ impl Slot {
 
     /// Makes the gateway a member of its team, joining it when it is none yet, and keeps its session when
     /// that is due, registering one when it has none. What it answers is the gateway as a turn acts for it.
+    ///
+    /// The first join reads the secret's file again before it asks, so a file the operator mended is the
+    /// one joined with and the server is not started again for it. A team that refused the join is asked
+    /// again after a heartbeat's time and no sooner: until then the turn fails with what the team
+    /// answered. A join that failed for any other reason, an engine that is stopping among them, is tried
+    /// at the next turn.
     async fn seat(&mut self, gateways: &Gateways, team: &Team) -> Result<Served, Failure> {
         let was_member = gateways
             .store
@@ -273,13 +332,30 @@ impl Slot {
             .await
             .membership(&team.team_ref, team.kind)
             .is_some();
-        let membership = presence::member_of(
+        if !was_member {
+            if let Some((at, refusal)) = &self.refused
+                && at.elapsed() < HEARTBEAT_EVERY
+            {
+                return Err(Failure::Refused(refusal.clone()));
+            }
+            self.read_join_secret_again(team);
+        }
+        let joined = presence::member_of(
             &gateways.engine,
             &gateways.store,
             team.kind,
-            team.join_secret.reveal(),
+            self.join_secret(team),
         )
-        .await?;
+        .await;
+        if !was_member {
+            self.refused = match &joined {
+                Err(Failure::Refused(refusal)) if presence::lost(refusal) => {
+                    Some((Instant::now(), refusal.clone()))
+                }
+                _ => None,
+            };
+        }
+        let membership = joined?;
         if !was_member {
             note(&format!(
                 "the {} joined team {}",
@@ -405,7 +481,8 @@ mod tests {
     use super::*;
     use crate::gateway::config::{self, MailProvider};
     use crate::gateway::standin::{self, StandIn};
-    use crate::gateway::testing::{World, mail, slack};
+    use crate::gateway::state::Membership;
+    use crate::gateway::testing::{World, mail, scratch, slack};
 
     fn gateway_rows(roster: &[Value], harness: &str) -> Vec<Value> {
         roster
@@ -413,6 +490,28 @@ mod tests {
             .filter(|row| row["harness"] == json!(harness))
             .cloned()
             .collect()
+    }
+
+    /// What the gateways' state holds of the Slack gateway's membership of the team: its principal, its
+    /// credential and its session.
+    fn held(world: &World) -> Membership {
+        let store = world.gateways.store.try_lock().unwrap();
+        store
+            .membership(&world.ops.team_ref, Kind::Slack)
+            .expect("a membership of the Slack gateway")
+            .clone()
+    }
+
+    /// The team's active members, as its owner's roster shows them.
+    async fn members(world: &World) -> Vec<Value> {
+        let body = json!({"team_ref": world.ops.team_ref});
+        let roster = world.ops.administer("/v1/team/members", &body).await;
+        roster["members"].as_array().unwrap().clone()
+    }
+
+    /// Makes the minute since the gateway last asked to join again be over.
+    fn a_minute_later(world: &mut World) {
+        world.turns.slots[0].rejoined = Instant::now().checked_sub(HEARTBEAT_EVERY);
     }
 
     #[tokio::test]
@@ -482,6 +581,7 @@ mod tests {
                     .ask(
                         Some(sha256_hex(&credential)),
                         false,
+                        true,
                         "/v1/credential/revoke",
                         Bytes::from("{}"),
                     )
@@ -525,6 +625,320 @@ mod tests {
         // The same failure two seconds later is not said again.
         world.pass().await;
         assert_eq!(world.turns.slots[0].said.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_gateway_revoked_after_a_rotation_joins_again_with_the_secret_its_file_holds_now() {
+        let slack_api = StandIn::start(standin::slack);
+        let api = format!("{}/api", slack_api.url);
+        let files = scratch("turns-rotated-files");
+        let file = files.join("ops.secret");
+        let mut world = World::new("turns-rotated", |join_secret| {
+            // The gateway's join secret is in a file, as the configuration names one.
+            std::fs::write(&file, format!("{join_secret}\n")).unwrap();
+            let mut slack = slack(&api, join_secret);
+            slack.teams = vec![Secret::kept_in(&file)];
+            config::Gateways {
+                slack: Some(slack),
+                mail: None,
+            }
+        })
+        .await;
+        world.pass().await;
+        let before = world.gateway(Kind::Slack).await;
+        let member_before = held(&world);
+        let said = |world: &World| world.turns.slots[0].said.clone();
+
+        // The team's owner rotates the secret and revokes everyone who joined with the old one. The
+        // gateway joined with it, so it is revoked with them, and its session leaves the roster.
+        let team_ref = world.ops.team_ref.clone();
+        let rotated = world
+            .ops
+            .administer("/v1/team/rotate-secret", &json!({"team_ref": team_ref}))
+            .await;
+        let new_secret = rotated["join_secret"].as_str().unwrap().to_owned();
+        let swept = world
+            .ops
+            .administer(
+                "/v1/team/revoke-member",
+                &json!({"team_ref": team_ref, "joined_secret_version_lte": 1}),
+            )
+            .await;
+        assert_eq!(
+            (&swept["revoked"], &swept["sessions_closed"]),
+            (&json!(1), &json!(1))
+        );
+        assert!(gateway_rows(&world.ops.roster().await, "gateway-slack").is_empty());
+
+        // Its next turn is refused. It reads its file again and joins with what the file holds, which
+        // is still the old secret, and says once what the team answered to each.
+        assert_eq!(world.pass().await, [Tally::default()]);
+        let first = said(&world);
+        assert_eq!(first.len(), 2, "{first:?}");
+        assert!(first[0].ends_with("unauthorized: not an active member of this team"));
+        assert!(first[1].ends_with("could not join its team again: unauthorized: join secret rejected"));
+        // It asks to join once a minute and no more often, however often its turn comes and whatever the
+        // file holds by then: a file that is not there, another team's secret, and the new secret.
+        std::fs::remove_file(&file).unwrap();
+        world.pass().await;
+        let (other, _) = world.ops.join_secret.rsplit_once('.').unwrap();
+        std::fs::write(&file, format!("{other}x.{}\n", "0".repeat(32))).unwrap();
+        world.pass().await;
+        std::fs::write(&file, format!("{new_secret}\n")).unwrap();
+        world.pass().await;
+        assert_eq!(said(&world), first);
+        assert!(gateway_rows(&world.ops.roster().await, "gateway-slack").is_empty());
+
+        // When the minute is over it reads the file again and is a member again: the member it was, with
+        // the principal, the credential and the session it had. The operator replaced a file and did
+        // nothing else.
+        a_minute_later(&mut world);
+        world.pass().await;
+        assert_eq!(held(&world), member_before);
+        let after = world.gateway(Kind::Slack).await;
+        assert_eq!(after.session_id, before.session_id);
+        let rows = gateway_rows(&world.ops.roster().await, "gateway-slack");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (&rows[0]["session_id"], &rows[0]["principal_ref"]),
+            (
+                &json!(member_before.session_id),
+                &json!(member_before.principal_ref)
+            )
+        );
+        world
+            .ops
+            .send(&after.session_id, "to: #general\n\nback", "", None)
+            .await;
+        assert_eq!(world.pass().await[0].delivered, 1);
+        // It joined with the secret of the team's second version, as a member's roster shows: the owner
+        // is of the first, and the gateway is the one member it always was.
+        let members = members(&world).await;
+        let version = |human_label: &str| {
+            let of_label: Vec<&Value> = members
+                .iter()
+                .filter(|member| member["human_label"] == json!(human_label))
+                .map(|member| &member["joined_secret_version"])
+                .collect();
+            of_label
+        };
+        assert_eq!(members.len(), 2);
+        assert_eq!(version("alice@example.com"), [&json!(1)]);
+        assert_eq!(version("slack gateway"), [&json!(2)]);
+        let _ = std::fs::remove_dir_all(&files);
+    }
+
+    #[tokio::test]
+    async fn a_gateway_its_teams_owner_banned_stays_out_and_one_it_revoked_is_the_member_it_was() {
+        let slack_api = StandIn::start(standin::slack);
+        let mut world = World::with_slack("turns-banned", &slack_api).await;
+        let before = held(&world);
+        let team_ref = world.ops.team_ref.clone();
+        let revoke =
+            |ban: bool| json!({"team_ref": team_ref, "principal_ref": before.principal_ref, "ban": ban});
+        let said = |world: &World| world.turns.slots[0].said.clone();
+
+        // The team's owner bans its Slack gateway: the gateway's membership ends and its session closes.
+        let banned = world
+            .ops
+            .administer("/v1/team/revoke-member", &revoke(true))
+            .await;
+        assert_eq!(
+            (&banned["status"], &banned["changed"], &banned["sessions_closed"]),
+            (&json!("banned"), &json!(true), &json!(1))
+        );
+        // Its next turn is refused, and so is its join: it asks with the credential it holds, so it is
+        // the principal the owner banned, whose join is refused as a wrong secret is.
+        assert_eq!(world.pass().await, [Tally::default()]);
+        let first = said(&world);
+        assert_eq!(first.len(), 2, "{first:?}");
+        assert!(first[0].ends_with("unauthorized: not an active member of this team"));
+        assert!(first[1].ends_with("could not join its team again: unauthorized: join secret rejected"));
+        // It asks again every minute and is refused every time. It never comes back as somebody new: its
+        // state holds the principal and the credential it had, and the team has its owner and no other
+        // member.
+        for _ in 0..3 {
+            a_minute_later(&mut world);
+            assert_eq!(world.pass().await, [Tally::default()]);
+        }
+        assert_eq!(held(&world), before);
+        assert_eq!(said(&world), first);
+        assert_eq!(members(&world).await.len(), 1);
+        assert!(gateway_rows(&world.ops.roster().await, "gateway-slack").is_empty());
+
+        // The owner lifts the ban with a revocation that is none. Within the minute nothing is asked; when
+        // it is over the gateway joins and is the member it was: the same principal, the same credential,
+        // and the session it had, open again.
+        let lifted = world
+            .ops
+            .administer("/v1/team/revoke-member", &revoke(false))
+            .await;
+        assert_eq!(
+            (&lifted["status"], &lifted["changed"]),
+            (&json!("revoked"), &json!(true))
+        );
+        world.pass().await;
+        assert_eq!(members(&world).await.len(), 1);
+        a_minute_later(&mut world);
+        world.pass().await;
+        assert_eq!(held(&world), before);
+        let members = members(&world).await;
+        assert_eq!(members.len(), 2);
+        assert!(
+            members
+                .iter()
+                .any(|member| member["principal_ref"] == json!(before.principal_ref))
+        );
+        let rows = gateway_rows(&world.ops.roster().await, "gateway-slack");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (
+                &rows[0]["session_id"],
+                &rows[0]["principal_ref"],
+                &rows[0]["state"]
+            ),
+            (
+                &json!(before.session_id),
+                &json!(before.principal_ref),
+                &json!("idle")
+            )
+        );
+        world
+            .ops
+            .send(&before.session_id, "to: #general\n\nback", "", None)
+            .await;
+        assert_eq!(world.pass().await[0].delivered, 1);
+    }
+
+    #[tokio::test]
+    async fn a_gateway_whose_first_join_was_refused_reads_its_file_again_and_asks_once_a_minute() {
+        let slack_api = StandIn::start(standin::slack);
+        let api = format!("{}/api", slack_api.url);
+        let files = scratch("turns-first-join-files");
+        let file = files.join("ops.secret");
+        let mut world = World::new("turns-first-join", |join_secret| {
+            // The file holds a secret of the team's shape that is not the team's: a file the operator got
+            // wrong before the server started.
+            let (team, _) = join_secret.rsplit_once('.').unwrap();
+            std::fs::write(&file, format!("{team}.{}\n", "0".repeat(32))).unwrap();
+            let mut slack = slack(&api, join_secret);
+            slack.teams = vec![Secret::kept_in(&file)];
+            config::Gateways {
+                slack: Some(slack),
+                mail: None,
+            }
+        })
+        .await;
+        let member = |world: &World| {
+            let store = world.gateways.store.try_lock().unwrap();
+            store.membership(&world.ops.team_ref, Kind::Slack).is_some()
+        };
+
+        // The first join is refused, and that is said once.
+        world.pass().await;
+        assert!(!member(&world));
+        let first = world.turns.slots[0].said.clone();
+        assert_eq!(first.len(), 1, "{first:?}");
+        assert!(first[0].ends_with("unauthorized: join secret rejected"));
+
+        // The operator mends the file. Within the minute the team is not asked again, however often the
+        // gateway's turn comes: with the file as it is now, a join that was asked would be let in.
+        std::fs::write(&file, format!("{}\n", world.ops.join_secret)).unwrap();
+        for _ in 0..3 {
+            assert_eq!(world.pass().await, [Tally::default()]);
+        }
+        assert!(!member(&world));
+        assert_eq!(world.turns.slots[0].said, first);
+        assert_eq!(members(&world).await.len(), 1);
+
+        // When the minute is over the gateway reads its file again and joins with what it holds now. The
+        // server was not started again for it.
+        let (at, _) = world.turns.slots[0]
+            .refused
+            .as_mut()
+            .expect("the refusal of the first join");
+        *at = Instant::now()
+            .checked_sub(HEARTBEAT_EVERY)
+            .expect("a machine that has been up for a minute");
+        world.pass().await;
+        assert!(member(&world));
+        assert!(world.turns.slots[0].refused.is_none());
+        assert_eq!(members(&world).await.len(), 2);
+        assert_eq!(gateway_rows(&world.ops.roster().await, "gateway-slack").len(), 1);
+        let _ = std::fs::remove_dir_all(&files);
+    }
+
+    #[tokio::test]
+    async fn a_join_secret_file_that_does_not_read_is_said_without_its_path_and_the_secret_is_kept() {
+        let slack_api = StandIn::start(standin::slack);
+        let api = format!("{}/api", slack_api.url);
+        let files = scratch("turns-unread-files");
+        let file = files.join("PATH-MUST-NOT-LEAK.secret");
+        let mut world = World::new("turns-unread", |join_secret| {
+            std::fs::write(&file, format!("{join_secret}\n")).unwrap();
+            let mut slack = slack(&api, join_secret);
+            slack.teams = vec![Secret::kept_in(&file)];
+            config::Gateways {
+                slack: Some(slack),
+                mail: None,
+            }
+        })
+        .await;
+        world.pass().await;
+        let before = held(&world);
+        // How many sessions of the gateway's the team's roster shows: one, or none while it is out.
+        async fn on_roster(world: &World) -> usize {
+            gateway_rows(&world.ops.roster().await, "gateway-slack").len()
+        }
+        // The owner revokes everyone who joined with the team's first secret, which it never rotated.
+        async fn revoke(world: &World) -> Value {
+            let body = json!({"team_ref": world.ops.team_ref, "joined_secret_version_lte": 1});
+            world.ops.administer("/v1/team/revoke-member", &body).await
+        }
+
+        // The gateway is revoked while its file is gone. The secret was not rotated, so the one it has
+        // still joins: the file's absence is said, by its kind, and the gateway is back all the same.
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(revoke(&world).await["revoked"], json!(1));
+        world.pass().await;
+        let said = world.turns.slots[0].said.clone();
+        assert!(
+            said.iter()
+                .any(|line| line.ends_with("could not read its join secret file again: entity not found")),
+            "{said:?}"
+        );
+        assert_eq!(on_roster(&world).await, 1);
+        assert_eq!(held(&world), before);
+
+        // The same when the file holds another team's secret, or nothing that is a join secret: neither
+        // is joined with, and nothing the file held is said.
+        for held in [
+            format!(
+                "{}x.MUST-NOT-LEAK\n",
+                world.ops.join_secret.rsplit_once('.').unwrap().0
+            ),
+            "MUST-NOT-LEAK is no join secret\n".to_owned(),
+            String::new(),
+        ] {
+            std::fs::write(&file, &held).unwrap();
+            assert_eq!(revoke(&world).await["revoked"], json!(1));
+            assert_eq!(on_roster(&world).await, 0);
+            world.turns.slots[0].rejoined = None;
+            world.pass().await;
+            let said = world.turns.slots[0].said.clone();
+            assert!(
+                said.iter()
+                    .any(|line| line.ends_with("found no join secret of its team in its join secret file")),
+                "{said:?}"
+            );
+            assert!(
+                said.iter().all(|line| !line.contains("MUST-NOT-LEAK")),
+                "{said:?}"
+            );
+            assert_eq!(on_roster(&world).await, 1);
+        }
+        assert_eq!(held(&world), before);
+        let _ = std::fs::remove_dir_all(&files);
     }
 
     #[tokio::test]
@@ -631,7 +1045,7 @@ mod tests {
         assert_eq!(world.gateways.served(Kind::Email).await.len(), 1);
         assert_eq!(world.turns.slots[0].said.len(), 1);
         assert!(world.turns.slots[0].said[0].ends_with("unauthorized: join secret rejected"));
-        // The loop tries the join again at its turn, and does not say the same refusal again.
+        // The loop's turn finds the team's refusal a moment old, asks nothing and says nothing again.
         world.pass().await;
         assert_eq!(world.turns.slots[0].said.len(), 1);
         assert!(world.gateways.served(Kind::Slack).await.is_empty());

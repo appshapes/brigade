@@ -171,7 +171,8 @@ func stopOnCleanup(t *testing.T, cmd *exec.Cmd) {
 // restEnv is the hook environment of a session of a team on a server: the
 // rig's base environment and the session facts, and no adapter_command
 // option, because the team file's adapter name is what selects the bundled
-// `rest` adapter. bob's sessions read bob's own store.
+// `rest` adapter. bob's sessions read bob's own store, and a session that
+// carries an environment of its own (a third member's store) has it last.
 func (r *rig) restEnv(s session) []string {
 	env := append(r.baseEnv(),
 		"CLAUDE_PID="+strconv.Itoa(s.pid),
@@ -185,7 +186,181 @@ func (r *rig) restEnv(s session) []string {
 	if s.socket != "" {
 		env = append(env, "CLAUDE_CODE_MESSAGING_SOCKET="+s.socket, "CLAUDE_CODE_MESSAGING_TOKEN="+s.token)
 	}
-	return env
+	return append(env, s.extraEnv...)
+}
+
+// terminalEnv is a member's own terminal: no session, and that member's
+// store. Team administration is run there: `team revoke-member` and `team
+// transfer` refuse inside a session by design.
+func (r *rig) terminalEnv(configDir string) []string {
+	return append(r.baseEnv(), "BRIGADE_CONFIG_DIR="+configDir)
+}
+
+// roster is what `brigade team members --json` answers, as far as the
+// administration below reads it.
+type roster struct {
+	Members []struct {
+		PrincipalRef        string `json:"principal_ref"`
+		HumanLabel          string `json:"human_label"`
+		JoinedSecretVersion int    `json:"joined_secret_version"`
+	} `json:"members"`
+}
+
+// rosterOf reads the team's roster from a terminal of the member whose
+// store configDir is, keyed by human_label.
+func (r *rig) rosterOf(configDir string) map[string]struct {
+	ref     string
+	version int
+} {
+	r.t.Helper()
+	res := r.runIn(r.checkout, r.terminalEnv(configDir), "", "team", "members", "--json")
+	if res.exit != 0 {
+		r.t.Fatalf("team members --json: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	out := map[string]struct {
+		ref     string
+		version int
+	}{}
+	for _, m := range jsonResult[roster](r.t, res.stdout).Members {
+		out[m.HumanLabel] = struct {
+			ref     string
+			version int
+		}{m.PrincipalRef, m.JoinedSecretVersion}
+	}
+	return out
+}
+
+// administerTheTeam is the team's administration through the built `brigade`
+// and its bundled `rest` adapter (work item 274): the owner rotates the
+// join secret to a file, a third member joins with that file and cannot
+// with the one the team was created with, the owner revokes that member,
+// and the owner hands the team to bob, who then administers it and the
+// first owner no longer does. Every administration command is run from a
+// terminal, and the two that refuse inside a session are shown to refuse
+// there.
+func (r *rig) administerTheTeam(alice session) {
+	t := r.t
+	t.Helper()
+	const carolLabel = "carol@example.com"
+	created, err := os.ReadFile(r.secretFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// --- the owner rotates the secret to a file -------------------------
+	rotatedFile := filepath.Join(r.dirs.Root, "rotated.secret")
+	res := r.runIn(r.checkout, r.terminalEnv(r.configDir), "", "team", "rotate-secret", "--secret-file", rotatedFile)
+	if res.exit != 0 {
+		t.Fatalf("team rotate-secret: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	rotation := jsonResult[struct {
+		TeamRef       string `json:"team_ref"`
+		SecretVersion int    `json:"secret_version"`
+		SecretFile    string `json:"secret_file"`
+	}](t, res.stdout)
+	if rotation.TeamRef != r.teamRef || rotation.SecretVersion != 2 || rotation.SecretFile != rotatedFile {
+		t.Errorf("team rotate-secret: %+v, want this team, version 2 and the file named", rotation)
+	}
+	rotated, err := os.ReadFile(rotatedFile)
+	if err != nil {
+		t.Fatalf("the rotated secret's file: %v", err)
+	}
+	if fi, err := os.Stat(rotatedFile); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("the rotated secret's file: %v %v, want mode 0600", fi, err)
+	}
+	secret := strings.TrimSpace(string(rotated))
+	if secret == "" || secret == strings.TrimSpace(string(created)) || !strings.Contains(secret, "."+r.teamRef+".") {
+		t.Errorf("the rotated secret's file does not hold a new secret of this team")
+	}
+	if strings.Contains(res.stdout+res.stderr, secret) {
+		t.Errorf("team rotate-secret printed the new secret")
+	}
+
+	// --- a third member joins: not with the first file, with the new one --
+	carolDir := filepath.Join(r.dirs.Root, "config-carol")
+	if err := os.MkdirAll(carolDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	carol := r.newSession("carol", "carol-session", "", "", "")
+	carol.extraEnv = []string{config.OptionConfigDir + "=" + carolDir}
+	r.restHook(carol, "session-start", carol.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	join := func(file string) result {
+		return r.runIn(r.checkout, r.restEnv(carol), "", "team", "join", "--secret-file", file, "--label", carolLabel)
+	}
+	if res := join(r.secretFile); res.exit == 0 {
+		t.Fatalf("a join with the secret the team had before the rotation succeeded\nstdout: %s", res.stdout)
+	}
+	if res := join(rotatedFile); res.exit != 0 {
+		t.Fatalf("team join with the rotated secret: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	members := r.rosterOf(r.configDir)
+	if len(members) != 3 || members[aliceLabel].version != 1 || members[bobLabel].version != 1 || members[carolLabel].version != 2 {
+		t.Fatalf("the roster after the rotation and the join: %+v, want alice and bob at version 1 and carol at 2", members)
+	}
+	carolRef, bobRef := members[carolLabel].ref, members[bobLabel].ref
+
+	// --- the owner revokes that member -----------------------------------
+	if res := r.runIn(r.checkout, r.restEnv(alice), "", "team", "revoke-member", "--principal", carolRef); res.exit != 2 {
+		t.Errorf("team revoke-member inside a session: exit %d, want the usage refusal\nstdout: %s", res.exit, res.stdout)
+	}
+	res = r.runIn(r.checkout, r.terminalEnv(r.configDir), "", "team", "revoke-member", "--principal", carolRef)
+	if res.exit != 0 {
+		t.Fatalf("team revoke-member: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	revoked := jsonResult[struct {
+		PrincipalRef string `json:"principal_ref"`
+		Status       string `json:"status"`
+		Changed      bool   `json:"changed"`
+	}](t, res.stdout)
+	if revoked.PrincipalRef != carolRef || revoked.Status != "revoked" || !revoked.Changed {
+		t.Errorf("team revoke-member: %+v, want carol revoked", revoked)
+	}
+	if left := r.rosterOf(r.configDir); len(left) != 2 || left[carolLabel].ref != "" {
+		t.Errorf("the roster after the revocation: %+v, want alice and bob", left)
+	}
+	if res := r.runIn(r.checkout, r.terminalEnv(carolDir), "", "team", "members"); res.exit != 5 {
+		t.Errorf("a revoked member's team members: exit %d, want unauthorized\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+
+	// --- the owner hands the team to bob ---------------------------------
+	if res := r.runIn(r.checkout, r.restEnv(alice), "", "team", "transfer", "--principal", bobRef); res.exit != 2 {
+		t.Errorf("team transfer inside a session: exit %d, want the usage refusal\nstdout: %s", res.exit, res.stdout)
+	}
+	// The request as a document on stdin this time, the form a script uses:
+	// the pass-through hands the adapter the terminal's own stdin.
+	res = r.runIn(r.checkout, r.terminalEnv(r.configDir), `{"principal_ref":"`+bobRef+`"}`, "team", "transfer")
+	if res.exit != 0 {
+		t.Fatalf("team transfer: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	moved := jsonResult[struct {
+		PrincipalRef string `json:"principal_ref"`
+		Transferred  bool   `json:"transferred"`
+	}](t, res.stdout)
+	if moved.PrincipalRef != bobRef || !moved.Transferred {
+		t.Errorf("team transfer: %+v, want the team with bob", moved)
+	}
+	// The first owner is a member still, and no longer administers.
+	refused := filepath.Join(r.dirs.Root, "refused.secret")
+	if res := r.runIn(r.checkout, r.terminalEnv(r.configDir), "", "team", "rotate-secret", "--secret-file", refused); res.exit != 5 {
+		t.Errorf("team rotate-secret by the previous owner: exit %d, want unauthorized\nstdout: %s", res.exit, res.stdout)
+	}
+	if _, err := os.Stat(refused); err == nil {
+		t.Errorf("a refused rotation wrote its secret file")
+	}
+	if still := r.rosterOf(r.configDir); len(still) != 2 {
+		t.Errorf("the previous owner's roster: %+v, want alice and bob", still)
+	}
+	// bob does.
+	bobFile := filepath.Join(r.dirs.Root, "bob.secret")
+	res = r.runIn(r.checkout, r.terminalEnv(r.configDirB), "", "team", "rotate-secret", "--secret-file", bobFile)
+	if res.exit != 0 {
+		t.Fatalf("team rotate-secret by the new owner: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if again := jsonResult[struct {
+		SecretVersion int `json:"secret_version"`
+	}](t, res.stdout); again.SecretVersion != 3 {
+		t.Errorf("the new owner's rotation: version %d, want 3", again.SecretVersion)
+	}
 }
 
 // restHook runs one lifecycle hook for a session of a team on a server.
@@ -214,7 +389,8 @@ func (r *rig) restJoin(s session, label string) result {
 // create --adapter rest`, the committed team file, a member's join from
 // inside a session, both sessions' SessionStart, the real watcher long
 // polling the server, and a message from one member's session arriving in
-// the other's inbox socket.
+// the other's inbox socket. Then the team's administration (work item
+// 274): a rotated secret, a member revoked, the team handed on.
 func TestATeamOnAServerThroughTheRealBinary(t *testing.T) {
 	t.Parallel()
 	backend := startRestBackend(t)
@@ -352,6 +528,10 @@ func TestATeamOnAServerThroughTheRealBinary(t *testing.T) {
 		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
 	}
 	testutil.Eventually(t, waitLong, pollEvery, func() bool { return !alive(entry.PID) })
+
+	// --- 7. the team is administered, from a terminal ---------------------
+	r.administerTheTeam(alice)
+
 	// The session's messaging token is in no file the run left behind.
 	if hits := tokenHits(t, token, r.dirs.Root); len(hits) != 0 {
 		t.Errorf("the messaging token is in %v", hits)

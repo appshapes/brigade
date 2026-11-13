@@ -12,6 +12,9 @@ import "io/fs"
 
 func insecureMode(fs.FileInfo) bool { return false }
 
+// ownerReadWriteOnly: a file has no mode to compare here, so every file passes, as none is insecure above.
+func ownerReadWriteOnly(fs.FileInfo) bool { return true }
+
 func foreignOwner(fs.FileInfo) bool { return false }
 
 func worldWritable(fs.FileInfo) bool { return false }

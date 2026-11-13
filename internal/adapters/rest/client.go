@@ -47,6 +47,9 @@ const (
 	pathTeamJoin         = "/v1/team/join"
 	pathTeamLeave        = "/v1/team/leave"
 	pathTeamMembers      = "/v1/team/members"
+	pathTeamRotateSecret = "/v1/team/rotate-secret" //nolint:gosec // G101: a path, not a credential
+	pathTeamRevokeMember = "/v1/team/revoke-member"
+	pathTeamTransfer     = "/v1/team/transfer"
 	pathSessionRegister  = "/v1/session/register"
 	pathSessionHeartbeat = "/v1/session/heartbeat"
 	pathSessionList      = "/v1/session/list"
@@ -55,6 +58,7 @@ const (
 	pathMessageReceive   = "/v1/message/receive"
 	pathMessageAck       = "/v1/message/ack"
 	pathCredentialRevoke = "/v1/credential/revoke" //nolint:gosec // G101: a path, not a credential
+	pathInfo             = "/v1/info"
 )
 
 // createTokenHeader carries the operator's creation token on

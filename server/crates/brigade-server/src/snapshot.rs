@@ -17,8 +17,18 @@ use brigade_core::hash::sha256_hex_of;
 use brigade_log::Position;
 use serde::{Deserialize, Serialize};
 
-/// The version of the snapshot format.
-const FORMAT: u32 = 1;
+/// The version of the snapshot format this build writes.
+///
+/// Format 2 is format 1 with what a team and a member have had since server 0.4.0: a team's count of join
+/// secrets, and the version a member joined with and whether it is banned. A build before that reads a
+/// state without them and would drop them without a word, lifting every ban. It reads format 1 only, so a
+/// snapshot that may hold them names a format that build passes over, and it then refuses the log's record
+/// of a rotation or a revocation instead of starting on half of what the directory holds.
+const FORMAT: u32 = 2;
+
+/// The oldest snapshot format this build reads. A snapshot of format 1 holds no secret version and no ban,
+/// and reads as the state it was: every team has its first secret, and nobody is banned.
+const OLDEST_FORMAT: u32 = 1;
 
 /// What the name of a snapshot ends with while it is being written.
 const UNFINISHED: &str = ".unfinished";
@@ -70,7 +80,7 @@ pub fn write(dir: &Path, position: Position, state: &State) -> Result<(), String
     let header = Header {
         format: FORMAT,
         position,
-        sha256: checksum(position, &body),
+        sha256: checksum(FORMAT, position, &body),
     };
     let mut bytes = serde_json::to_vec(&header).map_err(|error| format!("writing a snapshot: {error}"))?;
     bytes.push(b'\n');
@@ -124,9 +134,9 @@ pub fn oldest(dir: &Path) -> Result<Option<Position>, String> {
 }
 
 /// The checksum of a snapshot: over the format, the position and the state, so that a damaged digit of the
-/// position is caught like a damaged byte of the state.
-fn checksum(position: Position, body: &[u8]) -> String {
-    let mut covered = format!("{FORMAT}\n{position}\n").into_bytes();
+/// format or of the position is caught like a damaged byte of the state.
+fn checksum(format: u32, position: Position, body: &[u8]) -> String {
+    let mut covered = format!("{format}\n{position}\n").into_bytes();
     covered.extend_from_slice(body);
     sha256_hex_of(&covered)
 }
@@ -152,14 +162,14 @@ fn read(path: &Path, named: Position) -> Result<(Position, State), String> {
         .ok_or("it has no header line")?;
     let header: Header = serde_json::from_slice(&bytes[..end_of_header])
         .map_err(|error| format!("its header does not read: {error}"))?;
-    if header.format != FORMAT {
+    if !(OLDEST_FORMAT..=FORMAT).contains(&header.format) {
         return Err(format!(
-            "it is of format {}, and this build reads format {FORMAT}",
+            "it is of format {}, and this build reads formats {OLDEST_FORMAT} to {FORMAT}",
             header.format
         ));
     }
     let body = &bytes[end_of_header + 1..];
-    if checksum(header.position, body) != header.sha256 {
+    if checksum(header.format, header.position, body) != header.sha256 {
         return Err("it fails its checksum".to_owned());
     }
     // The position is read in two places, the name when the log is shortened and the header at a start:
@@ -193,6 +203,7 @@ pub fn newest(dir: &Path, skipped: &mut dyn FnMut(&Path, &str)) -> Result<Option
 mod tests {
     use std::path::PathBuf;
 
+    use brigade_core::hash::sha256_hex_of;
     use brigade_core::state::{Principal, State};
     use brigade_core::time::Timestamp;
 
@@ -280,6 +291,55 @@ mod tests {
         assert_eq!(found.0, 10);
         assert_eq!(reasons.len(), 3);
         assert!(reasons[0].contains("format 9"), "{reasons:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_snapshot_of_the_format_before_this_one_is_read_and_this_builds_names_the_newer() {
+        let dir = scratch("formats");
+        // A snapshot as server 0.3.0 wrote it: format 1, its checksum over that format, and a state whose
+        // team has no secret version and whose member has neither the version it joined with nor a ban.
+        let body = concat!(
+            r#"{"principals":{"p1":{"created_at":5}},"credentials":{"h1":"p1"},"#,
+            r#""teams":{"t":{"team_ref":"t","team_name":"ops","join_secret_hash":"s","created_by":"p1","#,
+            r#""created_at":5,"members":{"p1":{"human_label":"alice","active":true,"joined_at":5,"#,
+            r#""sent_at":[]}},"sessions":{}}},"session_teams":{},"swept_at":0,"latest_at":5,"entries":2}"#
+        );
+        let sha256 = sha256_hex_of(format!("1\n70\n{body}").as_bytes());
+        let earlier = format!("{{\"format\":1,\"position\":70,\"sha256\":\"{sha256}\"}}\n{body}");
+        std::fs::write(dir.join(name(70)), earlier).unwrap();
+        let (position, state) = newest(&dir, &mut |_, why| panic!("passed over: {why}"))
+            .unwrap()
+            .unwrap();
+        assert_eq!((position, state.entries), (70, 2));
+        let team = &state.teams["t"];
+        assert_eq!((team.secret_version, team.owner()), (1, Some("p1")));
+        let member = &team.members["p1"];
+        assert_eq!(
+            (member.active, member.joined_secret_version, member.banned),
+            (true, 1, false)
+        );
+
+        // What this build writes of that state names format 2, which the earlier build passes over: it
+        // would read the state without what a team and a member have now. It reads back whole here.
+        write(&dir, 80, &state).unwrap();
+        let written = std::fs::read_to_string(dir.join(name(80))).unwrap();
+        assert!(written.starts_with(r#"{"format":2,"position":80,"#), "{written}");
+        let found = newest(&dir, &mut |_, why| panic!("passed over: {why}"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(found, (80, state));
+        // The format is inside what the checksum covers: a header that names another does not read.
+        let renamed = written.replacen(r#""format":2"#, r#""format":1"#, 1);
+        std::fs::write(dir.join(name(80)), renamed).unwrap();
+        let mut reasons = Vec::new();
+        let found = newest(&dir, &mut |_, why| reasons.push(why.to_owned()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (found.0, reasons.as_slice()),
+            (70, &["it fails its checksum".to_owned()][..])
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

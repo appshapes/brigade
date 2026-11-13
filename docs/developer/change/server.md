@@ -90,6 +90,28 @@ they have. It is a job of its own kind for the engine, appended and synced like 
 because one process owns the log. The same secret again changes nothing; another secret for the same reference
 is refused.
 
+## Administering a team
+
+From 0.4.0 the contract's section 3a is three requests like any other: `/v1/team/rotate-secret`,
+`/v1/team/revoke-member` and `/v1/team/transfer`. One gate in `execute.rs` answers them for the team's owner and
+gives everyone else exactly what `member_team` gives a stranger.
+
+- **Four records.** `team.secret_rotated`, `member.revoked`, `members.revoked_by_version` and
+  `team.owner_changed`. A revocation by version is one record however many members it covers, because an entry
+  has a longest size: applying it finds the members from the state alone. Applying `member.joined` sets the
+  member's `joined_secret_version` to the team's.
+- **The owner** is `Team.created_by`. A team that was taken in has none until a join whose request `may_own`:
+  the HTTP listener passes true, and the gateways' join inside the server passes false.
+- **`--set-owner <team_ref> --principal <principal_ref>`** is a job of its own kind between a stop and a start,
+  as the import is, and no request reaches it. **`--take-back <team_ref> --secret-file <path>`** is another: one
+  entry of a rotation, a revocation by version of everyone and an owner change to nobody, so that the first
+  member to join with the new secret owns the team. The file's place is held before the entry is appended.
+- **Snapshots are format 2.** This build reads formats 1 and 2. A 0.3.0 passes a format 2 snapshot over and then
+  refuses a log that holds a record it does not know, so it never reads a state whose bans it would drop.
+- **A gateway reads its join secret file again** before each attempt to join, at most one a minute after a
+  refusal, and presents the credential it holds, so it comes back as the member it was and a ban of it holds. A
+  rotation followed by a revocation by version therefore needs the file replaced and nothing restarted.
+
 ## The gateways
 
 From 0.2.0 the mail and Slack gateways are part of the server (the plan's section 4.6), off until
@@ -127,8 +149,11 @@ From 0.2.0 the mail and Slack gateways are part of the server (the plan's sectio
   The mark is written after the carry and not before it, as above. The mail gateway sends neither a bounce nor a
   command's answer to an address of its own (the inbox or a tag of it, the public address, the From), so an
   address that forwards to the inbox cannot make it answer itself; the functions guard the inbox only (work item
-  271). Everything else is the functions' behaviour, their oddities included: a Slack `429` is final, and a
-  `to:` line on a reply starts a new thread.
+  271). A Slack request leaves out a team whose gateway is no longer its member and serves the others, saying
+  that one team's sessions cannot be reached, where the functions fail the request for every team: on a server a
+  team's owner can put its gateway out, by a rotation and a revocation by version (0.4.0). Everything else is the
+  functions' behaviour, their oddities included: a Slack `429` is final, and a `to:` line on a reply starts a new
+  thread.
 - **Tests.** `tests/gateway.rs` starts the binary with a stand-in Slack and a stand-in mail provider on loopback,
   which the configuration's `api` members point the gateways at; the client speaks plain HTTP to loopback and to
   nothing else.

@@ -4,6 +4,10 @@
 //! server in a file. The server issues it a credential, which is kept in the gateways' state, and from then
 //! on the gateway is known by that credential alone. Its session is registered once and kept open by a
 //! heartbeat a minute from the loop, as the Edge Functions kept theirs by a tick a minute.
+//!
+//! A gateway that joins again presents that credential, so it comes back as the member it was and never
+//! as somebody new: a team whose owner banned its gateway keeps it out, and a team that revoked it gets
+//! the same member back, with the session it had.
 
 use brigade_core::wire::JoinSecret;
 use brigade_core::{Code, Error};
@@ -48,6 +52,15 @@ impl From<Error> for Failure {
     }
 }
 
+/// The membership the gateway's state holds of the team `join_secret` names, when it holds one.
+async fn held(store: &Mutex<Store>, kind: Kind, join_secret: &str) -> Result<Option<Membership>, Failure> {
+    let team_ref = JoinSecret::parse(join_secret)
+        .map_err(|_| Failure::Broken("a join secret file does not hold a join secret".to_owned()))?
+        .team_ref()
+        .to_owned();
+    Ok(store.lock().await.membership(&team_ref, kind).cloned())
+}
+
 /// The gateway's membership of the team `join_secret` names, joining it when the gateway is not a member
 /// yet. A gateway that is a member already is not joined again: its credential is the one it has.
 ///
@@ -61,19 +74,23 @@ pub async fn member_of(
     kind: Kind,
     join_secret: &str,
 ) -> Result<Membership, Failure> {
-    let team_ref = JoinSecret::parse(join_secret)
-        .map_err(|_| Failure::Broken("a join secret file does not hold a join secret".to_owned()))?
-        .team_ref()
-        .to_owned();
-    let known = store.lock().await.membership(&team_ref, kind).cloned();
-    match known {
+    match held(store, kind, join_secret).await? {
         Some(membership) => Ok(membership),
-        None => join(engine, store, kind, join_secret).await,
+        None => join(engine, store, kind, join_secret)
+            .await
+            .map(|(membership, _)| membership),
     }
 }
 
-/// Joins the team anew, as a new principal, and records the membership in place of any earlier one. This is
-/// what follows a credential the server no longer knows.
+/// Joins the team with the credential the gateway holds, when it holds one, and records the membership in
+/// place of the one before it. The answer says as well whether the gateway is the member it was.
+///
+/// A credential the server knows makes the join that principal's own. A membership that was revoked is
+/// active again, the same member with the session it had, and a principal the team's owner banned is
+/// refused as a wrong secret is: the gateway never comes back as somebody new to a team that put it out. A
+/// credential the server no longer knows, and a gateway that holds none, become a new principal with a new
+/// credential, which is the contract's rule for any join. So presenting what the gateway holds is always
+/// right.
 ///
 /// # Errors
 /// The join was refused, or the state could not be written.
@@ -82,26 +99,36 @@ pub async fn join(
     store: &Mutex<Store>,
     kind: Kind,
     join_secret: &str,
-) -> Result<Membership, Failure> {
-    let joined = member::join(engine, None, join_secret, label(kind)).await?;
+) -> Result<(Membership, bool), Failure> {
+    let held = held(store, kind, join_secret).await?;
+    let credential = held.as_ref().map(|held| held.credential.as_str());
+    let joined = member::join(engine, credential, join_secret, label(kind)).await?;
+    let (credential, session_id, same_member) = match held {
+        // The member it was. The server answers no credential to one it knows, so the one the gateway
+        // holds stands, and so does its session: a revocation closed it, and keeping it resumes it.
+        Some(held) if held.principal_ref == joined.principal_ref => (held.credential, held.session_id, true),
+        // A new member, with the credential the server issued it and no session yet.
+        _ => (joined.credential, String::new(), false),
+    };
     let membership = Membership {
         team_ref: joined.team_ref,
         kind,
         team_name: joined.team_name,
-        credential: joined.credential,
+        credential,
         principal_ref: joined.principal_ref,
-        session_id: String::new(),
+        session_id,
     };
     store
         .lock()
         .await
         .set_membership(membership.clone())
         .map_err(Failure::Broken)?;
-    Ok(membership)
+    Ok((membership, same_member))
 }
 
 /// Whether a refusal means the gateway is no longer the member it was: its credential is unknown, or its
-/// membership has ended. Joining again with the secret is what answers both.
+/// membership has ended. Joining again with the secret is what answers both, unless the team's owner
+/// banned the gateway, whose join is then refused as well.
 #[must_use]
 pub fn lost(error: &Error) -> bool {
     matches!(error.code, Code::Unauthenticated | Code::Unauthorized)
@@ -141,7 +168,7 @@ mod tests {
 
     use super::*;
     use crate::gateway::member::Outgoing;
-    use crate::gateway::testing::{engine_on, scratch};
+    use crate::gateway::testing::{engine_on, scratch, team};
 
     const SLACK: Session<'static> = Session {
         name: "slack-gateway",
@@ -160,6 +187,7 @@ mod tests {
         let created = engine
             .ask(
                 None,
+                true,
                 true,
                 "/v1/team/create",
                 Bytes::from(json!({"team_name": "ops", "human_label": "alice@example.com"}).to_string()),
@@ -244,6 +272,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_gateway_that_joins_again_is_the_member_it_was_while_the_server_knows_its_credential() {
+        let data = scratch("presence-again");
+        let engine = engine_on(&data);
+        let store = Mutex::new(Store::open(&data).unwrap());
+        let ops = team(&engine).await;
+        let first = member_of(&engine, &store, Kind::Slack, &ops.join_secret)
+            .await
+            .unwrap();
+        let session_id = session(&engine, &store, &first, &SLACK).await.unwrap();
+        let held = || async {
+            let store = store.lock().await;
+            store.membership(&ops.team_ref, Kind::Slack).unwrap().clone()
+        };
+        let kept = held().await;
+        assert_eq!(kept.session_id, session_id);
+        let revoke =
+            |ban: bool| json!({"team_ref": ops.team_ref, "principal_ref": first.principal_ref, "ban": ban});
+
+        // The team's owner revokes the gateway. It joins with the credential it holds, so the team has
+        // the member it had: the same principal and credential, and the session it had, which the
+        // revocation closed and which is open again under its id once it is kept.
+        ops.administer("/v1/team/revoke-member", &revoke(false)).await;
+        let (again, same_member) = join(&engine, &store, Kind::Slack, &ops.join_secret)
+            .await
+            .unwrap();
+        assert!(same_member);
+        assert_eq!(again, kept);
+        assert_eq!(held().await, kept);
+        assert_eq!(
+            session(&engine, &store, &again, &SLACK).await.unwrap(),
+            session_id
+        );
+
+        // The owner bans it. Its join is the banned principal's, and is refused as a wrong secret is; what
+        // the gateway holds is as it was, and it is nobody new.
+        ops.administer("/v1/team/revoke-member", &revoke(true)).await;
+        let refused = join(&engine, &store, Kind::Slack, &ops.join_secret)
+            .await
+            .err()
+            .unwrap();
+        assert!(
+            matches!(&refused, Failure::Refused(error) if error.message == "join secret rejected"),
+            "{refused}"
+        );
+        assert_eq!(held().await, kept);
+
+        // The owner lifts the ban. A credential the server no longer knows names nobody, so a join that
+        // presents one is a new principal's, as the contract has it for any join: a new member, with a
+        // credential of its own and no session yet.
+        ops.administer("/v1/team/revoke-member", &revoke(false)).await;
+        let known_by = brigade_core::hash::sha256_hex(&kept.credential);
+        engine
+            .ask(
+                Some(known_by),
+                false,
+                false,
+                "/v1/credential/revoke",
+                Bytes::from("{}"),
+            )
+            .await
+            .unwrap();
+        let (anew, same_member) = join(&engine, &store, Kind::Slack, &ops.join_secret)
+            .await
+            .unwrap();
+        assert!(!same_member);
+        assert_ne!(anew.principal_ref, kept.principal_ref);
+        assert!(!anew.credential.is_empty() && anew.credential != kept.credential);
+        assert!(anew.session_id.is_empty());
+        assert_eq!(held().await, anew);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[tokio::test]
     async fn a_secret_that_is_not_the_teams_is_refused_and_nothing_is_kept() {
         let data = scratch("presence-refused");
         let engine = engine_on(&data);
@@ -251,6 +352,7 @@ mod tests {
         let created = engine
             .ask(
                 None,
+                true,
                 true,
                 "/v1/team/create",
                 Bytes::from(json!({"team_name": "ops"}).to_string()),

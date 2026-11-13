@@ -27,10 +27,11 @@ last session; a few minutes.
 
 ## The conformance suite
 
-`brigade-conformance` is the arbiter for an adapter: 49 cases, three principals in two teams, an environment built
+`brigade-conformance` is the arbiter for an adapter: 52 cases, three principals in two teams, an environment built
 from scratch. `make test` runs it against the fs adapter and, through `bin/brigade-rest-stub` (a stand-in server
 for [the backend REST contract](../../backend-rest-v1.md) that runs the fs adapter in-process), against the
-bundled `rest` adapter; `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
+bundled `rest` adapter. The three team administration cases (C-48 to C-50) run in the second: the fs adapter does
+not advertise `team.admin`, so they are skipped in the first. `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
 `--setup <cmd>` when principals are provisioned out of band ([Write an adapter](../change/adapters.md)). Its own
 positive control is four deliberately broken builds of the reference adapter, each of which must fail exactly its
 own cases.

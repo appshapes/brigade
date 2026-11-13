@@ -11,7 +11,7 @@ import (
 )
 
 // expectedDefs is a hand-maintained, independent list of every $defs
-// member the document must carry: the 24 root shapes of 4.3/4.4 plus the
+// member the document must carry: the 30 root shapes of 4.3/4.4 plus the
 // nine nested objects reflection pulls in. It is deliberately NOT
 // derived from the generator, so a wire type dropped from (or leaking
 // into) the document fails here rather than vanishing silently.
@@ -33,6 +33,9 @@ var expectedDefs = []string{
 	// 4.4.10 team
 	"TeamCreateRequest", "TeamCreateResult",
 	"TeamJoinRequest", "TeamJoinResult", "TeamLeaveResult",
+	// 4.4.10 team administration
+	"TeamRotateSecretResult", "TeamRevokeMemberRequest", "TeamRevokeMemberResult",
+	"TeamRevokeByVersionResult", "TeamTransferRequest", "TeamTransferResult",
 }
 
 // TestDocumentStable pins the byte-stability acceptance criterion of

@@ -61,30 +61,36 @@ const documentDescription = "Wire shapes of the Brigade adapter protocol, versio
 // shapes (Sender, Limits, ...) are pulled into $defs by reflection.
 func rootTypes() []any {
 	return []any{
-		protocol.Envelope{},            // 4.3
-		protocol.ErrorObject{},         // 4.3
-		protocol.DescribeResult{},      // 4.4.1
-		protocol.SessionRegistration{}, // 4.4.2
-		protocol.SessionRecord{},       // 4.4.3
-		protocol.HeartbeatRequest{},    // 4.4.4
-		protocol.HeartbeatResult{},     // 4.4.4
-		protocol.MessageEnvelope{},     // 4.4.5
-		protocol.SendRequest{},         // 4.4.6
-		protocol.SendResponse{},        // 4.4.7
-		protocol.AckRequest{},          // 4.4.8
-		protocol.AckResult{},           // 4.4.8
-		protocol.WatchReady{},          // 4.4.9
-		protocol.WatchMessage{},        // 4.4.9
-		protocol.WatchStatus{},         // 4.4.9
-		protocol.WatchAcked{},          // 4.4.9
-		protocol.WatchHeartbeatOK{},    // 4.4.9
-		protocol.WatchError{},          // 4.4.9
-		protocol.WatchCommand{},        // 4.4.9
-		protocol.TeamCreateRequest{},   // 4.4.10
-		protocol.TeamCreateResult{},    // 4.4.10
-		protocol.TeamJoinRequest{},     // 4.4.10
-		protocol.TeamJoinResult{},      // 4.4.10
-		protocol.TeamLeaveResult{},     // 4.4.10
+		protocol.Envelope{},                  // 4.3
+		protocol.ErrorObject{},               // 4.3
+		protocol.DescribeResult{},            // 4.4.1
+		protocol.SessionRegistration{},       // 4.4.2
+		protocol.SessionRecord{},             // 4.4.3
+		protocol.HeartbeatRequest{},          // 4.4.4
+		protocol.HeartbeatResult{},           // 4.4.4
+		protocol.MessageEnvelope{},           // 4.4.5
+		protocol.SendRequest{},               // 4.4.6
+		protocol.SendResponse{},              // 4.4.7
+		protocol.AckRequest{},                // 4.4.8
+		protocol.AckResult{},                 // 4.4.8
+		protocol.WatchReady{},                // 4.4.9
+		protocol.WatchMessage{},              // 4.4.9
+		protocol.WatchStatus{},               // 4.4.9
+		protocol.WatchAcked{},                // 4.4.9
+		protocol.WatchHeartbeatOK{},          // 4.4.9
+		protocol.WatchError{},                // 4.4.9
+		protocol.WatchCommand{},              // 4.4.9
+		protocol.TeamCreateRequest{},         // 4.4.10
+		protocol.TeamCreateResult{},          // 4.4.10
+		protocol.TeamJoinRequest{},           // 4.4.10
+		protocol.TeamJoinResult{},            // 4.4.10
+		protocol.TeamLeaveResult{},           // 4.4.10
+		protocol.TeamRotateSecretResult{},    // 4.4.10, team.admin
+		protocol.TeamRevokeMemberRequest{},   // 4.4.10, team.admin
+		protocol.TeamRevokeMemberResult{},    // 4.4.10, team.admin
+		protocol.TeamRevokeByVersionResult{}, // 4.4.10, team.admin
+		protocol.TeamTransferRequest{},       // 4.4.10, team.admin
+		protocol.TeamTransferResult{},        // 4.4.10, team.admin
 	}
 }
 
@@ -237,6 +243,7 @@ func patchDefinitions(defs jsonschema.Definitions) error {
 		{"TeamCreateResult", "team_name", protocol.MaxTeamNameCodepoints},
 		{"TeamJoinRequest", "human_label", protocol.MaxHumanLabelChars},
 		{"TeamJoinResult", "team_name", protocol.MaxTeamNameCodepoints},
+		{"TeamRotateSecretResult", "team_name", protocol.MaxTeamNameCodepoints},
 		{"ProfileInfo", "team_name", protocol.MaxTeamNameCodepoints},
 		{"ProfileInfo", "human_label", protocol.MaxHumanLabelChars},
 	} {
@@ -268,6 +275,14 @@ func patchDefinitions(defs jsonschema.Definitions) error {
 		{"MessageEnvelope", "hop_count", 0, protocol.MaxHopCount},
 		{"SendResponse", "hop_count", 0, protocol.MaxHopCount},
 		{"ErrorObject", "retry_after_ms", 0, -1}, // no upper bound
+		// The secret versions of the team administration commands (4.4.10):
+		// a rotation answers 2 or more, and a version sweep names 0 or more.
+		{"TeamRotateSecretResult", "secret_version", 2, protocol.MaxSecretVersion},
+		{"TeamRevokeMemberRequest", "joined_secret_version_lte", 0, protocol.MaxSecretVersion},
+		{"TeamRevokeByVersionResult", "max_version", 0, protocol.MaxSecretVersion},
+		{"TeamRevokeMemberResult", "sessions_closed", 0, -1},
+		{"TeamRevokeByVersionResult", "revoked", 0, -1},
+		{"TeamRevokeByVersionResult", "sessions_closed", 0, -1},
 	} {
 		minimum := jsonv1.Number(strconv.Itoa(c.min))
 		var maximum jsonv1.Number

@@ -183,3 +183,41 @@ func errString(err error) string {
 	}
 	return err.Error()
 }
+
+// TestOwnerReadWriteOnlyIsExactly0600: the fact holds for the mode
+// WriteAtomic gives a file and for no other, a narrower one included: 0400
+// and 0700 grant group and other nothing, and are still not what was asked
+// for. InsecureMode, the looser fact, passes both.
+func TestOwnerReadWriteOnlyIsExactly0600(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "file")
+	if err := WriteAtomic(path, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		mode     fs.FileMode
+		exact    bool
+		insecure bool
+	}{
+		{0o600, true, false},
+		{0o400, false, false},
+		{0o700, false, false},
+		{0o640, false, true},
+		{0o604, false, true},
+		{0o644, false, true},
+	} {
+		if err := os.Chmod(path, tc.mode); err != nil {
+			t.Fatal(err)
+		}
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := OwnerReadWriteOnly(fi); got != tc.exact {
+			t.Errorf("OwnerReadWriteOnly at mode %o = %v, want %v", tc.mode, got, tc.exact)
+		}
+		if got := InsecureMode(fi); got != tc.insecure {
+			t.Errorf("InsecureMode at mode %o = %v, want %v", tc.mode, got, tc.insecure)
+		}
+	}
+}

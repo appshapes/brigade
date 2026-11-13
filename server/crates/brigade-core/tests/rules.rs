@@ -6,7 +6,10 @@
 use brigade_core::error::Code;
 use brigade_core::hash::sha256_hex;
 use brigade_core::record::Event;
-use brigade_core::{Entropy, Entry, Error, Record, Request, State, Timestamp, answer, import_team};
+use brigade_core::{
+    Entropy, Entry, Error, Record, Request, State, Timestamp, answer, envelope_error, import_team, set_owner,
+    take_back,
+};
 use serde_json::{Value, json};
 
 /// A source of bytes that never repeats and is the same in every run.
@@ -32,6 +35,8 @@ struct Rig {
     log: Vec<Entry>,
     /// Whether a request may create a team: what the server's creation token decides.
     may_create: bool,
+    /// Whether a join may own a team that has no owner: true over HTTP, false for a gateway.
+    may_own: bool,
 }
 
 /// One member's installation: its credential and what it joined.
@@ -49,6 +54,7 @@ impl Rig {
             now: Timestamp(1_800_000_000 * SECOND),
             log: Vec::new(),
             may_create: true,
+            may_own: true,
         }
     }
 
@@ -65,6 +71,7 @@ impl Rig {
         let request = Request {
             caller: hash.as_deref(),
             may_create: self.may_create,
+            may_own: self.may_own,
             path,
             body,
         };
@@ -102,6 +109,20 @@ impl Rig {
     /// Takes in a team that exists elsewhere, as the operator's command does: no request and no credential.
     fn import(&mut self, team_name: &str, secret: &str) -> Result<Value, Error> {
         let outcome = import_team(&mut self.state, team_name, secret, self.now)?;
+        self.log.extend(outcome.entry);
+        Ok(outcome.result)
+    }
+
+    /// Names a team's owner, as the operator's command does: no request and no credential.
+    fn set_owner(&mut self, team_ref: &str, principal_ref: &str) -> Result<Value, Error> {
+        let outcome = set_owner(&mut self.state, team_ref, principal_ref, self.now)?;
+        self.log.extend(outcome.entry);
+        Ok(outcome.result)
+    }
+
+    /// Takes a team back, as the operator's command does: no request and no credential.
+    fn take_back(&mut self, team_ref: &str) -> Result<Value, Error> {
+        let outcome = take_back(&mut self.state, team_ref, self.now, &mut self.entropy)?;
         self.log.extend(outcome.entry);
         Ok(outcome.result)
     }
@@ -1350,4 +1371,1042 @@ fn a_request_carries_what_it_likes_beside_what_is_read() {
     // A roster of many members with many sessions is one pass.
     let roster = rig.ok(&alice, "/v1/team/members", json!({"team_ref": alice.team_ref}));
     assert_eq!(roster["members"].as_array().unwrap().len(), 2);
+}
+
+/// A refusal as the bytes a caller reads.
+fn wire(error: &Error) -> String {
+    envelope_error(error).to_string()
+}
+
+/// The administration requests, each with a body the team's owner would be answered for.
+fn administration(team_ref: &str, target: &str) -> [(&'static str, Value); 4] {
+    [
+        ("/v1/team/rotate-secret", json!({"team_ref": team_ref})),
+        (
+            "/v1/team/revoke-member",
+            json!({"team_ref": team_ref, "principal_ref": target}),
+        ),
+        (
+            "/v1/team/revoke-member",
+            json!({"team_ref": team_ref, "joined_secret_version_lte": 1}),
+        ),
+        (
+            "/v1/team/transfer",
+            json!({"team_ref": team_ref, "principal_ref": target}),
+        ),
+    ]
+}
+
+/// The version of the secret an active member joined with, as the roster shows it to `asker`.
+fn joined_version(rig: &mut Rig, asker: &Member, principal_ref: &str) -> Value {
+    let roster = rig.ok(asker, "/v1/team/members", json!({"team_ref": asker.team_ref}));
+    roster["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|member| member["principal_ref"] == json!(principal_ref))
+        .unwrap_or_else(|| panic!("{principal_ref} is not on the roster"))["joined_secret_version"]
+        .clone()
+}
+
+/// The principals of the active members, as the roster shows them to `asker`.
+fn active(rig: &mut Rig, asker: &Member) -> Vec<String> {
+    let roster = rig.ok(asker, "/v1/team/members", json!({"team_ref": asker.team_ref}));
+    roster["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|member| text(member, "principal_ref"))
+        .collect()
+}
+
+fn revoke(rig: &mut Rig, owner: &Member, principal_ref: &str, ban: Option<bool>) -> Result<Value, Error> {
+    let mut body = json!({"team_ref": owner.team_ref, "principal_ref": principal_ref});
+    if let Some(ban) = ban {
+        body["ban"] = json!(ban);
+    }
+    rig.call(Some(&owner.credential), "/v1/team/revoke-member", body)
+}
+
+fn revoke_up_to(rig: &mut Rig, owner: &Member, max_version: i64) -> Result<Value, Error> {
+    let body = json!({"team_ref": owner.team_ref, "joined_secret_version_lte": max_version});
+    rig.call(Some(&owner.credential), "/v1/team/revoke-member", body)
+}
+
+fn rotate(rig: &mut Rig, owner: &Member) -> Value {
+    rig.ok(
+        owner,
+        "/v1/team/rotate-secret",
+        json!({"team_ref": owner.team_ref}),
+    )
+}
+
+#[test]
+fn only_the_owner_administers_and_every_other_caller_reads_one_refusal() {
+    let mut rig = Rig::new();
+    let (alice, secret) = rig.create("alice");
+    let bob = rig.join(&secret, "bob");
+    let carol = rig.join(&secret, "carol");
+    let (stranger, _) = rig.create("stranger");
+    rig.ok(&carol, "/v1/team/leave", json!({"team_ref": carol.team_ref}));
+    // What a stranger is told about a team's roster is what every administration request is refused with.
+    let uniform = wire(&rig.err(&stranger, "/v1/team/members", json!({"team_ref": alice.team_ref})));
+    assert_eq!(uniform, wire(&Error::not_member()));
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+
+    for (path, body) in administration(&alice.team_ref, &bob.principal_ref) {
+        // An active member that is not the owner, a member that left, and a member of another team.
+        for caller in [&bob, &carol, &stranger] {
+            let refused = rig.err(caller, path, body.clone());
+            assert_eq!(refused.code, Code::Unauthorized, "{path}");
+            assert_eq!(wire(&refused), uniform, "{path}");
+        }
+        // A team that does not exist, whoever asks.
+        let mut nowhere = body.clone();
+        nowhere["team_ref"] = json!("no-such-team");
+        for caller in [&alice, &bob] {
+            assert_eq!(wire(&rig.err(caller, path, nowhere.clone())), uniform, "{path}");
+        }
+        // No credential, and one the server does not know, are told so before anything else.
+        for credential in [None, Some("not-a-credential")] {
+            let refused = rig.call(credential, path, body.clone()).unwrap_err();
+            assert_eq!(refused.code, Code::Unauthenticated, "{path}");
+        }
+    }
+
+    // The owner is checked before the request's shape: a caller that is not the owner is told the same
+    // whatever else is wrong with what it sent, where the owner is told what is wrong.
+    for (path, body) in [
+        ("/v1/team/revoke-member", json!({"team_ref": alice.team_ref})),
+        (
+            "/v1/team/revoke-member",
+            json!({"team_ref": alice.team_ref, "principal_ref": alice.principal_ref}),
+        ),
+        (
+            "/v1/team/revoke-member",
+            json!({"team_ref": alice.team_ref, "principal_ref": bob.principal_ref, "joined_secret_version_lte": 1}),
+        ),
+        (
+            "/v1/team/revoke-member",
+            json!({"team_ref": alice.team_ref, "joined_secret_version_lte": -1}),
+        ),
+        ("/v1/team/transfer", json!({"team_ref": alice.team_ref})),
+        (
+            "/v1/team/transfer",
+            json!({"team_ref": alice.team_ref, "principal_ref": "nobody"}),
+        ),
+    ] {
+        for caller in [&bob, &carol, &stranger] {
+            assert_eq!(wire(&rig.err(caller, path, body.clone())), uniform, "{path}");
+        }
+        assert_eq!(rig.err(&alice, path, body).code, Code::InvalidInput, "{path}");
+    }
+    // The team is named first, as on every request that names one.
+    let unnamed = rig.err(&bob, "/v1/team/rotate-secret", json!({}));
+    assert_eq!(
+        (unnamed.code, unnamed.details["field"].as_str()),
+        (Code::InvalidInput, "team_ref")
+    );
+    // Nothing of all that changed anything or made an entry.
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+
+    // An owner that left is no active member and is refused like anyone. It is still the owner, so it
+    // administers again once it has joined again.
+    rig.ok(&alice, "/v1/team/leave", json!({"team_ref": alice.team_ref}));
+    for (path, body) in administration(&alice.team_ref, &bob.principal_ref) {
+        assert_eq!(wire(&rig.err(&alice, path, body)), uniform, "{path}");
+    }
+    rig.ok(&alice, "/v1/team/join", json!({"join_secret": secret}));
+    assert_eq!(rotate(&mut rig, &alice)["secret_version"], json!(2));
+}
+
+#[test]
+fn a_rotation_gives_the_team_a_new_secret_and_the_old_one_no_longer_joins() {
+    let mut rig = Rig::new();
+    let (alice, first) = rig.create("alice");
+    let bob = rig.join(&first, "bob");
+    let b = rig.register(&bob, "beta");
+    rig.advance(30);
+    let entries = rig.log.len();
+
+    let rotated = rotate(&mut rig, &alice);
+    let second = text(&rotated, "join_secret");
+    // The five members of the contract's result, and no other.
+    assert_eq!(
+        rotated,
+        json!({
+            "team_ref": alice.team_ref, "team_name": "ops", "secret_version": 2,
+            "rotated_at": rig.now.rfc3339(), "join_secret": second,
+        })
+    );
+    // The secret names the team by the reference it has, and its secret part is 128 new random bits.
+    let random = second
+        .strip_prefix(&format!("brg1.{}.", alice.team_ref))
+        .expect("a secret for the same team_ref");
+    assert_eq!(random.len(), 32);
+    assert!(random.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    assert_ne!(second, first);
+    // One record, of the new secret's hash: the state and the log keep the hash and never the secret.
+    let recorded = Event::TeamSecretRotated {
+        team_ref: alice.team_ref.clone(),
+        join_secret_hash: sha256_hex(&second),
+        secret_version: 2,
+    };
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(rig.log[entries].records, [Record::new(rig.now, recorded)]);
+    let stored = serde_json::to_string(&rig.state).unwrap();
+    let logged = String::from_utf8(rig.log.iter().flat_map(Entry::encode).collect()).unwrap();
+    assert!(!stored.contains(random) && !logged.contains(random));
+
+    // The secret the team had is refused as a secret it never had and as an unknown team's are, to a
+    // stranger and to a member alike, and makes nothing.
+    let before = rig.state.clone();
+    let join = |rig: &mut Rig, credential: Option<&str>, secret: &str| {
+        rig.call(credential, "/v1/team/join", json!({"join_secret": secret}))
+            .unwrap_err()
+    };
+    let never = secret_of(&alice.team_ref, "never-a-secret-of-the-team");
+    let garbage = join(&mut rig, None, &never);
+    assert_eq!(garbage.code, Code::Unauthorized);
+    assert_eq!(wire(&garbage), wire(&Error::secret_rejected()));
+    assert_eq!(wire(&join(&mut rig, None, &first)), wire(&garbage));
+    assert_eq!(
+        wire(&join(&mut rig, Some(&bob.credential), &first)),
+        wire(&garbage)
+    );
+    let nowhere = secret_of("no-such-team", "never-a-secret-of-the-team");
+    assert_eq!(wire(&join(&mut rig, None, &nowhere)), wire(&garbage));
+    assert_eq!(rig.state, before);
+
+    // No membership changed: bob is a member with his session, at the version he joined with.
+    assert_eq!(rig.list(&alice, false).len(), 1);
+    rig.ok(
+        &bob,
+        "/v1/session/heartbeat",
+        json!({"session_id": b, "heartbeat": {}}),
+    );
+    assert_eq!(joined_version(&mut rig, &bob, &bob.principal_ref), json!(1));
+    assert_eq!(joined_version(&mut rig, &bob, &alice.principal_ref), json!(1));
+    // A member that joins with the new secret is of its version, and so is one that joins again with it.
+    let carol = rig.join(&second, "carol");
+    assert_eq!(joined_version(&mut rig, &alice, &carol.principal_ref), json!(2));
+    let again = rig.ok(&bob, "/v1/team/join", json!({"join_secret": second}));
+    assert_eq!(again["rejoined"], json!(true));
+    assert_eq!(joined_version(&mut rig, &alice, &bob.principal_ref), json!(2));
+    assert_eq!(rig.list(&alice, false).len(), 1);
+
+    // Every rotation counts one more, and ends the secret before it.
+    rig.advance(1);
+    let third = rotate(&mut rig, &alice);
+    assert_eq!(third["secret_version"], json!(3));
+    assert_eq!(third["rotated_at"], json!(rig.now.rfc3339()));
+    assert_eq!(wire(&join(&mut rig, None, &second)), wire(&garbage));
+    rig.join(&text(&third, "join_secret"), "dave");
+}
+
+#[test]
+fn a_revoked_member_is_out_until_it_joins_again_and_a_banned_one_stays_out() {
+    let mut rig = Rig::new();
+    let (alice, secret) = rig.create("alice");
+    let a = rig.register(&alice, "alpha");
+    let bob = rig.join(&secret, "bob");
+    let b = rig.register(&bob, "beta");
+    let closed = rig.register(&bob, "beta-2");
+    rig.ok(&bob, "/v1/session/close", json!({"session_id": closed}));
+    let answer = |principal_ref: &str, status: &str, changed: bool, sessions_closed: u32| {
+        json!({
+            "team_ref": alice.team_ref, "principal_ref": principal_ref, "status": status,
+            "changed": changed, "sessions_closed": sessions_closed,
+        })
+    };
+
+    // The owner cannot name itself, with a ban or without one.
+    for ban in [None, Some(true)] {
+        let own = revoke(&mut rig, &alice, &alice.principal_ref, ban).unwrap_err();
+        assert_eq!(
+            (own.code, own.details["field"].as_str(), reason(&own)),
+            (Code::InvalidInput, "principal_ref", "invalid_value")
+        );
+    }
+    // A principal the team never had is no error, and no membership is made for it.
+    let (stranger, _) = rig.create("stranger");
+    let entries = rig.log.len();
+    for principal_ref in [stranger.principal_ref.as_str(), "never-a-principal"] {
+        assert_eq!(
+            revoke(&mut rig, &alice, principal_ref, Some(true)).unwrap(),
+            answer(principal_ref, "banned", false, 0)
+        );
+    }
+    assert_eq!(rig.log.len(), entries);
+    assert_eq!(rig.state.teams[&alice.team_ref].members.len(), 2);
+
+    // A revocation ends the membership and closes the member's open sessions: one of bob's two was closed.
+    rig.advance(5);
+    assert_eq!(
+        revoke(&mut rig, &alice, &bob.principal_ref, None).unwrap(),
+        answer(&bob.principal_ref, "revoked", true, 1)
+    );
+    let recorded = Event::MemberRevoked {
+        team_ref: alice.team_ref.clone(),
+        principal_ref: bob.principal_ref.clone(),
+        banned: false,
+    };
+    assert_eq!(rig.log.last().unwrap().records, [Record::new(rig.now, recorded)]);
+    // The member is refused as one that left: one answer on everything that touches the team.
+    let uniform = wire(&Error::not_member());
+    for (path, body) in [
+        ("/v1/session/list", json!({"team_ref": bob.team_ref})),
+        ("/v1/team/members", json!({"team_ref": bob.team_ref})),
+        ("/v1/message/receive", json!({"session_id": b})),
+        ("/v1/session/heartbeat", json!({"session_id": b, "heartbeat": {}})),
+        ("/v1/session/register", registration(&bob, "again")),
+        (
+            "/v1/message/send",
+            json!({"sender_session_id": b, "recipient_session_id": a, "body": "still here"}),
+        ),
+    ] {
+        assert_eq!(wire(&rig.err(&bob, path, body)), uniform, "{path}");
+    }
+    assert_eq!(rig.list(&alice, true).len(), 1);
+    assert_eq!(active(&mut rig, &alice), [alice.principal_ref.as_str()]);
+    // Revoked again, nothing moves and nothing is recorded.
+    let entries = rig.log.len();
+    assert_eq!(
+        revoke(&mut rig, &alice, &bob.principal_ref, Some(false)).unwrap(),
+        answer(&bob.principal_ref, "revoked", false, 0)
+    );
+    assert_eq!(rig.log.len(), entries);
+
+    // It comes back with the secret as the member it was, as after a leave, and resumes its session.
+    let back = rig.ok(&bob, "/v1/team/join", json!({"join_secret": secret}));
+    assert_eq!(
+        (back["rejoined"].clone(), text(&back, "principal_ref")),
+        (json!(true), bob.principal_ref.clone())
+    );
+    let mut resume = registration(&bob, "beta");
+    resume["resume"] = json!({"session_id": b});
+    rig.ok(&bob, "/v1/session/register", resume);
+
+    // A ban ends the membership too, and the principal's join is then refused as a wrong secret is: the
+    // same bytes, with the right secret, and nothing made.
+    assert_eq!(
+        revoke(&mut rig, &alice, &bob.principal_ref, Some(true)).unwrap(),
+        answer(&bob.principal_ref, "banned", true, 1)
+    );
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let wrong = secret_of(&alice.team_ref, "not-the-secret-of-the-team");
+    let rejected = rig
+        .call(None, "/v1/team/join", json!({"join_secret": wrong}))
+        .unwrap_err();
+    assert_eq!(wire(&rejected), wire(&Error::secret_rejected()));
+    let banned = rig.err(&bob, "/v1/team/join", json!({"join_secret": secret}));
+    assert_eq!(banned.code, Code::Unauthorized);
+    assert_eq!(wire(&banned), wire(&rejected));
+    assert_eq!(
+        wire(&rig.err(&bob, "/v1/team/join", json!({"join_secret": wrong}))),
+        wire(&rejected)
+    );
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+    // Banned again, nothing moves.
+    assert_eq!(
+        revoke(&mut rig, &alice, &bob.principal_ref, Some(true)).unwrap(),
+        answer(&bob.principal_ref, "banned", false, 0)
+    );
+    assert_eq!(rig.log.len(), entries);
+
+    // A member that was revoked can still be banned: the status moves, and no session is left to close.
+    let carol = rig.join(&secret, "carol");
+    revoke(&mut rig, &alice, &carol.principal_ref, None).unwrap();
+    assert_eq!(
+        revoke(&mut rig, &alice, &carol.principal_ref, Some(true)).unwrap(),
+        answer(&carol.principal_ref, "banned", true, 0)
+    );
+    assert!(rig.state.teams[&alice.team_ref].members[&carol.principal_ref].banned);
+    // The ban is on the principal. A caller with no credential is a new principal, which nobody banned:
+    // the secret is what keeps a stranger out.
+    let fresh = rig
+        .call(None, "/v1/team/join", json!({"join_secret": secret}))
+        .unwrap();
+    assert_eq!(fresh["rejoined"], json!(false));
+    assert_ne!(text(&fresh, "principal_ref"), carol.principal_ref);
+
+    // A revocation without a ban lifts one: the status moves back, and the principal joins as the member
+    // it was.
+    assert_eq!(
+        revoke(&mut rig, &alice, &bob.principal_ref, None).unwrap(),
+        answer(&bob.principal_ref, "revoked", true, 0)
+    );
+    assert!(!rig.state.teams[&alice.team_ref].members[&bob.principal_ref].banned);
+    let back = rig.ok(&bob, "/v1/team/join", json!({"join_secret": secret}));
+    assert_eq!(
+        (back["rejoined"].clone(), text(&back, "principal_ref")),
+        (json!(true), bob.principal_ref.clone())
+    );
+    assert!(active(&mut rig, &alice).contains(&bob.principal_ref));
+    assert_eq!(
+        wire(&rig.err(&carol, "/v1/team/join", json!({"join_secret": secret}))),
+        wire(&rejected)
+    );
+}
+
+#[test]
+fn a_revocation_by_version_sends_everyone_but_the_owner_back_through_the_new_secret() {
+    let mut rig = Rig::new();
+    let (alice, first) = rig.create("alice");
+    rig.register(&alice, "alpha");
+    let bob = rig.join(&first, "bob");
+    let carol = rig.join(&first, "carol");
+    let erin = rig.join(&first, "erin");
+    rig.register(&bob, "beta");
+    rig.register(&bob, "beta-2");
+    rig.register(&carol, "gamma");
+    revoke(&mut rig, &alice, &erin.principal_ref, Some(true)).unwrap();
+    let second = text(&rotate(&mut rig, &alice), "join_secret");
+    let dave = rig.join(&second, "dave");
+    rig.register(&dave, "delta");
+    let answer = |max_version: i64, revoked: u32, sessions_closed: u32| {
+        json!({
+            "team_ref": alice.team_ref, "max_version": max_version, "revoked": revoked,
+            "sessions_closed": sessions_closed,
+        })
+    };
+
+    // Nobody joined with a version below the first: nothing happens, and nothing is recorded.
+    let entries = rig.log.len();
+    assert_eq!(revoke_up_to(&mut rig, &alice, 0).unwrap(), answer(0, 0, 0));
+    assert_eq!(rig.log.len(), entries);
+
+    // The step after a rotation: everyone that joined with the first secret, except the owner, whose own
+    // version is the first. One record, however many members it covers.
+    rig.advance(5);
+    assert_eq!(revoke_up_to(&mut rig, &alice, 1).unwrap(), answer(1, 2, 3));
+    let recorded = Event::MembersRevokedByVersion {
+        team_ref: alice.team_ref.clone(),
+        max_version: 1,
+        except: alice.principal_ref.clone(),
+    };
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(rig.log[entries].records, [Record::new(rig.now, recorded)]);
+    // The owner and the member that joined with the new secret are as they were, sessions and all.
+    assert_eq!(
+        active(&mut rig, &alice),
+        [alice.principal_ref.as_str(), dave.principal_ref.as_str()]
+    );
+    assert_eq!(joined_version(&mut rig, &alice, &alice.principal_ref), json!(1));
+    let names: Vec<Value> = rig
+        .list(&alice, false)
+        .iter()
+        .map(|session| session["session_name"].clone())
+        .collect();
+    assert_eq!(names, [json!("alpha"), json!("delta")]);
+    // The revoked are refused as members that left.
+    let uniform = wire(&Error::not_member());
+    for member in [&bob, &carol] {
+        let refused = rig.err(member, "/v1/session/list", json!({"team_ref": member.team_ref}));
+        assert_eq!(wire(&refused), uniform);
+    }
+    // It never bans, and it leaves a banned member banned: the new secret does not let her in.
+    let members = &rig.state.teams[&alice.team_ref].members;
+    assert!(members[&erin.principal_ref].banned);
+    assert!(!members[&bob.principal_ref].banned && !members[&carol.principal_ref].banned);
+    assert_eq!(
+        wire(&rig.err(&erin, "/v1/team/join", json!({"join_secret": second}))),
+        wire(&Error::secret_rejected())
+    );
+    // Asked again, there is nobody left of that version.
+    let entries = rig.log.len();
+    assert_eq!(revoke_up_to(&mut rig, &alice, 1).unwrap(), answer(1, 0, 0));
+    assert_eq!(rig.log.len(), entries);
+
+    // Everyone comes back through the new secret, as the member they were and of its version.
+    let back = rig.ok(&bob, "/v1/team/join", json!({"join_secret": second}));
+    assert_eq!(
+        (back["rejoined"].clone(), text(&back, "principal_ref")),
+        (json!(true), bob.principal_ref.clone())
+    );
+    assert_eq!(joined_version(&mut rig, &alice, &bob.principal_ref), json!(2));
+    // The owner is spared whatever version is named, the highest a request may name included.
+    assert_eq!(
+        revoke_up_to(&mut rig, &alice, 2_147_483_647).unwrap(),
+        answer(2_147_483_647, 2, 1)
+    );
+    assert_eq!(active(&mut rig, &alice), [alice.principal_ref.as_str()]);
+    assert!(rig.state.teams[&alice.team_ref].members[&erin.principal_ref].banned);
+}
+
+#[test]
+fn a_transfer_makes_an_active_member_the_owner_and_the_owner_it_was_a_member() {
+    let mut rig = Rig::new();
+    let (alice, secret) = rig.create("alice");
+    let a = rig.register(&alice, "alpha");
+    let bob = rig.join(&secret, "bob");
+    let carol = rig.join(&secret, "carol");
+    let (stranger, _) = rig.create("stranger");
+    rig.ok(&carol, "/v1/team/leave", json!({"team_ref": carol.team_ref}));
+    let transfer = |rig: &mut Rig, owner: &Member, principal_ref: &str| {
+        let body = json!({"team_ref": owner.team_ref, "principal_ref": principal_ref});
+        rig.call(Some(&owner.credential), "/v1/team/transfer", body)
+    };
+
+    // The new owner must be an active member of the team: a member that left, a member of another team
+    // and a principal that never was are one refusal, and change nothing.
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let mut refusals = Vec::new();
+    for principal_ref in [
+        carol.principal_ref.as_str(),
+        stranger.principal_ref.as_str(),
+        "never-a-principal",
+    ] {
+        let refused = transfer(&mut rig, &alice, principal_ref).unwrap_err();
+        assert_eq!(
+            (refused.code, refused.details["field"].as_str(), reason(&refused)),
+            (Code::InvalidInput, "principal_ref", "invalid_value")
+        );
+        refusals.push(wire(&refused));
+    }
+    assert!(refusals.iter().all(|refusal| *refusal == refusals[0]));
+    // The owner naming itself is accepted, changes nothing and makes no entry.
+    assert_eq!(
+        transfer(&mut rig, &alice, &alice.principal_ref).unwrap(),
+        json!({"team_ref": alice.team_ref, "principal_ref": alice.principal_ref, "transferred": true})
+    );
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+
+    rig.advance(5);
+    assert_eq!(
+        transfer(&mut rig, &alice, &bob.principal_ref).unwrap(),
+        json!({"team_ref": alice.team_ref, "principal_ref": bob.principal_ref, "transferred": true})
+    );
+    let recorded = Event::TeamOwnerChanged {
+        team_ref: alice.team_ref.clone(),
+        principal_ref: bob.principal_ref.clone(),
+    };
+    assert_eq!(rig.log.last().unwrap().records, [Record::new(rig.now, recorded)]);
+    // The owner it was stays a member with its session, and its next administration request is refused
+    // as any member's is.
+    assert_eq!(rig.list(&alice, false).len(), 1);
+    rig.ok(
+        &alice,
+        "/v1/session/heartbeat",
+        json!({"session_id": a, "heartbeat": {}}),
+    );
+    let uniform = wire(&Error::not_member());
+    for (path, body) in administration(&alice.team_ref, &bob.principal_ref) {
+        assert_eq!(wire(&rig.err(&alice, path, body)), uniform, "{path}");
+    }
+    // The new owner administers: it may even revoke the owner it replaced, and hand the team back.
+    assert_eq!(rotate(&mut rig, &bob)["secret_version"], json!(2));
+    assert_eq!(
+        transfer(&mut rig, &bob, &alice.principal_ref).unwrap()["transferred"],
+        json!(true)
+    );
+    assert_eq!(
+        revoke(&mut rig, &alice, &bob.principal_ref, None).unwrap()["changed"],
+        json!(true)
+    );
+}
+
+#[test]
+fn the_first_member_to_join_a_team_that_was_taken_in_owns_it_and_a_gateway_never_does() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    rig.import("ops", &secret).unwrap();
+    assert_eq!(rig.state.teams[ELSEWHERE].owner(), None);
+    let uniform = wire(&Error::not_member());
+
+    // A gateway joins inside the server, and its join may not own: the team still has no owner, and
+    // until it has one every administration request is refused, the gateway's too.
+    rig.may_own = false;
+    let gateway = rig.join(&secret, "slack gateway");
+    assert_eq!(rig.state.teams[ELSEWHERE].owner(), None);
+    assert_eq!(
+        rig.log.last().unwrap().records.len(),
+        2,
+        "a credential and a membership, and no owner"
+    );
+    for (path, body) in administration(ELSEWHERE, &gateway.principal_ref) {
+        assert_eq!(wire(&rig.err(&gateway, path, body)), uniform, "{path}");
+    }
+
+    // The first member to join over HTTP owns the team, in the entry that makes it a member.
+    rig.may_own = true;
+    rig.advance(5);
+    let alice = rig.join(&secret, "alice");
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(alice.principal_ref.as_str())
+    );
+    let owned = Event::TeamOwnerChanged {
+        team_ref: ELSEWHERE.into(),
+        principal_ref: alice.principal_ref.clone(),
+    };
+    let entry = rig.log.last().unwrap();
+    assert_eq!(entry.records.len(), 3);
+    assert!(matches!(entry.records[1].event, Event::MemberJoined { .. }));
+    assert_eq!(entry.records[2], Record::new(rig.now, owned));
+    // Nobody that joins after it does, and neither does the gateway by joining again.
+    let bob = rig.join(&secret, "bob");
+    rig.ok(&gateway, "/v1/team/join", json!({"join_secret": secret}));
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(alice.principal_ref.as_str())
+    );
+    for member in [&bob, &gateway] {
+        let refused = rig.err(member, "/v1/team/rotate-secret", json!({"team_ref": ELSEWHERE}));
+        assert_eq!(wire(&refused), uniform);
+    }
+
+    // The owner administers the team as the owner of one that was created here does. A rotation keeps
+    // the reference the team came with, which is not one this server would have made.
+    let rotated = rotate(&mut rig, &alice);
+    let second = text(&rotated, "join_secret");
+    assert_eq!(rotated["team_ref"], json!(ELSEWHERE));
+    assert!(second.starts_with(&format!("brg1.{ELSEWHERE}.")));
+    assert_eq!(rig.join(&second, "carol").team_ref, ELSEWHERE);
+    assert_eq!(revoke_up_to(&mut rig, &alice, 1).unwrap()["revoked"], json!(2));
+
+    // On a team that already has members and no owner, as one taken in by an earlier server has, the
+    // first join that may own is a member's that joins again.
+    let mut rig = Rig::new();
+    rig.import("ops", &secret).unwrap();
+    rig.may_own = false;
+    let early = rig.join(&secret, "early");
+    rig.may_own = true;
+    let again = rig.ok(&early, "/v1/team/join", json!({"join_secret": secret}));
+    assert_eq!(again["rejoined"], json!(true));
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(early.principal_ref.as_str())
+    );
+
+    // A team that was created here has its creator for an owner, and no join changes that.
+    let (creator, created) = rig.create("creator");
+    rig.join(&created, "joiner");
+    assert_eq!(
+        rig.state.teams[&creator.team_ref].owner(),
+        Some(creator.principal_ref.as_str())
+    );
+}
+
+#[test]
+fn the_operator_names_the_owner_of_a_team_among_its_active_members() {
+    let mut rig = Rig::new();
+    let (alice, secret) = rig.create("alice@example.com");
+    let bob = rig.join(&secret, "bob@example.com");
+    let carol = rig.join(&secret, "");
+    rig.ok(&carol, "/v1/team/leave", json!({"team_ref": carol.team_ref}));
+    let (stranger, _) = rig.create("stranger");
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+
+    // A team the server does not hold, and a principal that is not an active member of the team, are
+    // refused, and neither refusal repeats what was named.
+    let nowhere = rig.set_owner("no-such-team", &bob.principal_ref).unwrap_err();
+    assert_eq!(nowhere.code, Code::NotFound);
+    assert_eq!(nowhere.message, "the server holds no team of that reference");
+    for principal_ref in [
+        carol.principal_ref.as_str(),
+        stranger.principal_ref.as_str(),
+        "never-a-principal",
+    ] {
+        let refused = rig.set_owner(&alice.team_ref, principal_ref).unwrap_err();
+        assert_eq!(
+            (refused.code, refused.details["field"].as_str()),
+            (Code::InvalidInput, "principal_ref")
+        );
+        assert_eq!(
+            refused.message,
+            "principal_ref must be an active member of this team"
+        );
+    }
+    // The principal that already owns the team changes nothing and makes no entry.
+    assert_eq!(
+        rig.set_owner(&alice.team_ref, &alice.principal_ref).unwrap(),
+        json!({
+            "team_ref": alice.team_ref, "team_name": "ops", "principal_ref": alice.principal_ref,
+            "human_label": "alice@example.com", "changed": false,
+        })
+    );
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+
+    // Another member is the owner from the record on, whatever the owner before it wanted.
+    rig.advance(5);
+    assert_eq!(
+        rig.set_owner(&alice.team_ref, &bob.principal_ref).unwrap(),
+        json!({
+            "team_ref": alice.team_ref, "team_name": "ops", "principal_ref": bob.principal_ref,
+            "human_label": "bob@example.com", "changed": true,
+        })
+    );
+    let recorded = Event::TeamOwnerChanged {
+        team_ref: alice.team_ref.clone(),
+        principal_ref: bob.principal_ref.clone(),
+    };
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(rig.log[entries].records, [Record::new(rig.now, recorded)]);
+    assert_eq!(rotate(&mut rig, &bob)["secret_version"], json!(2));
+    let refused = rig.err(
+        &alice,
+        "/v1/team/rotate-secret",
+        json!({"team_ref": alice.team_ref}),
+    );
+    assert_eq!(wire(&refused), wire(&Error::not_member()));
+
+    // A team that was taken in and that only a gateway has joined gets its owner this way too.
+    let moved = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    rig.import("moved", &moved).unwrap();
+    rig.may_own = false;
+    let member = rig.join(&moved, "");
+    assert_eq!(rig.state.teams[ELSEWHERE].owner(), None);
+    assert_eq!(
+        rig.set_owner(ELSEWHERE, &member.principal_ref).unwrap(),
+        json!({
+            "team_ref": ELSEWHERE, "team_name": "moved", "principal_ref": member.principal_ref,
+            "human_label": "", "changed": true,
+        })
+    );
+    assert_eq!(rotate(&mut rig, &member)["secret_version"], json!(2));
+}
+
+#[test]
+fn the_administration_records_make_the_same_state_when_they_are_read_again() {
+    let mut rig = Rig::new();
+    let (alice, first) = rig.create("alice");
+    let bob = rig.join(&first, "bob");
+    let carol = rig.join(&first, "carol");
+    let erin = rig.join(&first, "erin");
+    let a = rig.register(&alice, "alpha");
+    let b = rig.register(&bob, "beta");
+    rig.register(&carol, "gamma");
+    rig.send(&alice, &a, &b, "before any of it").unwrap();
+    rig.advance(7);
+    revoke(&mut rig, &alice, &erin.principal_ref, Some(true)).unwrap();
+    let second = text(&rotate(&mut rig, &alice), "join_secret");
+    let dave = rig.join(&second, "dave");
+    rig.register(&dave, "delta");
+    rig.advance(7);
+    revoke_up_to(&mut rig, &alice, 1).unwrap();
+    rig.ok(&bob, "/v1/team/join", json!({"join_secret": second}));
+    revoke(&mut rig, &alice, &dave.principal_ref, None).unwrap();
+    revoke(&mut rig, &alice, &erin.principal_ref, None).unwrap();
+    rig.advance(7);
+    rig.ok(
+        &alice,
+        "/v1/team/transfer",
+        json!({"team_ref": alice.team_ref, "principal_ref": bob.principal_ref}),
+    );
+    rotate(&mut rig, &bob);
+    rig.set_owner(&alice.team_ref, &alice.principal_ref).unwrap();
+    let moved = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    rig.import("moved", &moved).unwrap();
+    rig.join(&moved, "first");
+    rig.join(&moved, "second");
+
+    // A restart: every entry, read back from its bytes, applied to an empty state.
+    let mut replayed = State::default();
+    for entry in &rig.log {
+        replayed.replay(&Entry::decode(&entry.encode()).unwrap()).unwrap();
+    }
+    assert_eq!(replayed, rig.state);
+    // The state says what the requests were answered with.
+    let team = &replayed.teams[&alice.team_ref];
+    assert_eq!(team.secret_version, 3);
+    assert_eq!(team.owner(), Some(alice.principal_ref.as_str()));
+    let of = |member: &Member| &team.members[&member.principal_ref];
+    assert!(of(&alice).active && of(&bob).active);
+    assert!(!of(&carol).active && !of(&dave).active && !of(&erin).active);
+    assert!(!of(&erin).banned);
+    assert_eq!(
+        (
+            of(&alice).joined_secret_version,
+            of(&bob).joined_secret_version,
+            of(&dave).joined_secret_version
+        ),
+        (1, 2, 2)
+    );
+    assert!(replayed.teams[ELSEWHERE].owner().is_some());
+    // A snapshot: the state written and read back, versions, bans and owners in it.
+    let snapshot = serde_json::to_vec(&rig.state).unwrap();
+    assert_eq!(serde_json::from_slice::<State>(&snapshot).unwrap(), rig.state);
+}
+
+/// Takes out of a written state what a team and a member have had since teams counted their secrets.
+fn as_written_before(state: &mut Value) {
+    match state {
+        Value::Object(members) => {
+            for newer in ["secret_version", "joined_secret_version", "banned"] {
+                members.remove(newer);
+            }
+            members.values_mut().for_each(as_written_before);
+        }
+        Value::Array(items) => items.iter_mut().for_each(as_written_before),
+        _ => {}
+    }
+}
+
+#[test]
+fn a_snapshot_written_before_teams_counted_their_secrets_still_reads() {
+    // The state as server 0.3.0 wrote it: a team has no secret version, and a member neither the version
+    // it joined with nor a ban. One team was created there and one was taken in.
+    let written = r#"{
+        "principals": {"p1": {"created_at": 5}, "p2": {"created_at": 6}},
+        "credentials": {"h1": "p1", "h2": "p2"},
+        "teams": {
+            "t": {
+                "team_ref": "t", "team_name": "ops", "join_secret_hash": "s", "created_by": "p1",
+                "created_at": 5,
+                "members": {
+                    "p1": {"human_label": "alice", "active": true, "joined_at": 5, "sent_at": [7]},
+                    "p2": {"human_label": "", "active": false, "joined_at": 6, "sent_at": []}
+                },
+                "sessions": {}
+            },
+            "elsewhere": {
+                "team_ref": "elsewhere", "team_name": "moved", "join_secret_hash": "s2", "created_by": "",
+                "created_at": 7, "members": {}, "sessions": {}
+            }
+        },
+        "session_teams": {}, "swept_at": 0, "latest_at": 7, "entries": 4
+    }"#;
+    let state: State = serde_json::from_str(written).unwrap();
+    // Every team had its first secret then, and every member had joined with it; nobody was banned.
+    let team = &state.teams["t"];
+    assert_eq!((team.secret_version, team.owner()), (1, Some("p1")));
+    for (principal_ref, active) in [("p1", true), ("p2", false)] {
+        let member = &team.members[principal_ref];
+        assert_eq!(
+            (member.active, member.joined_secret_version, member.banned),
+            (active, 1, false)
+        );
+    }
+    assert_eq!(team.members["p1"].sent_at.len(), 1);
+    let moved = &state.teams["elsewhere"];
+    assert_eq!((moved.secret_version, moved.owner()), (1, None));
+    assert_eq!((state.entries, state.latest_at), (4, Timestamp(7)));
+    // Written by this build and read back it is the same state, with what a team and a member have now.
+    let again = serde_json::to_string(&state).unwrap();
+    assert!(again.contains(r#""secret_version":1"#) && again.contains(r#""joined_secret_version":1"#));
+    assert_eq!(serde_json::from_str::<State>(&again).unwrap(), state);
+
+    // The same for a whole state with sessions and messages in it: what this build writes, less the three
+    // members that are new, is what the earlier build wrote, and it reads back as the state it was.
+    let mut rig = Rig::new();
+    let (alice, a, bob, b) = pair(&mut rig);
+    rig.send(&alice, &a, &b, "kept across the upgrade").unwrap();
+    rig.ok(&bob, "/v1/team/leave", json!({"team_ref": bob.team_ref}));
+    rig.import("moved", &secret_of(ELSEWHERE, "kept-from-the-other-backend"))
+        .unwrap();
+    let mut earlier = serde_json::to_value(&rig.state).unwrap();
+    as_written_before(&mut earlier);
+    let earlier = earlier.to_string();
+    assert!(!earlier.contains("secret_version") && !earlier.contains("banned"));
+    assert_eq!(serde_json::from_str::<State>(&earlier).unwrap(), rig.state);
+}
+
+#[test]
+fn the_operator_takes_a_team_back_from_whoever_holds_it_in_one_entry() {
+    let mut rig = Rig::new();
+    let first = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    rig.import("ops", &first).unwrap();
+    // The secret leaked. Whoever had it joined first, and so owns the team; the team's admin and a
+    // colleague joined after, and a gateway inside the server.
+    let mallory = rig.join(&first, "mallory");
+    let alice = rig.join(&first, "alice");
+    let bob = rig.join(&first, "bob");
+    rig.may_own = false;
+    let gateway = rig.join(&first, "slack gateway");
+    rig.may_own = true;
+    rig.register(&alice, "alpha");
+    rig.register(&gateway, "slack-gateway");
+    let m = rig.register(&mallory, "mu");
+    // The owner bans one member, rotates the secret and revokes everyone who joined with the old one:
+    // nobody but the owner is a member, and nobody else holds the secret the team has now.
+    revoke(&mut rig, &mallory, &bob.principal_ref, Some(true)).unwrap();
+    let second = text(&rotate(&mut rig, &mallory), "join_secret");
+    assert_eq!(revoke_up_to(&mut rig, &mallory, 1).unwrap()["revoked"], json!(2));
+    assert_eq!(active(&mut rig, &mallory), [mallory.principal_ref.as_str()]);
+    // Naming an owner does not help: nobody the operator could name is an active member.
+    let stuck = rig.set_owner(ELSEWHERE, &alice.principal_ref).unwrap_err();
+    assert_eq!(stuck.details["field"], "principal_ref");
+
+    // A team the server does not hold is refused, and nothing is made.
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let nowhere = rig.take_back("no-such-team").unwrap_err();
+    assert_eq!(wire(&nowhere), wire(&Error::no_such_team()));
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+
+    rig.advance(5);
+    let taken = rig.take_back(ELSEWHERE).unwrap();
+    let third = text(&taken, "join_secret");
+    assert_eq!(
+        taken,
+        json!({
+            "team_ref": ELSEWHERE, "team_name": "ops", "secret_version": 3, "join_secret": third,
+            "revoked": 1, "sessions_closed": 1,
+        })
+    );
+    // The secret is minted as a rotation mints one: for the same reference, 128 new random bits.
+    let random = third
+        .strip_prefix(&format!("brg1.{ELSEWHERE}."))
+        .expect("a secret for the same team_ref");
+    assert_eq!(random.len(), 32);
+    assert!(random.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    assert!(third != second && third != first);
+    // One entry of three records: the log holds the new secret's hash, every membership ended and no
+    // owner, or none of it. It holds the hash and never the secret, and so does the state.
+    let records = [
+        Event::TeamSecretRotated {
+            team_ref: ELSEWHERE.into(),
+            join_secret_hash: sha256_hex(&third),
+            secret_version: 3,
+        },
+        Event::MembersRevokedByVersion {
+            team_ref: ELSEWHERE.into(),
+            max_version: u32::MAX,
+            except: String::new(),
+        },
+        Event::TeamOwnerChanged {
+            team_ref: ELSEWHERE.into(),
+            principal_ref: String::new(),
+        },
+    ];
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(
+        rig.log[entries].records,
+        records.map(|event| Record::new(rig.now, event))
+    );
+    let stored = serde_json::to_string(&rig.state).unwrap();
+    let logged = String::from_utf8(rig.log.iter().flat_map(Entry::encode).collect()).unwrap();
+    assert!(!stored.contains(random) && !logged.contains(random));
+
+    // Its three effects. The team has no owner and no active member, and the session that was open is
+    // closed; the member that was banned is banned still.
+    let team = &rig.state.teams[ELSEWHERE];
+    assert_eq!((team.owner(), team.secret_version), (None, 3));
+    assert!(team.members.values().all(|member| !member.active));
+    assert!(team.members[&bob.principal_ref].banned);
+    assert!(!team.members[&mallory.principal_ref].banned);
+    assert_eq!(team.sessions[&m].closed_at, Some(rig.now));
+    // Every secret the team had before is refused as a secret it never had, whoever presents it.
+    let rejected = wire(&Error::secret_rejected());
+    for old in [&first, &second] {
+        for credential in [None, Some(mallory.credential.as_str())] {
+            let refused = rig
+                .call(credential, "/v1/team/join", json!({"join_secret": old}))
+                .unwrap_err();
+            assert_eq!(wire(&refused), rejected);
+        }
+    }
+    // The owner it had cannot administer it, and reads what any stranger reads.
+    let uniform = wire(&Error::not_member());
+    for (path, body) in administration(ELSEWHERE, &alice.principal_ref) {
+        assert_eq!(wire(&rig.err(&mallory, path, body)), uniform, "{path}");
+    }
+
+    // A gateway that joins with the new secret does not own the team, however early it joins. The first
+    // member to join with it over HTTP does, in the entry that makes it a member again.
+    rig.may_own = false;
+    let back = rig.ok(&gateway, "/v1/team/join", json!({"join_secret": third}));
+    assert_eq!(back["rejoined"], json!(true));
+    assert_eq!(rig.state.teams[ELSEWHERE].owner(), None);
+    rig.may_own = true;
+    rig.advance(5);
+    let back = rig.ok(&alice, "/v1/team/join", json!({"join_secret": third}));
+    assert_eq!(
+        (back["rejoined"].clone(), text(&back, "principal_ref")),
+        (json!(true), alice.principal_ref.clone())
+    );
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(alice.principal_ref.as_str())
+    );
+    assert_eq!(joined_version(&mut rig, &alice, &alice.principal_ref), json!(3));
+    assert_eq!(rotate(&mut rig, &alice)["secret_version"], json!(4));
+    // The member that was banned is refused with the right secret, as before the team was taken back.
+    assert_eq!(
+        wire(&rig.err(&bob, "/v1/team/join", json!({"join_secret": third}))),
+        rejected
+    );
+
+    // Taken back again, a team with one member and its owner is as it was after the first time, with one
+    // more secret. A team that has no member and no owner makes the one record of its secret.
+    let again = rig.take_back(ELSEWHERE).unwrap();
+    assert_eq!(
+        (&again["secret_version"], &again["revoked"]),
+        (&json!(5), &json!(2))
+    );
+    let entries = rig.log.len();
+    let empty = rig.take_back(ELSEWHERE).unwrap();
+    assert_eq!(
+        (
+            &empty["secret_version"],
+            &empty["revoked"],
+            &empty["sessions_closed"]
+        ),
+        (&json!(6), &json!(0), &json!(0))
+    );
+    assert_eq!(rig.log[entries].records.len(), 1);
+
+    // A restart: every entry, read back from its bytes, makes the same state.
+    let mut replayed = State::default();
+    for entry in &rig.log {
+        replayed.replay(&Entry::decode(&entry.encode()).unwrap()).unwrap();
+    }
+    assert_eq!(replayed, rig.state);
+    let snapshot = serde_json::to_vec(&rig.state).unwrap();
+    assert_eq!(serde_json::from_slice::<State>(&snapshot).unwrap(), rig.state);
+}
+
+#[test]
+fn a_membership_that_ends_does_not_bring_back_a_session_retention_let_go_of() {
+    let week = 7 * 86_400;
+    // A member is revoked, and another leaves, long after the lease of a session of theirs ran out.
+    for leaves in [false, true] {
+        let mut rig = Rig::new();
+        let (alice, secret) = rig.create("alice");
+        let bob = rig.join(&secret, "bob");
+        let stale = rig.register(&bob, "long-gone");
+        let mut longer = registration(&bob, "still-held");
+        longer["lease_seconds"] = json!(600);
+        let live = text(&rig.ok(&bob, "/v1/session/register", longer), "session_id");
+        // Just over a week after the shorter lease ran out, with nothing written in between: no sweep has
+        // run, and both sessions are in the state with no close. Retention has let go of the one and
+        // still holds the other, whose lease ran out less than a week ago.
+        rig.advance(90 + week + 1);
+        assert!(rig.state.session_teams.contains_key(&stale));
+        assert_eq!(rig.list(&alice, true).len(), 1);
+        let ended = if leaves {
+            rig.ok(&bob, "/v1/team/leave", json!({"team_ref": bob.team_ref}));
+            None
+        } else {
+            Some(revoke(&mut rig, &alice, &bob.principal_ref, None).unwrap())
+        };
+        // The session retention holds is closed, and is the one that is counted. The other is not
+        // closed, which would have kept it for another week: the sweep the record runs lets go of it.
+        if let Some(revoked) = ended {
+            assert_eq!(revoked["sessions_closed"], json!(1), "{revoked}");
+        }
+        let team = &rig.state.teams[&alice.team_ref];
+        assert_eq!(team.sessions[&live].closed_at, Some(rig.now));
+        assert!(!team.sessions.contains_key(&stale), "leaves: {leaves}");
+        assert!(!rig.state.session_teams.contains_key(&stale));
+        // The member comes back and finds the one session to resume, and the other gone.
+        rig.ok(&bob, "/v1/team/join", json!({"join_secret": secret}));
+        for (session, found) in [(&live, true), (&stale, false)] {
+            let mut resume = registration(&bob, "again");
+            resume["resume"] = json!({"session_id": session});
+            let resumed = rig.call(Some(&bob.credential), "/v1/session/register", resume);
+            assert_eq!(resumed.is_ok(), found, "leaves: {leaves}");
+        }
+        // A restart reaches the same state.
+        let mut replayed = State::default();
+        for entry in &rig.log {
+            replayed.replay(&Entry::decode(&entry.encode()).unwrap()).unwrap();
+        }
+        assert_eq!(replayed, rig.state);
+    }
 }

@@ -636,6 +636,13 @@ func TestDecision3EveryValidateFieldIsAWireMemberPath(t *testing.T) {
 		&WatchStatus{}, &WatchAcked{}, &WatchHeartbeatOK{}, &WatchError{},
 		&WatchCommand{}, &TeamCreateRequest{}, &TeamCreateResult{},
 		&TeamJoinRequest{}, &TeamJoinResult{}, &TeamLeaveResult{},
+		&TeamRotateSecretResult{}, &TeamRevokeMemberRequest{}, &TeamRevokeMemberResult{},
+		&TeamRevokeByVersionResult{}, &TeamTransferRequest{}, &TeamTransferResult{},
+		&TeamRevokeMemberRequest{PrincipalRef: "p1", JoinedSecretVersionLTE: intptr(1)},
+		&TeamRevokeMemberRequest{Ban: true, JoinedSecretVersionLTE: intptr(1)},
+		&TeamRevokeMemberRequest{JoinedSecretVersionLTE: intptr(-1)},
+		&TeamRotateSecretResult{TeamRef: "t1", TeamName: "ops", SecretVersion: 1},
+		&TeamRevokeByVersionResult{TeamRef: "t1", MaxVersion: -1},
 		&Envelope{}, &ErrorObject{},
 		&TeamCreateRequest{TeamName: long},
 		&SessionRegistration{Harness: "h", HarnessVersion: "v", SessionName: "n", Activity: ActivityBusy, Inbound: InboundAccept, WorkspaceLabel: strptr(long)},
@@ -742,6 +749,8 @@ func wireRootTypes() []any {
 		WatchMessage{}, WatchStatus{}, WatchAcked{}, WatchHeartbeatOK{},
 		WatchError{}, WatchCommand{}, TeamCreateRequest{}, TeamCreateResult{},
 		TeamJoinRequest{}, TeamJoinResult{}, TeamLeaveResult{},
+		TeamRotateSecretResult{}, TeamRevokeMemberRequest{}, TeamRevokeMemberResult{},
+		TeamRevokeByVersionResult{}, TeamTransferRequest{}, TeamTransferResult{},
 	}
 }
 

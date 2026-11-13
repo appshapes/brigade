@@ -66,6 +66,9 @@ unless this table adds a member.
 | `team join` | `/v1/team/join` | `{"join_secret", "human_label"?}` | 4.4.10, plus `credential` (§3) |
 | `team leave` | `/v1/team/leave` | `{"team_ref": <team>}` | 4.4.10 |
 | `team members` | `/v1/team/members` | `{"team_ref": <team>}` | 4.4.10 |
+| `team rotate-secret` | `/v1/team/rotate-secret` | `{"team_ref": <team>}` | `{"team_ref", "team_name", "secret_version", "rotated_at", "join_secret"}` (§3a) |
+| `team revoke-member` | `/v1/team/revoke-member` | `{"team_ref": <team>, "principal_ref", "ban"?}` or `{"team_ref": <team>, "joined_secret_version_lte"}` | 4.4.10 |
+| `team transfer` | `/v1/team/transfer` | `{"team_ref": <team>, "principal_ref"}` | 4.4.10 |
 | `session register` | `/v1/session/register` | `SessionRegistration` (4.4.2), plus `team_ref: <team>` | 4.4.2's result |
 | `session heartbeat` | `/v1/session/heartbeat` | `{"session_id": <session>, "heartbeat": HeartbeatRequest}` (4.4.4) | 4.4.4's result |
 | `session list` | `/v1/session/list` | `{"team_ref": <team>, "session_id"?: <session>, "include_offline"?: boolean}` | 4.4.3's list result |
@@ -74,7 +77,7 @@ unless this table adds a member.
 | `message receive` | `/v1/message/receive` | `{"session_id": <session>, "limit"?, "after"?, "wait_seconds"?}` | `{"messages": MessageEnvelope[], "cursor"}` (§4) |
 | `message ack` | `/v1/message/ack` | `{"session_id": <session>, "message_ids": […]}` | `{"acked", "unknown"}` (4.4.8) |
 | `profile revoke-credentials` | `/v1/credential/revoke` | `{}` | `{"revoked": true}` |
-| (none) | `/v1/info` | `{}` | `{"contract_version": "1", "server": {"name", "version"}}` |
+| (none) | `/v1/info` | `{}` | `{"contract_version": "1", "server": {"name", "version"}, "capabilities"?: […]}` |
 
 `describe`, `profile init`, `profile status` and `profile reset` are answered by the adapter from its own files;
 `profile reset` first asks `/v1/credential/revoke`, best effort. `message watch` is the adapter's loop over
@@ -108,6 +111,31 @@ A principal is the server's record of one member's installation. A credential na
 
 The join secret has BAP/1's format, `brg1.<team_ref>.<secret>` (4.4.10), and the server keeps what it needs to
 check one, never the secret itself where a hash will do.
+
+## 3a. The owner and the administration endpoints
+
+Added on 2026-11-12 (work item 274). A server may leave these three endpoints out (§5).
+
+- **The owner** of a team is the principal that created it, until `/v1/team/transfer` names another. A server may
+  hold a team that has no owner yet, one it took in from another backend: how that team gets its owner is the
+  server's own rule, and until it has one every administration request is refused.
+- **Who is answered.** A request with no known credential is `unauthenticated`. A principal that is not the team's
+  owner, or is its owner and not an active member, is `unauthorized` with the byte-identical text of 4.5.7, the
+  same for a team that does not exist.
+- **`/v1/team/rotate-secret`** gives the team a new join secret, `brg1.<team_ref>.<secret>` with the same
+  `team_ref` and a new secret part of at least 128 random bits. The previous secret no longer joins. No
+  membership changes. `secret_version` is the team's count of secrets from 1, and `rotated_at` is the server's
+  time. The result's `join_secret` is the one place the server shows the new secret: the adapter writes it to the
+  file `--secret-file` names (mode 0600) and answers BAP/1's result, which carries `secret_file` and no secret.
+- **`/v1/team/revoke-member`** has BAP/1's two forms and its two results (4.4.10). A revoked member's sessions in
+  the team are closed, and a receive of its that waits is answered `unauthorized` within one second (§4). A
+  banned principal's join is the rejected join of §3. `joined_secret_version_lte` is an integer from 0 to
+  2147483647; a request with both forms, or with `ban` beside `joined_secret_version_lte`, is `invalid_input`.
+- **`/v1/team/transfer`** makes an active member the owner (4.4.10).
+- **`/v1/team/join`** records the version of the secret the member joined with, and `/v1/team/members` carries
+  it as each member's `joined_secret_version`.
+- **`/v1/info`** of a server that carries these endpoints lists `"team.admin"` in `capabilities`, an array of
+  BAP/1 capability names that is absent or empty otherwise.
 
 ## 4. Receiving and watching
 
@@ -150,7 +178,11 @@ the principal's is `not_found` (4.5.7).
   `session.human_label`, `session.brigade_version` and `session.sync_peer`; and `team.create`, `team.join` and
   `team.roster`.
 
-The admin verbs (`team.admin`) are not in version 1: BAP/1 does not yet give them shapes.
+The administration endpoints of §3a are an addition to version 1 that a server may leave out. A server that
+carries them says so in `/v1/info`; one that does not answers them `not_found`, as it answers any unknown path.
+The adapter asks `/v1/info` before an administration command and answers `config` with
+`details.reason = "server_lacks_team_admin"` when the server does not list `team.admin`. Its `describe` names the
+capability either way, because `describe` never asks the server anything.
 
 ## 6. Proving a server
 
@@ -161,4 +193,5 @@ bin/brigade-conformance --env BRIGADE_REST_URL=<base> --adapter bin/brigade -- a
 ```
 
 A server is correct when the suite is green, `--slow` included. The suite makes its own teams, so the server
-must let the run create them.
+must let the run create them. A server that leaves out the administration endpoints adds
+`--skip C-48,C-49,C-50`.

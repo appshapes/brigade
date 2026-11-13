@@ -307,6 +307,70 @@ func TestValidationArms(t *testing.T) {
 		{"team join result principal_ref", "principal_ref", func() Validator { return &TeamJoinResult{TeamRef: "t1", TeamName: "ops"} }},
 		{"team leave team_ref", "team_ref", func() Validator { return &TeamLeaveResult{PrincipalRef: "p1", Left: true} }},
 		{"team leave principal_ref", "principal_ref", func() Validator { return &TeamLeaveResult{TeamRef: "t1", Left: true} }},
+
+		{"team rotate result team_ref", "team_ref", func() Validator { r := validRotateResult(); r.TeamRef = ""; return &r }},
+		{"team rotate result team_name", "team_name", func() Validator { r := validRotateResult(); r.TeamName = ""; return &r }},
+		{"team rotate result team_name overlong", "team_name", func() Validator {
+			r := validRotateResult()
+			r.TeamName = strings.Repeat("€", MaxTeamNameCodepoints+1)
+			return &r
+		}},
+		{"team rotate result secret_version of the created secret", "secret_version", func() Validator {
+			r := validRotateResult()
+			r.SecretVersion = 1
+			return &r
+		}},
+		{"team rotate result rotated_at", "rotated_at", func() Validator { r := validRotateResult(); r.RotatedAt = time.Time{}; return &r }},
+		{"team rotate result secret_file", "secret_file", func() Validator { r := validRotateResult(); r.SecretFile = ""; return &r }},
+		{"team revoke request neither form", "principal_ref", func() Validator { return &TeamRevokeMemberRequest{} }},
+		{"team revoke request ban alone", "principal_ref", func() Validator { return &TeamRevokeMemberRequest{Ban: true} }},
+		{"team revoke request both forms", "principal_ref", func() Validator {
+			return &TeamRevokeMemberRequest{PrincipalRef: "p1", JoinedSecretVersionLTE: intptr(1)}
+		}},
+		{"team revoke request ban with the version form", "ban", func() Validator {
+			return &TeamRevokeMemberRequest{Ban: true, JoinedSecretVersionLTE: intptr(1)}
+		}},
+		{"team revoke request version below 0", "joined_secret_version_lte", func() Validator {
+			return &TeamRevokeMemberRequest{JoinedSecretVersionLTE: intptr(-1)}
+		}},
+		{"team revoke request principal_ref not utf8", "principal_ref", func() Validator {
+			return &TeamRevokeMemberRequest{PrincipalRef: "p\xff"}
+		}},
+		{"team revoke result team_ref", "team_ref", func() Validator {
+			return &TeamRevokeMemberResult{PrincipalRef: "p1", Status: MembershipRevoked}
+		}},
+		{"team revoke result principal_ref", "principal_ref", func() Validator {
+			return &TeamRevokeMemberResult{TeamRef: "t1", Status: MembershipRevoked}
+		}},
+		{"team revoke result status", "status", func() Validator {
+			return &TeamRevokeMemberResult{TeamRef: "t1", PrincipalRef: "p1", Status: "active"}
+		}},
+		{"team revoke result sessions_closed", "sessions_closed", func() Validator {
+			return &TeamRevokeMemberResult{TeamRef: "t1", PrincipalRef: "p1", Status: MembershipBanned, SessionsClosed: -1}
+		}},
+		{"team revoke by version result team_ref", "team_ref", func() Validator { return &TeamRevokeByVersionResult{MaxVersion: 1} }},
+		{"team revoke by version result max_version", "max_version", func() Validator {
+			return &TeamRevokeByVersionResult{TeamRef: "t1", MaxVersion: -1}
+		}},
+		{"team revoke by version result revoked", "revoked", func() Validator {
+			return &TeamRevokeByVersionResult{TeamRef: "t1", MaxVersion: 1, Revoked: -1}
+		}},
+		{"team revoke by version result sessions_closed", "sessions_closed", func() Validator {
+			return &TeamRevokeByVersionResult{TeamRef: "t1", MaxVersion: 1, SessionsClosed: -1}
+		}},
+		{"team transfer request principal_ref", "principal_ref", func() Validator { return &TeamTransferRequest{} }},
+		{"team transfer request principal_ref not utf8", "principal_ref", func() Validator {
+			return &TeamTransferRequest{PrincipalRef: "p\xff"}
+		}},
+		{"team transfer result team_ref", "team_ref", func() Validator {
+			return &TeamTransferResult{PrincipalRef: "p1", Transferred: true}
+		}},
+		{"team transfer result principal_ref", "principal_ref", func() Validator {
+			return &TeamTransferResult{TeamRef: "t1", Transferred: true}
+		}},
+		{"team transfer result transferred", "transferred", func() Validator {
+			return &TeamTransferResult{TeamRef: "t1", PrincipalRef: "p1"}
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -314,6 +378,49 @@ func TestValidationArms(t *testing.T) {
 			requireInvalidInput(t, tc.build().Validate(), tc.field)
 		})
 	}
+}
+
+// validRotateResult is a `team rotate-secret` result every arm above
+// starts from.
+func validRotateResult() TeamRotateSecretResult {
+	//nolint:gosec // G101: secret_file is the path of a file, not a credential
+	return TeamRotateSecretResult{
+		TeamRef: "t1", TeamName: "ops", SecretVersion: 2,
+		RotatedAt: time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC), SecretFile: "/home/alice/ops.secret",
+	}
+}
+
+// TestTeamAdministrationShapesAccepted is the passing side of the team
+// administration shapes of 4.4.10: both forms of the revoke request, each
+// at the ends of its range, an explicit null version (absent, JSON
+// convention 4) and the results a command answers.
+func TestTeamAdministrationShapesAccepted(t *testing.T) {
+	t.Parallel()
+	rotated := validRotateResult()
+	for name, v := range map[string]Validator{
+		"rotate result":                 &rotated,
+		"revoke one member":             &TeamRevokeMemberRequest{PrincipalRef: "p1"},
+		"revoke and ban one member":     &TeamRevokeMemberRequest{PrincipalRef: "p1", Ban: true},
+		"revoke by version 0":           &TeamRevokeMemberRequest{JoinedSecretVersionLTE: intptr(0)},
+		"revoke by the highest version": &TeamRevokeMemberRequest{JoinedSecretVersionLTE: intptr(MaxSecretVersion)},
+		"revoke result, nothing moved":  &TeamRevokeMemberResult{TeamRef: "t1", PrincipalRef: "p1", Status: MembershipBanned},
+		"revoke by version result":      &TeamRevokeByVersionResult{TeamRef: "t1"},
+		"transfer request":              &TeamTransferRequest{PrincipalRef: "p1"},
+		"transfer result":               &TeamTransferResult{TeamRef: "t1", PrincipalRef: "p1", Transferred: true},
+	} {
+		if err := v.Validate(); err != nil {
+			t.Errorf("%s rejected: %v", name, err)
+		}
+	}
+	var req TeamRevokeMemberRequest
+	if err := Decode([]byte(`{"principal_ref":"p1","joined_secret_version_lte":null,"unknown":1}`), &req); err != nil {
+		t.Fatalf("a null version beside a principal_ref rejected: %v", err)
+	}
+	if req.PrincipalRef != "p1" || req.JoinedSecretVersionLTE != nil {
+		t.Fatalf("decoded %+v, want the principal form", req)
+	}
+	var over TeamRevokeMemberRequest
+	requireInvalidInput(t, Decode([]byte(`{"joined_secret_version_lte":2147483648}`), &over), "joined_secret_version_lte")
 }
 
 // TestValidBackendObjectAccepted is the passing side of the backend

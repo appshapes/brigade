@@ -4,6 +4,68 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
+## [0.4.0] — 2026-11-12
+
+### Added
+
+- **A team's owner administers it.** The three administration commands of the Brigade plugin work on a server:
+  `brigade team rotate-secret` gives the team a new join secret and ends the old one, `brigade team
+  revoke-member` ends one member's membership, bans it or lifts its ban, or ends every membership that joined
+  with an old secret, and `brigade team transfer` hands the team to another member. They are the endpoints
+  `/v1/team/rotate-secret`, `/v1/team/revoke-member` and `/v1/team/transfer` of the contract's section 3a, and
+  they answer the team's owner only: anyone else reads what a stranger to the team reads. The owner is the
+  member that created the team, until a transfer names another. A member that is revoked has its sessions
+  closed, and a receive of its that waits is refused within a second.
+- **A team that was taken in gets its owner at the first join.** The server cannot check who administered the
+  team on the old backend, so the first member to join it over HTTP owns it. A gateway joins inside the server
+  and never becomes an owner. A team that 0.3.0 took in and that already has members gets its owner the same
+  way, at the first join after the update: a member that joins again with the secret it has owns the team.
+- **The operator names an owner.** `brigade-server --data <dir> --set-owner <team_ref> --principal
+  <principal_ref>`, run with the server stopped, makes an active member of a team its owner and ends. It is for
+  a team whose first join was not its admin's, and for a team whose owner lost its credential. No address of the
+  server names an owner this way.
+- **The operator takes a team back.** `brigade-server --data <dir> --take-back <team_ref> --secret-file
+  <file>`, run with the server stopped, is for a team whose join secret leaked and whose owner is whoever joined
+  with it first: that owner can rotate the secret and revoke everyone, which leaves no member to name. The
+  command gives the team a new join secret, ends every membership and leaves the team with no owner, all in one
+  entry of the log, and ends. The new secret is written to the file, readable by its owner alone, and to
+  nothing else: it is on no command line and in no line the server writes. The file must not be there yet, and
+  its place is checked before anything is changed. The first member to join with the new secret over HTTP owns
+  the team, so the file goes to the team's admin first. A member that was banned stays banned.
+- **`brigade team members` says which secret each member joined with**, as `joined_secret_version`: 1 for the
+  secret the team was created or taken in with, and one more with every rotation.
+- **`/v1/info` lists `team.admin` in `capabilities`**, which the plugin's `rest` adapter asks for before it
+  sends an administration command.
+- **A gateway comes back by itself after a rotation, as the member it was.** A gateway whose membership ends
+  reads its `join_secret_file` again before it joins again, once a minute for as long as it is refused. After
+  the owner has rotated the secret and revoked everyone who joined with the old one, the operator replaces that
+  file and restarts nothing. The gateway joins with the credential it holds, so it is the same member with the
+  same session and leaves no dead member behind, and a gateway the team's owner banned stays out until the
+  owner lifts the ban. Only a gateway whose credential the server no longer knows comes back as a new member.
+- **A gateway whose first join was refused needs no restart either.** It reads its `join_secret_file` again
+  before each attempt, so a file the operator mended is joined with, and it asks a team that refused it once a
+  minute instead of every two seconds.
+- **One team cannot stop Slack for the others.** A team's owner can now end the membership of the team's
+  Slack gateway, by revoking it. While that gateway is out, a message from Slack to a session of any other team
+  the gateway serves is carried as before. The roster a person is shown lists the teams that can be reached and
+  says under them that one team's gateway is not connected, without naming the team, and so does the answer to
+  a message that names a session nobody can find. For as long as a team is left out, a person whose message was
+  carried is always told which session it went to and on which team, with the same sentence, however they
+  named the session: a name that sessions of two teams answer to would otherwise go to the team that is reached
+  without a word. A gateway that reaches none of its teams answers Slack a failure, as it always did, so that
+  Slack delivers again once the gateway is back. Mail needs no such rule: a mail belongs to the one team whose
+  inbox it was sent to.
+
+### Changed
+
+- **A membership that ends no longer brings back a session that was long gone.** A member that leaves, or is
+  revoked, has its open sessions closed. A session whose lease ran out more than a week before, which retention
+  had let go of, was closed with them and so kept for another week; it is now left to go.
+- **Do not go back to 0.3.0 on a data directory 0.4.0 has run on.** A rotation, a revocation, a ban and a change
+  of owner are records of kinds 0.3.0 does not know, and 0.3.0 refuses to start on a log that holds one. The
+  snapshots 0.4.0 writes are of a new format, 2, which 0.3.0 passes over: it would otherwise read them without
+  the bans and the secret versions they hold. 0.4.0 reads the snapshots and the log of 0.3.0 as they are.
+
 ## [0.3.0] — 2026-11-12
 
 ### Added

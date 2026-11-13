@@ -22,6 +22,11 @@ func ForeignOwner(fi fs.FileInfo) bool { return foreignOwner(fi) }
 // user can read: neither InsecureMode nor ForeignOwner.
 func IsPrivate(fi fs.FileInfo) bool { return !insecureMode(fi) && !foreignOwner(fi) }
 
+// OwnerReadWriteOnly reports whether fi's mode is exactly 0600: its owner reads and writes it and nobody does
+// anything else, the mode WriteAtomic gives every private file and 4.4.10 asks of a --secret-file. It is the
+// stricter fact beside InsecureMode, for a caller that checks what was written and not only who may read it.
+func OwnerReadWriteOnly(fi fs.FileInfo) bool { return ownerReadWriteOnly(fi) }
+
 // WorldWritable reports whether anyone on the machine could write fi.
 func WorldWritable(fi fs.FileInfo) bool { return worldWritable(fi) }
 

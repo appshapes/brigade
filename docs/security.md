@@ -1368,4 +1368,16 @@ what differs. The server is experimental in its 0.1.0.
   the secret in a file, runs a command on the server's data directory while the server is stopped. No request
   can do that, and the secret is not kept: the server stores its hash, as for a team it created. The secret is
   as strong after the move as before it, and whoever held it can join the team on the server.
+- **Who administers a team.** From 0.4.0 a team on a server has the one administrator section 9 calls the creator,
+  here the team's owner, and the three commands of that section work there: the owner rotates the join secret,
+  revokes or bans a member and transfers the team. Three things differ from section 9. A team that was taken in
+  has no owner until someone joins it, because the server cannot check who administered it on the old backend:
+  the first member to join becomes its owner, so until then anyone who holds the join secret can take that place
+  by joining first. A gateway never does. The server's operator can name a team's owner with a command on its
+  data directory while the server is stopped, and can take a team back from whoever holds it: a second command
+  gives the team a new join secret in a file, ends every membership and leaves the team to the first member who
+  joins with that file. So a lost credential does not end a team's administration as it does in section 9, and
+  a team taken by someone who joined first is not lost; equally whoever runs the server can take a team's
+  administration, as they can read everything in it. And a revocation ends a member's sessions and its place in the team, not its credential:
+  the credential names a principal that may be a member of other teams on the same server.
 - **What it does not have yet.** One instance and no standby, so the server's disk is the team's only copy.

@@ -32,6 +32,8 @@ func wireTypes() []any {
 		protocol.WatchHeartbeatOK{}, protocol.WatchError{}, protocol.WatchCommand{},
 		protocol.TeamCreateRequest{}, protocol.TeamCreateResult{},
 		protocol.TeamJoinRequest{}, protocol.TeamJoinResult{}, protocol.TeamLeaveResult{},
+		protocol.TeamRotateSecretResult{}, protocol.TeamRevokeMemberRequest{}, protocol.TeamRevokeMemberResult{},
+		protocol.TeamRevokeByVersionResult{}, protocol.TeamTransferRequest{}, protocol.TeamTransferResult{},
 	}
 }
 

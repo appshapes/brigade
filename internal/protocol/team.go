@@ -1,6 +1,11 @@
 package protocol
 
-import "encoding/json/jsontext"
+import (
+	"encoding/json/jsontext"
+	"strconv"
+	"time"
+	"unicode/utf8"
+)
 
 // TeamCreateRequest is the `team create` stdin document (4.4.10).
 type TeamCreateRequest struct {
@@ -120,6 +125,203 @@ func (r *TeamLeaveResult) Validate() error {
 	}
 	if !r.Left {
 		return errInvalidValue("left", "true")
+	}
+	return nil
+}
+
+// Team administration (4.4.10, capability team.admin; shapes fixed
+// 2026-11-12, work item 274): `team rotate-secret`, `team revoke-member`
+// and `team transfer`, which answer the team's owner only.
+
+// MaxSecretVersion bounds joined_secret_version_lte and the max_version
+// it is answered with (4.4.10): a secret version fits a 32-bit signed
+// integer on every backend.
+const MaxSecretVersion = 2147483647
+
+// The two statuses a `team revoke-member` result of the principal form
+// answers (4.4.10): what the request asked for.
+const (
+	MembershipRevoked = "revoked"
+	MembershipBanned  = "banned"
+)
+
+// TeamRotateSecretResult is the `team rotate-secret` result (4.4.10). It
+// has no join_secret member: the new secret goes to the file SecretFile
+// names and to no output, because `team create` is the only command whose
+// output may carry a secret (4.5.14).
+type TeamRotateSecretResult struct {
+	TeamRef       string    `json:"team_ref"`
+	TeamName      string    `json:"team_name"`
+	SecretVersion int       `json:"secret_version"`
+	RotatedAt     time.Time `json:"rotated_at"`
+	SecretFile    string    `json:"secret_file"`
+}
+
+// Validate implements Validator. SecretVersion counts the team's secrets
+// from 1, the secret `team create` printed, so a rotation answers 2 or
+// more.
+func (r *TeamRotateSecretResult) Validate() error {
+	if err := requireString("team_ref", r.TeamRef); err != nil {
+		return err
+	}
+	if err := requireString("team_name", r.TeamName); err != nil {
+		return err
+	}
+	if err := capRunes("team_name", r.TeamName, MaxTeamNameCodepoints); err != nil {
+		return err
+	}
+	if r.SecretVersion < 2 || r.SecretVersion > MaxSecretVersion {
+		return errOutOfRange("secret_version", 2, MaxSecretVersion)
+	}
+	if err := requireTime("rotated_at", r.RotatedAt); err != nil {
+		return err
+	}
+	return requireString("secret_file", r.SecretFile)
+}
+
+// TeamRevokeMemberRequest is the `team revoke-member` stdin document
+// (4.4.10), one of two forms: {principal_ref, ban?} ends one member's
+// membership, and with ban blocks its rejoin; {joined_secret_version_lte}
+// revokes every active member that joined with a secret of that version
+// or a lower one, except the owner, and never bans. The version is a
+// pointer because 0 is a value: absent, or null, means the first form.
+type TeamRevokeMemberRequest struct {
+	PrincipalRef           string `json:"principal_ref,omitzero"`
+	Ban                    bool   `json:"ban,omitzero"`
+	JoinedSecretVersionLTE *int   `json:"joined_secret_version_lte,omitzero"`
+}
+
+// Validate implements Validator: exactly one form, ban with the first
+// form only, and the version within 0..MaxSecretVersion.
+func (r *TeamRevokeMemberRequest) Validate() error {
+	switch {
+	case r.PrincipalRef != "" && r.JoinedSecretVersionLTE != nil:
+		return errTeamAdminField("principal_ref", reasonInvalidValue,
+			"principal_ref and joined_secret_version_lte are two forms of one request; give one")
+	case r.JoinedSecretVersionLTE != nil:
+		if r.Ban {
+			return errTeamAdminField("ban", reasonInvalidValue,
+				"ban applies to principal_ref only; a version revoke never bans")
+		}
+		if *r.JoinedSecretVersionLTE < 0 || *r.JoinedSecretVersionLTE > MaxSecretVersion {
+			return errTeamAdminField("joined_secret_version_lte", reasonOutOfRange,
+				"joined_secret_version_lte must be between 0 and "+strconv.Itoa(MaxSecretVersion))
+		}
+	case r.PrincipalRef == "":
+		return errTeamAdminField("principal_ref", reasonRequired,
+			"one of principal_ref or joined_secret_version_lte is required")
+	case !utf8.ValidString(r.PrincipalRef):
+		return errNotUTF8("principal_ref")
+	}
+	return nil
+}
+
+// TeamRevokeMemberResult is the `team revoke-member` result of the
+// principal form (4.4.10). Status is what the request asked for, Changed
+// says whether the membership's status moved, and SessionsClosed counts
+// the sessions this request closed.
+type TeamRevokeMemberResult struct {
+	TeamRef        string `json:"team_ref"`
+	PrincipalRef   string `json:"principal_ref"`
+	Status         string `json:"status"`
+	Changed        bool   `json:"changed"`
+	SessionsClosed int    `json:"sessions_closed"`
+}
+
+// Validate implements Validator.
+func (r *TeamRevokeMemberResult) Validate() error {
+	if err := requireString("team_ref", r.TeamRef); err != nil {
+		return err
+	}
+	if err := requireString("principal_ref", r.PrincipalRef); err != nil {
+		return err
+	}
+	if err := oneOf("status", r.Status, MembershipRevoked, MembershipBanned); err != nil {
+		return err
+	}
+	return countNotNegative("sessions_closed", r.SessionsClosed)
+}
+
+// TeamRevokeByVersionResult is the `team revoke-member` result of the
+// version form (4.4.10). It names no principal: `team members` afterwards
+// is the record.
+type TeamRevokeByVersionResult struct {
+	TeamRef        string `json:"team_ref"`
+	MaxVersion     int    `json:"max_version"`
+	Revoked        int    `json:"revoked"`
+	SessionsClosed int    `json:"sessions_closed"`
+}
+
+// Validate implements Validator.
+func (r *TeamRevokeByVersionResult) Validate() error {
+	if err := requireString("team_ref", r.TeamRef); err != nil {
+		return err
+	}
+	if r.MaxVersion < 0 || r.MaxVersion > MaxSecretVersion {
+		return errOutOfRange("max_version", 0, MaxSecretVersion)
+	}
+	if err := countNotNegative("revoked", r.Revoked); err != nil {
+		return err
+	}
+	return countNotNegative("sessions_closed", r.SessionsClosed)
+}
+
+// TeamTransferRequest is the `team transfer` stdin document (4.4.10): the
+// active member that becomes the team's owner.
+type TeamTransferRequest struct {
+	PrincipalRef string `json:"principal_ref"`
+}
+
+// Validate implements Validator.
+func (r *TeamTransferRequest) Validate() error {
+	if r.PrincipalRef == "" {
+		return errTeamAdminField("principal_ref", reasonRequired, "principal_ref is required")
+	}
+	if !utf8.ValidString(r.PrincipalRef) {
+		return errNotUTF8("principal_ref")
+	}
+	return nil
+}
+
+// TeamTransferResult is the `team transfer` result (4.4.10). Transferred
+// is always true: success is the command's only outcome that is not an
+// error.
+type TeamTransferResult struct {
+	TeamRef      string `json:"team_ref"`
+	PrincipalRef string `json:"principal_ref"`
+	Transferred  bool   `json:"transferred"`
+}
+
+// Validate implements Validator.
+func (r *TeamTransferResult) Validate() error {
+	if err := requireString("team_ref", r.TeamRef); err != nil {
+		return err
+	}
+	if err := requireString("principal_ref", r.PrincipalRef); err != nil {
+		return err
+	}
+	if !r.Transferred {
+		return errInvalidValue("transferred", "true")
+	}
+	return nil
+}
+
+// errTeamAdminField refuses one member of a team-administration request,
+// naming the member and the reason and never its value. The messages are
+// the ones the commands have always answered with, which is why they are
+// spelled here and not by the generic helpers.
+func errTeamAdminField(field, reason, message string) *Error {
+	return &Error{
+		Code:    CodeInvalidInput,
+		Message: message,
+		Details: map[string]string{"field": field, "reason": reason},
+	}
+}
+
+// countNotNegative checks a count a result carries: zero or more.
+func countNotNegative(field string, v int) error {
+	if v < 0 {
+		return errOutOfRange(field, 0, int(^uint(0)>>1))
 	}
 	return nil
 }

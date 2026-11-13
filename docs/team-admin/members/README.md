@@ -2,7 +2,9 @@
 
 Three commands, for the creator only. `rotate-secret` runs in a session or a terminal, its new secret to a file;
 `revoke-member` and `transfer` run in **your own terminal** and refuse inside a session. All three are
-pass-throughs to the adapter, so what you see is the adapter's own JSON envelope.
+pass-throughs to the adapter, so what you see is the adapter's own JSON envelope. They work on a team in a
+Supabase project and, from 0.53.0, on a team on a Brigade server of 0.4.0 or later, where the creator is called
+the team's owner.
 
 ## If you want to
 
@@ -37,7 +39,8 @@ Details: [Transfer the team](transfer-the-team.md).
 
 ## Know where the authority lives
 
-1. `teams.created_by` is the only administrative authority; your credential directory is the only key to it.
-2. `team leave` keeps it; `team reset` or a lost `session.json` ends it, permanently.
+1. One member administers a team; your credential directory is the only key to being that member.
+2. `team leave` keeps it; `team reset` or a lost credential ends it: for good on Supabase, until the server's
+   operator names you again on a Brigade server.
 
 Details: [Know where the authority lives](where-the-authority-lives.md).

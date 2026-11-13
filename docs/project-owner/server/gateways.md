@@ -140,6 +140,25 @@ The server says when each gateway has joined its team. `brigade sessions` in a c
 `slack-gateway` and `mail-gateway`, each with a line that says how to write to it. A direct message `sessions` to
 the bot is answered with the roster, and so is a mail whose only text is `sessions`.
 
+## After the join secret is rotated
+
+A gateway is a member that joined with the secret in `join_secret_file`. When the team's owner rotates the secret
+and then evicts everyone who joined with the old one (`brigade team revoke-member --max-version`,
+[Rotate a leaked secret](../../team-admin/members/rotate-the-secret.md)), the gateways are evicted with them.
+
+1. The owner sends you the new secret file, as they send it to every member they keep.
+2. Replace the file `join_secret_file` names, with the same owner and mode.
+3. The gateway joins again with it by itself, within about a minute, as the member it was, and the server says
+   so. No restart is needed.
+
+Until then the gateway carries nothing for that team. A mail to the team is not lost: the server answers the
+provider's delivery with an error, and the provider delivers it again later. On Slack the server's other teams
+are served as before, and someone who writes to a session of that team is told that one team's sessions cannot
+be reached. A rotation alone, with no eviction, changes nothing for a gateway.
+
+A team's owner can also put a gateway out by itself. Revoked, it joins again within a minute with the secret its
+file holds. Banned, it stays out until the owner lifts the ban: that is how a team says it wants no gateway.
+
 ## What it does and does not do
 
 A gateway is a member of the team like any other: it can do what a member can, the same limits apply to it, and

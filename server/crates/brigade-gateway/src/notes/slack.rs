@@ -188,6 +188,39 @@ pub fn not_sent(error: &str, roster: &str) -> String {
     format!("The message was not sent: {}.\n\n{roster}", escape_mrkdwn(error))
 }
 
+/// What a person is told under a roster that does not list every team the gateway serves, because the
+/// gateways of `left_out` of them are no members of their teams at the moment: a team's owner revoked its
+/// gateway, and the gateway has not joined again. `None` when every team is listed. No team is named: the
+/// person may be of another one.
+///
+/// The Edge Functions have no such sentence. They fail a request when one team's roster cannot be read,
+/// which stops every team's people for as long as one team's gateway is out.
+#[must_use]
+pub fn not_connected(left_out: usize) -> Option<String> {
+    match left_out {
+        0 => None,
+        1 => Some(
+            "One team's gateway is not connected at the moment, so its sessions cannot be reached."
+                .to_owned(),
+        ),
+        several => Some(format!(
+            "{several} teams' gateways are not connected at the moment, so their sessions cannot be reached."
+        )),
+    }
+}
+
+/// The roster a person is shown: [`crate::slack_roster`]'s text of the teams whose gateways are members,
+/// and under it [`not_connected`]'s sentence when `left_out` teams are not among them. Every answer that
+/// shows the roster shows this one, so a person told that nobody has the name they wrote is told as well
+/// that some sessions cannot be reached now.
+#[must_use]
+pub fn roster_of_connected(roster: &str, left_out: usize) -> String {
+    match not_connected(left_out) {
+        Some(sentence) => format!("{roster}\n\n{sentence}"),
+        None => roster.to_owned(),
+    }
+}
+
 /// What a person is told about a message that is not sent on: `None` for one that is to be sent, and for
 /// one that is ignored, which is not answered.
 #[must_use]
@@ -363,9 +396,35 @@ pub fn confirmation(
     recipient: &TeamRecipient<'_>,
     served_teams: usize,
 ) -> Option<Tell> {
+    confirmation_among(message, recipient, served_teams, 0)
+}
+
+/// [`confirmation`] for a request that left `left_out` of the gateway's teams out, because their gateways
+/// are no members of them at the moment, and found the session among the `connected` others.
+///
+/// A name that sessions of two teams answer to is refused, and the person is asked which they mean: a
+/// member's label, and the characters that end a session's id as well. With one of those teams left out
+/// the name is answered to once, and the message goes on. So whenever a team was left out the person is
+/// told where the message went, however they named the session, and the reaction is not the whole of it.
+/// The note says under where it went that some sessions could not be reached ([`not_connected`]), and it
+/// names the team the message went to as it does for every gateway that serves several: the person can
+/// tell that the session they meant may be one of those that were not weighed. With no team left out it
+/// is [`confirmation`], word for word.
+#[must_use]
+pub fn confirmation_among(
+    message: &InboundSlack,
+    recipient: &TeamRecipient<'_>,
+    connected: usize,
+    left_out: usize,
+) -> Option<Tell> {
     let named_a_member = recipient.recipient.who.is_some();
-    (message.source == MessageSource::Command || named_a_member)
-        .then(|| tell(message, &sent_note(recipient, served_teams)))
+    (message.source == MessageSource::Command || named_a_member || left_out > 0).then(|| {
+        let note = sent_note(recipient, connected + left_out);
+        match not_connected(left_out) {
+            Some(sentence) => tell(message, &format!("{note}\n\n{sentence}")),
+            None => tell(message, &note),
+        }
+    })
 }
 
 // ---- slack-out --------------------------------------------------------------------------------------------

@@ -70,11 +70,14 @@ pub struct Shared {
     pub gateways: Option<Arc<Gateways>>,
 }
 
-/// The result of `/v1/info`.
+/// The result of `/v1/info`. `capabilities` names what the server carries beyond the contract's required
+/// surface: the three administration endpoints of its section 3a, which the adapter asks for here before
+/// it sends an administration command.
 fn info() -> Value {
     json!({
         "contract_version": "1",
         "server": {"name": env!("CARGO_PKG_NAME"), "version": env!("CARGO_PKG_VERSION")},
+        "capabilities": ["team.admin"],
     })
 }
 
@@ -186,7 +189,13 @@ async fn answer(shared: &Shared, request: Request<Incoming>) -> Result<Value, Er
     if path == INFO_PATH {
         return Ok(info());
     }
-    let ask = || shared.engine.ask(caller.clone(), may_create, &path, body.clone());
+    // A join that comes over HTTP is a member's own, and may make it the owner of a team that was taken in
+    // and has none yet. A gateway joins inside the server and never passes here.
+    let ask = || {
+        shared
+            .engine
+            .ask(caller.clone(), may_create, true, &path, body.clone())
+    };
     let mut changes = shared.engine.changes();
     // What has changed up to here is seen by the question below; only a later change is waited for.
     changes.borrow_and_update();
@@ -196,8 +205,8 @@ async fn answer(shared: &Shared, request: Request<Incoming>) -> Result<Value, Er
     }
     // A receive that asked to wait is held while its answer would be empty. It is asked again every time
     // the state changes, so it answers at once when a message is accepted for its session, and at once
-    // with the refusal when its caller's membership ends or its credential is revoked. The engine answered
-    // it once already, so the body reads as a receive.
+    // with the refusal when its caller's membership ends, by its own leave or by the owner's revocation,
+    // or its credential is revoked. The engine answered it once already, so the body reads as a receive.
     let wait = match Command::parse(&path, &body) {
         Ok(Command::MessageReceive(receive)) => receive.wait_seconds.unsigned_abs(),
         _ => 0,

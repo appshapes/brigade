@@ -57,6 +57,55 @@ func TestTeamMembersLayout(t *testing.T) {
 	}
 }
 
+// TestTeamMembersJSONCarriesTheJoinedSecretVersion: the version of the
+// secret a member last joined with reaches `team members --json` when the
+// adapter answers it (4.4.10: an adapter with team.admin, so a Supabase
+// team and a team on a server alike), because that is where a team's
+// administrator reads the version to give `team revoke-member
+// --max-version` after a rotation. A member the adapter answers without
+// it carries no such member at all, never a zero, and the lines of the
+// human form are what they are without it.
+func TestTeamMembersJSONCarriesTheJoinedSecretVersion(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	plain := membersResultJSON()
+	versioned := strings.Replace(plain, `"principal_ref":"a11ce000-principal"`, `"principal_ref":"a11ce000-principal","joined_secret_version":2`, 1)
+	if versioned == plain {
+		t.Fatal("the canned roster did not take the version; the test would prove nothing")
+	}
+	f.rec.on("team members", okAnswer(versioned))
+	if err := Team(f.inv(f.sessionEnv(), "", "members", "--json")); err != nil {
+		t.Fatalf("team members --json: %v", err)
+	}
+	_, result := envelopeOf(t, f.out.String())
+	members, _ := result["members"].([]any)
+	if len(members) != 2 {
+		t.Fatalf("members = %v", result["members"])
+	}
+	first, _ := members[0].(map[string]any)
+	second, _ := members[1].(map[string]any)
+	if first["joined_secret_version"] != float64(2) {
+		t.Errorf("the first member's joined_secret_version = %v, want the adapter's 2", first["joined_secret_version"])
+	}
+	if _, present := second["joined_secret_version"]; present {
+		t.Errorf("a member the adapter answered without a version carries one: %v", second)
+	}
+
+	f.out.Reset()
+	if err := Team(f.inv(f.sessionEnv(), "", "members")); err != nil {
+		t.Fatalf("team members: %v", err)
+	}
+	withVersion := f.out.String()
+	f.out.Reset()
+	f.rec.on("team members", okAnswer(plain))
+	if err := Team(f.inv(f.sessionEnv(), "", "members")); err != nil {
+		t.Fatalf("team members: %v", err)
+	}
+	if withVersion != f.out.String() || strings.Contains(withVersion, "version") {
+		t.Errorf("the version changed the human form:\n with %q\nwithout %q", withVersion, f.out.String())
+	}
+}
+
 // TestTeamMembersUnlabelledKeepsTheOldShape: a member the adapter reports
 // without a label keeps the line brigade has always printed, less its
 // "(unverified)" placeholder (owner ruling 2026-11-09, card 193) —

@@ -379,6 +379,40 @@ reference, a UUID, is taken as it is.
   machine or a person has for the team. Members, sessions and waiting messages do not come over.
 - **The gateways** join with the same secret file.
 
+### 4.8 The admin verbs, and who owns a team (work item 274)
+
+BAP/1 called `team rotate-secret`, `team revoke-member` and `team transfer` "adapter-defined". Only the Supabase
+adapter had them. Work item 274 fixes their shapes and brings them to the server.
+
+- **The shapes are the Supabase adapter's**, now written in BAP/1's 4.4.10: nothing a Supabase team's admin runs
+  changes. The contract gets section 3a and three endpoints a server may leave out; a server that has them lists
+  `team.admin` in `/v1/info`, which the `rest` adapter asks before an administration command. Cases C-48 to C-50
+  of the conformance suite hold both adapters and the server to it.
+- **The owner** is the principal that created the team, until a transfer names another: `Team.created_by`.
+- **A team that was taken in has no creator.** The owner asked on 2026-11-12 whether the source team's first
+  member can be told, to give that member the ownership. It can be told: Supabase records the creator, its only
+  admin, and `brigade team members` lists the members in the order they joined. But it cannot be given, because
+  the two backends share no identity: a member is an anonymous Supabase account there and a principal the server
+  issues at the first join here, and the server cannot check a claim to be the former without asking Supabase,
+  which is the voucher of the roadmap's step 5. So: the first member to join over HTTP owns the team, a gateway
+  never does, and the operator can name another owner with `--set-owner` between a stop and a start. In a
+  cut-over the Team Admin joins before the team file is pushed. When the voucher exists, ownership can follow
+  the source's admin exactly.
+- **The operator's command is also the way back** when an owner loses their credential, which on Supabase ends a
+  team's administration for good.
+- **`--take-back`**, from the review of 2026-11-12: `--set-owner` names an active member, so a team whose first
+  joiner rotated the secret and revoked the others could not be recovered. The second command gives the team a
+  new secret in a file, ends every membership and clears the owner, and the first member to join with the file
+  owns the team.
+- **A revocation does not end the credential**, where the work item's text said it would: a credential names a
+  principal that may be a member of other teams on the server. It ends the membership and the sessions.
+- **The gateways are members.** A revocation by version after a rotation evicts them with everyone who joined
+  with the old secret. A gateway reads its secret file again before it joins again and presents its credential,
+  so the operator replaces the file and restarts nothing, it returns as the member it was, and an owner's ban of
+  it holds; and a Slack request leaves out a team whose gateway is out and serves the others,
+  so one team's owner cannot stop Slack for the rest.
+- **Four records** and snapshot format 2. A 0.3.0 does not start on a data directory that holds one of them.
+
 ## 5. The repository
 
 Rjae's direction is to start here. The reason it is right is that the contract does not exist yet, and the
@@ -509,7 +543,7 @@ for the server. Everything before it changes nothing for anyone; nothing in it i
 | Step | Work item | What | Who | State |
 | --- | --- | --- | --- | --- |
 | 1 | 273, part 1 | The server takes in a team that exists, with its join secret (§4.7): `--import-team`, server 0.3.0. | the 89 session | built and released as 0.3.0, 2026-11-12 (execution log P86-7) |
-| 2 | 274 | The admin verbs on a team on the server: rotate the join secret, revoke a member, transfer the team; and who owns a team that was taken in, which has no creator. A server release and a plugin release. | the 89 session, unless the owner gives it to another | not started |
+| 2 | 274 | The admin verbs on a team on the server: rotate the join secret, revoke a member, transfer the team; and who owns a team that was taken in, which has no creator (§4.8). A server release and a plugin release. | the 89 session | built, 2026-11-12 (execution log P86-8); server 0.4.0 and the plugin release that carries it follow the landing |
 | 3 | 89 | Ready for the cut-over: the owner's host on the release that has steps 1 and 2; the `appshapes` team taken in there with its existing secret; the gateways' configuration written with that secret's file and the mail team's inbox; the Slack app's bot token and signing secret in their files on the host (the owner). | the 89 session, and the owner for the two Slack files | not started |
 | | | **Here work item 272 can start, and the owner is told** (below). | | |
 | 4 | 272 | First the check that file sync and the board work on a team on the server, and the board's carry-over tried on a scratch folder. Then the cut-over, once, in the order 272 gives: the team file in the four repositories; the gateways go live (the Slack app's two addresses moved by the owner, the mail provider's webhook added by the 89 session); the board carried over; each member joins once with the secret file they have; the check. | 272's session, with the 89 session for the gateways | waits for step 3 |

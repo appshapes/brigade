@@ -4,12 +4,10 @@ import (
 	"bufio"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
-	"flag"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -23,11 +21,11 @@ import (
 // members. The binding rules are local and run before any network call;
 // the secret is read from stdin or a no-echo prompt, sent to the backend
 // once and never stored; every refusal of a secret is one fixed
-// `unauthorized` text (4.5.7). P5-2 adds the three creator-only verbs of
-// the frozen convention row (docs/protocol-v1.md 4.2 :156, capability
-// team.admin): rotate-secret, revoke-member and transfer, whose stdin and
-// result documents are adapter-defined and fixed at the bottom of this
-// file.
+// `unauthorized` text (4.5.7). P5-2 adds the three verbs of capability
+// team.admin, which answer the team's owner only: rotate-secret,
+// revoke-member and transfer. Their stdin and result documents are the
+// protocol's (4.4.10, work item 274), which took the shapes this file had
+// fixed for itself.
 
 // The environment pair a binding command honours when there is no
 // team.json to read a backend from (4.1: a BRIGADE_<ADAPTER>_* variable
@@ -74,11 +72,6 @@ const (
 	statusRotated       = "rotated"
 )
 
-// maxSecretVersion bounds --max-version and joined_secret_version_lte:
-// teams.secret_version and memberships.joined_secret_version are
-// PostgreSQL integers (the schema's :34 and :44).
-const maxSecretVersion = 2147483647
-
 // teamCreateResultWithoutSecret is the `team create` result when
 // --secret-file was given: the secret went to that file with mode 0600 and
 // is omitted from stdout. 4.4.10 names this exception explicitly, which is
@@ -93,15 +86,17 @@ type teamCreateResultWithoutSecret struct {
 // memberEntry is one row of the `team members` roster (4.4.10), as
 // list_members answers it. LastSeenAt is a pointer so a member that has
 // never registered a session renders as JSON null rather than as the zero
-// time; joined_secret_version, which the RPC also answers, is not part of
-// the protocol's shape and is dropped here.
+// time. JoinedSecretVersion is the version of the secret the member last
+// joined with, the member an adapter with team.admin adds to the roster:
+// it is what `team revoke-member --max-version` sweeps by.
 type memberEntry struct {
-	PrincipalRef string     `json:"principal_ref"`
-	HumanLabel   string     `json:"human_label,omitzero"`
-	Status       string     `json:"status"`
-	JoinedAt     time.Time  `json:"joined_at"`
-	LastSeenAt   *time.Time `json:"last_seen_at"`
-	SessionCount int        `json:"session_count"`
+	PrincipalRef        string     `json:"principal_ref"`
+	HumanLabel          string     `json:"human_label,omitzero"`
+	Status              string     `json:"status"`
+	JoinedAt            time.Time  `json:"joined_at"`
+	JoinedSecretVersion int        `json:"joined_secret_version,omitzero"`
+	LastSeenAt          *time.Time `json:"last_seen_at"`
+	SessionCount        int        `json:"session_count"`
 }
 
 // teamMembersResult is the `team members` result (4.4.10, C-43).
@@ -626,19 +621,20 @@ func askLine(w io.Writer, r *bufio.Reader, prompt string) (string, error) {
 
 // ---- team administration (P5-2, plan 5.10, capability team.admin) ----
 //
-// Three creator-only pass-throughs of the frozen convention row
-// (docs/protocol-v1.md 4.2 :156): their stdin and result documents are
-// adapter-defined and fixed here. Every one runs c.parse, then
-// authenticate(true) — profile, backend, credential and a bound,
-// uuid-shaped team_ref; a team_ref that is not a backend id answers
-// errNotMember() locally, which keeps the oracle rule true without a
-// dial — then one RPC. The backend raises one text for every refusal of
-// the creator gate (an unknown team, a non-member, a revoked or banned
-// member, an active member that is not the creator), which errors.go
-// already maps to errNotMember()'s fixed message; a self-target and a
-// transfer to a principal that is not an active member are
-// `brigade:invalid_input:principal_ref`, mapped to invalid_input with
-// details.field principal_ref. No new error row exists for them.
+// Three pass-throughs that answer the team's owner only (4.4.10; the
+// backend's word for the owner is the creator, teams.created_by, which
+// transfer_team moves). Their stdin and result documents are the
+// protocol's. Every one runs c.parse, then authenticate(true) — profile,
+// backend, credential and a bound, uuid-shaped team_ref; a team_ref that
+// is not a backend id answers errNotMember() locally, which keeps the
+// oracle rule true without a dial — then one RPC. The backend raises one
+// text for every refusal of the owner gate (an unknown team, a
+// non-member, a revoked or banned member, an active member that is not
+// the owner), which errors.go already maps to errNotMember()'s fixed
+// message; a self-target and a transfer to a principal that is not an
+// active member are `brigade:invalid_input:principal_ref`, mapped to
+// invalid_input with details.field principal_ref. No new error row exists
+// for them.
 
 // rotateSecretAnswer is rotate_join_secret's jsonb. JoinSecret is the one
 // member of this file that holds a secret after an RPC returns: it goes
@@ -652,59 +648,9 @@ type rotateSecretAnswer struct {
 	JoinSecret      string    `json:"join_secret"`
 }
 
-// teamRotateSecretResult is the `team rotate-secret` result. It never
-// carries a join_secret member: docs/protocol-v1.md 4.5 rule 14 makes
-// `team create` the ONLY command whose output may contain a secret.
-type teamRotateSecretResult struct {
-	TeamRef       string    `json:"team_ref"`
-	TeamName      string    `json:"team_name"`
-	SecretVersion int       `json:"secret_version"`
-	RotatedAt     time.Time `json:"rotated_at"`
-	SecretFile    string    `json:"secret_file"`
-}
-
-// teamRevokeRequest is the stdin document of `team revoke-member`, one of
-// two mutually exclusive forms: {principal_ref, ban} revokes (or bans)
-// one member; {joined_secret_version_lte} revokes every member that
-// joined at or below that secret version — the leaked-secret playbook's
-// second step, which never bans (5.10).
-type teamRevokeRequest struct {
-	PrincipalRef string `json:"principal_ref,omitzero"`
-	Ban          bool   `json:"ban,omitzero"`
-	MaxVersion   *int   `json:"joined_secret_version_lte,omitzero"`
-}
-
-// validate applies the two-forms rule to a stdin document.
-func (r *teamRevokeRequest) validate() error {
-	switch {
-	case r.PrincipalRef != "" && r.MaxVersion != nil:
-		return errInvalidField("principal_ref", "invalid_value", "principal_ref and joined_secret_version_lte are two forms of one request; give one")
-	case r.MaxVersion != nil:
-		if r.Ban {
-			return errInvalidField("ban", "invalid_value", "ban applies to principal_ref only; a version revoke never bans")
-		}
-		if *r.MaxVersion < 0 || *r.MaxVersion > maxSecretVersion {
-			return errInvalidField("joined_secret_version_lte", "out_of_range", "joined_secret_version_lte must be between 0 and "+strconv.Itoa(maxSecretVersion))
-		}
-	case r.PrincipalRef == "":
-		return errInvalidField("principal_ref", "required", "one of principal_ref or joined_secret_version_lte is required")
-	}
-	return nil
-}
-
 // revokeMembershipAnswer is revoke_membership's jsonb.
 type revokeMembershipAnswer struct {
 	TeamID         string `json:"team_id"`
-	PrincipalRef   string `json:"principal_ref"`
-	Status         string `json:"status"`
-	Changed        bool   `json:"changed"`
-	SessionsClosed int    `json:"sessions_closed"`
-}
-
-// teamRevokeMemberResult is the `team revoke-member` result of the
-// principal form.
-type teamRevokeMemberResult struct {
-	TeamRef        string `json:"team_ref"`
 	PrincipalRef   string `json:"principal_ref"`
 	Status         string `json:"status"`
 	Changed        bool   `json:"changed"`
@@ -719,31 +665,9 @@ type revokeByVersionAnswer struct {
 	SessionsClosed int    `json:"sessions_closed"`
 }
 
-// teamRevokeByVersionResult is the `team revoke-member` result of the
-// version form. No principal list: the answer stays small and stable, and
-// `team members` afterwards is the record.
-type teamRevokeByVersionResult struct {
-	TeamRef        string `json:"team_ref"`
-	MaxVersion     int    `json:"max_version"`
-	Revoked        int    `json:"revoked"`
-	SessionsClosed int    `json:"sessions_closed"`
-}
-
-// teamTransferRequest is the stdin document of `team transfer`.
-type teamTransferRequest struct {
-	PrincipalRef string `json:"principal_ref"`
-}
-
 // transferTeamAnswer is transfer_team's jsonb.
 type transferTeamAnswer struct {
 	TeamID       string `json:"team_id"`
-	PrincipalRef string `json:"principal_ref"`
-	Transferred  bool   `json:"transferred"`
-}
-
-// teamTransferResult is the `team transfer` result.
-type teamTransferResult struct {
-	TeamRef      string `json:"team_ref"`
 	PrincipalRef string `json:"principal_ref"`
 	Transferred  bool   `json:"transferred"`
 }
@@ -753,12 +677,14 @@ type teamTransferResult struct {
 // leaves every membership as it was (rotation alone revokes nobody; the
 // version revoke is `team revoke-member --max-version`). --secret-file is
 // REQUIRED and the new secret goes there, 0600, and never to stdout
-// (4.5 rule 14). The order is teamCreate's: checkSecretFile before any
-// network call, so a mistyped path cannot cost a rotation; then the RPC;
-// then the file. A write failure AFTER a successful rotation is `config`
-// secret_file_unwritable and the new secret is lost — the old one is
-// already dead — so the only recovery is to rotate again, which the
-// stderr line says.
+// (4.5 rule 14): the result is protocol.TeamRotateSecretResult, which has
+// no join_secret member. The order is teamCreate's: checkSecretFile before
+// any network call, so a mistyped path cannot cost a rotation; then the
+// RPC; then the file. A write failure AFTER a successful rotation is
+// `config` secret_file_unwritable and the new secret is lost — the old
+// one is already dead — so the only recovery is to rotate again, which
+// the stderr line says. An answer of the RPC that this adapter cannot use
+// is the same loss behind `internal`, and gets the same line.
 func (c *command) teamRotateSecret() (any, error) {
 	fs := newFlags()
 	secretFile := fs.String("secret-file", "", "write the new join secret to this path (0600); required")
@@ -778,11 +704,17 @@ func (c *command) teamRotateSecret() (any, error) {
 	if err := c.rpc(c.ctx, rpcRotateJoinSecret, rpcArgs{"p_team_id": c.profile.TeamRef}, &answer); err != nil {
 		return nil, err
 	}
+	// From here on the RPC has answered, so the rotation was made: an
+	// answer that is no use has lost the new secret as surely as a file
+	// that cannot be written, and the administrator is told the same.
+	const lost = "the backend rotated the join secret and its answer could not be used; the previous secret no longer works and the new one is lost: rotate again"
 	if answer.Status != statusRotated || answer.TeamID != c.profile.TeamRef || answer.SecretVersion < 2 {
+		c.log.Warn(lost)
 		return nil, errUnexpectedResponse("the backend did not answer a rotated team")
 	}
 	secret, err := protocol.ParseJoinSecret(answer.JoinSecret)
 	if err != nil || secret.TeamRef() != answer.TeamID {
+		c.log.Warn(lost)
 		return nil, errUnexpectedResponse("the backend answered a join secret this adapter cannot parse")
 	}
 	if werr := adapterkit.WriteAtomic(*secretFile, []byte(secret.Secret()+"\n")); werr != nil {
@@ -794,7 +726,7 @@ func (c *command) teamRotateSecret() (any, error) {
 	if teamName == "" {
 		teamName = c.profile.TeamName
 	}
-	return &teamRotateSecretResult{
+	return &protocol.TeamRotateSecretResult{
 		TeamRef: answer.TeamID, TeamName: teamName, SecretVersion: answer.SecretVersion,
 		RotatedAt: answer.SecretRotatedAt, SecretFile: *secretFile,
 	}, nil
@@ -803,20 +735,18 @@ func (c *command) teamRotateSecret() (any, error) {
 // teamRevokeMember implements `team revoke-member` in its two forms:
 // `--principal <ref> [--ban]` (revoke_membership) or `--max-version <n>`
 // (revoke_memberships_by_version), or, with no flag, the one stdin
-// document of either shape. A principal_ref is a public identifier — it
-// is in every roster row and every frame — so argv is fine for it (4.5
-// rule 14 is about secrets). A principal_ref that is not uuid-shaped can
-// name nobody this creator may revoke and answers the uniform
-// unauthorized before any dial, as a non-uuid team_ref does.
+// document of either shape; adapterkit.TeamRevokeFlags reads the request
+// for every adapter that carries the command. A principal_ref that is not
+// uuid-shaped can name nobody this owner may revoke and answers the
+// uniform unauthorized before any dial, as a non-uuid team_ref does
+// (4.4.10 allows it for a shape the backend never issues).
 func (c *command) teamRevokeMember() (any, error) {
 	fs := newFlags()
-	principal := fs.String("principal", "", "the principal_ref to revoke (instead of stdin)")
-	ban := fs.Bool("ban", false, "with --principal: also block a rejoin with the current secret")
-	maxVersion := fs.Int("max-version", 0, "revoke every member that joined at or below this secret version (instead of stdin)")
+	flags := adapterkit.NewTeamRevokeFlags(fs)
 	if err := c.parse(fs); err != nil {
 		return nil, err
 	}
-	req, err := c.teamRevokeRequest(*principal, *ban, *maxVersion, flagsSeen(fs))
+	req, err := flags.Request(c.stdin)
 	if err != nil {
 		return nil, err
 	}
@@ -824,17 +754,17 @@ func (c *command) teamRevokeMember() (any, error) {
 		return nil, err
 	}
 	teamRef := c.profile.TeamRef
-	if req.MaxVersion != nil {
+	if req.JoinedSecretVersionLTE != nil {
 		var answer revokeByVersionAnswer
-		args := rpcArgs{"p_team_id": teamRef, "p_max_version": *req.MaxVersion}
+		args := rpcArgs{"p_team_id": teamRef, "p_max_version": *req.JoinedSecretVersionLTE}
 		if err := c.rpc(c.ctx, rpcRevokeByVersion, args, &answer); err != nil {
 			return nil, err
 		}
 		if answer.Revoked < 0 || answer.SessionsClosed < 0 {
 			return nil, errUnexpectedResponse("the backend did not answer a version revoke")
 		}
-		return &teamRevokeByVersionResult{
-			TeamRef: teamRef, MaxVersion: *req.MaxVersion, Revoked: answer.Revoked, SessionsClosed: answer.SessionsClosed,
+		return &protocol.TeamRevokeByVersionResult{
+			TeamRef: teamRef, MaxVersion: *req.JoinedSecretVersionLTE, Revoked: answer.Revoked, SessionsClosed: answer.SessionsClosed,
 		}, nil
 	}
 	if !validUUID(req.PrincipalRef) {
@@ -848,105 +778,41 @@ func (c *command) teamRevokeMember() (any, error) {
 	if answer.Status == "" {
 		return nil, errUnexpectedResponse("the backend did not answer a membership status")
 	}
-	return &teamRevokeMemberResult{
+	return &protocol.TeamRevokeMemberResult{
 		TeamRef: teamRef, PrincipalRef: req.PrincipalRef, Status: answer.Status,
 		Changed: answer.Changed, SessionsClosed: answer.SessionsClosed,
 	}, nil
 }
 
-// teamRevokeRequest resolves the revoke request: flags first, stdin only
-// when no flag was given (adapterkit.ReadInput refuses a terminal with
-// `usage` rather than blocking). Both forms on argv, or --ban without
-// --principal, is `usage`; --max-version outside 0..2147483647 is `usage`.
-func (c *command) teamRevokeRequest(principal string, ban bool, maxVersion int, seen map[string]bool) (*teamRevokeRequest, error) {
-	switch {
-	case seen["principal"] && seen["max-version"]:
-		return nil, errUsage("--principal and --max-version are two forms of one command; give one")
-	case seen["ban"] && !seen["principal"]:
-		return nil, errUsage("--ban needs --principal (in the stdin form, set ban in the document)")
-	case seen["principal"]:
-		if principal == "" {
-			return nil, errUsage("--principal was given an empty value")
-		}
-		return &teamRevokeRequest{PrincipalRef: principal, Ban: ban}, nil
-	case seen["max-version"]:
-		if maxVersion < 0 || maxVersion > maxSecretVersion {
-			return nil, errInvalidRange("max-version", 0, maxSecretVersion)
-		}
-		v := maxVersion
-		return &teamRevokeRequest{MaxVersion: &v}, nil
-	}
-	data, err := adapterkit.ReadInput(c.stdin)
-	if err != nil {
-		return nil, err
-	}
-	req := &teamRevokeRequest{}
-	if err := protocol.Unmarshal(data, req); err != nil {
-		return nil, err
-	}
-	return req, req.validate()
-}
-
 // teamTransfer implements `team transfer --principal <ref>` (or stdin
 // {principal_ref}): transfer_team sets teams.created_by to an ACTIVE
-// member of the team. The old creator keeps its membership and its
+// member of the team. The previous owner keeps its membership and its
 // sessions and becomes an ordinary member (5.10: a delegation run before
 // a loss, not a departure); its next administrative command answers the
 // uniform unauthorized. The same non-uuid rule as revoke-member.
 func (c *command) teamTransfer() (any, error) {
 	fs := newFlags()
-	principal := fs.String("principal", "", "the principal_ref of the new creator (instead of stdin)")
+	flags := adapterkit.NewTeamTransferFlags(fs)
 	if err := c.parse(fs); err != nil {
 		return nil, err
 	}
-	ref := *principal
-	if flagsSeen(fs)["principal"] {
-		if ref == "" {
-			return nil, errUsage("--principal was given an empty value")
-		}
-	} else {
-		data, err := adapterkit.ReadInput(c.stdin)
-		if err != nil {
-			return nil, err
-		}
-		req := &teamTransferRequest{}
-		if err := protocol.Unmarshal(data, req); err != nil {
-			return nil, err
-		}
-		if req.PrincipalRef == "" {
-			return nil, errInvalidField("principal_ref", "required", "principal_ref is required")
-		}
-		ref = req.PrincipalRef
+	req, err := flags.Request(c.stdin)
+	if err != nil {
+		return nil, err
 	}
 	if err := c.authenticate(true); err != nil {
 		return nil, err
 	}
-	if !validUUID(ref) {
+	if !validUUID(req.PrincipalRef) {
 		return nil, errNotMember()
 	}
 	var answer transferTeamAnswer
-	if err := c.rpc(c.ctx, rpcTransferTeam, rpcArgs{"p_team_id": c.profile.TeamRef, "p_new_creator": ref}, &answer); err != nil {
+	args := rpcArgs{"p_team_id": c.profile.TeamRef, "p_new_creator": req.PrincipalRef}
+	if err := c.rpc(c.ctx, rpcTransferTeam, args, &answer); err != nil {
 		return nil, err
 	}
 	if !answer.Transferred {
 		return nil, errUnexpectedResponse("the backend did not confirm the transfer")
 	}
-	return &teamTransferResult{TeamRef: c.profile.TeamRef, PrincipalRef: ref, Transferred: true}, nil
-}
-
-// flagsSeen reports which flags of a parsed set were given on argv.
-func flagsSeen(fs *flag.FlagSet) map[string]bool {
-	seen := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { seen[f.Name] = true })
-	return seen
-}
-
-// errInvalidField refuses one member of a stdin document with
-// invalid_input, naming the member and the reason, never its value.
-func errInvalidField(field, reason, message string) *protocol.Error {
-	return &protocol.Error{
-		Code:    protocol.CodeInvalidInput,
-		Message: message,
-		Details: map[string]string{"field": field, "reason": reason},
-	}
+	return &protocol.TeamTransferResult{TeamRef: c.profile.TeamRef, PrincipalRef: req.PrincipalRef, Transferred: true}, nil
 }

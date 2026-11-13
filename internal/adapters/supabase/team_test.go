@@ -583,17 +583,18 @@ func TestLeaveKeepsTheBindingOnABackendFailure(t *testing.T) {
 }
 
 // TestTeamMembersRoster covers C-43: the RPC's jsonb is re-emitted in the
-// protocol's shape — joined_secret_version dropped, a null human_label
-// omitted, a null last_seen_at kept as null, an empty roster as `[]` —
-// and a non-member is the uniform `unauthorized`, byte-identical whether
-// the backend raised it or the bound team_ref could name no team.
+// protocol's shape — joined_secret_version carried (4.4.10: the member an
+// adapter with team.admin adds, C-49), a null human_label omitted, a null
+// last_seen_at kept as null, an empty roster as `[]` — and a non-member
+// is the uniform `unauthorized`, byte-identical whether the backend
+// raised it or the bound team_ref could name no team.
 func TestTeamMembersRoster(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.joined()
 	args := answerRPC(t, r.be, rpcListMembers, `{"team_ref":"`+testTeamID+`","team_name":"ops","server_time":"2026-09-02T12:00:00.123456+00:00","members":[`+
 		`{"principal_ref":"`+testUserID+`","human_label":"alice@example.com","status":"active","joined_at":"2026-09-02T11:50:00+00:00","joined_secret_version":1,"last_seen_at":"2026-09-02T11:59:00+00:00","session_count":2},`+
-		`{"principal_ref":"`+otherTeamID+`","human_label":null,"status":"active","joined_at":"2026-09-02T11:52:00+00:00","joined_secret_version":1,"last_seen_at":null,"session_count":0}]}`)
+		`{"principal_ref":"`+otherTeamID+`","human_label":null,"status":"active","joined_at":"2026-09-02T11:52:00+00:00","joined_secret_version":2,"last_seen_at":null,"session_count":0}]}`)
 	got := r.exec("", "team", "members")
 	if got.code != 0 {
 		t.Fatalf("exit %d: %s", got.code, got.stdout)
@@ -617,8 +618,8 @@ func TestTeamMembersRoster(t *testing.T) {
 	if first["human_label"] != "alice@example.com" || first["session_count"] != float64(2) || first["last_seen_at"] == nil {
 		t.Fatalf("members[0] = %v", first)
 	}
-	if _, present := first["joined_secret_version"]; present {
-		t.Fatalf("joined_secret_version leaked into the roster: %v", first)
+	if first["joined_secret_version"] != float64(1) || second["joined_secret_version"] != float64(2) {
+		t.Fatalf("joined_secret_version = %v and %v, want the backend's 1 and 2", first["joined_secret_version"], second["joined_secret_version"])
 	}
 	if _, present := second["human_label"]; present {
 		t.Fatalf("a null human_label was emitted: %v", second)
@@ -740,7 +741,9 @@ func TestTeamRotateSecretWritesTheFileOnly(t *testing.T) {
 // relative one is `usage`, a missing parent is `config`, all before any
 // call; the ladder (no team bound is `config`, a non-uuid team_ref is the
 // uniform unauthorized without a dial); an answer this adapter cannot
-// read is `internal`; and a write failure AFTER the rotation is `config`
+// read is `internal`, with the line on stderr that says the rotation was
+// made and its secret lost (a refusal of the backend's has no such line);
+// and a write failure AFTER the rotation is `config`
 // secret_file_unwritable with no secret on any stream.
 func TestTeamRotateSecretRefusals(t *testing.T) {
 	t.Parallel()
@@ -756,10 +759,15 @@ func TestTeamRotateSecretRefusals(t *testing.T) {
 		t.Fatalf("%d backend calls before the local checks passed", r.be.total())
 	}
 	path := filepath.Join(r.base, "s.secret")
+	const lost = "the previous secret no longer works and the new one is lost: rotate again"
 	answerRPC(t, r.be, rpcRotateJoinSecret, `{"status":"rotated","team_id":"`+otherTeamID+`","secret_version":2,"join_secret":"`+rotatedSecret+`"}`)
-	r.fails("internal", 1, "", "team", "rotate-secret", "--secret-file", path)
+	if got := r.fails("internal", 1, "", "team", "rotate-secret", "--secret-file", path); !strings.Contains(got.stderr, lost) {
+		t.Fatalf("an answer about another team: stderr does not say the rotation's secret is lost: %q", got.stderr)
+	}
 	answerRPC(t, r.be, rpcRotateJoinSecret, rotatedBody("brg1."+otherTeamID+".abc"))
-	r.fails("internal", 1, "", "team", "rotate-secret", "--secret-file", path)
+	if got := r.fails("internal", 1, "", "team", "rotate-secret", "--secret-file", path); !strings.Contains(got.stderr, lost) {
+		t.Fatalf("an answer whose secret does not parse: stderr does not say the rotation's secret is lost: %q", got.stderr)
+	}
 	absent(t, path)
 	r.be.onRPC = func(w http.ResponseWriter, _ *http.Request, _, _ string, _ map[string]any) {
 		postgrest(w, http.StatusForbidden, "42501", "brigade:unauthorized")
@@ -767,6 +775,9 @@ func TestTeamRotateSecretRefusals(t *testing.T) {
 	refused := r.fails("unauthorized", 5, "", "team", "rotate-secret", "--secret-file", path)
 	if refused.stdout != newFailure(t, errNotMember()) {
 		t.Fatalf("a non-creator's rotate: %q, want the uniform unauthorized", refused.stdout)
+	}
+	if strings.Contains(refused.stderr, lost) {
+		t.Fatalf("a refused rotation: stderr claims a rotation: %q", refused.stderr)
 	}
 	// The write fails after the rotation: config, the secret is on no stream.
 	dir := filepath.Join(r.base, "gone")

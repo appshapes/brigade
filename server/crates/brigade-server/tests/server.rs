@@ -396,7 +396,8 @@ fn the_transport_is_the_contracts() {
         parse(&response)
     };
 
-    // What the server is, with no credential.
+    // What the server is, with no credential: the contract, its own name and version, and that it carries
+    // the administration endpoints, which the adapter asks before it sends an administration command.
     let (status, info) = server.post(None, "/v1/info", &json!({}));
     assert_eq!(status, 200);
     assert_eq!(info["result"]["contract_version"], json!("1"));
@@ -405,6 +406,7 @@ fn the_transport_is_the_contracts() {
         info["result"]["server"]["version"],
         json!(env!("CARGO_PKG_VERSION"))
     );
+    assert_eq!(info["result"]["capabilities"], json!(["team.admin"]));
 
     // An unknown path is 404 whatever the method; a known one that is not a POST is refused.
     let (status, envelope) = server.post(None, "/v1/team/delete", &json!({}));
@@ -816,6 +818,769 @@ fn a_team_is_not_taken_in_from_a_file_that_holds_no_join_secret_for_it() {
     server.stop();
 }
 
+/// A member as the roster shows it to `credential`: the one whose label is `human_label`.
+fn member_labelled(server: &Server, credential: &str, team_ref: &str, human_label: &str) -> Value {
+    let roster = server.ok(credential, "/v1/team/members", &json!({"team_ref": team_ref}));
+    roster["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|member| member["human_label"] == json!(human_label))
+        .unwrap_or_else(|| panic!("{human_label} is not on the roster: {roster}"))
+        .clone()
+}
+
+/// Joins a team as a new principal and returns its credential and its principal.
+fn join(server: &Server, secret: &str, human_label: &str) -> (String, String) {
+    let (status, joined) = server.post(
+        None,
+        "/v1/team/join",
+        &json!({"join_secret": secret, "human_label": human_label}),
+    );
+    assert_eq!(status, 200, "{joined}");
+    (
+        text(&joined["result"], "credential"),
+        text(&joined["result"], "principal_ref"),
+    )
+}
+
+/// The status and the `error` of a request that is refused.
+fn refused(server: &Server, credential: Option<&str>, path: &str, body: &Value) -> (u16, Value) {
+    let (status, envelope) = server.post(credential, path, body);
+    assert_eq!(envelope["ok"], json!(false), "{path}: {envelope}");
+    (status, envelope["error"].clone())
+}
+
+#[test]
+fn the_owner_rotates_revokes_bans_and_transfers_and_all_of_it_survives_a_kill() {
+    let scratch = Scratch::new("administration");
+    let arguments = log_arguments("file", &scratch);
+    let server = Server::start(&scratch, &arguments);
+    let (alice, bob, first) = team_of_two(&server);
+    let team = json!({"team_ref": alice.team_ref});
+    let bob_ref = text(
+        &member_labelled(&server, &alice.credential, &alice.team_ref, "bob"),
+        "principal_ref",
+    );
+    let alice_ref = text(
+        &member_labelled(&server, &alice.credential, &alice.team_ref, "alice"),
+        "principal_ref",
+    );
+
+    // Only the owner is answered. A member that is not the owner reads what a stranger to a team that
+    // does not exist reads, byte for byte, and a request with no credential is told that first.
+    let uniform = refused(
+        &server,
+        Some(&bob.credential),
+        "/v1/team/members",
+        &json!({"team_ref": "no-such-team"}),
+    );
+    assert_eq!(uniform.0, 403);
+    assert_eq!(text(&uniform.1, "code"), "unauthorized");
+    for (path, body) in [
+        ("/v1/team/rotate-secret", team.clone()),
+        (
+            "/v1/team/revoke-member",
+            json!({"team_ref": alice.team_ref, "principal_ref": alice_ref}),
+        ),
+        (
+            "/v1/team/revoke-member",
+            json!({"team_ref": alice.team_ref, "joined_secret_version_lte": 1}),
+        ),
+        (
+            "/v1/team/transfer",
+            json!({"team_ref": alice.team_ref, "principal_ref": bob_ref}),
+        ),
+    ] {
+        assert_eq!(
+            refused(&server, Some(&bob.credential), path, &body),
+            uniform,
+            "{path}"
+        );
+        let mut nowhere = body.clone();
+        nowhere["team_ref"] = json!("no-such-team");
+        assert_eq!(
+            refused(&server, Some(&alice.credential), path, &nowhere),
+            uniform,
+            "{path}"
+        );
+        let (status, error) = refused(&server, None, path, &body);
+        assert_eq!(
+            (status, text(&error, "code").as_str()),
+            (401, "unauthenticated"),
+            "{path}"
+        );
+    }
+
+    // A rotation: the five members of the contract's result, a secret for the same team, version two.
+    let rotated = server.ok(&alice.credential, "/v1/team/rotate-secret", &team);
+    let second = text(&rotated, "join_secret");
+    let mut members: Vec<&String> = rotated.as_object().unwrap().keys().collect();
+    members.sort();
+    assert_eq!(
+        members,
+        [
+            "join_secret",
+            "rotated_at",
+            "secret_version",
+            "team_name",
+            "team_ref"
+        ]
+    );
+    assert_eq!(
+        (
+            &rotated["team_ref"],
+            &rotated["team_name"],
+            &rotated["secret_version"]
+        ),
+        (&json!(alice.team_ref), &json!("ops"), &json!(2))
+    );
+    assert!(text(&rotated, "rotated_at").ends_with('Z'));
+    assert!(second.starts_with(&format!("brg1.{}.", alice.team_ref)));
+    assert_ne!(second, first);
+    // The secret the team had no longer joins, and is refused as one it never had is.
+    let never = format!("brg1.{}.{}", alice.team_ref, "0".repeat(32));
+    let rejected = refused(&server, None, "/v1/team/join", &json!({"join_secret": never}));
+    assert_eq!(
+        (rejected.0, text(&rejected.1, "code").as_str()),
+        (403, "unauthorized")
+    );
+    for credential in [None, Some(bob.credential.as_str())] {
+        assert_eq!(
+            refused(
+                &server,
+                credential,
+                "/v1/team/join",
+                &json!({"join_secret": first})
+            ),
+            rejected
+        );
+    }
+    // No member was touched: both are on the roster, at the version they joined with, and a member that
+    // joins with the new secret is of its version.
+    let (carol, carol_ref) = join(&server, &second, "carol");
+    register(&server, &carol, &alice.team_ref, "gamma");
+    let version = |label: &str| {
+        member_labelled(&server, &alice.credential, &alice.team_ref, label)["joined_secret_version"].clone()
+    };
+    assert_eq!(
+        (version("alice"), version("bob"), version("carol")),
+        (json!(1), json!(1), json!(2))
+    );
+
+    // The step after a rotation: everyone that joined with the old secret, except the owner.
+    let swept = server.ok(
+        &alice.credential,
+        "/v1/team/revoke-member",
+        &json!({"team_ref": alice.team_ref, "joined_secret_version_lte": 1}),
+    );
+    assert_eq!(
+        swept,
+        json!({"team_ref": alice.team_ref, "max_version": 1, "revoked": 1, "sessions_closed": 1})
+    );
+    let list = json!({"team_ref": alice.team_ref});
+    assert_eq!(
+        refused(&server, Some(&bob.credential), "/v1/session/list", &list),
+        uniform
+    );
+    // He comes back through the new secret as the member he was.
+    let back = server.ok(&bob.credential, "/v1/team/join", &json!({"join_secret": second}));
+    assert_eq!(
+        (&back["rejoined"], &back["principal_ref"]),
+        (&json!(true), &json!(bob_ref))
+    );
+    assert_eq!(version("bob"), json!(2));
+
+    // One member revoked, banned, and the ban lifted.
+    let revoke = |ban: Option<bool>| {
+        let mut body = json!({"team_ref": alice.team_ref, "principal_ref": carol_ref});
+        if let Some(ban) = ban {
+            body["ban"] = json!(ban);
+        }
+        server.ok(&alice.credential, "/v1/team/revoke-member", &body)
+    };
+    let answer = |status: &str, changed: bool, sessions_closed: u32| {
+        json!({
+            "team_ref": alice.team_ref, "principal_ref": carol_ref, "status": status,
+            "changed": changed, "sessions_closed": sessions_closed,
+        })
+    };
+    assert_eq!(revoke(None), answer("revoked", true, 1));
+    assert_eq!(revoke(None), answer("revoked", false, 0));
+    assert_eq!(refused(&server, Some(&carol), "/v1/session/list", &list), uniform);
+    let rejoin = json!({"join_secret": second});
+    assert_eq!(
+        server.ok(&carol, "/v1/team/join", &rejoin)["rejoined"],
+        json!(true)
+    );
+    assert_eq!(revoke(Some(true)), answer("banned", true, 0));
+    // A banned principal's join is the rejected join: the bytes a wrong secret gets, with the right one.
+    assert_eq!(refused(&server, Some(&carol), "/v1/team/join", &rejoin), rejected);
+    assert_eq!(revoke(Some(false)), answer("revoked", true, 0));
+    assert_eq!(
+        server.ok(&carol, "/v1/team/join", &rejoin)["rejoined"],
+        json!(true)
+    );
+    assert_eq!(revoke(Some(true)), answer("banned", true, 0));
+
+    // What the owner may not ask is the request's fault, and names the member.
+    for (path, body) in [
+        (
+            "/v1/team/revoke-member",
+            json!({"team_ref": alice.team_ref, "principal_ref": alice_ref}),
+        ),
+        (
+            "/v1/team/revoke-member",
+            json!({"team_ref": alice.team_ref, "principal_ref": bob_ref, "joined_secret_version_lte": 1}),
+        ),
+        (
+            "/v1/team/transfer",
+            json!({"team_ref": alice.team_ref, "principal_ref": carol_ref}),
+        ),
+    ] {
+        let (status, error) = refused(&server, Some(&alice.credential), path, &body);
+        assert_eq!(
+            (
+                status,
+                text(&error, "code").as_str(),
+                text(&error["details"], "field").as_str()
+            ),
+            (400, "invalid_input", "principal_ref"),
+            "{path}"
+        );
+    }
+
+    // A transfer: bob owns the team, and alice is a member whose next administration request is refused.
+    let to_bob = json!({"team_ref": alice.team_ref, "principal_ref": bob_ref});
+    assert_eq!(
+        server.ok(&alice.credential, "/v1/team/transfer", &to_bob),
+        json!({"team_ref": alice.team_ref, "principal_ref": bob_ref, "transferred": true})
+    );
+    assert_eq!(
+        refused(&server, Some(&alice.credential), "/v1/team/rotate-secret", &team),
+        uniform
+    );
+    server.ok(&alice.credential, "/v1/session/list", &list);
+    server.kill();
+
+    // After a kill the records are all there: the owner, the secret, the versions and the ban.
+    let server = Server::start(&scratch, &arguments);
+    assert_eq!(
+        refused(&server, Some(&alice.credential), "/v1/team/rotate-secret", &team),
+        uniform
+    );
+    assert_eq!(refused(&server, Some(&carol), "/v1/team/join", &rejoin), rejected);
+    assert_eq!(
+        refused(&server, None, "/v1/team/join", &json!({"join_secret": first})),
+        rejected
+    );
+    assert_eq!(
+        (
+            member_labelled(&server, &bob.credential, &alice.team_ref, "alice")["joined_secret_version"]
+                .clone(),
+            member_labelled(&server, &bob.credential, &alice.team_ref, "bob")["joined_secret_version"]
+                .clone()
+        ),
+        (json!(1), json!(2))
+    );
+    let third = server.ok(&bob.credential, "/v1/team/rotate-secret", &team);
+    assert_eq!(third["secret_version"], json!(3));
+    // A stop writes a snapshot, and a start from it holds the same.
+    server.stop();
+    let server = Server::start(&scratch, &arguments);
+    assert_eq!(refused(&server, Some(&carol), "/v1/team/join", &rejoin), rejected);
+    assert_eq!(
+        server.ok(&bob.credential, "/v1/team/rotate-secret", &team)["secret_version"],
+        json!(4)
+    );
+    // Nothing the server wrote about itself holds a join secret.
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    for secret in [&first, &second, &text(&third, "join_secret")] {
+        assert!(!said.contains(secret.rsplit('.').next().unwrap()), "{said}");
+    }
+    server.stop();
+}
+
+#[test]
+fn a_receive_that_waits_is_refused_within_a_second_of_its_members_revocation() {
+    let scratch = Scratch::new("waits-revoked");
+    let server = Arc::new(Server::start(&scratch, &log_arguments("file", &scratch)));
+    let (alice, bob, secret) = team_of_two(&server);
+    let (carol, _) = join(&server, &secret, "carol");
+    let carol_session = register(&server, &carol, &alice.team_ref, "gamma");
+    let bob_ref = text(
+        &member_labelled(&server, &alice.credential, &alice.team_ref, "bob"),
+        "principal_ref",
+    );
+    // A receive with long to wait, and the moment its answer came.
+    let waiting = |credential: &str, session: &str| {
+        let (server, credential) = (Arc::clone(&server), credential.to_owned());
+        let request = json!({"session_id": session, "wait_seconds": 25});
+        std::thread::spawn(move || {
+            let (status, envelope) = server.post(Some(&credential), "/v1/message/receive", &request);
+            (status, envelope, Instant::now())
+        })
+    };
+
+    // The owner revokes one member by its principal.
+    let held = waiting(&bob.credential, &bob.session);
+    std::thread::sleep(Duration::from_millis(400));
+    let asked = Instant::now();
+    server.ok(
+        &alice.credential,
+        "/v1/team/revoke-member",
+        &json!({"team_ref": alice.team_ref, "principal_ref": bob_ref}),
+    );
+    let (status, envelope, answered) = held.join().unwrap();
+    assert_eq!(
+        (status, text(&envelope["error"], "code").as_str()),
+        (403, "unauthorized")
+    );
+    let took = answered.saturating_duration_since(asked);
+    assert!(took < Duration::from_secs(1), "answered after {took:?}");
+
+    // The owner revokes every member that joined with the first secret.
+    let held = waiting(&carol, &carol_session);
+    std::thread::sleep(Duration::from_millis(400));
+    let asked = Instant::now();
+    let swept = server.ok(
+        &alice.credential,
+        "/v1/team/revoke-member",
+        &json!({"team_ref": alice.team_ref, "joined_secret_version_lte": 1}),
+    );
+    assert_eq!(swept["revoked"], json!(1));
+    let (status, envelope, answered) = held.join().unwrap();
+    assert_eq!(
+        (status, text(&envelope["error"], "code").as_str()),
+        (403, "unauthorized")
+    );
+    let took = answered.saturating_duration_since(asked);
+    assert!(took < Duration::from_secs(1), "answered after {took:?}");
+
+    // The owner's own receive is not disturbed by either: it waits its time out and is answered empty.
+    let request = json!({"session_id": alice.session, "wait_seconds": 1});
+    let (status, envelope) = server.post(Some(&alice.credential), "/v1/message/receive", &request);
+    assert_eq!((status, envelope["result"]["messages"].clone()), (200, json!([])));
+}
+
+/// Runs the command that names a team's owner on `scratch`'s data directory, and returns its status and
+/// everything it wrote.
+fn set_owner(
+    scratch: &Scratch,
+    log: &[String],
+    team_ref: &str,
+    principal_ref: &str,
+) -> (Option<i32>, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+        .arg("--data")
+        .arg(scratch.path("data"))
+        .args(log)
+        .args(["--set-owner", team_ref, "--principal", principal_ref])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let wrote = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.code(), wrote)
+}
+
+#[test]
+fn the_first_to_join_a_team_that_was_taken_in_owns_it_and_the_operator_can_name_another() {
+    let scratch = Scratch::new("owner");
+    let arguments = log_arguments("file", &scratch);
+    let (file, secret) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
+    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    assert_eq!(status, Some(0), "{wrote}");
+    let team = json!({"team_ref": ELSEWHERE});
+
+    // The first member to join over HTTP owns the team: she rotates its secret, which keeps the reference
+    // the team came with, and the member that joins after her does not.
+    let server = Server::start(&scratch, &arguments);
+    let (alice, alice_ref) = join(&server, &secret, "alice");
+    let rotated = server.ok(&alice, "/v1/team/rotate-secret", &team);
+    let second = text(&rotated, "join_secret");
+    assert_eq!(
+        (&rotated["team_ref"], &rotated["secret_version"]),
+        (&json!(ELSEWHERE), &json!(2))
+    );
+    assert!(second.starts_with(&format!("brg1.{ELSEWHERE}.")));
+    let (bob, bob_ref) = join(&server, &second, "bob");
+    let (carol, carol_ref) = join(&server, &second, "carol");
+    server.ok(&carol, "/v1/team/leave", &team);
+    let (status, error) = refused(&server, Some(&bob), "/v1/team/rotate-secret", &team);
+    assert_eq!((status, text(&error, "code").as_str()), (403, "unauthorized"));
+
+    // While the server runs on the directory no owner is named beside it.
+    let (status, wrote) = set_owner(&scratch, &arguments, ELSEWHERE, &bob_ref);
+    assert_eq!(status, Some(1), "{wrote}");
+    assert!(wrote.contains("another server is running"), "{wrote}");
+    assert_eq!(
+        refused(&server, Some(&bob), "/v1/team/rotate-secret", &team).0,
+        403
+    );
+    server.stop();
+
+    // A team the server does not hold, a principal that never was a member of the team and one that
+    // left it are refused in one line each, which repeats nothing that was typed.
+    let not_named = |team_ref: &str, principal_ref: &str, why: &str| {
+        let (status, wrote) = set_owner(&scratch, &arguments, team_ref, principal_ref);
+        assert_eq!(status, Some(1), "{wrote}");
+        let refusal: Vec<&str> = wrote
+            .lines()
+            .filter(|line| line.contains("the owner was not named"))
+            .collect();
+        assert_eq!(refusal.len(), 1, "{wrote}");
+        assert!(refusal[0].ends_with(why), "{wrote}");
+        assert!(!wrote.contains("owned by"), "{wrote}");
+        assert!(
+            !wrote.contains(team_ref) && !wrote.contains(principal_ref),
+            "{wrote}"
+        );
+    };
+    not_named(
+        "typed-no-such-team",
+        &bob_ref,
+        "the owner was not named: not_found: the server holds no team of that reference",
+    );
+    let not_a_member =
+        "the owner was not named: invalid_input: principal_ref must be an active member of this team";
+    not_named(
+        ELSEWHERE.to_uppercase().as_str(),
+        &bob_ref,
+        "the server holds no team of that reference",
+    );
+    for principal_ref in ["typed-no-such-principal", carol_ref.as_str()] {
+        let (status, wrote) = set_owner(&scratch, &arguments, ELSEWHERE, principal_ref);
+        assert_eq!(status, Some(1), "{wrote}");
+        assert!(wrote.contains(not_a_member), "{wrote}");
+        assert!(
+            !wrote.contains(principal_ref) && !wrote.contains("owned by"),
+            "{wrote}"
+        );
+    }
+    // The member that already owns the team: the command says so and changes nothing.
+    let (status, wrote) = set_owner(&scratch, &arguments, ELSEWHERE, &alice_ref);
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(
+        wrote.contains(&format!(
+            "team \"ops\" ({ELSEWHERE}) is already owned by {alice_ref} (\"alice\"): nothing changed"
+        )),
+        "{wrote}"
+    );
+    // Another member: one line that names the team and its owner, and nothing is served.
+    let (status, wrote) = set_owner(&scratch, &arguments, ELSEWHERE, &bob_ref);
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(
+        wrote.contains(&format!(
+            "team \"ops\" ({ELSEWHERE}) is now owned by {bob_ref} (\"bob\")"
+        )),
+        "{wrote}"
+    );
+    assert!(!wrote.contains("listening on"), "{wrote}");
+    // The command serves nothing, so it is refused with what serving takes, and with the other command.
+    for others in [
+        &["--listen", "127.0.0.1:0"][..],
+        &["--import-team", "ops", "--join-secret-file", "f"][..],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+            .arg("--data")
+            .arg(scratch.path("untouched"))
+            .args(["--set-owner", ELSEWHERE, "--principal", &alice_ref])
+            .args(others)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{others:?}");
+        assert!(!scratch.path("untouched").exists());
+    }
+
+    // The server that starts again serves the owner the operator named, and the owner before him is a
+    // member like any other.
+    let server = Server::start(&scratch, &arguments);
+    assert_eq!(
+        server.ok(&bob, "/v1/team/rotate-secret", &team)["secret_version"],
+        json!(3)
+    );
+    let (status, error) = refused(&server, Some(&alice), "/v1/team/rotate-secret", &team);
+    assert_eq!((status, text(&error, "code").as_str()), (403, "unauthorized"));
+    assert_eq!(
+        server.ok(&alice, "/v1/team/members", &team)["members"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    server.stop();
+}
+
+/// Runs the command that takes a team back on `scratch`'s data directory, and returns its status and
+/// everything it wrote.
+fn take_back(scratch: &Scratch, log: &[String], team_ref: &str, secret_file: &Path) -> (Option<i32>, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+        .arg("--data")
+        .arg(scratch.path("data"))
+        .args(log)
+        .args(["--take-back", team_ref, "--secret-file"])
+        .arg(secret_file)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let wrote = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.code(), wrote)
+}
+
+#[test]
+fn the_operator_takes_back_a_team_whose_first_joiner_put_everyone_else_out() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let scratch = Scratch::new("take-back");
+    let arguments = log_arguments("file", &scratch);
+    let (file, first) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
+    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    assert_eq!(status, Some(0), "{wrote}");
+    let team = json!({"team_ref": ELSEWHERE});
+
+    // The secret leaked. Whoever had it joined first and so owns the team; the team's admin and a colleague
+    // joined after. The owner rotates the secret and revokes everyone who joined with the old one: the
+    // admin is out, holds no secret that joins, and nobody the operator could name is a member.
+    let server = Server::start(&scratch, &arguments);
+    let (mallory, _) = join(&server, &first, "mallory");
+    let (alice, alice_ref) = join(&server, &first, "alice");
+    let (bob, _) = join(&server, &first, "bob");
+    register(&server, &alice, ELSEWHERE, "alpha");
+    let second = text(
+        &server.ok(&mallory, "/v1/team/rotate-secret", &team),
+        "join_secret",
+    );
+    let swept = server.ok(
+        &mallory,
+        "/v1/team/revoke-member",
+        &json!({"team_ref": ELSEWHERE, "joined_secret_version_lte": 1}),
+    );
+    assert_eq!(swept["revoked"], json!(2));
+    let rejected = refused(
+        &server,
+        Some(&alice),
+        "/v1/team/join",
+        &json!({"join_secret": first}),
+    );
+    assert_eq!(rejected.0, 403);
+
+    // While the server runs on the directory no team is taken back beside it, and nothing is left where
+    // the secret was to go.
+    let new_secret = scratch.path("ops.new-secret");
+    let unfinished = scratch.path(".ops.new-secret.unfinished");
+    let (status, wrote) = take_back(&scratch, &arguments, ELSEWHERE, &new_secret);
+    assert_eq!(status, Some(1), "{wrote}");
+    assert!(wrote.contains("another server is running"), "{wrote}");
+    assert!(!new_secret.exists() && !unfinished.exists());
+    server.stop();
+    let (status, wrote) = set_owner(&scratch, &arguments, ELSEWHERE, &alice_ref);
+    assert_eq!(status, Some(1), "{wrote}");
+
+    // The place of the secret is checked before anything is changed: a path that is not absolute, a
+    // directory that is not there and a file that is are refused in one line each, which does not repeat
+    // the path. So is a team the server does not hold, and it leaves no file behind.
+    let not_taken = |team_ref: &str, path: &Path, why: &str| {
+        let (status, wrote) = take_back(&scratch, &arguments, team_ref, path);
+        assert_eq!(status, Some(1), "{wrote}");
+        let refusal: Vec<&str> = wrote
+            .lines()
+            .filter(|line| line.contains("the team was not taken back: "))
+            .collect();
+        assert_eq!(refusal.len(), 1, "{wrote}");
+        assert!(refusal[0].ends_with(why), "{wrote}");
+        assert!(!wrote.contains("took back team"), "{wrote}");
+        assert!(!wrote.contains(&path.display().to_string()), "{wrote}");
+        assert!(!unfinished.exists());
+    };
+    not_taken(
+        ELSEWHERE,
+        Path::new("typed/ops.new-secret"),
+        "--secret-file takes an absolute path",
+    );
+    not_taken(
+        ELSEWHERE,
+        &scratch.path("no-such-directory/ops.new-secret"),
+        "the directory of the file --secret-file names is not there",
+    );
+    not_taken(
+        ELSEWHERE,
+        &file,
+        "the file --secret-file names is there already, and nothing is written over: name a file that is not \
+         there",
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), format!("{first}\n"));
+    not_taken(
+        "typed-no-such-team",
+        &new_secret,
+        "not_found: the server holds no team of that reference",
+    );
+    assert!(!new_secret.exists());
+
+    // The team is taken back: one line that names the team, how many memberships ended and the file, and
+    // nothing of the secret. The file is its owner's alone and holds a join secret for the same team.
+    let (status, wrote) = take_back(&scratch, &arguments, ELSEWHERE, &new_secret);
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(
+        wrote.contains(&format!(
+            "took back team \"ops\" ({ELSEWHERE}): ended 1 membership, and its new join secret is in {new_secret:?}"
+        )),
+        "{wrote}"
+    );
+    assert!(!wrote.contains("listening on"), "{wrote}");
+    assert_eq!(
+        std::fs::metadata(&new_secret).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(!unfinished.exists());
+    let held = std::fs::read_to_string(&new_secret).unwrap();
+    let third = held.strip_suffix('\n').expect("one line");
+    let random = third
+        .strip_prefix(&format!("brg1.{ELSEWHERE}."))
+        .expect("a join secret for the same team");
+    assert_eq!(random.len(), 32);
+    assert!(random.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    assert!(third != first && third != second);
+    assert!(!wrote.contains(random), "{wrote}");
+    // Asked again with the same file it writes over nothing, and the team is as it was.
+    not_taken(
+        ELSEWHERE,
+        &new_secret,
+        "the file --secret-file names is there already, and nothing is written over: name a file that is not \
+         there",
+    );
+    assert_eq!(std::fs::read_to_string(&new_secret).unwrap(), held);
+
+    // The server that starts again holds a team with no member and no owner. Neither the secret that
+    // leaked nor the one its owner rotated to joins, whoever presents it, and the owner it had is refused
+    // as any stranger is.
+    let server = Server::start(&scratch, &arguments);
+    for old in [&first, &second] {
+        for credential in [None, Some(mallory.as_str()), Some(alice.as_str())] {
+            assert_eq!(
+                refused(&server, credential, "/v1/team/join", &json!({"join_secret": old})),
+                rejected
+            );
+        }
+    }
+    for (path, body) in [
+        ("/v1/team/rotate-secret", team.clone()),
+        ("/v1/team/members", team.clone()),
+        (
+            "/v1/team/transfer",
+            json!({"team_ref": ELSEWHERE, "principal_ref": alice_ref}),
+        ),
+    ] {
+        let (status, error) = refused(&server, Some(&mallory), path, &body);
+        assert_eq!(
+            (status, text(&error, "code").as_str()),
+            (403, "unauthorized"),
+            "{path}"
+        );
+    }
+    // The admin joins with the secret from the file, as the member she was, and is the team's owner: she
+    // is its one member, and she administers it.
+    let back = server.ok(&alice, "/v1/team/join", &json!({"join_secret": third}));
+    assert_eq!(
+        (&back["rejoined"], &back["principal_ref"]),
+        (&json!(true), &json!(alice_ref))
+    );
+    let members = server.ok(&alice, "/v1/team/members", &team);
+    assert_eq!(members["members"].as_array().unwrap().len(), 1, "{members}");
+    assert_eq!(members["members"][0]["joined_secret_version"], json!(3));
+    // A member that joins after her is a member, and does not own the team.
+    let back = server.ok(&bob, "/v1/team/join", &json!({"join_secret": third}));
+    assert_eq!(back["rejoined"], json!(true));
+    assert_eq!(
+        refused(&server, Some(&bob), "/v1/team/rotate-secret", &team).0,
+        403
+    );
+    assert_eq!(
+        server.ok(&alice, "/v1/team/rotate-secret", &team)["secret_version"],
+        json!(4)
+    );
+    // Nothing the server wrote about itself holds a join secret.
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    for secret in [&first, &second, third] {
+        assert!(!said.contains(secret.rsplit('.').next().unwrap()), "{said}");
+    }
+    server.stop();
+}
+
+#[test]
+fn a_gateway_that_joins_a_team_that_was_taken_in_first_does_not_own_it() {
+    let scratch = Scratch::new("gateway-first");
+    let mut arguments = log_arguments("file", &scratch);
+    let (file, secret) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
+    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    assert_eq!(status, Some(0), "{wrote}");
+
+    // A Slack gateway for the team. Every secret is an obvious fake, and its Slack is an address nothing
+    // listens on: a gateway with nothing to carry asks Slack nothing.
+    let put = |name: &str, held: &str| {
+        let path = scratch.path(name);
+        std::fs::write(&path, format!("{held}\n")).unwrap();
+        path.display().to_string()
+    };
+    let config = json!({"slack": {
+        "bot_token_file": put("slack-bot-token", "xoxb-FAKE-BOT-TOKEN-MUST-NOT-LEAK"),
+        "signing_secret_file": put("slack-signing-secret", "fake-signing-secret-MUST-NOT-LEAK"),
+        "api": "http://127.0.0.1:1/api",
+        "teams": [{"join_secret_file": file.display().to_string()}],
+    }});
+    let gateways = scratch.path("gateways.json");
+    std::fs::write(&gateways, config.to_string()).unwrap();
+    arguments.extend(["--gateway-config".to_owned(), gateways.display().to_string()]);
+
+    // The gateway takes its place before the server listens, so it is the team's first member. It joined
+    // inside the server, and such a join never owns: the team still has no owner.
+    let server = Server::start(&scratch, &arguments);
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    assert!(said.contains("the slack gateway joined team ops"), "{said}");
+    let state: Value =
+        serde_json::from_slice(&std::fs::read(scratch.path("data/gateway/state.json")).unwrap()).unwrap();
+    let gateway = text(&state["memberships"][0], "credential");
+    let team = json!({"team_ref": ELSEWHERE});
+    let roster = server.ok(&gateway, "/v1/team/members", &team);
+    assert_eq!(roster["members"].as_array().unwrap().len(), 1, "{roster}");
+    let (status, error) = refused(&server, Some(&gateway), "/v1/team/rotate-secret", &team);
+    assert_eq!((status, text(&error, "code").as_str()), (403, "unauthorized"));
+
+    // The first member to join over HTTP is the second member of the team, and its owner.
+    let (alice, alice_ref) = join(&server, &secret, "alice");
+    assert_eq!(
+        server.ok(&alice, "/v1/team/members", &team)["members"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        server.ok(&alice, "/v1/team/rotate-secret", &team)["secret_version"],
+        json!(2)
+    );
+    assert_eq!(
+        server.ok(
+            &alice,
+            "/v1/team/transfer",
+            &json!({"team_ref": ELSEWHERE, "principal_ref": alice_ref})
+        )["transferred"],
+        json!(true)
+    );
+    assert_eq!(
+        refused(&server, Some(&gateway), "/v1/team/rotate-secret", &team).0,
+        403
+    );
+    server.stop();
+}
+
 #[test]
 fn the_listener_refuses_plain_http_off_loopback_before_it_touches_the_directory() {
     let scratch = Scratch::new("listen");
@@ -949,14 +1714,24 @@ fn the_server_serves_tls_itself_when_it_is_given_a_certificate() {
     assert!(!String::from_utf8_lossy(&response).contains("contract_version"));
 }
 
-/// The fingerprint in the server's start line, as `sha256:<hex>`.
+/// The fingerprint in the server's start line, as `sha256:<hex>`. The server writes where it listens before
+/// it says so, and a start is known by the first, so the line is waited for: read at once, it is sometimes
+/// not there yet on a loaded machine.
 fn said_fingerprint(scratch: &Scratch) -> String {
-    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
-    let from = said
-        .rfind("(certificate sha256:")
-        .expect("a start line that names the certificate")
-        + 13;
-    said[from..from + 71].to_owned()
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+        if let Some(at) = said.rfind("(certificate sha256:")
+            && said.len() >= at + 13 + 71
+        {
+            return said[at + 13..at + 13 + 71].to_owned();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no start line that names the certificate: {said}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[test]

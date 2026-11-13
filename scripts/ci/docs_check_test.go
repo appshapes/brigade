@@ -37,9 +37,13 @@ func TestDocsGatePassesOnTheRepository(t *testing.T) {
 
 // docsSkipDirs are the parts of the repository the copy leaves out: build output, caches, the git directory and
 // the research evidence directories (the gate reads only docs/research's top-level pages, which links name).
+// server/target is the Rust workspace's build output, there once `make server-build` or `make server-test` has
+// run: 12 GB on 2026-11-12, which every planted violation below would otherwise copy for itself, so that
+// `make test` outlived its 15 minutes in a checkout where the server had been built.
 var docsSkipDirs = map[string]bool{
 	".git": true, "bin": true, "dist": true, "dist-cross": true, "node_modules": true, ".ignored": true,
 	".claude/worktrees": true, ".playwright-cli": true, "supabase/.temp": true, "scripts/ci/testdata": true,
+	"server/target": true,
 }
 
 // copyDocsTree copies the repository's regular files under a fresh temporary directory, so a mutation can be

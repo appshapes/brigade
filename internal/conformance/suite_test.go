@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"flag"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,18 +28,27 @@ var conformanceSeed = flag.Int64("conformance-seed", 0,
 	"case order for TestConformanceFSWholeRun (0: derived from the clock at test start)")
 
 // wholeRunPass, wholeRunFail and wholeRunSkip are the counts the fs
-// adapter must produce for the whole non-slow run: every case but C-14
-// passes (C-44 included: the fs adapter advertises session.model and
-// session.context_used_tokens; C-45 included: it advertises
-// session.human_label; C-46 included: it advertises
+// adapter must produce for the whole non-slow run: every case it has the
+// capability for passes but C-14 (C-44 included: the fs adapter advertises
+// session.model and session.context_used_tokens; C-45 included: it
+// advertises session.human_label; C-46 included: it advertises
 // session.brigade_version; C-47 included: it advertises
-// session.sync_peer), C-14 is the one skip (it is tagged slow), nothing
-// fails.
+// session.sync_peer); C-14 is a skip (it is tagged slow) and so are C-48,
+// C-49 and C-50 (the fs adapter has no team administration, fsLacks);
+// nothing fails.
 const (
 	wholeRunPass = 48
 	wholeRunFail = 0
-	wholeRunSkip = 1
+	wholeRunSkip = 4
 )
+
+// fsLacks is the one capability a case needs that the fs adapter does not
+// advertise: team.admin, the three administration commands of 4.4.10. It
+// is left out on purpose (the adapter is the minimal second implementation,
+// and the stand-in server of internal/adapters/rest/stub is where the
+// suite runs those cases without a backend), so C-48, C-49 and C-50 are
+// reported SKIP against it and nothing else is.
+const fsLacks = "team.admin"
 
 // runSuite runs the suite in-process against adapter with the given
 // selection and returns the exit code and the parsed report. The test
@@ -63,22 +73,32 @@ func runSuite(tb testing.TB, adapter string, opts conformance.Options) (int, con
 
 // TestConformanceFS runs every case against the fs adapter, one subtest
 // per case in its own run directory. A skip is a failure here: the fs
-// adapter advertises every capability the cases need, and the slow cases
-// run unless -short.
+// adapter advertises every capability the cases need but fsLacks, and the
+// slow cases run unless -short. A case that needs fsLacks must be reported
+// SKIP for exactly that reason, so the three of them are pinned too.
 func TestConformanceFS(t *testing.T) {
 	t.Parallel()
 	adapter := testutil.Build(t, "./cmd/brigade-adapter-fs")
+	lacking := 0
 	for _, c := range cases.All() {
+		want, reason := conformance.StatusPass, ""
+		if slices.Contains(c.RequiredCapabilities(), fsLacks) {
+			want, reason = conformance.StatusSkip, "capability not advertised: "+fsLacks
+			lacking++
+		}
 		t.Run(c.ID, func(t *testing.T) {
 			t.Parallel()
 			if c.IsSlow() && testing.Short() {
 				t.Skip("slow case under -short")
 			}
 			code, rep, stderr := runSuite(t, adapter, conformance.Options{Only: []string{c.ID}, Slow: !testing.Short()})
-			if code != conformance.ExitPass || len(rep.Results) != 1 || rep.Results[0].Status != conformance.StatusPass {
-				t.Fatalf("%s: exit %d, results %+v\n%s", c.ID, code, rep.Results, stderr)
+			if code != conformance.ExitPass || len(rep.Results) != 1 || rep.Results[0].Status != want || rep.Results[0].Reason != reason {
+				t.Fatalf("%s: exit %d, results %+v, want %s %q\n%s", c.ID, code, rep.Results, want, reason, stderr)
 			}
 		})
+	}
+	if lacking != 3 {
+		t.Errorf("%d cases need %s, want exactly C-48, C-49 and C-50", lacking, fsLacks)
 	}
 }
 

@@ -8,18 +8,28 @@ import (
 // adapterName is the `adapter.name` of 4.4.1.
 const adapterName = progName
 
+// capTeamAdmin is the capability of the three administration commands
+// (4.7), and the name a server lists in `/v1/info` when it carries their
+// endpoints (the contract's section 3a).
+const capTeamAdmin = "team.admin"
+
 // capabilities is the 4.7 registry entries this adapter advertises: what
 // the contract's section 5 requires of every version 1 server (the three
-// team conventions and the nine session members), `message.receive`, and
-// the two the adapter earns itself: `message.watch.push`, because a
-// waiting receive answers within a second of an acceptance (section 4),
-// and `message.watch.stdin_commands`. `team.admin` is not in version 1.
-// The list is fixed: describe never asks the server anything.
+// team conventions and the nine session members), `message.receive`, the
+// two the adapter earns itself (`message.watch.push`, because a waiting
+// receive answers within a second of an acceptance, section 4, and
+// `message.watch.stdin_commands`), and `team.admin`, the administration
+// endpoints of section 3a, which a server may leave out. The list is
+// fixed, because describe never asks the server anything: whether this
+// profile's server carries those endpoints is asked before each
+// administration command, which answers `config` when it does not
+// (requireTeamAdmin).
 func capabilities() []string {
 	return []string{
 		"team.create",
 		"team.join",
 		"team.roster",
+		capTeamAdmin,
 		"message.receive",
 		"message.watch.push",
 		"message.watch.stdin_commands",

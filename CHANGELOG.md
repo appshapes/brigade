@@ -11,6 +11,32 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ### Added
 
+- **A team on a Brigade server can be administered** (work item 274).
+  `brigade team rotate-secret`, `brigade team revoke-member` and
+  `brigade team transfer` work on a team whose backend is a Brigade server
+  of 0.4.0 or later, for the team's owner, exactly as they do on a Supabase
+  team: the new secret goes to the file `--secret-file` names and nowhere
+  else, a revoked member is out at once, and a ban holds until it is lifted.
+  A server older than 0.4.0 is told apart before anything is sent, and the
+  command says that the server does not carry the administration commands.
+  Who owns a team that moved to a server, and how the server's operator
+  names another owner, is on
+  [Name a team's owner](docs/project-owner/server/name-the-owner.md).
+- **`brigade team members --json` says which secret each member joined
+  with**, as `joined_secret_version`: 1 for the secret the team was created
+  with, and one more with every rotation. It is what
+  `brigade team revoke-member --max-version` goes by, so an admin can see
+  who an eviction will remove before running it. A backend that does not
+  answer it leaves the member out.
+- **The three administration commands have fixed shapes in the adapter
+  protocol.** BAP/1 called them adapter-defined; section 4.4.10 now gives
+  their requests, results and refusals, which are the Supabase adapter's as
+  they were, so nothing an admin of a Supabase team runs or reads changes.
+  The conformance suite holds every adapter that names `team.admin` to them
+  with three new cases, C-48 to C-50, and the server contract
+  (`docs/backend-rest-v1.md`) gains the three endpoints as a part a server
+  may leave out.
+
 - **`/brigade:whoami` shows who this session is on the team** (work item
   248). It runs `brigade whoami` and prints what it printed, verbatim, among
   its lines the session's ids, name and team, its member label and whether it

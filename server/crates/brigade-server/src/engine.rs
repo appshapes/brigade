@@ -5,8 +5,9 @@
 //! only then sends the answers. So there is one order, the thread's own, and an answer is never ahead of the
 //! disk. The jobs that are waiting when the thread looks share one sync.
 //!
-//! A team the operator takes in from another backend is a job too, of a kind of its own: it changes the
-//! state through the same queue, the same append and the same sync, and is nothing a request can ask for.
+//! A team the operator takes in from another backend is a job too, of a kind of its own, and so are the
+//! owner the operator names for a team and the team the operator takes back: each changes the state through
+//! the same queue, the same append and the same sync, and is nothing a request can ask for.
 //!
 //! A failed append ends the process: the state already holds what the log does not, and nothing may be
 //! answered from it.
@@ -19,7 +20,9 @@ use std::thread::JoinHandle;
 
 use brigade_core::hash::hex;
 use brigade_core::record::LONGEST_ENCODED_BYTES;
-use brigade_core::{Entropy, Entry, Error, Request, State, Timestamp, answer, import_team};
+use brigade_core::{
+    Entropy, Entry, Error, Request, State, Timestamp, answer, import_team, set_owner, take_back,
+};
 use brigade_log::{FileLog, KEY_BYTES, Log, LogError, Position, Sealer};
 use hyper::body::Bytes;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -64,6 +67,8 @@ enum Work {
         caller: Option<String>,
         /// Whether the request may create a team.
         may_create: bool,
+        /// Whether the request's join may own a team that has no owner.
+        may_own: bool,
         path: String,
         body: Bytes,
     },
@@ -75,6 +80,20 @@ enum Work {
         /// The team's whole join secret, as its file held it.
         join_secret: String,
     },
+    /// To name the owner of a team. Like the import it is the operator's alone, and no path reaches it:
+    /// over the network only a team's owner names another, by a transfer.
+    SetOwner {
+        /// The team.
+        team_ref: String,
+        /// The active member that is to own it.
+        principal_ref: String,
+    },
+    /// To take a team back from whoever holds it: a new join secret, no member and no owner. It is the
+    /// operator's alone, as the two before it are.
+    TakeBack {
+        /// The team.
+        team_ref: String,
+    },
 }
 
 /// One piece of work for the engine, and where its answer goes.
@@ -83,7 +102,7 @@ struct Job {
     reply: oneshot::Sender<Result<Value, Error>>,
 }
 
-/// The way to the engine: from the HTTP side, and from the operator's command that takes a team in.
+/// The way to the engine: from the HTTP side, from the gateways, and from the operator's commands.
 #[derive(Clone)]
 pub struct Client {
     jobs: mpsc::Sender<Job>,
@@ -94,18 +113,24 @@ impl Client {
     /// Has the engine answer one request. The body goes to the engine as it arrived: nothing of it is read
     /// before the engine has looked at the credential.
     ///
+    /// `may_create` says whether the request may create a team, and `may_own` whether its join may make
+    /// the caller the owner of a team that has none. A request that came over HTTP may own; one a gateway
+    /// makes inside the server never does.
+    ///
     /// # Errors
     /// The failure the request is answered with; `unavailable` when the server is stopping.
     pub async fn ask(
         &self,
         caller: Option<String>,
         may_create: bool,
+        may_own: bool,
         path: &str,
         body: Bytes,
     ) -> Result<Value, Error> {
         let request = Work::Request {
             caller,
             may_create,
+            may_own,
             path: path.to_owned(),
             body,
         };
@@ -124,6 +149,35 @@ impl Client {
             join_secret: join_secret.to_owned(),
         };
         self.hand(import).await
+    }
+
+    /// Has the engine name `principal_ref` the owner of the team `team_ref`. The record it makes is
+    /// appended and synced before the answer comes, as a request's is.
+    ///
+    /// # Errors
+    /// The failure the rules refuse it with: a team the server does not hold, or a principal that is not an
+    /// active member of it; `unavailable` when the server is stopping.
+    pub async fn set_owner(&self, team_ref: &str, principal_ref: &str) -> Result<Value, Error> {
+        let named = Work::SetOwner {
+            team_ref: team_ref.to_owned(),
+            principal_ref: principal_ref.to_owned(),
+        };
+        self.hand(named).await
+    }
+
+    /// Has the engine take the team `team_ref` back: it gets a new join secret, every membership ends and
+    /// it has no owner. The entry it makes is appended and synced before the answer comes. The answer's
+    /// `join_secret` is the one place the new secret is, so the caller writes it where the operator said
+    /// and nowhere else.
+    ///
+    /// # Errors
+    /// The failure the rules refuse it with, a team the server does not hold; `unavailable` when the
+    /// server is stopping.
+    pub async fn take_back(&self, team_ref: &str) -> Result<Value, Error> {
+        let taken = Work::TakeBack {
+            team_ref: team_ref.to_owned(),
+        };
+        self.hand(taken).await
     }
 
     /// Puts one piece of work on the engine's queue and waits for its answer.
@@ -433,12 +487,14 @@ impl Engine {
                     Work::Request {
                         caller,
                         may_create,
+                        may_own,
                         path,
                         body,
                     } => {
                         let request = Request {
                             caller: caller.as_deref(),
                             may_create: *may_create,
+                            may_own: *may_own,
                             path,
                             body,
                         };
@@ -448,6 +504,13 @@ impl Engine {
                         team_name,
                         join_secret,
                     } => import_team(&mut self.state, team_name, join_secret, now),
+                    Work::SetOwner {
+                        team_ref,
+                        principal_ref,
+                    } => set_owner(&mut self.state, team_ref, principal_ref, now),
+                    Work::TakeBack { team_ref } => {
+                        take_back(&mut self.state, team_ref, now, &mut self.entropy)
+                    }
                 };
                 answers.push(outcome.map(|outcome| {
                     // The records of one request are one entry: the log holds all of them or none.

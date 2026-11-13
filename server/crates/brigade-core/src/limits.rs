@@ -32,6 +32,10 @@ pub const MAX_HARNESS_CHARS: usize = 256;
 /// The largest `context_used_tokens`: 2^53 - 1, the largest integer JSON carries exactly.
 pub const MAX_CONTEXT_USED_TOKENS: i64 = (1 << 53) - 1;
 
+/// The highest secret version a revocation may name: what the reference backend's integer holds (BAP/1
+/// 4.4.10). A team's own count of secrets starts at one and never comes near it.
+pub const MAX_SECRET_VERSION: i64 = 2_147_483_647;
+
 /// One sender session's sends in a minute.
 pub const SEND_RATE_PER_MINUTE: usize = 20;
 /// One sender session's sends in an hour.

@@ -42,6 +42,9 @@ const (
 	reasonBackendResponse     = "unexpected_response"
 	reasonSecretFile          = "secret_file_unwritable" //nolint:gosec // G101: a details.reason token, not a credential
 	reasonCreateTokenFile     = "create_token_file"      //nolint:gosec // G101: a details.reason token, not a credential
+	// reasonServerLacksTeamAdmin: the profile's server does not list
+	// team.admin in /v1/info (the contract's section 5).
+	reasonServerLacksTeamAdmin = "server_lacks_team_admin"
 )
 
 // errUsage refuses argv. The offending argument is never echoed: it could

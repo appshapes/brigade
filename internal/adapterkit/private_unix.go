@@ -10,6 +10,8 @@ import (
 
 func insecureMode(fi fs.FileInfo) bool { return fi.Mode().Perm()&0o077 != 0 }
 
+func ownerReadWriteOnly(fi fs.FileInfo) bool { return fi.Mode().Perm() == 0o600 }
+
 func foreignOwner(fi fs.FileInfo) bool {
 	uid, ok := fileOwnerUID(fi)
 	return !ok || uid != os.Getuid()

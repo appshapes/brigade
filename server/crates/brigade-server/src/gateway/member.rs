@@ -47,7 +47,11 @@ fn text(result: &Value, name: &str) -> String {
     result[name].as_str().unwrap_or_default().to_owned()
 }
 
-/// Joins a team with its secret, as a new principal when `credential` is none.
+/// Joins a team with its secret, as the principal `credential` names when the server knows it, and as a new
+/// principal when `credential` is none or is one the server no longer knows.
+///
+/// A gateway's join never makes it the owner of a team: a team that was taken in and has no owner yet
+/// waits for the first member that joins over HTTP, however early its gateways join.
 ///
 /// # Errors
 /// What the join was refused with: a secret that is not the team's is `unauthorized`.
@@ -60,7 +64,13 @@ pub async fn join(
     let body = json!({"join_secret": join_secret, "human_label": human_label});
     let caller = credential.map(sha256_hex);
     let result = engine
-        .ask(caller, false, "/v1/team/join", Bytes::from(body.to_string()))
+        .ask(
+            caller,
+            false,
+            false,
+            "/v1/team/join",
+            Bytes::from(body.to_string()),
+        )
         .await?;
     Ok(Joined {
         team_ref: text(&result, "team_ref"),
@@ -92,6 +102,7 @@ impl Member {
         self.engine
             .ask(
                 Some(self.caller.clone()),
+                false,
                 false,
                 path,
                 Bytes::from(body.to_string()),

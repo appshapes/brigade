@@ -27,11 +27,12 @@ var errHelp = errors.New("help requested")
 // usageText is the whole help.
 const usageText = "brigade adapter rest" + ` [--profile <name>] [--log-level <l>] <group> <verb> [flags]
 
-groups:  describe | team <create|join|leave|members>
+groups:  describe | team <create|join|leave|members|rotate-secret|revoke-member|transfer>
          session <register|heartbeat|list|close> | message <send|receive|ack|watch>
          profile <init|status|reset|revoke-credentials>
 flags:   --session <id>  --include-offline  --limit <n>  --name  --label  --prompt  --secret-file
          team create: --create-token-file <path>;  profile init: --url <https-url> [--force]
+         team revoke-member: --principal <ref> [--ban] | --max-version <n>;  team transfer: --principal <ref>
 The backend is the profile's (profile init, or the backend member of team join).
 The server's side of every command is docs/backend-rest-v1.md.`
 

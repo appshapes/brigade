@@ -12,9 +12,10 @@ brigade team revoke-member --principal <ref> --ban      # also blocks a rejoin w
 - **A revoke** closes that member's open sessions at once (a running watcher of theirs ends within about a second,
   with the same `unauthorized` a `team leave` produces), removes them from the roster and ends their access to
   their inboxes. They may rejoin with the current secret, as the same principal. Every read filters on active
-  membership, so it takes effect on every path; one lag of at most an hour: a realtime channel the member had
-  already joined keeps receiving message ids, and nothing else, until their access token expires. Measured at
-  about 2 ms on both shipped paths.
+  membership, so it takes effect on every path. On Supabase there is one lag of at most an hour: a realtime
+  channel the member had already joined keeps receiving message ids, and nothing else, until their access token
+  expires; the revoke itself was measured at about 2 ms on both shipped paths. On a Brigade server there is no
+  such lag: a member's waiting request is answered `unauthorized` within a second.
 - **A ban** does all of that and makes the member's rejoin answer *exactly* what a wrong secret answers, so a
   banned member cannot tell it was banned. A banned member is no longer listed by `brigade team members` at all,
   and un-banning (`revoke-member --principal <ref>` without `--ban`) needs the reference.
@@ -23,6 +24,9 @@ brigade team revoke-member --principal <ref> --ban      # also blocks a rejoin w
   is lost, the recovery is a secret rotation plus a fresh principal on the member's side (`brigade team reset`,
   then `brigade team join`).
 - You cannot revoke or ban yourself; leaving is `brigade team leave`, reversible by a rejoin.
+- **On a Brigade server the gateways are members too**, listed as `slack-gateway` and `mail-gateway`. A gateway
+  you revoke is back within a minute, because it joins again with the secret the server holds for it. One you
+  ban stays out until you lift the ban.
 - The response to a hostile teammate who floods the team within the rate limits is this command.
 
 The security discussion: [docs/security.md, section 9](../../security.md#9-running-a-team-and-losing-the-ability-to).

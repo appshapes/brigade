@@ -117,13 +117,15 @@ impl Error {
     }
 
     /// The uniform `unauthorized` of BAP/1 4.5.7: a team that does not exist, a membership that never was
-    /// and one that was revoked are the same bytes.
+    /// and one that was revoked are the same bytes. An administration request is refused with it too, so a
+    /// member that is not the team's owner reads the same bytes as a stranger (the contract's section 3a).
     #[must_use]
     pub fn not_member() -> Self {
         Self::new(Code::Unauthorized, "not an active member of this team")
     }
 
-    /// The uniform `unauthorized` of `team join`: a wrong secret and an unknown team are the same bytes.
+    /// The uniform `unauthorized` of `team join`: a wrong secret, a secret that was rotated away, an unknown
+    /// team and a banned principal are the same bytes.
     #[must_use]
     pub fn secret_rejected() -> Self {
         Self::new(Code::Unauthorized, "join secret rejected")
@@ -280,6 +282,23 @@ impl Error {
         .with("reason", "out_of_range")
         .with("min", minimum.to_string())
         .with("max", maximum.to_string())
+    }
+
+    /// A member whose value a rule refuses although its type is right: the owner naming itself, a principal
+    /// that is not an active member of the team, one form of a request given beside the other. `must_be`
+    /// is the server's own fixed text, so nothing a caller sent is in the answer.
+    #[must_use]
+    pub fn refused_value(field: &str, must_be: &str) -> Self {
+        Self::new(Code::InvalidInput, format!("{field} must be {must_be}"))
+            .with("field", field)
+            .with("reason", "invalid_value")
+    }
+
+    /// A team the operator names on the command line that the server does not hold. No request is ever told
+    /// this: a request for a team that does not exist is told the uniform `unauthorized`.
+    #[must_use]
+    pub fn no_such_team() -> Self {
+        Self::new(Code::NotFound, "the server holds no team of that reference")
     }
 
     /// A join secret that is not `brg1.<team_ref>.<secret>`. No part of the input is in the answer.

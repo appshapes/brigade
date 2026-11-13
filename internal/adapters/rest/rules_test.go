@@ -202,11 +202,13 @@ func TestReadEnvelopePassesTheServersErrorOn(t *testing.T) {
 
 // TestCapabilitiesAreTheContracts pins the list `describe` advertises:
 // what the contract's section 5 makes every version 1 server implement,
-// plus message.receive and the two the adapter earns itself.
+// plus message.receive, the two the adapter earns itself, and team.admin,
+// the administration endpoints of section 3a, which a server may leave
+// out and the adapter then says so (TestAServerWithoutTeamAdministration).
 func TestCapabilitiesAreTheContracts(t *testing.T) {
 	t.Parallel()
 	want := []string{
-		"team.create", "team.join", "team.roster",
+		"team.create", "team.join", "team.roster", "team.admin",
 		"message.receive", "message.watch.push", "message.watch.stdin_commands",
 		"session.description", "session.resume", "session.workspace_label", "session.inbound",
 		"session.model", "session.context_used_tokens", "session.human_label",
@@ -215,11 +217,6 @@ func TestCapabilitiesAreTheContracts(t *testing.T) {
 	got := capabilities()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("capabilities() = %v, want %v", got, want)
-	}
-	for _, c := range got {
-		if c == "team.admin" {
-			t.Errorf("team.admin is not in version 1 of the contract")
-		}
 	}
 }
 

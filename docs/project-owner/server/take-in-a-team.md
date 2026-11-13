@@ -47,8 +47,13 @@ In each repository of the team, change three members of `.brigade.json` and leav
 ```
 
 Add `"certificate": "sha256:…"` when the server's certificate is one it made for itself
-([Hand over the values](hand-over-the-values.md)). Commit and push the file. `team_ref` must stay exactly as it
-was: it is what the secret names.
+([Hand over the values](hand-over-the-values.md)). `team_ref` must stay exactly as it was: it is what the secret
+names.
+
+The Team Admin joins before the file is pushed: change it in one checkout, run `/brigade:join <path>` there with
+the secret file, then commit and push. The first member to join the team on the server becomes its owner, the one
+who may rotate its secret, revoke a member and transfer it (from 0.4.0 of the server;
+[Name a team's owner](name-the-owner.md)).
 
 ## What each member does
 
@@ -68,6 +73,7 @@ credential was issued by the old backend, and the server has no way to check it.
 | The join secret | kept: the file every member has is still the way in |
 | The team's reference and name | kept, and with the reference everything a member's machine keys by it, the board's folder among them |
 | Members | not carried: each member is new to the server when they join, and `brigade team members` starts empty |
+| Who administers the team | not carried: the first member to join on the server owns it, and the operator can name another |
 | Sessions and waiting messages | not carried: a message that was waiting on the old backend stays there |
 | The gateways | configured on the server with the same secret file ([Open the gateways](gateways.md)); the Slack app's two addresses and the mail provider's webhook then point at the server |
 

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/appshapes/brigade/internal/adapterkit"
 	"github.com/appshapes/brigade/internal/buildinfo"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -51,13 +52,14 @@ type T struct {
 	run *runner
 	ctx context.Context
 
-	mu       sync.Mutex
-	failures []string
-	notes    []string
-	skipWhy  string
-	watches  []*WatchProc
-	scratch  map[string]bool
-	done     bool
+	mu          sync.Mutex
+	failures    []string
+	notes       []string
+	skipWhy     string
+	watches     []*WatchProc
+	scratch     map[string]bool
+	secretFiles []string
+	done        bool
 }
 
 func newT(ctx context.Context, run *runner, c Case) *T {
@@ -568,6 +570,65 @@ func (t *T) runOperatorCommand(p *Principal, command string, stdin []byte, what 
 	}
 	if r.Exit != 0 {
 		t.Fatalf("%s command for %s exited %d", what, p.Name, r.Exit)
+	}
+}
+
+// ---- secret files ----
+
+// secretFilesDir is the directory under the run directory that holds the
+// files a case names with --secret-file.
+const secretFilesDir = "secret-files"
+
+// SecretFile returns an absolute path for a command's --secret-file, in a
+// directory that exists: <run>/secret-files/<case id>-<name>. Nothing is
+// there yet. A join secret a command writes to it is where 4.4.10 says the
+// secret goes, and not a secret the adapter left on disk; the end-of-run
+// scan of the run directory (C-05) cannot tell the two apart, so the
+// runner removes every such file when the case ends, whatever its outcome.
+func (t *T) SecretFile(name string) string {
+	dir := filepath.Join(t.run.launcher.runDir, secretFilesDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("secret file directory: %v", err)
+	}
+	path := filepath.Join(dir, strings.ToLower(t.c.ID)+"-"+name)
+	t.mu.Lock()
+	t.secretFiles = append(t.secretFiles, path)
+	t.mu.Unlock()
+	return path
+}
+
+// TakeSecretFile reads the join secret a command wrote to path, without
+// its line end, and removes the file. The secret is registered with the
+// launcher, so the stdout and stderr of every later spawn and the
+// end-of-run scan are searched for it (C-05). mode0600 reports whether the
+// file is a regular one whose mode is exactly 0600, the mode 4.4.10 names:
+// a narrower one is as much not what was asked for as a wider one. Where
+// the platform has no modes it is true for every regular file. A file that
+// is not there, or cannot be read, aborts the case.
+func (t *T) TakeSecretFile(path string) (secret string, mode0600 bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("the secret file was not written: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("the secret file cannot be read: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("the secret file cannot be removed: %v", err)
+	}
+	secret = strings.TrimRight(string(data), "\r\n")
+	t.run.launcher.addSecret(secret)
+	return secret, info.Mode().IsRegular() && adapterkit.OwnerReadWriteOnly(info)
+}
+
+// dropSecretFiles removes what is left at the paths SecretFile gave out.
+func (t *T) dropSecretFiles() {
+	t.mu.Lock()
+	paths := t.secretFiles
+	t.mu.Unlock()
+	for _, path := range paths {
+		_ = os.Remove(path)
 	}
 }
 

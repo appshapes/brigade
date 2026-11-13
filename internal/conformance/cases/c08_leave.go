@@ -1,8 +1,6 @@
 package cases
 
 import (
-	"time"
-
 	"github.com/appshapes/brigade/internal/conformance"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -62,32 +60,7 @@ func runC08(t *conformance.T) {
 			left.TeamRef == joined.TeamRef, left.PrincipalRef == joined.PrincipalRef, left.Left)
 	}
 
-	// The running watch: an unauthorized error event, retryable false and
-	// present, then exit 5 within 2 s of it (4.5.7, 4.4.9). The event's own
-	// deadline is the spec's push budget — 4.4.9's 5 s for anything accepted
-	// while the watch runs — and not a tighter number of the suite's: the
-	// leave is sent the instant `ready` is seen, and an adapter whose
-	// realtime join is still completing at that moment (the websocket dial
-	// and channel join through a gateway on a loaded CI runner) cannot
-	// receive the revocation as a push and learns it from the drain that
-	// follows the join. Measured: 2.24 s to the error event on a GitHub
-	// runner (run 33678110011, the Supabase adapter) against a 2 s deadline
-	// that passed in 0.5-1 s locally.
-	ev := w.Expect(protocol.EventError, t.PushDeadline())
-	if ev.Error != nil && ev.Error.Error.Code != protocol.CodeUnauthorized {
-		t.Errorf("watch after team leave: error event code %s, want unauthorized (4.5.7)", ev.Error.Error.Code)
-	}
-	errObj, _ := ev.Raw["error"].(map[string]any)
-	if rv, ok := errObj["retryable"]; !ok {
-		t.Errorf("watch after team leave: error event lacks retryable (B-2)")
-	} else if rb, isBool := rv.(bool); !isBool || rb {
-		t.Errorf("watch after team leave: error.retryable %v, want false (4.6)", rv)
-	}
-	if exit, ok := w.Wait(2 * time.Second); !ok {
-		t.Errorf("watch after team leave: still running 2 s after the error event; want exit 5 (4.4.9)")
-	} else if exit != protocol.CodeUnauthorized.Exit() {
-		t.Errorf("watch after team leave: exit %d, want %d (4.4.9)", exit, protocol.CodeUnauthorized.Exit())
-	}
+	watchEndsUnauthorized(t, w, "team leave")
 
 	if st := describe(t, e, false).Profile.State; st != protocol.ProfileStateNotMember {
 		t.Errorf("describe after team leave: profile.state %q, want not_member (4.4.1)", st)

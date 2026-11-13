@@ -1341,6 +1341,96 @@ fn a_restart_keeps_the_gateways_memberships_sessions_and_thread_rows() {
 }
 
 #[test]
+fn the_gateways_join_again_by_themselves_once_their_file_holds_the_rotated_secret() {
+    let world = World::start("rotation", "postmark", "[]", standin::postmark);
+    let before = (
+        world.gateway_session("gateway-slack"),
+        world.gateway_session("gateway-email"),
+    );
+    let principals = (
+        text(&world.gateway("gateway-slack"), "principal_ref"),
+        text(&world.gateway("gateway-email"), "principal_ref"),
+    );
+    let team = json!({"team_ref": world.team_ref});
+
+    // The team's owner rotates the join secret. A rotation alone changes nothing for a gateway: it is the
+    // member it was, with the session it had.
+    let rotated = world
+        .server
+        .ok(&world.credential, "/v1/team/rotate-secret", &team);
+    let new_secret = text(&rotated, "join_secret");
+    assert_eq!(world.gateway_session("gateway-slack"), before.0);
+    assert_eq!(world.gateway_session("gateway-email"), before.1);
+
+    // The operator replaces the file both gateways are configured with, and the owner then revokes
+    // everyone who joined with the old secret, which the two gateways did.
+    std::fs::write(world.scratch.path("ops.secret"), format!("{new_secret}\n")).unwrap();
+    let swept = world.server.ok(
+        &world.credential,
+        "/v1/team/revoke-member",
+        &json!({"team_ref": world.team_ref, "joined_secret_version_lte": 1}),
+    );
+    assert_eq!(
+        (&swept["revoked"], &swept["sessions_closed"]),
+        (&json!(2), &json!(2))
+    );
+
+    // Each gateway finds itself refused at its next turn, reads the file again and joins with what it
+    // holds now and the credential it has: the member it was, with the session it had, and the server was
+    // never stopped.
+    let said = until("both gateways to say they joined again", || {
+        let said = world.said();
+        (said.contains("the slack gateway joined team ops again")
+            && said.contains("the mail gateway joined team ops again"))
+        .then_some(said)
+    });
+    assert!(!said.contains("could not join its team again"), "{said}");
+    assert!(!said.contains("as a new member"), "{said}");
+    let after = (world.gateway("gateway-slack"), world.gateway("gateway-email"));
+    assert_eq!(
+        (text(&after.0, "session_id"), text(&after.0, "principal_ref")),
+        (before.0.clone(), principals.0)
+    );
+    assert_eq!(
+        (text(&after.1, "session_id"), text(&after.1, "principal_ref")),
+        (before.1.clone(), principals.1)
+    );
+    let after = (before.0, before.1);
+    // The owner and the two gateways are the team's members, the gateways of the secret's second version.
+    let members = world.server.ok(&world.credential, "/v1/team/members", &team);
+    let mut versions: Vec<(String, u64)> = members["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|member| {
+            (
+                text(member, "human_label"),
+                member["joined_secret_version"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    versions.sort();
+    assert_eq!(
+        versions,
+        [
+            ("alice@example.com".to_owned(), 1),
+            ("mail gateway".to_owned(), 2),
+            ("slack gateway".to_owned(), 2)
+        ]
+    );
+
+    // And they carry again, from the sessions they have now.
+    world.send(&after.0, "to: #general\n\nstill here after the rotation", None);
+    let posts = asked(&world.slack, "POST /api/chat.postMessage", 1);
+    assert_eq!(posts[0].json()["channel"], json!("C0GENERAL1"));
+    // Neither the secret the team had nor the one it has now is in anything the server wrote.
+    world.nothing_leaked(&[
+        new_secret.rsplit('.').next().unwrap(),
+        "still here after the rotation",
+    ]);
+}
+
+#[test]
 fn a_configuration_that_does_not_read_ends_the_start_with_its_reason() {
     let scratch = Scratch::new("gateway-config");
     let arguments = |file: &str, content: &str| {

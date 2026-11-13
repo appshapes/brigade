@@ -253,6 +253,7 @@ func (r *runner) runCase(ctx context.Context, c Case) (res CaseResult, launcherE
 	for _, w := range watches {
 		w.reap()
 	}
+	t.dropSecretFiles()
 	res = t.outcome(time.Since(start))
 	r.launcher.logf(c.ID, strings.ToUpper(string(res.Status))+" in "+time.Since(start).Round(time.Millisecond).String())
 	return res, launcherErr

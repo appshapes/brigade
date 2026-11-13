@@ -143,7 +143,11 @@ func (inv Invocation) checkForwardedSecretFile(rest []string) ([]string, error) 
 // a member without a label. No line carries an "unverified" marker (owner
 // ruling 2026-11-09, card 193). The
 // label is never the identity; the principal beside it is the anchor, and
-// MembersNote says so in the --json form. The capability (team.roster) is not pre-checked:
+// MembersNote says so in the --json form. The --json form also carries each
+// member's joined_secret_version when the adapter answers it (4.4.10: an
+// adapter with team.admin), which is where a team's administrator reads
+// the version to give `team revoke-member --max-version` after a rotation;
+// the lines have no column for it. The capability (team.roster) is not pre-checked:
 // an adapter without it answers with its own error, which is reported as
 // it is.
 func members(inv Invocation, teamFlag string) error {

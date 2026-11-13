@@ -15,6 +15,7 @@ and Slack gateways itself.
 | back it up, update it, move it, replace its certificate | [Keep the server](#keep-the-server) |
 | let people write to the team by email or from Slack | [Open the gateways](#open-the-gateways) |
 | move a team here from a Supabase project, keeping its join secret | [Take in a team that exists](#take-in-a-team-that-exists) |
+| say who administers a team, name a new owner, or take a team back | [Name a team's owner](#name-a-teams-owner) |
 
 ## Install the server
 
@@ -73,3 +74,16 @@ Details: [Open the gateways](gateways.md).
    have.
 
 Details: [Take in a team that exists](take-in-a-team.md).
+
+## Name a team's owner
+
+1. A team's owner is whoever created it on the server. A team that was taken in is owned by the first member to
+   join it there.
+2. To name another: `brigade team members --json` on a member's machine gives the new owner's `principal_ref`.
+3. Stop the server, then
+   `brigade-server --data <dir> --set-owner <team_ref> --principal <principal_ref>`, then start it.
+4. If whoever holds the team has locked the others out: `--take-back <team_ref> --secret-file <path>` in place
+   of step 3 gives the team a new secret in that file, ends every membership and leaves it to the first member
+   who joins with the file.
+
+Details: [Name a team's owner](name-the-owner.md).

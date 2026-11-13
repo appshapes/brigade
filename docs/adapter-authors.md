@@ -46,7 +46,7 @@ scripts learn them once.
 | `team join [--prompt] [--label]` | `{join_secret, human_label?, backend?}` | `{team_ref, team_name, principal_ref, rejoined}` | convention, capability `team.join` |
 | `team leave` | none | `{team_ref, principal_ref, left: true}` | convention, capability `team.join`; idempotent |
 | `team members` | none | `{team_ref, team_name, server_time, members}` | convention, capability `team.roster` |
-| `team rotate-secret` / `team revoke-member` / `team transfer` | adapter-defined | adapter-defined | convention, capability `team.admin` (Phase 5) |
+| `team rotate-secret` / `team revoke-member` / `team transfer` | none; `{principal_ref, ban?}` or `{joined_secret_version_lte}`; `{principal_ref}` | 4.4.10's three results | convention, capability `team.admin`; the team's owner only |
 | `profile init` / `profile status` / `profile reset` / `profile revoke-credentials` | adapter-specific | adapter-specific, never a secret | convention, adapter-defined |
 
 Core-command flags are exactly `--profile`, `--session`, `--include-offline`, `--limit` and `--log-level`; an unknown
@@ -93,8 +93,8 @@ Omit it without penalty.
 ## Run the conformance suite
 
 The suite is the definition of "works with Brigade". It runs your adapter as three principals in two teams, using
-protocol commands only, and checks every rule of the protocol document that a black-box test can see: 49 cases,
-`C-01`..`C-47` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
+protocol commands only, and checks every rule of the protocol document that a black-box test can see: 52 cases,
+`C-01`..`C-50` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
 
 ```text
 $ bin/brigade-conformance -h
@@ -307,8 +307,9 @@ rebind the profile to that reference.
 Cases run **one at a time**, and within a case the suite spawns one request/response command and waits for it: for
 the four cases of section 11, and in fact for every case that does not start a watch, no two of your processes are
 ever alive at once. That is a fact about the suite, not a licence — the watch cases break it deliberately, and there
-are ten of them (C-33..C-41, plus C-08, which leaves a watch running on a session while that same principal's
-`team leave` revokes its membership from a second process and requires the watch to notice within two seconds).
+are eleven of them (C-33..C-41, plus C-08, which leaves a watch running on a session while that same principal's
+`team leave` revokes its membership from a second process and requires the watch to notice within two seconds, and
+C-49, which does the same while the team's owner revokes that member from a process of its own).
 `message watch` is a long-lived child that keeps reading your store while **other principals' processes** register,
 send and acknowledge against it, and C-35 asserts that a message sent by another principal reaches the running watch
 within five seconds.
@@ -351,7 +352,13 @@ case-insensitively.
   C-07,C-28,C-40` reports "1 passed, 0 failed, 2 skipped". C-04, C-07 and C-08 have their own fallbacks and keep
   running as long as `team.create` is advertised. Count all of it before you pick a provisioning route: `--setup`
   with neither team capability costs you C-03, C-03b, C-04 and C-08 to the `cap:` tags **and** C-28 and C-40 to
-  this rule — six of the 47, on a run that still exits 0.
+  this rule — six of the 52, on a run that still exits 0.
+- The three team administration cases, C-48, C-49 and C-50, carry `cap:team.admin` and skip the same way at run
+  time when they cannot make a team. Each rotates a secret, revokes a member or moves the ownership, which would
+  fail every later case if it were done to the fixture's teams, so each creates a team of its own and joins a
+  second principal to it. An adapter that advertises `team.admin` without `team.create` and `team.join` is
+  therefore SKIP on all three — *"needs team.create and team.join to make a team of its own"* — and one that does
+  not advertise `team.admin` is SKIP on all three by the tag, which is the fs adapter's case.
 - A selection matching **no** case is a usage error (exit 2), never a pass. `--tags cap:nosuch` printing
   "0 passed, 0 failed, 0 skipped" with exit 0 would read exactly like a clean run, so the suite refuses before it
   launches anything. An unknown id in `--only`/`--skip` is a usage error for the same reason.
@@ -388,8 +395,9 @@ C-43   PASS   0.05s  4.2 team members
 
 (The `…` lines are elided here; the run prints one line per case. That transcript is a **45**-case run, measured
 before C-44 — 4.4.2 `model` and `context_used_tokens` — C-45 — 4.4.2 `human_label` — C-46 — 4.4.2
-`brigade_version` — and C-47 — 4.4.2 `sync_peer` — joined the suite; a run today selects 49 and prints `C-44`
-through `C-47` after `C-43`.) The human table always goes to **stderr**, in
+`brigade_version` — C-47 — 4.4.2 `sync_peer` — and C-48 to C-50 — 4.4.10's three team administration commands —
+joined the suite; a run today selects 52 and prints `C-44` through `C-50` after `C-43`, the last three as
+`SKIP … capability not advertised: team.admin` for the fs adapter.) The human table always goes to **stderr**, in
 every mode. With `--json` the machine-readable report goes to **stdout** and nothing else does, so
 `brigade-conformance --json … > report.json` gives you a clean document — with one caveat worth knowing before
 you wire this into CI: a launcher error raised *before* the first case (adapter not found, `describe` not ok
@@ -937,7 +945,7 @@ first-class answer, not a failure.
 | `team.create` | `team create` |
 | `team.join` | `team join`, `team leave` |
 | `team.roster` | `team members` |
-| `team.admin` | `team rotate-secret` / `revoke-member` / `transfer` (Phase 5, creator only) |
+| `team.admin` | `team rotate-secret` / `revoke-member` / `transfer` (the team's owner only; shapes in 4.4.10) |
 | **`message.receive`** | `message receive` — **required in v1 and still advertised** (C-18) |
 | `message.watch.push` | events arrive without polling: `ready.mode` is `push` and a message is expected within 5 s. Omit it and you **must** send `ready.mode = "polling"`. 4.4.9 relaxes live delivery to "within two poll intervals" for a polling adapter, but `describe` carries no poll-interval member, so **the suite applies the same 5 s deadline either way** (C-35; C-40's catch-up deadline is 10 s). Poll fast enough to clear both |
 | `message.watch.stdin_commands` | NDJSON commands on `message watch` stdin |
@@ -1345,6 +1353,7 @@ in `docs/protocol-v1.md` beside this file and in the schema generated from the s
 | `MessageEnvelope`, `SendRequest`, `SendResponse`, `message ack` | 4.4.5, 4.4.6, 4.4.7, 4.4.8 |
 | `message watch` events (`ready`, `message`, `status`, `acked`, `heartbeat_ok`, `error`) and its stdin commands | 4.4.9 |
 | `team create`, `team join`, `team leave`, `team members` | 4.4.10 |
+| `team rotate-secret`, `team revoke-member`, `team transfer` and their results (capability `team.admin`) | 4.4.10, *Team administration* |
 | every member's type, requiredness and cap, machine-readable | `docs/protocol-v1.schema.json` (`make schema` regenerates it from the same Go types the reference adapter uses; JSON convention 6: where the schema and `Validate()` disagree, `Validate()` wins) |
 
 Three decisions in that territory are genuinely yours, and inventing an answer is the right thing to do:
@@ -1358,9 +1367,21 @@ Three decisions in that territory are genuinely yours, and inventing an answer i
   directions (4.2), and no conformance case exercises them. The one rule that still binds: never print a secret.
 - **`delivery.ordering`** beyond `none`, which 4.8 leaves unspecified.
 
+One thing in that territory is yours to take or leave, and whole: team administration. `team rotate-secret`, `team
+revoke-member` and `team transfer` are one capability, `team.admin` (4.7), and their flags, their stdin documents and
+their results are the protocol's (4.4.10), no longer each adapter's own. Advertise it and C-48, C-49 and C-50 hold you
+to all of it: the three commands answer the team's **owner** and nobody else, every other caller getting the uniform
+`unauthorized` of section 8, byte for byte the same for a member that is not the owner and for one that was revoked;
+the rotated secret goes to the file `--secret-file` names, mode 0600, and to no output; a revoked member is
+`unauthorized` on every command that touches the team and its running watch ends with exit 5, as C-08 requires of a
+member that left; a banned member's join is the rejected join of `team join`; and `team members` carries each member's
+`joined_secret_version`. Leave it out and the three verbs are unknown verbs of yours (`usage`), the three cases are
+SKIP, and nothing else is asked of you. The fs adapter leaves it out; the Supabase adapter and the `rest` adapter
+carry it, and `internal/adapterkit/teamadmin.go` reads the two requests for both.
+
 One thing in that territory is *not* optional: `message watch` is core (4.2). Every adapter writes the NDJSON stream,
 starting with one `ready` event whose `mode` is `polling` unless you advertise `message.watch.push` (4.4.9, 4.7), and
-nine of the 47 cases (C-33..C-41) are about it.
+nine of the 52 cases (C-33..C-41) are about it.
 
 ## The environment your adapter runs in
 

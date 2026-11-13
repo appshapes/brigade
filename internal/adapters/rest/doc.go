@@ -11,7 +11,11 @@
 // `<base>/v1/…` whose body is the command's input and whose answer is the
 // command's result envelope; `message watch` is a loop over
 // `/v1/message/receive` (the catch-up, long polls behind a cursor, a
-// periodic drain) with the stdin commands as requests of their own.
+// periodic drain) with the stdin commands as requests of their own. The
+// three administration commands (`team rotate-secret`, `team
+// revoke-member`, `team transfer`) ask `/v1/info` first, because their
+// endpoints are an addition a server may leave out, and answer `config`
+// for a server that does not list `team.admin` there.
 //
 // Files in the profile directory ${BRIGADE_CONFIG_DIR}/teams/<name>/:
 //

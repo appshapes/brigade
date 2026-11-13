@@ -2,7 +2,9 @@
 //!
 //! Nothing secret is ever an argument: the creation token and the TLS key are files, named by path, and so is
 //! every secret of the gateways, by the configuration that is itself a file, and the join secret of a team
-//! the server takes in.
+//! the server takes in. A team's reference and a principal's are no secrets: every member's roster shows
+//! them, so the commands that name a team's owner and take a team back take them as arguments. The join
+//! secret a team gets when it is taken back goes to a file the operator names, and to nothing else.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -26,6 +28,8 @@ pub const DEFAULT_SNAPSHOT_EVERY: u64 = 2000;
 pub const USAGE: &str = "\
 Usage: brigade-server --data <dir> [options]
        brigade-server --data <dir> --import-team <name> --join-secret-file <file> [the log's options]
+       brigade-server --data <dir> --set-owner <team_ref> --principal <principal_ref> [the log's options]
+       brigade-server --data <dir> --take-back <team_ref> --secret-file <file> [the log's options]
 
 A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md, version 1.
 
@@ -54,6 +58,21 @@ A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md,
                                file they have. Nothing is served, so it goes with --data, the log's options
                                (--log to --feed-roll-bytes) and --join-secret-file, and with no other
   --join-secret-file <file>    the file that holds the join secret of the team --import-team takes in
+  --set-owner <team_ref>       name the owner of a team, the member that may rotate its join secret, revoke a
+                               member and transfer it, and end: for a team that was taken in and that someone
+                               else joined first, and for a team whose owner lost its credential. Nothing is
+                               served, so it goes with --data, the log's options and --principal, and with no
+                               other
+  --principal <principal_ref>  the active member of the team that --set-owner names its owner, by the
+                               principal_ref `brigade team members` shows
+  --take-back <team_ref>       take a team back from whoever holds it, and end: the team gets a new join
+                               secret, every membership ends, and the team has no owner until the first
+                               member joins it with the new secret. For a team whose join secret leaked and
+                               whose owner is not its admin. Nothing is served, so it goes with --data, the
+                               log's options and --secret-file, and with no other
+  --secret-file <file>         the file --take-back writes the team's new join secret to, readable by its
+                               owner alone: an absolute path of a file that is not there, in a directory that
+                               is
   --version                    print the version
   --help                       print this
 ";
@@ -119,6 +138,30 @@ pub struct Import {
     pub options: Options,
 }
 
+/// What the command that names a team's owner is told.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SetOwner {
+    /// The team.
+    pub team_ref: String,
+    /// The member that is to own it.
+    pub principal_ref: String,
+    /// The directory and the log, read as a start reads them. Like the import, the command serves nothing,
+    /// and the command line refuses every option that serving takes.
+    pub options: Options,
+}
+
+/// What the command that takes a team back is told.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TakeBack {
+    /// The team.
+    pub team_ref: String,
+    /// The file the team's new join secret is written to.
+    pub secret_file: PathBuf,
+    /// The directory and the log, read as a start reads them. Like the import, the command serves nothing,
+    /// and the command line refuses every option that serving takes.
+    pub options: Options,
+}
+
 /// What a command line asks for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Asked {
@@ -126,6 +169,10 @@ pub enum Asked {
     Run(Box<Options>),
     /// To take in a team that exists elsewhere, and end.
     Import(Box<Import>),
+    /// To name the owner of a team, and end.
+    SetOwner(Box<SetOwner>),
+    /// To take a team back from whoever holds it, and end.
+    TakeBack(Box<TakeBack>),
     /// To print the usage.
     Help,
     /// To print the version.
@@ -144,6 +191,8 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
     let (mut feed_control, mut feed_self, mut log, mut snapshot_every) = (None, None, None, None);
     let mut feed_roll_bytes = None;
     let (mut import_team, mut join_secret_file) = (None, None);
+    let (mut set_owner, mut principal) = (None, None);
+    let (mut take_back, mut secret_file) = (None, None);
     let mut tls_in_front = false;
     let mut tls_self_signed = false;
     while let Some(flag) = arguments.next() {
@@ -168,6 +217,10 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
             "--feed-roll-bytes" => feed_roll_bytes = Some(value("--feed-roll-bytes")?),
             "--import-team" => import_team = Some(value("--import-team")?),
             "--join-secret-file" => join_secret_file = Some(PathBuf::from(value("--join-secret-file")?)),
+            "--set-owner" => set_owner = Some(value("--set-owner")?),
+            "--principal" => principal = Some(value("--principal")?),
+            "--take-back" => take_back = Some(value("--take-back")?),
+            "--secret-file" => secret_file = Some(PathBuf::from(value("--secret-file")?)),
             _ => return Err("an argument is not one the server knows".to_owned()),
         }
     }
@@ -177,9 +230,35 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
         (None, None) => None,
         _ => return Err("--import-team and --join-secret-file go together".to_owned()),
     };
-    if import.is_some() {
-        // Taking a team in binds no address and starts no gateway, so an option that serving takes would
-        // be read and never used. It is refused by its name, which is the server's own word.
+    let owner = match (set_owner, principal) {
+        (Some(team_ref), Some(principal_ref)) => Some((team_ref, principal_ref)),
+        (None, None) => None,
+        _ => return Err("--set-owner and --principal go together".to_owned()),
+    };
+    let taken = match (take_back, secret_file) {
+        (Some(team_ref), Some(secret_file)) => Some((team_ref, secret_file)),
+        (None, None) => None,
+        _ => return Err("--take-back and --secret-file go together".to_owned()),
+    };
+    // Each of the three commands ends when it is done, and one run of the program is one of them.
+    let given: Vec<(&str, &str)> = [
+        ("--import-team", "takes a team in", import.is_some()),
+        ("--set-owner", "names a team's owner", owner.is_some()),
+        ("--take-back", "takes a team back", taken.is_some()),
+    ]
+    .into_iter()
+    .filter(|(_, _, given)| *given)
+    .map(|(option, does, _)| (option, does))
+    .collect();
+    if let [(first, _), (second, _), ..] = given[..] {
+        return Err(format!(
+            "{first} and {second} are two commands, and each ends when it is done: give one"
+        ));
+    }
+    if let Some((option, does)) = given.first() {
+        let command = format!("{option} {does}");
+        // A command that ends binds no address and starts no gateway, so an option that serving takes
+        // would be read and never used. It is refused by its name, which is the server's own word.
         let serving = [
             ("--listen", listen.is_some()),
             ("--tls-cert", tls_cert.is_some()),
@@ -192,7 +271,7 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
         ];
         if let Some((option, _)) = serving.iter().find(|(_, given)| *given) {
             return Err(format!(
-                "--import-team takes a team in and ends, and serves nothing: it does not go with {option}"
+                "{command} and ends, and serves nothing: it does not go with {option}"
             ));
         }
     }
@@ -266,19 +345,29 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
         snapshot_every,
         feed_roll_bytes,
     };
-    Ok(match import {
-        Some((team_name, join_secret_file)) => Asked::Import(Box::new(Import {
+    Ok(match (import, owner, taken) {
+        (Some((team_name, join_secret_file)), _, _) => Asked::Import(Box::new(Import {
             team_name,
             join_secret_file,
             options,
         })),
-        None => Asked::Run(Box::new(options)),
+        (None, Some((team_ref, principal_ref)), _) => Asked::SetOwner(Box::new(SetOwner {
+            team_ref,
+            principal_ref,
+            options,
+        })),
+        (None, None, Some((team_ref, secret_file))) => Asked::TakeBack(Box::new(TakeBack {
+            team_ref,
+            secret_file,
+            options,
+        })),
+        (None, None, None) => Asked::Run(Box::new(options)),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Asked, Import, LogKind, Options, Tls, parse};
+    use super::{Asked, Import, LogKind, Options, SetOwner, TakeBack, Tls, parse};
 
     fn run(arguments: &[&str]) -> Result<Options, String> {
         match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
@@ -486,6 +575,212 @@ mod tests {
             "d",
         ]);
         assert!(first.unwrap_err().contains("--address-file"));
+    }
+
+    fn set_owner(arguments: &[&str]) -> Result<SetOwner, String> {
+        match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
+            Asked::SetOwner(named) => Ok(*named),
+            other => Err(format!("{other:?}")),
+        }
+    }
+
+    #[test]
+    fn a_teams_owner_is_named_by_the_teams_reference_and_the_members_principal() {
+        let pair = [
+            "--data",
+            "/srv/brigade",
+            "--set-owner",
+            "the-team",
+            "--principal",
+            "the-member",
+        ];
+        let named = set_owner(&pair).unwrap();
+        assert_eq!(
+            (named.team_ref.as_str(), named.principal_ref.as_str()),
+            ("the-team", "the-member")
+        );
+        // The directory and the log are read as a start reads them, and the log's options go with it.
+        assert_eq!(named.options, run(&["--data", "/srv/brigade"]).unwrap());
+        let mut on_a_file = pair.to_vec();
+        on_a_file.extend_from_slice(&["--log", "file", "--snapshot-every", "7"]);
+        let named = set_owner(&on_a_file).unwrap();
+        assert_eq!(
+            (named.options.log, named.options.snapshot_every),
+            (LogKind::File, 7)
+        );
+        // The two go together, whichever is missing, and the directory is as required as it always is.
+        for half in [
+            &["--set-owner", "the-team"][..],
+            &["--principal", "the-member"][..],
+        ] {
+            let mut arguments = vec!["--data", "d"];
+            arguments.extend_from_slice(half);
+            assert_eq!(
+                set_owner(&arguments).unwrap_err(),
+                "--set-owner and --principal go together"
+            );
+        }
+        let no_directory = set_owner(&pair[2..]).unwrap_err();
+        assert!(no_directory.contains("--data"), "{no_directory}");
+        assert!(set_owner(&["--data", "d", "--set-owner"]).is_err());
+        assert!(super::USAGE.contains("--set-owner <team_ref>"));
+        assert!(super::USAGE.contains("--principal <principal_ref>"));
+    }
+
+    #[test]
+    fn naming_an_owner_serves_nothing_and_is_one_command_of_its_own() {
+        let pair = [
+            "--data",
+            "d",
+            "--set-owner",
+            "the-team",
+            "--principal",
+            "the-member",
+        ];
+        let with = |others: &[&'static str]| {
+            let mut arguments = pair.to_vec();
+            arguments.extend_from_slice(others);
+            set_owner(&arguments)
+        };
+        // Everything that serving takes is refused by its own name, and no value is repeated.
+        for (others, named) in [
+            (&["--listen", "127.0.0.1:9000"][..], "--listen"),
+            (&["--tls-cert", "c.pem", "--tls-key", "k.pem"][..], "--tls-cert"),
+            (&["--tls-self-signed"][..], "--tls-self-signed"),
+            (&["--tls-in-front"][..], "--tls-in-front"),
+            (&["--create-token-file", "token"][..], "--create-token-file"),
+            (&["--address-file", "address"][..], "--address-file"),
+            (&["--gateway-config", "gateways.json"][..], "--gateway-config"),
+        ] {
+            assert_eq!(
+                with(others).unwrap_err(),
+                format!(
+                    "--set-owner names a team's owner and ends, and serves nothing: it does not go with {named}"
+                )
+            );
+        }
+        // It is not the command that takes a team in, in whichever order the two are given.
+        let both = with(&["--import-team", "ops", "--join-secret-file", "f"]).unwrap_err();
+        assert!(both.contains("two commands"), "{both}");
+        assert!(
+            !both.contains("the-team") && !both.contains("the-member"),
+            "{both}"
+        );
+        let both = set_owner(&[
+            "--import-team",
+            "ops",
+            "--principal",
+            "the-member",
+            "--join-secret-file",
+            "f",
+            "--set-owner",
+            "the-team",
+            "--data",
+            "d",
+        ]);
+        assert!(both.unwrap_err().contains("two commands"));
+        // Half of the other command beside it is told as that command's half.
+        assert_eq!(
+            with(&["--import-team", "ops"]).unwrap_err(),
+            "--import-team and --join-secret-file go together"
+        );
+    }
+
+    fn take_back(arguments: &[&str]) -> Result<TakeBack, String> {
+        match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
+            Asked::TakeBack(taken) => Ok(*taken),
+            other => Err(format!("{other:?}")),
+        }
+    }
+
+    #[test]
+    fn a_team_is_taken_back_by_its_reference_and_the_file_its_new_secret_goes_to() {
+        let pair = [
+            "--data",
+            "/srv/brigade",
+            "--take-back",
+            "the-team",
+            "--secret-file",
+            "/run/secrets/ops.join-secret",
+        ];
+        let taken = take_back(&pair).unwrap();
+        assert_eq!(taken.team_ref, "the-team");
+        assert_eq!(
+            taken.secret_file,
+            std::path::Path::new("/run/secrets/ops.join-secret")
+        );
+        // The directory and the log are read as a start reads them, and the log's options go with it.
+        assert_eq!(taken.options, run(&["--data", "/srv/brigade"]).unwrap());
+        let mut on_a_file = pair.to_vec();
+        on_a_file.extend_from_slice(&["--log", "file", "--snapshot-every", "7"]);
+        let taken = take_back(&on_a_file).unwrap();
+        assert_eq!(
+            (taken.options.log, taken.options.snapshot_every),
+            (LogKind::File, 7)
+        );
+        // The two go together, whichever is missing, and the directory is as required as it always is.
+        for half in [&["--take-back", "the-team"][..], &["--secret-file", "/f"][..]] {
+            let mut arguments = vec!["--data", "d"];
+            arguments.extend_from_slice(half);
+            assert_eq!(
+                take_back(&arguments).unwrap_err(),
+                "--take-back and --secret-file go together"
+            );
+        }
+        let no_directory = take_back(&pair[2..]).unwrap_err();
+        assert!(no_directory.contains("--data"), "{no_directory}");
+        assert!(take_back(&["--data", "d", "--take-back"]).is_err());
+        assert!(super::USAGE.contains("--take-back <team_ref>"));
+        assert!(super::USAGE.contains("--secret-file <file>"));
+    }
+
+    #[test]
+    fn taking_a_team_back_serves_nothing_and_is_one_command_of_its_own() {
+        let pair = ["--data", "d", "--take-back", "the-team", "--secret-file", "/f"];
+        let with = |others: &[&'static str]| {
+            let mut arguments = pair.to_vec();
+            arguments.extend_from_slice(others);
+            take_back(&arguments)
+        };
+        // Everything that serving takes is refused by its own name, and no value is repeated.
+        for (others, named) in [
+            (&["--listen", "127.0.0.1:9000"][..], "--listen"),
+            (&["--tls-cert", "c.pem", "--tls-key", "k.pem"][..], "--tls-cert"),
+            (&["--tls-self-signed"][..], "--tls-self-signed"),
+            (&["--tls-in-front"][..], "--tls-in-front"),
+            (&["--create-token-file", "token"][..], "--create-token-file"),
+            (&["--address-file", "address"][..], "--address-file"),
+            (&["--gateway-config", "gateways.json"][..], "--gateway-config"),
+        ] {
+            assert_eq!(
+                with(others).unwrap_err(),
+                format!(
+                    "--take-back takes a team back and ends, and serves nothing: it does not go with {named}"
+                )
+            );
+        }
+        // It is neither of the other two commands, and the refusal names the two that were given.
+        assert_eq!(
+            with(&["--import-team", "ops", "--join-secret-file", "f"]).unwrap_err(),
+            "--import-team and --take-back are two commands, and each ends when it is done: give one"
+        );
+        assert_eq!(
+            with(&["--set-owner", "the-team", "--principal", "the-member"]).unwrap_err(),
+            "--set-owner and --take-back are two commands, and each ends when it is done: give one"
+        );
+        // The file of the one command is not the file of the other.
+        assert_eq!(
+            take_back(&[
+                "--data",
+                "d",
+                "--take-back",
+                "the-team",
+                "--join-secret-file",
+                "/f"
+            ])
+            .unwrap_err(),
+            "--import-team and --join-secret-file go together"
+        );
     }
 
     #[test]
