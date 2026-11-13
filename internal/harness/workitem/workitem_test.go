@@ -1,6 +1,7 @@
 package workitem
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -118,6 +119,54 @@ func TestAnEmptyFolderIsABoardWithTheDefaultLists(t *testing.T) {
 	}
 	if len(b.Items) != 0 || b.Skipped != 0 || b.NextNumber() != 1 {
 		t.Errorf("board = %+v", b)
+	}
+}
+
+// TestAnItemCarriedOverKeepsItsNumber: AddNumbered writes a work item
+// under the number the caller chose, below the board's highest or above
+// it, with a history that says it was created and nothing of a
+// renumbering; the next Add still takes the highest number plus one; and
+// a number the board has, or one no work item can have, writes nothing.
+func TestAnItemCarriedOverKeepsItsNumber(t *testing.T) {
+	c := newClock()
+	s := Store{Folder: t.TempDir(), Now: c.now}
+	add(t, s, "The board's first", alice)
+	add(t, s, "The board's second", alice)
+	carry := func(number int, title string) (string, error) {
+		t.Helper()
+		b := read(t, s.Folder)
+		return s.AddNumbered(b, number, Fields{Title: &title, List: &b.Lists[0].Key}, bob)
+	}
+	high, err := carry(40, "Carried over as 40")
+	if err != nil {
+		t.Fatalf("a free number above the board's: %v", err)
+	}
+	low, err := carry(17, "Carried over as 17")
+	if err != nil {
+		t.Fatalf("a free number below the board's highest: %v", err)
+	}
+	for number, why := range map[int]string{2: "taken", 40: "taken by a carried item", 0: "not a number", -3: "not a number", MaxNumber + 1: "past the cap"} {
+		if id, err := carry(number, "Refused"); !errors.Is(err, ErrNumberTaken) || id != "" {
+			t.Errorf("number %d (%s): id %q, err %v; want ErrNumberTaken and nothing written", number, why, id, err)
+		}
+	}
+	next := add(t, s, "Added afterwards", alice)
+
+	b := read(t, s.Folder)
+	if len(b.Items) != 5 || len(b.Clashes()) != 0 {
+		t.Fatalf("items = %d, clashes = %d; want five and none", len(b.Items), len(b.Clashes()))
+	}
+	for id, want := range map[string]int{high: 40, low: 17, next: 41} {
+		it := b.ByID(id)
+		if it == nil || it.Number != want {
+			t.Fatalf("item %s = %+v, want number %d", id, it, want)
+		}
+		if len(it.History) != 1 || it.History[0].What != "created in Todo" {
+			t.Errorf("number %d: history = %+v, want its creation alone", want, it.History)
+		}
+	}
+	if it := b.ByID(low); it.CreatedBy != bob.Member || it.Title != "Carried over as 17" {
+		t.Errorf("the carried item = %+v", it)
 	}
 }
 

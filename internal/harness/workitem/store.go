@@ -52,15 +52,29 @@ var errNotADirectory = errors.New("workitem: a directory of the board is not a d
 // next number, sequence one, and the fields set gives it — a title and a
 // list at least, which the caller checked. It returns the id.
 func (s Store) Add(b *Board, set Fields, who Author) (string, error) {
-	if len(b.Items) >= MaxItems || b.NextNumber() > MaxNumber {
+	return s.AddNumbered(b, b.NextNumber(), set, who)
+}
+
+// ErrNumberTaken is AddNumbered asked for a number a work item of the
+// board already has, or one no work item can have.
+var ErrNumberTaken = errors.New("workitem: that number is taken, or is not one a work item can have")
+
+// AddNumbered is Add under a number the caller chose: a work item that is
+// carried over from elsewhere keeps the number it had there (work item
+// 272). The number must be one no work item of b has, from 1 to
+// MaxNumber; nothing is written otherwise.
+func (s Store) AddNumbered(b *Board, number int, set Fields, who Author) (string, error) {
+	if len(b.Items) >= MaxItems || number > MaxNumber && number == b.NextNumber() {
 		return "", ErrFull
+	}
+	if number < 1 || number > MaxNumber || len(b.ByNumber(number)) > 0 {
+		return "", ErrNumberTaken
 	}
 	var raw [8]byte
 	if _, err := io.ReadFull(s.random(), raw[:]); err != nil {
 		return "", err
 	}
 	id := hex.EncodeToString(raw[:])
-	number := b.NextNumber()
 	set.Number = &number
 	c := &Change{Item: id, Seq: 1, By: who.Member, Session: who.Session, Set: &set}
 	return id, s.write(c, ItemsDir, id)

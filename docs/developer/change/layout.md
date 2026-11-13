@@ -9,6 +9,7 @@
 | `cmd/brigade-schema`, `internal/protocol/schema` | the protocol's JSON Schema generator |
 | `cmd/brigade-release-email`, `internal/releaseemail` | the release-notes email's layout (dev only) |
 | `cmd/brigade-docs`, `internal/docscheck` | the documentation gate and the make-target generator (dev only) |
+| `cmd/brigade-board-carry`, `internal/boardcarry` | carries a team's Brigade Board over to another team's board folder, and a tracker's open cards onto it under the numbers they had (dev only, work item 272) |
 | `internal/protocol`, `internal/adapterkit` | the wire types with `Validate()`, and the shared adapter plumbing |
 | `internal/harness/*` | the plugin side: config, hooks, the watcher, inbound pipeline, frame, commands, session map, folder sync |
 | `internal/adapters/supabase` | the bundled adapter, a child process of the harness |
