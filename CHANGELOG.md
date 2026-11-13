@@ -9,6 +9,8 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+## [0.54.0] — 2026-11-13
+
 ### Added
 
 - **`/brigade:work-item-next` says which work item to take next** (work
