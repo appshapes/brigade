@@ -104,10 +104,11 @@
      applied now.
   6. **Land** it: one comment saying where the work landed (the commits), what changed, every existing file
      touched and why, how each done criterion was checked, what was applied to a hosted project or a server, what
-     is still open and whose, and that the next release carries the work. Over the comment cap (`too_long`), say
-     it in fewer words and leave the long account to the execution-log row, which the comment names. Then the
-     move to Done below, never a close, whoever says the work is finished: closing is the owner's. The checkout
-     is left on `master`, up to date (`make pull` reports nothing new) and clean.
+     is still open and whose, and that the next release carries the work, or that nothing ships (a decision, a
+     repository skill). Over the comment cap (`too_long`), say it in fewer words and leave the long account to
+     the execution-log row, which the comment names. Then the move to Done below, never a close, whoever says the
+     work is finished: closing is the owner's. The checkout is left on `master`, up to date (`make pull` reports
+     nothing new) and clean.
 
   A work item is finished when its done criteria are met, the work is on `master` with CI green (a research or
   decision work item: its answer is on it) and nothing on it is open; the release that carries the work is not
