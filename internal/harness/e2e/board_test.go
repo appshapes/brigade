@@ -5,7 +5,6 @@ package e2e
 import (
 	"encoding/json/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -86,15 +85,16 @@ type boardResult struct {
 //
 // Every duration measured is logged; every wait is a hang catcher.
 func TestABoardSpansTheTeamsRepositories(t *testing.T) {
-	if os.Getenv(syncthingVar) != "1" {
-		t.Skip("set " + syncthingVar + "=1 to run against the syncthing on PATH")
-	}
-	syncthing, err := exec.LookPath("syncthing")
-	if err != nil {
-		t.Fatalf("%s=1 but syncthing is not on PATH: %v", syncthingVar, err)
-	}
+	syncthing := syncthingOnPath(t)
 	r := newRig(t)
 	r.createTeam()
+	r.aBoardSpansTheTeamsRepositories(syncthing, r.fsBackend())
+}
+
+// aBoardSpansTheTeamsRepositories is the test above on the team the rig's
+// checkout names, whatever backend b it is on.
+func (r *rig) aBoardSpansTheTeamsRepositories(syncthing string, b syncBackend) {
+	t := r.t
 	pathDir := r.bundledSync(syncthing)
 
 	// The team file both repositories commit: the board, and no folder.
@@ -113,8 +113,8 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 	}
 
 	bobCheckout := filepath.Join(r.dirs.Root, "bob", "api-checkout")
-	r.syncCheckout(r.checkout, webOrigin, raw, "")
-	r.syncCheckout(bobCheckout, apiOrigin, raw, r.configDirB)
+	r.writeCheckout(r.checkout, webOrigin, raw)
+	r.writeCheckout(bobCheckout, apiOrigin, raw)
 	tokenA := "cc-messaging-secret-alice-board-MUST-NOT-LEAK-" + testutil.RunID()
 	tokenB := "cc-messaging-secret-bob-board-MUST-NOT-LEAK-" + testutil.RunID()
 	alice := r.newSession("alice", "", "alice-web", fakesock.New(t).Path(), tokenA)
@@ -124,6 +124,7 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 	for _, s := range []*session{&alice, &bob} {
 		s.extraEnv = []string{"PATH=" + r.emptyPath + string(os.PathListSeparator) + pathDir}
 	}
+	b.join(bob, bobCheckout)
 	homes := map[string]string{
 		"alice": filepath.Join(r.stateDirOf(alice), "sync", "syncthing"),
 		"bob":   filepath.Join(r.stateDirOf(bob), "sync", "syncthing"),
@@ -140,7 +141,7 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 	const onLine = "Brigade: file sync on: the team's Brigade Board of work items (`brigade work-item list`) through syncthing."
 	boards := map[string]string{}
 	for name, s := range map[string]session{"alice": alice, "bob": bob} {
-		res := r.hook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+		res := b.hook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
 		if !strings.Contains(res.stdout, onLine) {
 			t.Fatalf("session-start for %s did not turn the board on:\nstdout: %s\nstderr: %s", name, res.stdout, res.stderr)
 		}
@@ -161,13 +162,13 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 	// --- 2. one folder id, held on both machines, the machines connected ---------
 	status := func(s session) syncStatus {
 		t.Helper()
-		return jsonResult[syncStatus](t, r.mustRun(r.env(s), "", "sync", "status", "--json").stdout)
+		return jsonResult[syncStatus](t, r.mustRun(b.env(s), "", "sync", "status", "--json").stdout)
 	}
 	// The engine a watcher has just started answers `unavailable` until it
 	// has written its configuration: wait for each to answer once.
 	for _, s := range []session{alice, bob} {
 		testutil.Eventually(t, waitLong, pollSync, func() bool {
-			return r.run(r.env(s), "", "sync", "status", "--json").exit == 0
+			return r.run(b.env(s), "", "sync", "status", "--json").exit == 0
 		})
 	}
 	boardID := foldersync.BoardFolder(r.teamRef, "").ID
@@ -191,6 +192,22 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 	devA, devB := device(alice), device(bob)
 	if devA == devB {
 		t.Fatalf("one device for two machines: %s", devA)
+	}
+	// What the board asks of the backend: each session's device is on the
+	// roster of the whole team, as the other machine reads it.
+	for reader, want := range map[*session]map[string]string{
+		&alice: {r.mustMap(bob).BrigadeSessionID: devB},
+		&bob:   {r.mustMap(alice).BrigadeSessionID: devA},
+	} {
+		testutil.Eventually(t, waitLong, pollSync, func() bool {
+			roster := jsonResult[rosterResult](t, r.mustRun(b.env(*reader), "", "sessions", "--json").stdout)
+			for _, rec := range roster.Sessions {
+				if dev, listed := want[rec.SessionID]; listed {
+					return rec.SyncPeer != nil && *rec.SyncPeer == "syncthing:"+dev
+				}
+			}
+			return false
+		})
 	}
 	holds := func(s session, path string) bool {
 		for _, f := range status(s).Folders {
@@ -227,7 +244,7 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 	// --- 3. a work item crosses the repositories, and its changes cross back -----
 	board := func(s session, stdin string, args ...string) boardResult {
 		t.Helper()
-		return jsonResult[boardResult](t, r.mustRun(r.env(s), stdin, append([]string{"work-item"}, append(args, "--json")...)...).stdout)
+		return jsonResult[boardResult](t, r.mustRun(b.env(s), stdin, append([]string{"work-item"}, append(args, "--json")...)...).stdout)
 	}
 	added := board(alice, "Fix the login redirect\n\nSigning in from the invite link returns to the invite.\n", "add", "--mine")
 	if added.Item == nil || added.Item.Number != 1 || added.Item.List != "todo" || added.Item.ListName != "Todo" || added.Item.CreatedBy != aliceLabel || added.Item.Assignee != aliceLabel {
@@ -330,13 +347,15 @@ func TestABoardSpansTheTeamsRepositories(t *testing.T) {
 			}
 		}
 	}
-	if hits := tokenHits(t, "Fix the login redirect", r.root); len(hits) != 0 {
-		t.Errorf("a work item's title is in the backend's files: %v", relTo(r.dirs.Root, hits))
+	if b.files != "" {
+		if hits := tokenHits(t, "Fix the login redirect", b.files); len(hits) != 0 {
+			t.Errorf("a work item's title is in the backend's files: %v", hits)
+		}
 	}
 
 	for _, s := range []session{alice, bob} {
-		r.hook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "other"}))
+		b.hook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "other"}))
 	}
-	r.assertTokenNowhere(tokenA)
-	r.assertTokenNowhere(tokenB)
+	b.tokenNowhere(tokenA)
+	b.tokenNowhere(tokenB)
 }

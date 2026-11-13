@@ -69,6 +69,54 @@ type syncStatusPeer struct {
 	Connected bool   `json:"connected"`
 }
 
+// A syncBackend is what the real-Syncthing tests ask of the backend the
+// team is on. No file travels through a backend: what file sync needs of
+// one is a session's `sync_peer` and `workspace_label`, read back from
+// the roster. So each test's body is one for every backend, and these are
+// the differences: the fs adapter (fsBackend), or a team on a Brigade
+// server through the bundled `rest` adapter (serverBackend).
+type syncBackend struct {
+	// env is a session's hook environment, and hook runs one of its
+	// lifecycle hooks.
+	env  func(session) []string
+	hook func(s session, sub, doc string) result
+	// join makes bob's machine a member of the team in his own checkout,
+	// before his session's first attached start.
+	join func(bob session, checkout string)
+	// files is the directory the backend keeps its own files in; "" for
+	// one that keeps none on disk.
+	files string
+	// tokenNowhere fails the test when a session's messaging token is in
+	// a file the run left behind.
+	tokenNowhere func(token string)
+}
+
+// fsBackend is the fs adapter behind the rig's recording wrapper: bob is
+// a member since createTeam, so his checkout needs only its pin.
+func (r *rig) fsBackend() syncBackend {
+	return syncBackend{
+		env:          r.env,
+		hook:         r.hook,
+		join:         func(_ session, checkout string) { r.pinCheckout(checkout, r.configDirB) },
+		files:        r.root,
+		tokenNowhere: r.assertTokenNowhere,
+	}
+}
+
+// syncthingOnPath is the opt-in of every test here: the real `syncthing`
+// on PATH, or a skip.
+func syncthingOnPath(t *testing.T) string {
+	t.Helper()
+	if os.Getenv(syncthingVar) != "1" {
+		t.Skip("set " + syncthingVar + "=1 to run against the syncthing on PATH")
+	}
+	syncthing, err := exec.LookPath("syncthing")
+	if err != nil {
+		t.Fatalf("%s=1 but syncthing is not on PATH: %v", syncthingVar, err)
+	}
+	return syncthing
+}
+
 // TestTwoSessionsSyncAFolderThroughSyncthing is the real-binary smoke of
 // the folder-sync plan (§5.2): two personas on this machine, each with its
 // own config dir, state dir and checkout of one repository whose
@@ -92,24 +140,25 @@ type syncStatusPeer struct {
 //
 // Every duration measured is logged; every wait is a hang catcher.
 func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
-	if os.Getenv(syncthingVar) != "1" {
-		t.Skip("set " + syncthingVar + "=1 to run against the syncthing on PATH")
-	}
-	syncthing, err := exec.LookPath("syncthing")
-	if err != nil {
-		t.Fatalf("%s=1 but syncthing is not on PATH: %v", syncthingVar, err)
-	}
+	syncthing := syncthingOnPath(t)
 	r := newRig(t)
 	r.createTeam()
+	r.twoSessionsSyncAFolder(syncthing, r.fsBackend())
+}
+
+// twoSessionsSyncAFolder is the smoke above on the team the rig's checkout
+// names, whatever backend b it is on.
+func (r *rig) twoSessionsSyncAFolder(syncthing string, b syncBackend) {
+	t := r.t
 	pathDir := r.bundledSync(syncthing)
 
 	// The team file gains the sync member; bob's checkout is a second
-	// directory holding the identical file, pinned in his own store. Both
+	// directory holding the identical file, joined in his own store. Both
 	// are checkouts of one repository: the same `origin`.
 	raw := r.teamFileWithSync(syncDir)
 	bobCheckout := filepath.Join(r.dirs.Root, "checkout-bob")
-	r.syncCheckout(r.checkout, syncOrigin, raw, "")
-	r.syncCheckout(bobCheckout, syncOrigin, raw, r.configDirB)
+	r.writeCheckout(r.checkout, syncOrigin, raw)
+	r.writeCheckout(bobCheckout, syncOrigin, raw)
 
 	// Two sessions with sockets (a watcher runs only for one), bob's with
 	// his own state dir and checkout, both with one workspace label of
@@ -125,6 +174,7 @@ func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
 	for _, s := range []*session{&alice, &bob} {
 		s.extraEnv = []string{"PATH=" + r.emptyPath + string(os.PathListSeparator) + pathDir, config.OptionWorkspaceLabel + "=" + syncLabel}
 	}
+	b.join(bob, bobCheckout)
 	homes := map[string]string{
 		"alice": filepath.Join(r.stateDirOf(alice), "sync", "syncthing"),
 		"bob":   filepath.Join(r.stateDirOf(bob), "sync", "syncthing"),
@@ -141,7 +191,7 @@ func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
 	// --- 1. start, publish, configure, connect ------------------------------
 	start := time.Now()
 	for _, s := range []session{alice, bob} {
-		res := r.hook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+		res := b.hook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
 		if !strings.Contains(res.stdout, "Brigade: file sync on: 1 folder(s) through syncthing.") {
 			t.Fatalf("session-start for %s did not turn file sync on:\nstdout: %s\nstderr: %s", s.profile, res.stdout, res.stderr)
 		}
@@ -154,7 +204,7 @@ func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
 
 	peers := map[string]string{} // session id → descriptor
 	testutil.Eventually(t, waitLong, pollSync, func() bool {
-		roster := jsonResult[rosterResult](t, r.mustRun(r.env(alice), "", "sessions", "--json").stdout)
+		roster := jsonResult[rosterResult](t, r.mustRun(b.env(alice), "", "sessions", "--json").stdout)
 		for _, rec := range roster.Sessions {
 			if rec.SyncPeer != nil {
 				if d, ok := strings.CutPrefix(*rec.SyncPeer, "syncthing:"); ok {
@@ -172,7 +222,7 @@ func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
 
 	status := func(s session) syncStatus {
 		t.Helper()
-		return jsonResult[syncStatus](t, r.mustRun(r.env(s), "", "sync", "status", "--json").stdout)
+		return jsonResult[syncStatus](t, r.mustRun(b.env(s), "", "sync", "status", "--json").stdout)
 	}
 	folderID := foldersync.FolderID(r.teamRef, syncRepo, syncDir)
 	configured := func(st syncStatus, root string) bool {
@@ -274,7 +324,7 @@ func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
 	// connected. A prompt prints the notice only when it changed.
 	var notices []string
 	testutil.Eventually(t, waitSync, pollSync, func() bool {
-		res := r.hook(alice, "prompt", alice.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "default", "prompt": "never read"}))
+		res := b.hook(alice, "prompt", alice.hookDoc("UserPromptSubmit", map[string]any{"permission_mode": "default", "prompt": "never read"}))
 		if out := strings.TrimSpace(res.stdout); out != "" {
 			notices = append(notices, out)
 		}
@@ -325,7 +375,7 @@ func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
 	// --- 4. the engines stop with their last session ------------------------------
 	pidA, pidB := daemonPID(t, homes["alice"]), daemonPID(t, homes["bob"])
 	ended := time.Now()
-	r.hook(alice, "session-end", alice.hookDoc("SessionEnd", map[string]any{"reason": "other"}))
+	b.hook(alice, "session-end", alice.hookDoc("SessionEnd", map[string]any{"reason": "other"}))
 	testutil.Eventually(t, waitLong, pollEvery, func() bool {
 		_, err := os.Lstat(filepath.Join(homes["alice"], "daemon.pid"))
 		return !alive(pidA) && os.IsNotExist(err)
@@ -338,7 +388,7 @@ func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
 		t.Fatal("bob's instance stopped with alice's session")
 	}
 	ended = time.Now()
-	r.hook(bob, "session-end", bob.hookDoc("SessionEnd", map[string]any{"reason": "other"}))
+	b.hook(bob, "session-end", bob.hookDoc("SessionEnd", map[string]any{"reason": "other"}))
 	testutil.Eventually(t, waitLong, pollEvery, func() bool {
 		_, err := os.Lstat(filepath.Join(homes["bob"], "daemon.pid"))
 		return !alive(pidB) && os.IsNotExist(err)
@@ -365,8 +415,8 @@ func TestTwoSessionsSyncAFolderThroughSyncthing(t *testing.T) {
 			t.Errorf("the key walk did not find %s's key in its own config.xml: the walk is not live", name)
 		}
 	}
-	r.assertTokenNowhere(tokenA)
-	r.assertTokenNowhere(tokenB)
+	b.tokenNowhere(tokenA)
+	b.tokenNowhere(tokenB)
 }
 
 // The two repositories of TestTwoRepositoriesOfOneTeamSyncApart, and the
@@ -397,13 +447,7 @@ const (
 //     checkout of THAT repository, and neither checkout of the other.
 //  5. A machine's instance runs until the last of its two sessions ends.
 func TestTwoRepositoriesOfOneTeamSyncApart(t *testing.T) {
-	if os.Getenv(syncthingVar) != "1" {
-		t.Skip("set " + syncthingVar + "=1 to run against the syncthing on PATH")
-	}
-	syncthing, err := exec.LookPath("syncthing")
-	if err != nil {
-		t.Fatalf("%s=1 but syncthing is not on PATH: %v", syncthingVar, err)
-	}
+	syncthing := syncthingOnPath(t)
 	r := newRig(t)
 	r.createTeam()
 	pathDir := r.bundledSync(syncthing)
@@ -671,6 +715,20 @@ func (r *rig) teamFileWithSync(folders ...string) []byte {
 // rig's own checkout, which `team create` pinned).
 func (r *rig) syncCheckout(dir, origin string, teamFile []byte, configDir string) {
 	r.t.Helper()
+	r.writeCheckout(dir, origin, teamFile)
+	if dir == r.checkout && configDir == "" {
+		return
+	}
+	if configDir == "" {
+		configDir = r.configDir
+	}
+	r.pinCheckout(dir, configDir)
+}
+
+// writeCheckout makes dir a checkout of the repository at origin that
+// holds the team file, and joins it to nothing.
+func (r *rig) writeCheckout(dir, origin string, teamFile []byte) {
+	r.t.Helper()
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o700); err != nil {
 		r.t.Fatal(err)
 	}
@@ -681,12 +739,12 @@ func (r *rig) syncCheckout(dir, origin string, teamFile []byte, configDir string
 	if err := os.WriteFile(filepath.Join(dir, teamfile.FileName), teamFile, 0o600); err != nil {
 		r.t.Fatal(err)
 	}
-	if dir == r.checkout && configDir == "" {
-		return
-	}
-	if configDir == "" {
-		configDir = r.configDir
-	}
+}
+
+// pinCheckout pins the checkout at dir to the rig's fs team in the store
+// at configDir: what a member of that team has for a checkout they joined.
+func (r *rig) pinCheckout(dir, configDir string) {
+	r.t.Helper()
 	canon, err := teamfile.Canonicalize(dir)
 	if err != nil {
 		r.t.Fatal(err)

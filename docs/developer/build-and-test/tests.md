@@ -25,6 +25,16 @@ BRIGADE_TEST_SYNCTHING=1 go test -count=1 -timeout 15m -run TestTwoSessionsSyncA
 The second is the two-session smoke: two personas, two instances, a file each way, a conflict, the stop with the
 last session; a few minutes.
 
+That smoke and the board's (`TestABoardSpansTheTeamsRepositories`) each have a twin on a team on a Brigade server,
+where both sessions attach through the bundled `rest` adapter and the two instances find each other from the
+roster the server answers. They run against the stand-in server, or against a built `brigade-server` when
+`BRIGADE_E2E_SERVER` names one (`make server-test` leaves it at `server/target/debug/brigade-server`):
+
+```sh
+BRIGADE_TEST_SYNCTHING=1 BRIGADE_E2E_SERVER=$PWD/server/target/debug/brigade-server go test -count=1 -timeout 15m \
+  -run 'TestTwoSessionsOfATeamOnAServerSyncAFolder|TestABoardSpansTheRepositoriesOfATeamOnAServer' ./internal/harness/e2e/ -v
+```
+
 ## The conformance suite
 
 `brigade-conformance` is the arbiter for an adapter: 52 cases, three principals in two teams, an environment built

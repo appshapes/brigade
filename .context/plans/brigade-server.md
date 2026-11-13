@@ -482,6 +482,15 @@ What Cavalry wants from Brigade now (its section F5): the soak of a server that 
   host `sled` once the gateways work there, and real use is the proof. What stands in for `make e2e`, which is
   written for a Supabase stack and real Claude Code sessions, is `TestATeamOnAServerThroughTheRealBinary`: the
   built `brigade` and its bundled adapter as real processes, against the stand-in and against the server.
+- **File sync and the board on a team on the server** (2026-11-13, execution log P86-10; the first check of work
+  item 272, run before it starts because a failure would have been the adapter's or the server's). Nothing a
+  member syncs travels through the server: what it carries is each session's `sync_peer` and `workspace_label`,
+  which the other member's watcher reads from the roster. The two real-Syncthing end-to-end tests each run again
+  on a team made by `team create --adapter rest`, the second member joined from inside a session with the
+  secret's file: `TestTwoSessionsOfATeamOnAServerSyncAFolder` and `TestABoardSpansTheRepositoriesOfATeamOnAServer`
+  (`BRIGADE_TEST_SYNCTHING=1`; the stand-in, or the server `BRIGADE_E2E_SERVER` names). Both pass against
+  `brigade-server` 0.4.0 over TLS on the developer's Mac. Not run on the owner's host, and not with a team that
+  was taken in: a taken-in team is a team like any other once a member has joined it.
 - **Standby:** two instances on two hosts; send through the primary, stop it, promote, receive from the standby.
 
 ## 8. Phases
@@ -544,9 +553,9 @@ for the server. Everything before it changes nothing for anyone; nothing in it i
 | --- | --- | --- | --- | --- |
 | 1 | 273, part 1 | The server takes in a team that exists, with its join secret (§4.7): `--import-team`, server 0.3.0. | the 89 session | built and released as 0.3.0, 2026-11-12 (execution log P86-7) |
 | 2 | 274 | The admin verbs on a team on the server: rotate the join secret, revoke a member, transfer the team; and who owns a team that was taken in, which has no creator (§4.8). A server release and a plugin release. | the 89 session | built and released as server 0.4.0 and plugin 0.53.0, 2026-11-12 (execution log P86-8, P86-9) |
-| 3 | 89 | Ready for the cut-over: the owner's host on the release that has steps 1 and 2; the `appshapes` team taken in there with its existing secret; the gateways' configuration written with that secret's file and the mail team's inbox; the Slack app's bot token and signing secret in their files on the host (the owner). | the 89 session, and the owner for the two Slack files | not started |
+| 3 | 89 | Ready for the cut-over: the owner's host on the release that has steps 1 and 2; the `appshapes` team taken in there with its existing secret; the gateways' configuration written with that secret's file and the mail team's inbox; the Slack app's bot token and signing secret in their files on the host (the owner). | the 89 session, and the owner for the two Slack files | done 2026-11-13: the host on 0.4.0 with the team taken in and the gateways configured and off (execution log P86-9); the two Slack files placed that day by the 89 session at the owner's word, the bot token accepted by Slack |
 | | | **Here work item 272 can start, and the owner is told** (below). | | |
-| 4 | 272 | First the check that file sync and the board work on a team on the server, and the board's carry-over tried on a scratch folder. Then the cut-over, once, in the order 272 gives: the team file in the four repositories; the gateways go live (the Slack app's two addresses moved by the owner, the mail provider's webhook added by the 89 session); the board carried over; each member joins once with the secret file they have; the check. | 272's session, with the 89 session for the gateways | waits for step 3 |
+| 4 | 272 | First the check that file sync and the board work on a team on the server, and the board's carry-over tried on a scratch folder. Then the cut-over, once, in the order 272 gives: the team file in the four repositories; the gateways go live (the Slack app's two addresses moved by the owner, the mail provider's webhook added by the 89 session); the board carried over; each member joins once with the secret file they have; the check. | 272's session, with the 89 session for the gateways | waits for the owner's word (decision `d-20261113-48c612`). Ahead of it, 2026-11-13: file sync and the board shown working on a team on the server (§7, execution log P86-10), and one fault found that the cut-over would have met, work item 275 below |
 | 5 | 273, part 2 | A member's next session attaches with no command run: a voucher the server trusts. A security design and the owner's ruling first. Before the thinktech team moves. | to be assigned | after the cut-over |
 
 **Why 274 comes before the cut-over.** A team on the server cannot rotate its join secret or remove a member
@@ -566,6 +575,16 @@ are there. The 89 session then tells the owner twice, as he asked: in its conver
 with `brigade decision --to 'rjae@appshapes.com' --options "start 272 now | wait"`, which reaches his digest's
 recipient if he has not answered in the conversation within his wait. It tells `brigade-89` too, if that session
 is still there. Work item 272 carries the same rule for a session that gets there first.
+
+**A repository that changes teams loses its synced folders: work item 275** (found 2026-11-13). A synced folder's
+id is made from the team's reference, the repository's name and the folder's name. `cavalry` and `muster` keep
+the `appshapes` reference, so their folders keep their ids. The `brigade` repository takes that reference in
+place of its own, so its `.brigade` folder, which holds the state folder, gets a new id at the same path, and the
+bundled sync adapter never moves a path another id holds: `conflict_path` on every round, for good, measured on
+the adapter's own fixture. Machines that held the folder would go on exchanging it under the earlier id, with
+each other only and with Brigade reporting it as not held. `telder` lists no folder. The board is not touched:
+its path is made from the team's reference. The fix is in the adapter and needs a plugin release, so it comes
+before the cut-over.
 
 **What is still the owner's to decide** (on work item 272): whether the member from another organisation joins
 the one team; what becomes of the old teams' Slack and mail addresses; the numbering of carried-over work items;

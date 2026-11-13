@@ -36,11 +36,14 @@ import (
 // runs: no Rust, no certificate.
 const serverBinVar = "BRIGADE_E2E_SERVER"
 
-// A restBackend is a running server for the REST contract: its base url
-// and, when it serves TLS, the pin of its certificate.
+// A restBackend is a running server for the REST contract: its base url,
+// when it serves TLS the pin of its certificate, and when it keeps files
+// the directory they are in (the server's data and its log; the stand-in
+// keeps none).
 type restBackend struct {
 	url         string
 	certificate string
+	dir         string
 }
 
 // startRestBackend starts the backend the environment asks for and stops
@@ -148,7 +151,7 @@ func startServerOn(t *testing.T, bin, dir string) restBackend {
 	testutil.Eventually(t, waitLong, pollEvery, func() bool {
 		return strings.Contains(said(), "(certificate "+pin+")")
 	})
-	return restBackend{url: url, certificate: pin}
+	return restBackend{url: url, certificate: pin, dir: dir}
 }
 
 // stopOnCleanup interrupts a server process when the test ends and waits
@@ -185,6 +188,9 @@ func (r *rig) restEnv(s session) []string {
 	}
 	if s.socket != "" {
 		env = append(env, "CLAUDE_CODE_MESSAGING_SOCKET="+s.socket, "CLAUDE_CODE_MESSAGING_TOKEN="+s.token)
+	}
+	if s.stateHome != "" {
+		env = append(env, "XDG_STATE_HOME="+s.stateHome)
 	}
 	return append(env, s.extraEnv...)
 }
@@ -383,21 +389,13 @@ func (r *rig) restJoin(s session, label string) result {
 	return r.runIn(r.checkout, r.restEnv(s), "", "team", "join", "--secret-file", r.secretFile, "--label", label)
 }
 
-// TestATeamOnAServerThroughTheRealBinary is the path a team on a Brigade
-// server takes, with the built `brigade` binary and its bundled `rest`
-// adapter as real processes (work item 89, phase 3): the admin's `team
-// create --adapter rest`, the committed team file, a member's join from
-// inside a session, both sessions' SessionStart, the real watcher long
-// polling the server, and a message from one member's session arriving in
-// the other's inbox socket. Then the team's administration (work item
-// 274): a rotated secret, a member revoked, the team handed on.
-func TestATeamOnAServerThroughTheRealBinary(t *testing.T) {
-	t.Parallel()
-	backend := startRestBackend(t)
-	r := newRig(t)
-	r.secretFile = filepath.Join(r.dirs.Root, "team.secret")
-
-	// --- 1. the admin creates the team, outside any session ---------------
+// createTeamOnServer is the admin's `team create --adapter rest` in the
+// rig's checkout, outside any session, with the server's pin when it has
+// one: the team file it writes names the server and the team, the secret
+// is in the rig's secret file, and alice is the team's first member.
+func (r *rig) createTeamOnServer(backend restBackend) {
+	t := r.t
+	t.Helper()
 	create := []string{"team", "create", "--adapter", "rest", "--url", backend.url,
 		"--name", teamName, "--label", aliceLabel, "--secret-file", r.secretFile}
 	if backend.certificate != "" {
@@ -425,6 +423,24 @@ func TestATeamOnAServerThroughTheRealBinary(t *testing.T) {
 	if fi, err := os.Stat(r.secretFile); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("the join secret's file: %v %v", fi, err)
 	}
+}
+
+// TestATeamOnAServerThroughTheRealBinary is the path a team on a Brigade
+// server takes, with the built `brigade` binary and its bundled `rest`
+// adapter as real processes (work item 89, phase 3): the admin's `team
+// create --adapter rest`, the committed team file, a member's join from
+// inside a session, both sessions' SessionStart, the real watcher long
+// polling the server, and a message from one member's session arriving in
+// the other's inbox socket. Then the team's administration (work item
+// 274): a rotated secret, a member revoked, the team handed on.
+func TestATeamOnAServerThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	backend := startRestBackend(t)
+	r := newRig(t)
+	r.secretFile = filepath.Join(r.dirs.Root, "team.secret")
+
+	// --- 1. the admin creates the team, outside any session ---------------
+	r.createTeamOnServer(backend)
 
 	// --- 2. the admin's session starts: the bundled adapter, the watcher ---
 	sock := fakesock.New(t)
@@ -434,7 +450,7 @@ func TestATeamOnAServerThroughTheRealBinary(t *testing.T) {
 	start := func(s session) result {
 		return r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
 	}
-	res = start(alice)
+	res := start(alice)
 	m := r.mustMap(alice)
 	if m.BrigadeSessionID == "" || m.TeamRef != r.teamRef || m.TeamName != teamName || m.SessionName != aliceName ||
 		m.TeamKey != r.teamKey || !sessionmap.IsBundledRest(m.AdapterCommand) {
