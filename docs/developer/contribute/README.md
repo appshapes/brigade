@@ -12,6 +12,7 @@
 
 1. `make push message="<work item>: <Imperative summary>"`, or `/commit <work item>` in Claude Code.
 2. `master` only, merges only, never rebase; plans in `.context/plans/`, scratch in `.ignored/`.
+3. A merge conflict is yours to resolve in place: never `git merge --abort`, never a rebase or a force-push.
 
 Details: [Commit and push](commits.md).
 

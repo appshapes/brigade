@@ -24,7 +24,7 @@ Run these commands in parallel to understand what will be committed:
 - `git diff --cached`
 - `git log --oneline -5`
 
-If the working tree is clean (no staged, unstaged, or untracked changes), inform the user there is nothing to commit and stop.
+If the working tree is clean (no staged, unstaged, or untracked changes), there is nothing to commit. If `git status` also says the branch is ahead of origin (a merge you concluded, or commits not yet pushed), `make push` would run its whole chain and stop at "nothing to commit": run `make pull`, then `git push`, and report that. Otherwise inform the user there is nothing to commit and stop.
 
 Remember: `make push` runs `git add --verbose :/ .` before committing, so ALL working tree changes will be included, not just staged files. It also runs `git pull` BETWEEN typecheck and build, so the build/test/ownership gates run against the MERGED tree rather than a stale one.
 
@@ -55,4 +55,9 @@ This typechecks, builds, tests, ownership-lints, commits, pulls, and pushes. The
 ## 6. Report the result
 
 - On success, confirm the commit was pushed.
-- On failure (build error, test failure, lint issue, merge conflict), report the error clearly. Do not retry automatically.
+- On a build error, a test failure or a lint issue, report the error clearly. Do not retry automatically.
+- A merge conflict is not a failure to report and leave: it is yours to resolve in place, by the steps of
+  `docs/agent/repository/conventions.md` ("A merge conflict is the session's to resolve, in place"). The pull
+  inside `make push` either stops in a merge with markers, or refuses because an uncommitted change would be
+  overwritten; the rule has the steps for each. Never `git merge --abort`, never a rebase, never a force-push.
+  Ask the user only when what one side meant cannot be told.

@@ -68,7 +68,9 @@ and `e2e` jobs are what will actually run them on your PR.
   whole tree and merges `origin` mid-run; `make release` writes the release pins and pushes a tag. Both are the
   owner's, on `master`, from her machine.
 - **Merges only, never rebase.** No `git rebase` in any form, no force push, no rewriting pushed history. If you
-  hit a merge conflict, stop and hand it back in a PR comment.
+  hit a merge conflict, stop and hand it back in a PR comment. The rule file's "A merge conflict is the
+  session's to resolve, in place" is for a person's session, which can ask its user and runs `make push`; it is
+  not for you.
 - One logical change per commit; several commits on a branch are fine (the merge is a squash).
 
 ## Never, on pain of a blocked PR

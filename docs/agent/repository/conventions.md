@@ -1,7 +1,47 @@
 # Conventions: git, commits, work items, plans
 
 - **Branch and history.** Work on `master`. Merges only: never `git rebase`, never `git pull --rebase`, never a
-  force-push of pushed history. Integrate with `git pull --no-edit`. On a merge conflict, stop and hand it back.
+  force-push of pushed history. Integrate with `git pull --no-edit` (`make pull`).
+- **A merge conflict is the session's to resolve, in place** (the owner's global rule, made this repository's on
+  2026-11-13, work item 298; until then the rule here was to stop and hand it back). This is a session's rule:
+  an agent of the agentic loop on a runner has nobody to ask and never runs `make push`, so it still hands a
+  conflict back in a pull request comment, as `.claude/agents/developer.md` says, and nothing below is for it.
+  A pull conflicts when origin and local commits it has not seen change the same lines; `make push` then stops
+  at its pull, with a merge in progress.
+  1. Read what each side meant (`git log --merge -p`, and the work items its commits name), keep both, and leave
+     no marker; fix as well what the merged tree breaks beyond the markers (a file that merged cleanly but fails
+     combined).
+  2. Stage the files the resolution touched, and none of the work's own uncommitted changes (where a fix
+     belongs in a file that also holds the work's changes, stage the fix's lines alone, `git add -p`), then run
+     the acceptance gate and the package or server checks [gates.md](gates.md) names for what the merge
+     touched, until they pass. They run on the working tree, the merge with the work's uncommitted changes: a
+     failure that comes from the unfinished work is the work's to fix, not the merge's.
+  3. Conclude the merge with a commit that names every file that conflicted and how it was resolved:
+     `git commit -m "<work item>: Merge origin/master: <file>: <how>; <file>: <how>"`. No pull works until it
+     is concluded.
+  4. Push: `make push message="…"` when the work itself is still uncommitted, otherwise `make pull` then
+     `git push` (`make push` on a clean tree runs its whole chain, then stops at `nothing to commit, working
+     tree clean`, and the merge never reaches origin). If origin moved again, its new conflict is resolved the
+     same way.
+
+  When the pull refuses with `Your local changes to the following files would be overwritten by merge`, no merge
+  has started: `git stash push -m "<work item>: before the pull"`, then `make pull`; if that pull conflicts,
+  resolve it by steps 1 to 3 first; then pop that stash. It is `stash@{0}` unless another session of the
+  checkout stashed meanwhile: find it by its message in `git stash list` and name it, `git stash pop stash@{n}`.
+  A pop that prints `Dropped` left nothing to resolve: run `make push`. A pop that prints `CONFLICT` and
+  `The stash entry is kept` left markers, `Updated upstream` for origin's side and `Stashed changes` for the
+  work: read the two sides with `git stash show -p stash@{n}` and `git log -p 'stash@{n}^..HEAD' -- <file>`
+  (`git log --merge` shows nothing here, no merge being in progress), keep both, clear the unmerged state with
+  `git reset -q`, drop that one stash with `git stash drop stash@{n}`, and run `make push` with a message that
+  also names each file that conflicted and how. Never drop a stash after a pop that dropped its own, and never
+  one whose message is not yours: it is someone's parked work. When the refusal names untracked files instead,
+  origin added a file the work also added, and a stash does not move it: rename the work's copy aside,
+  `make pull`, and carry what it held into origin's file by hand. Never `git merge --abort` to
+  escape a conflict, though git's own hint offers it, never a rebase or a force-push to resolve one. When what
+  one side meant cannot be told from the code, its commits and its work item, ask the user at once
+  and leave the merge in progress, never aborted: until it is concluded, no other session in the checkout can
+  pull. The agentic loop's agents are not sessions and have nobody to ask: on a runner a conflict is still handed
+  back in a pull request comment (`.claude/agents/developer.md`).
 - **Commit messages** are `<work item>: <Imperative summary>`, the number being the work item's on the team's
   Brigade Board. Commit and push through `make push message="<work item>: …"` (typecheck, pull, build, test,
   stage every working-tree change, commit, push) or the `/commit <work item>` skill, which is a port of it.
