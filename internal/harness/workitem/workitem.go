@@ -66,14 +66,20 @@ const (
 // The caps a change keeps to, whoever wrote it. The text caps are in code
 // points.
 const (
-	// MaxChangeBytes caps a file a reader will decode: a description at
-	// its cap, every code point four bytes and escaped, fits.
-	MaxChangeBytes = 128 << 10
+	// MaxChangeBytes caps a file a reader will decode. The largest change
+	// sets a title, a description and the tags and adds a comment, every
+	// one at its cap; written with every code point an escaped surrogate
+	// pair (`\uD83D\uDE00`, 12 bytes), which any JSON encoder may do and
+	// a reader has to take, it fits (changeFits). Brigade's own writer
+	// spends at most 4 bytes on a code point.
+	MaxChangeBytes = 1 << 20
 	// MaxTitleChars caps a title, MaxDescriptionChars a description and
-	// MaxCommentChars a comment.
+	// MaxCommentChars a comment (work item 304 raised the last two from
+	// 8,000 and 4,000; a reader of 0.50.0 to 0.53.1 still cuts a text at
+	// those, and skips a file over 128 KiB).
 	MaxTitleChars       = 200
-	MaxDescriptionChars = 8000
-	MaxCommentChars     = 4000
+	MaxDescriptionChars = 65536
+	MaxCommentChars     = 16384
 	// MaxLists caps the board's lists, MaxListChars a list's name and
 	// MaxListKeyChars its key; MaxTags a work item's tags and MaxTagChars
 	// a tag.
@@ -86,9 +92,15 @@ const (
 	// of one work item (and of the lists). The writer refuses past either
 	// (ErrFull), so a change that is written is a change that is read; a
 	// reader folds no more, the first by name, and looks at no more than
-	// twice as many names in a directory, so a folder a teammate's machine
-	// filled cannot cost a reader its memory or its time. Read counts what
-	// it left out.
+	// twice as many names in a directory. Read counts what it left out.
+	// The caps bound one file and the count of one work item's changes,
+	// not the folder: a read costs time and memory in proportion to what
+	// the folder holds. A folder a teammate's machine filled to every cap
+	// is MaxChanges files of MaxChangeBytes for each of MaxItems work items
+	// (about 2 GiB for one work item, and every comment of it is held
+	// after the fold), bounded in the end by the disk and by what sync
+	// delivers; that machine can already forge any change (docs/security.md
+	// section 19).
 	MaxItems   = 20000
 	MaxChanges = 2000
 	// MaxSeq is the highest sequence, and MaxNumber the highest number, a
@@ -96,6 +108,15 @@ const (
 	MaxSeq    = 999_999_999
 	MaxNumber = 999_999_999
 )
+
+// changeFits is the largest change a writer can make at the caps, every
+// code point 12 bytes, with 16 KiB for its other members (the ids, the
+// labels and the session's name at their protocol caps come to under
+// 5 KB at 12 bytes a code point). The conversion below stops compiling
+// the day MaxChangeBytes falls under it.
+const changeFits = 12*(MaxTitleChars+MaxDescriptionChars+MaxCommentChars+MaxTags*MaxTagChars) + 16<<10
+
+const _ = uint(MaxChangeBytes - changeFits)
 
 // idPattern is a work item's id, its directory's name: 16 hex digits.
 // changePattern is a change's file name: the sequence in nine digits, the

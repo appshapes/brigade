@@ -104,7 +104,7 @@ check).
 6. **Land it on the work item**: the landing comment first, `brigade work-item comment <number>` with the text on
    stdin, saying where the work landed (the commits), what changed, every existing file touched and why, how each
    done criterion was checked, what was applied to a hosted project or a server, and what is still open and who
-   owns it. A comment holds at most 4,000 characters (`too_long`): say it in fewer words, and leave the long
+   owns it. A comment holds at most 16,384 characters (`too_long`): say it in fewer words, and leave the long
    account to the execution-log row, which the comment can name. No secrets, no addresses, no local paths, and no
    `Session stamp:` line: the board records the member and the session of every comment itself. Then `brigade
    work-item move <number> done`. A work item this skill lands is finished when it is on `master` with CI green

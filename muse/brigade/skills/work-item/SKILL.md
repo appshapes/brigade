@@ -75,7 +75,7 @@ means:
 | `<number> assign nobody`, "unassign 41" | `brigade work-item assign <number> --nobody` |
 | `<number> comment <text>` | `brigade work-item comment <number>`, the text on stdin |
 | `<number> tag <tags>` | `brigade work-item tag <number> <tags>` |
-| `<number> edit`, "retitle 41" | `brigade work-item show <number>` first, then `brigade work-item edit <number>` with the whole new title and description |
+| `<number> edit`, "retitle 41" | `brigade work-item show <number>` first, then `brigade work-item edit <number>` with the whole new title and description: `edit` replaces the whole description with what it is sent, so when `show` came back cut short or saved to a file, read all of it first, or a long description is cut for everyone |
 | `<number> close`, "41 is finished with" | `brigade work-item close <number>` |
 | `<number> reopen` | `brigade work-item reopen <number>` |
 
@@ -128,5 +128,5 @@ Print a refusal once and stop; never retry with another form.
 | `invalid_input`, `no_such_list` | the board has no list of that name or key; the message names the ones it has |
 | `invalid_input`, `name_taken` | a list cannot take a name another list answers to, as its name or its key |
 | `config`, `label_needed` | `--mine` in a session with no roster label: name the member with `--to` |
-| `invalid_input`, `too_long` | a title holds 200 characters, a description 8,000, a comment 4,000: say it in fewer words |
+| `invalid_input`, `too_long` | a title holds 200 characters, a description 65,536, a comment 16,384: say it in fewer words |
 | `conflict`, `number_taken_twice` | two work items still carry one number; run the command again |

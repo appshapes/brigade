@@ -57,7 +57,7 @@ brigade work-item unhide-list hibernating    # shows it in the listing again
 
 Every verb runs inside a session and takes `--json`. A title, a description and a comment travel on stdin; the
 first line of an `add` or an `edit` is the title and the description follows a blank line. A title holds 200
-characters, a description 8,000 and a comment 4,000. A text that carries a credential's shape is refused.
+characters, a description 65,536 and a comment 16,384. A text that carries a credential's shape is refused.
 
 `brigade work-item list` prints one row per work item and one line that counts every list, so an empty list is
 still seen:

@@ -9,8 +9,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/appshapes/brigade/internal/harness/doing"
+	"github.com/appshapes/brigade/internal/protocol"
 )
 
 // clock is a test clock: every reading is one second after the last.
@@ -780,6 +783,98 @@ func TestReadStopsAtTheCap(t *testing.T) {
 	}
 	if none, err := ReadItem(s.Folder, "ffffffffffffffff", nil); none != nil || err != nil {
 		t.Errorf("ReadItem of no such work item = %v, %v", none, err)
+	}
+}
+
+// escaped is n code points from U+1F600 on, each written as JSON's escaped
+// surrogate pair: 12 bytes a code point, the most any encoder spends.
+func escaped(n int, from rune) string {
+	var b strings.Builder
+	for i := range n {
+		hi, lo := utf16.EncodeRune(from + rune(i%64))
+		fmt.Fprintf(&b, `\u%04X\u%04X`, hi, lo)
+	}
+	return b.String()
+}
+
+// The largest change a writer can make — a title, a description, a comment
+// and the tags at their caps, the labels and the session's name at theirs,
+// every code point 12 bytes — is a file a reader takes, whole (work item
+// 304: the file cap must not fall under the text caps again).
+func TestAChangeAtEveryCapFitsTheFileCap(t *testing.T) {
+	folder := t.TempDir()
+	const id = "0123456789abcdef"
+	dir := filepath.Join(folder, ItemsDir, id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tags := make([]string, MaxTags)
+	for i := range tags {
+		tags[i] = `"` + escaped(MaxTagChars, 0x1F600+rune(i)) + `"`
+	}
+	label := escaped(protocol.MaxHumanLabelChars, 0x1F600)
+	doc := `{"v":1,"item":"` + id + `","seq":1,"at":"2026-11-11T09:00:00Z",` +
+		`"by":"` + label + `","session":"` + escaped(protocol.MaxSessionNameCodepoints, 0x1F600) + `",` +
+		`"set":{"number":999999999,"title":"` + escaped(MaxTitleChars, 0x1F600) + `","list":"` + strings.Repeat("k", MaxListKeyChars) + `",` +
+		`"assignee":"` + label + `","description":"` + escaped(MaxDescriptionChars, 0x1F600) + `",` +
+		`"tags":[` + strings.Join(tags, ",") + `],"closed":false},` +
+		`"comment":"` + escaped(MaxCommentChars, 0x1F600) + `"}` + "\n"
+	if len(doc) > MaxChangeBytes || len(doc) > changeFits {
+		t.Fatalf("the change is %d bytes; MaxChangeBytes %d, changeFits %d", len(doc), MaxChangeBytes, changeFits)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "000000001-1762851600000-00000001.json"), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := read(t, folder)
+	if len(b.Items) != 1 || b.Skipped != 0 {
+		t.Fatalf("items = %d, skipped %d", len(b.Items), b.Skipped)
+	}
+	it := b.Items[0]
+	for _, f := range []struct {
+		name string
+		text string
+		want int
+	}{
+		{"title", it.Title, MaxTitleChars},
+		{"description", it.Description, MaxDescriptionChars},
+		{"comment", it.Comments[0].Text, MaxCommentChars},
+	} {
+		if n := utf8.RuneCountInString(f.text); n != f.want || strings.HasSuffix(f.text, protocol.TruncationMarker) {
+			t.Errorf("the %s read back as %d code points, want %d whole", f.name, n, f.want)
+		}
+	}
+	if len(it.Tags) != MaxTags {
+		t.Errorf("tags = %d, want %d", len(it.Tags), MaxTags)
+	}
+}
+
+// A description and a comment at their caps, written through the store as
+// a session writes them, are read back as they were written: characters of
+// one to four bytes, line breaks kept, no truncation.
+func TestTextsAtTheirCapsReadBackWhole(t *testing.T) {
+	c := newClock()
+	s := Store{Folder: t.TempDir(), Now: c.now}
+	text := func(n int) string {
+		unit := []rune("aé語\U0001F600 line\n") // ten code points
+		out := make([]rune, n)
+		for i := range out {
+			out[i] = unit[i%len(unit)]
+		}
+		out[n-1] = 'z' // nothing at the end for the sanitiser to trim
+		return string(out)
+	}
+	description, comment := text(MaxDescriptionChars), text(MaxCommentChars)
+	id := add(t, s, "A long one", alice)
+	change(t, s, id, &Fields{Description: &description}, comment, alice)
+	it := read(t, s.Folder).ByID(id)
+	if it == nil {
+		t.Fatal("the work item is not there")
+	}
+	if it.Description != description {
+		t.Errorf("the description read back as %d code points, want the %d written", utf8.RuneCountInString(it.Description), MaxDescriptionChars)
+	}
+	if len(it.Comments) != 1 || it.Comments[0].Text != comment {
+		t.Errorf("the comment did not read back whole")
 	}
 }
 

@@ -9,6 +9,22 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Changed
+
+- **A work item holds a much longer text** (work item 304). A description
+  holds 65,536 characters and a comment 16,384, up from 8,000 and 4,000,
+  and a change file in the board's folder 1 MiB, up from 128 KiB; a title
+  still holds 200. A long specification or a decision record now fits in
+  one description, and the `brigade:work-item` skill tells a session to
+  read a long description whole before it edits one. Update every member's
+  machine before anyone writes a text past the old caps: a machine on
+  0.50.0 to 0.53.1 shows a longer text cut at the old cap, and an `edit`
+  of the description made there writes the cut text back for everyone;
+  and it leaves out, without a word, a change file over 128 KiB (a long
+  text written mostly in characters of two bytes or more, from about
+  65,000 Cyrillic, 43,600 CJK or 32,700 emoji characters), so a work item
+  whose first change that is does not appear there at all.
+
 ## [0.53.1] — 2026-11-13
 
 ### Fixed

@@ -273,7 +273,8 @@ func TestCopyWritesNothingIntoABoardWithChangesOfItsOwn(t *testing.T) {
 func TestAddCarriesCardsUnderTheNumbersTheyHad(t *testing.T) {
 	t.Parallel()
 	folder := board(t)
-	long := strings.Repeat(strings.Repeat("a line of a long specification ", 4)+"\n", 90)
+	line := strings.Repeat("a line of a long specification ", 4) + "\n"
+	long := strings.Repeat(line, workitem.MaxDescriptionChars/len(line)+10)
 	cards := []Card{
 		{Number: 281, Title: "The newest card", List: "Wanting", Tags: []string{"cavalry"}},
 		{Number: 198, Title: "An old card", Description: "What the old card asks for.", List: "hibernating", Comments: []string{"dana, 2026-10-02:\nfirst", "erin, 2026-10-03:\nsecond"}},

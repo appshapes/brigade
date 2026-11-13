@@ -129,8 +129,9 @@ as `labels`. Its files are not read by this one: only this machine's board held 
 change made after reading another follows it whatever the clocks say. An item needs a number, a title and a list
 (its first change sets them); one whose first change has not arrived is not shown. Readers take only files whose
 name, size and shape are a change's, follow no symlink, cap and sanitise every string (`protocol.Sanitize`), and
-count what they skip. Caps: change file 128 KiB, title 200, description 8,000, comment 4,000 code points, 24
-lists, 12 tags, 20,000 items, 2,000 changes an item.
+count what they skip. Caps: change file 1 MiB, title 200, description 65,536, comment 16,384 code points, 24
+lists, 12 tags, 20,000 items, 2,000 changes an item (work item 304, 2026-11-13, raised the file, description and
+comment caps from 128 KiB, 8,000 and 4,000; `.context/plans/board-text-caps.md`).
 
 **Numbers.** `NextNumber` is the highest on the board plus one. `Clashes` is every item of a number but the one
 created first (by creation time, then id); `Store.Repair` gives each the next free number as a change of its own.
