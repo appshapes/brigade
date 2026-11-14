@@ -668,6 +668,65 @@ func TestATeamMovesToAServerWithItsSecretThroughTheRealBinary(t *testing.T) {
 		p.FromLabel != bobLabel+" (unverified)" || p.Body != "we are on the server now" {
 		t.Errorf("frame: %+v", p)
 	}
+
+	// --- 7. the member's other checkouts of the team, on the same machine (work item 290) --------------
+	// One was joined to the team on the old backend, so its pin names that backend. The machine holds the
+	// server's credential by now, and the join there is a move to another backend all the same: it shows
+	// what changed and asks for the secret's file, and with the file the member joins as who they are. The
+	// other was never joined and needs no file. `docs/project-owner/server/take-in-a-team.md` says both.
+	member, err := teamstore.LoadBinding(r.configDir, r.teamKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, fresh := filepath.Join(r.dirs.Root, "checkout-second"), filepath.Join(r.dirs.Root, "checkout-fresh")
+	for _, dir := range []string{second, fresh} {
+		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		//nolint:gosec // G306: a committed team file is 0644
+		if err := os.WriteFile(filepath.Join(dir, teamfile.FileName), append(file, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	canonSecond, err := teamfile.Canonicalize(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := write.Pin(r.configDir, canonSecond, teamstore.Pin{
+		Adapter: "supabase", URL: oldURL, PublishableKey: "sb_publishable_x", TeamRef: teamRef,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res = r.runIn(second, r.restEnv(alice), "", "team", "join")
+	if res.exit == 0 || !strings.Contains(res.stderr, "team join inside a session needs --secret-file <path>") ||
+		!strings.Contains(res.stdout, "adapter: supabase → rest") || strings.Contains(res.stdout, "consented") {
+		t.Fatalf("a join with no path in a checkout pinned to the old backend: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if pin, ok, _ := teamstore.LookupPin(r.configDir, canonSecond); !ok || pin.Adapter != "supabase" {
+		t.Fatalf("the pin moved without the secret's file: %+v", pin)
+	}
+	res = r.runIn(second, r.restEnv(alice), "", "team", "join", "--secret-file", r.secretFile)
+	if res.exit != 0 || strings.Count(res.stdout, "consented by this invocation") != 1 || strings.Contains(res.stdout+res.stderr, secret) {
+		t.Fatalf("the join with the path: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if pin, ok, _ := teamstore.LookupPin(r.configDir, canonSecond); !ok || pin.Adapter != "rest" || pin.URL != backend.url || pin.TeamRef != teamRef {
+		t.Fatalf("the pin after the join with the path: %+v", pin)
+	}
+	if again, err := teamstore.LoadBinding(r.configDir, r.teamKey); err != nil || again.PrincipalRef != member.PrincipalRef {
+		t.Fatalf("the member after the second checkout's join: %+v, %v: want principal %s", again, err, member.PrincipalRef)
+	}
+	res = r.runIn(fresh, r.restEnv(alice), "", "team", "join")
+	if res.exit != 0 || !strings.Contains(res.stdout, `re-consented team "`+teamName+`" (`+teamRef+`)`) {
+		t.Fatalf("a join with no path in a checkout that was never joined: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	canonFresh, err := teamfile.Canonicalize(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin, ok, _ := teamstore.LookupPin(r.configDir, canonFresh); !ok || pin.Adapter != "rest" || pin.URL != backend.url {
+		t.Fatalf("the pin of the checkout that was never joined: %+v, %v", pin, ok)
+	}
+
 	entry := r.liveWatcher(alice)
 	for _, s := range []session{alice, bob} {
 		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))

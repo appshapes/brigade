@@ -70,8 +70,8 @@ Details: [Open the gateways](gateways.md).
    `brigade-server --data <dir> --import-team <name> --join-secret-file <file>`, then start it.
 2. In each repository of the team, in `.brigade.json`: `adapter` becomes `rest`, `url` the server's, and
    `publishable_key` goes; `team_ref` stays.
-3. Each member updates the plugin to 0.52.0 or later, pulls, and joins once with the secret file they already
-   have.
+3. Each member updates the plugin to 0.53.1 or later, pulls, and joins with the secret file they already have,
+   once in each checkout that was joined to the team on the old backend.
 
 Details: [Take in a team that exists](take-in-a-team.md).
 

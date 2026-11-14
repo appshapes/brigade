@@ -257,6 +257,80 @@ func TestTeamJoinCertificateOnlyDriftNeedsNoSecret(t *testing.T) {
 	}
 }
 
+// A team moved to a Brigade server and kept its reference (work item 290).
+// The machine joined the server from another checkout, so it holds the
+// server's credential; this checkout is still pinned to the earlier
+// backend. Its join is a move to another backend all the same: inside a
+// session it wants the secret's file again, and with it the member joins
+// as who they are. `docs/project-owner/server/take-in-a-team.md` says so.
+func TestTeamJoinInSessionOnACheckoutPinnedToTheEarlierBackend(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	top := mkCheckout(t, f.dirs.Root)
+	persona := filepath.Join(f.dirs.Root, "persona-config")
+	if err := os.MkdirAll(persona, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeStartFacts(t, f, persona)
+	canon, _ := teamfile.Canonicalize(top)
+	earlier := teamstore.Pin{
+		Adapter: "supabase", URL: "https://abc.supabase.co", PublishableKey: "sb_publishable_x", TeamRef: setupTeamRef,
+	}
+	if err := write.Pin(persona, canon, earlier); err != nil {
+		t.Fatal(err)
+	}
+	key := teamstore.Key("rest", serverURL, setupTeamRef)
+	if err := adapterkit.SaveProfile(persona, key, &adapterkit.Profile{
+		Version: adapterkit.ProfileVersion, Adapter: "rest", URL: serverURL,
+		TeamRef: setupTeamRef, PrincipalRef: "p_keep",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The server has a certificate an authority signed, as the owner's does: the file pins none.
+	writeServerFile(t, top, "")
+	f.rec.on("session list", answer{result: `{"sessions":[],"server_time":"2026-11-13T18:00:00Z"}`})
+	f.rec.on("team join", answer{result: `{"team_ref":"` + setupTeamRef + `","team_name":"devs","principal_ref":"p_keep","rejoined":true}`})
+
+	// With no path: the change is shown, the secret's file is asked for and nothing is consented.
+	err := Team(sessionInv(t, f, top, "join"))
+	perr := wantCodeErr(t, err, protocol.CodeUsage, "")
+	out := f.out.String()
+	if !strings.Contains(perr.Message, "team join inside a session needs --secret-file <path>") ||
+		!strings.Contains(out, "adapter: supabase → rest") || !strings.Contains(out, "backend host: abc.supabase.co → brigade.example.com:8743") ||
+		strings.Contains(out, "consented") {
+		t.Fatalf("refusal = %q, stdout = %q", perr.Message, out)
+	}
+	if pin, ok, _ := teamstore.LookupPin(persona, canon); !ok || pin.Adapter != "supabase" || pin.URL != earlier.URL {
+		t.Fatalf("the pin moved without the secret's file: %+v", pin)
+	}
+	if slices.Contains(f.rec.verbs(), "team join") {
+		t.Fatal("a join was sent without the secret's file")
+	}
+
+	// With the path: one consent line, the join is sent, and the checkout is pinned to the server.
+	f.out.Reset()
+	secretFile := filepath.Join(f.dirs.Root, "join.secret")
+	writeSecretFile(t, secretFile, setupSecret)
+	if err := Team(sessionInv(t, f, top, "join", "--secret-file", secretFile)); err != nil {
+		t.Fatal(err)
+	}
+	out = f.out.String()
+	if strings.Count(out, "consented by this invocation") != 1 || !strings.Contains(out, `via adapter "rest"`) ||
+		!strings.Contains(out, `joined team "devs" (`+setupTeamRef+`)`) || strings.Contains(out, setupSecret) {
+		t.Fatalf("stdout = %q", out)
+	}
+	pin, ok, _ := teamstore.LookupPin(persona, canon)
+	if !ok || pin.Adapter != "rest" || pin.URL != serverURL || pin.Certificate != "" || pin.TeamRef != setupTeamRef {
+		t.Fatalf("pin after the join = %+v, %v", pin, ok)
+	}
+	if !slices.Contains(f.rec.verbs(), "team join") {
+		t.Fatal("the join with the secret's file was not sent")
+	}
+	if b, err := teamstore.LoadBinding(persona, key); err != nil || b.PrincipalRef != "p_keep" {
+		t.Fatalf("the member after the join = %+v, %v: want the one the machine was", b, err)
+	}
+}
+
 // A join that follows a dead credential still reaches a server whose pin
 // changed: the profile is moved to the file's pin before the join is sent.
 func TestTeamJoinAlignsAServersProfileBeforeAJoin(t *testing.T) {

@@ -57,13 +57,17 @@ who may rotate its secret, revoke a member and transfer it (from 0.4.0 of the se
 
 ## What each member does
 
-1. Update the plugin to 0.52.0 or later, and pull.
+1. Update the plugin to 0.53.1 or later, and pull. (0.52.0 reads a server's team file; 0.53.1 also moves the
+   synced folders of a repository that had another team's file before.)
 2. The next session says that `.brigade.json` does not match the team joined here, and connects to nothing.
 3. `/brigade:join <path>` with the secret file they already have (`brigade team join --secret-file <path>` in a
    terminal). A member who no longer has the file is sent the same one again.
 
-The secret is needed once on each machine. In a second repository of the team on the same machine, `/brigade:join`
-with no path is enough: the machine holds the credential by then. The first join is needed because a member's
+The path is needed in every checkout that was joined to the team on the old backend, not once on each machine.
+Such a checkout reads the changed file as a move to another backend: it shows what changed and asks for the
+secret's file, though the machine holds the server's credential from the first join. With the path the member
+joins as who they already are on the server. A checkout that was never joined, a new clone or a repository that
+gets the team file later, needs no path: `/brigade:join` alone. The first join is needed because a member's
 credential was issued by the old backend, and the server has no way to check it.
 
 ## What comes over, and what does not
