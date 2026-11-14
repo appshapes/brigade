@@ -481,7 +481,8 @@ impl Command {
 
     /// Whether the request at `path` can put a team on the server that was not on it: a creation, and the
     /// taking in of a team that exists on another backend. Both are held to the server's creation rule
-    /// (the contract's sections 3 and 3b), before anything of the request is read.
+    /// (the contract's sections 3 and 3b), before anything of the request is read beyond that its body is
+    /// one JSON object.
     #[must_use]
     pub fn creation_path(path: &str) -> bool {
         matches!(path, "/v1/team/create" | "/v1/team/take-in")
@@ -586,14 +587,29 @@ fn team_transfer(document: &Document) -> Result<Command, Error> {
 /// A take-in is read as a join is, with the name a creation carries: the secret is there, the name keeps
 /// the rule a created team's name is held to, the label is within its cap, and only then is the secret
 /// held to its format, so a request with two things wrong is told the same one by the stand-in server.
+///
+/// One thing a join does not check: the length of the team reference inside the secret. A join keeps
+/// nothing of what it presents. A take-in keeps the reference, which its caller chose, so the reference is
+/// held to a cap of the server's own ([`limits::MAX_TAKEN_IN_TEAM_REF_CHARS`]). The refusal is in fixed
+/// words, with nothing of the secret in it.
 fn team_take_in(document: &Document) -> Result<Command, Error> {
     let secret = document.required_text("join_secret")?;
     let team_name = document.text("team_name")?.unwrap_or_default();
     check_team_name(&team_name)?;
     let human_label =
         optional_text(document, "human_label", limits::MAX_HUMAN_LABEL_CHARS)?.unwrap_or_default();
+    let join_secret = JoinSecret::parse(&secret)?;
+    if join_secret.team_ref().chars().count() > limits::MAX_TAKEN_IN_TEAM_REF_CHARS {
+        return Err(Error::refused_value(
+            "join_secret",
+            &format!(
+                "a join secret whose team reference is at most {} code points",
+                limits::MAX_TAKEN_IN_TEAM_REF_CHARS
+            ),
+        ));
+    }
     Ok(Command::TeamTakeIn(TeamTakeIn {
-        join_secret: JoinSecret::parse(&secret)?,
+        join_secret,
         team_name,
         human_label,
     }))

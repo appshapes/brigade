@@ -29,6 +29,12 @@ pub const MAX_SYNC_PEER_CHARS: usize = 256;
 /// server that kept whatever it was sent would write a record as long as the request: this bound is the
 /// server's own, far above any name a harness has.
 pub const MAX_HARNESS_CHARS: usize = 256;
+/// The cap on the team reference inside the join secret of a take-in by request, in code points. BAP/1
+/// does not freeze a reference's shape and gives it no cap, and the reference of a team that is taken in
+/// is its caller's choice, which the server keeps: in its state, in every record of the team and in every
+/// snapshot. A server that kept whatever it was sent would keep a megabyte for one request of a caller it
+/// does not know. This bound is the server's own, far above any reference a backend makes (a UUID is 36).
+pub const MAX_TAKEN_IN_TEAM_REF_CHARS: usize = 256;
 /// The largest `context_used_tokens`: 2^53 - 1, the largest integer JSON carries exactly.
 pub const MAX_CONTEXT_USED_TOKENS: i64 = (1 << 53) - 1;
 

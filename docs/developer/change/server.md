@@ -151,7 +151,9 @@ runs takes a team in for the caller that presents its join secret, and opens and
 owner. The operator's three commands stay as they are, and call the same functions.
 
 - **`/v1/team/take-in`** is an open path, as a creation and a join are, and a creation path:
-  `Command::creation_path` is what `answer` holds to `may_create`, before the body is read. `team_take_in` in
+  `Command::creation_path` is what `answer` holds to `may_create`, once the body is known to be one JSON
+  object and before any member of it is read. `wire.rs` holds the reference inside the secret to
+  `limits::MAX_TAKEN_IN_TEAM_REF_CHARS`, because the caller chose it and the state keeps it. `team_take_in` in
   `execute.rs` has two branches. A team the state does not hold is taken in by one entry: the credential of a
   new principal, `team.created` with the reference inside the secret, the secret's hash and the caller as
   `created_by`, and `member.joined`. A team the state holds is handed to `team_join` as it stands, so every
@@ -163,8 +165,9 @@ owner. The operator's three commands stay as they are, and call the same functio
   line alone, as `by_move_ticket` is on `member.joined`. The team is the team a creation makes, so there is no
   new kind of record and no new snapshot format: a 0.6.0 starts on what 0.7.0 wrote.
 - **`/v1/team/open-move` and `/v1/team/close-move`** are administration paths: `answer` checks the owner before
-  it reads the body, and each function checks it again before it calls `open_move` or `close_move`, the
-  operator's own. `ticket_days` is read by `wire.rs` with the bounds `open_move` holds.
+  it reads anything of the body but its `team_ref`, and each function checks it again before it calls
+  `open_move` or `close_move`, the operator's own. `ticket_days` is read by `wire.rs` with the bounds
+  `open_move` holds.
 - **A team that is taken in counts** against the principal that takes it in, in `teams_created_at`, because
   applying `team.created` counts it for its `created_by`.
 - **`said.rs`** has a line for a team taken in, for a move its owner opened and for one its owner closed. A

@@ -153,7 +153,7 @@ server may leave these three endpoints out (§5).
   names and otherwise creates one, whose `credential` rides the result (§3).
   - **Who may.** Whoever may create a team. A server that requires a creation token on `/v1/team/create` requires
     it here, in the same header, and refuses a request without it with the bytes it refuses a creation with,
-    before it reads the body.
+    before it reads anything of the body beyond that it is one JSON object.
   - **A team the server does not hold** is taken in under the `team_ref` inside the secret, with the request's
     `team_name`, and in the same step the caller becomes an active member of it and its owner (§3a). `taken_in`
     and `owner` are `true`. The server keeps what it needs to check the secret, as for a team it created, and
@@ -168,6 +168,9 @@ server may leave these three endpoints out (§5).
     and so, byte for byte, is the request of a principal the team banned. Nothing is made.
   - A `join_secret` that is malformed is `invalid_input` as on a join, and a `team_name` that breaks
     `/v1/team/create`'s rule is `invalid_input` naming `team_name`, checked before the secret's format.
+  - The `team_ref` inside the secret is the caller's choice, and a server keeps it. So a server may hold it to
+    a cap of its own and refuse a longer one as `invalid_input` naming `join_secret`, whether or not it holds
+    the team: a server need not keep a megabyte it was sent (§5). `brigade-server` takes 256 code points.
 - **`/v1/team/open-move`** opens the move of the team's members from the backend the team leaves. The team gets
   a **move ticket**: a second join secret, `brg1.<team_ref>.<secret>` with the team's `team_ref` and a secret
   part of at least 128 random bits, that `/v1/team/join` admits until `ends_at`. `ticket_days` is an integer from

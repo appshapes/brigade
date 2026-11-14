@@ -3385,8 +3385,8 @@ fn a_take_in_is_held_to_the_creation_rule_and_to_the_shape_of_its_request() {
     let (stranger, created) = rig.create("stranger");
 
     // A server that asks for a creation token refuses a take-in as it refuses a creation, before it reads
-    // the request: the bytes are the same for a request that reads, for one that does not, for a team
-    // that is not here and for one that is, under the right secret or another.
+    // any member of the request: the bytes are the same for a request that reads, for one that does not,
+    // for a team that is not here and for one that is, under the right secret or another.
     rig.may_create = false;
     let (before, entries) = (rig.state.clone(), rig.log.len());
     let refused = wire(&rig.call(None, "/v1/team/create", json!({})).unwrap_err());
@@ -3477,6 +3477,39 @@ fn a_take_in_is_held_to_the_creation_rule_and_to_the_shape_of_its_request() {
         .unwrap();
     assert_eq!(taken["team_name"], json!(at_cap));
 
+    // The reference inside the secret is the caller's choice, and the server keeps it: in its state, in
+    // every record of the team and in every snapshot. It is held to a cap of the server's own, so a caller
+    // the server does not know cannot have it keep a megabyte with one request. A reference at the cap is
+    // taken in, counted in code points; one over it is refused in fixed words, and nothing is made.
+    let longest = "é".repeat(limits::MAX_TAKEN_IN_TEAM_REF_CHARS);
+    let taken = take_in(&mut rig, None, &secret_of(&longest, "s"), "at the cap").unwrap();
+    assert_eq!(
+        (&taken["team_ref"], &taken["taken_in"]),
+        (&json!(longest), &json!(true))
+    );
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    for over in [
+        "r".repeat(limits::MAX_TAKEN_IN_TEAM_REF_CHARS + 1),
+        "r".repeat(900_000),
+    ] {
+        let refused = take_in(&mut rig, None, &secret_of(&over, "s"), "over").unwrap_err();
+        assert_eq!(
+            (refused.code, field(&refused).as_str(), reason(&refused)),
+            (Code::InvalidInput, "join_secret", "invalid_value"),
+            "{} code points",
+            over.len()
+        );
+        assert!(wire(&refused).len() < 400, "the refusal repeats the reference");
+        assert!(!wire(&refused).contains("rrrr"));
+    }
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    // The cap is a take-in's. A join keeps nothing of what it presents, and is answered as it always was.
+    let over = "r".repeat(limits::MAX_TAKEN_IN_TEAM_REF_CHARS + 1);
+    assert_eq!(
+        join_refused(&mut rig, &secret_of(&over, "s")),
+        wire(&Error::secret_rejected())
+    );
+
     // A principal adds a bounded number of teams in an hour, created or taken in: the take-in is refused
     // where a creation would be, and a team that was taken in counts as one that was created.
     let mut rig = Rig::new();
@@ -3520,6 +3553,32 @@ fn a_take_in_is_held_to_the_creation_rule_and_to_the_shape_of_its_request() {
     assert!(matches!(
         &rig.log[0].records[1].event,
         Event::TeamCreated { created_by, taken_in: true, .. } if created_by.is_empty()
+    ));
+    // Such a caller's take-in of a team that is here is a join as well, and is held to the secret as any
+    // is: another secret lets nobody in and makes nothing, and the right one makes a member and no owner.
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let other = secret_of(ELSEWHERE, "another-secret-for-the-reference");
+    let refused = take_in(&mut rig, None, &other, "gateway").unwrap_err();
+    assert_eq!(
+        (refused.code, reason(&refused)),
+        (Code::Conflict, "other_join_secret")
+    );
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    let again = take_in(&mut rig, None, &secret, "gateway").unwrap();
+    assert_eq!(
+        (&again["taken_in"], &again["owner"]),
+        (&json!(false), &json!(false))
+    );
+    assert_eq!(rig.state.teams[ELSEWHERE].owner(), None);
+    assert!(matches!(
+        &rig.log.last().unwrap().records[..],
+        [
+            _,
+            Record {
+                event: Event::MemberJoined { .. },
+                ..
+            }
+        ]
     ));
     rig.may_own = true;
     let owner = rig.join(&secret, "alice");
