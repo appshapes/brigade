@@ -160,6 +160,9 @@ so that every adapter uses the same words, gated by capability, and permitted ex
 | `team transfer [--principal <principal_ref>]` | `{principal_ref}` (or the flag) | `{team_ref, principal_ref, transferred: true}` | convention, capability `team.admin`; the team's owner only (4.4.10, C-50) |
 | `team move [--ticket-file <path> [--adapter <name> --url <url> [--certificate <pin>]] \| --clear]` | `{adapter, url, certificate?}` (or the flags); none with `--clear` | `{team_ref, moved, adapter?, url?, certificate?, recorded_at?}` | convention, capability `team.move`; the team's owner only; records on this backend where the team went, with the move ticket read from the file and written to no output; `--clear` clears the record (4.4.10, C-51) |
 | `team moved [--ticket-file <path>]` | none | `{team_ref, moved, adapter?, url?, certificate?, recorded_at?, ticket_file?}` | convention, capability `team.move`; every active member; with `--ticket-file` the ticket of a recorded move is written to that path with mode 0600 and to no output (4.4.10, C-52) |
+| `team take-in [--secret-file <path>] [--name <team_name>] [--label <human_label>]` | `{join_secret, team_name, human_label?, backend?}` (or the flags) | `{team_ref, team_name, principal_ref, taken_in, owner}` | convention, capability `team.take_in`; takes in a team that lives on another backend, under the `team_ref` inside its join secret, and makes the caller its owner; a team that is here under that secret is joined; binds the profile; exit 7 `conflict` with `details.reason = "other_join_secret"` when the backend holds that `team_ref` under another secret (4.4.10, C-53) |
+| `team open-move --ticket-file <path> [--ticket-days <n>]` | none | `{team_ref, team_name, ends_at, replaced, ticket_file}` | convention, capability `team.take_in`; the team's owner only; opens the team's move at this backend: a move ticket, written to the file with mode 0600 and to no output, admits a `team join` until `ends_at` (4.4.10, C-54) |
+| `team close-move` | none | `{team_ref, team_name, closed}` | convention, capability `team.take_in`; the team's owner only; the move ticket admits nobody from then on (4.4.10, C-55) |
 | `profile init` / `profile status` / `profile reset` / `profile revoke-credentials` | adapter-specific | adapter-specific, never a secret | convention, adapter-defined; `profile reset` invalidates the credential at the backend when the adapter can (best effort) and deletes the local credential and profile; `profile revoke-credentials` only invalidates the credential (so a leaked copy of the credential file stops working) and leaves the profile in place for a rejoin; `profile init` on a configured profile is `conflict` unless the adapter's own `--force` is given |
 
 Result objects that have a Go type in `internal/protocol` are named in the table; the composite results of
@@ -818,6 +821,78 @@ An adapter whose backend cannot say whether the team moved answers `moved: false
 does for a team that did not move. What a harness does with a record is its own to decide; the protocol says only
 what the record is.
 
+**Taking a team in** (capability `team.take_in`; added 2026-11-14, work item 328, ADR 0005). `team move` and
+`team moved` above are commands of the backend a team leaves. These three are commands of the backend it goes to: the
+holder of the team's join secret takes the team in there, and the team's owner opens and closes the move whose ticket
+`team move` records. An adapter may carry either capability, both or neither.
+
+**`team take-in [--secret-file <path>] [--name <team_name>] [--label <human_label>]`** — request
+`{"join_secret", "team_name", "human_label"?, "backend"?}` on stdin:
+
+```json
+{"join_secret": "brg1.EXAMPLE-TEAM-REF.EXAMPLE-NOT-A-REAL-SECRET", "team_name": "ops", "human_label": "alice@example.com"}
+```
+
+`join_secret` is required and is the join secret the team has on the backend it comes from; `team_name` is required
+and ≤ `max_team_name_codepoints`; `human_label` is optional and ≤ `max_human_label_chars`; `backend` is the member of
+`team join`, under its rules. `--secret-file <path>` names an absolute path whose first line is the join secret, which
+then takes the place of the document's `join_secret`; `--name` and `--label` take the place of `team_name` and
+`human_label`; with both `--secret-file` and `--name` stdin is not read. A `--secret-file` that is not an absolute path
+is `usage`; a file that is not there or cannot be read is `config` with `details.reason` `secret_file_missing` or
+`secret_file_unreadable`; a malformed secret, in the document or in the file, is `invalid_input` with
+`details.field = "join_secret"` and a message that never contains any part of it. What the command does depends on
+what the backend holds for the `team_ref` inside the secret:
+
+- **No team.** The backend takes the team in under that `team_ref`, with `team_name` as its name and the secret as its
+  join secret, and the caller becomes a member and the team's owner in the same step. The members of the team join with
+  the secret they have. The answer carries `taken_in: true` and `owner: true`.
+- **The team, under that secret.** The command is a `team join` by the backend's own rules, and the request's
+  `team_name` is not used. The answer carries `taken_in: false`, the name the team has, and `owner`, which says whether
+  the caller owns the team. A move ticket of the team that still admits is taken here as `team join` takes it.
+- **A team under another secret.** `conflict` with `details.reason = "other_join_secret"`, and nothing is bound. A
+  principal the team banned is answered the same.
+
+The binding rules of `team join` hold: a profile bound to another team is `conflict` with
+`details.reason = "profile_bound"`, checked locally before any network call, and a profile bound to the team the secret
+names proceeds, so the command is safe to repeat. A backend that limits who may create a team limits who may take one
+in by the same rule, and refuses the others as it refuses their `team create`. Result (C-53):
+
+```json
+{"team_ref": "…", "team_name": "ops", "principal_ref": "…", "taken_in": true, "owner": true}
+```
+
+All five members are required, and `taken_in: true` goes with `owner: true`.
+
+**`team open-move --ticket-file <path> [--ticket-days <n>]`** takes no input and answers the team's owner only, as the
+administration commands do: anyone else is the uniform `unauthorized` of 4.5.7. It opens the team's move at this
+backend. The backend mints a move ticket, a join secret of the format above with the team's `team_ref`, and a
+`team join` that presents the ticket is admitted until the ticket ends. A join the ticket admits never makes the team's
+owner. `--ticket-file` is required and names an absolute path in a directory that exists, checked before any network
+call: `usage`, or `config` with `details.reason = "ticket_file_unwritable"`. `--ticket-days` is the number of days the
+ticket admits for, from 1 to 365 and 30 when it is not given; a value outside that range is `usage`. The ticket is
+written to the file with mode 0600 and appears in no output; that file is what `team move --ticket-file` reads at the
+backend the team leaves. A team has one move: opening one for a team that has one, ended or not, puts the new ticket in
+the place of the old, which admits nobody from then on, and `replaced` says so. Result (C-54):
+
+```json
+{"team_ref": "…", "team_name": "ops", "ends_at": "2026-12-14T12:00:00Z", "replaced": false, "ticket_file": "/home/alice/ops.ticket"}
+```
+
+All five members are required. A ticket that could not be written to the file is `config` with
+`details.reason = "ticket_file_unwritable"`: the ticket is lost, and opening the move again replaces it. An answer from
+the backend that the adapter cannot use is `internal` and means the same.
+
+**`team close-move`** takes no input and no flag, and answers the team's owner only. The move ticket admits nobody from
+then on, whether or not it had ended, and every member it admitted stays a member. A team with no move is left as it
+is and answers `closed: false`. On an adapter that also has `team.admin`, `team rotate-secret` closes a move that is
+open. Result (C-55):
+
+```json
+{"team_ref": "…", "team_name": "ops", "closed": true}
+```
+
+All three members are required.
+
 **`profile init`** on a configured profile is `conflict` unless the adapter's own `--force` is given.
 
 ## 4.5 Semantics
@@ -909,7 +984,7 @@ what the record is.
 | 4 | `unauthenticated` | `false` | no usable local credential, or the credential was revoked; run `team join` again |
 | 5 | `unauthorized` | `false` | authenticated but not an active member of the team (including a revoked membership); watch join refused; join secret rejected (identical text for a wrong secret, an unknown team and a banned principal) |
 | 6 | `not_found` | `false` | unknown, foreign or not-owned session or message id (uniform text) |
-| 7 | `conflict` | `false` | idempotency key reused with a different payload; session closed; resume of a live session (`details.reason = "session_live"`); profile already bound to a team (`details.reason = "profile_bound"`); `profile init` on a configured profile without `--force` |
+| 7 | `conflict` | `false` | idempotency key reused with a different payload; session closed; resume of a live session (`details.reason = "session_live"`); profile already bound to a team (`details.reason = "profile_bound"`); `team take-in` of a team the backend holds under another join secret (`details.reason = "other_join_secret"`); `profile init` on a configured profile without `--force` |
 | 8 | `rate_limited` | `true` | `retry_after_ms` present; `details.reason` is one of `send_per_minute`, `send_per_hour`, `principal_per_minute`, `principal_per_hour`, `sender_quota_for_recipient`, `recipient_inbox_full`, `join_attempts`, `register_session`, `team_create`, `realtime` |
 | 9 | `unavailable` | `true` | backend unreachable, 5xx, timeout, paused project (`details.reason = "project_paused"` when detectable) |
 | 10 | `protocol_mismatch` | `false` | harness and adapter protocol majors differ |
@@ -960,6 +1035,7 @@ failure → 9; GoTrue `refresh_token_already_used` (after one re-read-and-retry)
 | `team.roster` | `team members` | every active member (D22) |
 | `team.admin` | `team rotate-secret`, `team revoke-member`, `team transfer` | the team's owner only (4.4.10); `team members` then carries `joined_secret_version` where the backend answers it |
 | `team.move` | `team move`, `team moved` | the team's owner records where the team went and its move ticket; every active member reads the record (4.4.10) |
+| `team.take_in` | `team take-in`, `team open-move`, `team close-move` | the holder of a team's join secret takes the team in at this backend and owns it; the owner opens and closes the move whose ticket admits a `team join` (4.4.10) |
 | `message.receive` | `message receive` | required in v1 and still advertised (C-18) |
 | `message.watch.push` | — | events arrive without polling: the `ready` event's `mode` is `push` and the harness expects a message within 5 s; an adapter that omits it MUST send `mode: polling` (C-33) and the harness expects two poll intervals of latency (C-35) |
 | `message.watch.stdin_commands` | NDJSON commands on `message watch` stdin (4.4.9) | without it the adapter ignores stdin's content and exits on its EOF |
@@ -1020,7 +1096,7 @@ The logical plan's ten freeze items and where this document freezes each; nothin
 
 ## Appendix A. Conformance case index
 
-Every case of plan 9.2 and the sections of this document that cite it. Every one of the 52 ids appears at least
+Every case of plan 9.2 and the sections of this document that cite it. Every one of the 57 ids appears at least
 once.
 
 | Case | Rule (9.2) | Cited in |
@@ -1079,6 +1155,9 @@ once.
 | C-50 | 4.4.10 team transfer (cap `team.admin`) | 4.2 `team transfer`; 4.4.10 `team transfer` |
 | C-51 | 4.4.10 team move (cap `team.move`) | 4.2 `team move`; 4.4.10 `team move`, `team move --clear` |
 | C-52 | 4.4.10 team moved (cap `team.move`) | 4.2 `team moved`; 4.4.10 `team moved` |
+| C-53 | 4.4.10 team take-in (cap `team.take_in`) | 4.2 `team take-in`; 4.4.10 `team take-in` |
+| C-54 | 4.4.10 team open-move (cap `team.take_in`) | 4.2 `team open-move`; 4.4.10 `team open-move` |
+| C-55 | 4.4.10 team close-move (cap `team.take_in`) | 4.2 `team close-move`; 4.4.10 `team close-move` |
 
 ## Appendix B. Normative statements without a conformance case when the suite was specified (input to P1-6)
 

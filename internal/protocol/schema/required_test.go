@@ -35,6 +35,8 @@ func wireTypes() []any {
 		protocol.TeamRotateSecretResult{}, protocol.TeamRevokeMemberRequest{}, protocol.TeamRevokeMemberResult{},
 		protocol.TeamRevokeByVersionResult{}, protocol.TeamTransferRequest{}, protocol.TeamTransferResult{},
 		protocol.TeamMoveRequest{}, protocol.TeamMoveResult{},
+		protocol.TeamTakeInRequest{}, protocol.TeamTakeInResult{},
+		protocol.TeamOpenMoveResult{}, protocol.TeamCloseMoveResult{},
 	}
 }
 

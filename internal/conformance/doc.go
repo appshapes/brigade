@@ -2,7 +2,7 @@
 // library behind the dev binary cmd/brigade-conformance and behind the
 // `go test` subtests of suite_test.go (TestConformanceFS/C-25), so that
 // `go test ./...` stays a complete gate on its own. The cases themselves
-// live in the sibling package cases (one file per plan case, C-01..C-52
+// live in the sibling package cases (one file per plan case, C-01..C-55
 // plus C-03b, C-19b and C-29b); this package never imports it, and the
 // case authors code against the T API of t.go and the WatchProc API of
 // watch.go, nothing else.
@@ -58,8 +58,9 @@
 // run directory — profile files, logs, the fs store — is scanned the same
 // way, any hit being a C-05 failure. One kind of file is not the adapter's
 // leaving a secret on disk: the file a case names with --secret-file
-// (`team rotate-secret`, C-48 and C-49), which is where 4.4.10 sends the
-// secret. A case gets such a path from T.SecretFile, under
+// (`team rotate-secret`, C-48 and C-49) or with --ticket-file (`team
+// open-move`, C-54 and C-55), which is where 4.4.10 sends the secret. A
+// case gets such a path from T.SecretFile, under
 // <run>/secret-files, and reads the secret back with T.TakeSecretFile,
 // which removes the file and registers the secret for the checks above;
 // the runner removes whatever is left there when the case ends, so the

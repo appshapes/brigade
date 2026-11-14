@@ -35,7 +35,8 @@ use crate::gateway::endpoint::{self, Received, Route};
 use crate::note::note;
 use crate::said;
 
-/// The header that carries the creation token (the contract's section 3).
+/// The header that carries the creation token, on a request that creates a team and on one that takes a
+/// team in (the contract's sections 3 and 3b).
 const CREATE_TOKEN_HEADER: &str = "brigade-create-token";
 
 /// The path of a receive, the one request this layer may hold (the contract's section 4).
@@ -64,7 +65,7 @@ const CONNECTIONS: usize = 1024;
 pub struct Shared {
     /// The way to the engine.
     pub engine: Client,
-    /// The token `/v1/team/create` requires, when the operator set one.
+    /// The token `/v1/team/create` and `/v1/team/take-in` require, when the operator set one.
     pub create_token: Option<String>,
     /// Becomes true when the server is told to stop.
     pub stopping: watch::Receiver<bool>,
@@ -73,13 +74,14 @@ pub struct Shared {
 }
 
 /// The result of `/v1/info`. `capabilities` names what the server carries beyond the contract's required
-/// surface: the three administration endpoints of its section 3a, which the adapter asks for here before
-/// it sends an administration command.
+/// surface: the three administration endpoints of its section 3a, and the three of its section 3b that
+/// take a team in and open and close its move. The adapter asks for each here before it sends a command
+/// of that kind.
 fn info() -> Value {
     json!({
         "contract_version": "1",
         "server": {"name": env!("CARGO_PKG_NAME"), "version": env!("CARGO_PKG_VERSION")},
-        "capabilities": ["team.admin"],
+        "capabilities": ["team.admin", "team.take_in"],
     })
 }
 
@@ -191,8 +193,9 @@ async fn answer(shared: &Shared, request: Request<Incoming>) -> Result<Value, Er
     if path == INFO_PATH {
         return Ok(info());
     }
-    // A join that comes over HTTP is a member's own, and may make it the owner of a team that was taken in
-    // and has none yet. A gateway joins inside the server and never passes here.
+    // A request that comes over HTTP is a member's own, and may make it the owner of a team: by a join of
+    // one the operator took in, which has none yet, or by taking one in itself. A gateway joins inside
+    // the server and never passes here.
     let ask = || {
         shared
             .engine

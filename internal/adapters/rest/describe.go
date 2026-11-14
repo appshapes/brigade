@@ -13,23 +13,30 @@ const adapterName = progName
 // endpoints (the contract's section 3a).
 const capTeamAdmin = "team.admin"
 
+// capTeamTakeIn is the capability of the three commands that take a team
+// in and open and close its move (4.7), and the name a server lists in
+// `/v1/info` when it carries their endpoints.
+const capTeamTakeIn = "team.take_in"
+
 // capabilities is the 4.7 registry entries this adapter advertises: what
 // the contract's section 5 requires of every version 1 server (the three
 // team conventions and the nine session members), `message.receive`, the
 // two the adapter earns itself (`message.watch.push`, because a waiting
 // receive answers within a second of an acceptance, section 4, and
-// `message.watch.stdin_commands`), and `team.admin`, the administration
-// endpoints of section 3a, which a server may leave out. The list is
-// fixed, because describe never asks the server anything: whether this
-// profile's server carries those endpoints is asked before each
-// administration command, which answers `config` when it does not
-// (requireTeamAdmin).
+// `message.watch.stdin_commands`), and the two a server may leave out:
+// `team.admin`, the administration endpoints of section 3a, and
+// `team.take_in`, the endpoints that take a team in and open and close its
+// move. The list is fixed, because describe never asks the server
+// anything: whether this profile's server carries those endpoints is asked
+// before each command that needs them, which answers `config` when it
+// does not (requireTeamAdmin, requireTeamTakeIn).
 func capabilities() []string {
 	return []string{
 		"team.create",
 		"team.join",
 		"team.roster",
 		capTeamAdmin,
+		capTeamTakeIn,
 		"message.receive",
 		"message.watch.push",
 		"message.watch.stdin_commands",

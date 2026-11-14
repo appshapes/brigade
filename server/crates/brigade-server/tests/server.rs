@@ -397,7 +397,8 @@ fn the_transport_is_the_contracts() {
     };
 
     // What the server is, with no credential: the contract, its own name and version, and that it carries
-    // the administration endpoints, which the adapter asks before it sends an administration command.
+    // the administration endpoints and the ones that take a team in and move it, which the adapter asks
+    // before it sends a command of either kind.
     let (status, info) = server.post(None, "/v1/info", &json!({}));
     assert_eq!(status, 200);
     assert_eq!(info["result"]["contract_version"], json!("1"));
@@ -406,7 +407,10 @@ fn the_transport_is_the_contracts() {
         info["result"]["server"]["version"],
         json!(env!("CARGO_PKG_VERSION"))
     );
-    assert_eq!(info["result"]["capabilities"], json!(["team.admin"]));
+    assert_eq!(
+        info["result"]["capabilities"],
+        json!(["team.admin", "team.take_in"])
+    );
 
     // An unknown path is 404 whatever the method; a known one that is not a POST is refused.
     let (status, envelope) = server.post(None, "/v1/team/delete", &json!({}));
@@ -547,12 +551,47 @@ fn a_creation_token_is_needed_where_the_operator_set_one() {
     let secret = text(&envelope["result"], "join_secret");
     let (status, _) = server.post(None, "/v1/team/join", &json!({"join_secret": secret}));
     assert_eq!(status, 200);
-    // Nothing the server wrote about itself holds the token.
-    assert!(
-        !std::fs::read_to_string(scratch.path("stderr"))
-            .unwrap()
-            .contains("let-me-make-a-team")
+
+    // Taking a team in puts a team on the server as creating one does, and is held to the same token:
+    // without it the request is refused in a creation's words, whatever it holds, a team that is here
+    // under the secret it presents included.
+    let elsewhere = format!("brg1.{ELSEWHERE}.kept-from-the-other-backend");
+    let take_in = |held: &str, headers: &[(&str, &str)]| {
+        let body = json!({"join_secret": held, "team_name": "ops"}).to_string();
+        let mut stream = TcpStream::connect(&authority).unwrap();
+        stream
+            .write_all(&request(&authority, None, "/v1/team/take-in", &body, headers))
+            .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        parse(&response)
+    };
+    let (_, uniform) = create(&[]);
+    for held in [elsewhere.as_str(), secret.as_str(), "not-a-join-secret"] {
+        for headers in [&[][..], &[("Brigade-Create-Token", "not-the-token")][..]] {
+            let (status, envelope) = take_in(held, headers);
+            assert_eq!(status, 403, "{envelope}");
+            assert_eq!(envelope, uniform);
+        }
+    }
+    let (status, envelope) = take_in(&elsewhere, &[("Brigade-Create-Token", "let-me-make-a-team")]);
+    assert_eq!(status, 200, "{envelope}");
+    assert_eq!(
+        (&envelope["result"]["taken_in"], &envelope["result"]["owner"]),
+        (&json!(true), &json!(true))
     );
+    // Opening and closing a team's move is its owner's, by its credential, and needs no token.
+    let owner = text(&envelope["result"], "credential");
+    let opened = server.ok(&owner, "/v1/team/open-move", &json!({"team_ref": ELSEWHERE}));
+    assert_eq!(opened["replaced"], json!(false));
+    let closed = server.ok(&owner, "/v1/team/close-move", &json!({"team_ref": ELSEWHERE}));
+    assert_eq!(closed["closed"], json!(true));
+    // Nothing the server wrote about itself holds the token, the secret or the ticket.
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    assert!(!said.contains("let-me-make-a-team"), "{said}");
+    assert!(!said.contains("kept-from-the-other-backend"), "{said}");
+    let ticket = text(&opened, "ticket");
+    assert!(!said.contains(ticket.rsplit('.').next().unwrap()), "{said}");
 }
 
 #[test]
@@ -2203,6 +2242,228 @@ fn the_server_makes_its_own_certificate_once_and_keeps_it() {
         .expect("a refused start");
     assert!(refused.contains("not both"), "{refused}");
     assert_eq!(std::fs::read(&certificate).unwrap(), pem);
+}
+
+/// A team that lives elsewhere is taken in by a request of whoever presents its join secret, and that
+/// caller owns it from the entry that takes it in. What the requests of the contract's section 3b
+/// answered is still there after a kill, and after a stop and a start.
+fn a_team_taken_in_by_request_stays_owned(log: &str) {
+    let scratch = Scratch::new(&format!("take-in-by-request-{log}"));
+    let arguments = log_arguments(log, &scratch);
+    let secret = format!("brg1.{ELSEWHERE}.kept-from-the-other-backend");
+    let team = json!({"team_ref": ELSEWHERE});
+    let server = Server::start(&scratch, &arguments);
+
+    // The take-in: a request like any other, to a server that runs, with no credential. Its answer is the
+    // team under the reference inside the secret, the caller's credential, and that the caller owns it.
+    let request = json!({"join_secret": secret, "team_name": "ops", "human_label": "alice"});
+    let (status, taken) = server.post(None, "/v1/team/take-in", &request);
+    assert_eq!(status, 200, "{taken}");
+    let taken = &taken["result"];
+    let mut members: Vec<&String> = taken.as_object().unwrap().keys().collect();
+    members.sort();
+    assert_eq!(
+        members,
+        [
+            "credential",
+            "owner",
+            "principal_ref",
+            "taken_in",
+            "team_name",
+            "team_ref"
+        ]
+    );
+    assert_eq!(
+        (
+            &taken["team_ref"],
+            &taken["team_name"],
+            &taken["taken_in"],
+            &taken["owner"]
+        ),
+        (&json!(ELSEWHERE), &json!("ops"), &json!(true), &json!(true))
+    );
+    let (alice, alice_ref) = (text(taken, "credential"), text(taken, "principal_ref"));
+    let session = register(&server, &alice, ELSEWHERE, "alpha");
+
+    // The team's members join with the secret they have. A member that is not the owner moves nothing,
+    // and reads what a stranger to a team that does not exist reads.
+    let (bob, _) = join(&server, &secret, "bob");
+    let uniform = refused(
+        &server,
+        Some(&bob),
+        "/v1/team/members",
+        &json!({"team_ref": "no-such-team"}),
+    );
+    assert_eq!(
+        (uniform.0, text(&uniform.1, "code").as_str()),
+        (403, "unauthorized")
+    );
+    for path in ["/v1/team/open-move", "/v1/team/close-move"] {
+        assert_eq!(refused(&server, Some(&bob), path, &team), uniform, "{path}");
+        let (status, error) = refused(&server, None, path, &team);
+        assert_eq!(
+            (status, text(&error, "code").as_str()),
+            (401, "unauthenticated"),
+            "{path}"
+        );
+    }
+    // Another secret for the reference is a conflict, and a number of days no ticket is given is refused.
+    let other = format!("brg1.{ELSEWHERE}.another-secret-for-the-reference");
+    let (status, error) = refused(
+        &server,
+        None,
+        "/v1/team/take-in",
+        &json!({"join_secret": other, "team_name": "ops"}),
+    );
+    assert_eq!(
+        (status, text(&error, "code"), text(&error["details"], "reason")),
+        (409, "conflict".to_owned(), "other_join_secret".to_owned())
+    );
+    let (status, error) = refused(
+        &server,
+        Some(&alice),
+        "/v1/team/open-move",
+        &json!({"team_ref": ELSEWHERE, "ticket_days": 366}),
+    );
+    assert_eq!(
+        (status, text(&error["details"], "field").as_str()),
+        (400, "ticket_days")
+    );
+
+    // The owner opens the move: the answer is the one place the ticket is, and a member comes in with it.
+    let opened = server.ok(
+        &alice,
+        "/v1/team/open-move",
+        &json!({"team_ref": ELSEWHERE, "ticket_days": 7}),
+    );
+    let ticket = text(&opened, "ticket");
+    assert!(ticket.starts_with(&format!("brg1.{ELSEWHERE}.")), "{opened}");
+    assert_eq!(opened["replaced"], json!(false));
+    let (carol, carol_ref) = join(&server, &ticket, "carol");
+    assert_ne!(carol_ref, alice_ref);
+    assert_eq!(
+        refused(&server, Some(&carol), "/v1/team/close-move", &team),
+        uniform
+    );
+    let mut said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+
+    // A kill, as a power cut is: what was answered is there. The team, its three members, its owner and
+    // its move.
+    server.kill();
+    let server = Server::start(&scratch, &arguments);
+    let roster = server.ok(&alice, "/v1/team/members", &team);
+    assert_eq!(roster["team_name"], json!("ops"));
+    assert_eq!(roster["members"].as_array().unwrap().len(), 3);
+    let listed = server.ok(
+        &alice,
+        "/v1/session/list",
+        &json!({"team_ref": ELSEWHERE, "include_offline": true}),
+    );
+    assert_eq!(listed["sessions"][0]["session_id"], json!(session));
+    for member in [&bob, &carol] {
+        assert_eq!(
+            refused(&server, Some(member), "/v1/team/open-move", &team),
+            uniform
+        );
+    }
+    // The ticket still admits, and the same request again finds the team here: nothing is taken in, and
+    // the caller that took it in is its owner still. A caller with no credential joins as a member.
+    let (dave, _) = join(&server, &ticket, "dave");
+    let (status, again) = server.post(Some(&alice), "/v1/team/take-in", &request);
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(
+        again["result"],
+        json!({
+            "team_ref": ELSEWHERE, "team_name": "ops", "principal_ref": alice_ref, "taken_in": false,
+            "owner": true,
+        })
+    );
+    let (status, late) = server.post(None, "/v1/team/take-in", &request);
+    assert_eq!(status, 200, "{late}");
+    assert_eq!(
+        (&late["result"]["taken_in"], &late["result"]["owner"]),
+        (&json!(false), &json!(false))
+    );
+    // The owner closes the move, and the ticket admits nobody from then on.
+    let closed = server.ok(&alice, "/v1/team/close-move", &team);
+    assert_eq!(
+        closed,
+        json!({"team_ref": ELSEWHERE, "team_name": "ops", "closed": true})
+    );
+    let (status, error) = refused(&server, None, "/v1/team/join", &json!({"join_secret": ticket}));
+    assert_eq!((status, text(&error, "code").as_str()), (403, "unauthorized"));
+    said.push_str(&std::fs::read_to_string(scratch.path("stderr")).unwrap());
+
+    // A stop and a start, from the snapshot the stop wrote: the team is owned by the caller that took it
+    // in, which administers it as the owner of a team that was created here does.
+    server.stop();
+    let server = Server::start(&scratch, &arguments);
+    assert_eq!(
+        server.ok(&alice, "/v1/team/close-move", &team)["closed"],
+        json!(false)
+    );
+    let reopened = server.ok(&alice, "/v1/team/open-move", &team);
+    assert_eq!(reopened["replaced"], json!(false));
+    assert_eq!(
+        refused(&server, Some(&dave), "/v1/team/close-move", &team),
+        uniform
+    );
+    let rotated = server.ok(&alice, "/v1/team/rotate-secret", &team);
+    assert_eq!(
+        (&rotated["team_ref"], &rotated["secret_version"]),
+        (&json!(ELSEWHERE), &json!(2))
+    );
+    assert_eq!(
+        server.ok(&alice, "/v1/team/members", &team)["members"]
+            .as_array()
+            .unwrap()
+            .len(),
+        5
+    );
+    said.push_str(&std::fs::read_to_string(scratch.path("stderr")).unwrap());
+    server.stop();
+
+    // What the server said of it: who took the team in and owns it, and that its owner opened and closed
+    // its move. No line holds the join secret, a ticket or the hash of either.
+    let took = format!(
+        "member {alice_ref} took in team ops ({ELSEWHERE}) with the join secret it has on another backend, \
+         and owns it"
+    );
+    assert!(said.contains(&took), "{said}");
+    assert!(
+        said.contains(&format!(
+            "member {alice_ref} opened the move of team ops ({ELSEWHERE})"
+        )),
+        "{said}"
+    );
+    assert!(
+        said.contains(&format!(
+            "member {alice_ref} closed the move of team ops ({ELSEWHERE})"
+        )),
+        "{said}"
+    );
+    assert!(
+        said.contains(&format!(
+            "member {carol_ref} joined team ops ({ELSEWHERE}) with its move ticket"
+        )),
+        "{said}"
+    );
+    assert!(!said.contains("kept-from-the-other-backend"), "{said}");
+    assert!(!said.contains("another-secret-for-the-reference"), "{said}");
+    for held in [&ticket, &text(&reopened, "ticket")] {
+        assert!(!said.contains(held.rsplit('.').next().unwrap()), "{said}");
+    }
+}
+
+#[test]
+fn a_team_taken_in_by_request_stays_owned_across_a_kill_on_the_file_log() {
+    a_team_taken_in_by_request_stays_owned("file");
+}
+
+#[cfg(feature = "cavalry")]
+#[test]
+fn a_team_taken_in_by_request_stays_owned_across_a_kill_on_the_cavalry_feed() {
+    a_team_taken_in_by_request_stays_owned("cavalry");
 }
 
 /// The conformance suite through the bundled `rest` adapter: the contract's section 6.

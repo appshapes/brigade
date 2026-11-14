@@ -50,6 +50,9 @@ const (
 	pathTeamRotateSecret = "/v1/team/rotate-secret" //nolint:gosec // G101: a path, not a credential
 	pathTeamRevokeMember = "/v1/team/revoke-member"
 	pathTeamTransfer     = "/v1/team/transfer"
+	pathTeamTakeIn       = "/v1/team/take-in"
+	pathTeamOpenMove     = "/v1/team/open-move"
+	pathTeamCloseMove    = "/v1/team/close-move"
 	pathSessionRegister  = "/v1/session/register"
 	pathSessionHeartbeat = "/v1/session/heartbeat"
 	pathSessionList      = "/v1/session/list"
@@ -62,7 +65,8 @@ const (
 )
 
 // createTokenHeader carries the operator's creation token on
-// /v1/team/create when the server requires one (the contract's section 3).
+// /v1/team/create and /v1/team/take-in when the server requires one (the
+// contract's section 3).
 const createTokenHeader = "Brigade-Create-Token" //nolint:gosec // G101: a header name, not a credential
 
 // offlineVar is the test-only switch the Supabase adapter also honours:

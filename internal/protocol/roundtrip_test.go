@@ -45,6 +45,10 @@ var examples = map[string]func() Validator{
 	"team_move_result.json":              func() Validator { return &TeamMoveResult{} },
 	"team_move_cleared_result.json":      func() Validator { return &TeamMoveResult{} },
 	"team_moved_result.json":             func() Validator { return &TeamMoveResult{} },
+	"team_take_in_request.json":          func() Validator { return &TeamTakeInRequest{} },
+	"team_take_in_result.json":           func() Validator { return &TeamTakeInResult{} },
+	"team_open_move_result.json":         func() Validator { return &TeamOpenMoveResult{} },
+	"team_close_move_result.json":        func() Validator { return &TeamCloseMoveResult{} },
 	"envelope_ok.json":                   func() Validator { return &Envelope{} },
 	"envelope_error.json":                func() Validator { return &Envelope{} },
 }

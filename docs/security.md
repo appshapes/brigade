@@ -1336,7 +1336,8 @@ what differs. The server is experimental in its 0.1.0.
   the directory belongs to a user of its own on a machine the organisation controls, and holds nothing else.
 - **Who may create a team.** Anyone who can reach the server, unless its operator started it with a creation
   token. That is deliberate: Brigade is open by design and closed by choice. Creating a team gives no way into
-  another one; a team's boundary is its join secret, as everywhere else. Nothing bounds how many teams a server
+  another one; a team's boundary is its join secret, as everywhere else. The same rule says who may take a team
+  in by request (below). Nothing bounds how many teams a server
   holds or how many members a join secret admits, and what bounds one member from server 0.6.0 (five teams
   created and 120 sessions opened in an hour, five failed joins in fifteen minutes; ADR 0004) does not hold a
   stranger, who arrives as a new member with each request, so a server that
@@ -1369,16 +1370,30 @@ what differs. The server is experimental in its 0.1.0.
   signature or the provider's secret before anything of it is acted on, and every other address still asks for a
   member's credential.
 - **A team taken in.** A team can move to a server from another backend with its join secret: the operator, with
-  the secret in a file, runs a command on the server's data directory while the server is stopped. No request
-  can do that, and the secret is not kept: the server stores its hash, as for a team it created. The secret is
+  the secret in a file, runs a command on the server's data directory while the server is stopped. From 0.7.0 a
+  request does it too, on a server that runs, for whoever presents the secret and may create a team there (work
+  item 328; [ADR 0005](decisions/0005-take-a-team-in-and-open-its-move-by-request.md)).
+  Either way the secret is not kept: the server stores its hash, as for a team it created. The secret is
   as strong after the move as before it, and whoever held it can join the team on the server. From 0.5.0 its
   members can follow it there with no command of their own: section 21 says on whose word, and what that opens.
+- **What a take-in by request opens.** Two things, stated plainly. Whoever holds a team's join secret, and may
+  create a team on a server, can own that team there: the caller that takes a team in is its owner from that
+  request on, because the server cannot check who administered it on the old backend. That moves no member. A
+  member's session follows a team only on the record on the backend the team leaves (section 21), and the join
+  secret does not let anyone write that record: only the team's creator there can, and whoever controls that
+  backend. And a team's reference is public, because the committed team file names it: on a server that asks
+  for no creation token, a stranger can take in a team under that reference with a secret of their own
+  invention, and the real team's take-in is then refused as a conflict. A creation token closes that, because
+  the stranger takes nothing in without it. No command of the operator's removes such a team yet.
 - **Who administers a team.** From 0.4.0 a team on a server has the one administrator section 9 calls the creator,
   here the team's owner, and the three commands of that section work there: the owner rotates the join secret,
-  revokes or bans a member and transfers the team. Three things differ from section 9. A team that was taken in
-  has no owner until someone joins it, because the server cannot check who administered it on the old backend:
+  revokes or bans a member and transfers the team. Three things differ from section 9. A team that the operator
+  took in has no owner until someone joins it,
+  because the server cannot check who administered it on the old backend:
   the first member to join becomes its owner, so until then anyone who holds the join secret can take that place
-  by joining first. A gateway never does. The server's operator can name a team's owner with a command on its
+  by joining first. A gateway never does. A team that was taken in by request has its owner from that request,
+  the caller that took it in, and no join changes that.
+  The server's operator can name a team's owner with a command on its
   data directory while the server is stopped, and can take a team back from whoever holds it: a second command
   gives the team a new join secret in a file, ends every membership and leaves the team to the first member who
   joins with that file. So a lost credential does not end a team's administration as it does in section 9, and
@@ -1397,7 +1412,9 @@ Until 0.55.0 nothing could point your sessions at another backend without a comm
 
 **What happens.** When a team moves from a Supabase project to a Brigade server, its administrator records the
 move on the project the team is leaving: the server's address, its certificate fingerprint when the team file
-pins one, and a move ticket that the server's operator made. When your next session starts in a checkout whose
+pins one, and a move ticket that the server made, for its operator or, from server 0.7.0, for the team's owner
+there by request ([ADR 0005](decisions/0005-take-a-team-in-and-open-its-move-by-request.md)).
+When your next session starts in a checkout whose
 `.brigade.json` names a new backend for the team you joined there, the session asks the backend you joined
 whether that team moved. If the record names exactly what the file names — the adapter, the address, the
 fingerprint and the team — your machine joins the server with the ticket, under the label you had, and the
@@ -1420,22 +1437,26 @@ the session connects to nothing, says that the file does not match, and `team jo
   there. Nothing goes to the new address until the old backend has named it. Then one join goes there, carrying
   the ticket and your label, under the certificate the record named or the machine's authorities. Your session on
   the old backend, and its credential, never leave your machine: the server is not shown them.
-- **The ticket.** It is a second join secret of the team at the server, with an end date: 30 days unless the
-  operator chose otherwise. The server keeps only its hash. The old backend keeps the ticket itself, because your
+- **The ticket.** It is a second join secret of the team at the server, with an end date: 30 days unless
+  whoever opened the move chose otherwise.
+  The server keeps only its hash. The old backend keeps the ticket itself, because your
   machine has to present it: on Supabase in a table that no role of the Data API can read, handed to an active
   member of the team by one function. So whoever can read the old project's database can read the ticket, and
   join the team at the server with it until it ends, and so can every active member of the old team, each of
   whom holds the join secret already. A member who was revoked or banned on the old team reads no record. What
-  the ticket lets in is a member and never the team's owner: the administrator joins the server first, with the
-  secret file, and `team move` refuses to record anything until they have. The ticket is read from a file and
+  the ticket lets in is a member and never the team's owner: the administrator owns the team at the server
+  before a ticket exists, by taking the team in there or, on a team the operator took in, by joining first with
+  the secret file, and `team move` refuses to record anything until the administrator's machine has joined the
+  server. The ticket is read from a file and
   written to a file of mode 0600 inside your credential directory, which is removed as soon as the join has been
   sent; it is in no argument, no output and no log line.
 - **Only a session's start follows.** A session that started before the move was recorded stays unconnected,
   however many prompts it takes, until it is started again.
 - **Leaving holds.** The line names the way out, `brigade team leave`. A machine that left the team at the server
   is not joined again by a session in another checkout of the team: you come back with `team join`, yourself.
-- **How it ends.** The operator closes the move, or the ticket runs out, or the team's owner rotates the join
-  secret on the server, which closes it too. The administrator's `team move --clear` stops the old backend from
+- **How it ends.** The operator or the team's owner at the server closes the move, or the ticket runs out, or
+  the team's owner rotates the join secret on the server, which closes it too.
+  The administrator's `team move --clear` stops the old backend from
   saying where the team went; it does not end the ticket. Ending the team on the old backend removes the record
   with it.
 - **What does not come over.** Messages that were waiting on the old backend stay there until their retention

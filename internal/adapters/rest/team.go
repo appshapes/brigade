@@ -16,8 +16,9 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// The `team *` group (4.4.10): create, join, leave, members, and the three
-// administration commands at the bottom of this file. The binding rules
+// The `team *` group (4.4.10): create, join, leave, members, the three
+// administration commands, and at the bottom of this file the three that
+// take a team in and open and close its move. The binding rules
 // are local and run before any request; the secret is read from stdin or a
 // no-echo prompt, sent to the server once and never stored; the credential
 // the server issues goes to credential.json and nowhere else.
@@ -53,6 +54,12 @@ func (c *command) teamCommand() (any, error) {
 		return c.teamRevokeMember()
 	case "transfer":
 		return c.teamTransfer()
+	case "take-in":
+		return c.teamTakeIn()
+	case "open-move":
+		return c.teamOpenMove()
+	case "close-move":
+		return c.teamCloseMove()
 	default:
 		return nil, errUsage("unknown team verb")
 	}
@@ -300,8 +307,8 @@ func (c *command) prepareBinding(p *adapterkit.Profile, where server) error {
 	return nil
 }
 
-// bindingCall is one create or join request, with the command's deadline
-// and the creation token when there is one.
+// bindingCall is one create, join or take-in request, with the command's
+// deadline and the creation token when there is one.
 func (c *command) bindingCall(path string, in any, out protocol.Validator, headers map[string]string) error {
 	ctx, cancel := context.WithTimeout(c.ctx, requestTimeout)
 	defer cancel()
@@ -488,12 +495,21 @@ func askLine(w io.Writer, r *bufio.Reader, prompt string) (string, error) {
 // there. So the adapter asks first and answers `config`, with a message
 // that says what is missing and whose it is to mend.
 func (c *command) requireTeamAdmin() error {
+	return c.requireCapability(capTeamAdmin,
+		"the server this team is on does not offer team administration (rotate-secret, revoke-member, transfer); its operator needs to update it",
+		reasonServerLacksTeamAdmin)
+}
+
+// requireCapability asks `/v1/info`, which needs no credential, whether
+// the server lists capability, and answers `config` with message and
+// reason when it does not.
+func (c *command) requireCapability(capability, message, reason string) error {
 	var info serverInfo
 	if err := c.call(pathInfo, nil, &info); err != nil {
 		return err
 	}
-	if !slices.Contains(info.Capabilities, capTeamAdmin) {
-		return errConfig("the server this team is on does not offer team administration (rotate-secret, revoke-member, transfer); its operator needs to update it", reasonServerLacksTeamAdmin)
+	if !slices.Contains(info.Capabilities, capability) {
+		return errConfig(message, reason)
 	}
 	return nil
 }
@@ -645,6 +661,182 @@ func (c *command) teamTransfer() (any, error) {
 	}
 	if out.TeamRef != teamRef || out.PrincipalRef != req.PrincipalRef {
 		return nil, errUnexpectedResponse("the backend answered a transfer other than the one it was asked for")
+	}
+	return out, nil
+}
+
+// ---- taking a team in (4.4.10, capability team.take_in) ----
+//
+// Three commands of the backend a team moves to (work item 328, ADR 0005),
+// each one request to an endpoint a server may leave out. `team take-in`
+// is a binding command like `team join`: it needs no credential, and the
+// server issues one with the result for a profile that holds none. `team
+// open-move` and `team close-move` answer the team's owner only, like the
+// administration commands, and follow their order: argv first, then the
+// ladder, then the question whether this server carries the endpoints,
+// then the request.
+
+// requireTeamTakeIn asks the server whether it carries the take-in
+// endpoints, as requireTeamAdmin asks about the administration ones: a
+// server that leaves them out would answer the request `not_found`.
+func (c *command) requireTeamTakeIn() error {
+	return c.requireCapability(capTeamTakeIn,
+		"the server does not offer taking a team in by request (take-in, open-move, close-move); its operator needs to update it, or takes the team in and opens the move with the server's own commands",
+		reasonServerLacksTeamTakeIn)
+}
+
+// teamTakeIn implements `team take-in`: /v1/team/take-in takes in, at the
+// profile's server, the team whose join secret the request carries, and
+// makes the caller its owner; a team the server already holds under that
+// secret is joined. The request is read by adapterkit (the document, or
+// --secret-file, --name and --label in the place of its members), and the
+// order is `team join`'s: the profile file, the request, the local binding
+// rule (a secret naming another team than the bound one is `conflict`, the
+// bound team itself is a repeat and proceeds), the backend, and only then
+// anything on the network. The secret is sent once and never stored; the
+// creation token rides as on `team create`, because a server that limits
+// who may create a team limits who may take one in.
+func (c *command) teamTakeIn() (any, error) {
+	fs := newFlags()
+	flags := adapterkit.NewTeamTakeInFlags(fs)
+	tokenFile := fs.String("create-token-file", "", "read the server's creation token from this file")
+	if err := c.parse(fs); err != nil {
+		return nil, err
+	}
+	p, present, err := c.loadProfile()
+	if err != nil {
+		return nil, err
+	}
+	taken, err := flags.Request(c.stdin)
+	if err != nil {
+		return nil, err
+	}
+	// The secret is registered on the redactor before anything else is done
+	// with it, so no line this command writes can carry it.
+	c.redactor.Add(taken.Secret.Secret())
+	if present && p.TeamRef != "" && p.TeamRef != taken.Secret.TeamRef() {
+		return nil, errConflict("this profile is already bound to another team", reasonProfileBound)
+	}
+	where, err := c.resolveBackend(p, taken.Request.Backend)
+	if err != nil {
+		return nil, err
+	}
+	headers, err := createTokenHeaders(*tokenFile)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.prepareBinding(p, where); err != nil {
+		return nil, err
+	}
+	if err := c.requireTeamTakeIn(); err != nil {
+		return nil, err
+	}
+	humanLabel := taken.Request.HumanLabel
+	if humanLabel == "" {
+		humanLabel = c.profile.HumanLabel
+	}
+	body := &teamTakeInBody{JoinSecret: taken.Secret.Secret(), TeamName: taken.Request.TeamName, HumanLabel: humanLabel}
+	var answer teamTakeInAnswer
+	if err := c.bindingCall(pathTeamTakeIn, body, &answer, headers); err != nil {
+		return nil, err
+	}
+	if answer.TeamRef != taken.Secret.TeamRef() {
+		return nil, errUnexpectedResponse("the backend answered a team other than the one the secret names")
+	}
+	if err := c.keepCredential(answer.Credential, answer.PrincipalRef); err != nil {
+		return nil, err
+	}
+	if err := c.bind(answer.TeamRef, answer.TeamName, answer.PrincipalRef, humanLabel); err != nil {
+		return nil, err
+	}
+	return &answer.TeamTakeInResult, nil
+}
+
+// teamOpenMove implements `team open-move --ticket-file <path>
+// [--ticket-days <n>]`: /v1/team/open-move opens the move of the profile's
+// team and answers its ticket, once. --ticket-file is REQUIRED and the
+// ticket goes there, 0600, written atomically, and to no output (4.5.14):
+// the result is protocol.TeamOpenMoveResult, which names the file and
+// carries no ticket. The path and the days are checked before any request.
+// A write that fails AFTER the move was opened is `config`
+// ticket_file_unwritable and the ticket is lost; opening the move again
+// replaces it, which the message says. An answer that says ok and cannot
+// be used is the same loss: ticketLost says it on stderr.
+func (c *command) teamOpenMove() (any, error) {
+	fs := newFlags()
+	flags := adapterkit.NewTeamOpenMoveFlags(fs)
+	if err := c.parse(fs); err != nil {
+		return nil, err
+	}
+	open, err := flags.Request()
+	if err != nil {
+		return nil, err
+	}
+	if err := c.authenticate(true); err != nil {
+		return nil, err
+	}
+	if err := c.requireTeamTakeIn(); err != nil {
+		return nil, err
+	}
+	var answer openMoveAnswer
+	if err := c.call(pathTeamOpenMove, &openMoveBody{TeamRef: c.profile.TeamRef, TicketDays: open.TicketDays}, &answer); err != nil {
+		var unreadable *unreadableResult
+		if errors.As(err, &unreadable) {
+			c.ticketLost()
+		}
+		return nil, err
+	}
+	// The ticket is registered on the redactor before anything else is done
+	// with the answer, so no line this command writes can carry it.
+	c.redactor.Add(answer.Ticket)
+	if answer.TeamRef != c.profile.TeamRef {
+		c.ticketLost()
+		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")
+	}
+	if adapterkit.CheckMoveTicket(answer.Ticket, answer.TeamRef) != nil {
+		c.ticketLost()
+		return nil, errUnexpectedResponse("the backend answered a move ticket this adapter cannot parse")
+	}
+	if werr := adapterkit.WriteAtomic(open.TicketFile, []byte(answer.Ticket+"\n")); werr != nil {
+		c.log.Warn("the move ticket could not be written to --ticket-file after the move was opened; the ticket is lost: open the move again, which replaces it")
+		return nil, errConfig("the file named by --ticket-file could not be written after the move was opened; the ticket is lost: open the move again, which replaces it", reasonTicketFile)
+	}
+	c.warnSecretShownOnce("the move ticket was written to the file named by --ticket-file (mode 0600)")
+	return &protocol.TeamOpenMoveResult{
+		TeamRef: answer.TeamRef, TeamName: answer.TeamName, EndsAt: answer.EndsAt,
+		Replaced: answer.Replaced, TicketFile: open.TicketFile,
+	}, nil
+}
+
+// ticketLost says what an ok answer to an open-move that this adapter
+// cannot use has cost: the server opened the move, replacing whatever
+// ticket the team had, and the new ticket is in an answer nobody can read.
+// The command still answers `internal`; this line, on stderr through the
+// logger, is what tells the owner to open the move again.
+func (c *command) ticketLost() {
+	c.log.Warn("the server opened the move and its answer could not be used; the ticket is lost, and one the team had before admits nobody: open the move again, which replaces it")
+}
+
+// teamCloseMove implements `team close-move`: /v1/team/close-move ends the
+// move of the profile's team. Its ticket admits nobody from then on, and
+// a team with no move answers closed false.
+func (c *command) teamCloseMove() (any, error) {
+	if err := c.parse(newFlags()); err != nil {
+		return nil, err
+	}
+	if err := c.authenticate(true); err != nil {
+		return nil, err
+	}
+	if err := c.requireTeamTakeIn(); err != nil {
+		return nil, err
+	}
+	teamRef := c.profile.TeamRef
+	out := &protocol.TeamCloseMoveResult{}
+	if err := c.call(pathTeamCloseMove, &teamRequest{TeamRef: teamRef}, out); err != nil {
+		return nil, err
+	}
+	if out.TeamRef != teamRef {
+		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")
 	}
 	return out, nil
 }

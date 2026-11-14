@@ -15,7 +15,9 @@
 // three administration commands (`team rotate-secret`, `team
 // revoke-member`, `team transfer`) ask `/v1/info` first, because their
 // endpoints are an addition a server may leave out, and answer `config`
-// for a server that does not list `team.admin` there.
+// for a server that does not list `team.admin` there. The three that take
+// a team in and open and close its move (`team take-in`, `team open-move`,
+// `team close-move`) do the same for `team.take_in`.
 //
 // Files in the profile directory ${BRIGADE_CONFIG_DIR}/teams/<name>/:
 //
@@ -36,13 +38,13 @@
 // an unknown member never reaches stdout.
 //
 // Environment: team.json is the configuration. BRIGADE_REST_URL is
-// honoured by `team create` and `team join` only, and only when the
-// profile names no backend yet (4.1: a BRIGADE_<ADAPTER>_* variable is for
-// a human's shell and for the conformance suite; under a live session it
-// never arrives). The url is then written to team.json as `profile init`
-// would write it. BRIGADE_TEST_OFFLINE=1 makes every dial fail loudly
-// (C-01, C-07), and the proxy variables, SSL_CERT_FILE and SSL_CERT_DIR
-// are honoured as the Supabase adapter honours them.
+// honoured by `team create`, `team join` and `team take-in` only, and only
+// when the profile names no backend yet (4.1: a BRIGADE_<ADAPTER>_*
+// variable is for a human's shell and for the conformance suite; under a
+// live session it never arrives). The url is then written to team.json as
+// `profile init` would write it. BRIGADE_TEST_OFFLINE=1 makes every dial
+// fail loudly (C-01, C-07), and the proxy variables, SSL_CERT_FILE and
+// SSL_CERT_DIR are honoured as the Supabase adapter honours them.
 //
 // The server's certificate: team.json may carry `certificate`, the pin of
 // the server's own certificate (adapterkit.CertificateFingerprint), given

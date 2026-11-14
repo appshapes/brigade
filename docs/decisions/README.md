@@ -12,6 +12,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0002. Close a decision's ask from the asker's side, with the ruling as its outcome](0002-close-a-decisions-ask-from-the-askers-side.md)
 - [0003. Follow a team that moved, on the old backend's record and a move ticket](0003-follow-a-team-that-moved-on-the-old-backends-record.md)
 - [0004. Bound one principal on a server with the reference backend's numbers](0004-bound-one-principal-on-a-server-with-the-reference-backends-numbers.md)
+- [0005. Take a team in and open its move by request, and let whoever takes it in own it](0005-take-a-team-in-and-open-its-move-by-request.md)
 
 ## Record a decision
 

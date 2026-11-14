@@ -624,7 +624,9 @@ func (t *T) TakeSecretFile(path string) (secret string, mode0600 bool) {
 
 // GiveSecretFile writes a secret the case itself made to a path of
 // SecretFile's kind, for a command that reads one from a file (`team move
-// --ticket-file`, C-51 and C-52), and returns the path. The secret is
+// --ticket-file`, C-51 and C-52; `team take-in --secret-file`, C-53), and
+// returns the path. It is also how a case tells the launcher of a join
+// secret it made itself and sends on stdin (C-53 to C-55). The secret is
 // registered with the launcher as TakeSecretFile registers one, so every
 // later spawn's stdout and stderr and the end-of-run scan are searched for
 // it (C-05), and the runner removes the file when the case ends.

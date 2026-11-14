@@ -649,6 +649,14 @@ func TestDecision3EveryValidateFieldIsAWireMemberPath(t *testing.T) {
 		&TeamMoveResult{TeamRef: "t1", URL: "https://b.example"},
 		&TeamMoveResult{TeamRef: "t1", TicketFile: "/tmp/t"},
 		&TeamMoveResult{TeamRef: "t1", Moved: true, Adapter: "rest", URL: "https://b.example"},
+		&TeamTakeInRequest{}, &TeamTakeInResult{}, &TeamOpenMoveResult{}, &TeamCloseMoveResult{},
+		&TeamTakeInRequest{JoinSecret: examplePlaceholderJoin},
+		&TeamTakeInRequest{JoinSecret: examplePlaceholderJoin, TeamName: "ops", HumanLabel: long},
+		&TeamTakeInRequest{JoinSecret: examplePlaceholderJoin, TeamName: "ops", Backend: []byte(`"https://x"`)},
+		&TeamTakeInResult{TeamRef: "t1", TeamName: "ops", PrincipalRef: "p1", TakenIn: true},
+		&TeamOpenMoveResult{TeamRef: "t1", TeamName: "ops"},
+		&TeamOpenMoveResult{TeamRef: "t1", TeamName: "ops", EndsAt: time.Date(2026, 12, 14, 12, 0, 0, 0, time.UTC)},
+		&TeamCloseMoveResult{TeamRef: "t1"},
 		&Envelope{}, &ErrorObject{},
 		&TeamCreateRequest{TeamName: long},
 		&SessionRegistration{Harness: "h", HarnessVersion: "v", SessionName: "n", Activity: ActivityBusy, Inbound: InboundAccept, WorkspaceLabel: strptr(long)},
@@ -758,6 +766,7 @@ func wireRootTypes() []any {
 		TeamRotateSecretResult{}, TeamRevokeMemberRequest{}, TeamRevokeMemberResult{},
 		TeamRevokeByVersionResult{}, TeamTransferRequest{}, TeamTransferResult{},
 		TeamMoveRequest{}, TeamMoveResult{},
+		TeamTakeInRequest{}, TeamTakeInResult{}, TeamOpenMoveResult{}, TeamCloseMoveResult{},
 	}
 }
 

@@ -69,6 +69,9 @@ unless this table adds a member.
 | `team rotate-secret` | `/v1/team/rotate-secret` | `{"team_ref": <team>}` | `{"team_ref", "team_name", "secret_version", "rotated_at", "join_secret"}` (§3a) |
 | `team revoke-member` | `/v1/team/revoke-member` | `{"team_ref": <team>, "principal_ref", "ban"?}` or `{"team_ref": <team>, "joined_secret_version_lte"}` | 4.4.10 |
 | `team transfer` | `/v1/team/transfer` | `{"team_ref": <team>, "principal_ref"}` | 4.4.10 |
+| `team take-in` | `/v1/team/take-in` | `{"join_secret", "team_name", "human_label"?}` | 4.4.10, plus `credential` (§3, §3b) |
+| `team open-move` | `/v1/team/open-move` | `{"team_ref": <team>, "ticket_days"?}` | `{"team_ref", "team_name", "ticket", "ends_at", "replaced"}` (§3b) |
+| `team close-move` | `/v1/team/close-move` | `{"team_ref": <team>}` | 4.4.10 |
 | `session register` | `/v1/session/register` | `SessionRegistration` (4.4.2), plus `team_ref: <team>` | 4.4.2's result |
 | `session heartbeat` | `/v1/session/heartbeat` | `{"session_id": <session>, "heartbeat": HeartbeatRequest}` (4.4.4) | 4.4.4's result |
 | `session list` | `/v1/session/list` | `{"team_ref": <team>, "session_id"?: <session>, "include_offline"?: boolean}` | 4.4.3's list result |
@@ -107,7 +110,8 @@ A principal is the server's record of one member's installation. A credential na
   (4.4.10: idempotent).
 - **Who may create a team.** A server may require a creation token on `/v1/team/create`, sent as the header
   `Brigade-Create-Token`; a missing or wrong token is `unauthorized`. The token is the operator's, is read by the
-  adapter from a file and never from argv, and is not part of version 1's required surface.
+  adapter from a file and never from argv, and is not part of version 1's required surface. A server that takes
+  teams in by request holds `/v1/team/take-in` to the same token (§3b).
 
 The join secret has BAP/1's format, `brg1.<team_ref>.<secret>` (4.4.10), and the server keeps what it needs to
 check one, never the secret itself where a hash will do.
@@ -116,9 +120,10 @@ check one, never the secret itself where a hash will do.
 
 Added on 2026-11-12 (work item 274). A server may leave these three endpoints out (§5).
 
-- **The owner** of a team is the principal that created it, until `/v1/team/transfer` names another. A server may
-  hold a team that has no owner yet, one it took in from another backend: how that team gets its owner is the
-  server's own rule, and until it has one every administration request is refused.
+- **The owner** of a team is the principal that created it, or that took it in by request (§3b), until
+  `/v1/team/transfer` names another. A server may hold a team that has no owner yet, one its operator took in
+  from another backend: how that team gets its owner is the server's own rule, and until it has one every
+  administration request is refused.
 - **Who is answered.** A request with no known credential is `unauthenticated`. A principal that is not the team's
   owner, or is its owner and not an active member, is `unauthorized` with the byte-identical text of 4.5.7, the
   same for a team that does not exist.
@@ -136,6 +141,46 @@ Added on 2026-11-12 (work item 274). A server may leave these three endpoints ou
   it as each member's `joined_secret_version`.
 - **`/v1/info`** of a server that carries these endpoints lists `"team.admin"` in `capabilities`, an array of
   BAP/1 capability names that is absent or empty otherwise.
+
+## 3b. Taking a team in, and moving its members
+
+Added on 2026-11-14 (work item 328, [ADR 0005](decisions/0005-take-a-team-in-and-open-its-move-by-request.md)). A
+server may leave these three endpoints out (§5).
+
+- **`/v1/team/take-in`** takes in a team that exists on another backend, for a caller that presents the join
+  secret the team has there. The team keeps that secret and the `team_ref` inside it. The request needs no
+  credential, as `/v1/team/create` and `/v1/team/join` need none: it acts for the principal a known credential
+  names and otherwise creates one, whose `credential` rides the result (§3).
+  - **Who may.** Whoever may create a team. A server that requires a creation token on `/v1/team/create` requires
+    it here, in the same header, and refuses a request without it with the bytes it refuses a creation with,
+    before it reads the body.
+  - **A team the server does not hold** is taken in under the `team_ref` inside the secret, with the request's
+    `team_name`, and in the same step the caller becomes an active member of it and its owner (§3a). `taken_in`
+    and `owner` are `true`. The server keeps what it needs to check the secret, as for a team it created, and
+    never the secret.
+  - **A team the server holds** makes the request a join, by every rule of `/v1/team/join`: what joins is the
+    team's current secret or the ticket of its open move, a banned principal is refused, and a team that has no
+    owner yet gets one by the server's own rule (§3a). `taken_in` is `false`, `owner` says whether the caller
+    owns the team once the request is answered, and `team_name` is the team's own: the request's is not read. So
+    a request is safe to repeat. One that is repeated without the credential its first answer carried acts for a
+    new principal, which joins as a member.
+  - **A team the server holds under another secret** is `conflict` with `details.reason = "other_join_secret"`,
+    and so, byte for byte, is the request of a principal the team banned. Nothing is made.
+  - A `join_secret` that is malformed is `invalid_input` as on a join, and a `team_name` that breaks
+    `/v1/team/create`'s rule is `invalid_input` naming `team_name`, checked before the secret's format.
+- **`/v1/team/open-move`** opens the move of the team's members from the backend the team leaves. The team gets
+  a **move ticket**: a second join secret, `brg1.<team_ref>.<secret>` with the team's `team_ref` and a secret
+  part of at least 128 random bits, that `/v1/team/join` admits until `ends_at`. `ticket_days` is an integer from
+  1 to 365, and 30 when it is absent. A join the ticket admits never makes the team's owner. A team has one
+  move: opening another puts a new ticket in the place of the one before, which admits nobody from then on, and
+  `replaced` says that it did. `ends_at` is the server's time, on a whole second. The result's `ticket` is the
+  one place the server shows the ticket: the adapter writes it to the file `--ticket-file` names (mode 0600) and
+  answers BAP/1's result, which carries `ticket_file` and no ticket.
+- **`/v1/team/close-move`** closes the move: its ticket admits nobody from then on, and every member it admitted
+  stays a member. For a team that has no move `closed` is `false` and nothing changes.
+  `/v1/team/rotate-secret` closes a team's move as well.
+- **Who is answered** the two requests of a move: the team's owner, by §3a's rule and with its refusals.
+- **`/v1/info`** of a server that carries these endpoints lists `"team.take_in"` in `capabilities`.
 
 ## 4. Receiving and watching
 
@@ -184,6 +229,11 @@ The adapter asks `/v1/info` before an administration command and answers `config
 `details.reason = "server_lacks_team_admin"` when the server does not list `team.admin`. Its `describe` names the
 capability either way, because `describe` never asks the server anything.
 
+The endpoints of §3b are a second addition a server may leave out, in the same way: a server that carries them
+lists `team.take_in` in `/v1/info`, one that does not answers them `not_found`, and the adapter asks `/v1/info`
+before each of the three commands and answers `config` with `details.reason = "server_lacks_team_take_in"` when
+the server does not list it.
+
 ## 6. Proving a server
 
 Run Brigade's conformance suite through the bundled adapter against the server:
@@ -194,4 +244,4 @@ bin/brigade-conformance --env BRIGADE_REST_URL=<base> --adapter bin/brigade -- a
 
 A server is correct when the suite is green, `--slow` included. The suite makes its own teams, so the server
 must let the run create them. A server that leaves out the administration endpoints adds
-`--skip C-48,C-49,C-50`.
+`--skip C-48,C-49,C-50`, and one that leaves out the endpoints of §3b adds `--skip C-53,C-54,C-55`.

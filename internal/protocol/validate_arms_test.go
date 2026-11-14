@@ -421,6 +421,54 @@ func TestValidationArms(t *testing.T) {
 			moved.TicketFile = "/home/bob/\xff.ticket"
 			return &moved
 		}},
+		{"team take-in request join_secret", "join_secret", func() Validator { return &TeamTakeInRequest{TeamName: "ops"} }},
+		{"team take-in request team_name", "team_name", func() Validator {
+			return &TeamTakeInRequest{JoinSecret: examplePlaceholderJoin}
+		}},
+		{"team take-in request team_name overlong", "team_name", func() Validator {
+			return &TeamTakeInRequest{JoinSecret: examplePlaceholderJoin, TeamName: strings.Repeat("€", MaxTeamNameCodepoints+1)}
+		}},
+		{"team take-in request label overlong", "human_label", func() Validator {
+			return &TeamTakeInRequest{JoinSecret: examplePlaceholderJoin, TeamName: "ops", HumanLabel: long}
+		}},
+		{"team take-in request backend not object", "backend", func() Validator {
+			return &TeamTakeInRequest{JoinSecret: examplePlaceholderJoin, TeamName: "ops", Backend: []byte(`"https://x"`)}
+		}},
+		{"team take-in request secret before name", "join_secret", func() Validator { return &TeamTakeInRequest{} }},
+		{"team take-in result team_ref", "team_ref", func() Validator {
+			return &TeamTakeInResult{TeamName: "ops", PrincipalRef: "p1"}
+		}},
+		{"team take-in result team_name", "team_name", func() Validator {
+			return &TeamTakeInResult{TeamRef: "t1", PrincipalRef: "p1"}
+		}},
+		{"team take-in result team_name overlong", "team_name", func() Validator {
+			return &TeamTakeInResult{TeamRef: "t1", TeamName: strings.Repeat("€", MaxTeamNameCodepoints+1), PrincipalRef: "p1"}
+		}},
+		{"team take-in result principal_ref", "principal_ref", func() Validator {
+			return &TeamTakeInResult{TeamRef: "t1", TeamName: "ops"}
+		}},
+		{"team take-in result taken in and not owned", "owner", func() Validator {
+			return &TeamTakeInResult{TeamRef: "t1", TeamName: "ops", PrincipalRef: "p1", TakenIn: true}
+		}},
+		{"team open-move result team_ref", "team_ref", func() Validator { r := validOpenMoveResult(); r.TeamRef = ""; return &r }},
+		{"team open-move result team_name", "team_name", func() Validator { r := validOpenMoveResult(); r.TeamName = ""; return &r }},
+		{"team open-move result team_name overlong", "team_name", func() Validator {
+			r := validOpenMoveResult()
+			r.TeamName = strings.Repeat("€", MaxTeamNameCodepoints+1)
+			return &r
+		}},
+		{"team open-move result ends_at", "ends_at", func() Validator { r := validOpenMoveResult(); r.EndsAt = time.Time{}; return &r }},
+		{"team open-move result ticket_file", "ticket_file", func() Validator { r := validOpenMoveResult(); r.TicketFile = ""; return &r }},
+		{"team open-move result ticket_file not utf8", "ticket_file", func() Validator {
+			r := validOpenMoveResult()
+			r.TicketFile = "/home/alice/\xff.ticket"
+			return &r
+		}},
+		{"team close-move result team_ref", "team_ref", func() Validator { return &TeamCloseMoveResult{TeamName: "ops"} }},
+		{"team close-move result team_name", "team_name", func() Validator { return &TeamCloseMoveResult{TeamRef: "t1"} }},
+		{"team close-move result team_name overlong", "team_name", func() Validator {
+			return &TeamCloseMoveResult{TeamRef: "t1", TeamName: strings.Repeat("€", MaxTeamNameCodepoints+1)}
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -446,6 +494,47 @@ func validMoveResult() TeamMoveResult {
 	return TeamMoveResult{
 		TeamRef: "t1", Moved: true, Adapter: "rest", URL: "https://b.example",
 		RecordedAt: time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC),
+	}
+}
+
+// validOpenMoveResult is a `team open-move` result every arm of that shape
+// above starts from.
+func validOpenMoveResult() TeamOpenMoveResult {
+	return TeamOpenMoveResult{
+		TeamRef: "t1", TeamName: "ops", EndsAt: time.Date(2026, 12, 14, 12, 0, 0, 0, time.UTC),
+		TicketFile: "/home/alice/ops.ticket",
+	}
+}
+
+// TestTeamTakeInShapesAccepted is the passing side of the shapes of
+// capability team.take_in (4.4.10): a take-in with and without a label and
+// a backend, its name at the cap, the three answers a take-in has (taken in
+// and owned, joined and owned, joined and not owned), a move that was
+// opened in the place of another, and a close of a team that had no move.
+func TestTeamTakeInShapesAccepted(t *testing.T) {
+	t.Parallel()
+	opened, replaced := validOpenMoveResult(), validOpenMoveResult()
+	replaced.Replaced = true
+	for name, v := range map[string]Validator{
+		"take-in":              &TeamTakeInRequest{JoinSecret: examplePlaceholderJoin, TeamName: "ops"},
+		"take-in with a label": &TeamTakeInRequest{JoinSecret: examplePlaceholderJoin, TeamName: "ops", HumanLabel: "alice@example.com"},
+		"take-in with a backend": &TeamTakeInRequest{
+			JoinSecret: examplePlaceholderJoin, TeamName: "ops", Backend: []byte(`{"url":"https://x"}`),
+		},
+		"take-in with its name at the cap": &TeamTakeInRequest{
+			JoinSecret: examplePlaceholderJoin, TeamName: strings.Repeat("€", MaxTeamNameCodepoints),
+		},
+		"taken in and owned":   &TeamTakeInResult{TeamRef: "t1", TeamName: "ops", PrincipalRef: "p1", TakenIn: true, Owner: true},
+		"joined and owned":     &TeamTakeInResult{TeamRef: "t1", TeamName: "ops", PrincipalRef: "p1", Owner: true},
+		"joined and not owned": &TeamTakeInResult{TeamRef: "t1", TeamName: "ops", PrincipalRef: "p1"},
+		"a move opened":        &opened,
+		"a move that replaced": &replaced,
+		"a move closed":        &TeamCloseMoveResult{TeamRef: "t1", TeamName: "ops", Closed: true},
+		"no move to close":     &TeamCloseMoveResult{TeamRef: "t1", TeamName: "ops"},
+	} {
+		if err := v.Validate(); err != nil {
+			t.Errorf("%s rejected: %v", name, err)
+		}
 	}
 }
 
