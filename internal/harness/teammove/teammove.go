@@ -1,5 +1,5 @@
 // Package teammove follows a team that moved to another backend (work
-// item 273, part 2; ADR 0003; docs/security.md).
+// item 273, part 2; ADR 0003; work item 327, ADR 0007; docs/security.md).
 //
 // A checkout's pin is its member's consent to one team at one backend. When
 // the project's team file names another backend for the same team, the pin
@@ -20,7 +20,9 @@
 // This is the one writer of the team store that a hook reaches. The hook
 // package itself still may not import teamstore/write (the depguard rule
 // hook-reads-the-store): what it calls is Follow, which writes a pin only
-// behind the comparison above.
+// behind the comparison above. A session's start calls it in its own run;
+// a prompt, which has no time for it, through the child it starts,
+// `brigade hook follow` (work item 327, ADR 0007).
 package teammove
 
 import (
@@ -109,6 +111,15 @@ type Inputs struct {
 	Now func() time.Time
 	// Log takes the reasons and the adapters' errors, never a secret.
 	Log *slog.Logger
+	// BeforePin, when set, is called once, when this call is about to write
+	// the checkout's pin, with whether it joined the new backend. A follow
+	// that runs with nobody to tell (the child a prompt hook starts, work
+	// item 327) leaves word for the next hook of the checkout here: the pin
+	// is what says the checkout followed, so whatever is to be found beside
+	// it is in place first. It is not called by a follow that finds the pin
+	// written: another follow of this machine got there, and the word is
+	// that one's to leave.
+	BeforePin func(joined bool)
 }
 
 // An Outcome is what Follow did.
@@ -291,6 +302,9 @@ func Follow(ctx context.Context, in Inputs) (Outcome, error) {
 		}
 		carryLabelOrigin(in, oldKey, newKey, old.HumanLabel)
 		joined = true
+	}
+	if in.BeforePin != nil {
+		in.BeforePin(joined)
 	}
 	if err := write.Pin(in.ConfigDir, in.Checkout, teamstore.Pin{
 		Adapter: in.File.Adapter, URL: in.File.URL, PublishableKey: in.File.PublishableKey, Certificate: in.File.Certificate,

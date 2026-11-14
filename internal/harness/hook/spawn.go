@@ -4,7 +4,9 @@
 // other is adapterclient/spawn.go, the `message watch` adapter child).
 // The detached start and the stop are the platform's through procutil:
 // Setsid and SIGTERM on unix, a detached windowless process and the stop
-// event on Windows (card 133).
+// event on Windows (card 133). The same spawner starts the one other
+// child a hook detaches, `brigade hook follow` (move.go, work item 327):
+// this executable again, with an environment built from scratch.
 
 package hook
 
@@ -31,15 +33,18 @@ import (
 // an option must never be able to name the program the hook detaches.
 type SpawnSpec struct {
 	// Args is the argv after the program name: "watch", plus "--sink
-	// <file>" when Deps.Sink is set.
+	// <file>" when Deps.Sink is set; or "hook follow" and its arguments.
 	Args []string
-	// Env is the child's whole environment, built from scratch by
-	// watcherEnviron. The messaging token is in here and nowhere else.
+	// Env is the child's whole environment, built from scratch: by
+	// watcherEnviron for the watcher, where the messaging token is and
+	// nowhere else, and by adapterkit.ChildEnv alone for a follow, which
+	// carries neither the token nor the socket.
 	Env []string
 	// Dir is the child's working directory (the user's HOME).
 	Dir string
 	// LogPath is the 0600 append-mode file both of the child's output
-	// streams go to: ${stateDir}/logs/watcher-<claude_pid>.log.
+	// streams go to: ${stateDir}/logs/watcher-<claude_pid>.log, and
+	// ${stateDir}/logs/team-move.log for a follow.
 	LogPath string
 }
 

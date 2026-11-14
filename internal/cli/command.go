@@ -195,8 +195,8 @@ func init() {
 		},
 		{
 			Name:      "hook",
-			Args:      "session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>]",
-			Summary:   "harness lifecycle hook entrypoint (Claude Code, Muse Code, Codex CLI)",
+			Args:      "session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>] | follow --checkout <dir> --config-dir <dir> --state-dir <dir> [--key <n>]",
+			Summary:   "harness lifecycle hook entrypoint (Claude Code, Muse Code, Codex CLI); follow is the child a prompt hook starts to follow a team that moved",
 			Hidden:    true,
 			MultiCall: true,
 			Run:       runHookEntry,

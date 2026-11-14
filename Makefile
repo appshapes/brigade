@@ -340,13 +340,14 @@ server-check: ## rustfmt and clippy on server/ with warnings denied, with and wi
 # delivered, over TLS with a certificate that only its pin in the team file makes trusted. `make test` runs that
 # test too, against the stand-in server; BRIGADE_E2E_SERVER is what points it at the real one. With it go the two
 # tests of a team that moves to the server, which need the server's own import and its move ticket and so run here
-# only: the operator takes the team in and each member's machine joins once with the secret it has; and (work item
-# 273) the administrator records the move on the backend the team leaves, and a member's next session follows.
+# only: the operator takes the team in and each member's machine joins once with the secret it has; (work item
+# 273) the administrator records the move on the backend the team leaves, and a member's next session follows; and
+# (work item 327) the sessions that are running at the time follow at their next prompts.
 .PHONY: server-test
 server-test: build ## The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), a team created, joined and used on the server over TLS, a team moved there with its join secret, and its members following it there with no command (CI)
 	cd server && cargo test --workspace --locked
 	cd server && BRIGADE_BIN_DIR=$(CURDIR)/$(bin_dir) cargo test --locked -p brigade-server --test server -- --ignored --test-threads=1
-	BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^(TestATeamOnAServerThroughTheRealBinary|TestATeamMovesToAServerWithItsSecretThroughTheRealBinary|TestATeamsMembersFollowItToAServerThroughTheRealBinary)$$' ./internal/harness/e2e/
+	BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^(TestATeamOnAServerThroughTheRealBinary|TestATeamMovesToAServerWithItsSecretThroughTheRealBinary|TestATeamsMembersFollowItToAServerThroughTheRealBinary|TestRunningSessionsFollowTheirTeamToAServerThroughTheRealBinary)$$' ./internal/harness/e2e/
 
 # The move from the backend it was built for (work item 273): the same test as server-test's last, with a team on
 # the local Supabase stack as the team that moves. It needs the stack up with its migrations applied (`make

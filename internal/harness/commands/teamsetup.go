@@ -901,18 +901,31 @@ func (inv Invocation) writePinAndReport(t *target, canon string, f *teamfile.Fil
 		head := did + " team \"" + name + "\" (" + sanitizeID(f.TeamRef) + ")"
 		pid, perr := config.StateKey(inv.Environ, sessionmap.Store{StateDir: t.stateDir})
 		if perr == nil {
-			// A session that already has a map is attached — to this team
-			// (nothing to do) or to another. The prompt hook only registers
-			// an UNmapped session, and a SessionStart that fires again in
+			// A session that already has a map is attached: to this team
+			// where it is (nothing to do), to this team on the backend it
+			// left, or to another team. The prompt hook moves a session to
+			// the backend its own team went to once the checkout is joined
+			// there, which it now is (work item 327, ADR 0007); a Grok Build
+			// session, whose prompt hook can say nothing, is not moved. A
+			// session on ANOTHER team stays: the prompt hook only registers
+			// an unmapped session, and a SessionStart that fires again in
 			// the same process continues the session its map names, so
 			// only a new process moves it: a new session, or this one
 			// exited and resumed. A plugin reload is not one (work item
 			// 289: it ran no start hook in the cut-over of 2026-11-13).
 			if m, merr := config.Session(inv.Environ, t.stateDir); merr == nil {
-				if m.TeamRef == f.TeamRef {
+				switch {
+				case m.TeamRef != f.TeamRef:
+					return writeLines(inv.Out, head+"; this session stays on team \""+nameLine(m.TeamName)+"\" until you start a new session or exit and resume this one")
+				case m.TeamKey == teamstore.Key(f.Adapter, f.URL, f.TeamRef):
 					return writeLines(inv.Out, head+"; this session is already attached to it")
+				case config.HostOf(inv.Environ) == config.HostGrok:
+					return writeLines(inv.Out, head+"; this session stays on the backend the team left until you start a new session or exit and resume this one")
 				}
-				return writeLines(inv.Out, head+"; this session stays on team \""+nameLine(m.TeamName)+"\" until you start a new session or exit and resume this one")
+				// A registration there that failed a moment ago must not hold
+				// the next prompt back.
+				_ = os.Remove(config.RegisterRetryStamp(t.stateDir, pid))
+				return writeLines(inv.Out, head+"; this session moves there at your next prompt")
 			}
 			// The prompt hook re-registers an unmapped session once a
 			// minute (P5-18); without its stamp the very next prompt

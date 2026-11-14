@@ -134,7 +134,9 @@ type ByPID struct {
 	// refuse. It is never accept — `brigade inbound accept` clears it —
 	// so a request can only tighten. It lasts for the session's process:
 	// the continue path of SessionStart (/clear) and the compact refresh
-	// carry it, a fresh registration starts without one.
+	// carry it, and so does the registration that moves a running session
+	// to the backend its team went to (work item 327); any other fresh
+	// registration starts without one.
 	InboundRequest string `json:"inbound_request,omitzero"`
 	// FrameLevel is the instruction paragraph the frame carries: open,
 	// guarded, strict, or custom for a user-supplied clause (P5-12). The
