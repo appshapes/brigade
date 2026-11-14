@@ -8,16 +8,17 @@ project; a paid plan needs none.
 
 ## The variables
 
-The workflow reads each project's URL and publishable key from repository **variables**, one pair per job:
+The workflow reads each project's URL and publishable key from repository **variables**, one pair per job, both
+named for the project. A project is kept alive by a job of its own in `keepalive.yml`, a copy of one that is there
+under the project's name, and its pair:
 
 ```sh
-gh variable set BRIGADE_SUPABASE_URL --body https://<ref>.supabase.co
-gh variable set BRIGADE_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
+gh variable set BRIGADE_<PROJECT>_SUPABASE_URL --body https://<ref>.supabase.co
+gh variable set BRIGADE_<PROJECT>_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
 ```
 
-A second project is a second job in `keepalive.yml` and a second pair, named for it. The jobs this repository
-carries today, each with its pair; `scripts/ci/keepalive_test.go` pins every job name and `vars.` expression
-against these lines:
+The jobs this repository carries today, each with its pair; `scripts/ci/keepalive_test.go` pins every job name and
+`vars.` expression against these lines:
 
 ```sh
 # thinktech-brigade, whose team lives in another repository
@@ -29,7 +30,7 @@ gh variable set BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL --body https://<ref>
 gh variable set BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_...
 ```
 
-A fourth project is a fourth job, a fourth pair and a fourth block here. The script itself stays single-project: each
+Another project is another job, another pair and another block here. The script itself stays single-project: each
 job maps its own pair onto the two names `keepalive.sh` reads, so a red run names the job, and therefore the
 project, on the run page.
 

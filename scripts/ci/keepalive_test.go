@@ -705,12 +705,13 @@ func checkKeepaliveDrift(r reporter, script, repoRoot string) {
 }
 
 // keepaliveProjects is every hosted project keepalive.yml keeps alive: the job's name and the prefix of its
-// variable pair (`<prefix>_SUPABASE_URL`, `<prefix>_SUPABASE_PUBLISHABLE_KEY`). The first row's pair is the
+// variable pair (`<prefix>_SUPABASE_URL`, `<prefix>_SUPABASE_PUBLISHABLE_KEY`). Every job maps its pair onto the
 // adapter's own two names (P5-0 brief 3.1), which the test below joins to internal/adapters/supabase/team.go as
-// well. A fourth project is a fourth row here, a fourth job in the workflow and a fourth pair in docs/project-owner/install/keep-alive.md
-// section 2, in one commit: the test fails on a job without a row and on a row without a job.
+// well. Another project is another row here, another job in the workflow and another pair in
+// docs/project-owner/install/keep-alive.md, in one commit: the test fails on a job without a row and on a row
+// without a job. The row of appshapes-brigade (`keepalive`, 2026-09-05) went with its job on 2026-11-14 (work
+// item 331).
 var keepaliveProjects = []struct{ job, prefix string }{
-	{"keepalive", "BRIGADE"},                                               // appshapes-brigade, 2026-09-05
 	{"keepalive-thinktech", "BRIGADE_THINKTECH"},                           // thinktech-brigade, 2026-09-10
 	{"keepalive-aafp-board-review-team", "BRIGADE_AAFP_BOARD_REVIEW_TEAM"}, // the AAFP Board Review team's, 2026-09-17
 }

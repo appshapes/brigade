@@ -12,8 +12,8 @@ member, two or three functions and a cron job. Neither has an uninstaller of its
 
 ## Stop the keep-alive
 
-1. `gh variable delete BRIGADE_SUPABASE_URL` and `gh variable delete BRIGADE_SUPABASE_PUBLISHABLE_KEY` (or the pair
-   named for the project).
+1. `gh variable delete BRIGADE_<PROJECT>_SUPABASE_URL` and `gh variable delete BRIGADE_<PROJECT>_SUPABASE_PUBLISHABLE_KEY`,
+   the pair named for the project.
 2. Both unset is a green no-op; one left behind fails the run on purpose.
 
 Details: [Stop the keep-alive](stop-the-keep-alive.md).

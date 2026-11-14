@@ -23,12 +23,14 @@
 # design -- they are the only two values a team's members ever receive (plugin/README.md, "Administrator:
 # create a team"). A secret would be masked in the log for no gain, and the mask would hide the very hostname
 # a failing run has to name. The secret/service-role key and the personal access token are never here and are
-# never a variable or a secret of this workflow. Without the two variables every run is a green no-op that says
-# so on the run page; both were set on this repository on 2026-09-05 (`gh variable list`), and the first GREEN
-# run against the hosted project is 33942302844. It was not the first: the three runs before it that day reached
-# the project and were RED -- 33941582371 and 33941956535 on `anonymous_provider_disabled` (HTTP 422) until the
-# owner enabled anonymous sign-ins, and 33942074574 on the unexposed `brigade` schema's 406 PGRST106 until rung 3
-# was taught to warn rather than fail. docs/project-owner/install/keep-alive.md carries the owner's procedure.
+# never a variable or a secret of this workflow. Without its two variables a job is a green no-op that says so
+# on the run page. The first project's pair was set on this repository on 2026-09-05, and its first GREEN run is
+# 33942302844. It was not the first: the three runs before it that day reached the project and were RED --
+# 33941582371 and 33941956535 on `anonymous_provider_disabled` (HTTP 422) until the owner enabled anonymous
+# sign-ins, and 33942074574 on the unexposed `brigade` schema's 406 PGRST106 until rung 3 was taught to warn
+# rather than fail. That job (`keepalive`, appshapes-brigade) was removed on 2026-11-14 (work item 331), its team
+# having moved to a Brigade server; the project and its variable pair were left as they were.
+# docs/project-owner/install/keep-alive.md carries the owner's procedure.
 #
 # A failing run is the alert: Actions e-mails the failure, and the script's `::error::` annotation names the
 # rung that broke and what to do about it. No `concurrency` group: one scheduled run a day, and a manual
@@ -46,28 +48,22 @@ permissions: {contents: read}            # the job reads the checkout and nothin
 # worse: a dynamic variable lookup hides which project a red run belongs to, and the pairs are the thing a
 # reader has to see. `fail-fast` does not enter into it -- separate jobs already fail independently, so a
 # paused project cannot mask a healthy one, in any direction, no matter how many projects join the list. A
-# project whose pair is unset is a green no-op that says so, which is what a fork sees for all three.
+# project whose pair is unset is a green no-op that says so, which is what a fork sees for every job.
 jobs:
-  keepalive:
+  keepalive-thinktech:
+    # The second team's project (thinktech-brigade, hsopqzvznxajeyswzztv), deployed 2026-09-10. Its team lives
+    # in another repository; the keep-alive rides here because this is where keepalive.sh is, and because both
+    # values it needs are public by design. Its team moved to a Brigade server on 2026-11-14 (work item 320), and
+    # the job stays until that move is finished and the project's second team has moved (work item 329): a
+    # member's session follows the move by asking this project for its record, which a paused project cannot
+    # answer. Whether the project can then go is work item 330's question.
+    #
     # curl and jq are the script's only two dependencies. On the Blacksmith image curl is VERIFIED (run
     # 33996821598, the `fast` job's `make setup-lint`); jq is verified by no run on it -- ci.yml's `fast`
     # job prints both on every push from P5-17 on. keepalive.sh's own preflight dies loudly if either is gone.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5                   # four requests at --max-time 30 plus the health rung's retries
-    env:                                 # the adapter's own variable names (P5-0 brief 3.1), not SUPABASE_*
-      BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_SUPABASE_URL }}"
-      BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_SUPABASE_PUBLISHABLE_KEY }}"
-    steps:
-      - uses: actions/checkout@v7
-      - run: scripts/ci/keepalive.sh
-
-  keepalive-thinktech:
-    # The second team's project (thinktech-brigade, hsopqzvznxajeyswzztv), deployed 2026-09-10. Its team lives
-    # in another repository; the keep-alive rides here because this is where keepalive.sh is, and because both
-    # values it needs are public by design exactly as the pair above is.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 5
-    env:
+    env:                                 # each job maps its own pair onto the adapter's two names (P5-0 brief 3.1)
       BRIGADE_SUPABASE_URL: "${{ vars.BRIGADE_THINKTECH_SUPABASE_URL }}"
       BRIGADE_SUPABASE_PUBLISHABLE_KEY: "${{ vars.BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY }}"
     steps:

@@ -78,9 +78,7 @@ Names only. No value of any of these appears in this repository, and none may be
 
 | Type | Name | Notes |
 | --- | --- | --- |
-| Var | `BRIGADE_SUPABASE_URL` | The hosted project's url, read by `keepalive.yml`. Public by design: it is one of the two values every member of a team receives. |
-| Var | `BRIGADE_SUPABASE_PUBLISHABLE_KEY` | The hosted project's publishable key, read by `keepalive.yml`. Public by design, for the same reason. |
-| Var | `BRIGADE_THINKTECH_SUPABASE_URL` | The `thinktech-brigade` project's url, read by `keepalive.yml`'s `keepalive-thinktech` job. Public by design, for the same reason. |
+| Var | `BRIGADE_THINKTECH_SUPABASE_URL` | The `thinktech-brigade` project's url, read by `keepalive.yml`'s `keepalive-thinktech` job. Public by design: it is one of the two values every member of a team receives. |
 | Var | `BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY` | The `thinktech-brigade` project's publishable key, read by the same job. Public by design, for the same reason. |
 | Var | `BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL` | The AAFP Board Review team's project url, read by `keepalive.yml`'s `keepalive-aafp-board-review-team` job. Public by design, for the same reason. |
 | Var | `BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY` | The AAFP Board Review team's project publishable key, read by the same job. Public by design, for the same reason. |
@@ -392,16 +390,12 @@ a runner's `ps` and the Actions debug log both see argv. No response body is eve
 ### Run locally
 
 ```sh
-BRIGADE_SUPABASE_URL="$(gh variable get BRIGADE_SUPABASE_URL)" \
-BRIGADE_SUPABASE_PUBLISHABLE_KEY="$(gh variable get BRIGADE_SUPABASE_PUBLISHABLE_KEY)" \
-scripts/ci/keepalive.sh
-
-# the second project: same script, the other pair
+# thinktech-brigade's pair
 BRIGADE_SUPABASE_URL="$(gh variable get BRIGADE_THINKTECH_SUPABASE_URL)" \
 BRIGADE_SUPABASE_PUBLISHABLE_KEY="$(gh variable get BRIGADE_THINKTECH_SUPABASE_PUBLISHABLE_KEY)" \
 scripts/ci/keepalive.sh
 
-# the third project: same script again, the AAFP Board Review team's pair
+# the AAFP Board Review team's: same script, the other pair
 BRIGADE_SUPABASE_URL="$(gh variable get BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_URL)" \
 BRIGADE_SUPABASE_PUBLISHABLE_KEY="$(gh variable get BRIGADE_AAFP_BOARD_REVIEW_TEAM_SUPABASE_PUBLISHABLE_KEY)" \
 scripts/ci/keepalive.sh

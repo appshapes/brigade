@@ -4,8 +4,8 @@ The keep-alive is nothing but a job in `keepalive.yml` reading a pair of reposit
 the job becomes a green no-op that says so on the run page:
 
 ```sh
-gh variable delete BRIGADE_SUPABASE_URL
-gh variable delete BRIGADE_SUPABASE_PUBLISHABLE_KEY
+gh variable delete BRIGADE_<PROJECT>_SUPABASE_URL
+gh variable delete BRIGADE_<PROJECT>_SUPABASE_PUBLISHABLE_KEY
 ```
 
 Use the pair named for the project ([Arm the keep-alive](../install/keep-alive.md) lists them). Remove **both**:

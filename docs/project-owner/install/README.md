@@ -32,9 +32,9 @@ Details: [Deploy the backend](deploy-the-backend.md).
 
 ## Arm the keep-alive
 
-1. Free plan only: `gh variable set BRIGADE_SUPABASE_URL --body https://<ref>.supabase.co` and
-   `gh variable set BRIGADE_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_…` in a repository that runs `keepalive.yml`.
-2. A second project is a second job and a second variable pair.
+1. Free plan only: in a repository that runs `keepalive.yml`, add a job named for the project (a copy of one there).
+2. `gh variable set BRIGADE_<PROJECT>_SUPABASE_URL --body https://<ref>.supabase.co` and
+   `gh variable set BRIGADE_<PROJECT>_SUPABASE_PUBLISHABLE_KEY --body sb_publishable_…`, the pair that job reads.
 
 Details: [Arm the keep-alive](keep-alive.md).
 
