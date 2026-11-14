@@ -534,7 +534,7 @@ message delivered; and the same session attaching to nothing when the team file 
 not. Then on a real team, which the work item's done criterion asks for: the test team left on the hosted
 project the old teams were on. That needs the migration applied to that project, at the owner's word, and it is
 why that project is not deleted before this is proven. The thinktech project gets the migration at that team's
-move, at the owner's word, and not before.
+move, at the owner's word, and not before. It got it on 2026-11-14, at his word (execution log P100-5).
 
 ## 5. The repository
 
@@ -728,6 +728,9 @@ keep theirs where the board had them free; and step 2 came before step 4. What i
 item 89 (its week of real use ends 2026-11-20, and the hosted project's fate is asked after it), 273 (step 5),
 289 and 290 (two frictions of the join, found in the cut-over), 312 (phase 4) and 313 (the one node's known
 gaps: what it logs, who hears of a failed nightly copy, the bounds, recovery, the members not yet proven on a
-team on a server). The thinktech team's move is work item 320 since 2026-11-14, and waits on the owner's word
-for where its server runs. Since 2026-11-14 the owner's host runs server 0.6.0 and the session `89-server-7`
-holds this roadmap, handed on by `89-server-6` (execution log P100-3).
+team on a server). The thinktech team's move is work item 320 since 2026-11-14: by the owner's ruling it has a
+server of its own, on which it was taken in and cut over that day (execution log P100-5), and the work item
+stays open until its members have followed and the team is ended on the old backend. Work items 323 (the
+certificate of the appshapes team's server is not watched) and 326 (a label a team holds cannot be changed)
+came of it. Since 2026-11-14 the owner's host runs server 0.6.0 and the session `89-server-7`, renamed
+`89-server-7-roadmap-and-week-check`, holds this roadmap, handed on by `89-server-6` (execution log P100-3).
