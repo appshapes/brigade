@@ -733,4 +733,8 @@ server of its own, on which it was taken in and cut over that day (execution log
 stays open until its members have followed and the team is ended on the old backend. Work items 323 (the
 certificate of the appshapes team's server is not watched) and 326 (a label a team holds cannot be changed)
 came of it. Since 2026-11-14 the owner's host runs server 0.6.0 and the session `89-server-7`, renamed
-`89-server-7-roadmap-and-week-check`, holds this roadmap, handed on by `89-server-6` (execution log P100-3).
+`89-server-7-roadmap-and-week-check`, held this roadmap, handed on by `89-server-6` (execution log P100-3). On
+2026-11-14 it handed the roadmap on to the standby the owner named, the session `51866` (execution log P101-2),
+with work items 327 (a running session follows its team) and 328 (a team moved with one command) being built on
+branches, 329 (the second team of the thinktech project) and 330 (whether the two Supabase projects can go)
+waiting on them.
