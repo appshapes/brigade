@@ -12,6 +12,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 - [0002. Close a decision's ask from the asker's side, with the ruling as its outcome](0002-close-a-decisions-ask-from-the-askers-side.md)
 - [0003. Follow a team that moved, on the old backend's record and a move ticket](0003-follow-a-team-that-moved-on-the-old-backends-record.md)
 - [0004. Bound one principal on a server with the reference backend's numbers](0004-bound-one-principal-on-a-server-with-the-reference-backends-numbers.md)
+- [0005. Ask for a note only for a commit made in the checkout during the turn, and say what git shows](0005-ask-for-a-note-only-for-a-commit-of-the-turn.md)
 
 ## Record a decision
 

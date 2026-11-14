@@ -268,12 +268,19 @@ func gitPath(t *testing.T) string {
 // gitIn runs git in the fixture's checkout with a hermetic HOME.
 func (f *fixture) gitIn(args ...string) string {
 	f.t.Helper()
+	return f.git(nil, args...)
+}
+
+// git is gitIn with more environment for the child: the hermetic three
+// first, then what the caller adds (git's clock, in gitAt).
+func (f *fixture) git(extraEnv []string, args ...string) string {
+	f.t.Helper()
 	git, err := exec.LookPath("git")
 	if err != nil {
 		f.t.Skip("no git on PATH")
 	}
 	cmd := exec.CommandContext(f.t.Context(), git, append([]string{"-C", f.cwd}, args...)...) //nolint:gosec // G204: a test fixture
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + f.dirs.Home, "GIT_CONFIG_NOSYSTEM=1"}
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + f.dirs.Home, "GIT_CONFIG_NOSYSTEM=1"}, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		f.t.Fatalf("git %v: %v\n%s", args, err, out)

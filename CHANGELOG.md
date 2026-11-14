@@ -9,6 +9,30 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The end-of-turn ask for a note no longer says a turn made a commit it
+  did not make** (work item 319). In a project that shares a state folder,
+  a session was told "this turn made a commit and no note followed" after
+  turns that had committed nothing: when another of your sessions
+  committed in the same checkout, when the commit was an earlier turn's
+  whose own ask had been held back by the ten-minute rule, and when a pull
+  brought in a commit you had made elsewhere. Brigade asked whenever a
+  commit of yours had reached the checkout since the session started, and
+  said it in the turn's name. It now asks only for a commit made in the
+  checkout during the turn that is ending: never for an earlier turn's,
+  never for one a pull brought in, never for one made while the session
+  waited. Git does not record which of a checkout's sessions made a
+  commit, so the line says what was found, "a commit was made in this
+  checkout during this turn", asks for the note if this session or an
+  agent it started made it, and says that nothing is needed if another
+  session did. On Muse Code and Codex CLI, where the ask comes at the next
+  prompt, it is for a commit made since the previous prompt and says so.
+  A session is asked at the end of the turn that committed, as before, and
+  no longer in a later turn for a commit whose own ask was held back, so a
+  run of commits a few minutes apart is asked about less often. The
+  decision is ADR 0005.
+
 ## [0.55.0] — 2026-11-13
 
 ### Added

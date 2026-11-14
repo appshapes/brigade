@@ -7,10 +7,13 @@
 // which Claude Code shows as hook feedback (card 186); on an older or
 // unknown Claude Code, and on Grok Build, through the `decision: block`
 // answer, which Claude Code shows as a hook error. Three gates, each
-// its own sentence of the ask: the turn made a commit and no note
-// followed (a note), the doing line is older than ten minutes after a
-// turn that ran longer than a minute (a refreshed line), and anyone is
-// subscribed to the project's digest after such a turn (a decision, if
+// its own sentence of the ask: a commit was made in the checkout during
+// the turn and no note followed (a note; work item 319 and ADR 0005: the
+// turn's own, never an earlier turn's or one a pull brought in, and said
+// as what git shows, which is not which session made it), the doing line
+// is older than ten minutes after a turn that ran longer than a minute (a
+// refreshed line), and anyone is subscribed to the project's digest after
+// such a turn (a decision, if
 // the model waits on one; card 167 — and since card 236 the sentence says
 // the session's own user is asked in the conversation first, the recorded
 // ask held for their wait). The cost rules of ruling 8 hold whatever fires: at
@@ -77,10 +80,19 @@ const (
 
 // The three sentences of the ask, and its frame. Constants: no session
 // text, nothing to sanitise, the bare `brigade` only (the F1 rule of
-// startLine), and the closing says a refusal is final.
+// startLine), and the closing says a refusal is final. The note sentence
+// says what the hook found, a commit made in the checkout during the
+// turn, and not that the session made it: a checkout's sessions share its
+// HEAD, its reflog and their author, so the model, which knows whether it
+// committed, is told to judge (work item 319, ADR 0005). A host with no
+// Stop hook has nothing that marks a turn's end, so the prompt that
+// carries the ask there says "since this session's previous prompt",
+// which is all it knows.
 const (
 	stopAskOpen     = "Brigade state (one ask, then finish): "
-	stopAskNote     = "this turn made a commit and no note followed; record one line with `brigade note <<'EOF'`, the line, `EOF`, starting Done: (what shipped), Next: (what comes next) or Blocked: (what you wait on)."
+	stopAskNote     = "a commit was made in this checkout during this turn" + stopAskNoteRest
+	promptAskNote   = "a commit was made in this checkout since this session's previous prompt" + stopAskNoteRest
+	stopAskNoteRest = " and no note followed; if this session or an agent it started made it, record one line with `brigade note <<'EOF'`, the line, `EOF`, starting Done: (what shipped), Next: (what comes next) or Blocked: (what you wait on); if another session made it, nothing is needed."
 	stopAskDoing    = "your roster line is older than ten minutes and this turn ran long; if the work changed, set it with `brigade doing <<'EOF'`, one short sentence, `EOF`."
 	stopAskDecision = "if you are waiting on a person for a decision, record it with `brigade decision --to <their roster label> --options \"a | b\" <<'EOF'`, the question, `EOF`: for anyone but your own user it is sent at once; your own user is asked here in the conversation first, and the recorded one is held and reaches them only if they have not answered here within their wait."
 	stopAskClose    = " No secrets, local paths or customer names. Subagents leave it alone. If a command is refused, do not run it another way; the work is done."
@@ -261,7 +273,7 @@ func (r *run) stopAsk(ctx context.Context, f facts, in input, m *sessionmap.ByPI
 		r.writeStopStamp(path, stamp.at, in.SessionID, stopQuiet)
 		return ""
 	}
-	sentences := stopSentences(e, m, stamp, now)
+	sentences := stopSentences(e, m, stamp, now, hostHasStop(f.host))
 	if len(sentences) == 0 {
 		r.writeStopStamp(path, stamp.at, in.SessionID, stopQuiet)
 		return ""
@@ -278,20 +290,18 @@ func (r *run) stopAsk(ctx context.Context, f facts, in input, m *sessionmap.ByPI
 }
 
 // stopSentences is the three gates, each its sentence when it holds: a
-// commit newer than the last ask with no note after it; after a turn
+// commit of the turn with no note after it (noteDue), said as the Stop
+// hook's sentence or, on a host with none, as the prompt's; after a turn
 // longer than stopLongTurn, a doing line older than stopDoingStale (or
 // none ever) and, with anyone subscribed to the project's digest, the
 // decision.
-func stopSentences(e *state.Entry, m *sessionmap.ByPID, stamp stopStamp, now time.Time) []string {
+func stopSentences(e *state.Entry, m *sessionmap.ByPID, stamp stopStamp, now time.Time, hasStop bool) []string {
 	var out []string
-	if len(e.Commits) > 0 {
-		newest := e.Commits[0].At
-		var lastNote time.Time
-		if n := len(e.Notes); n > 0 {
-			lastNote = e.Notes[n-1].At
-		}
-		if newest.After(lastNote) && newest.After(stamp.at) {
+	if noteDue(e, stamp) {
+		if hasStop {
 			out = append(out, stopAskNote)
+		} else {
+			out = append(out, promptAskNote)
 		}
 	}
 	longTurn := !e.LastPromptAt.IsZero() && now.Sub(e.LastPromptAt) >= stopLongTurn
@@ -310,13 +320,52 @@ func stopSentences(e *state.Entry, m *sessionmap.ByPID, stamp stopStamp, now tim
 	return out
 }
 
+// noteDue is the note gate (work item 319, ADR 0005): one of the entry's
+// commits — the session's author's, since the session started — that
+// HEAD's reflog shows was made in this checkout (its Made flag: a commit,
+// an amend, a cherry-pick, a merge commit, never a fast-forward), made
+// after the prompt that began the turn, and newer than the last note and
+// the last ask. The entry's list alone is not the turn's: it holds every
+// commit of the author that reached the checkout since the session
+// started, so an earlier turn's commit, one another session of the member
+// made while this one waited, and one a pull brought in all stood in it,
+// and the gate that read only its newest asked for each of them in this
+// turn's name.
+//
+// A commit made here carries the time it was made, in whole seconds, so
+// it is the turn's when that second is later than the prompt's: one made
+// in the prompt's own second, before it, is another session's, and no
+// model commits within a second of its prompt. A commit whose own turn
+// ended without this judgement — the cadence silenced its ask, the turn
+// was interrupted, the commit landed while the session waited — is not
+// asked about later: the turn it belonged to is over. No prompt stamped
+// means no turn to judge, and an entry whose commits were not refreshed
+// (git failed under its budget, a reflog nobody can read) asks nothing.
+func noteDue(e *state.Entry, stamp stopStamp) bool {
+	if e.LastPromptAt.IsZero() {
+		return false
+	}
+	turn := e.LastPromptAt.Truncate(time.Second)
+	var lastNote time.Time
+	if n := len(e.Notes); n > 0 {
+		lastNote = e.Notes[n-1].At
+	}
+	for _, c := range e.Commits {
+		if c.Made && c.At.After(turn) && c.At.After(lastNote) && c.At.After(stamp.at) {
+			return true
+		}
+	}
+	return false
+}
+
 // stopActive reports the document's stop_hook_active in either spelling
 // (Claude Code's snake case; Grok's camel case, merged by decodeGrok).
 func (in input) stopActive() bool { return in.StopHookActive || in.StopHookActiveSnake }
 
-// stateStop refreshes the entry's git facts at the end of a turn — the
-// commit the turn made is what the note gate reads — and answers the
-// entry, or nil for a session that shares no state or has no entry.
+// stateStop refreshes the entry's git facts at the end of a turn — a
+// commit made during the turn is among them, and the note gate finds it
+// there — and answers the entry, or nil for a session that shares no
+// state or has no entry.
 func (r *run) stateStop(ctx context.Context, f facts, m *sessionmap.ByPID, now time.Time) *state.Entry {
 	s, ok := stateStore(f, m)
 	if !ok {

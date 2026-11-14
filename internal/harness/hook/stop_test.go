@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -100,21 +101,16 @@ func (f *fixture) stopStamp(t *testing.T) string {
 // the ask (stop_hook_active) asks nothing; a Stop within ten minutes asks
 // nothing (never twice in a row, once per ten minutes); the same commit
 // is never asked twice; a commit with a note after it is not asked. The
-// commits carry git's clock, so the hook's clock runs from the real time
-// here, and the doing line is kept fresh so its own gate stays shut.
+// test sets git's clock for each commit (gitAt), so a commit sits where
+// the hook's clock says the turn is, and the doing line is kept fresh so
+// its own gate stays shut.
 func TestStopAsksForANoteAfterACommit(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	if err := os.RemoveAll(f.cwd + "/.git"); err != nil {
-		t.Fatal(err)
-	}
-	f.gitIn("init", "-q", "-b", "master")
-	f.gitIn("config", "user.email", "me@example.com")
-	f.gitIn("config", "user.name", "Me")
-	f.gitIn("commit", "-q", "--allow-empty", "-m", "0: before")
+	base := fixedTime.Add(time.Hour)
+	f.initCheckout(fixedTime.Add(-time.Hour))
 	path := "PATH=" + gitPath(t)
 	s := stateSession(t, f, "bypassPermissions")
-	base := time.Now().UTC().Truncate(time.Second)
 	refreshDoing := func(at time.Time) {
 		t.Helper()
 		e, err := s.Load("brigade-sess-1")
@@ -140,7 +136,7 @@ func TestStopAsksForANoteAfterACommit(t *testing.T) {
 	if got := f.stopStamp(t); !strings.HasSuffix(got, " "+f.nativeID+" quiet") {
 		t.Fatalf("stamp after a quiet stop: %q", got)
 	}
-	f.gitIn("commit", "-q", "--allow-empty", "-m", "162: Add the Stop hook")
+	f.gitAt(base.Add(35*time.Second), "commit", "-q", "--allow-empty", "-m", "162: Add the Stop hook")
 	f.now = base.Add(40 * time.Second)
 	_, out, _ = f.run(SubStop, f.stopDoc("bypassPermissions", false), path)
 	if got := feedbackContext(t, out); got != stopAskOpen+stopAskNote+stopAskClose {
@@ -176,7 +172,7 @@ func TestStopAsksForANoteAfterACommit(t *testing.T) {
 		t.Fatalf("the same commit was asked again: %q", out)
 	}
 	// A new commit, a note after it: nothing to ask.
-	f.gitIn("commit", "-q", "--allow-empty", "-m", "162: Record the note")
+	f.gitAt(base.Add(19*time.Minute), "commit", "-q", "--allow-empty", "-m", "162: Record the note")
 	e, _ = s.Load("brigade-sess-1")
 	e.AddNote("Done: the Stop hook", base.Add(20*time.Minute))
 	e.AddDoing("recording", base.Add(24*time.Minute))
@@ -189,6 +185,221 @@ func TestStopAsksForANoteAfterACommit(t *testing.T) {
 	}
 	if e, _ = s.Load("brigade-sess-1"); len(e.Commits) != 2 {
 		t.Fatalf("the quiet Stop did not refresh the commits: %+v", e.Commits)
+	}
+}
+
+// gitAt runs git in the fixture's checkout with git's clock set to at: a
+// commit's time and the reflog entry of whatever moves HEAD both carry
+// it, so a test places a commit before, inside or after a turn of the
+// hook's own clock (work item 319).
+func (f *fixture) gitAt(at time.Time, args ...string) {
+	f.t.Helper()
+	date := strconv.FormatInt(at.Unix(), 10) + " +0000"
+	f.git([]string{"GIT_AUTHOR_DATE=" + date, "GIT_COMMITTER_DATE=" + date}, args...)
+}
+
+// initCheckout makes the fixture's checkout a repository of the author
+// me@example.com with one commit, made at `at`.
+func (f *fixture) initCheckout(at time.Time) {
+	f.t.Helper()
+	if err := os.RemoveAll(f.cwd + "/.git"); err != nil {
+		f.t.Fatal(err)
+	}
+	f.gitIn("init", "-q", "-b", "master")
+	f.gitIn("config", "user.email", "me@example.com")
+	f.gitIn("config", "user.name", "Me")
+	f.gitAt(at, "commit", "-q", "--allow-empty", "-m", "0: before")
+}
+
+// noteAskSession is a session in a project with a state folder, in a
+// checkout whose one commit was made an hour before the session started:
+// what the note gate's tests of work item 319 start from. It answers the
+// PATH that carries git, which every hook of the test runs with.
+func noteAskSession(t *testing.T, f *fixture) string {
+	t.Helper()
+	f.initCheckout(fixedTime.Add(-time.Hour))
+	stateSession(t, f, "bypassPermissions")
+	return "PATH=" + gitPath(t)
+}
+
+// turn is one turn of the session: the prompt at `at`, what happens in the
+// checkout meanwhile, and the Stop twenty seconds on — short enough that
+// the doing and the decision gates stay shut. It answers the Stop's ask,
+// "" for none.
+func (f *fixture) turn(t *testing.T, path string, at time.Time, during func()) string {
+	t.Helper()
+	f.now = at
+	if exit, _, errOut := f.run(SubPrompt, f.promptDoc("bypassPermissions"), path); exit != 0 {
+		t.Fatalf("prompt: exit %d: %s", exit, errOut)
+	}
+	if during != nil {
+		during()
+	}
+	f.now = at.Add(20 * time.Second)
+	exit, out, errOut := f.run(SubStop, f.stopDoc("bypassPermissions", false), path)
+	if exit != 0 {
+		t.Fatalf("stop: exit %d: %s", exit, errOut)
+	}
+	return feedbackContext(t, out)
+}
+
+// TestStopNoteAskIsForACommitOfTheTurn (work item 319): the note is asked
+// for a commit made in the checkout during the turn that is ending, and
+// for no other. The sightings on the work item, each one a line that said
+// "this turn made a commit" of a turn that made none: a commit of an
+// earlier turn whose own ask the cadence had silenced, asked two hours
+// later; a commit another session of the member made in the same checkout
+// while this one was between turns; and, read from the code, the member's
+// own commit that a pull brought in.
+func TestStopNoteAskIsForACommitOfTheTurn(t *testing.T) {
+	t.Parallel()
+	const ask = stopAskOpen + stopAskNote + stopAskClose
+	t.Run("a commit an earlier turn made", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		path := noteAskSession(t, f)
+		t1 := fixedTime.Add(time.Minute)
+		// The control: the turn commits, and its Stop asks.
+		if got := f.turn(t, path, t1, func() {
+			f.gitAt(t1.Add(10*time.Second), "commit", "-q", "--allow-empty", "-m", "319: the first")
+		}); got != ask {
+			t.Fatalf("the turn that committed was not asked: %q", got)
+		}
+		// The next turn commits too, two minutes on: never twice in a row.
+		t2 := t1.Add(2 * time.Minute)
+		if got := f.turn(t, path, t2, func() {
+			f.gitAt(t2.Add(10*time.Second), "commit", "-q", "--allow-empty", "-m", "319: the second")
+		}); got != "" {
+			t.Fatalf("asked twice in a row: %q", got)
+		}
+		// A turn that commits nothing, past the ask interval: the second
+		// commit is an earlier turn's, and this turn made none.
+		if got := f.turn(t, path, t1.Add(15*time.Minute), nil); got != "" {
+			t.Fatalf("a turn that made no commit was asked for an earlier turn's: %q", got)
+		}
+		if e := f.mustEntry(t); len(e.Commits) != 2 || !e.Commits[0].Made || !e.Commits[1].Made {
+			t.Fatalf("the entry does not carry both commits as made here: %+v", e.Commits)
+		}
+	})
+	t.Run("a commit another session made between this one's turns", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		path := noteAskSession(t, f)
+		t1 := fixedTime.Add(time.Minute)
+		if got := f.turn(t, path, t1, nil); got != "" {
+			t.Fatalf("a turn in an untouched checkout was asked: %q", got)
+		}
+		// Another session of the member, in the same checkout, commits
+		// while this one waits for its user: the same author, the same
+		// HEAD, the same reflog.
+		f.gitAt(t1.Add(5*time.Minute), "commit", "-q", "--allow-empty", "-m", "320: another session's")
+		if got := f.turn(t, path, t1.Add(20*time.Minute), nil); got != "" {
+			t.Fatalf("a turn that made no commit was asked for another session's: %q", got)
+		}
+		// The entry's facts are what they were: the digest still lists it.
+		if e := f.mustEntry(t); len(e.Commits) != 1 || e.Commits[0].Card != 320 {
+			t.Fatalf("the entry's commits: %+v", e.Commits)
+		}
+	})
+	t.Run("a commit made in the checkout during the turn", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		path := noteAskSession(t, f)
+		// Git's files do not say which session of a checkout made a
+		// commit, so the sentence says what was found and leaves the rest
+		// to the model, which knows whether it committed.
+		t1 := fixedTime.Add(time.Minute)
+		got := f.turn(t, path, t1, func() {
+			f.gitAt(t1.Add(10*time.Second), "commit", "-q", "--allow-empty", "-m", "320: whoever made it")
+		})
+		if got != ask {
+			t.Fatalf("a commit made in the checkout during the turn was not asked: %q", got)
+		}
+		// What the hook printed, against the words themselves.
+		if !strings.HasPrefix(got, "Brigade state (one ask, then finish): a commit was made in this checkout during this turn and no note followed; if this session or an agent it started made it, record one line with `brigade note") ||
+			!strings.Contains(got, "; if another session made it, nothing is needed.") || strings.Contains(got, "this turn made a commit") {
+			t.Fatalf("the ask does not say what was found: %q", got)
+		}
+	})
+	t.Run("a commit made in the second of the prompt", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		path := noteAskSession(t, f)
+		// Git's times are whole seconds: a commit in the prompt's own
+		// second was made before the turn could have made one.
+		t1 := fixedTime.Add(time.Minute)
+		if got := f.turn(t, path, t1.Add(900*time.Millisecond), func() {
+			f.gitAt(t1, "commit", "-q", "--allow-empty", "-m", "320: another session's, a moment before the prompt")
+		}); got != "" {
+			t.Fatalf("a commit made in the prompt's own second was asked about: %q", got)
+		}
+	})
+	t.Run("the member's own commit that a pull brought in", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		path := noteAskSession(t, f)
+		elsewhere := filepath.Join(t.TempDir(), "elsewhere")
+		f.gitIn("clone", "-q", f.cwd, elsewhere)
+		t1 := fixedTime.Add(time.Minute)
+		if got := f.turn(t, path, t1, func() {
+			f.gitAt(t1.Add(5*time.Second), "-C", elsewhere, "-c", "user.email=me@example.com", "-c", "user.name=Me",
+				"commit", "-q", "--allow-empty", "-m", "321: made in another checkout")
+			f.gitAt(t1.Add(10*time.Second), "pull", "-q", "--no-edit", "--no-rebase", elsewhere, "master")
+		}); got != "" {
+			t.Fatalf("a turn that only pulled was asked for a note: %q", got)
+		}
+		if e := f.mustEntry(t); len(e.Commits) != 1 || e.Commits[0].Card != 321 || e.Commits[0].Made {
+			t.Fatalf("the entry's commits: %+v", e.Commits)
+		}
+	})
+}
+
+// TestPromptNoteAskIsForACommitSinceThePreviousPrompt (work item 319): on
+// a host with no Stop hook the prompt judges the turn that just ended, so
+// the commit it asks about is one made between the previous prompt and
+// this one, and a commit made before that prompt is not asked about.
+// Nothing there marks where the turn ended and the wait began, so the
+// sentence says "since this session's previous prompt" and no more.
+func TestPromptNoteAskIsForACommitSinceThePreviousPrompt(t *testing.T) {
+	t.Parallel()
+	f := newMuseFixture(t)
+	f.initCheckout(fixedTime.Add(-time.Hour))
+	f.writeTeamFile(stateMember)
+	seam := f.useSeam(map[string][]fakeadapter.Response{"session register": {okResp(registerDoc("brigade-sess-1", "payments-api", false))}})
+	seam.describe = describeWithDescription()
+	path := "PATH=" + gitPath(t)
+	if exit, _, errOut := f.run(SubSessionStart, f.startDoc("startup"), path); exit != 0 {
+		t.Fatalf("exit %d: %s", exit, errOut)
+	}
+	prompt := func(at time.Time) string {
+		t.Helper()
+		f.now = at
+		exit, out, errOut := f.run(SubPrompt, f.promptDoc("bypassPermissions"), path)
+		if exit != 0 {
+			t.Fatalf("prompt: exit %d: %s", exit, errOut)
+		}
+		return out
+	}
+	// Another session commits before this one's first prompt; the first
+	// prompt ends no turn, and the turn it starts makes no commit.
+	f.gitAt(fixedTime.Add(10*time.Second), "commit", "-q", "--allow-empty", "-m", "320: another session's")
+	t1 := fixedTime.Add(time.Minute)
+	if out := prompt(t1); strings.Contains(out, stopAskOpen) {
+		t.Fatalf("the first prompt asked: %q", out)
+	}
+	t2 := t1.Add(20 * time.Second)
+	if out := prompt(t2); strings.Contains(out, stopAskOpen) {
+		t.Fatalf("a turn that made no commit was asked for another session's: %q", out)
+	}
+	// A commit after the prompt at t2; the next prompt asks, in its own
+	// words.
+	f.gitAt(t2.Add(10*time.Second), "commit", "-q", "--allow-empty", "-m", "319: since the previous prompt")
+	out := prompt(t2.Add(20 * time.Second))
+	if !strings.Contains(out, stopAskOpen+promptAskNote+stopAskClose) {
+		t.Fatalf("the prompt after a commit did not carry the ask:\n%s", out)
+	}
+	if !strings.Contains(out, "a commit was made in this checkout since this session's previous prompt and no note followed; if this session") || strings.Contains(out, "during this turn") {
+		t.Fatalf("the prompt's ask does not say what was found:\n%s", out)
 	}
 }
 
