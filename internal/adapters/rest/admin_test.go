@@ -243,6 +243,50 @@ func TestTeamRotateSecretRefusals(t *testing.T) {
 	}
 }
 
+// TestARotationThatCouldNotKeepItsSecretIsNotAsked: a --secret-file in a
+// directory that exists and takes no file is `config`
+// secret_file_unwritable before any request. The server is not asked, so
+// the secret the team has still joins: asked, it would have ended that
+// secret, and the write of the new one would have failed. In a directory
+// that takes a file again the rotation is made.
+func TestARotationThatCouldNotKeepItsSecretIsNotAsked(t *testing.T) {
+	t.Parallel()
+	b := newBackend(t)
+	p := newPair(t, b)
+	b.forget()
+	locked := lockedDir(t)
+	path := filepath.Join(locked, "rotated.secret")
+	for name, target := range map[string]string{
+		"a directory that takes no file": path,
+		"a path that names a directory":  locked,
+	} {
+		refused := p.alice.fails(protocol.CodeConfig, "", "team", "rotate-secret", "--secret-file", target)
+		if details(t, refused.stdout)["reason"] != reasonSecretFile {
+			t.Errorf("%s: details %v, want reason %s", name, details(t, refused.stdout), reasonSecretFile)
+		}
+	}
+	if seen := b.seen(""); len(seen) != 0 {
+		t.Fatalf("a rotation that could not keep its secret made %d requests, want none", len(seen))
+	}
+	// The secret the team had is the one it has: it joins.
+	newRig(t, b.url()).join(p.secret, "carol@example.com")
+
+	// Positive control: the same path, once its directory takes a file.
+	//nolint:gosec // G302: a DIRECTORY mode
+	if err := os.Chmod(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if rotated := p.alice.ok("", "team", "rotate-secret", "--secret-file", path); rotated["secret_version"] != float64(2) {
+		t.Errorf("a rotation into a directory that takes a file: %v", rotated)
+	}
+	if secretIn(t, path) == p.secret {
+		t.Errorf("the rotation left the previous secret")
+	}
+	if entries, err := os.ReadDir(locked); err != nil || len(entries) != 1 {
+		t.Errorf("the directory holds %d entries after the write, want the secret file alone (%v)", len(entries), err)
+	}
+}
+
 // TestTeamRevokeMember: the principal form revokes one member, closes its
 // session, ends its watch and refuses its commands, and lets it back in
 // with the secret; a ban makes its join the rejected join until a

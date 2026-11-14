@@ -630,3 +630,89 @@ func TestAServerWithoutTeamTakeIn(t *testing.T) {
 		t.Errorf("a take-in was sent to a server that could not say whether it carries it")
 	}
 }
+
+// lockedDir is a directory of the test's own that takes no new file. A
+// process that runs as root writes wherever it likes, so such a run proves
+// nothing here and is skipped.
+func lockedDir(t *testing.T) string {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to a directory whatever its mode")
+	}
+	dir := filepath.Join(t.TempDir(), "read-only")
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // G302: restoring a DIRECTORY mode so the test's cleanup can remove it
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	return dir
+}
+
+// TestAnOpenMoveThatCouldNotKeepItsTicketIsNotAsked: a --ticket-file in a
+// directory that exists and takes no file is `config`
+// ticket_file_unwritable before any request. The server is not asked, so
+// the ticket the team has still admits: asked, it would have put a new
+// ticket in its place, and the write of that one would have failed. The
+// same holds for a path that names a directory. In a directory that takes
+// a file again the move is opened, the ticket is in a file of mode 0600,
+// and a symbolic link at the path is replaced and never followed.
+func TestAnOpenMoveThatCouldNotKeepItsTicketIsNotAsked(t *testing.T) {
+	t.Parallel()
+	b := newBackend(t)
+	alice := newRig(t, b.url())
+	alice.takeIn(secretOf(elsewhereRef, "kept-from-the-other-backend"), "ops")
+	live := filepath.Join(t.TempDir(), "ops.ticket")
+	alice.ok("", "team", "open-move", "--ticket-file", live)
+	ticket := secretIn(t, live)
+	b.forget()
+
+	locked := lockedDir(t)
+	for name, path := range map[string]string{
+		"a directory that takes no file": filepath.Join(locked, "ops.ticket"),
+		"a path that names a directory":  filepath.Dir(live),
+	} {
+		refused := alice.fails(protocol.CodeConfig, "", "team", "open-move", "--ticket-file", path)
+		if details(t, refused.stdout)["reason"] != reasonTicketFile {
+			t.Errorf("%s: details %v, want reason %s", name, details(t, refused.stdout), reasonTicketFile)
+		}
+	}
+	if seen := b.seen(""); len(seen) != 0 {
+		t.Fatalf("an open-move that could not keep its ticket made %d requests, want none", len(seen))
+	}
+	// The ticket the team had is the one it has: it admits.
+	if joined := newRig(t, b.url()).join(ticket, "bob@example.com"); joined["team_ref"] != elsewhereRef {
+		t.Errorf("the live ticket after a refused open-move: %v", joined)
+	}
+
+	// Positive control: the same directory, once it takes a file. The move is
+	// opened, and what was at the path, a link to someone else's file, is
+	// replaced by the ticket file and not written through.
+	//nolint:gosec // G302: a DIRECTORY mode
+	if err := os.Chmod(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := filepath.Join(t.TempDir(), "someone-elses-file")
+	if err := os.WriteFile(elsewhere, []byte("not a ticket\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(locked, "ops.ticket")
+	if err := os.Symlink(elsewhere, link); err != nil {
+		t.Fatal(err)
+	}
+	opened := alice.ok("", "team", "open-move", "--ticket-file", link)
+	if opened["replaced"] != true || opened["ticket_file"] != link {
+		t.Errorf("an open-move into a directory that takes a file: %v", opened)
+	}
+	if next := secretIn(t, link); next == ticket {
+		t.Errorf("the second open-move left the first ticket")
+	}
+	if info, err := os.Lstat(link); err != nil || !info.Mode().IsRegular() {
+		t.Errorf("the ticket file is not a regular file in the link's place (%v)", err)
+	}
+	if data, err := os.ReadFile(elsewhere); err != nil || string(data) != "not a ticket\n" { //nolint:gosec // the test's own temp file
+		t.Errorf("the write followed the link: the file it pointed at holds %q (%v)", data, err)
+	}
+	if entries, err := os.ReadDir(locked); err != nil || len(entries) != 1 {
+		t.Errorf("the directory holds %d entries after the write, want the ticket file alone (%v)", len(entries), err)
+	}
+}

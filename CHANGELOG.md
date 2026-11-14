@@ -31,6 +31,25 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   opened its move with two commands on a stopped server; those commands
   stay. No `brigade` command makes the three requests yet.
 
+### Fixed
+
+- **A rotation and an opened move are no longer asked for when their
+  file could not be written** (work item 328). `team rotate-secret
+  --secret-file` and `team open-move --ticket-file` checked only that
+  the file's directory exists. In a directory that takes no file the
+  backend still ended the team's join secret, or put a new ticket in
+  the place of the live one, and the write then failed: the new secret
+  or ticket was lost and the one before it was dead. The `rest` adapter
+  and the Supabase adapter now write a file of their own beside the
+  path and remove it before they ask anything
+  (`adapterkit.CanWriteAtomic`), so a directory that takes no file, and
+  a path that names a directory, is `config` with
+  `secret_file_unwritable` or `ticket_file_unwritable`, and the backend
+  is not asked. `team create --secret-file` and `team moved
+  --ticket-file`, the filesystem adapter's included, make the same
+  check. What was at the path is left as it is until the write, which
+  still replaces a symbolic link there and never follows it.
+
 ## [0.55.0] — 2026-11-13
 
 ### Added

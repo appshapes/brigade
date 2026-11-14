@@ -156,9 +156,15 @@ func CheckMoveTicket(ticket, teamRef string) error {
 	return nil
 }
 
-// CheckTicketFileTarget checks the path `team moved --ticket-file` is to
-// write a ticket to, before any network call: absolute, in a directory
-// that exists. An empty path is no path and passes.
+// CheckTicketFileTarget checks the path `team moved --ticket-file` and
+// `team open-move --ticket-file` are to write a ticket to, before any
+// network call: absolute, in a directory that exists, and one a file can
+// be written to as WriteTicketFile writes it, which CanWriteAtomic proves
+// by writing a file of its own there and removing it. The last matters
+// most to `team open-move`: the backend puts a new ticket in the place of
+// the team's live one before the adapter has anything to write, so a
+// directory that takes no file would cost both. What is at the path is
+// left as it is. An empty path is no path and passes.
 func CheckTicketFileTarget(path string) error {
 	if path == "" {
 		return nil
@@ -168,6 +174,9 @@ func CheckTicketFileTarget(path string) error {
 	}
 	if info, err := os.Stat(filepath.Dir(path)); err != nil || !info.IsDir() {
 		return ticketFileError(reasonTicketFileUnwritable, "the directory of --ticket-file does not exist")
+	}
+	if CanWriteAtomic(path) != nil {
+		return ticketFileError(reasonTicketFileUnwritable, "the file named by --ticket-file cannot be written: its directory takes no new file, or the path names a directory")
 	}
 	return nil
 }
