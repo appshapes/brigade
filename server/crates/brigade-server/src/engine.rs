@@ -6,8 +6,9 @@
 //! disk. The jobs that are waiting when the thread looks share one sync.
 //!
 //! A team the operator takes in from another backend is a job too, of a kind of its own, and so are the
-//! owner the operator names for a team and the team the operator takes back: each changes the state through
-//! the same queue, the same append and the same sync, and is nothing a request can ask for.
+//! owner the operator names for a team, the team the operator takes back, and the move of a team's members
+//! that the operator opens or closes: each changes the state through the same queue, the same append and
+//! the same sync, and is nothing a request can ask for.
 //!
 //! A failed append ends the process: the state already holds what the log does not, and nothing may be
 //! answered from it.
@@ -21,7 +22,8 @@ use std::thread::JoinHandle;
 use brigade_core::hash::hex;
 use brigade_core::record::LONGEST_ENCODED_BYTES;
 use brigade_core::{
-    Entropy, Entry, Error, Request, State, Timestamp, answer, import_team, set_owner, take_back,
+    Entropy, Entry, Error, Request, State, Timestamp, answer, close_move, import_team, open_move, set_owner,
+    take_back,
 };
 use brigade_log::{FileLog, KEY_BYTES, Log, LogError, Position, Sealer};
 use hyper::body::Bytes;
@@ -92,6 +94,19 @@ enum Work {
     /// To take a team back from whoever holds it: a new join secret, no member and no owner. It is the
     /// operator's alone, as the two before it are.
     TakeBack {
+        /// The team.
+        team_ref: String,
+    },
+    /// To open the move of a team's members from another backend: a ticket that a join is let in with for
+    /// a number of days. It is the operator's alone, as the three before it are.
+    OpenMove {
+        /// The team.
+        team_ref: String,
+        /// How many days the ticket admits for.
+        days: u32,
+    },
+    /// To close the move of a team. It is the operator's alone.
+    CloseMove {
         /// The team.
         team_ref: String,
     },
@@ -179,6 +194,34 @@ impl Client {
             team_ref: team_ref.to_owned(),
         };
         self.hand(taken).await
+    }
+
+    /// Has the engine open the move of the team `team_ref` for `days` days. The record it makes is appended
+    /// and synced before the answer comes. The answer's `ticket` is the one place the move ticket is, so
+    /// the caller writes it where the operator said and nowhere else.
+    ///
+    /// # Errors
+    /// The failure the rules refuse it with: a team the server does not hold, or a number of days a ticket
+    /// is not given; `unavailable` when the server is stopping.
+    pub async fn open_move(&self, team_ref: &str, days: u32) -> Result<Value, Error> {
+        let opened = Work::OpenMove {
+            team_ref: team_ref.to_owned(),
+            days,
+        };
+        self.hand(opened).await
+    }
+
+    /// Has the engine close the move of the team `team_ref`: its ticket admits nobody from then on. The
+    /// record it makes, when the team had a move, is appended and synced before the answer comes.
+    ///
+    /// # Errors
+    /// The failure the rules refuse it with, a team the server does not hold; `unavailable` when the
+    /// server is stopping.
+    pub async fn close_move(&self, team_ref: &str) -> Result<Value, Error> {
+        let closed = Work::CloseMove {
+            team_ref: team_ref.to_owned(),
+        };
+        self.hand(closed).await
     }
 
     /// Puts one piece of work on the engine's queue and waits for its answer.
@@ -513,6 +556,10 @@ impl Engine {
                     Work::TakeBack { team_ref } => {
                         take_back(&mut self.state, team_ref, now, &mut self.entropy)
                     }
+                    Work::OpenMove { team_ref, days } => {
+                        open_move(&mut self.state, team_ref, *days, now, &mut self.entropy)
+                    }
+                    Work::CloseMove { team_ref } => close_move(&mut self.state, team_ref, now),
                 };
                 // A request that may make its caller an owner came over HTTP and is a member's own. What it
                 // changed about a team is said once the log holds it. A gateway's turns say what the

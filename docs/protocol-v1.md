@@ -12,7 +12,7 @@ is a new major version, not an edit to this one.
 
 - **Normative words.** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as RFC 2119 defines them. Everything else
   is description.
-- **Every MUST cites a conformance case.** The suite (plan section 9.2) has 52 cases: `C-01`..`C-50` plus `C-03b`,
+- **Every MUST cites a conformance case.** The suite (plan section 9.2) has 54 cases: `C-01`..`C-52` plus `C-03b`,
   `C-19b` and `C-29b` (the numbering skips 09). A MUST that no case checks yet is marked `[no case: B-n]` and listed in
   Appendix B, which is an input to the suite's implementation (P1-6). No citation here names a case that does not
   exist; Appendix A is the index.
@@ -158,6 +158,8 @@ so that every adapter uses the same words, gated by capability, and permitted ex
 | `team rotate-secret --secret-file <path>` | none | `{team_ref, team_name, secret_version, rotated_at, secret_file}` | convention, capability `team.admin`; the team's owner only; the new secret goes to the file and to no output (4.4.10, C-48) |
 | `team revoke-member [--principal <principal_ref> [--ban] \| --max-version <n>]` | `{principal_ref, ban?}` or `{joined_secret_version_lte}` (or the flags) | `{team_ref, principal_ref, status, changed, sessions_closed}` or `{team_ref, max_version, revoked, sessions_closed}` | convention, capability `team.admin`; the team's owner only (4.4.10, C-49) |
 | `team transfer [--principal <principal_ref>]` | `{principal_ref}` (or the flag) | `{team_ref, principal_ref, transferred: true}` | convention, capability `team.admin`; the team's owner only (4.4.10, C-50) |
+| `team move [--ticket-file <path> [--adapter <name> --url <url> [--certificate <pin>]] \| --clear]` | `{adapter, url, certificate?}` (or the flags); none with `--clear` | `{team_ref, moved, adapter?, url?, certificate?, recorded_at?}` | convention, capability `team.move`; the team's owner only; records on this backend where the team went, with the move ticket read from the file and written to no output; `--clear` clears the record (4.4.10, C-51) |
+| `team moved [--ticket-file <path>]` | none | `{team_ref, moved, adapter?, url?, certificate?, recorded_at?, ticket_file?}` | convention, capability `team.move`; every active member; with `--ticket-file` the ticket of a recorded move is written to that path with mode 0600 and to no output (4.4.10, C-52) |
 | `profile init` / `profile status` / `profile reset` / `profile revoke-credentials` | adapter-specific | adapter-specific, never a secret | convention, adapter-defined; `profile reset` invalidates the credential at the backend when the adapter can (best effort) and deletes the local credential and profile; `profile revoke-credentials` only invalidates the credential (so a leaked copy of the credential file stops working) and leaves the profile in place for a rejoin; `profile init` on a configured profile is `conflict` unless the adapter's own `--force` is given |
 
 Result objects that have a Go type in `internal/protocol` are named in the table; the composite results of
@@ -763,6 +765,59 @@ is `unauthorized`. A principal that is not an active member of the team is `inva
 All three members are required and `transferred` is always `true`. In `team revoke-member` and `team transfer`, an
 adapter may answer `unauthorized` for a `principal_ref` of a shape its backend never issues.
 
+**Moving a team** (capability `team.move`; added 2026-11-13, work item 273). A team may leave a backend for another
+and keep its `team_ref`. Two commands let the backend it leaves say where it went, so that a member's harness can
+follow on that backend's word and never on a team file's alone. The record holds a **destination** — `adapter`, `url`
+and an optional `certificate`, as the team's file names them at the new backend — and a **move ticket**: a join secret
+of the format above, carrying the team's `team_ref`, with which the new backend admits a member for as long as it
+keeps the move open. The ticket is a secret: it is read from a file and written to a file, and it appears in no
+argument, no result and no error.
+
+**`team move --ticket-file <path>`** — request `{"adapter", "url", "certificate"?}` on stdin, or
+`--adapter <name> --url <url> [--certificate <pin>]`:
+
+```json
+{"adapter": "rest", "url": "https://brigade.example.com"}
+```
+
+`adapter` is required and ≤ 64 code points; `url` is required and ≤ 2048; `certificate` is optional and ≤ 128.
+`--ticket-file` is required and names an absolute path, and the first line of that file is the ticket. The command
+answers the team's owner only, as the administration commands do: anyone else is the uniform `unauthorized` of 4.5.7.
+No path, or one that is not absolute, is `usage`. A file that is not there or cannot be read is `config` with
+`details.reason` `ticket_file_missing` or `ticket_file_unreadable`. A file whose first line is not a join secret
+carrying this team's `team_ref` is `invalid_input` with `details.field = "ticket"`. A second record replaces the
+first. Result (C-51):
+
+```json
+{"team_ref": "…", "moved": true, "adapter": "rest", "url": "https://brigade.example.com", "recorded_at": "2026-11-14T12:00:00Z"}
+```
+
+`team_ref`, `moved`, `adapter`, `url` and `recorded_at` are required, and `certificate` is present when the request
+had one.
+
+**`team move --clear`** takes no input and no other flag, and clears the record; with none recorded it changes
+nothing. Result (C-51):
+
+```json
+{"team_ref": "…", "moved": false}
+```
+
+Both members are required, and `moved: false` goes with no other member.
+
+**`team moved [--ticket-file <path>]`** takes no input and answers every active member of the team; anyone else is the
+uniform `unauthorized`. A team with no move recorded answers the result above, `moved: false`, and writes no file. A
+team with one answers the record. With `--ticket-file <path>` — an absolute path in a directory that exists, checked
+before any network call: `usage`, or `config` with `details.reason = "ticket_file_unwritable"` — the ticket is
+written to that path with mode 0600 and the path is answered as `ticket_file`. Result (C-52):
+
+```json
+{"team_ref": "…", "moved": true, "adapter": "rest", "url": "https://brigade.example.com", "recorded_at": "2026-11-14T12:00:00Z", "ticket_file": "/home/bob/.config/brigade/ops.ticket"}
+```
+
+An adapter whose backend cannot say whether the team moved answers `moved: false`, and a harness then does what it
+does for a team that did not move. What a harness does with a record is its own to decide; the protocol says only
+what the record is.
+
 **`profile init`** on a configured profile is `conflict` unless the adapter's own `--force` is given.
 
 ## 4.5 Semantics
@@ -904,6 +959,7 @@ failure → 9; GoTrue `refresh_token_already_used` (after one re-read-and-retry)
 | `team.join` | `team join`, `team leave` | omitted by an adapter whose membership is managed elsewhere; the suite then provisions principals through `--setup` |
 | `team.roster` | `team members` | every active member (D22) |
 | `team.admin` | `team rotate-secret`, `team revoke-member`, `team transfer` | the team's owner only (4.4.10); `team members` then carries `joined_secret_version` where the backend answers it |
+| `team.move` | `team move`, `team moved` | the team's owner records where the team went and its move ticket; every active member reads the record (4.4.10) |
 | `message.receive` | `message receive` | required in v1 and still advertised (C-18) |
 | `message.watch.push` | — | events arrive without polling: the `ready` event's `mode` is `push` and the harness expects a message within 5 s; an adapter that omits it MUST send `mode: polling` (C-33) and the harness expects two poll intervals of latency (C-35) |
 | `message.watch.stdin_commands` | NDJSON commands on `message watch` stdin (4.4.9) | without it the adapter ignores stdin's content and exits on its EOF |
@@ -1021,6 +1077,8 @@ once.
 | C-48 | 4.4.10 team rotate-secret (cap `team.admin`) | 4.2 `team rotate-secret`; 4.4.10 `team rotate-secret` |
 | C-49 | 4.4.10 team revoke-member (cap `team.admin`) | 4.2 `team revoke-member`; 4.4.10 `team revoke-member` |
 | C-50 | 4.4.10 team transfer (cap `team.admin`) | 4.2 `team transfer`; 4.4.10 `team transfer` |
+| C-51 | 4.4.10 team move (cap `team.move`) | 4.2 `team move`; 4.4.10 `team move`, `team move --clear` |
+| C-52 | 4.4.10 team moved (cap `team.move`) | 4.2 `team moved`; 4.4.10 `team moved` |
 
 ## Appendix B. Normative statements without a conformance case when the suite was specified (input to P1-6)
 

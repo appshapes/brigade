@@ -32,7 +32,8 @@ Makefile's `##` comment, never this page. A trailing ` (CI)` marks a target a wo
 | `conformance` | Run the conformance suite against an adapter (usage: make conformance adapter=<executable> [args="-- fixed args"]) |
 | `server-build` | Build server/target/release/brigade-server, the Brigade server (Rust; needs cargo, outside the acceptance gate) |
 | `server-check` | rustfmt and clippy on server/ with warnings denied, with and without the Cavalry feed (CI) |
-| `server-test` | The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), a team created, joined and used on the server over TLS, and a team moved there with its join secret (CI) |
+| `server-test` | The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), a team created, joined and used on the server over TLS, a team moved there with its join secret, and its members following it there with no command (CI) |
+| `test-move-live` | A team's members following it from the local Supabase stack to the built server, with no command of theirs (needs `make supabase-start supabase-env` and cargo) |
 | `server-tag` | Tag master's head as the server release server/VERSION names and push the tag; the server-release workflow then publishes the binaries and the image |
 | `server-deps-check` | Fail unless the server links only the crates, licences and sources server/deny.toml allows, with no known advisory (needs cargo-deny) (CI) |
 | `e2e` | Phase 4 no-LLM proof in watcher sink mode against the local stack (CI) |

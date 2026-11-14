@@ -14,6 +14,7 @@ again every ten minutes. What a team loses until you migrate is only what the mi
 | `20260920180000_session_brigade_version` | the VERSION column, which is how a team sees who is behind a release | the column is absent for the team; afterwards a blank cell means a plugin older than 0.10.0 |
 | `20260923022323_session_sync_peer` | each session's Syncthing device id, which folder sync needs to introduce machines | no checkout is introduced to another, so listed folders sync nowhere; a team that lists none loses nothing |
 | `20261003160000_mail_gateway` and later | the gateway tables and settings; applied by the gateway installers | no gateway |
+| `20261114120000_team_move` | the record of where a team went, which lets a team's members follow it to a Brigade server with no command of theirs ([Move the team to a server](../../team-admin/members/move-the-team.md)) | `brigade team move` refuses to record and names this migration; no session follows, and each member joins the server with the secret file as before |
 
 `make backend-install project=<ref>` applies whatever is pending, and `npx --yes supabase@2.116.0 migration list
 --project-ref <ref>` tells you where each project stands. Nobody has to be told to do anything in particular.

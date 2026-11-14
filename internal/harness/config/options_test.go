@@ -3,6 +3,8 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +23,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOptions: %v", err)
 	}
-	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, ClaudeInboundSetting: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true, MessageInterval: notify.DefaultInterval, Status: true}
+	want := config.Options{ConfigDir: d.brigadeConfig(), TeamInbound: config.InboundAccept, ShareWorkspaceLabel: true, ShareDoing: true, ClaudeInboundSetting: true, Frame: frame.DefaultLevel, Label: config.LabelAccount, Sync: true, MessageInterval: notify.DefaultInterval, Status: true, FollowTeamMove: true}
 	if got != want {
 		t.Fatalf("defaults =\n %+v\nwant\n %+v", got, want)
 	}
@@ -56,6 +58,8 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		config.OptionMessageInterval+"=120",
 		// `off` rather than `on`: the default is on (card 162).
 		config.OptionStatus+"=off",
+		// `off` rather than `on`: the default is on (work item 273).
+		config.OptionFollowTeamMove+"=off",
 	)
 	got, err := config.ParseOptions(env)
 	if err != nil {
@@ -79,6 +83,7 @@ func TestParseOptionsEveryOptionSet(t *testing.T) {
 		MessageNotification:  true,
 		MessageInterval:      2 * time.Minute,
 		Status:               false,
+		FollowTeamMove:       false,
 	}
 	if got != want {
 		t.Fatalf("options =\n %+v\nwant\n %+v", got, want)
@@ -114,6 +119,54 @@ func TestParseStatus(t *testing.T) {
 	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionStatus+"=sometimes"))
 	if err != nil || got.Status || got.StatusWarning != config.WarnStatusInvalid {
 		t.Fatalf("ParseOptions with status=sometimes: %+v, %v", got, err)
+	}
+}
+
+// TestParseFollowTeamMove: the option that lets a session follow a team
+// that moved is on unless it says off, and a value that is neither word
+// never follows and is said, without the value (work item 273, ADR 0003).
+// A terminal's BRIGADE_* has no say in it, and the options file of a host
+// that has one sets it as it sets the others.
+func TestParseFollowTeamMove(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		raw  string
+		on   bool
+		warn string
+	}{
+		{"", true, ""}, {"on", true, ""}, {"  on\t", true, ""}, {"off", false, ""}, {" off ", false, ""},
+		{"ON", false, config.WarnFollowTeamMoveInvalid}, {"true", false, config.WarnFollowTeamMoveInvalid},
+		{"EVIL-value", false, config.WarnFollowTeamMoveInvalid},
+	} {
+		on, warn := config.ParseFollowTeamMove(tc.raw)
+		if on != tc.on || warn != tc.warn {
+			t.Errorf("ParseFollowTeamMove(%q) = %v, %q; want %v, %q", tc.raw, on, warn, tc.on, tc.warn)
+		}
+		if strings.Contains(warn, "EVIL") {
+			t.Errorf("the warning echoes the value: %q", warn)
+		}
+	}
+	d := newDirs(t)
+	got, err := config.ParseOptions(d.environ("CLAUDE_PID=4242"))
+	if err != nil || !got.FollowTeamMove || got.FollowTeamMoveWarning != "" {
+		t.Fatalf("ParseOptions with the option unset: %+v, %v", got, err)
+	}
+	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionFollowTeamMove+"=off", "BRIGADE_FOLLOW_TEAM_MOVE=on"))
+	if err != nil || got.FollowTeamMove || got.FollowTeamMoveWarning != "" {
+		t.Fatalf("ParseOptions with follow_team_move=off: %+v, %v", got, err)
+	}
+	got, err = config.ParseOptions(d.environ("CLAUDE_PID=4242", config.OptionFollowTeamMove+"=sometimes"))
+	if err != nil || got.FollowTeamMove || got.FollowTeamMoveWarning != config.WarnFollowTeamMoveInvalid {
+		t.Fatalf("ParseOptions with follow_team_move=sometimes: %+v, %v", got, err)
+	}
+	file := filepath.Join(t.TempDir(), "options.json")
+	if err := os.WriteFile(file, []byte(`{"follow_team_move":"off"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environ, warn := config.OptionsEnviron(d.environ("MUSE_SESSION_ID=m1"), file, os.ReadFile)
+	got, err = config.ParseOptions(environ)
+	if err != nil || warn != "" || got.FollowTeamMove {
+		t.Fatalf("an options file with follow_team_move off: %+v, %q, %v", got, warn, err)
 	}
 }
 

@@ -91,6 +91,8 @@ func rootTypes() []any {
 		protocol.TeamRevokeByVersionResult{}, // 4.4.10, team.admin
 		protocol.TeamTransferRequest{},       // 4.4.10, team.admin
 		protocol.TeamTransferResult{},        // 4.4.10, team.admin
+		protocol.TeamMoveRequest{},           // 4.4.10, team.move
+		protocol.TeamMoveResult{},            // 4.4.10, team.move
 	}
 }
 
@@ -244,6 +246,12 @@ func patchDefinitions(defs jsonschema.Definitions) error {
 		{"TeamJoinRequest", "human_label", protocol.MaxHumanLabelChars},
 		{"TeamJoinResult", "team_name", protocol.MaxTeamNameCodepoints},
 		{"TeamRotateSecretResult", "team_name", protocol.MaxTeamNameCodepoints},
+		{"TeamMoveRequest", "adapter", protocol.MaxMoveAdapterChars},
+		{"TeamMoveRequest", "url", protocol.MaxMoveURLChars},
+		{"TeamMoveRequest", "certificate", protocol.MaxMoveCertificateChars},
+		{"TeamMoveResult", "adapter", protocol.MaxMoveAdapterChars},
+		{"TeamMoveResult", "url", protocol.MaxMoveURLChars},
+		{"TeamMoveResult", "certificate", protocol.MaxMoveCertificateChars},
 		{"ProfileInfo", "team_name", protocol.MaxTeamNameCodepoints},
 		{"ProfileInfo", "human_label", protocol.MaxHumanLabelChars},
 	} {

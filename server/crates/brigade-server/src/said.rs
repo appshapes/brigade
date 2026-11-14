@@ -30,7 +30,9 @@ fn team(state: &State, team_ref: &str) -> String {
 }
 
 /// The lines for the records of one request, read against the state those records were applied to: a team
-/// that a member created, a member who joined, and a team's new owner. Every other record has none.
+/// that a member created, a member who joined, with the team's move ticket when that is what let it in, a
+/// team's new owner, and a move that a rotation of the team's join secret closed. Every other record has
+/// none.
 #[must_use]
 pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
     entry
@@ -47,6 +49,7 @@ pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
             Event::MemberJoined {
                 team_ref,
                 principal_ref,
+                by_move_ticket,
                 ..
             } => {
                 // The label is the roster's: a member who joins again with none keeps the one it had.
@@ -60,8 +63,15 @@ pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
                 } else {
                     format!("labelled \"{}\"", plain(label))
                 };
+                // A member that followed its team here from another backend came in with the move ticket,
+                // which the line says and never shows.
+                let with = if *by_move_ticket {
+                    " with its move ticket"
+                } else {
+                    ""
+                };
                 Some(format!(
-                    "member {} joined {}, {labelled}",
+                    "member {} joined {}{with}, {labelled}",
                     plain(principal_ref),
                     team(state, team_ref)
                 ))
@@ -72,6 +82,12 @@ pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
             } if !principal_ref.is_empty() => Some(format!(
                 "member {} owns {} from now on",
                 plain(principal_ref),
+                team(state, team_ref)
+            )),
+            // In a member's own request only a rotation closes a move: the operator's command that closes
+            // one prints its own line.
+            Event::TeamMoveClosed { team_ref } => Some(format!(
+                "the move of {} is closed by the rotation of its join secret: its ticket admits nobody from now on",
                 team(state, team_ref)
             )),
             _ => None,
@@ -126,6 +142,7 @@ mod tests {
             created_by: "p-alice".to_owned(),
             created_at: Timestamp(1),
             secret_version: 1,
+            move_ticket: None,
             members: Default::default(),
             sessions: Default::default(),
         };
@@ -155,6 +172,16 @@ mod tests {
             team_ref: "t-1".to_owned(),
             principal_ref: principal.to_owned(),
             human_label: label.to_owned(),
+            by_move_ticket: false,
+        }
+    }
+
+    fn followed(principal: &str) -> Event {
+        Event::MemberJoined {
+            team_ref: "t-1".to_owned(),
+            principal_ref: principal.to_owned(),
+            human_label: String::new(),
+            by_move_ticket: true,
         }
     }
 
@@ -202,6 +229,44 @@ mod tests {
         assert_eq!(
             of_entry(&state(), &entry(vec![joined("p-bob", "")])),
             ["member p-bob joined team ops (t-1), with no label"]
+        );
+    }
+
+    #[test]
+    fn a_join_with_the_move_ticket_says_so_and_a_move_a_rotation_closed_has_a_line() {
+        assert_eq!(
+            of_entry(&state(), &entry(vec![followed("p-alice"), followed("p-bob")])),
+            [
+                "member p-alice joined team ops (t-1) with its move ticket, labelled \"alice@example.com\"",
+                "member p-bob joined team ops (t-1) with its move ticket, with no label",
+            ]
+        );
+        // The move's own records: one that was opened has no line here, because only the operator opens
+        // one and the command prints its own; one that a rotation closed has, and it holds no hash.
+        let lines = of_entry(
+            &state(),
+            &entry(vec![
+                Event::TeamMoveOpened {
+                    team_ref: "t-1".to_owned(),
+                    ticket_hash: "hash-of-the-ticket".to_owned(),
+                    ends_at: Timestamp(9),
+                },
+                Event::TeamSecretRotated {
+                    team_ref: "t-1".to_owned(),
+                    join_secret_hash: "hash-of-the-secret".to_owned(),
+                    secret_version: 2,
+                },
+                Event::TeamMoveClosed {
+                    team_ref: "t-1".to_owned(),
+                },
+            ]),
+        );
+        assert_eq!(
+            lines,
+            [
+                "the move of team ops (t-1) is closed by the rotation of its join secret: its ticket admits \
+              nobody from now on"
+            ]
         );
     }
 

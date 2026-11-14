@@ -62,6 +62,8 @@ import (
 	"github.com/appshapes/brigade/internal/harness/registry"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teammove"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/watch"
 	"github.com/appshapes/brigade/internal/procutil"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -445,6 +447,11 @@ type run struct {
 	// optionsEnv is the environment ParseOptions reads: environ itself on
 	// Claude Code; on a host with an options file (Muse Code, Codex CLI)
 	// environ plus the entries the file supplies (config.OptionsEnviron),
+	// starting is true for the run of a SessionStart hook and false for
+	// every other: a session follows a team that moved only when it starts
+	// (work item 273, ADR 0003), never from the prompt hook's registration
+	// retry, whose few seconds are not a follow's to spend.
+	starting bool
 	// resolved once per run by options(). optionsWarning is the file's one
 	// warning, printed once at SessionStart.
 	optionsEnv     []string
@@ -891,6 +898,46 @@ func notJoinedLine(teamName, command string) string {
 // change needs the secret file (owner ruling 3): the join backstop, not
 // the refusal, is what a re-pointed file runs into.
 const driftLine = "Brigade: not connected: .brigade.json does not match the team you joined here — run `brigade team join` to review the change (a cross-team change needs --secret-file)."
+
+// followedLine is the one line of a session that followed its team to
+// another backend (work item 273, ADR 0003), said in place of the member's
+// own confirmation: the team, the backend it is on now and the certificate
+// the session trusts there, that the team's administrator recorded the
+// move on the backend the member joined, how this machine got in, how to
+// leave and how to turn the follow off. Every value from the team file is
+// one the old backend's record named too, so it is no longer unconsented
+// input; it is sanitised all the same. The label the machine joined under
+// is not in the line: it is often an address.
+func followedLine(tf *teamfile.File, pin *teamstore.Pin, joined bool, command string) string {
+	where := attr(teammove.Host(tf.URL))
+	if tf.Certificate != "" {
+		where += ", trusting the server certificate " + certLine(tf.Certificate)
+	}
+	how := "this machine joined it there with the move's ticket, under the label you had"
+	if !joined {
+		how = "this machine had joined it there already"
+	}
+	return "Brigade: this checkout followed team \"" + attr(tf.TeamName) + "\" to " + where +
+		": the team's administrator recorded that move on " + attr(teammove.Host(pin.URL)) +
+		", the backend you joined it on, and " + how + ". To leave the team run `" + command +
+		" team leave`; to stay put until you join a moved team yourself, set the option follow_team_move to off."
+}
+
+// certLine renders a certificate pin whole: its characters are `sha256:`
+// and hex, and it is longer than the cap attr puts on a value. Anything
+// else, which only a hand-edited file can hold, goes through attr.
+func certLine(pin string) string {
+	if adapterkit.ValidCertificatePin(pin) {
+		return pin
+	}
+	return attr(pin)
+}
+
+// movedLine is what a session that is already attached is told, once, when
+// its project's team file comes to name another backend for its team (work
+// item 273): it stays where it is, and what a new session does. It echoes
+// nothing from the file, which nobody has consented to yet.
+const movedLine = "Brigade: this project's .brigade.json now names another backend for this session's team. This session stays where it is until it ends: start a new session, or exit and resume this one, and it follows the team if the team's administrator recorded the move, or tells you how to join."
 
 // teamFileLine renders a team-file refusal: one fixed line per token of
 // the parser's closed list, with the two secret findings taking their

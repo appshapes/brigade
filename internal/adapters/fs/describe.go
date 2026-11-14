@@ -26,6 +26,7 @@ func capabilities() []string {
 		"team.create",
 		"team.join",
 		"team.roster",
+		"team.move",
 		"message.receive",
 		"message.watch.stdin_commands",
 		"session.description",

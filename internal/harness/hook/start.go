@@ -30,6 +30,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/polling"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 )
@@ -56,6 +57,7 @@ func (r *run) sessionStart() int {
 	}
 	ctx, cancel := r.hookContext(startBudget)
 	defer cancel()
+	r.starting = true
 	r.connect(ctx, f, in, r.deps.PidfileWait)
 	return 0
 }
@@ -164,7 +166,7 @@ func (r *run) connect(ctx context.Context, f facts, in input, pidfileWait time.D
 	if f.host == config.HostGrok && !r.claimGrok(f, in) {
 		return
 	}
-	res, ok := r.resolve(f, in)
+	res, ok := r.resolve(ctx, f, in)
 	if !ok {
 		return
 	}
@@ -446,10 +448,12 @@ func respawnReason(e pidfile.Entry, f facts) string {
 // (3) the binding must exist and match the file field-by-field (the key
 // is never trusted alone); (4) only then is the adapter resolved — by
 // the file's NAME, strictly user-side — and the frozen chain runs with
-// the team key as the profile. The hook can not join: no code path here
-// transmits a secret or writes the store, and the refusal lines echo
+// the team key as the profile. The hook can not join on a team file's
+// word: the one path that transmits a secret or writes the store is
+// followMove, which acts only on the record of the backend the member
+// consented to (work item 273, ADR 0003), and the refusal lines echo
 // nothing from a mismatched file.
-func (r *run) resolve(f facts, in input) (resolved, bool) {
+func (r *run) resolve(ctx context.Context, f facts, in input) (resolved, bool) {
 	opts, err := r.options()
 	if err != nil {
 		r.fail("session-start: options", err, optionsLine(err))
@@ -460,7 +464,7 @@ func (r *run) resolve(f facts, in input) (resolved, bool) {
 	// use. Best effort — a session that cannot write its state directory
 	// fails at the map write below with its own line.
 	r.writeStartFacts(f, in, opts)
-	tf, key, ok := r.resolveTeam(f, opts, in)
+	tf, key, ok := r.resolveTeam(ctx, f, opts, in)
 	if !ok {
 		return resolved{}, false
 	}
@@ -975,8 +979,11 @@ func pathValue(environ []string) string {
 
 // resolveTeam runs steps 1-3: discovery, the pin gate, the binding gate.
 // A false return means the session does not attach; whether a line was
-// printed depends on which gate said no (no file at all says nothing).
-func (r *run) resolveTeam(f facts, opts config.Options, in input) (*teamfile.File, string, bool) {
+// printed depends on which gate said no (no file at all says nothing). A
+// pin that does not match the file is the drift line, with one exception:
+// a team that moved to another backend on its administrator's record is
+// followed there (followMove), and the gates go on against the new pin.
+func (r *run) resolveTeam(ctx context.Context, f facts, opts config.Options, in input) (*teamfile.File, string, bool) {
 	path, found := teamfile.Discover(in.Cwd)
 	if !found {
 		r.log.Debug("no team file discovered; Brigade stays off")
@@ -1002,10 +1009,11 @@ func (r *run) resolveTeam(f facts, opts config.Options, in input) (*teamfile.Fil
 		r.say(notJoinedLine(tf.TeamName, r.commandName(f)))
 		return nil, "", false
 	}
-	if !pin.Matches(tf) {
+	if !pin.Matches(tf) && !r.followMove(ctx, f, opts, tf, canon, pin) {
 		// The drift line deliberately echoes NOTHING from the file: the
 		// file in front of us is unconsented input until a human reviews
-		// the change in a terminal.
+		// the change in a terminal, or until the backend the member joined
+		// says the team went where the file says (followMove).
 		r.say(driftLine)
 		return nil, "", false
 	}
@@ -1021,6 +1029,60 @@ func (r *run) resolveTeam(f facts, opts config.Options, in input) (*teamfile.Fil
 		return nil, "", false
 	}
 	return tf, key, true
+}
+
+// followMove follows the team to the backend the team file names, when
+// the backend this checkout's pin names holds the administrator's record
+// of exactly that move (work item 273, ADR 0003; internal/harness/teammove,
+// which is where the comparison and the store's one hook-reached writer
+// live). It reports whether the pin now matches the file, and says the one
+// line of a follow before any other. Nothing is asked of any backend
+// unless this is a session's start, the file names the SAME team at
+// another backend, the option follow_team_move is on, and the session
+// names no adapter command of its own: a session that does has one adapter
+// for everything, and a follow asks two. The prompt hook's registration
+// retry, which runs the same resolution in a few seconds, never follows:
+// a session that started before the move was recorded follows when it is
+// started again. Every other outcome is silence here and the drift line in the
+// caller, with the reason in the log and never in a line: the file is
+// unconsented input, and why it was not followed is the member's to read
+// in their own terminal.
+func (r *run) followMove(ctx context.Context, f facts, opts config.Options, tf *teamfile.File, canon string, pin *teamstore.Pin) bool {
+	if !teammove.Candidate(pin, tf) {
+		return false
+	}
+	if opts.FollowTeamMoveWarning != "" {
+		r.say(opts.FollowTeamMoveWarning)
+	}
+	if !r.starting || !opts.FollowTeamMove || opts.AdapterCommand != "" {
+		r.log.Info("the team file names another backend for this team; this run does not follow a move",
+			slog.Bool("session_start", r.starting), slog.Bool("follow_team_move", opts.FollowTeamMove), slog.Bool("adapter_command", opts.AdapterCommand != ""))
+		return false
+	}
+	out, err := teammove.Follow(ctx, teammove.Inputs{
+		ConfigDir: opts.ConfigDir, Checkout: canon, File: tf, Pin: pin,
+		Client: func(name, profile string) (teammove.Caller, error) {
+			// By the adapter's NAME, strictly user-side, as a terminal join
+			// resolves one: adapters.json, or a bundled adapter.
+			adapter, aerr := config.ResolveAdapter(config.Options{}, opts.ConfigDir, name)
+			if aerr != nil {
+				return nil, aerr
+			}
+			return r.client(adapter, profile, opts.ConfigDir, f.stateDir), nil
+		},
+		Now: r.deps.Now, Log: r.log,
+	})
+	if !out.Followed {
+		attrs := []any{slog.String("reason", out.Reason)}
+		if err != nil {
+			attrs = append(attrs, log.Err(err))
+		}
+		r.log.Info("the team file names another backend for this team, and the move was not followed", attrs...)
+		return false
+	}
+	r.log.Info("followed the team's recorded move", slog.Bool("joined", out.Joined))
+	r.say(followedLine(tf, pin, out.Joined, r.commandName(f)))
+	return true
 }
 
 // frameInstruction resolves the frame's instruction paragraph (P5-12): the
@@ -1374,6 +1436,12 @@ func (r *run) finish(ctx context.Context, f facts, in input, res resolved, m *se
 	}
 	if res.opts.MessageIntervalWarning != "" {
 		warnings = append(warnings, res.opts.MessageIntervalWarning)
+	}
+	// Said at every start, as each option's is, and not only on the day a
+	// team moves: a member who misspelt the option should learn it before
+	// the day it matters (work item 273).
+	if res.opts.FollowTeamMoveWarning != "" {
+		warnings = append(warnings, res.opts.FollowTeamMoveWarning)
 	}
 	for _, w := range warnings {
 		r.say(w)

@@ -7,8 +7,8 @@ use brigade_core::error::Code;
 use brigade_core::hash::sha256_hex;
 use brigade_core::record::Event;
 use brigade_core::{
-    Entropy, Entry, Error, Record, Request, State, Timestamp, answer, envelope_error, import_team, set_owner,
-    take_back,
+    Entropy, Entry, Error, Record, Request, State, Timestamp, answer, close_move, envelope_error,
+    import_team, open_move, set_owner, take_back,
 };
 use serde_json::{Value, json};
 
@@ -123,6 +123,20 @@ impl Rig {
     /// Takes a team back, as the operator's command does: no request and no credential.
     fn take_back(&mut self, team_ref: &str) -> Result<Value, Error> {
         let outcome = take_back(&mut self.state, team_ref, self.now, &mut self.entropy)?;
+        self.log.extend(outcome.entry);
+        Ok(outcome.result)
+    }
+
+    /// Opens a team's move for `days` days, as the operator's command does: no request and no credential.
+    fn open_move(&mut self, team_ref: &str, days: u32) -> Result<Value, Error> {
+        let outcome = open_move(&mut self.state, team_ref, days, self.now, &mut self.entropy)?;
+        self.log.extend(outcome.entry);
+        Ok(outcome.result)
+    }
+
+    /// Closes a team's move, as the operator's command does: no request and no credential.
+    fn close_move(&mut self, team_ref: &str) -> Result<Value, Error> {
+        let outcome = close_move(&mut self.state, team_ref, self.now)?;
         self.log.extend(outcome.entry);
         Ok(outcome.result)
     }
@@ -2409,4 +2423,396 @@ fn a_membership_that_ends_does_not_bring_back_a_session_retention_let_go_of() {
         }
         assert_eq!(replayed, rig.state);
     }
+}
+
+/// A day, in seconds.
+const DAY: i64 = 86_400;
+
+/// What a join with `secret` is refused with, by a caller with no credential.
+fn join_refused(rig: &mut Rig, secret: &str) -> String {
+    let refused = rig
+        .call(None, "/v1/team/join", json!({"join_secret": secret}))
+        .expect_err("the join was let in");
+    wire(&refused)
+}
+
+/// The names of the members of a JSON object, in the order of the alphabet.
+fn members_of(value: &Value) -> Vec<&str> {
+    value.as_object().unwrap().keys().map(String::as_str).collect()
+}
+
+#[test]
+fn a_move_ticket_lets_a_member_in_until_it_ends_and_never_makes_an_owner() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    rig.import("ops", &secret).unwrap();
+    let rejected = wire(&Error::secret_rejected());
+
+    // A team the server does not hold, and a number of days no ticket is given, are refused, and nothing
+    // is made.
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let nowhere = rig.open_move("no-such-team", 30).unwrap_err();
+    assert_eq!(wire(&nowhere), wire(&Error::no_such_team()));
+    for days in [0, 366, u32::MAX] {
+        let refused = rig.open_move(ELSEWHERE, days).unwrap_err();
+        assert_eq!(
+            (refused.code, refused.details["field"].as_str(), reason(&refused)),
+            (Code::InvalidInput, "ticket_days", "out_of_range"),
+            "{days}"
+        );
+    }
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+
+    // The move is opened: the ticket is a second join secret of the same team, minted as one is, and it
+    // ends a whole number of days later. The answer is the one place it is: the log and the state hold
+    // its hash.
+    let opened = rig.open_move(ELSEWHERE, 30).unwrap();
+    let ticket = text(&opened, "ticket");
+    let ends_at = rig.now.plus_seconds(30 * DAY);
+    assert_eq!(
+        opened,
+        json!({
+            "team_ref": ELSEWHERE, "team_name": "ops", "ticket": ticket, "ends_at": ends_at.rfc3339(),
+            "replaced": false,
+        })
+    );
+    let random = ticket
+        .strip_prefix(&format!("brg1.{ELSEWHERE}."))
+        .expect("a ticket for the same team_ref");
+    assert_eq!(random.len(), 32);
+    assert!(random.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    assert!(ticket != secret);
+    let recorded = Event::TeamMoveOpened {
+        team_ref: ELSEWHERE.into(),
+        ticket_hash: sha256_hex(&ticket),
+        ends_at,
+    };
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(rig.log[entries].records, [Record::new(rig.now, recorded)]);
+    let stored = serde_json::to_string(&rig.state).unwrap();
+    let logged = String::from_utf8(rig.log.iter().flat_map(Entry::encode).collect()).unwrap();
+    assert!(!stored.contains(random) && !logged.contains(random));
+
+    // A member comes in with the ticket over HTTP, on a team that has no owner. It is a member like any
+    // other, joined under the secret the team has, and it does not own the team: the entry is a
+    // credential and a membership that says how it came in, and no owner.
+    rig.advance(5);
+    let bob = rig.join(&ticket, "bob");
+    assert_eq!(bob.team_ref, ELSEWHERE);
+    assert_eq!(rig.state.teams[ELSEWHERE].owner(), None);
+    let entry = rig.log.last().unwrap();
+    assert_eq!(
+        entry.records.len(),
+        2,
+        "a credential and a membership, and no owner"
+    );
+    let followed = Event::MemberJoined {
+        team_ref: ELSEWHERE.into(),
+        principal_ref: bob.principal_ref.clone(),
+        human_label: "bob".into(),
+        by_move_ticket: true,
+    };
+    assert_eq!(entry.records[1], Record::new(rig.now, followed));
+    assert_eq!(active(&mut rig, &bob), [bob.principal_ref.as_str()]);
+    assert_eq!(joined_version(&mut rig, &bob, &bob.principal_ref), json!(1));
+    let uniform = wire(&Error::not_member());
+    for (path, body) in administration(ELSEWHERE, &bob.principal_ref) {
+        assert_eq!(wire(&rig.err(&bob, path, body)), uniform, "{path}");
+    }
+    // Joining again with the ticket is the same member, and still no owner.
+    let again = rig.ok(&bob, "/v1/team/join", json!({"join_secret": ticket}));
+    assert_eq!(again["rejoined"], json!(true));
+    assert_eq!(
+        members_of(&again),
+        ["principal_ref", "rejoined", "team_name", "team_ref"]
+    );
+    assert_eq!(rig.state.teams[ELSEWHERE].owner(), None);
+
+    // The join secret admits as it always did, and makes the first member that joins with it the owner,
+    // in the entry that makes it a member.
+    rig.advance(5);
+    let alice = rig.join(&secret, "alice");
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(alice.principal_ref.as_str())
+    );
+    let entry = rig.log.last().unwrap();
+    assert_eq!(entry.records.len(), 3);
+    let joined = Event::MemberJoined {
+        team_ref: ELSEWHERE.into(),
+        principal_ref: alice.principal_ref.clone(),
+        human_label: "alice".into(),
+        by_move_ticket: false,
+    };
+    assert_eq!(entry.records[1], Record::new(rig.now, joined));
+    assert!(matches!(entry.records[2].event, Event::TeamOwnerChanged { .. }));
+    // The member the ticket let in joins again with the secret, which it may hold as well: it is the
+    // member it was, and the team keeps the owner it has.
+    let with_secret = rig.ok(&bob, "/v1/team/join", json!({"join_secret": secret}));
+    assert_eq!(with_secret["rejoined"], json!(true));
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(alice.principal_ref.as_str())
+    );
+
+    // A ticket is one team's. The ticket of another team's move joins that team, and its random half
+    // under this team's reference is a wrong secret.
+    let (creator, _) = rig.create("creator");
+    let other = text(&rig.open_move(&creator.team_ref, 30).unwrap(), "ticket");
+    assert_eq!(rig.join(&other, "dave").team_ref, creator.team_ref);
+    let other_random = other.rsplit('.').next().unwrap();
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    assert_eq!(
+        join_refused(&mut rig, &secret_of(ELSEWHERE, other_random)),
+        rejected
+    );
+    // So is this team's ticket under the other team's reference, and a ticket nobody made.
+    assert_eq!(
+        join_refused(&mut rig, &secret_of(&creator.team_ref, random)),
+        rejected
+    );
+    assert_eq!(
+        join_refused(&mut rig, &secret_of(ELSEWHERE, "never-a-ticket-of-any-move")),
+        rejected
+    );
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+
+    // A member the owner banned is told what a wrong secret is told, with the ticket as with the secret;
+    // a member that was only revoked comes back with the ticket.
+    let carol = rig.join(&ticket, "carol");
+    revoke(&mut rig, &alice, &bob.principal_ref, Some(true)).unwrap();
+    revoke(&mut rig, &alice, &carol.principal_ref, None).unwrap();
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    for held in [&ticket, &secret] {
+        assert_eq!(
+            wire(&rig.err(&bob, "/v1/team/join", json!({"join_secret": held}))),
+            rejected
+        );
+    }
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+    let back = rig.ok(&carol, "/v1/team/join", json!({"join_secret": ticket}));
+    assert_eq!(back["rejoined"], json!(true));
+
+    // The ticket admits until its end and not at it. One second before, a member comes in; at the end
+    // and after it the ticket is a wrong secret, with the answer one has and nothing made.
+    rig.now = ends_at.minus_seconds(1);
+    rig.join(&ticket, "erin");
+    for later in [1, 1, 30 * DAY] {
+        rig.advance(later);
+        let (before, entries) = (rig.state.clone(), rig.log.len());
+        assert_eq!(join_refused(&mut rig, &ticket), rejected, "{later}");
+        assert_eq!(
+            wire(&rig.err(&carol, "/v1/team/join", json!({"join_secret": ticket}))),
+            rejected
+        );
+        assert_eq!(rig.state, before);
+        assert_eq!(rig.log.len(), entries);
+    }
+    // Every member the ticket let in is still one, and the join secret still admits.
+    assert!(rig.state.teams[ELSEWHERE].active(&carol.principal_ref));
+    rig.join(&secret, "frank");
+
+    // A restart: every entry, read back from its bytes, makes the same state, the move in it.
+    let mut replayed = State::default();
+    for entry in &rig.log {
+        replayed.replay(&Entry::decode(&entry.encode()).unwrap()).unwrap();
+    }
+    assert_eq!(replayed, rig.state);
+    assert_eq!(
+        replayed.teams[ELSEWHERE]
+            .move_ticket
+            .as_ref()
+            .map(|ticket| ticket.ends_at),
+        Some(ends_at)
+    );
+}
+
+#[test]
+fn a_move_is_replaced_by_another_and_closed_by_the_operator_a_rotation_and_a_take_back() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    rig.import("ops", &secret).unwrap();
+    let alice = rig.join(&secret, "alice");
+    let rejected = wire(&Error::secret_rejected());
+
+    // A team that is not moving has nothing to close: nothing changes and no entry is made. A team the
+    // server does not hold is refused.
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    assert_eq!(
+        rig.close_move(ELSEWHERE).unwrap(),
+        json!({"team_ref": ELSEWHERE, "team_name": "ops", "closed": false})
+    );
+    let nowhere = rig.close_move("no-such-team").unwrap_err();
+    assert_eq!(wire(&nowhere), wire(&Error::no_such_team()));
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+
+    // A second move takes the place of the first: the first ticket admits nobody from then on, although
+    // it has not ended, and the answer says a ticket was replaced.
+    let first = text(&rig.open_move(ELSEWHERE, 30).unwrap(), "ticket");
+    let bob = rig.join(&first, "bob");
+    rig.advance(5);
+    // The clock is between two seconds, as a server's is: the ticket ends on the whole second before, so
+    // the time the operator is told is the time the record holds.
+    let whole = rig.now;
+    rig.now = Timestamp(whole.0 + SECOND / 2);
+    let opened = rig.open_move(ELSEWHERE, 7).unwrap();
+    let second = text(&opened, "ticket");
+    let ends_at = whole.plus_seconds(7 * DAY);
+    assert_eq!(
+        (&opened["replaced"], text(&opened, "ends_at")),
+        (&json!(true), ends_at.rfc3339())
+    );
+    assert!(matches!(
+        &rig.log.last().unwrap().records[..],
+        [Record { event: Event::TeamMoveOpened { ends_at: recorded, .. }, .. }] if *recorded == ends_at
+    ));
+    assert!(second != first);
+    assert_eq!(join_refused(&mut rig, &first), rejected);
+    rig.join(&second, "carol");
+    // A move whose ticket has ended is replaced as well, and the answer says so.
+    rig.advance(8 * DAY);
+    assert_eq!(join_refused(&mut rig, &second), rejected);
+    let opened = rig.open_move(ELSEWHERE, 1).unwrap();
+    let third = text(&opened, "ticket");
+    assert_eq!(opened["replaced"], json!(true));
+    rig.join(&third, "dave");
+
+    // The operator closes the move, in one record: its ticket admits nobody, and every member that came
+    // in with any of the tickets is still one. Closing it again changes nothing.
+    rig.advance(5);
+    let entries = rig.log.len();
+    assert_eq!(
+        rig.close_move(ELSEWHERE).unwrap(),
+        json!({"team_ref": ELSEWHERE, "team_name": "ops", "closed": true})
+    );
+    let closed = Event::TeamMoveClosed {
+        team_ref: ELSEWHERE.into(),
+    };
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(rig.log[entries].records, [Record::new(rig.now, closed.clone())]);
+    assert_eq!(rig.state.teams[ELSEWHERE].move_ticket, None);
+    for ticket in [&first, &second, &third] {
+        assert_eq!(join_refused(&mut rig, ticket), rejected);
+    }
+    assert_eq!(active(&mut rig, &alice).len(), 4);
+    assert!(rig.state.teams[ELSEWHERE].active(&bob.principal_ref));
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    assert_eq!(rig.close_move(ELSEWHERE).unwrap()["closed"], json!(false));
+    assert_eq!(rig.state, before);
+    assert_eq!(rig.log.len(), entries);
+    // A move whose ticket has ended is still there to close.
+    rig.open_move(ELSEWHERE, 1).unwrap();
+    rig.advance(2 * DAY);
+    assert_eq!(rig.close_move(ELSEWHERE).unwrap()["closed"], json!(true));
+
+    // A rotation ends everything that let anyone in before it, the move with it, in the rotation's own
+    // entry. Its answer is the one it always was.
+    let ticket = text(&rig.open_move(ELSEWHERE, 30).unwrap(), "ticket");
+    rig.advance(5);
+    let entries = rig.log.len();
+    let rotated = rotate(&mut rig, &alice);
+    assert_eq!(
+        members_of(&rotated),
+        [
+            "join_secret",
+            "rotated_at",
+            "secret_version",
+            "team_name",
+            "team_ref"
+        ]
+    );
+    let new_secret = text(&rotated, "join_secret");
+    let records = [
+        Event::TeamSecretRotated {
+            team_ref: ELSEWHERE.into(),
+            join_secret_hash: sha256_hex(&new_secret),
+            secret_version: 2,
+        },
+        closed.clone(),
+    ];
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(
+        rig.log[entries].records,
+        records.map(|event| Record::new(rig.now, event))
+    );
+    assert_eq!(rig.state.teams[ELSEWHERE].move_ticket, None);
+    assert_eq!(join_refused(&mut rig, &ticket), rejected);
+    assert_eq!(join_refused(&mut rig, &secret), rejected);
+    rig.join(&new_secret, "erin");
+    // A rotation of a team that is not moving is the one record it always was.
+    let entries = rig.log.len();
+    let rotated = rotate(&mut rig, &alice);
+    assert_eq!(rig.log[entries].records.len(), 1);
+    assert_eq!(rotated["secret_version"], json!(3));
+
+    // A team that is taken back opens to its new secret alone: the move is closed in the entry that
+    // takes the team back, and the answer is the one it always was.
+    let ticket = text(&rig.open_move(ELSEWHERE, 30).unwrap(), "ticket");
+    let frank = rig.join(&ticket, "frank");
+    rig.advance(5);
+    let entries = rig.log.len();
+    let taken = rig.take_back(ELSEWHERE).unwrap();
+    assert_eq!(
+        members_of(&taken),
+        [
+            "join_secret",
+            "revoked",
+            "secret_version",
+            "sessions_closed",
+            "team_name",
+            "team_ref"
+        ]
+    );
+    let kinds: Vec<&Event> = rig.log[entries]
+        .records
+        .iter()
+        .map(|record| &record.event)
+        .collect();
+    assert_eq!(kinds.len(), 4);
+    assert!(matches!(kinds[0], Event::TeamSecretRotated { .. }));
+    assert_eq!(kinds[1], &closed);
+    assert!(matches!(kinds[2], Event::MembersRevokedByVersion { .. }));
+    assert!(matches!(kinds[3], Event::TeamOwnerChanged { .. }));
+    assert_eq!(rig.state.teams[ELSEWHERE].move_ticket, None);
+    assert_eq!(join_refused(&mut rig, &ticket), rejected);
+    assert_eq!(
+        wire(&rig.err(&frank, "/v1/team/join", json!({"join_secret": ticket}))),
+        rejected
+    );
+    // The team has no owner again, and a ticket of a new move does not make one: the secret from the
+    // operator's file does.
+    let ticket = text(&rig.open_move(ELSEWHERE, 30).unwrap(), "ticket");
+    rig.ok(&frank, "/v1/team/join", json!({"join_secret": ticket}));
+    assert_eq!(rig.state.teams[ELSEWHERE].owner(), None);
+    rig.ok(
+        &alice,
+        "/v1/team/join",
+        json!({"join_secret": text(&taken, "join_secret")}),
+    );
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(alice.principal_ref.as_str())
+    );
+
+    // A restart: every entry, read back from its bytes, makes the same state. And a snapshot: the state
+    // written and read back, with the move that is open in it.
+    let mut replayed = State::default();
+    for entry in &rig.log {
+        replayed.replay(&Entry::decode(&entry.encode()).unwrap()).unwrap();
+    }
+    assert_eq!(replayed, rig.state);
+    assert!(rig.state.teams[ELSEWHERE].move_ticket.is_some());
+    let snapshot = serde_json::to_string(&rig.state).unwrap();
+    assert!(snapshot.contains(r#""move_ticket":{"hash":""#), "{snapshot}");
+    assert_eq!(serde_json::from_str::<State>(&snapshot).unwrap(), rig.state);
+    // A team that is not moving is written as it was before there were moves, and such a state reads as
+    // one in which no team is moving.
+    rig.close_move(ELSEWHERE).unwrap();
+    let snapshot = serde_json::to_string(&rig.state).unwrap();
+    assert!(!snapshot.contains("move_ticket"), "{snapshot}");
+    assert_eq!(serde_json::from_str::<State>(&snapshot).unwrap(), rig.state);
 }

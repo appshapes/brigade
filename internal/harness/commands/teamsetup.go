@@ -23,6 +23,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/config"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/teamstore/write"
 	"github.com/appshapes/brigade/internal/protocol"
@@ -209,14 +210,35 @@ func expandHome(path string, environ []string) string {
 // inside the discovered repository toplevel: the secret must never live
 // under the project directory, however it is spelled.
 func checkSecretFileOutside(secretFile, top string) error {
+	switch fileOutside(secretFile, top) {
+	case outsideDotDot:
+		return usage("--secret-file must not contain a `..` component; spell the path plainly")
+	case outsideInside:
+		return usage("--secret-file must not be inside this project: the join secret must never live under the repository")
+	}
+	return nil
+}
+
+// The two ways fileOutside finds a path wanting.
+const (
+	outsideDotDot = "dotdot"
+	outsideInside = "inside"
+)
+
+// fileOutside is the rule for where a file that holds a secret may be
+// named, for the join secret's file and for a move's ticket file alike: it
+// answers outsideDotDot for a path with a `..` component, outsideInside
+// for one under the checkout in either spelling, and "" for one that is
+// neither.
+func fileOutside(path, top string) string {
 	// A `..` component is refused outright (P7-11, verifier finding): Dir
 	// and Clean collapse `lnk/..` lexically, while the kernel resolves the
 	// symlink first — so `<outside>/lnk/../x.secret` with `lnk` pointing
 	// into the checkout would pass both spellings below and land inside.
-	if slices.Contains(strings.Split(secretFile, string(filepath.Separator)), "..") {
-		return usage("--secret-file must not contain a `..` component; spell the path plainly")
+	if slices.Contains(strings.Split(path, string(filepath.Separator)), "..") {
+		return outsideDotDot
 	}
-	dir := filepath.Clean(filepath.Dir(secretFile))
+	dir := filepath.Clean(filepath.Dir(path))
 	// Both the literal spelling and the symlink-resolved one are checked:
 	// a path may be inside the checkout under either form and must not
 	// slip through the other (canonicalization can fail on a not-yet-
@@ -224,9 +246,9 @@ func checkSecretFileOutside(secretFile, top string) error {
 	canonTop, terr := teamfile.Canonicalize(top)
 	canonDir, derr := teamfile.Canonicalize(dir)
 	if isUnder(dir, filepath.Clean(top)) || (terr == nil && derr == nil && isUnder(canonDir, canonTop)) {
-		return usage("--secret-file must not be inside this project: the join secret must never live under the repository")
+		return outsideInside
 	}
-	return nil
+	return ""
 }
 
 // isUnder reports whether dir equals top or sits beneath it.
@@ -304,7 +326,7 @@ func (inv Invocation) driveCreate(opts *createOptions, req *protocol.TeamCreateR
 	case config.BundledAdapterName:
 		initFlags = []string{"--url", opts.url, "--key", opts.key}
 	case config.BundledRestName:
-		initFlags = restBackendFlags(opts.url, opts.certificate)
+		initFlags = teammove.RestBackendFlags(opts.url, opts.certificate)
 		if opts.createTokenFile != "" {
 			createFlags = append(createFlags, "--create-token-file", opts.createTokenFile)
 		}
@@ -321,17 +343,6 @@ func (inv Invocation) driveCreate(opts *createOptions, req *protocol.TeamCreateR
 		return nil, "", nil, protocolMismatch("team create answered without a team_ref")
 	}
 	return &answer, tmpKey, t, nil
-}
-
-// restBackendFlags are the `profile init` flags that name a Brigade
-// server: its url, and the pin of its certificate when the team file
-// carries one.
-func restBackendFlags(url, certificate string) []string {
-	flags := []string{"--url", url}
-	if certificate != "" {
-		flags = append(flags, "--certificate", certificate)
-	}
-	return flags
 }
 
 // labelSent renders create's disclosure line: what the command published
@@ -707,7 +718,7 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 	if err := inv.alignRestBackend(t, f); err != nil {
 		return err
 	}
-	backend, err := json.Marshal(backendOf(f))
+	backend, err := json.Marshal(teammove.JoinBackend(f))
 	if err != nil {
 		return fmt.Errorf("commands: marshal backend: %w", err)
 	}
@@ -726,20 +737,6 @@ func (inv Invocation) firstJoin(t *target, canon string, f *teamfile.File, label
 	}
 	inv.recordLabelOrigin(t.configDir, t.profile, label)
 	return inv.writePinAndReport(t, canon, f, "joined")
-}
-
-// backendOf is the adapter-specific `backend` member of the join request
-// (4.4.10) as the team file names it: {url, publishable_key}, and for a
-// Brigade server {url}, with {certificate} when the file pins one.
-func backendOf(f *teamfile.File) map[string]string {
-	if f.Adapter != config.BundledRestName {
-		return map[string]string{"url": f.URL, "publishable_key": f.PublishableKey}
-	}
-	backend := map[string]string{"url": f.URL}
-	if f.Certificate != "" {
-		backend["certificate"] = f.Certificate
-	}
-	return backend
 }
 
 // alignRestBackend moves an existing profile of a Brigade server to the
@@ -770,7 +767,7 @@ func (inv Invocation) alignRestBackend(t *target, f *teamfile.File) error {
 // repointRest rewrites a Brigade server's backend in the adapter's profile
 // and in the binding together: the url and the certificate pin.
 func (inv Invocation) repointRest(t *target, f *teamfile.File) error {
-	flags := append([]string{"--force"}, restBackendFlags(f.URL, f.Certificate)...)
+	flags := append([]string{"--force"}, teammove.RestBackendFlags(f.URL, f.Certificate)...)
 	if _, err := t.client.Call(context.Background(), "profile", "init", flags, nil); err != nil {
 		return err
 	}
@@ -1178,17 +1175,9 @@ func readLine(r io.Reader) (string, error) {
 	}
 }
 
-// hostOf shows a URL as its host for human lines.
-func hostOf(raw string) string {
-	if i := strings.Index(raw, "://"); i >= 0 {
-		host := raw[i+3:]
-		if j := strings.IndexByte(host, '/'); j >= 0 {
-			host = host[:j]
-		}
-		return host
-	}
-	return raw
-}
+// hostOf shows a URL as its host for human lines: teammove.Host, the one
+// rule for every line and flag that names a backend by its host.
+func hostOf(raw string) string { return teammove.Host(raw) }
 
 // protocolMismatch is the failure of an adapter answer this build cannot
 // read on the captured create/join path.

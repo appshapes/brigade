@@ -12,6 +12,7 @@ secret your administrator sent you, saved outside the repository, lets you in. Y
 | join from a Codex CLI session | [Join in Codex CLI](#join-in-codex-cli) |
 | join a second clone, or another repository of the same team | [Join another checkout](#join-another-checkout) |
 | choose the label teammates see beside your sessions | [Choose your label](#choose-your-label) |
+| know what happens when your team moves to another backend | [When your team moves](#when-your-team-moves) |
 | use Grok Build join status | [Grok Build](#grok-build) |
 
 ## Join in Claude Code
@@ -57,6 +58,16 @@ Details: [Join another checkout](another-checkout.md).
    membership of its own.
 
 Details: [Choose your label](your-label.md).
+
+## When your team moves
+
+1. Do nothing. When the team's administrator moved it to a Brigade server and recorded the move, your next
+   session follows and says so in one line: where the team went and who vouched for it.
+2. A session that was already running stays put until it ends; start a new one.
+3. To decide each move yourself: set the option `follow_team_move` to `off`, and join a moved team with
+   `/brigade:join ~/brigade-<team>.secret`.
+
+Details: [When your team moves](follow-a-move.md).
 
 ## Grok Build
 

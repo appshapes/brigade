@@ -1,22 +1,22 @@
 -- hygiene.sql (plan 9.3, I-10, I-30): mechanical over pg_catalog. Every table in brigade has RLS; every policy
 -- names `to authenticated`; nothing in brigade is granted to anon; service_role holds schema usage only; the
 -- authenticated grants are exactly the read grants of plan 5.3 (column-level on teams, never secret_hash);
--- join_attempts has RLS, no policy and no grant (server-only, documented for the advisor lint); no view without
+-- join_attempts and team_moves have RLS, no policy and no grant (server-only, documented for the advisor lint); no view without
 -- security_invoker and no materialized view in any API-exposed schema.
 begin;
 \ir helpers/auth.sql
-select plan(60);
+select plan(65);
 
--- 1. The table set and RLS on every one of them (5 + 5 assertions).
-select tables_are('brigade', array['teams', 'memberships', 'sessions', 'messages', 'join_attempts'],
-                  'brigade holds exactly the five tables of plan 5.3');
+-- 1. The table set and RLS on every one of them (6 + 5 assertions).
+select tables_are('brigade', array['teams', 'memberships', 'sessions', 'messages', 'join_attempts', 'team_moves'],
+                  'brigade holds exactly the five tables of plan 5.3 and team_moves (work item 273)');
 select ok(c.relrowsecurity, 'RLS enabled: brigade.' || c.relname)
   from pg_class c where c.relnamespace = 'brigade'::regnamespace and c.relkind = 'r' order by c.relname;
 select is((select count(*) from pg_class c where c.relnamespace = 'brigade'::regnamespace and c.relkind = 'r' and not c.relrowsecurity),
           0::bigint, 'no table in brigade without RLS');
 -- (the loop above emits one line per table; pin the number so a missing table cannot hide as a missing line)
-select is((select count(*) from pg_class c where c.relnamespace = 'brigade'::regnamespace and c.relkind = 'r'), 5::bigint,
-          'the RLS loop covered five tables');
+select is((select count(*) from pg_class c where c.relnamespace = 'brigade'::regnamespace and c.relkind = 'r'), 6::bigint,
+          'the RLS loop covered six tables');
 select is((select count(*) from pg_class c where c.relnamespace = 'brigade'::regnamespace and c.relkind in ('p', 'f')), 0::bigint,
           'no partitioned or foreign tables in brigade (RLS check is complete)');
 
@@ -26,6 +26,7 @@ select policies_are('brigade', 'memberships', array['memberships_select'], 'memb
 select policies_are('brigade', 'sessions', array['sessions_select'], 'sessions: only sessions_select');
 select policies_are('brigade', 'messages', array['messages_select'], 'messages: only messages_select');
 select policies_are('brigade', 'join_attempts', array[]::text[], 'join_attempts: no policy by design (server-only)');
+select policies_are('brigade', 'team_moves', array[]::text[], 'team_moves: no policy by design (server-only)');
 select is((select count(*) from pg_policy p join pg_class c on c.oid = p.polrelid where c.relnamespace = 'brigade'::regnamespace),
           4::bigint, 'exactly four policies in brigade');
 select ok(p.polroles = array['authenticated'::regrole]::oid[], 'policy to authenticated only: ' || p.polname)
@@ -65,6 +66,7 @@ select throws_ok($$select * from brigade.memberships$$, '42501', 'permission den
 select throws_ok($$select * from brigade.sessions$$, '42501', 'permission denied for table sessions', 'service_role: 42501 on sessions');
 select throws_ok($$select * from brigade.messages$$, '42501', 'permission denied for table messages', 'service_role: 42501 on messages');
 select throws_ok($$select * from brigade.join_attempts$$, '42501', 'permission denied for table join_attempts', 'service_role: 42501 on join_attempts');
+select throws_ok($$select * from brigade.team_moves$$, '42501', 'permission denied for table team_moves', 'service_role: 42501 on team_moves');
 reset role;
 
 -- 5. authenticated: exactly the read grants of plan 5.3, and nothing writable anywhere.
@@ -72,6 +74,7 @@ select table_privs_are('brigade', 'memberships', 'authenticated', array['SELECT'
 select table_privs_are('brigade', 'sessions', 'authenticated', array['SELECT'], 'authenticated: SELECT only on sessions');
 select table_privs_are('brigade', 'messages', 'authenticated', array['SELECT'], 'authenticated: SELECT only on messages');
 select table_privs_are('brigade', 'join_attempts', 'authenticated', array[]::text[], 'authenticated: nothing on join_attempts');
+select table_privs_are('brigade', 'team_moves', 'authenticated', array[]::text[], 'authenticated: nothing on team_moves');
 select table_privs_are('brigade', 'teams', 'authenticated', array[]::text[], 'authenticated: no table-level grant on teams (column-level only)');
 select is((select array_agg(column_name::text order by column_name) from information_schema.column_privileges
             where table_schema = 'brigade' and table_name = 'teams' and grantee = 'authenticated' and privilege_type = 'SELECT'),
@@ -87,6 +90,8 @@ select throws_ok($$select * from brigade.teams$$, '42501', 'permission denied fo
 select lives_ok($$select id, name, secret_version, created_at from brigade.teams$$, 'authenticated: the granted teams columns are selectable');
 select throws_ok($$select * from brigade.join_attempts$$, '42501', 'permission denied for table join_attempts',
                  'authenticated: join_attempts is server-only');
+select throws_ok($$select * from brigade.team_moves$$, '42501', 'permission denied for table team_moves',
+                 'authenticated: team_moves is server-only (the ticket is read through read_team_move alone)');
 select pg_temp.logout();
 
 -- 6. Views and materialized views: none without security_invoker; none in an API-exposed schema.

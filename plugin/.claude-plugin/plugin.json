@@ -113,6 +113,12 @@
       "title": "Ask the model for its state at the end of a turn",
       "description": "on (the default) lets Brigade, in a project that shares a state folder for the digests, ask the model at the end of a turn to record one line about its work: after a commit no note followed, after a long turn with a stale roster line, and, where anyone is subscribed to the digest, for a decision it waits on; at most once per ten minutes, never twice in a row, never in a quiet session and only where your permission settings say the call will neither prompt nor be denied. off asks nothing; the hooks still keep the session's state entry.",
       "default": "on"
+    },
+    "follow_team_move": {
+      "type": "string",
+      "title": "Follow your team when it moves to another backend",
+      "description": "on (the default) lets a session follow its team when the team's administrator moved it to another backend, a Brigade server: when this project's .brigade.json names a new backend for the team you joined, the session asks the backend you joined whether its administrator recorded that move, joins the new one only when the record names exactly what the file names, and says in one line that it did. off never follows: the session stays unconnected until you run /brigade:join with the secret file yourself.",
+      "default": "on"
     }
   }
 }

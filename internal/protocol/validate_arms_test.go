@@ -371,6 +371,56 @@ func TestValidationArms(t *testing.T) {
 		{"team transfer result transferred", "transferred", func() Validator {
 			return &TeamTransferResult{TeamRef: "t1", PrincipalRef: "p1"}
 		}},
+		{"team move request adapter", "adapter", func() Validator { return &TeamMoveRequest{URL: "https://b.example"} }},
+		{"team move request adapter too long", "adapter", func() Validator {
+			return &TeamMoveRequest{Adapter: strings.Repeat("a", MaxMoveAdapterChars+1), URL: "https://b.example"}
+		}},
+		{"team move request url", "url", func() Validator { return &TeamMoveRequest{Adapter: "rest"} }},
+		{"team move request url too long", "url", func() Validator {
+			return &TeamMoveRequest{Adapter: "rest", URL: strings.Repeat("u", MaxMoveURLChars+1)}
+		}},
+		{"team move request url not utf8", "url", func() Validator {
+			return &TeamMoveRequest{Adapter: "rest", URL: "https://b\xff.example"}
+		}},
+		{"team move request certificate too long", "certificate", func() Validator {
+			return &TeamMoveRequest{Adapter: "rest", URL: "https://b.example", Certificate: strings.Repeat("c", MaxMoveCertificateChars+1)}
+		}},
+		{"team move result team_ref", "team_ref", func() Validator { return &TeamMoveResult{} }},
+		{"team move result adapter beside moved false", "adapter", func() Validator {
+			return &TeamMoveResult{TeamRef: "t1", Adapter: "rest"}
+		}},
+		{"team move result url beside moved false", "url", func() Validator {
+			return &TeamMoveResult{TeamRef: "t1", URL: "https://b.example"}
+		}},
+		{"team move result certificate beside moved false", "certificate", func() Validator {
+			return &TeamMoveResult{TeamRef: "t1", Certificate: "sha256:00"}
+		}},
+		{"team move result ticket_file beside moved false", "ticket_file", func() Validator {
+			return &TeamMoveResult{TeamRef: "t1", TicketFile: "/home/bob/ops.ticket"}
+		}},
+		{"team move result recorded_at beside moved false", "recorded_at", func() Validator {
+			return &TeamMoveResult{TeamRef: "t1", RecordedAt: time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)}
+		}},
+		{"team move result moved with no adapter", "adapter", func() Validator {
+			moved := validMoveResult()
+			moved.Adapter = ""
+			return &moved
+		}},
+		{"team move result moved with no url", "url", func() Validator {
+			moved := validMoveResult()
+			moved.URL = ""
+			return &moved
+		}},
+		{"team move result moved with no recorded_at", "recorded_at", func() Validator {
+			moved := validMoveResult()
+			moved.RecordedAt = time.Time{}
+			return &moved
+		}},
+		{"team move result ticket_file not utf8", "ticket_file", func() Validator {
+			moved := validMoveResult()
+			moved.TicketFile = "/home/bob/\xff.ticket"
+			return &moved
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -387,6 +437,40 @@ func validRotateResult() TeamRotateSecretResult {
 	return TeamRotateSecretResult{
 		TeamRef: "t1", TeamName: "ops", SecretVersion: 2,
 		RotatedAt: time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC), SecretFile: "/home/alice/ops.secret",
+	}
+}
+
+// validMoveResult is a `team move` result of a recorded move, which every
+// arm of that shape above starts from.
+func validMoveResult() TeamMoveResult {
+	return TeamMoveResult{
+		TeamRef: "t1", Moved: true, Adapter: "rest", URL: "https://b.example",
+		RecordedAt: time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC),
+	}
+}
+
+// TestTeamMoveShapesAccepted is the passing side of the two shapes of a
+// team's move (4.4.10): a destination with and without a certificate pin,
+// each cap met exactly, a team that has not moved, and a recorded move with
+// and without the path its ticket was written to.
+func TestTeamMoveShapesAccepted(t *testing.T) {
+	t.Parallel()
+	moved, withTicket := validMoveResult(), validMoveResult()
+	withTicket.Certificate, withTicket.TicketFile = "sha256:00", "/home/bob/ops.ticket"
+	for name, v := range map[string]Validator{
+		"destination":                    &TeamMoveRequest{Adapter: "rest", URL: "https://b.example"},
+		"destination with a certificate": &TeamMoveRequest{Adapter: "rest", URL: "https://b.example", Certificate: "sha256:00"},
+		"destination at its caps": &TeamMoveRequest{
+			Adapter: strings.Repeat("a", MaxMoveAdapterChars), URL: strings.Repeat("u", MaxMoveURLChars),
+			Certificate: strings.Repeat("c", MaxMoveCertificateChars),
+		},
+		"no move recorded":        &TeamMoveResult{TeamRef: "t1"},
+		"a recorded move":         &moved,
+		"a move, its ticket read": &withTicket,
+	} {
+		if err := v.Validate(); err != nil {
+			t.Errorf("%s rejected: %v", name, err)
+		}
 	}
 }
 

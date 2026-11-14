@@ -11,11 +11,15 @@
 --   rls_enabled_no_policy on brigade.join_attempts: RLS is enabled, there is deliberately NO policy and NO grant to
 --     any API role; the table is written only by the join_team security-definer RPC and read by nobody but postgres
 --     (the join limiter must never be readable through the Data API: it would be a team-existence and attempt oracle).
---   authenticated_security_definer_function_executable on exactly the 17 RPCs plan 5.4 and 5.10 grant to authenticated:
+--   rls_enabled_no_policy on brigade.team_moves (work item 273): the record of where a team went, with its move
+--     ticket in the clear. The same shape for the same reason: no policy and no grant, written and read only through
+--     the three security-definer RPCs of 20261114120000_team_move.sql, which give the ticket to an active member alone.
+--   authenticated_security_definer_function_executable on exactly the 20 RPCs plan 5.4 and 5.10 grant to authenticated:
 --     my_team_ids, create_team, join_team, leave_team, register_session, session_heartbeat, close_session,
 --     list_sessions, list_members, send_message, fetch_inbox, ack_messages, owns_session_topic, and (P5-2) the four
 --     team-administration RPCs rotate_join_secret, revoke_membership, revoke_memberships_by_version and
---     transfer_team (team_as_creator, their shared gate, is server-only and must NOT appear). Security definer with
+--     transfer_team (team_as_creator, their shared gate, is server-only and must NOT appear), and (work item 273) the
+--     three RPCs of a team's move, record_team_move, clear_team_move and read_team_move. Security definer with
 --     `set search_path = ''` and an explicit revoke from public/anon IS the design (the tables have no write policy;
 --     the RPCs are the only write path, D22). Every other brigade function (helpers, trigger functions, gc_expired)
 --     must NOT appear here: it is granted to nobody (functions.sql asserts the same over pg_catalog).
@@ -29,6 +33,7 @@ create temp table advisor_findings (lint text not null, object text not null, de
 create temp table advisor_expected (lint text not null, object text not null, primary key (lint, object));
 insert into advisor_expected values
   ('rls_enabled_no_policy', 'brigade.join_attempts'),
+  ('rls_enabled_no_policy', 'brigade.team_moves'),
   ('authenticated_security_definer_function_executable', 'brigade.my_team_ids()'),
   ('authenticated_security_definer_function_executable', 'brigade.create_team(text, text)'),
   ('authenticated_security_definer_function_executable', 'brigade.join_team(text, text)'),
@@ -45,7 +50,10 @@ insert into advisor_expected values
   ('authenticated_security_definer_function_executable', 'brigade.rotate_join_secret(uuid)'),
   ('authenticated_security_definer_function_executable', 'brigade.revoke_membership(uuid, uuid, boolean)'),
   ('authenticated_security_definer_function_executable', 'brigade.revoke_memberships_by_version(uuid, integer)'),
-  ('authenticated_security_definer_function_executable', 'brigade.transfer_team(uuid, uuid)');
+  ('authenticated_security_definer_function_executable', 'brigade.transfer_team(uuid, uuid)'),
+  ('authenticated_security_definer_function_executable', 'brigade.record_team_move(uuid, text, text, text, text)'),
+  ('authenticated_security_definer_function_executable', 'brigade.clear_team_move(uuid)'),
+  ('authenticated_security_definer_function_executable', 'brigade.read_team_move(uuid)');
 
 create temp view api_schemas as select unnest(array['public', 'graphql_public', 'brigade']) as nspname;
 -- Function lints scan only the schemas Brigade owns objects in: graphql_public holds nothing but Supabase's own
@@ -66,7 +74,8 @@ select distinct 'policy_exists_rls_disabled', n.nspname || '.' || c.relname, 'po
   from pg_policy p join pg_class c on c.oid = p.polrelid join pg_namespace n on n.oid = c.relnamespace
  where not c.relrowsecurity;
 
--- 3. rls_enabled_no_policy: RLS enabled but no policy at all (in an exposed schema). Expected: brigade.join_attempts.
+-- 3. rls_enabled_no_policy: RLS enabled but no policy at all (in an exposed schema). Expected: brigade.join_attempts
+--    and brigade.team_moves.
 insert into advisor_findings
 select 'rls_enabled_no_policy', n.nspname || '.' || c.relname, 'RLS enabled, zero policies'
   from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -93,7 +102,7 @@ select 'anon_security_definer_function_executable', n.nspname || '.' || p.pronam
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
  where n.nspname in (select nspname from fn_schemas) and p.prosecdef and has_function_privilege('anon', p.oid, 'execute');
 
--- 7. authenticated_security_definer_function_executable: the same for authenticated. Expected: the 17 granted RPCs only.
+-- 7. authenticated_security_definer_function_executable: the same for authenticated. Expected: the 20 granted RPCs only.
 insert into advisor_findings
 select 'authenticated_security_definer_function_executable', n.nspname || '.' || p.proname || '(' || array_to_string(p.proargtypes::regtype[]::text[], ', ') || ')', 'security definer, executable by authenticated'
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace

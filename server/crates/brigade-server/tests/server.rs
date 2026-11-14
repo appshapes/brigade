@@ -1514,6 +1514,344 @@ fn the_operator_takes_back_a_team_whose_first_joiner_put_everyone_else_out() {
     server.stop();
 }
 
+/// Runs the command that opens a team's move on `scratch`'s data directory, and returns its status and
+/// everything it wrote.
+fn open_move(
+    scratch: &Scratch,
+    log: &[String],
+    team_ref: &str,
+    ticket_file: &Path,
+    days: Option<&str>,
+) -> (Option<i32>, String) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_brigade-server"));
+    command
+        .arg("--data")
+        .arg(scratch.path("data"))
+        .args(log)
+        .args(["--open-move", team_ref, "--ticket-file"])
+        .arg(ticket_file);
+    if let Some(days) = days {
+        command.args(["--ticket-days", days]);
+    }
+    let output = command.stdin(Stdio::null()).output().unwrap();
+    let wrote = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.code(), wrote)
+}
+
+/// Runs the command that closes a team's move on `scratch`'s data directory, and returns its status and
+/// everything it wrote.
+fn close_move(scratch: &Scratch, log: &[String], team_ref: &str) -> (Option<i32>, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+        .arg("--data")
+        .arg(scratch.path("data"))
+        .args(log)
+        .args(["--close-move", team_ref])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let wrote = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.code(), wrote)
+}
+
+/// The ticket a file holds, and its random half: one line, a join secret of `team_ref` minted as the
+/// server mints one, in a file of its owner's alone.
+fn ticket_in(file: &Path, team_ref: &str) -> (String, String) {
+    use std::os::unix::fs::PermissionsExt;
+
+    assert_eq!(
+        std::fs::metadata(file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let held = std::fs::read_to_string(file).unwrap();
+    let ticket = held.strip_suffix('\n').expect("one line");
+    let random = ticket
+        .strip_prefix(&format!("brg1.{team_ref}."))
+        .expect("a ticket for the same team");
+    assert_eq!(random.len(), 32);
+    assert!(random.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    (ticket.to_owned(), random.to_owned())
+}
+
+#[test]
+fn a_team_that_moves_is_joined_with_its_ticket_until_the_move_is_replaced_or_closed() {
+    let scratch = Scratch::new("move");
+    let arguments = log_arguments("file", &scratch);
+    let (file, secret) = secret_file(&scratch, ELSEWHERE, "kept-from-the-other-backend");
+    let (status, wrote) = take_in(&scratch, &arguments, "ops", &file);
+    assert_eq!(status, Some(0), "{wrote}");
+    let team = json!({"team_ref": ELSEWHERE});
+    let first_file = scratch.path("ops.move-ticket");
+    let unfinished = scratch.path(".ops.move-ticket.unfinished");
+
+    // The place of the ticket is checked before anything is changed: a path that is not absolute, a
+    // directory that is not there and a file that is are refused in one line each, which does not repeat
+    // the path. So is a team the server does not hold, and it leaves no file behind.
+    let not_opened = |team_ref: &str, path: &Path, why: &str| {
+        let (status, wrote) = open_move(&scratch, &arguments, team_ref, path, None);
+        assert_eq!(status, Some(1), "{wrote}");
+        let refusal: Vec<&str> = wrote
+            .lines()
+            .filter(|line| line.contains("the move was not opened: "))
+            .collect();
+        assert_eq!(refusal.len(), 1, "{wrote}");
+        assert!(refusal[0].ends_with(why), "{wrote}");
+        assert!(!wrote.contains("opened the move of"), "{wrote}");
+        assert!(!wrote.contains(&path.display().to_string()), "{wrote}");
+        assert!(!unfinished.exists());
+    };
+    not_opened(
+        ELSEWHERE,
+        Path::new("typed/ops.move-ticket"),
+        "--ticket-file takes an absolute path",
+    );
+    not_opened(
+        ELSEWHERE,
+        &scratch.path("no-such-directory/ops.move-ticket"),
+        "the directory of the file --ticket-file names is not there",
+    );
+    not_opened(
+        ELSEWHERE,
+        &file,
+        "the file --ticket-file names is there already, and nothing is written over: name a file that is not \
+         there",
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), format!("{secret}\n"));
+    not_opened(
+        "typed-no-such-team",
+        &first_file,
+        "not_found: the server holds no team of that reference",
+    );
+    assert!(!first_file.exists());
+    // A number of days no ticket is given is refused by the command line, before a directory is touched.
+    for days in ["0", "366"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_brigade-server"))
+            .arg("--data")
+            .arg(scratch.path("untouched"))
+            .args(["--open-move", ELSEWHERE, "--ticket-days", days, "--ticket-file"])
+            .arg(&first_file)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{days}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("--ticket-days takes a number of days from 1 to 365")
+        );
+        assert!(!scratch.path("untouched").exists() && !first_file.exists());
+    }
+
+    // The move is opened: one line that names the team, the file and when the ticket ends, in UTC and to
+    // the second, and nothing of the ticket. The file is its owner's alone and holds a join secret for
+    // the same team that is not the team's own. Nothing is served.
+    let (status, wrote) = open_move(&scratch, &arguments, ELSEWHERE, &first_file, None);
+    assert_eq!(status, Some(0), "{wrote}");
+    let said = format!(
+        "opened the move of team \"ops\" ({ELSEWHERE}): its ticket is in {first_file:?} and admits until "
+    );
+    let line = wrote
+        .lines()
+        .find(|line| line.contains(&said))
+        .unwrap_or_else(|| panic!("{wrote}"));
+    let ends_at = line.rsplit(' ').next().unwrap();
+    assert_eq!(ends_at.len(), "2026-12-14T03:12:45Z".len(), "{line}");
+    assert!(ends_at.ends_with('Z') && ends_at.as_bytes()[10] == b'T', "{line}");
+    assert!(!wrote.contains("admits nobody"), "{wrote}");
+    assert!(!wrote.contains("listening on"), "{wrote}");
+    assert!(!unfinished.exists());
+    let (first, first_random) = ticket_in(&first_file, ELSEWHERE);
+    assert!(first != secret);
+    assert!(!wrote.contains(&first_random), "{wrote}");
+    // The command's own stop left a snapshot of the new format, with the ticket's hash and never the
+    // ticket: it is what the server that starts next reads the move from.
+    let newest = std::fs::read_dir(scratch.path("data").join("snapshots"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .max()
+        .unwrap();
+    let snapshot = std::fs::read_to_string(newest).unwrap();
+    assert!(snapshot.starts_with(r#"{"format":3,"#), "{snapshot}");
+    assert!(snapshot.contains(r#""move_ticket":{"hash":""#), "{snapshot}");
+    assert!(!snapshot.contains(&first_random), "{snapshot}");
+
+    // A member comes in with the ticket before anyone has joined with the secret. It is a member, and
+    // the team still has no owner: the member the secret lets in next is the owner.
+    let server = Server::start(&scratch, &arguments);
+    let (bob, bob_ref) = join(&server, &first, "bob");
+    let (status, error) = refused(&server, Some(&bob), "/v1/team/rotate-secret", &team);
+    assert_eq!((status, text(&error, "code").as_str()), (403, "unauthorized"));
+    let (alice, alice_ref) = join(&server, &secret, "alice");
+    assert_eq!(
+        server.ok(
+            &alice,
+            "/v1/team/transfer",
+            &json!({"team_ref": ELSEWHERE, "principal_ref": alice_ref})
+        )["transferred"],
+        json!(true)
+    );
+    assert_eq!(
+        member_labelled(&server, &alice, ELSEWHERE, "bob")["joined_secret_version"],
+        json!(1)
+    );
+    // The server says who came in and how, and that the member the secret let in owns the team.
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    for line in [
+        format!("member {bob_ref} joined team ops ({ELSEWHERE}) with its move ticket, labelled \"bob\""),
+        format!("member {alice_ref} joined team ops ({ELSEWHERE}), labelled \"alice\""),
+        format!("member {alice_ref} owns team ops ({ELSEWHERE}) from now on"),
+    ] {
+        assert!(said.contains(&line), "{line}: {said}");
+    }
+    assert!(!said.contains(&format!("member {bob_ref} owns")), "{said}");
+
+    // While the server runs on the directory no move is opened or closed beside it, and nothing is left
+    // where a ticket was to go.
+    let second_file = scratch.path("ops.second-ticket");
+    let (status, wrote) = open_move(&scratch, &arguments, ELSEWHERE, &second_file, Some("1"));
+    assert_eq!(status, Some(1), "{wrote}");
+    assert!(wrote.contains("another server is running"), "{wrote}");
+    assert!(!second_file.exists() && !scratch.path(".ops.second-ticket.unfinished").exists());
+    let (status, wrote) = close_move(&scratch, &arguments, ELSEWHERE);
+    assert_eq!(status, Some(1), "{wrote}");
+    assert!(wrote.contains("another server is running"), "{wrote}");
+
+    // The move is in the log: a server that was killed and starts again still opens to the ticket.
+    server.kill();
+    let server = Server::start(&scratch, &arguments);
+    let (carol, _) = join(&server, &first, "carol");
+    let rejected = refused(
+        &server,
+        None,
+        "/v1/team/join",
+        &json!({"join_secret": format!("brg1.{ELSEWHERE}.never-a-ticket-of-any-move")}),
+    );
+    assert_eq!(rejected.0, 403);
+    server.stop();
+
+    // A second move takes the place of the first, and the line says what became of the first ticket.
+    let (status, wrote) = open_move(&scratch, &arguments, ELSEWHERE, &second_file, Some("1"));
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(
+        wrote.contains(&format!(
+            "opened the move of team \"ops\" ({ELSEWHERE}): its ticket is in {second_file:?}"
+        )),
+        "{wrote}"
+    );
+    assert!(
+        wrote.contains("Z, and the ticket of the move it had admits nobody from now on"),
+        "{wrote}"
+    );
+    let (second, second_random) = ticket_in(&second_file, ELSEWHERE);
+    assert!(second != first);
+    // The file of the first ticket is not written over by asking again for it.
+    not_opened(
+        ELSEWHERE,
+        &first_file,
+        "the file --ticket-file names is there already, and nothing is written over: name a file that is not \
+         there",
+    );
+    assert_eq!(
+        std::fs::read_to_string(&first_file).unwrap(),
+        format!("{first}\n")
+    );
+    let server = Server::start(&scratch, &arguments);
+    assert_eq!(
+        refused(&server, None, "/v1/team/join", &json!({"join_secret": first})),
+        rejected
+    );
+    let (dave, _) = join(&server, &second, "dave");
+    server.stop();
+
+    // The operator closes the move: one line, and the ticket is a wrong secret from then on, whoever
+    // presents it. Every member that came in with a ticket is still one. Closing again changes nothing.
+    let (status, wrote) = close_move(&scratch, &arguments, ELSEWHERE);
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(
+        wrote.contains(&format!(
+            "closed the move of team \"ops\" ({ELSEWHERE}): its ticket admits nobody from now on"
+        )),
+        "{wrote}"
+    );
+    assert!(!wrote.contains("listening on"), "{wrote}");
+    let (status, wrote) = close_move(&scratch, &arguments, ELSEWHERE);
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(
+        wrote.contains(&format!(
+            "team \"ops\" ({ELSEWHERE}) has no move: nothing changed"
+        )),
+        "{wrote}"
+    );
+    let (status, wrote) = close_move(&scratch, &arguments, "typed-no-such-team");
+    assert_eq!(status, Some(1), "{wrote}");
+    assert!(
+        wrote.contains("the move was not closed: not_found: the server holds no team of that reference"),
+        "{wrote}"
+    );
+    assert!(!wrote.contains("typed-no-such-team"), "{wrote}");
+    let server = Server::start(&scratch, &arguments);
+    for ticket in [&first, &second] {
+        for credential in [None, Some(dave.as_str())] {
+            assert_eq!(
+                refused(
+                    &server,
+                    credential,
+                    "/v1/team/join",
+                    &json!({"join_secret": ticket})
+                ),
+                rejected
+            );
+        }
+    }
+    let roster = server.ok(&alice, "/v1/team/members", &team);
+    assert_eq!(roster["members"].as_array().unwrap().len(), 4, "{roster}");
+    server.ok(&carol, "/v1/team/members", &team);
+    server.stop();
+
+    // A rotation of the team's join secret closes a move that is open, and the server says so.
+    let third_file = scratch.path("ops.third-ticket");
+    let (status, wrote) = open_move(&scratch, &arguments, ELSEWHERE, &third_file, Some("365"));
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(!wrote.contains("admits nobody"), "{wrote}");
+    let (third, third_random) = ticket_in(&third_file, ELSEWHERE);
+    let server = Server::start(&scratch, &arguments);
+    let (erin, _) = join(&server, &third, "erin");
+    let rotated = server.ok(&alice, "/v1/team/rotate-secret", &team);
+    assert_eq!(rotated["secret_version"], json!(2));
+    assert_eq!(
+        refused(
+            &server,
+            Some(&erin),
+            "/v1/team/join",
+            &json!({"join_secret": third})
+        ),
+        rejected
+    );
+    join(&server, &text(&rotated, "join_secret"), "frank");
+    let said = std::fs::read_to_string(scratch.path("stderr")).unwrap();
+    assert!(
+        said.contains(&format!(
+            "the move of team ops ({ELSEWHERE}) is closed by the rotation of its join secret"
+        )),
+        "{said}"
+    );
+    // Nothing the server wrote about itself holds a ticket or a join secret.
+    for random in [&first_random, &second_random, &third_random] {
+        assert!(!said.contains(random.as_str()), "{said}");
+    }
+    assert!(!said.contains("kept-from-the-other-backend"), "{said}");
+    server.stop();
+    // The rotation closed it: there is nothing left for the operator to close.
+    let (status, wrote) = close_move(&scratch, &arguments, ELSEWHERE);
+    assert_eq!(status, Some(0), "{wrote}");
+    assert!(wrote.contains("has no move: nothing changed"), "{wrote}");
+}
+
 #[test]
 fn a_gateway_that_joins_a_team_that_was_taken_in_first_does_not_own_it() {
     let scratch = Scratch::new("gateway-first");
@@ -1820,10 +2158,13 @@ fn conformance(log: &str, slow: bool) {
     );
     println!("{report}");
     assert!(output.status.success(), "{report}");
+    // Two cases are skipped on either log: C-51 and C-52, the record of where a team went, which the `rest`
+    // adapter does not offer, because a record is kept by the backend a team leaves. The third is the slow
+    // one.
     let skipped = if slow {
-        " 0 failed, 0 skipped"
+        " 0 failed, 2 skipped"
     } else {
-        " 0 failed, 1 skipped"
+        " 0 failed, 3 skipped"
     };
     assert!(report.contains(skipped), "{report}");
     server.stop();

@@ -13,9 +13,10 @@ import (
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
-// The verbs of `brigade team`: the four of 6.4 and the three
-// administrative pass-throughs of P5-2 (capability team.admin).
-var teamVerbs = []string{"create", "join", "leave", "members", "rotate-secret", "revoke-member", "transfer", "status", "reset", "revoke-credentials", "list"}
+// The verbs of `brigade team`: the four of 6.4, the three administrative
+// pass-throughs of P5-2 (capability team.admin) and `move`, which records
+// where a team went (capability team.move; work item 273).
+var teamVerbs = []string{"create", "join", "leave", "members", "rotate-secret", "revoke-member", "transfer", "move", "status", "reset", "revoke-credentials", "list"}
 
 // MembersNote is the note member of the `team members --json` result.
 const MembersNote = "human_label is unverified text chosen by the member; principal_ref is the only stable identity"
@@ -32,7 +33,7 @@ type membersResult struct {
 }
 
 // Team implements `brigade team create|join|leave|members|rotate-secret|
-// revoke-member|transfer …` (6.4; P5-2; P7-11). `members` is a harness
+// revoke-member|transfer|move …` (6.4; P5-2; P7-11; work item 273). `members` is a harness
 // command with the documented layout; every other verb is the terminal
 // pass-through with inherited stdio, so the user sees the adapter's own
 // envelope (`--json` is parsed here and has no effect on them). Two verbs
@@ -65,6 +66,11 @@ func Team(inv Invocation) error {
 			return usage("team list takes no arguments")
 		}
 		return inv.teamList()
+	case "move":
+		// The administrator's record of where the team went (work item 273):
+		// a harness command, because its destination is this project's team
+		// file and never an argument.
+		return inv.teamMove(raw.Rest)
 	case "revoke-member", "transfer":
 		if inv.inSession() {
 			return refuseAdminInSession()

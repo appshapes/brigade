@@ -15,6 +15,7 @@ and Slack gateways itself.
 | back it up, restore it, update it, move it, watch it, replace its certificate | [Keep the server](#keep-the-server) |
 | let people write to the team by email or from Slack | [Open the gateways](#open-the-gateways) |
 | move a team here from a Supabase project, keeping its join secret | [Take in a team that exists](#take-in-a-team-that-exists) |
+| have that team's members follow it here with no command of theirs | [Let a team's members follow it](#let-a-teams-members-follow-it) |
 | say who administers a team, name a new owner, or take a team back | [Name a team's owner](#name-a-teams-owner) |
 
 ## Install the server
@@ -75,9 +76,21 @@ Details: [Open the gateways](gateways.md).
 2. In each repository of the team, in `.brigade.json`: `adapter` becomes `rest`, `url` the server's, and
    `publishable_key` goes; `team_ref` stays.
 3. Each member updates the plugin to 0.53.1 or later, pulls, and joins with the secret file they already have,
-   once in each checkout that was joined to the team on the old backend.
+   once in each checkout that was joined to the team on the old backend. With a move opened and recorded they
+   do nothing instead ([Let a team's members follow it](#let-a-teams-members-follow-it)).
 
 Details: [Take in a team that exists](take-in-a-team.md).
+
+## Let a team's members follow it
+
+1. Stop the server, then
+   `brigade-server --data <dir> --open-move <team_ref> --ticket-file <file>`, then start it.
+2. Give the ticket's file to the Team Admin, who joins the server first and then records the move:
+   `brigade team move --ticket-file <path>`.
+3. Once the changed `.brigade.json` is pushed, each member's next session follows; nobody runs a join.
+4. `--close-move <team_ref>` ends it, as does the ticket's end after 30 days.
+
+Details: [Let a team's members follow it](open-a-move.md).
 
 ## Name a team's owner
 

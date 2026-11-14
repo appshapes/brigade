@@ -24,10 +24,17 @@ use serde::{Deserialize, Serialize};
 /// state without them and would drop them without a word, lifting every ban. It reads format 1 only, so a
 /// snapshot that may hold them names a format that build passes over, and it then refuses the log's record
 /// of a rotation or a revocation instead of starting on half of what the directory holds.
-const FORMAT: u32 = 2;
+///
+/// Format 3 is format 2 with what a team has had since server 0.5.0: the ticket of its move, while one is
+/// open. A build before that would read the state without it, and a team whose move is open would be a
+/// team with none: the ticket would stop admitting without a record that says so, and that build's own
+/// snapshot would then say the same to this one. It reads formats 1 and 2, so it passes a format 3
+/// snapshot over, and it refuses the log's record of a move instead.
+const FORMAT: u32 = 3;
 
 /// The oldest snapshot format this build reads. A snapshot of format 1 holds no secret version and no ban,
-/// and reads as the state it was: every team has its first secret, and nobody is banned.
+/// and reads as the state it was: every team has its first secret, and nobody is banned. Neither format 1
+/// nor format 2 holds a move, and both read as the state they were: no team is moving.
 const OLDEST_FORMAT: u32 = 1;
 
 /// What the name of a snapshot ends with while it is being written.
@@ -204,7 +211,7 @@ mod tests {
     use std::path::PathBuf;
 
     use brigade_core::hash::sha256_hex_of;
-    use brigade_core::state::{Principal, State};
+    use brigade_core::state::{MoveTicket, Principal, State};
     use brigade_core::time::Timestamp;
 
     use super::{KEPT, name, newest, oldest, tidy, write};
@@ -320,17 +327,17 @@ mod tests {
             (true, 1, false)
         );
 
-        // What this build writes of that state names format 2, which the earlier build passes over: it
+        // What this build writes of that state names format 3, which the earlier builds pass over: they
         // would read the state without what a team and a member have now. It reads back whole here.
         write(&dir, 80, &state).unwrap();
         let written = std::fs::read_to_string(dir.join(name(80))).unwrap();
-        assert!(written.starts_with(r#"{"format":2,"position":80,"#), "{written}");
+        assert!(written.starts_with(r#"{"format":3,"position":80,"#), "{written}");
         let found = newest(&dir, &mut |_, why| panic!("passed over: {why}"))
             .unwrap()
             .unwrap();
         assert_eq!(found, (80, state));
         // The format is inside what the checksum covers: a header that names another does not read.
-        let renamed = written.replacen(r#""format":2"#, r#""format":1"#, 1);
+        let renamed = written.replacen(r#""format":3"#, r#""format":1"#, 1);
         std::fs::write(dir.join(name(80)), renamed).unwrap();
         let mut reasons = Vec::new();
         let found = newest(&dir, &mut |_, why| reasons.push(why.to_owned()))
@@ -340,6 +347,55 @@ mod tests {
             (found.0, reasons.as_slice()),
             (70, &["it fails its checksum".to_owned()][..])
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_snapshot_of_format_2_is_read_with_no_team_moving_and_a_move_is_written_as_format_3() {
+        let dir = scratch("moves");
+        // A snapshot as server 0.4.1 wrote it: format 2, its checksum over that format, a team that
+        // counts its secrets and a member that is banned, and no move.
+        let body = concat!(
+            r#"{"principals":{"p1":{"created_at":5}},"credentials":{"h1":"p1"},"#,
+            r#""teams":{"t":{"team_ref":"t","team_name":"ops","join_secret_hash":"s","created_by":"p1","#,
+            r#""created_at":5,"secret_version":2,"members":{"p1":{"human_label":"alice","active":false,"#,
+            r#""joined_at":5,"joined_secret_version":2,"banned":true,"sent_at":[]}},"sessions":{}}},"#,
+            r#""session_teams":{},"swept_at":0,"latest_at":5,"entries":2}"#
+        );
+        let sha256 = sha256_hex_of(format!("2\n70\n{body}").as_bytes());
+        let earlier = format!("{{\"format\":2,\"position\":70,\"sha256\":\"{sha256}\"}}\n{body}");
+        std::fs::write(dir.join(name(70)), earlier).unwrap();
+        let (position, mut state) = newest(&dir, &mut |_, why| panic!("passed over: {why}"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(position, 70);
+        let team = &state.teams["t"];
+        assert_eq!((team.secret_version, team.move_ticket.as_ref()), (2, None));
+        assert!(team.members["p1"].banned);
+        // A state with no move is, but for its header, the bytes that build wrote: nothing is added to a
+        // team that is not moving.
+        write(&dir, 80, &state).unwrap();
+        let written = std::fs::read_to_string(dir.join(name(80))).unwrap();
+        assert_eq!(written.split_once('\n').unwrap().1, body);
+        assert!(written.starts_with(r#"{"format":3,"position":80,"#), "{written}");
+
+        // A team whose move is open is written with its ticket's hash and end, and read back whole.
+        let ticket = MoveTicket {
+            hash: "hash-of-the-ticket".to_owned(),
+            ends_at: Timestamp(9),
+        };
+        state.teams.get_mut("t").unwrap().move_ticket = Some(ticket.clone());
+        write(&dir, 90, &state).unwrap();
+        let written = std::fs::read_to_string(dir.join(name(90))).unwrap();
+        assert!(
+            written.contains(r#""move_ticket":{"hash":"hash-of-the-ticket","ends_at":9}"#),
+            "{written}"
+        );
+        let (position, read) = newest(&dir, &mut |_, why| panic!("passed over: {why}"))
+            .unwrap()
+            .unwrap();
+        assert_eq!((position, &read), (90, &state));
+        assert_eq!(read.teams["t"].move_ticket, Some(ticket));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

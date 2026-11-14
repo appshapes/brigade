@@ -4,6 +4,52 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
+## [0.5.0] — 2026-11-13
+
+### Added
+
+- **A team's members can follow it to the server with no command of their own: the move ticket** (work item
+  273). A team that is taken in keeps its join secret, but no member's machine keeps that secret, so every
+  member ran one join with the secret file. `brigade-server --data <dir> --open-move <team_ref> --ticket-file
+  <file>`, run with the server stopped, opens the team's move and ends. The team gets a move ticket: a second
+  join secret that lets a member in until the ticket ends, 30 days later unless `--ticket-days <days>` names
+  another number from 1 to 365. The ticket is written to the file, readable by its owner alone, and to nothing
+  else: it is on no command line and in no line the server writes, and the server keeps its hash only. The
+  file must not be there yet, and its place is checked before anything is changed. The operator hands the file
+  to the team's admin, who records the ticket on the backend the team leaves; a member's session reads it there
+  and joins the server with it. That half is the Brigade plugin's, in the release that carries work item 273.
+- **A ticket never makes a team's owner.** A join the ticket lets in is a join in everything else: the same
+  request, the same answer, a member under the secret the team has now, and a member the owner banned is
+  refused as it is with the secret. But on a team that has no owner it leaves the team without one, as a
+  gateway's join does. Every member of the team on the backend it leaves can read the ticket, so the team's
+  admin joins first, with the secret file, and owns the team. A ticket that has ended, one whose move was
+  closed or replaced and one of another team are refused in the words a wrong secret is.
+- **A move ends with its ticket, and is closed by the operator, by another move and by a rotation.**
+  `brigade-server --data <dir> --close-move <team_ref>`, run with the server stopped, closes it: the ticket
+  admits nobody from then on, and every member that came in with it stays a member. Opening a move for a team
+  that has one puts a new ticket in the place of the one before, which is how a ticket whose file was lost is
+  replaced, and the command says that the earlier ticket no longer admits. `brigade team rotate-secret` closes
+  the team's move in the same entry of the log, and so does `--take-back`: a rotation is how an owner ends
+  everything that let anyone in before it. The operator opens another move when this one is to go on.
+- **The server says who came in with a ticket.** A member's join with one leaves the line `member <reference>
+  joined team <name> (<team reference>) with its move ticket, labelled "<label>"`, and a rotation that closes
+  a move leaves `the move of team <name> (<team reference>) is closed by the rotation of its join secret: its
+  ticket admits nobody from now on`. Each of the two commands prints one line, as the operator's other
+  commands do: the team, the file and when the ticket ends, in UTC. No line holds any part of a ticket.
+
+Nothing about the contract changes: `/v1/team/join` carries a ticket as it carries a join secret, and no answer
+has a new member.
+
+### Changed
+
+- **Do not go back to 0.4.x on a data directory on which 0.5.0 has opened a move.** The opening and the closing
+  of a move are records of kinds 0.4.x does not know, and 0.4.x refuses to start on a log that holds one. The
+  snapshots 0.5.0 writes are of a new format, 3, which 0.4.x passes over: it would otherwise read a team whose
+  move is open as a team with none. On a directory where no move was ever opened, 0.4.x passes those snapshots
+  over and starts from the newest snapshot of its own that is still kept and the log after it, or from the
+  log's first entry where none is kept, and it refuses a log that no longer begins there. 0.5.0 reads the
+  snapshots and the log of 0.4.x as they are.
+
 ## [0.4.1] — 2026-11-13
 
 ### Added

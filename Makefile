@@ -338,14 +338,24 @@ server-check: ## rustfmt and clippy on server/ with warnings denied, with and wi
 # time, so the suite's own deadlines are met on a runner with four cores. The third is the member's side against
 # the same server: the built `brigade` creates a team with --adapter rest, a second member joins, and a message is
 # delivered, over TLS with a certificate that only its pin in the team file makes trusted. `make test` runs that
-# test too, against the stand-in server; BRIGADE_E2E_SERVER is what points it at the real one. With it goes the
-# test of a team that moves to the server with its join secret, which needs the server's own import and so runs
-# here only: the operator takes the team in, and each member's machine joins once with the secret it has.
+# test too, against the stand-in server; BRIGADE_E2E_SERVER is what points it at the real one. With it go the two
+# tests of a team that moves to the server, which need the server's own import and its move ticket and so run here
+# only: the operator takes the team in and each member's machine joins once with the secret it has; and (work item
+# 273) the administrator records the move on the backend the team leaves, and a member's next session follows.
 .PHONY: server-test
-server-test: build ## The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), a team created, joined and used on the server over TLS, and a team moved there with its join secret (CI)
+server-test: build ## The server's tests, conformance(server) through the rest adapter (file log, then --slow on the Cavalry feed), a team created, joined and used on the server over TLS, a team moved there with its join secret, and its members following it there with no command (CI)
 	cd server && cargo test --workspace --locked
 	cd server && BRIGADE_BIN_DIR=$(CURDIR)/$(bin_dir) cargo test --locked -p brigade-server --test server -- --ignored --test-threads=1
-	BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^(TestATeamOnAServerThroughTheRealBinary|TestATeamMovesToAServerWithItsSecretThroughTheRealBinary)$$' ./internal/harness/e2e/
+	BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^(TestATeamOnAServerThroughTheRealBinary|TestATeamMovesToAServerWithItsSecretThroughTheRealBinary|TestATeamsMembersFollowItToAServerThroughTheRealBinary)$$' ./internal/harness/e2e/
+
+# The move from the backend it was built for (work item 273): the same test as server-test's last, with a team on
+# the local Supabase stack as the team that moves. It needs the stack up with its migrations applied (`make
+# supabase-start supabase-env`) and builds the server, so it is a target of its own and no other target, and no CI
+# job, depends on it: CI's `supabase` job builds no server and its `server` job starts no stack.
+.PHONY: test-move-live
+test-move-live: build ## A team's members following it from the local Supabase stack to the built server, with no command of theirs (needs `make supabase-start supabase-env` and cargo)
+	cd server && cargo build --locked -p brigade-server
+	set -a; . ./$(env_test); set +a; BRIGADE_TEST_LIVE=1 BRIGADE_E2E_SERVER=$(CURDIR)/server/target/debug/brigade-server go test -count=1 -run '^TestATeamsMembersFollowItFromSupabaseToAServerThroughTheRealBinary$$' ./internal/harness/e2e/
 
 .PHONY: server-tag
 server-tag: ## Tag master's head as the server release server/VERSION names and push the tag; the server-release workflow then publishes the binaries and the image

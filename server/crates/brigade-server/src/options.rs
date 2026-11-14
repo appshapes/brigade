@@ -4,10 +4,13 @@
 //! every secret of the gateways, by the configuration that is itself a file, and the join secret of a team
 //! the server takes in. A team's reference and a principal's are no secrets: every member's roster shows
 //! them, so the commands that name a team's owner and take a team back take them as arguments. The join
-//! secret a team gets when it is taken back goes to a file the operator names, and to nothing else.
+//! secret a team gets when it is taken back goes to a file the operator names, and to nothing else, and so
+//! does the ticket of a team's move.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+
+use brigade_core::{MOVE_TICKET_DEFAULT_DAYS, MOVE_TICKET_MAX_DAYS};
 
 /// The address the server listens on when the operator names none.
 pub const DEFAULT_LISTEN: &str = "127.0.0.1:8743";
@@ -30,6 +33,9 @@ Usage: brigade-server --data <dir> [options]
        brigade-server --data <dir> --import-team <name> --join-secret-file <file> [the log's options]
        brigade-server --data <dir> --set-owner <team_ref> --principal <principal_ref> [the log's options]
        brigade-server --data <dir> --take-back <team_ref> --secret-file <file> [the log's options]
+       brigade-server --data <dir> --open-move <team_ref> --ticket-file <file> [--ticket-days <days>]
+                      [the log's options]
+       brigade-server --data <dir> --close-move <team_ref> [the log's options]
 
 A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md, version 1.
 
@@ -73,6 +79,21 @@ A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md,
   --secret-file <file>         the file --take-back writes the team's new join secret to, readable by its
                                owner alone: an absolute path of a file that is not there, in a directory that
                                is
+  --open-move <team_ref>       open the move of a team's members from another backend, and end: the team
+                               gets a move ticket, a second join secret that lets a member in until it ends
+                               and never makes the team's owner. The team's admin records the ticket on the
+                               backend the team leaves, where a member's session reads it and follows the
+                               team here with no command of the member's. A team has one move: opening
+                               another puts a new ticket in the place of the one before, which admits nobody
+                               from then on. Nothing is served, so it goes with --data, the log's options,
+                               --ticket-file and --ticket-days, and with no other
+  --ticket-file <file>         the file --open-move writes the move ticket to, readable by its owner alone:
+                               an absolute path of a file that is not there, in a directory that is
+  --ticket-days <days>         how many days the ticket of --open-move admits for, from 1 to 365 (default 30)
+  --close-move <team_ref>      close the move of a team, and end: its ticket admits nobody from then on, and
+                               every member that came in with it stays one. A rotation of the team's join
+                               secret closes its move too. Nothing is served, so it goes with --data and the
+                               log's options, and with no other
   --version                    print the version
   --help                       print this
 ";
@@ -162,6 +183,30 @@ pub struct TakeBack {
     pub options: Options,
 }
 
+/// What the command that opens a team's move is told.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenMove {
+    /// The team.
+    pub team_ref: String,
+    /// The file the move ticket is written to.
+    pub ticket_file: PathBuf,
+    /// How many days the ticket admits for.
+    pub days: u32,
+    /// The directory and the log, read as a start reads them. Like the import, the command serves nothing,
+    /// and the command line refuses every option that serving takes.
+    pub options: Options,
+}
+
+/// What the command that closes a team's move is told.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CloseMove {
+    /// The team.
+    pub team_ref: String,
+    /// The directory and the log, read as a start reads them. Like the import, the command serves nothing,
+    /// and the command line refuses every option that serving takes.
+    pub options: Options,
+}
+
 /// What a command line asks for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Asked {
@@ -173,6 +218,10 @@ pub enum Asked {
     SetOwner(Box<SetOwner>),
     /// To take a team back from whoever holds it, and end.
     TakeBack(Box<TakeBack>),
+    /// To open the move of a team's members from another backend, and end.
+    OpenMove(Box<OpenMove>),
+    /// To close the move of a team, and end.
+    CloseMove(Box<CloseMove>),
     /// To print the usage.
     Help,
     /// To print the version.
@@ -193,6 +242,8 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
     let (mut import_team, mut join_secret_file) = (None, None);
     let (mut set_owner, mut principal) = (None, None);
     let (mut take_back, mut secret_file) = (None, None);
+    let (mut open_move, mut ticket_file, mut ticket_days) = (None, None, None);
+    let mut close_move = None;
     let mut tls_in_front = false;
     let mut tls_self_signed = false;
     while let Some(flag) = arguments.next() {
@@ -221,6 +272,10 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
             "--principal" => principal = Some(value("--principal")?),
             "--take-back" => take_back = Some(value("--take-back")?),
             "--secret-file" => secret_file = Some(PathBuf::from(value("--secret-file")?)),
+            "--open-move" => open_move = Some(value("--open-move")?),
+            "--ticket-file" => ticket_file = Some(PathBuf::from(value("--ticket-file")?)),
+            "--ticket-days" => ticket_days = Some(value("--ticket-days")?),
+            "--close-move" => close_move = Some(value("--close-move")?),
             _ => return Err("an argument is not one the server knows".to_owned()),
         }
     }
@@ -240,11 +295,30 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
         (None, None) => None,
         _ => return Err("--take-back and --secret-file go together".to_owned()),
     };
-    // Each of the three commands ends when it is done, and one run of the program is one of them.
+    let opened = match (open_move, ticket_file) {
+        (Some(team_ref), Some(ticket_file)) => Some((team_ref, ticket_file)),
+        (None, None) => None,
+        _ => return Err("--open-move and --ticket-file go together".to_owned()),
+    };
+    // How long a ticket admits for is said of a ticket that is being made, and of nothing else.
+    let ticket_days = match (ticket_days, &opened) {
+        (None, _) => MOVE_TICKET_DEFAULT_DAYS,
+        (Some(_), None) => return Err("--ticket-days goes with --open-move".to_owned()),
+        (Some(text), Some(_)) => text
+            .parse::<u32>()
+            .ok()
+            .filter(|days| (1..=MOVE_TICKET_MAX_DAYS).contains(days))
+            .ok_or_else(|| {
+                format!("--ticket-days takes a number of days from 1 to {MOVE_TICKET_MAX_DAYS}")
+            })?,
+    };
+    // Each of the five commands ends when it is done, and one run of the program is one of them.
     let given: Vec<(&str, &str)> = [
         ("--import-team", "takes a team in", import.is_some()),
         ("--set-owner", "names a team's owner", owner.is_some()),
         ("--take-back", "takes a team back", taken.is_some()),
+        ("--open-move", "opens a team's move", opened.is_some()),
+        ("--close-move", "closes a team's move", close_move.is_some()),
     ]
     .into_iter()
     .filter(|(_, _, given)| *given)
@@ -345,29 +419,42 @@ pub fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Asked, Strin
         snapshot_every,
         feed_roll_bytes,
     };
-    Ok(match (import, owner, taken) {
-        (Some((team_name, join_secret_file)), _, _) => Asked::Import(Box::new(Import {
+    // At most one of the five was given.
+    Ok(if let Some((team_name, join_secret_file)) = import {
+        Asked::Import(Box::new(Import {
             team_name,
             join_secret_file,
             options,
-        })),
-        (None, Some((team_ref, principal_ref)), _) => Asked::SetOwner(Box::new(SetOwner {
+        }))
+    } else if let Some((team_ref, principal_ref)) = owner {
+        Asked::SetOwner(Box::new(SetOwner {
             team_ref,
             principal_ref,
             options,
-        })),
-        (None, None, Some((team_ref, secret_file))) => Asked::TakeBack(Box::new(TakeBack {
+        }))
+    } else if let Some((team_ref, secret_file)) = taken {
+        Asked::TakeBack(Box::new(TakeBack {
             team_ref,
             secret_file,
             options,
-        })),
-        (None, None, None) => Asked::Run(Box::new(options)),
+        }))
+    } else if let Some((team_ref, ticket_file)) = opened {
+        Asked::OpenMove(Box::new(OpenMove {
+            team_ref,
+            ticket_file,
+            days: ticket_days,
+            options,
+        }))
+    } else if let Some(team_ref) = close_move {
+        Asked::CloseMove(Box::new(CloseMove { team_ref, options }))
+    } else {
+        Asked::Run(Box::new(options))
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Asked, Import, LogKind, Options, SetOwner, TakeBack, Tls, parse};
+    use super::{Asked, CloseMove, Import, LogKind, OpenMove, Options, SetOwner, TakeBack, Tls, parse};
 
     fn run(arguments: &[&str]) -> Result<Options, String> {
         match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
@@ -780,6 +867,176 @@ mod tests {
             ])
             .unwrap_err(),
             "--import-team and --join-secret-file go together"
+        );
+    }
+
+    fn open_move(arguments: &[&str]) -> Result<OpenMove, String> {
+        match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
+            Asked::OpenMove(opened) => Ok(*opened),
+            other => Err(format!("{other:?}")),
+        }
+    }
+
+    fn close_move(arguments: &[&str]) -> Result<CloseMove, String> {
+        match parse(arguments.iter().map(|argument| (*argument).to_owned()))? {
+            Asked::CloseMove(closed) => Ok(*closed),
+            other => Err(format!("{other:?}")),
+        }
+    }
+
+    #[test]
+    fn a_move_is_opened_by_the_teams_reference_the_file_its_ticket_goes_to_and_its_days() {
+        let pair = [
+            "--data",
+            "/srv/brigade",
+            "--open-move",
+            "the-team",
+            "--ticket-file",
+            "/run/secrets/ops.move-ticket",
+        ];
+        let opened = open_move(&pair).unwrap();
+        assert_eq!(opened.team_ref, "the-team");
+        assert_eq!(
+            opened.ticket_file,
+            std::path::Path::new("/run/secrets/ops.move-ticket")
+        );
+        // A ticket admits for thirty days unless the operator says otherwise, and for a year at most.
+        assert_eq!(opened.days, 30);
+        let with_days = |days: &'static str| {
+            let mut arguments = pair.to_vec();
+            arguments.extend_from_slice(&["--ticket-days", days]);
+            open_move(&arguments)
+        };
+        assert_eq!(with_days("1").unwrap().days, 1);
+        assert_eq!(with_days("365").unwrap().days, 365);
+        for days in ["0", "366", "-1", "thirty", "1.5", ""] {
+            assert_eq!(
+                with_days(days).unwrap_err(),
+                "--ticket-days takes a number of days from 1 to 365",
+                "{days:?}"
+            );
+        }
+        // The directory and the log are read as a start reads them, and the log's options go with it.
+        assert_eq!(opened.options, run(&["--data", "/srv/brigade"]).unwrap());
+        let mut on_a_file = pair.to_vec();
+        on_a_file.extend_from_slice(&["--log", "file", "--snapshot-every", "7"]);
+        let opened = open_move(&on_a_file).unwrap();
+        assert_eq!(
+            (opened.options.log, opened.options.snapshot_every),
+            (LogKind::File, 7)
+        );
+        // The two go together, whichever is missing, and the days go with them and with nothing else.
+        for half in [&["--open-move", "the-team"][..], &["--ticket-file", "/f"][..]] {
+            let mut arguments = vec!["--data", "d"];
+            arguments.extend_from_slice(half);
+            assert_eq!(
+                open_move(&arguments).unwrap_err(),
+                "--open-move and --ticket-file go together"
+            );
+        }
+        for others in [
+            &["--data", "d", "--ticket-days", "7"][..],
+            &["--data", "d", "--close-move", "the-team", "--ticket-days", "7"][..],
+            &[
+                "--data",
+                "d",
+                "--take-back",
+                "the-team",
+                "--secret-file",
+                "/f",
+                "--ticket-days",
+                "7",
+            ][..],
+        ] {
+            assert_eq!(
+                open_move(others).unwrap_err(),
+                "--ticket-days goes with --open-move",
+                "{others:?}"
+            );
+        }
+        let no_directory = open_move(&pair[2..]).unwrap_err();
+        assert!(no_directory.contains("--data"), "{no_directory}");
+        assert!(open_move(&["--data", "d", "--open-move"]).is_err());
+        assert!(super::USAGE.contains("--open-move <team_ref>"));
+        assert!(super::USAGE.contains("--ticket-file <file>"));
+        assert!(super::USAGE.contains("--ticket-days <days>"));
+    }
+
+    #[test]
+    fn a_move_is_closed_by_the_teams_reference_alone() {
+        let closed = close_move(&["--data", "/srv/brigade", "--close-move", "the-team"]).unwrap();
+        assert_eq!(closed.team_ref, "the-team");
+        assert_eq!(closed.options, run(&["--data", "/srv/brigade"]).unwrap());
+        let on_a_file = close_move(&["--data", "d", "--close-move", "the-team", "--log", "file"]).unwrap();
+        assert_eq!(on_a_file.options.log, LogKind::File);
+        let no_directory = close_move(&["--close-move", "the-team"]).unwrap_err();
+        assert!(no_directory.contains("--data"), "{no_directory}");
+        assert!(close_move(&["--data", "d", "--close-move"]).is_err());
+        // The file of a ticket is the file of a move that is opened, and of no other command.
+        assert_eq!(
+            close_move(&["--data", "d", "--close-move", "the-team", "--ticket-file", "/f"]).unwrap_err(),
+            "--open-move and --ticket-file go together"
+        );
+        assert!(super::USAGE.contains("--close-move <team_ref>"));
+    }
+
+    #[test]
+    fn opening_and_closing_a_move_serve_nothing_and_each_is_one_command_of_its_own() {
+        let open = ["--data", "d", "--open-move", "the-team", "--ticket-file", "/f"];
+        let close = ["--data", "d", "--close-move", "the-team"];
+        for (command, does, option) in [
+            (&open[..], "opens a team's move", "--open-move"),
+            (&close[..], "closes a team's move", "--close-move"),
+        ] {
+            let with = |others: &[&'static str]| {
+                let mut arguments = command.to_vec();
+                arguments.extend_from_slice(others);
+                parse(arguments.iter().map(|argument| (*argument).to_owned()))
+            };
+            // Everything that serving takes is refused by its own name, and no value is repeated.
+            for (others, named) in [
+                (&["--listen", "127.0.0.1:9000"][..], "--listen"),
+                (&["--tls-cert", "c.pem", "--tls-key", "k.pem"][..], "--tls-cert"),
+                (&["--tls-self-signed"][..], "--tls-self-signed"),
+                (&["--tls-in-front"][..], "--tls-in-front"),
+                (&["--create-token-file", "token"][..], "--create-token-file"),
+                (&["--address-file", "address"][..], "--address-file"),
+                (&["--gateway-config", "gateways.json"][..], "--gateway-config"),
+            ] {
+                assert_eq!(
+                    with(others).unwrap_err(),
+                    format!("{option} {does} and ends, and serves nothing: it does not go with {named}")
+                );
+            }
+            // It is none of the other commands, and the refusal names the two that were given and
+            // nothing that was typed beside them.
+            for (others, first) in [
+                (
+                    &["--import-team", "ops", "--join-secret-file", "f"][..],
+                    "--import-team",
+                ),
+                (
+                    &["--set-owner", "another-team", "--principal", "the-member"][..],
+                    "--set-owner",
+                ),
+                (
+                    &["--take-back", "another-team", "--secret-file", "/g"][..],
+                    "--take-back",
+                ),
+            ] {
+                let both = with(others).unwrap_err();
+                assert_eq!(
+                    both,
+                    format!("{first} and {option} are two commands, and each ends when it is done: give one")
+                );
+            }
+        }
+        // A move is opened or closed in one run, not both.
+        let mut both = open.to_vec();
+        both.extend_from_slice(&["--close-move", "the-team"]);
+        assert_eq!(
+            parse(both.iter().map(|argument| (*argument).to_owned())).unwrap_err(),
+            "--open-move and --close-move are two commands, and each ends when it is done: give one"
         );
     }
 

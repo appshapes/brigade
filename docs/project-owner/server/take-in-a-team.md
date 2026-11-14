@@ -57,6 +57,10 @@ who may rotate its secret, revoke a member and transfer it (from 0.4.0 of the se
 
 ## What each member does
 
+From server 0.5.0 and plugin 0.55.0 a member can do nothing at all: you open a move, the Team Admin records it,
+and each member's next session follows ([Let a team's members follow it](open-a-move.md)). Without a move, or for
+a member whose session does not follow:
+
 1. Update the plugin to 0.53.1 or later, and pull. (0.52.0 reads a server's team file; 0.53.1 also moves the
    synced folders of a repository that had another team's file before.)
 2. The next session says that `.brigade.json` does not match the team joined here, and connects to nothing.

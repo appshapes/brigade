@@ -28,6 +28,17 @@ func DoingNudgeStamp(stateDir string, pid int) string {
 	return filepath.Join(stateDir, "state", strconv.Itoa(pid)+".doing-nudge")
 }
 
+// TeamMovedStamp marks that the prompt hook has told a running session,
+// once, that its project's team file now names another backend for the
+// team it is attached to: ${stateDir}/state/<pid>.team-moved (work item
+// 273). The session stays where it is until it ends, so the line is said
+// once. The file holds the Brigade session that was told, so a stamp a
+// dead session left under the same process id is not this session's;
+// SessionEnd removes it.
+func TeamMovedStamp(stateDir string, pid int) string {
+	return filepath.Join(stateDir, "state", strconv.Itoa(pid)+".team-moved")
+}
+
 // MaxSessionNameChars caps the name `brigade rename` records and the
 // prompt hook applies (card 174): Claude Code's own cap on a /rename name.
 const MaxSessionNameChars = 200

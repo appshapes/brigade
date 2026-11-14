@@ -32,8 +32,8 @@ Commands:
                                               read and change the Brigade Board, the team's board of work items, which file sync shares with every teammate's machine: list them, show one, add one (title, a blank line and the description on stdin), edit, move, assign, tag, comment on, close or reopen one, and show, name or rename the board's lists, or hide one from the listing (a list is named by its key or its name; a listing leaves a hidden list out unless --all or --list asks for it)
   inbound [accept|hold|refuse]                show this session's inbound policy, or hold or refuse team messages for this session alone (accept returns to its own policy)
   sync status                                 show the folders this project syncs, the sync engine and the teammates' peers
-  team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags]
-                                              create, join, leave and administer a team, and list its members
+  team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|move [--team <ref-or-name>] [adapter flags]
+                                              create, join, leave and administer a team, list its members, and record where it moved
   inbox [release] [--session <id>] [--all | <message_id>…] | follow [--incarnation <token>] | read [--cursor <token>]
                                               show and release held messages; follow prints each team message as it lands (a native inbox monitor's command)
   hook session-start|prompt|stop|session-end [--host codex|grok --plugin-root <dir>]
@@ -213,9 +213,9 @@ show the folders this project syncs, the sync engine and the teammates' peers
 ## brigade team
 
 ```text
-Usage: brigade team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer [--team <ref-or-name>] [adapter flags] [--json] [--log-level debug|info|warn|error]
+Usage: brigade team create|join|leave|members|status|reset|revoke-credentials|list|rotate-secret|revoke-member|transfer|move [--team <ref-or-name>] [adapter flags] [--json] [--log-level debug|info|warn|error]
 
-create, join, leave and administer a team, and list its members
+create, join, leave and administer a team, list its members, and record where it moved
 ```
 
 ## brigade inbox

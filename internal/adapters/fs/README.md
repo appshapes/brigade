@@ -163,6 +163,7 @@ The store lives under `<root>`, every directory 0700 and every file 0600:
 <root>/.lock                                              flock sidecar; every command but `describe` holds it
 <root>/teams/<team_ref>/team.json                         {team_ref, team_name, join_secret_sha256, created_by, created_at}
 <root>/teams/<team_ref>/members/<principal_ref>.json      {principal_ref, human_label, status, joined_at}
+<root>/teams/<team_ref>/move.json                         {adapter, url, certificate, ticket, recorded_by, recorded_at}; there while a move is recorded
 <root>/teams/<team_ref>/sessions/<session_id>.json        the session; no `state` — that is computed at read time
 <root>/teams/<team_ref>/inbox/<recipient>/<seq>.<id>.json a pending protocol.MessageEnvelope
 <root>/teams/<team_ref>/acked/<recipient>/<seq>.<id>.json the same file after acknowledgement, plus acked_at
@@ -188,9 +189,15 @@ when no team exists.
 `describe` (4.4.1) answers `protocol_version "1"`, `delivery {at_least_once, none, injected}`, the protocol's own
 `limits` and `retention`, and these capabilities (4.7):
 
-`team.create`, `team.join`, `team.roster`, `message.receive`, `message.watch.stdin_commands`, `session.description`,
+`team.create`, `team.join`, `team.roster`, `team.move`, `message.receive`, `message.watch.stdin_commands`, `session.description`,
 `session.resume`, `session.workspace_label`, `session.inbound`, `session.model`, `session.context_used_tokens`,
 `session.human_label`, `session.brigade_version`, `session.sync_peer`.
+
+`team.move` is the record of where a team went (4.4.10; C-51, C-52): `team move`, for the principal that created
+the team, writes `move.json` and `--clear` removes it; `team moved` reads it for an active member. The file holds
+the move ticket as it was given, because a member's adapter has to present it at the new backend, so whoever can
+read the store can read the ticket, as they can read every message in it. The adapter has no `team.admin`: the
+team's creator is its owner for good.
 
 It does **not** advertise `message.watch.push`: it polls, so the watch's `ready` event says `"mode": "polling"` and a
 consumer expects two poll intervals of latency rather than five seconds (C-33, C-35).

@@ -81,7 +81,7 @@ Who can read what, and what was measured, is [docs/security.md](../docs/security
 
 ## Options
 
-Sixteen options, all optional, all with working defaults, set from `/plugin` in a session, by asking the session,
+Seventeen options, all optional, all with working defaults, set from `/plugin` in a session, by asking the session,
 or with `--settings`; the table and each option's meaning is [Know the options](../docs/team-member/configure/options.md).
 
 ## For developers

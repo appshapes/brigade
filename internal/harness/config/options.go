@@ -32,6 +32,7 @@ const (
 	OptionMessageInterval      = "CLAUDE_PLUGIN_OPTION_MESSAGE_INTERVAL"
 	OptionClaudeInboundSetting = "CLAUDE_PLUGIN_OPTION_CLAUDE_INBOUND_SETTING"
 	OptionStatus               = "CLAUDE_PLUGIN_OPTION_STATUS"
+	OptionFollowTeamMove       = "CLAUDE_PLUGIN_OPTION_FOLLOW_TEAM_MOVE"
 )
 
 // The BRIGADE_* variables that stand in for three options OUTSIDE a
@@ -102,6 +103,11 @@ const (
 	// spelling switches sync off rather than being guessed at, as
 	// ParseInbound's does for the inbound policy.
 	WarnSyncInvalid = `Brigade: sync must be "on" or "off"; the value set is neither, so file sync is off for this session.`
+	// WarnFollowTeamMoveInvalid: the follow_team_move option is neither on
+	// nor off (work item 273, ADR 0003). An unexpected spelling does not
+	// follow: the member who set the option wanted a say, so the session
+	// stays where it is and says so.
+	WarnFollowTeamMoveInvalid = `Brigade: follow_team_move must be "on" or "off"; the value set is neither, so this session does not follow a team that moved.`
 	// WarnMessageSoundInvalid: the message_sound option is neither on nor
 	// off (card 35); the session plays nothing and says so once.
 	WarnMessageSoundInvalid = `Brigade: message_sound must be "on" or "off"; the value set is neither, so no sound is played for this session.`
@@ -137,6 +143,24 @@ func ParseSync(raw string) (bool, string) {
 		return false, ""
 	default:
 		return false, WarnSyncInvalid
+	}
+}
+
+// ParseFollowTeamMove maps a follow_team_move value to whether a session
+// may follow its team to another backend on the word of the team's
+// administrator, recorded on the backend the team left (work item 273, ADR
+// 0003): "" (unset — the default is on) or "on" → true; "off" → false;
+// anything else → false with WarnFollowTeamMoveInvalid. The grammar is
+// ParseSync's, and there is no BRIGADE_* fallback: only a session's start
+// follows, and a terminal's `team join` is the member's own word.
+func ParseFollowTeamMove(raw string) (bool, string) {
+	switch strings.TrimSpace(raw) {
+	case "", SyncOn:
+		return true, ""
+	case SyncOff:
+		return false, ""
+	default:
+		return false, WarnFollowTeamMoveInvalid
 	}
 }
 
@@ -401,6 +425,14 @@ type Options struct {
 	// WarnStatusInvalid when the option was neither word.
 	Status        bool
 	StatusWarning string
+	// FollowTeamMove is on unless the option says off (work item 273, ADR
+	// 0003): a session whose team file names another backend for the team
+	// it joined may then follow the team there, when the backend it joined
+	// holds the administrator's record of exactly that move.
+	// FollowTeamMoveWarning carries WarnFollowTeamMoveInvalid when the
+	// option was neither word.
+	FollowTeamMove        bool
+	FollowTeamMoveWarning string
 }
 
 // ParseOptions resolves Options from environ. Only CLAUDE_PLUGIN_OPTION_*
@@ -499,6 +531,7 @@ func ParseOptions(environ []string) (Options, error) {
 	o.MessageNotification, o.MessageNotificationWarning = ParseMessageNotification(opt(OptionMessageNotification))
 	o.MessageInterval, o.MessageIntervalWarning = ParseMessageInterval(opt(OptionMessageInterval))
 	o.Status, o.StatusWarning = ParseStatus(opt(OptionStatus))
+	o.FollowTeamMove, o.FollowTeamMoveWarning = ParseFollowTeamMove(opt(OptionFollowTeamMove))
 	return o, nil
 }
 

@@ -72,7 +72,20 @@ linters:
           files: ["**/internal/harness/hook/**"]
           deny:
             - pkg: github.com/appshapes/brigade/internal/harness/teamstore/write
-              desc: the hook only reads the team store; every writer is a terminal command (P7-4, attach-only)
+              desc: the hook only reads the team store and never writes it on a team file's word; every writer is a command, but for internal/harness/teammove, which rewrites a pin only on the old backend's record of the team's move (P7-4, attach-only; ADR 0003)
+        # The rule above keeps the hook from the writer itself. This one keeps every other package from it too, so
+        # that no package the hook imports can carry the writer in by another door: the team store has two
+        # writers, the commands and the follow of a recorded move (ADR 0003), and a third is a decision.
+        team-store-has-two-writers:
+          files:
+            - $all
+            - "!**/internal/harness/commands/**"
+            - "!**/internal/harness/teammove/**"
+            - "!**/internal/harness/teamstore/write/**"
+            - "!**/internal/harness/e2e/**"
+          deny:
+            - pkg: github.com/appshapes/brigade/internal/harness/teamstore/write
+              desc: only internal/harness/commands and internal/harness/teammove write the team store (and the end-to-end tests, which lay out a member's machine); anything else reads it (ADR 0003)
   exclusions:
     generated: lax
     presets: [comments, std-error-handling]

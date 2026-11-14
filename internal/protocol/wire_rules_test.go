@@ -643,6 +643,12 @@ func TestDecision3EveryValidateFieldIsAWireMemberPath(t *testing.T) {
 		&TeamRevokeMemberRequest{JoinedSecretVersionLTE: intptr(-1)},
 		&TeamRotateSecretResult{TeamRef: "t1", TeamName: "ops", SecretVersion: 1},
 		&TeamRevokeByVersionResult{TeamRef: "t1", MaxVersion: -1},
+		&TeamMoveRequest{}, &TeamMoveResult{},
+		&TeamMoveRequest{Adapter: "rest"},
+		&TeamMoveRequest{Adapter: "rest", URL: "https://b.example", Certificate: long},
+		&TeamMoveResult{TeamRef: "t1", URL: "https://b.example"},
+		&TeamMoveResult{TeamRef: "t1", TicketFile: "/tmp/t"},
+		&TeamMoveResult{TeamRef: "t1", Moved: true, Adapter: "rest", URL: "https://b.example"},
 		&Envelope{}, &ErrorObject{},
 		&TeamCreateRequest{TeamName: long},
 		&SessionRegistration{Harness: "h", HarnessVersion: "v", SessionName: "n", Activity: ActivityBusy, Inbound: InboundAccept, WorkspaceLabel: strptr(long)},
@@ -751,6 +757,7 @@ func wireRootTypes() []any {
 		TeamJoinRequest{}, TeamJoinResult{}, TeamLeaveResult{},
 		TeamRotateSecretResult{}, TeamRevokeMemberRequest{}, TeamRevokeMemberResult{},
 		TeamRevokeByVersionResult{}, TeamTransferRequest{}, TeamTransferResult{},
+		TeamMoveRequest{}, TeamMoveResult{},
 	}
 }
 

@@ -37,11 +37,16 @@ BRIGADE_TEST_SYNCTHING=1 BRIGADE_E2E_SERVER=$PWD/server/target/debug/brigade-ser
 
 ## The conformance suite
 
-`brigade-conformance` is the arbiter for an adapter: 52 cases, three principals in two teams, an environment built
+`brigade-conformance` is the arbiter for an adapter: 54 cases, three principals in two teams, an environment built
 from scratch. `make test` runs it against the fs adapter and, through `bin/brigade-rest-stub` (a stand-in server
 for [the backend REST contract](../../backend-rest-v1.md) that runs the fs adapter in-process), against the
 bundled `rest` adapter. The three team administration cases (C-48 to C-50) run in the second: the fs adapter does
-not advertise `team.admin`, so they are skipped in the first. `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
+not advertise `team.admin`, so they are skipped in the first. The two cases of a team's move (C-51 and C-52) run in
+the first and against the Supabase adapter: the `rest` adapter does not advertise `team.move`, because a move's
+record is kept by the backend a team leaves. The move itself, a member's session following its team with no
+command run, is proven end to end from the fs adapter in `make server-test`, and from the local Supabase stack by
+`make test-move-live`, which needs the stack and a Rust toolchain together and so is run by a developer and by no
+CI job. `make conformance adapter=<executable> [args="-- fixed args"]` runs it against any adapter, with `--shared-env <VAR>` when every principal must share a directory and
 `--setup <cmd>` when principals are provisioned out of band ([Write an adapter](../change/adapters.md)). Its own
 positive control is four deliberately broken builds of the reference adapter, each of which must fail exactly its
 own cases.

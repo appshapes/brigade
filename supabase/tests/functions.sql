@@ -5,10 +5,11 @@
 -- the live denials.
 begin;
 \ir helpers/auth.sql
-select plan(222);
+select plan(243);
 
--- The catalogue this file pins: 28 functions, 17 of them RPCs callable by authenticated, 11 server-only (P5-2 added
--- the four team-administration RPCs and the team_as_creator gate, 20260905120000_brigade_team_admin.sql).
+-- The catalogue this file pins: 31 functions, 20 of them RPCs callable by authenticated, 11 server-only (P5-2 added
+-- the four team-administration RPCs and the team_as_creator gate, 20260905120000_brigade_team_admin.sql; work item
+-- 273 the three RPCs of a team's move, 20261114120000_team_move.sql).
 create temp table fn_expected (name text primary key, rpc boolean not null);
 insert into fn_expected values
   ('my_team_ids', true), ('create_team', true), ('join_team', true), ('leave_team', true),
@@ -16,6 +17,7 @@ insert into fn_expected values
   ('list_members', true), ('send_message', true), ('fetch_inbox', true), ('ack_messages', true),
   ('owns_session_topic', true),
   ('rotate_join_secret', true), ('revoke_membership', true), ('revoke_memberships_by_version', true), ('transfer_team', true),
+  ('record_team_move', true), ('clear_team_move', true), ('read_team_move', true),
   ('session_record', false), ('envelope', false), ('message_result', false), ('owned_active_session', false),
   ('stamp_message', false), ('stamp_session', false), ('assert_session_identity', false),
   ('notify_message_inserted', false), ('gc_expired', false), ('gc_anonymous_users', false), ('team_as_creator', false);
@@ -26,34 +28,34 @@ create temp view fn as
     from pg_proc p where p.pronamespace = 'brigade'::regnamespace;
 
 -- 1. The function set is exactly the expected one (no stray helper, nothing missing).
-select functions_are('brigade', array(select name from fn_expected), 'brigade holds exactly the 28 expected functions');
-select is((select count(*) from fn), 28::bigint, 'no overloads: 28 pg_proc rows in brigade');
+select functions_are('brigade', array(select name from fn_expected), 'brigade holds exactly the 31 expected functions');
+select is((select count(*) from fn), 31::bigint, 'no overloads: 31 pg_proc rows in brigade');
 
--- 2. Every function is security definer (28 assertions).
+-- 2. Every function is security definer (31 assertions).
 select ok(prosecdef, 'security definer: ' || proname) from fn order by proname;
 
--- 3. Every function pins an EMPTY search_path in proconfig (28 assertions).
+-- 3. Every function pins an EMPTY search_path in proconfig (31 assertions).
 select ok(exists (select 1 from unnest(coalesce(proconfig, '{}')) c where c ~ '^search_path=("")?$'),
           'search_path='''' in proconfig: ' || proname)
   from fn order by proname;
 
--- 4. Explicit revoke happened: proacl is non-null on every function (28 assertions). A null proacl means the
+-- 4. Explicit revoke happened: proacl is non-null on every function (31 assertions). A null proacl means the
 --    built-in EXECUTE TO PUBLIC is still in force (plan 5.3: the per-schema default-privileges statement is a no-op).
 select ok(proacl is not null, 'non-null proacl (explicit revoke ran): ' || proname) from fn order by proname;
 
--- 5. No empty-grantee (=X, i.e. PUBLIC) ACL entry on any function (28 assertions).
+-- 5. No empty-grantee (=X, i.e. PUBLIC) ACL entry on any function (31 assertions).
 select ok(not exists (select 1 from aclexplode(proacl) a where a.grantee = 0),
           'no PUBLIC (=X) execute entry: ' || proname)
   from fn order by proname;
 
--- 6. anon can execute nothing in brigade (28 assertions).
+-- 6. anon can execute nothing in brigade (31 assertions).
 select ok(not has_function_privilege('anon', oid, 'execute'), 'anon cannot execute: ' || proname) from fn order by proname;
 
--- 7. service_role can execute nothing in brigade (28 assertions; E0-1 (i)).
+-- 7. service_role can execute nothing in brigade (31 assertions; E0-1 (i)).
 select ok(not has_function_privilege('service_role', oid, 'execute'), 'service_role cannot execute: ' || proname)
   from fn order by proname;
 
--- 8. authenticated can execute exactly the RPCs and none of the helpers/triggers/gc (28 assertions).
+-- 8. authenticated can execute exactly the RPCs and none of the helpers/triggers/gc (31 assertions).
 select is(has_function_privilege('authenticated', f.oid, 'execute'), e.rpc,
           case when e.rpc then 'authenticated may execute RPC: ' else 'authenticated may NOT execute server-only: ' end || f.proname)
   from fn f join fn_expected e on e.name = f.proname order by f.proname;

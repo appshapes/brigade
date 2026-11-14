@@ -58,6 +58,9 @@ const (
 	rpcRevokeMembership = "revoke_membership"
 	rpcRevokeByVersion  = "revoke_memberships_by_version"
 	rpcTransferTeam     = "transfer_team"
+	rpcRecordTeamMove   = "record_team_move"
+	rpcClearTeamMove    = "clear_team_move"
+	rpcReadTeamMove     = "read_team_move"
 )
 
 // The `status` values join_team and create_team answer with (D15: the
@@ -157,6 +160,10 @@ func (c *command) teamCommand() (any, error) {
 		return c.teamRevokeMember()
 	case "transfer":
 		return c.teamTransfer()
+	case "move":
+		return c.teamMove()
+	case "moved":
+		return c.teamMoved()
 	default:
 		return nil, errUsage("unknown team verb")
 	}
@@ -815,4 +822,151 @@ func (c *command) teamTransfer() (any, error) {
 		return nil, errUnexpectedResponse("the backend did not confirm the transfer")
 	}
 	return &protocol.TeamTransferResult{TeamRef: c.profile.TeamRef, PrincipalRef: req.PrincipalRef, Transferred: true}, nil
+}
+
+// ---- a team's move (4.4.10, capability team.move; work item 273, ADR 0003) ----
+//
+// A team that leaves this project for another backend keeps its team id.
+// Its owner records the move here with `team move`: where the team went
+// and the move ticket, a join secret of the team at the new backend. An
+// active member's `team moved` reads the record, which is what lets that
+// member's harness follow the team on this project's word and never on a
+// team file's alone. The three RPCs are the team-move migration's
+// (20261114120000_team_move.sql). The ticket is a secret: it is read from
+// the file --ticket-file names and written to the file --ticket-file
+// names, and is in no result, no error and no log line.
+
+// teamMoveMigration is the migration the three RPCs come with, named where
+// a project without it is told so.
+const teamMoveMigration = "20261114120000_team_move.sql"
+
+// teamMoveAnswer is the jsonb of record_team_move, clear_team_move and
+// read_team_move. Ticket is set by read_team_move alone and goes to the
+// --ticket-file and to nothing else.
+type teamMoveAnswer struct {
+	Moved       bool      `json:"moved"`
+	TeamID      string    `json:"team_id"`
+	Adapter     string    `json:"adapter"`
+	URL         string    `json:"url"`
+	Certificate string    `json:"certificate"`
+	Ticket      string    `json:"ticket"`
+	RecordedAt  time.Time `json:"recorded_at"`
+}
+
+// result builds the protocol's result from a recorded move the backend
+// answered, and refuses an answer that is not one about teamRef or that
+// the protocol's own shape would refuse.
+func (a *teamMoveAnswer) result(teamRef string) (*protocol.TeamMoveResult, error) {
+	res := &protocol.TeamMoveResult{
+		TeamRef: teamRef, Moved: true, Adapter: a.Adapter, URL: a.URL, Certificate: a.Certificate, RecordedAt: a.RecordedAt,
+	}
+	if !a.Moved || a.TeamID != teamRef || res.Validate() != nil {
+		return nil, errUnexpectedResponse("the backend did not answer a recorded move of this team")
+	}
+	return res, nil
+}
+
+// teamMove implements `team move` (4.4.10, C-51): the owner records where
+// the team went, or clears the record with --clear. The request and the
+// ticket file are read and checked before any network call; the ticket
+// must be a join secret that carries this team's id. On a project without
+// the team-move migration the command is `config` and says which
+// migration its Project Owner has to apply.
+func (c *command) teamMove() (any, error) {
+	fs := newFlags()
+	flags := adapterkit.NewTeamMoveFlags(fs)
+	if err := c.parse(fs); err != nil {
+		return nil, err
+	}
+	move, err := flags.Request(c.stdin)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.authenticate(true); err != nil {
+		return nil, err
+	}
+	teamRef := c.profile.TeamRef
+	var answer teamMoveAnswer
+	if move.Clear {
+		if err := c.rpc(c.ctx, rpcClearTeamMove, rpcArgs{"p_team_id": teamRef}, &answer); err != nil {
+			return nil, withoutTeamMoveMigration(err)
+		}
+		if answer.Moved || answer.TeamID != teamRef {
+			return nil, errUnexpectedResponse("the backend did not confirm that the move is cleared")
+		}
+		return &protocol.TeamMoveResult{TeamRef: teamRef}, nil
+	}
+	if err := adapterkit.CheckMoveTicket(move.Ticket, teamRef); err != nil {
+		return nil, err
+	}
+	args := rpcArgs{
+		"p_team_id": teamRef, "p_adapter": move.Destination.Adapter, "p_url": move.Destination.URL,
+		"p_ticket": move.Ticket, "p_certificate": optionalArg(move.Destination.Certificate),
+	}
+	if err := c.rpc(c.ctx, rpcRecordTeamMove, args, &answer); err != nil {
+		return nil, withoutTeamMoveMigration(err)
+	}
+	return answer.result(teamRef)
+}
+
+// teamMoved implements `team moved [--ticket-file <path>]` (4.4.10, C-52):
+// every active member reads whether the team moved, and where. With
+// --ticket-file the ticket of a recorded move is written to that path for
+// its owner alone. A project without the team-move migration cannot say
+// that a team moved, so it is answered as one that has not (PGRST202 on
+// read_team_move): the member's harness then does what it does for a team
+// that did not move, and nothing is lost that the migration does not add.
+func (c *command) teamMoved() (any, error) {
+	fs := newFlags()
+	ticketFile := fs.String("ticket-file", "", "write the move ticket to this path (0600)")
+	if err := c.parse(fs); err != nil {
+		return nil, err
+	}
+	if err := adapterkit.CheckTicketFileTarget(*ticketFile); err != nil {
+		return nil, err
+	}
+	if err := c.authenticate(true); err != nil {
+		return nil, err
+	}
+	teamRef := c.profile.TeamRef
+	var answer teamMoveAnswer
+	if err := c.rpc(c.ctx, rpcReadTeamMove, rpcArgs{"p_team_id": teamRef}, &answer); err != nil {
+		if isMigrationDrift(err) {
+			c.log.Debug("the backend has no record of moves (it lacks the team-move migration); answering that the team has not moved")
+			return &protocol.TeamMoveResult{TeamRef: teamRef}, nil
+		}
+		return nil, err
+	}
+	if !answer.Moved {
+		if answer.TeamID != teamRef {
+			return nil, errUnexpectedResponse("the backend answered about another team")
+		}
+		return &protocol.TeamMoveResult{TeamRef: teamRef}, nil
+	}
+	res, err := answer.result(teamRef)
+	if err != nil {
+		return nil, err
+	}
+	if *ticketFile == "" {
+		return res, nil
+	}
+	if adapterkit.CheckMoveTicket(answer.Ticket, teamRef) != nil {
+		return nil, errUnexpectedResponse("the backend answered a move ticket this adapter cannot use")
+	}
+	if err := adapterkit.WriteTicketFile(*ticketFile, answer.Ticket); err != nil {
+		return nil, err
+	}
+	res.TicketFile = *ticketFile
+	return res, nil
+}
+
+// withoutTeamMoveMigration turns the migration-drift answer of a `team
+// move` into the `config` it is for the team's owner: the project lacks
+// the migration that keeps a move's record, and its Project Owner applies
+// it. Every other error is returned as it is.
+func withoutTeamMoveMigration(err error) error {
+	if !isMigrationDrift(err) {
+		return err
+	}
+	return errConfig("this backend cannot record a team's move: it lacks the migration "+teamMoveMigration+", which its Project Owner applies", reasonMigrationDrift)
 }

@@ -9,6 +9,48 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **A team's members follow it to a Brigade server with no command of
+  their own** (work item 273, part 2). Until now a team that moved from a
+  Supabase project to a server kept its join secret, and every member
+  still ran `/brigade:join <path>` once on each machine and again in each
+  other checkout. Now the server's operator opens a move
+  (`brigade-server --open-move <team_ref> --ticket-file <file>`, server
+  0.5.0), the team's administrator joins the server first and records the
+  move on the project the team is leaving (`brigade team move
+  --ticket-file <path>`, in a terminal), and each member's next session
+  follows: it asks the backend the member joined whether that team moved,
+  joins the server only when the record names exactly what the project's
+  `.brigade.json` names (the adapter, the address, the certificate and the
+  team), and says so in one line: where the team went, that the
+  administrator recorded the move, how to leave and how to turn this off.
+  A `.brigade.json` alone still sends a session nowhere: with no record,
+  or one that names anything else, the session connects to nothing and
+  `team join` asks for the secret file, as before. A session that was
+  running when the file changed stays where it is and is told once that a
+  new session follows. The option `follow_team_move` (on by default)
+  turns the follow off for a member who wants to join a moved team
+  themselves. `brigade team move --show` reads the record and `--clear`
+  removes it. What this gives a team's administrator, and whoever controls
+  the old backend, is in `docs/security.md`, section 21, and the decision
+  is ADR 0003. The pages are [Move the team to a
+  server](docs/team-admin/members/move-the-team.md), [Let a team's members
+  follow it](docs/project-owner/server/open-a-move.md) and [When your team
+  moves](docs/team-member/join/follow-a-move.md).
+
+  **A Supabase project needs one migration first**,
+  `20261114120000_team_move`, applied by its Project Owner (`make
+  backend-install project=<ref>`). Without it `brigade team move` refuses
+  and names the migration, no session follows, and everything else works
+  as it did.
+
+  **The adapter protocol** gains the capability `team.move` and two
+  commands under it, `team move` and `team moved` (BAP/1 4.4.10,
+  conformance cases C-51 and C-52). An adapter that does not advertise the
+  capability is asked nothing new. The Supabase adapter and the fs adapter
+  carry it.
+
 ### Fixed
 
 - **A join no longer says `/reload-plugins` moves a session to the team it

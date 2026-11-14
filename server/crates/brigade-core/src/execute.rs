@@ -9,10 +9,11 @@
 //! adapter (`internal/adapters/fs`) is the worked example they were written against, and the stand-in
 //! server (`internal/adapters/rest/stub`) the order a request is checked in.
 //!
-//! Three changes are not requests, and are the operator's alone: [`answer`] has no path to any of them.
+//! Five changes are not requests, and are the operator's alone: [`answer`] has no path to any of them.
 //! [`import_team`] takes in a team that exists on another backend, with the join secret it has there,
-//! [`set_owner`] names the owner of a team, and [`take_back`] takes a team from whoever holds it. Each
-//! makes its entry as a request does, and the caller appends and syncs that entry in the same way.
+//! [`set_owner`] names the owner of a team, [`take_back`] takes a team from whoever holds it, and
+//! [`open_move`] and [`close_move`] open and close the move of a team's members from another backend.
+//! Each makes its entry as a request does, and the caller appends and syncs that entry in the same way.
 
 use std::collections::BTreeMap;
 
@@ -240,7 +241,8 @@ pub fn set_owner(
 /// else would leave the operator nothing to name and the team's admin no way in. This is the way back,
 /// and it is one entry, so the log holds all of it or none:
 ///
-/// - the team has a new join secret, minted as a rotation mints one, and its count of secrets is one more;
+/// - the team has a new join secret, minted as a rotation mints one, and its count of secrets is one more,
+///   and a move of the team that is open is closed, as a rotation closes it;
 /// - every active membership ends and its open sessions are closed, with nobody spared, while a banned
 ///   member stays banned and a member that left stays as it was;
 /// - the team has no owner, so the first member to join it with the new secret over HTTP owns it, as on a
@@ -266,12 +268,20 @@ pub fn take_back(
     let revoked = everyone.len();
     let sessions_closed = team.open_sessions(|member| everyone.contains(member), now);
     let owned = team.owner().is_some();
+    let moving = team.move_ticket.is_some();
     let team_name = team.team_name.clone();
     let mut events = vec![Event::TeamSecretRotated {
         team_ref: team_ref.to_owned(),
         join_secret_hash: sha256_hex(&join_secret),
         secret_version,
     }];
+    // A team that is taken back opens to its new secret and to nothing else: the ticket of a move could
+    // be in the hands that the team is taken from.
+    if moving {
+        events.push(Event::TeamMoveClosed {
+            team_ref: team_ref.to_owned(),
+        });
+    }
     if revoked > 0 {
         events.push(Event::MembersRevokedByVersion {
             team_ref: team_ref.to_owned(),
@@ -297,6 +307,102 @@ pub fn take_back(
         }),
         entry,
     })
+}
+
+/// How many days a move ticket admits for when the operator names no number.
+pub const MOVE_TICKET_DEFAULT_DAYS: u32 = 30;
+
+/// The most days a move ticket admits for.
+pub const MOVE_TICKET_MAX_DAYS: u32 = 365;
+
+/// Opens the move of a team's members from another backend, for the server's operator.
+///
+/// A team that was taken in keeps its join secret, and no member's machine keeps that secret: a member
+/// that is to follow the team here with no command of its own needs something else to join with. That is
+/// the move ticket, a second join secret of the team for `days` days. It is minted as a join secret is, so
+/// a join carries it as it carries the secret, and the server keeps its hash and its end. A join it lets
+/// in is a join in everything but one: it never makes the team's owner, so the team's admin joins with
+/// the secret itself, first.
+///
+/// A team has one move at most. Opening one for a team that has one, ended or not, puts the new ticket
+/// in its place, and the ticket before it admits nobody from then on: it is how a ticket whose file was
+/// lost is replaced. The answer is `team_ref`, `team_name`, `ticket`, `ends_at` and `replaced`. Its
+/// `ticket` is the one place the ticket is: the caller writes it to the operator's file and nowhere else.
+///
+/// # Errors
+/// `not_found` when the server holds no team of that reference; `invalid_input` when `days` is not from
+/// one to [`MOVE_TICKET_MAX_DAYS`]. The state is unchanged.
+pub fn open_move(
+    state: &mut State,
+    team_ref: &str,
+    days: u32,
+    now: Timestamp,
+    entropy: &mut dyn Entropy,
+) -> Result<Outcome, Error> {
+    let team = state.teams.get(team_ref).ok_or_else(Error::no_such_team)?;
+    if !(1..=MOVE_TICKET_MAX_DAYS).contains(&days) {
+        return Err(Error::out_of_range(
+            "ticket_days",
+            1,
+            i64::from(MOVE_TICKET_MAX_DAYS),
+        ));
+    }
+    let ticket = new_join_secret(team, entropy);
+    // The end is a whole second, so that the time the operator is told is the time the record holds.
+    let ends_at = now.plus_seconds(i64::from(days) * 86_400);
+    let ends_at = Timestamp(ends_at.0 - ends_at.0.rem_euclid(1_000_000_000));
+    let replaced = team.move_ticket.is_some();
+    let team_name = team.team_name.clone();
+    let opened = Event::TeamMoveOpened {
+        team_ref: team_ref.to_owned(),
+        ticket_hash: sha256_hex(&ticket),
+        ends_at,
+    };
+    let entry = commit(state, now, vec![opened]);
+    Ok(Outcome {
+        result: json!({
+            "team_ref": team_ref,
+            "team_name": team_name,
+            "ticket": ticket,
+            "ends_at": ends_at.rfc3339(),
+            "replaced": replaced,
+        }),
+        entry,
+    })
+}
+
+/// Closes the move of a team, for the server's operator: its ticket admits nobody from now on, whether
+/// or not it had ended. Every member that came in with it stays a member.
+///
+/// A team with no move is left as it is and makes no entry. The answer is `team_ref`, `team_name` and
+/// `closed`.
+///
+/// # Errors
+/// `not_found` when the server holds no team of that reference. The state is unchanged.
+pub fn close_move(state: &mut State, team_ref: &str, now: Timestamp) -> Result<Outcome, Error> {
+    let team = state.teams.get(team_ref).ok_or_else(Error::no_such_team)?;
+    let closed = team.move_ticket.is_some();
+    let result = json!({"team_ref": team.team_ref, "team_name": team.team_name, "closed": closed});
+    let entry = if closed {
+        let closed = Event::TeamMoveClosed {
+            team_ref: team_ref.to_owned(),
+        };
+        commit(state, now, vec![closed])
+    } else {
+        None
+    };
+    Ok(Outcome { result, entry })
+}
+
+/// Whether `presented`, the SHA-256 of what a join carried, is the hash of the team's move ticket, and the
+/// ticket has not ended at `now`.
+///
+/// The hashes are compared whether or not the ticket has ended, so a ticket past its end costs what one
+/// that admits costs, and is told what any wrong secret is told.
+fn ticket_admits(team: &Team, presented: &str, now: Timestamp) -> bool {
+    team.move_ticket
+        .as_ref()
+        .is_some_and(|ticket| same(&ticket.hash, presented) & (now < ticket.ends_at))
 }
 
 /// A new join secret for a team that has one already: minted as a created team's is, around the reference
@@ -430,6 +536,7 @@ fn team_create(
         team_ref: team_ref.clone(),
         principal_ref: principal_ref.clone(),
         human_label: request.human_label.clone(),
+        by_move_ticket: false,
     });
     let entry = commit(state, now, events);
     let mut result = Map::new();
@@ -454,10 +561,18 @@ fn team_join(
     // The hash is taken before the team is looked up, so a wrong secret and an unknown team cost the same.
     // A secret the team had before a rotation is a wrong secret: only the hash of the one it has is kept.
     let presented = sha256_hex(request.join_secret.expose());
-    let team = state
+    // A team opens to its join secret, and while it is moving here from another backend to its move
+    // ticket, until the ticket ends. What was presented is held against both, whichever it is, and a
+    // ticket that has ended, one whose move was closed, one that another took the place of and one of
+    // another team are each a wrong secret, with the answer a wrong secret has.
+    let (team, by_move_ticket) = state
         .teams
         .get(request.join_secret.team_ref())
-        .filter(|team| same(&team.join_secret_hash, &presented))
+        .and_then(|team| {
+            let by_secret = same(&team.join_secret_hash, &presented);
+            let by_ticket = ticket_admits(team, &presented, now);
+            (by_secret | by_ticket).then_some((team, !by_secret))
+        })
         .ok_or_else(Error::secret_rejected)?;
     // A banned principal is told what a wrong secret is told, although its secret is right, and nothing
     // is made for it. A caller with no credential the server knows is a new principal, which nobody
@@ -478,11 +593,14 @@ fn team_join(
         team_ref: team_ref.clone(),
         principal_ref: principal_ref.clone(),
         human_label: request.human_label.clone(),
+        by_move_ticket,
     });
     // A team that was taken in has no owner, because nobody here created it. The first member whose join
     // may own it does, in the entry that makes it a member: there is no moment at which the team has that
-    // member and still no owner.
-    if ownerless && may_own {
+    // member and still no owner. A join by the move ticket never owns, as a gateway's never does: the
+    // ticket is read by every member of the team on the backend it leaves, and the team's admin joins
+    // with the secret itself.
+    if ownerless && may_own && !by_move_ticket {
         events.push(Event::TeamOwnerChanged {
             team_ref: team_ref.clone(),
             principal_ref: principal_ref.clone(),
@@ -594,13 +712,22 @@ fn team_rotate_secret(
     let join_secret = new_join_secret(team, entropy);
     let secret_version = team.secret_version.saturating_add(1);
     let team_name = team.team_name.clone();
+    let moving = team.move_ticket.is_some();
     // No member is touched: the version a member joined with is read only by a revocation that names it.
-    let rotated = Event::TeamSecretRotated {
+    let mut events = vec![Event::TeamSecretRotated {
         team_ref: team_ref.to_owned(),
         join_secret_hash: sha256_hex(&join_secret),
         secret_version,
-    };
-    let entry = commit(state, now, vec![rotated]);
+    }];
+    // A rotation is how an owner ends everything that let anyone in before it, and a move ticket is one
+    // of those things: the move is closed in the rotation's own entry. The operator opens another when
+    // the move is to go on.
+    if moving {
+        events.push(Event::TeamMoveClosed {
+            team_ref: team_ref.to_owned(),
+        });
+    }
+    let entry = commit(state, now, events);
     Ok(Outcome {
         result: json!({
             "team_ref": team_ref,

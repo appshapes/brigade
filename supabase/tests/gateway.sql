@@ -46,8 +46,8 @@ reset role;
 -- 3. The brigade schema is what it was: the gateway is an ordinary member and nothing was granted for it.
 select is((select count(*) from information_schema.role_routine_grants where specific_schema = 'brigade' and grantee = 'service_role'),
           0::bigint, 'service_role still holds no routine grant in brigade (the gateway is a member, not a grant)');
-select is((select count(*) from pg_class c where c.relnamespace = 'brigade'::regnamespace and c.relkind = 'r'), 5::bigint,
-          'brigade still holds its five tables');
+select is((select count(*) from pg_class c where c.relnamespace = 'brigade'::regnamespace and c.relkind = 'r'), 6::bigint,
+          'brigade still holds its six tables (the gateway adds none there)');
 
 -- 4. The shape the functions rely on: a gateway row ties a team to a member and a session; a thread row is keyed by the
 --    Brigade message and found by the mail id; a received row is the dedupe set. Written as postgres, as the functions do.

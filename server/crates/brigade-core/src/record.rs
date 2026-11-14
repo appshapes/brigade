@@ -271,6 +271,27 @@ pub enum Event {
         /// owner until the first member joins it over HTTP.
         principal_ref: String,
     },
+    /// The server's operator opened a team's move from another backend: until `ends_at`, or until the move
+    /// is closed, a join is let in with the move ticket as it is with the join secret, except that it
+    /// never makes an owner. The log holds the ticket's hash and never the ticket. A team has one move at
+    /// most: a move that is opened takes the place of the one the team had, whose ticket admits nobody
+    /// from then on.
+    #[serde(rename = "team.move_opened")]
+    TeamMoveOpened {
+        /// The team.
+        team_ref: String,
+        /// The SHA-256 of the whole move ticket.
+        ticket_hash: String,
+        /// When the ticket stops admitting.
+        ends_at: Timestamp,
+    },
+    /// A team's move was closed, and its ticket admits nobody from now on: by the server's operator, or by
+    /// a rotation of the team's join secret, in the entry of the rotation.
+    #[serde(rename = "team.move_closed")]
+    TeamMoveClosed {
+        /// The team.
+        team_ref: String,
+    },
     /// A principal became an active member of a team: a new membership, or one that was revoked and is
     /// active again with the day it first joined. It joined with the secret the team has now, whose
     /// version the membership keeps.
@@ -283,6 +304,11 @@ pub enum Event {
         /// The label the request carried. Empty keeps the label a returning member had.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         human_label: String,
+        /// Whether the join was let in with the team's move ticket and not with its join secret. It is
+        /// written only when it was, and the membership is the same either way: it is what lets the server
+        /// say how a member came in.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        by_move_ticket: bool,
     },
     /// A principal left a team: its membership is revoked and its open sessions there are closed.
     #[serde(rename = "member.left")]
@@ -442,7 +468,20 @@ mod tests {
                 team_ref: "t".into(),
                 principal_ref: "p".into(),
                 human_label: String::new(),
+                by_move_ticket: false,
             },
+            Event::MemberJoined {
+                team_ref: "t".into(),
+                principal_ref: "p".into(),
+                human_label: "alice".into(),
+                by_move_ticket: true,
+            },
+            Event::TeamMoveOpened {
+                team_ref: "t".into(),
+                ticket_hash: "k".into(),
+                ends_at: Timestamp(9),
+            },
+            Event::TeamMoveClosed { team_ref: "t".into() },
             Event::TeamSecretRotated {
                 team_ref: "t".into(),
                 join_secret_hash: "s2".into(),
@@ -533,6 +572,49 @@ mod tests {
                 except: "q".into(),
             }),
             r#"{"version":1,"at":5,"kind":"members.revoked_by_version","team_ref":"t","max_version":1,"except":"q"}"#
+        );
+    }
+
+    #[test]
+    fn the_records_of_a_move_are_named_as_the_log_keeps_them() {
+        // A build that does not know these two kinds refuses the entry that holds one, so the names are
+        // held here, as the four of the administration are.
+        let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
+        assert_eq!(
+            written(Event::TeamMoveOpened {
+                team_ref: "t".into(),
+                ticket_hash: "k".into(),
+                ends_at: Timestamp(9),
+            }),
+            r#"{"version":1,"at":5,"kind":"team.move_opened","team_ref":"t","ticket_hash":"k","ends_at":9}"#
+        );
+        assert_eq!(
+            written(Event::TeamMoveClosed { team_ref: "t".into() }),
+            r#"{"version":1,"at":5,"kind":"team.move_closed","team_ref":"t"}"#
+        );
+    }
+
+    #[test]
+    fn a_join_says_that_it_came_in_with_the_move_ticket_only_when_it_did() {
+        let joined = |by_move_ticket: bool| Event::MemberJoined {
+            team_ref: "t".into(),
+            principal_ref: "p".into(),
+            human_label: String::new(),
+            by_move_ticket,
+        };
+        let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
+        // A join with the join secret is the record it has always been, byte for byte, and a record
+        // written before there were tickets reads as one.
+        let with_the_secret =
+            r#"{"version":1,"at":5,"kind":"member.joined","team_ref":"t","principal_ref":"p"}"#;
+        assert_eq!(written(joined(false)), with_the_secret);
+        assert_eq!(
+            Record::decode(with_the_secret.as_bytes()).unwrap().event,
+            joined(false)
+        );
+        assert_eq!(
+            written(joined(true)),
+            r#"{"version":1,"at":5,"kind":"member.joined","team_ref":"t","principal_ref":"p","by_move_ticket":true}"#
         );
     }
 }

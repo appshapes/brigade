@@ -622,6 +622,21 @@ func (t *T) TakeSecretFile(path string) (secret string, mode0600 bool) {
 	return secret, info.Mode().IsRegular() && adapterkit.OwnerReadWriteOnly(info)
 }
 
+// GiveSecretFile writes a secret the case itself made to a path of
+// SecretFile's kind, for a command that reads one from a file (`team move
+// --ticket-file`, C-51 and C-52), and returns the path. The secret is
+// registered with the launcher as TakeSecretFile registers one, so every
+// later spawn's stdout and stderr and the end-of-run scan are searched for
+// it (C-05), and the runner removes the file when the case ends.
+func (t *T) GiveSecretFile(name, secret string) string {
+	path := t.SecretFile(name)
+	if err := os.WriteFile(path, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatalf("the secret file cannot be written: %v", err)
+	}
+	t.run.launcher.addSecret(secret)
+	return path
+}
+
 // dropSecretFiles removes what is left at the paths SecretFile gave out.
 func (t *T) dropSecretFiles() {
 	t.mu.Lock()

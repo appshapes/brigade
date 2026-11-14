@@ -56,6 +56,10 @@ func (c *command) teamCommand() (any, error) {
 		return c.teamLeave()
 	case "members":
 		return c.teamMembers()
+	case "move":
+		return c.teamMove()
+	case "moved":
+		return c.teamMoved()
 	default:
 		return nil, errUsage("unknown team verb")
 	}

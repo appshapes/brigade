@@ -27,7 +27,7 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 
 use crate::note::note;
-use crate::options::{Asked, Import, LogKind, Options, SetOwner, TakeBack, Tls};
+use crate::options::{Asked, CloseMove, Import, LogKind, OpenMove, Options, SetOwner, TakeBack, Tls};
 
 /// How long the requests that are being answered are given once the server is told to stop.
 const DRAIN: Duration = Duration::from_secs(5);
@@ -46,6 +46,8 @@ fn main() -> ExitCode {
         Ok(Asked::Import(import)) => ended(take_in(&import)),
         Ok(Asked::SetOwner(named)) => ended(name_owner(&named)),
         Ok(Asked::TakeBack(taken)) => ended(take_back(&taken)),
+        Ok(Asked::OpenMove(opened)) => ended(open_move(&opened)),
+        Ok(Asked::CloseMove(closed)) => ended(close_move(&closed)),
         Err(why) => {
             eprintln!("brigade-server: {why}\n\n{}", options::USAGE);
             ExitCode::from(2)
@@ -95,7 +97,7 @@ fn join_secret(path: &Path) -> Result<String, String> {
 /// Makes the data directory when it is not there, and locks it for as long as the lock is held.
 ///
 /// One server on one directory: a second would write a second order into the same log, and so would a team
-/// taken in or taken back, or an owner named, beside a server that runs.
+/// taken in or taken back, an owner named, or a move opened or closed, beside a server that runs.
 fn lock(options: &Options) -> Result<File, String> {
     DirBuilder::new()
         .recursive(true)
@@ -212,8 +214,30 @@ fn name_owner(named: &SetOwner) -> Result<(), String> {
     })
 }
 
-/// The place of a join secret that does not exist yet: the file `--secret-file` names, held before the
-/// team is given the secret, so that the secret is not made and then found to have nowhere to go.
+/// Which of the operator's commands holds a place for a secret, in the words its refusals are told with.
+#[derive(Clone, Copy)]
+struct Asking {
+    /// The option that names the file.
+    option: &'static str,
+    /// What was not done, when the place cannot be held.
+    not_done: &'static str,
+}
+
+/// The new join secret of a team that is taken back.
+const NEW_SECRET: Asking = Asking {
+    option: "--secret-file",
+    not_done: "the team was not taken back",
+};
+
+/// The ticket of a team's move.
+const MOVE_TICKET: Asking = Asking {
+    option: "--ticket-file",
+    not_done: "the move was not opened",
+};
+
+/// The place of a secret that does not exist yet: the file the operator named for the new join secret of
+/// a team that is taken back, or for the ticket of a team's move. It is held before the team is given the
+/// secret, so that the secret is not made and then found to have nowhere to go.
 ///
 /// What is held is a file beside the one that was named, which only its owner can read. The secret is
 /// written to it, and it is moved to the name that was asked for once it is whole. A place that is let go
@@ -232,25 +256,26 @@ impl SecretPlace {
     ///
     /// The sentences name the option and never the path: what was typed where a path belongs is not
     /// repeated.
-    fn hold(named: &Path) -> Result<Self, String> {
-        let refused = |why: &str| format!("the team was not taken back: {why}");
+    fn hold(named: &Path, asking: Asking) -> Result<Self, String> {
+        let Asking { option, not_done } = asking;
+        let refused = |why: &str| format!("{not_done}: {why}");
         if !named.is_absolute() {
-            return Err(refused("--secret-file takes an absolute path"));
+            return Err(refused(&format!("{option} takes an absolute path")));
         }
         let (Some(directory), Some(name)) = (named.parent(), named.file_name()) else {
-            return Err(refused("--secret-file names no file"));
+            return Err(refused(&format!("{option} names no file")));
         };
         if !directory.is_dir() {
-            return Err(refused(
-                "the directory of the file --secret-file names is not there",
-            ));
+            return Err(refused(&format!(
+                "the directory of the file {option} names is not there"
+            )));
         }
         // A link that leads nowhere is there as well: the secret would be written to where it points.
         if fs::symlink_metadata(named).is_ok() {
-            return Err(refused(
-                "the file --secret-file names is there already, and nothing is written over: name a file \
-                 that is not there",
-            ));
+            return Err(refused(&format!(
+                "the file {option} names is there already, and nothing is written over: name a file that \
+                 is not there"
+            )));
         }
         let unfinished = directory.join(format!(".{}.unfinished", name.to_string_lossy()));
         // What an earlier run that was cut short left is not a file anybody asked for.
@@ -262,7 +287,7 @@ impl SecretPlace {
             .open(&unfinished)
             .map_err(|error| {
                 refused(&format!(
-                    "no file can be made in the directory of the file --secret-file names: {}",
+                    "no file can be made in the directory of the file {option} names: {}",
                     error.kind()
                 ))
             })?;
@@ -302,7 +327,7 @@ impl Drop for SecretPlace {
 fn take_back(taken: &TakeBack) -> Result<(), String> {
     // The file's place is held before anything is changed: a path that cannot be written to ends the
     // command with the team as it was.
-    let place = SecretPlace::hold(&taken.secret_file)?;
+    let place = SecretPlace::hold(&taken.secret_file, NEW_SECRET)?;
     alone(&taken.options, |runtime, engine| {
         // A refusal is the rules' own fixed text, and repeats nothing the command line held.
         let result = runtime
@@ -328,6 +353,68 @@ fn take_back(taken: &TakeBack) -> Result<(), String> {
             "took back team {team_name:?} ({team_ref}): ended {ended}, and its new join secret is in {:?}",
             taken.secret_file
         ))
+    })
+}
+
+/// Opens the move of a team's members from another backend, and ends.
+///
+/// The team gets a move ticket: a second join secret that lets a member in until it ends, and never makes
+/// the team's owner. The ticket goes to the file the operator named and to nothing else: no line of the
+/// server's holds it. The operator hands the file to the team's admin, who records the ticket on the
+/// backend the team leaves; a member's session reads it there and joins this server with it.
+fn open_move(opened: &OpenMove) -> Result<(), String> {
+    // The file's place is held before anything is changed: a path that cannot be written to ends the
+    // command with the team as it was.
+    let place = SecretPlace::hold(&opened.ticket_file, MOVE_TICKET)?;
+    alone(&opened.options, |runtime, engine| {
+        // A refusal is the rules' own fixed text, and repeats nothing the command line held.
+        let result = runtime
+            .block_on(engine.open_move(&opened.team_ref, opened.days))
+            .map_err(|error| format!("the move was not opened: {error}"))?;
+        let text = |member: &str| result[member].as_str().unwrap_or_default();
+        let (team_ref, team_name, ends_at) = (text("team_ref"), text("team_name"), text("ends_at"));
+        // From here on the team has the ticket. One that does not reach its file is lost with this
+        // process: the hash is all the server keeps, so the command is run again, and the ticket it then
+        // makes takes the place of the lost one.
+        place.keep(text("ticket")).map_err(|error| {
+            format!(
+                "the move of team {team_name:?} ({team_ref}) was opened, but its ticket could not be written \
+                 to the file --ticket-file names ({}): the ticket is lost, so run the command again",
+                error.kind()
+            )
+        })?;
+        let before = if result["replaced"].as_bool() == Some(true) {
+            ", and the ticket of the move it had admits nobody from now on"
+        } else {
+            ""
+        };
+        // The name and the path are written as quoted strings, so that neither writes a second line. The
+        // end is the server's own text, in UTC.
+        Ok(format!(
+            "opened the move of team {team_name:?} ({team_ref}): its ticket is in {:?} and admits until \
+             {ends_at}{before}",
+            opened.ticket_file
+        ))
+    })
+}
+
+/// Closes the move of a team, and ends: its ticket admits nobody from then on, and every member that came
+/// in with it stays one.
+fn close_move(closed: &CloseMove) -> Result<(), String> {
+    alone(&closed.options, |runtime, engine| {
+        // A refusal is the rules' own fixed text, and repeats nothing the command line held.
+        let result = runtime
+            .block_on(engine.close_move(&closed.team_ref))
+            .map_err(|error| format!("the move was not closed: {error}"))?;
+        let text = |member: &str| result[member].as_str().unwrap_or_default();
+        let (team_ref, team_name) = (text("team_ref"), text("team_name"));
+        Ok(if result["closed"].as_bool() == Some(true) {
+            format!(
+                "closed the move of team {team_name:?} ({team_ref}): its ticket admits nobody from now on"
+            )
+        } else {
+            format!("team {team_name:?} ({team_ref}) has no move: nothing changed")
+        })
     })
 }
 
@@ -442,7 +529,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
 
-    use super::SecretPlace;
+    use super::{Asking, MOVE_TICKET, NEW_SECRET, SecretPlace};
 
     fn scratch(test: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("brigade-secret-place-{test}-{}", std::process::id()));
@@ -455,12 +542,18 @@ mod tests {
         std::fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
-    /// Why a place was not held, without the words every refusal begins with.
+    /// Why a place was not held for a team's new join secret, without the words every refusal begins
+    /// with.
     fn refused(path: &Path) -> String {
-        let Err(why) = SecretPlace::hold(path) else {
+        refused_for(path, NEW_SECRET)
+    }
+
+    /// Why a place was not held for `asking`, without the words every refusal of its command begins with.
+    fn refused_for(path: &Path, asking: Asking) -> String {
+        let Err(why) = SecretPlace::hold(path, asking) else {
             panic!("held a place at {}", path.display());
         };
-        why.strip_prefix("the team was not taken back: ")
+        why.strip_prefix(&format!("{}: ", asking.not_done))
             .unwrap_or_else(|| panic!("{why}"))
             .to_owned()
     }
@@ -471,7 +564,7 @@ mod tests {
         let (named, unfinished) = (dir.join("ops.secret"), dir.join(".ops.secret.unfinished"));
         // What an earlier run that was cut short left behind is not in the way.
         std::fs::write(&unfinished, "half of something").unwrap();
-        let place = SecretPlace::hold(&named).unwrap();
+        let place = SecretPlace::hold(&named, NEW_SECRET).unwrap();
         // The place is held beside the name, by a file only its owner reads, and the name is not there
         // until the secret is whole.
         assert!(!named.exists());
@@ -525,16 +618,57 @@ mod tests {
     }
 
     #[test]
+    fn the_place_of_a_move_ticket_is_held_and_refused_in_its_own_commands_words() {
+        let dir = scratch("ticket");
+        let named = dir.join("ops.move-ticket");
+        SecretPlace::hold(&named, MOVE_TICKET)
+            .unwrap()
+            .keep("the-ticket-of-the-test")
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&named).unwrap(),
+            "the-ticket-of-the-test\n"
+        );
+        assert_eq!(mode(&named), 0o600);
+        for (path, why) in [
+            (
+                PathBuf::from("PATH-MUST-NOT-LEAK/ops.move-ticket"),
+                "--ticket-file takes an absolute path",
+            ),
+            (
+                dir.join("PATH-MUST-NOT-LEAK").join("ops.move-ticket"),
+                "the directory of the file --ticket-file names is not there",
+            ),
+            (PathBuf::from("/"), "--ticket-file names no file"),
+            (
+                named.clone(),
+                "the file --ticket-file names is there already, and nothing is written over: name a file \
+                 that is not there",
+            ),
+        ] {
+            // The words are the command's own: a refusal of one command never names the other's option.
+            let refusal = refused_for(&path, MOVE_TICKET);
+            assert_eq!(refusal, why);
+            assert!(!refusal.contains("MUST-NOT-LEAK") && !refusal.contains("--secret-file"));
+        }
+        assert_eq!(
+            std::fs::read_to_string(&named).unwrap(),
+            "the-ticket-of-the-test\n"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn a_place_let_go_of_or_one_that_cannot_be_kept_leaves_nothing_behind() {
         let dir = scratch("let-go");
         let (named, unfinished) = (dir.join("ops.secret"), dir.join(".ops.secret.unfinished"));
         // The command was refused after the place was held: nothing was made.
-        drop(SecretPlace::hold(&named).unwrap());
+        drop(SecretPlace::hold(&named, NEW_SECRET).unwrap());
         assert!(!named.exists() && !unfinished.exists());
 
         // The secret could not be given its name, here because a directory took the name meanwhile: the
         // failure is told, and the file that held the secret is gone.
-        let place = SecretPlace::hold(&named).unwrap();
+        let place = SecretPlace::hold(&named, NEW_SECRET).unwrap();
         std::fs::create_dir(&named).unwrap();
         assert!(place.keep("the-secret-of-the-test").is_err());
         assert!(!unfinished.exists());

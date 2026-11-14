@@ -22,6 +22,7 @@ import (
 	"github.com/appshapes/brigade/internal/harness/frame"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
 	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teammove"
 	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/harness/teamstore/write"
 	"github.com/appshapes/brigade/internal/testutil"
@@ -737,6 +738,326 @@ func TestATeamMovesToAServerWithItsSecretThroughTheRealBinary(t *testing.T) {
 	for _, hidden := range []string{secret, token} {
 		for _, hit := range tokenHits(t, hidden, r.dirs.Root) {
 			if hit != r.secretFile {
+				t.Errorf("a secret of the run is in %s", hit)
+			}
+		}
+	}
+}
+
+// TestATeamsMembersFollowItToAServerThroughTheRealBinary is a team's move with no command run by its members
+// (work item 273, part 2; ADR 0003; the plan's section 4.9), through the built `brigade`, a real adapter for the
+// backend the team leaves and the built server it goes to. The backend it leaves is the fs adapter, which
+// carries capability team.move as the Supabase adapter does. The operator takes the team in and opens its
+// move; the administrator points the team file at the server, joins it there with the secret file and so owns
+// the team, and records the move on the old backend with the operator's ticket; and a member's next session,
+// in a checkout that is pinned to the old backend, follows: it asks the old backend, joins the server with the
+// ticket under the label the member had, says so in one line, and attaches. Before the record is made, and
+// where a team file names a server the record does not, the same session attaches to nothing. It needs the
+// server itself, so it runs only where `make server-test` names one.
+func TestATeamsMembersFollowItToAServerThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	bin := os.Getenv(serverBinVar)
+	if bin == "" {
+		t.Skip("needs a built brigade-server: make server-test names it in " + serverBinVar)
+	}
+	r := newRig(t)
+	// The team on the backend it leaves: alice created it and administers it, bob is a member.
+	r.createTeam()
+	membersFollowTheTeam(t, bin, r)
+}
+
+// TestATeamsMembersFollowItFromSupabaseToAServerThroughTheRealBinary is the same move from the backend the
+// feature was built for: a team on the local Supabase stack, created and joined through the built `brigade`
+// and its bundled adapter, whose record of the move is the team-move migration's. It needs the stack and the
+// server both, which no CI job has together, so it runs where a developer asks for it, with the stack up and
+// its migrations applied: `make test-move-live`.
+func TestATeamsMembersFollowItFromSupabaseToAServerThroughTheRealBinary(t *testing.T) {
+	t.Parallel()
+	bin := os.Getenv(serverBinVar)
+	if bin == "" {
+		t.Skip("needs a built brigade-server, named in " + serverBinVar)
+	}
+	stack := testutil.RequireSupabase(t)
+	r := newRig(t)
+	// The team on the stack: alice creates it from her terminal, and bob joins it from inside a session with
+	// the secret's file, each in a store of their own.
+	res := r.runIn(r.checkout, r.baseEnv(), "", "team", "create", "--url", stack.URL, "--key", stack.PublishableKey,
+		"--name", teamName, "--label", aliceLabel, "--secret-file", r.secretFile)
+	if res.exit != 0 {
+		t.Fatalf("team create on the stack: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, ok, err := teamstore.LookupPin(r.configDir, canon)
+	if err != nil || !ok || pin.Adapter != "supabase" {
+		t.Fatalf("alice's pin after the create: %+v %v %v", pin, ok, err)
+	}
+	r.teamRef, r.teamKey = pin.TeamRef, teamstore.Key(pin.Adapter, pin.URL, pin.TeamRef)
+	joiner := r.newSession("bob", "billing-join", "", "", "")
+	r.restHook(joiner, "session-start", joiner.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	if res := r.restJoin(joiner, bobLabel); res.exit != 0 {
+		t.Fatalf("bob's join on the stack: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	membersFollowTheTeam(t, bin, r)
+}
+
+// membersFollowTheTeam is the move itself, from whatever backend the rig's team is on: alice is its
+// administrator in r.configDir, bob a member in r.configDirB, r.checkout is pinned to that backend in both
+// stores, and r.secretFile holds the team's join secret.
+func membersFollowTheTeam(t *testing.T, bin string, r *rig) {
+	t.Helper()
+	canon, err := teamfile.Canonicalize(r.checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinOf := func(configDir, checkout string) teamstore.Pin {
+		t.Helper()
+		pin, ok, err := teamstore.LookupPin(configDir, checkout)
+		if err != nil || !ok {
+			t.Fatalf("the pin of %s: %v %v", checkout, ok, err)
+		}
+		return *pin
+	}
+
+	// --- 1. the team on the backend it leaves, as bob's checkout is pinned to it ---------------------------
+	oldKey, oldPin := r.teamKey, pinOf(r.configDirB, canon)
+	oldHost := teammove.Host(oldPin.URL)
+	if oldPin.TeamRef != r.teamRef || oldHost == "" {
+		t.Fatalf("bob's pin before the move: %+v", oldPin)
+	}
+	text, err := os.ReadFile(r.secretFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := strings.TrimSpace(string(text))
+
+	// --- 2. the operator takes the team in and opens its move, with the server stopped, then starts it -------
+	dir := t.TempDir()
+	operator := func(args ...string) string {
+		t.Helper()
+		//nolint:gosec // G204: the server binary the caller named; no shell is involved
+		out, err := exec.CommandContext(t.Context(), bin, append([]string{"--data", filepath.Join(dir, "data"), "--log", "file"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+	operator("--import-team", teamName, "--join-secret-file", r.secretFile)
+	ticketFile := filepath.Join(r.dirs.Root, "team.ticket")
+	opened := operator("--open-move", r.teamRef, "--ticket-file", ticketFile)
+	text, err = os.ReadFile(ticketFile)
+	if err != nil {
+		t.Fatalf("the ticket's file: %v", err)
+	}
+	ticket := strings.TrimSpace(string(text))
+	if fi, err := os.Stat(ticketFile); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("the ticket's file: %v %v", fi, err)
+	}
+	if !strings.Contains(opened, `opened the move of team "`+teamName+`" (`+r.teamRef+`)`) || strings.Contains(opened, ticket) || ticket == secret {
+		t.Fatalf("what opening the move said: %s", opened)
+	}
+	backend := startServerOn(t, bin, dir)
+	journal := func() string {
+		text, _ := os.ReadFile(filepath.Join(backend.dir, "server.log"))
+		return string(text)
+	}
+
+	// --- 3. the administrator points the team file at the server; the reference stays ----------------------
+	moved := func(url string) []byte {
+		t.Helper()
+		file, err := json.Marshal(map[string]any{
+			"version": 1, "adapter": "rest", "url": url, "certificate": backend.certificate, "team_ref": r.teamRef, "team_name": teamName,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return append(file, '\n')
+	}
+	//nolint:gosec // G306: a committed team file is 0644
+	if err := os.WriteFile(filepath.Join(r.checkout, teamfile.FileName), moved(backend.url), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newKey := teamstore.Key("rest", backend.url, r.teamRef)
+
+	// --- 4. before the move is recorded, a session attaches to nothing, the administrator's included ---------
+	sock := fakesock.New(t)
+	token := "cc-messaging-secret-MUST-NOT-LEAK-" + testutil.RunID()
+	alice := r.newSession("alice", "", aliceName, sock.Path(), token)
+	bob := r.newSession("bob", bobName, "", "", "")
+	start := func(s session) result {
+		return r.restHook(s, "session-start", s.hookDoc("SessionStart", map[string]any{"source": "startup"}))
+	}
+	const drift = "does not match the team you joined here"
+	for _, s := range []session{alice, bob} {
+		if res := start(s); r.mapExists(s) || !strings.Contains(res.stdout, drift) || strings.Contains(res.stdout, "followed") {
+			t.Fatalf("a session before the move is recorded: stdout %q, map %v", res.stdout, r.mapExists(s))
+		}
+	}
+	if pin := pinOf(r.configDirB, canon); pin != oldPin {
+		t.Fatalf("bob's pin moved with no record: %+v", pin)
+	}
+	if strings.Contains(journal(), "joined team") {
+		t.Fatalf("the server was joined before anyone joined it:\n%s", journal())
+	}
+
+	// --- 5. the administrator joins the server first, with the secret file, and so owns the team ------------
+	if res := r.restJoin(alice, aliceLabel); res.exit != 0 {
+		t.Fatalf("the administrator's join: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+
+	// --- 6. she records the move on the old backend, from her terminal, with the operator's ticket ----------
+	terminal := r.terminalEnv(r.configDir)
+	if res := r.runIn(r.checkout, terminal, "", "team", "move", "--show"); res.exit != 0 || !strings.Contains(res.stdout, "no move recorded on "+oldHost) {
+		t.Fatalf("the record before it is made: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	res := r.runIn(r.checkout, terminal, "n\n", "team", "move", "--ticket-file", ticketFile)
+	if res.exit == 0 || !strings.Contains(res.stderr, "not recorded") {
+		t.Fatalf("a record she declined: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	res = r.runIn(r.checkout, terminal, "y\n", "team", "move", "--ticket-file", ticketFile)
+	if res.exit != 0 || !strings.Contains(res.stdout, "recorded on "+oldHost) || !strings.Contains(res.stdout, backend.certificate) ||
+		!strings.Contains(res.stderr, `record that team "`+teamName+`" (`+r.teamRef+`) moved from `+oldHost+` to `) ||
+		strings.Contains(res.stdout+res.stderr, ticket) {
+		t.Fatalf("the record: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if res := r.runIn(r.checkout, terminal, "", "team", "move", "--show"); res.exit != 0 || !strings.Contains(res.stdout, "names the same backend") || strings.Contains(res.stdout+res.stderr, ticket) {
+		t.Fatalf("the record once made: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	// Bob is not the administrator: his record is refused by the old backend, and so is his clear.
+	bobTerminal := r.terminalEnv(r.configDirB)
+	if res := r.runIn(r.checkout, bobTerminal, "", "team", "move", "--clear"); res.exit == 0 || !strings.Contains(res.stderr, "not an active member of this team") {
+		t.Fatalf("a clear by a member that is not the administrator: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+
+	// --- 7. a team file that names a server the record does not is followed nowhere ------------------------
+	elsewhere := filepath.Join(r.dirs.Root, "checkout-elsewhere")
+	second := filepath.Join(r.dirs.Root, "checkout-second")
+	for checkout, file := range map[string][]byte{elsewhere: moved("https://127.0.0.1:1"), second: moved(backend.url)} {
+		if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		//nolint:gosec // G306: a committed team file is 0644
+		if err := os.WriteFile(filepath.Join(checkout, teamfile.FileName), file, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		c, err := teamfile.Canonicalize(checkout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := write.Pin(r.configDirB, c, oldPin); err != nil {
+			t.Fatal(err)
+		}
+	}
+	canonElsewhere, _ := teamfile.Canonicalize(elsewhere)
+	canonSecond, _ := teamfile.Canonicalize(second)
+	stray := r.newSession("bob", "billing-elsewhere", "", "", "")
+	stray.cwd = elsewhere
+	if res := start(stray); r.mapExists(stray) || !strings.Contains(res.stdout, drift) || strings.Contains(res.stdout, "127.0.0.1") {
+		t.Fatalf("a session whose team file names a server the record does not: stdout %q, map %v", res.stdout, r.mapExists(stray))
+	}
+	if pin := pinOf(r.configDirB, canonElsewhere); pin != oldPin {
+		t.Fatalf("the pin of the checkout whose file names another server: %+v", pin)
+	}
+	if strings.Contains(journal(), "with its move ticket") {
+		t.Fatalf("the ticket was presented for a team file the record does not name:\n%s", journal())
+	}
+
+	// --- 8. bob's next session follows the team, with no command run ----------------------------------------
+	res = start(bob)
+	if !strings.Contains(res.stdout, `followed team "`+teamName+`" to `+strings.TrimPrefix(backend.url, "https://")+`, trusting the server certificate `+backend.certificate) ||
+		!strings.Contains(res.stdout, "recorded that move on "+oldHost) || !strings.Contains(res.stdout, "with the move's ticket, under the label you had") ||
+		strings.Contains(res.stdout+res.stderr, ticket) || strings.Contains(res.stdout, bobLabel) {
+		t.Fatalf("the session that followed: stdout %q\nstderr %s", res.stdout, res.stderr)
+	}
+	bobMap := r.mustMap(bob)
+	if bobMap.TeamRef != r.teamRef || bobMap.TeamKey != newKey || !sessionmap.IsBundledRest(bobMap.AdapterCommand) {
+		t.Fatalf("bob's map after the follow: %+v", bobMap)
+	}
+	if pin := pinOf(r.configDirB, canon); pin.Adapter != "rest" || pin.URL != backend.url || pin.Certificate != backend.certificate || pin.MovedFrom != oldPin.URL {
+		t.Fatalf("bob's pin after the follow: %+v", pin)
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return strings.Contains(journal(), "with its move ticket") })
+	if left, _ := filepath.Glob(filepath.Join(r.configDirB, ".move-ticket-*")); len(left) != 0 {
+		t.Fatalf("the follow left its ticket file: %v", left)
+	}
+	// He arrived under the label he had, and the old membership is as it was.
+	if members := r.rosterOf(r.configDir); len(members) != 2 || members[bobLabel].ref == "" || members[aliceLabel].ref == "" {
+		t.Fatalf("the team's roster on the server: %v", members)
+	}
+	if old, err := teamstore.LoadBinding(r.configDirB, oldKey); err != nil || old.TeamRef != r.teamRef {
+		t.Fatalf("bob's binding on the old backend: %+v, %v", old, err)
+	}
+
+	// --- 9. the administrator owns the team; a member the ticket let in does not --------------------------
+	members := r.rosterOf(r.configDir)
+	if res := r.runIn(r.checkout, bobTerminal, "", "team", "transfer", "--principal", members[bobLabel].ref); res.exit == 0 {
+		t.Fatalf("a member that came in with the ticket administered the team:\nstdout: %s\nstderr: %s", res.stdout, res.stderr)
+	}
+	if res := r.runIn(r.checkout, terminal, "", "team", "transfer", "--principal", members[aliceLabel].ref); res.exit != 0 {
+		t.Fatalf("the administrator's own command: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+
+	// --- 10. the team works: a message from the member that followed reaches the administrator's session ---
+	start(alice)
+	aliceMap := r.mustMap(alice)
+	if aliceMap.TeamKey != newKey {
+		t.Fatalf("the administrator's map: %+v", aliceMap)
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return r.logHas(alice, "watch ready") })
+	sent := jsonResult[sendResult](t, r.mustRun(r.restEnv(bob), "I followed the team here", "send", aliceMap.BrigadeSessionID, "--summary", "moved", "--json").stdout)
+	frames := sock.WaitFrames(1, waitLong)
+	p, err := frame.Parse(frames[0])
+	if err != nil {
+		t.Fatalf("the injected frame does not parse: %v\n%s", err, frames[0])
+	}
+	if p.MessageID != sent.MessageID || p.ReplyToSessionID != bobMap.BrigadeSessionID || p.FromLabel != bobLabel+" (unverified)" || p.Body != "I followed the team here" {
+		t.Errorf("frame: %+v", p)
+	}
+
+	// --- 11. another checkout of the member's machine follows by the same record and joins nothing ---------
+	joins := strings.Count(journal(), "with its move ticket")
+	other := r.newSession("bob", "billing-second", "", "", "")
+	other.cwd = second
+	res = start(other)
+	if !strings.Contains(res.stdout, "this machine had joined it there already") || !r.mapExists(other) {
+		t.Fatalf("a second checkout of the machine that followed: stdout %q, map %v", res.stdout, r.mapExists(other))
+	}
+	if pin := pinOf(r.configDirB, canonSecond); pin.Adapter != "rest" || pin.MovedFrom != oldPin.URL {
+		t.Fatalf("the second checkout's pin: %+v", pin)
+	}
+	if got := strings.Count(journal(), "with its move ticket"); got != joins {
+		t.Fatalf("the second checkout joined the server again: %d joins by ticket, want %d", got, joins)
+	}
+
+	// --- 12. the administrator clears the record: the old backend no longer says where the team went --------
+	if res := r.runIn(r.checkout, terminal, "", "team", "move", "--clear"); res.exit != 0 || !strings.Contains(res.stdout, "cleared: "+oldHost+" no longer says") {
+		t.Fatalf("the clear: exit %d\nstdout: %s\nstderr: %s", res.exit, res.stdout, res.stderr)
+	}
+	if err := write.Pin(r.configDirB, canonElsewhere, oldPin); err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // G306: a committed team file is 0644
+	if err := os.WriteFile(filepath.Join(elsewhere, teamfile.FileName), moved(backend.url), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	late := r.newSession("bob", "billing-late", "", "", "")
+	late.cwd = elsewhere
+	if res := start(late); r.mapExists(late) || !strings.Contains(res.stdout, drift) {
+		t.Fatalf("a session after the record was cleared: stdout %q, map %v", res.stdout, r.mapExists(late))
+	}
+
+	entry := r.liveWatcher(alice)
+	for _, s := range []session{alice, bob, other} {
+		r.restHook(s, "session-end", s.hookDoc("SessionEnd", map[string]any{"reason": "exit"}))
+	}
+	testutil.Eventually(t, waitLong, pollEvery, func() bool { return !alive(entry.PID) })
+	// The join secret, the ticket and the session's messaging token are in no file the run left behind but the
+	// two files they travel in. The record was cleared, so the old backend's store holds no ticket either.
+	for _, hidden := range []string{secret, ticket, token} {
+		for _, hit := range tokenHits(t, hidden, r.dirs.Root) {
+			if hit != r.secretFile && hit != ticketFile {
 				t.Errorf("a secret of the run is in %s", hit)
 			}
 		}

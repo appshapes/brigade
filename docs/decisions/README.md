@@ -10,6 +10,7 @@ agent follows are in [documentation.md](../agent/repository/documentation.md) an
 
 - [0001. Record decisions as ADRs in the repository](0001-record-decisions-as-adrs.md)
 - [0002. Close a decision's ask from the asker's side, with the ruling as its outcome](0002-close-a-decisions-ask-from-the-askers-side.md)
+- [0003. Follow a team that moved, on the old backend's record and a move ticket](0003-follow-a-team-that-moved-on-the-old-backends-record.md)
 
 ## Record a decision
 

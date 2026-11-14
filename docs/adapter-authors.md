@@ -93,8 +93,8 @@ Omit it without penalty.
 ## Run the conformance suite
 
 The suite is the definition of "works with Brigade". It runs your adapter as three principals in two teams, using
-protocol commands only, and checks every rule of the protocol document that a black-box test can see: 52 cases,
-`C-01`..`C-50` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
+protocol commands only, and checks every rule of the protocol document that a black-box test can see: 54 cases,
+`C-01`..`C-52` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
 
 ```text
 $ bin/brigade-conformance -h
@@ -352,13 +352,15 @@ case-insensitively.
   C-07,C-28,C-40` reports "1 passed, 0 failed, 2 skipped". C-04, C-07 and C-08 have their own fallbacks and keep
   running as long as `team.create` is advertised. Count all of it before you pick a provisioning route: `--setup`
   with neither team capability costs you C-03, C-03b, C-04 and C-08 to the `cap:` tags **and** C-28 and C-40 to
-  this rule — six of the 52, on a run that still exits 0.
+  this rule — six of the 54, on a run that still exits 0.
 - The three team administration cases, C-48, C-49 and C-50, carry `cap:team.admin` and skip the same way at run
   time when they cannot make a team. Each rotates a secret, revokes a member or moves the ownership, which would
   fail every later case if it were done to the fixture's teams, so each creates a team of its own and joins a
   second principal to it. An adapter that advertises `team.admin` without `team.create` and `team.join` is
   therefore SKIP on all three — *"needs team.create and team.join to make a team of its own"* — and one that does
   not advertise `team.admin` is SKIP on all three by the tag, which is the fs adapter's case.
+- The two cases of a team's move, C-51 and C-52, carry `cap:team.move` and make a team of their own in the same
+  way, for the same reason: a recorded move on the fixture's teams would be found by every later case's harness.
 - A selection matching **no** case is a usage error (exit 2), never a pass. `--tags cap:nosuch` printing
   "0 passed, 0 failed, 0 skipped" with exit 0 would read exactly like a clean run, so the suite refuses before it
   launches anything. An unknown id in `--only`/`--skip` is a usage error for the same reason.
@@ -395,9 +397,10 @@ C-43   PASS   0.05s  4.2 team members
 
 (The `…` lines are elided here; the run prints one line per case. That transcript is a **45**-case run, measured
 before C-44 — 4.4.2 `model` and `context_used_tokens` — C-45 — 4.4.2 `human_label` — C-46 — 4.4.2
-`brigade_version` — C-47 — 4.4.2 `sync_peer` — and C-48 to C-50 — 4.4.10's three team administration commands —
-joined the suite; a run today selects 52 and prints `C-44` through `C-50` after `C-43`, the last three as
-`SKIP … capability not advertised: team.admin` for the fs adapter.) The human table always goes to **stderr**, in
+`brigade_version` — C-47 — 4.4.2 `sync_peer` — C-48 to C-50 — 4.4.10's three team administration commands — and
+C-51 and C-52 — its two commands of a team's move — joined the suite; a run today selects 54 and prints `C-44`
+through `C-52` after `C-43`, with C-48 to C-50 as `SKIP … capability not advertised: team.admin` for the fs
+adapter.) The human table always goes to **stderr**, in
 every mode. With `--json` the machine-readable report goes to **stdout** and nothing else does, so
 `brigade-conformance --json … > report.json` gives you a clean document — with one caveat worth knowing before
 you wire this into CI: a launcher error raised *before* the first case (adapter not found, `describe` not ok
@@ -1379,9 +1382,24 @@ member that left; a banned member's join is the rejected join of `team join`; an
 SKIP, and nothing else is asked of you. The fs adapter leaves it out; the Supabase adapter and the `rest` adapter
 carry it, and `internal/adapterkit/teamadmin.go` reads the two requests for both.
 
+A second optional capability is `team.move`: the record of where a team went, for a backend that teams may
+leave (4.4.10, 4.7). `team move` lets the team's owner record a destination, an adapter's name, a URL and an
+optional certificate pin, and a move ticket, which is a join secret of the same team at the new backend; `team
+move --clear` removes the record; `team moved` answers it to every active member. Advertise it and C-51 and C-52
+hold you to it: the owner alone records and clears, every other caller getting the uniform `unauthorized`; the
+ticket is read from the file `--ticket-file` names and, on `team moved`, written to the file `--ticket-file`
+names with mode 0600, and is in no argument, no result and no error; a second record replaces the first; and a
+team with no record answers `{team_ref, moved: false}` and nothing else. A harness uses the record to follow a
+team to its new backend, which is a decision of the harness's and not of the protocol's: Brigade's follows only
+when the record names exactly what the project's team file names (`docs/security.md`, section 21). Leave it out
+and the two verbs are unknown verbs of yours, the two cases are SKIP, and a team on your backend is joined at
+its new one by each member's own command. The Supabase adapter and the fs adapter carry it, and
+`internal/adapterkit/teammove.go` reads the request and the ticket's file for both; the `rest` adapter leaves it
+out, because a record is kept by the backend a team leaves.
+
 One thing in that territory is *not* optional: `message watch` is core (4.2). Every adapter writes the NDJSON stream,
 starting with one `ready` event whose `mode` is `polling` unless you advertise `message.watch.push` (4.4.9, 4.7), and
-nine of the 52 cases (C-33..C-41) are about it.
+nine of the 54 cases (C-33..C-41) are about it.
 
 ## The environment your adapter runs in
 

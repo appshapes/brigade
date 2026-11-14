@@ -106,11 +106,40 @@ gives everyone else exactly what `member_team` gives a stranger.
   as the import is, and no request reaches it. **`--take-back <team_ref> --secret-file <path>`** is another: one
   entry of a rotation, a revocation by version of everyone and an owner change to nobody, so that the first
   member to join with the new secret owns the team. The file's place is held before the entry is appended.
-- **Snapshots are format 2.** This build reads formats 1 and 2. A 0.3.0 passes a format 2 snapshot over and then
-  refuses a log that holds a record it does not know, so it never reads a state whose bans it would drop.
+- **Snapshot format 2** came with them. A 0.3.0 passes a format 2 snapshot over and then refuses a log that
+  holds a record it does not know, so it never reads a state whose bans it would drop.
 - **A gateway reads its join secret file again** before each attempt to join, at most one a minute after a
   refusal, and presents the credential it holds, so it comes back as the member it was and a ban of it holds. A
   rotation followed by a revocation by version therefore needs the file replaced and nothing restarted.
+
+## Moving a team's members
+
+From 0.5.0 a team opens to a second secret for a time, the move ticket, so that a member's session follows a
+team that was taken in with no command of the member's (work item 273; the plan's section 4.9). The contract
+does not change: `/v1/team/join` carries a ticket as it carries the join secret, and no answer has a new
+member. Recording the ticket on the backend the team leaves, and following it, are the plugin's.
+
+- **`--open-move <team_ref> --ticket-file <path> [--ticket-days <days>]`** and **`--close-move <team_ref>`** are
+  jobs of their own kind between a stop and a start, as the import is, and no request reaches either. The
+  ticket is minted as a join secret is, `brg1.<team_ref>.<random>`, for 1 to 365 days, 30 unless told
+  otherwise. Its file's place is held before the entry is appended, by the writer `--take-back` uses, and the
+  file is the one place the ticket is.
+- **Two records.** `team.move_opened` holds the ticket's SHA-256 and its end, a whole second;
+  `team.move_closed` names the team. A team has one move: applying `team.move_opened` puts the ticket in the
+  place of the one the team had. `Team.move_ticket` stays after its end, admitting nobody, until a record
+  takes it away: the end is a time, and no record marks it.
+- **The join.** `team_join` holds what was presented against the hash of the join secret and the hash of the
+  ticket, both every time. A ticket admits while the request's time is before its end. Its join never makes an
+  owner, whatever `may_own` says, because every member of the team on the backend it leaves can read the
+  ticket. Its `member.joined` carries `by_move_ticket`, which is written only when it is true and is read by
+  the journal's line alone: the membership is the one the secret makes, under the team's current secret
+  version.
+- **A rotation closes a move.** `/v1/team/rotate-secret` and `--take-back` append `team.move_closed` after
+  `team.secret_rotated`, in the same entry, when the team has a move. Neither answer changes.
+- **Snapshots are format 3.** This build reads formats 1 to 3, and writes a team that is not moving as format
+  2 wrote it. A 0.4.x passes a format 3 snapshot over and refuses a log that holds one of the two records, so
+  it never reads a team whose move is open as a team with none. Where no move was ever opened it starts from
+  the newest snapshot of its own that is kept, or from the log's first entry, and writes format 2 again.
 
 ## The gateways
 
@@ -227,8 +256,8 @@ There is no standby instance (phase 4).
 
 Found by two reviews of the code on 2026-11-12 and left for a decision or a measurement:
 
-- Nothing bounds the sessions a member registers, the principals a join secret makes or the teams a server
-  holds. BAP/1 names `register_session` and `join_attempts` as reasons for `rate_limited`; the numbers are a
+- Nothing bounds the sessions a member registers, the principals a join secret or a move ticket makes or the
+  teams a server holds. BAP/1 names `register_session` and `join_attempts` as reasons for `rate_limited`; the numbers are a
   product decision, and they weigh more now that anyone may create a team.
 - An entry that fails its seal refuses the start, wherever it is in the log. Whether a power loss can leave such
   an entry at the feed's tail depends on Cavalry's recovery of a recording, which is not tested here.

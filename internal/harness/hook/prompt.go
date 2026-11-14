@@ -20,6 +20,8 @@ import (
 	"github.com/appshapes/brigade/internal/harness/pidfile"
 	"github.com/appshapes/brigade/internal/harness/policy"
 	"github.com/appshapes/brigade/internal/harness/sessionmap"
+	"github.com/appshapes/brigade/internal/harness/teamfile"
+	"github.com/appshapes/brigade/internal/harness/teamstore"
 	"github.com/appshapes/brigade/internal/protocol"
 )
 
@@ -99,6 +101,7 @@ func (r *run) prompt() int {
 	}
 	spawned := r.ensureWatcher(ctx, f, m, replaceWatcher)
 	r.printNotice(f)
+	r.movedNotice(f, in, m)
 	// Before the poll, not last: the poll can take receiveTimeout of the
 	// budget, and the line must not land after untrusted poll frames.
 	r.doingNudge(ctx, f, in, m)
@@ -358,6 +361,45 @@ func (r *run) heldNotice(f facts, m *sessionmap.ByPID) {
 	}
 	if line := inbound.HeldNotice(held); line != "" && r.fits(line) {
 		r.say(line)
+	}
+}
+
+// movedNotice tells an attached session, once, that its project's team
+// file now names another backend for the team it is attached to (work item
+// 273, ADR 0003). A session moves only when it starts: the one that was
+// running when the administrator pushed the changed file stays on the
+// backend it registered with, where its teammates' new sessions no longer
+// are, and nothing else would say so. The file is read and nothing is
+// asked of any backend: whether the move is recorded is the next
+// session's question. A file that is gone, does not parse, names another
+// team or names the backend the session is on says nothing, and so does a
+// session that has been told: the stamp holds the Brigade session that was,
+// so one a dead session left under the same process id silences nobody.
+// The read is made at every prompt of an attached session and costs about
+// 27 microseconds (measured 2026-11-13 on this repository's own team file,
+// from three directories down), which is why nothing is kept to avoid it.
+func (r *run) movedNotice(f facts, in input, m *sessionmap.ByPID) {
+	if m.TeamRef == "" || m.TeamKey == "" || m.BrigadeSessionID == "" {
+		return
+	}
+	stamp := config.TeamMovedStamp(f.stateDir, f.pid)
+	if told, err := adapterkit.ReadStrict(stamp); err == nil && strings.TrimSpace(string(told)) == m.BrigadeSessionID {
+		return
+	}
+	path, found := teamfile.Discover(in.Cwd)
+	if !found {
+		return
+	}
+	tf, err := teamfile.Parse(path)
+	if err != nil || tf.TeamRef != m.TeamRef || teamstore.Key(tf.Adapter, tf.URL, tf.TeamRef) == m.TeamKey {
+		return
+	}
+	if !r.fits(movedLine) {
+		return
+	}
+	r.say(movedLine)
+	if err := adapterkit.WriteAtomic(stamp, []byte(m.BrigadeSessionID+"\n")); err != nil {
+		r.log.Debug("prompt: the team-moved stamp was not written; the line is said again", log.Err(err))
 	}
 }
 

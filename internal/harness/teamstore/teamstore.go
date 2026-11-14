@@ -9,7 +9,10 @@
 // This package only READS the store. Every writer lives in the `write`
 // subpackage, which `internal/harness/hook` is forbidden to import by a
 // depguard rule — "the hook only reads the store" is a compile-time
-// property, not a convention.
+// property, not a convention. The one writer a hook reaches is
+// internal/harness/teammove, which rewrites a pin only when the backend its
+// member consented to holds the administrator's record of the team's move
+// to exactly the backend the team file names (ADR 0003).
 package teamstore
 
 import (
@@ -79,6 +82,13 @@ func VerifyBinding(b *adapterkit.Profile, f *teamfile.File) error {
 // said yes. Certificate is the file's certificate pin, absent from a pin
 // whose file had none: a file that later names one, or another, no longer
 // matches, and a human reviews the change before a session attaches.
+//
+// MovedFrom is set on a pin that no command of the member's wrote: the url
+// of the backend the checkout was pinned to before, when a session followed
+// the team from there on its administrator's recorded move (work item 273,
+// ADR 0003; internal/harness/teammove). ConsentedAt is then when the
+// session followed. It is a note for whoever reads the store, and no part
+// of what a pin matches.
 type Pin struct {
 	Adapter        string    `json:"adapter"`
 	URL            string    `json:"url"`
@@ -86,6 +96,7 @@ type Pin struct {
 	Certificate    string    `json:"certificate,omitzero"`
 	TeamRef        string    `json:"team_ref"`
 	ConsentedAt    time.Time `json:"consented_at"`
+	MovedFrom      string    `json:"moved_from,omitzero"`
 }
 
 // Matches reports whether the pin and a parsed repo file agree on every

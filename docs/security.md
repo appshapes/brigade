@@ -263,8 +263,9 @@ Phase 4 run with a real model — 84 headless sessions, the idle-wake and crash-
 interactive sweep — and it produced none of the acts those test messages asked for. Read that number with
 section 3's limits: those runs measured attempts, not effects.
 
-**The one deliberate exception.** Three commands refuse to run inside a Claude Code session: `brigade team
-revoke-member`, `brigade team transfer` and `brigade inbox release`. Each is hard to undo, and each is exactly the
+**The one deliberate exception.** Four commands refuse to run inside a Claude Code session: `brigade team
+revoke-member`, `brigade team transfer`, `brigade team move` (when it records or clears where a team went, section
+21; `--show` only reads) and `brigade inbox release`. Each is hard to undo, and each is exactly the
 sort of act a teammate's text could talk a session into. They run in your own terminal instead. Read the refusal
 for what it is: the command notices it is inside a session by the environment Claude Code gives the Bash tool
 (`CLAUDE_PID`), and a command that strips that environment first — `env -u CLAUDE_PID brigade team revoke-member …`
@@ -278,7 +279,8 @@ run inside a session since P7-11, because on every path the secret now travels i
 (`--secret-file`) and never on a stream the chat sees (section 8); the refusal had nothing left to protect. What that concedes, stated plainly: a session can now pin a second checkout to a team this machine
 already holds a credential for — including a `.brigade.json` the session wrote itself — and accept a
 publishable-key-only change to `.brigade.json`, without a person at a prompt; a change of team still needs the
-secret file. The credential is per team per machine, shared by every checkout pinned to the team — a second clone,
+secret file, and so does a change of backend for the same team unless the team's administrator recorded that move
+on the backend you joined (section 21). The credential is per team per machine, shared by every checkout pinned to the team — a second clone,
 or another repository carrying the same `.brigade.json` — so `team reset`, `team revoke-credentials` and
 `team leave` act for all of them at once; no `team` verb detaches one checkout. So a pin's `consented_at` records
 that whoever held the file ran the command, not that a person answered y at a terminal.
@@ -1367,7 +1369,8 @@ what differs. The server is experimental in its 0.1.0.
 - **A team taken in.** A team can move to a server from another backend with its join secret: the operator, with
   the secret in a file, runs a command on the server's data directory while the server is stopped. No request
   can do that, and the secret is not kept: the server stores its hash, as for a team it created. The secret is
-  as strong after the move as before it, and whoever held it can join the team on the server.
+  as strong after the move as before it, and whoever held it can join the team on the server. From 0.5.0 its
+  members can follow it there with no command of their own: section 21 says on whose word, and what that opens.
 - **Who administers a team.** From 0.4.0 a team on a server has the one administrator section 9 calls the creator,
   here the team's owner, and the three commands of that section work there: the owner rotates the join secret,
   revokes or bans a member and transfers the team. Three things differ from section 9. A team that was taken in
@@ -1381,3 +1384,67 @@ what differs. The server is experimental in its 0.1.0.
   administration, as they can read everything in it. And a revocation ends a member's sessions and its place in the team, not its credential:
   the credential names a principal that may be a member of other teams on the same server.
 - **What it does not have yet.** One instance and no standby, so the server's disk is the team's only copy.
+
+## 21. A team that moves to another backend
+
+Until 0.55.0 nothing could point your sessions at another backend without a command of your own: a
+`.brigade.json` that named one stopped matching what you had joined, your next session connected to nothing, and
+`team join` asked for the secret file. From 0.55.0 one thing can, and this section states it plainly (work item
+273; the owner's ruling of 2026-11-13 is on work item 315, and the decision is
+[ADR 0003](decisions/0003-follow-a-team-that-moved-on-the-old-backends-record.md)).
+
+**What happens.** When a team moves from a Supabase project to a Brigade server, its administrator records the
+move on the project the team is leaving: the server's address, its certificate fingerprint when the team file
+pins one, and a move ticket that the server's operator made. When your next session starts in a checkout whose
+`.brigade.json` names a new backend for the team you joined there, the session asks the backend you joined
+whether that team moved. If the record names exactly what the file names — the adapter, the address, the
+fingerprint and the team — your machine joins the server with the ticket, under the label you had, and the
+session says so in one line before anything else: the team, the server, the fingerprint it trusts there, that
+the administrator recorded the move, how to leave and how to turn this off. In any other case nothing changed:
+the session connects to nothing, says that the file does not match, and `team join` asks for the secret file.
+
+- **Whose word it is.** The file's word is never enough. A `.brigade.json` can be changed by anyone who can
+  commit, and by the branch of a pull request you check out, so a session is sent nowhere and sends nothing on
+  its say alone. The word that counts is the old backend's: the one you consented to and still hold a session
+  on. Only the team's administrator can write the record there, and so can whoever controls that backend
+  (section 2), because they can write anything in it.
+- **What you give up.** A confirmation. The team's administrator, or whoever controls the old backend, can now
+  send your sessions for that team to a server of their choosing, and that server's operator reads what they
+  send, as section 20 says of any server. Before, that took your own command. You get a line at session start
+  instead, and an option, `follow_team_move`: set it to `off` and a session never follows; you join a moved team
+  yourself, with the secret file, when you have decided to. A value that is neither `on` nor `off` is read as
+  off, and the session says so.
+- **What is sent, and where.** One question goes to the backend you already joined, with the session you hold
+  there. Nothing goes to the new address until the old backend has named it. Then one join goes there, carrying
+  the ticket and your label, under the certificate the record named or the machine's authorities. Your session on
+  the old backend, and its credential, never leave your machine: the server is not shown them.
+- **The ticket.** It is a second join secret of the team at the server, with an end date: 30 days unless the
+  operator chose otherwise. The server keeps only its hash. The old backend keeps the ticket itself, because your
+  machine has to present it: on Supabase in a table that no role of the Data API can read, handed to an active
+  member of the team by one function. So whoever can read the old project's database can read the ticket, and
+  join the team at the server with it until it ends, and so can every active member of the old team, each of
+  whom holds the join secret already. A member who was revoked or banned on the old team reads no record. What
+  the ticket lets in is a member and never the team's owner: the administrator joins the server first, with the
+  secret file, and `team move` refuses to record anything until they have. The ticket is read from a file and
+  written to a file of mode 0600 inside your credential directory, which is removed as soon as the join has been
+  sent; it is in no argument, no output and no log line.
+- **Only a session's start follows.** A session that started before the move was recorded stays unconnected,
+  however many prompts it takes, until it is started again.
+- **Leaving holds.** The line names the way out, `brigade team leave`. A machine that left the team at the server
+  is not joined again by a session in another checkout of the team: you come back with `team join`, yourself.
+- **How it ends.** The operator closes the move, or the ticket runs out, or the team's owner rotates the join
+  secret on the server, which closes it too. The administrator's `team move --clear` stops the old backend from
+  saying where the team went; it does not end the ticket. Ending the team on the old backend removes the record
+  with it.
+- **What does not come over.** Messages that were waiting on the old backend stay there until their retention
+  ends, so an administrator moves a team at a quiet moment. A session that was running when the file changed
+  stays on the old backend until it ends, and is told once, at its next prompt, that a new session follows.
+- **A session that sets `adapter_command`** names its adapter itself and never follows.
+- **The hook writes the store here.** Everywhere else a session's hooks only read your team store, and every
+  change to it is made by a command that was run. This is the one exception: the session-start hook writes the
+  new membership and the checkout's pin, in the one place and behind the one comparison this section describes.
+  The pin records the backend it moved from, so you can tell a pin a command wrote from one a session followed.
+- **Other backends.** The record is a capability of an adapter (`team.move`), which the Supabase adapter
+  carries. A backend whose adapter lacks it is asked nothing about a move, and a team on it, or on a Supabase
+  project without the migration that adds the record, is never followed anywhere: its members join as before. A migration is applied to a hosted project
+  by its owner.

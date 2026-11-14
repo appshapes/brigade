@@ -105,6 +105,7 @@ func (r *run) sessionEnd() int {
 	}
 	// The doing reminder stamp goes with the map (card 25, plan 5.3); the
 	// sentence itself stays on the closed record (ruling 6).
+	_ = os.Remove(config.TeamMovedStamp(f.stateDir, f.pid))
 	if rerr := os.Remove(doingStampPath(f.stateDir, f.pid)); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
 		r.log.Debug("session-end: doing stamp not removed", log.Err(rerr))
 	}

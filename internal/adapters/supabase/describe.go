@@ -10,7 +10,9 @@ const adapterName = progName
 
 // capabilities is the 4.7 registry entries this adapter implements: every
 // team convention including team.admin (P5-2: rotate-secret, revoke-member
-// and transfer, creator only), the push watch with stdin commands, and
+// and transfer, creator only) and team.move (work item 273: the record of
+// where a team went, 20261114120000_team_move.sql), the push watch with
+// stdin commands, and
 // every session member (brief section 2) — model and context_used_tokens
 // included (C-44; 20260910193200_session_model_context.sql stores and
 // returns them) and the registration's human_label too (C-45;
@@ -24,6 +26,7 @@ func capabilities() []string {
 		"team.join",
 		"team.roster",
 		"team.admin",
+		"team.move",
 		"message.receive",
 		"message.watch.push",
 		"message.watch.stdin_commands",

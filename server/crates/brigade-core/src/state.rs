@@ -80,10 +80,26 @@ pub struct Team {
     /// with every rotation.
     #[serde(default = "first_secret_version")]
     pub secret_version: u32,
+    /// The ticket of the team's move from another backend, from the day the operator opens the move until
+    /// the move is closed. A team that is not moving has none, and a snapshot written before there were
+    /// moves reads as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub move_ticket: Option<MoveTicket>,
     /// Every membership the team has had, by principal.
     pub members: BTreeMap<String, Member>,
     /// Every session the team still holds, by id.
     pub sessions: BTreeMap<String, Session>,
+}
+
+/// The ticket of a team's move: a second secret a join is let in with, for a time, and that never makes an
+/// owner.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MoveTicket {
+    /// The SHA-256 of the whole ticket. The ticket itself is never kept.
+    pub hash: String,
+    /// When the ticket stops admitting. It stays here after that, admitting nobody, until the move is
+    /// closed or another is opened: the end is a time, and no record marks it.
+    pub ends_at: Timestamp,
 }
 
 /// One principal's membership of one team.
@@ -481,6 +497,7 @@ impl State {
                     created_by: created_by.clone(),
                     created_at: at,
                     secret_version: FIRST_SECRET_VERSION,
+                    move_ticket: None,
                     members: BTreeMap::new(),
                     sessions: BTreeMap::new(),
                 });
@@ -489,9 +506,12 @@ impl State {
                 team_ref,
                 principal_ref,
                 human_label,
+                // A member that came in with the move ticket is the member it would be with the secret.
+                by_move_ticket: _,
             } => {
                 if let Some(team) = self.teams.get_mut(team_ref) {
-                    // The secret a join was let in with is the one the team has when the join is recorded.
+                    // The secret a join was let in with is the one the team has when the join is recorded,
+                    // and a join by the move ticket counts as one with that secret.
                     let secret_version = team.secret_version;
                     match team.members.get_mut(principal_ref) {
                         Some(member) => {
@@ -563,6 +583,24 @@ impl State {
             } => {
                 if let Some(team) = self.teams.get_mut(team_ref) {
                     team.created_by.clone_from(principal_ref);
+                }
+            }
+            Event::TeamMoveOpened {
+                team_ref,
+                ticket_hash,
+                ends_at,
+            } => {
+                if let Some(team) = self.teams.get_mut(team_ref) {
+                    // The ticket of a move the team already had is gone with this one in its place.
+                    team.move_ticket = Some(MoveTicket {
+                        hash: ticket_hash.clone(),
+                        ends_at: *ends_at,
+                    });
+                }
+            }
+            Event::TeamMoveClosed { team_ref } => {
+                if let Some(team) = self.teams.get_mut(team_ref) {
+                    team.move_ticket = None;
                 }
             }
             Event::SessionOpened {

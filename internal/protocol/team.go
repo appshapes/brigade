@@ -306,6 +306,100 @@ func (r *TeamTransferResult) Validate() error {
 	return nil
 }
 
+// Moving a team (4.4.10, capability team.move; added 2026-11-13, work item
+// 273, ADR 0003): `team move` and `team moved`. A team that leaves this
+// backend for another has the move recorded here by its owner, and an
+// active member's adapter reads the record: where the team went, and the
+// move ticket that admits a member there.
+
+// The caps of a move's destination (4.4.10), in code points: an adapter's
+// name, a backend's URL and a certificate pin.
+const (
+	MaxMoveAdapterChars     = 64
+	MaxMoveURLChars         = 2048
+	MaxMoveCertificateChars = 128
+)
+
+// TeamMoveRequest is the `team move` stdin document (4.4.10): where the
+// team went. The move ticket is not a member of it: the adapter reads the
+// ticket from the file --ticket-file names, so it is never on argv and
+// never in a document a caller could log.
+type TeamMoveRequest struct {
+	Adapter     string `json:"adapter"`
+	URL         string `json:"url"`
+	Certificate string `json:"certificate,omitzero"`
+}
+
+// Validate implements Validator. Whether the URL is one a backend can be
+// reached at, and whether the certificate is a pin, is the business of the
+// harness that follows the record: it follows only a record that names
+// exactly what a team file names, and a team file is parsed strictly.
+func (r *TeamMoveRequest) Validate() error {
+	if err := requireString("adapter", r.Adapter); err != nil {
+		return err
+	}
+	if err := capRunes("adapter", r.Adapter, MaxMoveAdapterChars); err != nil {
+		return err
+	}
+	if err := requireString("url", r.URL); err != nil {
+		return err
+	}
+	if err := capRunes("url", r.URL, MaxMoveURLChars); err != nil {
+		return err
+	}
+	return optionalText("certificate", r.Certificate, MaxMoveCertificateChars)
+}
+
+// TeamMoveResult is the result of `team move` and of `team moved`
+// (4.4.10). Moved false is a team with no move recorded, and then only
+// team_ref goes with it. Moved true carries where the team went and when
+// that was recorded. It has no ticket member: `team moved` writes the
+// ticket to the file --ticket-file names and answers that path as
+// ticket_file, because `team create` is the only command whose output may
+// carry a secret (4.5.14).
+type TeamMoveResult struct {
+	TeamRef     string    `json:"team_ref"`
+	Moved       bool      `json:"moved"`
+	Adapter     string    `json:"adapter,omitzero"`
+	URL         string    `json:"url,omitzero"`
+	Certificate string    `json:"certificate,omitzero"`
+	RecordedAt  time.Time `json:"recorded_at,omitzero"`
+	TicketFile  string    `json:"ticket_file,omitzero"`
+}
+
+// Validate implements Validator.
+func (r *TeamMoveResult) Validate() error {
+	if err := requireString("team_ref", r.TeamRef); err != nil {
+		return err
+	}
+	if !r.Moved {
+		// A team that has not moved went nowhere: a destination beside
+		// moved false is two answers in one document.
+		for _, m := range []struct{ field, value string }{
+			{"adapter", r.Adapter}, {"url", r.URL}, {"certificate", r.Certificate}, {"ticket_file", r.TicketFile},
+		} {
+			if m.value != "" {
+				return errInvalidValue(m.field, "absent unless moved is true")
+			}
+		}
+		if !r.RecordedAt.IsZero() {
+			return errInvalidValue("recorded_at", "absent unless moved is true")
+		}
+		return nil
+	}
+	destination := TeamMoveRequest{Adapter: r.Adapter, URL: r.URL, Certificate: r.Certificate}
+	if err := destination.Validate(); err != nil {
+		return err
+	}
+	if err := requireTime("recorded_at", r.RecordedAt); err != nil {
+		return err
+	}
+	if r.TicketFile != "" && !utf8.ValidString(r.TicketFile) {
+		return errNotUTF8("ticket_file")
+	}
+	return nil
+}
+
 // errTeamAdminField refuses one member of a team-administration request,
 // naming the member and the reason and never its value. The messages are
 // the ones the commands have always answered with, which is why they are
