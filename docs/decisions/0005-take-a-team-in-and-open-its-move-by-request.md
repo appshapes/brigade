@@ -116,7 +116,9 @@ no hosted project was asked.
   them needed a test added, one that reaches the owner's check past the request's gate. Of the 28 to the
   stand-in server, the adapter and the protocol's types, 26 are caught. The two that are not take away the
   adapter's registration of the join secret and of the ticket for redaction, and change nothing that can be
-  seen: the logger redacts every text of a join secret's form already.
+  seen: the logger redacts every text of a join secret's form already. The review of this change removed
+  both registrations for that reason. It made the adapter's tests look for a ticket's secret half as well,
+  which is not of that form: for the whole ticket no such test could fail on a log line.
 - `make server-check server-test` and the acceptance gate pass. `make server-deps-check` did not run: the
   machine has no `cargo-deny`. No crate was added.
 - Not measured: a move of a real team from a hosted project by these requests. The command that makes them from
@@ -134,6 +136,8 @@ no hosted project was asked.
   made again joins as a member. The operator names the owner with `--set-owner`.
 - A take-in that is refused for its secret tells that a team of that reference is on the server, where a join
   tells nothing. It is counted against a known principal as a failed join is.
+- The reference of a team that is taken in is its caller's choice, and the server keeps it. `brigade-server`
+  holds it to 256 code points, so that one request of a caller it does not know cannot have it keep a megabyte.
 - The operator stops the server for a team's move no longer, and no ticket file changes hands.
 - The contract has three more optional endpoints, the protocol three more commands and the conformance suite
   three more cases to keep compatible in both directions.
