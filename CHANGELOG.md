@@ -49,6 +49,21 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
   --ticket-file`, the filesystem adapter's included, make the same
   check. What was at the path is left as it is until the write, which
   still replaces a symbolic link there and never follows it.
+- **A server that repeats only the secret half of a join secret cannot
+  make the `rest` adapter print it** (work item 328). The adapter passes
+  a server's refusal through its redactor, which replaces a whole
+  `brg1.<team_ref>.<secret>` wherever it finds one and knew nothing of
+  the part after the last dot alone, the one part that is secret: a
+  team's reference is in its committed team file. A server that broke
+  the contract's rule and repeated that half in a refusal got it
+  printed on stdout and stderr. `team join` and `team take-in` now
+  register the half of what they present before they send it, the
+  team's join secret or the ticket of its move, and `team
+  rotate-secret` and `team open-move` the half of the secret in the
+  server's answer before they do anything else with it. A half shorter
+  than sixteen characters is not registered: no backend mints one, and
+  a short text would be cut out of every line that holds those
+  characters.
 
 ## [0.55.0] — 2026-11-13
 

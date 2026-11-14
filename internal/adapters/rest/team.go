@@ -217,6 +217,9 @@ func (c *command) teamJoin() (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// What is presented may be the team's join secret or the ticket of its
+	// move: either way its secret half is hidden before anything is sent.
+	c.hideSecretHalf(secret.Secret())
 	if present && p.TeamRef != "" && p.TeamRef != secret.TeamRef() {
 		return nil, errConflict("this profile is already bound to another team", reasonProfileBound)
 	}
@@ -453,6 +456,37 @@ func checkSecretFile(path string) error {
 	return nil
 }
 
+// minHiddenHalfChars is the fewest characters the secret half of a join
+// secret has for hideSecretHalf to register it. A backend mints a half
+// from at least 128 random bits, which no alphabet writes in fewer than
+// sixteen characters, so every minted half is registered. A shorter one
+// is somebody's own text, and a short text registered as it stands would
+// be cut out of every line that happens to hold those characters: `ops`
+// out of a team's name, a digit out of a status.
+const minHiddenHalfChars = 16
+
+// hideSecretHalf registers on the redactor the secret half of a join
+// secret or a move ticket: what follows its last dot, when it is
+// minHiddenHalfChars or longer. The redactor's own pattern replaces the
+// whole `brg1.<team_ref>.<secret>` wherever it finds one and knows
+// nothing of the half alone, so a server that broke the contract's rule
+// and repeated only the half in a refusal would have this adapter print
+// the one part of the secret that is secret: the reference is in the
+// committed team file. It is called with what a command presents, before
+// the request (`team join`, `team take-in`), and with what an answer
+// carries, before anything else is done with the answer (`team
+// rotate-secret`, `team open-move`). A text with no dot has no half and
+// registers nothing.
+func (c *command) hideSecretHalf(secret string) {
+	dot := strings.LastIndexByte(secret, '.')
+	if dot < 0 {
+		return
+	}
+	if half := secret[dot+1:]; len(half) >= minHiddenHalfChars {
+		c.redactor.Add(half)
+	}
+}
+
 // warnSecretShownOnce puts the 4.4.10 warning on stderr. It names no
 // secret: the warning is about one, it never carries one.
 func (c *command) warnSecretShownOnce(text string) {
@@ -561,8 +595,10 @@ func (c *command) teamRotateSecret() (any, error) {
 		return nil, err
 	}
 	// The new secret is registered on the redactor before anything else is
-	// done with the answer, so no line this command writes can carry it.
+	// done with the answer, so no line this command writes can carry it, and
+	// so is its secret half, which is not of a join secret's form.
 	c.redactor.Add(answer.JoinSecret)
+	c.hideSecretHalf(answer.JoinSecret)
 	if answer.TeamRef != c.profile.TeamRef {
 		c.rotationLost()
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")
@@ -718,10 +754,12 @@ func (c *command) teamTakeIn() (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Nothing registers the secret on the redactor: the redactor replaces
-	// every text of a join secret's form wherever it finds one
+	// The whole secret is not registered on the redactor: the redactor
+	// replaces every text of a join secret's form wherever it finds one
 	// (adapterkit/log), the whole of this one included, so a registration of
-	// the same text would change no line.
+	// the same text would change no line. Its secret half is not of that
+	// form, and is.
+	c.hideSecretHalf(taken.Secret.Secret())
 	if present && p.TeamRef != "" && p.TeamRef != taken.Secret.TeamRef() {
 		return nil, errConflict("this profile is already bound to another team", reasonProfileBound)
 	}
@@ -796,8 +834,10 @@ func (c *command) teamOpenMove() (any, error) {
 	}
 	// The ticket is a join secret in form, which the redactor replaces
 	// wherever it finds one; one that is not is refused below in fixed words.
-	// Nothing after this line writes any part of the answer but the result,
-	// which has no ticket member.
+	// Its secret half is not of that form, and is registered. Nothing after
+	// this line writes any part of the answer but the result, which has no
+	// ticket member.
+	c.hideSecretHalf(answer.Ticket)
 	if answer.TeamRef != c.profile.TeamRef {
 		c.ticketLost()
 		return nil, errUnexpectedResponse("the backend answered a team other than the one the profile is bound to")

@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"time"
+
+	adapterlog "github.com/appshapes/brigade/internal/adapterkit/log"
 )
 
 // Run executes one adapter command and returns its 4.6 exit status. It is
@@ -21,13 +23,23 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []str
 	return run(args, stdin, stdout, stderr, environ, options{})
 }
 
-// options are the two things a test replaces: the clock, and the watch's
-// intervals and the context its stop signal is derived from. The zero
-// value is production: time.Now, defaultTiming and context.Background.
+// options are the things a test replaces: the clock, the watch's
+// intervals and the context its stop signal is derived from, and the
+// redactor, so that a test can ask it afterwards what the command
+// registered. The zero value is production: time.Now, defaultTiming,
+// context.Background and a redactor of the command's own.
 type options struct {
-	now    func() time.Time
-	timing *timing
-	base   context.Context
+	now      func() time.Time
+	timing   *timing
+	base     context.Context
+	redactor *adapterlog.Redactor
+}
+
+func (o options) redaction() *adapterlog.Redactor {
+	if o.redactor != nil {
+		return o.redactor
+	}
+	return adapterlog.NewRedactor()
 }
 
 func (o options) clock() func() time.Time {

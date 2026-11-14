@@ -44,7 +44,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, environ []str
 	c := &command{
 		stdin: stdin, stdout: stdout, stderr: stderr,
 		environ: environ, now: o.clock(), log: slog.New(discardHandler{}),
-		ctx: o.context(), timing: o.intervals(), redactor: adapterlog.NewRedactor(),
+		ctx: o.context(), timing: o.intervals(), redactor: o.redaction(),
 	}
 	if err := c.setup(args); err != nil {
 		if errors.Is(err, errHelp) {
