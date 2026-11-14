@@ -3,7 +3,8 @@
 Your team is in a Supabase project and is going to a Brigade server. You do three things, in this order, and your
 members do nothing: their next session follows. It works from plugin 0.55.0, on a server of 0.5.0 or later, and
 needs the migration `20261114120000_team_move` applied to the Supabase project the team is leaving
-([Know which migration adds what](../../project-owner/update/migrations.md)).
+([Know which migration adds what](../../project-owner/update/migrations.md)). The whole move, with the
+operator's steps, is in [Move a team from Supabase](../../project-owner/server/move-from-supabase.md).
 
 ## What you need
 
@@ -75,8 +76,11 @@ before when:
 - Clear the record **before** you point `.brigade.json` back at the old backend. If the file already names it,
   say which backend holds the record: `brigade team move --clear --from <the old backend's host>`, and
   `--show --from <host>` reads it.
-- When every member has followed, end the team on the old backend as you would any team
-  ([End a team](../delete/end-a-team.md)). The record goes with it.
+- When no checkout is left to follow, end the team on the old backend ([End a team](../delete/end-a-team.md)),
+  with three differences. Run it in a checkout whose `.brigade.json` still names the old backend, one you
+  kept at the commit before the move: a team command goes to the backend the file names, and in a checkout
+  that followed that is the server. Give `rotate-secret` a new file, not the team's secret file, which still
+  joins the server. And leave `.brigade.json` in the repositories. The record goes with the team.
 
 ## What you are deciding for your members
 

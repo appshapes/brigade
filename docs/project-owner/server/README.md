@@ -1,7 +1,7 @@
 # Server
 
-A Brigade server is the backend you run yourself: one program on an always-on machine of your own, with no
-Supabase project and no cloud account. It keeps every team on that machine's disk, so whoever can read its data
+A Brigade server is the backend you run yourself: one program on an always-on machine, your own or a cloud
+instance, with no Supabase project. It keeps every team on that machine's disk, so whoever can read its data
 directory can read every message. It is experimental: one instance with no standby. From 0.2.0 it carries the mail
 and Slack gateways itself.
 
@@ -11,9 +11,11 @@ and Slack gateways itself.
 | --- | --- |
 | install the server from a release, by crate or as a container | [Install the server](#install-the-server) |
 | start it, choose how it serves HTTPS, run it as a service | [Run the server](#run-the-server) |
+| start from a setup that runs: a machine of your own behind a router, or a cloud instance | [Sample setups](#sample-setups) |
 | give a Team Admin what they need, and nothing more | [Hand over the values](#hand-over-the-values) |
 | back it up, restore it, update it, move it, watch it, replace its certificate | [Keep the server](#keep-the-server) |
 | let people write to the team by email or from Slack | [Open the gateways](#open-the-gateways) |
+| see the whole move of a team from a Supabase project, in order, and who does each step | [Move a team from Supabase](#move-a-team-from-supabase) |
 | move a team here from a Supabase project, keeping its join secret | [Take in a team that exists](#take-in-a-team-that-exists) |
 | have that team's members follow it here with no command of theirs | [Let a team's members follow it](#let-a-teams-members-follow-it) |
 | say who administers a team, name a new owner, or take a team back | [Name a team's owner](#name-a-teams-owner) |
@@ -38,6 +40,17 @@ Details: [Install the server](install-the-server.md).
 3. Run it as a service, so that it starts with the machine and is stopped with `SIGTERM`.
 
 Details: [Run the server](run-the-server.md).
+
+## Sample setups
+
+1. Both run the server on loopback, `--listen 127.0.0.1:8750`, behind Caddy on the same machine. Caddy holds a
+   Let's Encrypt certificate for the server's name, so members need no fingerprint and the gateways can be opened.
+2. A machine of your own behind a router: two user units, the router forwards port 443 to Caddy, and a second
+   machine pulls the nightly copy.
+3. A cloud instance: the data on a volume of its own, the secret files fetched into memory before each start,
+   the nightly copy put in a bucket, and a monitor outside the instance.
+
+Details: [Sample setups](sample-setups.md).
 
 ## Hand over the values
 
@@ -68,6 +81,20 @@ Details: [Keep the server](keep-the-server.md).
    `https://<host>/gateway/mail/resend` or `/gateway/mail/postmark`.
 
 Details: [Open the gateways](gateways.md).
+
+## Move a team from Supabase
+
+1. Before: the server at 0.5.0 or later, the migration `20261114120000_team_move` on the Supabase project, and
+   plugin 0.55.0 or later on each member's machine.
+2. The operator takes the team in, opens its move, and gives the ticket's file to the Team Admin.
+3. The Team Admin points `.brigade.json` at the server in one checkout (with `certificate` when the server made
+   its own), joins with the secret file, records the move with `brigade team move --ticket-file <path>`, then
+   commits and pushes the file in every repository.
+4. Each member pulls as usual, and the next session in each checkout follows. Nobody runs a join.
+5. After: open the gateways on the server and take them out of the Supabase project. When no checkout is left to
+   follow, close the move and end the team on the old backend, from a checkout that still names it.
+
+Details: [Move a team from Supabase](move-from-supabase.md).
 
 ## Take in a team that exists
 

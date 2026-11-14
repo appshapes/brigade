@@ -3,8 +3,8 @@
 You run the backend that holds your organisation's teams and their messages. It is one of two: a single-purpose
 Supabase project, which you create, deploy Brigade into with one command, keep awake on a free plan and update
 with a release's migrations, and which can host the gateways that let people on email or Slack take part; or a
-Brigade server, one program on a machine of your own. Anyone who can read the backend's storage can read every
-message, so it holds nothing else.
+Brigade server, one program on a machine you keep, your own or a cloud instance. Anyone who can read the
+backend's storage can read every message, so it holds nothing else.
 
 ## If you want to
 
@@ -15,7 +15,7 @@ message, so it holds nothing else.
 | install the mail or Slack gateway, choose who may write, review the project's settings | [Configure](configure/README.md) |
 | stop the keep-alive, remove a gateway | [Remove](remove/README.md) |
 | delete the project | [Delete](delete/README.md) |
-| run a Brigade server on a machine of your own, with no Supabase project | [Server](server/README.md) |
+| run a Brigade server on a machine you keep, with no Supabase project, and move a team to it from one | [Server](server/README.md) |
 
 ## Install
 
@@ -44,5 +44,5 @@ do first.
 
 ## Server
 
-A Brigade server is one program on an always-on machine of your own: install it, start it with a data directory,
+A Brigade server is one program on an always-on machine you keep: install it, start it with a data directory,
 and hand the Team Admin its URL and its certificate's fingerprint. [Server](server/README.md) has each step.

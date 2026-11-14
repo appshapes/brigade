@@ -3,6 +3,10 @@
 `brigade-server` is one program with no database and no other service beside it. It is released apart from the
 plugin, with its own version and its own tags, `server-v<version>`.
 
+In the examples `<version>` is the server's version, such as `0.6.0`. The newest is the highest
+`server-v<version>` among the repository's [releases](https://github.com/appshapes/brigade/releases); no server
+release is marked latest, which is the plugin's.
+
 ## What runs it
 
 | Machine | |
@@ -16,7 +20,7 @@ This is the server's machine only. A member's machine runs the plugin and needs 
 ## The release binary
 
 ```sh
-v=0.1.0
+v=<version>
 base=https://github.com/appshapes/brigade/releases/download/server-v$v
 curl -fLO $base/brigade-server_${v}_linux_amd64
 curl -fLO $base/checksums.txt
@@ -31,7 +35,7 @@ macOS, `shasum -a 256 --check --ignore-missing checksums.txt` is the check.
 ## By crate
 
 ```sh
-cargo install --git https://github.com/appshapes/brigade --tag server-v0.1.0 brigade-server --locked
+cargo install --git https://github.com/appshapes/brigade --tag server-v<version> brigade-server --locked
 ```
 
 Cargo builds the tagged source with the versions its lock file names and puts `brigade-server` in `~/.cargo/bin`.
@@ -42,7 +46,7 @@ no crate that depends on a git repository, and Cavalry is not published there be
 ## The image
 
 ```sh
-docker pull ghcr.io/appshapes/brigade-server:0.1.0
+docker pull ghcr.io/appshapes/brigade-server:<version>
 ```
 
 The image holds the same program on Debian's slim base, runs as a user that is not root and keeps everything in

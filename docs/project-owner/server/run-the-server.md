@@ -109,7 +109,7 @@ ends. A start after a crash reads the log from the newest snapshot; nothing it h
 ```sh
 docker run -d --name brigade-server --restart unless-stopped --shm-size=256m \
   -p 8743:8743 -v brigade-server-data:/data \
-  ghcr.io/appshapes/brigade-server:0.1.0 --listen 0.0.0.0:8743 --tls-self-signed
+  ghcr.io/appshapes/brigade-server:<version> --listen 0.0.0.0:8743 --tls-self-signed
 docker logs brigade-server 2>&1 | grep 'listening on'
 ```
 
