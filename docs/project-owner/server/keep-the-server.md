@@ -18,8 +18,33 @@ credential in hashed form and the certificate's key.
 
 ## What is lost with the disk
 
-Every team on the server, with its members, sessions and messages. There is one instance and no standby in 0.1.0.
-After a loss, a new server is a new backend: the Team Admin creates the team again and every member joins again.
+There is one instance and no standby, so the data directory and your copies of it are all there is.
+
+**With no copy:** every team on the server, with its members, sessions and messages. A new server is then a new
+backend: the Team Admin creates the team again and every member joins again.
+
+**With a copy:** put it back as the data directory, with its owner and modes, and start the server with the same
+options, as in [Move it](#move-it). The teams return as they were when the copy was taken. A member who had
+joined by then is a member again under the credential their machine holds, and sessions register again as they
+start. What happened after the copy is gone: the messages, a member who joined since, who joins again, and a
+join secret rotated since: the earlier one joins again, so rotate it again.
+
+**What a copy of the data directory does not hold.** These files live outside it. Keep a copy of each where you
+choose, or place them again after a loss:
+
+| File | Named by | After a loss |
+| --- | --- | --- |
+| The certificate and its key | `--tls-cert`, `--tls-key` | The same files, or a new certificate for the same name. A certificate made by `--tls-self-signed` is in the data directory and returns with the copy. |
+| The creation token | `--create-token-file` | Any new value, given again to whoever creates teams. |
+| The gateways' configuration | `--gateway-config` | Written again ([Open the gateways](gateways.md)). |
+| Each team's join secret | `join_secret_file` | The file the Team Admin has. |
+| Slack's bot token and signing secret | `bot_token_file`, `signing_secret_file` | Copied again from the Slack app's pages. |
+| The mail provider's key | `api_key_file` | A key from the provider. |
+| The mail webhook's secret | `webhook_secret_file` | From the provider. One that does not show a webhook's secret again needs a new webhook at the same address. |
+
+So do the service's unit and the configuration of anything that stands in front of the server. A gateway's own
+membership is in the data directory: with the copy back and these files in place, the gateways return as the
+members they were.
 
 ## Update it
 
@@ -46,6 +71,15 @@ With `--tls-self-signed` the certificate is made once and kept. To have a new on
 `certificate` member of each repository's `.brigade.json` and commit it. Until a member has pulled that change and
 run `brigade team join`, which shows the old and the new fingerprint and needs no secret, their sessions connect
 to nothing.
+
+## Watch it
+
+One request needs no credential and says nothing about any team: `POST /v1/info` with the body `{}`. It is the
+one for a monitor. An answer with status 200 says the server is up and answering, and names its version.
+
+```sh
+curl -fsS -X POST -H 'Content-Type: application/json' -d '{}' https://<host>/v1/info
+```
 
 ## What it does not do yet
 

@@ -12,7 +12,7 @@ and Slack gateways itself.
 | install the server from a release, by crate or as a container | [Install the server](#install-the-server) |
 | start it, choose how it serves HTTPS, run it as a service | [Run the server](#run-the-server) |
 | give a Team Admin what they need, and nothing more | [Hand over the values](#hand-over-the-values) |
-| back it up, update it, move it, replace its certificate | [Keep the server](#keep-the-server) |
+| back it up, restore it, update it, move it, watch it, replace its certificate | [Keep the server](#keep-the-server) |
 | let people write to the team by email or from Slack | [Open the gateways](#open-the-gateways) |
 | move a team here from a Supabase project, keeping its join secret | [Take in a team that exists](#take-in-a-team-that-exists) |
 | say who administers a team, name a new owner, or take a team back | [Name a team's owner](#name-a-teams-owner) |
@@ -50,7 +50,9 @@ Details: [Hand over the values](hand-over-the-values.md).
 
 1. Everything is in the data directory. To back it up: stop the server, copy the directory, start the server.
 2. To update: stop it, replace the binary, start it on the same directory.
-3. Losing the directory loses every team in it: there is one instance and no standby yet.
+3. Losing the directory with no copy loses every team in it: there is one instance and no standby yet. With a
+   copy the teams return as of the copy, and the files outside the directory are placed again.
+4. A monitor asks `POST /v1/info`, which needs no credential.
 
 Details: [Keep the server](keep-the-server.md).
 
