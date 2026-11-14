@@ -47,6 +47,7 @@ scripts learn them once.
 | `team leave` | none | `{team_ref, principal_ref, left: true}` | convention, capability `team.join`; idempotent |
 | `team members` | none | `{team_ref, team_name, server_time, members}` | convention, capability `team.roster` |
 | `team rotate-secret` / `team revoke-member` / `team transfer` | none; `{principal_ref, ban?}` or `{joined_secret_version_lte}`; `{principal_ref}` | 4.4.10's three results | convention, capability `team.admin`; the team's owner only |
+| `team take-in` / `team open-move` / `team close-move` | `{join_secret, team_name, human_label?, backend?}`; none; none | 4.4.10's three results | convention, capability `team.take_in`; the take-in for the holder of the team's join secret, the other two for the team's owner only |
 | `profile init` / `profile status` / `profile reset` / `profile revoke-credentials` | adapter-specific | adapter-specific, never a secret | convention, adapter-defined |
 
 Core-command flags are exactly `--profile`, `--session`, `--include-offline`, `--limit` and `--log-level`; an unknown
@@ -93,8 +94,8 @@ Omit it without penalty.
 ## Run the conformance suite
 
 The suite is the definition of "works with Brigade". It runs your adapter as three principals in two teams, using
-protocol commands only, and checks every rule of the protocol document that a black-box test can see: 54 cases,
-`C-01`..`C-52` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
+protocol commands only, and checks every rule of the protocol document that a black-box test can see: 57 cases,
+`C-01`..`C-55` plus `C-03b`, `C-19b` and `C-29b` (there is no C-09).
 
 ```text
 $ bin/brigade-conformance -h
@@ -352,7 +353,7 @@ case-insensitively.
   C-07,C-28,C-40` reports "1 passed, 0 failed, 2 skipped". C-04, C-07 and C-08 have their own fallbacks and keep
   running as long as `team.create` is advertised. Count all of it before you pick a provisioning route: `--setup`
   with neither team capability costs you C-03, C-03b, C-04 and C-08 to the `cap:` tags **and** C-28 and C-40 to
-  this rule — six of the 54, on a run that still exits 0.
+  this rule — six of the 57, on a run that still exits 0.
 - The three team administration cases, C-48, C-49 and C-50, carry `cap:team.admin` and skip the same way at run
   time when they cannot make a team. Each rotates a secret, revokes a member or moves the ownership, which would
   fail every later case if it were done to the fixture's teams, so each creates a team of its own and joins a
@@ -361,6 +362,11 @@ case-insensitively.
   not advertise `team.admin` is SKIP on all three by the tag, which is the fs adapter's case.
 - The two cases of a team's move, C-51 and C-52, carry `cap:team.move` and make a team of their own in the same
   way, for the same reason: a recorded move on the fixture's teams would be found by every later case's harness.
+- The three cases of the backend a team moves to, C-53, C-54 and C-55, carry `cap:team.take_in` and need no other
+  capability: each makes its team with `team take-in` itself, on scratch principals, from a join secret the suite
+  mints for a `team_ref` of a UUID's shape that no backend holds. Your backend must therefore let the run take
+  teams in, as it must let it create them. Where `team.join` is advertised they also join with the secret and
+  with the move ticket, and where `team.admin` is, C-55 checks that a rotation closes a move.
 - A selection matching **no** case is a usage error (exit 2), never a pass. `--tags cap:nosuch` printing
   "0 passed, 0 failed, 0 skipped" with exit 0 would read exactly like a clean run, so the suite refuses before it
   launches anything. An unknown id in `--only`/`--skip` is a usage error for the same reason.
@@ -398,9 +404,10 @@ C-43   PASS   0.05s  4.2 team members
 (The `…` lines are elided here; the run prints one line per case. That transcript is a **45**-case run, measured
 before C-44 — 4.4.2 `model` and `context_used_tokens` — C-45 — 4.4.2 `human_label` — C-46 — 4.4.2
 `brigade_version` — C-47 — 4.4.2 `sync_peer` — C-48 to C-50 — 4.4.10's three team administration commands — and
-C-51 and C-52 — its two commands of a team's move — joined the suite; a run today selects 54 and prints `C-44`
-through `C-52` after `C-43`, with C-48 to C-50 as `SKIP … capability not advertised: team.admin` for the fs
-adapter.) The human table always goes to **stderr**, in
+C-51 and C-52 — its two commands of a team's move — and C-53 to C-55 — its three commands of the backend a team
+moves to — joined the suite; a run today selects 57 and prints `C-44` through `C-55` after `C-43`, with C-48 to
+C-50 as `SKIP … capability not advertised: team.admin` and C-53 to C-55 as `SKIP … capability not advertised:
+team.take_in` for the fs adapter.) The human table always goes to **stderr**, in
 every mode. With `--json` the machine-readable report goes to **stdout** and nothing else does, so
 `brigade-conformance --json … > report.json` gives you a clean document — with one caveat worth knowing before
 you wire this into CI: a launcher error raised *before* the first case (adapter not found, `describe` not ok
@@ -949,6 +956,8 @@ first-class answer, not a failure.
 | `team.join` | `team join`, `team leave` |
 | `team.roster` | `team members` |
 | `team.admin` | `team rotate-secret` / `revoke-member` / `transfer` (the team's owner only; shapes in 4.4.10) |
+| `team.move` | `team move` / `team moved` (the record of where a team went, at the backend it leaves; shapes in 4.4.10) |
+| `team.take_in` | `team take-in` / `team open-move` / `team close-move` (a team taken in at the backend it goes to, and its move ticket; shapes in 4.4.10) |
 | **`message.receive`** | `message receive` — **required in v1 and still advertised** (C-18) |
 | `message.watch.push` | events arrive without polling: `ready.mode` is `push` and a message is expected within 5 s. Omit it and you **must** send `ready.mode = "polling"`. 4.4.9 relaxes live delivery to "within two poll intervals" for a polling adapter, but `describe` carries no poll-interval member, so **the suite applies the same 5 s deadline either way** (C-35; C-40's catch-up deadline is 10 s). Poll fast enough to clear both |
 | `message.watch.stdin_commands` | NDJSON commands on `message watch` stdin |
@@ -1357,6 +1366,8 @@ in `docs/protocol-v1.md` beside this file and in the schema generated from the s
 | `message watch` events (`ready`, `message`, `status`, `acked`, `heartbeat_ok`, `error`) and its stdin commands | 4.4.9 |
 | `team create`, `team join`, `team leave`, `team members` | 4.4.10 |
 | `team rotate-secret`, `team revoke-member`, `team transfer` and their results (capability `team.admin`) | 4.4.10, *Team administration* |
+| `team move`, `team moved` and their result (capability `team.move`) | 4.4.10, *Moving a team* |
+| `team take-in`, `team open-move`, `team close-move` and their results (capability `team.take_in`) | 4.4.10, *Taking a team in* |
 | every member's type, requiredness and cap, machine-readable | `docs/protocol-v1.schema.json` (`make schema` regenerates it from the same Go types the reference adapter uses; JSON convention 6: where the schema and `Validate()` disagree, `Validate()` wins) |
 
 Three decisions in that territory are genuinely yours, and inventing an answer is the right thing to do:
@@ -1397,9 +1408,25 @@ its new one by each member's own command. The Supabase adapter and the fs adapte
 `internal/adapterkit/teammove.go` reads the request and the ticket's file for both; the `rest` adapter leaves it
 out, because a record is kept by the backend a team leaves.
 
+A third optional capability is `team.take_in`, the other end of that move: the three commands of a backend that
+teams may move *to* (4.4.10, 4.7; added 2026-11-14, work item 328, ADR 0005). `team take-in` presents the join
+secret a team has on the backend it comes from, with a name: a backend that does not hold the team takes it in
+under the `team_ref` inside the secret and makes the caller its owner in the same step; one that holds it under
+that secret joins the caller; one that holds that `team_ref` under another secret answers `conflict` with
+`details.reason = "other_join_secret"`. `team open-move` mints the move ticket, a second join secret of the team
+that admits for a number of days and never makes an owner, and `team close-move` ends it. Advertise it and C-53,
+C-54 and C-55 hold you to it: the answer says whether the team was taken in and whether the caller owns it; the
+command is safe to repeat; the two move commands answer the team's owner alone, every other caller getting the
+uniform `unauthorized`; the ticket goes to the file `--ticket-file` names, mode 0600, and to no output; a second
+open replaces the ticket and says so; and a closed move's ticket admits nobody. The join secret comes from the
+stdin document or from the file `--secret-file` names, never from argv. Leave it out and the three verbs are
+unknown verbs of yours and the three cases are SKIP. The `rest` adapter carries it, asking its server's
+`/v1/info` first, and `internal/adapterkit/teamtakein.go` reads the two requests; the fs adapter and the Supabase
+adapter leave it out: no team moves to either.
+
 One thing in that territory is *not* optional: `message watch` is core (4.2). Every adapter writes the NDJSON stream,
 starting with one `ready` event whose `mode` is `polling` unless you advertise `message.watch.push` (4.4.9, 4.7), and
-nine of the 54 cases (C-33..C-41) are about it.
+nine of the 57 cases (C-33..C-41) are about it.
 
 ## The environment your adapter runs in
 

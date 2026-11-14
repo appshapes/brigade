@@ -4,6 +4,65 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
+## [0.7.0] — 2026-11-14
+
+### Added
+
+- **A running server takes a team in by request** (work item 328, ADR 0005). Until now a team that lives on
+  another backend was taken in by the operator alone, with `--import-team` on a stopped server. Now
+  `/v1/team/take-in` does it on a server that runs: the caller presents the join secret the team has on the
+  backend it leaves, a name and, when it has one, a label. It needs no credential, as a creation needs none,
+  and it is allowed exactly as a creation is: a server started with `--create-token-file` asks for that token
+  in the `Brigade-Create-Token` header, and refuses a take-in without it in a creation's words, before it
+  reads the request. A team the server does not hold is taken in under the reference inside the secret, with
+  the secret's hash and never the secret, and in the same entry of the log the caller becomes a member and
+  the team's owner.
+- **Whoever takes a team in by request owns it.** The server cannot check who administered a team where it
+  came from, so the rule is the one a creation has. The rule of the first join, by which the first member to
+  join a team that has no owner owns it, stays for a team `--import-team` took in and for one `--take-back`
+  took back.
+- **A take-in is safe to repeat, and a team that is here is joined.** Where the server holds the team, the
+  request is a join by the rules a join has: the join secret and an open move ticket admit, a ticket never
+  makes an owner, a team that has no owner is owned by the first caller whose join may own it, and a refusal
+  is counted against a known principal as a failed join is. The answer says whether the team was taken in
+  now, `taken_in`, and whether the caller owns it, `owner`. Where the server holds a team of that reference
+  under another join secret the request is refused with `conflict` (409) and the reason `other_join_secret`,
+  in the words `--import-team` is refused in, and a principal the team banned reads the same. A request that
+  is made again without the credential its first answer carried joins as a member: the operator names the
+  owner with `--set-owner`.
+- **A team's owner opens and closes its move by request.** `/v1/team/open-move` and `/v1/team/close-move` do
+  what `--open-move`, with `--ticket-days`, and `--close-move` do, on a server that runs, and answer the
+  team's owner only: every other caller reads what a stranger to the team reads. The ticket is in the answer
+  of the request that opens the move, once, and the `rest` adapter writes it to a file of mode 0600 on the
+  owner's machine, so no ticket file changes hands. The number of days is `ticket_days`, from 1 to 365, and
+  30 when the request names none. A second open puts a new ticket in the place of the one before and says so.
+  The requests and the operator's commands are one move: what one opens the other closes or replaces.
+- **A team that is taken in counts against the principal that takes it in** as a team it created does: five
+  in an hour, and then `rate_limited` with the reason `team_create` (0.6.0, ADR 0004).
+- **The server says who took a team in and who moved it.** A take-in leaves `member <reference> took in team
+  <name> (<team reference>) with the join secret it has on another backend, and owns it`, and the owner's two
+  requests leave `member <reference> opened the move of team <name> (<team reference>): its ticket admits
+  until <time>` and `member <reference> closed the move of team <name> (<team reference>): its ticket admits
+  nobody from now on`. No line holds a join secret, a ticket or the hash of either.
+- **`/v1/info` lists `team.take_in`** beside `team.admin`. The three requests are an addition to version 1 of
+  the contract that a server may leave out (`docs/backend-rest-v1.md`, section 3b); the bundled `rest`
+  adapter asks for the capability before each of its three commands, `team take-in`, `team open-move` and
+  `team close-move`, and the conformance suite holds a server to them with cases C-53 to C-55.
+
+### Changed
+
+- **A creation token now says who may take a team in as well.** On a server with no creation token, whoever
+  can reach it and holds a team's join secret can take that team in and own it there. That moves no member:
+  a member's session follows a team only on the record on the backend the team leaves. And because a team's
+  reference is in its committed team file, a stranger can take in a team under a reference that is not
+  theirs, with a secret of their own, after which the real team's take-in is refused. A creation token closes
+  both. No command removes a team from a server yet (`docs/security.md`, section 20).
+
+Nothing about the data directory changes. A take-in by request is the record a creation writes, with one
+member more that is written only for a team that was taken in, and the record of a join: there is no new kind of
+record and the snapshot's format stays 3. A 0.6.0 starts on a 0.7.0 directory and a 0.7.0 on a 0.6.0 one. The
+operator's commands are unchanged, and `--import-team` writes the record it always wrote.
+
 ## [0.6.0] — 2026-11-14
 
 ### Added

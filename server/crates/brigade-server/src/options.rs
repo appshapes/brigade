@@ -48,6 +48,7 @@ A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md,
   --tls-in-front               serve plain HTTP on an address that is not loopback, because TLS ends in
                                front of the server (a proxy or a tunnel)
   --create-token-file <file>   require this file's token, in the Brigade-Create-Token header, to create a team
+                               and to take one in by request
   --address-file <file>        write the base URL the server listens on to this file once it is ready
   --gateway-config <file>      the Slack and mail gateways, as one JSON file that names each secret by the
                                path of the file that holds it; without it the server has no gateway and
@@ -61,8 +62,11 @@ A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md,
                                the snapshots cover can be let go of (default 16777216)
   --import-team <name>         take in a team that lives on another backend, under this name, and end: the
                                team keeps its join secret, so its members join this server with the secret
-                               file they have. Nothing is served, so it goes with --data, the log's options
-                               (--log to --feed-roll-bytes) and --join-secret-file, and with no other
+                               file they have. The team has no owner until its first member joins. Nothing
+                               is served, so it goes with --data, the log's options (--log to
+                               --feed-roll-bytes) and --join-secret-file, and with no other. A server that
+                               runs takes a team in by request, for the caller that presents its join secret
+                               and then owns it (`brigade adapter rest team take-in`)
   --join-secret-file <file>    the file that holds the join secret of the team --import-team takes in
   --set-owner <team_ref>       name the owner of a team, the member that may rotate its join secret, revoke a
                                member and transfer it, and end: for a team that was taken in and that someone
@@ -86,7 +90,8 @@ A Brigade backend that keeps a team on the file system: docs/backend-rest-v1.md,
                                team here with no command of the member's. A team has one move: opening
                                another puts a new ticket in the place of the one before, which admits nobody
                                from then on. Nothing is served, so it goes with --data, the log's options,
-                               --ticket-file and --ticket-days, and with no other
+                               --ticket-file and --ticket-days, and with no other. A server that runs opens
+                               and closes a move by request, for the team's owner
   --ticket-file <file>         the file --open-move writes the move ticket to, readable by its owner alone:
                                an absolute path of a file that is not there, in a directory that is
   --ticket-days <days>         how many days the ticket of --open-move admits for, from 1 to 365 (default 30)

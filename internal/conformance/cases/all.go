@@ -6,7 +6,7 @@ package cases
 import "github.com/appshapes/brigade/internal/conformance"
 
 // All returns every case in id order: C-01, C-02, C-03, C-03b, C-04, …,
-// C-19, C-19b, …, C-29, C-29b, …, C-52.
+// C-19, C-19b, …, C-29, C-29b, …, C-55.
 func All() []conformance.Case {
 	return []conformance.Case{
 		c01Describe(),
@@ -63,5 +63,8 @@ func All() []conformance.Case {
 		c50Transfer(),
 		c51TeamMove(),
 		c52TeamMoved(),
+		c53TeamTakeIn(),
+		c54TeamOpenMove(),
+		c55TeamCloseMove(),
 	}
 }

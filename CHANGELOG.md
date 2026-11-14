@@ -9,6 +9,28 @@ conforming adapter would fail is a new protocol major, not a Brigade release.
 
 ## [Unreleased]
 
+### Added
+
+- **The adapter protocol can ask a backend to take a team in and to open
+  and close its move** (work item 328, ADR 0005). BAP/1 gets the
+  capability `team.take_in` and three commands (4.4.10). `team take-in`
+  presents the join secret a team has on the backend it leaves, with a
+  name: a backend that does not hold the team takes it in under the
+  reference inside the secret and makes the caller a member and its
+  owner; one that holds it under that secret joins the caller to it;
+  one that holds that reference under another secret answers `conflict`.
+  `team open-move --ticket-file <path>` opens the move of the team's
+  members for the team's owner and writes the move ticket to that file
+  (mode 0600) and to no output, and `team close-move` closes it. The
+  bundled `rest` adapter carries the three, against a Brigade server
+  0.7.0 or later, which answers them while it runs
+  (`docs/backend-rest-v1.md`, section 3b); the Supabase adapter and the
+  filesystem adapter do not advertise the capability and are never
+  asked. Conformance cases C-53, C-54 and C-55 hold an adapter that
+  advertises it. Until now the server's operator took a team in and
+  opened its move with two commands on a stopped server; those commands
+  stay. No `brigade` command makes the three requests yet.
+
 ## [0.55.0] — 2026-11-13
 
 ### Added

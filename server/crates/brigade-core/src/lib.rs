@@ -13,7 +13,9 @@
 //!   beside the state.
 //! - [`import_team`] takes in a team that exists elsewhere, [`set_owner`] names a team's owner,
 //!   [`take_back`] takes a team from whoever holds it, and [`open_move`] and [`close_move`] open and close
-//!   the move of a team's members from another backend, for the operator and for no request.
+//!   the move of a team's members from another backend, for the operator. A request takes a team in for
+//!   the caller that then owns it, and opens and closes a move for the team's owner; no request names an
+//!   owner or takes a team back.
 //! - [`state::State::apply`] is what a restart and a standby run over the same records.
 
 pub mod attempts;

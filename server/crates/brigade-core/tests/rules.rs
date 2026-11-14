@@ -7,8 +7,8 @@ use brigade_core::error::Code;
 use brigade_core::hash::sha256_hex;
 use brigade_core::record::Event;
 use brigade_core::{
-    Entropy, Entry, Error, JoinFailures, Record, Request, State, Timestamp, answer, close_move,
-    envelope_error, import_team, limits, open_move, set_owner, take_back,
+    Command, Entropy, Entry, Error, JoinFailures, Record, Request, State, Timestamp, answer, close_move,
+    envelope_error, execute, import_team, limits, open_move, set_owner, take_back,
 };
 use serde_json::{Value, json};
 
@@ -321,6 +321,7 @@ fn a_team_taken_in_is_joined_with_the_secret_it_has_elsewhere() {
         team_name: "ops".into(),
         join_secret_hash: sha256_hex(&secret),
         created_by: String::new(),
+        taken_in: false,
     };
     assert_eq!(rig.log.len(), 1);
     assert_eq!(rig.log[0].records, [Record::new(rig.now, created)]);
@@ -3058,4 +3059,754 @@ fn a_move_is_replaced_by_another_and_closed_by_the_operator_a_rotation_and_a_tak
     let snapshot = serde_json::to_string(&rig.state).unwrap();
     assert!(!snapshot.contains("move_ticket"), "{snapshot}");
     assert_eq!(serde_json::from_str::<State>(&snapshot).unwrap(), rig.state);
+}
+
+/// A take-in as a caller asks for it: the join secret the team has elsewhere, a name and a label.
+fn take_in(rig: &mut Rig, credential: Option<&str>, secret: &str, label: &str) -> Result<Value, Error> {
+    rig.call(
+        credential,
+        "/v1/team/take-in",
+        json!({"join_secret": secret, "team_name": "ops", "human_label": label}),
+    )
+}
+
+/// The member a take-in or a join by a new principal made.
+fn member_of(result: &Value) -> Member {
+    Member {
+        credential: text(result, "credential"),
+        principal_ref: text(result, "principal_ref"),
+        team_ref: text(result, "team_ref"),
+    }
+}
+
+/// Every entry of the log, read back from its bytes and applied to an empty state.
+fn replayed(rig: &Rig) -> State {
+    let mut state = State::default();
+    for entry in &rig.log {
+        state.replay(&Entry::decode(&entry.encode()).unwrap()).unwrap();
+    }
+    state
+}
+
+#[test]
+fn a_team_taken_in_by_request_is_owned_by_its_taker_in_the_entry_that_takes_it_in() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    let taken = take_in(&mut rig, None, &secret, "alice").unwrap();
+    // The answer: the team under the reference inside the secret, the caller's principal and its
+    // credential, that the team was taken in now, and that the caller owns it.
+    assert_eq!(
+        members_of(&taken),
+        [
+            "credential",
+            "owner",
+            "principal_ref",
+            "taken_in",
+            "team_name",
+            "team_ref"
+        ]
+    );
+    assert_eq!(
+        (
+            &taken["team_ref"],
+            &taken["team_name"],
+            &taken["taken_in"],
+            &taken["owner"]
+        ),
+        (&json!(ELSEWHERE), &json!("ops"), &json!(true), &json!(true))
+    );
+    let alice = member_of(&taken);
+    // One entry holds all of it: the principal, the team with its owner and the secret's hash, and the
+    // membership. There is no entry after which the team is here and has no owner.
+    assert_eq!(rig.log.len(), 1);
+    let records = &rig.log[0].records;
+    assert_eq!(records.len(), 3);
+    assert!(matches!(
+        &records[0].event,
+        Event::CredentialIssued { principal_ref, .. } if *principal_ref == alice.principal_ref
+    ));
+    let created = Event::TeamCreated {
+        team_ref: ELSEWHERE.into(),
+        team_name: "ops".into(),
+        join_secret_hash: sha256_hex(&secret),
+        created_by: alice.principal_ref.clone(),
+        taken_in: true,
+    };
+    assert_eq!(records[1], Record::new(rig.now, created));
+    let joined = Event::MemberJoined {
+        team_ref: ELSEWHERE.into(),
+        principal_ref: alice.principal_ref.clone(),
+        human_label: "alice".into(),
+        by_move_ticket: false,
+    };
+    assert_eq!(records[2], Record::new(rig.now, joined));
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(alice.principal_ref.as_str())
+    );
+    assert_eq!(active(&mut rig, &alice), [alice.principal_ref.as_str()]);
+    // The state and the log keep the hash and never the secret.
+    let stored = serde_json::to_string(&rig.state).unwrap();
+    let logged = String::from_utf8(rig.log.iter().flat_map(Entry::encode).collect()).unwrap();
+    assert!(!stored.contains("kept-from-the-other-backend"));
+    assert!(!logged.contains("kept-from-the-other-backend"));
+
+    // The team's members join with the secret they have, as members, and the taker administers the team
+    // as the owner of one that was created here does.
+    rig.advance(5);
+    let bob = rig.join(&secret, "bob");
+    assert_eq!(bob.team_ref, ELSEWHERE);
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(alice.principal_ref.as_str())
+    );
+    let uniform = wire(&Error::not_member());
+    for (path, body) in administration(ELSEWHERE, &alice.principal_ref) {
+        assert_eq!(wire(&rig.err(&bob, path, body)), uniform, "{path}");
+    }
+    let rotated = rotate(&mut rig, &alice);
+    assert_eq!(rotated["team_ref"], json!(ELSEWHERE));
+    assert_eq!(rotated["secret_version"], json!(2));
+
+    // A caller the server knows takes a team in as the principal it is, and is issued no second
+    // credential. The team counts against it as one it created does.
+    let other = secret_of("1e1e1e1e-1e1e-4e1e-8e1e-1e1e1e1e1e1e", "of-a-second-team");
+    let second = take_in(&mut rig, Some(&alice.credential), &other, "alice").unwrap();
+    assert_eq!(
+        members_of(&second),
+        ["owner", "principal_ref", "taken_in", "team_name", "team_ref"]
+    );
+    assert_eq!(second["principal_ref"], json!(alice.principal_ref));
+    assert_eq!(rig.log.last().unwrap().records.len(), 2);
+    assert_eq!(
+        rig.state.principals[&alice.principal_ref].teams_created_at.len(),
+        2
+    );
+
+    // A restart and a snapshot: the team that was taken in is there, and is owned.
+    assert_eq!(replayed(&rig), rig.state);
+    let snapshot = serde_json::to_vec(&rig.state).unwrap();
+    let read: State = serde_json::from_slice(&snapshot).unwrap();
+    assert_eq!(read, rig.state);
+    assert_eq!(read.teams[ELSEWHERE].owner(), Some(alice.principal_ref.as_str()));
+}
+
+#[test]
+fn a_take_in_of_a_team_that_is_here_is_a_join_by_the_rules_a_join_has() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    let alice = member_of(&take_in(&mut rig, None, &secret, "alice").unwrap());
+
+    // The same request again, by the caller that took the team in: the team is here, so nothing is taken
+    // in, and the caller is the member and the owner it was. The name the request carries is not read.
+    rig.advance(5);
+    let entries = rig.log.len();
+    let again = rig
+        .call(
+            Some(&alice.credential),
+            "/v1/team/take-in",
+            json!({"join_secret": secret, "team_name": "renamed"}),
+        )
+        .unwrap();
+    assert_eq!(
+        again,
+        json!({
+            "team_ref": ELSEWHERE, "team_name": "ops", "principal_ref": alice.principal_ref,
+            "taken_in": false, "owner": true,
+        })
+    );
+    // It is what a join of an active member is: one record, the membership again.
+    assert_eq!(rig.log.len(), entries + 1);
+    assert!(matches!(
+        &rig.log[entries].records[..],
+        [Record {
+            event: Event::MemberJoined {
+                by_move_ticket: false,
+                ..
+            },
+            ..
+        }]
+    ));
+    assert_eq!(rig.state.teams[ELSEWHERE].team_name, "ops");
+    assert_eq!(active(&mut rig, &alice), [alice.principal_ref.as_str()]);
+
+    // A caller with no credential the server knows, as one whose first answer was lost is, is a new
+    // principal: it joins as a member, and the team keeps the owner it has.
+    let lost = take_in(&mut rig, None, &secret, "alice again").unwrap();
+    assert_eq!(
+        (&lost["taken_in"], &lost["owner"]),
+        (&json!(false), &json!(false))
+    );
+    assert_ne!(lost["principal_ref"], json!(alice.principal_ref));
+    assert!(lost["credential"].is_string());
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(alice.principal_ref.as_str())
+    );
+    let bob = member_of(&lost);
+    let refused = rig.err(&bob, "/v1/team/close-move", json!({"team_ref": ELSEWHERE}));
+    assert_eq!(wire(&refused), wire(&Error::not_member()));
+
+    // On a team the operator took in, which has no owner, the rule of the first join holds: the first
+    // caller whose take-in may own it does, in the entry that makes it a member, and the next does not.
+    let imported = "2d2d2d2d-2d2d-4d2d-8d2d-2d2d2d2d2d2d";
+    let held = secret_of(imported, "of-the-team-the-operator-took-in");
+    rig.import("legacy", &held).unwrap();
+    let first = take_in(&mut rig, None, &held, "carol").unwrap();
+    assert_eq!(
+        (&first["taken_in"], &first["owner"], &first["team_name"]),
+        (&json!(false), &json!(true), &json!("legacy"))
+    );
+    let carol = member_of(&first);
+    assert!(matches!(
+        &rig.log.last().unwrap().records[..],
+        [_, _, Record { event: Event::TeamOwnerChanged { principal_ref, .. }, .. }]
+            if *principal_ref == carol.principal_ref
+    ));
+    let next = take_in(&mut rig, None, &held, "dave").unwrap();
+    assert_eq!(
+        (&next["taken_in"], &next["owner"]),
+        (&json!(false), &json!(false))
+    );
+
+    // A team's move ticket is let in as a join lets it in, and never owns: on a team with no owner the
+    // team still has none after it.
+    let ownerless = "3c3c3c3c-3c3c-4c3c-8c3c-3c3c3c3c3c3c";
+    let kept = secret_of(ownerless, "of-a-team-with-no-owner-yet");
+    rig.import("moving", &kept).unwrap();
+    let ticket = text(&rig.open_move(ownerless, 30).unwrap(), "ticket");
+    let followed = take_in(&mut rig, None, &ticket, "erin").unwrap();
+    assert_eq!(
+        (&followed["taken_in"], &followed["owner"]),
+        (&json!(false), &json!(false))
+    );
+    assert_eq!(rig.state.teams[ownerless].owner(), None);
+    assert!(matches!(
+        &rig.log.last().unwrap().records[..],
+        [
+            _,
+            Record {
+                event: Event::MemberJoined {
+                    by_move_ticket: true,
+                    ..
+                },
+                ..
+            }
+        ]
+    ));
+
+    // A team that was created here is held to the same: its own secret is a join.
+    let (creator, created) = rig.create("creator");
+    let joined = take_in(&mut rig, None, &created, "frank").unwrap();
+    assert_eq!(
+        (&joined["team_ref"], &joined["taken_in"], &joined["owner"]),
+        (&json!(creator.team_ref), &json!(false), &json!(false))
+    );
+    assert_eq!(replayed(&rig), rig.state);
+}
+
+#[test]
+fn a_take_in_under_another_secret_is_a_conflict_and_changes_nothing() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    let alice = member_of(&take_in(&mut rig, None, &secret, "alice").unwrap());
+    let bob = rig.join(&secret, "bob");
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+
+    // Another secret for the reference is refused in the words the operator's command is refused in,
+    // without a word of either secret, and nothing is made: no principal, no member, no entry.
+    let other = secret_of(ELSEWHERE, "another-secret-for-the-reference");
+    let conflict = take_in(&mut rig, None, &other, "mallory").unwrap_err();
+    assert_eq!(
+        (conflict.code, reason(&conflict)),
+        (Code::Conflict, "other_join_secret")
+    );
+    assert_eq!(
+        conflict.message,
+        "a team of that reference is here under another join secret"
+    );
+    assert_eq!(wire(&conflict), wire(&rig.import("ops", &other).unwrap_err()));
+    let told = wire(&conflict);
+    assert!(!told.contains("another-secret-for-the-reference"));
+    assert!(!told.contains("kept-from-the-other-backend"));
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    // A member of the team, and its owner, are told the same for another secret.
+    for member in [&alice, &bob] {
+        let refused = take_in(&mut rig, Some(&member.credential), &other, "").unwrap_err();
+        assert_eq!(wire(&refused), told);
+    }
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    // The team opens to the secret it was taken in with, and to no other.
+    assert_eq!(join_refused(&mut rig, &other), wire(&Error::secret_rejected()));
+
+    // A principal the owner banned is told what another secret is told, although its secret is right:
+    // the answer does not say that it is banned.
+    revoke(&mut rig, &alice, &bob.principal_ref, Some(true)).unwrap();
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let banned = take_in(&mut rig, Some(&bob.credential), &secret, "bob").unwrap_err();
+    assert_eq!(wire(&banned), told);
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+
+    // A take-in that is refused for its secret is a failed join of a principal the server knows, and is
+    // counted as one: after as many as a principal may fail, its next is not heard, the right secret
+    // included. A caller with no credential is held by none of it.
+    let (carol, _) = rig.create("carol");
+    for _ in 0..limits::FAILED_JOINS_PER_WINDOW {
+        rig.advance(60);
+        let refused = take_in(&mut rig, Some(&carol.credential), &other, "carol").unwrap_err();
+        assert_eq!(wire(&refused), told);
+    }
+    rig.advance(60);
+    let limited = take_in(&mut rig, Some(&carol.credential), &secret, "carol").unwrap_err();
+    assert_eq!(
+        (limited.code, reason(&limited)),
+        (Code::RateLimited, "join_attempts")
+    );
+    assert_eq!(
+        take_in(&mut rig, None, &other, "stranger").unwrap_err().code,
+        Code::Conflict
+    );
+    // A team that is not here is taken in by that principal all the same: nothing of a secret is tried.
+    let elsewhere = secret_of(
+        "4b4b4b4b-4b4b-4b4b-8b4b-4b4b4b4b4b4b",
+        "of-a-team-that-is-not-here",
+    );
+    let taken = take_in(&mut rig, Some(&carol.credential), &elsewhere, "carol").unwrap();
+    assert_eq!(
+        (&taken["taken_in"], &taken["owner"]),
+        (&json!(true), &json!(true))
+    );
+}
+
+#[test]
+fn a_take_in_is_held_to_the_creation_rule_and_to_the_shape_of_its_request() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    let (stranger, created) = rig.create("stranger");
+
+    // A server that asks for a creation token refuses a take-in as it refuses a creation, before it reads
+    // the request: the bytes are the same for a request that reads, for one that does not, for a team
+    // that is not here and for one that is, under the right secret or another.
+    rig.may_create = false;
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let refused = wire(&rig.call(None, "/v1/team/create", json!({})).unwrap_err());
+    assert_eq!(refused, wire(&Error::create_refused()));
+    for body in [
+        json!({}),
+        json!({"join_secret": secret, "team_name": "ops"}),
+        json!({"join_secret": created, "team_name": "ops"}),
+        json!({"join_secret": secret_of(&stranger.team_ref, "not-its-secret"), "team_name": "ops"}),
+    ] {
+        for credential in [None, Some(stranger.credential.as_str())] {
+            let error = rig
+                .call(credential, "/v1/team/take-in", body.clone())
+                .unwrap_err();
+            assert_eq!(wire(&error), refused, "{body}");
+        }
+    }
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    // The token gates putting a team on the server and nothing else: a join needs the team's secret alone.
+    rig.join(&created, "joiner");
+    rig.may_create = true;
+
+    // The shape is a join's with a creation's name: the secret is there, the name keeps the rule a
+    // created team's name is held to, the label is within its cap, and then the secret is one.
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let field = |error: &Error| error.details.get("field").cloned().unwrap_or_default();
+    for (body, named, why) in [
+        (json!({"team_name": "ops"}), "join_secret", "required"),
+        (
+            json!({"join_secret": "", "team_name": "ops"}),
+            "join_secret",
+            "required",
+        ),
+        (json!({"join_secret": secret}), "team_name", "required"),
+        (
+            json!({"join_secret": secret, "team_name": ""}),
+            "team_name",
+            "required",
+        ),
+        (
+            json!({"join_secret": secret, "team_name": "é".repeat(65)}),
+            "team_name",
+            "too_long",
+        ),
+        (
+            json!({"join_secret": secret, "team_name": "ops", "human_label": "l".repeat(129)}),
+            "human_label",
+            "too_long",
+        ),
+        (
+            json!({"join_secret": "not-a-join-secret", "team_name": "ops"}),
+            "join_secret",
+            "invalid_value",
+        ),
+        // Two things wrong: the name is told before the secret's format.
+        (
+            json!({"join_secret": "not-a-join-secret"}),
+            "team_name",
+            "required",
+        ),
+    ] {
+        let error = rig.call(None, "/v1/team/take-in", body.clone()).unwrap_err();
+        assert_eq!(error.code, Code::InvalidInput, "{body}");
+        assert_eq!((field(&error).as_str(), reason(&error)), (named, why), "{body}");
+        assert!(!wire(&error).contains("not-a-join-secret"), "{body}");
+    }
+    // A text that is not a join secret is the refusal a join gives one.
+    let malformed = rig
+        .call(None, "/v1/team/join", json!({"join_secret": "nope"}))
+        .unwrap_err();
+    let taken = rig
+        .call(
+            None,
+            "/v1/team/take-in",
+            json!({"join_secret": "nope", "team_name": "ops"}),
+        )
+        .unwrap_err();
+    assert_eq!(taken, malformed);
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    // A name at the cap is taken, and a member the request carries beside what is read is not read.
+    let at_cap = "é".repeat(64);
+    let taken = rig
+        .call(
+            None,
+            "/v1/team/take-in",
+            json!({"join_secret": secret, "team_name": at_cap, "backend": {"url": "x"}, "more": 1}),
+        )
+        .unwrap();
+    assert_eq!(taken["team_name"], json!(at_cap));
+
+    // A principal adds a bounded number of teams in an hour, created or taken in: the take-in is refused
+    // where a creation would be, and a team that was taken in counts as one that was created.
+    let mut rig = Rig::new();
+    let (alice, _) = rig.create("alice");
+    for n in 1..limits::TEAMS_CREATED_PER_HOUR {
+        rig.advance(60);
+        let held = secret_of(&format!("team-{n}"), "kept-from-the-other-backend");
+        let taken = take_in(&mut rig, Some(&alice.credential), &held, "alice").unwrap();
+        assert_eq!(taken["taken_in"], json!(true));
+    }
+    rig.advance(60);
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let one_more = secret_of("team-too-many", "kept-from-the-other-backend");
+    let limited = take_in(&mut rig, Some(&alice.credential), &one_more, "alice").unwrap_err();
+    assert_eq!(
+        (limited.code, reason(&limited)),
+        (Code::RateLimited, "team_create")
+    );
+    assert_eq!(
+        reason(&another_team(&mut rig, &alice).unwrap_err()),
+        "team_create"
+    );
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    // A take-in of a team that is here is a join, and no bound on teams holds it.
+    let here = secret_of("team-1", "kept-from-the-other-backend");
+    assert_eq!(
+        take_in(&mut rig, Some(&alice.credential), &here, "alice").unwrap()["taken_in"],
+        json!(false)
+    );
+
+    // A caller that may not own, a gateway inside the server, takes a team in with no owner, as the
+    // operator does, and the first member whose join may own it does.
+    let mut rig = Rig::new();
+    rig.may_own = false;
+    let taken = take_in(&mut rig, None, &secret, "gateway").unwrap();
+    assert_eq!(
+        (&taken["taken_in"], &taken["owner"]),
+        (&json!(true), &json!(false))
+    );
+    assert_eq!(rig.state.teams[ELSEWHERE].owner(), None);
+    assert!(matches!(
+        &rig.log[0].records[1].event,
+        Event::TeamCreated { created_by, taken_in: true, .. } if created_by.is_empty()
+    ));
+    rig.may_own = true;
+    let owner = rig.join(&secret, "alice");
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(owner.principal_ref.as_str())
+    );
+}
+
+/// The two requests of a team's move, each with a body the team's owner would be answered for.
+fn move_requests(team_ref: &str) -> [(&'static str, Value); 3] {
+    [
+        ("/v1/team/open-move", json!({"team_ref": team_ref})),
+        (
+            "/v1/team/open-move",
+            json!({"team_ref": team_ref, "ticket_days": 7}),
+        ),
+        ("/v1/team/close-move", json!({"team_ref": team_ref})),
+    ]
+}
+
+#[test]
+fn only_the_owner_opens_and_closes_a_move_by_request() {
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    let alice = member_of(&take_in(&mut rig, None, &secret, "alice").unwrap());
+    let bob = rig.join(&secret, "bob");
+    let carol = rig.join(&secret, "carol");
+    let (stranger, _) = rig.create("stranger");
+    rig.ok(&carol, "/v1/team/leave", json!({"team_ref": ELSEWHERE}));
+    let uniform = wire(&Error::not_member());
+    let rejected = wire(&Error::secret_rejected());
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+
+    for (path, body) in move_requests(ELSEWHERE) {
+        // An active member that is not the owner, a member that left, and a member of another team.
+        for caller in [&bob, &carol, &stranger] {
+            let refused = rig.err(caller, path, body.clone());
+            assert_eq!(refused.code, Code::Unauthorized, "{path}");
+            assert_eq!(wire(&refused), uniform, "{path}");
+        }
+        // A team that does not exist, whoever asks.
+        let mut nowhere = body.clone();
+        nowhere["team_ref"] = json!("no-such-team");
+        for caller in [&alice, &bob] {
+            assert_eq!(wire(&rig.err(caller, path, nowhere.clone())), uniform, "{path}");
+        }
+        // No credential, and one the server does not know, are told so before anything else.
+        for credential in [None, Some("not-a-credential")] {
+            let refused = rig.call(credential, path, body.clone()).unwrap_err();
+            assert_eq!(refused.code, Code::Unauthenticated, "{path}");
+        }
+    }
+    // The owner is checked before the request's shape: a caller that is not the owner is told the same
+    // whatever number of days it asked for, where the owner is told what is wrong with the number.
+    for days in [json!(0), json!(366), json!(-1), json!("thirty"), json!(1.5)] {
+        let body = json!({"team_ref": ELSEWHERE, "ticket_days": days});
+        for caller in [&bob, &carol, &stranger] {
+            assert_eq!(
+                wire(&rig.err(caller, "/v1/team/open-move", body.clone())),
+                uniform
+            );
+        }
+        let refused = rig.err(&alice, "/v1/team/open-move", body);
+        assert_eq!(
+            (
+                refused.code,
+                refused.details["field"].as_str(),
+                reason(&refused),
+                refused.details["min"].as_str(),
+                refused.details["max"].as_str(),
+            ),
+            (Code::InvalidInput, "ticket_days", "out_of_range", "1", "365"),
+            "{days}"
+        );
+    }
+    // The team is named first, as on every request that names one.
+    for path in ["/v1/team/open-move", "/v1/team/close-move"] {
+        let unnamed = rig.err(&bob, path, json!({}));
+        assert_eq!(
+            (unnamed.code, unnamed.details["field"].as_str()),
+            (Code::InvalidInput, "team_ref"),
+            "{path}"
+        );
+    }
+    // Nothing of all that changed anything or made an entry, and the owner that closes a move the team
+    // does not have changes nothing either.
+    let none = rig.ok(&alice, "/v1/team/close-move", json!({"team_ref": ELSEWHERE}));
+    assert_eq!(
+        none,
+        json!({"team_ref": ELSEWHERE, "team_name": "ops", "closed": false})
+    );
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+
+    // The owner opens the move: the answer is the operator's, the one place the ticket is, and the log
+    // and the state hold its hash. Thirty days when the request names no number, and a null is none.
+    rig.advance(5);
+    let opened = rig.ok(
+        &alice,
+        "/v1/team/open-move",
+        json!({"team_ref": ELSEWHERE, "ticket_days": null}),
+    );
+    let ticket = text(&opened, "ticket");
+    let ends_at = rig.now.plus_seconds(30 * DAY);
+    assert_eq!(
+        opened,
+        json!({
+            "team_ref": ELSEWHERE, "team_name": "ops", "ticket": ticket, "ends_at": ends_at.rfc3339(),
+            "replaced": false,
+        })
+    );
+    let random = ticket
+        .strip_prefix(&format!("brg1.{ELSEWHERE}."))
+        .expect("a ticket for the same team_ref");
+    assert_eq!(random.len(), 32);
+    let recorded = Event::TeamMoveOpened {
+        team_ref: ELSEWHERE.into(),
+        ticket_hash: sha256_hex(&ticket),
+        ends_at,
+    };
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(rig.log[entries].records, [Record::new(rig.now, recorded)]);
+    let stored = serde_json::to_string(&rig.state).unwrap();
+    let logged = String::from_utf8(rig.log.iter().flat_map(Entry::encode).collect()).unwrap();
+    assert!(!stored.contains(random) && !logged.contains(random));
+
+    // The ticket admits a join, which makes a member like any other and never an owner: the team keeps
+    // the owner it has, and the member the ticket let in administers nothing and moves nothing.
+    rig.advance(5);
+    let dave = rig.join(&ticket, "dave");
+    assert!(matches!(
+        &rig.log.last().unwrap().records[..],
+        [
+            _,
+            Record {
+                event: Event::MemberJoined {
+                    by_move_ticket: true,
+                    ..
+                },
+                ..
+            }
+        ]
+    ));
+    assert_eq!(
+        rig.state.teams[ELSEWHERE].owner(),
+        Some(alice.principal_ref.as_str())
+    );
+    for (path, body) in move_requests(ELSEWHERE)
+        .into_iter()
+        .chain(administration(ELSEWHERE, &dave.principal_ref))
+    {
+        assert_eq!(wire(&rig.err(&dave, path, body)), uniform, "{path}");
+    }
+
+    // A second open, for seven days, takes the place of the first and says so: the first ticket admits
+    // nobody from then on, although it has not ended.
+    rig.advance(5);
+    let again = rig.ok(
+        &alice,
+        "/v1/team/open-move",
+        json!({"team_ref": ELSEWHERE, "ticket_days": 7}),
+    );
+    let second = text(&again, "ticket");
+    assert_eq!(
+        (&again["replaced"], text(&again, "ends_at")),
+        (&json!(true), rig.now.plus_seconds(7 * DAY).rfc3339())
+    );
+    assert!(second != ticket);
+    assert_eq!(join_refused(&mut rig, &ticket), rejected);
+    rig.join(&second, "erin");
+    // The ends of the range are taken.
+    for days in [1, 365] {
+        let opened = rig.ok(
+            &alice,
+            "/v1/team/open-move",
+            json!({"team_ref": ELSEWHERE, "ticket_days": days}),
+        );
+        assert_eq!(
+            text(&opened, "ends_at"),
+            rig.now.plus_seconds(days * DAY).rfc3339()
+        );
+    }
+    let last = text(
+        &rig.ok(&alice, "/v1/team/open-move", json!({"team_ref": ELSEWHERE})),
+        "ticket",
+    );
+
+    // The owner closes the move, in one record: its ticket admits nobody, and every member that came in
+    // with a ticket is still one. Closing it again changes nothing and makes no entry.
+    rig.advance(5);
+    let entries = rig.log.len();
+    let closed = rig.ok(&alice, "/v1/team/close-move", json!({"team_ref": ELSEWHERE}));
+    assert_eq!(
+        closed,
+        json!({"team_ref": ELSEWHERE, "team_name": "ops", "closed": true})
+    );
+    let record = Event::TeamMoveClosed {
+        team_ref: ELSEWHERE.into(),
+    };
+    assert_eq!(rig.log.len(), entries + 1);
+    assert_eq!(rig.log[entries].records, [Record::new(rig.now, record)]);
+    assert_eq!(rig.state.teams[ELSEWHERE].move_ticket, None);
+    for held in [&ticket, &second, &last] {
+        assert_eq!(join_refused(&mut rig, held), rejected);
+    }
+    assert!(rig.state.teams[ELSEWHERE].active(&dave.principal_ref));
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let again = rig.ok(&alice, "/v1/team/close-move", json!({"team_ref": ELSEWHERE}));
+    assert_eq!(again["closed"], json!(false));
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+
+    // The operator's commands and the owner's requests are one move: what one opens the other closes,
+    // and what one opened the other replaces.
+    let by_operator = text(&rig.open_move(ELSEWHERE, 30).unwrap(), "ticket");
+    let replaced = rig.ok(&alice, "/v1/team/open-move", json!({"team_ref": ELSEWHERE}));
+    assert_eq!(replaced["replaced"], json!(true));
+    assert_eq!(join_refused(&mut rig, &by_operator), rejected);
+    assert_eq!(rig.close_move(ELSEWHERE).unwrap()["closed"], json!(true));
+    assert_eq!(join_refused(&mut rig, &text(&replaced, "ticket")), rejected);
+    rig.open_move(ELSEWHERE, 30).unwrap();
+    let closed = rig.ok(&alice, "/v1/team/close-move", json!({"team_ref": ELSEWHERE}));
+    assert_eq!(closed["closed"], json!(true));
+
+    // An owner that left is no active member and is refused like anyone, and a team the operator took
+    // in, which has no owner yet, has nobody its move answers.
+    rig.ok(&alice, "/v1/team/leave", json!({"team_ref": ELSEWHERE}));
+    for (path, body) in move_requests(ELSEWHERE) {
+        assert_eq!(wire(&rig.err(&alice, path, body)), uniform, "{path}");
+    }
+    let ownerless = "3c3c3c3c-3c3c-4c3c-8c3c-3c3c3c3c3c3c";
+    let kept = secret_of(ownerless, "of-a-team-with-no-owner-yet");
+    rig.import("moving", &kept).unwrap();
+    rig.may_own = false;
+    let gateway = rig.join(&kept, "gateway");
+    rig.may_own = true;
+    for (path, body) in move_requests(ownerless) {
+        assert_eq!(wire(&rig.err(&gateway, path, body)), uniform, "{path}");
+    }
+
+    // A restart: every entry, read back from its bytes, makes the same state.
+    assert_eq!(replayed(&rig), rig.state);
+}
+
+#[test]
+fn a_move_request_that_was_already_read_is_still_its_owners_alone() {
+    // `execute` answers a request that was read already. It checks the owner itself, as each of the three
+    // administration requests does, so a caller that reached it past `answer` moves nothing.
+    let mut rig = Rig::new();
+    let secret = secret_of(ELSEWHERE, "kept-from-the-other-backend");
+    let alice = member_of(&take_in(&mut rig, None, &secret, "alice").unwrap());
+    let bob = rig.join(&secret, "bob");
+    let (before, entries) = (rig.state.clone(), rig.log.len());
+    let body = json!({"team_ref": ELSEWHERE}).to_string();
+    for path in ["/v1/team/open-move", "/v1/team/close-move"] {
+        let command = Command::parse(path, body.as_bytes()).unwrap();
+        for caller in [Some(sha256_hex(&bob.credential)), None] {
+            let refused = execute(
+                &mut rig.state,
+                &mut rig.failures,
+                caller.as_deref(),
+                true,
+                &command,
+                rig.now,
+                &mut rig.entropy,
+            )
+            .unwrap_err();
+            let expected = if caller.is_some() {
+                Error::not_member()
+            } else {
+                Error::unknown_credential()
+            };
+            assert_eq!(wire(&refused), wire(&expected), "{path}");
+        }
+    }
+    assert_eq!((&rig.state, rig.log.len()), (&before, entries));
+    // The owner is answered by it as by a request.
+    let command = Command::parse("/v1/team/open-move", body.as_bytes()).unwrap();
+    let opened = execute(
+        &mut rig.state,
+        &mut rig.failures,
+        Some(&sha256_hex(&alice.credential)),
+        true,
+        &command,
+        rig.now,
+        &mut rig.entropy,
+    )
+    .unwrap();
+    assert_eq!(opened.result["replaced"], json!(false));
+    assert!(opened.entry.is_some());
 }

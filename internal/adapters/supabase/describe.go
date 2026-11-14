@@ -19,7 +19,10 @@ const adapterName = progName
 // 20260917170000_session_human_label.sql adopts it into an unlabelled
 // membership). Each is withheld while the backend is known to lack the
 // migration that implements it, and only then — sessionAppendedMigrations
-// and advertisedCapabilities, compat.go.
+// and advertisedCapabilities, compat.go. It does not advertise
+// team.take_in (work item 328) and has no `team take-in`, `team open-move`
+// or `team close-move`: a Supabase project is a backend a team moves
+// from, never one it is taken in at.
 func capabilities() []string {
 	return []string{
 		"team.create",

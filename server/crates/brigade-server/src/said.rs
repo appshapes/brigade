@@ -29,23 +29,45 @@ fn team(state: &State, team_ref: &str) -> String {
     }
 }
 
+/// The owner of a team as a line names it: the member whose request the line is about, because only a
+/// team's owner is answered a request that opens or closes its move.
+fn owner(state: &State, team_ref: &str) -> String {
+    match state.teams.get(team_ref).and_then(|team| team.owner()) {
+        Some(owner) => format!("member {}", plain(owner)),
+        None => "its owner".to_owned(),
+    }
+}
+
 /// The lines for the records of one request, read against the state those records were applied to: a team
-/// that a member created, a member who joined, with the team's move ticket when that is what let it in, a
-/// team's new owner, and a move that a rotation of the team's join secret closed. Every other record has
-/// none.
+/// that a member created or took in from another backend, a member who joined, with the team's move ticket
+/// when that is what let it in, a team's new owner, a move that the team's owner opened, and a move that
+/// its owner or a rotation of the team's join secret closed. Every other record has none.
 #[must_use]
 pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
+    // A move is closed by a rotation in the rotation's own entry, and by its owner in an entry of its own.
+    let rotated = entry
+        .records
+        .iter()
+        .any(|record| matches!(record.event, Event::TeamSecretRotated { .. }));
     entry
         .records
         .iter()
         .filter_map(|record| match &record.event {
             Event::TeamCreated {
-                team_ref, created_by, ..
-            } if !created_by.is_empty() => Some(format!(
-                "member {} created {}",
-                plain(created_by),
-                team(state, team_ref)
-            )),
+                team_ref,
+                created_by,
+                taken_in,
+                ..
+            } if !created_by.is_empty() => Some(if *taken_in {
+                // The line says how the team came and never shows what it came with.
+                format!(
+                    "member {} took in {} with the join secret it has on another backend, and owns it",
+                    plain(created_by),
+                    team(state, team_ref)
+                )
+            } else {
+                format!("member {} created {}", plain(created_by), team(state, team_ref))
+            }),
             Event::MemberJoined {
                 team_ref,
                 principal_ref,
@@ -84,10 +106,25 @@ pub fn of_entry(state: &State, entry: &Entry) -> Vec<String> {
                 plain(principal_ref),
                 team(state, team_ref)
             )),
-            // In a member's own request only a rotation closes a move: the operator's command that closes
-            // one prints its own line.
-            Event::TeamMoveClosed { team_ref } => Some(format!(
+            // The operator's command that opens a move prints its own line; this is the owner's request.
+            // The line names the day the ticket ends and nothing of the ticket.
+            Event::TeamMoveOpened {
+                team_ref, ends_at, ..
+            } => Some(format!(
+                "{} opened the move of {}: its ticket admits until {}",
+                owner(state, team_ref),
+                team(state, team_ref),
+                ends_at.rfc3339()
+            )),
+            // In a member's own request a rotation closes a move, or the team's owner does: the
+            // operator's command that closes one prints its own line.
+            Event::TeamMoveClosed { team_ref } if rotated => Some(format!(
                 "the move of {} is closed by the rotation of its join secret: its ticket admits nobody from now on",
+                team(state, team_ref)
+            )),
+            Event::TeamMoveClosed { team_ref } => Some(format!(
+                "{} closed the move of {}: its ticket admits nobody from now on",
+                owner(state, team_ref),
                 team(state, team_ref)
             )),
             _ => None,
@@ -199,6 +236,7 @@ mod tests {
                     team_name: "ops".to_owned(),
                     join_secret_hash: "hash-of-the-secret".to_owned(),
                     created_by: "p-alice".to_owned(),
+                    taken_in: false,
                 },
                 joined("p-alice", "alice@example.com"),
                 Event::TeamOwnerChanged {
@@ -241,16 +279,10 @@ mod tests {
                 "member p-bob joined team ops (t-1) with its move ticket, with no label",
             ]
         );
-        // The move's own records: one that was opened has no line here, because only the operator opens
-        // one and the command prints its own; one that a rotation closed has, and it holds no hash.
+        // A move that a rotation closed has a line, and it holds no hash.
         let lines = of_entry(
             &state(),
             &entry(vec![
-                Event::TeamMoveOpened {
-                    team_ref: "t-1".to_owned(),
-                    ticket_hash: "hash-of-the-ticket".to_owned(),
-                    ends_at: Timestamp(9),
-                },
                 Event::TeamSecretRotated {
                     team_ref: "t-1".to_owned(),
                     join_secret_hash: "hash-of-the-secret".to_owned(),
@@ -267,6 +299,60 @@ mod tests {
                 "the move of team ops (t-1) is closed by the rotation of its join secret: its ticket admits \
               nobody from now on"
             ]
+        );
+    }
+
+    #[test]
+    fn a_team_taken_in_and_a_move_its_owner_opened_or_closed_each_have_a_line() {
+        // A team a member took in by request says so, and that the member owns it: the operator reads
+        // here who put a team on the server.
+        let lines = of_entry(
+            &state(),
+            &entry(vec![
+                Event::TeamCreated {
+                    team_ref: "t-1".to_owned(),
+                    team_name: "ops".to_owned(),
+                    join_secret_hash: "hash-of-the-secret".to_owned(),
+                    created_by: "p-alice".to_owned(),
+                    taken_in: true,
+                },
+                joined("p-alice", "alice@example.com"),
+            ]),
+        );
+        assert_eq!(
+            lines,
+            [
+                "member p-alice took in team ops (t-1) with the join secret it has on another backend, and \
+              owns it",
+                "member p-alice joined team ops (t-1), labelled \"alice@example.com\"",
+            ]
+        );
+        // The move its owner opens names the owner and the ticket's end, and never the ticket's hash.
+        let lines = of_entry(
+            &state(),
+            &entry(vec![Event::TeamMoveOpened {
+                team_ref: "t-1".to_owned(),
+                ticket_hash: "hash-of-the-ticket".to_owned(),
+                ends_at: Timestamp(1_800_000_000_000_000_000),
+            }]),
+        );
+        assert_eq!(
+            lines,
+            [
+                "member p-alice opened the move of team ops (t-1): its ticket admits until \
+              2027-01-15T08:00:00Z"
+            ]
+        );
+        // The move its owner closes is not one a rotation closed, and the line says whose request it was.
+        let lines = of_entry(
+            &state(),
+            &entry(vec![Event::TeamMoveClosed {
+                team_ref: "t-1".to_owned(),
+            }]),
+        );
+        assert_eq!(
+            lines,
+            ["member p-alice closed the move of team ops (t-1): its ticket admits nobody from now on"]
         );
     }
 
@@ -289,6 +375,15 @@ mod tests {
                     team_name: "ops".to_owned(),
                     join_secret_hash: "hash-of-the-secret".to_owned(),
                     created_by: String::new(),
+                    taken_in: false,
+                },
+                // A caller that may not own takes a team in with no owner, and has no line either.
+                Event::TeamCreated {
+                    team_ref: "t-1".to_owned(),
+                    team_name: "ops".to_owned(),
+                    join_secret_hash: "hash-of-the-secret".to_owned(),
+                    created_by: String::new(),
+                    taken_in: true,
                 },
                 Event::TeamOwnerChanged {
                     team_ref: "t-1".to_owned(),

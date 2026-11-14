@@ -197,7 +197,10 @@ when no team exists.
 the team, writes `move.json` and `--clear` removes it; `team moved` reads it for an active member. The file holds
 the move ticket as it was given, because a member's adapter has to present it at the new backend, so whoever can
 read the store can read the ticket, as they can read every message in it. The adapter has no `team.admin`: the
-team's creator is its owner for good.
+team's creator is its owner for good. It has no `team.take_in` either (4.4.10; C-53 to C-55): no command of its
+takes a team in or opens a move, and the suite skips those three cases against it. The stand-in REST server
+(`internal/adapters/rest/stub`) answers a take-in over this store through one function, `fs.TakeIn`, which writes
+the record of a team under the reference inside its join secret, with no creator and no member.
 
 It does **not** advertise `message.watch.push`: it polls, so the watch's `ready` event says `"mode": "polling"` and a
 consumer expects two poll intervals of latency rather than five seconds (C-33, C-35).

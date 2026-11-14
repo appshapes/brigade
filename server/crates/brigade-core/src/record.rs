@@ -244,10 +244,15 @@ pub enum Event {
         team_name: String,
         /// The SHA-256 of the whole join secret.
         join_secret_hash: String,
-        /// The principal that created it, which is its first owner. Empty for a team that was taken in from
-        /// another backend, which nobody here created: such a team has no owner until a
-        /// `team.owner_changed` names one.
+        /// The principal that created it, or that took it in from another backend by its own request,
+        /// which is its first owner. Empty for a team the server's operator took in, which nobody here
+        /// created: such a team has no owner until a `team.owner_changed` names one.
         created_by: String,
+        /// Whether the team exists on another backend and was taken in by a request, with the join
+        /// secret it has there. It is written only when it was, and the team is the same either way: it
+        /// is what lets the server say how a team came to be here.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        taken_in: bool,
     },
     /// A team was given a new join secret. The secret before it no longer joins, and every member is as it
     /// was.
@@ -463,6 +468,14 @@ mod tests {
                 team_name: "ops".into(),
                 join_secret_hash: "s".into(),
                 created_by: "p".into(),
+                taken_in: false,
+            },
+            Event::TeamCreated {
+                team_ref: "t".into(),
+                team_name: "ops".into(),
+                join_secret_hash: "s".into(),
+                created_by: "p".into(),
+                taken_in: true,
             },
             Event::MemberJoined {
                 team_ref: "t".into(),
@@ -591,6 +604,34 @@ mod tests {
         assert_eq!(
             written(Event::TeamMoveClosed { team_ref: "t".into() }),
             r#"{"version":1,"at":5,"kind":"team.move_closed","team_ref":"t"}"#
+        );
+    }
+
+    #[test]
+    fn a_team_says_that_it_was_taken_in_by_a_request_only_when_it_was() {
+        let created = |created_by: &str, taken_in: bool| Event::TeamCreated {
+            team_ref: "t".into(),
+            team_name: "ops".into(),
+            join_secret_hash: "s".into(),
+            created_by: created_by.into(),
+            taken_in,
+        };
+        let written = |event: Event| String::from_utf8(Record::new(Timestamp(5), event).encode()).unwrap();
+        // A team that was created here, and one the operator took in, are the records they have always
+        // been, byte for byte, and a record written before a request could take a team in reads as one.
+        let created_here = r#"{"version":1,"at":5,"kind":"team.created","team_ref":"t","team_name":"ops","join_secret_hash":"s","created_by":"p"}"#;
+        assert_eq!(written(created("p", false)), created_here);
+        assert_eq!(
+            Record::decode(created_here.as_bytes()).unwrap().event,
+            created("p", false)
+        );
+        assert_eq!(
+            written(created("", false)),
+            r#"{"version":1,"at":5,"kind":"team.created","team_ref":"t","team_name":"ops","join_secret_hash":"s","created_by":""}"#
+        );
+        assert_eq!(
+            written(created("p", true)),
+            r#"{"version":1,"at":5,"kind":"team.created","team_ref":"t","team_name":"ops","join_secret_hash":"s","created_by":"p","taken_in":true}"#
         );
     }
 

@@ -9,11 +9,17 @@
 //! adapter (`internal/adapters/fs`) is the worked example they were written against, and the stand-in
 //! server (`internal/adapters/rest/stub`) the order a request is checked in.
 //!
-//! Five changes are not requests, and are the operator's alone: [`answer`] has no path to any of them.
-//! [`import_team`] takes in a team that exists on another backend, with the join secret it has there,
-//! [`set_owner`] names the owner of a team, [`take_back`] takes a team from whoever holds it, and
-//! [`open_move`] and [`close_move`] open and close the move of a team's members from another backend.
-//! Each makes its entry as a request does, and the caller appends and syncs that entry in the same way.
+//! Five changes are the operator's own, made from the command line with no request. [`import_team`] takes
+//! in a team that exists on another backend, with the join secret it has there, [`set_owner`] names the
+//! owner of a team, [`take_back`] takes a team from whoever holds it, and [`open_move`] and [`close_move`]
+//! open and close the move of a team's members from another backend. Each makes its entry as a request
+//! does, and the caller appends and syncs that entry in the same way.
+//!
+//! Three of them a request asks for as well (the contract's section 3b). `/v1/team/take-in` takes a team
+//! in for whoever presents its join secret and may create a team here, and makes that caller its owner in
+//! the entry that takes it in; `/v1/team/open-move` and `/v1/team/close-move` open and close a move for
+//! the team's owner. Naming an owner and taking a team back stay the operator's alone: [`answer`] has no
+//! path to either.
 
 use std::collections::BTreeMap;
 
@@ -29,7 +35,7 @@ use crate::state::{Session, State, Team};
 use crate::time::Timestamp;
 use crate::wire::{
     Ack, Command, Heartbeat, JOIN_SECRET_PREFIX, JoinSecret, Receive, Registration, Revocation, Send,
-    SessionList, TeamCreate, TeamJoin, TeamRevoke, TeamTransfer, check_team_name,
+    SessionList, TeamCreate, TeamJoin, TeamOpenMove, TeamRevoke, TeamTakeIn, TeamTransfer, check_team_name,
 };
 
 /// One request as it arrived.
@@ -37,12 +43,14 @@ use crate::wire::{
 pub struct Request<'a> {
     /// The SHA-256 of the credential the request presented, when it presented one.
     pub caller: Option<&'a str>,
-    /// Whether the caller may create a team: the server asks for no creation token, or the request
-    /// presented the right one (the contract's section 3).
+    /// Whether the caller may put a team on the server, by creating one or by taking one in: the server
+    /// asks for no creation token, or the request presented the right one (the contract's sections 3
+    /// and 3b).
     pub may_create: bool,
-    /// Whether the caller's join may make it the owner of a team that has none, one that was taken in
-    /// from another backend (the contract's section 3a). A member that joins over HTTP may; a gateway,
-    /// which joins inside the server, never does.
+    /// Whether the caller may come to own a team by this request: by a join of a team that has no owner,
+    /// one the operator took in from another backend (the contract's section 3a), or by taking a team in
+    /// itself (section 3b). A member's request over HTTP may; a gateway, which joins inside the server,
+    /// never does.
     pub may_own: bool,
     /// The path of the request.
     pub path: &'a str,
@@ -98,7 +106,7 @@ pub fn answer(
     if principal_ref.is_none() && !Command::open_path(request.path) {
         return Err(Error::unknown_credential());
     }
-    if request.path == "/v1/team/create" && !request.may_create {
+    if Command::creation_path(request.path) && !request.may_create {
         return Err(Error::create_refused());
     }
     if Command::team_scoped_path(request.path) {
@@ -122,7 +130,7 @@ pub fn answer(
 }
 
 /// Answers one request that was already read. `may_own` is the request's own
-/// ([`Request::may_own`]), and only a join reads it.
+/// ([`Request::may_own`]), and only a join and a take-in read it.
 ///
 /// # Errors
 /// The failure to answer with. The state is unchanged.
@@ -143,6 +151,9 @@ pub fn execute(
         Command::TeamRotateSecret(team_ref) => team_rotate_secret(state, caller, team_ref, now, entropy),
         Command::TeamRevokeMember(request) => team_revoke_member(state, caller, request, now),
         Command::TeamTransfer(request) => team_transfer(state, caller, request, now),
+        Command::TeamTakeIn(request) => team_take_in(state, failures, caller, may_own, request, now, entropy),
+        Command::TeamOpenMove(request) => team_open_move(state, caller, request, now, entropy),
+        Command::TeamCloseMove(team_ref) => team_close_move(state, caller, team_ref, now),
         Command::SessionRegister(request) => session_register(state, caller, request, now, entropy),
         Command::SessionHeartbeat(request) => session_heartbeat(state, caller, request, now),
         Command::SessionList(request) => session_list(state, caller, request, now),
@@ -181,10 +192,7 @@ pub fn import_team(
     let join_secret_hash = sha256_hex(join_secret.expose());
     if let Some(team) = state.teams.get(team_ref) {
         if !same(&team.join_secret_hash, &join_secret_hash) {
-            return Err(Error::conflict(
-                "a team of that reference is here under another join secret",
-                "other_join_secret",
-            ));
+            return Err(other_join_secret());
         }
         return Ok(Outcome::read(
             json!({"team_ref": team_ref, "team_name": team.team_name, "imported": false}),
@@ -195,6 +203,7 @@ pub fn import_team(
         team_name: team_name.to_owned(),
         join_secret_hash,
         created_by: String::new(),
+        taken_in: false,
     };
     let entry = commit(state, now, vec![created]);
     Ok(Outcome {
@@ -320,20 +329,21 @@ pub fn take_back(
     })
 }
 
-/// How many days a move ticket admits for when the operator names no number.
+/// How many days a move ticket admits for when the request, or the operator, names no number.
 pub const MOVE_TICKET_DEFAULT_DAYS: u32 = 30;
 
 /// The most days a move ticket admits for.
 pub const MOVE_TICKET_MAX_DAYS: u32 = 365;
 
-/// Opens the move of a team's members from another backend, for the server's operator.
+/// Opens the move of a team's members from another backend, for the server's operator. The team's owner
+/// opens one by request, which is answered by this after the owner is checked.
 ///
 /// A team that was taken in keeps its join secret, and no member's machine keeps that secret: a member
 /// that is to follow the team here with no command of its own needs something else to join with. That is
 /// the move ticket, a second join secret of the team for `days` days. It is minted as a join secret is, so
 /// a join carries it as it carries the secret, and the server keeps its hash and its end. A join it lets
-/// in is a join in everything but one: it never makes the team's owner, so the team's admin joins with
-/// the secret itself, first.
+/// in is a join in everything but one: it never makes the team's owner, so the team's admin owns the team
+/// before a ticket is handed out, by taking the team in or by joining with the secret itself, first.
 ///
 /// A team has one move at most. Opening one for a team that has one, ended or not, puts the new ticket
 /// in its place, and the ticket before it admits nobody from then on: it is how a ticket whose file was
@@ -382,8 +392,9 @@ pub fn open_move(
     })
 }
 
-/// Closes the move of a team, for the server's operator: its ticket admits nobody from now on, whether
-/// or not it had ended. Every member that came in with it stays a member.
+/// Closes the move of a team, for the server's operator, and for the team's owner by request once the
+/// owner is checked: its ticket admits nobody from now on, whether or not it had ended. Every member that
+/// came in with it stays a member.
 ///
 /// A team with no move is left as it is and makes no entry. The answer is `team_ref`, `team_name` and
 /// `closed`.
@@ -420,6 +431,16 @@ fn ticket_admits(team: &Team, presented: &str, now: Timestamp) -> bool {
 /// the team has. The reference is what a member's files and the team file key by, and it never changes.
 fn new_join_secret(team: &Team, entropy: &mut dyn Entropy) -> String {
     format!("{JOIN_SECRET_PREFIX}{}.{}", team.team_ref, new_ref(entropy))
+}
+
+/// The refusal of a team that is to be taken in while the server holds a team of its reference under
+/// another join secret. The operator's command and the request are told the same, and nothing of either
+/// secret is in it.
+fn other_join_secret() -> Error {
+    Error::conflict(
+        "a team of that reference is here under another join secret",
+        "other_join_secret",
+    )
 }
 
 /// The refusal of a principal that is to own a team and is not an active member of it. It is one answer
@@ -526,6 +547,30 @@ fn with_credential(mut result: Map<String, Value>, credential: Option<String>) -
     Value::Object(result)
 }
 
+/// Whether the caller may put one more team on the server at `now`, by creating it or by taking it in.
+///
+/// A principal the server knows adds a bounded number of teams in an hour. A caller with no credential it
+/// knows is a new principal, which has added none: what holds a stranger is a limit by address, and that
+/// is the proxy's in front of the server.
+///
+/// # Errors
+/// `rate_limited` with the reason `team_create` for a principal that has added as many as it may.
+fn may_add_a_team(state: &State, caller: Option<&str>, now: Timestamp) -> Result<(), Error> {
+    let Some(principal) = caller
+        .and_then(|hash| state.principal_of(hash))
+        .and_then(|principal_ref| state.principals.get(principal_ref))
+    else {
+        return Ok(());
+    };
+    within_budget(
+        principal.teams_created_at.iter(),
+        now,
+        limits::PRINCIPAL_RATE_WINDOW_SECONDS,
+        limits::TEAMS_CREATED_PER_HOUR,
+        "team_create",
+    )
+}
+
 fn team_create(
     state: &mut State,
     caller: Option<&str>,
@@ -533,21 +578,7 @@ fn team_create(
     now: Timestamp,
     entropy: &mut dyn Entropy,
 ) -> Result<Outcome, Error> {
-    // A principal the server knows creates a bounded number of teams in an hour. A caller with no
-    // credential it knows is a new principal, which has created none: what holds a stranger is a limit by
-    // address, and that is the proxy's in front of the server.
-    if let Some(principal) = caller
-        .and_then(|hash| state.principal_of(hash))
-        .and_then(|principal_ref| state.principals.get(principal_ref))
-    {
-        within_budget(
-            principal.teams_created_at.iter(),
-            now,
-            limits::PRINCIPAL_RATE_WINDOW_SECONDS,
-            limits::TEAMS_CREATED_PER_HOUR,
-            "team_create",
-        )?;
-    }
+    may_add_a_team(state, caller, now)?;
     let mut events = Vec::new();
     let (principal_ref, credential) = principal_or_new(state, caller, entropy, &mut events);
     let team_ref = new_ref(entropy);
@@ -557,6 +588,7 @@ fn team_create(
         team_name: request.team_name.clone(),
         join_secret_hash: sha256_hex(&join_secret),
         created_by: principal_ref.clone(),
+        taken_in: false,
     });
     events.push(Event::MemberJoined {
         team_ref: team_ref.clone(),
@@ -659,6 +691,127 @@ fn team_join(
         result: with_credential(result, credential),
         entry,
     })
+}
+
+/// `/v1/team/take-in`: a team that exists on another backend is taken in for the caller, who presents the
+/// join secret it has there (the contract's section 3b).
+///
+/// A server that does not hold the team takes it in as [`import_team`] does, under the reference inside
+/// the secret and with the secret's hash, and in the same entry the caller becomes a member and the
+/// team's owner. Nobody here can check who administered the team on the backend it leaves, so the rule
+/// is the one a creation has: whoever puts the team on the server owns it there. A caller that may not
+/// own, a gateway, takes the team in with no owner, as the operator does.
+///
+/// A server that holds the team is asked for a join, and answers it by the rules a join has: the join
+/// secret and an open move ticket admit, a team with no owner is owned by the first caller whose join may
+/// own, and a failed one is counted against the principal as a failed join is. What a join refuses for
+/// its secret is told here as a `conflict`, because the reference is taken: the server holds a team of it
+/// under another join secret. A principal the team banned reads the same.
+///
+/// The answer is `team_ref`, `team_name`, `principal_ref`, `taken_in` and `owner`, with the credential of
+/// a principal that is new. It is safe to repeat: the second request finds the team here and is a join.
+fn team_take_in(
+    state: &mut State,
+    failures: &mut JoinFailures,
+    caller: Option<&str>,
+    may_own: bool,
+    request: &TeamTakeIn,
+    now: Timestamp,
+    entropy: &mut dyn Entropy,
+) -> Result<Outcome, Error> {
+    let team_ref = request.join_secret.team_ref().to_owned();
+    if state.teams.contains_key(&team_ref) {
+        let join = TeamJoin {
+            join_secret: request.join_secret.clone(),
+            human_label: request.human_label.clone(),
+        };
+        let rejected = Error::secret_rejected();
+        let joined = team_join(state, failures, caller, may_own, &join, now, entropy).map_err(|refused| {
+            if refused == rejected {
+                other_join_secret()
+            } else {
+                refused
+            }
+        })?;
+        let Value::Object(mut result) = joined.result else {
+            return Err(Error::internal("a join answered no result"));
+        };
+        // The answer says what a take-in is asked: whether the team was taken in now, and whether the
+        // caller owns it. Whether the membership was there before is the join's own to say.
+        result.remove("rejoined");
+        let owner = result
+            .get("principal_ref")
+            .and_then(Value::as_str)
+            .is_some_and(|principal_ref| state.teams[&team_ref].owner() == Some(principal_ref));
+        result.insert("taken_in".into(), json!(false));
+        result.insert("owner".into(), json!(owner));
+        return Ok(Outcome {
+            result: Value::Object(result),
+            entry: joined.entry,
+        });
+    }
+    // A team that is taken in is one more team on the server, and counts against the principal that
+    // takes it in as one it created does.
+    may_add_a_team(state, caller, now)?;
+    let mut events = Vec::new();
+    let (principal_ref, credential) = principal_or_new(state, caller, entropy, &mut events);
+    events.push(Event::TeamCreated {
+        team_ref: team_ref.clone(),
+        team_name: request.team_name.clone(),
+        join_secret_hash: sha256_hex(request.join_secret.expose()),
+        // The team has its owner in the record that makes it: there is no moment at which it is here
+        // and anyone else could take that place by joining first.
+        created_by: if may_own {
+            principal_ref.clone()
+        } else {
+            String::new()
+        },
+        taken_in: true,
+    });
+    events.push(Event::MemberJoined {
+        team_ref: team_ref.clone(),
+        principal_ref: principal_ref.clone(),
+        human_label: request.human_label.clone(),
+        by_move_ticket: false,
+    });
+    let entry = commit(state, now, events);
+    let mut result = Map::new();
+    result.insert("team_ref".into(), json!(team_ref));
+    result.insert("team_name".into(), json!(request.team_name));
+    result.insert("principal_ref".into(), json!(principal_ref));
+    result.insert("taken_in".into(), json!(true));
+    result.insert("owner".into(), json!(may_own));
+    Ok(Outcome {
+        result: with_credential(result, credential),
+        entry,
+    })
+}
+
+/// `/v1/team/open-move`: the team's owner opens the move of the team's members, as the operator's
+/// [`open_move`] does and with its answer. The answer's `ticket` is the one place the ticket is.
+fn team_open_move(
+    state: &mut State,
+    caller: Option<&str>,
+    request: &TeamOpenMove,
+    now: Timestamp,
+    entropy: &mut dyn Entropy,
+) -> Result<Outcome, Error> {
+    let principal_ref = authenticate(state, caller)?;
+    owned_team(state, &request.team_ref, &principal_ref)?;
+    open_move(state, &request.team_ref, request.ticket_days, now, entropy)
+}
+
+/// `/v1/team/close-move`: the team's owner closes the move of the team, as the operator's [`close_move`]
+/// does and with its answer.
+fn team_close_move(
+    state: &mut State,
+    caller: Option<&str>,
+    team_ref: &str,
+    now: Timestamp,
+) -> Result<Outcome, Error> {
+    let principal_ref = authenticate(state, caller)?;
+    owned_team(state, team_ref, &principal_ref)?;
+    close_move(state, team_ref, now)
 }
 
 fn team_leave(

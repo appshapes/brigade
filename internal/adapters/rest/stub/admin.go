@@ -60,6 +60,9 @@ type team struct {
 	joined map[string]int
 	// banned holds the principals whose join is the rejected join.
 	banned map[string]bool
+	// ticket is the team's move, nil for a team that is not moving
+	// (takein.go).
+	ticket *moveTicket
 }
 
 // founded records a team that was just created: the caller is its owner
@@ -78,9 +81,10 @@ func (s *Server) founded(created *protocol.TeamCreateResult, who *principal) {
 // admission decides a join before the fs adapter is asked, and returns the
 // secret to hand it. A banned principal and a secret that was rotated away
 // are the rejected join, the same bytes as a wrong secret. A join that
-// presents a rotated team's current secret is handed the secret the store
-// knows. Everything else, a secret that does not parse and a team the stub
-// did not see created among it, is the fs adapter's to answer.
+// presents a rotated team's current secret, or the ticket of a move that
+// is open and has not ended, is handed the secret the store knows.
+// Everything else, a secret that does not parse and a team the stub did
+// not see created or taken in among it, is the fs adapter's to answer.
 func (s *Server) admission(who *principal, presented string) (string, *protocol.Error) {
 	secret, err := protocol.ParseJoinSecret(presented)
 	if err != nil {
@@ -95,10 +99,13 @@ func (s *Server) admission(who *principal, presented string) (string, *protocol.
 	if who != nil && t.banned[who.ref] {
 		return "", secretRejected()
 	}
+	sum := sha256.Sum256([]byte(presented))
+	if t.ticket.admits(sum, s.now()) {
+		return t.created, nil
+	}
 	if t.version == 1 {
 		return presented, nil
 	}
-	sum := sha256.Sum256([]byte(presented))
 	if subtle.ConstantTimeCompare(sum[:], t.current[:]) != 1 {
 		return "", secretRejected()
 	}
@@ -190,7 +197,8 @@ func (s *Server) asOwner(c *call) (*owned, *protocol.Error) {
 // teamRotateSecret gives the team a new join secret: the same team_ref,
 // 128 random bits, the next version. No membership changes; the previous
 // secret no longer joins, because admission checks every later join
-// against the new one.
+// against the new one. A move of the team that is open is closed with it:
+// a rotation ends everything that let anyone in before it.
 func (s *Server) teamRotateSecret(c *call) (any, *protocol.Error) {
 	s.membership.Lock()
 	defer s.membership.Unlock()
@@ -206,6 +214,7 @@ func (s *Server) teamRotateSecret(c *call) (any, *protocol.Error) {
 	s.mu.Lock()
 	o.team.version++
 	o.team.current = sha256.Sum256([]byte(secret))
+	o.team.ticket = nil
 	version := o.team.version
 	s.mu.Unlock()
 	return map[string]any{

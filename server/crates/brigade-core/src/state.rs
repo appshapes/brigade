@@ -502,6 +502,8 @@ impl State {
                 team_name,
                 join_secret_hash,
                 created_by,
+                // A team that was taken in by a request is the team it would be had it been created.
+                taken_in: _,
             } => {
                 let mut created = false;
                 self.teams.entry(team_ref.clone()).or_insert_with(|| {
@@ -518,8 +520,8 @@ impl State {
                         sessions: BTreeMap::new(),
                     }
                 });
-                // The team counts against the principal that created it, whoever owns it later. A team
-                // that was taken in has no creator here, and counts against nobody.
+                // The team counts against the principal that created it or took it in, whoever owns it
+                // later. A team the operator took in has no creator here, and counts against nobody.
                 if created && let Some(principal) = self.principals.get_mut(created_by) {
                     count(&mut principal.teams_created_at, at);
                 }

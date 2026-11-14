@@ -35,21 +35,35 @@ var conformanceSeed = flag.Int64("conformance-seed", 0,
 // session.brigade_version; C-47 included: it advertises
 // session.sync_peer; C-51 and C-52 included: it advertises team.move);
 // C-14 is a skip (it is tagged slow) and so are C-48,
-// C-49 and C-50 (the fs adapter has no team administration, fsLacks);
+// C-49 and C-50 (the fs adapter has no team administration) and C-53,
+// C-54 and C-55 (it takes no team in), the two capabilities of fsLacks;
 // nothing fails.
 const (
 	wholeRunPass = 50
 	wholeRunFail = 0
-	wholeRunSkip = 4
+	wholeRunSkip = 7
 )
 
-// fsLacks is the one capability a case needs that the fs adapter does not
-// advertise: team.admin, the three administration commands of 4.4.10. It
-// is left out on purpose (the adapter is the minimal second implementation,
-// and the stand-in server of internal/adapters/rest/stub is where the
-// suite runs those cases without a backend), so C-48, C-49 and C-50 are
-// reported SKIP against it and nothing else is.
-const fsLacks = "team.admin"
+// fsLacks is the capabilities a case needs that the fs adapter does not
+// advertise: team.admin, the three administration commands of 4.4.10, and
+// team.take_in, the three that take a team in and open and close its
+// move. They are left out on purpose (the adapter is the minimal second
+// implementation, and the stand-in server of internal/adapters/rest/stub
+// is where the suite runs those cases without a backend), so C-48, C-49
+// and C-50, and C-53, C-54 and C-55, are reported SKIP against it and
+// nothing else is.
+var fsLacks = []string{"team.admin", "team.take_in"}
+
+// lackedByFS is the capability of fsLacks that c needs, or "" for a case
+// the fs adapter has every capability for. No case needs both.
+func lackedByFS(c conformance.Case) string {
+	for _, capability := range c.RequiredCapabilities() {
+		if slices.Contains(fsLacks, capability) {
+			return capability
+		}
+	}
+	return ""
+}
 
 // runSuite runs the suite in-process against adapter with the given
 // selection and returns the exit code and the parsed report. The test
@@ -75,17 +89,18 @@ func runSuite(tb testing.TB, adapter string, opts conformance.Options) (int, con
 // TestConformanceFS runs every case against the fs adapter, one subtest
 // per case in its own run directory. A skip is a failure here: the fs
 // adapter advertises every capability the cases need but fsLacks, and the
-// slow cases run unless -short. A case that needs fsLacks must be reported
-// SKIP for exactly that reason, so the three of them are pinned too.
+// slow cases run unless -short. A case that needs one of fsLacks must be
+// reported SKIP for exactly that reason, so the six of them are pinned
+// too.
 func TestConformanceFS(t *testing.T) {
 	t.Parallel()
 	adapter := testutil.Build(t, "./cmd/brigade-adapter-fs")
-	lacking := 0
+	lacking := map[string][]string{}
 	for _, c := range cases.All() {
 		want, reason := conformance.StatusPass, ""
-		if slices.Contains(c.RequiredCapabilities(), fsLacks) {
-			want, reason = conformance.StatusSkip, "capability not advertised: "+fsLacks
-			lacking++
+		if lacked := lackedByFS(c); lacked != "" {
+			want, reason = conformance.StatusSkip, "capability not advertised: "+lacked
+			lacking[lacked] = append(lacking[lacked], c.ID)
 		}
 		t.Run(c.ID, func(t *testing.T) {
 			t.Parallel()
@@ -98,8 +113,16 @@ func TestConformanceFS(t *testing.T) {
 			}
 		})
 	}
-	if lacking != 3 {
-		t.Errorf("%d cases need %s, want exactly C-48, C-49 and C-50", lacking, fsLacks)
+	for capability, want := range map[string][]string{
+		"team.admin":   {"C-48", "C-49", "C-50"},
+		"team.take_in": {"C-53", "C-54", "C-55"},
+	} {
+		if got := lacking[capability]; !slices.Equal(got, want) {
+			t.Errorf("the cases that need %s are %v, want exactly %v", capability, got, want)
+		}
+	}
+	if len(lacking) != len(fsLacks) {
+		t.Errorf("cases are skipped for %d capabilities, want the %d of fsLacks", len(lacking), len(fsLacks))
 	}
 }
 

@@ -40,6 +40,24 @@ type teamJoinBody struct {
 	HumanLabel string `json:"human_label,omitzero"`
 }
 
+// teamTakeInBody is the body of `/v1/team/take-in`: the join secret the
+// team has on the backend it comes from, the name it gets here and the
+// caller's label. As on a join, the document's `backend` member is the
+// adapter's own configuration and is never sent.
+type teamTakeInBody struct {
+	JoinSecret string `json:"join_secret"`
+	TeamName   string `json:"team_name"`
+	HumanLabel string `json:"human_label,omitzero"`
+}
+
+// openMoveBody is the body of `/v1/team/open-move`: the profile's team,
+// and the days the ticket admits for when the caller named a number.
+// Absent, the server's default applies.
+type openMoveBody struct {
+	TeamRef    string `json:"team_ref"`
+	TicketDays int    `json:"ticket_days,omitzero"`
+}
+
 // revokeMemberBody and transferBody are the bodies of the two
 // administration commands that take input: the request of 4.4.10 as it
 // was validated, with the profile's team beside it. Each request is
@@ -125,6 +143,41 @@ type teamJoinAnswer struct {
 // Validate implements protocol.Validator.
 func (a *teamJoinAnswer) Validate() error {
 	if a.TeamJoinResult.Validate() != nil || (a.Credential != "" && !validCredential(a.Credential)) {
+		return errMalformed
+	}
+	return nil
+}
+
+// teamTakeInAnswer is 4.4.10's take-in result plus the credential the
+// server issued for a new principal, as on a create and a join.
+type teamTakeInAnswer struct {
+	protocol.TeamTakeInResult
+	Credential string `json:"credential,omitzero"`
+}
+
+// Validate implements protocol.Validator.
+func (a *teamTakeInAnswer) Validate() error {
+	if a.TeamTakeInResult.Validate() != nil || (a.Credential != "" && !validCredential(a.Credential)) {
+		return errMalformed
+	}
+	return nil
+}
+
+// openMoveAnswer is the result of `/v1/team/open-move`. Ticket is the one
+// place the server shows the move ticket: it goes to the --ticket-file and
+// to nothing else, and the command prints protocol.TeamOpenMoveResult,
+// which has no such member.
+type openMoveAnswer struct {
+	TeamRef  string    `json:"team_ref"`
+	TeamName string    `json:"team_name"`
+	Ticket   string    `json:"ticket"`
+	EndsAt   time.Time `json:"ends_at"`
+	Replaced bool      `json:"replaced"`
+}
+
+// Validate implements protocol.Validator.
+func (a *openMoveAnswer) Validate() error {
+	if a.TeamRef == "" || a.TeamName == "" || a.Ticket == "" || a.EndsAt.IsZero() {
 		return errMalformed
 	}
 	return nil
