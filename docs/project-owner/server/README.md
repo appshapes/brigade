@@ -53,6 +53,8 @@ Details: [Hand over the values](hand-over-the-values.md).
 3. Losing the directory with no copy loses every team in it: there is one instance and no standby yet. With a
    copy the teams return as of the copy, and the files outside the directory are placed again.
 4. A monitor asks `POST /v1/info`, which needs no credential.
+5. Pull the copies to a second machine and let a failed pull post to a Slack webhook from there: nobody else
+   tells you that a copy failed.
 
 Details: [Keep the server](keep-the-server.md).
 

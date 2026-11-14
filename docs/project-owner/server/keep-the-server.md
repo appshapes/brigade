@@ -16,6 +16,34 @@ Copy the directory with the server stopped: a copy taken while it runs is not on
 from. Keep the copy where only the server's operator can read it. It holds every message, each member's
 credential in hashed form and the certificate's key.
 
+## Hear when a copy fails
+
+A copy nobody checks fails unseen. Take the copies on a timer, pull them to a second machine, and let that
+machine tell you when a pull fails. The news leaves from the second machine and never through the server: when
+the server's machine is down, the copy fails and the server cannot carry it.
+
+1. The pull is a unit on the second machine that a timer runs. It ends in failure when the newest copy it holds
+   is older than the copies' period allows, 26 hours for a nightly one.
+2. A drop-in names the unit that runs when the pull fails:
+
+   ```ini
+   # ~/.config/systemd/user/<the pull>.service.d/tell.conf
+   [Unit]
+   OnFailure=<the notice>.service
+   ```
+
+3. That unit posts one line to a Slack incoming webhook: that the copy failed, on which machine, and the last
+   line the failed pull wrote. The webhook's address is in a file only you can read. It is a secret, so it
+   reaches `curl` on standard input and never on a command line:
+
+   ```sh
+   printf 'url = "%s"\n' "$(head -n 1 "$address_file")" |
+   	curl -fsS -m 20 -o /dev/null -X POST -H 'Content-Type: application/json' --data "$json" -K -
+   ```
+
+With no address in the file the unit says so in its journal and ends well, so it can be in place before the
+webhook exists. What this does not cover: a second machine that is itself down tells nobody.
+
 ## What is lost with the disk
 
 There is one instance and no standby, so the data directory and your copies of it are all there is.
