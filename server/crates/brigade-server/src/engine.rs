@@ -31,6 +31,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::note::{self, note};
 use crate::options::LogKind;
+use crate::said;
 use crate::snapshot;
 
 /// How many jobs wait for the engine at most before a request is made to wait for room.
@@ -480,6 +481,7 @@ impl Engine {
                 batch.push(job);
             }
             let mut sealed = Vec::new();
+            let mut lines = Vec::new();
             let mut answers = Vec::with_capacity(batch.len());
             for job in &batch {
                 let now = self.now();
@@ -512,10 +514,17 @@ impl Engine {
                         take_back(&mut self.state, team_ref, now, &mut self.entropy)
                     }
                 };
+                // A request that may make its caller an owner came over HTTP and is a member's own. What it
+                // changed about a team is said once the log holds it. A gateway's turns say what the
+                // gateway did, and an operator's command prints its own line.
+                let members_own = matches!(&job.work, Work::Request { may_own: true, .. });
                 answers.push(outcome.map(|outcome| {
                     // The records of one request are one entry: the log holds all of them or none.
                     if let Some(entry) = &outcome.entry {
                         sealed.push(self.sealer.seal(&entry.encode()));
+                        if members_own {
+                            lines.extend(said::of_entry(&self.state, entry));
+                        }
                     }
                     outcome.result
                 }));
@@ -541,6 +550,9 @@ impl Engine {
                 }
                 for sentence in self.log.notes() {
                     note(&sentence);
+                }
+                for line in &lines {
+                    note(line);
                 }
                 moved.send_modify(|version| *version += 1);
             }

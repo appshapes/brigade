@@ -49,6 +49,15 @@ impl Route {
         (rest.is_empty() || rest.starts_with('/')).then_some(Self::Mail)
     }
 
+    /// The gateway as the server's own lines name it.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Slack => "slack",
+            Self::Mail => "mail",
+        }
+    }
+
     /// The most of a request's body the endpoint reads.
     #[must_use]
     pub fn most(self, gateways: &Gateways) -> usize {

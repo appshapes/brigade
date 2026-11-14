@@ -81,6 +81,25 @@ one for a monitor. An answer with status 200 says the server is up and answering
 curl -fsS -X POST -H 'Content-Type: application/json' -d '{}' https://<host>/v1/info
 ```
 
+## What it writes
+
+The server writes lines to its standard error, which a service's journal keeps: its start and where it
+listens, its snapshots, its stop and its gateways' own turns. From 0.4.1 it also writes one line when a member
+creates a team, joins one or becomes its owner, and one for each request to a gateway's address:
+
+```
+member 5f0c… joined team ops (3b89…), labelled "dana@example.com"
+the slack gateway took a request (200)
+the slack gateway refused a request its Slack app did not sign (401)
+```
+
+```sh
+journalctl -u brigade-server | grep ' joined team '
+```
+
+No line carries a credential, a join secret, a token or a message's text. A join's line carries the member's
+label, which is often an email address, so keep the journal as private as the data directory.
+
 ## What it does not do yet
 
 One instance; nothing bounds the teams on a server or the sessions a member registers.

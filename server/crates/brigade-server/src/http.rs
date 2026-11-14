@@ -14,6 +14,7 @@ use std::time::Duration;
 use brigade_core::hash::{same, sha256_hex};
 use brigade_core::limits::MAX_REQUEST_BYTES;
 use brigade_core::{Command, Error, envelope_error, envelope_ok};
+use brigade_gateway::Answer;
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{AUTHORIZATION, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, HeaderMap};
@@ -32,6 +33,7 @@ use crate::engine::Client;
 use crate::gateway::Gateways;
 use crate::gateway::endpoint::{self, Received, Route};
 use crate::note::note;
+use crate::said;
 
 /// The header that carries the creation token (the contract's section 3).
 const CREATE_TOKEN_HEADER: &str = "brigade-create-token";
@@ -252,11 +254,21 @@ fn gateway_route(shared: &Shared, request: &Request<Incoming>) -> Option<(Arc<Ga
 /// Such a task outlives its connection, so the connections' places do not bound them. The gateways have
 /// places of their own: a request that finds none is told at once to come again, which Slack and a mail
 /// provider do.
+///
+/// Each request leaves one line: which gateway, whether it took the request, and the status. Anyone can send
+/// a request here, so the line carries nothing of it.
 async fn gateway_answer(
     gateways: Arc<Gateways>,
     route: Route,
     request: Request<Incoming>,
 ) -> Response<Full<Bytes>> {
+    let answer = gateway_reply(gateways, route, request).await;
+    note(&said::of_gateway(route.name(), answer.status));
+    response(answer.status, answer.body)
+}
+
+/// What a gateway answers one request with.
+async fn gateway_reply(gateways: Arc<Gateways>, route: Route, request: Request<Incoming>) -> Answer {
     let method = request.method().as_str().to_owned();
     let path = request.uri().path().to_owned();
     // Each byte of a header's value is one character, as the Fetch standard reads a header.
@@ -279,12 +291,11 @@ async fn gateway_answer(
     // What came before the body may already decide the answer, and then none of the body is read: a
     // request anyone can send is not kept in memory before it is known whose it is.
     if let Some(answer) = endpoint::before_body(&gateways, route, &received) {
-        return response(answer.status, answer.body);
+        return answer;
     }
     // With every place taken there is nothing to read the body for.
     if gateways.full() {
-        let answer = endpoint::answer_busy();
-        return response(answer.status, answer.body);
+        return endpoint::answer_busy();
     }
     received.body = match body_within(request, route.most(&gateways)).await {
         Ok(bytes) => {
@@ -292,29 +303,26 @@ async fn gateway_answer(
             text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned()
         }
         Err(unread) => {
-            let answer = match unread {
+            return match unread {
                 Unread::Broken => endpoint::answer_broken(),
                 Unread::Late => endpoint::answer_late(),
                 Unread::TooLong => endpoint::answer_too_long(),
             };
-            return response(answer.status, answer.body);
         }
     };
     // The place is taken once the body is read, and not before: a caller that sends its body slowly holds
     // a connection's place, and none of the gateways'.
     let Some(place) = gateways.place() else {
-        let answer = endpoint::answer_busy();
-        return response(answer.status, answer.body);
+        return endpoint::answer_busy();
     };
     let answering = tokio::spawn(async move {
         let _place = place;
         endpoint::answer(&gateways, route, &received).await
     });
-    let answer = answering.await.unwrap_or_else(|_| {
+    answering.await.unwrap_or_else(|_| {
         note("a gateway's endpoint ended before it answered");
         endpoint::answer_failed()
-    });
-    response(answer.status, answer.body)
+    })
 }
 
 /// Writes an envelope with the status the contract's section 1 pairs with it.

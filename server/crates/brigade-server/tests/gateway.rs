@@ -513,6 +513,33 @@ fn the_gateways_are_members_on_the_roster_and_their_endpoints_are_the_configured
     // A request longer than Slack's megabyte is refused as too long, not read.
     let long = format!("{{\"padding\":\"{}\"}}", "x".repeat(1 << 20));
     assert_eq!(world.post("/gateway/slack", &long, &[]).0, 413);
+
+    // What a member's own request changed about a team, and each request to a gateway's endpoint, left one
+    // line (work item 313): the team, the member's reference and its label, or the gateway and the status.
+    let (status, joined) = world.server.post(
+        None,
+        "/v1/team/join",
+        &json!({"join_secret": world.join_secret, "human_label": "dana\nof the night shift"}),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let dana = text(&joined["result"], "principal_ref");
+    let said = world.said();
+    let team = format!("team ops ({})", world.team_ref);
+    assert!(
+        said.contains(&format!(
+            "member {dana} joined {team}, labelled \"dana?of the night shift\""
+        )),
+        "{said}"
+    );
+    // The gateways joined inside the server, and their turns said so: theirs is no member's own request,
+    // and it has no second line.
+    assert_eq!(said.matches(": member ").count(), 1, "{said}");
+    for line in [
+        "the slack gateway refused a request that is not a POST (405)",
+        "the slack gateway refused a request whose body is too long (413)",
+    ] {
+        assert_eq!(said.matches(line).count(), 1, "{line}\n{said}");
+    }
     world.nothing_leaked(&[]);
 
     // Told to stop, the server ends its gateways' turns with everything else and goes.
@@ -722,6 +749,9 @@ fn a_person_on_slack_reaches_a_session_and_its_answer_lands_in_their_thread() {
         })
     );
     world.nothing_leaked(&["is the deploy done", "an hour ago", "U0PERSON01", "a-challenge"]);
+    // Each of Slack's requests that was signed and taken left its line, and one that was not signed its own.
+    let said = world.said();
+    assert!(said.contains("the slack gateway took a request (200)"), "{said}");
 }
 
 #[test]

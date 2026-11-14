@@ -4,6 +4,26 @@ The server, `brigade-server`, is released apart from the Brigade plugin, with it
 (`server-v<version>`). The plugin's changes are in [the repository's changelog](../CHANGELOG.md). The contract
 between the two is [`docs/backend-rest-v1.md`](../docs/backend-rest-v1.md).
 
+## [0.4.1] — 2026-11-13
+
+### Added
+
+- **The server says who joined, and what its gateways were asked** (work item 313). Until now its lines were its
+  start, its snapshots, its stop and its gateways' own turns, so neither a member's first join nor a request
+  from Slack could be confirmed from the log. Now a member's own request that creates a team, joins one or makes
+  a member its owner leaves one line each, once the log holds it: `member <reference> joined team <name>
+  (<team reference>), labelled "<label>"`, with `created` and `owns … from now on` beside it. And every request
+  to a gateway's address leaves one: which gateway, whether it took the request, and the status, as in `the
+  slack gateway took a request (200)` or `the slack gateway refused a request its Slack app did not sign (401)`.
+  The reason is one of ten fixed sentences chosen by the status. Nothing a gateway answered with is repeated,
+  because some of it comes from the request, and no line carries a credential, a join secret, a token or a
+  message's text. A label is cut at 128 characters and a control character in it is written `?`, so a label
+  cannot start a line of its own. The label is what the team's roster shows, often an email address: the
+  server's journal is as private as its data directory.
+
+Nothing about the data directory or the contract changes: 0.4.1 starts on a 0.4.0 directory, and a 0.4.0 on a
+0.4.1 one.
+
 ## [0.4.0] — 2026-11-12
 
 ### Added

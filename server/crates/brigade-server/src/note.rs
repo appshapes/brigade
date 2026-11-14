@@ -1,7 +1,8 @@
 //! What the server says about itself, on stderr.
 //!
 //! A line is a time, the program's name and a sentence. No line ever carries a credential, a join secret, a
-//! creation token, a message's text or anything else a request held.
+//! creation token, a message's text or anything else a request held, with one exception: the label a member
+//! joined under, which the team's roster shows to every member (`said.rs`).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
